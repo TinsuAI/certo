@@ -1,24 +1,28 @@
 # Project Status
 
 ## Currently Working On
-- Bootstrap and discovery phase for the CO staff webapp
-- Converting the supplied agency archive into a usable local inventory and app-facing dashboard
+- Metadata bootstrap and data discovery for the CO project
+- Converting the supplied agency archive into a fully extracted local corpus and a written exploration report
 
 ## Recent Changes
-- Scaffolded a Next.js 16 + TypeScript app in the project root
 - Expanded the supplied ZIP archive and explored the extracted CO case folders
-- Added a filesystem discovery layer and initial dashboard that reads from `data/extracted/CO`
 - Added `node-unrar-js`, extracted all supplied `.rar` archives locally, and kept a repeatable extraction script
+- Removed premature webapp scaffolding; repository now reflects discovery-first scope
+- Pulled relevant CO knowledge from the correct host Obsidian vault into `.ai/knowledge/`
+- Added a design-foundation document that consolidates workbook workflow, business logic, knowledge base, and legal constraints
+- Published shared project docs in `docs/` for workflow, knowledge base, workbook logic, and data analysis
 
 ## Next Steps
-- Define the first end-to-end operator workflow: create/edit a CO case from source documents
-- Decide how spreadsheet fields map into normalized app data
-- Choose long-term storage and auth once discovery on the source files is complete
+- Confirm the first business workflow to model from the explored documents
+- Confirm the real production macro path and ledger semantics in the workbook
+- Decide application stack only after discovery on source files and workbook logic is complete
+- Normalize naming, statuses, and dossier types into a stable domain model
 
 ## Blockers
 - None for bootstrap
 
 ## Notes for Next AI Session
 - `data/` is local-only and gitignored on purpose
-- The current app is intentionally discovery-first, not a full CO submission workflow yet
 - The legacy `.xlsm` workbook in `data/extracted/CO/Quy trình xin CO + file chạy dữ liệu CO/` is a likely source of business rules
+- Do not assume the current folder structure maps 1:1 to future product entities
+- Correct host wiki path is `/mnt/c/Users/sys/Dropbox/Obsidian/V-Notes/30_Resources`
