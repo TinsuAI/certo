@@ -2,43 +2,43 @@
 
 ## Current State
 - Repo remains a discovery-first workspace for the CO domain.
-- The business-logic understanding is materially deeper now: workbook allocation has been verified from real sheet/XML data, completed dossiers have been mined for real origin-rule cases, and the project docs now distinguish `CO stock` from `physical inventory`.
-- New project-facing docs have been drafted but are still uncommitted in `docs/`.
+- Project-facing CO docs are materially stronger now: there is a Vietnamese `docs/BUSINESS_LOGIC_CONFIRMATION.md` for agency review, plus supporting docs for workbook logic, input/output model, and origin-rule case studies.
+- Terminology has been cleaned up across the active docs so `quy tắc xuất xứ`, `hiệp định áp dụng`, `loại mẫu C/O`, and `kênh cấp / kênh nộp` are no longer intentionally collapsed into one concept.
+- The confirmation doc has already gone through several critical review passes and its answer format is now agency-friendly.
 
 ## Recent Changes
-- Verified from the workbook that allocation stock is tracked at source-row grain, effectively `import declaration + line + material code`, and documented that as a CO eligibility ledger model.
-- Added case-based origin-rule documentation showing completed dossiers qualifying goods as Vietnam-originating under rules such as `RVC 35% + CTSH`, `CTH`, `CTSH`, `CC`, and `PSR`.
-- Added a detailed `CO Input/Output Model` document that separates:
-  - trader profile registration
-  - reusable product-origin evidence
-  - shipment-level filing
-  - origin evaluation / allocation
-  - issuance and audit outputs
-- Referenced `BCQT-System` as the template source for a future CO business-logic confirmation document:
-  - source doc found at `BCQT-System/docs/BUSINESS_LOGIC_CONFIRMATION.md`
-  - generated outputs found at `BCQT-System/docs/BUSINESS_LOGIC_CONFIRMATION.docx`, `_v2.docx`, `_v3.docx`
-- Adjusted Markdown formatting in the new docs so nested lists render more cleanly.
+- Drafted `docs/BUSINESS_LOGIC_CONFIRMATION.md` in Vietnamese, modeled after `BCQT-System/docs/BUSINESS_LOGIC_CONFIRMATION.md` but rewritten for the CO domain.
+- Refined that confirmation doc to make product-level evidence reuse explicit, avoid implying that each product requires its own submitted C/O dossier, and switch all answer slots to the new format:
+  - confirmation items: `☐ Đúng / ☐ Sai` + `Phản hồi:`
+  - open questions: `Phản hồi:`
+- Cleaned up domain language across the active docs:
+  - removed `form family` / `nhóm mẫu` as a catch-all abstraction
+  - separated `quy tắc xuất xứ` from `loại mẫu C/O`
+  - separated `loại mẫu C/O` from `kênh cấp / kênh nộp`
+  - limited `phôi` to concrete paper-output file references instead of using it as a domain concept
+- Updated related docs and AI knowledge/report artifacts so they no longer reintroduce the same terminology confusion.
 
 ## Next Steps
-- Review `BCQT-System` rendering code and reproduce an equivalent `.docx` pipeline for a CO-side business-logic confirmation document.
-- Draft the CO equivalent of `BUSINESS_LOGIC_CONFIRMATION.md` for agency review, using the new case-study and input/output docs as source material.
-- Decide which current doc changes should be committed together as the next project-facing docs commit.
-- Continue refining field-level semantics for `X-N`, `Save`, and `Tru lui` only after operator validation is available.
+- Review `docs/BUSINESS_LOGIC_CONFIRMATION.md` with the user / agency and capture which statements are confirmed, rejected, or need rewriting.
+- Decide which current project-facing doc changes should be committed together as the next docs commit.
+- If the confirmation doc is accepted as the canonical source, inspect `BCQT-System` rendering code and reproduce an equivalent `.docx` pipeline for the CO-side document.
+- Continue refining field-level semantics for `DM`, `X-N`, `Save`, and `Tru lui` only after operator validation is available.
 
 ## Blockers
-- The new `docs/` changes are not yet committed:
-  - `docs/README.md`
-  - `docs/co-knowledge-base.md`
-  - `docs/workbook-business-logic-foundation.md`
-  - `docs/co-input-output-model.md`
-  - `docs/origin-qualification-case-studies.md`
-- The `.docx` render implementation from `BCQT-System` has not yet been inspected in detail, only the source/output artifacts have been located.
+- Agency / operator validation is still missing for several workbook semantics:
+  - exact meaning of the grouping key in `DM`
+  - operational scope of `Save` and `Tru lui`
+  - practical rule for choosing C/O form type vs agreement vs origin rule in edge cases
+- The current `docs/` changes are still uncommitted project files.
 
 ## Notes for Next AI Session
 - `data/` is local-only and gitignored.
 - Correct host wiki path is `/mnt/c/Users/sys/Dropbox/Obsidian/V-Notes/30_Resources`.
 - The user wants project knowledge in `docs/`; `.ai/` is only for AI working context and handoff.
-- Important domain decisions now reflected in docs:
-  - keep `CO stock` and `physical inventory` separate
-  - treat origin qualification as a configurable multi-rule engine, not a single formula
-  - treat shipment filing, product evidence, and trader profile as separate layers
+- `docs/BUSINESS_LOGIC_CONFIRMATION.md` is agency-facing, so Vietnamese is appropriate there even though most project docs are in English.
+- The user is sensitive to concept conflation. Do not collapse:
+  - `quy tắc xuất xứ`
+  - `hiệp định áp dụng`
+  - `loại mẫu C/O`
+  - `kênh cấp / kênh nộp`
+- Do not use `phôi` as a general domain term; only use it when referring to actual paper-output artifacts or filenames.
