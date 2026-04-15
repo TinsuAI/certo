@@ -132,6 +132,20 @@ Typical legal/operational reading from the current procedure:
 - preserve historical allocations
 - support reverse / adjustment logic
 
+Confirmed workbook finding from direct sheet inspection:
+- CO-available stock is tracked per import-source row, not only per aggregated material code
+- the effective granularity is at least `import declaration number + import line number + material code`
+- `NK2` exposes import-side source rows with fields such as `Số TK`, `STT hàng`, `Mã NPL/SP`, `Tổng số lượng`, `Đã xuất`, and `Tồn`
+- `Save` stores forward allocation records that link one export run `TKX` to one import-source row and the quantity consumed from that row
+- `Tru lui` stores the reverse / residual view of the same source rows with columns for `Số lượng đã xuất`, `Số lượng còn lại`, `Số lượng xuất đợt này`, and `Số lượng còn lại cho đợt sau`
+- this means one material can have multiple separate CO stock buckets if it appears across multiple import declarations or import lines
+- allocation therefore preserves provenance at source-row level and deducts each bucket independently
+
+Design implication:
+- the workbook is modeling a CO eligibility ledger, not a full physical-inventory system
+- its `Tồn` fields should be interpreted as remaining CO-available quantity within the origin/allocation model
+- future system design should keep `CO stock` and `physical inventory` as separate concepts, with optional reconciliation between them rather than a single shared balance
+
 ### 5. Origin rule engine
 - support `WO`, `CTC`, `RVC`, `LVC`
 - support rule-specific outputs and evidence sheets
