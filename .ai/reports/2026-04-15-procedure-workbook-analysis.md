@@ -48,7 +48,7 @@ Out of scope:
   - `EUR1, EUR1 UK, B, X, T`
 - The PDF says electronic forms only need documents uploaded to the system.
 - The PDF says paper forms require `4` physical copies: `1` original and `3` copies.
-- The JPG also implies different handling paths and includes a market/form matrix with examples such as `AI`, `EUR1`, `B`, `E`, `D`.
+- The JPG also implies different handling paths and includes a market-to-form matrix with examples such as `AI`, `EUR1`, `B`, `E`, `D`.
 
 ### 4. Decision Gates
 - First-time applicant or not

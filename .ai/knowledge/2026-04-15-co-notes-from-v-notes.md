@@ -93,7 +93,7 @@ Implication:
 - Implication:
   - a case should likely store both:
     - issuance channel
-    - form family
+    - C/O form type
 
 ### 2. Trong Tin’s role is an outsourced compliance operator
 - The wiki note for `Trong-Tin-Consulting` frames them as a specialist advisor/operator helping enterprises navigate eCoSys and regulatory requirements.

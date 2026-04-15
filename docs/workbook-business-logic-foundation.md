@@ -7,6 +7,7 @@ Detailed supporting materials:
 - [Procedure And Workbook Analysis](./procedure-and-workbook-analysis.md)
 - [CO Knowledge Base](./co-knowledge-base.md)
 - [Data Exploration](./data-exploration.md)
+- [Origin Qualification Case Studies](./origin-qualification-case-studies.md)
 
 ## System Problem Statement
 The current process has two tightly coupled layers:
@@ -106,6 +107,20 @@ Typical legal/operational reading from the current procedure:
 - `CTSH`
 - hidden output sheets such as `WOIII`, `FORM B`, `FORM X`, `PTN`
 
+### Direct VBA-confirmed operational behavior
+- `Workbook_Open` enforces a MAC-address allowlist and closes the workbook on mismatch
+- `protect` / `unProtected` unlock and re-lock the main working sheets with a hardcoded sheet password
+- `DM.sumifDM` computes the current run key in `DM!K6`, then pushes it into `NK2!V3` and `Xuat!B1`
+- `HideCopy.copyXuat` copies selected export-demand rows from `Xuat` into `X-N`, then writes a `CountIf` marker back into `NK2`
+- `LocmaSapxepLaydata.layDataNKArr` normalizes `NK` into `NK2` by header mapping, while `locMaArr` filters qualified `NK2` rows into `X-N`
+- `AtoZArr` sorts `X-N` by material code and computes comparison totals in column `U`
+- `TachdongDeleteXN.tachDong2` / `tachDongArr` split rows when one demand row must consume multiple source rows, then compute actual used quantity in column `V`
+- `Save.saveArr` appends rows with `V > 0` from `X-N` into `Save`, builds the helper key `W = R & S`, and immediately calls `truLuiArr`
+- `Trului.truLuiArr` writes the reverse / residual ledger, backfills initial source quantity from `NK`, and flags duplicate / zero-stock cases
+- `CongdonXoabangke.CongDonArr` adds used quantity back into `NK2.Q`, clears `X-N`, and resets the working `DM` range
+- `RunUpgrade` is the current multi-form generator for `LVC`, `RVC`, `CTH`, `CTSH`, and `EUR1`
+- `xuatCtu` and `inCtu` assemble or print supporting customs / PDF documents from external source files referenced by the workbook
+
 ## Business Capabilities The System Must Support
 
 ### 1. Registration and profile management
@@ -117,7 +132,7 @@ Typical legal/operational reading from the current procedure:
 - create shipment case
 - collect shipment-specific docs
 - track missing docs
-- tie shipment to target form family and agreement
+- tie shipment to the target C/O form type and applicable agreement
 
 ### 3. Product-origin evidence management
 - version BOM and manufacturing process
@@ -145,11 +160,26 @@ Design implication:
 - the workbook is modeling a CO eligibility ledger, not a full physical-inventory system
 - its `Tồn` fields should be interpreted as remaining CO-available quantity within the origin/allocation model
 - future system design should keep `CO stock` and `physical inventory` as separate concepts, with optional reconciliation between them rather than a single shared balance
+- the future system will need an explicit run key / allocation batch concept equivalent to `DM!K6`
+- export-demand selection and source-row qualification are distinct steps and should not be collapsed into one opaque transform
 
 ### 5. Origin rule engine
 - support `WO`, `CTC`, `RVC`, `LVC`
+- support observed case rules such as `CTH`, `CTSH`, `CC`, `PSR`
+- support compound rules such as `RVC 35% + CTSH`
 - support rule-specific outputs and evidence sheets
 - make pass/fail and supporting explanation reviewable
+
+Confirmed case-study finding from completed dossiers:
+- Vietnam-origin qualification in practice is rule-based, not purity-based
+- completed dossiers contain many `Không xuất xứ` input rows and still conclude pass under the applicable rule
+- the same business or product family can qualify under different rule families in different filings
+
+Design implication:
+- the future system needs a configurable multi-rule origin engine
+- origin evaluation must be driven by `applicable agreement + product case`, not by one global formula
+- the chosen `C/O form type` should be stored separately in the filing / issuance layer
+- explainability is mandatory because operators must defend why a shipment passed even when some inputs are non-originating
 
 ### 6. Filing and issuance tracking
 - prepare eCoSys-ready case
@@ -160,6 +190,15 @@ Design implication:
 - retain evidence for at least the compliance retention period
 - reconstruct how each issued shipment was supported
 - trace import/source records used in each origin evaluation
+
+### Direct VBA risks and migration constraints
+- access to the workbook is gated by MAC-address checks at startup, so operational behavior is tied to specific machines
+- the working sheets use a hardcoded protection password, so business logic and editability are partially coupled
+- `Run1` / `Run2` / `Run3` still coexist with `RunUpgrade`, which suggests the workbook contains both legacy and newer generation paths
+- several macros contain hardcoded expiry dates that force-close the workbook after a deadline
+- document export / print logic depends on local filesystem paths stored in workbook cells such as `Save!X1` and `Save!Y1`
+- many routines rely on `ActiveWorkbook`, `ActiveSheet`, selected sheets, and fixed row/column coordinates, which makes the behavior environment-sensitive
+- some legacy routines still use brittle row-bound logic such as `CurrentRegion.Rows.Count` as if it were an absolute last-row index; the array-based `*Arr` variants appear safer and more maintainable
 
 ## Legal And Compliance Requirements
 
@@ -198,7 +237,7 @@ Design implication:
 - Shipment
 - ShipmentDocument
 - COCase
-- COFormFamily
+- COFormType
 - Agreement
 - ExportDeclaration
 - ImportDeclaration
@@ -215,5 +254,5 @@ Design implication:
 - Which macro path is the production path today: `RunUpgrade` or legacy runs?
 - What is the exact semantic meaning of the grouping key generated in `DM`?
 - Are `Save` and `Tru lui` global ledgers per company, per workbook clone, or per period?
-- Which form families should be covered in the first system release?
+- Which C/O form types should be covered in the first system release?
 - How much historical state must be migrated before operators trust the new system?

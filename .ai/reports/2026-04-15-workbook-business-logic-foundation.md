@@ -58,7 +58,7 @@ For each CO case, staff gather:
 - packing list
 - bill of lading / transport document
 - C/O request form
-- target C/O form family
+- target C/O form type
 - origin proof worksheets
 - manufacturing process summary
 - BOM / material norm
@@ -286,7 +286,7 @@ System implication:
   - required inputs
   - computation method
   - evidence output structure
-  - target form family
+  - target C/O form type
 
 ### 5. Cost and value integration
 The workbook references:
@@ -431,7 +431,7 @@ Design implication:
 
 ### Phase 2. Case initiation
 - create case
-- choose target form family and filing mode
+- choose target C/O form type and filing mode
 - choose shipment scope / export run
 
 ### Phase 3. Evidence ingestion
@@ -536,7 +536,7 @@ Legacy agency files may still encode pre-2025 or transitional practices.
 - Which workbook path is actually used day to day: `RunUpgrade` or older `Run1/2/3` flows?
 - Are `Save` and `Tru lui` global ledgers per company, per workbook copy, or per period?
 - What is the exact business meaning of the grouping key created in `DM!K6`?
-- Which form families are used most often in real cases?
+- Which C/O form types are used most often in real cases?
 - Which fields are manually edited by operators after the workbook computes them?
 
 ### Data questions
@@ -545,7 +545,7 @@ Legacy agency files may still encode pre-2025 or transitional practices.
 - How are code mappings and UOM conversions governed outside the workbook today?
 
 ### Product questions
-- Should the first system release target one form family or the general engine?
+- Should the first system release target one C/O form type or the general engine?
 - Should filing to eCoSys be in scope initially, or should the first release stop at submission-ready bundle generation?
 - How much historical ledger state must be migrated before operators can trust the system?
 

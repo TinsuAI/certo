@@ -1,0 +1,180 @@
+{
+  "source_workbook": "data/extracted/CO/Quy trình xin CO + file chạy dữ liệu CO/tru lui CO final  SXXK - 2025 commercial-MAC - Huyền đúng.xlsm",
+  "extracted_at": "2026-04-15T12:36:41.573322+00:00",
+  "written_modules": [
+    {
+      "file": ".ai/extracted-vba/tru-lui-co-final-2025-commercial-mac/ThisWorkbook.cls",
+      "module": "ThisWorkbook.cls",
+      "stream": "VBA/ThisWorkbook"
+    },
+    {
+      "file": ".ai/extracted-vba/tru-lui-co-final-2025-commercial-mac/Security.bas",
+      "module": "Security.bas",
+      "stream": "VBA/Security"
+    },
+    {
+      "file": ".ai/extracted-vba/tru-lui-co-final-2025-commercial-mac/Save.bas",
+      "module": "Save.bas",
+      "stream": "VBA/Save"
+    },
+    {
+      "file": ".ai/extracted-vba/tru-lui-co-final-2025-commercial-mac/Module6.bas",
+      "module": "Module6.bas",
+      "stream": "VBA/Module6"
+    },
+    {
+      "file": ".ai/extracted-vba/tru-lui-co-final-2025-commercial-mac/UndoTrudon.bas",
+      "module": "UndoTrudon.bas",
+      "stream": "VBA/UndoTrudon"
+    },
+    {
+      "file": ".ai/extracted-vba/tru-lui-co-final-2025-commercial-mac/TachdongDeleteXN.bas",
+      "module": "TachdongDeleteXN.bas",
+      "stream": "VBA/TachdongDeleteXN"
+    },
+    {
+      "file": ".ai/extracted-vba/tru-lui-co-final-2025-commercial-mac/CongdonXoabangke.bas",
+      "module": "CongdonXoabangke.bas",
+      "stream": "VBA/CongdonXoabangke"
+    },
+    {
+      "file": ".ai/extracted-vba/tru-lui-co-final-2025-commercial-mac/LocmaSapxepLaydata.bas",
+      "module": "LocmaSapxepLaydata.bas",
+      "stream": "VBA/LocmaSapxepLaydata"
+    },
+    {
+      "file": ".ai/extracted-vba/tru-lui-co-final-2025-commercial-mac/RunUpgrade.bas",
+      "module": "RunUpgrade.bas",
+      "stream": "VBA/RunUpgrade"
+    },
+    {
+      "file": ".ai/extracted-vba/tru-lui-co-final-2025-commercial-mac/Module7.bas",
+      "module": "Module7.bas",
+      "stream": "VBA/Module7"
+    },
+    {
+      "file": ".ai/extracted-vba/tru-lui-co-final-2025-commercial-mac/Run1.bas",
+      "module": "Run1.bas",
+      "stream": "VBA/Run1"
+    },
+    {
+      "file": ".ai/extracted-vba/tru-lui-co-final-2025-commercial-mac/Module9.bas",
+      "module": "Module9.bas",
+      "stream": "VBA/Module9"
+    },
+    {
+      "file": ".ai/extracted-vba/tru-lui-co-final-2025-commercial-mac/Run2.bas",
+      "module": "Run2.bas",
+      "stream": "VBA/Run2"
+    },
+    {
+      "file": ".ai/extracted-vba/tru-lui-co-final-2025-commercial-mac/DM.bas",
+      "module": "DM.bas",
+      "stream": "VBA/DM"
+    },
+    {
+      "file": ".ai/extracted-vba/tru-lui-co-final-2025-commercial-mac/Trului.bas",
+      "module": "Trului.bas",
+      "stream": "VBA/Trului"
+    },
+    {
+      "file": ".ai/extracted-vba/tru-lui-co-final-2025-commercial-mac/HideCopy.bas",
+      "module": "HideCopy.bas",
+      "stream": "VBA/HideCopy"
+    },
+    {
+      "file": ".ai/extracted-vba/tru-lui-co-final-2025-commercial-mac/Run3.bas",
+      "module": "Run3.bas",
+      "stream": "VBA/Run3"
+    },
+    {
+      "file": ".ai/extracted-vba/tru-lui-co-final-2025-commercial-mac/inCtu.bas",
+      "module": "inCtu.bas",
+      "stream": "VBA/Inctu"
+    },
+    {
+      "file": ".ai/extracted-vba/tru-lui-co-final-2025-commercial-mac/xuatCtu.bas",
+      "module": "xuatCtu.bas",
+      "stream": "VBA/xuatCtu"
+    },
+    {
+      "file": ".ai/extracted-vba/tru-lui-co-final-2025-commercial-mac/protect.bas",
+      "module": "protect.bas",
+      "stream": "VBA/protect"
+    }
+  ],
+  "skipped_empty_modules": [
+    {
+      "module": "Sheet1.cls",
+      "stream": "VBA/Sheet1"
+    },
+    {
+      "module": "Sheet2.cls",
+      "stream": "VBA/Sheet2"
+    },
+    {
+      "module": "Sheet4.cls",
+      "stream": "VBA/Sheet4"
+    },
+    {
+      "module": "Sheet10.cls",
+      "stream": "VBA/Sheet10"
+    },
+    {
+      "module": "Sheet9.cls",
+      "stream": "VBA/Sheet9"
+    },
+    {
+      "module": "Sheet5.cls",
+      "stream": "VBA/Sheet5"
+    },
+    {
+      "module": "Sheet12.cls",
+      "stream": "VBA/Sheet12"
+    },
+    {
+      "module": "Sheet8.cls",
+      "stream": "VBA/Sheet8"
+    },
+    {
+      "module": "Sheet11.cls",
+      "stream": "VBA/Sheet11"
+    },
+    {
+      "module": "Sheet13.cls",
+      "stream": "VBA/Sheet13"
+    },
+    {
+      "module": "Sheet15.cls",
+      "stream": "VBA/Sheet15"
+    },
+    {
+      "module": "Sheet3.cls",
+      "stream": "VBA/Sheet3"
+    },
+    {
+      "module": "Sheet16.cls",
+      "stream": "VBA/Sheet16"
+    },
+    {
+      "module": "Sheet7.cls",
+      "stream": "VBA/Sheet7"
+    },
+    {
+      "module": "Sheet14.cls",
+      "stream": "VBA/Sheet14"
+    },
+    {
+      "module": "Sheet17.cls",
+      "stream": "VBA/Sheet17"
+    },
+    {
+      "module": "Sheet18.cls",
+      "stream": "VBA/Sheet18"
+    },
+    {
+      "module": "Sheet6.cls",
+      "stream": "VBA/Sheet6"
+    }
+  ]
+}

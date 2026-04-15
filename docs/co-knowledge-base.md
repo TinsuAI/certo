@@ -37,12 +37,21 @@ The main origin-rule families currently relevant to this project are:
 - `CTC`
 - `RVC`
 - `LVC`
+- `CTH`
+- `CTSH`
+- `CC`
+- `PSR`
 
 Captured formulas:
 - `RVC = (FOB - non-origin material value) / FOB × 100%`
 - `LVC = (FOB - CIF value of imported or undetermined-origin inputs) / FOB × 100%`
 
 Imported materials are treated as non-originating in origin calculations, even when duty-exempt.
+
+Observed practical rule behavior from completed dossiers:
+- a finished product can still qualify as Vietnam-originating even when many inputs are marked `Không xuất xứ`
+- qualification depends on the applicable rule under the applicable agreement, not on all inputs being domestic
+- some cases use tariff-shift logic, some use value-content logic, and some use product-specific rules
 
 ## Two Registration Layers
 
@@ -176,7 +185,7 @@ The system must represent:
 - Shipment
 - ShipmentDocument
 - COCase
-- COFormFamily
+- COFormType
 - OriginRuleEvaluation
 - FilingSubmission
 - IssuedCO
