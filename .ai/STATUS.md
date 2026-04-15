@@ -1,35 +1,24 @@
 # Project Status
 
 ## Current State
-- Repo is now a discovery-first workspace for the CO domain, not a webapp scaffold.
-- Shared project-facing documentation lives in `docs/` and covers data exploration, procedure analysis, CO knowledge, and workbook business logic.
-- The source archive has been extracted under `data/extracted/CO`, including nested RAR extraction via `npm run extract:rars`.
-- The `.xlsm` workbook remains the strongest source of current business rules, especially around allocation, traceability, and rule-specific output generation.
+- Repo remains a discovery-first workspace for the CO domain, with shared business and analysis docs in `docs/`.
+- The legacy `.xlsm` workbook has now been validated more concretely at sheet/XML level for allocation behavior, not only inferred from sheet names or VBA module names.
+- `docs/workbook-business-logic-foundation.md` now records that workbook stock is tracked as a CO eligibility ledger at source-row level, not as aggregated material stock and not as physical inventory.
 
 ## Recent Changes
-- Removed the premature Next.js scaffold and committed the repo back to a documentation and discovery baseline.
-- Analyzed the procedure PDF, flowchart image, and the macro workbook in depth.
-- Pulled relevant CO knowledge from the correct V-Notes vault path at `/mnt/c/Users/sys/Dropbox/Obsidian/V-Notes/30_Resources`.
-- Published project-facing docs in `docs/`:
-  - `docs/workbook-business-logic-foundation.md`
-  - `docs/procedure-and-workbook-analysis.md`
-  - `docs/co-knowledge-base.md`
-  - `docs/data-exploration.md`
-- Clarified the business model around:
-  - trader profile registration on eCoSys
-  - reusable product-origin evidence
-  - shipment-level C/O filing
+- Confirmed by direct workbook inspection that allocation stock is tracked per `import declaration number + import line number + material code`.
+- Confirmed that `Save` persists forward allocations tied to `TKX`, while `Tru lui` keeps reverse/residual balances per source row.
+- Clarified in project docs that `Tồn` in the workbook means remaining CO-available quantity, not warehouse on-hand inventory.
+- Committed the project-facing doc update in `d012960` `Clarify workbook allocation stock model`.
 
 ## Next Steps
-- Confirm the exact production path operators use inside the workbook, especially whether `RunUpgrade` is the true source-of-truth path.
-- Confirm the semantics of the historical ledgers in `Save` and `Tru lui` and whether they are scoped per company, workbook clone, or period.
-- Identify the first form families and shipment workflows to support in a system design.
-- Convert workbook sheet semantics into a field-level domain map once operator validation is available.
+- Map the exact field-level semantics of `X-N`, including how `Số lượng XUẤT`, `SL sử dụng`, and helper columns interact during row splitting.
+- Validate with operators whether source-row grain is always `import declaration + line + material`, or whether invoice-only rows and domestic-source rows follow a parallel pattern.
+- Decide how the future system should reconcile `CO stock` with optional `physical inventory` snapshots without turning into a warehouse system.
+- Continue translating workbook structures into explicit domain entities and services for system design.
 
 ## Notes for Next AI Session
-- `data/` is local-only and gitignored on purpose.
+- `data/` is local-only and gitignored.
 - Correct host wiki path is `/mnt/c/Users/sys/Dropbox/Obsidian/V-Notes/30_Resources`.
-- The key design insight from this session is that the future system must model both:
-  - compliance workflow
-  - stateful allocation / origin-rule engine
-- The docs in `docs/` are intended for the whole project, not only AI handoff. `.ai/` should remain working context and session history.
+- The user wants project knowledge in `docs/`; `.ai/` is only for AI working context and handoff.
+- Important domain decision: keep `CO stock` and `physical inventory` separate in the future design. The legacy workbook only models the former.
