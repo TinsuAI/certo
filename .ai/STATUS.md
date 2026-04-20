@@ -1,29 +1,30 @@
 # Project Status
 
 ## Current State
-- Repo vẫn ở pha discovery cho bài toán C/O; chưa có application stack hay implementation plan chốt cuối.
-- Hiện đã có thêm bằng chứng trực tiếp từ source VBA của workbook chính, không chỉ suy luận từ sheet/formula. Source đã được export vào `.ai/extracted-vba/tru-lui-co-final-2025-commercial-mac/`.
-- `docs/BUSINESS_LOGIC_CONFIRMATION.md` đã được chỉnh tiếp theo hướng agency-facing hơn: giải thích rõ hơn các lớp nghiệp vụ, bỏ cách nói kiểu "phía agency", sửa `5.1.2`, và chuyển ý về `nguồn mua nội địa` khỏi phần khẳng định dữ liệu đầu vào sang phần câu hỏi xác nhận.
-- `docs/workbook-business-logic-foundation.md` đã được bổ sung các finding xác nhận trực tiếp từ VBA về flow vận hành và các rủi ro/migration constraints.
+- Repo vẫn ở pha discovery, nhưng đã có một legal corpus workbench chạy được cho mảng C/O: mirror eCoSys, source registry, enrichment, OCR fallback, canonical pilot, wiki, và legal lookup webview.
+- `http://127.0.0.1:4173/` hiện đang chạy legal lookup server từ `scripts/legal-lookup-server.mjs`; lớp UI đã được tách `Home / Search / Document view`, mặc định tiếng Việt, và trang tài liệu đã được redesign theo hướng reading-room gọn hơn.
+- Corpus hiện đã có text source cho toàn bộ `71` văn bản; trong đó một phần đáng kể đã được promote lên `official-text`, một nhóm `QĐ-BCT` đang sống bằng `ocr-recovery`, và `docs/legal/canonical/pilot/` là lớp đọc được tốt nhất hiện tại cho các văn bản ưu tiên.
+- Blocker quan trọng nhất hiện tại không còn là “thiếu dữ liệu”, mà là `source preservation policy`: với một số văn bản như `04/2024/TT-BCT`, `official HTML` từ VBPL làm vỡ công thức/bảng, nên pipeline chọn nguồn hiện tại chưa đủ an toàn cho corpus tra cứu chuẩn.
 
 ## Recent Changes
-- Exported VBA modules từ workbook `tru lui CO final  SXXK - 2025 commercial-MAC - Huyền đúng.xlsm` vào `.ai/extracted-vba/tru-lui-co-final-2025-commercial-mac/`, kèm `README.md` và `manifest.json`.
-- Xác nhận bằng code rằng workbook là một stateful allocation/ledger engine với flow chính `NK -> NK2 -> DM/Xuat -> X-N -> Save -> Tru lui`, có generator `RunUpgrade` cho `LVC`, `RVC`, `CTH`, `CTSH`, `EUR1`, và có macro export/in chứng từ hỗ trợ.
-- Ghi thêm vào `docs/workbook-business-logic-foundation.md` các điểm đã được VBA xác nhận trực tiếp: MAC-address gate, hardcoded sheet password, run key `DM!K6`, external path dependency, legacy/new macro coexistence, expiry checks, và các brittleness trong macro cũ.
-- Tiếp tục tinh chỉnh `docs/BUSINESS_LOGIC_CONFIRMATION.md` ở các phần `1.1.3`, `1.1.4`, `5.1.2`, `5.2`, `5.3` để mô tả đúng workbook hiện tại và tránh khẳng định quá mức về `nguồn mua nội địa`.
+- Thêm pipeline pháp lý đầy đủ trong `scripts/` và `scripts/lib/`: mirror eCoSys, enrich sources, build source registry, quality audit, OCR recovery, build wiki, build canonical pilot, và legal lookup server.
+- Xây `docs/legal/` như một không gian tra cứu: wiki pages, indexes, legal reference docs, canonical pilot outputs, và mô hình legal text resolution/source registry.
+- Bật lane `official-text` từ `VNTR` và `VBPL`, cộng với `ocr-recovery` có kiểm soát cho nhóm `official_pdf_scan` và nhiều `QĐ-BCT` vận hành.
+- Thêm UI legal lookup song ngữ, tách trang search riêng, redesign document view, rút gọn `Nguồn đối chiếu` chỉ còn các link thực sự có nghĩa, và thêm tool chụp màn hình `scripts/capture-legal-screenshot.mjs` để review UI.
+- Viết `docs/origin-rules-specification.md`, link nó vào `docs/README.md`, rồi chỉnh lại taxonomy theo review để tách `legal-source structure` khỏi `internal evaluator taxonomy`.
 
 ## Next Steps
-- Review lại `docs/BUSINESS_LOGIC_CONFIRMATION.md` với người dùng/đơn vị vận hành để chốt các mục mở, đặc biệt quanh `DM`, `Save`, `Tru lui`, chứng từ đầu vào mua trong nước, và cách chọn rule/form/agreement.
-- Dùng source VBA đã export để tiếp tục map field-level semantics của các sheet trọng yếu (`DM`, `X-N`, `Save`, `Tru lui`) thành mô hình nghiệp vụ rõ hơn trong `docs/`.
-- Quyết định lô thay đổi project files nào sẽ được commit cùng nhau; hiện nhiều docs và report vẫn đang ở trạng thái chưa commit.
+- Sửa `source selection policy` cho toàn corpus theo thứ tự bảo toàn nội dung: `official HTML` chỉ thắng khi qua quality gate; nếu HTML làm vỡ bảng/công thức thì ưu tiên `official DOC/DOCX`; nếu không có nữa mới dùng `PDF`.
+- Thêm preservation lane riêng cho `công thức`, `bảng danh mục`, `PSR lookup`, và các phụ lục quan trọng: không flatten bừa vào prose markdown; phải giữ `table block`, `formula block`, hoặc snapshot/crop có đối chiếu.
+- Rebuild canonical layer và document viewer trên policy mới, bắt đầu từ các văn bản có công thức/bảng quan trọng như `04/2024/TT-BCT` và nhóm thông tư `Danh mục quy tắc`.
+- Chỉ sau khi source policy ổn mới tiếp tục chuẩn hóa dữ liệu bảng để đổ vào database tra cứu sau này.
 
 ## Blockers
-- Chưa có xác nhận từ operator/agency cho một số semantics quan trọng trong workbook, nên nhiều kết luận vẫn ở mức "evidence-backed hypothesis" chứ chưa phải rule nghiệp vụ cuối cùng.
-- Repo đang có nhiều thay đổi project files chưa commit ngoài handoff artifacts.
+- `VBPL HTML` ở một số văn bản là Word-clipped HTML bẩn (`msohtmlclip`, `clip_image`, `file:///...`) nên nếu coi đó là canonical text thì công thức và bố cục bảng sẽ hỏng.
+- TVPL không dùng được cho auto-pipeline trong môi trường hiện tại vì Cloudflare challenge lặp vô hạn, kể cả browser-assisted/headed/native Windows.
 
 ## Notes for Next AI Session
-- Người dùng muốn câu chữ tiếng Việt gọn, trực diện, không dùng kiểu diễn đạt như `phía agency`.
-- Không được đánh đồng `quy tắc xuất xứ`, `hiệp định áp dụng`, `loại mẫu C/O`, và `kênh cấp / kênh nộp`.
-- Từ code VBA đã xác nhận được: workbook không tự "thử mọi rule rồi chọn rule tốt nhất"; operator chạy macro/sheet theo rule mục tiêu.
-- `HS code` trong workbook được dùng như thuộc tính phân loại/rule input, không phải khóa định danh vận hành chính; product/material đang bám nhiều hơn vào `mã SP/model` và `mã NVL`.
-- Ngoài repo, đã chỉnh `~/.codex/config.toml` để status line ưu tiên hiện số (`used-tokens`, `context-remaining`, `context-window-size`) thay vì bar-only `context-used`.
+- Người dùng muốn ưu tiên tuyệt đối việc bảo toàn bảng tra cứu và công thức; với pháp quy C/O, “đọc được” là chưa đủ nếu làm mất cấu trúc để sau này vào database.
+- User preference đã chốt: `official-first`, nhưng trong official sources phải chọn theo `preservation quality`, không phải cứ `HTML` là thắng.
+- Với trang tài liệu, người dùng thích chrome gọn, metadata nhỏ, nguồn đối chiếu tối giản; tránh kiểu dashboard nặng.
+- Server hiện đang chạy trong PTY session `55003` trên cổng `4173`.

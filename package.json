@@ -3,9 +3,24 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "extract:rars": "node scripts/extract-rars.mjs"
+    "test": "node --test",
+    "extract:rars": "node scripts/extract-rars.mjs",
+    "mirror:ecosys-docs": "node scripts/mirror-ecosys-documents.mjs",
+    "legal:open-tvpl-browser": "node scripts/open-tvpl-browser-session.mjs",
+    "legal:open-edge-tvpl-browser": "node scripts/open-edge-tvpl-browser-session.mjs",
+    "legal:tvpl-human-fetch-win": "node scripts/run-tvpl-human-fetch-on-windows.mjs",
+    "legal:enrich-sources": "node scripts/enrich-legal-sources.mjs",
+    "legal:audit-quality": "node scripts/build-legal-quality-audit.mjs",
+    "legal:ocr-recovery": "node scripts/run-legal-ocr-recovery.mjs",
+    "legal:build-source-registry": "node scripts/build-legal-source-registry.mjs",
+    "legal:build-canonical-pilot": "node scripts/build-legal-canonical-pilot.mjs",
+    "legal:build-wiki": "node scripts/build-legal-wiki.mjs",
+    "legal:serve": "node scripts/legal-lookup-server.mjs",
+    "legal:screenshot": "node scripts/capture-legal-screenshot.mjs"
   },
   "dependencies": {
-    "node-unrar-js": "^2.0.2"
+    "node-unrar-js": "^2.0.2",
+    "puppeteer": "^24.41.0",
+    "word-extractor": "^1.0.4"
   }
 }
