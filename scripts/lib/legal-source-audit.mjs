@@ -110,9 +110,8 @@ export function classifyDocumentSourceType({
   preferredTextSource,
   rawBinarySource,
   extractionAudit,
-  officialTextResolved = false,
 } = {}) {
-  if (officialTextResolved || preferredTextSource?.sourceId === "official-text") {
+  if (preferredTextSource?.sourceId === "official-text" && preferredTextSource?.status === "resolved") {
     return {
       sourceType: "official_html",
       rationale: "official_text_source_is_preferred",

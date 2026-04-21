@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  assessTextPreservationQuality,
   buildTvplBrowserLaunchOptions,
   buildPreferredTextSource,
   buildTvplBrowserConnectionConfig,
@@ -26,7 +27,9 @@ import {
   extractVntrSearchEntriesFromHtml,
   extractVbplContentFragment,
   getOfficialVbplSeed,
+  normalizeOfficialSourceMetadata,
   pickBestVntrSearchEntry,
+  VNTR_DETAIL_API_URL,
 } from "../scripts/lib/legal-official-source-resolution.mjs";
 import {
   buildCanonicalPilotOutputPath,
@@ -41,6 +44,31 @@ test("fallback text source should still be resolved when only raw binary extract
       binaryExtractionQuality: "usable",
     }),
     true,
+  );
+});
+
+test("fallback text source should still be resolved when official text fails the quality gate", () => {
+  assert.equal(
+    shouldResolveFallbackTextSource({
+      officialTextResolved: true,
+      officialTextQualityGatePassed: false,
+    }),
+    true,
+  );
+});
+
+test("should mark word-clipped VBPL html as preservation-fragile", () => {
+  assert.deepEqual(
+    assessTextPreservationQuality({
+      sourceType: "vbpl-toanvan",
+      markdownBody: "Điều 1. Công thức RVC = ((FOB - VNM) / FOB) x 100",
+      htmlBody: '<html><body class="MsoNormal"><img src="file:///C:/clip_image001.png"><div id="msohtmlclip1"><table><tr><td>RVC</td></tr></table></div></body></html>',
+    }),
+    {
+      quality: "fragile",
+      passed: false,
+      issues: ["word_html_artifacts", "table_structure_at_risk"],
+    },
   );
 });
 
@@ -72,10 +100,16 @@ test("preferred text source should still favor official text over fallback text"
     officialTextCandidate: {
       sourceId: "official-text",
       status: "resolved",
+      qualityGate: {
+        passed: true,
+      },
     },
     fallbackTextCandidate: {
       sourceId: "tvpl",
       status: "resolved",
+      qualityGate: {
+        passed: true,
+      },
     },
     binaryExtractionCandidate: {
       sourceId: "ecosys-extracted",
@@ -86,7 +120,36 @@ test("preferred text source should still favor official text over fallback text"
   assert.deepEqual(preferred, {
     sourceId: "official-text",
     status: "resolved",
-    rationale: "official_text_source_resolved",
+    rationale: "official_text_source_passed_quality_gate",
+  });
+});
+
+test("preferred text source should demote official text that fails the quality gate", () => {
+  const preferred = buildPreferredTextSource({
+    officialTextCandidate: {
+      sourceId: "official-text",
+      status: "resolved",
+      qualityGate: {
+        passed: false,
+      },
+    },
+    fallbackTextCandidate: {
+      sourceId: "tvpl",
+      status: "resolved",
+      qualityGate: {
+        passed: true,
+      },
+    },
+    binaryExtractionCandidate: {
+      sourceId: "ecosys-extracted",
+      status: "resolved",
+    },
+  });
+
+  assert.deepEqual(preferred, {
+    sourceId: "tvpl",
+    status: "resolved",
+    rationale: "fallback_text_source_passed_quality_gate_after_official_failed",
   });
 });
 
@@ -389,6 +452,50 @@ test("should build a VNTR search url from the issue code", () => {
   );
 });
 
+test("should normalize vntr official metadata without leaking ecosys page urls", () => {
+  assert.deepEqual(
+    normalizeOfficialSourceMetadata({
+      sourceType: "vntr-legal-documents",
+      pageUrl: "https://ecosys.gov.vn/Documents/AK/TT%2013-2019.rar",
+      vntr: {
+        searchUrl: "https://vntr.moit.gov.vn/legal-documents?doc_code=13%2F2019%2FTT-BCT&page=agreements",
+        detailId: 1261,
+      },
+      vbpl: null,
+    }),
+    {
+      sourceProvider: "vntr",
+      pageUrl: null,
+      searchUrl: "https://vntr.moit.gov.vn/legal-documents?doc_code=13%2F2019%2FTT-BCT&page=agreements",
+      detailApiUrl: VNTR_DETAIL_API_URL,
+      detailId: 1261,
+    },
+  );
+});
+
+test("should normalize vbpl official metadata to the trusted vbpl page url", () => {
+  assert.deepEqual(
+    normalizeOfficialSourceMetadata({
+      sourceType: "vbpl-toanvan",
+      pageUrl: "https://vbpl.vn/TW/Pages/vbpq-toanvan.aspx?ItemID=164845",
+      vntr: {
+        searchUrl: "https://vntr.moit.gov.vn/legal-documents?doc_code=44%2F2023%2FTT-BCT&page=agreements",
+        detailId: null,
+      },
+      vbpl: {
+        pageUrl: "https://vbpl.vn/TW/Pages/vbpq-toanvan.aspx?ItemID=164845",
+      },
+    }),
+    {
+      sourceProvider: "vbpl",
+      pageUrl: "https://vbpl.vn/TW/Pages/vbpq-toanvan.aspx?ItemID=164845",
+      searchUrl: "https://vntr.moit.gov.vn/legal-documents?doc_code=44%2F2023%2FTT-BCT&page=agreements",
+      detailApiUrl: null,
+      detailId: null,
+    },
+  );
+});
+
 test("should extract the CSRF token from a VNTR legal-document page", () => {
   assert.equal(
     extractVntrCsrfToken('<meta name="csrf-token" content="abc123token">'),
@@ -506,6 +613,9 @@ test("should prefer official text over OCR and binary extraction for canonical b
           sourceId: "official-text",
           status: "resolved",
           extractedMarkdownPath: "/cache/official.md",
+          qualityGate: {
+            passed: true,
+          },
         },
       ],
       rawBinarySource: {
@@ -518,6 +628,83 @@ test("should prefer official text over OCR and binary extraction for canonical b
       sourceId: "official-text",
       sourceKind: "official_markdown",
       path: "/cache/official.md",
+    },
+  );
+});
+
+test("should prefer TVPL over official markdown when official text failed the quality gate", () => {
+  assert.deepEqual(
+    selectBestCanonicalSource({
+      issueCode: "04/2024/TT-BCT",
+      title: "Thông tư sửa đổi công thức",
+      preferredTextSource: {
+        sourceId: "tvpl",
+        status: "resolved",
+      },
+      textCandidates: [
+        {
+          sourceId: "official-text",
+          status: "resolved",
+          extractedMarkdownPath: "/cache/official.md",
+          qualityGate: {
+            passed: false,
+          },
+        },
+        {
+          sourceId: "tvpl",
+          status: "resolved",
+          extractedMarkdownPath: "/cache/tvpl.md",
+          qualityGate: {
+            passed: true,
+          },
+        },
+      ],
+      rawBinarySource: {
+        localPath: "/raw/file.docx",
+      },
+    }),
+    {
+      sourceId: "tvpl",
+      sourceKind: "fallback_markdown",
+      path: "/cache/tvpl.md",
+    },
+  );
+});
+
+test("should exclude TVPL from canonical selection when requested", () => {
+  assert.deepEqual(
+    selectBestCanonicalSource({
+      issueCode: "44/2023/TT-BCT",
+      title: "Thông tư sửa đổi",
+      preferredTextSource: {
+        sourceId: "tvpl",
+        status: "resolved",
+      },
+      textCandidates: [
+        {
+          sourceId: "tvpl",
+          status: "resolved",
+          extractedMarkdownPath: "/cache/tvpl.md",
+          qualityGate: {
+            passed: true,
+          },
+        },
+        {
+          sourceId: "ecosys-extracted",
+          status: "resolved",
+          extractionPath: "/cache/ecosys.json",
+        },
+      ],
+      rawBinarySource: {
+        localPath: "/raw/file.rar",
+      },
+    }, {
+      excludedSourceIds: ["tvpl"],
+    }),
+    {
+      sourceId: "ecosys-extracted",
+      sourceKind: "binary_extraction",
+      path: "/cache/ecosys.json",
     },
   );
 });

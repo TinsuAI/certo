@@ -1,30 +1,31 @@
 # Project Status
 
 ## Current State
-- Repo vẫn ở pha discovery, nhưng đã có một legal corpus workbench chạy được cho mảng C/O: mirror eCoSys, source registry, enrichment, OCR fallback, canonical pilot, wiki, và legal lookup webview.
-- `http://127.0.0.1:4173/` hiện đang chạy legal lookup server từ `scripts/legal-lookup-server.mjs`; lớp UI đã được tách `Home / Search / Document view`, mặc định tiếng Việt, và trang tài liệu đã được redesign theo hướng reading-room gọn hơn.
-- Corpus hiện đã có text source cho toàn bộ `71` văn bản; trong đó một phần đáng kể đã được promote lên `official-text`, một nhóm `QĐ-BCT` đang sống bằng `ocr-recovery`, và `docs/legal/canonical/pilot/` là lớp đọc được tốt nhất hiện tại cho các văn bản ưu tiên.
-- Blocker quan trọng nhất hiện tại không còn là “thiếu dữ liệu”, mà là `source preservation policy`: với một số văn bản như `04/2024/TT-BCT`, `official HTML` từ VBPL làm vỡ công thức/bảng, nên pipeline chọn nguồn hiện tại chưa đủ an toàn cho corpus tra cứu chuẩn.
+- Repo vẫn ở pha discovery, nhưng legal corpus cho mảng C/O đã có full batch output thay vì chỉ pilot: `71/71` văn bản hiện có canonical file trong `docs/legal/canonical/corpus/`, wiki pages, source registry, source inventory, và source packets.
+- Canonical corpus hiện đang chạy theo non-`TVPL` policy: chỉ dùng `official-text`, `ocr-recovery`, hoặc `ecosys-extracted`; `TVPL` không còn nằm trên critical path của build.
+- Phân bố source của canonical corpus hiện tại là `28 official-text`, `19 ocr-recovery`, `24 ecosys-extracted`. Điều này có nghĩa là coverage đã full, nhưng chất lượng chưa đồng đều; nhiều văn bản vẫn đang sống bằng OCR hoặc raw extraction.
+- Legal lookup server vẫn đang phục vụ tại `http://127.0.0.1:4173/`.
 
 ## Recent Changes
-- Thêm pipeline pháp lý đầy đủ trong `scripts/` và `scripts/lib/`: mirror eCoSys, enrich sources, build source registry, quality audit, OCR recovery, build wiki, build canonical pilot, và legal lookup server.
-- Xây `docs/legal/` như một không gian tra cứu: wiki pages, indexes, legal reference docs, canonical pilot outputs, và mô hình legal text resolution/source registry.
-- Bật lane `official-text` từ `VNTR` và `VBPL`, cộng với `ocr-recovery` có kiểm soát cho nhóm `official_pdf_scan` và nhiều `QĐ-BCT` vận hành.
-- Thêm UI legal lookup song ngữ, tách trang search riêng, redesign document view, rút gọn `Nguồn đối chiếu` chỉ còn các link thực sự có nghĩa, và thêm tool chụp màn hình `scripts/capture-legal-screenshot.mjs` để review UI.
-- Viết `docs/origin-rules-specification.md`, link nó vào `docs/README.md`, rồi chỉnh lại taxonomy theo review để tách `legal-source structure` khỏi `internal evaluator taxonomy`.
+- Thêm full canonical corpus builder ở `scripts/build-legal-canonical-corpus.mjs` và script npm `legal:build-canonical-corpus`.
+- Mở rộng source-selection để có thể exclude lane theo policy, hiện dùng để loại `TVPL` khỏi canonical build trong `scripts/lib/legal-canonical-normalization.mjs`.
+- Vá `VBPL` enrichment để seed chết hoặc fetch lỗi không làm crash cả batch; nếu fetch live lỗi thì fallback sang cache cũ hoặc trả `unresolved/fetch_failed`.
+- Thêm `source inventory` và `source packets` như artifact audit riêng cho toàn corpus, cùng các index markdown tương ứng.
+- Rebuild toàn bộ artifact chính: `source-enrichment.json`, `text-source-registry.json`, `source-inventory.json`, `source-packets.json`, `docs/legal/canonical/corpus/`, `docs/legal/indexes/canonical-corpus.md`, và wiki.
 
 ## Next Steps
-- Sửa `source selection policy` cho toàn corpus theo thứ tự bảo toàn nội dung: `official HTML` chỉ thắng khi qua quality gate; nếu HTML làm vỡ bảng/công thức thì ưu tiên `official DOC/DOCX`; nếu không có nữa mới dùng `PDF`.
-- Thêm preservation lane riêng cho `công thức`, `bảng danh mục`, `PSR lookup`, và các phụ lục quan trọng: không flatten bừa vào prose markdown; phải giữ `table block`, `formula block`, hoặc snapshot/crop có đối chiếu.
-- Rebuild canonical layer và document viewer trên policy mới, bắt đầu từ các văn bản có công thức/bảng quan trọng như `04/2024/TT-BCT` và nhóm thông tư `Danh mục quy tắc`.
-- Chỉ sau khi source policy ổn mới tiếp tục chuẩn hóa dữ liệu bảng để đổ vào database tra cứu sau này.
+- Siết `source preservation policy` theo block-type, không chỉ theo document-level source. Cần xử lý riêng bảng, công thức, appendix, và PSR/list lookup thay vì flatten tất cả vào prose canonical.
+- Thay canonical selection kiểu “một source thắng hết” bằng fusion theo block cho các văn bản có attachment text tốt (`DOCX/PDF`) nhưng official HTML hoặc OCR không bảo toàn cấu trúc.
+- Audit nhóm đang dùng `ecosys-extracted` và `ocr-recovery` để ưu tiên promote sang lane tốt hơn khi attachment hoặc official binary cho chất lượng cao hơn.
+- Dọn taxonomy và metrics để `TVPL` chỉ còn là reference artifact nếu còn giữ lại, không được diễn giải như live-fetchable source.
 
 ## Blockers
-- `VBPL HTML` ở một số văn bản là Word-clipped HTML bẩn (`msohtmlclip`, `clip_image`, `file:///...`) nên nếu coi đó là canonical text thì công thức và bố cục bảng sẽ hỏng.
-- TVPL không dùng được cho auto-pipeline trong môi trường hiện tại vì Cloudflare challenge lặp vô hạn, kể cả browser-assisted/headed/native Windows.
+- `VBPL HTML` ở một số văn bản vẫn là Word-clipped HTML bẩn (`msohtmlclip`, `clip_image`, `file:///...`), không an toàn cho công thức/bảng nếu dùng nguyên trạng làm canonical.
+- `TVPL` vẫn bị Cloudflare chặn cho auto-pipeline trong môi trường hiện tại; các file TVPL trên disk chỉ là artifact cũ/thủ công, không phải lane fetch ổn định.
+- Full canonical corpus hiện mới là “đã có output cho 71/71”, chưa phải “71/71 sạch chuẩn tuyệt đối”; `24` văn bản vẫn đang đi từ `ecosys-extracted`, `19` từ `OCR`.
 
 ## Notes for Next AI Session
-- Người dùng muốn ưu tiên tuyệt đối việc bảo toàn bảng tra cứu và công thức; với pháp quy C/O, “đọc được” là chưa đủ nếu làm mất cấu trúc để sau này vào database.
-- User preference đã chốt: `official-first`, nhưng trong official sources phải chọn theo `preservation quality`, không phải cứ `HTML` là thắng.
-- Với trang tài liệu, người dùng thích chrome gọn, metadata nhỏ, nguồn đối chiếu tối giản; tránh kiểu dashboard nặng.
-- Server hiện đang chạy trong PTY session `55003` trên cổng `4173`.
+- Người dùng muốn ưu tiên correctness của dữ liệu hơn UI. UI hiện chỉ là audit surface; không nên đầu tư thêm UI ngoài nhu cầu review kết quả.
+- User đã chốt: tạm gác `TVPL`, tập trung vào `VBPL + VNTR + eCoSys + OCR`.
+- `source-inventory.json` hiện báo `withCanonical: 71`; `source-packets.json` hiện báo `canonicalExists: 71`. Đây là chỉ số “đã có canonical output”, không phải chỉ số “đã sạch hoàn toàn”.
+- Duplicate issue code `05/2022/TT-BCT` vẫn tồn tại trong corpus vì đó là hai văn bản khác nhau cùng issue code; các script hiện xử lý được nhờ slug theo `issueCode + title`.

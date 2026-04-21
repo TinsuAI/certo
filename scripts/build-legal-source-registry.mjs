@@ -1,12 +1,16 @@
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { buildPreferredTextSource } from "./lib/legal-source-resolution.mjs";
+import {
+  assessTextPreservationQuality,
+  buildPreferredTextSource,
+} from "./lib/legal-source-resolution.mjs";
 import {
   auditExtractionArtifacts,
   classifyDocumentSourceType,
 } from "./lib/legal-source-audit.mjs";
 import { buildOcrOutputPaths } from "./lib/legal-ocr-recovery.mjs";
+import { normalizeOfficialSourceMetadata } from "./lib/legal-official-source-resolution.mjs";
 
 const ROOT = process.cwd();
 const ECOSYS_LISTING_URL = "https://ecosys.gov.vn/Homepage/DocumentView.aspx";
@@ -55,6 +59,26 @@ async function loadJson(filePath, fallback) {
   return JSON.parse(await fs.readFile(filePath, "utf8"));
 }
 
+async function loadText(filePath) {
+  if (!filePath || !await fileExists(filePath)) {
+    return "";
+  }
+
+  return fs.readFile(filePath, "utf8");
+}
+
+async function assessCandidateQuality({
+  sourceType,
+  markdownPath,
+  htmlPath = null,
+}) {
+  return assessTextPreservationQuality({
+    sourceType,
+    markdownBody: await loadText(markdownPath),
+    htmlBody: await loadText(htmlPath),
+  });
+}
+
 async function main() {
   const manifest = await loadJson(MANIFEST_PATH, null);
   if (!manifest) {
@@ -82,6 +106,15 @@ async function main() {
     const enrichmentEntry = enrichment.documents?.[documentId] || {};
     const tvplFound = enrichmentEntry.tvpl?.status === "found" && enrichmentEntry.tvpl?.pageUrl;
     const officialTextResolved = enrichmentEntry.official?.resolvedText?.status === "resolved";
+    const officialReference = normalizeOfficialSourceMetadata(enrichmentEntry.official || null);
+    const officialHtmlPath = enrichmentEntry.official?.sourceType === "vbpl-toanvan"
+      ? (enrichmentEntry.official?.vbpl?.cachedHtmlPath || null)
+      : null;
+    const officialQualityGate = await assessCandidateQuality({
+      sourceType: enrichmentEntry.official?.sourceType || null,
+      markdownPath: enrichmentEntry.official?.resolvedText?.textPath || null,
+      htmlPath: officialHtmlPath,
+    });
 
     const officialTextCandidate = {
       sourceId: "official-text",
@@ -89,18 +122,33 @@ async function main() {
       priority: 1,
       status: officialTextResolved ? "resolved" : "unresolved",
       role: "canonical_target",
-      pageUrl: enrichmentEntry.official?.pageUrl || null,
+      sourceProvider: officialReference.sourceProvider,
+      pageUrl: officialReference.pageUrl,
+      searchUrl: officialReference.searchUrl,
+      detailApiUrl: officialReference.detailApiUrl,
+      detailId: officialReference.detailId,
       cachedSearchHtmlPath: enrichmentEntry.official?.vntr?.cachedSearchHtmlPath || null,
       cachedHtmlPath: enrichmentEntry.official?.vbpl?.cachedHtmlPath || null,
       cachedJsonPath: enrichmentEntry.official?.vntr?.cachedJsonPath || null,
       extractedMarkdownPath: enrichmentEntry.official?.resolvedText?.textPath || null,
+      preservationQuality: officialQualityGate.quality,
+      qualityGate: officialQualityGate,
       notes: officialTextResolved
-        ? [`Official text-based source resolved from ${enrichmentEntry.official?.sourceType || "official source"}.`]
+        ? [
+          `Official text-based source resolved from ${enrichmentEntry.official?.sourceType || "official source"}.`,
+          ...officialQualityGate.issues.map((issue) => `preservation:${issue}`),
+        ]
         : [
           "Official text-based source has not been resolved yet.",
           "eCoSys listing should be treated as a discovery feed, not as the canonical text corpus.",
         ],
     };
+
+    const tvplQualityGate = await assessCandidateQuality({
+      sourceType: "tvpl",
+      markdownPath: enrichmentEntry.tvpl?.extractedMarkdownPath || null,
+      htmlPath: enrichmentEntry.tvpl?.cachedHtmlPath || null,
+    });
 
     const tvplCandidate = {
       sourceId: "tvpl",
@@ -111,8 +159,13 @@ async function main() {
       pageUrl: enrichmentEntry.tvpl?.pageUrl || null,
       cachedHtmlPath: enrichmentEntry.tvpl?.cachedHtmlPath || null,
       extractedMarkdownPath: enrichmentEntry.tvpl?.extractedMarkdownPath || null,
+      preservationQuality: tvplQualityGate.quality,
+      qualityGate: tvplQualityGate,
       notes: tvplFound
-        ? ["Internal fallback text source until an official text-based source is resolved."]
+        ? [
+          "Internal fallback text source until an official text-based source is resolved.",
+          ...tvplQualityGate.issues.map((issue) => `preservation:${issue}`),
+        ]
         : ["No TVPL fallback currently resolved."],
     };
 
@@ -157,7 +210,6 @@ async function main() {
         fileExtension: path.extname(document.localPath).toLowerCase(),
       },
       extractionAudit: extractionSummary,
-      officialTextResolved,
     });
 
     const registryEntry = {
@@ -200,6 +252,9 @@ async function main() {
     if (preferredTextSource.status !== "resolved") {
       notes.push(preferredTextSource.rationale);
     }
+    if (officialTextCandidate.qualityGate.passed === false) {
+      notes.push(`official-gate:${officialTextCandidate.qualityGate.issues.join(",")}`);
+    }
     notes.push(sourceClassification.sourceType);
     if (ecosysExtractionCandidate.issues.length > 0) {
       notes.push(ecosysExtractionCandidate.issues.join(", "));
@@ -212,6 +267,7 @@ async function main() {
     documents: documents.length,
     preferredOfficialText: documents.filter((entry) => entry.preferredTextSource.sourceId === "official-text").length,
     preferredTvpl: documents.filter((entry) => entry.preferredTextSource.sourceId === "tvpl").length,
+    preferredOcrRecovery: documents.filter((entry) => entry.preferredTextSource.sourceId === "ocr-recovery").length,
     temporaryEcosysExtraction: documents.filter((entry) => entry.preferredTextSource.sourceId === "ecosys-extracted").length,
     unresolved: documents.filter((entry) => entry.preferredTextSource.status === "unresolved").length,
     bySourceType: Object.fromEntries(
@@ -229,8 +285,9 @@ async function main() {
     policy: {
       discoveryFeed: "eCoSys listing is used to detect and mirror documents, not as the canonical text corpus.",
       canonicalPreferenceOrder: [
-        "official-text",
-        "tvpl",
+        "official-text (quality-gated)",
+        "tvpl (quality-gated)",
+        "ocr-recovery",
         "ecosys-extracted",
       ],
       binaryPolicy: "PDF, DOC, DOCX, RAR, ZIP mirrored from eCoSys remain secondary provenance artifacts.",

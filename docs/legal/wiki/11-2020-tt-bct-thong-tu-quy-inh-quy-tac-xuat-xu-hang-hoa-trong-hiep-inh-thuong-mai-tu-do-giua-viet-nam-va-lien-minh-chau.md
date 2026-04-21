@@ -1495,7 +1495,7 @@ ex Chương bộ vải; quần áo dệt và các loại hàng dệt Sử dụng
    (1)                        (2)                                            (3)
                                                       Đùn thành xơ nhân tạo hoặc sử dụng từ xơ tự nhiên,
             - từ vải không dệt; và                    mỗi trường hợp kèm theo bất kỳ công đoạn kỹ thuật
-                                                      không dệt nào, bao gồm cả đ��c lỗ kim.
+                                                      không dệt nào, bao gồm cả đục lỗ kim.
                                                       Dệt vải rồi may (bao gồm cả công đoạn cắt); 3, 5
                                                       hoặc
             - loại khác;                              Tráng phủ, với điều kiện trị giá của phần vải chưa

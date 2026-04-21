@@ -5600,7 +5600,7 @@ CHƯƠNG 52                   BÔNG
                            đơn, làm từ xơ chải kỹ, chưa đóng gói để bán
              5206.23                                                         Quy tắc quy
                            lẻ, sợi có độ mảnh từ 192,31 đến dưới 232,56
-                                                                           trình s���n xuất 1
+                                                                           trình sản xuất 1
                            decitex
                            - - Sợi bông có tỷ trọng bông dưới 85%, sợi
                                                                              RVC40 hoặc

@@ -45,6 +45,8 @@ export const OFFICIAL_VBPL_SEEDS = {
   },
 };
 
+export const VNTR_DETAIL_API_URL = "https://vntr.moit.gov.vn/legal-documentapi";
+
 function stripTags(value) {
   return decodeHtml(value).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -60,6 +62,40 @@ function normalizeIssueCode(value) {
 
 export function buildVntrSearchUrl(document) {
   return `https://vntr.moit.gov.vn/legal-documents?doc_code=${encodeURIComponent(document.issueCode)}&page=agreements`;
+}
+
+export function normalizeOfficialSourceMetadata(official = null) {
+  const sourceType = official?.sourceType || null;
+  const vntr = official?.vntr || null;
+  const vbpl = official?.vbpl || null;
+
+  if (sourceType === "vbpl-toanvan") {
+    return {
+      sourceProvider: "vbpl",
+      pageUrl: vbpl?.pageUrl || official?.pageUrl || null,
+      searchUrl: vntr?.searchUrl || null,
+      detailApiUrl: null,
+      detailId: null,
+    };
+  }
+
+  if (sourceType === "vntr-legal-documents") {
+    return {
+      sourceProvider: "vntr",
+      pageUrl: null,
+      searchUrl: vntr?.searchUrl || null,
+      detailApiUrl: vntr?.detailId ? VNTR_DETAIL_API_URL : null,
+      detailId: vntr?.detailId || null,
+    };
+  }
+
+  return {
+    sourceProvider: null,
+    pageUrl: official?.pageUrl || null,
+    searchUrl: vntr?.searchUrl || null,
+    detailApiUrl: vntr?.detailId ? VNTR_DETAIL_API_URL : null,
+    detailId: vntr?.detailId || null,
+  };
 }
 
 export function extractVntrCsrfToken(html) {

@@ -13,7 +13,10 @@
     "legal:audit-quality": "node scripts/build-legal-quality-audit.mjs",
     "legal:ocr-recovery": "node scripts/run-legal-ocr-recovery.mjs",
     "legal:build-source-registry": "node scripts/build-legal-source-registry.mjs",
+    "legal:build-source-inventory": "node scripts/build-legal-source-inventory.mjs",
+    "legal:build-source-packets": "node scripts/build-legal-source-packets.mjs",
     "legal:build-canonical-pilot": "node scripts/build-legal-canonical-pilot.mjs",
+    "legal:build-canonical-corpus": "node scripts/build-legal-canonical-corpus.mjs",
     "legal:build-wiki": "node scripts/build-legal-wiki.mjs",
     "legal:serve": "node scripts/legal-lookup-server.mjs",
     "legal:screenshot": "node scripts/capture-legal-screenshot.mjs"

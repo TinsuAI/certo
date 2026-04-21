@@ -3,7 +3,10 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { shouldResolveFallbackTextSource } from "./lib/legal-source-resolution.mjs";
+import {
+  assessTextPreservationQuality,
+  shouldResolveFallbackTextSource,
+} from "./lib/legal-source-resolution.mjs";
 import { TvplBrowserClient } from "./lib/tvpl-browser-client.mjs";
 import {
   buildVntrSearchUrl,
@@ -11,7 +14,9 @@ import {
   extractVntrCsrfToken,
   extractVntrSearchEntriesFromHtml,
   getOfficialVbplSeed,
+  normalizeOfficialSourceMetadata,
   pickBestVntrSearchEntry,
+  VNTR_DETAIL_API_URL,
 } from "./lib/legal-official-source-resolution.mjs";
 
 const ROOT = process.cwd();
@@ -98,6 +103,14 @@ async function fileExists(filePath) {
   } catch {
     return false;
   }
+}
+
+async function readTextIfExists(filePath) {
+  if (!filePath || !await fileExists(filePath)) {
+    return "";
+  }
+
+  return fs.readFile(filePath, "utf8");
 }
 
 function buildSearchTerms(document) {
@@ -231,6 +244,7 @@ async function enrichOfficialTextFromVntr(document) {
       status: "not_found",
       sourceType: "vntr-legal-documents",
       searchUrl,
+      detailApiUrl: null,
       cachedSearchHtmlPath,
       detailId: match?.detailId || null,
       resolvedText: {
@@ -268,6 +282,7 @@ async function enrichOfficialTextFromVntr(document) {
       status: "found_without_text",
       sourceType: "vntr-legal-documents",
       searchUrl,
+      detailApiUrl: VNTR_DETAIL_API_URL,
       cachedSearchHtmlPath,
       cachedJsonPath,
       detailId: match.detailId,
@@ -289,6 +304,7 @@ async function enrichOfficialTextFromVntr(document) {
     status: "resolved",
     sourceType: "vntr-legal-documents",
     searchUrl,
+    detailApiUrl: VNTR_DETAIL_API_URL,
     cachedSearchHtmlPath,
     cachedJsonPath,
     extractedMarkdownPath,
@@ -327,13 +343,35 @@ async function enrichOfficialTextFromVbpl(document) {
   const slug = slugify(`${document.issueCode}-${document.title}`);
   const cachedHtmlPath = path.join(OFFICIAL_VBPL_HTML_DIR, `${slug}.html`);
   const extractedMarkdownPath = path.join(OFFICIAL_VBPL_MD_DIR, `${slug}.md`);
-  const response = await fetchText(seed.pageUrl, {
-    headers: {
-      "accept-language": "vi,en-US;q=0.9,en;q=0.8",
-    },
-  });
-  const html = await response.text();
-  await fs.writeFile(cachedHtmlPath, html);
+  let html = "";
+
+  try {
+    const response = await fetchText(seed.pageUrl, {
+      headers: {
+        "accept-language": "vi,en-US;q=0.9,en;q=0.8",
+      },
+    });
+    html = await response.text();
+    await fs.writeFile(cachedHtmlPath, html);
+  } catch (error) {
+    if (await fileExists(cachedHtmlPath)) {
+      html = await fs.readFile(cachedHtmlPath, "utf8");
+    } else {
+      return {
+        status: "fetch_failed",
+        sourceType: seed.sourceType,
+        pageUrl: seed.pageUrl,
+        fetchError: error instanceof Error ? error.message : String(error),
+        resolvedText: {
+          status: "unresolved",
+          sourceId: "official-text",
+          textPath: null,
+          format: null,
+          rationale: "official_text_vbpl_fetch_failed",
+        },
+      };
+    }
+  }
 
   const fragment = extractVbplContentFragment(html);
   if (!fragment) {
@@ -374,9 +412,19 @@ async function enrichOfficialTextFromVbpl(document) {
 async function enrichOfficialText(document) {
   const vntr = await enrichOfficialTextFromVntr(document);
   if (vntr.resolvedText?.status === "resolved") {
+    const reference = normalizeOfficialSourceMetadata({
+      sourceType: vntr.sourceType,
+      pageUrl: null,
+      vntr,
+      vbpl: null,
+    });
     return {
       sourceType: vntr.sourceType,
-      pageUrl: vntr.searchUrl,
+      sourceProvider: reference.sourceProvider,
+      pageUrl: reference.pageUrl,
+      searchUrl: reference.searchUrl,
+      detailApiUrl: reference.detailApiUrl,
+      detailId: reference.detailId,
       vntr,
       vbpl: null,
       resolvedText: vntr.resolvedText,
@@ -386,10 +434,20 @@ async function enrichOfficialText(document) {
 
   const vbpl = await enrichOfficialTextFromVbpl(document);
   const active = vbpl.resolvedText?.status === "resolved" ? vbpl : vntr;
+  const reference = normalizeOfficialSourceMetadata({
+    sourceType: active.sourceType,
+    pageUrl: active.pageUrl || null,
+    vntr,
+    vbpl,
+  });
 
   return {
     sourceType: active.sourceType,
-    pageUrl: active.pageUrl || active.searchUrl || null,
+    sourceProvider: reference.sourceProvider,
+    pageUrl: reference.pageUrl,
+    searchUrl: reference.searchUrl,
+    detailApiUrl: reference.detailApiUrl,
+    detailId: reference.detailId,
     vntr,
     vbpl,
     resolvedText: active.resolvedText,
@@ -440,7 +498,7 @@ async function searchTvpl(browserClient, document) {
   };
 }
 
-async function enrichTvpl(document, { officialTextResolved }) {
+async function enrichTvpl(document, { officialTextResolved, officialTextQualityGatePassed }) {
   if (process.env.SKIP_TVPL === "1") {
     return {
       status: "skipped",
@@ -448,10 +506,10 @@ async function enrichTvpl(document, { officialTextResolved }) {
     };
   }
 
-  if (!shouldResolveFallbackTextSource({ officialTextResolved })) {
+  if (!shouldResolveFallbackTextSource({ officialTextResolved, officialTextQualityGatePassed })) {
     return {
       status: "skipped",
-      reason: "official_text_source_already_resolved",
+      reason: "official_text_source_passed_quality_gate",
     };
   }
 
@@ -563,8 +621,16 @@ async function main() {
       const documentId = buildDocumentId(document);
       const officialExtraction = await classifyOfficialExtraction(document);
       const officialResolved = await enrichOfficialText(document);
+      const officialPreservationQuality = assessTextPreservationQuality({
+        sourceType: officialResolved.sourceType || null,
+        markdownBody: await readTextIfExists(officialResolved.resolvedText?.textPath || null),
+        htmlBody: officialResolved.sourceType === "vbpl-toanvan"
+          ? await readTextIfExists(officialResolved.vbpl?.cachedHtmlPath || null)
+          : "",
+      });
       const tvpl = await enrichTvpl(document, {
         officialTextResolved: officialResolved.resolvedText?.status === "resolved",
+        officialTextQualityGatePassed: officialPreservationQuality.passed,
       });
 
       output.documents[documentId] = {
@@ -573,14 +639,19 @@ async function main() {
         title: document.title,
         official: {
           sourceType: officialResolved.sourceType || "ecosys-official-mirror",
-          pageUrl: officialResolved.pageUrl || document.absoluteUrl,
+          sourceProvider: officialResolved.sourceProvider || null,
+          pageUrl: officialResolved.pageUrl || null,
+          searchUrl: officialResolved.searchUrl || null,
+          detailApiUrl: officialResolved.detailApiUrl || null,
+          detailId: officialResolved.detailId || null,
           extractionQuality: officialExtraction.quality,
+          preservationQuality: officialPreservationQuality,
           vntr: officialResolved.vntr || null,
           vbpl: officialResolved.vbpl || null,
           resolvedText: officialResolved.resolvedText,
         },
         tvpl,
-        preferredTextSource: officialResolved.resolvedText?.status === "resolved"
+        preferredTextSource: officialResolved.resolvedText?.status === "resolved" && officialPreservationQuality.passed
           ? "official-text"
           : (tvpl.status === "found" ? "tvpl" : "official"),
       };

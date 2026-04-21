@@ -204,16 +204,62 @@ function trimTrailingAdministrativeBlock(lines) {
   return lines.slice(0, cutoffIndex);
 }
 
-export function selectBestCanonicalSource(registryEntry, { ocrTextPath = null } = {}) {
-  const officialCandidate = registryEntry.textCandidates?.find((candidate) =>
-    candidate.sourceId === "official-text" && candidate.status === "resolved" && candidate.extractedMarkdownPath,
-  );
-  if (officialCandidate) {
-    return {
-      sourceId: "official-text",
-      sourceKind: "official_markdown",
-      path: officialCandidate.extractedMarkdownPath,
-    };
+export function selectBestCanonicalSource(registryEntry, { ocrTextPath = null, excludedSourceIds = [] } = {}) {
+  const excludedSet = new Set(excludedSourceIds);
+  const preferredSourceId = registryEntry.preferredTextSource?.sourceId || null;
+  const orderedSourceIds = [
+    preferredSourceId,
+    "official-text",
+    "tvpl",
+    "ocr-recovery",
+    "ecosys-extracted",
+  ].filter((sourceId, index, array) => (
+    sourceId
+    && array.indexOf(sourceId) === index
+    && !excludedSet.has(sourceId)
+  ));
+
+  for (const sourceId of orderedSourceIds) {
+    if (sourceId === "ocr-recovery" && ocrTextPath) {
+      return {
+        sourceId: "ocr-recovery",
+        sourceKind: "ocr_text",
+        path: ocrTextPath,
+      };
+    }
+
+    const candidate = registryEntry.textCandidates?.find((entry) => entry.sourceId === sourceId);
+    if (!candidate || candidate.status !== "resolved") {
+      continue;
+    }
+
+    if ((sourceId === "official-text" || sourceId === "tvpl") && candidate.qualityGate?.passed === false) {
+      continue;
+    }
+
+    if (sourceId === "official-text" && candidate.extractedMarkdownPath) {
+      return {
+        sourceId: "official-text",
+        sourceKind: "official_markdown",
+        path: candidate.extractedMarkdownPath,
+      };
+    }
+
+    if (sourceId === "tvpl" && candidate.extractedMarkdownPath) {
+      return {
+        sourceId: "tvpl",
+        sourceKind: "fallback_markdown",
+        path: candidate.extractedMarkdownPath,
+      };
+    }
+
+    if (sourceId === "ecosys-extracted" && candidate.extractionPath) {
+      return {
+        sourceId: "ecosys-extracted",
+        sourceKind: "binary_extraction",
+        path: candidate.extractionPath,
+      };
+    }
   }
 
   if (ocrTextPath) {
@@ -221,17 +267,6 @@ export function selectBestCanonicalSource(registryEntry, { ocrTextPath = null } 
       sourceId: "ocr-recovery",
       sourceKind: "ocr_text",
       path: ocrTextPath,
-    };
-  }
-
-  const extractionCandidate = registryEntry.textCandidates?.find((candidate) =>
-    candidate.sourceId === "ecosys-extracted" && candidate.status === "resolved" && candidate.extractionPath,
-  );
-  if (extractionCandidate) {
-    return {
-      sourceId: "ecosys-extracted",
-      sourceKind: "binary_extraction",
-      path: extractionCandidate.extractionPath,
     };
   }
 

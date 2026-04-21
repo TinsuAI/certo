@@ -747,7 +747,7 @@ Chương 31      Phân bón.                     Sản xuất từ nguyên liệ
                                              phẩm; hoặc
                                            9
 
-   Mã HS             Mô tả hàng hóa                Công đoạn gia công hoặc chế biến
+   Mã HS             M�� tả hàng hóa                Công đoạn gia công hoặc chế biến
        (1)                  (2)                                     (3)
                                                  trị giá nguyên liệu không vượt quá 50%
                                                  giá xuất xưởng của sản phẩm.

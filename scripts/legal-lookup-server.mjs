@@ -5,6 +5,8 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { URL } from "node:url";
 
+import { buildVntrSearchUrl } from "./lib/legal-official-source-resolution.mjs";
+
 const ROOT = process.cwd();
 const PORT = Number(process.env.PORT || 4173);
 const HOST = process.env.HOST || "127.0.0.1";
@@ -15,34 +17,36 @@ const LOOKUP_DOC_PATH = path.join(ROOT, "docs", "legal", "reference", "co-legal-
 const LEGAL_README_PATH = path.join(ROOT, "docs", "legal", "README.md");
 const WIKI_DIR = path.join(ROOT, "docs", "legal", "wiki");
 const CANONICAL_DIR = path.join(ROOT, "docs", "legal", "canonical", "pilot");
+const ATTACHMENTS_DIR = path.join(ROOT, "data", "legal", "normalized", "ecosys", "attachments");
 const SUPPORTED_LOCALES = new Set(["vi", "en"]);
 
 const I18N = {
   vi: {
     htmlLang: "vi",
     brand: "Kho văn bản",
-    navCorpus: "Văn bản",
+    navCorpus: "Danh sách",
     navCanonical: "Bản sạch",
-    navLookup: "Tra cứu",
-    navWorkspace: "Không gian",
+    navLookup: "Hệ tra cứu",
+    navWorkspace: "Ghi chú",
     tabCorpus: "Văn bản",
     tabPilot: "Pilot",
     tabModel: "Mô hình",
     surfaceMeta: "không gian vận hành pháp lý",
     homeTitle: "Kho văn bản C/O",
-    homeSubtitle: "Danh sách đầy đủ văn bản quy phạm trong corpus C/O, với provenance, lớp text ưu tiên và chất lượng dữ liệu trên cùng working surface.",
-    searchTitle: "Tìm văn bản",
+    homeSubtitle: "Mở nhanh từng văn bản, kiểm tra nguồn đang hiển thị, và theo dõi tình trạng làm sạch corpus.",
+    searchTitle: "Tìm nhanh",
     searchPlaceholder: "Số văn bản, tiêu đề, nguồn, chất lượng...",
     searchButton: "Tìm",
-    searchHelp: "List này ưu tiên scan speed: số hiệu, tiêu đề, ngày ban hành, nhóm form, text source và quality.",
+    searchHelp: "Ưu tiên quét nhanh theo số văn bản, tiêu đề, nguồn đang dùng, và chất lượng dữ liệu.",
     searchPageTitle: "Tra cứu văn bản",
-    searchPageSubtitle: "Mặt này dành riêng cho việc lọc và tìm nhanh theo số văn bản, tiêu đề, nguồn text và chất lượng dữ liệu.",
-    corpusSummary: "Tổng quan corpus",
-    corpusTable: "Bảng văn bản",
-    corpusTableHelp: "Bảng này liệt kê toàn bộ corpus đang có trong hệ thống. Bấm vào số văn bản để mở webview tương ứng.",
-    contentCoverage: "Mức phủ nội dung",
+    searchPageSubtitle: "Lọc nhanh theo số văn bản, tiêu đề, nguồn render, và chất lượng dữ liệu.",
+    corpusSummary: "Tình trạng corpus",
+    corpusTable: "Danh sách văn bản",
+    corpusTableHelp: "Bấm vào số văn bản để mở thẳng trang đọc tương ứng.",
+    contentCoverage: "Lớp đang hiển thị",
     totalDocuments: "Tổng văn bản",
     preferredOfficialText: "Official text ưu tiên",
+    preferredOcrRecovery: "OCR đang dùng",
     temporaryExtraction: "eCoSys extraction tạm",
     officialHtml: "Official HTML/text",
     officialPdfText: "Official PDF text",
@@ -59,21 +63,26 @@ const I18N = {
     issuedDate: "Ngày ban hành",
     issuer: "Cơ quan",
     renderedFrom: "Render từ",
+    viewingFrom: "Đang xem từ",
+    qualityState: "Chất lượng",
     open: "Mở",
     openDocument: "Xem",
-    documentDetailTitle: "Trang này render từ markdown tốt nhất hiện có cho văn bản này, nhưng vẫn giữ provenance và trạng thái chất lượng của corpus.",
-    metadata: "Metadata",
+    documentDetailTitle: "Kiểm tra nguồn render và tình trạng dữ liệu của văn bản này.",
+    metadata: "Thông tin chính",
     backToCorpus: "Danh sách văn bản",
-    pilotIndex: "Chỉ mục pilot sạch",
-    lookupSystem: "Lookup System",
-    legalWorkspace: "Không gian pháp lý",
+    pilotIndex: "Bản sạch",
+    lookupSystem: "Hệ tra cứu",
+    legalWorkspace: "Ghi chú nguồn",
     markdownReference: "Tài liệu tham chiếu trong cùng legal workspace.",
     markdownLabel: "Markdown reference",
     sourcePath: "Source Path",
-    sourceCompare: "Nguồn đối chiếu",
-    sourceCompareHelp: "Chỉ giữ các nguồn có ý nghĩa để đối chiếu: toàn văn chính thức, eCoSys, và file mirror gốc.",
+    sourceCompare: "Nguồn gốc",
+    sourceCompareHelp: "Giữ các nguồn cần đối chiếu trực tiếp: toàn văn chính thức, eCoSys, và file mirror gốc.",
+    sourceLegend: "Nhãn nguồn luôn đi theo nguồn và loại text đang render: VBPL/VNTR/TVPL HTML, eCoSys DOCX, eCoSys PDF, eCoSys PDF OCR, hoặc eCoSys MIX (DOCX + PDF). RAR/ZIP chỉ là container trung gian nên không hiện như một lane riêng.",
     officialTextPage: "Trang toàn văn chính thức",
+    officialSearchPage: "Trang tra cứu chính thức",
     rawBinaryFile: "File mirror nội bộ",
+    mirrorAttachments: "File con mirror local",
     ecosysListing: "Trang danh sách eCoSys",
     ecosysFileUrl: "URL file gốc eCoSys",
     openSource: "Mở nguồn",
@@ -116,28 +125,29 @@ const I18N = {
   en: {
     htmlLang: "en",
     brand: "Legal Corpus",
-    navCorpus: "Corpus",
-    navCanonical: "Canonical",
+    navCorpus: "Documents",
+    navCanonical: "Clean Texts",
     navLookup: "Lookup",
-    navWorkspace: "Workspace",
+    navWorkspace: "Notes",
     tabCorpus: "Corpus",
     tabPilot: "Pilot",
     tabModel: "Model",
     surfaceMeta: "legal operating surface",
     homeTitle: "CO Legal Corpus",
-    homeSubtitle: "Full regulatory corpus for C/O work, with provenance, preferred text layer, and current data quality on one operating surface.",
-    searchTitle: "Corpus Search",
+    homeSubtitle: "Open documents fast, check the active render source, and track corpus cleanup status.",
+    searchTitle: "Quick Search",
     searchPlaceholder: "Issue code, title, source, quality...",
     searchButton: "Search",
-    searchHelp: "This rail is optimized for scan speed: issue code, title, issued date, form group, text source, and quality.",
+    searchHelp: "Optimized for scan speed by issue code, title, active source, and data quality.",
     searchPageTitle: "Document Search",
-    searchPageSubtitle: "This surface is dedicated to quick filtering by issue code, title, text source, and data quality.",
-    corpusSummary: "Corpus Summary",
-    corpusTable: "Documents Table",
-    corpusTableHelp: "This table lists the full corpus currently available in the system. Click an issue code to open its webview.",
-    contentCoverage: "Content Coverage",
+    searchPageSubtitle: "Filter quickly by issue code, title, render source, and data quality.",
+    corpusSummary: "Corpus Status",
+    corpusTable: "Document List",
+    corpusTableHelp: "Click an issue code to open the reading surface for that document.",
+    contentCoverage: "Active Render Layers",
     totalDocuments: "Total documents",
     preferredOfficialText: "Preferred official text",
+    preferredOcrRecovery: "OCR in use",
     temporaryExtraction: "Temporary eCoSys extraction",
     officialHtml: "Official HTML/text",
     officialPdfText: "Official PDF text",
@@ -154,21 +164,26 @@ const I18N = {
     issuedDate: "Issued date",
     issuer: "Issuing unit",
     renderedFrom: "Rendered from",
+    viewingFrom: "Viewing from",
+    qualityState: "Quality",
     open: "Open",
     openDocument: "Open",
-    documentDetailTitle: "This page renders the best markdown currently available for the document while preserving provenance and corpus quality state.",
-    metadata: "Metadata",
+    documentDetailTitle: "Inspect the active render source and data condition for this document.",
+    metadata: "Key details",
     backToCorpus: "Documents list",
-    pilotIndex: "Canonical Pilot Index",
+    pilotIndex: "Clean Texts",
     lookupSystem: "Lookup System",
-    legalWorkspace: "Legal Workspace",
+    legalWorkspace: "Source Notes",
     markdownReference: "Reference markdown inside the same legal workspace.",
     markdownLabel: "Markdown reference",
     sourcePath: "Source Path",
-    sourceCompare: "Compare Sources",
-    sourceCompareHelp: "Keep only the sources that matter for cross-checking: official full text, eCoSys, and the mirrored source file.",
+    sourceCompare: "Sources",
+    sourceCompareHelp: "Keep only the sources needed for direct cross-checking: official full text, eCoSys, and the mirrored source file.",
+    sourceLegend: "Source labels always show the active provenance plus text format: VBPL/VNTR/TVPL HTML, eCoSys DOCX, eCoSys PDF, eCoSys PDF OCR, or eCoSys MIX (DOCX + PDF). RAR/ZIP are only intermediate containers, not final lanes.",
     officialTextPage: "Official full-text page",
+    officialSearchPage: "Official search page",
     rawBinaryFile: "Mirrored source file",
+    mirrorAttachments: "Local mirrored files",
     ecosysListing: "eCoSys listing page",
     ecosysFileUrl: "Original eCoSys file URL",
     openSource: "Open source",
@@ -256,13 +271,19 @@ function slugify(value) {
 }
 
 export function buildDocumentRouteSlug(document) {
-  return slugify(`${document.issueCode}-${document.title}`);
+  return slugify(document.issueCode || "") || slugify(`${document.issueCode}-${document.title}`);
 }
 
 function renderLayout(title, body, locale = "vi", options = {}) {
   const pageClass = options.pageClass ? ` ${options.pageClass}` : "";
   const currentPath = options.currentPath || "/";
   const navMode = options.navMode || "default";
+  const navItems = [
+    { href: "/", label: t(locale, "navCorpus"), active: currentPath === "/" || currentPath.startsWith("/search") || currentPath.startsWith("/doc/") },
+    { href: "/index", label: t(locale, "navCanonical"), active: currentPath.startsWith("/index") },
+    { href: "/lookup-system", label: t(locale, "navLookup"), active: currentPath.startsWith("/lookup-system") },
+    { href: "/about", label: t(locale, "navWorkspace"), active: currentPath.startsWith("/about") },
+  ];
   const topnav = navMode === "document"
     ? `
   <div class="topnav topnav-compact">
@@ -289,28 +310,13 @@ function renderLayout(title, body, locale = "vi", options = {}) {
         <span class="topnav-brand-label">${escapeHtml(t(locale, "brand"))}</span>
       </a>
       <div class="topnav-links">
-        <a class="topnav-link topnav-link-active" href="${buildHref("/", locale)}">${escapeHtml(t(locale, "navCorpus"))}</a>
-        <a class="topnav-link" href="${buildHref("/index", locale)}">${escapeHtml(t(locale, "navCanonical"))}</a>
-        <a class="topnav-link" href="${buildHref("/lookup-system", locale)}">${escapeHtml(t(locale, "navLookup"))}</a>
-        <a class="topnav-link" href="${buildHref("/about", locale)}">${escapeHtml(t(locale, "navWorkspace"))}</a>
+        ${navItems.map((item) => `
+          <a class="topnav-link${item.active ? " topnav-link-active" : ""}" href="${buildHref(item.href, locale)}">${escapeHtml(item.label)}</a>
+        `).join("")}
       </div>
-      <span class="topnav-chip">eCoSys</span>
-      <span class="topnav-chip">VNTR</span>
-      <span class="topnav-chip">VBPL</span>
       <div class="locale-switch">
         <a class="locale-link ${locale === "vi" ? "locale-link-active" : ""}" href="${buildHref(currentPath, "vi")}">VI</a>
         <a class="locale-link ${locale === "en" ? "locale-link-active" : ""}" href="${buildHref(currentPath, "en")}">EN</a>
-      </div>
-    </div>
-    <div class="topnav-secondary shell">
-      <div class="topnav-context">
-        <strong>${escapeHtml(title)}</strong>
-        <span class="topnav-context-meta">${escapeHtml(t(locale, "surfaceMeta"))}</span>
-      </div>
-      <div class="topnav-tabs">
-        <a class="topnav-tab topnav-tab-active" href="${buildHref("/", locale)}">${escapeHtml(t(locale, "tabCorpus"))}</a>
-        <a class="topnav-tab" href="${buildHref("/index", locale)}">${escapeHtml(t(locale, "tabPilot"))}</a>
-        <a class="topnav-tab" href="${buildHref("/lookup-system", locale)}">${escapeHtml(t(locale, "tabModel"))}</a>
       </div>
     </div>
   </div>`;
@@ -492,19 +498,6 @@ function renderLayout(title, body, locale = "vi", options = {}) {
       color: var(--primary);
       background: var(--primary-soft);
     }
-    .topnav-chip {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 2.4rem;
-      padding: 0.35rem 0.55rem;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      color: var(--foreground-muted);
-      font-family: "IBM Plex Mono", monospace;
-      font-size: 0.7rem;
-      background: var(--surface-subtle);
-    }
     .topnav-back::before {
       content: "←";
       font-size: 1rem;
@@ -578,20 +571,17 @@ function renderLayout(title, body, locale = "vi", options = {}) {
       padding-bottom: 2.2rem;
     }
     .workspace-topbar {
-      position: sticky;
-      top: 5.9rem;
-      z-index: 15;
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: space-between;
       gap: 1rem;
       margin: 1rem 0 1.25rem;
-      padding: 1rem 1.2rem;
+      padding: 1.05rem 1.2rem;
       border: 1px solid var(--border);
       border-radius: 1.1rem;
       background: var(--surface-overlay);
       backdrop-filter: blur(18px);
-      box-shadow: var(--shadow-md);
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
     }
     .workspace-topbar h1 {
       margin: 0;
@@ -840,34 +830,14 @@ function renderLayout(title, body, locale = "vi", options = {}) {
     }
     .document-header {
       display: grid;
-      gap: 0.6rem;
-      margin: 0.65rem 0 0.95rem;
-    }
-    .document-nav {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.35rem 0.55rem;
-      color: var(--foreground-muted);
-      font-size: 0.72rem;
-      font-family: "IBM Plex Mono", monospace;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-    }
-    .document-nav a {
-      color: var(--foreground-muted);
-      transition: color 140ms ease;
-    }
-    .document-nav a:hover {
-      color: var(--foreground);
+      gap: 0.35rem;
+      margin: 0.25rem 0 0.8rem;
     }
     .document-header-head {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 1rem;
+      display: grid;
+      gap: 0.42rem;
     }
     .document-code {
-      margin-bottom: 0.3rem;
       color: var(--primary);
       font-size: 0.74rem;
       font-family: "IBM Plex Mono", monospace;
@@ -877,37 +847,46 @@ function renderLayout(title, body, locale = "vi", options = {}) {
     }
     .document-title {
       margin: 0;
-      max-width: 24ch;
-      font-size: clamp(1.65rem, 2vw, 2.45rem);
-      line-height: 1.04;
+      max-width: 28ch;
+      font-size: clamp(1.35rem, 1.7vw, 1.92rem);
+      line-height: 1.05;
       letter-spacing: -0.05em;
     }
-    .document-summary {
-      margin: 0.42rem 0 0;
-      max-width: 60ch;
+    .document-meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.25rem 0.65rem;
       color: var(--foreground-muted);
-      font-size: 0.9rem;
-      line-height: 1.5;
+      font-size: 0.86rem;
+      line-height: 1.45;
+    }
+    .document-meta-row span + span::before {
+      content: "•";
+      margin-right: 0.65rem;
+      color: var(--border-strong);
     }
     .document-chip-row {
       display: flex;
       flex-wrap: wrap;
       gap: 0.35rem;
-      justify-content: flex-end;
-      max-width: 14rem;
     }
     .document-chip {
       display: inline-flex;
       align-items: center;
-      padding: 0.34rem 0.58rem;
+      gap: 0.35rem;
+      padding: 0.32rem 0.56rem;
       border-radius: 999px;
       border: 1px solid var(--border);
       background: var(--surface-subtle);
       color: var(--foreground-soft);
-      font-size: 0.68rem;
+      font-size: 0.7rem;
       font-weight: 700;
       letter-spacing: 0.01em;
-      white-space: nowrap;
+      white-space: normal;
+    }
+    .document-chip-label {
+      color: var(--foreground-muted);
+      font-weight: 600;
     }
     .document-stage {
       display: grid;
@@ -1045,6 +1024,35 @@ function renderLayout(title, body, locale = "vi", options = {}) {
       color: var(--info);
       font-weight: 700;
     }
+    .table-link-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 4.25rem;
+      padding: 0.42rem 0.72rem;
+      border-radius: 999px;
+      border: 1px solid color-mix(in srgb, var(--info) 22%, var(--border));
+      background: color-mix(in srgb, var(--info) 8%, white);
+      white-space: nowrap;
+    }
+    .table-code-cell,
+    .table-date-cell,
+    .table-action-cell {
+      white-space: nowrap;
+    }
+    .table-code-cell {
+      width: 9.5rem;
+    }
+    .table-date-cell {
+      width: 8.5rem;
+    }
+    .table-source-cell {
+      width: 11.5rem;
+    }
+    .table-action-cell {
+      width: 5.5rem;
+      text-align: right;
+    }
     .table-title {
       min-width: 340px;
       color: var(--foreground-soft);
@@ -1068,6 +1076,14 @@ function renderLayout(title, body, locale = "vi", options = {}) {
       gap: 0.38rem;
       max-width: 17rem;
     }
+    .table-source-main {
+      font-weight: 700;
+      color: var(--foreground);
+      white-space: nowrap;
+    }
+    .table-source-main .tag {
+      margin-top: 0.35rem;
+    }
     .source-links {
       display: grid;
       gap: 0;
@@ -1088,10 +1104,21 @@ function renderLayout(title, body, locale = "vi", options = {}) {
     .source-link:hover {
       color: var(--primary);
     }
+    .source-link-copy {
+      display: grid;
+      gap: 0.12rem;
+      min-width: 0;
+    }
     .source-link-label {
       font-weight: 700;
       color: var(--foreground);
       font-size: 0.84rem;
+    }
+    .source-link-note {
+      color: var(--foreground-muted);
+      font-size: 0.74rem;
+      line-height: 1.4;
+      word-break: break-word;
     }
     .source-link-meta {
       color: var(--foreground-muted);
@@ -1268,10 +1295,6 @@ function renderLayout(title, body, locale = "vi", options = {}) {
       }
     }
     @media (max-width: 640px) {
-      .topnav-tabs {
-        width: 100%;
-        overflow: auto;
-      }
       .stats-grid {
         grid-template-columns: 1fr;
       }
@@ -1283,6 +1306,37 @@ function renderLayout(title, body, locale = "vi", options = {}) {
       .detail-meta tr {
         display: block;
         margin-bottom: 0.55rem;
+      }
+      .table-shell {
+        overflow: visible;
+        border: none;
+        background: transparent;
+      }
+      .document-table,
+      .document-table-overview {
+        min-width: 0;
+      }
+      .document-table thead {
+        display: none;
+      }
+      .document-table tbody,
+      .document-table tr,
+      .document-table td {
+        display: block;
+        width: 100%;
+      }
+      .document-table tbody tr {
+        padding: 0.9rem 1rem;
+        border-bottom: 1px solid var(--border);
+        background: var(--card-strong);
+      }
+      .document-table td {
+        padding: 0.15rem 0;
+        border-bottom: none;
+      }
+      .table-action-cell {
+        margin-top: 0.55rem;
+        text-align: left;
       }
     }
   </style>
@@ -1396,29 +1450,127 @@ function describePreferredSource(sourceId) {
     case "official-text":
       return "Official text";
     case "ocr-recovery":
-      return "OCR recovery";
+      return "eCoSys PDF OCR";
     case "ecosys-extracted":
-      return "eCoSys extraction";
+      return "eCoSys PDF";
     case "tvpl":
-      return "TVPL";
+      return "TVPL HTML";
     default:
       return sourceId || "Unknown";
   }
 }
 
-function localizedPreferredSource(locale, sourceId) {
+function detectPathExtension(filePath) {
+  if (!filePath) {
+    return "";
+  }
+  try {
+    const pathname = String(filePath).startsWith("http")
+      ? new URL(filePath).pathname
+      : filePath;
+    return path.extname(pathname || "").toLowerCase();
+  } catch {
+    return path.extname(String(filePath || "")).toLowerCase();
+  }
+}
+
+function describeFormatFromExtension(extension) {
+  switch (String(extension || "").toLowerCase()) {
+    case ".html":
+    case ".htm":
+      return "HTML";
+    case ".doc":
+    case ".docx":
+      return "DOCX";
+    case ".pdf":
+      return "PDF";
+    default:
+      return "";
+  }
+}
+
+function pushFormat(formats, extension) {
+  const format = describeFormatFromExtension(extension);
+  if (format) {
+    formats.add(format);
+  }
+}
+
+function sortFormats(formats) {
+  const formatOrder = ["HTML", "DOCX", "PDF"];
+  return Array.from(formats).sort((left, right) => {
+    const leftIndex = formatOrder.indexOf(left);
+    const rightIndex = formatOrder.indexOf(right);
+    const normalizedLeft = leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex;
+    const normalizedRight = rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex;
+    if (normalizedLeft !== normalizedRight) {
+      return normalizedLeft - normalizedRight;
+    }
+    return left.localeCompare(right);
+  });
+}
+
+function inferEcosysFormats(document = null) {
+  const formats = new Set();
+
+  pushFormat(formats, document?.rawBinarySource?.fileExtension);
+  pushFormat(formats, detectPathExtension(document?.rawBinarySource?.localPath));
+  pushFormat(formats, detectPathExtension(document?.discovery?.mirroredFileUrl));
+
+  for (const attachment of document?.attachmentFiles || []) {
+    pushFormat(formats, detectPathExtension(attachment?.path || attachment?.label));
+  }
+
+  return sortFormats(formats);
+}
+
+function describeEcosysLane(document = null) {
+  const formats = inferEcosysFormats(document);
+  if (formats.length === 0) {
+    return "eCoSys";
+  }
+  if (formats.length === 1) {
+    return `eCoSys ${formats[0]}`;
+  }
+  return `eCoSys MIX (${formats.join(" + ")})`;
+}
+
+function describeOfficialLane(document = null) {
+  const source = describeOfficialTextSource(document);
+  const sourceType = document?.sourceClassification?.sourceType;
+
+  if (sourceType === "official_pdf_text") {
+    return `${source} PDF`;
+  }
+  if (sourceType === "official_binary_legacy_doc") {
+    return `${source} DOCX`;
+  }
+  return `${source} HTML`;
+}
+
+function localizedPreferredSource(locale, sourceId, document = null) {
+  if (sourceId === "official-text") {
+    return describeOfficialLane(document);
+  }
+  if (sourceId === "ocr-recovery") {
+    const formats = inferEcosysFormats(document);
+    if (formats.includes("PDF")) {
+      return "eCoSys PDF OCR";
+    }
+    return "eCoSys OCR";
+  }
+  if (sourceId === "ecosys-extracted") {
+    return describeEcosysLane(document);
+  }
+  if (sourceId === "tvpl") {
+    return "TVPL HTML";
+  }
   if (locale === "en") {
     return describePreferredSource(sourceId);
   }
   switch (sourceId) {
     case "official-text":
-      return "Nguồn chính thức";
-    case "ocr-recovery":
-      return "OCR phục hồi";
-    case "ecosys-extracted":
-      return "Trích xuất eCoSys";
-    case "tvpl":
-      return "TVPL";
+      return "Official HTML";
     default:
       return sourceId || t(locale, "unknown");
   }
@@ -1515,6 +1667,130 @@ function normalizeAscii(value) {
     .toLowerCase();
 }
 
+function slugifyIssueAndTitle(issueCode, title) {
+  return slugify(`${issueCode || ""}-${title || ""}`);
+}
+
+function describeHost(urlValue) {
+  if (!urlValue) {
+    return "";
+  }
+  try {
+    return new URL(urlValue).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+function describeSourceTarget(urlValue, fallback = "") {
+  const host = describeHost(urlValue);
+  if (!host) {
+    return fallback;
+  }
+  if (host.includes("vbpl.vn")) {
+    return "VBPL";
+  }
+  if (host.includes("vntr.moit.gov.vn")) {
+    return "VNTR";
+  }
+  if (host.includes("thuvienphapluat.vn")) {
+    return "TVPL";
+  }
+  if (host.includes("ecosys.gov.vn")) {
+    return "eCoSys";
+  }
+  return host;
+}
+
+function inferOfficialSourceFromCache(document = null) {
+  const cachePaths = [
+    document?.officialMarkdownPath,
+    document?.officialHtmlPath,
+    document?.officialSearchHtmlPath,
+    document?.officialJsonPath,
+  ].filter(Boolean);
+
+  for (const cachePath of cachePaths) {
+    const normalized = String(cachePath).toLowerCase();
+    if (normalized.includes("/official/vbpl/")) {
+      return "VBPL";
+    }
+    if (normalized.includes("/official/vntr/")) {
+      return "VNTR";
+    }
+    if (normalized.includes("/official/tvpl/")) {
+      return "TVPL";
+    }
+  }
+
+  return "";
+}
+
+function isTrustedOfficialTextUrl(urlValue) {
+  const source = describeSourceTarget(urlValue, "");
+  return source === "VBPL" || source === "VNTR" || source === "TVPL";
+}
+
+function describeOfficialTextSource(document = null) {
+  if (document?.officialSourceProvider === "vbpl") {
+    return "VBPL";
+  }
+  if (document?.officialSourceProvider === "vntr") {
+    return "VNTR";
+  }
+  if (isTrustedOfficialTextUrl(document?.officialPageUrl)) {
+    return describeSourceTarget(document?.officialPageUrl, "Official");
+  }
+  return inferOfficialSourceFromCache(document) || "Official";
+}
+
+function buildFallbackOfficialSourceLink(document = null, locale = "vi") {
+  const source = describeOfficialTextSource(document);
+  if (source === "VNTR" && (document?.officialSearchUrl || document?.issueCode)) {
+    return {
+      id: "official-search-page",
+      label: `${source} · ${t(locale, "officialSearchPage")}`,
+      href: document?.officialSearchUrl || buildVntrSearchUrl(document),
+      external: true,
+      note: describeHost(document?.officialSearchUrl) || "vntr.moit.gov.vn",
+    };
+  }
+  return null;
+}
+
+async function listLocalMirrorAttachments(issueCode, title) {
+  const attachmentRoot = path.join(ATTACHMENTS_DIR, slugifyIssueAndTitle(issueCode, title));
+  if (!await fileExists(attachmentRoot)) {
+    return [];
+  }
+
+  const collected = [];
+  const queue = [{ dirPath: attachmentRoot, relativeDir: "" }];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    const entries = await fs.readdir(current.dirPath, { withFileTypes: true });
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+
+    for (const entry of entries) {
+      const nextPath = path.join(current.dirPath, entry.name);
+      const relativePath = path.join(current.relativeDir, entry.name);
+      if (entry.isDirectory()) {
+        queue.push({ dirPath: nextPath, relativeDir: relativePath });
+        continue;
+      }
+      if (entry.isFile()) {
+        collected.push({
+          label: relativePath,
+          path: nextPath,
+        });
+      }
+    }
+  }
+
+  return collected.slice(0, 40);
+}
+
 export function selectSupplementalArtifacts(artifacts = []) {
   return artifacts
     .filter((artifact) => {
@@ -1570,23 +1846,51 @@ function renderSupplementalArtifacts(artifacts, locale) {
   `;
 }
 
+function renderLocalMirrorFiles(document, locale) {
+  if (!document.attachmentFiles?.length) {
+    return "";
+  }
+
+  return `
+    <section class="inspector-section">
+      <h2 class="inspector-title">${escapeHtml(t(locale, "mirrorAttachments"))}</h2>
+      <div class="source-links">
+        ${document.attachmentFiles.map((file, index) => `
+          <a class="source-link" href="${escapeHtml(buildHref(`/source/${encodeURIComponent(document.routeSlug)}/attachment/${index}`, locale))}">
+            <span class="source-link-copy">
+              <span class="source-link-label">${escapeHtml(path.basename(file.label))}</span>
+              <span class="source-link-note">${escapeHtml(file.label)}</span>
+            </span>
+            <span class="source-link-meta">${escapeHtml(t(locale, "openSource"))}</span>
+          </a>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
 function renderSourceLinksPanel(document, locale) {
   const links = buildSourceLinkModels(document, locale);
-  if (!links.length) {
+  if (!links.length && !document.attachmentFiles?.length) {
     return "";
   }
 
   return `
     <section class="inspector-section">
       <h2 class="inspector-title">${escapeHtml(t(locale, "sourceCompare"))}</h2>
+      <p class="source-note">${escapeHtml(t(locale, "sourceLegend"))}</p>
       <div class="source-links">
         ${links.map((link) => `
           <a class="source-link" href="${escapeHtml(link.href)}"${link.external ? ' target="_blank" rel="noreferrer"' : ""}>
-            <span class="source-link-label">${escapeHtml(link.label)}</span>
+            <span class="source-link-copy">
+              <span class="source-link-label">${escapeHtml(link.label)}</span>
+              ${link.note ? `<span class="source-link-note">${escapeHtml(link.note)}</span>` : ""}
+            </span>
             <span class="source-link-meta">${escapeHtml(link.download ? t(locale, "downloadSource") : (link.external ? t(locale, "openExternal") : t(locale, "openSource")))}</span>
           </a>
         `).join("")}
       </div>
+      ${renderLocalMirrorFiles(document, locale)}
     </section>
   `;
 }
@@ -1626,11 +1930,28 @@ export function resolveRenderableMarkdown(entry, canonicalMap) {
   }
 
   const officialTextCandidate = findTextCandidate(entry, "official-text");
-  if (officialTextCandidate?.extractedMarkdownPath) {
+  if (
+    entry.preferredTextSource?.sourceId === "official-text" &&
+    officialTextCandidate?.extractedMarkdownPath &&
+    officialTextCandidate?.qualityGate?.passed !== false
+  ) {
     return {
       sourceId: "official-text",
       label: "Official markdown",
       path: officialTextCandidate.extractedMarkdownPath,
+    };
+  }
+
+  const tvplCandidate = findTextCandidate(entry, "tvpl");
+  if (
+    entry.preferredTextSource?.sourceId === "tvpl" &&
+    tvplCandidate?.extractedMarkdownPath &&
+    tvplCandidate?.qualityGate?.passed !== false
+  ) {
+    return {
+      sourceId: "tvpl",
+      label: "TVPL markdown",
+      path: tvplCandidate.extractedMarkdownPath,
     };
   }
 
@@ -1645,6 +1966,7 @@ export function buildLegalDocumentViewModel(entry, canonicalMap) {
   const routeSlug = buildDocumentRouteSlug(entry);
   const renderSource = resolveRenderableMarkdown(entry, canonicalMap);
   const officialTextCandidate = findTextCandidate(entry, "official-text");
+  const tvplCandidate = findTextCandidate(entry, "tvpl");
   const ocrCandidate = findTextCandidate(entry, "ocr-recovery");
   const extractionCandidate = findTextCandidate(entry, "ecosys-extracted");
 
@@ -1652,16 +1974,31 @@ export function buildLegalDocumentViewModel(entry, canonicalMap) {
     ...entry,
     routeSlug,
     renderSource,
-    preferredTextSourceLabel: describePreferredSource(entry.preferredTextSource?.sourceId),
+    preferredTextSourceLabel: localizedPreferredSource("en", entry.preferredTextSource?.sourceId, {
+      ...entry,
+      officialSourceProvider: officialTextCandidate?.sourceProvider || entry.officialSourceProvider || null,
+      officialPageUrl: officialTextCandidate?.pageUrl || entry.officialPageUrl || null,
+      officialSearchUrl: officialTextCandidate?.searchUrl || entry.officialSearchUrl || null,
+      officialMarkdownPath: officialTextCandidate?.extractedMarkdownPath || entry.officialMarkdownPath || null,
+      officialHtmlPath: officialTextCandidate?.cachedHtmlPath || entry.officialHtmlPath || null,
+      officialSearchHtmlPath: officialTextCandidate?.cachedSearchHtmlPath || entry.officialSearchHtmlPath || null,
+      officialJsonPath: officialTextCandidate?.cachedJsonPath || entry.officialJsonPath || null,
+    }),
     sourceClassificationLabel: describeSourceClassification(entry.sourceClassification?.sourceType),
     qualityLabel: describeQuality(entry.extractionAudit?.quality),
     qualityClassName: qualityClass(entry.extractionAudit?.quality),
     notesSummary: (entry.extractionAudit?.issues || []).join(", ") || "No major extraction issues flagged.",
+    officialSourceProvider: officialTextCandidate?.sourceProvider || null,
     officialPageUrl: officialTextCandidate?.pageUrl || null,
+    officialSearchUrl: officialTextCandidate?.searchUrl || null,
+    officialDetailApiUrl: officialTextCandidate?.detailApiUrl || null,
+    officialDetailId: officialTextCandidate?.detailId || null,
     officialMarkdownPath: officialTextCandidate?.extractedMarkdownPath || null,
     officialHtmlPath: officialTextCandidate?.cachedHtmlPath || null,
     officialSearchHtmlPath: officialTextCandidate?.cachedSearchHtmlPath || null,
     officialJsonPath: officialTextCandidate?.cachedJsonPath || null,
+    tvplMarkdownPath: tvplCandidate?.extractedMarkdownPath || null,
+    tvplPageUrl: tvplCandidate?.pageUrl || null,
     ocrPath: ocrCandidate?.extractionPath || null,
     extractionPath: extractionCandidate?.extractionPath || null,
   };
@@ -1685,6 +2022,8 @@ function resolveDocumentSourceAsset(document, kind) {
       return document.ocrPath ? { type: "json", path: document.ocrPath, title: "OCR JSON", contentType: "application/json; charset=utf-8" } : null;
     case "raw-binary":
       return document.rawBinarySource?.localPath ? { type: "binary", path: document.rawBinarySource.localPath, title: "Binary mirror file", contentType: binaryContentType(document.rawBinarySource.localPath) } : null;
+    case "attachment":
+      return null;
     default:
       return null;
   }
@@ -1706,11 +2045,52 @@ export function buildSourceLinkModels(document, locale = "vi") {
     });
   };
 
-  pushLink("official-page", t(locale, "officialTextPage"), document.officialPageUrl, { external: true });
-  pushLink("ecosys-listing", t(locale, "ecosysListing"), document.discovery?.listingUrl, { external: true });
-  pushLink("ecosys-file-url", t(locale, "ecosysFileUrl"), document.discovery?.mirroredFileUrl, { external: true });
+  if (isTrustedOfficialTextUrl(document.officialPageUrl)) {
+    pushLink(
+      "official-page",
+      `${describeOfficialTextSource(document)} · ${t(locale, "officialTextPage")}`,
+      document.officialPageUrl,
+      { external: true, note: describeHost(document.officialPageUrl) },
+    );
+  } else {
+    const fallbackOfficialLink = buildFallbackOfficialSourceLink(document, locale);
+    if (fallbackOfficialLink) {
+      pushLink(
+        fallbackOfficialLink.id,
+        fallbackOfficialLink.label,
+        fallbackOfficialLink.href,
+        fallbackOfficialLink,
+      );
+    }
+  }
+  pushLink(
+    "tvpl-page",
+    "TVPL · Text page",
+    document.tvplPageUrl,
+    { external: true, note: describeHost(document.tvplPageUrl) },
+  );
+  pushLink(
+    "ecosys-listing",
+    `eCoSys · ${t(locale, "ecosysListing")}`,
+    document.discovery?.listingUrl,
+    { external: true, note: describeHost(document.discovery?.listingUrl) },
+  );
+  pushLink(
+    "ecosys-file-url",
+    `eCoSys · ${t(locale, "ecosysFileUrl")}`,
+    document.discovery?.mirroredFileUrl,
+    { external: true, note: describeHost(document.discovery?.mirroredFileUrl) },
+  );
   if (isLocalAppPath(document.rawBinarySource?.localPath)) {
-    pushLink("raw-binary", t(locale, "rawBinaryFile"), buildHref(`/source/${encodeURIComponent(document.routeSlug)}/raw-binary`, locale), { download: true });
+    pushLink(
+      "raw-binary",
+      `Local mirror · ${path.basename(document.rawBinarySource.localPath)}`,
+      buildHref(`/source/${encodeURIComponent(document.routeSlug)}/raw-binary`, locale),
+      {
+        download: true,
+        note: document.rawBinarySource.fileExtension || path.extname(document.rawBinarySource.localPath),
+      },
+    );
   }
 
   return links;
@@ -1730,7 +2110,12 @@ export function rewriteRenderedMarkdownLinks(html, documentPathMap, locale = "vi
 async function loadRegistryDocuments() {
   const registry = JSON.parse(await fs.readFile(REGISTRY_PATH, "utf8"));
   const canonicalMap = await buildCanonicalMap();
-  const documents = registry.documents.map((entry) => buildLegalDocumentViewModel(entry, canonicalMap));
+  const documents = await Promise.all(
+    registry.documents.map(async (entry) => ({
+      ...buildLegalDocumentViewModel(entry, canonicalMap),
+      attachmentFiles: await listLocalMirrorAttachments(entry.issueCode, entry.title),
+    })),
+  );
   documents.sort((left, right) => {
     const leftDate = left.issuedDate || "";
     const rightDate = right.issuedDate || "";
@@ -1775,7 +2160,7 @@ function renderDocumentList(documents, locale) {
       <div class="tag-row">
         <span class="tag">${escapeHtml(document.formType || t(locale, "unknown"))}</span>
         <span class="tag ${document.qualityClassName}">${escapeHtml(localizedQuality(locale, document.extractionAudit?.quality))}</span>
-        <span class="tag">${escapeHtml(localizedPreferredSource(locale, document.preferredTextSource?.sourceId))}</span>
+        <span class="tag">${escapeHtml(localizedPreferredSource(locale, document.preferredTextSource?.sourceId, document))}</span>
       </div>
     </li>
   `).join("");
@@ -1793,7 +2178,6 @@ function renderDocumentsTable(documents, locale, options = {}) {
               <th>${escapeHtml(t(locale, "issueCode"))}</th>
               <th>${escapeHtml(t(locale, "title"))}</th>
               <th>${escapeHtml(t(locale, "issuedDate"))}</th>
-              <th>${escapeHtml(t(locale, "group"))}</th>
               <th>${escapeHtml(t(locale, "source"))}</th>
               <th>${escapeHtml(t(locale, "open"))}</th>
             </tr>
@@ -1801,20 +2185,19 @@ function renderDocumentsTable(documents, locale, options = {}) {
           <tbody>
             ${documents.map((document) => `
               <tr>
-                <td><a class="table-link" href="${buildHref(`/doc/${encodeURIComponent(document.routeSlug)}`, locale)}">${escapeHtml(document.issueCode)}</a></td>
+                <td class="table-code-cell"><a class="table-link" href="${buildHref(`/doc/${encodeURIComponent(document.routeSlug)}`, locale)}">${escapeHtml(document.issueCode)}</a></td>
                 <td class="table-title">
                   <div>${escapeHtml(document.title)}</div>
-                  <div class="table-subtle">${escapeHtml(document.issuingUnit || t(locale, "unknown"))}</div>
+                  <div class="table-subtle">${escapeHtml([document.issuingUnit || t(locale, "unknown"), document.formType || t(locale, "unknown")].join(" · "))}</div>
                 </td>
-                <td>${escapeHtml(document.issuedDate || t(locale, "unknown"))}</td>
-                <td>${escapeHtml(document.formType || t(locale, "unknown"))}</td>
-                <td>
+                <td class="table-date-cell">${escapeHtml(document.issuedDate || t(locale, "unknown"))}</td>
+                <td class="table-source-cell">
+                  <div class="table-source-main">${escapeHtml(localizedPreferredSource(locale, document.preferredTextSource?.sourceId, document))}</div>
                   <div class="table-status-stack">
-                    <span class="tag">${escapeHtml(localizedPreferredSource(locale, document.preferredTextSource?.sourceId))}</span>
                     <span class="tag ${document.qualityClassName}">${escapeHtml(localizedQuality(locale, document.extractionAudit?.quality))}</span>
                   </div>
                 </td>
-                <td><a class="table-link" href="${buildHref(`/doc/${encodeURIComponent(document.routeSlug)}`, locale)}">${escapeHtml(t(locale, "openDocument"))}</a></td>
+                <td class="table-action-cell"><a class="table-link table-link-button" href="${buildHref(`/doc/${encodeURIComponent(document.routeSlug)}`, locale)}">${escapeHtml(t(locale, "openDocument"))}</a></td>
               </tr>
             `).join("")}
           </tbody>
@@ -1847,7 +2230,7 @@ function renderDocumentsTable(documents, locale, options = {}) {
               <td>${escapeHtml(document.issuedDate || t(locale, "unknown"))}</td>
               <td>${escapeHtml(document.issuingUnit || t(locale, "unknown"))}</td>
               <td>${escapeHtml(document.formType || t(locale, "unknown"))}</td>
-              <td>${escapeHtml(localizedPreferredSource(locale, document.preferredTextSource?.sourceId))}</td>
+              <td>${escapeHtml(localizedPreferredSource(locale, document.preferredTextSource?.sourceId, document))}</td>
               <td>${escapeHtml(document.renderSource.label)}</td>
               <td><span class="tag ${document.qualityClassName}">${escapeHtml(localizedQuality(locale, document.extractionAudit?.quality))}</span></td>
               <td><a class="table-link" href="${buildHref(`/doc/${encodeURIComponent(document.routeSlug)}`, locale)}">${escapeHtml(t(locale, "openDocument"))}</a></td>
@@ -1864,6 +2247,7 @@ function renderHome(documents, counts, query, locale) {
     acc[document.renderSource.sourceId] = (acc[document.renderSource.sourceId] || 0) + 1;
     return acc;
   }, {});
+  const ocrCount = counts.preferredOcrRecovery || 0;
   const body = `
     <section class="workspace-topbar">
       <div>
@@ -1876,60 +2260,53 @@ function renderHome(documents, counts, query, locale) {
           <a href="${buildHref("/about", locale)}">${escapeHtml(t(locale, "legalWorkspace"))}</a>
         </div>
       </div>
-      <div class="workspace-topbar-meta">
-        <span class="summary-chip"><strong>${counts.documents}</strong> ${escapeHtml(t(locale, "totalDocuments").toLowerCase())}</span>
-        <span class="summary-chip"><strong>${counts.preferredOfficialText}</strong> ${escapeHtml(t(locale, "preferredOfficialText").toLowerCase())}</span>
-        <span class="summary-chip"><strong>${counts.bySourceType.official_pdf_scan}</strong> ${escapeHtml(t(locale, "officialPdfScan").toLowerCase())}</span>
-      </div>
     </section>
-    <div class="panel content">
-        <h2>${escapeHtml(t(locale, "corpusSummary"))}</h2>
-        <div class="stats-grid">
-          <div class="stat">
-            <span class="stat-label">${escapeHtml(t(locale, "totalDocuments"))}</span>
-            <span class="stat-value">${counts.documents}</span>
-          </div>
-          <div class="stat">
-            <span class="stat-label">${escapeHtml(t(locale, "preferredOfficialText"))}</span>
-            <span class="stat-value">${counts.preferredOfficialText}</span>
-          </div>
-          <div class="stat">
-            <span class="stat-label">${escapeHtml(t(locale, "officialPdfScan"))}</span>
-            <span class="stat-value">${counts.bySourceType.official_pdf_scan}</span>
-          </div>
-          <div class="stat">
-            <span class="stat-label">${escapeHtml(t(locale, "officialLegacyBinary"))}</span>
-            <span class="stat-value">${counts.bySourceType.official_binary_legacy_doc}</span>
+    <div class="grid">
+      <aside class="rail">
+        <div class="panel">
+          <h2>${escapeHtml(t(locale, "corpusSummary"))}</h2>
+          <div class="stats-grid">
+            <div class="stat">
+              <span class="stat-label">${escapeHtml(t(locale, "totalDocuments"))}</span>
+              <span class="stat-value">${counts.documents}</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">${escapeHtml(t(locale, "preferredOfficialText"))}</span>
+              <span class="stat-value">${counts.preferredOfficialText}</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">${escapeHtml(t(locale, "preferredOcrRecovery"))}</span>
+              <span class="stat-value">${ocrCount}</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">${escapeHtml(t(locale, "temporaryExtraction"))}</span>
+              <span class="stat-value">${counts.temporaryEcosysExtraction}</span>
+            </div>
           </div>
         </div>
-        <table class="detail-meta">
-          <tbody>
-            <tr><th>${escapeHtml(t(locale, "preferredOfficialText"))}</th><td>${counts.preferredOfficialText}</td></tr>
-            <tr><th>${escapeHtml(t(locale, "temporaryExtraction"))}</th><td>${counts.temporaryEcosysExtraction}</td></tr>
-            <tr><th>${escapeHtml(t(locale, "officialHtml"))}</th><td>${counts.bySourceType.official_html}</td></tr>
-            <tr><th>${escapeHtml(t(locale, "officialPdfText"))}</th><td>${counts.bySourceType.official_pdf_text}</td></tr>
-            <tr><th>${escapeHtml(t(locale, "officialPdfScan"))}</th><td>${counts.bySourceType.official_pdf_scan}</td></tr>
-            <tr><th>${escapeHtml(t(locale, "officialLegacyBinary"))}</th><td>${counts.bySourceType.official_binary_legacy_doc}</td></tr>
-          </tbody>
-        </table>
-        <h2>${escapeHtml(t(locale, "contentCoverage"))}</h2>
-        <table class="detail-meta">
-          <tbody>
-            <tr><th>${escapeHtml(t(locale, "canonicalPilot"))}</th><td>${renderCoverage["canonical-pilot"] || 0}</td></tr>
-            <tr><th>${escapeHtml(t(locale, "officialMarkdown"))}</th><td>${renderCoverage["official-text"] || 0}</td></tr>
-            <tr><th>${escapeHtml(t(locale, "wikiFallback"))}</th><td>${renderCoverage.wiki || 0}</td></tr>
-          </tbody>
-        </table>
-        <p class="coverage-note">${locale === "vi"
-          ? "Hiện content đã có cho toàn bộ 71 văn bản, nhưng mức độ sạch chưa đồng đều: một phần đang ở canonical pilot, một phần đang dùng official markdown, và phần còn lại vẫn là wiki fallback từ extraction cũ."
-          : "Content exists for all 71 documents, but cleanliness is uneven: some are canonical pilot, some use official markdown, and the rest still rely on wiki fallback from older extraction."}</p>
+        <div class="panel">
+          <h2>${escapeHtml(t(locale, "contentCoverage"))}</h2>
+          <table class="detail-meta">
+            <tbody>
+              <tr><th>${escapeHtml(t(locale, "canonicalPilot"))}</th><td>${renderCoverage["canonical-pilot"] || 0}</td></tr>
+              <tr><th>${escapeHtml(t(locale, "officialMarkdown"))}</th><td>${renderCoverage["official-text"] || 0}</td></tr>
+              <tr><th>TVPL</th><td>${renderCoverage.tvpl || 0}</td></tr>
+              <tr><th>${escapeHtml(t(locale, "wikiFallback"))}</th><td>${renderCoverage.wiki || 0}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </aside>
+      <main class="panel content">
         <h2>${escapeHtml(t(locale, "corpusTable"))}</h2>
         <p>${escapeHtml(t(locale, "corpusTableHelp"))}</p>
         ${renderDocumentsTable(documents, locale, { mode: "overview" })}
+      </main>
     </div>
   `;
 
-  return renderLayout(t(locale, "homeTitle"), body, locale);
+  return renderLayout(t(locale, "homeTitle"), body, locale, {
+    currentPath: "/",
+  });
 }
 
 function renderSearchPage(documents, query, locale) {
@@ -1978,7 +2355,9 @@ function renderSearchPage(documents, query, locale) {
     </div>
   `;
 
-  return renderLayout(t(locale, "searchPageTitle"), body, locale);
+  return renderLayout(t(locale, "searchPageTitle"), body, locale, {
+    currentPath: "/search",
+  });
 }
 
 function renderMetadataTable(document, locale) {
@@ -2019,22 +2398,15 @@ async function renderDocumentPage(document, locale) {
 
   const body = `
     <section class="document-header">
-      <div class="document-nav">
-        <a href="${buildHref("/", locale)}">${escapeHtml(t(locale, "backToCorpus"))}</a>
-        <span>•</span>
-        <a href="${buildHref("/search", locale)}">${escapeHtml(t(locale, "searchTitle"))}</a>
-        <span>•</span>
-        <a href="${buildHref("/lookup-system", locale)}">${escapeHtml(t(locale, "lookupSystem"))}</a>
-      </div>
       <div class="document-header-head">
-        <div>
-          <div class="document-code">${escapeHtml(document.issueCode)}</div>
-          <h1 class="document-title">${escapeHtml(document.title)}</h1>
-          <p class="document-summary">${escapeHtml(summary)}</p>
-        </div>
         <div class="document-chip-row">
-          <span class="document-chip">${escapeHtml(localizedPreferredSource(locale, document.preferredTextSource?.sourceId))}</span>
-          <span class="document-chip">${escapeHtml(localizedQuality(locale, document.extractionAudit?.quality))}</span>
+          <span class="document-code">${escapeHtml(document.issueCode)}</span>
+          <span class="document-chip"><span class="document-chip-label">${escapeHtml(t(locale, "viewingFrom"))}:</span> ${escapeHtml(localizedPreferredSource(locale, document.preferredTextSource?.sourceId, document))}</span>
+          <span class="document-chip"><span class="document-chip-label">${escapeHtml(t(locale, "qualityState"))}:</span> ${escapeHtml(localizedQuality(locale, document.extractionAudit?.quality))}</span>
+        </div>
+        <h1 class="document-title">${escapeHtml(document.title)}</h1>
+        <div class="document-meta-row">
+          ${summary.split(" · ").map((item) => `<span>${escapeHtml(item)}</span>`).join("")}
         </div>
       </div>
     </section>
@@ -2088,7 +2460,9 @@ async function renderMarkdownPage(title, filePath, documentPathMap, locale, back
       <main class="panel content markdown-frame">${html}</main>
     </div>
   `;
-  return renderLayout(title, body, locale);
+  return renderLayout(title, body, locale, {
+    currentPath: backHref === "/" ? "/" : backHref,
+  });
 }
 
 async function renderRawSourcePage(title, filePath, locale, backHref = "/") {
@@ -2127,7 +2501,9 @@ async function renderRawSourcePage(title, filePath, locale, backHref = "/") {
       <main class="panel content"><pre>${escapeHtml(bodyText)}</pre></main>
     </div>
   `;
-  return renderLayout(title, body, locale);
+  return renderLayout(title, body, locale, {
+    currentPath: backHref === "/" ? "/" : backHref,
+  });
 }
 
 function sendHtml(res, html, statusCode = 200) {
@@ -2219,7 +2595,19 @@ export function createLegalLookupServer({ documents, counts, documentMap, docume
           return;
         }
 
-        const sourceAsset = resolveDocumentSourceAsset(document, kind);
+        let sourceAsset = null;
+        if (kind === "attachment") {
+          const attachmentIndex = Number.parseInt(segments[3] || "", 10);
+          const attachment = Number.isInteger(attachmentIndex) ? document.attachmentFiles?.[attachmentIndex] : null;
+          sourceAsset = attachment ? {
+            type: "binary",
+            path: attachment.path,
+            title: attachment.label,
+            contentType: binaryContentType(attachment.path),
+          } : null;
+        } else {
+          sourceAsset = resolveDocumentSourceAsset(document, kind);
+        }
         if (!sourceAsset || !await fileExists(sourceAsset.path)) {
           sendNotFound(res, locale, locale === "vi" ? `Không có source ${kind} cho ${slug}` : `No source ${kind} found for ${slug}`);
           return;

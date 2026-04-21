@@ -1,5 +1,71 @@
-export function shouldResolveFallbackTextSource({ officialTextResolved }) {
-  return !officialTextResolved;
+function countMatches(text, pattern) {
+  return (text.match(pattern) || []).length;
+}
+
+function hasMarkdownTableSyntax(markdownBody) {
+  return /^\|.+\|$/m.test(markdownBody || "");
+}
+
+export function assessTextPreservationQuality({
+  sourceType = null,
+  markdownBody = "",
+  htmlBody = "",
+} = {}) {
+  const markdown = typeof markdownBody === "string" ? markdownBody.trim() : "";
+  const html = typeof htmlBody === "string" ? htmlBody : "";
+  const issues = [];
+
+  if (!markdown) {
+    return {
+      quality: "none",
+      passed: false,
+      issues: ["missing_markdown_text"],
+    };
+  }
+
+  if (markdown.startsWith("_")) {
+    issues.push("placeholder_markdown");
+  }
+
+  const mojibakeHits = countMatches(markdown, /chÝnh phñ|Céng hßa|x· héi|nghÜa|viÖt nam|Ý|ß|·|Ü|ñ/g);
+  if (mojibakeHits > 0) {
+    issues.push("mojibake");
+  }
+
+  const hasWordHtmlArtifacts = /msohtmlclip|clip_image|file:\/\/\/|class="?Mso/i.test(html);
+  if (hasWordHtmlArtifacts) {
+    issues.push("word_html_artifacts");
+  }
+
+  const htmlTableCount = countMatches(html, /<table\b/gi);
+  if (
+    sourceType === "vbpl-toanvan" &&
+    htmlTableCount > 0 &&
+    !hasMarkdownTableSyntax(markdown)
+  ) {
+    issues.push("table_structure_at_risk");
+  }
+
+  const blockingIssues = new Set([
+    "missing_markdown_text",
+    "placeholder_markdown",
+    "word_html_artifacts",
+    "table_structure_at_risk",
+  ]);
+  const passed = issues.every((issue) => !blockingIssues.has(issue));
+
+  return {
+    quality: issues.length === 0 ? "usable" : (passed ? "noisy" : "fragile"),
+    passed,
+    issues,
+  };
+}
+
+export function shouldResolveFallbackTextSource({
+  officialTextResolved,
+  officialTextQualityGatePassed = officialTextResolved,
+}) {
+  return !officialTextResolved || !officialTextQualityGatePassed;
 }
 
 export function classifySearchResponse(html) {
@@ -183,19 +249,21 @@ export function buildPreferredTextSource({
   ocrTextCandidate,
   binaryExtractionCandidate,
 }) {
-  if (officialTextCandidate?.status === "resolved") {
+  if (officialTextCandidate?.status === "resolved" && officialTextCandidate?.qualityGate?.passed !== false) {
     return {
       sourceId: officialTextCandidate.sourceId,
       status: "resolved",
-      rationale: "official_text_source_resolved",
+      rationale: "official_text_source_passed_quality_gate",
     };
   }
 
-  if (fallbackTextCandidate?.status === "resolved") {
+  if (fallbackTextCandidate?.status === "resolved" && fallbackTextCandidate?.qualityGate?.passed !== false) {
     return {
       sourceId: fallbackTextCandidate.sourceId,
       status: "resolved",
-      rationale: "fallback_text_source_resolved_before_official_text_source",
+      rationale: officialTextCandidate?.status === "resolved"
+        ? "fallback_text_source_passed_quality_gate_after_official_failed"
+        : "fallback_text_source_resolved_before_official_text_source",
     };
   }
 
