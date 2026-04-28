@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}Danh mục mã hàng - {{ client.name }}{% endblock %}
+
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone" id="catalog">
+  <div class="zone-head">
+    <div>
+      <h2>Danh mục mã hàng</h2>
+      <p class="meta">Hai loại mã đang dùng cho demo: thành phẩm xuất khẩu và nguyên vật liệu. Chưa xử lý quy đổi mã HQ sang mã nội bộ.</p>
+    </div>
+    <div class="chip-row" aria-label="Loại mã hàng">
+      <a class="chip chip-active" href="#tp-catalog">TP ({{ client.counts.products }})</a>
+      <a class="chip" href="#nvl-catalog">NVL ({{ client.counts.materials }})</a>
+    </div>
+  </div>
+
+  <section class="callout callout-info">
+    <span class="callout-icon">i</span>
+    <div>
+      <div class="callout-title">Upload danh mục</div>
+      DS NVL và DS SP là catalog hải quan. Full upload thiếu mã cũ sẽ đánh dấu <span class="mono">inactive_pending_review</span>, không xóa tự động.
+    </div>
+  </section>
+
+  {% if catalog_result %}
+  <div class="callout {{ 'callout-info' if catalog_result.status != 'failed' else 'callout-danger' }}">
+    <span class="callout-icon">i</span>
+    <div>
+      <div class="callout-title">{{ catalog_result.status }}</div>
+      {{ catalog_result.message }}
+      {% if catalog_result.summary %}
+      <div class="meta">Thêm {{ catalog_result.summary.added }} · Đổi {{ catalog_result.summary.changed }} · Inactive pending review {{ catalog_result.summary.inactive_pending_review }}</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="split-balanced">
+    <form method="post" action="/clients/{{ client.id }}/catalog/upload" enctype="multipart/form-data" class="zone mini-panel" hx-boost="false">
+      <div class="subsection-head">
+        <h3>Upload danh mục</h3>
+        <p class="meta">Chọn DS NVL hoặc DS SP. Mặc định là full catalog snapshot.</p>
+      </div>
+      <div class="stack-form">
+        <label>Loại catalog
+          <select name="catalog_type">
+            <option value="material">DS NVL DK HQ</option>
+            <option value="product">DS SP DK HQ</option>
+          </select>
+        </label>
+        <label>Scope upload
+          <select name="upload_scope">
+            <option value="full_catalog">full_catalog</option>
+            <option value="partial_update">partial_update</option>
+          </select>
+        </label>
+        <input type="file" name="file" accept=".xlsx" required>
+        <button type="submit">Upload danh mục</button>
+      </div>
+    </form>
+    <section class="zone mini-panel">
+      <div class="subsection-head">
+        <h3>Template và version</h3>
+        <p class="meta">Catalog hiện tại được publish theo version tổng hợp mỗi công ty.</p>
+      </div>
+      <div class="chip-row">
+        <a class="chip" href="/clients/{{ client.id }}/catalog/material-template.xlsx">Tải template DS NVL</a>
+        <a class="chip" href="/clients/{{ client.id }}/catalog/product-template.xlsx">Tải template DS SP</a>
+      </div>
+      <div class="meta">
+        NVL v{{ source_workspace.material_catalog.latest_version.version_no if source_workspace.material_catalog.latest_version else 'none' }} ·
+        TP v{{ source_workspace.product_catalog.latest_version.version_no if source_workspace.product_catalog.latest_version else 'none' }}
+      </div>
+    </section>
+  </div>
+
+  <div class="split-balanced">
+    <section class="catalog-pane" id="tp-catalog">
+      <div class="subsection-head">
+        <h3>Thành phẩm (TP)</h3>
+        <p class="meta">Mã xuất khẩu, HS thành phẩm và rule áp dụng cho hồ sơ C/O.</p>
+      </div>
+      <div class="table-scroll">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Mã TP</th>
+              <th>Tên</th>
+              <th>HS</th>
+              <th>Quy tắc</th>
+              <th>Trạng thái</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in client.product_catalog %}
+            <tr>
+              <td class="mono">{{ row.product_code }}</td>
+              <td>{{ row.name }}</td>
+              <td class="mono">{{ row.hs_code }}</td>
+              <td>{{ row.rule }}</td>
+              <td><span class="badge badge-success">{{ row.status }}</span></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="empty-cell">Chưa có danh mục TP.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <section class="catalog-pane" id="nvl-catalog">
+      <div class="subsection-head">
+        <h3>Nguyên vật liệu (NVL)</h3>
+        <p class="meta">Bản đơn giản đang khóa một mã: mã HQ và mã nội bộ giống nhau.</p>
+      </div>
+      <div class="table-scroll">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Mã HQ</th>
+              <th>Mã nội bộ</th>
+              <th>Tên</th>
+              <th>HS</th>
+              <th>Xuất xứ mặc định</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in client.material_catalog %}
+            <tr>
+              <td class="mono">{{ row.customs_code }}</td>
+              <td class="mono">{{ row.internal_code }}</td>
+              <td>{{ row.name }}</td>
+              <td class="mono">{{ row.hs_code }}</td>
+              <td><span class="badge badge-neutral">{{ row.origin_default }}</span></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="empty-cell">Chưa có danh mục NVL.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</section>
+{% endblock %}

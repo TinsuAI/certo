@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}{{ client.name }} - Barry CO{% endblock %}
+
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="hero hero-primary client-snapshot" aria-label="Tóm tắt workspace">
+  <div>
+    <div class="hero-headline">Workspace theo công ty, mỗi module là một view riêng.</div>
+    <p class="hero-meta">Case đang mở: <span class="mono">{{ case.case_code }}</span>. Bản demo dùng nguyên tắc đơn giản: mã HQ và mã nội bộ là cùng một mã.</p>
+  </div>
+  <div class="hero-divider"></div>
+  <div class="hero-stat">
+    <span class="hero-stat-value">{{ case.summary.passed_products }}/{{ case.summary.product_count }}</span>
+    <span class="hero-stat-label">Mã đạt</span>
+  </div>
+  <div class="hero-stat">
+    <span class="hero-stat-value">{{ case.summary.min_rvc }}%</span>
+    <span class="hero-stat-label">RVC thấp nhất</span>
+  </div>
+</section>
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Module dữ liệu công ty</h2>
+      <p class="meta">Tách màn hình để demo luồng vận hành rõ hơn: dữ liệu nền xử lý trước, hồ sơ C/O dùng dữ liệu đã duyệt.</p>
+    </div>
+  </div>
+  <div class="module-grid">
+    <a class="module-tile module-link" href="/clients/{{ client.id }}/catalog">
+      <strong>Danh mục mã hàng</strong>
+      <span>{{ client.counts.products }} TP · {{ client.counts.materials }} NVL · mã HQ = mã nội bộ trong demo đơn giản.</span>
+    </a>
+    <a class="module-tile module-link" href="/clients/{{ client.id }}/bom">
+      <strong>BOM</strong>
+      <span>{{ client.counts.bom_lines }} dòng định mức seed để đối chiếu nguyên liệu theo thành phẩm.</span>
+    </a>
+    <a class="module-tile module-link" href="/clients/{{ client.id }}/co-stock">
+      <strong>Tồn CO</strong>
+      <span>{{ client.counts.co_stock }} bucket theo tờ khai nhập, STT hàng và mã NVL.</span>
+    </a>
+    <a class="module-tile module-link" href="/clients/{{ client.id }}/bcct">
+      <strong>BCCT</strong>
+      <span>{{ client.counts.bcct }} dòng nhập khẩu/xuất khẩu để đối chiếu với tồn và hồ sơ C/O.</span>
+    </a>
+    <a class="module-tile module-link" href="/clients/{{ client.id }}/co-case">
+      <strong>Hồ sơ C/O</strong>
+      <span>Upload workbook, tính RVC/CTSH và xuất evidence XLSX cho case đang mở.</span>
+    </a>
+  </div>
+</section>
+{% endblock %}

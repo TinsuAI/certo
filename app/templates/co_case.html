@@ -1,0 +1,308 @@
+{% extends "base.html" %}
+{% block title %}Hồ sơ C/O - {{ client.name }}{% endblock %}
+
+{% macro result_badge(passed, skipped=False) -%}
+  {%- if skipped -%}
+    <span class="badge badge-warn">Chưa đủ dữ liệu</span>
+  {%- elif passed -%}
+    <span class="badge badge-ok">Đạt</span>
+  {%- else -%}
+    <span class="badge badge-bad">Không đạt</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone source-panel">
+  <div class="zone-head">
+    <div>
+      <h2>Nạp dữ liệu hồ sơ C/O</h2>
+      <p class="meta">Dữ liệu case hiện tại: <strong>{{ case.source_label }}</strong>. Upload workbook sẽ parse thành TP/NVL rồi chạy engine.</p>
+    </div>
+    <div class="source-actions">
+      <a class="btn-secondary" href="/clients/{{ client.id }}/co-case">Nạp seed {{ client.name }}</a>
+      <a class="btn-secondary" href="/clients/{{ client.id }}/demo-input.xlsx">Tải seed XLSX</a>
+    </div>
+  </div>
+  <form method="post" action="/clients/{{ client.id }}/upload" enctype="multipart/form-data" class="upload-form" hx-boost="false">
+    <input type="file" name="file" accept=".xlsx" required>
+    <button type="submit">Upload và parse</button>
+  </form>
+</section>
+
+<form method="post" action="/clients/{{ client.id }}/evaluate" id="co-case" class="workspace-grid">
+  <input type="hidden" name="case_id" value="{{ case.id }}">
+  <input type="hidden" name="title" value="{{ case.title }}">
+  <input type="hidden" name="mode" value="{{ case.mode }}">
+  <input type="hidden" name="mode_note" value="{{ case.mode_note }}">
+  <input type="hidden" name="source_label" value="{{ case.source_label }}">
+  <input type="hidden" name="document_count" value="{{ case.documents|length }}">
+  <input type="hidden" name="product_count" value="{{ case.products|length }}">
+
+  <aside class="rail">
+    <section class="zone" id="shipment">
+      <div class="zone-head">
+        <h2>Hồ sơ C/O</h2>
+      </div>
+      <div class="stack-form">
+        <label>Khách hàng
+          <input name="customer" value="{{ case.customer }}">
+        </label>
+        <label>Mã hồ sơ
+          <input name="case_code" value="{{ case.case_code }}">
+        </label>
+        <label>Thị trường
+          <input name="destination_market" value="{{ case.destination_market }}">
+        </label>
+        <label>Hiệp định
+          <input name="agreement" value="{{ case.agreement }}">
+        </label>
+        <label>Loại mẫu C/O
+          <input name="co_form_type" value="{{ case.co_form_type }}">
+        </label>
+        <label>Quy tắc
+          <input name="rule" value="{{ case.rule }}">
+        </label>
+      </div>
+    </section>
+
+    <section class="zone">
+      <div class="zone-head">
+        <h2>BOM snapshot</h2>
+      </div>
+      <div class="stack-form">
+        <label>BOM tổng hợp
+          <select name="bom_version_id">
+            {% for version in bom_workspace.versions %}
+            <option value="{{ version.version_id }}" {% if version.version_id == case.bom_snapshot.aggregate_version_id %}selected{% endif %}>BOM tổng hợp v{{ version.version_no }} · {{ version.product_versions|length }} TP</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <div class="rowlist audit-trail">
+        {% for product_version in case.bom_snapshot.composition %}
+        <div class="rowitem">
+          <div>
+            <strong>{{ product_version.product_code }}</strong>
+            <div class="meta">TP BOM v{{ product_version.product_version_no }} · {{ product_version.row_count }} dòng</div>
+          </div>
+        </div>
+        {% else %}
+        <p class="empty-cell">Hồ sơ chưa snapshot BOM.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="zone">
+      <div class="zone-head">
+        <h2>Source evidence snapshot</h2>
+      </div>
+      <div class="metric-stack">
+        <div><span>DS NVL</span><strong>v{{ case.source_snapshot.material_catalog_version_no or 'none' }}</strong></div>
+        <div><span>DS SP</span><strong>v{{ case.source_snapshot.product_catalog_version_no or 'none' }}</strong></div>
+        <div><span>BCCT reviewed rows</span><strong>{{ case.source_snapshot.bcct_reviewed_row_count }}</strong></div>
+      </div>
+      <p class="meta">BCCT reviewed rows: {{ case.source_snapshot.bcct_reviewed_row_count }}. Correction candidates không được dùng cho hồ sơ C/O.</p>
+    </section>
+
+    <section class="zone">
+      <div class="zone-head">
+        <h2>Kết quả case</h2>
+      </div>
+      <div class="metric-stack">
+        <div><span>Mã đạt</span><strong>{{ case.summary.passed_products }}/{{ case.summary.product_count }}</strong></div>
+        <div><span>RVC thấp nhất</span><strong>{{ case.summary.min_rvc }}%</strong></div>
+        <div><span>Chứng từ</span><strong>{{ case.summary.ready_documents }}/{{ case.summary.document_count }}</strong></div>
+      </div>
+    </section>
+
+    <section class="zone action-panel">
+      <button type="submit">Tính lại</button>
+      <button type="submit" formaction="/clients/{{ client.id }}/export">Xuất evidence XLSX</button>
+    </section>
+  </aside>
+
+  <section class="workspace-main">
+    <section class="zone" id="evidence">
+      <div class="zone-head">
+        <div>
+          <h2>Checklist chứng từ</h2>
+          <p class="meta">Slot chứng từ của case đang mở, tách khỏi dữ liệu nền của công ty.</p>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Nhóm chứng từ</th>
+              <th>Nguồn / file</th>
+              <th>Trạng thái</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for doc in case.documents %}
+            {% set doc_index = loop.index0 %}
+            <tr>
+              <td>
+                <input type="hidden" name="document_{{ doc_index }}_slot" value="{{ doc.slot }}">
+                <input class="table-input wide-input" name="document_{{ doc_index }}_label" value="{{ doc.label }}">
+              </td>
+              <td><input class="table-input wide-input" name="document_{{ doc_index }}_reference" value="{{ doc.reference }}"></td>
+              <td>
+                <select name="document_{{ doc_index }}_status">
+                  <option value="ready" {% if doc.status == "ready" %}selected{% endif %}>Đã có</option>
+                  <option value="pending" {% if doc.status == "pending" %}selected{% endif %}>Chờ xử lý</option>
+                </select>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="zone" id="evaluation">
+      <div class="zone-head">
+        <div>
+          <h2>Đánh giá RVC + CTSH</h2>
+          <p class="meta">RVC lấy từ tổng CIF không xuất xứ của các dòng NVL; CTSH so sánh HS NVL với HS thành phẩm.</p>
+        </div>
+      </div>
+
+      <div class="product-stack">
+        {% for product in case.products %}
+        {% set product_index = loop.index0 %}
+        <article class="product-block">
+          <input type="hidden" name="product_{{ product_index }}_material_count" value="{{ product.materials|length }}">
+          <input type="hidden" name="product_{{ product_index }}_non_origin_value" value="{{ product.non_origin_value }}">
+
+          <div class="product-head">
+            <div>
+              <span class="eyebrow">Model {{ loop.index }}</span>
+              <h3>{{ product.code }}</h3>
+              <p>{{ product.name }}</p>
+            </div>
+            <div class="product-result">
+              {{ result_badge(product.result.passed) }}
+              <strong>{{ product.result.rvc.percentage }}%</strong>
+              <small>Doc: {{ product.documented_result }}</small>
+            </div>
+          </div>
+
+          <div class="input-grid">
+            <label>Mã hàng
+              <input name="product_{{ product_index }}_code" value="{{ product.code }}">
+            </label>
+            <label>Tên hàng
+              <input name="product_{{ product_index }}_name" value="{{ product.name }}">
+            </label>
+            <label>HS thành phẩm
+              <input name="product_{{ product_index }}_finished_hs" value="{{ product.finished_hs }}">
+            </label>
+            <label>Số lượng
+              <input name="product_{{ product_index }}_quantity" value="{{ product.quantity }}">
+            </label>
+            <label>FOB
+              <input type="number" step="0.01" name="product_{{ product_index }}_fob" value="{{ product.fob }}">
+            </label>
+            <label>Ngưỡng RVC
+              <input type="number" step="0.01" name="product_{{ product_index }}_rvc_threshold" value="{{ product.rvc_threshold }}">
+            </label>
+            <label>Kết quả chứng từ gốc
+              <input name="product_{{ product_index }}_documented_result" value="{{ product.documented_result }}">
+            </label>
+            <label>BOM TP version
+              <select name="product_{{ product_index }}_bom_product_version_id">
+                <option value="">Theo BOM tổng hợp</option>
+                {% for bom_product_version in bom_workspace.product_version_options_by_code.get(product.code, []) %}
+                <option value="{{ bom_product_version.product_version_id }}" {% if bom_product_version.product_version_id == product.bom_product_version_id %}selected{% endif %}>TP v{{ bom_product_version.product_version_no }} · {{ bom_product_version.row_count }} dòng</option>
+                {% endfor %}
+              </select>
+            </label>
+          </div>
+
+          <div class="rule-grid">
+            <div>
+              <span>RVC</span>
+              {{ result_badge(product.result.rvc.passed) }}
+              <p>({{ product.result.rvc.fob }} - {{ product.result.rvc.non_origin_value }}) / {{ product.result.rvc.fob }} x 100 = {{ product.result.rvc.percentage }}%</p>
+            </div>
+            <div>
+              <span>CTSH</span>
+              {{ result_badge(product.result.tariff_shift.passed, product.result.tariff_shift.skipped) }}
+              <p>HS thành phẩm: {{ product.result.tariff_shift.finished_key }}. HS nguyên liệu không xuất xứ: {{ product.result.tariff_shift.input_keys|join(", ") }}.</p>
+            </div>
+          </div>
+
+          <div class="table-scroll">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Dòng nguồn</th>
+                  <th>Tờ khai nhập</th>
+                  <th>STT</th>
+                  <th>Mã HQ</th>
+                  <th>Mã nội bộ</th>
+                  <th>HS</th>
+                  <th>Xuất xứ</th>
+                  <th>Tồn CO</th>
+                  <th>Đã dùng</th>
+                  <th>CIF KXX</th>
+                  <th>Còn lại</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for material in product.materials %}
+                {% set material_index = loop.index0 %}
+                <tr>
+                  <td><input class="table-input" name="product_{{ product_index }}_material_{{ material_index }}_source_row" value="{{ material.source_row }}"></td>
+                  <td><input class="table-input" name="product_{{ product_index }}_material_{{ material_index }}_import_declaration_no" value="{{ material.import_declaration_no }}"></td>
+                  <td><input class="table-input mini-input" name="product_{{ product_index }}_material_{{ material_index }}_import_line_no" value="{{ material.import_line_no }}"></td>
+                  <td><input class="table-input" name="product_{{ product_index }}_material_{{ material_index }}_customs_material_code" value="{{ material.customs_material_code }}"></td>
+                  <td>
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_material_code" value="{{ material.material_code }}">
+                    <input class="table-input" name="product_{{ product_index }}_material_{{ material_index }}_internal_material_code" value="{{ material.internal_material_code }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_material_description" value="{{ material.material_description }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_uom" value="{{ material.uom }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_source_document_ref" value="{{ material.source_document_ref }}">
+                  </td>
+                  <td><input class="table-input" name="product_{{ product_index }}_material_{{ material_index }}_hs_code" value="{{ material.hs_code }}"></td>
+                  <td>
+                    <select name="product_{{ product_index }}_material_{{ material_index }}_origin_status">
+                      <option value="non_origin" {% if material.origin_status == "non_origin" %}selected{% endif %}>Không xuất xứ</option>
+                      <option value="origin" {% if material.origin_status == "origin" %}selected{% endif %}>Có xuất xứ</option>
+                    </select>
+                  </td>
+                  <td><input class="table-input number-input" type="number" step="0.01" name="product_{{ product_index }}_material_{{ material_index }}_available_qty" value="{{ material.available_qty }}"></td>
+                  <td><input class="table-input number-input" type="number" step="0.01" name="product_{{ product_index }}_material_{{ material_index }}_consumed_qty" value="{{ material.consumed_qty }}"></td>
+                  <td><input class="table-input number-input" type="number" step="0.01" name="product_{{ product_index }}_material_{{ material_index }}_non_origin_cif_value" value="{{ material.non_origin_cif_value }}"></td>
+                  <td>{{ material.available_qty - material.consumed_qty }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </article>
+        {% else %}
+        <p class="empty-cell">Chưa có sản phẩm trong case C/O này.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="zone" id="audit">
+      <div class="zone-head">
+        <div>
+          <h2>Audit và giới hạn demo</h2>
+          <p class="meta">Các điểm này phải còn nhìn thấy khi chuyển sang case thật.</p>
+        </div>
+      </div>
+      <ul class="audit-list">
+        {% for note in source_notes %}
+        <li>{{ note }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  </section>
+</form>
+{% endblock %}

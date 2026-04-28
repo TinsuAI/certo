@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}BCCT - {{ client.name }}{% endblock %}
+
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone" id="bcct">
+  <div class="zone-head">
+    <div>
+      <h2>BCCT nhập khẩu / xuất khẩu</h2>
+      <p class="meta">View riêng cho báo cáo chi tiết giao dịch. Dữ liệu này đối chiếu nhập, xuất, tồn CO và phân bổ vào hồ sơ C/O.</p>
+    </div>
+    <div class="chip-row">
+      <span class="chip chip-active">{{ client.counts.bcct }} dòng</span>
+      <a class="chip" href="/clients/{{ client.id }}/co-stock">Đối chiếu Tồn CO</a>
+      <a class="chip" href="/clients/{{ client.id }}/co-case">Dùng trong hồ sơ C/O</a>
+    </div>
+  </div>
+
+  <section class="callout callout-info">
+    <span class="callout-icon">i</span>
+    <div>
+      <div class="callout-title">Upload BCCT</div>
+      Mode <span class="mono">append_or_review_by_transaction_key</span>: file BCCT có thể overlap tùy ý, dòng thiếu trong upload mới không bị xóa.
+    </div>
+  </section>
+
+  {% if bcct_result %}
+  <div class="callout {{ 'callout-info' if bcct_result.status != 'failed' else 'callout-danger' }}">
+    <span class="callout-icon">i</span>
+    <div>
+      <div class="callout-title">{{ bcct_result.status }}</div>
+      {{ bcct_result.message }}
+      {% if bcct_result.summary %}
+      <div class="meta">Thêm {{ bcct_result.summary.added_rows }} · No-op {{ bcct_result.summary.unchanged_rows }} · correction_candidate {{ bcct_result.summary.correction_candidates }}</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="split-balanced">
+    <form method="post" action="/clients/{{ client.id }}/bcct/upload" enctype="multipart/form-data" class="zone mini-panel" hx-boost="false">
+      <div class="subsection-head">
+        <h3>Upload BCCT</h3>
+        <p class="meta">Identity: direction + declaration_no + line_no + item_code. Unit alias rõ ràng được normalize, đổi unit thật sẽ cần review.</p>
+      </div>
+      <div class="stack-form">
+        <input type="file" name="file" accept=".xlsx" required>
+        <button type="submit">Upload BCCT</button>
+      </div>
+    </form>
+    <section class="zone mini-panel">
+      <div class="subsection-head">
+        <h3>Template và review</h3>
+        <p class="meta">Tồn CO chỉ rollup từ import rows đã review.</p>
+      </div>
+      <div class="chip-row">
+        <a class="chip" href="/clients/{{ client.id }}/bcct/template.xlsx">Tải template BCCT</a>
+        <span class="chip">BCCT v{{ source_workspace.bcct.latest_version.version_no if source_workspace.bcct.latest_version else 'none' }}</span>
+        <span class="chip">{{ source_workspace.bcct.correction_candidates|length }} correction_candidate</span>
+      </div>
+    </section>
+  </div>
+
+  {% if source_workspace.bcct.correction_candidates %}
+  <section class="zone">
+    <div class="subsection-head">
+      <h3>Correction candidates</h3>
+      <p class="meta">Các dòng này chưa được dùng cho C/O case cho tới khi review.</p>
+    </div>
+    <div class="rowlist audit-trail">
+      {% for candidate in source_workspace.bcct.correction_candidates %}
+      <div class="rowitem">
+        <div>
+          <strong class="mono">{{ candidate.transaction_key }}</strong>
+          <div class="meta">correction_candidate · {{ candidate.incoming_row.declaration_no }} · unit {{ candidate.existing_row.unit }} -&gt; {{ candidate.incoming_row.unit }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <div class="table-scroll">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Kỳ</th>
+          <th>Tờ khai</th>
+          <th>STT</th>
+          <th>Luồng</th>
+          <th>Mã hàng</th>
+          <th>Số lượng</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in client.bcct_rows %}
+        <tr>
+          <td>{{ row.period }}</td>
+          <td class="mono">{{ row.declaration_no }}</td>
+          <td class="mono">{{ row.line_no }}</td>
+          <td><span class="badge badge-neutral">{{ row.direction }}</span></td>
+          <td class="mono">{{ row.item_code }}</td>
+          <td class="num">{{ row.qty }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty-cell">Chưa có BCCT.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,364 @@
+{% extends "base.html" %}
+{% block title %}BOM - {{ client.name }}{% endblock %}
+
+{% block content %}
+{% include "_client_nav.html" %}
+{% set latest = bom_workspace.latest_version %}
+
+{% if message %}
+<div class="toast">{{ message }}</div>
+{% endif %}
+{% if error %}
+<div class="toast toast-error">{{ error }}</div>
+{% endif %}
+
+{% if client.bom_source_profile %}
+<section class="zone zone-muted">
+  <div class="zone-head">
+    <div>
+      <h2>{{ client.bom_source_profile.kind }}</h2>
+      <p class="meta">{{ client.bom_source_profile.summary }}</p>
+    </div>
+    <span class="badge badge-info">{{ bom_workspace.config.bom_profile }}</span>
+  </div>
+  <div class="rowlist">
+    {% for signal in client.bom_source_profile.signals %}
+    <div class="rowitem">
+      <div>
+        <strong>Source signal {{ loop.index }}</strong>
+        <div class="meta">{{ signal }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Cấu hình và nạp BOM</h2>
+      <p class="meta">Mỗi công ty chọn profile parse riêng. Upload BOM mới sẽ so sánh theo từng mã TP, rồi publish BOM tổng hợp nếu composition đổi.</p>
+    </div>
+    <div class="chip-row">
+      <span class="chip chip-active">BOM tổng hợp v{{ latest.version_no }}</span>
+      <span class="chip">{{ latest.row_count }} dòng</span>
+      <span class="chip">{{ bom_workspace.product_composition|length }} TP version</span>
+      <span class="chip">{{ bom_workspace.config.code_system_mode }}</span>
+    </div>
+  </div>
+
+  <div class="split-balanced">
+    <form method="post" action="/clients/{{ client.id }}/bom/config" class="module-tile stack-form">
+      <h3>Cấu hình công ty</h3>
+      <label>Loại BOM kỹ thuật
+        <select name="bom_profile">
+          {% for option in bom_workspace.profile_options %}
+          <option value="{{ option.value }}" {% if option.value == bom_workspace.config.bom_profile %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Kiểu upload mặc định
+        <select name="default_import_mode">
+          {% for option in bom_workspace.upload_mode_options %}
+          <option value="{{ option.value }}" {% if option.value == bom_workspace.config.default_import_mode %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Hệ mã
+        <select name="code_system_mode">
+          {% for option in bom_workspace.code_system_options %}
+          <option value="{{ option.value }}" {% if option.value == bom_workspace.config.code_system_mode %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit">Lưu cấu hình BOM</button>
+    </form>
+
+    <form method="post" action="/clients/{{ client.id }}/bom/upload" enctype="multipart/form-data" class="module-tile stack-form" hx-boost="false">
+      <h3>Upload và versioning</h3>
+      <label>Kiểu file upload
+        <select name="upload_mode">
+          {% for option in bom_workspace.upload_mode_options %}
+          <option value="{{ option.value }}" {% if option.value == bom_workspace.config.default_import_mode %}selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Phạm vi cập nhật
+        <select name="upload_scope">
+          <option value="">Theo kiểu upload</option>
+          {% for option in bom_workspace.upload_scope_options %}
+          <option value="{{ option.value }}">{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>File BOM XLSX
+        <input type="file" name="file" accept=".xlsx" required>
+      </label>
+      <label class="inline-check">
+        <input type="checkbox" name="accept_review_required">
+        Chấp nhận publish BOM kỹ thuật cần review flatten cho demo
+      </label>
+      <div class="source-actions">
+        <button type="submit">Upload và so sánh</button>
+        <a class="btn-secondary" href="/clients/{{ client.id }}/bom/template.xlsx">Tải template BOM</a>
+      </div>
+      <p class="meta">Direct BOM mặc định là full aggregate. Technical BOM mặc định chỉ cập nhật TP trong file.</p>
+    </form>
+  </div>
+
+  {% if bom_result %}
+  <div class="callout {{ 'callout-info' if bom_result.status != 'failed' else '' }}">
+    <div class="callout-icon">i</div>
+    <div>
+      <div class="callout-title">{{ bom_result.message }}</div>
+      {% if bom_result.diff %}
+      <div class="diff-grid">
+        <span>TP đổi <strong>{{ bom_result.diff.summary.changed_products|default(0) }}</strong></span>
+        <span>Thêm <strong>{{ bom_result.diff.summary.added }}</strong></span>
+        <span>Xóa <strong>{{ bom_result.diff.summary.removed }}</strong></span>
+        <span>Đổi <strong>{{ bom_result.diff.summary.changed }}</strong></span>
+      </div>
+      {% endif %}
+      {% if bom_result.product_results %}
+      <div class="rowlist audit-trail">
+        {% for product_result in bom_result.product_results %}
+        <div class="rowitem">
+          <div>
+            <strong>{{ product_result.product_code }}</strong>
+            <div class="meta">TP v{{ product_result.previous_version_no }} -> v{{ product_result.new_version_no }} · +{{ product_result.diff_summary.added }} / -{{ product_result.diff_summary.removed }} / Δ{{ product_result.diff_summary.changed }}</div>
+          </div>
+          <span class="badge badge-{{ 'success' if product_result.status == 'new_version' else 'neutral' }}">{{ product_result.status }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</section>
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>BOM đang publish</h2>
+      <p class="meta">Version này là baseline để hồ sơ C/O snapshot và phân bổ tồn CO theo từng dòng NVL.</p>
+    </div>
+    <div class="chip-row">
+      <a class="chip chip-active" href="#bom-lines">{{ bom_workspace.latest_rows|length }} dòng</a>
+      <a class="chip" href="/clients/{{ client.id }}/co-case">Dùng trong hồ sơ C/O</a>
+    </div>
+  </div>
+  <div class="table-scroll" id="bom-lines">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Mã TP</th>
+          <th>BOM</th>
+          <th>Phiên bản TP</th>
+          <th>Mã NVL</th>
+          <th>Tên NVL</th>
+          <th>Định mức</th>
+          <th>ĐVT</th>
+          <th>Hao hụt</th>
+          <th>Nguồn</th>
+          <th>Trạng thái</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in bom_workspace.latest_rows %}
+        <tr>
+          <td class="mono">{{ row.product_code }}</td>
+          <td class="mono">{{ row.bom_code }}</td>
+          <td>TP v{{ row.product_version_no|default("?") }}</td>
+          <td class="mono">{{ row.material_code }}</td>
+          <td>{{ row.material_name }}</td>
+          <td class="num">{{ row.qty_per }}</td>
+          <td>{{ row.uom }}</td>
+          <td>{{ row.scrap_rate }}</td>
+          <td>{{ row.source }}</td>
+          <td><span class="badge badge-warning">{{ row.row_class }}</span></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="10" class="empty-cell">Chưa có dữ liệu BOM.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Version và truy vết</h2>
+      <p class="meta">BOM tổng hợp là composition của các version TP. Tất cả version TP được giữ lại để hồ sơ C/O có thể chọn lại khi cần.</p>
+    </div>
+  </div>
+  <div class="split-balanced">
+    <div>
+      <h3>Lịch sử BOM tổng hợp</h3>
+      <div class="table-scroll">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>BOM tổng hợp</th>
+              <th>Trạng thái</th>
+              <th>TP version</th>
+              <th>Dòng</th>
+              <th>Diff</th>
+              <th>Hash</th>
+              <th>Publish</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for version in bom_workspace.versions %}
+            <tr>
+              <td class="mono">v{{ version.version_no }}</td>
+              <td><span class="badge badge-{{ 'success' if version.status == 'published' else 'neutral' }}">{{ version.status }}</span></td>
+              <td class="num">{{ version.product_versions|length }}</td>
+              <td class="num">{{ version.row_count }}</td>
+              <td class="mono">+{{ version.diff_summary.added|default(0) }} / -{{ version.diff_summary.removed|default(0) }} / Δ{{ version.diff_summary.changed|default(0) }}</td>
+              <td class="mono">{{ version.version_hash[:10] }}</td>
+              <td>{{ version.published_at }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="empty-cell">Chưa có version BOM.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div>
+      <h3>Composition đang publish</h3>
+      <div class="table-scroll">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Mã TP</th>
+              <th>TP version</th>
+              <th>Dòng</th>
+              <th>Hash</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for product_version in bom_workspace.product_composition %}
+            <tr>
+              <td class="mono">{{ product_version.product_code }}</td>
+              <td class="mono">v{{ product_version.product_version_no }}</td>
+              <td class="num">{{ product_version.row_count }}</td>
+              <td class="mono">{{ product_version.version_hash[:10] }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="empty-cell">Chưa có composition BOM.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <h3>Lịch sử version TP</h3>
+  <div class="table-scroll">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Mã TP</th>
+          <th>TP version</th>
+          <th>Trạng thái</th>
+          <th>Dòng</th>
+          <th>Diff</th>
+          <th>Upload</th>
+          <th>Hash</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for product_version in bom_workspace.product_versions %}
+        <tr>
+          <td class="mono">{{ product_version.product_code }}</td>
+          <td class="mono">v{{ product_version.product_version_no }}</td>
+          <td><span class="badge badge-{{ 'success' if product_version.status == 'current' else 'neutral' }}">{{ product_version.status }}</span></td>
+          <td class="num">{{ product_version.row_count }}</td>
+          <td class="mono">+{{ product_version.diff_summary.added|default(0) }} / -{{ product_version.diff_summary.removed|default(0) }} / Δ{{ product_version.diff_summary.changed|default(0) }}</td>
+          <td class="mono">{{ product_version.source_upload_id|default("seed") }}</td>
+          <td class="mono">{{ product_version.version_hash[:10] }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="empty-cell">Chưa có version TP.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="split-balanced">
+    <div>
+      <h3>Upload gần đây</h3>
+      <div class="table-scroll">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>Mode</th>
+              <th>Parse</th>
+              <th>Kết quả</th>
+              <th>Dòng</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for upload in bom_workspace.uploads[:8] %}
+            <tr>
+              <td>{{ upload.original_filename }}</td>
+              <td>{{ upload.upload_mode }}</td>
+              <td><span class="badge badge-{{ 'success' if upload.parse_status == 'parsed' else 'warning' }}">{{ upload.parse_status }}</span></td>
+              <td>{{ upload.result|default(upload.parse_status) }}</td>
+              <td class="num">{{ upload.row_count|default("") }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="empty-cell">Chưa có upload BOM.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <h3>Audit trail</h3>
+  <div class="rowlist audit-trail">
+    {% for event in bom_workspace.audit %}
+    <div class="rowitem">
+      <div>
+        <strong>{{ event.event }}</strong>
+        <div class="meta">{{ event.at }} · {{ event.actor }}</div>
+      </div>
+      <div class="rowitem-side mono">{{ event.details }}</div>
+    </div>
+    {% else %}
+    <p class="empty-cell">Chưa có audit BOM.</p>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="zone zone-muted">
+  <div class="zone-head">
+    <div>
+      <h2>Quan hệ với hồ sơ C/O</h2>
+      <p class="meta">BOM là dữ liệu nền theo công ty. Hồ sơ C/O snapshot dữ liệu này rồi phân bổ tồn CO theo từng dòng NVL.</p>
+    </div>
+  </div>
+  <div class="rowlist">
+    {% for product in case.products %}
+    <a class="rowitem" href="/clients/{{ client.id }}/co-case">
+      <div>
+        <strong>{{ product.code }}</strong>
+        <div class="meta">{{ product.name }} · {{ product.materials|length }} dòng NVL trong case seed</div>
+      </div>
+      <div class="rowitem-side">
+        <span class="badge badge-{{ 'success' if product.result.passed else 'error' }}">RVC {{ product.result.rvc.percentage }}%</span>
+        <span class="badge badge-neutral">HS {{ product.finished_hs }}</span>
+      </div>
+    </a>
+    {% else %}
+    <p class="empty-cell">Chưa có sản phẩm trong case C/O.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

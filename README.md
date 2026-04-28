@@ -8,12 +8,16 @@ Discovery workspace for a future CO webapp for agency staff. The current bootstr
 - Extract ZIP and RAR source archives under local-only `data/`
 - Explore the dataset and document its structure before choosing application architecture
 - Maintain shared project docs in `docs/`
+- Run a first-pass C/O preparation demo webapp for simple Growatt-style cases
 
 ## Commands
 
 ```bash
 npm run extract:rars
+npm run co:serve
 ```
+
+Open the demo app at `http://127.0.0.1:8001/clients`.
 
 ## Data Notes
 

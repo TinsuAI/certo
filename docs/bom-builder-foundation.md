@@ -121,3 +121,5 @@ Starting with this narrower boundary allows the BOM Builder to ship now, while t
 - `GROWATT` is still a mixed-source family and should be modeled as curated BOM evidence, not as one automatically trusted workbook.
 - Technical BOM import is the correct v1 source lane.
   SAP movement-derived BOM remains a later reconciliation or enrichment path.
+
+See `docs/company-bom-source-lessons.md` for the current source profiles and aggregate findings from the BOM Builder worktree.

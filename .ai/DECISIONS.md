@@ -25,3 +25,9 @@
 **Decision:** Add `node-unrar-js` and provide a local extraction script.
 **Alternatives:** Leave RAR files opaque, depend on manual extraction outside the repo, or install platform-specific native tooling.
 **Consequences:** Discovery remains reproducible within the project, and future ingestion flows can reuse the same JS-based archive support.
+
+## [2026-04-27] Use FastAPI/Jinja For First CO Demo Shell
+**Context:** The user asked for a working demo webapp for preparing a simple C/O case, with BCQT-System as the reference implementation style.
+**Decision:** Add a small FastAPI/Jinja demo app in this repo for the first C/O preparation surface. This is a demo shell decision, not a final production architecture decision.
+**Alternatives:** Continue with Node-only scripts, or scaffold a larger frontend/backend stack before validating the C/O workflow.
+**Consequences:** The demo can reuse the same operational UI pattern as BCQT-System while keeping the final database/auth/deploy decisions open.

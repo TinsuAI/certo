@@ -11,6 +11,13 @@ The current project works with at least three customs-side source families:
 
 These are operational exports from the customs or ECUS side, not ERP-native master data.
 
+Do not collapse these sources into one table semantics:
+- `DS NVL DK HQ` and `DS SP DK HQ` are reference catalogs.
+- `BCCT` is transaction evidence.
+- technical BOM is engineering/product-structure evidence.
+
+The same code can appear across these layers, but matching code text alone does not make the rows equivalent.
+
 ## Reliability Assumption
 
 The registration masters are intended to be exhaustive.

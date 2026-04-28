@@ -1,0 +1,23 @@
+[project]
+name = "barry-co-demo"
+version = "0.1.0"
+description = "Demo C/O preparation workspace for agency operators"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "jinja2>=3.1",
+    "openpyxl>=3.1",
+    "python-multipart>=0.0.18",
+    "uvicorn[standard]>=0.34",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28",
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+pythonpath = ["."]

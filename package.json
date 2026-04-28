@@ -19,7 +19,8 @@
     "legal:build-canonical-corpus": "node scripts/build-legal-canonical-corpus.mjs",
     "legal:build-wiki": "node scripts/build-legal-wiki.mjs",
     "legal:serve": "node scripts/legal-lookup-server.mjs",
-    "legal:screenshot": "node scripts/capture-legal-screenshot.mjs"
+    "legal:screenshot": "node scripts/capture-legal-screenshot.mjs",
+    "co:serve": "uv run uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload"
   },
   "dependencies": {
     "node-unrar-js": "^2.0.2",

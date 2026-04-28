@@ -4,6 +4,8 @@ Shared project documentation for business logic, data analysis, and regulatory c
 
 ## Documents
 - [BOM Builder Foundation](./bom-builder-foundation.md)
+- [BOM Builder Implementation Plan](./bom-builder-implementation-plan.md)
+- [Company BOM Source Lessons](./company-bom-source-lessons.md)
 - [Business Logic Foundation](./workbook-business-logic-foundation.md)
 - [CO Input/Output Model](./co-input-output-model.md)
 - [Origin Rules Specification](./origin-rules-specification.md)

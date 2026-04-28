@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Tồn CO - {{ client.name }}{% endblock %}
+
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone" id="co-stock">
+  <div class="zone-head">
+    <div>
+      <h2>Tồn CO</h2>
+      <p class="meta">Theo dõi phần tồn có thể dùng cho hồ sơ C/O, giữ theo dòng nhập khẩu: số tờ khai + STT hàng + mã NVL.</p>
+    </div>
+    <div class="chip-row">
+      <span class="chip chip-active">{{ client.counts.co_stock }} bucket</span>
+      <a class="chip" href="/clients/{{ client.id }}/co-case">Phân bổ vào hồ sơ</a>
+    </div>
+  </div>
+  <div class="callout callout-info">
+    <span class="callout-icon">i</span>
+    <div>
+      <div class="callout-title">Tồn CO khác tồn kho vật lý</div>
+      Tồn CO chỉ tính lot nhập còn đủ điều kiện dùng cho C/O và chưa bị phân bổ hết cho hồ sơ khác.
+    </div>
+  </div>
+  <div class="table-scroll">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Dòng nguồn</th>
+          <th>Tờ khai nhập</th>
+          <th>STT</th>
+          <th>Mã NVL</th>
+          <th>Tồn CO</th>
+          <th>Đã dùng</th>
+          <th>Còn lại</th>
+          <th>Trạng thái</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in client.co_stock %}
+        <tr>
+          <td class="mono">{{ row.source_row }}</td>
+          <td class="mono">{{ row.import_declaration_no }}</td>
+          <td class="mono">{{ row.line_no }}</td>
+          <td class="mono">{{ row.material_code }}</td>
+          <td class="num">{{ row.available_qty }}</td>
+          <td class="num">{{ row.used_qty }}</td>
+          <td class="num"><strong>{{ row.remaining_qty }}</strong></td>
+          <td><span class="badge badge-{{ 'success' if row.remaining_qty != '0' else 'warning' }}">{{ 'Khả dụng' if row.remaining_qty != '0' else 'Hết tồn' }}</span></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="empty-cell">Chưa có dữ liệu Tồn CO.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
