@@ -18,6 +18,8 @@ from zipfile import BadZipFile, ZipFile
 from openpyxl import Workbook, load_workbook
 import xlrd
 
+from app.client_config_store import get_client_config, resolve_allocation_code
+
 
 CATALOG_MODULES = {"material": "material_catalog", "product": "product_catalog"}
 SOURCE_MODULES = {"material_catalog", "product_catalog", "bcct"}
@@ -55,6 +57,7 @@ SOURCE_AUDIT_FIELDS = {
     "source_row_number",
     "raw_fields",
 }
+CATALOG_CASE_RULE_FIELDS = {"rule"}
 COMMON_HEADER_ALIASES = {
     "ten": "name",
     "ten_hang": "description",
@@ -184,6 +187,9 @@ DECLARATION_TYPE_DIRECTIONS = {
     "E11": "import",
     "E13": "import",
     "E15": "import",
+    "E21": "import",
+    "E23": "import",
+    "E31": "import",
     "G11": "import",
     "G12": "import",
     "B11": "export",
@@ -297,11 +303,13 @@ def get_source_workspace(client: dict) -> dict:
     material = load_module_state(client, "material_catalog")
     product = load_module_state(client, "product_catalog")
     bcct = load_module_state(client, "bcct")
+    client_config = get_client_config(client)
     return {
+        "client_config": client_config,
         "material_catalog": module_workspace(material),
         "product_catalog": module_workspace(product),
         "bcct": module_workspace(bcct),
-        "co_stock_rows": co_stock_rows_from_bcct(bcct["published_rows"]),
+        "co_stock_rows": co_stock_rows_from_bcct(bcct["published_rows"], client_config),
     }
 
 
@@ -338,6 +346,8 @@ def attach_case_source_snapshot(case: dict, source_workspace: dict) -> dict:
         "bcct_version_no": bcct.get("version_no", ""),
         "bcct_reviewed_row_count": len(reviewed_bcct_rows),
         "correction_candidate_count": len(source_workspace["bcct"].get("correction_candidates", [])),
+        "client_config_version": source_workspace["client_config"].get("config_version", ""),
+        "client_config_hash": source_workspace["client_config"].get("config_hash", ""),
     }
     return case
 
@@ -619,7 +629,6 @@ def parse_catalog_workbook(content: bytes, module: str) -> list[dict]:
                 "name": cell_text(values.get("name") or values.get("description")),
                 "hs_code": cell_text(values.get("hs_code") or values.get("hs")),
                 "unit": normalize_unit(values.get("unit")),
-                "rule": cell_text(values.get("rule") or values.get("origin_rule")),
                 "status": normalize_status(values.get("status")),
             }
         attach_source_fields(row, values, raw_fields, sheet, header_row_index + 1, source_row_number, source_schema)
@@ -644,7 +653,7 @@ def parse_bcct_workbook(content: bytes) -> list[dict]:
         raw_headers,
         header_row_index + 1,
     ):
-        declaration_type = cell_text(values.get("declaration_type"))
+        declaration_type = normalize_declaration_type(values.get("declaration_type"))
         direction = normalize_direction(values.get("direction")) or infer_direction(declaration_type)
         declaration_no = cell_text(values.get("declaration_no"))
         line_no = cell_text(values.get("line_no") or values.get("stt") or values.get("stt_hang"))
@@ -848,6 +857,8 @@ def attach_source_fields(
     source_schema: str,
 ) -> None:
     for field, value in values.items():
+        if source_schema in {"customs_material_catalog", "customs_product_catalog"} and field in CATALOG_CASE_RULE_FIELDS:
+            continue
         if field in row or field in {"customs_code", "product_code", "name", "description"}:
             continue
         row[field] = normalize_source_value(field, value)
@@ -1003,7 +1014,6 @@ def normalize_seed_product(row: dict) -> dict:
         "product_code": cell_text(row.get("product_code")),
         "name": cell_text(row.get("name")),
         "hs_code": cell_text(row.get("hs_code")),
-        "rule": cell_text(row.get("rule")),
         "status": normalize_status(row.get("status")),
     }
 
@@ -1020,7 +1030,7 @@ def normalize_seed_bcct(row: dict, index: int) -> dict:
         "declaration_no": declaration_no,
         "declaration_date": cell_text(row.get("declaration_date")),
         "customs_office": cell_text(row.get("customs_office")),
-        "declaration_type": cell_text(row.get("declaration_type")),
+        "declaration_type": normalize_declaration_type(row.get("declaration_type")),
         "line_no": cell_text(row.get("line_no") or index),
         "item_code": item_code,
         "description": cell_text(row.get("description")),
@@ -1088,22 +1098,108 @@ def write_snapshot(client_id: str, module: str, upload_id: str, rows: list[dict]
     return snapshot_id
 
 
-def co_stock_rows_from_bcct(rows: list[dict]) -> list[dict]:
+def co_stock_rows_from_bcct(rows: list[dict], client_config: dict) -> list[dict]:
+    lot_policy = client_config["co_stock"].get("lot_policy")
     output = []
     for row in rows:
         if row.get("direction") != "import":
             continue
         quantity = row.get("quantity", "")
+        source_row = row.get("import_row_id") or import_row_id(row["transaction_key"])
+        eligibility = resolve_stock_eligibility(row, client_config)
+        allocation = resolve_allocation_code(row, client_config)
+        if lot_policy == "manual_review":
+            allocation = review_allocation(allocation, "manual_stock_review")
+        usable = eligibility["status"] == "active" and allocation["status"] == "resolved"
         output.append({
-            "source_row": row.get("import_row_id") or import_row_id(row["transaction_key"]),
+            "source_row": source_row,
+            "source_line_ids": [source_row],
             "import_declaration_no": row.get("declaration_no", ""),
             "line_no": row.get("line_no", ""),
-            "material_code": row.get("item_code", ""),
+            "declaration_type": row.get("declaration_type", ""),
+            "customs_item_code": row.get("item_code", ""),
+            "allocation_code": allocation["allocation_code"],
+            "material_code": allocation["allocation_code"] if usable else "",
+            "allocation_code_source": allocation["source"],
+            "allocation_code_status": allocation["status"],
+            "allocation_code_confidence": allocation["confidence"],
+            "allocation_code_reason": allocation["reason"],
+            "eligibility_status": eligibility["status"],
+            "eligibility_reason": eligibility["reason"],
+            "eligibility_config_version": client_config.get("config_version", ""),
+            "eligibility_config_hash": client_config.get("config_hash", ""),
+            "unit": row.get("unit", ""),
+            "origin_country": row.get("origin_country", ""),
             "available_qty": quantity,
             "used_qty": "0",
-            "remaining_qty": quantity,
+            "remaining_qty": quantity if usable else "0",
         })
+    if lot_policy == "aggregate_by_declaration_and_allocation_code":
+        return aggregate_co_stock_rows(output)
     return output
+
+
+def resolve_stock_eligibility(row: dict, client_config: dict) -> dict:
+    eligible_types = set(client_config["bcct"].get("eligible_import_declaration_types", []))
+    if not eligible_types:
+        return {"status": "active", "reason": "no_declaration_type_filter"}
+    if row.get("declaration_type") in eligible_types:
+        return {"status": "active", "reason": "included_by_declaration_type_config"}
+    return {"status": "inactive", "reason": "excluded_by_declaration_type_config"}
+
+
+def review_allocation(allocation: dict, reason: str) -> dict:
+    return {
+        **allocation,
+        "status": "requires_review",
+        "confidence": "low",
+        "reason": reason,
+    }
+
+
+def aggregate_co_stock_rows(rows: list[dict]) -> list[dict]:
+    grouped = {}
+    for row in rows:
+        key = (
+            row["import_declaration_no"],
+            row["allocation_code"],
+            row["unit"],
+            row["origin_country"],
+            row["eligibility_status"],
+            row["eligibility_reason"],
+            row["allocation_code_status"],
+        )
+        current = grouped.get(key)
+        if current is None:
+            grouped[key] = {**row, "source_line_ids": list(row["source_line_ids"])}
+            continue
+        current["source_line_ids"].extend(row["source_line_ids"])
+        current["source_row"] = ",".join(current["source_line_ids"])
+        current["line_no"] = ",".join(filter(None, [current.get("line_no", ""), row.get("line_no", "")]))
+        current["available_qty"] = sum_decimal_text(current["available_qty"], row["available_qty"])
+        current["remaining_qty"] = sum_decimal_text(current["remaining_qty"], row["remaining_qty"])
+    return list(grouped.values())
+
+
+def sum_decimal_text(left: str, right: str) -> str:
+    left_value = decimal_text_value(left)
+    right_value = decimal_text_value(right)
+    if left_value is None or right_value is None:
+        return cell_text(left) or cell_text(right)
+    value = left_value + right_value
+    if value == value.to_integral():
+        return str(value.quantize(Decimal("1")))
+    return format(value.normalize(), "f").rstrip("0").rstrip(".")
+
+
+def decimal_text_value(value) -> Decimal | None:
+    text = normalize_decimal(value)
+    if not text:
+        return Decimal("0")
+    try:
+        return Decimal(text)
+    except InvalidOperation:
+        return None
 
 
 def display_bcct_row(row: dict) -> dict:
@@ -1238,6 +1334,10 @@ def normalize_direction(value) -> str:
     return DIRECTION_ALIASES.get(direction.upper(), direction.lower())
 
 
+def normalize_declaration_type(value) -> str:
+    return cell_text(value).upper()
+
+
 def normalize_unit(value) -> str:
     unit = cell_text(value).upper()
     return UNIT_ALIASES.get(unit, unit)
@@ -1247,13 +1347,21 @@ def normalize_decimal(value) -> str:
     text = cell_text(value)
     if not text:
         return ""
+    decimal_text = normalize_numeric_text(text)
     try:
-        decimal = Decimal(text)
+        decimal = Decimal(decimal_text)
     except InvalidOperation:
         return text
     if decimal == decimal.to_integral():
         return str(decimal.quantize(Decimal("1")))
     return format(decimal.normalize(), "f")
+
+
+def normalize_numeric_text(text: str) -> str:
+    compact = text.replace(" ", "")
+    if re.fullmatch(r"[+-]?\d{1,3}(,\d{3})+(\.\d+)?", compact):
+        return compact.replace(",", "")
+    return text
 
 
 def cell_text(value) -> str:

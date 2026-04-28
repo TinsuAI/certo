@@ -1,44 +1,32 @@
 # Project Status
 
 ## Current State
-- The repo has a working FastAPI/Jinja C/O demo app under `app/`, with client workspace views for overview, customs catalogs, BOM, C/O stock, BCCT, and C/O case.
-- The latest working tree contains uncommitted changes for customs-standard source ingestion:
-  - DS NVL DK HQ and DS SP DK HQ `.xls` parsing via `xlrd`.
-  - BCCT `.xlsx` parsing with header row detection, including the HQ row-10 format.
-  - ZIP upload support for source modules, selecting the matching workbook per module.
-  - Source rows now preserve both normalized fields and original `raw_fields`/source metadata for audit.
-- A discovery brief for splitting Catalog subviews and adding reusable advanced source tables exists at `.ai/features/2026-04-28-advanced-source-tables.md`.
-- Runtime data remains local-only under `data/local/...`; current source sample files are under untracked `temp/`.
+- The FastAPI/Jinja C/O demo app now has client workspace views for overview, customs catalogs, BOM, C/O stock, BCCT, C/O case, and company config.
+- Source tables use reusable advanced table rendering with server-side search, filters, sorting, pagination, and summary chips.
+- Catalog is split into DS NVL and DS SP child views.
+- BCCT is split into import/export child views. Export view respects the configured relevant export declaration types.
+- Company config is file-backed and versioned by `config_version`/`config_hash`; Growatt defaults to DNCX imports `E11, E15`, export `E42`, and description-regex allocation-code extraction.
+- C/O stock is derived from all BCCT import lines as stock candidates. Config no longer removes lines; it marks them `active`, `inactive`, or review-only. Inactive rows stay visible for audit with `remaining_qty = 0`.
+- Runtime data remains local-only under `data/local/...`; screenshots and sample uploads remain under ignored `temp/`.
 
 ## Recent Changes
-- Updated `app/source_store.py` to support real HQ schemas for:
-  - `DANH MUC NPL DK HQ MOI.xls`
-  - `DANH MUC SP DK HQ MOI.xls`
-  - `BaoCaoHangChiTiet 01.01.2025 - 31.12.2025 08.01 or.xlsx`
-- Added `xlrd>=2.0` to Python dependencies for `.xls` support.
-- Updated Catalog and BCCT templates to accept `.xls/.xlsx/.zip` and expose more customs fields.
-- Added regression tests for the real local HQ sample files; tests skip if the local ZIP is absent.
-- Created extracted manual HQ files under `temp/manual-hq-files/` for browser testing.
-- Reset local runtime source/BOM stores after schema changes, backing up previous local state to `data/local/setup-backups/20260428-231505-schema-change/`.
-- Ran `/discover` for advanced tables and catalog subviews.
+- Added `.ai/features/2026-04-29-client-config-bcct-code-reconciliation.md` to document the config, BCCT split, allocation-code, and C/O stock eligibility approach.
+- Added `app/client_config_store.py` for client config defaults, validation, persistence, config hashing, and allocation-code resolution.
+- Added reusable table helper/template files: `app/table_view.py`, `_advanced_table.html`, and `catalog_table.html`.
+- Updated BCCT, C/O stock, config, catalog, and C/O case routes/templates to use the new config and table model.
+- C/O stock now preserves `customs_item_code`, derives `allocation_code`, keeps `source_line_ids`, snapshots config hash/version, and separates active/inactive/review-required rows.
+- Added regression coverage for config defaults, invalid regex, BCCT import/export route split, declaration-type normalization, stock eligibility deactivation/reactivation, aggregation traceability, unresolved/manual-review stock, export type filtering, and table behavior.
+- UI was checked with Playwright screenshots under `temp/ui-checks/`; desktop/mobile rendered without console errors or horizontal overflow.
 
 ## Next Steps
-1. Implement the advanced source table feature from `.ai/features/2026-04-28-advanced-source-tables.md`.
-2. Split Catalog into DS NVL and DS SP child routes; remove the misleading visible `Mã nội bộ` column from DS NVL HQ UI.
-3. Add a reusable server-side table helper/partial with search, filters, pagination, sorting, and summary/group chips.
-4. Apply the table helper to DS NVL, DS SP, BCCT, and Tồn CO.
-5. Add focused tests for route split, table query behavior, pagination boundaries, and upload result routing.
-6. Manually re-test source uploads using the ZIP or files in `temp/manual-hq-files/`.
-
-## Blockers
-- `npm test` currently has 3 unrelated legal lookup failures around expected `raw-binary` source links. The CO demo pytest suite passes.
-- Production database/auth/deploy decisions are still intentionally deferred.
+1. Manually test the new config-driven stock eligibility flow in the browser: remove/re-add `E15` and confirm rows move between `Khả dụng` and `Không dùng` without disappearing.
+2. Decide whether inactive/review-required stock should be visually separated into tabs or remain as a status filter in the same Tồn CO table.
+3. Add case allocation logic that only consumes `active + resolved` C/O stock once C/O allocation moves beyond demo display.
+4. Revisit whether `relevant_export_declaration_types` should also drive future export matching for C/O cases, not just the BCCT export view.
 
 ## Notes for Next AI Session
-- Start by reading `.ai/features/2026-04-28-advanced-source-tables.md`.
-- Use `uv run pytest tests/test_co_demo.py -q` for the current CO app test suite; last run: `39 passed`.
-- `npm test` is not clean due to pre-existing legal lookup expectations, not the C/O parser changes.
-- Dev server was stopped during handoff. Start it with `npm run co:serve` or `uv run uvicorn app.main:app --host 127.0.0.1 --port 8001`.
-- `data` in the repo is a symlink to a sibling local data directory.
-- Do not commit `data/` runtime state or `temp/` sample uploads unless the user explicitly decides to version sanitized fixtures.
+- Use `uv run pytest tests/test_co_demo.py -q` for the current CO app suite; last run: `65 passed`.
+- `git diff --check` was clean before handoff.
+- Dev server command: `uv run uvicorn app.main:app --host 127.0.0.1 --port 8001`.
+- Do not commit `data/` runtime state or `temp/` screenshots/uploads unless the user explicitly asks for sanitized fixtures.
 - User prefers Vietnamese replies when writing Vietnamese; docs/artifacts stay in English unless client-facing.

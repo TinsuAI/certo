@@ -1,0 +1,88 @@
+<form method="get" class="table-toolbar" aria-label="Bộ lọc bảng">
+  <label class="table-search">Tìm kiếm
+    <input type="search" name="q" value="{{ source_table.q }}" placeholder="Mã, tên, tờ khai, HS...">
+  </label>
+  {% for filter in source_table.filters %}
+  <label>{{ filter.label }}
+    <select name="{{ filter.name }}">
+      <option value="">Tất cả</option>
+      {% for option in filter.options %}
+      <option value="{{ option.value }}" {% if option.value == source_table.query.get(filter.name, '') %}selected{% endif %}>{{ option.label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% endfor %}
+  <label>Hiển thị
+    <select name="per_page">
+      {% for page_size in source_table.page_sizes %}
+      <option value="{{ page_size }}" {% if page_size == source_table.per_page %}selected{% endif %}>{{ page_size }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <input type="hidden" name="sort" value="{{ source_table.sort }}">
+  <input type="hidden" name="dir" value="{{ source_table.dir }}">
+  <button type="submit">Lọc</button>
+  <a class="btn-secondary" href="?">Xóa lọc</a>
+</form>
+
+<div class="table-meta-row">
+  <div class="meta">
+    Hiển thị {{ source_table.start_index }}-{{ source_table.end_index }} / {{ source_table.filtered_count }} dòng · {{ source_table.filtered_count }} / {{ source_table.total_count }} dòng sau lọc · Trang {{ source_table.page }} / {{ source_table.total_pages }}
+  </div>
+  {% if source_table.summary_chips %}
+  <div class="chip-row">
+    {% for chip in source_table.summary_chips[:8] %}
+    <span class="chip">{{ chip.label }} · {{ chip.count }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="table-scroll">
+  <table class="table">
+    <thead>
+      <tr>
+        {% for column in source_table.columns %}
+        <th>
+          {% if column.sortable %}
+          <a class="sort-link {{ 'sort-active' if column.sort_active else '' }}" href="?{{ column.sort_query }}">
+            {{ column.label }}{% if column.sort_active %} {{ '↓' if source_table.dir == 'desc' else '↑' }}{% endif %}
+          </a>
+          {% else %}
+          {{ column.label }}
+          {% endif %}
+        </th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in source_table.rows %}
+      <tr>
+        {% for column in source_table.columns %}
+        <td class="{{ column.class }}">{{ row.get(column.key, "") }}</td>
+        {% endfor %}
+      </tr>
+      {% else %}
+      <tr><td colspan="{{ source_table.columns|length }}" class="empty-cell">Không có dữ liệu phù hợp.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<nav class="pagination" aria-label="Phân trang">
+  {% if source_table.has_previous %}
+  <a class="btn-secondary" href="?{{ source_table.first_query }}">Đầu</a>
+  <a class="btn-secondary" href="?{{ source_table.previous_query }}">Trước</a>
+  {% else %}
+  <span class="btn-secondary disabled">Đầu</span>
+  <span class="btn-secondary disabled">Trước</span>
+  {% endif %}
+  <span class="pagination-state">Trang {{ source_table.page }} / {{ source_table.total_pages }}</span>
+  {% if source_table.has_next %}
+  <a class="btn-secondary" href="?{{ source_table.next_query }}">Sau</a>
+  <a class="btn-secondary" href="?{{ source_table.last_query }}">Cuối</a>
+  {% else %}
+  <span class="btn-secondary disabled">Sau</span>
+  <span class="btn-secondary disabled">Cuối</span>
+  {% endif %}
+</nav>

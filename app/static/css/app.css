@@ -604,6 +604,7 @@ small,
 }
 
 .module-grid,
+.config-grid,
 .split-balanced {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -700,6 +701,57 @@ small,
 
 .stack-form .inline-check input {
   width: auto;
+}
+
+.table-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.55rem;
+  align-items: end;
+  margin: 0.85rem 0;
+}
+
+.table-toolbar label {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--foreground-soft);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.table-toolbar button,
+.table-toolbar .btn-secondary {
+  min-height: 2.45rem;
+}
+
+.table-search {
+  min-width: 220px;
+}
+
+.table-meta-row,
+.table-action-row,
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  margin: 0.65rem 0;
+}
+
+.pagination {
+  justify-content: flex-end;
+}
+
+.pagination-state {
+  color: var(--foreground-muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.disabled {
+  opacity: 0.45;
+  pointer-events: none;
 }
 
 .metric-stack {
@@ -812,6 +864,15 @@ small,
   font-size: 0.84rem;
 }
 
+.callout > div {
+  min-width: 0;
+}
+
+.callout .mono {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .callout-info {
   border-color: var(--info);
   background: var(--info-soft);
@@ -896,6 +957,14 @@ small,
   white-space: nowrap;
 }
 
+.sort-link {
+  color: inherit;
+}
+
+.sort-active {
+  color: var(--foreground);
+}
+
 .table td,
 .data-table td {
   border-bottom: 1px solid var(--border);
@@ -968,9 +1037,11 @@ small,
 
   .workspace-grid,
   .split-balanced,
+  .config-grid,
   .input-grid,
   .rule-grid,
-  .diff-grid {
+  .diff-grid,
+  .table-toolbar {
     grid-template-columns: 1fr;
   }
 

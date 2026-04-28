@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ catalog_view.title }} - {{ client.name }}{% endblock %}
+
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone" id="catalog-{{ catalog_view.name }}">
+  <div class="zone-head">
+    <div>
+      <h2>{{ catalog_view.title }}</h2>
+      <p class="meta">{{ catalog_view.subtitle }}</p>
+    </div>
+    <div class="chip-row" aria-label="Loại mã hàng">
+      <a class="chip {{ 'chip-active' if catalog_view.name == 'materials' else '' }}" href="/clients/{{ client.id }}/catalog/materials">NVL ({{ client.counts.materials }})</a>
+      <a class="chip {{ 'chip-active' if catalog_view.name == 'products' else '' }}" href="/clients/{{ client.id }}/catalog/products">TP ({{ client.counts.products }})</a>
+      <a class="chip" href="/clients/{{ client.id }}/catalog">Upload</a>
+    </div>
+  </div>
+
+  {% if catalog_result %}
+  <div class="callout {{ 'callout-info' if catalog_result.status != 'failed' else 'callout-danger' }}">
+    <span class="callout-icon">i</span>
+    <div>
+      <div class="callout-title">{{ catalog_result.status }}</div>
+      {{ catalog_result.message }}
+      {% if catalog_result.summary %}
+      <div class="meta">Thêm {{ catalog_result.summary.added }} · Đổi {{ catalog_result.summary.changed }} · Inactive pending review {{ catalog_result.summary.inactive_pending_review }}</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="table-action-row">
+    <a class="chip" href="/clients/{{ client.id }}/catalog/{{ catalog_view.template_url }}">{{ catalog_view.template_label }}</a>
+    <span class="chip">v{{ source_workspace[catalog_view.module].latest_version.version_no if source_workspace[catalog_view.module].latest_version else 'none' }}</span>
+  </div>
+
+  {% include "_advanced_table.html" %}
+</section>
+{% endblock %}

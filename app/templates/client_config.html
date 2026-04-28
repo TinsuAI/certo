@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Cấu hình công ty - {{ client.name }}{% endblock %}
+
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone" id="client-config">
+  <div class="zone-head">
+    <div>
+      <h2>Cấu hình công ty</h2>
+      <p class="meta">Thiết lập cách lọc BCCT, tạo tồn C/O và resolve mã phân bổ để match BOM.</p>
+    </div>
+    <div class="chip-row">
+      <span class="chip">v{{ client_config.config_version }}</span>
+      <span class="chip">hash {{ client_config.config_hash }}</span>
+    </div>
+  </div>
+
+  <form method="post" action="/clients/{{ client.id }}/config" class="config-grid">
+    <section class="zone mini-panel">
+      <div class="subsection-head">
+        <h3>BCCT</h3>
+        <p class="meta">Loại hình nào được dùng cho tồn C/O và đối chiếu xuất khẩu.</p>
+      </div>
+      <div class="stack-form">
+        <label>Loại hình nhập tính tồn C/O
+          <input name="eligible_import_declaration_types" value="{{ client_config.bcct.eligible_import_declaration_types|join(', ') }}">
+        </label>
+        <label>Loại hình xuất quan tâm
+          <input name="relevant_export_declaration_types" value="{{ client_config.bcct.relevant_export_declaration_types|join(', ') }}">
+        </label>
+      </div>
+    </section>
+
+    <section class="zone mini-panel">
+      <div class="subsection-head">
+        <h3>Tồn C/O</h3>
+        <p class="meta">Default giữ từng dòng BCCT riêng để audit rõ.</p>
+      </div>
+      <div class="stack-form">
+        <label>Policy tạo lot
+          <select name="co_stock_lot_policy">
+            <option value="line_level" {% if client_config.co_stock.lot_policy == 'line_level' %}selected{% endif %}>line_level</option>
+            <option value="aggregate_by_declaration_and_allocation_code" {% if client_config.co_stock.lot_policy == 'aggregate_by_declaration_and_allocation_code' %}selected{% endif %}>aggregate_by_declaration_and_allocation_code</option>
+            <option value="manual_review" {% if client_config.co_stock.lot_policy == 'manual_review' %}selected{% endif %}>manual_review</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <section class="zone mini-panel">
+      <div class="subsection-head">
+        <h3>Mã phân bổ</h3>
+        <p class="meta">Mã dùng để match BOM; mã hải quan vẫn giữ để audit tờ khai.</p>
+      </div>
+      <div class="stack-form">
+        <label>Strategy
+          <select name="allocation_code_strategy">
+            <option value="same_as_customs_code" {% if client_config.allocation_code.strategy == 'same_as_customs_code' %}selected{% endif %}>same_as_customs_code</option>
+            <option value="description_regex" {% if client_config.allocation_code.strategy == 'description_regex' %}selected{% endif %}>description_regex</option>
+            <option value="manual_review" {% if client_config.allocation_code.strategy == 'manual_review' %}selected{% endif %}>manual_review</option>
+          </select>
+        </label>
+        <label>Regex mô tả
+          <input name="description_regex" value="{{ client_config.allocation_code.description_regex }}">
+        </label>
+        <label>Fallback
+          <select name="allocation_code_fallback">
+            <option value="same_as_customs_code" {% if client_config.allocation_code.fallback == 'same_as_customs_code' %}selected{% endif %}>same_as_customs_code</option>
+            <option value="requires_review" {% if client_config.allocation_code.fallback == 'requires_review' %}selected{% endif %}>requires_review</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <section class="zone mini-panel action-panel">
+      <div class="subsection-head">
+        <h3>Snapshot</h3>
+        <p class="meta">Hồ sơ C/O sẽ lưu hash cấu hình này để tránh thay đổi retroactive.</p>
+      </div>
+      <button type="submit">Lưu cấu hình</button>
+    </section>
+  </form>
+</section>
+{% endblock %}

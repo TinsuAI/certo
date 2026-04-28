@@ -8,18 +8,25 @@ from fastapi.testclient import TestClient
 from openpyxl import Workbook, load_workbook
 
 from app.bom_store import get_bom_workspace
+from app.client_config_store import (
+    get_client_config,
+    resolve_allocation_code,
+    save_client_config,
+)
 from app.demo_data import get_client, get_client_case, get_clients, get_demo_case, update_products_from_form
 from app.main import app
 from app.origin import calculate_rvc, evaluate_tariff_shift
 from app.source_store import (
     create_bcct_template_workbook,
     create_material_catalog_template_workbook,
+    create_product_catalog_template_workbook,
     get_source_workspace,
     parse_bcct_workbook,
     parse_catalog_workbook,
     process_bcct_upload,
     process_catalog_upload,
 )
+from app.table_view import build_table_view
 from app.workbook_io import create_evidence_workbook, create_input_workbook, parse_input_workbook
 
 
@@ -27,6 +34,7 @@ from app.workbook_io import create_evidence_workbook, create_input_workbook, par
 def isolate_bom_store(tmp_path, monkeypatch):
     monkeypatch.setenv("BOM_STORE_ROOT", str(tmp_path / "bom-store"))
     monkeypatch.setenv("SOURCE_STORE_ROOT", str(tmp_path / "source-store"))
+    monkeypatch.setenv("CLIENT_CONFIG_ROOT", str(tmp_path / "client-config"))
 
 
 def workbook_bytes(workbook: Workbook) -> bytes:
@@ -190,29 +198,161 @@ def test_workspace_has_single_module_navigation_layer():
     assert response.text.count("/clients/growatt/bcct") == 1
 
 
+def test_table_view_filters_searches_sorts_and_paginates():
+    rows = [
+        {"code": "MAT-001", "name": "Capacitor", "status": "inactive"},
+        {"code": "MAT-002", "name": "Diode bridge", "status": "active"},
+        {"code": "MAT-003", "name": "Small diode", "status": "active"},
+    ]
+
+    table = build_table_view(
+        rows,
+        columns=[
+            {"key": "code", "label": "Code"},
+            {"key": "name", "label": "Name"},
+            {"key": "status", "label": "Status"},
+        ],
+        query={"q": "diode", "status": "active", "sort": "code", "dir": "desc", "page": "2", "per_page": "1"},
+        filters=[{"name": "status", "field": "status", "label": "Status"}],
+    )
+
+    assert table["total_count"] == 3
+    assert table["filtered_count"] == 2
+    assert table["page"] == 2
+    assert table["total_pages"] == 2
+    assert [row["code"] for row in table["rows"]] == ["MAT-002"]
+
+
+def test_table_view_clamps_page_to_available_results():
+    table = build_table_view(
+        [{"code": "A"}, {"code": "B"}, {"code": "C"}],
+        columns=[{"key": "code", "label": "Code"}],
+        query={"page": "99", "per_page": "2"},
+    )
+
+    assert table["page"] == 2
+    assert table["total_pages"] == 2
+    assert [row["code"] for row in table["rows"]] == ["C"]
+
+
 def test_catalog_bom_stock_bcct_and_co_case_are_separate_views():
     client = TestClient(app)
 
     catalog_response = client.get("/clients/growatt/catalog")
+    material_catalog_response = client.get("/clients/growatt/catalog/materials")
+    product_catalog_response = client.get("/clients/growatt/catalog/products")
     bom_response = client.get("/clients/growatt/bom")
     stock_response = client.get("/clients/growatt/co-stock")
     bcct_response = client.get("/clients/growatt/bcct")
     co_case_response = client.get("/clients/growatt/co-case")
 
     assert catalog_response.status_code == 200
+    assert material_catalog_response.status_code == 200
+    assert product_catalog_response.status_code == 200
     assert bom_response.status_code == 200
     assert stock_response.status_code == 200
     assert bcct_response.status_code == 200
     assert co_case_response.status_code == 200
-    assert "Thành phẩm (TP)" in catalog_response.text
-    assert "Nguyên vật liệu (NVL)" in catalog_response.text
+    assert "Upload danh mục" in catalog_response.text
+    assert "/clients/growatt/catalog/materials" in catalog_response.text
+    assert "/clients/growatt/catalog/products" in catalog_response.text
+    assert "DS NVL DK HQ" in material_catalog_response.text
+    assert "DEMO-NPL-001" in material_catalog_response.text
+    assert "Mã nội bộ" not in material_catalog_response.text
+    assert "DS SP DK HQ" in product_catalog_response.text
+    assert "PV00.0048500" in product_catalog_response.text
     assert "DEMO-NPL-001" in bom_response.text
     assert "Tồn CO khác tồn kho vật lý" in stock_response.text
     assert "BCCT nhập khẩu / xuất khẩu" in bcct_response.text
     assert "107101950210" in bcct_response.text
     assert "Upload và parse" in co_case_response.text
+    assert "Quy tắc áp dụng" in co_case_response.text
     assert "Xuất evidence XLSX" in co_case_response.text
     assert "BTP" not in catalog_response.text
+
+
+def test_catalog_child_route_search_limits_material_rows():
+    client = TestClient(app)
+
+    response = client.get("/clients/growatt/catalog/materials?q=DEMO-NPL-002")
+
+    assert response.status_code == 200
+    assert "DEMO-NPL-002" in response.text
+    assert "DEMO-NPL-001" not in response.text
+    assert "1 / 3 dòng" in response.text
+
+
+def test_catalog_product_route_search_limits_product_rows():
+    client = TestClient(app)
+
+    response = client.get("/clients/growatt/catalog/products?q=PV01.0117600")
+
+    assert response.status_code == 200
+    assert "PV01.0117600" in response.text
+    assert "PV00.0048500" not in response.text
+    assert "1 / 2 dòng" in response.text
+
+
+def test_product_catalog_does_not_render_origin_rule():
+    client = TestClient(app)
+
+    response = client.get("/clients/growatt/catalog/products")
+
+    assert response.status_code == 200
+    assert "Quy tắc" not in response.text
+    assert "RVC 35% + CTSH" not in response.text
+
+
+def test_product_catalog_template_does_not_include_origin_rule_column():
+    workbook = load_workbook(BytesIO(create_product_catalog_template_workbook(get_client("growatt"))))
+    headers = [cell.value for cell in workbook.active[1]]
+
+    assert "Quy tắc" not in headers
+    assert "origin_rule" not in headers
+    assert "rule" not in headers
+
+
+def test_product_catalog_upload_ignores_legacy_origin_rule_column():
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(["Mã", "Tên", "Đơn vị tính", "Mã HS", "Quy tắc"])
+    worksheet.append(["TP-001", "Finished product", "PCS", "85044090", "RVC 35% + CTSH"])
+
+    result = process_catalog_upload(
+        get_client("do-thanh"),
+        "product",
+        workbook_bytes(workbook),
+        "legacy-ds-sp.xlsx",
+        "full_catalog",
+    )
+
+    rows = get_source_workspace(get_client("do-thanh"))["product_catalog"]["published_rows"]
+    assert result["status"] == "new_version"
+    assert rows[0]["product_code"] == "TP-001"
+    assert "rule" not in rows[0]
+    assert rows[0]["raw_fields"]["Quy tắc"] == "RVC 35% + CTSH"
+
+
+def test_bcct_route_paginates_rows_server_side():
+    client = TestClient(app)
+
+    response = client.get("/clients/growatt/bcct?per_page=1&page=2")
+
+    assert response.status_code == 200
+    assert "GIN01425L031" in response.text
+    assert "107101950210" not in response.text
+    assert "Trang 2 / 3" in response.text
+
+
+def test_co_stock_route_search_and_status_filter():
+    client = TestClient(app)
+
+    response = client.get("/clients/growatt/co-stock?q=DEMO-NPL-001&status=available")
+
+    assert response.status_code == 200
+    assert "DEMO-NPL-001" in response.text
+    assert "GIN01425L031" not in response.text
+    assert "Hiển thị 1-1 / 1 dòng" in response.text
 
 
 def test_clients_page_is_entry_point():
@@ -737,6 +877,69 @@ def test_bcct_changed_unit_same_key_creates_correction_candidate():
     assert workspace["bcct"]["correction_candidates"][0]["incoming_row"]["unit"] == "KG"
 
 
+def test_bcct_parser_infers_configured_import_types_when_direction_is_blank():
+    rows = parse_bcct_workbook(bcct_workbook([
+        {"direction": "", "declaration_type": "E21", "declaration_no": "GC-001", "line_no": "1", "item_code": "MAT-GC-1", "quantity": "10", "unit": "PCS"},
+        {"direction": "", "declaration_type": "E23", "declaration_no": "GC-002", "line_no": "1", "item_code": "MAT-GC-2", "quantity": "20", "unit": "PCS"},
+        {"direction": "", "declaration_type": "E31", "declaration_no": "SXXK-001", "line_no": "1", "item_code": "MAT-SX-1", "quantity": "30", "unit": "PCS"},
+        {"direction": "", "declaration_type": "E62", "declaration_no": "XK-001", "line_no": "1", "item_code": "TP-1", "quantity": "5", "unit": "PCS"},
+    ]))
+
+    assert {row["declaration_type"]: row["direction"] for row in rows} == {
+        "E21": "import",
+        "E23": "import",
+        "E31": "import",
+        "E62": "export",
+    }
+
+
+def test_growatt_client_config_defaults_to_dncx_and_description_allocation():
+    config = get_client_config(get_client("growatt"))
+
+    assert config["bcct"]["eligible_import_declaration_types"] == ["E11", "E15"]
+    assert config["bcct"]["relevant_export_declaration_types"] == ["E42"]
+    assert config["co_stock"]["lot_policy"] == "line_level"
+    assert config["allocation_code"]["strategy"] == "description_regex"
+    assert config["allocation_code"]["fallback"] == "same_as_customs_code"
+    assert config["config_hash"]
+
+
+def test_allocation_code_resolver_handles_regex_fallback_and_ambiguity():
+    config = get_client_config(get_client("growatt"))
+
+    resolved = resolve_allocation_code(
+        {"item_code": "DIENTRO", "description": "DIENTRO#&Điện trở. Hàng mới 100% (001.0001400)"},
+        config,
+    )
+    fallback = resolve_allocation_code(
+        {"item_code": "DIENTRO", "description": "DIENTRO#&Điện trở không có mã trong ngoặc"},
+        config,
+    )
+    ambiguous = resolve_allocation_code(
+        {"item_code": "DIENTRO", "description": "DIENTRO#&Điện trở (001.0001400) hoặc (001.0001500)"},
+        config,
+    )
+
+    assert resolved["allocation_code"] == "001.0001400"
+    assert resolved["status"] == "resolved"
+    assert resolved["source"] == "description_regex"
+    assert fallback["allocation_code"] == "DIENTRO"
+    assert fallback["source"] == "same_as_customs_code"
+    assert ambiguous["allocation_code"] == ""
+    assert ambiguous["status"] == "requires_review"
+    assert ambiguous["reason"] == "multiple_regex_matches"
+
+
+def test_client_config_rejects_invalid_regex():
+    client = get_client("do-thanh")
+    config = get_client_config(client)
+    config["allocation_code"]["strategy"] = "description_regex"
+    config["allocation_code"]["description_regex"] = "("
+
+    with pytest.raises(ValueError, match="Invalid allocation code regex"):
+        save_client_config(client, config)
+
+
 def test_bcct_import_rows_create_immutable_co_stock_source_rows():
     client = get_client("do-thanh")
     upload = bcct_workbook([
@@ -750,17 +953,280 @@ def test_bcct_import_rows_create_immutable_co_stock_source_rows():
     import_rows = [row for row in workspace["bcct"]["published_rows"] if row["direction"] == "import"]
     assert len(import_rows) == 1
     assert import_rows[0]["import_row_id"].startswith("import-row-")
-    assert workspace["co_stock_rows"] == [
-        {
-            "source_row": import_rows[0]["import_row_id"],
-            "import_declaration_no": "TK-001",
-            "line_no": "1",
-            "material_code": "MAT-001",
-            "available_qty": "100",
-            "used_qty": "0",
-            "remaining_qty": "100",
-        }
-    ]
+    assert len(workspace["co_stock_rows"]) == 1
+    stock_row = workspace["co_stock_rows"][0]
+    assert stock_row["source_row"] == import_rows[0]["import_row_id"]
+    assert stock_row["source_line_ids"] == [import_rows[0]["import_row_id"]]
+    assert stock_row["import_declaration_no"] == "TK-001"
+    assert stock_row["line_no"] == "1"
+    assert stock_row["customs_item_code"] == "MAT-001"
+    assert stock_row["allocation_code"] == "MAT-001"
+    assert stock_row["material_code"] == "MAT-001"
+    assert stock_row["allocation_code_source"] == "same_as_customs_code"
+    assert stock_row["allocation_code_status"] == "resolved"
+    assert stock_row["available_qty"] == "100"
+    assert stock_row["used_qty"] == "0"
+    assert stock_row["remaining_qty"] == "100"
+
+
+def test_co_stock_line_level_keeps_duplicate_codes_as_separate_lots():
+    client = get_client("do-thanh")
+    config = get_client_config(client)
+    config["bcct"]["eligible_import_declaration_types"] = ["E11"]
+    config["allocation_code"] = {
+        "strategy": "description_regex",
+        "description_regex": r"\(([A-Z0-9][A-Z0-9._/-]{3,})\)",
+        "fallback": "same_as_customs_code",
+    }
+    config["co_stock"]["lot_policy"] = "line_level"
+    save_client_config(client, config)
+    upload = bcct_workbook([
+        {"direction": "import", "declaration_type": "E11", "declaration_no": "TK-001", "line_no": "1", "item_code": "DIENTRO", "description": "DIENTRO#&Điện trở (001.0001400)", "quantity": "100", "unit": "PCS"},
+        {"direction": "import", "declaration_type": "E11", "declaration_no": "TK-001", "line_no": "2", "item_code": "DIENTRO", "description": "DIENTRO#&Điện trở (001.0001400)", "quantity": "50", "unit": "PCS"},
+    ])
+
+    process_bcct_upload(client, upload, "bcct.xlsx")
+
+    stock_rows = get_source_workspace(client)["co_stock_rows"]
+    assert len(stock_rows) == 2
+    assert [row["line_no"] for row in stock_rows] == ["1", "2"]
+    assert {row["customs_item_code"] for row in stock_rows} == {"DIENTRO"}
+    assert {row["allocation_code"] for row in stock_rows} == {"001.0001400"}
+
+
+def test_co_stock_can_aggregate_within_one_declaration_without_losing_source_lines():
+    client = get_client("do-thanh")
+    config = get_client_config(client)
+    config["bcct"]["eligible_import_declaration_types"] = ["E11"]
+    config["allocation_code"] = {
+        "strategy": "description_regex",
+        "description_regex": r"\(([A-Z0-9][A-Z0-9._/-]{3,})\)",
+        "fallback": "same_as_customs_code",
+    }
+    config["co_stock"]["lot_policy"] = "aggregate_by_declaration_and_allocation_code"
+    save_client_config(client, config)
+    upload = bcct_workbook([
+        {"direction": "import", "declaration_type": "E11", "declaration_no": "TK-001", "line_no": "1", "item_code": "DIENTRO", "description": "DIENTRO#&Điện trở (001.0001400)", "quantity": "100", "unit": "PCS"},
+        {"direction": "import", "declaration_type": "E11", "declaration_no": "TK-001", "line_no": "2", "item_code": "DIENTRO", "description": "DIENTRO#&Điện trở (001.0001400)", "quantity": "50", "unit": "PCS"},
+        {"direction": "import", "declaration_type": "E11", "declaration_no": "TK-002", "line_no": "1", "item_code": "DIENTRO", "description": "DIENTRO#&Điện trở (001.0001400)", "quantity": "25", "unit": "PCS"},
+    ])
+
+    process_bcct_upload(client, upload, "bcct.xlsx")
+
+    stock_rows = get_source_workspace(client)["co_stock_rows"]
+    assert len(stock_rows) == 2
+    grouped = [row for row in stock_rows if row["import_declaration_no"] == "TK-001"][0]
+    assert grouped["line_no"] == "1,2"
+    assert grouped["allocation_code"] == "001.0001400"
+    assert grouped["available_qty"] == "150"
+    assert len(grouped["source_line_ids"]) == 2
+
+
+def test_co_stock_aggregation_handles_thousands_separators():
+    client = get_client("do-thanh")
+    config = get_client_config(client)
+    config["bcct"]["eligible_import_declaration_types"] = ["E11"]
+    config["co_stock"]["lot_policy"] = "aggregate_by_declaration_and_allocation_code"
+    save_client_config(client, config)
+    upload = bcct_workbook([
+        {"direction": "import", "declaration_type": "E11", "declaration_no": "TK-001", "line_no": "1", "item_code": "MAT-001", "quantity": "1,000", "unit": "PCS"},
+        {"direction": "import", "declaration_type": "E11", "declaration_no": "TK-001", "line_no": "2", "item_code": "MAT-001", "quantity": "250.5", "unit": "PCS"},
+    ])
+
+    process_bcct_upload(client, upload, "bcct.xlsx")
+
+    stock_rows = get_source_workspace(client)["co_stock_rows"]
+    assert len(stock_rows) == 1
+    assert stock_rows[0]["available_qty"] == "1250.5"
+
+
+def test_client_config_declaration_types_marks_excluded_import_stock_inactive():
+    client = get_client("do-thanh")
+    config = get_client_config(client)
+    config["bcct"]["eligible_import_declaration_types"] = ["E11", "E15"]
+    save_client_config(client, config)
+    upload = bcct_workbook([
+        {"direction": "import", "declaration_type": "E11", "declaration_no": "TK-001", "line_no": "1", "item_code": "MAT-001", "quantity": "100", "unit": "PCS"},
+        {"direction": "import", "declaration_type": "E13", "declaration_no": "TK-002", "line_no": "1", "item_code": "TOOL-001", "quantity": "1", "unit": "PCS"},
+        {"direction": "export", "declaration_type": "E42", "declaration_no": "XK-001", "line_no": "1", "item_code": "TP-001", "quantity": "10", "unit": "PCS"},
+    ])
+
+    process_bcct_upload(client, upload, "bcct.xlsx")
+
+    stock_rows = get_source_workspace(client)["co_stock_rows"]
+    assert [row["customs_item_code"] for row in stock_rows] == ["MAT-001", "TOOL-001"]
+    active_row = [row for row in stock_rows if row["customs_item_code"] == "MAT-001"][0]
+    inactive_row = [row for row in stock_rows if row["customs_item_code"] == "TOOL-001"][0]
+    assert active_row["eligibility_status"] == "active"
+    assert active_row["remaining_qty"] == "100"
+    assert inactive_row["eligibility_status"] == "inactive"
+    assert inactive_row["eligibility_reason"] == "excluded_by_declaration_type_config"
+    assert inactive_row["available_qty"] == "1"
+    assert inactive_row["remaining_qty"] == "0"
+
+
+def test_config_change_deactivates_and_reactivates_existing_stock_candidate():
+    client = get_client("do-thanh")
+    config = get_client_config(client)
+    config["bcct"]["eligible_import_declaration_types"] = ["E11", "E15"]
+    save_client_config(client, config)
+    upload = bcct_workbook([
+        {"direction": "import", "declaration_type": "E15", "declaration_no": "TK-001", "line_no": "1", "item_code": "MAT-001", "quantity": "100", "unit": "PCS"},
+    ])
+    process_bcct_upload(client, upload, "bcct.xlsx")
+
+    initial_stock = get_source_workspace(client)["co_stock_rows"][0]
+    source_row = initial_stock["source_row"]
+    assert initial_stock["eligibility_status"] == "active"
+
+    config = get_client_config(client)
+    config["bcct"]["eligible_import_declaration_types"] = ["E11"]
+    save_client_config(client, config)
+    deactivated_stock = get_source_workspace(client)["co_stock_rows"][0]
+    assert deactivated_stock["source_row"] == source_row
+    assert deactivated_stock["eligibility_status"] == "inactive"
+    assert deactivated_stock["remaining_qty"] == "0"
+
+    config = get_client_config(client)
+    config["bcct"]["eligible_import_declaration_types"] = ["E11", "E15"]
+    save_client_config(client, config)
+    reactivated_stock = get_source_workspace(client)["co_stock_rows"][0]
+    assert reactivated_stock["source_row"] == source_row
+    assert reactivated_stock["eligibility_status"] == "active"
+    assert reactivated_stock["remaining_qty"] == "100"
+
+
+def test_co_stock_aggregation_keeps_active_and_inactive_candidates_separate():
+    client = get_client("do-thanh")
+    config = get_client_config(client)
+    config["bcct"]["eligible_import_declaration_types"] = ["E11"]
+    config["co_stock"]["lot_policy"] = "aggregate_by_declaration_and_allocation_code"
+    save_client_config(client, config)
+    upload = bcct_workbook([
+        {"direction": "import", "declaration_type": "E11", "declaration_no": "TK-001", "line_no": "1", "item_code": "MAT-001", "quantity": "100", "unit": "PCS"},
+        {"direction": "import", "declaration_type": "E13", "declaration_no": "TK-001", "line_no": "2", "item_code": "MAT-001", "quantity": "50", "unit": "PCS"},
+    ])
+
+    process_bcct_upload(client, upload, "bcct.xlsx")
+
+    stock_rows = get_source_workspace(client)["co_stock_rows"]
+    assert len(stock_rows) == 2
+    assert {row["eligibility_status"] for row in stock_rows} == {"active", "inactive"}
+    assert sorted(row["remaining_qty"] for row in stock_rows) == ["0", "100"]
+
+
+def test_co_stock_declaration_type_filter_normalizes_uploaded_case():
+    client = get_client("do-thanh")
+    config = get_client_config(client)
+    config["bcct"]["eligible_import_declaration_types"] = ["E11"]
+    save_client_config(client, config)
+    upload = bcct_workbook([
+        {"direction": "", "declaration_type": "e11", "declaration_no": "TK-001", "line_no": "1", "item_code": "MAT-001", "quantity": "100", "unit": "PCS"},
+    ])
+
+    process_bcct_upload(client, upload, "bcct.xlsx")
+
+    workspace = get_source_workspace(client)
+    assert workspace["bcct"]["published_rows"][0]["declaration_type"] == "E11"
+    assert [row["customs_item_code"] for row in workspace["co_stock_rows"]] == ["MAT-001"]
+    assert workspace["co_stock_rows"][0]["eligibility_status"] == "active"
+
+
+def test_unresolved_allocation_code_is_review_only_stock():
+    client = get_client("do-thanh")
+    config = get_client_config(client)
+    config["bcct"]["eligible_import_declaration_types"] = ["E11"]
+    config["allocation_code"] = {
+        "strategy": "description_regex",
+        "description_regex": r"\(([A-Z0-9][A-Z0-9._/-]{3,})\)",
+        "fallback": "requires_review",
+    }
+    save_client_config(client, config)
+    upload = bcct_workbook([
+        {"direction": "import", "declaration_type": "E11", "declaration_no": "TK-001", "line_no": "1", "item_code": "DIENTRO", "description": "DIENTRO không có mã nội bộ", "quantity": "100", "unit": "PCS"},
+    ])
+
+    process_bcct_upload(client, upload, "bcct.xlsx")
+
+    stock_row = get_source_workspace(client)["co_stock_rows"][0]
+    assert stock_row["allocation_code_status"] == "requires_review"
+    assert stock_row["allocation_code"] == ""
+    assert stock_row["material_code"] == ""
+    response = TestClient(app).get("/clients/do-thanh/co-stock")
+    assert response.status_code == 200
+    assert "Cần review" in response.text
+
+
+def test_manual_review_lot_policy_keeps_stock_rows_unusable_until_review():
+    client = get_client("do-thanh")
+    config = get_client_config(client)
+    config["bcct"]["eligible_import_declaration_types"] = ["E11"]
+    config["co_stock"]["lot_policy"] = "manual_review"
+    save_client_config(client, config)
+    upload = bcct_workbook([
+        {"direction": "import", "declaration_type": "E11", "declaration_no": "TK-001", "line_no": "1", "item_code": "MAT-001", "quantity": "100", "unit": "PCS"},
+    ])
+
+    process_bcct_upload(client, upload, "bcct.xlsx")
+
+    stock_row = get_source_workspace(client)["co_stock_rows"][0]
+    assert stock_row["allocation_code_status"] == "requires_review"
+    assert stock_row["allocation_code_reason"] == "manual_stock_review"
+    assert stock_row["material_code"] == ""
+
+
+def test_export_bcct_view_filters_to_relevant_configured_types():
+    client = TestClient(app)
+    config = get_client_config(get_client("do-thanh"))
+    config["bcct"]["relevant_export_declaration_types"] = ["E42"]
+    save_client_config(get_client("do-thanh"), config)
+    upload = bcct_workbook([
+        {"direction": "export", "declaration_type": "E42", "declaration_no": "XK-001", "line_no": "1", "item_code": "TP-CO", "quantity": "10", "unit": "PCS"},
+        {"direction": "export", "declaration_type": "B11", "declaration_no": "XK-002", "line_no": "1", "item_code": "TP-NORMAL", "quantity": "20", "unit": "PCS"},
+    ])
+    client.post(
+        "/clients/do-thanh/bcct/upload",
+        files={"file": ("bcct.xlsx", upload, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+
+    response = client.get("/clients/do-thanh/bcct/exports")
+
+    assert response.status_code == 200
+    assert "TP-CO" in response.text
+    assert "TP-NORMAL" not in response.text
+
+
+def test_config_and_bcct_child_routes_render():
+    client = TestClient(app)
+
+    config_response = client.get("/clients/growatt/config")
+    imports_response = client.get("/clients/growatt/bcct/imports")
+    exports_response = client.get("/clients/growatt/bcct/exports")
+
+    assert config_response.status_code == 200
+    assert imports_response.status_code == 200
+    assert exports_response.status_code == 200
+    assert "Cấu hình công ty" in config_response.text
+    assert "E11" in config_response.text
+    assert "BCCT nhập khẩu" in imports_response.text
+    assert "BCCT xuất khẩu" in exports_response.text
+
+
+def test_co_case_snapshots_client_config_hash():
+    client = TestClient(app)
+    upload = bcct_workbook([
+        {"direction": "import", "declaration_type": "E11", "declaration_no": "TK-001", "line_no": "1", "item_code": "MAT-001", "quantity": "100", "unit": "PCS"}
+    ])
+    client.post(
+        "/clients/do-thanh/bcct/upload",
+        files={"file": ("bcct.xlsx", upload, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+
+    response = client.get("/clients/do-thanh/co-case")
+
+    assert response.status_code == 200
+    assert "Config snapshot" in response.text
+    assert get_client_config(get_client("do-thanh"))["config_hash"] in response.text
 
 
 def test_catalog_and_bcct_routes_offer_templates_and_upload_forms():
@@ -778,6 +1244,22 @@ def test_catalog_and_bcct_routes_offer_templates_and_upload_forms():
     assert "Upload danh mục" in catalog_page.text
     assert "Upload BCCT" in bcct_page.text
     assert "append_or_review_by_transaction_key" in bcct_page.text
+
+
+def test_catalog_upload_renders_selected_child_table():
+    client = TestClient(app)
+    content = create_material_catalog_template_workbook(get_client("growatt"))
+
+    response = client.post(
+        "/clients/do-thanh/catalog/upload",
+        data={"catalog_type": "material", "upload_scope": "full_catalog"},
+        files={"file": ("ds-nvl.xlsx", content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+
+    assert response.status_code == 200
+    assert "DS NVL DK HQ" in response.text
+    assert "DEMO-NPL-001" in response.text
+    assert "Mã nội bộ" not in response.text
 
 
 def test_real_customs_material_catalog_xls_preserves_hq_schema_fields():

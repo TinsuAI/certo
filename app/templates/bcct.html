@@ -7,11 +7,13 @@
 <section class="zone" id="bcct">
   <div class="zone-head">
     <div>
-      <h2>BCCT nhập khẩu / xuất khẩu</h2>
+      <h2>{{ bcct_title }}</h2>
       <p class="meta">View riêng cho báo cáo chi tiết giao dịch. Dữ liệu này đối chiếu nhập, xuất, tồn CO và phân bổ vào hồ sơ C/O.</p>
     </div>
     <div class="chip-row">
-      <span class="chip chip-active">{{ client.counts.bcct }} dòng</span>
+      <a class="chip {{ 'chip-active' if bcct_view == 'all' else '' }}" href="/clients/{{ client.id }}/bcct">{{ client.counts.bcct }} dòng</a>
+      <a class="chip {{ 'chip-active' if bcct_view == 'import' else '' }}" href="/clients/{{ client.id }}/bcct/imports">Nhập khẩu</a>
+      <a class="chip {{ 'chip-active' if bcct_view == 'export' else '' }}" href="/clients/{{ client.id }}/bcct/exports">Xuất khẩu</a>
       <a class="chip" href="/clients/{{ client.id }}/co-stock">Đối chiếu Tồn CO</a>
       <a class="chip" href="/clients/{{ client.id }}/co-case">Dùng trong hồ sơ C/O</a>
     </div>
@@ -52,10 +54,11 @@
     <section class="zone mini-panel">
       <div class="subsection-head">
         <h3>Template và review</h3>
-        <p class="meta">Tồn CO chỉ rollup từ import rows đã review.</p>
+        <p class="meta">Tồn CO dùng loại hình {{ client_config.bcct.eligible_import_declaration_types|join(', ') or 'chưa cấu hình' }} và policy {{ client_config.co_stock.lot_policy }}.</p>
       </div>
       <div class="chip-row">
         <a class="chip" href="/clients/{{ client.id }}/bcct/template.xlsx">Tải template BCCT</a>
+        <a class="chip" href="/clients/{{ client.id }}/config">Cấu hình</a>
         <span class="chip">BCCT v{{ source_workspace.bcct.latest_version.version_no if source_workspace.bcct.latest_version else 'none' }}</span>
         <span class="chip">{{ source_workspace.bcct.correction_candidates|length }} correction_candidate</span>
       </div>
@@ -81,43 +84,6 @@
   </section>
   {% endif %}
 
-  <div class="table-scroll">
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Kỳ</th>
-          <th>Tờ khai</th>
-          <th>STT</th>
-          <th>LH</th>
-          <th>Luồng</th>
-          <th>Mã hàng</th>
-          <th>HS</th>
-          <th>Số lượng</th>
-          <th>ĐVT</th>
-          <th>Trị giá</th>
-          <th>Hóa đơn</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in client.bcct_rows %}
-        <tr>
-          <td>{{ row.period }}</td>
-          <td class="mono">{{ row.declaration_no }}</td>
-          <td class="mono">{{ row.line_no }}</td>
-          <td class="mono">{{ row.declaration_type }}</td>
-          <td><span class="badge badge-neutral">{{ row.direction }}</span></td>
-          <td class="mono">{{ row.item_code }}</td>
-          <td class="mono">{{ row.hs_code }}</td>
-          <td class="num">{{ row.qty }}</td>
-          <td class="mono">{{ row.unit }}</td>
-          <td class="num">{{ row.customs_value }}</td>
-          <td class="mono">{{ row.invoice_ref }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="11" class="empty-cell">Chưa có BCCT.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  {% include "_advanced_table.html" %}
 </section>
 {% endblock %}

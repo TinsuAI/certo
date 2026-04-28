@@ -11,8 +11,9 @@
       <p class="meta">DS SP DK HQ và DS NVL DK HQ theo schema hải quan; app giữ cả field chuẩn hóa và raw payload gốc từng dòng.</p>
     </div>
     <div class="chip-row" aria-label="Loại mã hàng">
-      <a class="chip chip-active" href="#tp-catalog">TP ({{ client.counts.products }})</a>
-      <a class="chip" href="#nvl-catalog">NVL ({{ client.counts.materials }})</a>
+      <a class="chip" href="/clients/{{ client.id }}/catalog/materials">NVL ({{ client.counts.materials }})</a>
+      <a class="chip" href="/clients/{{ client.id }}/catalog/products">TP ({{ client.counts.products }})</a>
+      <span class="chip chip-active">Upload</span>
     </div>
   </div>
 
@@ -62,93 +63,18 @@
     </form>
     <section class="zone mini-panel">
       <div class="subsection-head">
-        <h3>Template và version</h3>
+        <h3>Template, version và bảng</h3>
         <p class="meta">Catalog hiện tại được publish theo version tổng hợp mỗi công ty.</p>
       </div>
       <div class="chip-row">
         <a class="chip" href="/clients/{{ client.id }}/catalog/material-template.xlsx">Tải template DS NVL</a>
         <a class="chip" href="/clients/{{ client.id }}/catalog/product-template.xlsx">Tải template DS SP</a>
+        <a class="chip" href="/clients/{{ client.id }}/catalog/materials">Mở DS NVL DK HQ</a>
+        <a class="chip" href="/clients/{{ client.id }}/catalog/products">Mở DS SP DK HQ</a>
       </div>
       <div class="meta">
         NVL v{{ source_workspace.material_catalog.latest_version.version_no if source_workspace.material_catalog.latest_version else 'none' }} ·
         TP v{{ source_workspace.product_catalog.latest_version.version_no if source_workspace.product_catalog.latest_version else 'none' }}
-      </div>
-    </section>
-  </div>
-
-  <div class="split-balanced">
-    <section class="catalog-pane" id="tp-catalog">
-      <div class="subsection-head">
-        <h3>Thành phẩm (TP)</h3>
-        <p class="meta">Mã xuất khẩu, HS thành phẩm và rule áp dụng cho hồ sơ C/O.</p>
-      </div>
-      <div class="table-scroll">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Mã TP</th>
-              <th>Tên</th>
-              <th>ĐVT</th>
-              <th>HS</th>
-              <th>Mục đích</th>
-              <th>Quy tắc</th>
-              <th>Trạng thái</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in client.product_catalog %}
-            <tr>
-              <td class="mono">{{ row.product_code }}</td>
-              <td>{{ row.name }}</td>
-              <td class="mono">{{ row.unit }}</td>
-              <td class="mono">{{ row.hs_code }}</td>
-              <td>{{ row.purpose }}</td>
-              <td>{{ row.rule }}</td>
-              <td><span class="badge badge-success">{{ row.status }}</span></td>
-            </tr>
-            {% else %}
-            <tr><td colspan="7" class="empty-cell">Chưa có danh mục TP.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </section>
-    <section class="catalog-pane" id="nvl-catalog">
-      <div class="subsection-head">
-        <h3>Nguyên vật liệu (NVL)</h3>
-        <p class="meta">Mã, tên, ĐVT, HS và metadata thuế/cảnh báo lấy từ DS NVL DK HQ.</p>
-      </div>
-      <div class="table-scroll">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Mã HQ</th>
-              <th>Mã nội bộ</th>
-              <th>Tên</th>
-              <th>ĐVT</th>
-              <th>HS</th>
-              <th>Mục đích</th>
-              <th>Xuất xứ mặc định</th>
-              <th>Trạng thái</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in client.material_catalog %}
-            <tr>
-              <td class="mono">{{ row.customs_code }}</td>
-              <td class="mono">{{ row.internal_code }}</td>
-              <td>{{ row.name }}</td>
-              <td class="mono">{{ row.unit }}</td>
-              <td class="mono">{{ row.hs_code }}</td>
-              <td>{{ row.purpose }}</td>
-              <td><span class="badge badge-neutral">{{ row.origin_default }}</span></td>
-              <td><span class="badge badge-neutral">{{ row.status }}</span></td>
-            </tr>
-            {% else %}
-            <tr><td colspan="8" class="empty-cell">Chưa có danh mục NVL.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
       </div>
     </section>
   </div>

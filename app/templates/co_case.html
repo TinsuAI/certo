@@ -61,7 +61,7 @@
         <label>Loại mẫu C/O
           <input name="co_form_type" value="{{ case.co_form_type }}">
         </label>
-        <label>Quy tắc
+        <label>Quy tắc áp dụng
           <input name="rule" value="{{ case.rule }}">
         </label>
       </div>
@@ -102,8 +102,9 @@
         <div><span>DS NVL</span><strong>v{{ case.source_snapshot.material_catalog_version_no or 'none' }}</strong></div>
         <div><span>DS SP</span><strong>v{{ case.source_snapshot.product_catalog_version_no or 'none' }}</strong></div>
         <div><span>BCCT reviewed rows</span><strong>{{ case.source_snapshot.bcct_reviewed_row_count }}</strong></div>
+        <div><span>Config snapshot</span><strong>{{ case.source_snapshot.client_config_hash or 'none' }}</strong></div>
       </div>
-      <p class="meta">BCCT reviewed rows: {{ case.source_snapshot.bcct_reviewed_row_count }}. Correction candidates không được dùng cho hồ sơ C/O.</p>
+      <p class="meta">BCCT reviewed rows: {{ case.source_snapshot.bcct_reviewed_row_count }}. Config snapshot: {{ case.source_snapshot.client_config_hash or 'none' }}. Correction candidates không được dùng cho hồ sơ C/O.</p>
     </section>
 
     <section class="zone">
