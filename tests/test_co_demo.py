@@ -1,5 +1,7 @@
 from decimal import Decimal
 from io import BytesIO
+from pathlib import Path
+from zipfile import ZipFile
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,6 +15,8 @@ from app.source_store import (
     create_bcct_template_workbook,
     create_material_catalog_template_workbook,
     get_source_workspace,
+    parse_bcct_workbook,
+    parse_catalog_workbook,
     process_bcct_upload,
     process_catalog_upload,
 )
@@ -69,6 +73,14 @@ def bcct_workbook(rows: list[dict]) -> bytes:
             row.get("invoice_ref", ""),
         ])
     return workbook_bytes(workbook)
+
+
+def customs_zip_entry(filename: str) -> bytes:
+    archive_path = Path("temp/drive-download-20260428T145419Z-3-001.zip")
+    if not archive_path.exists():
+        pytest.skip("Customs sample ZIP is local-only.")
+    with ZipFile(archive_path) as archive:
+        return archive.read(filename)
 
 
 def test_calculates_growatt_documented_rvc_seed_from_material_rows():
@@ -612,9 +624,9 @@ def test_material_catalog_full_upload_marks_omitted_code_inactive_pending_review
     client = get_client("growatt")
     template = create_material_catalog_template_workbook(client)
     workbook = load_workbook(BytesIO(template))
-    worksheet = workbook["NVL"]
+    worksheet = workbook.active
     for row_index in range(worksheet.max_row, 1, -1):
-        if worksheet.cell(row_index, 1).value == "DEMO-NPL-003":
+        if worksheet.cell(row_index, 2).value == "DEMO-NPL-003":
             worksheet.delete_rows(row_index)
 
     result = process_catalog_upload(client, "material", workbook_bytes(workbook), "ds-nvl.xlsx", "full_catalog")
@@ -766,6 +778,50 @@ def test_catalog_and_bcct_routes_offer_templates_and_upload_forms():
     assert "Upload danh mục" in catalog_page.text
     assert "Upload BCCT" in bcct_page.text
     assert "append_or_review_by_transaction_key" in bcct_page.text
+
+
+def test_real_customs_material_catalog_xls_preserves_hq_schema_fields():
+    rows = parse_catalog_workbook(customs_zip_entry("DANH MUC NPL DK HQ MOI.xls"), "material_catalog")
+
+    assert rows[0]["customs_code"] == "DIOT"
+    assert rows[0]["name"] == "Đi ốt"
+    assert rows[0]["unit"] == "PCS"
+    assert rows[0]["source_schema"] == "customs_material_catalog"
+    assert rows[0]["source_row_number"] == 2
+    assert rows[0]["raw_fields"]["Mã"] == "DIOT"
+    assert "Mã biểu thuế NK" in rows[0]["raw_fields"]
+    assert "import_tariff_code" in rows[0]
+
+
+def test_real_customs_product_catalog_xls_preserves_hq_schema_fields():
+    rows = parse_catalog_workbook(customs_zip_entry("DANH MUC SP DK HQ MOI.xls"), "product_catalog")
+
+    assert rows[0]["product_code"] == "BIENTAN.01"
+    assert rows[0]["hs_code"] == "85044090"
+    assert rows[0]["unit"] == "PCS"
+    assert rows[0]["source_schema"] == "customs_product_catalog"
+    assert rows[0]["raw_fields"]["Mã định danh của lệnh SX"] == ""
+    assert "production_order_identifier" in rows[0]
+
+
+def test_real_customs_bcct_xlsx_reads_header_row_10_and_preserves_hq_fields():
+    rows = parse_bcct_workbook(customs_zip_entry("BaoCaoHangChiTiet 01.01.2025 - 31.12.2025 08.01 or.xlsx"))
+
+    assert len(rows) == 19898
+    assert rows[0]["declaration_no"] == "106865355330"
+    assert rows[0]["declaration_date"] == "2025-01-07"
+    assert rows[0]["declaration_type"] == "E15"
+    assert rows[0]["direction"] == "import"
+    assert rows[0]["line_no"] == "1"
+    assert rows[0]["item_code"] == "LKN-VO"
+    assert rows[0]["quantity"] == "2000"
+    assert rows[0]["unit"] == "PCS"
+    assert rows[0]["origin_country"] == "VIETNAM"
+    assert rows[0]["customs_value"] == "1288209000"
+    assert rows[0]["invoice_ref"] == "00000020"
+    assert rows[0]["raw_fields"]["Số To Khai"] == "106865355330"
+    assert rows[0]["source_header_row"] == 10
+    assert any(row["direction"] == "export" and row["declaration_type"] == "E42" for row in rows)
 
 
 def test_bcct_upload_route_surfaces_correction_candidates():

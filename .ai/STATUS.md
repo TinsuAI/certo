@@ -1,27 +1,44 @@
 # Project Status
 
 ## Current State
-- The repo now has a working FastAPI/Jinja C/O demo app for agency staff under `app/`, with a BCQT-System-inspired UI and client-specific workspace.
-- The demo supports these views per client: overview, customs catalogs, BOM, C/O stock, BCCT, and C/O case.
-- The app can upload and version DS NVL, DS SP, BCCT, direct BOM workbooks, and technical BOM workbooks. Runtime data is stored under local-only `data/local/...`.
-- Tests cover origin calculations, workbook round trips, BOM versioning, catalog/BCCT upload semantics, C/O stock derivation, and theme persistence.
+- The repo has a working FastAPI/Jinja C/O demo app under `app/`, with client workspace views for overview, customs catalogs, BOM, C/O stock, BCCT, and C/O case.
+- The latest working tree contains uncommitted changes for customs-standard source ingestion:
+  - DS NVL DK HQ and DS SP DK HQ `.xls` parsing via `xlrd`.
+  - BCCT `.xlsx` parsing with header row detection, including the HQ row-10 format.
+  - ZIP upload support for source modules, selecting the matching workbook per module.
+  - Source rows now preserve both normalized fields and original `raw_fields`/source metadata for audit.
+- A discovery brief for splitting Catalog subviews and adding reusable advanced source tables exists at `.ai/features/2026-04-28-advanced-source-tables.md`.
+- Runtime data remains local-only under `data/local/...`; current source sample files are under untracked `temp/`.
 
 ## Recent Changes
-- Added the FastAPI app, templates, CSS, workbook I/O, origin logic, seeded demo data, source-module store, and BOM store.
-- Added BOM versioning at both aggregate and per-product levels, including technical BOM parsing lanes for Growatt-style and Johnson/SAP-style inputs.
-- Added DS NVL/DS SP upload logic with full-catalog vs partial-update semantics.
-- Added BCCT upload logic where import/export rows are transaction evidence, re-uploads add missing rows, same-key changes create correction candidates, and C/O stock derives only from reviewed import rows.
-- Added light/dark theme toggle in the top navigation, persisted by `co_theme` cookie.
-- Added discovery/implementation docs for BOM and source-module handling.
+- Updated `app/source_store.py` to support real HQ schemas for:
+  - `DANH MUC NPL DK HQ MOI.xls`
+  - `DANH MUC SP DK HQ MOI.xls`
+  - `BaoCaoHangChiTiet 01.01.2025 - 31.12.2025 08.01 or.xlsx`
+- Added `xlrd>=2.0` to Python dependencies for `.xls` support.
+- Updated Catalog and BCCT templates to accept `.xls/.xlsx/.zip` and expose more customs fields.
+- Added regression tests for the real local HQ sample files; tests skip if the local ZIP is absent.
+- Created extracted manual HQ files under `temp/manual-hq-files/` for browser testing.
+- Reset local runtime source/BOM stores after schema changes, backing up previous local state to `data/local/setup-backups/20260428-231505-schema-change/`.
+- Ran `/discover` for advanced tables and catalog subviews.
 
 ## Next Steps
-- Manually validate the demo flow with the generated Excel files under `data/local/manual-test-files/`: upload catalogs, BCCT, BOM, then inspect C/O stock and C/O case snapshots.
-- Add UI actions for reviewing/accepting BCCT correction candidates and catalog inactive-pending-review rows.
-- Add a BOM version picker/selector flow in the C/O case UI once the intended operator workflow is confirmed.
-- Confirm remaining domain questions: exact customs transaction-key scope, line number stability across exports, and how to handle corrections after a C/O has already been issued.
+1. Implement the advanced source table feature from `.ai/features/2026-04-28-advanced-source-tables.md`.
+2. Split Catalog into DS NVL and DS SP child routes; remove the misleading visible `Mã nội bộ` column from DS NVL HQ UI.
+3. Add a reusable server-side table helper/partial with search, filters, pagination, sorting, and summary/group chips.
+4. Apply the table helper to DS NVL, DS SP, BCCT, and Tồn CO.
+5. Add focused tests for route split, table query behavior, pagination boundaries, and upload result routing.
+6. Manually re-test source uploads using the ZIP or files in `temp/manual-hq-files/`.
+
+## Blockers
+- `npm test` currently has 3 unrelated legal lookup failures around expected `raw-binary` source links. The CO demo pytest suite passes.
+- Production database/auth/deploy decisions are still intentionally deferred.
 
 ## Notes for Next AI Session
-- Start the app with `npm run co:serve`; the current dev server has been running on `http://127.0.0.1:8001/clients`.
-- `data/` is intentionally ignored and local-only. Do not commit generated manual test files, screenshots, raw uploads, or source-module state.
-- Use `uv run pytest tests/test_co_demo.py -q` for the current Python app test suite.
-- User preference: respond in Vietnamese when the user writes Vietnamese, and keep docs/artifacts in English unless client-facing.
+- Start by reading `.ai/features/2026-04-28-advanced-source-tables.md`.
+- Use `uv run pytest tests/test_co_demo.py -q` for the current CO app test suite; last run: `39 passed`.
+- `npm test` is not clean due to pre-existing legal lookup expectations, not the C/O parser changes.
+- Dev server was stopped during handoff. Start it with `npm run co:serve` or `uv run uvicorn app.main:app --host 127.0.0.1 --port 8001`.
+- `data` in the repo is a symlink to a sibling local data directory.
+- Do not commit `data/` runtime state or `temp/` sample uploads unless the user explicitly decides to version sanitized fixtures.
+- User prefers Vietnamese replies when writing Vietnamese; docs/artifacts stay in English unless client-facing.

@@ -4,15 +4,19 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import tempfile
+import unicodedata
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from pathlib import Path
+from zipfile import BadZipFile, ZipFile
 
 from openpyxl import Workbook, load_workbook
+import xlrd
 
 
 CATALOG_MODULES = {"material": "material_catalog", "product": "product_catalog"}
@@ -40,58 +44,249 @@ DIRECTION_ALIASES = {
     "XUẤT KHẨU": "export",
     "XK": "export",
 }
-HEADER_ALIASES = {
-    "ma_hq": "customs_code",
-    "mã_hq": "customs_code",
-    "ma_nvl": "customs_code",
-    "mã_nvl": "customs_code",
-    "ma_npl": "customs_code",
-    "mã_npl": "customs_code",
-    "ma_noi_bo": "internal_code",
-    "mã_nội_bộ": "internal_code",
-    "ten": "name",
-    "tên": "name",
-    "ten_hang": "name",
-    "tên_hàng": "name",
-    "mo_ta": "description",
-    "mô_tả": "description",
-    "ma_tp": "product_code",
-    "mã_tp": "product_code",
-    "ma_sp": "product_code",
-    "mã_sp": "product_code",
-    "quy_tac": "rule",
-    "quy_tắc": "rule",
-    "trang_thai": "status",
-    "trạng_thái": "status",
-    "ky": "coverage_period",
-    "kỳ": "coverage_period",
-    "luong": "direction",
-    "luồng": "direction",
-    "so_tk": "declaration_no",
-    "số_tk": "declaration_no",
-    "to_khai": "declaration_no",
-    "tờ_khai": "declaration_no",
-    "ngay_tk": "declaration_date",
-    "ngày_tk": "declaration_date",
-    "hai_quan": "customs_office",
-    "hải_quan": "customs_office",
-    "loai_hinh": "declaration_type",
-    "loại_hình": "declaration_type",
-    "stt_hang": "line_no",
-    "stt_hàng": "line_no",
-    "ma_hang": "item_code",
-    "mã_hàng": "item_code",
-    "ma_npl_sp": "item_code",
-    "mã_npl_sp": "item_code",
-    "so_luong": "quantity",
-    "số_lượng": "quantity",
-    "don_vi": "unit",
-    "đơn_vị": "unit",
-    "tri_gia": "customs_value",
-    "trị_giá": "customs_value",
-    "hoa_don": "invoice_ref",
-    "hóa_đơn": "invoice_ref",
+SOURCE_AUDIT_FIELDS = {
+    "source_upload_id",
+    "review_status",
+    "import_row_id",
+    "source_schema",
+    "source_file",
+    "source_sheet",
+    "source_header_row",
+    "source_row_number",
+    "raw_fields",
 }
+COMMON_HEADER_ALIASES = {
+    "ten": "name",
+    "ten_hang": "description",
+    "mo_ta": "description",
+    "ma_hs": "hs_code",
+    "hs": "hs_code",
+    "don_vi": "unit",
+    "don_vi_tinh": "unit",
+    "dvt": "unit",
+    "uom": "unit",
+    "quy_tac": "rule",
+    "origin_rule": "rule",
+    "trang_thai": "status",
+    "status": "status",
+    "muc_dich_sd": "purpose",
+    "muc_dich_su_dung": "purpose",
+    "canh_bao_khi_tao_to_khai": "declaration_warning",
+    "noi_dung_canh_bao": "warning_content",
+    "don_gia": "unit_price",
+    "ma_bieu_thue_nk": "import_tariff_code",
+    "ma_ap_dung_thue_ttdb": "excise_tax_code",
+    "ma_ap_dung_thue_moi_truong": "environmental_tax_code",
+    "ma_ap_dung_thue_vat": "vat_tax_code",
+    "ghi_chu": "note",
+    "ten_tieng_anh": "english_name",
+}
+MATERIAL_HEADER_ALIASES = {
+    **COMMON_HEADER_ALIASES,
+    "ma": "customs_code",
+    "ma_hq": "customs_code",
+    "ma_nvl": "customs_code",
+    "ma_npl": "customs_code",
+    "ma_noi_bo": "internal_code",
+    "ten": "name",
+}
+PRODUCT_HEADER_ALIASES = {
+    **COMMON_HEADER_ALIASES,
+    "ma": "product_code",
+    "ma_tp": "product_code",
+    "ma_sp": "product_code",
+    "customs_code": "product_code",
+    "ma_dinh_danh_cua_lenh_sx": "production_order_identifier",
+    "ten": "name",
+}
+BCCT_HEADER_ALIASES = {
+    **COMMON_HEADER_ALIASES,
+    "stt": "sequence_no",
+    "ky": "coverage_period",
+    "period": "coverage_period",
+    "luong": "direction",
+    "direction": "direction",
+    "so_tk": "declaration_no",
+    "so_to_khai": "declaration_no",
+    "to_khai": "declaration_no",
+    "declaration_no": "declaration_no",
+    "ngay_tk": "declaration_date",
+    "ngay_dk": "declaration_date",
+    "declaration_date": "declaration_date",
+    "hai_quan": "customs_office",
+    "customs_office": "customs_office",
+    "ma_loai_hinh": "declaration_type",
+    "loai_hinh": "declaration_type",
+    "declaration_type": "declaration_type",
+    "ma_dia_diem_dich": "destination_location_code",
+    "ten_dia_diem_dich_cho_van_chuyen_bao_thue": "destination_location_name",
+    "dia_diem_do_hang": "unloading_location",
+    "ma_hieu_ptvc": "transport_mode_code",
+    "ngay_khoi_hanh_van_chuyen": "departure_date",
+    "ky_hieu_va_so_hieu_bao_bi": "package_marks",
+    "ty_gia_thanh_toan": "exchange_rate",
+    "don_vi_tien_te": "currency",
+    "so_luong_kien": "package_quantity",
+    "ma_dvt_kien": "package_unit",
+    "trong_luong": "gross_weight",
+    "ma_dvt_trong_luong": "gross_weight_unit",
+    "so_quan_ly_noi_bo": "internal_management_no",
+    "dieu_kien_gia_hoa_don": "invoice_price_condition",
+    "ghi_chu": "declaration_note",
+    "stt_hang": "line_no",
+    "line_no": "line_no",
+    "ma_hang": "item_code",
+    "ma_npl_sp": "item_code",
+    "item_code": "item_code",
+    "material_code": "item_code",
+    "product_code": "item_code",
+    "xuat_xu": "origin_country",
+    "don_gia_tinh_thue": "taxable_unit_price",
+    "tong_so_luong": "quantity",
+    "so_luong": "quantity",
+    "qty": "quantity",
+    "tong_so_luong_2": "secondary_quantity",
+    "don_vi_tinh_2": "secondary_unit",
+    "tri_gia_nt": "foreign_currency_value",
+    "tri_gia": "customs_value",
+    "tong_tri_gia": "customs_value",
+    "value": "customs_value",
+    "ma_bieu_thue_xnk": "import_export_tariff_code",
+    "thue_suat_xnk": "import_export_tax_rate",
+    "tien_thue_xnk": "import_export_tax_amount",
+    "so_tien_mien_thue_xnk": "import_export_tax_exempt_amount",
+    "thue_suat_tv": "safeguard_tax_rate",
+    "tien_thue_tv": "safeguard_tax_amount",
+    "thue_suat_pb": "trade_remedy_tax_rate",
+    "tien_thue_pb": "trade_remedy_tax_amount",
+    "thue_suat_ttdb": "excise_tax_rate",
+    "tien_thue_ttdb": "excise_tax_amount",
+    "thue_suat_bvmt": "environmental_tax_rate",
+    "tien_thue_mt": "environmental_tax_amount",
+    "thue_suat_va": "vat_tax_rate",
+    "tien_thue_vat": "vat_tax_amount",
+    "tong_tien_thue": "total_tax_amount",
+    "ma_doanh_nghiep": "company_tax_code",
+    "ten_doanh_nghiep": "company_name",
+    "ten_doi_tac": "partner_name",
+    "so_hoa_don": "invoice_ref",
+    "hoa_don": "invoice_ref",
+    "ngay_hoa_don": "invoice_date",
+    "so_hop_dong": "contract_no",
+    "ngay_hop_dong": "contract_date",
+}
+DECLARATION_TYPE_DIRECTIONS = {
+    "A11": "import",
+    "A12": "import",
+    "A21": "import",
+    "A31": "import",
+    "A41": "import",
+    "E11": "import",
+    "E13": "import",
+    "E15": "import",
+    "G11": "import",
+    "G12": "import",
+    "B11": "export",
+    "B12": "export",
+    "B13": "export",
+    "E42": "export",
+    "E52": "export",
+    "E54": "export",
+    "E62": "export",
+    "G21": "export",
+    "G22": "export",
+}
+CUSTOMS_MATERIAL_HEADERS = [
+    "STT",
+    "Mã",
+    "Tên",
+    "Đơn vị tính",
+    "Mã HS",
+    "Mục đích SD",
+    "Cảnh báo khi tạo tờ khai",
+    "Nội dung cảnh báo",
+    "Đơn giá",
+    "Mã biểu thuế NK",
+    "Mã áp dụng thuế TTĐB",
+    "Mã áp dụng thuế môi trường",
+    "Mã áp dụng thuế VAT",
+    "Ghi chú",
+    "Tên tiếng anh",
+]
+CUSTOMS_PRODUCT_HEADERS = [
+    "STT",
+    "Mã",
+    "Tên",
+    "Đơn vị tính",
+    "Mã HS",
+    "Mục đích sử dụng",
+    "Mã định danh của lệnh SX",
+    "Cảnh báo khi tạo tờ khai",
+    "Nội dung cảnh báo",
+    "Đơn giá",
+    "Mã biểu thuế NK",
+    "Mã áp dụng thuế TTĐB",
+    "Mã áp dụng thuế môi trường",
+    "Mã áp dụng thuế VAT",
+    "Ghi chú",
+    "Tên tiếng anh",
+]
+CUSTOMS_BCCT_HEADERS = [
+    "STT",
+    "Số To Khai",
+    "Ngày ĐK",
+    "Mã loại hình",
+    "Mã địa điểm đích",
+    "Tên địa điểm đích cho vận chuyển bảo thuế",
+    "Địa điểm dỡ hàng",
+    "Mã hiệu PTVC",
+    "Ngày khởi hành vận chuyển",
+    "Ký hiệu và số hiệu bao bì",
+    "Tỷ giá thanh toán",
+    "Đơn vị tiền tệ",
+    "Số lượng kiện",
+    "Mã ĐVT kiện",
+    "Trọng lượng",
+    "Mã ĐVT trọng lượng",
+    "Số quản lý nội bộ",
+    "Điều kiện giá hóa đơn",
+    "Ghi chú",
+    "STT hàng",
+    "Mã NPL/SP",
+    "Mã HS",
+    "Tên hàng",
+    "Xuất xứ",
+    "Đơn giá",
+    "Đơn giá tính thuế",
+    "Tổng số lượng",
+    "Đơn vị tính",
+    "Tổng số lượng 2",
+    "Đơn vị tính 2",
+    "Trị giá NT",
+    "Tổng trị giá",
+    "Mã biểu thuế XNK",
+    "Thuế suất XNK",
+    "Tiền thuế XNK",
+    "Số tiền miễn thuế XNK",
+    "Thuế suất TV",
+    "Tiền thuế TV",
+    "Thuế suất PB",
+    "Tiền thuế PB",
+    "Thuế suất TTĐB",
+    "Tiền thuế TTĐB",
+    "Thuế suất BVMT",
+    "Tiền thuế MT",
+    "Thuế suất VA",
+    "Tiền thuế VAT",
+    "Tổng tiền thuế",
+    "Mã doanh nghiệp",
+    "Tên doanh nghiệp",
+    "Tên đối tác",
+    "Số hóa đơn",
+    "Ngày hóa đơn",
+    "Số hợp đồng",
+    "Ngày hợp đồng",
+]
 
 
 class SourceParseError(ValueError):
@@ -160,29 +355,47 @@ def create_catalog_template_workbook(client: dict, catalog_type: str) -> bytes:
     workspace = get_source_workspace(client)[module]
     workbook = Workbook()
     worksheet = workbook.active
-    worksheet.title = "NVL" if module == "material_catalog" else "TP"
+    worksheet.title = "Sheet1"
     if module == "material_catalog":
-        worksheet.append(["customs_code", "internal_code", "name", "hs_code", "unit", "role", "origin_default", "status"])
-        for row in workspace["published_rows"]:
+        worksheet.append(CUSTOMS_MATERIAL_HEADERS)
+        for index, row in enumerate(workspace["published_rows"], start=1):
             worksheet.append([
+                index,
                 row.get("customs_code", ""),
-                row.get("internal_code", ""),
                 row.get("name", ""),
-                row.get("hs_code", ""),
                 row.get("unit", ""),
-                row.get("role", ""),
-                row.get("origin_default", ""),
-                row.get("status", "active"),
+                row.get("hs_code", ""),
+                row.get("purpose", ""),
+                row.get("declaration_warning", ""),
+                row.get("warning_content", ""),
+                row.get("unit_price", ""),
+                row.get("import_tariff_code", ""),
+                row.get("excise_tax_code", ""),
+                row.get("environmental_tax_code", ""),
+                row.get("vat_tax_code", ""),
+                row.get("note", ""),
+                row.get("english_name", ""),
             ])
     else:
-        worksheet.append(["product_code", "name", "hs_code", "rule", "status"])
-        for row in workspace["published_rows"]:
+        worksheet.append(CUSTOMS_PRODUCT_HEADERS)
+        for index, row in enumerate(workspace["published_rows"], start=1):
             worksheet.append([
+                index,
                 row.get("product_code", ""),
                 row.get("name", ""),
+                row.get("unit", ""),
                 row.get("hs_code", ""),
-                row.get("rule", ""),
-                row.get("status", "active"),
+                row.get("purpose", ""),
+                row.get("production_order_identifier", ""),
+                row.get("declaration_warning", ""),
+                row.get("warning_content", ""),
+                row.get("unit_price", ""),
+                row.get("import_tariff_code", ""),
+                row.get("excise_tax_code", ""),
+                row.get("environmental_tax_code", ""),
+                row.get("vat_tax_code", ""),
+                row.get("note", ""),
+                row.get("english_name", ""),
             ])
     return workbook_to_bytes(workbook)
 
@@ -191,39 +404,73 @@ def create_bcct_template_workbook(client: dict) -> bytes:
     workspace = get_source_workspace(client)["bcct"]
     workbook = Workbook()
     worksheet = workbook.active
-    worksheet.title = "BCCT"
-    worksheet.append([
-        "coverage_period",
-        "direction",
-        "declaration_no",
-        "declaration_date",
-        "customs_office",
-        "declaration_type",
-        "line_no",
-        "item_code",
-        "description",
-        "hs_code",
-        "quantity",
-        "unit",
-        "customs_value",
-        "invoice_ref",
-    ])
-    for row in workspace["published_rows"]:
+    worksheet.title = "Sheet1"
+    worksheet.append([])
+    worksheet.append(["", "BÁO CÁO CHI TIẾT HÀNG HÓA XUẤT NHẬP KHẨU"])
+    worksheet.append([])
+    worksheet.append(["Đơn vị Hải quan:", "", ""])
+    worksheet.append(["Mã doanh nghiệp:", "", ""])
+    worksheet.append(["Tổng số dòng hàng:", "", len(workspace["published_rows"])])
+    worksheet.append(["Tổng trị giá: ", "", ""])
+    worksheet.append(["Tổng tiền thuế:", "", ""])
+    worksheet.append([])
+    worksheet.append(CUSTOMS_BCCT_HEADERS)
+    for index, row in enumerate(workspace["published_rows"], start=1):
         worksheet.append([
-            row.get("coverage_period", ""),
-            row.get("direction", ""),
+            row.get("sequence_no", index),
             row.get("declaration_no", ""),
             row.get("declaration_date", ""),
-            row.get("customs_office", ""),
             row.get("declaration_type", ""),
+            row.get("destination_location_code", ""),
+            row.get("destination_location_name", ""),
+            row.get("unloading_location", ""),
+            row.get("transport_mode_code", ""),
+            row.get("departure_date", ""),
+            row.get("package_marks", ""),
+            row.get("exchange_rate", ""),
+            row.get("currency", ""),
+            row.get("package_quantity", ""),
+            row.get("package_unit", ""),
+            row.get("gross_weight", ""),
+            row.get("gross_weight_unit", ""),
+            row.get("internal_management_no", ""),
+            row.get("invoice_price_condition", ""),
+            row.get("declaration_note", ""),
             row.get("line_no", ""),
             row.get("item_code", ""),
-            row.get("description", ""),
             row.get("hs_code", ""),
+            row.get("description", ""),
+            row.get("origin_country", ""),
+            row.get("unit_price", ""),
+            row.get("taxable_unit_price", ""),
             row.get("quantity", ""),
             row.get("unit", ""),
+            row.get("secondary_quantity", ""),
+            row.get("secondary_unit", ""),
+            row.get("foreign_currency_value", ""),
             row.get("customs_value", ""),
+            row.get("import_export_tariff_code", ""),
+            row.get("import_export_tax_rate", ""),
+            row.get("import_export_tax_amount", ""),
+            row.get("import_export_tax_exempt_amount", ""),
+            row.get("safeguard_tax_rate", ""),
+            row.get("safeguard_tax_amount", ""),
+            row.get("trade_remedy_tax_rate", ""),
+            row.get("trade_remedy_tax_amount", ""),
+            row.get("excise_tax_rate", ""),
+            row.get("excise_tax_amount", ""),
+            row.get("environmental_tax_rate", ""),
+            row.get("environmental_tax_amount", ""),
+            row.get("vat_tax_rate", ""),
+            row.get("vat_tax_amount", ""),
+            row.get("total_tax_amount", ""),
+            row.get("company_tax_code", ""),
+            row.get("company_name", ""),
+            row.get("partner_name", ""),
             row.get("invoice_ref", ""),
+            row.get("invoice_date", ""),
+            row.get("contract_no", ""),
+            row.get("contract_date", ""),
         ])
     return workbook_to_bytes(workbook)
 
@@ -334,17 +581,26 @@ def process_bcct_upload(client: dict, content: bytes, filename: str) -> dict:
 
 
 def parse_catalog_workbook(content: bytes, module: str) -> list[dict]:
-    workbook = load_workbook(BytesIO(content), data_only=True)
-    worksheet = workbook["NVL"] if module == "material_catalog" and "NVL" in workbook.sheetnames else workbook.active
-    worksheet = workbook["TP"] if module == "product_catalog" and "TP" in workbook.sheetnames else worksheet
-    headers = [normalize_header(cell_text(cell.value)) for cell in worksheet[1]]
+    sheets = load_tabular_sheets(content, module)
+    sheet = select_catalog_sheet(sheets, module)
+    header_row_index, headers, raw_headers = find_header_row(
+        sheet["rows"],
+        module,
+        {"customs_code", "name"} if module == "material_catalog" else {"product_code", "name"},
+    )
     rows = []
-    for values in iter_rows_as_dicts(worksheet, headers):
+    source_schema = "customs_material_catalog" if module == "material_catalog" else "customs_product_catalog"
+    for values, raw_fields, source_row_number in iter_tabular_rows(
+        sheet["rows"],
+        headers,
+        raw_headers,
+        header_row_index + 1,
+    ):
         if module == "material_catalog":
             customs_code = cell_text(values.get("customs_code"))
             if not customs_code:
                 continue
-            rows.append({
+            row = {
                 "customs_code": customs_code,
                 "internal_code": cell_text(values.get("internal_code")) or customs_code,
                 "name": cell_text(values.get("name") or values.get("description")),
@@ -353,30 +609,43 @@ def parse_catalog_workbook(content: bytes, module: str) -> list[dict]:
                 "role": cell_text(values.get("role")) or "NVL",
                 "origin_default": cell_text(values.get("origin_default") or values.get("origin")),
                 "status": normalize_status(values.get("status")),
-            })
+            }
         else:
             product_code = cell_text(values.get("product_code") or values.get("customs_code"))
             if not product_code:
                 continue
-            rows.append({
+            row = {
                 "product_code": product_code,
                 "name": cell_text(values.get("name") or values.get("description")),
                 "hs_code": cell_text(values.get("hs_code") or values.get("hs")),
+                "unit": normalize_unit(values.get("unit")),
                 "rule": cell_text(values.get("rule") or values.get("origin_rule")),
                 "status": normalize_status(values.get("status")),
-            })
+            }
+        attach_source_fields(row, values, raw_fields, sheet, header_row_index + 1, source_row_number, source_schema)
+        rows.append(row)
     if not rows:
         raise SourceParseError("Workbook has no catalog rows.")
     return rows
 
 
 def parse_bcct_workbook(content: bytes) -> list[dict]:
-    workbook = load_workbook(BytesIO(content), data_only=True)
-    worksheet = workbook["BCCT"] if "BCCT" in workbook.sheetnames else workbook.active
-    headers = [normalize_header(cell_text(cell.value)) for cell in worksheet[1]]
+    sheets = load_tabular_sheets(content, "bcct")
+    sheet = select_bcct_sheet(sheets)
+    header_row_index, headers, raw_headers = find_header_row(
+        sheet["rows"],
+        "bcct",
+        {"declaration_no", "declaration_type", "line_no", "item_code", "quantity", "unit"},
+    )
     rows = []
-    for values in iter_rows_as_dicts(worksheet, headers):
-        direction = normalize_direction(values.get("direction"))
+    for values, raw_fields, source_row_number in iter_tabular_rows(
+        sheet["rows"],
+        headers,
+        raw_headers,
+        header_row_index + 1,
+    ):
+        declaration_type = cell_text(values.get("declaration_type"))
+        direction = normalize_direction(values.get("direction")) or infer_direction(declaration_type)
         declaration_no = cell_text(values.get("declaration_no"))
         line_no = cell_text(values.get("line_no") or values.get("stt") or values.get("stt_hang"))
         item_code = cell_text(values.get("item_code") or values.get("material_code") or values.get("product_code"))
@@ -392,7 +661,7 @@ def parse_bcct_workbook(content: bytes) -> list[dict]:
             "declaration_no": declaration_no,
             "declaration_date": cell_text(values.get("declaration_date")),
             "customs_office": cell_text(values.get("customs_office")),
-            "declaration_type": cell_text(values.get("declaration_type")),
+            "declaration_type": declaration_type,
             "line_no": line_no,
             "item_code": item_code,
             "description": cell_text(values.get("description") or values.get("name")),
@@ -402,12 +671,233 @@ def parse_bcct_workbook(content: bytes) -> list[dict]:
             "customs_value": normalize_decimal(values.get("customs_value") or values.get("value")),
             "invoice_ref": cell_text(values.get("invoice_ref") or values.get("invoice")),
         }
+        attach_source_fields(row, values, raw_fields, sheet, header_row_index + 1, source_row_number, "customs_bcct")
+        row["direction"] = direction
+        row["declaration_no"] = declaration_no
+        row["line_no"] = line_no
+        row["item_code"] = item_code
+        row["quantity"] = quantity
+        row["unit"] = unit
+        row["customs_value"] = normalize_decimal(row.get("customs_value"))
         row["transaction_key"] = transaction_key(row)
         rows.append(row)
     if not rows:
         raise SourceParseError("Workbook has no BCCT rows.")
     assert_unique_keys(rows, "transaction_key", allow_identical=True)
     return rows
+
+
+def load_tabular_sheets(content: bytes, module: str) -> list[dict]:
+    workbook_content, source_file = select_workbook_content(content, module)
+    if workbook_content.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
+        return load_xls_sheets(workbook_content, source_file)
+    return load_xlsx_sheets(workbook_content, source_file)
+
+
+def select_workbook_content(content: bytes, module: str) -> tuple[bytes, str]:
+    if not content.startswith(b"PK"):
+        return content, "upload.xls"
+    try:
+        with ZipFile(BytesIO(content)) as archive:
+            names = archive.namelist()
+            if "[Content_Types].xml" in names and any(name.startswith("xl/") for name in names):
+                return content, "upload.xlsx"
+            workbook_names = [
+                name for name in names
+                if not name.endswith("/") and Path(name).suffix.lower() in {".xls", ".xlsx", ".xlsm"}
+            ]
+            if not workbook_names:
+                raise SourceParseError("ZIP upload has no Excel workbook.")
+            selected_name = select_workbook_name(workbook_names, module)
+            return archive.read(selected_name), selected_name
+    except BadZipFile as exc:
+        raise SourceParseError(f"Cannot read ZIP upload: {exc}") from exc
+
+
+def select_workbook_name(names: list[str], module: str) -> str:
+    scored = []
+    for name in names:
+        key = filename_key(Path(name).name)
+        score = 0
+        if module == "material_catalog" and any(token in key for token in ["npl", "nvl"]):
+            score += 10
+        if module == "product_catalog" and re.search(r"(^|_)sp($|_)", key):
+            score += 10
+        if module == "bcct" and any(token in key for token in ["baocaohangchitiet", "bao_cao_hang_chi_tiet", "bcct"]):
+            score += 10
+        if module == "bcct" and Path(name).suffix.lower() in {".xlsx", ".xlsm"}:
+            score += 1
+        if score:
+            scored.append((score, name))
+    if scored:
+        return sorted(scored, reverse=True)[0][1]
+    if len(names) == 1:
+        return names[0]
+    raise SourceParseError(f"ZIP upload has multiple workbooks; cannot choose one for {module}.")
+
+
+def filename_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", strip_accents(value).lower()).strip("_")
+
+
+def load_xls_sheets(content: bytes, source_file: str) -> list[dict]:
+    try:
+        book = xlrd.open_workbook(file_contents=content)
+    except Exception as exc:
+        raise SourceParseError(f"Cannot read .xls workbook: {exc}") from exc
+    sheets = []
+    for sheet in book.sheets():
+        rows = [
+            [sheet.cell_value(row_index, column_index) for column_index in range(sheet.ncols)]
+            for row_index in range(sheet.nrows)
+        ]
+        sheets.append({"title": sheet.name, "rows": rows, "source_file": source_file})
+    return sheets
+
+
+def load_xlsx_sheets(content: bytes, source_file: str) -> list[dict]:
+    try:
+        workbook = load_workbook(BytesIO(content), data_only=True, read_only=True)
+    except Exception as exc:
+        raise SourceParseError(f"Cannot read .xlsx workbook: {exc}") from exc
+    return [
+        {
+            "title": worksheet.title,
+            "rows": [list(row) for row in worksheet.iter_rows(values_only=True)],
+            "source_file": source_file,
+        }
+        for worksheet in workbook.worksheets
+    ]
+
+
+def select_catalog_sheet(sheets: list[dict], module: str) -> dict:
+    preferred_titles = {"NVL"} if module == "material_catalog" else {"TP"}
+    for sheet in sheets:
+        if sheet["title"] in preferred_titles:
+            return sheet
+    return first_sheet_with_rows(sheets)
+
+
+def select_bcct_sheet(sheets: list[dict]) -> dict:
+    for sheet in sheets:
+        try:
+            find_header_row(
+                sheet["rows"],
+                "bcct",
+                {"declaration_no", "declaration_type", "line_no", "item_code", "quantity", "unit"},
+            )
+            return sheet
+        except SourceParseError:
+            continue
+    return first_sheet_with_rows(sheets)
+
+
+def first_sheet_with_rows(sheets: list[dict]) -> dict:
+    for sheet in sheets:
+        if any(any(cell_text(value) for value in row) for row in sheet["rows"]):
+            return sheet
+    raise SourceParseError("Workbook has no non-empty sheets.")
+
+
+def find_header_row(rows: list[list], module: str, required_headers: set[str]) -> tuple[int, list[str], list[str]]:
+    for row_index, row in enumerate(rows[:30]):
+        raw_headers = [cell_text(value) for value in row]
+        headers = dedupe_headers([normalize_header(value, module) for value in raw_headers])
+        if required_headers.issubset(set(headers)):
+            return row_index, headers, raw_headers
+    raise SourceParseError("Cannot find expected customs header row.")
+
+
+def dedupe_headers(headers: list[str]) -> list[str]:
+    counts: dict[str, int] = {}
+    output = []
+    for header in headers:
+        if not header:
+            output.append("")
+            continue
+        counts[header] = counts.get(header, 0) + 1
+        output.append(header if counts[header] == 1 else f"{header}_{counts[header]}")
+    return output
+
+
+def iter_tabular_rows(rows: list[list], headers: list[str], raw_headers: list[str], first_data_row_index: int):
+    for row_index, row in enumerate(rows[first_data_row_index:], start=first_data_row_index + 1):
+        values = {}
+        raw_fields = {}
+        for index, header in enumerate(headers):
+            raw_header = raw_headers[index] if index < len(raw_headers) else ""
+            if not header and not raw_header:
+                continue
+            value = row[index] if index < len(row) else ""
+            text_value = cell_text(value)
+            if header:
+                values[header] = text_value
+            if raw_header:
+                raw_fields[raw_header] = text_value
+        if any(raw_fields.values()):
+            yield values, raw_fields, row_index
+
+
+def attach_source_fields(
+    row: dict,
+    values: dict,
+    raw_fields: dict,
+    sheet: dict,
+    header_row_number: int,
+    source_row_number: int,
+    source_schema: str,
+) -> None:
+    for field, value in values.items():
+        if field in row or field in {"customs_code", "product_code", "name", "description"}:
+            continue
+        row[field] = normalize_source_value(field, value)
+    row.update({
+        "source_schema": source_schema,
+        "source_file": sheet["source_file"],
+        "source_sheet": sheet["title"],
+        "source_header_row": header_row_number,
+        "source_row_number": source_row_number,
+        "raw_fields": raw_fields,
+    })
+
+
+def normalize_source_value(field: str, value) -> str:
+    if field in {
+        "quantity",
+        "secondary_quantity",
+        "unit_price",
+        "taxable_unit_price",
+        "foreign_currency_value",
+        "customs_value",
+        "exchange_rate",
+        "package_quantity",
+        "gross_weight",
+        "import_export_tax_amount",
+        "import_export_tax_exempt_amount",
+        "safeguard_tax_amount",
+        "trade_remedy_tax_amount",
+        "excise_tax_amount",
+        "environmental_tax_amount",
+        "vat_tax_amount",
+        "total_tax_amount",
+    }:
+        return normalize_decimal(value)
+    if field in {"unit", "secondary_unit"}:
+        return normalize_unit(value)
+    return cell_text(value)
+
+
+def infer_direction(declaration_type: str) -> str:
+    code = cell_text(declaration_type).upper()
+    if not code:
+        return ""
+    if code in DECLARATION_TYPE_DIRECTIONS:
+        return DECLARATION_TYPE_DIRECTIONS[code]
+    if code.startswith("A"):
+        return "import"
+    if code.startswith("B"):
+        return "export"
+    return ""
 
 
 def merge_catalog_rows(existing_rows: list[dict], uploaded_rows: list[dict], module: str, upload_scope: str) -> tuple[list[dict], dict]:
@@ -621,8 +1111,14 @@ def display_bcct_row(row: dict) -> dict:
         "period": row.get("coverage_period", ""),
         "declaration_no": row.get("declaration_no", ""),
         "direction": "Nhập khẩu" if row.get("direction") == "import" else "Xuất khẩu",
+        "declaration_type": row.get("declaration_type", ""),
         "item_code": row.get("item_code", ""),
+        "hs_code": row.get("hs_code", ""),
         "qty": row.get("quantity", ""),
+        "unit": row.get("unit", ""),
+        "customs_value": row.get("customs_value", ""),
+        "invoice_ref": row.get("invoice_ref", ""),
+        "origin_country": row.get("origin_country", ""),
         "line_no": row.get("line_no", ""),
         "transaction_key": row.get("transaction_key", ""),
         "review_status": row.get("review_status", ""),
@@ -658,22 +1154,7 @@ def assert_unique_keys(rows: list[dict], field: str, allow_identical: bool = Fal
 
 
 def bcct_rows_equal(existing: dict, incoming: dict) -> bool:
-    fields = [
-        "direction",
-        "declaration_no",
-        "declaration_date",
-        "customs_office",
-        "declaration_type",
-        "line_no",
-        "item_code",
-        "description",
-        "hs_code",
-        "quantity",
-        "unit",
-        "customs_value",
-        "invoice_ref",
-    ]
-    return {field: cell_text(existing.get(field)) for field in fields} == {field: cell_text(incoming.get(field)) for field in fields}
+    return normalized_row(existing) == normalized_row(incoming)
 
 
 def correction_candidate(existing: dict, incoming: dict, upload_id: str) -> dict:
@@ -725,9 +1206,26 @@ def import_row_id(transaction_key_value: str) -> str:
     return f"import-row-{hashlib.sha1(transaction_key_value.encode('utf-8')).hexdigest()[:16]}"
 
 
-def normalize_header(value: str) -> str:
-    header = cell_text(value).lower().strip().replace(" ", "_").replace(".", "_").replace("/", "_")
-    return HEADER_ALIASES.get(header, header)
+def normalize_header(value: str, module: str = "") -> str:
+    header = header_key(value)
+    aliases = COMMON_HEADER_ALIASES
+    if module == "material_catalog":
+        aliases = MATERIAL_HEADER_ALIASES
+    elif module == "product_catalog":
+        aliases = PRODUCT_HEADER_ALIASES
+    elif module == "bcct":
+        aliases = BCCT_HEADER_ALIASES
+    return aliases.get(header, header)
+
+
+def header_key(value: str) -> str:
+    text = strip_accents(cell_text(value)).lower()
+    return re.sub(r"[^a-z0-9]+", "_", text).strip("_")
+
+
+def strip_accents(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value.replace("đ", "d").replace("Đ", "D"))
+    return "".join(char for char in normalized if not unicodedata.combining(char))
 
 
 def normalize_status(value) -> str:
@@ -761,13 +1259,29 @@ def normalize_decimal(value) -> str:
 def cell_text(value) -> str:
     if value is None:
         return ""
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
     if isinstance(value, str):
         return value.strip()
     return str(value).strip()
 
 
 def normalized_row(row: dict) -> dict:
-    return {key: cell_text(value) for key, value in sorted(row.items()) if key not in {"source_upload_id", "review_status", "import_row_id"}}
+    normalized = {}
+    for key, value in sorted(row.items()):
+        if key in SOURCE_AUDIT_FIELDS:
+            continue
+        if isinstance(value, dict):
+            normalized[key] = value
+            continue
+        text = cell_text(value)
+        if text:
+            normalized[key] = text
+    return normalized
 
 
 def normalized_rows_hash(rows: list[dict]) -> str:

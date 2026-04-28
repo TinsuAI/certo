@@ -21,7 +21,7 @@
     <span class="callout-icon">i</span>
     <div>
       <div class="callout-title">Upload BCCT</div>
-      Mode <span class="mono">append_or_review_by_transaction_key</span>: file BCCT có thể overlap tùy ý, dòng thiếu trong upload mới không bị xóa.
+      Mode <span class="mono">append_or_review_by_transaction_key</span>: hỗ trợ BCCT HQ có header dòng 10, <span class="mono">.xlsx</span> hoặc ZIP chứa file gốc; dòng thiếu trong upload mới không bị xóa.
     </div>
   </section>
 
@@ -42,10 +42,10 @@
     <form method="post" action="/clients/{{ client.id }}/bcct/upload" enctype="multipart/form-data" class="zone mini-panel" hx-boost="false">
       <div class="subsection-head">
         <h3>Upload BCCT</h3>
-        <p class="meta">Identity: direction + declaration_no + line_no + item_code. Unit alias rõ ràng được normalize, đổi unit thật sẽ cần review.</p>
+        <p class="meta">Identity: direction + declaration_no + line_no + item_code. Nếu file không có direction, app suy luận từ mã loại hình và vẫn giữ raw payload gốc.</p>
       </div>
       <div class="stack-form">
-        <input type="file" name="file" accept=".xlsx" required>
+        <input type="file" name="file" accept=".xlsx,.zip" required>
         <button type="submit">Upload BCCT</button>
       </div>
     </form>
@@ -88,9 +88,14 @@
           <th>Kỳ</th>
           <th>Tờ khai</th>
           <th>STT</th>
+          <th>LH</th>
           <th>Luồng</th>
           <th>Mã hàng</th>
+          <th>HS</th>
           <th>Số lượng</th>
+          <th>ĐVT</th>
+          <th>Trị giá</th>
+          <th>Hóa đơn</th>
         </tr>
       </thead>
       <tbody>
@@ -99,12 +104,17 @@
           <td>{{ row.period }}</td>
           <td class="mono">{{ row.declaration_no }}</td>
           <td class="mono">{{ row.line_no }}</td>
+          <td class="mono">{{ row.declaration_type }}</td>
           <td><span class="badge badge-neutral">{{ row.direction }}</span></td>
           <td class="mono">{{ row.item_code }}</td>
+          <td class="mono">{{ row.hs_code }}</td>
           <td class="num">{{ row.qty }}</td>
+          <td class="mono">{{ row.unit }}</td>
+          <td class="num">{{ row.customs_value }}</td>
+          <td class="mono">{{ row.invoice_ref }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="empty-cell">Chưa có BCCT.</td></tr>
+        <tr><td colspan="11" class="empty-cell">Chưa có BCCT.</td></tr>
         {% endfor %}
       </tbody>
     </table>

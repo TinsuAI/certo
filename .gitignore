@@ -19,3 +19,4 @@ yarn-error.log*
 
 # local source material
 /data/
+/temp/
