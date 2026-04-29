@@ -332,6 +332,45 @@ small,
   margin-bottom: 0.2rem;
 }
 
+.workflow-primary {
+  margin: 0.4rem 0 0.55rem;
+}
+
+.workflow-primary-link {
+  display: grid;
+  gap: 0.12rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  padding: 0.85rem 1rem;
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: var(--shadow-sm);
+}
+
+.workflow-primary-link span,
+.workflow-step-card span,
+.workflow-step span {
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.workflow-primary-link strong {
+  font-size: 1rem;
+}
+
+.workflow-primary-link small {
+  color: var(--foreground-muted);
+  font-size: 0.8rem;
+}
+
+.workflow-primary-link-active {
+  border-color: color-mix(in srgb, var(--primary) 42%, var(--border));
+  background: color-mix(in srgb, var(--primary) 7%, var(--card));
+}
+
 .tab-link {
   margin-bottom: -1px;
   border-bottom: 2px solid transparent;
@@ -525,6 +564,128 @@ small,
   border-color: var(--foreground);
   background: var(--foreground);
   color: var(--background-top);
+}
+
+.dossier-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.dossier-list-head,
+.dossier-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.5fr) minmax(130px, 0.9fr) minmax(90px, 0.7fr) minmax(120px, 0.9fr) minmax(150px, 1fr) 64px minmax(130px, 0.9fr) minmax(96px, auto);
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.dossier-list-head {
+  border-bottom: 1px solid var(--border);
+  padding: 0 0.65rem 0.5rem;
+  color: var(--foreground-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.dossier-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.65rem;
+  background: var(--surface-subtle);
+}
+
+.dossier-row > div {
+  min-width: 0;
+}
+
+.dossier-row span {
+  display: none;
+}
+
+.dossier-row strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.84rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dossier-title strong {
+  color: var(--foreground);
+  font-size: 0.9rem;
+}
+
+.dossier-action {
+  justify-self: end;
+}
+
+.co-case-header {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.workflow-stepper,
+.workflow-step-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.workflow-step {
+  display: grid;
+  gap: 0.22rem;
+  min-height: 4.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.65rem;
+  background: var(--surface-subtle);
+  color: var(--foreground-muted);
+}
+
+.workflow-step strong {
+  color: var(--foreground-soft);
+  font-size: 0.8rem;
+  line-height: 1.25;
+}
+
+.workflow-step-active {
+  border-color: color-mix(in srgb, var(--primary) 52%, var(--border));
+  background: color-mix(in srgb, var(--primary) 9%, var(--card));
+}
+
+.workflow-step-active strong {
+  color: var(--foreground);
+}
+
+.workflow-step-card {
+  min-width: 0;
+  border-top: 2px solid var(--border-strong);
+  padding-top: 0.65rem;
+}
+
+.workflow-step-card strong {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.95rem;
+}
+
+.workflow-step-card p {
+  margin: 0.25rem 0 0;
+  color: var(--foreground-muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.co-step-form {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: end;
+}
+
+.co-step-form button {
+  min-height: 2.5rem;
 }
 
 .btn-secondary {
@@ -1041,8 +1202,14 @@ small,
   .input-grid,
   .rule-grid,
   .diff-grid,
+  .co-step-form,
   .table-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .workflow-stepper,
+  .workflow-step-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .rail {
@@ -1087,5 +1254,48 @@ small,
 
   .module-grid {
     grid-template-columns: 1fr;
+  }
+
+  .workflow-stepper,
+  .workflow-step-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dossier-list-head {
+    display: none;
+  }
+
+  .dossier-row {
+    grid-template-columns: 1fr;
+    gap: 0.65rem;
+    padding: 0.85rem;
+  }
+
+  .dossier-row > div {
+    display: grid;
+    grid-template-columns: 5.5rem minmax(0, 1fr);
+    gap: 0.7rem;
+    align-items: baseline;
+  }
+
+  .dossier-row span {
+    display: block;
+    color: var(--foreground-muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .dossier-row strong {
+    white-space: normal;
+  }
+
+  .dossier-action {
+    justify-self: stretch;
+  }
+
+  .dossier-action .btn-secondary {
+    width: 100%;
   }
 }

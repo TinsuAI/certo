@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import File, Form, Request, UploadFile
+from fastapi import File, Form, HTTPException, Request, UploadFile
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -145,6 +145,46 @@ BCCT_COLUMNS = [
     {"key": "invoice_ref", "label": "Hóa đơn", "class": "mono"},
 ]
 
+CO_CASE_WORKFLOW_STEPS = [
+    {
+        "key": "shipment",
+        "label": "Lô hàng",
+        "short_label": "1",
+        "description": "Thông tin shipment, invoice, B/L và thị trường.",
+    },
+    {
+        "key": "documents",
+        "label": "Chứng từ",
+        "short_label": "2",
+        "description": "Upload invoice, vận đơn, packing list và bằng chứng kèm theo.",
+    },
+    {
+        "key": "exports",
+        "label": "Tờ khai xuất",
+        "short_label": "3",
+        "description": "Đối chiếu tờ khai xuất đã review theo invoice.",
+    },
+    {
+        "key": "guidance",
+        "label": "Form & PSR",
+        "short_label": "4",
+        "description": "Gợi ý form, thông tư và trạng thái tra cứu quy tắc.",
+    },
+    {
+        "key": "origin",
+        "label": "Xuất xứ",
+        "short_label": "5",
+        "description": "Chạy RVC/CTSH và xem preview phân bổ.",
+    },
+    {
+        "key": "review",
+        "label": "Review & xuất",
+        "short_label": "6",
+        "description": "Kiểm tra dossier và xuất workbook.",
+    },
+]
+CO_CASE_WORKFLOW_STEP_KEYS = {step["key"] for step in CO_CASE_WORKFLOW_STEPS}
+
 CO_STOCK_COLUMNS = [
     {"key": "source_row", "label": "Dòng nguồn", "class": "mono"},
     {"key": "import_declaration_no", "label": "Tờ khai nhập", "class": "mono"},
@@ -281,7 +321,7 @@ def co_stock_table_context(request: Request, client_id: str) -> dict:
     return context
 
 
-def co_case_context(client_id: str, case_id: str = "", **extra) -> dict:
+def co_case_context(client_id: str, case_id: str = "", current_step: str = "index", **extra) -> dict:
     client = get_client(client_id)
     case = extra.pop("case", None)
     effective_case_id = case_id or (case or {}).get("persisted_case_id", "")
@@ -314,7 +354,39 @@ def co_case_context(client_id: str, case_id: str = "", **extra) -> dict:
         context["client_config"],
     )
     context["criteria_rows"] = build_case_criteria_rows(context["case"], form_candidates)
+    context["co_case_active_step"] = current_step
+    context["co_case_steps"] = co_case_workflow_steps(client_id, context["case"], current_step)
     return context
+
+
+def co_case_workflow_steps(client_id: str, case: dict, current_step: str) -> list[dict]:
+    case_id = case.get("persisted_case_id", "")
+    base_url = f"/clients/{client_id}/co-case/{case_id}" if case_id else ""
+    steps = []
+    for step in CO_CASE_WORKFLOW_STEPS:
+        href = base_url if step["key"] == "shipment" else f"{base_url}/{step['key']}"
+        steps.append({
+            **step,
+            "href": href,
+            "active": current_step == step["key"],
+            "status": co_case_step_status(case, step["key"]),
+        })
+    return steps
+
+
+def co_case_step_status(case: dict, step_key: str) -> str:
+    shipment = case.get("shipment", {})
+    if step_key == "shipment":
+        return "ready" if shipment.get("invoice_no") and case.get("destination_market") else "todo"
+    if step_key == "documents":
+        return "ready" if case.get("supporting_files") else "todo"
+    if step_key == "exports":
+        return "review"
+    if step_key == "guidance":
+        return "review"
+    if step_key == "origin":
+        return "preview"
+    return "todo"
 
 
 def config_context(client_id: str, **extra) -> dict:
@@ -640,12 +712,41 @@ async def create_co_case(request: Request, client_id: str):
     return RedirectResponse(f"/clients/{client_id}/co-case/{record['case_id']}", status_code=303)
 
 
+@app.post("/clients/{client_id}/co-case/{case_id}/shipment")
+async def update_co_case_shipment(request: Request, client_id: str, case_id: str):
+    form = {key: str(value) for key, value in (await request.form()).items()}
+    update_case_record(
+        get_client(client_id),
+        {
+            **form,
+            "id": case_id,
+            "persisted_case_id": case_id,
+            "shipment": {
+                "invoice_no": form.get("invoice_no", ""),
+                "bill_of_lading_no": form.get("bill_of_lading_no", ""),
+            },
+        },
+    )
+    return RedirectResponse(f"/clients/{client_id}/co-case/{case_id}", status_code=303)
+
+
 @app.get("/clients/{client_id}/co-case/{case_id}", response_class=HTMLResponse)
 async def co_case_detail(request: Request, client_id: str, case_id: str):
     return templates.TemplateResponse(
         request=request,
         name="co_case.html",
-        context=co_case_context(client_id, case_id),
+        context=co_case_context(client_id, case_id, "shipment"),
+    )
+
+
+@app.get("/clients/{client_id}/co-case/{case_id}/{step}", response_class=HTMLResponse)
+async def co_case_step(request: Request, client_id: str, case_id: str, step: str):
+    if step not in CO_CASE_WORKFLOW_STEP_KEYS:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request=request,
+        name="co_case.html",
+        context=co_case_context(client_id, case_id, step),
     )
 
 
@@ -676,9 +777,9 @@ async def upload_co_case_supporting_file(
             request=request,
             name="co_case.html",
             status_code=400,
-            context=co_case_context(client_id, case_id, error=str(exc)),
+            context=co_case_context(client_id, case_id, "documents", error=str(exc)),
         )
-    return RedirectResponse(f"/clients/{client_id}/co-case/{case_id}", status_code=303)
+    return RedirectResponse(f"/clients/{client_id}/co-case/{case_id}/documents", status_code=303)
 
 
 @app.post("/clients/{client_id}/co-case/{case_id}/export")
@@ -710,7 +811,7 @@ async def evaluate(request: Request, client_id: str):
     return templates.TemplateResponse(
         request=request,
         name="co_case.html",
-        context=co_case_context(client_id, case=case, message="Đã tính lại theo dữ liệu đang sửa."),
+        context=co_case_context(client_id, case=case, current_step="origin", message="Đã tính lại theo dữ liệu đang sửa."),
     )
 
 
@@ -731,7 +832,7 @@ async def upload_workbook(request: Request, client_id: str, file: UploadFile = F
     return templates.TemplateResponse(
         request=request,
         name="co_case.html",
-        context=co_case_context(client_id, case=case, message=f"Đã parse {file.filename}."),
+        context=co_case_context(client_id, case=case, current_step="origin", message=f"Đã parse {file.filename}."),
     )
 
 

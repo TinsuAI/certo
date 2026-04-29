@@ -6,8 +6,8 @@
 
 <section class="hero hero-primary client-snapshot" aria-label="Tóm tắt workspace">
   <div>
-    <div class="hero-headline">Workspace theo công ty, mỗi module là một view riêng.</div>
-    <p class="hero-meta">Case đang mở: <span class="mono">{{ case.case_code }}</span>. Bản demo dùng nguyên tắc đơn giản: mã HQ và mã nội bộ là cùng một mã.</p>
+    <div class="hero-headline">Workspace theo công ty, C/O là luồng chính.</div>
+    <p class="hero-meta">Case đang mở: <span class="mono">{{ case.case_code }}</span>. Dữ liệu nền được chuẩn bị trước để hồ sơ C/O dùng lại theo từng shipment.</p>
   </div>
   <div class="hero-divider"></div>
   <div class="hero-stat">
@@ -20,11 +20,21 @@
   </div>
 </section>
 
+<section class="zone workflow-home">
+  <div class="zone-head">
+    <div>
+      <h2>Luồng làm C/O</h2>
+      <p class="meta">Bắt đầu từ hồ sơ lô hàng, sau đó đi qua chứng từ, tờ khai xuất, form/PSR, đánh giá xuất xứ và review dossier.</p>
+    </div>
+    <a class="btn-secondary" href="/clients/{{ client.id }}/co-case">Làm hồ sơ C/O</a>
+  </div>
+</section>
+
 <section class="zone">
   <div class="zone-head">
     <div>
-      <h2>Module dữ liệu công ty</h2>
-      <p class="meta">Tách màn hình để demo luồng vận hành rõ hơn: dữ liệu nền xử lý trước, hồ sơ C/O dùng dữ liệu đã duyệt.</p>
+      <h2>Dữ liệu nền công ty</h2>
+      <p class="meta">Các view này chuẩn bị và kiểm tra nguồn dữ liệu mà workflow C/O sẽ tiêu thụ.</p>
     </div>
   </div>
   <div class="module-grid">
@@ -43,10 +53,6 @@
     <a class="module-tile module-link" href="/clients/{{ client.id }}/bcct">
       <strong>BCCT</strong>
       <span>{{ client.counts.bcct }} dòng nhập khẩu/xuất khẩu để đối chiếu với tồn và hồ sơ C/O.</span>
-    </a>
-    <a class="module-tile module-link" href="/clients/{{ client.id }}/co-case">
-      <strong>Hồ sơ C/O</strong>
-      <span>Upload workbook, tính RVC/CTSH và xuất evidence XLSX cho case đang mở.</span>
     </a>
   </div>
 </section>

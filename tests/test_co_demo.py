@@ -188,12 +188,16 @@ def test_theme_toggle_persists_dark_theme_cookie():
     assert 'name="theme" value="light"' in themed.text
 
 
-def test_workspace_has_single_module_navigation_layer():
+def test_client_navigation_promotes_co_workflow_above_data_modules():
     client = TestClient(app)
 
     response = client.get("/clients/growatt/co-case")
 
     assert response.status_code == 200
+    assert 'aria-label="Luồng làm C/O"' in response.text
+    assert 'aria-label="Dữ liệu nền công ty"' in response.text
+    assert "Làm hồ sơ C/O" in response.text
+    assert 'href="/clients/growatt/co-case">Hồ sơ C/O</a>' not in response.text
     assert response.text.count("/clients/growatt/catalog") == 1
     assert response.text.count("/clients/growatt/bom") == 1
     assert response.text.count("/clients/growatt/co-stock") == 1
@@ -237,7 +241,7 @@ def test_table_view_clamps_page_to_available_results():
     assert [row["code"] for row in table["rows"]] == ["C"]
 
 
-def test_catalog_bom_stock_bcct_and_co_case_are_separate_views():
+def test_catalog_bom_stock_bcct_are_data_views_and_co_case_is_workflow_entry():
     client = TestClient(app)
 
     catalog_response = client.get("/clients/growatt/catalog")
@@ -267,9 +271,13 @@ def test_catalog_bom_stock_bcct_and_co_case_are_separate_views():
     assert "Tồn CO khác tồn kho vật lý" in stock_response.text
     assert "BCCT nhập khẩu / xuất khẩu" in bcct_response.text
     assert "107101950210" in bcct_response.text
-    assert "Upload và parse" in co_case_response.text
-    assert "Quy tắc áp dụng" in co_case_response.text
-    assert "Xuất evidence XLSX" in co_case_response.text
+    assert "Quy trình làm C/O" in co_case_response.text
+    assert "Tạo hoặc mở hồ sơ" in co_case_response.text
+    assert "Danh sách hồ sơ C/O" in co_case_response.text
+    assert "Các bước xử lý" not in co_case_response.text
+    assert "Dữ liệu nền đang sẵn sàng" not in co_case_response.text
+    assert "Đánh giá RVC + CTSH" not in co_case_response.text
+    assert "BCCT xuất khẩu theo invoice" not in co_case_response.text
     assert "BTP" not in catalog_response.text
 
 
@@ -704,7 +712,12 @@ def test_co_case_can_select_aggregate_bom_version_snapshot():
     workspace = get_bom_workspace(get_client("growatt"))
     v1 = [version for version in workspace["versions"] if version["version_no"] == 1][0]
 
-    get_response = client.get("/clients/growatt/co-case")
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "BOM snapshot case", "case_code": "CO-BOM", "destination_market": "Ấn Độ"},
+        follow_redirects=False,
+    )
+    get_response = client.get(f"{created.headers['location']}/origin")
     assert get_response.status_code == 200
     assert "BOM snapshot" in get_response.text
     assert "BOM tổng hợp v2" in get_response.text
@@ -1224,7 +1237,12 @@ def test_co_case_snapshots_client_config_hash():
         files={"file": ("bcct.xlsx", upload, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
     )
 
-    response = client.get("/clients/do-thanh/co-case")
+    created = client.post(
+        "/clients/do-thanh/co-case/create",
+        data={"title": "Config snapshot case", "case_code": "CO-CONFIG", "destination_market": "Ấn Độ"},
+        follow_redirects=False,
+    )
+    response = client.get(f"{created.headers['location']}/review")
 
     assert response.status_code == 200
     assert "Config snapshot" in response.text
@@ -1341,7 +1359,12 @@ def test_co_case_snapshots_reviewed_source_versions_without_correction_candidate
         files={"file": ("bcct.xlsx", upload, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
     )
 
-    response = client.get("/clients/do-thanh/co-case")
+    created = client.post(
+        "/clients/do-thanh/co-case/create",
+        data={"title": "Source snapshot case", "case_code": "CO-SOURCE", "destination_market": "Ấn Độ"},
+        follow_redirects=False,
+    )
+    response = client.get(f"{created.headers['location']}/review")
 
     assert response.status_code == 200
     assert "Source evidence snapshot" in response.text
@@ -1373,9 +1396,97 @@ def test_co_case_can_create_persisted_dossier_and_select_it():
     assert "INV-77" in detail.text
     assert "BL-77" in detail.text
     index = client.get("/clients/growatt/co-case")
+    assert 'aria-label="Danh sách hồ sơ C/O"' in index.text
+    assert "Danh sách hồ sơ C/O" in index.text
+    assert "Tên hồ sơ" in index.text
+    assert "Invoice" in index.text
+    assert "B/L" in index.text
+    assert "Mở hồ sơ" in index.text
+    assert "C/O GROWATT INV-77" in index.text
     assert "CO-INV-77" in index.text
-    assert "BL-77" not in index.text
+    assert "INV-77" in index.text
+    assert "BL-77" in index.text
     assert "Hồ sơ lưu local: CO-INV-77" not in index.text
+
+
+def test_co_case_detail_is_split_into_workflow_step_views():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={
+            "title": "Workflow dossier",
+            "case_code": "CO-WORKFLOW",
+            "destination_market": "Ấn Độ",
+            "invoice_no": "INV-WORKFLOW",
+            "bill_of_lading_no": "BL-WORKFLOW",
+        },
+        follow_redirects=False,
+    )
+    case_url = created.headers["location"]
+
+    shipment = client.get(case_url)
+    documents = client.get(f"{case_url}/documents")
+    exports = client.get(f"{case_url}/exports")
+    guidance = client.get(f"{case_url}/guidance")
+    origin = client.get(f"{case_url}/origin")
+    review = client.get(f"{case_url}/review")
+
+    assert shipment.status_code == 200
+    assert documents.status_code == 200
+    assert exports.status_code == 200
+    assert guidance.status_code == 200
+    assert origin.status_code == 200
+    assert review.status_code == 200
+    assert "Thông tin lô hàng" in shipment.text
+    assert "Supporting files" not in shipment.text
+    assert "Supporting files" in documents.text
+    assert "BCCT xuất khẩu theo invoice" in exports.text
+    assert "Form và thông tư" in guidance.text
+    assert "Đánh giá RVC + CTSH" in origin.text
+    assert "Xuất dossier XLSX" in review.text
+    assert f"{case_url}/documents" in shipment.text
+    assert f"{case_url}/origin" in shipment.text
+
+
+def test_co_case_shipment_step_updates_metadata_without_dropping_origin_view():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={
+            "title": "Shipment edit",
+            "case_code": "CO-SHIP",
+            "destination_market": "Ấn Độ",
+            "invoice_no": "INV-OLD",
+            "bill_of_lading_no": "BL-OLD",
+        },
+        follow_redirects=False,
+    )
+    case_url = created.headers["location"]
+
+    response = client.post(
+        f"{case_url}/shipment",
+        data={
+            "title": "Shipment edit",
+            "case_code": "CO-SHIP-NEW",
+            "destination_market": "Canada",
+            "invoice_no": "INV-NEW",
+            "bill_of_lading_no": "BL-NEW",
+            "agreement": "CPTPP",
+            "co_form_type": "Form CPTPP",
+            "rule": "Cần tra cứu PSR theo HS",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == case_url
+    shipment = client.get(case_url)
+    origin = client.get(f"{case_url}/origin")
+    assert "CO-SHIP-NEW" in shipment.text
+    assert "INV-NEW" in shipment.text
+    assert "BL-NEW" in shipment.text
+    assert "PV00.0048500" in origin.text
+    assert "Đánh giá RVC + CTSH" in origin.text
 
 
 def test_co_case_supporting_upload_saves_invoice_metadata_and_matches_bcct_exports():
@@ -1404,14 +1515,16 @@ def test_co_case_supporting_upload_saves_invoice_metadata_and_matches_bcct_expor
     )
 
     assert response.status_code == 303
-    detail = client.get(location)
-    assert "invoice-INV-42.pdf" in detail.text
-    assert "INV-42" in detail.text
-    assert "BL-42" in detail.text
-    assert "TP-001" in detail.text
-    assert "XK-001" in detail.text
-    assert "MAT-001" not in detail.text
-    assert "TP-OTHER" not in detail.text
+    assert response.headers["location"] == f"{location}/documents"
+    documents = client.get(f"{location}/documents")
+    exports = client.get(f"{location}/exports")
+    assert "invoice-INV-42.pdf" in documents.text
+    assert "INV-42" in documents.text
+    assert "BL-42" in documents.text
+    assert "TP-001" in exports.text
+    assert "XK-001" in exports.text
+    assert "MAT-001" not in exports.text
+    assert "TP-OTHER" not in exports.text
 
 
 def test_co_case_evaluate_keeps_persisted_dossier_supporting_metadata():
@@ -1450,10 +1563,10 @@ def test_co_case_evaluate_keeps_persisted_dossier_supporting_metadata():
     )
 
     assert response.status_code == 200
-    assert "invoice-INV-OLD.pdf" in response.text
     assert "INV-NEW" in response.text
     assert "BL-NEW" in response.text
-    detail = client.get(location)
+    detail = client.get(f"{location}/documents")
+    assert "invoice-INV-OLD.pdf" in detail.text
     assert "INV-NEW" in detail.text
     assert "BL-NEW" in detail.text
 
@@ -1523,9 +1636,9 @@ def test_co_case_destination_market_shows_verified_form_candidates():
         follow_redirects=False,
     )
 
-    india_page = client.get(india.headers["location"])
-    france_page = client.get(france.headers["location"])
-    canada_page = client.get(canada.headers["location"])
+    india_page = client.get(f"{india.headers['location']}/guidance")
+    france_page = client.get(f"{france.headers['location']}/guidance")
+    canada_page = client.get(f"{canada.headers['location']}/guidance")
 
     assert "Form AI" in india_page.text
     assert "15/2010/TT-BCT" in india_page.text

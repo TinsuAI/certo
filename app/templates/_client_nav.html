@@ -7,13 +7,20 @@
   </div>
 </section>
 
-<nav class="tabs" aria-label="Module công ty">
+<nav class="workflow-primary" aria-label="Luồng làm C/O">
+  <a class="workflow-primary-link {{ 'workflow-primary-link-active' if active == 'co-case' else '' }}" href="/clients/{{ client.id }}/co-case">
+    <span>Luồng chính</span>
+    <strong>Làm hồ sơ C/O</strong>
+    <small>Tạo shipment, gom chứng từ, đối chiếu BCCT, kiểm tra xuất xứ và xuất dossier.</small>
+  </a>
+</nav>
+
+<nav class="tabs" aria-label="Dữ liệu nền công ty">
   <a class="tab-link {{ 'tab-link-active' if active == 'overview' else '' }}" href="/clients/{{ client.id }}">Overview</a>
   <a class="tab-link {{ 'tab-link-active' if active == 'catalog' else '' }}" href="/clients/{{ client.id }}/catalog">Danh mục mã hàng</a>
   <a class="tab-link {{ 'tab-link-active' if active == 'bom' else '' }}" href="/clients/{{ client.id }}/bom">BOM</a>
   <a class="tab-link {{ 'tab-link-active' if active == 'co-stock' else '' }}" href="/clients/{{ client.id }}/co-stock">Tồn CO</a>
   <a class="tab-link {{ 'tab-link-active' if active == 'bcct' else '' }}" href="/clients/{{ client.id }}/bcct">BCCT</a>
-  <a class="tab-link {{ 'tab-link-active' if active == 'co-case' else '' }}" href="/clients/{{ client.id }}/co-case">Hồ sơ C/O</a>
   <a class="tab-link {{ 'tab-link-active' if active == 'config' else '' }}" href="/clients/{{ client.id }}/config">Config</a>
 </nav>
 
