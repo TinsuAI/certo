@@ -551,6 +551,7 @@ def update_products_from_form(form: dict[str, str]) -> dict:
 def case_from_form(form: dict[str, str]) -> dict:
     case = {
         "id": form.get("case_id", DEMO_CASE["id"]),
+        "persisted_case_id": form.get("persisted_case_id", ""),
         "customer": form.get("customer", DEMO_CASE["customer"]),
         "case_code": form.get("case_code", DEMO_CASE["case_code"]),
         "title": form.get("title", DEMO_CASE["title"]),
@@ -565,6 +566,11 @@ def case_from_form(form: dict[str, str]) -> dict:
         "bom_product_version_overrides": {},
         "documents": [],
         "workflow": [dict(step) for step in DEMO_CASE["workflow"]],
+        "shipment": {
+            "invoice_no": form.get("invoice_no", ""),
+            "bill_of_lading_no": form.get("bill_of_lading_no", ""),
+        },
+        "supporting_files": [],
         "products": [],
     }
 

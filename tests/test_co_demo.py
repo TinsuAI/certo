@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from openpyxl import Workbook, load_workbook
 
 from app.bom_store import get_bom_workspace
+from app.co_case_store import MAX_SUPPORTING_FILE_BYTES, match_case_bcct_exports
 from app.client_config_store import (
     get_client_config,
     resolve_allocation_code,
@@ -35,6 +36,7 @@ def isolate_bom_store(tmp_path, monkeypatch):
     monkeypatch.setenv("BOM_STORE_ROOT", str(tmp_path / "bom-store"))
     monkeypatch.setenv("SOURCE_STORE_ROOT", str(tmp_path / "source-store"))
     monkeypatch.setenv("CLIENT_CONFIG_ROOT", str(tmp_path / "client-config"))
+    monkeypatch.setenv("CO_CASE_STORE_ROOT", str(tmp_path / "co-case-store"))
 
 
 def workbook_bytes(workbook: Workbook) -> bytes:
@@ -1345,3 +1347,229 @@ def test_co_case_snapshots_reviewed_source_versions_without_correction_candidate
     assert "Source evidence snapshot" in response.text
     assert "BCCT reviewed rows: 1" in response.text
     assert "correction_candidate" not in response.text
+
+
+def test_co_case_can_create_persisted_dossier_and_select_it():
+    client = TestClient(app)
+
+    response = client.post(
+        "/clients/growatt/co-case/create",
+        data={
+            "title": "C/O GROWATT INV-77",
+            "case_code": "CO-INV-77",
+            "destination_market": "Ấn Độ",
+            "invoice_no": "INV-77",
+            "bill_of_lading_no": "BL-77",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert location.startswith("/clients/growatt/co-case/")
+    detail = client.get(location)
+    assert detail.status_code == 200
+    assert "C/O GROWATT INV-77" in detail.text
+    assert "INV-77" in detail.text
+    assert "BL-77" in detail.text
+    index = client.get("/clients/growatt/co-case")
+    assert "CO-INV-77" in index.text
+    assert "BL-77" not in index.text
+    assert "Hồ sơ lưu local: CO-INV-77" not in index.text
+
+
+def test_co_case_supporting_upload_saves_invoice_metadata_and_matches_bcct_exports():
+    client = TestClient(app)
+    upload = bcct_workbook([
+        {"direction": "export", "declaration_type": "E42", "declaration_no": "XK-001", "line_no": "1", "item_code": "TP-001", "description": "Finished good", "hs_code": "850440", "quantity": "10", "unit": "PCS", "invoice_ref": "INV-42"},
+        {"direction": "import", "declaration_type": "E11", "declaration_no": "NK-001", "line_no": "1", "item_code": "MAT-001", "description": "Material", "hs_code": "853690", "quantity": "100", "unit": "PCS", "invoice_ref": "INV-42"},
+        {"direction": "export", "declaration_type": "E42", "declaration_no": "XK-002", "line_no": "1", "item_code": "TP-OTHER", "description": "Other finished good", "hs_code": "850440", "quantity": "5", "unit": "PCS", "invoice_ref": "INV-99"},
+    ])
+    client.post(
+        "/clients/growatt/bcct/upload",
+        files={"file": ("bcct.xlsx", upload, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Invoice lookup", "case_code": "CO-INV-42", "destination_market": "Ấn Độ"},
+        follow_redirects=False,
+    )
+    location = created.headers["location"]
+
+    response = client.post(
+        f"{location}/supporting-files",
+        data={"document_slot": "invoice", "invoice_no": "INV-42", "bill_of_lading_no": "BL-42"},
+        files={"file": ("invoice-INV-42.pdf", b"%PDF-1.4 invoice", "application/pdf")},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    detail = client.get(location)
+    assert "invoice-INV-42.pdf" in detail.text
+    assert "INV-42" in detail.text
+    assert "BL-42" in detail.text
+    assert "TP-001" in detail.text
+    assert "XK-001" in detail.text
+    assert "MAT-001" not in detail.text
+    assert "TP-OTHER" not in detail.text
+
+
+def test_co_case_evaluate_keeps_persisted_dossier_supporting_metadata():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Evaluate dossier", "case_code": "CO-EVAL", "destination_market": "Ấn Độ", "invoice_no": "INV-OLD"},
+        follow_redirects=False,
+    )
+    location = created.headers["location"]
+    case_id = location.rsplit("/", 1)[-1]
+    client.post(
+        f"{location}/supporting-files",
+        data={"document_slot": "invoice", "invoice_no": "INV-OLD", "bill_of_lading_no": "BL-OLD"},
+        files={"file": ("invoice-INV-OLD.pdf", b"%PDF-1.4 invoice", "application/pdf")},
+        follow_redirects=False,
+    )
+
+    response = client.post(
+        "/clients/growatt/evaluate",
+        data={
+            "case_id": case_id,
+            "persisted_case_id": case_id,
+            "customer": "Growatt",
+            "case_code": "CO-EVAL",
+            "title": "Evaluate dossier",
+            "destination_market": "Ấn Độ",
+            "invoice_no": "INV-NEW",
+            "bill_of_lading_no": "BL-NEW",
+            "agreement": "AIFTA",
+            "co_form_type": "Form AI",
+            "rule": "Cần tra cứu PSR theo HS",
+            "document_count": "0",
+            "product_count": "0",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "invoice-INV-OLD.pdf" in response.text
+    assert "INV-NEW" in response.text
+    assert "BL-NEW" in response.text
+    detail = client.get(location)
+    assert "INV-NEW" in detail.text
+    assert "BL-NEW" in detail.text
+
+
+def test_invoice_matching_uses_only_reviewed_export_rows():
+    matches = match_case_bcct_exports(
+        {"shipment": {"invoice_no": "INV-REVIEW"}},
+        {
+            "bcct": {
+                "published_rows": [
+                    {"direction": "export", "review_status": "correction_candidate", "declaration_no": "XK-DRAFT", "line_no": "1", "declaration_type": "E42", "item_code": "TP-DRAFT", "quantity": "1", "unit": "PCS", "invoice_ref": "INV-REVIEW"},
+                    {"direction": "export", "review_status": "reviewed", "declaration_no": "XK-OK", "line_no": "1", "declaration_type": "E42", "item_code": "TP-OK", "quantity": "1", "unit": "PCS", "invoice_ref": "INV-REVIEW"},
+                    {"direction": "import", "review_status": "reviewed", "declaration_no": "NK-OK", "line_no": "1", "declaration_type": "E11", "item_code": "MAT-OK", "quantity": "1", "unit": "PCS", "invoice_ref": "INV-REVIEW"},
+                ]
+            }
+        },
+        {"bcct": {"relevant_export_declaration_types": ["E42"]}},
+    )
+
+    assert [row["item_code"] for row in matches] == ["TP-OK"]
+
+
+def test_co_case_supporting_upload_rejects_unsupported_or_oversized_files():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Upload validation", "case_code": "CO-UP", "destination_market": "Ấn Độ"},
+        follow_redirects=False,
+    )
+    location = created.headers["location"]
+
+    unsupported = client.post(
+        f"{location}/supporting-files",
+        data={"document_slot": "invoice"},
+        files={"file": ("invoice.exe", b"bad", "application/octet-stream")},
+        follow_redirects=False,
+    )
+    oversized = client.post(
+        f"{location}/supporting-files",
+        data={"document_slot": "invoice"},
+        files={"file": ("invoice.pdf", b"x" * (MAX_SUPPORTING_FILE_BYTES + 1), "application/pdf")},
+        follow_redirects=False,
+    )
+
+    assert unsupported.status_code == 400
+    assert "Không hỗ trợ định dạng file" in unsupported.text
+    assert oversized.status_code == 400
+    assert "File supporting vượt quá giới hạn" in oversized.text
+
+
+def test_co_case_destination_market_shows_verified_form_candidates():
+    client = TestClient(app)
+
+    india = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "India shipment", "case_code": "CO-IN", "destination_market": "Ấn Độ"},
+        follow_redirects=False,
+    )
+    france = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "France shipment", "case_code": "CO-FR", "destination_market": "Pháp"},
+        follow_redirects=False,
+    )
+    canada = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Canada shipment", "case_code": "CO-CA", "destination_market": "Canada"},
+        follow_redirects=False,
+    )
+
+    india_page = client.get(india.headers["location"])
+    france_page = client.get(france.headers["location"])
+    canada_page = client.get(canada.headers["location"])
+
+    assert "Form AI" in india_page.text
+    assert "15/2010/TT-BCT" in india_page.text
+    assert "Form EUR.1" in france_page.text
+    assert "11/2020/TT-BCT" in france_page.text
+    assert "Form CPTPP" in canada_page.text
+    assert "03/2019/TT-BCT" in canada_page.text
+    assert "Cần tra cứu PSR theo HS" in canada_page.text
+
+
+def test_co_case_export_workbook_contains_dossier_sheets_and_criteria_rows():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={
+            "title": "Export dossier",
+            "case_code": "CO-XLSX",
+            "destination_market": "Ấn Độ",
+            "invoice_no": "INV-XLSX",
+        },
+        follow_redirects=False,
+    )
+
+    response = client.post(f"{created.headers['location']}/export")
+
+    assert response.status_code == 200
+    assert response.content.startswith(b"PK")
+    workbook = load_workbook(BytesIO(response.content))
+    assert set(["Case", "Supporting Files", "BCCT Invoice Matches", "Form Guidance", "Criteria"]).issubset(workbook.sheetnames)
+    assert workbook["Case"]["B2"].value == "CO-XLSX"
+    assert workbook["Form Guidance"]["A2"].value == "Form AI"
+    criteria_values = [cell.value for row in workbook["Criteria"].iter_rows(values_only=False) for cell in row]
+    assert "PV00.0048500" in criteria_values
+
+
+def test_co_case_export_filename_is_sanitized():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Unsafe filename", "case_code": "CO/../../bad", "destination_market": "Ấn Độ"},
+        follow_redirects=False,
+    )
+
+    response = client.post(f"{created.headers['location']}/export")
+
+    assert response.status_code == 200
+    assert 'filename="bad-dossier.xlsx"' in response.headers["content-disposition"]

@@ -17,6 +17,66 @@
 <section class="zone source-panel">
   <div class="zone-head">
     <div>
+      <h2>Hồ sơ C/O theo lô hàng</h2>
+      <p class="meta">Tạo hoặc mở hồ sơ để giữ invoice, vận đơn, supporting files, tra BCCT và xuất bảng kê theo từng shipment.</p>
+    </div>
+  </div>
+  <form method="post" action="/clients/{{ client.id }}/co-case/create" class="upload-form" hx-boost="false">
+    <input name="title" placeholder="Tên hồ sơ" value="{{ case.title }}">
+    <input name="case_code" placeholder="Mã hồ sơ" value="{{ case.case_code }}">
+    <input name="destination_market" placeholder="Thị trường" value="{{ case.destination_market }}">
+    <input name="invoice_no" placeholder="Số invoice" value="{{ case.shipment.invoice_no }}">
+    <input name="bill_of_lading_no" placeholder="Số B/L" value="{{ case.shipment.bill_of_lading_no }}">
+    <button type="submit">Tạo hồ sơ</button>
+  </form>
+  <div class="chip-row">
+    {% for dossier in case_workspace.cases %}
+    <a class="chip {% if dossier.case_id == case.persisted_case_id %}chip-active{% endif %}" href="/clients/{{ client.id }}/co-case/{{ dossier.case_id }}">{{ dossier.case_code }} · {{ dossier.destination_market }}</a>
+    {% else %}
+    <span class="meta">Chưa có hồ sơ lưu riêng cho công ty này.</span>
+    {% endfor %}
+  </div>
+</section>
+
+{% if case.persisted_case_id %}
+<section class="zone source-panel">
+  <div class="zone-head">
+    <div>
+      <h2>Supporting files</h2>
+      <p class="meta">File được lưu theo hồ sơ. Số invoice dùng để tra BCCT xuất khẩu; PDF chưa được OCR trong sprint này.</p>
+    </div>
+  </div>
+  <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/supporting-files" enctype="multipart/form-data" class="upload-form" hx-boost="false">
+    <select name="document_slot">
+      <option value="invoice">Invoice</option>
+      <option value="bill_of_lading">Bill of lading</option>
+      <option value="packing_list">Packing list</option>
+      <option value="export_declaration">Tờ khai xuất</option>
+      <option value="other">Khác</option>
+    </select>
+    <input name="invoice_no" placeholder="Số invoice" value="{{ case.shipment.invoice_no }}">
+    <input name="bill_of_lading_no" placeholder="Số B/L" value="{{ case.shipment.bill_of_lading_no }}">
+    <input type="file" name="file" required>
+    <button type="submit">Upload supporting</button>
+  </form>
+  <div class="rowlist audit-trail">
+    {% for file in case.supporting_files %}
+    <div class="rowitem">
+      <div>
+        <strong>{{ file.filename }}</strong>
+        <div class="meta">{{ file.slot }} · invoice {{ file.invoice_no or 'n/a' }} · B/L {{ file.bill_of_lading_no or 'n/a' }}</div>
+      </div>
+    </div>
+    {% else %}
+    <p class="empty-cell">Chưa upload supporting file cho hồ sơ này.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="zone source-panel">
+  <div class="zone-head">
+    <div>
       <h2>Nạp dữ liệu hồ sơ C/O</h2>
       <p class="meta">Dữ liệu case hiện tại: <strong>{{ case.source_label }}</strong>. Upload workbook sẽ parse thành TP/NVL rồi chạy engine.</p>
     </div>
@@ -33,6 +93,7 @@
 
 <form method="post" action="/clients/{{ client.id }}/evaluate" id="co-case" class="workspace-grid">
   <input type="hidden" name="case_id" value="{{ case.id }}">
+  <input type="hidden" name="persisted_case_id" value="{{ case.persisted_case_id }}">
   <input type="hidden" name="title" value="{{ case.title }}">
   <input type="hidden" name="mode" value="{{ case.mode }}">
   <input type="hidden" name="mode_note" value="{{ case.mode_note }}">
@@ -55,6 +116,12 @@
         <label>Thị trường
           <input name="destination_market" value="{{ case.destination_market }}">
         </label>
+        <label>Số invoice
+          <input name="invoice_no" value="{{ case.shipment.invoice_no }}">
+        </label>
+        <label>Số B/L
+          <input name="bill_of_lading_no" value="{{ case.shipment.bill_of_lading_no }}">
+        </label>
         <label>Hiệp định
           <input name="agreement" value="{{ case.agreement }}">
         </label>
@@ -64,6 +131,25 @@
         <label>Quy tắc áp dụng
           <input name="rule" value="{{ case.rule }}">
         </label>
+      </div>
+    </section>
+
+    <section class="zone">
+      <div class="zone-head">
+        <h2>Form và thông tư</h2>
+      </div>
+      <div class="rowlist audit-trail">
+        {% for candidate in form_candidates %}
+        <div class="rowitem">
+          <div>
+            <strong>{{ candidate.display_name }}</strong>
+            <div class="meta">{{ candidate.agreement }} · {{ candidate.instrument }}</div>
+            <div class="meta">{{ candidate.rule_lookup_label }} · {{ candidate.verification_status }}</div>
+          </div>
+        </div>
+        {% else %}
+        <p class="empty-cell">Nhập thị trường để gợi ý form.</p>
+        {% endfor %}
       </div>
     </section>
 
@@ -121,10 +207,95 @@
     <section class="zone action-panel">
       <button type="submit">Tính lại</button>
       <button type="submit" formaction="/clients/{{ client.id }}/export">Xuất evidence XLSX</button>
+      {% if case.persisted_case_id %}
+      <button type="submit" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export">Xuất dossier XLSX</button>
+      {% endif %}
     </section>
   </aside>
 
   <section class="workspace-main">
+    <section class="zone" id="invoice-matches">
+      <div class="zone-head">
+        <div>
+          <h2>BCCT xuất khẩu theo invoice</h2>
+          <p class="meta">Chỉ lấy dòng BCCT xuất khẩu đã publish và đúng loại hình export đang cấu hình cho công ty.</p>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Tờ khai XK</th>
+              <th>STT</th>
+              <th>LH</th>
+              <th>Mã SP</th>
+              <th>HS</th>
+              <th>Số lượng</th>
+              <th>Invoice</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in invoice_matches %}
+            <tr>
+              <td class="mono">{{ row.declaration_no }}</td>
+              <td class="mono">{{ row.line_no }}</td>
+              <td class="mono">{{ row.declaration_type }}</td>
+              <td class="mono">{{ row.item_code }}</td>
+              <td class="mono">{{ row.hs_code }}</td>
+              <td class="num">{{ row.quantity }} {{ row.unit }}</td>
+              <td class="mono">{{ row.invoice_ref }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="empty-cell">Chưa có dòng BCCT xuất khẩu khớp invoice.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="zone" id="criteria-preview">
+      <div class="zone-head">
+        <div>
+          <h2>Bảng kê dự kiến</h2>
+          <p class="meta">Tạo từ sản phẩm/BOM snapshot hiện có. Tiêu chí chính thức vẫn cần tra PSR theo form, HS và thông tư.</p>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Mã TP</th>
+              <th>HS TP</th>
+              <th>Form</th>
+              <th>Quy tắc</th>
+              <th>RVC</th>
+              <th>CTC</th>
+              <th>Mã NVL</th>
+              <th>HS NVL</th>
+              <th>Xuất xứ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in criteria_rows %}
+            <tr>
+              <td class="mono">{{ row.product_code }}</td>
+              <td class="mono">{{ row.finished_hs }}</td>
+              <td>{{ row.form }}</td>
+              <td>{{ row.rule }}</td>
+              <td class="num">{{ row.rvc_percentage }}</td>
+              <td>{{ row.tariff_shift_status }}</td>
+              <td class="mono">{{ row.material_code }}</td>
+              <td class="mono">{{ row.material_hs }}</td>
+              <td>{{ row.origin_status }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9" class="empty-cell">Chưa có dữ liệu sản phẩm/BOM để tạo bảng kê.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <section class="zone" id="evidence">
       <div class="zone-head">
         <div>

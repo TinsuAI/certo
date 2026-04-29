@@ -16,6 +16,20 @@ from app.bom_store import (
     update_bom_config,
 )
 from app.client_config_store import get_client_config, save_client_config
+from app.co_case_store import (
+    MAX_SUPPORTING_FILE_BYTES,
+    build_case_criteria_rows,
+    case_from_record,
+    create_case_record,
+    create_case_workbook,
+    get_case_record,
+    get_case_workspace,
+    match_case_bcct_exports,
+    safe_filename,
+    save_supporting_file,
+    update_case_record,
+)
+from app.co_forms import form_candidates_for_market
 from app.demo_data import (
     SOURCE_NOTES,
     get_client,
@@ -174,6 +188,10 @@ def client_context(client_id: str, active: str, **extra):
         "bom_workspace": bom_workspace,
         "source_workspace": source_workspace,
         "client_config": source_workspace["client_config"],
+        "case_workspace": extra.pop("case_workspace", get_case_workspace(client)),
+        "form_candidates": extra.pop("form_candidates", form_candidates_for_market(case.get("destination_market", ""))),
+        "invoice_matches": extra.pop("invoice_matches", []),
+        "criteria_rows": extra.pop("criteria_rows", []),
         "source_notes": SOURCE_NOTES,
         **extra,
     }
@@ -260,6 +278,42 @@ def co_stock_table_context(request: Request, client_id: str) -> dict:
         ],
         default_sort="import_declaration_no",
     )
+    return context
+
+
+def co_case_context(client_id: str, case_id: str = "", **extra) -> dict:
+    client = get_client(client_id)
+    case = extra.pop("case", None)
+    effective_case_id = case_id or (case or {}).get("persisted_case_id", "")
+    workspace = get_case_workspace(client, effective_case_id)
+    record = get_case_record(client, effective_case_id) if effective_case_id else None
+    if case is None:
+        case = get_client_case(client_id)
+        if record:
+            case = case_from_record(case, client, record)
+    elif record:
+        case.setdefault("persisted_case_id", record["case_id"])
+        case["supporting_files"] = [dict(file_row) for file_row in record.get("supporting_files", [])]
+    case.setdefault("persisted_case_id", "")
+    case.setdefault("shipment", {"invoice_no": "", "bill_of_lading_no": ""})
+    case["shipment"].setdefault("invoice_no", "")
+    case["shipment"].setdefault("bill_of_lading_no", "")
+    case.setdefault("supporting_files", [])
+    form_candidates = form_candidates_for_market(case.get("destination_market", ""))
+    context = client_context(
+        client_id,
+        "co-case",
+        case=case,
+        case_workspace=workspace,
+        form_candidates=form_candidates,
+        **extra,
+    )
+    context["invoice_matches"] = match_case_bcct_exports(
+        context["case"],
+        context["source_workspace"],
+        context["client_config"],
+    )
+    context["criteria_rows"] = build_case_criteria_rows(context["case"], form_candidates)
     return context
 
 
@@ -574,7 +628,73 @@ async def co_case(request: Request, client_id: str):
     return templates.TemplateResponse(
         request=request,
         name="co_case.html",
-        context=client_context(client_id, "co-case"),
+        context=co_case_context(client_id),
+    )
+
+
+@app.post("/clients/{client_id}/co-case/create")
+async def create_co_case(request: Request, client_id: str):
+    client = get_client(client_id)
+    form = await request.form()
+    record = create_case_record(client, {key: str(value) for key, value in form.items()})
+    return RedirectResponse(f"/clients/{client_id}/co-case/{record['case_id']}", status_code=303)
+
+
+@app.get("/clients/{client_id}/co-case/{case_id}", response_class=HTMLResponse)
+async def co_case_detail(request: Request, client_id: str, case_id: str):
+    return templates.TemplateResponse(
+        request=request,
+        name="co_case.html",
+        context=co_case_context(client_id, case_id),
+    )
+
+
+@app.post("/clients/{client_id}/co-case/{case_id}/supporting-files")
+async def upload_co_case_supporting_file(
+    request: Request,
+    client_id: str,
+    case_id: str,
+    file: UploadFile = File(...),
+    document_slot: str = Form("other"),
+    invoice_no: str = Form(""),
+    bill_of_lading_no: str = Form(""),
+):
+    client = get_client(client_id)
+    content = await file.read(MAX_SUPPORTING_FILE_BYTES + 1)
+    try:
+        save_supporting_file(
+            client,
+            case_id,
+            content,
+            file.filename or "supporting-file",
+            document_slot,
+            invoice_no,
+            bill_of_lading_no,
+        )
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request=request,
+            name="co_case.html",
+            status_code=400,
+            context=co_case_context(client_id, case_id, error=str(exc)),
+        )
+    return RedirectResponse(f"/clients/{client_id}/co-case/{case_id}", status_code=303)
+
+
+@app.post("/clients/{client_id}/co-case/{case_id}/export")
+async def export_co_case_workbook(client_id: str, case_id: str):
+    context = co_case_context(client_id, case_id)
+    content = create_case_workbook(
+        context["case"],
+        context["form_candidates"],
+        context["invoice_matches"],
+        context["criteria_rows"],
+    )
+    filename = safe_filename(f"{context['case']['case_code'] or 'co-case'}-dossier.xlsx")
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -582,10 +702,15 @@ async def co_case(request: Request, client_id: str):
 async def evaluate(request: Request, client_id: str):
     form = await request.form()
     case = update_products_from_form({key: str(value) for key, value in form.items()})
+    if case.get("persisted_case_id"):
+        try:
+            update_case_record(get_client(client_id), case)
+        except KeyError:
+            pass
     return templates.TemplateResponse(
         request=request,
         name="co_case.html",
-        context=client_context(client_id, "co-case", case=case, message="Đã tính lại theo dữ liệu đang sửa."),
+        context=co_case_context(client_id, case=case, message="Đã tính lại theo dữ liệu đang sửa."),
     )
 
 
@@ -600,13 +725,13 @@ async def upload_workbook(request: Request, client_id: str, file: UploadFile = F
             request=request,
             name="co_case.html",
             status_code=400,
-            context=client_context(client_id, "co-case", error=str(exc)),
+            context=co_case_context(client_id, error=str(exc)),
         )
     case["customer"] = client["name"]
     return templates.TemplateResponse(
         request=request,
         name="co_case.html",
-        context=client_context(client_id, "co-case", case=case, message=f"Đã parse {file.filename}."),
+        context=co_case_context(client_id, case=case, message=f"Đã parse {file.filename}."),
     )
 
 
