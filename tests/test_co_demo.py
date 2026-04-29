@@ -21,12 +21,14 @@ from app.source_store import (
     create_bcct_template_workbook,
     create_material_catalog_template_workbook,
     create_product_catalog_template_workbook,
+    get_source_summary,
     get_source_workspace,
     parse_bcct_workbook,
     parse_catalog_workbook,
     process_bcct_upload,
     process_catalog_upload,
 )
+from app.source_index_store import build_bcct_index_records
 from app.table_view import build_table_view
 from app.workbook_io import create_evidence_workbook, create_input_workbook, parse_input_workbook
 
@@ -1587,6 +1589,145 @@ def test_invoice_matching_uses_only_reviewed_export_rows():
     )
 
     assert [row["item_code"] for row in matches] == ["TP-OK"]
+
+
+def test_co_case_page_uses_lightweight_source_summary(monkeypatch):
+    from app import main as main_module
+    from app import source_store as source_store_module
+
+    def fail_full_workspace_load(*_args, **_kwargs):
+        raise AssertionError("C/O pages should not load the full source workspace.")
+
+    monkeypatch.setattr(main_module, "get_source_workspace", fail_full_workspace_load)
+    monkeypatch.setattr(source_store_module, "get_source_workspace", fail_full_workspace_load)
+
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={
+            "title": "Indexed source case",
+            "case_code": "CO-INDEX",
+            "destination_market": "Ấn Độ",
+            "invoice_no": "INV-INDEX",
+            "bill_of_lading_no": "BL-INDEX",
+        },
+        follow_redirects=False,
+    )
+
+    response = client.get(created.headers["location"])
+
+    assert response.status_code == 200
+    assert "CO-INDEX" in response.text
+
+
+def test_source_summary_exposes_counts_and_snapshot_metadata():
+    client = get_client("do-thanh")
+    process_bcct_upload(
+        client,
+        bcct_workbook([
+            {"direction": "import", "declaration_no": "NK-001", "line_no": "1", "item_code": "MAT-001", "quantity": "10", "unit": "PCS"},
+            {"direction": "export", "declaration_type": "E42", "declaration_no": "XK-001", "line_no": "1", "item_code": "TP-001", "quantity": "2", "unit": "PCS", "invoice_ref": "INV-001"},
+        ]),
+        "bcct.xlsx",
+    )
+
+    summary = get_source_summary(client)
+
+    assert summary["bcct"]["published_row_count"] == 2
+    assert summary["bcct"]["reviewed_row_count"] == 2
+    assert summary["co_stock_row_count"] == 1
+    assert summary["bcct"]["latest_version"]["version_no"] == 1
+
+
+def test_co_case_page_uses_postgres_source_index_when_available(monkeypatch):
+    from app import main as main_module
+
+    class FakeSourceIndexStore:
+        def has_client(self, client_id: str) -> bool:
+            return client_id == "growatt"
+
+        def source_summary(self, _client_id: str, client_config: dict) -> dict:
+            return {
+                "client_config": client_config,
+                "material_catalog": {"published_row_count": 10, "latest_version": {"version_no": 2}},
+                "product_catalog": {"published_row_count": 3, "latest_version": {"version_no": 4}},
+                "bcct": {
+                    "published_row_count": 20,
+                    "reviewed_row_count": 9,
+                    "correction_candidate_count": 0,
+                    "latest_version": {"version_no": 5},
+                },
+                "co_stock_row_count": 8,
+            }
+
+        def match_bcct_exports(self, _client_id: str, invoice_no: str, _relevant_types: list[str]) -> list[dict]:
+            assert invoice_no == "INV-PG"
+            return [
+                {
+                    "declaration_no": "XK-PG",
+                    "line_no": "1",
+                    "declaration_type": "E42",
+                    "item_code": "TP-PG",
+                    "hs_code": "8504.40",
+                    "quantity": "2",
+                    "unit": "PCS",
+                    "invoice_ref": "INV-PG",
+                }
+            ]
+
+    def fail_file_source_load(*_args, **_kwargs):
+        raise AssertionError("Postgres-indexed C/O pages should not load source JSON.")
+
+    monkeypatch.setattr(main_module, "get_source_index_store", lambda: FakeSourceIndexStore())
+    monkeypatch.setattr(main_module, "load_module_state", fail_file_source_load)
+
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={
+            "title": "Postgres indexed case",
+            "case_code": "CO-PG",
+            "destination_market": "Ấn Độ",
+            "invoice_no": "INV-PG",
+        },
+        follow_redirects=False,
+    )
+
+    response = client.get(f"{created.headers['location']}/exports")
+
+    assert response.status_code == 200
+    assert "XK-PG" in response.text
+    assert "TP-PG" in response.text
+    assert "20 dòng BCCT" in response.text
+
+
+def test_postgres_bcct_index_records_tokenize_invoice_refs():
+    rows = [
+        {
+            "transaction_key": "export||XK-001||1||TP-001",
+            "direction": "export",
+            "review_status": "reviewed",
+            "declaration_no": "XK-001",
+            "line_no": "1",
+            "declaration_type": "E42",
+            "item_code": "TP-001",
+            "hs_code": "8504.40",
+            "quantity": "2",
+            "unit": "PCS",
+            "invoice_ref": "INV-001 / INV 002",
+        }
+    ]
+
+    bcct_records, invoice_records = build_bcct_index_records("growatt", rows)
+
+    assert bcct_records[0]["transaction_key"] == "export||XK-001||1||TP-001"
+    assert bcct_records[0]["payload"]["item_code"] == "TP-001"
+    assert {(row["invoice_key"], row["transaction_key"]) for row in invoice_records} == {
+        ("INV001INV002", "export||XK-001||1||TP-001"),
+        ("INV001", "export||XK-001||1||TP-001"),
+        ("INV", "export||XK-001||1||TP-001"),
+        ("002", "export||XK-001||1||TP-001"),
+    }
 
 
 def test_co_case_supporting_upload_rejects_unsupported_or_oversized_files():

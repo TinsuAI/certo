@@ -313,6 +313,48 @@ def get_source_workspace(client: dict) -> dict:
     }
 
 
+def get_source_summary(client: dict) -> dict:
+    material = load_module_state(client, "material_catalog")
+    product = load_module_state(client, "product_catalog")
+    bcct = load_module_state(client, "bcct")
+    client_config = get_client_config(client)
+    return source_summary_from_states(material, product, bcct, client_config)
+
+
+def source_summary_from_states(material: dict, product: dict, bcct: dict, client_config: dict) -> dict:
+    reviewed_bcct_rows = [
+        row for row in bcct["published_rows"]
+        if row.get("review_status") == "reviewed"
+    ]
+    return {
+        "client_config": client_config,
+        "material_catalog": source_module_summary(material),
+        "product_catalog": source_module_summary(product),
+        "bcct": {
+            **source_module_summary(bcct),
+            "reviewed_row_count": len(reviewed_bcct_rows),
+        },
+        "co_stock_row_count": len(co_stock_rows_from_bcct(bcct["published_rows"], client_config)),
+    }
+
+
+def source_module_summary(state: dict) -> dict:
+    return {
+        "module": state["module"],
+        "published_row_count": len(state.get("published_rows", [])),
+        "latest_version": dict(state.get("latest_version") or {}),
+        "version_count": len(state.get("versions", [])),
+        "upload_count": len(state.get("uploads", [])),
+        "correction_candidate_count": len(state.get("correction_candidates", [])),
+    }
+
+
+def refresh_source_index_if_configured(client: dict) -> None:
+    from app.source_index_store import rebuild_source_index_if_configured
+
+    rebuild_source_index_if_configured(client)
+
+
 def enrich_client_with_source_modules(client: dict) -> dict:
     workspace = get_source_workspace(client)
     client["material_catalog"] = [dict(row) for row in workspace["material_catalog"]["published_rows"]]
@@ -511,6 +553,7 @@ def process_catalog_upload(client: dict, catalog_type: str, content: bytes, file
             upload["result"] = "no_change"
             append_audit(state, f"{module}.diff.no_change", {"upload_id": upload["upload_id"]})
             save_module_state(client["id"], module, state)
+            refresh_source_index_if_configured(client)
             return {"status": "no_change", "message": "No catalog changes.", "summary": summary, "upload": upload}
 
         version = publish_version(client["id"], module, state, result_rows, upload["upload_id"], summary)
@@ -518,6 +561,7 @@ def process_catalog_upload(client: dict, catalog_type: str, content: bytes, file
         upload["created_version_id"] = version["version_id"]
         append_audit(state, f"{module}.version.published", {"version_id": version["version_id"], "upload_id": upload["upload_id"]})
         save_module_state(client["id"], module, state)
+        refresh_source_index_if_configured(client)
         return {"status": "new_version", "message": f"Published {module} v{version['version_no']}.", "summary": summary, "upload": upload, "version": version}
 
 
@@ -584,6 +628,7 @@ def process_bcct_upload(client: dict, content: bytes, filename: str) -> dict:
             upload["created_version_id"] = version["version_id"]
         append_audit(state, "bcct.diff.completed", {"upload_id": upload["upload_id"], **summary})
         save_module_state(client["id"], module, state)
+        refresh_source_index_if_configured(client)
 
         status = "review_required" if new_candidates else ("new_version" if added_rows else "no_change")
         message = "BCCT has correction candidates." if new_candidates else ("Published BCCT rows." if added_rows else "No BCCT changes.")

@@ -44,9 +44,12 @@ from app.source_store import (
     create_product_catalog_template_workbook,
     enrich_client_with_source_modules,
     get_source_workspace,
+    load_module_state,
     process_bcct_upload,
     process_catalog_upload,
+    source_summary_from_states,
 )
+from app.source_index_store import get_source_index_store, rebuild_source_index_if_configured
 from app.table_view import build_table_view
 from app.workbook_io import (
     WorkbookParseError,
@@ -237,6 +240,100 @@ def client_context(client_id: str, active: str, **extra):
     }
 
 
+def co_case_light_context(client_id: str, case: dict, current_step: str, **extra) -> dict:
+    client = get_client(client_id)
+    source_context = co_case_source_context(client, case)
+    source_summary = source_context["source_summary"]
+    bom_workspace = get_bom_workspace(client) if current_step == "origin" else minimal_bom_workspace()
+    client = enrich_client_with_source_summary(client, source_summary)
+    case = attach_case_source_summary_snapshot(case, source_summary)
+    if current_step == "origin":
+        case = attach_case_bom_snapshot(case, bom_workspace)
+    context = {
+        "client": client,
+        "case": case,
+        "active": "co-case",
+        "bom_workspace": bom_workspace,
+        "source_workspace": {},
+        "client_config": source_summary["client_config"],
+        "case_workspace": extra.pop("case_workspace"),
+        "form_candidates": extra.pop("form_candidates"),
+        "invoice_matches": source_context["invoice_matches"],
+        "criteria_rows": extra.pop("criteria_rows"),
+        "source_notes": SOURCE_NOTES,
+        "source_backend": source_context["source_backend"],
+        **extra,
+    }
+    context["co_case_active_step"] = current_step
+    context["co_case_steps"] = co_case_workflow_steps(client_id, context["case"], current_step)
+    return context
+
+
+def co_case_source_context(client: dict, case: dict) -> dict:
+    client_config = get_client_config(client)
+    store = get_source_index_store()
+    invoice_no = case.get("shipment", {}).get("invoice_no", "")
+    if store and store.has_client(client["id"]):
+        relevant_types = client_config.get("bcct", {}).get("relevant_export_declaration_types", [])
+        return {
+            "source_backend": "postgres",
+            "source_summary": store.source_summary(client["id"], client_config),
+            "invoice_matches": store.match_bcct_exports(client["id"], invoice_no, relevant_types),
+        }
+
+    material = load_module_state(client, "material_catalog")
+    product = load_module_state(client, "product_catalog")
+    bcct = load_module_state(client, "bcct")
+    return {
+        "source_backend": "files",
+        "source_summary": source_summary_from_states(material, product, bcct, client_config),
+        "invoice_matches": match_case_bcct_exports(
+            case,
+            {"bcct": {"published_rows": bcct["published_rows"]}},
+            client_config,
+        ),
+    }
+
+
+def enrich_client_with_source_summary(client: dict, source_summary: dict) -> dict:
+    client["counts"] = {
+        **client.get("counts", {}),
+        "materials": source_summary["material_catalog"]["published_row_count"],
+        "products": source_summary["product_catalog"]["published_row_count"],
+        "bcct": source_summary["bcct"]["published_row_count"],
+        "co_stock": source_summary["co_stock_row_count"],
+    }
+    return client
+
+
+def attach_case_source_summary_snapshot(case: dict, source_summary: dict) -> dict:
+    material = source_summary["material_catalog"].get("latest_version") or {}
+    product = source_summary["product_catalog"].get("latest_version") or {}
+    bcct = source_summary["bcct"].get("latest_version") or {}
+    case["source_snapshot"] = {
+        "material_catalog_version_id": material.get("version_id", ""),
+        "material_catalog_version_no": material.get("version_no", ""),
+        "product_catalog_version_id": product.get("version_id", ""),
+        "product_catalog_version_no": product.get("version_no", ""),
+        "bcct_version_id": bcct.get("version_id", ""),
+        "bcct_version_no": bcct.get("version_no", ""),
+        "bcct_reviewed_row_count": source_summary["bcct"].get("reviewed_row_count", 0),
+        "correction_candidate_count": source_summary["bcct"].get("correction_candidate_count", 0),
+        "client_config_version": source_summary["client_config"].get("config_version", ""),
+        "client_config_hash": source_summary["client_config"].get("config_hash", ""),
+    }
+    return case
+
+
+def minimal_bom_workspace() -> dict:
+    return {
+        "versions": [],
+        "product_versions": [],
+        "product_version_options_by_code": {},
+        "latest_version": {},
+    }
+
+
 def catalog_table_context(request: Request, client_id: str, view_name: str, **extra) -> dict:
     view = CATALOG_VIEWS[view_name]
     context = client_context(client_id, "catalog", **extra)
@@ -340,23 +437,16 @@ def co_case_context(client_id: str, case_id: str = "", current_step: str = "inde
     case["shipment"].setdefault("bill_of_lading_no", "")
     case.setdefault("supporting_files", [])
     form_candidates = form_candidates_for_market(case.get("destination_market", ""))
-    context = client_context(
+    criteria_rows = build_case_criteria_rows(case, form_candidates)
+    return co_case_light_context(
         client_id,
-        "co-case",
         case=case,
+        current_step=current_step,
         case_workspace=workspace,
         form_candidates=form_candidates,
+        criteria_rows=criteria_rows,
         **extra,
     )
-    context["invoice_matches"] = match_case_bcct_exports(
-        context["case"],
-        context["source_workspace"],
-        context["client_config"],
-    )
-    context["criteria_rows"] = build_case_criteria_rows(context["case"], form_candidates)
-    context["co_case_active_step"] = current_step
-    context["co_case_steps"] = co_case_workflow_steps(client_id, context["case"], current_step)
-    return context
 
 
 def co_case_workflow_steps(client_id: str, case: dict, current_step: str) -> list[dict]:
@@ -580,6 +670,7 @@ async def save_client_config_route(request: Request, client_id: str):
             status_code=400,
             context=config_context(client_id, error=str(exc)),
         )
+    rebuild_source_index_if_configured(client)
     return templates.TemplateResponse(
         request=request,
         name="client_config.html",

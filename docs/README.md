@@ -13,6 +13,7 @@ Shared project documentation for business logic, data analysis, and regulatory c
 - [Customs And Code Taxonomy](./customs-and-code-taxonomy.md)
 - [Procedure And Workbook Analysis](./procedure-and-workbook-analysis.md)
 - [CO Knowledge Base](./co-knowledge-base.md)
+- [Postgres Source Indexes](./postgres-source-indexes.md)
 - [Data Exploration](./data-exploration.md)
 - [Legal Workspace](./legal/README.md)
 
