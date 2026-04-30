@@ -10,6 +10,7 @@ from app.routes.dncxs import get_dncx, list_dncxs
 from app.parsers.bcct import parse_bcct_workbook, BcctParseError
 from app.parsers.goods_name import internal_code_parser_for
 from app.storage import save_upload, sha256_bytes
+from app.stores.code_resolution import resolve_for_dncx
 from app.stores.uploads import record_upload
 
 router = APIRouter()
@@ -134,6 +135,7 @@ async def upload_submit(
         raise HTTPException(400, f"Parse error: {e}")
     parser = internal_code_parser_for(dncx_id, dncx["code_resolution_mode"])
     n = _insert_bcct(dncx_id=dncx_id, year=year, rows=rows, upload_id=upload_id, parser=parser)
+    resolve_for_dncx(dncx_id)
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute("update hub.file_uploads set parse_status='done', row_count=%s, parsed_at=now() where upload_id=%s", (n, upload_id))

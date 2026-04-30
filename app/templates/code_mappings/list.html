@@ -12,6 +12,10 @@
     </div>
   </div>
   <div class="page-actions">
+    <form method="post" action="/code-mappings/resolve" style="display:inline;">
+      <input type="hidden" name="dncx_id" value="{{ dncx.dncx_id }}">
+      <button type="submit" class="btn btn-secondary" title="Chạy lại resolution worker (đọc BCCT để chọn HQ chính cho mã 1:n)">↻ Resolve</button>
+    </form>
     <a href="/code-mappings/upload?dncx_id={{ dncx.dncx_id }}" class="btn btn-primary">Upload BQD</a>
   </div>
 </div>

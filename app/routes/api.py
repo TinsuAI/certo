@@ -1,0 +1,332 @@
+"""Public read API for sister apps (BCQT, CO).
+
+All routes under /v1/hub/. Bearer token auth (dev: accepts any non-empty token;
+production will JWT-validate against the SSO design doc's scope claims).
+"""
+from __future__ import annotations
+
+import json
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any
+
+from fastapi import APIRouter, Header, HTTPException, Request, status
+from fastapi.responses import JSONResponse
+
+from app.database import connect
+from app.routes.dncxs import get_dncx, list_dncxs
+from app.stores.bom import (
+    get_version_with_rows,
+    list_versions_for_product,
+    list_products_with_bom,
+)
+from app.stores.code_resolution import lookup_resolution
+
+router = APIRouter(prefix="/v1/hub", tags=["api"])
+
+
+def _require_token(authorization: str | None) -> str:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "bearer token required")
+    token = authorization[7:].strip()
+    if not token:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "empty bearer token")
+    # MVP: accept any non-empty token. Phase 2: JWT-validate scopes.
+    return token
+
+
+def _serialize(v: Any):
+    if isinstance(v, (datetime, date)):
+        return v.isoformat()
+    if isinstance(v, Decimal):
+        return float(v)
+    if isinstance(v, dict):
+        return {k: _serialize(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_serialize(x) for x in v]
+    return v
+
+
+def _json(payload: Any, status_code: int = 200) -> JSONResponse:
+    return JSONResponse(content=_serialize(payload), status_code=status_code)
+
+
+@router.get("/dncxs")
+async def api_list_dncxs(authorization: str | None = Header(None)):
+    _require_token(authorization)
+    return _json({"items": list_dncxs(), "total_estimate": None})
+
+
+@router.get("/dncxs/{dncx_id}")
+async def api_get_dncx(dncx_id: str, authorization: str | None = Header(None)):
+    _require_token(authorization)
+    dncx = get_dncx(dncx_id)
+    if not dncx:
+        raise HTTPException(404, "DNCX not found")
+    return _json(dncx)
+
+
+@router.get("/materials")
+async def api_list_materials(
+    dncx_id: str,
+    category: str | None = None,
+    status: str | None = None,
+    cursor: str | None = None,
+    limit: int = 200,
+    authorization: str | None = Header(None),
+):
+    _require_token(authorization)
+    if not get_dncx(dncx_id):
+        raise HTTPException(404, "DNCX not found")
+    sql = """
+        select dncx_id, customs_code, product_code, name, category, category_override,
+               status, unit, hs_code, updated_at
+        from hub.materials where dncx_id = %s
+    """
+    params: list = [dncx_id]
+    if category:
+        sql += " and category = %s"
+        params.append(category)
+    if status:
+        sql += " and status = %s"
+        params.append(status)
+    sql += " order by customs_code limit %s"
+    params.append(min(max(limit, 1), 1000))
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            cols = [d[0] for d in cur.description]
+            items = [dict(zip(cols, r)) for r in cur.fetchall()]
+    return _json({"items": items, "total_estimate": len(items)})
+
+
+@router.get("/materials/{customs_code}")
+async def api_get_material(
+    customs_code: str, dncx_id: str,
+    authorization: str | None = Header(None),
+):
+    _require_token(authorization)
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select dncx_id, customs_code, product_code, name, category, category_override,
+                       status, unit, hs_code, updated_at
+                from hub.materials where dncx_id = %s and customs_code = %s
+                """,
+                (dncx_id, customs_code),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(404, "material not found")
+            cols = [d[0] for d in cur.description]
+            return _json(dict(zip(cols, row)))
+
+
+@router.get("/bcct")
+async def api_list_bcct(
+    dncx_id: str, year: int | None = None,
+    direction: str | None = None,
+    declaration_no: str | None = None,
+    cursor: str | None = None, limit: int = 200,
+    authorization: str | None = Header(None),
+):
+    _require_token(authorization)
+    if not get_dncx(dncx_id):
+        raise HTTPException(404, "DNCX not found")
+    sql = """
+        select dncx_id, year, transaction_key, line_no, declaration_no,
+               declaration_type, direction, registration_date,
+               customs_code, internal_code, goods_name, hs_code,
+               quantity, unit, total_value, currency, origin,
+               resolved_customs_code, bom_version_id, indexed_at
+        from hub.bcct_rows where dncx_id = %s
+    """
+    params: list = [dncx_id]
+    if year:
+        sql += " and year = %s"
+        params.append(year)
+    if direction:
+        sql += " and direction = %s"
+        params.append(direction)
+    if declaration_no:
+        sql += " and declaration_no = %s"
+        params.append(declaration_no)
+    sql += " order by registration_date desc nulls last, declaration_no, line_no limit %s"
+    params.append(min(max(limit, 1), 1000))
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            cols = [d[0] for d in cur.description]
+            items = [dict(zip(cols, r)) for r in cur.fetchall()]
+    return _json({"items": items, "total_estimate": len(items)})
+
+
+@router.get("/bcct/{transaction_key}")
+async def api_get_bcct(
+    transaction_key: str, dncx_id: str,
+    authorization: str | None = Header(None),
+):
+    _require_token(authorization)
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select dncx_id, year, transaction_key, line_no, declaration_no,
+                       declaration_type, direction, registration_date,
+                       customs_code, internal_code, goods_name, hs_code,
+                       quantity, unit, total_value, currency, origin,
+                       resolved_customs_code, bom_version_id, indexed_at, payload
+                from hub.bcct_rows
+                where dncx_id = %s and transaction_key = %s
+                order by line_no
+                """,
+                (dncx_id, transaction_key),
+            )
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+    if not rows:
+        raise HTTPException(404, "BCCT row not found")
+    if len(rows) == 1:
+        return _json(rows[0])
+    return _json({"transaction_key": transaction_key, "lines": rows})
+
+
+@router.get("/code-mappings")
+async def api_list_code_mappings(
+    dncx_id: str,
+    authorization: str | None = Header(None),
+):
+    _require_token(authorization)
+    if not get_dncx(dncx_id):
+        raise HTTPException(404, "DNCX not found")
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select dncx_id, internal_code, customs_code, category, notes
+                from hub.code_mappings where dncx_id = %s
+                order by internal_code, customs_code
+                """,
+                (dncx_id,),
+            )
+            cols = [d[0] for d in cur.description]
+            items = [dict(zip(cols, r)) for r in cur.fetchall()]
+    return _json({"items": items, "total_estimate": len(items)})
+
+
+@router.get("/code-mappings/resolutions")
+async def api_list_resolutions(
+    dncx_id: str,
+    authorization: str | None = Header(None),
+):
+    _require_token(authorization)
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select dncx_id, internal_code, resolved_customs_code,
+                       resolution_basis, resolved_at, details
+                from hub.code_mapping_resolutions where dncx_id = %s
+                order by internal_code
+                """,
+                (dncx_id,),
+            )
+            cols = [d[0] for d in cur.description]
+            items = [dict(zip(cols, r)) for r in cur.fetchall()]
+    return _json({"items": items, "total_estimate": len(items)})
+
+
+@router.get("/products/{product_code}/bom/latest")
+async def api_bom_latest(
+    product_code: str, dncx_id: str,
+    authorization: str | None = Header(None),
+):
+    _require_token(authorization)
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select version_id from hub.bom_versions
+                where dncx_id=%s and product_code=%s and tombstoned_at is null
+                  and intent in ('asserted_technical', 'staff_edit', 'derived')
+                  and status = 'published'
+                order by published_at desc nulls last, version_no desc limit 1
+                """,
+                (dncx_id, product_code),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(404, "no latest version found")
+    data = get_version_with_rows(row[0])
+    return _json(data)
+
+
+@router.get("/products/{product_code}/bom/versions")
+async def api_bom_versions(
+    product_code: str, dncx_id: str,
+    actor: str | None = None, intent: str | None = None,
+    authorization: str | None = Header(None),
+):
+    _require_token(authorization)
+    versions = list_versions_for_product(dncx_id=dncx_id, product_code=product_code)
+    if actor:
+        versions = [v for v in versions if v["actor"] == actor]
+    if intent:
+        versions = [v for v in versions if v["intent"] == intent]
+    return _json({"items": versions, "total_estimate": len(versions)})
+
+
+@router.get("/products/{product_code}/bom")
+async def api_bom_pinned(
+    product_code: str, dncx_id: str, version_id: str | None = None,
+    authorization: str | None = Header(None),
+):
+    _require_token(authorization)
+    if version_id:
+        data = get_version_with_rows(version_id)
+        if not data or data["version"]["dncx_id"] != dncx_id \
+                or data["version"]["product_code"] != product_code:
+            raise HTTPException(404, "version not found")
+        return _json(data)
+    # No pin → equivalent to latest
+    return await api_bom_latest(product_code, dncx_id, authorization)
+
+
+@router.get("/products")
+async def api_list_products(
+    dncx_id: str,
+    authorization: str | None = Header(None),
+):
+    _require_token(authorization)
+    return _json({"items": list_products_with_bom(dncx_id), "total_estimate": None})
+
+
+@router.get("/proposals/{proposal_id}")
+async def api_get_proposal(
+    proposal_id: str,
+    authorization: str | None = Header(None),
+):
+    _require_token(authorization)
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select proposal_id, dncx_id, product_code, actor, intent,
+                       parent_version_id, context, status, decided_at, decided_by,
+                       decision_reason, failed_conditions, materialized_version_id,
+                       normalized_hash, created_at
+                from hub.bom_change_requests where proposal_id = %s
+                """,
+                (proposal_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(404, "proposal not found")
+            cols = [d[0] for d in cur.description]
+            return _json(dict(zip(cols, row)))
+
+
+@router.get("/healthz")
+async def api_healthz():
+    return _json({"status": "ok"})

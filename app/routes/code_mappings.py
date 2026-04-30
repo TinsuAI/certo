@@ -9,6 +9,7 @@ from app.database import connect
 from app.routes.dncxs import get_dncx, list_dncxs
 from app.parsers.code_mappings import parse_code_mappings_workbook, CodeMappingsParseError
 from app.storage import save_upload, sha256_bytes
+from app.stores.code_resolution import resolve_for_dncx, lookup_resolution
 from app.stores.uploads import record_upload
 
 router = APIRouter()
@@ -133,6 +134,7 @@ async def upload_submit(
                 cur.execute("update hub.file_uploads set parse_status='error', parse_error=%s, parsed_at=now() where upload_id=%s", (str(e), upload_id))
         raise HTTPException(400, f"Parse error: {e}")
     n = _insert_mappings(dncx_id=dncx_id, rows=rows)
+    resolve_for_dncx(dncx_id)
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute("update hub.file_uploads set parse_status='done', row_count=%s, parsed_at=now() where upload_id=%s", (n, upload_id))
@@ -157,6 +159,29 @@ def _insert_mappings(*, dncx_id: str, rows: list[dict]) -> int:
                 )
                 n += 1
     return n
+
+
+@router.post("/code-mappings/resolve")
+async def trigger_resolve(
+    request: Request,
+    dncx_id: str = Form(...),
+):
+    user = auth.require_user(request)
+    if not get_dncx(dncx_id):
+        raise HTTPException(404, "DNCX not found")
+    resolve_for_dncx(dncx_id)
+    return RedirectResponse(url=f"/code-mappings?dncx_id={dncx_id}", status_code=303)
+
+
+@router.get("/api/v1/hub/materials/resolve")
+async def api_resolve(request: Request, dncx_id: str, internal_code: str):
+    user = auth.require_user(request)
+    if not get_dncx(dncx_id):
+        raise HTTPException(404, "DNCX not found")
+    res = lookup_resolution(dncx_id=dncx_id, internal_code=internal_code)
+    if not res:
+        raise HTTPException(404, "no resolution found")
+    return res
 
 
 @router.post("/code-mappings/manual")
