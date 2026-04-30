@@ -8,7 +8,8 @@
   - `69f755f Standardize source upload metadata`
   - `845db8c Write source uploads through Postgres`
   - `de5f8c9 Persist source history rows in Postgres`
-- Working tree was clean after the source history row migration commit; only this status file is being updated for session state.
+  - `c4c25d5 Move workflow state to Postgres`
+- Working tree was clean after the workflow-state migration commit; only this status file is being updated for session state.
 - The C/O app still runs as the main FastAPI/Jinja app, but it now mounts a separate portfolio app at `/portfolio`.
 - `app/portfolio.py` is the new source/portfolio boundary. It exposes:
   - UI dashboard at `/portfolio`
@@ -36,6 +37,7 @@
   - `source_correction_candidates`: 0 rows
 - Growatt is the main populated client in Postgres: 241 NVL rows, 34 SP rows, 19,901 reviewed BCCT rows, and 19,370 derived C/O stock rows.
 - Postgres is now source-of-truth for imported client records, client config, source current rows, source upload metadata, source snapshot/version metadata, parsed snapshot rows, and historical version rows when `BARRY_DATABASE_URL` is set. For clients with source indexes, source catalog/BCCT uploads now write through Postgres first; raw files remain on filesystem storage with DB path/hash metadata. JSON/filesystem fallback still exists for unindexed/offline source clients, BOM, C/O cases, and supporting files.
+- BOM builder state and C/O case workflow state now also use Postgres when `BARRY_DATABASE_URL` is set. Raw BOM uploads and C/O supporting binaries still stay on filesystem storage; Postgres stores normalized metadata, state payloads, versions, rows, and audit/projection tables.
 - The visible tmux dev server is still expected in `1-CO-MAIN:barry-co-dev` at `http://127.0.0.1:8001` with `BARRY_DATABASE_URL=postgresql:///barry_co`.
 
 ## Recent Changes
@@ -59,6 +61,10 @@
 - Added source history row schema in `db/migrations/004_source_history_rows.sql` with:
   - `source_snapshot_rows`
   - `source_version_rows`
+- Added workflow state schema in `db/migrations/005_workflow_state.sql` with:
+  - BOM state/upload/snapshot/product-version/aggregate-version/audit tables
+  - BOM snapshot/product-version/aggregate-version row tables
+  - C/O case state/case/supporting-file metadata tables
 - Added shared migration tracking via `schema_migrations`.
 - Added `app/app_state_store.py`, `app/client_registry.py`, and `app/database.py`.
 - Extended `app/source_index_store.py` to index and serve:
@@ -88,6 +94,10 @@
   - BCCT upload parses/appends/reviews using existing logic, updates BCCT invoice index and derived C/O stock in Postgres
   - direct uploads capture parsed snapshot rows and published version rows in memory before persisting, because no JSON `rows.json` artifacts are written on the Postgres path
   - JSON writer remains fallback only when Postgres is unavailable or the client is not indexed
+- Added `app/workflow_state_store.py` for Postgres-backed BOM and C/O workflow state:
+  - `app/bom_store.py` now loads/saves state through Postgres when configured, keeps raw BOM files on filesystem, and skips JSON snapshot/version sidecars on the Postgres path
+  - `app/co_case_store.py` now loads/saves case state through Postgres when configured and stores supporting-file metadata with original/safe/stored filename, path, hash, size, extension, and MIME type
+  - filesystem JSON remains fallback only when Postgres is unavailable
 - Added `app/portfolio.py` and `app/templates/portfolio.html`.
 - Added a top-nav link to `/portfolio`.
 - Updated C/O routes to use `portfolio_service` for shared source/config interactions.
@@ -97,19 +107,24 @@
 - Updated CLI rebuild output to include catalog row count.
 - Added CLI app-state import:
   - `npm run db:import-app-state`
+- Added CLI workflow-state import:
+  - `npm run db:import-workflow-state`
 - Added/updated regression tests for:
   - catalog index record builders
   - source snapshot/version row record builders
   - direct-upload history rows without JSON artifacts
+  - BOM state using Postgres store instead of `state.json`
+  - C/O case state/supporting-file metadata using Postgres store instead of `cases.json`
   - Postgres-backed source table workspace
   - portfolio dashboard/API
   - C/O routes using the portfolio service adapter
   - portfolio clients/config using Postgres app-state store
 - Verification completed:
-  - `uv run pytest -q` -> `89 passed`
+  - `uv run pytest -q` -> `91 passed`
   - `uv run python -m py_compile app/database.py app/app_state_store.py app/client_registry.py app/main.py app/portfolio.py app/source_index_store.py app/source_index_cli.py` passed
   - `uv run python -m py_compile app/source_store.py app/source_index_store.py` passed
   - `uv run python -m py_compile app/source_index_store.py app/source_postgres_store.py` passed
+  - `uv run python -m py_compile app/workflow_state_store.py app/bom_store.py app/co_case_store.py app/source_index_cli.py` passed
   - `BARRY_DATABASE_URL=postgresql:///barry_co uv run python -m app.source_index_cli migrate` passed
   - `BARRY_DATABASE_URL=postgresql:///barry_co uv run python -m app.source_index_cli import-app-state` imported 3 clients/configs
   - `BARRY_DATABASE_URL=postgresql:///barry_co uv run python -m app.source_index_cli rebuild-client growatt` rebuilt Growatt source metadata/read models
@@ -125,18 +140,22 @@
   - Rebuilt Growatt, Johnson, and Do Thanh source indexes after migration 004
   - DB verification confirmed `source_snapshot_rows=20169` and `source_version_rows=20190`
   - Direct Postgres upload smoke wrote `history-smoke.xlsx` for Do Thanh and confirmed one matching snapshot row and one matching version row in Postgres
+  - `BARRY_DATABASE_URL=postgresql:///barry_co uv run python -m app.source_index_cli migrate` applied migration 005
+  - `BARRY_DATABASE_URL=postgresql:///barry_co uv run python -m app.source_index_cli import-workflow-state` imported BOM and C/O workflow state for 3 clients
+  - Direct Postgres workflow smoke wrote one BOM upload/version and one C/O case/supporting file to Postgres; no BOM/C/O state JSON sidecars were written, only raw binary files plus lock files
+  - TestClient route smoke with `BARRY_DATABASE_URL=postgresql:///barry_co` returned 200 for `/clients/growatt/bom` and `/clients/growatt/co-case`, and created a C/O case with 303 redirect
+  - Current local `barry_co` workflow counts after smoke: `bom_states=3`, `bom_uploads=1`, `bom_snapshots=1`, `bom_snapshot_rows=4`, `bom_product_versions=4`, `bom_product_version_rows=9`, `bom_versions=4`, `bom_version_rows=11`, `bom_audit_events=8`, `co_case_states=3`, `co_cases=2`, `co_supporting_files=1`
   - Playwright desktop/mobile smoke tests passed for `/portfolio`, `/portfolio/api/clients/growatt/source-summary`, `/clients/growatt/catalog/materials?q=001.0001800`, and `/clients/growatt/bcct?q=307088602500`.
 
 ## Next Steps
-1. Move BOM builder state/uploads/versions to Postgres.
-2. Move C/O dossier workflow state and supporting-file metadata to Postgres, keeping binary supporting files on filesystem/object storage.
-3. Remove runtime JSON fallback for fully migrated source clients after BOM/C/O state is migrated.
-4. Add SQL pagination/search for large portfolio/catalog/BCCT views. Current table pages still materialize workspace rows before table filtering.
-5. Define the BCQT consumer adapter contract against portfolio APIs before touching `BCQT-System`.
+1. Decide whether to keep filesystem fallback for offline/local dev or hard-disable JSON fallback when `BARRY_DATABASE_URL` is required in deployment.
+2. Persist full evaluated C/O product/origin payloads if the workflow should restore edited origin calculations after page refresh; current migrated behavior preserves the existing app contract of persisting case metadata, shipment, and supporting files.
+3. Add SQL pagination/search for large portfolio/catalog/BCCT views. Current table pages still materialize workspace rows before table filtering.
+4. Define the BCQT consumer adapter contract against portfolio APIs before touching `BCQT-System`.
 
 ## Blockers
 - Portfolio is currently mounted in the same FastAPI process/repo. It is a bounded app boundary, not a separate deployed service yet.
-- Postgres source write path is active only for clients that already have source indexes. Unindexed clients still use JSON fallback.
+- Postgres source write path is active only for clients that already have source indexes. Unindexed/offline clients still use JSON fallback.
 - Existing Node legal lookup test failures from prior sessions were not re-run in this handoff session and are unrelated to the portfolio/Postgres work.
 
 ## Notes for Next AI Session
