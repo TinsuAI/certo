@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Upload Danh Mục · Data Hub{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Upload Danh Mục</h1>
+  <div class="page-actions">
+    <a href="/materials?dncx_id={{ dncx_id }}" class="btn btn-secondary">Hủy</a>
+  </div>
+</div>
+<form method="post" action="/materials/upload" enctype="multipart/form-data" class="auth-form" style="max-width: 600px;">
+  <label class="field">
+    <span class="field-label">DNCX</span>
+    <select name="dncx_id">
+      {% for d in dncxs %}
+      <option value="{{ d.dncx_id }}" {% if d.dncx_id == dncx_id %}selected{% endif %}>{{ d.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <div class="upload-zone">
+    <input type="file" name="file" accept=".xlsx,.xls" required>
+    <p>File Excel chứa cột: <span class="mono">Mã HQ</span>, <span class="mono">Mã NB</span> (optional), <span class="mono">Tên</span>, <span class="mono">Loại</span> (NVL/TP/BTP_SX/BTP_NM/CCDC), <span class="mono">ĐVT</span>, <span class="mono">HS</span>.</p>
+    <p style="font-size: .82rem; color: var(--text-soft);">Sheet name có thể chứa hint loại (ví dụ "DM NVL", "DM TP").</p>
+  </div>
+  <button type="submit" class="btn btn-primary">Upload & Parse</button>
+</form>
+{% endblock %}

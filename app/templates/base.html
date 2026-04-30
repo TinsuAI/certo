@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Data Hub{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body data-theme="{{ theme }}">
+  <div class="shell-noise"></div>
+  <header class="topnav">
+    <a class="brand" href="/">
+      <span class="brand-mark">DH</span>
+      <span>Data Hub</span>
+    </a>
+    {% if user %}
+    <nav class="topnav-links" aria-label="Điều hướng">
+      <a href="/dncxs" class="{% if active == 'dncxs' %}active{% endif %}">DNCX</a>
+      <a href="/materials" class="{% if active == 'materials' %}active{% endif %}">Danh Mục</a>
+      <a href="/code-mappings" class="{% if active == 'mappings' %}active{% endif %}">Mã Quy Đổi</a>
+      <a href="/bcct" class="{% if active == 'bcct' %}active{% endif %}">BCCT</a>
+      <a href="/bom" class="{% if active == 'bom' %}active{% endif %}">BOM</a>
+    </nav>
+    <div class="topnav-meta">
+      <span class="topnav-user">{{ user.display_name }}</span>
+      <form method="post" action="/settings/theme" class="topnav-toggle-form">
+        <input type="hidden" name="theme" value="{{ next_theme }}">
+        <input type="hidden" name="next_url" value="{{ request.url.path }}">
+        <button type="submit" class="topnav-chip topnav-chip-button"
+                title="Giao diện - {{ 'Sáng' if next_theme == 'light' else 'Tối' }}"
+                aria-label="Đổi giao diện">
+          {% if theme == "dark" %}
+          <svg class="topnav-chip-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" stroke-width="1.7"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+          </svg>
+          {% else %}
+          <svg class="topnav-chip-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" stroke-width="1.7"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4"/>
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+          </svg>
+          {% endif %}
+        </button>
+      </form>
+      <form method="post" action="/logout" class="topnav-toggle-form">
+        <button type="submit" class="topnav-chip topnav-chip-button" title="Đăng xuất" aria-label="Đăng xuất">
+          <svg class="topnav-chip-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" stroke-width="1.7"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+        </button>
+      </form>
+    </div>
+    {% endif %}
+  </header>
+  <main class="shell">
+    {% if flash %}
+    <div class="flash flash-{{ flash.kind }}">{{ flash.message }}</div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

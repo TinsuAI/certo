@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Upload BQD · Data Hub{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Upload BQD (Bảng Quy Đổi)</h1></div>
+<form method="post" action="/code-mappings/upload" enctype="multipart/form-data" class="auth-form" style="max-width: 600px;">
+  <label class="field">
+    <span class="field-label">DNCX</span>
+    <select name="dncx_id">
+      {% for d in dncxs %}
+      <option value="{{ d.dncx_id }}" {% if d.dncx_id == dncx_id %}selected{% endif %}>{{ d.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <div class="upload-zone">
+    <input type="file" name="file" accept=".xlsx,.xls" required>
+    <p>File Excel với hai cột: <span class="mono">Mã nội bộ</span> + <span class="mono">Mã hải quan</span>. Hỗ trợ N-N (lặp dòng để gán nhiều mã).</p>
+  </div>
+  <button type="submit" class="btn btn-primary">Upload & Parse</button>
+</form>
+{% endblock %}

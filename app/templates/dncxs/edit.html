@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}{{ "Sửa" if dncx else "Thêm" }} DNCX · Data Hub{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>{{ "Sửa DNCX" if dncx else "Thêm DNCX" }}</h1>
+  <div class="page-actions">
+    <a href="{{ '/dncxs/' + dncx.dncx_id if dncx else '/dncxs' }}" class="btn btn-secondary">Hủy</a>
+  </div>
+</div>
+<form method="post" action="{{ '/dncxs/' + dncx.dncx_id + '/edit' if dncx else '/dncxs/new' }}"
+      class="auth-form" style="max-width: 540px;">
+  <label class="field">
+    <span class="field-label">Tên DNCX *</span>
+    <input type="text" name="name" required value="{{ dncx.name if dncx else '' }}">
+  </label>
+  <label class="field">
+    <span class="field-label">Mã số thuế</span>
+    <input type="text" name="tax_code" value="{{ dncx.tax_code or '' if dncx else '' }}">
+  </label>
+  <label class="field">
+    <span class="field-label">Code resolution mode {% if dncx %}(không thể đổi sau khi tạo){% endif %}</span>
+    <select name="code_resolution_mode" {% if dncx %}disabled{% endif %}>
+      {% for m in modes %}
+      <option value="{{ m }}" {% if dncx and dncx.code_resolution_mode == m %}selected{% elif not dncx and m == 'simple_mapping' %}selected{% endif %}>{{ m }}</option>
+      {% endfor %}
+    </select>
+    {% if dncx %}<input type="hidden" name="code_resolution_mode" value="{{ dncx.code_resolution_mode }}">{% endif %}
+  </label>
+  <label class="field">
+    <span class="field-label">BOM proposal mode</span>
+    <select name="bom_proposal_mode">
+      {% for m in bom_modes %}
+      <option value="{{ m }}" {% if dncx and dncx.bom_proposal_mode == m %}selected{% endif %}>{{ m }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="field">
+    <span class="field-label">BOM proposal qty tolerance (%)</span>
+    <input type="number" step="0.001" min="0" max="100" name="bom_proposal_qty_tolerance_pct"
+           value="{{ dncx.bom_proposal_qty_tolerance_pct if dncx else 5.0 }}">
+  </label>
+  {% if dncx %}
+  <label class="field">
+    <span class="field-label">Trạng thái</span>
+    <select name="status">
+      <option value="active" {% if dncx.status == 'active' %}selected{% endif %}>Đang hoạt động</option>
+      <option value="archived" {% if dncx.status == 'archived' %}selected{% endif %}>Đã lưu trữ</option>
+    </select>
+  </label>
+  {% endif %}
+  <label class="field">
+    <span class="field-label">Ghi chú</span>
+    <textarea name="notes" rows="3">{{ dncx.notes or '' if dncx else '' }}</textarea>
+  </label>
+  <button type="submit" class="btn btn-primary">{{ "Lưu" if dncx else "Tạo DNCX" }}</button>
+</form>
+{% endblock %}

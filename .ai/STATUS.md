@@ -15,7 +15,7 @@ Pre-MVP scaffold. No code yet. Awaiting M9 discovery sprint.
 
 **M9 discovery sprint** (3-5 days, no code):
 
-1. Audit CO codebase (`~/workspace/client/barry-co-main`) — schema for BCCT / Danh Mục / BOM. Document actual structure since CO has no migration files.
+1. Audit CO codebase (`~/workspace/client/barry-CO-main`) — schema for BCCT / Danh Mục / BOM. CO has 5 numbered migration files in `db/migrations/` (001..005); read those + the stores in `app/`. **Done 2026-04-30** — see `.ai/features/2026-04-30-data-hub-mvp.md`.
 2. Schema diff Data Hub canonical (from CO seed) vs BCQT current. Alignment plan per entity.
 3. `FileBackend` interface design — LocalFS day 1, S3-compat phase 2.
 4. SSO design — auth model, user table, token vs session, cross-app cookie sharing.
@@ -28,14 +28,14 @@ After discovery: implementation phases (~5-7 weeks): Data Hub MVP build → BCQT
 
 ## Blockers
 
-None at scaffold stage. Discovery sprint requires read-access to `~/workspace/client/barry-co-main`.
+None at scaffold stage. Discovery sprint requires read-access to `~/workspace/client/barry-CO-main`.
 
 ## Notes for Next AI Session
 
 - **Naming is provisional.** "Data Hub" may rebrand. Treat as reference symbol, not brand commitment. Repo path + Postgres schema names may rename later.
 - **Code seed is CO, not BCQT.** CO already on Postgres + has BOM versioning advanced + handles BCCT/Danh Mục/BOM reasonably well. BCQT migrates to consumer mode.
 - **Cross-repo decision context** lives in `~/workspace/client/BCQT-System/.ai/DECISIONS.md` → "2026-04-30 PM — Data Hub 3-app architecture". Read that BEFORE starting any architectural work.
-- **Don't write code into `barry-co-main` from this repo's session.** CO development happens in its own session. Audit-only here.
+- **Don't write code into `barry-CO-main` from this repo's session.** CO development happens in its own session. Audit-only here.
 - **Tech stack TBD.** Pick after CO audit to match (minimize friction). Likely Python 3.12 + FastAPI + Postgres + SQLAlchemy/psycopg.
 - **MVP scope is structured tier only** (BCCT + Danh Mục + BOM parsed → Postgres). File snapshot tier deferred to phase 2.
 
@@ -43,7 +43,7 @@ None at scaffold stage. Discovery sprint requires read-access to `~/workspace/cl
 
 - Sister repos:
   - `~/workspace/client/BCQT-System` — settlement product (mature parsers, ~770 tests)
-  - `~/workspace/client/barry-co-main` — origin certificates product (Postgres, MVP, code seed for Data Hub)
+  - `~/workspace/client/barry-CO-main` — origin certificates product (Postgres, MVP, code seed for Data Hub)
 - Canonical architecture decision: `~/workspace/client/BCQT-System/.ai/DECISIONS.md` "2026-04-30 PM — Data Hub 3-app architecture"
 - Product context: `~/workspace/client/BCQT-System/docs/design/SYSTEM_SCOPE.md` (3 Tinsu products, 3 deployment shapes)
 - Milestones: `~/workspace/client/BCQT-System/docs/design/IMPLEMENTATION_PHASES.md` M9 section

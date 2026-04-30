@@ -16,7 +16,7 @@ Read `.ai/STATUS.md` and last 2-3 session summaries in `.ai/sessions/` before do
 
 1. **Data Hub** *(this repo)* — master records management. Owns shared HQ-data tier (BCCT + Danh Mục NVL/SP/BTP + BOM in MVP; file snapshots phase 2).
 2. **BCQT-System** (`~/workspace/client/BCQT-System`) — annual settlement reports (Mẫu 15 / 15a / 16). Read-only consumer of Data Hub.
-3. **CO-System** (`~/workspace/client/barry-co-main`) — origin certificates per-shipment. Read-only consumer of Data Hub for HQ-data; writes per-shipment BCCT to Data Hub via API.
+3. **CO-System** (`~/workspace/client/barry-CO-main`) — origin certificates per-shipment. Read-only consumer of Data Hub for HQ-data; writes per-shipment BCCT to Data Hub via API.
 
 ## Architecture (3-app, hybrid storage)
 
@@ -67,12 +67,12 @@ BCQT solo (without Data Hub) is **not a supported shape**.
 
 ## Code seed
 
-Develop Data Hub from CO codebase (`~/workspace/client/barry-co-main`), not from BCQT-System. CO already handles BCCT + Danh Mục + BOM reasonably well, already on Postgres, advanced BOM versioning. BCQT migrates to consumer mode (less refactor than extracting from BCQT and porting CO).
+Develop Data Hub from CO codebase (`~/workspace/client/barry-CO-main`), not from BCQT-System. CO already handles BCCT + Danh Mục + BOM reasonably well, already on Postgres, advanced BOM versioning. BCQT migrates to consumer mode (less refactor than extracting from BCQT and porting CO).
 
 ## Sister repos
 
 - **`~/workspace/client/BCQT-System`** — settlement product. Has mature BCCT/material parsers (~770 tests) + reference projects (Growatt/DKE/Johnson). Read its `.ai/DECISIONS.md` for full context, especially `2026-04-30 PM — Data Hub 3-app architecture`.
-- **`~/workspace/client/barry-co-main`** — origin certificate product. Postgres + BOM versioning. **Code seed for Data Hub MVP.** Audit-only during discovery (don't write code into it from this repo's sessions).
+- **`~/workspace/client/barry-CO-main`** — origin certificate product. Postgres + BOM versioning. **Code seed for Data Hub MVP.** Audit-only during discovery (don't write code into it from this repo's sessions).
 
 ## Reference: full architecture rationale
 
@@ -86,7 +86,7 @@ Develop Data Hub from CO codebase (`~/workspace/client/barry-co-main`), not from
 
 3-5 days, no implementation code. Deliverables:
 
-1. **CO schema audit** — read `~/workspace/client/barry-co-main` code (no migration files exist yet); document actual schema for BCCT / Danh Mục / BOM.
+1. **CO schema audit** — read `~/workspace/client/barry-CO-main/db/migrations/` (5 numbered files, 001..005) + the `*_store.py` files in `app/`; document actual schema for BCCT / Danh Mục / BOM.
 2. **Schema diff** vs BCQT current per entity. Alignment plan: which schema is canonical for each.
 3. **Storage abstraction design** — `FileBackend` interface, LocalFS day 1, S3-compat phase 2.
 4. **SSO design** — auth model, user table, token vs session, cross-app cookie sharing.

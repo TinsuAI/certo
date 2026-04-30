@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}BOM v{{ version.version_no }} · {{ version.product_code }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>{{ version.product_code }} <span class="tag">v{{ version.version_no }}</span></h1>
+    <div class="page-subtitle">
+      <span class="tag">{{ version.actor }}</span> · <span class="tag">{{ version.intent }}</span>
+      · <span class="mono">{{ version.normalized_hash[:16] }}</span>
+      {% if version.parent_version_id %} · forked from <a href="/bom/version/{{ version.parent_version_id }}" class="mono">{{ version.parent_version_id[:12] }}</a>{% endif %}
+    </div>
+  </div>
+  <div class="page-actions">
+    <a href="/bom/{{ version.product_code }}/versions?dncx_id={{ version.dncx_id }}" class="btn btn-secondary">← Versions</a>
+  </div>
+</div>
+
+{% if version.context %}
+<details style="margin-bottom: 1rem;">
+  <summary style="cursor: pointer; font-weight: 600;">Context</summary>
+  <pre class="mono" style="background: var(--surface-alt); padding: .8rem; border-radius: 8px; overflow: auto;">{{ version.context | tojson(indent=2) }}</pre>
+</details>
+{% endif %}
+
+<table class="dh-table">
+  <thead><tr><th>#</th><th>Material</th><th>Qty per unit</th><th>UOM</th><th>BOM code</th><th>Variant</th></tr></thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r.row_index }}</td>
+      <td class="mono">{{ r.material_code }}</td>
+      <td class="mono">{{ '%.6f'|format(r.qty_per_unit) if r.qty_per_unit else '0' }}</td>
+      <td class="mono">{{ r.uom or '' }}</td>
+      <td class="mono">{{ r.bom_code or '' }}</td>
+      <td class="mono">{{ r.bom_variant_id or '' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

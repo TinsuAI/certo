@@ -24,7 +24,7 @@ Domain-specific terms for customs compliance + this product's architecture.
 
 - **Data Hub** *(this repo, provisional name)* — master records management. Owns shared HQ-data tier (BCCT + Danh Mục + BOM). MVP-phase-2: file snapshots.
 - **BCQT-System** *(`~/workspace/client/BCQT-System`)* — annual settlement reports. Read-only consumer of Data Hub.
-- **CO-System** *(`~/workspace/client/barry-co-main`)* — origin certificates per-shipment. Read-only consumer of Data Hub for HQ-data; writes per-shipment BCCT to Data Hub via API.
+- **CO-System** *(`~/workspace/client/barry-CO-main`)* — origin certificates per-shipment. Read-only consumer of Data Hub for HQ-data; writes per-shipment BCCT to Data Hub via API.
 - **Hub schema** — Postgres schema owned by Data Hub. Other apps read-only.
 - **App schema** — each consumer app's private schema (`bcqt`, `co`). Each app writes only to its own.
 - **Per-project SQLite** — BCQT-only pattern. One `.db` file per BCQT project (DNCX + year). Holds project-truly-local data (settlement output, findings, pipeline runs).

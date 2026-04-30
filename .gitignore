@@ -1,50 +1,10 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-*.egg-info/
-.eggs/
-dist/
-build/
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-.coverage
-htmlcov/
-
-# Virtual envs
 .venv/
-venv/
-env/
-
-# uv
-.python-version
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-.DS_Store
-
-# Local data + secrets
+__pycache__/
+*.pyc
+*.pyo
+data/files/
+.pytest_cache/
+.uv-cache/
+node_modules/
 .env
-.env.*
-!.env.example
-data/
-files/
-*.db
-*.db-shm
-*.db-wal
-*.sqlite
-*.sqlite3
-
-# Postgres
-postgres-data/
-*.dump
-*.sql.gz
-
-# Claude / AI session artifacts (per-session, not committed)
-.ai/sessions/*.tmp
+.DS_Store

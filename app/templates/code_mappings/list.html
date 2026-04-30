@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Mã Quy Đổi — {{ dncx.name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Mã Quy Đổi (BQD)</h1>
+    <div class="page-subtitle">
+      {{ dncx.name }} · {{ stats.total }} mapping ·
+      {{ stats.n_internal }} mã NB ·
+      {{ stats.n_customs }} mã HQ ·
+      {{ stats.n_1n }} mã NB có 1:n
+    </div>
+  </div>
+  <div class="page-actions">
+    <a href="/code-mappings/upload?dncx_id={{ dncx.dncx_id }}" class="btn btn-primary">Upload BQD</a>
+  </div>
+</div>
+
+<form method="get" action="/code-mappings" style="display: flex; gap: .5rem; margin-bottom: 1rem;">
+  <select name="dncx_id" onchange="this.form.submit()" class="field">
+    {% for d in dncxs %}
+    <option value="{{ d.dncx_id }}" {% if d.dncx_id == dncx.dncx_id %}selected{% endif %}>{{ d.name }}</option>
+    {% endfor %}
+  </select>
+  <input type="search" name="q" value="{{ q }}" placeholder="Tìm mã NB hoặc HQ..." class="field" style="flex:1;">
+  <button type="submit" class="btn btn-secondary">Tìm</button>
+</form>
+
+<details style="margin-bottom: 1rem;">
+  <summary style="cursor: pointer; font-weight: 600;">+ Thêm mapping thủ công</summary>
+  <form method="post" action="/code-mappings/manual" class="auth-form" style="margin-top: .8rem; max-width: 540px;">
+    <input type="hidden" name="dncx_id" value="{{ dncx.dncx_id }}">
+    <label class="field"><span class="field-label">Mã nội bộ</span><input type="text" name="internal_code" required></label>
+    <label class="field"><span class="field-label">Mã hải quan</span><input type="text" name="customs_code" required></label>
+    <label class="field"><span class="field-label">Loại</span>
+      <select name="category">
+        <option value="">—</option><option value="nvl">NVL</option><option value="tp">TP</option><option value="ccdc">CCDC</option>
+      </select>
+    </label>
+    <label class="field"><span class="field-label">Ghi chú</span><input type="text" name="notes"></label>
+    <button type="submit" class="btn btn-primary">Lưu mapping</button>
+  </form>
+</details>
+
+{% if items %}
+<table class="dh-table">
+  <thead><tr><th>Mã NB</th><th>Mã HQ</th><th>Loại</th><th>Ghi chú</th></tr></thead>
+  <tbody>
+    {% for r in items %}
+    <tr>
+      <td class="mono">{{ r.internal_code }}</td>
+      <td class="mono">{{ r.customs_code }}</td>
+      <td>{{ r.category or '' }}</td>
+      <td>{{ r.notes or '' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty-state">
+  <p>Chưa có mapping. Upload BQD Excel hoặc thêm thủ công.</p>
+</div>
+{% endif %}
+{% endblock %}

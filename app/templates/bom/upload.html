@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Upload BOM · Data Hub{% endblock %}
+{% block content %}
+<div class="page-header"><h1>Upload BOM (kỹ thuật)</h1></div>
+<form method="post" action="/bom/upload" enctype="multipart/form-data" class="auth-form" style="max-width: 640px;">
+  <label class="field"><span class="field-label">DNCX</span>
+    <select name="dncx_id">{% for d in dncxs %}<option value="{{ d.dncx_id }}" {% if d.dncx_id == dncx_id %}selected{% endif %}>{{ d.name }}</option>{% endfor %}</select>
+  </label>
+  <label class="field"><span class="field-label">Profile parser</span>
+    <select name="profile">
+      {% for p in profiles %}
+      <option value="{{ p }}">{{ p }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <div class="upload-zone">
+    <input type="file" name="file" accept=".xlsx,.xls" required>
+    <p>Mỗi product là 1 BOM version (intent = <span class="mono">asserted_technical</span>).</p>
+    <p style="font-size: .82rem; color: var(--text-soft);">
+      Profile <span class="mono">manual_flat</span>: 1 sheet với cột product/material/qty.<br>
+      Profile <span class="mono">growatt_multi_workbook</span>: 1 sheet/sản phẩm.<br>
+      Profile <span class="mono">johnson_sap_exploded</span>: SAP-format multi-level.
+    </p>
+  </div>
+  <button type="submit" class="btn btn-primary">Upload & Parse</button>
+</form>
+{% endblock %}
