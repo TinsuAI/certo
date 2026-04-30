@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
+import mimetypes
 import os
 import re
 import tempfile
@@ -12,6 +14,8 @@ from pathlib import Path
 from typing import Any
 
 from openpyxl import Workbook
+
+from app.workflow_state_store import get_co_case_state_store
 
 
 MAX_SUPPORTING_FILE_BYTES = 20 * 1024 * 1024
@@ -96,7 +100,7 @@ def case_from_record(base_case: dict, client: dict, record: dict) -> dict:
     case["agreement"] = record.get("agreement") or case.get("agreement", "Chưa chọn")
     case["co_form_type"] = record.get("co_form_type") or case.get("co_form_type", "Chưa chọn")
     case["rule"] = record.get("rule") or case.get("rule", "Cần tra cứu PSR theo HS")
-    case["source_label"] = f"Hồ sơ lưu local: {case['case_code']}"
+    case["source_label"] = f"Hồ sơ lưu: {case['case_code']}"
     case["shipment"] = dict(record.get("shipment", {}))
     case["supporting_files"] = [dict(file_row) for file_row in record.get("supporting_files", [])]
     return case
@@ -120,12 +124,15 @@ def save_supporting_file(
 
         uploaded_at = now_iso()
         upload_id = make_id("support")
-        safe_name = safe_filename(filename or "supporting-file")
+        original_filename = Path(filename or "supporting-file").name.strip() or "supporting-file"
+        safe_name = safe_filename(original_filename)
         upload_dir = case_upload_root(client["id"], case_id)
         upload_dir.mkdir(parents=True, exist_ok=True)
         stored_name = f"{upload_id}-{safe_name}"
         stored_path = upload_dir / stored_name
         stored_path.write_bytes(content)
+        relative_stored_path = str(stored_path.relative_to(case_root(client["id"])))
+        mime_type = mimetypes.guess_type(original_filename)[0] or "application/octet-stream"
 
         invoice = clean_text(invoice_no) or extract_invoice_hint(filename)
         bill = clean_text(bill_of_lading_no)
@@ -137,9 +144,17 @@ def save_supporting_file(
         file_row = {
             "upload_id": upload_id,
             "slot": clean_text(document_slot) or "other",
+            "original_filename": original_filename,
+            "safe_filename": safe_name,
             "filename": safe_name,
-            "stored_path": str(stored_path.relative_to(case_root(client["id"]))),
+            "stored_filename": stored_name,
+            "stored_path": relative_stored_path,
+            "storage_backend": "filesystem",
+            "content_sha256": hashlib.sha256(content).hexdigest(),
             "size_bytes": len(content),
+            "file_ext": Path(original_filename).suffix.lower(),
+            "mime_type": mime_type,
+            "content_type": mime_type,
             "invoice_no": invoice,
             "bill_of_lading_no": bill,
             "uploaded_at": uploaded_at,
@@ -322,17 +337,48 @@ def validate_supporting_file(content: bytes, filename: str) -> None:
 
 
 def load_state(client_id: str) -> dict:
+    store = get_co_case_state_store()
+    if store:
+        state = store.get_state(client_id)
+        if state is not None:
+            return normalize_state(client_id, state)
     path = state_path(client_id)
     if not path.exists():
-        return {"schema_version": 1, "client_id": client_id, "cases": []}
-    state = json.loads(path.read_text())
+        state = {"schema_version": 1, "client_id": client_id, "cases": []}
+    else:
+        state = json.loads(path.read_text())
+    state = normalize_state(client_id, state)
+    if store:
+        store.save_state(client_id, state)
+    return state
+
+
+def normalize_state(client_id: str, state: dict) -> dict:
     state.setdefault("schema_version", 1)
     state.setdefault("client_id", client_id)
     state.setdefault("cases", [])
+    for case in state["cases"]:
+        case.setdefault("supporting_files", [])
+        case.setdefault("shipment", {})
+        for file_row in case["supporting_files"]:
+            original_filename = file_row.get("original_filename") or file_row.get("filename", "")
+            stored_path = file_row.get("stored_path", "")
+            stored_filename = file_row.get("stored_filename") or Path(stored_path).name
+            file_row.setdefault("original_filename", original_filename)
+            file_row.setdefault("safe_filename", file_row.get("filename") or safe_filename(original_filename))
+            file_row.setdefault("stored_filename", stored_filename)
+            file_row.setdefault("storage_backend", "filesystem" if stored_path else "")
+            file_row.setdefault("file_ext", Path(original_filename).suffix.lower())
+            file_row.setdefault("mime_type", mimetypes.guess_type(original_filename)[0] or "")
+            file_row.setdefault("content_type", file_row.get("mime_type", ""))
     return state
 
 
 def save_state(client_id: str, state: dict) -> None:
+    store = get_co_case_state_store()
+    if store:
+        store.save_state(client_id, normalize_state(client_id, state))
+        return
     write_json(state_path(client_id), state)
 
 

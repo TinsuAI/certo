@@ -14,6 +14,7 @@ def main(argv: list[str] | None = None) -> int:
     subcommands = parser.add_subparsers(dest="command", required=True)
     subcommands.add_parser("migrate", help="Apply database schema migrations.")
     subcommands.add_parser("import-app-state", help="Import seed clients and local client config JSON into Postgres.")
+    subcommands.add_parser("import-workflow-state", help="Import local BOM and C/O case workflow state into Postgres.")
     rebuild = subcommands.add_parser("rebuild-client", help="Rebuild source indexes for one client from local JSON state.")
     rebuild.add_argument("client_id")
     args = parser.parse_args(argv)
@@ -39,6 +40,20 @@ def main(argv: list[str] | None = None) -> int:
             app_store.upsert_client_config(client, config_for_import(client))
             imported += 1
         print(f"Imported {imported} clients and client configs.")
+        return 0
+
+    if args.command == "import-workflow-state":
+        from app.bom_store import load_state as load_bom_state
+        from app.bom_store import save_state as save_bom_state
+        from app.co_case_store import load_state as load_case_state
+        from app.co_case_store import save_state as save_case_state
+
+        imported = 0
+        for client in seed_clients():
+            save_bom_state(client["id"], load_bom_state(client))
+            save_case_state(client["id"], load_case_state(client["id"]))
+            imported += 1
+        print(f"Imported BOM and C/O case workflow state for {imported} clients.")
         return 0
 
     if args.command == "rebuild-client":

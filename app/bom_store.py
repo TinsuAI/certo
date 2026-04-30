@@ -3,6 +3,7 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
+import mimetypes
 import os
 import re
 import unicodedata
@@ -15,6 +16,8 @@ from pathlib import Path
 from typing import Any
 
 from openpyxl import Workbook, load_workbook
+
+from app.workflow_state_store import get_bom_state_store
 
 
 BOM_PROFILE_OPTIONS = [
@@ -131,15 +134,28 @@ def _process_bom_upload(
     upload_dir = client_root(client["id"]) / "uploads" / upload_id
     raw_dir = upload_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
-    raw_path = raw_dir / safe_filename(filename)
+    original_filename = Path(filename or "bom.xlsx").name.strip() or "bom.xlsx"
+    safe_name = safe_filename(original_filename)
+    stored_filename = f"{upload_id}-{safe_name}"
+    raw_path = raw_dir / stored_filename
     raw_path.write_bytes(content)
+    relative_storage_path = str(raw_path.relative_to(client_root(client["id"])))
+    mime_type = mimetypes.guess_type(original_filename)[0] or "application/octet-stream"
 
     upload_record = {
         "upload_id": upload_id,
-        "original_filename": filename,
+        "original_filename": original_filename,
+        "safe_filename": safe_name,
+        "stored_filename": stored_filename,
         "content_sha256": content_sha256,
+        "size_bytes": len(content),
         "file_size": len(content),
-        "storage_path": str(raw_path.relative_to(client_root(client["id"]))),
+        "stored_path": relative_storage_path,
+        "storage_path": relative_storage_path,
+        "storage_backend": "filesystem",
+        "file_ext": Path(original_filename).suffix.lower(),
+        "mime_type": mime_type,
+        "content_type": mime_type,
         "profile_used": profile,
         "upload_mode": upload_mode,
         "upload_scope": upload_scope,
@@ -180,20 +196,22 @@ def _process_bom_upload(
     upload_record["normalized_hash"] = snapshot_hash
     upload_record["row_count"] = len(parsed_rows)
     append_audit(state, "bom.parse.completed", {"upload_id": upload_id, "snapshot_id": snapshot_id, "row_count": len(parsed_rows)})
+    state.setdefault("snapshot_rows", {})[snapshot_id] = [dict(row) for row in parsed_rows]
 
-    snapshot_dir = client_root(client["id"]) / "snapshots" / snapshot_id
-    snapshot_dir.mkdir(parents=True, exist_ok=True)
-    write_json(snapshot_dir / "snapshot.json", {
-        "snapshot_id": snapshot_id,
-        "upload_id": upload_id,
-        "client_id": client["id"],
-        "profile": profile,
-        "upload_mode": upload_mode,
-        "normalized_hash": snapshot_hash,
-        "row_count": len(parsed_rows),
-        "created_at": now_iso(),
-    })
-    write_json(snapshot_dir / "rows.json", parsed_rows)
+    if write_bom_artifacts():
+        snapshot_dir = client_root(client["id"]) / "snapshots" / snapshot_id
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+        write_json(snapshot_dir / "snapshot.json", {
+            "snapshot_id": snapshot_id,
+            "upload_id": upload_id,
+            "client_id": client["id"],
+            "profile": profile,
+            "upload_mode": upload_mode,
+            "normalized_hash": snapshot_hash,
+            "row_count": len(parsed_rows),
+            "created_at": now_iso(),
+        })
+        write_json(snapshot_dir / "rows.json", parsed_rows)
 
     if requires_review_before_publish(parsed_rows, upload_mode, profile) and not accept_review_required:
         upload_record["parse_status"] = "review_required"
@@ -322,11 +340,12 @@ def _process_bom_upload(
     upload_record["created_version_id"] = version_id
     upload_record["created_aggregate_version_no"] = next_version_no
 
-    version_dir = client_root(client["id"]) / "versions" / f"v{next_version_no}"
-    version_dir.mkdir(parents=True, exist_ok=True)
-    write_json(version_dir / "version.json", {key: value for key, value in new_version.items() if key != "rows"})
-    write_json(version_dir / "rows.json", aggregate_rows)
-    write_json(version_dir / "diff.json", aggregate_diff)
+    if write_bom_artifacts():
+        version_dir = client_root(client["id"]) / "versions" / f"v{next_version_no}"
+        version_dir.mkdir(parents=True, exist_ok=True)
+        write_json(version_dir / "version.json", {key: value for key, value in new_version.items() if key != "rows"})
+        write_json(version_dir / "rows.json", aggregate_rows)
+        write_json(version_dir / "diff.json", aggregate_diff)
 
     append_audit(state, "bom.aggregate_version.published", {
         "version_id": version_id,
@@ -543,13 +562,27 @@ def seed_rows_from_client(client: dict) -> list[dict]:
 
 
 def load_state(client: dict) -> dict:
+    store = get_bom_state_store()
+    if store:
+        state = store.get_state(client["id"])
+        if state is not None:
+            return normalize_state(client, state)
     path = state_path(client["id"])
     if path.exists():
-        return normalize_state(client, json.loads(path.read_text()))
-    return seed_state(client)
+        state = normalize_state(client, json.loads(path.read_text()))
+    else:
+        state = seed_state(client)
+    if store:
+        store.save_state(client["id"], state)
+    return state
 
 
 def ensure_persisted_state(client: dict) -> dict:
+    store = get_bom_state_store()
+    if store:
+        state = store.get_state(client["id"])
+        if state is not None:
+            return normalize_state(client, state)
     path = state_path(client["id"])
     if path.exists():
         raw_state = json.loads(path.read_text())
@@ -844,11 +877,12 @@ def publish_product_version(
     }
     state["product_versions"].setdefault(product_code, []).append(product_version)
 
-    version_dir = client_root(client["id"]) / "product-versions" / safe_filename(product_code) / f"v{next_version_no}"
-    version_dir.mkdir(parents=True, exist_ok=True)
-    write_json(version_dir / "version.json", {key: value for key, value in product_version.items() if key != "rows"})
-    write_json(version_dir / "rows.json", product_version["rows"])
-    write_json(version_dir / "diff.json", diff)
+    if write_bom_artifacts():
+        version_dir = client_root(client["id"]) / "product-versions" / safe_filename(product_code) / f"v{next_version_no}"
+        version_dir.mkdir(parents=True, exist_ok=True)
+        write_json(version_dir / "version.json", {key: value for key, value in product_version.items() if key != "rows"})
+        write_json(version_dir / "rows.json", product_version["rows"])
+        write_json(version_dir / "diff.json", diff)
 
     append_audit(state, "bom.product_version.published", {
         "product_code": product_code,
@@ -1064,9 +1098,17 @@ def comparable_row(row: dict) -> dict:
 
 
 def save_state(client_id: str, state: dict) -> None:
+    store = get_bom_state_store()
+    if store:
+        store.save_state(client_id, state)
+        return
     root = client_root(client_id)
     root.mkdir(parents=True, exist_ok=True)
     write_json(root / "state.json", state)
+
+
+def write_bom_artifacts() -> bool:
+    return get_bom_state_store() is None
 
 
 def state_path(client_id: str) -> Path:

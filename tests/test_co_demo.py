@@ -726,6 +726,36 @@ def test_repeated_uploads_get_distinct_upload_ids():
     assert len(upload_ids) == len(set(upload_ids))
 
 
+def test_bom_state_prefers_postgres_store_when_available(monkeypatch):
+    from app import bom_store
+
+    saved_states = []
+
+    class FakeBomStateStore:
+        def __init__(self):
+            self.state = None
+
+        def get_state(self, client_id: str) -> dict | None:
+            assert client_id == "growatt"
+            return self.state
+
+        def save_state(self, client_id: str, state: dict) -> None:
+            assert client_id == "growatt"
+            self.state = dict(state)
+            saved_states.append(dict(state))
+
+    fake_store = FakeBomStateStore()
+    monkeypatch.setattr(bom_store, "get_bom_state_store", lambda: fake_store)
+
+    state = bom_store.load_state(get_client("growatt"))
+    bom_store.update_bom_config(get_client("growatt"), {"bom_profile": "manual_flat"})
+
+    assert state["client_id"] == "growatt"
+    assert saved_states
+    assert fake_store.state["config"]["bom_profile"] == "manual_flat"
+    assert not bom_store.state_path("growatt").exists()
+
+
 def test_co_case_can_select_aggregate_bom_version_snapshot():
     client = TestClient(app)
     template = client.get("/clients/growatt/bom/template.xlsx")
@@ -1686,6 +1716,52 @@ def test_co_case_supporting_upload_saves_invoice_metadata_and_matches_bcct_expor
     assert "XK-001" in exports.text
     assert "MAT-001" not in exports.text
     assert "TP-OTHER" not in exports.text
+
+
+def test_co_case_state_prefers_postgres_store_and_keeps_supporting_file_metadata(monkeypatch):
+    from app import co_case_store
+
+    saved_states = []
+
+    class FakeCoCaseStateStore:
+        def __init__(self):
+            self.state = None
+
+        def get_state(self, client_id: str) -> dict | None:
+            assert client_id == "growatt"
+            return self.state
+
+        def save_state(self, client_id: str, state: dict) -> None:
+            assert client_id == "growatt"
+            self.state = dict(state)
+            saved_states.append(dict(state))
+
+    fake_store = FakeCoCaseStateStore()
+    monkeypatch.setattr(co_case_store, "get_co_case_state_store", lambda: fake_store)
+    client = get_client("growatt")
+    record = co_case_store.create_case_record(
+        client,
+        {"title": "Postgres C/O", "case_code": "CO-PG", "destination_market": "Ấn Độ"},
+    )
+
+    file_row = co_case_store.save_supporting_file(
+        client,
+        record["case_id"],
+        b"%PDF-1.4 invoice",
+        "invoice-CO-PG.pdf",
+        "invoice",
+        "INV-PG",
+        "BL-PG",
+    )
+
+    assert saved_states
+    assert fake_store.state["cases"][0]["case_id"] == record["case_id"]
+    assert file_row["original_filename"] == "invoice-CO-PG.pdf"
+    assert file_row["stored_filename"].startswith(file_row["upload_id"])
+    assert file_row["storage_backend"] == "filesystem"
+    assert file_row["content_sha256"] == hashlib.sha256(b"%PDF-1.4 invoice").hexdigest()
+    assert fake_store.state["cases"][0]["supporting_files"][0]["content_sha256"] == file_row["content_sha256"]
+    assert not co_case_store.state_path("growatt").exists()
 
 
 def test_co_case_evaluate_keeps_persisted_dossier_supporting_metadata():
