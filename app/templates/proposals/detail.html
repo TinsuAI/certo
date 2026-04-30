@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Proposal {{ proposal.proposal_id[:12] }} · Data Hub{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>
+      Proposal
+      {% if proposal.status == 'approved' %}<span class="tag tag-active">approved</span>
+      {% elif proposal.status == 'rejected' %}<span class="tag tag-discontinued">rejected</span>
+      {% else %}<span class="tag">{{ proposal.status }}</span>{% endif %}
+    </h1>
+    <div class="page-subtitle mono">{{ proposal.proposal_id }}</div>
+  </div>
+  <div class="page-actions">
+    <a href="/proposals?dncx_id={{ proposal.dncx_id }}" class="btn btn-secondary">← Tất cả proposals</a>
+  </div>
+</div>
+
+<table class="dh-table">
+  <tr><th>Product</th><td class="mono">{{ proposal.product_code }}</td></tr>
+  <tr><th>Actor</th><td><span class="tag">{{ proposal.actor }}</span></td></tr>
+  <tr><th>Intent</th><td><span class="tag">{{ proposal.intent }}</span></td></tr>
+  <tr><th>Parent version</th><td class="mono">
+    {% if proposal.parent_version_id %}
+    <a href="/bom/version/{{ proposal.parent_version_id }}">{{ proposal.parent_version_id }}</a>
+    {% else %}—{% endif %}
+  </td></tr>
+  <tr><th>Materialized version</th><td class="mono">
+    {% if proposal.materialized_version_id %}
+    <a href="/bom/version/{{ proposal.materialized_version_id }}">{{ proposal.materialized_version_id }}</a>
+    {% else %}—{% endif %}
+  </td></tr>
+  <tr><th>Decision reason</th><td>{{ proposal.decision_reason or '' }}</td></tr>
+  <tr><th>Decided by</th><td class="mono">{{ proposal.decided_by or '' }}</td></tr>
+  <tr><th>Decided at</th><td class="mono">{{ proposal.decided_at.strftime('%Y-%m-%d %H:%M:%S') if proposal.decided_at else '' }}</td></tr>
+  <tr><th>Created at</th><td class="mono">{{ proposal.created_at.strftime('%Y-%m-%d %H:%M:%S') if proposal.created_at else '' }}</td></tr>
+  <tr><th>Hash</th><td class="mono">{{ proposal.normalized_hash[:24] }}…</td></tr>
+</table>
+
+{% if proposal.failed_conditions %}
+<section style="margin-top: 1.5rem;">
+  <h2 style="font-size: 1.1rem;">Failed conditions</h2>
+  <ul style="font-family: 'IBM Plex Mono', monospace; font-size: .9rem;">
+    {% for c in proposal.failed_conditions %}
+    <li>{{ c }}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if proposal.context %}
+<section style="margin-top: 1.5rem;">
+  <h2 style="font-size: 1.1rem;">Context</h2>
+  <pre class="mono" style="background: var(--surface-alt); padding: .8rem; border-radius: 8px;">{{ proposal.context | tojson(indent=2) }}</pre>
+</section>
+{% endif %}
+
+<section style="margin-top: 1.5rem;">
+  <h2 style="font-size: 1.1rem;">Proposed rows ({{ proposal.rows_payload|length }})</h2>
+  <table class="dh-table">
+    <thead><tr><th>Material</th><th>Qty per unit</th><th>UOM</th><th>BOM code</th></tr></thead>
+    <tbody>
+      {% for r in proposal.rows_payload %}
+      <tr>
+        <td class="mono">{{ r.material_code }}</td>
+        <td class="mono">{{ r.qty_per_unit }}</td>
+        <td class="mono">{{ r.uom or '' }}</td>
+        <td class="mono">{{ r.bom_code or '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

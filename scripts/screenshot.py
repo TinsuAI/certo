@@ -18,7 +18,7 @@ PAGES = [
     ("01_login", "/login", False),
     ("02_dncxs_list", "/dncxs", True),
     ("03_dncxs_new", "/dncxs/new", True),
-    ("10_dncx_detail", "_DETAIL_", True),  # special: replaced with first DNCX url
+    ("10_dncx_detail", "_DETAIL_", True),
     ("20_materials_list", "/materials", True),
     ("21_materials_upload", "/materials/upload", True),
     ("30_code_mappings_list", "/code-mappings", True),
@@ -27,6 +27,10 @@ PAGES = [
     ("41_bcct_upload", "/bcct/upload", True),
     ("50_bom_list", "/bom", True),
     ("51_bom_upload", "/bom/upload", True),
+    ("52_bom_versions", "_BOM_VERSIONS_", True),
+    ("53_bom_version_detail", "_BOM_DETAIL_", True),
+    ("60_proposals_list", "/proposals", True),
+    ("61_proposal_detail", "_PROPOSAL_DETAIL_", True),
 ]
 
 
@@ -67,10 +71,43 @@ async def run():
             detail_url = f"{BASE}{href}"
             dncx_id = href.rsplit("/", 1)[-1]
 
+        # Discover a BOM product + version + proposal for detail screenshots
+        await page.goto(f"{BASE}/bom?dncx_id={dncx_id}")
+        try: await page.wait_for_load_state("networkidle", timeout=3000)
+        except Exception: pass
+        bom_versions_url = None
+        bom_detail_url = None
+        prod_link = await page.query_selector('a[href*="/bom/"][href*="/versions"]')
+        if prod_link:
+            href = await prod_link.get_attribute("href")
+            bom_versions_url = f"{BASE}{href}"
+            await page.goto(bom_versions_url)
+            try: await page.wait_for_load_state("networkidle", timeout=3000)
+            except Exception: pass
+            ver_link = await page.query_selector('a[href*="/bom/version/"]')
+            if ver_link:
+                href = await ver_link.get_attribute("href")
+                bom_detail_url = f"{BASE}{href}"
+
+        await page.goto(f"{BASE}/proposals?dncx_id={dncx_id}")
+        try: await page.wait_for_load_state("networkidle", timeout=3000)
+        except Exception: pass
+        prop_detail_url = None
+        prop_link = await page.query_selector('a[href*="/proposals/"]')
+        if prop_link:
+            href = await prop_link.get_attribute("href")
+            prop_detail_url = f"{BASE}{href}"
+
         for slug, path, _ in PAGES[1:]:
             if path == "_DETAIL_":
                 url = detail_url
-            elif path in ("/materials", "/code-mappings", "/bcct", "/bom") and dncx_id:
+            elif path == "_BOM_VERSIONS_":
+                url = bom_versions_url
+            elif path == "_BOM_DETAIL_":
+                url = bom_detail_url
+            elif path == "_PROPOSAL_DETAIL_":
+                url = prop_detail_url
+            elif path in ("/materials", "/code-mappings", "/bcct", "/bom", "/proposals") and dncx_id:
                 url = f"{BASE}{path}?dncx_id={dncx_id}"
             else:
                 url = f"{BASE}{path}"

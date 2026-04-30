@@ -47,19 +47,43 @@
 </details>
 
 {% if items %}
-<table class="dh-table">
-  <thead><tr><th>Mã NB</th><th>Mã HQ</th><th>Loại</th><th>Ghi chú</th></tr></thead>
-  <tbody>
-    {% for r in items %}
-    <tr>
-      <td class="mono">{{ r.internal_code }}</td>
-      <td class="mono">{{ r.customs_code }}</td>
-      <td>{{ r.category or '' }}</td>
-      <td>{{ r.notes or '' }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<details open style="margin-bottom: 1.5rem;">
+  <summary style="cursor: pointer; font-weight: 600; margin-bottom: .5rem;">BQD — Bảng quy đổi (raw N-N pairs)</summary>
+  <table class="dh-table">
+    <thead><tr><th>Mã NB</th><th>Mã HQ</th><th>Loại</th><th>Ghi chú</th></tr></thead>
+    <tbody>
+      {% for r in items %}
+      <tr>
+        <td class="mono">{{ r.internal_code }}</td>
+        <td class="mono">{{ r.customs_code }}</td>
+        <td>{{ r.category or '' }}</td>
+        <td>{{ r.notes or '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</details>
+
+{% if resolutions %}
+<details open>
+  <summary style="cursor: pointer; font-weight: 600; margin-bottom: .5rem;">
+    Resolutions — đã chọn HQ chính cho mỗi NB ({{ resolutions|length }})
+  </summary>
+  <table class="dh-table">
+    <thead><tr><th>Mã NB</th><th>Resolved HQ</th><th>Cơ sở</th><th>Cập nhật</th></tr></thead>
+    <tbody>
+      {% for r in resolutions %}
+      <tr>
+        <td class="mono">{{ r.internal_code }}</td>
+        <td class="mono">{{ r.resolved_customs_code }}</td>
+        <td><span class="tag tag-mode-{{ r.resolution_basis.split('_')[0] }}">{{ r.resolution_basis }}</span></td>
+        <td class="mono">{{ r.resolved_at.strftime('%Y-%m-%d %H:%M') if r.resolved_at else '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</details>
+{% endif %}
 {% else %}
 <div class="empty-state">
   <p>Chưa có mapping. Upload BQD Excel hoặc thêm thủ công.</p>

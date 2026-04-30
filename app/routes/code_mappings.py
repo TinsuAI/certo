@@ -75,6 +75,7 @@ async def list_view(request: Request, dncx_id: str | None = None, q: str | None 
         raise HTTPException(404, "DNCX not found")
     items = _list_mappings(dncx_id, q)
     stats = _mapping_stats(dncx_id)
+    resolutions = _list_resolutions(dncx_id)
     return request.app.state.templates.TemplateResponse(
         request,
         "code_mappings/list.html",
@@ -84,9 +85,26 @@ async def list_view(request: Request, dncx_id: str | None = None, q: str | None 
             "items": items,
             "q": q or "",
             "stats": stats,
+            "resolutions": resolutions,
             "active": "mappings",
         },
     )
+
+
+def _list_resolutions(dncx_id: str) -> list[dict]:
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select internal_code, resolved_customs_code, resolution_basis, resolved_at
+                from hub.code_mapping_resolutions
+                where dncx_id = %s
+                order by internal_code
+                """,
+                (dncx_id,),
+            )
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
 
 
 @router.get("/code-mappings/upload", response_class=HTMLResponse)
