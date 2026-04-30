@@ -14,6 +14,7 @@ from app.co_case_store import match_case_bcct_exports
 from app.demo_data import get_client as seed_get_client
 from app.demo_data import get_clients as seed_get_clients
 from app.source_index_store import get_source_index_store, rebuild_source_index_if_configured
+from app.source_postgres_store import get_source_write_store
 from app.source_store import (
     create_bcct_template_workbook,
     create_material_catalog_template_workbook,
@@ -140,9 +141,15 @@ class PortfolioService:
         }
 
     def process_catalog_upload(self, client: dict, catalog_type: str, content: bytes, filename: str, upload_scope: str) -> dict:
+        store = get_source_write_store()
+        if store and store.has_client(client["id"]):
+            return store.process_catalog_upload(client, catalog_type, content, filename, upload_scope, self.get_client_config(client))
         return process_catalog_upload(client, catalog_type, content, filename, upload_scope)
 
     def process_bcct_upload(self, client: dict, content: bytes, filename: str) -> dict:
+        store = get_source_write_store()
+        if store and store.has_client(client["id"]):
+            return store.process_bcct_upload(client, content, filename, self.get_client_config(client))
         return process_bcct_upload(client, content, filename)
 
     def material_catalog_template(self, client: dict) -> bytes:

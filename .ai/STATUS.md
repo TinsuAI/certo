@@ -5,7 +5,8 @@
 - Latest committed checkpoints:
   - `80e19c0 Add Postgres portfolio boundary`
   - `fa632bd Move clients and config to Postgres`
-- Current uncommitted changes implement the next source migration slice: standardized source upload/file metadata plus Postgres tables for upload, raw-file, snapshot, version, module-state, and audit metadata.
+  - `69f755f Standardize source upload metadata`
+- Current uncommitted changes implement the next source migration slice: route source catalog/BCCT upload writes through Postgres when a client has source indexes, while keeping raw files on filesystem storage.
 - The C/O app still runs as the main FastAPI/Jinja app, but it now mounts a separate portfolio app at `/portfolio`.
 - `app/portfolio.py` is the new source/portfolio boundary. It exposes:
   - UI dashboard at `/portfolio`
@@ -18,19 +19,19 @@
   - `clients`: 3 rows
   - `client_configs`: 3 rows
   - `source_module_state`: 9 rows
-  - `source_uploads`: 3 rows
-  - `source_raw_files`: 3 rows
-  - `source_snapshots`: 3 rows
-  - `source_versions`: 8 rows
-  - `source_audit_events`: 11 rows
+  - `source_uploads`: 5 rows
+  - `source_raw_files`: 5 rows
+  - `source_snapshots`: 5 rows
+  - `source_versions`: 10 rows
+  - `source_audit_events`: 15 rows
   - `source_index_metadata`: 12 rows
-  - `source_catalog_rows`: 280 rows
-  - `bcct_rows`: 19,901 rows
+  - `source_catalog_rows`: 281 rows
+  - `bcct_rows`: 19,902 rows
   - `bcct_invoice_index`: 20,049 rows
-  - `co_stock_rows`: 19,370 rows
+  - `co_stock_rows`: 19,371 rows
   - `source_correction_candidates`: 0 rows
 - Growatt is the main populated client in Postgres: 241 NVL rows, 34 SP rows, 19,901 reviewed BCCT rows, and 19,370 derived C/O stock rows.
-- Postgres is now source-of-truth for imported client records and client config when `BARRY_DATABASE_URL` is set. Postgres also stores standardized source upload/version/snapshot/audit metadata during source index rebuilds. JSON/filesystem state still owns source upload write flow, BOM, C/O cases, and supporting files.
+- Postgres is now source-of-truth for imported client records and client config when `BARRY_DATABASE_URL` is set. For clients with source indexes, source catalog/BCCT uploads now write through Postgres first; raw files remain on filesystem storage with DB path/hash metadata. JSON/filesystem fallback still exists for unindexed/offline source clients, BOM, C/O cases, and supporting files.
 - The visible tmux dev server is still expected in `1-CO-MAIN:barry-co-dev` at `http://127.0.0.1:8001` with `BARRY_DATABASE_URL=postgresql:///barry_co`.
 
 ## Recent Changes
@@ -73,11 +74,16 @@
   - `file_ext`
   - `mime_type`
   - `parse_status`, `parse_error`, `snapshot_id`, `created_version_id`, and `diff_summary`
+- Added `app/source_postgres_store.py` for direct Postgres source uploads:
+  - catalog upload parses/merges using existing logic, stores raw file on filesystem, and persists current rows/upload/snapshot/version/audit metadata through Postgres
+  - BCCT upload parses/appends/reviews using existing logic, updates BCCT invoice index and derived C/O stock in Postgres
+  - JSON writer remains fallback only when Postgres is unavailable or the client is not indexed
 - Added `app/portfolio.py` and `app/templates/portfolio.html`.
 - Added a top-nav link to `/portfolio`.
 - Updated C/O routes to use `portfolio_service` for shared source/config interactions.
 - Updated C/O routes to use `client_registry` for Postgres-backed client records when available.
 - Updated `PortfolioService` to read/save client config through Postgres when `BARRY_DATABASE_URL` is configured.
+- Updated `PortfolioService` to route catalog and BCCT uploads through `PostgresSourceWriteStore` when the client is indexed in Postgres.
 - Updated CLI rebuild output to include catalog row count.
 - Added CLI app-state import:
   - `npm run db:import-app-state`
@@ -88,7 +94,7 @@
   - C/O routes using the portfolio service adapter
   - portfolio clients/config using Postgres app-state store
 - Verification completed:
-  - `uv run pytest -q` -> `87 passed`
+  - `uv run pytest -q` -> `88 passed`
   - `uv run python -m py_compile app/database.py app/app_state_store.py app/client_registry.py app/main.py app/portfolio.py app/source_index_store.py app/source_index_cli.py` passed
   - `uv run python -m py_compile app/source_store.py app/source_index_store.py` passed
   - `BARRY_DATABASE_URL=postgresql:///barry_co uv run python -m app.source_index_cli migrate` passed
@@ -100,12 +106,14 @@
   - TestClient smoke with `BARRY_DATABASE_URL=postgresql:///barry_co` passed for `/portfolio/api/clients`, `/portfolio/api/clients/growatt/config`, and `/clients/growatt/config`
   - HTTP smoke against `http://127.0.0.1:8001` returned 200 for `/portfolio/api/clients` and `/clients/growatt/config`
   - HTTP smoke against `http://127.0.0.1:8001` confirmed `/portfolio/api/clients/growatt/source-workspace` returns backend `postgres` with upload metadata arrays and `/clients/growatt/bcct` returns 200
+  - TestClient smoke with `BARRY_DATABASE_URL=postgresql:///barry_co` uploaded `db-direct-material.xlsx` to `/clients/do-thanh/catalog/upload`; DB now has one matching `source_uploads` row and one matching `source_catalog_rows` row
+  - TestClient smoke with `BARRY_DATABASE_URL=postgresql:///barry_co` uploaded `db-direct-bcct.xlsx` to `/clients/do-thanh/bcct/upload`; DB now has one matching `source_uploads` row, one matching `bcct_rows` row, and one matching `co_stock_rows` row
   - Playwright desktop/mobile smoke tests passed for `/portfolio`, `/portfolio/api/clients/growatt/source-summary`, `/clients/growatt/catalog/materials?q=001.0001800`, and `/clients/growatt/bcct?q=307088602500`.
 
 ## Next Steps
-1. Commit the current source upload metadata standardization/Postgres metadata slice.
+1. Commit the current Postgres source write-path slice.
 2. Start the next source migration slice:
-   - move source upload write path to Postgres source-of-truth instead of JSON-first rebuild
+   - persist parsed snapshot rows and historical version rows in Postgres, not only current published rows and metadata
    - keep raw uploaded files on filesystem/object storage with Postgres path/hash metadata
    - preserve `PortfolioService` as the boundary
 3. Add SQL pagination/search for large portfolio/catalog/BCCT views. Current table pages still materialize workspace rows before table filtering.
@@ -114,7 +122,7 @@
 
 ## Blockers
 - Portfolio is currently mounted in the same FastAPI process/repo. It is a bounded app boundary, not a separate deployed service yet.
-- Postgres is not yet full source-of-truth for shared source evidence writes; JSON remains authoritative for source upload/version/audit write flow until the next slice moves writes behind a Postgres source store.
+- Postgres source write path is active only for clients that already have source indexes. Unindexed clients still use JSON fallback.
 - Existing Node legal lookup test failures from prior sessions were not re-run in this handoff session and are unrelated to the portfolio/Postgres work.
 
 ## Notes for Next AI Session

@@ -2008,6 +2008,47 @@ def test_portfolio_service_saves_client_config_to_postgres(monkeypatch):
     assert saved_configs == [("growatt", "draft")]
 
 
+def test_portfolio_service_uses_postgres_source_writer_for_uploads(monkeypatch):
+    from app import portfolio as portfolio_module
+
+    calls = []
+
+    class FakeSourceWriteStore:
+        def has_client(self, client_id: str) -> bool:
+            return client_id == "growatt"
+
+        def process_catalog_upload(self, client: dict, catalog_type: str, content: bytes, filename: str, upload_scope: str, client_config: dict) -> dict:
+            calls.append(("catalog", client["id"], catalog_type, filename, upload_scope, client_config["config_hash"]))
+            return {"status": "postgres_catalog", "upload": {"upload_id": "pg-catalog-upload"}}
+
+        def process_bcct_upload(self, client: dict, content: bytes, filename: str, client_config: dict) -> dict:
+            calls.append(("bcct", client["id"], filename, client_config["config_hash"]))
+            return {"status": "postgres_bcct", "upload": {"upload_id": "pg-bcct-upload"}}
+
+    def fail_file_catalog(*_args, **_kwargs):
+        raise AssertionError("Postgres source uploads should not use JSON catalog writer.")
+
+    def fail_file_bcct(*_args, **_kwargs):
+        raise AssertionError("Postgres source uploads should not use JSON BCCT writer.")
+
+    monkeypatch.setattr(portfolio_module, "get_source_write_store", lambda: FakeSourceWriteStore(), raising=False)
+    monkeypatch.setattr(portfolio_module, "process_catalog_upload", fail_file_catalog)
+    monkeypatch.setattr(portfolio_module, "process_bcct_upload", fail_file_bcct)
+
+    service = portfolio_module.PortfolioService()
+    monkeypatch.setattr(service, "get_client_config", lambda client: {"config_hash": "cfg-pg"})
+
+    catalog = service.process_catalog_upload({"id": "growatt"}, "material", b"catalog", "catalog.xlsx", "full_catalog")
+    bcct = service.process_bcct_upload({"id": "growatt"}, b"bcct", "bcct.xlsx")
+
+    assert catalog["status"] == "postgres_catalog"
+    assert bcct["status"] == "postgres_bcct"
+    assert calls == [
+        ("catalog", "growatt", "material", "catalog.xlsx", "full_catalog", "cfg-pg"),
+        ("bcct", "growatt", "bcct.xlsx", "cfg-pg"),
+    ]
+
+
 def test_co_routes_use_portfolio_service_adapter(monkeypatch):
     from app import main as main_module
 

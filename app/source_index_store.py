@@ -144,6 +144,38 @@ def build_source_state_records(client_id: str, module: str, state: dict) -> dict
     }
 
 
+def source_state_from_workspace(client_id: str, module: str, workspace: dict) -> dict:
+    versions = [dict(version) for version in workspace.get("versions", [])]
+    max_version_no = max([int(version.get("version_no") or 0) for version in versions] or [0])
+    return {
+        "schema_version": int(workspace.get("schema_version") or 1),
+        "client_id": client_id,
+        "module": module,
+        "published_rows": [dict(row) for row in workspace.get("published_rows", [])],
+        "latest_version": dict(workspace.get("latest_version") or {}),
+        "versions": versions,
+        "uploads": [dict(upload) for upload in workspace.get("uploads", [])],
+        "correction_candidates": [dict(candidate) for candidate in workspace.get("correction_candidates", [])],
+        "audit_events": [dict(event) for event in workspace.get("audit_events", [])],
+        "next_version_no": max_version_no + 1,
+    }
+
+
+def source_metadata_record_from_state(client_id: str, module: str, state: dict, config_hash: str = "") -> dict:
+    latest = state.get("latest_version") or {}
+    return {
+        "client_id": client_id,
+        "module": module,
+        "version_id": latest.get("version_id", ""),
+        "version_no": int(latest.get("version_no") or 0),
+        "published_row_count": len(state.get("published_rows", [])),
+        "reviewed_row_count": sum(1 for row in state.get("published_rows", []) if row.get("review_status") == "reviewed"),
+        "correction_candidate_count": len(state.get("correction_candidates", [])),
+        "state_mtime_ns": 0,
+        "config_hash": config_hash,
+    }
+
+
 def source_upload_record(client_id: str, module: str, upload: dict) -> dict:
     original_filename = upload.get("original_filename") or upload.get("filename", "")
     stored_filename = upload.get("stored_filename") or original_filename

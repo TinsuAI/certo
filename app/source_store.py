@@ -1104,7 +1104,7 @@ def normalize_seed_bcct(row: dict, index: int) -> dict:
     return normalized
 
 
-def publish_version(client_id: str, module: str, state: dict, rows: list[dict], upload_id: str, summary: dict) -> dict:
+def publish_version(client_id: str, module: str, state: dict, rows: list[dict], upload_id: str, summary: dict, write_artifacts: bool = True) -> dict:
     version_no = state["next_version_no"]
     rows_hash = normalized_rows_hash(rows)
     version = {
@@ -1120,10 +1120,11 @@ def publish_version(client_id: str, module: str, state: dict, rows: list[dict], 
     state["latest_version"] = version
     state["published_rows"] = [dict(row) for row in rows]
     state["versions"].insert(0, version)
-    version_dir = module_root(client_id, module) / "versions" / f"v{version_no}"
-    write_json(version_dir / "version.json", version)
-    write_json(version_dir / "rows.json", rows)
-    write_json(version_dir / "diff.json", summary)
+    if write_artifacts:
+        version_dir = module_root(client_id, module) / "versions" / f"v{version_no}"
+        write_json(version_dir / "version.json", version)
+        write_json(version_dir / "rows.json", rows)
+        write_json(version_dir / "diff.json", summary)
     return version
 
 
@@ -1170,19 +1171,20 @@ def add_upload_record(client_id: str, module: str, state: dict, content: bytes, 
     return upload
 
 
-def write_snapshot(client_id: str, module: str, upload_id: str, rows: list[dict]) -> str:
+def write_snapshot(client_id: str, module: str, upload_id: str, rows: list[dict], write_artifacts: bool = True) -> str:
     snapshot_id = make_id("snapshot")
-    snapshot_dir = module_root(client_id, module) / "snapshots" / snapshot_id
-    write_json(snapshot_dir / "snapshot.json", {
-        "snapshot_id": snapshot_id,
-        "client_id": client_id,
-        "module": module,
-        "upload_id": upload_id,
-        "row_count": len(rows),
-        "rows_hash": normalized_rows_hash(rows),
-        "created_at": now_iso(),
-    })
-    write_json(snapshot_dir / "rows.json", rows)
+    if write_artifacts:
+        snapshot_dir = module_root(client_id, module) / "snapshots" / snapshot_id
+        write_json(snapshot_dir / "snapshot.json", {
+            "snapshot_id": snapshot_id,
+            "client_id": client_id,
+            "module": module,
+            "upload_id": upload_id,
+            "row_count": len(rows),
+            "rows_hash": normalized_rows_hash(rows),
+            "created_at": now_iso(),
+        })
+        write_json(snapshot_dir / "rows.json", rows)
     return snapshot_id
 
 
