@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 
 from app import auth
 from app.database import apply_migrations
-from app.routes import api, bcct, bom, code_mappings, dncxs, materials, proposals
+from app.routes import api, bcct, bom, code_mappings, dncxs, materials, proposals, uploads
 
 ROOT = Path(__file__).resolve().parent
 THEME_COOKIE = "data_hub_theme"
@@ -59,6 +59,7 @@ app.include_router(code_mappings.router)
 app.include_router(bcct.router)
 app.include_router(bom.router)
 app.include_router(proposals.router)
+app.include_router(uploads.router)
 app.include_router(api.router)
 
 
