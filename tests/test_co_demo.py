@@ -28,7 +28,7 @@ from app.source_store import (
     process_bcct_upload,
     process_catalog_upload,
 )
-from app.source_index_store import build_bcct_index_records
+from app.source_index_store import build_bcct_index_records, build_catalog_index_records
 from app.table_view import build_table_view
 from app.workbook_io import create_evidence_workbook, create_input_workbook, parse_input_workbook
 
@@ -190,20 +190,40 @@ def test_theme_toggle_persists_dark_theme_cookie():
     assert 'name="theme" value="light"' in themed.text
 
 
-def test_client_navigation_promotes_co_workflow_above_data_modules():
+def test_client_navigation_hides_data_modules_inside_co_workflow():
     client = TestClient(app)
 
     response = client.get("/clients/growatt/co-case")
 
     assert response.status_code == 200
     assert 'aria-label="Luồng làm C/O"' in response.text
-    assert 'aria-label="Dữ liệu nền công ty"' in response.text
+    assert 'aria-label="Dữ liệu nền công ty"' not in response.text
     assert "Làm hồ sơ C/O" in response.text
     assert 'href="/clients/growatt/co-case">Hồ sơ C/O</a>' not in response.text
-    assert response.text.count("/clients/growatt/catalog") == 1
-    assert response.text.count("/clients/growatt/bom") == 1
-    assert response.text.count("/clients/growatt/co-stock") == 1
-    assert response.text.count("/clients/growatt/bcct") == 1
+    assert "Overview" not in response.text
+    assert "Danh mục mã hàng" not in response.text
+    assert "/clients/growatt/catalog" not in response.text
+    assert "/clients/growatt/bom" not in response.text
+    assert "/clients/growatt/co-stock" not in response.text
+    assert "/clients/growatt/bcct" not in response.text
+
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Hidden data nav case", "case_code": "NAV-HIDE", "destination_market": "EU"},
+        follow_redirects=False,
+    )
+    detail = client.get(created.headers["location"])
+
+    assert detail.status_code == 200
+    assert 'aria-label="Dữ liệu nền công ty"' not in detail.text
+    assert "Overview" not in detail.text
+    assert "Danh mục mã hàng" not in detail.text
+
+    catalog = client.get("/clients/growatt/catalog")
+
+    assert catalog.status_code == 200
+    assert 'aria-label="Dữ liệu nền công ty"' in catalog.text
+    assert "Danh mục mã hàng" in catalog.text
 
 
 def test_table_view_filters_searches_sorts_and_paginates():
@@ -1592,13 +1612,13 @@ def test_invoice_matching_uses_only_reviewed_export_rows():
 
 
 def test_co_case_page_uses_lightweight_source_summary(monkeypatch):
-    from app import main as main_module
+    from app import portfolio as portfolio_module
     from app import source_store as source_store_module
 
     def fail_full_workspace_load(*_args, **_kwargs):
         raise AssertionError("C/O pages should not load the full source workspace.")
 
-    monkeypatch.setattr(main_module, "get_source_workspace", fail_full_workspace_load)
+    monkeypatch.setattr(portfolio_module, "get_source_workspace", fail_full_workspace_load)
     monkeypatch.setattr(source_store_module, "get_source_workspace", fail_full_workspace_load)
 
     client = TestClient(app)
@@ -1640,7 +1660,7 @@ def test_source_summary_exposes_counts_and_snapshot_metadata():
 
 
 def test_co_case_page_uses_postgres_source_index_when_available(monkeypatch):
-    from app import main as main_module
+    from app import portfolio as portfolio_module
 
     class FakeSourceIndexStore:
         def has_client(self, client_id: str) -> bool:
@@ -1678,8 +1698,8 @@ def test_co_case_page_uses_postgres_source_index_when_available(monkeypatch):
     def fail_file_source_load(*_args, **_kwargs):
         raise AssertionError("Postgres-indexed C/O pages should not load source JSON.")
 
-    monkeypatch.setattr(main_module, "get_source_index_store", lambda: FakeSourceIndexStore())
-    monkeypatch.setattr(main_module, "load_module_state", fail_file_source_load)
+    monkeypatch.setattr(portfolio_module, "get_source_index_store", lambda: FakeSourceIndexStore())
+    monkeypatch.setattr(portfolio_module, "load_module_state", fail_file_source_load)
 
     client = TestClient(app)
     created = client.post(
@@ -1699,6 +1719,247 @@ def test_co_case_page_uses_postgres_source_index_when_available(monkeypatch):
     assert "XK-PG" in response.text
     assert "TP-PG" in response.text
     assert "20 dòng BCCT" in response.text
+
+
+def test_postgres_catalog_index_records_keep_payload_and_keys():
+    rows = [
+        {
+            "customs_code": "MAT-PG-001",
+            "name": "Postgres material",
+            "hs_code": "8504.40",
+            "unit": "PCS",
+            "status": "active",
+        }
+    ]
+
+    records = build_catalog_index_records("growatt", "material_catalog", rows)
+
+    assert records == [
+        {
+            "client_id": "growatt",
+            "module": "material_catalog",
+            "row_key": "MAT-PG-001",
+            "customs_code": "MAT-PG-001",
+            "product_code": "",
+            "hs_code": "8504.40",
+            "unit": "PCS",
+            "status": "active",
+            "payload": rows[0],
+        }
+    ]
+
+
+def test_source_tables_use_postgres_workspace_when_available(monkeypatch):
+    from app import portfolio as portfolio_module
+
+    class FakeSourceIndexStore:
+        def has_client(self, client_id: str) -> bool:
+            return client_id == "growatt"
+
+        def source_workspace(self, _client_id: str, client_config: dict) -> dict:
+            return {
+                "client_config": client_config,
+                "material_catalog": {
+                    "module": "material_catalog",
+                    "published_rows": [
+                        {
+                            "customs_code": "MAT-PG-001",
+                            "name": "Postgres material",
+                            "hs_code": "8504.40",
+                            "unit": "PCS",
+                            "status": "active",
+                        }
+                    ],
+                    "latest_version": {"version_no": 7},
+                    "versions": [],
+                    "uploads": [],
+                    "correction_candidates": [],
+                    "audit_events": [],
+                },
+                "product_catalog": {
+                    "module": "product_catalog",
+                    "published_rows": [
+                        {
+                            "product_code": "TP-PG-001",
+                            "name": "Postgres product",
+                            "hs_code": "8504.40",
+                            "unit": "PCS",
+                            "status": "active",
+                        }
+                    ],
+                    "latest_version": {"version_no": 8},
+                    "versions": [],
+                    "uploads": [],
+                    "correction_candidates": [],
+                    "audit_events": [],
+                },
+                "bcct": {
+                    "module": "bcct",
+                    "published_rows": [
+                        {
+                            "transaction_key": "export||XK-PG||1||TP-PG-001",
+                            "direction": "export",
+                            "review_status": "reviewed",
+                            "declaration_no": "XK-PG",
+                            "line_no": "1",
+                            "declaration_type": "E42",
+                            "item_code": "TP-PG-001",
+                            "hs_code": "8504.40",
+                            "quantity": "2",
+                            "unit": "PCS",
+                            "invoice_ref": "INV-PG",
+                        }
+                    ],
+                    "latest_version": {"version_no": 9},
+                    "versions": [],
+                    "uploads": [],
+                    "correction_candidates": [],
+                    "audit_events": [],
+                },
+                "co_stock_rows": [
+                    {
+                        "source_row": "PG-STOCK-001",
+                        "import_declaration_no": "NK-PG",
+                        "line_no": "1",
+                        "declaration_type": "E11",
+                        "customs_item_code": "MAT-PG-001",
+                        "allocation_code": "MAT-PG-001",
+                        "allocation_code_status": "resolved",
+                        "eligibility_status": "eligible",
+                        "remaining_qty": "5",
+                        "unit": "PCS",
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(portfolio_module, "get_source_index_store", lambda: FakeSourceIndexStore())
+
+    client = TestClient(app)
+
+    materials = client.get("/clients/growatt/catalog/materials")
+    bcct = client.get("/clients/growatt/bcct")
+    stock = client.get("/clients/growatt/co-stock")
+
+    assert materials.status_code == 200
+    assert "MAT-PG-001" in materials.text
+    assert "MAT-001" not in materials.text
+    assert "XK-PG" in bcct.text
+    assert "TP-PG-001" in bcct.text
+    assert "NK-PG" in stock.text
+
+
+def test_portfolio_app_exposes_source_dashboard_and_summary_api():
+    client = TestClient(app)
+
+    dashboard = client.get("/portfolio")
+    summary = client.get("/portfolio/api/clients/growatt/source-summary")
+
+    assert dashboard.status_code == 200
+    assert "Source Portfolio" in dashboard.text
+    assert "Growatt" in dashboard.text
+    assert summary.status_code == 200
+    payload = summary.json()
+    assert payload["client"]["id"] == "growatt"
+    assert payload["source_backend"] in {"files", "postgres"}
+    assert payload["source_summary"]["material_catalog"]["published_row_count"] >= 3
+    assert payload["source_summary"]["product_catalog"]["published_row_count"] >= 2
+
+
+def test_co_routes_use_portfolio_service_adapter(monkeypatch):
+    from app import main as main_module
+
+    class FakePortfolioService:
+        def source_workspace(self, client: dict) -> tuple[dict, str]:
+            return {
+                "client_config": {"config_version": 1, "config_hash": "fake", "bcct": {"eligible_import_declaration_types": [], "relevant_export_declaration_types": []}},
+                "material_catalog": {
+                    "module": "material_catalog",
+                    "published_rows": [
+                        {
+                            "customs_code": "PF-MAT-001",
+                            "name": "Portfolio material",
+                            "hs_code": "8504.40",
+                            "unit": "PCS",
+                            "status": "active",
+                        }
+                    ],
+                    "latest_version": {"version_no": 1},
+                    "versions": [],
+                    "uploads": [],
+                    "correction_candidates": [],
+                    "audit_events": [],
+                },
+                "product_catalog": {
+                    "module": "product_catalog",
+                    "published_rows": [],
+                    "latest_version": {},
+                    "versions": [],
+                    "uploads": [],
+                    "correction_candidates": [],
+                    "audit_events": [],
+                },
+                "bcct": {
+                    "module": "bcct",
+                    "published_rows": [],
+                    "latest_version": {},
+                    "versions": [],
+                    "uploads": [],
+                    "correction_candidates": [],
+                    "audit_events": [],
+                },
+                "co_stock_rows": [],
+            }, "portfolio-fake"
+
+        def co_case_source_context(self, client: dict, case: dict) -> dict:
+            return {
+                "source_backend": "portfolio-fake",
+                "source_summary": {
+                    "client_config": {"config_version": 1, "config_hash": "fake"},
+                    "material_catalog": {"published_row_count": 1, "latest_version": {"version_no": 1}},
+                    "product_catalog": {"published_row_count": 0, "latest_version": {}},
+                    "bcct": {
+                        "published_row_count": 1,
+                        "reviewed_row_count": 1,
+                        "correction_candidate_count": 0,
+                        "latest_version": {"version_no": 1},
+                    },
+                    "co_stock_row_count": 0,
+                },
+                "invoice_matches": [
+                    {
+                        "declaration_no": "PF-XK-001",
+                        "line_no": "1",
+                        "declaration_type": "E42",
+                        "item_code": "PF-TP-001",
+                        "hs_code": "8504.40",
+                        "quantity": "1",
+                        "unit": "PCS",
+                        "invoice_ref": case.get("shipment", {}).get("invoice_no", ""),
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(main_module, "portfolio_service", FakePortfolioService())
+
+    client = TestClient(app)
+    materials = client.get("/clients/growatt/catalog/materials")
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={
+            "title": "Portfolio case",
+            "case_code": "CO-PF",
+            "destination_market": "Ấn Độ",
+            "invoice_no": "INV-PF",
+        },
+        follow_redirects=False,
+    )
+    exports = client.get(f"{created.headers['location']}/exports")
+
+    assert materials.status_code == 200
+    assert "PF-MAT-001" in materials.text
+    assert exports.status_code == 200
+    assert "PF-XK-001" in exports.text
+    assert "PF-TP-001" in exports.text
 
 
 def test_postgres_bcct_index_records_tokenize_invoice_refs():

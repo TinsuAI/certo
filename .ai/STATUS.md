@@ -2,55 +2,71 @@
 
 ## Current State
 - Active branch: `sprint/postgres-source-indexes-20260430`.
-- Latest implementation commit: `463ff8c Add Postgres source indexes`.
-- The FastAPI/Jinja C/O demo still treats C/O as the primary shipment workflow:
-  - `/clients/{client_id}/co-case` creates/opens dossiers.
-  - `/clients/{client_id}/co-case/{case_id}` opens the shipment step.
-  - `/clients/{client_id}/co-case/{case_id}/{step}` supports `shipment`, `documents`, `exports`, `guidance`, `origin`, and `review`.
-- A PostgreSQL read-model/index layer now exists for source data:
-  - `bcct_rows`
-  - `bcct_invoice_index`
-  - `co_stock_rows`
-  - `source_index_metadata`
-- JSON source files remain the source of truth/fallback. Postgres is currently a fast read model for C/O source summary, invoice matching, and derived C/O stock indexes.
-- Local PostgreSQL 16 is installed in the current WSL environment and the Growatt index has been rebuilt in the local app database.
-- The visible tmux dev server is running in `1-CO-MAIN:barry-co-dev` with `BARRY_DATABASE_URL` set, so Growatt C/O pages use the Postgres index.
-- The app still does not infer final HS-specific PSR criteria. Form rows correctly remain in `needs_rule_lookup` until a legal rule engine exists.
+- There are meaningful uncommitted changes. They implement the first portfolio boundary and extend the Postgres source index; nothing has been committed yet.
+- The C/O app still runs as the main FastAPI/Jinja app, but it now mounts a separate portfolio app at `/portfolio`.
+- `app/portfolio.py` is the new source/portfolio boundary. It exposes:
+  - UI dashboard at `/portfolio`
+  - JSON APIs under `/portfolio/api/clients...`
+  - `PortfolioService` adapter methods used by C/O for source workspace, C/O source context, source uploads/templates, client config, and index refresh.
+- `app/main.py` no longer directly calls source index/source JSON/client config stores for the shared source surfaces. It calls `portfolio_service` instead.
+- PostgreSQL local database `barry_co` currently contains source read models:
+  - `source_index_metadata`: 12 rows
+  - `source_catalog_rows`: 280 rows
+  - `bcct_rows`: 19,901 rows
+  - `bcct_invoice_index`: 20,049 rows
+  - `co_stock_rows`: 19,370 rows
+  - `source_correction_candidates`: 0 rows
+- Growatt is the main populated client in Postgres: 241 NVL rows, 34 SP rows, 19,901 reviewed BCCT rows, and 19,370 derived C/O stock rows.
+- JSON/filesystem state remains source of truth for upload/version/audit history, BOM, C/O cases, supporting files, and client config. Postgres is currently the shared source read model/index, not full source-of-truth.
+- The visible tmux dev server is still expected in `1-CO-MAIN:barry-co-dev` at `http://127.0.0.1:8001` with `BARRY_DATABASE_URL=postgresql:///barry_co`.
 
 ## Recent Changes
-- Added discovery brief `.ai/features/2026-04-30-postgres-source-indexes.md`.
-- Added Postgres migration `db/migrations/001_source_indexes.sql`.
-- Added `app/source_index_store.py` for:
-  - schema application
-  - Growatt/client source index rebuild from existing JSON source state
-  - indexed invoice matching
-  - source summary lookup
-  - C/O stock row lookup
-- Added CLI `app/source_index_cli.py` and scripts:
-  - `npm run db:migrate`
-  - `npm run db:rebuild-source-index -- <client_id>`
-- Added `psycopg[binary]` Python dependency.
-- Updated C/O context loading to avoid full duplicate `get_source_workspace()` calls on C/O pages.
-- C/O pages now use Postgres indexes when available and fall back to JSON source files when `BARRY_DATABASE_URL` is unset or a client has no index.
-- Added docs at `docs/postgres-source-indexes.md`.
-- Expanded Python regression coverage for lightweight C/O source summary and Postgres-indexed C/O matching.
+- Added discovery briefs:
+  - `.ai/features/2026-04-30-shared-company-portfolio-for-bcqt-and-co.md`
+  - `.ai/features/2026-04-30-postgres-portfolio-source-workspace.md`
+- Extended Postgres schema in `db/migrations/001_source_indexes.sql` with:
+  - `source_catalog_rows`
+  - `source_correction_candidates`
+- Extended `app/source_index_store.py` to index and serve:
+  - material/product catalog rows
+  - BCCT rows
+  - BCCT invoice index
+  - C/O stock rows
+  - correction candidates
+  - full source workspace shape for templates
+- Added `app/portfolio.py` and `app/templates/portfolio.html`.
+- Added a top-nav link to `/portfolio`.
+- Updated C/O routes to use `portfolio_service` for shared source/config interactions.
+- Updated CLI rebuild output to include catalog row count.
+- Added/updated regression tests for:
+  - catalog index record builders
+  - Postgres-backed source table workspace
+  - portfolio dashboard/API
+  - C/O routes using the portfolio service adapter
+- Verification completed:
+  - `uv run pytest -q` -> `83 passed`
+  - `uv run python -m py_compile app/main.py app/portfolio.py` passed
+  - Playwright desktop/mobile smoke tests passed for `/portfolio`, `/portfolio/api/clients/growatt/source-summary`, `/clients/growatt/catalog/materials?q=001.0001800`, and `/clients/growatt/bcct?q=307088602500`.
 
 ## Next Steps
-1. Run the Growatt manual browser test against the current tmux server and confirm uploads, reject cases, export workbook, and perceived speed.
-2. Decide whether to move BCCT table/catalog screens to SQL pagination. They still use file-backed source workspace in this phase.
-3. Decide when C/O dossiers themselves should move from JSON files to Postgres.
-4. Resolve or intentionally rebaseline the 3 known Node legal lookup failures so project-level `npm test` is trustworthy.
-5. Define the structured PSR/HS legal rule lookup model before replacing `needs_rule_lookup` with final origin qualification.
+1. Review and commit the current uncommitted changes as one focused portfolio/Postgres-boundary commit.
+2. Decide the next source-of-truth migration slice. Recommended order:
+   - client config in Postgres
+   - source upload metadata, parsed snapshots, published versions, diffs, and audit events in Postgres
+   - keep raw uploaded files on filesystem/object storage with Postgres path/hash metadata
+   - BOM metadata/current rows after source modules are stable
+3. Add SQL pagination/search for large portfolio/catalog/BCCT views. Current table pages still materialize workspace rows before table filtering.
+4. Define the BCQT consumer adapter contract against portfolio APIs before touching `BCQT-System`.
+5. Decide whether C/O dossier workflow state should remain app-owned JSON for now or move to Postgres later as a separate non-portfolio migration.
 
 ## Blockers
-- `npm test` still fails 3 known legal lookup `raw-binary` source-link expectations in `tests/legal-lookup-server.test.mjs`; this predates and is unrelated to the Postgres source-index work.
+- Portfolio is currently mounted in the same FastAPI process/repo. It is a bounded app boundary, not a separate deployed service yet.
+- Postgres is not yet full source-of-truth for shared source evidence; JSON remains authoritative for upload/version/audit history and client config.
+- Existing Node legal lookup test failures from prior sessions were not re-run in this handoff session and are unrelated to the portfolio/Postgres work.
 
 ## Notes for Next AI Session
-- Python verification: `uv run pytest tests/test_co_demo.py -q` passed with `79 passed`.
-- `uv run python -m compileall app` passed.
-- `git diff --check` passed after the handoff artifact edits.
-- `npm test` still reports 53 passing and 3 failing legal lookup tests with missing `raw-binary` source links.
-- Postgres import verification for Growatt: `19,901` BCCT rows, `20,049` invoice tokens, and `19,370` C/O stock rows.
-- C/O context timing with Postgres index was roughly `13-28 ms` after warm-up; live `/exports` curl was about `24-27 ms` after warm-up.
-- Keep source files and manual test files ignored; do not commit runtime `data/` or `temp/` artifacts.
-- User prefers Vietnamese replies when writing Vietnamese; project docs and handoff artifacts stay in English unless client-facing.
+- User prefers Vietnamese replies when writing Vietnamese. Project docs and handoff artifacts stay in English unless client-facing.
+- The user clarified that raw files do not need to move into Postgres. Treat “move everything to Postgres” as metadata/state/parsed rows/version/audit records, while binary uploads stay as file/object storage referenced by path/hash.
+- For source/portfolio work, do not reintroduce direct source-store calls in `app/main.py`. Use `portfolio_service` as the boundary.
+- The project AGENTS instructions authorize subagents for codebase exploration; use them for future architecture/codebase research.
+- Keep `data/` and `temp/` runtime artifacts uncommitted.

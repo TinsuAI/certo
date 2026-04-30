@@ -355,8 +355,7 @@ def refresh_source_index_if_configured(client: dict) -> None:
     rebuild_source_index_if_configured(client)
 
 
-def enrich_client_with_source_modules(client: dict) -> dict:
-    workspace = get_source_workspace(client)
+def enrich_client_with_source_workspace(client: dict, workspace: dict) -> dict:
     client["material_catalog"] = [dict(row) for row in workspace["material_catalog"]["published_rows"]]
     client["product_catalog"] = [dict(row) for row in workspace["product_catalog"]["published_rows"]]
     client["bcct_rows"] = [display_bcct_row(row) for row in workspace["bcct"]["published_rows"]]
@@ -369,6 +368,10 @@ def enrich_client_with_source_modules(client: dict) -> dict:
         "co_stock": len(client["co_stock"]),
     }
     return client
+
+
+def enrich_client_with_source_modules(client: dict) -> dict:
+    return enrich_client_with_source_workspace(client, get_source_workspace(client))
 
 
 def attach_case_source_snapshot(case: dict, source_workspace: dict) -> dict:

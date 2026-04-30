@@ -15,7 +15,6 @@ from app.bom_store import (
     process_bom_upload,
     update_bom_config,
 )
-from app.client_config_store import get_client_config, save_client_config
 from app.co_case_store import (
     MAX_SUPPORTING_FILE_BYTES,
     build_case_criteria_rows,
@@ -24,7 +23,6 @@ from app.co_case_store import (
     create_case_workbook,
     get_case_record,
     get_case_workspace,
-    match_case_bcct_exports,
     safe_filename,
     save_supporting_file,
     update_case_record,
@@ -37,19 +35,11 @@ from app.demo_data import (
     get_clients,
     update_products_from_form,
 )
+from app.portfolio import portfolio_app, portfolio_service
 from app.source_store import (
     attach_case_source_snapshot,
-    create_bcct_template_workbook,
-    create_material_catalog_template_workbook,
-    create_product_catalog_template_workbook,
-    enrich_client_with_source_modules,
-    get_source_workspace,
-    load_module_state,
-    process_bcct_upload,
-    process_catalog_upload,
-    source_summary_from_states,
+    enrich_client_with_source_workspace,
 )
-from app.source_index_store import get_source_index_store, rebuild_source_index_if_configured
 from app.table_view import build_table_view
 from app.workbook_io import (
     WorkbookParseError,
@@ -75,6 +65,7 @@ def theme_context(request: Request) -> dict[str, str]:
 
 app = FastAPI(title="Barry CO Demo")
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
+app.mount("/portfolio", portfolio_app, name="portfolio")
 
 templates = Jinja2Templates(directory=ROOT / "templates", context_processors=[theme_context])
 
@@ -218,9 +209,10 @@ async def set_theme(theme: str = Form("light"), next_url: str = Form("/clients")
 
 
 def client_context(client_id: str, active: str, **extra):
-    client = enrich_client_with_source_modules(get_client(client_id))
+    client = get_client(client_id)
     case = extra.pop("case", get_client_case(client_id))
-    source_workspace = get_source_workspace(client)
+    source_workspace, source_backend = source_workspace_for_client(client)
+    client = enrich_client_with_source_workspace(client, source_workspace)
     bom_workspace = get_bom_workspace(client)
     case = attach_case_bom_snapshot(case, bom_workspace)
     case = attach_case_source_snapshot(case, source_workspace)
@@ -236,8 +228,13 @@ def client_context(client_id: str, active: str, **extra):
         "invoice_matches": extra.pop("invoice_matches", []),
         "criteria_rows": extra.pop("criteria_rows", []),
         "source_notes": SOURCE_NOTES,
+        "source_backend": source_backend,
         **extra,
     }
+
+
+def source_workspace_for_client(client: dict) -> tuple[dict, str]:
+    return portfolio_service.source_workspace(client)
 
 
 def co_case_light_context(client_id: str, case: dict, current_step: str, **extra) -> dict:
@@ -270,29 +267,7 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
 
 
 def co_case_source_context(client: dict, case: dict) -> dict:
-    client_config = get_client_config(client)
-    store = get_source_index_store()
-    invoice_no = case.get("shipment", {}).get("invoice_no", "")
-    if store and store.has_client(client["id"]):
-        relevant_types = client_config.get("bcct", {}).get("relevant_export_declaration_types", [])
-        return {
-            "source_backend": "postgres",
-            "source_summary": store.source_summary(client["id"], client_config),
-            "invoice_matches": store.match_bcct_exports(client["id"], invoice_no, relevant_types),
-        }
-
-    material = load_module_state(client, "material_catalog")
-    product = load_module_state(client, "product_catalog")
-    bcct = load_module_state(client, "bcct")
-    return {
-        "source_backend": "files",
-        "source_summary": source_summary_from_states(material, product, bcct, client_config),
-        "invoice_matches": match_case_bcct_exports(
-            case,
-            {"bcct": {"published_rows": bcct["published_rows"]}},
-            client_config,
-        ),
-    }
+    return portfolio_service.co_case_source_context(client, case)
 
 
 def enrich_client_with_source_summary(client: dict, source_summary: dict) -> dict:
@@ -569,7 +544,7 @@ async def product_catalog(request: Request, client_id: str):
 
 @app.get("/clients/{client_id}/catalog/material-template.xlsx")
 async def download_material_catalog_template(client_id: str):
-    content = create_material_catalog_template_workbook(get_client(client_id))
+    content = portfolio_service.material_catalog_template(get_client(client_id))
     return StreamingResponse(
         iter([content]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -579,7 +554,7 @@ async def download_material_catalog_template(client_id: str):
 
 @app.get("/clients/{client_id}/catalog/product-template.xlsx")
 async def download_product_catalog_template(client_id: str):
-    content = create_product_catalog_template_workbook(get_client(client_id))
+    content = portfolio_service.product_catalog_template(get_client(client_id))
     return StreamingResponse(
         iter([content]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -596,7 +571,7 @@ async def upload_catalog_workbook(
     upload_scope: str = Form("full_catalog"),
 ):
     client = get_client(client_id)
-    result = process_catalog_upload(
+    result = portfolio_service.process_catalog_upload(
         client,
         catalog_type,
         await file.read(),
@@ -654,7 +629,7 @@ async def client_config(request: Request, client_id: str):
 async def save_client_config_route(request: Request, client_id: str):
     client = get_client(client_id)
     form = await request.form()
-    config = get_client_config(client)
+    config = portfolio_service.get_client_config(client)
     config["bcct"]["eligible_import_declaration_types"] = str(form.get("eligible_import_declaration_types", ""))
     config["bcct"]["relevant_export_declaration_types"] = str(form.get("relevant_export_declaration_types", ""))
     config["co_stock"]["lot_policy"] = str(form.get("co_stock_lot_policy", "line_level"))
@@ -662,7 +637,7 @@ async def save_client_config_route(request: Request, client_id: str):
     config["allocation_code"]["description_regex"] = str(form.get("description_regex", ""))
     config["allocation_code"]["fallback"] = str(form.get("allocation_code_fallback", "same_as_customs_code"))
     try:
-        save_client_config(client, config)
+        portfolio_service.save_client_config(client, config)
     except ValueError as exc:
         return templates.TemplateResponse(
             request=request,
@@ -670,7 +645,7 @@ async def save_client_config_route(request: Request, client_id: str):
             status_code=400,
             context=config_context(client_id, error=str(exc)),
         )
-    rebuild_source_index_if_configured(client)
+    portfolio_service.refresh_client_indexes(client)
     return templates.TemplateResponse(
         request=request,
         name="client_config.html",
@@ -759,7 +734,7 @@ async def bcct_exports(request: Request, client_id: str):
 
 @app.get("/clients/{client_id}/bcct/template.xlsx")
 async def download_bcct_template(client_id: str):
-    content = create_bcct_template_workbook(get_client(client_id))
+    content = portfolio_service.bcct_template(get_client(client_id))
     return StreamingResponse(
         iter([content]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -770,7 +745,7 @@ async def download_bcct_template(client_id: str):
 @app.post("/clients/{client_id}/bcct/upload", response_class=HTMLResponse)
 async def upload_bcct_workbook(request: Request, client_id: str, file: UploadFile = File(...)):
     client = get_client(client_id)
-    result = process_bcct_upload(client, await file.read(), file.filename or "bcct.xlsx")
+    result = portfolio_service.process_bcct_upload(client, await file.read(), file.filename or "bcct.xlsx")
     status_code = 400 if result["status"] == "failed" else 200
     return templates.TemplateResponse(
         request=request,

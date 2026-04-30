@@ -9,6 +9,10 @@ from app.co_case_store import invoice_keys
 
 DATABASE_URL_ENV = "BARRY_DATABASE_URL"
 MIGRATIONS_ROOT = Path(__file__).resolve().parent.parent / "db" / "migrations"
+CATALOG_KEY_FIELDS = {
+    "material_catalog": "customs_code",
+    "product_catalog": "product_code",
+}
 
 
 class SourceIndexUnavailable(RuntimeError):
@@ -60,6 +64,28 @@ def build_bcct_index_records(client_id: str, rows: list[dict]) -> tuple[list[dic
     return bcct_records, invoice_records
 
 
+def build_catalog_index_records(client_id: str, module: str, rows: list[dict]) -> list[dict]:
+    key_field = CATALOG_KEY_FIELDS.get(module)
+    if not key_field:
+        raise ValueError(f"Unsupported catalog module: {module}")
+    records = []
+    for index, source_row in enumerate(rows, start=1):
+        row = dict(source_row)
+        row_key = row.get(key_field) or f"row-{index}"
+        records.append({
+            "client_id": client_id,
+            "module": module,
+            "row_key": row_key,
+            "customs_code": row.get("customs_code", ""),
+            "product_code": row.get("product_code", ""),
+            "hs_code": row.get("hs_code", ""),
+            "unit": row.get("unit", ""),
+            "status": row.get("status", ""),
+            "payload": row,
+        })
+    return records
+
+
 def build_co_stock_index_records(client_id: str, rows: list[dict]) -> list[dict]:
     return [
         {
@@ -79,6 +105,20 @@ def build_co_stock_index_records(client_id: str, rows: list[dict]) -> list[dict]
     ]
 
 
+def build_correction_candidate_records(client_id: str, module: str, candidates: list[dict]) -> list[dict]:
+    return [
+        {
+            "client_id": client_id,
+            "module": module,
+            "candidate_id": candidate.get("candidate_id", "") or f"{module}-candidate-{index}",
+            "transaction_key": candidate.get("transaction_key", ""),
+            "status": candidate.get("status", ""),
+            "payload": dict(candidate),
+        }
+        for index, candidate in enumerate(candidates, start=1)
+    ]
+
+
 class PostgresSourceIndexStore:
     def __init__(self, url: str):
         self.url = url
@@ -95,7 +135,7 @@ class PostgresSourceIndexStore:
             with self._connect() as connection:
                 with connection.cursor() as cursor:
                     cursor.execute(
-                        "select 1 from source_index_metadata where client_id = %s and module = 'bcct' limit 1",
+                        "select 1 from source_index_metadata where client_id = %s limit 1",
                         (client_id,),
                     )
                     return cursor.fetchone() is not None
@@ -103,6 +143,42 @@ class PostgresSourceIndexStore:
             return False
 
     def source_summary(self, client_id: str, client_config: dict) -> dict:
+        rows = self.source_metadata_rows(client_id)
+        by_module = {row[0]: row for row in rows}
+        return {
+            "client_config": client_config,
+            "material_catalog": metadata_summary(by_module.get("material_catalog"), "material_catalog"),
+            "product_catalog": metadata_summary(by_module.get("product_catalog"), "product_catalog"),
+            "bcct": metadata_summary(by_module.get("bcct"), "bcct"),
+            "co_stock_row_count": int((by_module.get("co_stock") or [None, None, None, 0])[3] or 0),
+        }
+
+    def source_workspace(self, client_id: str, client_config: dict) -> dict:
+        metadata = {row[0]: row for row in self.source_metadata_rows(client_id)}
+        return {
+            "client_config": client_config,
+            "material_catalog": indexed_module_workspace(
+                metadata.get("material_catalog"),
+                "material_catalog",
+                self.catalog_rows(client_id, "material_catalog"),
+                self.correction_candidates(client_id, "material_catalog"),
+            ),
+            "product_catalog": indexed_module_workspace(
+                metadata.get("product_catalog"),
+                "product_catalog",
+                self.catalog_rows(client_id, "product_catalog"),
+                self.correction_candidates(client_id, "product_catalog"),
+            ),
+            "bcct": indexed_module_workspace(
+                metadata.get("bcct"),
+                "bcct",
+                self.bcct_rows(client_id),
+                self.correction_candidates(client_id, "bcct"),
+            ),
+            "co_stock_rows": self.co_stock_rows(client_id),
+        }
+
+    def source_metadata_rows(self, client_id: str) -> list[tuple]:
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -114,15 +190,49 @@ class PostgresSourceIndexStore:
                     """,
                     (client_id,),
                 )
-                rows = cursor.fetchall()
-        by_module = {row[0]: row for row in rows}
-        return {
-            "client_config": client_config,
-            "material_catalog": metadata_summary(by_module.get("material_catalog"), "material_catalog"),
-            "product_catalog": metadata_summary(by_module.get("product_catalog"), "product_catalog"),
-            "bcct": metadata_summary(by_module.get("bcct"), "bcct"),
-            "co_stock_row_count": int((by_module.get("co_stock") or [None, None, None, 0])[3] or 0),
-        }
+                return cursor.fetchall()
+
+    def catalog_rows(self, client_id: str, module: str) -> list[dict]:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    select payload
+                    from source_catalog_rows
+                    where client_id = %s and module = %s
+                    order by row_key
+                    """,
+                    (client_id, module),
+                )
+                return [dict(row[0]) for row in cursor.fetchall()]
+
+    def bcct_rows(self, client_id: str) -> list[dict]:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    select payload
+                    from bcct_rows
+                    where client_id = %s
+                    order by direction, declaration_no, line_no, item_code
+                    """,
+                    (client_id,),
+                )
+                return [dict(row[0]) for row in cursor.fetchall()]
+
+    def correction_candidates(self, client_id: str, module: str) -> list[dict]:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    select payload
+                    from source_correction_candidates
+                    where client_id = %s and module = %s
+                    order by transaction_key, candidate_id
+                    """,
+                    (client_id, module),
+                )
+                return [dict(row[0]) for row in cursor.fetchall()]
 
     def match_bcct_exports(self, client_id: str, invoice_no: str, relevant_types: list[str]) -> list[dict]:
         keys = sorted(invoice_keys(invoice_no))
@@ -184,8 +294,17 @@ class PostgresSourceIndexStore:
         bcct = load_module_state(client, "bcct")
         client_config = get_client_config(client)
         stock_rows = co_stock_rows_from_bcct(bcct["published_rows"], client_config)
+        catalog_records = (
+            build_catalog_index_records(client["id"], "material_catalog", material["published_rows"])
+            + build_catalog_index_records(client["id"], "product_catalog", product["published_rows"])
+        )
         bcct_records, invoice_records = build_bcct_index_records(client["id"], bcct["published_rows"])
         stock_records = build_co_stock_index_records(client["id"], stock_rows)
+        correction_records = (
+            build_correction_candidate_records(client["id"], "material_catalog", material.get("correction_candidates", []))
+            + build_correction_candidate_records(client["id"], "product_catalog", product.get("correction_candidates", []))
+            + build_correction_candidate_records(client["id"], "bcct", bcct.get("correction_candidates", []))
+        )
         metadata = [
             source_metadata_record(client["id"], "material_catalog", material, state_path(client["id"], "material_catalog")),
             source_metadata_record(client["id"], "product_catalog", product, state_path(client["id"], "product_catalog")),
@@ -203,9 +322,18 @@ class PostgresSourceIndexStore:
             },
         ]
         self.ensure_schema()
-        self.replace_client_indexes(client["id"], bcct_records, invoice_records, stock_records, metadata)
+        self.replace_client_indexes(
+            client["id"],
+            catalog_records,
+            bcct_records,
+            invoice_records,
+            stock_records,
+            correction_records,
+            metadata,
+        )
         return {
             "client_id": client["id"],
+            "catalog_rows": len(catalog_records),
             "bcct_rows": len(bcct_records),
             "invoice_tokens": len(invoice_records),
             "co_stock_rows": len(stock_records),
@@ -214,9 +342,11 @@ class PostgresSourceIndexStore:
     def replace_client_indexes(
         self,
         client_id: str,
+        catalog_records: list[dict],
         bcct_records: list[dict],
         invoice_records: list[dict],
         stock_records: list[dict],
+        correction_records: list[dict],
         metadata_records: list[dict],
     ) -> None:
         from psycopg.types.json import Jsonb
@@ -224,9 +354,34 @@ class PostgresSourceIndexStore:
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute("delete from bcct_invoice_index where client_id = %s", (client_id,))
+                cursor.execute("delete from source_correction_candidates where client_id = %s", (client_id,))
+                cursor.execute("delete from source_catalog_rows where client_id = %s", (client_id,))
                 cursor.execute("delete from co_stock_rows where client_id = %s", (client_id,))
                 cursor.execute("delete from bcct_rows where client_id = %s", (client_id,))
                 cursor.execute("delete from source_index_metadata where client_id = %s", (client_id,))
+                cursor.executemany(
+                    """
+                    insert into source_catalog_rows (
+                        client_id, module, row_key, customs_code, product_code,
+                        hs_code, unit, status, payload
+                    )
+                    values (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    [
+                        (
+                            row["client_id"],
+                            row["module"],
+                            row["row_key"],
+                            row["customs_code"],
+                            row["product_code"],
+                            row["hs_code"],
+                            row["unit"],
+                            row["status"],
+                            Jsonb(row["payload"]),
+                        )
+                        for row in catalog_records
+                    ],
+                )
                 cursor.executemany(
                     """
                     insert into bcct_rows (
@@ -290,6 +445,25 @@ class PostgresSourceIndexStore:
                             Jsonb(row["payload"]),
                         )
                         for row in stock_records
+                    ],
+                )
+                cursor.executemany(
+                    """
+                    insert into source_correction_candidates (
+                        client_id, module, candidate_id, transaction_key, status, payload
+                    )
+                    values (%s, %s, %s, %s, %s, %s)
+                    """,
+                    [
+                        (
+                            row["client_id"],
+                            row["module"],
+                            row["candidate_id"],
+                            row["transaction_key"],
+                            row["status"],
+                            Jsonb(row["payload"]),
+                        )
+                        for row in correction_records
                     ],
                 )
                 cursor.executemany(
@@ -358,6 +532,23 @@ def metadata_summary(row, module: str) -> dict:
         "upload_count": 0,
         "correction_candidate_count": int(row[5] or 0),
         "reviewed_row_count": int(row[4] or 0),
+    }
+
+
+def indexed_module_workspace(row, module: str, published_rows: list[dict], correction_candidates: list[dict]) -> dict:
+    summary = metadata_summary(row, module)
+    return {
+        "module": module,
+        "published_rows": [dict(published_row) for published_row in published_rows],
+        "latest_version": summary["latest_version"],
+        "versions": [],
+        "uploads": [],
+        "correction_candidates": [dict(candidate) for candidate in correction_candidates],
+        "audit_events": [],
+        "published_row_count": summary["published_row_count"],
+        "version_count": summary["version_count"],
+        "upload_count": summary["upload_count"],
+        "reviewed_row_count": summary["reviewed_row_count"],
     }
 
 

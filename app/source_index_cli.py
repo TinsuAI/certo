@@ -28,8 +28,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "rebuild-client":
         result = store.rebuild_client_from_files(get_client(args.client_id))
         print(
-            "Indexed {client_id}: {bcct_rows} BCCT rows, {invoice_tokens} invoice tokens, "
-            "{co_stock_rows} C/O stock rows.".format(**result)
+            "Indexed {client_id}: {catalog_rows} catalog rows, {bcct_rows} BCCT rows, "
+            "{invoice_tokens} invoice tokens, {co_stock_rows} C/O stock rows.".format(**result)
         )
         return 0
 

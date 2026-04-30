@@ -39,6 +39,40 @@ create index if not exists bcct_rows_declaration_idx
 create index if not exists bcct_rows_item_hs_idx
   on bcct_rows (client_id, item_code, hs_code);
 
+create table if not exists source_catalog_rows (
+  client_id text not null,
+  module text not null,
+  row_key text not null,
+  customs_code text not null default '',
+  product_code text not null default '',
+  hs_code text not null default '',
+  unit text not null default '',
+  status text not null default '',
+  payload jsonb not null,
+  indexed_at timestamptz not null default now(),
+  primary key (client_id, module, row_key)
+);
+
+create index if not exists source_catalog_rows_code_idx
+  on source_catalog_rows (client_id, module, customs_code, product_code);
+
+create index if not exists source_catalog_rows_hs_idx
+  on source_catalog_rows (client_id, module, hs_code);
+
+create table if not exists source_correction_candidates (
+  client_id text not null,
+  module text not null,
+  candidate_id text not null,
+  transaction_key text not null default '',
+  status text not null default '',
+  payload jsonb not null,
+  indexed_at timestamptz not null default now(),
+  primary key (client_id, module, candidate_id)
+);
+
+create index if not exists source_correction_candidates_lookup_idx
+  on source_correction_candidates (client_id, module, transaction_key);
+
 create table if not exists bcct_invoice_index (
   client_id text not null,
   invoice_key text not null,
