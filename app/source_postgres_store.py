@@ -73,6 +73,7 @@ class PostgresSourceWriteStore:
             upload["snapshot_id"] = snapshot_id
             upload["snapshot_rows_hash"] = normalized_rows_hash(rows)
             upload["row_count"] = len(rows)
+            state.setdefault("snapshot_rows", {})[snapshot_id] = [dict(row) for row in rows]
 
             result_rows, summary = merge_catalog_rows(state["published_rows"], rows, module, upload_scope)
             upload["diff_summary"] = summary
@@ -85,6 +86,7 @@ class PostgresSourceWriteStore:
 
             version = publish_version(client["id"], module, state, result_rows, upload["upload_id"], summary, write_artifacts=False)
             version["snapshot_id"] = snapshot_id
+            state.setdefault("version_rows", {})[version["version_id"]] = [dict(row) for row in result_rows]
             upload["result"] = "new_version"
             upload["created_version_id"] = version["version_id"]
             append_audit(state, f"{module}.version.published", {"version_id": version["version_id"], "upload_id": upload["upload_id"]})
@@ -114,6 +116,7 @@ class PostgresSourceWriteStore:
             upload["snapshot_id"] = snapshot_id
             upload["snapshot_rows_hash"] = normalized_rows_hash(rows)
             upload["row_count"] = len(rows)
+            state.setdefault("snapshot_rows", {})[snapshot_id] = [dict(row) for row in rows]
 
             existing_by_key = {row["transaction_key"]: row for row in state["published_rows"]}
             added_rows = []
@@ -153,6 +156,7 @@ class PostgresSourceWriteStore:
             if added_rows:
                 version = publish_version(client["id"], module, state, state["published_rows"], upload["upload_id"], summary, write_artifacts=False)
                 version["snapshot_id"] = snapshot_id
+                state.setdefault("version_rows", {})[version["version_id"]] = [dict(row) for row in state["published_rows"]]
                 upload["created_version_id"] = version["version_id"]
             append_audit(state, "bcct.diff.completed", {"upload_id": upload["upload_id"], **summary})
             states[module] = state
@@ -166,6 +170,7 @@ class PostgresSourceWriteStore:
         store = get_source_index_store()
         if store is None:
             raise RuntimeError("Postgres source index store is not configured.")
+        store.ensure_schema()
         workspace = store.source_workspace(client_id, client_config)
         return {
             module: source_state_from_workspace(client_id, module, workspace[module])
@@ -176,6 +181,7 @@ class PostgresSourceWriteStore:
         store = get_source_index_store()
         if store is None:
             raise RuntimeError("Postgres source index store is not configured.")
+        store.ensure_schema()
 
         stock_rows = co_stock_rows_from_bcct(states["bcct"]["published_rows"], client_config)
         catalog_records = (

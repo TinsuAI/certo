@@ -30,7 +30,12 @@ from app.source_store import (
     process_bcct_upload,
     process_catalog_upload,
 )
-from app.source_index_store import build_bcct_index_records, build_catalog_index_records, build_source_state_records
+from app.source_index_store import (
+    build_bcct_index_records,
+    build_catalog_index_records,
+    build_source_state_records,
+    source_state_from_workspace,
+)
 from app.table_view import build_table_view
 from app.workbook_io import create_evidence_workbook, create_input_workbook, parse_input_workbook
 
@@ -884,8 +889,69 @@ def test_postgres_source_state_records_include_standard_upload_versions_and_audi
     assert records["snapshots"][0]["rows_hash"] == result["upload"]["snapshot_rows_hash"]
     assert records["versions"][0]["version_id"] == result["version"]["version_id"]
     assert records["versions"][0]["snapshot_id"] == result["upload"]["snapshot_id"]
+    snapshot_rows = [
+        row for row in records["snapshot_rows"]
+        if row["snapshot_id"] == result["upload"]["snapshot_id"]
+    ]
+    assert snapshot_rows[0]["row_key"] == "PG-MAT-001"
+    assert snapshot_rows[0]["row_index"] == 1
+    assert snapshot_rows[0]["customs_code"] == "PG-MAT-001"
+    assert snapshot_rows[0]["payload"]["name"] == "Postgres metadata material"
+    version_rows = [
+        row for row in records["version_rows"]
+        if row["version_id"] == result["version"]["version_id"] and row["row_key"] == "PG-MAT-001"
+    ]
+    assert version_rows[0]["customs_code"] == "PG-MAT-001"
+    assert version_rows[0]["payload"]["name"] == "Postgres metadata material"
     assert records["audit_events"][0]["event"].startswith("material_catalog.")
     assert records["module_state"]["latest_version_id"] == result["version"]["version_id"]
+
+
+def test_postgres_source_state_records_keep_direct_upload_history_rows_without_artifacts():
+    workspace = {
+        "module": "material_catalog",
+        "published_rows": [{"customs_code": "PG-DIRECT-001", "name": "Direct row", "unit": "PCS"}],
+        "latest_version": {"version_id": "material_catalog-v1-direct", "version_no": 1},
+        "versions": [
+            {
+                "version_id": "material_catalog-v1-direct",
+                "version_no": 1,
+                "source_upload_id": "upload-direct",
+                "snapshot_id": "snapshot-direct",
+                "row_count": 1,
+                "rows_hash": "hash-direct",
+                "summary": {"added": 1},
+            }
+        ],
+        "uploads": [
+            {
+                "upload_id": "upload-direct",
+                "original_filename": "direct.xlsx",
+                "stored_filename": "upload-direct-direct.xlsx",
+                "stored_path": "clients/growatt/material-catalog/uploads/upload-direct/raw/upload-direct-direct.xlsx",
+                "parse_status": "parsed",
+                "snapshot_id": "snapshot-direct",
+                "row_count": 1,
+                "result": "new_version",
+            }
+        ],
+        "snapshot_rows": {
+            "snapshot-direct": [{"customs_code": "PG-DIRECT-001", "name": "Direct row", "unit": "PCS"}],
+        },
+        "version_rows": {
+            "material_catalog-v1-direct": [{"customs_code": "PG-DIRECT-001", "name": "Direct row", "unit": "PCS"}],
+        },
+        "correction_candidates": [],
+        "audit_events": [],
+    }
+
+    state = source_state_from_workspace("growatt", "material_catalog", workspace)
+    records = build_source_state_records("growatt", "material_catalog", state)
+
+    assert records["snapshot_rows"][0]["snapshot_id"] == "snapshot-direct"
+    assert records["snapshot_rows"][0]["row_key"] == "PG-DIRECT-001"
+    assert records["version_rows"][0]["version_id"] == "material_catalog-v1-direct"
+    assert records["version_rows"][0]["payload"]["name"] == "Direct row"
 
 
 def test_material_catalog_partial_update_does_not_deactivate_missing_codes():

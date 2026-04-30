@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 import hashlib
 import json
 import mimetypes
@@ -14,6 +15,18 @@ CATALOG_KEY_FIELDS = {
     "material_catalog": "customs_code",
     "product_catalog": "product_code",
 }
+SOURCE_HISTORY_FIELDS = (
+    "customs_code",
+    "product_code",
+    "transaction_key",
+    "direction",
+    "declaration_no",
+    "line_no",
+    "declaration_type",
+    "item_code",
+    "hs_code",
+    "invoice_ref",
+)
 
 
 class SourceIndexUnavailable(RuntimeError):
@@ -120,6 +133,28 @@ def build_source_state_records(client_id: str, module: str, state: dict) -> dict
     latest = state.get("latest_version") or {}
     uploads = [source_upload_record(client_id, module, upload) for upload in state.get("uploads", [])]
     versions = [source_version_record(client_id, module, version) for version in state.get("versions", [])]
+    snapshots = [source_snapshot_record(client_id, module, upload) for upload in uploads if upload.get("snapshot_id")]
+    snapshot_rows = [
+        row
+        for upload in uploads
+        if upload.get("snapshot_id")
+        for row in source_snapshot_row_records(
+            client_id,
+            module,
+            upload["snapshot_id"],
+            source_snapshot_rows_from_state(client_id, module, state, upload["snapshot_id"]),
+        )
+    ]
+    version_rows = [
+        row
+        for version in versions
+        for row in source_version_row_records(
+            client_id,
+            module,
+            version["version_id"],
+            source_version_rows_from_state(client_id, module, state, version),
+        )
+    ]
     audit_events = [
         source_audit_event_record(client_id, module, event, index)
         for index, event in enumerate(state.get("audit_events", []), start=1)
@@ -138,8 +173,10 @@ def build_source_state_records(client_id: str, module: str, state: dict) -> dict
         },
         "uploads": uploads,
         "raw_files": [source_raw_file_record(upload) for upload in uploads if upload.get("stored_path")],
-        "snapshots": [source_snapshot_record(client_id, module, upload) for upload in uploads if upload.get("snapshot_id")],
+        "snapshots": snapshots,
+        "snapshot_rows": snapshot_rows,
         "versions": versions,
+        "version_rows": version_rows,
         "audit_events": audit_events,
     }
 
@@ -155,6 +192,14 @@ def source_state_from_workspace(client_id: str, module: str, workspace: dict) ->
         "latest_version": dict(workspace.get("latest_version") or {}),
         "versions": versions,
         "uploads": [dict(upload) for upload in workspace.get("uploads", [])],
+        "snapshot_rows": {
+            snapshot_id: [dict(row) for row in rows]
+            for snapshot_id, rows in (workspace.get("snapshot_rows") or {}).items()
+        },
+        "version_rows": {
+            version_id: [dict(row) for row in rows]
+            for version_id, rows in (workspace.get("version_rows") or {}).items()
+        },
         "correction_candidates": [dict(candidate) for candidate in workspace.get("correction_candidates", [])],
         "audit_events": [dict(event) for event in workspace.get("audit_events", [])],
         "next_version_no": max_version_no + 1,
@@ -257,6 +302,104 @@ def source_snapshot_record(client_id: str, module: str, upload: dict) -> dict:
     return {**snapshot, "payload": snapshot}
 
 
+def source_snapshot_row_records(client_id: str, module: str, snapshot_id: str, rows: list[dict]) -> list[dict]:
+    return [
+        {
+            **source_history_row_record(client_id, module, row, index),
+            "snapshot_id": snapshot_id,
+        }
+        for index, row in enumerate(rows, start=1)
+    ]
+
+
+def source_version_row_records(client_id: str, module: str, version_id: str, rows: list[dict]) -> list[dict]:
+    return [
+        {
+            **source_history_row_record(client_id, module, row, index),
+            "version_id": version_id,
+        }
+        for index, row in enumerate(rows, start=1)
+    ]
+
+
+def source_history_row_record(client_id: str, module: str, row: dict, index: int) -> dict:
+    payload = dict(row)
+    promoted = {field: str(payload.get(field, "") or "") for field in SOURCE_HISTORY_FIELDS}
+    return {
+        "client_id": client_id,
+        "module": module,
+        "row_index": index,
+        "row_key": source_row_key(module, payload, index),
+        **promoted,
+        "payload": payload,
+    }
+
+
+def source_row_key(module: str, row: dict, index: int) -> str:
+    key_field = CATALOG_KEY_FIELDS.get(module)
+    if key_field:
+        return str(row.get(key_field) or f"row-{index}")
+    if module == "bcct":
+        return str(row.get("transaction_key") or f"row-{index}")
+    return f"row-{index}"
+
+
+def source_snapshot_rows_from_state(client_id: str, module: str, state: dict, snapshot_id: str) -> list[dict]:
+    rows_by_snapshot = state.get("snapshot_rows") or {}
+    if snapshot_id in rows_by_snapshot:
+        return [dict(row) for row in rows_by_snapshot[snapshot_id]]
+    return legacy_snapshot_rows(client_id, module, snapshot_id)
+
+
+def source_version_rows_from_state(client_id: str, module: str, state: dict, version: dict) -> list[dict]:
+    version_id = version["version_id"]
+    rows_by_version = state.get("version_rows") or {}
+    if version_id in rows_by_version:
+        return [dict(row) for row in rows_by_version[version_id]]
+    rows = legacy_version_rows(client_id, module, int(version.get("version_no") or 0))
+    if rows:
+        return rows
+    latest = state.get("latest_version") or {}
+    published_rows = state.get("published_rows") or []
+    if version_id == latest.get("version_id") and int(version.get("row_count") or 0) == len(published_rows):
+        return [dict(row) for row in published_rows]
+    return []
+
+
+def legacy_snapshot_rows(client_id: str, module: str, snapshot_id: str) -> list[dict]:
+    if not snapshot_id:
+        return []
+    try:
+        from app.source_store import source_root
+
+        rows_path = source_root() / "clients" / client_id / module.replace("_", "-") / "snapshots" / snapshot_id / "rows.json"
+        return read_legacy_rows(rows_path)
+    except OSError:
+        return []
+
+
+def legacy_version_rows(client_id: str, module: str, version_no: int) -> list[dict]:
+    if not version_no:
+        return []
+    try:
+        from app.source_store import source_root
+
+        rows_path = source_root() / "clients" / client_id / module.replace("_", "-") / "versions" / f"v{version_no}" / "rows.json"
+        return read_legacy_rows(rows_path)
+    except OSError:
+        return []
+
+
+def read_legacy_rows(path: Path) -> list[dict]:
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(rows, list):
+        return []
+    return [dict(row) for row in rows if isinstance(row, dict)]
+
+
 def legacy_snapshot_rows_hash(client_id: str, module: str, snapshot_id: str) -> str:
     if not snapshot_id:
         return ""
@@ -354,6 +497,8 @@ class PostgresSourceIndexStore:
                 self.correction_candidates(client_id, "material_catalog"),
                 self.source_uploads(client_id, "material_catalog"),
                 self.source_versions(client_id, "material_catalog"),
+                self.source_snapshot_rows_for_module(client_id, "material_catalog"),
+                self.source_version_rows_for_module(client_id, "material_catalog"),
                 self.source_audit_events(client_id, "material_catalog"),
             ),
             "product_catalog": indexed_module_workspace(
@@ -363,6 +508,8 @@ class PostgresSourceIndexStore:
                 self.correction_candidates(client_id, "product_catalog"),
                 self.source_uploads(client_id, "product_catalog"),
                 self.source_versions(client_id, "product_catalog"),
+                self.source_snapshot_rows_for_module(client_id, "product_catalog"),
+                self.source_version_rows_for_module(client_id, "product_catalog"),
                 self.source_audit_events(client_id, "product_catalog"),
             ),
             "bcct": indexed_module_workspace(
@@ -372,6 +519,8 @@ class PostgresSourceIndexStore:
                 self.correction_candidates(client_id, "bcct"),
                 self.source_uploads(client_id, "bcct"),
                 self.source_versions(client_id, "bcct"),
+                self.source_snapshot_rows_for_module(client_id, "bcct"),
+                self.source_version_rows_for_module(client_id, "bcct"),
                 self.source_audit_events(client_id, "bcct"),
             ),
             "co_stock_rows": self.co_stock_rows(client_id),
@@ -508,6 +657,72 @@ class PostgresSourceIndexStore:
                 )
                 return [dict(row[0]) for row in cursor.fetchall()]
 
+    def source_snapshot_rows(self, snapshot_id: str) -> list[dict]:
+        if not snapshot_id:
+            return []
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    select payload
+                    from source_snapshot_rows
+                    where snapshot_id = %s
+                    order by row_index
+                    """,
+                    (snapshot_id,),
+                )
+                return [dict(row[0]) for row in cursor.fetchall()]
+
+    def source_version_rows(self, version_id: str) -> list[dict]:
+        if not version_id:
+            return []
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    select payload
+                    from source_version_rows
+                    where version_id = %s
+                    order by row_index
+                    """,
+                    (version_id,),
+                )
+                return [dict(row[0]) for row in cursor.fetchall()]
+
+    def source_snapshot_rows_for_module(self, client_id: str, module: str) -> dict[str, list[dict]]:
+        rows_by_snapshot: dict[str, list[dict]] = defaultdict(list)
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    select snapshot_id, payload
+                    from source_snapshot_rows
+                    where client_id = %s and module = %s
+                    order by snapshot_id, row_index
+                    """,
+                    (client_id, module),
+                )
+                for snapshot_id, payload in cursor.fetchall():
+                    rows_by_snapshot[snapshot_id].append(dict(payload))
+        return dict(rows_by_snapshot)
+
+    def source_version_rows_for_module(self, client_id: str, module: str) -> dict[str, list[dict]]:
+        rows_by_version: dict[str, list[dict]] = defaultdict(list)
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    select version_id, payload
+                    from source_version_rows
+                    where client_id = %s and module = %s
+                    order by version_id, row_index
+                    """,
+                    (client_id, module),
+                )
+                for version_id, payload in cursor.fetchall():
+                    rows_by_version[version_id].append(dict(payload))
+        return dict(rows_by_version)
+
     def source_audit_events(self, client_id: str, module: str) -> list[dict]:
         with self._connect() as connection:
             with connection.cursor() as cursor:
@@ -604,14 +819,18 @@ class PostgresSourceIndexStore:
         source_upload_records = [row for records in source_state_records for row in records["uploads"]]
         source_raw_file_records = [row for records in source_state_records for row in records["raw_files"]]
         source_snapshot_records = [row for records in source_state_records for row in records["snapshots"]]
+        source_snapshot_row_records = [row for records in source_state_records for row in records["snapshot_rows"]]
         source_version_records = [row for records in source_state_records for row in records["versions"]]
+        source_version_row_records = [row for records in source_state_records for row in records["version_rows"]]
         source_audit_records = [row for records in source_state_records for row in records["audit_events"]]
 
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute("delete from bcct_invoice_index where client_id = %s", (client_id,))
                 cursor.execute("delete from source_audit_events where client_id = %s", (client_id,))
+                cursor.execute("delete from source_version_rows where client_id = %s", (client_id,))
                 cursor.execute("delete from source_versions where client_id = %s", (client_id,))
+                cursor.execute("delete from source_snapshot_rows where client_id = %s", (client_id,))
                 cursor.execute("delete from source_snapshots where client_id = %s", (client_id,))
                 cursor.execute("delete from source_raw_files where client_id = %s", (client_id,))
                 cursor.execute("delete from source_uploads where client_id = %s", (client_id,))
@@ -735,6 +954,38 @@ class PostgresSourceIndexStore:
                 )
                 cursor.executemany(
                     """
+                    insert into source_snapshot_rows (
+                        snapshot_id, client_id, module, row_index, row_key,
+                        customs_code, product_code, transaction_key, direction,
+                        declaration_no, line_no, declaration_type, item_code,
+                        hs_code, invoice_ref, payload
+                    )
+                    values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    [
+                        (
+                            row["snapshot_id"],
+                            row["client_id"],
+                            row["module"],
+                            row["row_index"],
+                            row["row_key"],
+                            row["customs_code"],
+                            row["product_code"],
+                            row["transaction_key"],
+                            row["direction"],
+                            row["declaration_no"],
+                            row["line_no"],
+                            row["declaration_type"],
+                            row["item_code"],
+                            row["hs_code"],
+                            row["invoice_ref"],
+                            Jsonb(row["payload"]),
+                        )
+                        for row in source_snapshot_row_records
+                    ],
+                )
+                cursor.executemany(
+                    """
                     insert into source_versions (
                         version_id, client_id, module, version_no, source_upload_id,
                         snapshot_id, row_count, rows_hash, summary, payload, created_at
@@ -756,6 +1007,38 @@ class PostgresSourceIndexStore:
                             row["created_at"],
                         )
                         for row in source_version_records
+                    ],
+                )
+                cursor.executemany(
+                    """
+                    insert into source_version_rows (
+                        version_id, client_id, module, row_index, row_key,
+                        customs_code, product_code, transaction_key, direction,
+                        declaration_no, line_no, declaration_type, item_code,
+                        hs_code, invoice_ref, payload
+                    )
+                    values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    [
+                        (
+                            row["version_id"],
+                            row["client_id"],
+                            row["module"],
+                            row["row_index"],
+                            row["row_key"],
+                            row["customs_code"],
+                            row["product_code"],
+                            row["transaction_key"],
+                            row["direction"],
+                            row["declaration_no"],
+                            row["line_no"],
+                            row["declaration_type"],
+                            row["item_code"],
+                            row["hs_code"],
+                            row["invoice_ref"],
+                            Jsonb(row["payload"]),
+                        )
+                        for row in source_version_row_records
                     ],
                 )
                 cursor.executemany(
@@ -961,6 +1244,8 @@ def indexed_module_workspace(
     correction_candidates: list[dict],
     uploads: list[dict],
     versions: list[dict],
+    snapshot_rows: dict[str, list[dict]],
+    version_rows: dict[str, list[dict]],
     audit_events: list[dict],
 ) -> dict:
     summary = metadata_summary(row, module)
@@ -970,6 +1255,14 @@ def indexed_module_workspace(
         "latest_version": summary["latest_version"],
         "versions": [dict(version) for version in versions],
         "uploads": [dict(upload) for upload in uploads],
+        "snapshot_rows": {
+            snapshot_id: [dict(history_row) for history_row in rows]
+            for snapshot_id, rows in snapshot_rows.items()
+        },
+        "version_rows": {
+            version_id: [dict(history_row) for history_row in rows]
+            for version_id, rows in version_rows.items()
+        },
         "correction_candidates": [dict(candidate) for candidate in correction_candidates],
         "audit_events": [dict(event) for event in audit_events],
         "published_row_count": summary["published_row_count"],
