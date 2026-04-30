@@ -34,6 +34,7 @@ from app.source_index_store import (
     build_bcct_index_records,
     build_catalog_index_records,
     build_source_state_records,
+    PostgresSourceIndexStore,
     source_state_from_workspace,
 )
 from app.table_view import build_table_view
@@ -2061,6 +2062,61 @@ def test_source_tables_use_postgres_workspace_when_available(monkeypatch):
     assert "XK-PG" in bcct.text
     assert "TP-PG-001" in bcct.text
     assert "NK-PG" in stock.text
+
+
+def test_postgres_source_index_initializes_empty_client():
+    class FakePostgresSourceIndexStore(PostgresSourceIndexStore):
+        def __init__(self):
+            super().__init__("postgresql:///unused")
+            self.exists = False
+            self.replaced = None
+
+        def ensure_schema(self) -> None:
+            return None
+
+        def _client_index_exists(self, client_id: str) -> bool:
+            assert client_id == "new-client"
+            return self.exists
+
+        def replace_client_indexes(
+            self,
+            client_id: str,
+            catalog_records: list[dict],
+            bcct_records: list[dict],
+            invoice_records: list[dict],
+            stock_records: list[dict],
+            correction_records: list[dict],
+            metadata_records: list[dict],
+            source_state_records: list[dict] | None = None,
+        ) -> None:
+            self.exists = True
+            self.replaced = {
+                "client_id": client_id,
+                "catalog_records": catalog_records,
+                "bcct_records": bcct_records,
+                "invoice_records": invoice_records,
+                "stock_records": stock_records,
+                "correction_records": correction_records,
+                "metadata_records": metadata_records,
+                "source_state_records": source_state_records or [],
+            }
+
+    store = FakePostgresSourceIndexStore()
+
+    assert store.has_client("new-client") is True
+    assert store.replaced["client_id"] == "new-client"
+    assert {row["module"] for row in store.replaced["metadata_records"]} == {
+        "material_catalog",
+        "product_catalog",
+        "bcct",
+        "co_stock",
+    }
+    assert [records["module_state"]["module"] for records in store.replaced["source_state_records"]] == [
+        "material_catalog",
+        "product_catalog",
+        "bcct",
+    ]
+    assert all(records["module_state"]["published_row_count"] == 0 for records in store.replaced["source_state_records"])
 
 
 def test_portfolio_app_exposes_source_dashboard_and_summary_api():

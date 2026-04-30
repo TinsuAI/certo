@@ -15,6 +15,7 @@ CATALOG_KEY_FIELDS = {
     "material_catalog": "customs_code",
     "product_catalog": "product_code",
 }
+SOURCE_INDEX_MODULES = ("material_catalog", "product_catalog", "bcct")
 SOURCE_HISTORY_FIELDS = (
     "customs_code",
     "product_code",
@@ -218,6 +219,23 @@ def source_metadata_record_from_state(client_id: str, module: str, state: dict, 
         "correction_candidate_count": len(state.get("correction_candidates", [])),
         "state_mtime_ns": 0,
         "config_hash": config_hash,
+    }
+
+
+def empty_source_state(client_id: str, module: str) -> dict:
+    return {
+        "schema_version": 1,
+        "client_id": client_id,
+        "module": module,
+        "published_rows": [],
+        "latest_version": {},
+        "versions": [],
+        "uploads": [],
+        "snapshot_rows": {},
+        "version_rows": {},
+        "correction_candidates": [],
+        "audit_events": [],
+        "next_version_no": 1,
     }
 
 
@@ -465,17 +483,58 @@ class PostgresSourceIndexStore:
 
     def has_client(self, client_id: str) -> bool:
         try:
-            with self._connect() as connection:
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        "select 1 from source_index_metadata where client_id = %s limit 1",
-                        (client_id,),
-                    )
-                    return cursor.fetchone() is not None
+            self.ensure_client(client_id)
+            return True
         except Exception:
             return False
 
+    def ensure_client(self, client_id: str) -> None:
+        self.ensure_schema()
+        if self._client_index_exists(client_id):
+            return
+        states = {module: empty_source_state(client_id, module) for module in SOURCE_INDEX_MODULES}
+        metadata = [
+            source_metadata_record_from_state(client_id, "material_catalog", states["material_catalog"]),
+            source_metadata_record_from_state(client_id, "product_catalog", states["product_catalog"]),
+            source_metadata_record_from_state(client_id, "bcct", states["bcct"]),
+            {
+                "client_id": client_id,
+                "module": "co_stock",
+                "version_id": "",
+                "version_no": 0,
+                "published_row_count": 0,
+                "reviewed_row_count": 0,
+                "correction_candidate_count": 0,
+                "state_mtime_ns": 0,
+                "config_hash": "",
+            },
+        ]
+        self.replace_client_indexes(
+            client_id,
+            catalog_records=[],
+            bcct_records=[],
+            invoice_records=[],
+            stock_records=[],
+            correction_records=[],
+            metadata_records=metadata,
+            source_state_records=[
+                build_source_state_records(client_id, "material_catalog", states["material_catalog"]),
+                build_source_state_records(client_id, "product_catalog", states["product_catalog"]),
+                build_source_state_records(client_id, "bcct", states["bcct"]),
+            ],
+        )
+
+    def _client_index_exists(self, client_id: str) -> bool:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "select 1 from source_index_metadata where client_id = %s limit 1",
+                    (client_id,),
+                )
+                return cursor.fetchone() is not None
+
     def source_summary(self, client_id: str, client_config: dict) -> dict:
+        self.ensure_client(client_id)
         rows = self.source_metadata_rows(client_id)
         by_module = {row[0]: row for row in rows}
         return {
@@ -487,6 +546,7 @@ class PostgresSourceIndexStore:
         }
 
     def source_workspace(self, client_id: str, client_config: dict) -> dict:
+        self.ensure_client(client_id)
         metadata = {row[0]: row for row in self.source_metadata_rows(client_id)}
         return {
             "client_config": client_config,

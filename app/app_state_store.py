@@ -80,7 +80,18 @@ class PostgresAppStateStore:
                         Jsonb(payload),
                     ),
                 )
+        self.ensure_source_index(payload["id"])
         return payload
+
+    def ensure_source_index(self, client_id: str) -> None:
+        try:
+            from app.source_index_store import get_source_index_store
+
+            store = get_source_index_store()
+            if store:
+                store.ensure_client(client_id)
+        except Exception:
+            return
 
     def get_client_config(self, client: dict) -> dict:
         self.upsert_client(client)
