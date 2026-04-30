@@ -1,0 +1,10 @@
+read:
+  - AGENTS.md
+  - .ai/STATUS.md
+  - .ai/DECISIONS.md
+show-diffs: true
+subtree-only: true
+auto-commits: false
+dirty-commits: false
+auto-lint: false
+auto-test: false

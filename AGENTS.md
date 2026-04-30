@@ -1,5 +1,9 @@
 # Project: Data Hub (provisional)
 
+## Session Start
+
+Read `.ai/STATUS.md` and last 2-3 session summaries in `.ai/sessions/` before doing anything. Cross-repo context lives in `~/workspace/client/BCQT-System/.ai/DECISIONS.md` — see "2026-04-30 PM — Data Hub 3-app architecture" entry for the canonical decision history.
+
 ## Overview
 
 **Vendor:** Tinsu AI (bespoke software solutions company).
@@ -109,3 +113,44 @@ Will likely match CO's existing choices to minimize friction:
 - Postgres (confirmed — CO uses Postgres)
 - ORM TBD: SQLAlchemy / psycopg raw / Pydantic / etc. — pick after audit
 - Migration tool TBD: Alembic / raw SQL / etc.
+
+## Build & Run
+
+TBD — Python project not yet scaffolded. Will be filled after M9 discovery sprint picks tech stack from CO audit.
+
+## How We Work
+
+Scale rigor to the change. Inherits from BCQT-System conventions:
+
+- **Risky changes** (schema, auth, API contracts, migrations): `/discover` first → `/tdd` → `/rev` → commit
+- **Standard features**: write tests → implement → `/rev` → commit
+- **Quick fixes**: implement → verify → commit
+- **Bug investigation**: `/fix` for systematic root-cause analysis → regression test → fix
+- **Session end**: `/handoff` to capture state for next session
+
+### Principles
+- **Progressive rigor:** small change = lightweight; risky change = thorough spec + review.
+- **Assumptions mode:** state assumptions from reading code rather than asking many questions. User corrects what's wrong.
+- **Verify before claiming done:** no "done" without running tests/lint and confirming the change works. Evidence, not claims.
+- **Cross-repo coordination:** changes that affect Data Hub schema (consumed by BCQT/CO) need to update BCQT-System + CO repos accordingly. Document schema changes in `.ai/DECISIONS.md` here AND cross-link from sister repos.
+
+## Skills
+
+All available via user-level `~/.claude/skills/`:
+
+- `/tdd` — test-driven development
+- `/rev` — two-stage code review
+- `/fix` — systematic debugging
+- `/discover` — explore before building (use to scope M9 discovery sprint deliverables)
+- `/handoff` — session summary + STATUS.md update
+- `/scaffold` — scaffold new code structure (will use when picking tech stack post-audit)
+- `/ai-init` — already used to set up this project's AI context
+
+No project-local skills needed currently. If the project develops Data-Hub-specific workflows that warrant custom skills, add via `ai-skill add` to `.claude/skills/`.
+
+## Context Files
+
+- `.ai/STATUS.md` — current progress and next steps (pre-MVP scaffold; awaiting M9 discovery)
+- `.ai/DECISIONS.md` — local decisions (canonical architecture lives in BCQT-System DECISIONS.md for now)
+- `.ai/GLOSSARY.md` — domain-specific terms (customs compliance vocabulary)
+- `.ai/sessions/` — dated session summaries and primary handoff artifacts
