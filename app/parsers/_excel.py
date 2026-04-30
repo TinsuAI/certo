@@ -11,13 +11,13 @@ def load_xlsx(blob: bytes):
     return load_workbook(filename=io.BytesIO(blob), data_only=True, read_only=True)
 
 
-def header_row(ws, max_scan: int = 15) -> tuple[int, list[str]] | None:
-    """Find the first row containing many non-empty string cells. Returns (row_index, headers)."""
+def header_row(ws, max_scan: int = 15, min_non_empty: int = 2) -> tuple[int, list[str]] | None:
+    """Find the first row containing several non-empty string cells. Returns (row_index, headers)."""
     best: tuple[int, list[str]] | None = None
     for r_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=max_scan, values_only=True), start=1):
         cells = [str(c).strip() if c is not None else "" for c in row]
         n_non_empty = sum(1 for c in cells if c)
-        if n_non_empty >= 3 and (best is None or n_non_empty > sum(1 for c in best[1] if c)):
+        if n_non_empty >= min_non_empty and (best is None or n_non_empty > sum(1 for c in best[1] if c)):
             best = (r_idx, cells)
     return best
 
