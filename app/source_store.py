@@ -3,6 +3,7 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
+import mimetypes
 import os
 import re
 import tempfile
@@ -542,6 +543,7 @@ def process_catalog_upload(client: dict, catalog_type: str, content: bytes, file
         except SourceParseError as exc:
             upload["parse_status"] = "failed"
             upload["parse_error"] = str(exc)
+            upload["result"] = "failed"
             append_audit(state, f"{module}.parse.failed", {"upload_id": upload["upload_id"], "error": str(exc)})
             save_module_state(client["id"], module, state)
             return {"status": "failed", "message": str(exc), "upload": upload}
@@ -549,9 +551,11 @@ def process_catalog_upload(client: dict, catalog_type: str, content: bytes, file
         snapshot_id = write_snapshot(client["id"], module, upload["upload_id"], rows)
         upload["parse_status"] = "parsed"
         upload["snapshot_id"] = snapshot_id
+        upload["snapshot_rows_hash"] = normalized_rows_hash(rows)
         upload["row_count"] = len(rows)
 
         result_rows, summary = merge_catalog_rows(state["published_rows"], rows, module, upload_scope)
+        upload["diff_summary"] = summary
         if normalized_rows_hash(result_rows) == normalized_rows_hash(state["published_rows"]):
             upload["result"] = "no_change"
             append_audit(state, f"{module}.diff.no_change", {"upload_id": upload["upload_id"]})
@@ -560,6 +564,7 @@ def process_catalog_upload(client: dict, catalog_type: str, content: bytes, file
             return {"status": "no_change", "message": "No catalog changes.", "summary": summary, "upload": upload}
 
         version = publish_version(client["id"], module, state, result_rows, upload["upload_id"], summary)
+        version["snapshot_id"] = snapshot_id
         upload["result"] = "new_version"
         upload["created_version_id"] = version["version_id"]
         append_audit(state, f"{module}.version.published", {"version_id": version["version_id"], "upload_id": upload["upload_id"]})
@@ -578,6 +583,7 @@ def process_bcct_upload(client: dict, content: bytes, filename: str) -> dict:
         except SourceParseError as exc:
             upload["parse_status"] = "failed"
             upload["parse_error"] = str(exc)
+            upload["result"] = "failed"
             append_audit(state, "bcct.parse.failed", {"upload_id": upload["upload_id"], "error": str(exc)})
             save_module_state(client["id"], module, state)
             return {"status": "failed", "message": str(exc), "upload": upload}
@@ -585,6 +591,7 @@ def process_bcct_upload(client: dict, content: bytes, filename: str) -> dict:
         snapshot_id = write_snapshot(client["id"], module, upload["upload_id"], rows)
         upload["parse_status"] = "parsed"
         upload["snapshot_id"] = snapshot_id
+        upload["snapshot_rows_hash"] = normalized_rows_hash(rows)
         upload["row_count"] = len(rows)
 
         existing_by_key = {row["transaction_key"]: row for row in state["published_rows"]}
@@ -628,6 +635,7 @@ def process_bcct_upload(client: dict, content: bytes, filename: str) -> dict:
         version = None
         if added_rows:
             version = publish_version(client["id"], module, state, state["published_rows"], upload["upload_id"], summary)
+            version["snapshot_id"] = snapshot_id
             upload["created_version_id"] = version["version_id"]
         append_audit(state, "bcct.diff.completed", {"upload_id": upload["upload_id"], **summary})
         save_module_state(client["id"], module, state)
@@ -1124,24 +1132,56 @@ def add_upload_record(client_id: str, module: str, state: dict, content: bytes, 
     upload_dir = module_root(client_id, module) / "uploads" / upload_id
     raw_dir = upload_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
-    safe_name = Path(filename).name or "upload.xlsx"
-    (raw_dir / safe_name).write_bytes(content)
+    original_filename = original_upload_filename(filename)
+    stored_filename = f"{upload_id}-{storage_filename(original_filename)}"
+    stored_path = raw_dir / stored_filename
+    stored_path.write_bytes(content)
+    relative_stored_path = stored_path.relative_to(source_root())
+    content_sha256 = hashlib.sha256(content).hexdigest()
+    mime_type = mimetypes.guess_type(original_filename)[0] or "application/octet-stream"
     upload = {
+        "metadata_schema_version": 1,
         "upload_id": upload_id,
-        "filename": safe_name,
+        "client_id": client_id,
+        "module": module,
+        "filename": original_filename,
+        "original_filename": original_filename,
+        "safe_filename": storage_filename(original_filename),
+        "stored_filename": stored_filename,
+        "stored_path": str(relative_stored_path),
+        "storage_backend": "filesystem",
+        "content_sha256": content_sha256,
+        "size_bytes": len(content),
+        "file_ext": Path(original_filename).suffix.lower(),
+        "mime_type": mime_type,
+        "content_type": mime_type,
         "created_at": now_iso(),
-        "content_sha256": hashlib.sha256(content).hexdigest(),
+        "parse_status": "uploaded",
+        "parse_error": "",
+        "snapshot_id": "",
+        "row_count": 0,
+        "result": "uploaded",
+        "created_version_id": "",
+        "diff_summary": {},
         **extra,
     }
     state["uploads"].insert(0, upload)
-    append_audit(state, f"{module}.uploaded", {"upload_id": upload_id, "filename": safe_name})
+    append_audit(state, f"{module}.uploaded", {"upload_id": upload_id, "filename": original_filename})
     return upload
 
 
 def write_snapshot(client_id: str, module: str, upload_id: str, rows: list[dict]) -> str:
     snapshot_id = make_id("snapshot")
     snapshot_dir = module_root(client_id, module) / "snapshots" / snapshot_id
-    write_json(snapshot_dir / "snapshot.json", {"snapshot_id": snapshot_id, "upload_id": upload_id, "row_count": len(rows), "created_at": now_iso()})
+    write_json(snapshot_dir / "snapshot.json", {
+        "snapshot_id": snapshot_id,
+        "client_id": client_id,
+        "module": module,
+        "upload_id": upload_id,
+        "row_count": len(rows),
+        "rows_hash": normalized_rows_hash(rows),
+        "created_at": now_iso(),
+    })
     write_json(snapshot_dir / "rows.json", rows)
     return snapshot_id
 
@@ -1513,6 +1553,19 @@ def module_root(client_id: str, module: str) -> Path:
 
 def source_root() -> Path:
     return Path(os.environ.get("SOURCE_STORE_ROOT", "data/local/source-modules"))
+
+
+def original_upload_filename(filename: str) -> str:
+    return Path(filename or "upload.xlsx").name.strip() or "upload.xlsx"
+
+
+def storage_filename(filename: str) -> str:
+    source_name = original_upload_filename(filename)
+    suffix = Path(source_name).suffix.lower()
+    stem = Path(source_name).stem or "upload"
+    safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "-", strip_accents(stem)).strip("-._")
+    safe_stem = safe_stem or "upload"
+    return f"{safe_stem}{suffix}"
 
 
 def make_id(prefix: str) -> str:

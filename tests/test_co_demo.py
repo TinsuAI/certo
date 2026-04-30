@@ -1,3 +1,5 @@
+import hashlib
+import os
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
@@ -28,7 +30,7 @@ from app.source_store import (
     process_bcct_upload,
     process_catalog_upload,
 )
-from app.source_index_store import build_bcct_index_records, build_catalog_index_records
+from app.source_index_store import build_bcct_index_records, build_catalog_index_records, build_source_state_records
 from app.table_view import build_table_view
 from app.workbook_io import create_evidence_workbook, create_input_workbook, parse_input_workbook
 
@@ -813,6 +815,77 @@ def test_material_catalog_full_upload_marks_omitted_code_inactive_pending_review
     workspace = get_source_workspace(client)
     omitted_row = [row for row in workspace["material_catalog"]["published_rows"] if row["customs_code"] == "DEMO-NPL-003"][0]
     assert omitted_row["status"] == "inactive_pending_review"
+
+
+def test_source_upload_metadata_uses_standard_file_contract():
+    client = get_client("growatt")
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "NVL"
+    worksheet.append(["customs_code", "internal_code", "name", "hs_code", "unit", "role", "origin_default", "status"])
+    worksheet.append(["STD-MAT-001", "STD-MAT-001", "Standard material", "8542.39", "PCS", "NVL", "Không xuất xứ", "active"])
+
+    content = workbook_bytes(workbook)
+    result = process_catalog_upload(client, "material", content, "../DS NVL chuẩn.xlsx", "partial_update")
+
+    assert result["status"] == "new_version"
+    upload = result["upload"]
+    assert upload["metadata_schema_version"] == 1
+    assert upload["client_id"] == "growatt"
+    assert upload["module"] == "material_catalog"
+    assert upload["original_filename"] == "DS NVL chuẩn.xlsx"
+    assert upload["stored_filename"].endswith(".xlsx")
+    assert upload["stored_filename"] != upload["original_filename"]
+    assert upload["stored_path"].startswith("clients/growatt/material-catalog/uploads/")
+    assert upload["storage_backend"] == "filesystem"
+    assert upload["content_sha256"] == hashlib.sha256(content).hexdigest()
+    assert upload["size_bytes"] == len(content)
+    assert upload["file_ext"] == ".xlsx"
+    assert upload["upload_scope"] == "partial_update"
+    assert upload["parse_status"] == "parsed"
+    assert upload["parse_error"] == ""
+    assert upload["row_count"] == 1
+    assert upload["snapshot_id"].startswith("snapshot-")
+    assert upload["snapshot_rows_hash"]
+    assert upload["created_version_id"] == result["version"]["version_id"]
+    assert upload["result"] == "new_version"
+    assert upload["diff_summary"] == result["summary"]
+    assert result["version"]["snapshot_id"] == upload["snapshot_id"]
+    assert Path(os.environ["SOURCE_STORE_ROOT"], upload["stored_path"]).exists()
+
+
+def test_postgres_source_state_records_include_standard_upload_versions_and_audit():
+    client = get_client("growatt")
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "NVL"
+    worksheet.append(["customs_code", "internal_code", "name", "hs_code", "unit", "role", "origin_default", "status"])
+    worksheet.append(["PG-MAT-001", "PG-MAT-001", "Postgres metadata material", "8542.39", "PCS", "NVL", "Không xuất xứ", "active"])
+
+    result = process_catalog_upload(client, "material", workbook_bytes(workbook), "metadata.xlsx", "partial_update")
+    state = get_source_workspace(client)["material_catalog"]
+    records = build_source_state_records(client["id"], "material_catalog", state)
+
+    upload = records["uploads"][0]
+    assert upload["upload_id"] == result["upload"]["upload_id"]
+    assert upload["client_id"] == "growatt"
+    assert upload["module"] == "material_catalog"
+    assert upload["original_filename"] == "metadata.xlsx"
+    assert upload["stored_path"] == result["upload"]["stored_path"]
+    assert upload["content_sha256"] == result["upload"]["content_sha256"]
+    assert upload["size_bytes"] == result["upload"]["size_bytes"]
+    assert upload["parse_status"] == "parsed"
+    assert upload["snapshot_id"] == result["upload"]["snapshot_id"]
+    assert upload["created_version_id"] == result["version"]["version_id"]
+    assert upload["diff_summary"] == result["summary"]
+    assert records["raw_files"][0]["upload_id"] == upload["upload_id"]
+    assert records["raw_files"][0]["storage_key"] == upload["stored_path"]
+    assert records["snapshots"][0]["snapshot_id"] == result["upload"]["snapshot_id"]
+    assert records["snapshots"][0]["rows_hash"] == result["upload"]["snapshot_rows_hash"]
+    assert records["versions"][0]["version_id"] == result["version"]["version_id"]
+    assert records["versions"][0]["snapshot_id"] == result["upload"]["snapshot_id"]
+    assert records["audit_events"][0]["event"].startswith("material_catalog.")
+    assert records["module_state"]["latest_version_id"] == result["version"]["version_id"]
 
 
 def test_material_catalog_partial_update_does_not_deactivate_missing_codes():
