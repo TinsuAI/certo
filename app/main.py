@@ -28,11 +28,9 @@ from app.co_case_store import (
     update_case_record,
 )
 from app.co_forms import form_candidates_for_market
+from app.client_registry import get_client, get_client_case, get_clients
 from app.demo_data import (
     SOURCE_NOTES,
-    get_client,
-    get_client_case,
-    get_clients,
     update_products_from_form,
 )
 from app.portfolio import portfolio_app, portfolio_service

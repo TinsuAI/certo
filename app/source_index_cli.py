@@ -3,14 +3,17 @@ from __future__ import annotations
 import argparse
 import sys
 
-from app.demo_data import get_client
+from app.app_state_store import get_app_state_store
+from app.client_config_store import config_path, default_config, migrate_config, read_json
+from app.client_registry import get_client, seed_clients
 from app.source_index_store import DATABASE_URL_ENV, get_source_index_store
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Manage Postgres source indexes.")
+    parser = argparse.ArgumentParser(description="Manage Postgres app state and source indexes.")
     subcommands = parser.add_subparsers(dest="command", required=True)
-    subcommands.add_parser("migrate", help="Apply source index schema migrations.")
+    subcommands.add_parser("migrate", help="Apply database schema migrations.")
+    subcommands.add_parser("import-app-state", help="Import seed clients and local client config JSON into Postgres.")
     rebuild = subcommands.add_parser("rebuild-client", help="Rebuild source indexes for one client from local JSON state.")
     rebuild.add_argument("client_id")
     args = parser.parse_args(argv)
@@ -22,7 +25,20 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "migrate":
         store.ensure_schema()
-        print("Applied source index migrations.")
+        print("Applied database migrations.")
+        return 0
+
+    if args.command == "import-app-state":
+        app_store = get_app_state_store()
+        if app_store is None:
+            print(f"{DATABASE_URL_ENV} is not set.", file=sys.stderr)
+            return 2
+        imported = 0
+        for client in seed_clients():
+            app_store.upsert_client(client)
+            app_store.upsert_client_config(client, config_for_import(client))
+            imported += 1
+        print(f"Imported {imported} clients and client configs.")
         return 0
 
     if args.command == "rebuild-client":
@@ -34,6 +50,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     return 2
+
+
+def config_for_import(client: dict) -> dict:
+    path = config_path(client["id"])
+    if path.exists():
+        return migrate_config(read_json(path), client)
+    return default_config(client)
 
 
 if __name__ == "__main__":

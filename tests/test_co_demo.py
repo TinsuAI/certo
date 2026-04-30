@@ -1865,6 +1865,76 @@ def test_portfolio_app_exposes_source_dashboard_and_summary_api():
     assert payload["source_summary"]["product_catalog"]["published_row_count"] >= 2
 
 
+def test_portfolio_service_prefers_postgres_clients_and_config(monkeypatch):
+    from app import portfolio as portfolio_module
+
+    class FakeAppStateStore:
+        def has_clients(self) -> bool:
+            return True
+
+        def clients(self) -> list[dict]:
+            return [
+                {
+                    "id": "pg-client",
+                    "name": "Postgres Client",
+                    "code": "PG",
+                    "status": "active",
+                    "tax_code": "010-PG",
+                    "contact": "db",
+                    "module_status": {},
+                    "material_catalog": [],
+                    "product_catalog": [],
+                    "bom_rows": [],
+                    "co_stock": [],
+                    "bcct_rows": [],
+                    "counts": {"materials": 0, "products": 0, "bom_lines": 0, "co_stock": 0, "bcct": 0},
+                }
+            ]
+
+        def client(self, client_id: str) -> dict:
+            assert client_id == "pg-client"
+            return self.clients()[0]
+
+        def get_client_config(self, client: dict) -> dict:
+            return {
+                "schema_version": 1,
+                "client_id": client["id"],
+                "config_version": 3,
+                "config_hash": "pg-hash",
+                "bcct": {"eligible_import_declaration_types": ["E11"], "relevant_export_declaration_types": ["E42"]},
+                "co_stock": {"lot_policy": "line_level"},
+                "allocation_code": {"strategy": "same_as_customs_code", "description_regex": "", "fallback": "same_as_customs_code"},
+            }
+
+    monkeypatch.setattr(portfolio_module, "get_app_state_store", lambda: FakeAppStateStore(), raising=False)
+
+    service = portfolio_module.PortfolioService()
+
+    assert service.client("pg-client")["name"] == "Postgres Client"
+    assert service.clients()[0]["id"] == "pg-client"
+    assert service.get_client_config({"id": "pg-client"})["config_hash"] == "pg-hash"
+
+
+def test_portfolio_service_saves_client_config_to_postgres(monkeypatch):
+    from app import portfolio as portfolio_module
+
+    saved_configs = []
+
+    class FakeAppStateStore:
+        def save_client_config(self, client: dict, config: dict) -> dict:
+            saved_configs.append((client["id"], config["config_hash"]))
+            return {**config, "config_version": 9, "config_hash": "saved-pg-hash"}
+
+    monkeypatch.setattr(portfolio_module, "get_app_state_store", lambda: FakeAppStateStore(), raising=False)
+
+    service = portfolio_module.PortfolioService()
+    saved = service.save_client_config({"id": "growatt"}, {"config_hash": "draft"})
+
+    assert saved["config_version"] == 9
+    assert saved["config_hash"] == "saved-pg-hash"
+    assert saved_configs == [("growatt", "draft")]
+
+
 def test_co_routes_use_portfolio_service_adapter(monkeypatch):
     from app import main as main_module
 

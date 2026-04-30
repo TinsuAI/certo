@@ -7,10 +7,12 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from app.app_state_store import get_app_state_store
 from app.client_config_store import get_client_config as load_client_config
 from app.client_config_store import save_client_config as persist_client_config
 from app.co_case_store import match_case_bcct_exports
-from app.demo_data import get_client, get_clients
+from app.demo_data import get_client as seed_get_client
+from app.demo_data import get_clients as seed_get_clients
 from app.source_index_store import get_source_index_store, rebuild_source_index_if_configured
 from app.source_store import (
     create_bcct_template_workbook,
@@ -39,11 +41,20 @@ portfolio_templates = Jinja2Templates(directory=ROOT / "templates", context_proc
 
 class PortfolioService:
     def clients(self) -> list[dict]:
-        return [self.client_summary(row["id"]) for row in get_clients()]
+        store = get_app_state_store()
+        if store and store.has_clients():
+            return [self.client_summary(row["id"]) for row in store.clients()]
+        return [self.client_summary(row["id"]) for row in seed_get_clients()]
 
     def client(self, client_id: str) -> dict:
+        store = get_app_state_store()
+        if store and store.has_clients():
+            try:
+                return store.client(client_id)
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=f"Unknown client: {client_id}") from exc
         try:
-            return get_client(client_id)
+            return seed_get_client(client_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=f"Unknown client: {client_id}") from exc
 
@@ -71,9 +82,15 @@ class PortfolioService:
         return summary
 
     def get_client_config(self, client: dict) -> dict:
+        store = get_app_state_store()
+        if store:
+            return store.get_client_config(client)
         return load_client_config(client)
 
     def save_client_config(self, client: dict, config: dict) -> dict:
+        store = get_app_state_store()
+        if store:
+            return store.save_client_config(client, config)
         return persist_client_config(client, config)
 
     def refresh_client_indexes(self, client: dict) -> dict | None:

@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import os
-from pathlib import Path
 from typing import Any
 
 from app.co_case_store import invoice_keys
+from app.database import DATABASE_URL_ENV, apply_migrations, connect, database_url
 
 
-DATABASE_URL_ENV = "BARRY_DATABASE_URL"
-MIGRATIONS_ROOT = Path(__file__).resolve().parent.parent / "db" / "migrations"
 CATALOG_KEY_FIELDS = {
     "material_catalog": "customs_code",
     "product_catalog": "product_code",
@@ -17,10 +14,6 @@ CATALOG_KEY_FIELDS = {
 
 class SourceIndexUnavailable(RuntimeError):
     pass
-
-
-def database_url() -> str:
-    return os.environ.get(DATABASE_URL_ENV, "").strip()
 
 
 def get_source_index_store() -> "PostgresSourceIndexStore | None":
@@ -124,11 +117,7 @@ class PostgresSourceIndexStore:
         self.url = url
 
     def ensure_schema(self) -> None:
-        with self._connect() as connection:
-            with connection.cursor() as cursor:
-                for path in sorted(MIGRATIONS_ROOT.glob("*.sql")):
-                    for statement in split_sql(path.read_text(encoding="utf-8")):
-                        cursor.execute(statement)
+        apply_migrations(self.url)
 
     def has_client(self, client_id: str) -> bool:
         try:
@@ -491,11 +480,7 @@ class PostgresSourceIndexStore:
                 )
 
     def _connect(self):
-        try:
-            import psycopg
-        except ImportError as exc:
-            raise SourceIndexUnavailable("Install psycopg to use Postgres source indexes.") from exc
-        return psycopg.connect(self.url)
+        return connect(self.url)
 
 
 def source_metadata_record(client_id: str, module: str, state: dict, path: Path) -> dict:
@@ -550,7 +535,3 @@ def indexed_module_workspace(row, module: str, published_rows: list[dict], corre
         "upload_count": summary["upload_count"],
         "reviewed_row_count": summary["reviewed_row_count"],
     }
-
-
-def split_sql(sql: str) -> list[str]:
-    return [statement.strip() for statement in sql.split(";") if statement.strip()]
