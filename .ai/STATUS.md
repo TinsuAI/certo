@@ -1,6 +1,6 @@
 # Project Status
 
-**Date:** 2026-05-02 EOD (RBAC + ACL landed; settlement resolver ripped out of hub; committed `e3a5697`)
+**Date:** 2026-05-03 (real-data fixture corpus + 5 parser bugs documented as xfails)
 
 ## Current State
 
@@ -25,10 +25,13 @@ What works:
   - Admin UI at `/admin/users` (list/create/role/lock) + `/admin/users/{id}/clients` (manager group).
   - Per-client `/clients/{id}/staff` tab for manager-of-client/admin/dev.
   - Permission gates wired into all per-client routes (catalog/bqd/bcct/bom/uploads/proposals/config).
-- 40 pytest tests passing (45 - 5 dropped resolver tests).
+- 59 pytest tests passing + 10 skipped (real-data, env-gated) + 7 xfail (5 documented parser bugs).
 - 27 Playwright UI screenshots in `data/screenshots/` covering all flows in light + dark + EN.
+- Fixture corpus at `tests/fixtures/` (18 manual `.xlsx` from `barry-CO-bom-data` + 7 synthetic edge cases). Driven by `tests/test_fixture_corpus.py`. Real `.xls` data via `DATA_HUB_REAL_DATA_DIR` env var (`tests/test_real_data_external.py`).
 
 ## Recent Changes
+
+**2026-05-03 — Real-data fixture corpus + parser-bug documentation.** Built `tests/fixtures/{manual_test,edge_cases}/` (26 files, 228 KB), `tests/test_fixture_corpus.py` (parametrized over 26 cases — 19 pass + 7 xfail), `tests/test_real_data_external.py` (env-gated for real `.xls`/big `.xlsm` data). Surfaced 5 distinct parser bugs (2 P0, 3 P1) — all logged as xfail tests so the suite is green but the bugs are tracked. Brief: `.ai/features/2026-05-03-parser-bugs.md`. Bugs: legacy `.xls` unsupported, BCCT parser falsely matches BOM workbook (197K junk rows on real Growatt 51MB BOM), Chinese BOM headers not aliased, SAP English headers not aliased (Johnson), SP-only catalog rejected.
 
 **2026-05-02 — Settlement resolver ripped out of hub.** After critic review, removed BCQT-flavored canonical-code resolver from hub (was a lossy port of bcqt-growatt algorithm — wrong for TP today). Migration `009_rip_resolver.sql` drops `hub.code_mapping_resolutions` + `bcct_rows.resolved_customs_code`. Algorithm moved to `scripts/settlement_resolver.py` (CLI). DECISIONS entry "2026-05-02 Settlement code resolver moved out of hub". Brief: `.ai/features/2026-05-02-rip-resolver-from-hub.md`.
 
@@ -40,8 +43,8 @@ What works:
 
 ## Next Steps
 
-1. **Validate against real Growatt data** at `~/workspace/client/bcqt-growatt/data/` — synthetic seed has only 10 BCCT rows; real files have thousands. Test parsers + resolver at scale.
-2. **Audit other reference clients** (DKE, Dothanh, Johnson real data) for parser quirks the synthetic seed doesn't surface.
+1. **Fix the 5 parser bugs surfaced 2026-05-03** (see `.ai/features/2026-05-03-parser-bugs.md`). Order: P0 `.xls` support + P0 BCCT-vs-BOM gate first (production-blockers), then P1 alias/SP-catalog gaps. Each bug has an xfail test pinned in `test_fixture_corpus.py` — flip to numeric expectation when fixed.
+2. **Drive real data through hub via HTTP** (M9 deliverable orthogonal to (1)) — once `.xls` works, do an end-to-end upload of real Growatt + DKE + Dothanh + Johnson files via the UI to surface route/upload-flow bugs the parser-level fixture tests don't reach.
 3. **`code_resolution_mode` reparse-on-change** — dropdown unlocked for dev (2026-05-02) but POST handler doesn't auto re-parse `bcct_rows.internal_code` for existing rows when mode changes. Add `reparse_internal_codes(client_id, mode)` helper (~15 lines) and wire into POST `/clients/{id}/edit` when mode differs. Idempotent given deterministic parsers + raw `goods_name` preserved.
 4. **Cross-app SSO Phase 2** (M9 deliverable #4) — local RBAC + ACL is in place. Phase 2 = JWT issuer / JWKS / cookie-domain federation when BCQT and CO consumers come online. Defer until BCQT/CO migration audits land.
 5. **Service-discovery for auto-rule case_id validation** — currently DROPPED from MVP because CO has no HTTP API. Reinstate when CO grows one.
