@@ -1,10 +1,11 @@
 # Project Status
 
-**Date:** 2026-05-02 (RBAC + per-client ACL landed; settlement resolver ripped out of hub)
+**Date:** 2026-05-02 EOD (RBAC + ACL landed; settlement resolver ripped out of hub; committed `e3a5697`)
 
 ## Current State
 
-**Working MVP web app + read API + 4-role auth.** Running locally at `http://127.0.0.1:8754`.
+**Working MVP web app + read API + 4-role auth.** Server NOT running (stopped pre-commit).
+Start with: `uv run uvicorn app.main:app --port 8754 --host 127.0.0.1 --reload`.
 Login: `admin@data-hub.local / admin123` (role=`dev`).
 
 What works:
@@ -16,7 +17,7 @@ What works:
 - Public read API: 11 endpoints under `/v1/hub/*`, bearer-token auth.
 - BCCT raw columns captured into `payload` jsonb (full Vietnamese headers preserved).
 - Dual-source material detection: query-time EXISTS subqueries flag materials present in both BCCT imports + BOM products.
-- i18n bilingual: Vietnamese default + English toggle (cookie). ~200 translation keys.
+- i18n bilingual: Vietnamese default + English toggle (cookie). ~190 translation keys.
 - Auto-seed on empty DB: creates Growatt VN (10 catalog + 8 BQD pairs incl. 1:n + 10 BCCT + 5 BOM versions + 2 proposals) and Johnson VN (4 catalog identity-mode + 3 BCCT + 1 BOM).
 - **4-role RBAC + per-client ACL** (2026-05-02):
   - Roles: `dev` (single, vendor) / `admin` / `manager` (scoped to client group) / `staff` (per-client read|edit).
@@ -41,7 +42,7 @@ What works:
 
 1. **Validate against real Growatt data** at `~/workspace/client/bcqt-growatt/data/` — synthetic seed has only 10 BCCT rows; real files have thousands. Test parsers + resolver at scale.
 2. **Audit other reference clients** (DKE, Dothanh, Johnson real data) for parser quirks the synthetic seed doesn't surface.
-3. **Background job for resolver** — currently runs synchronously inside upload handlers; will block on big uploads. Move to a queue (RQ / arq / celery) when first slow upload appears.
+3. **`code_resolution_mode` reparse-on-change** — dropdown unlocked for dev (2026-05-02) but POST handler doesn't auto re-parse `bcct_rows.internal_code` for existing rows when mode changes. Add `reparse_internal_codes(client_id, mode)` helper (~15 lines) and wire into POST `/clients/{id}/edit` when mode differs. Idempotent given deterministic parsers + raw `goods_name` preserved.
 4. **Cross-app SSO Phase 2** (M9 deliverable #4) — local RBAC + ACL is in place. Phase 2 = JWT issuer / JWKS / cookie-domain federation when BCQT and CO consumers come online. Defer until BCQT/CO migration audits land.
 5. **Service-discovery for auto-rule case_id validation** — currently DROPPED from MVP because CO has no HTTP API. Reinstate when CO grows one.
 6. **Manual + hybrid BOM review modes** — schema is shaped to accept these; phase 2 work involves notification system, latency SLO, review queue endpoints.
@@ -56,15 +57,19 @@ None for MVP validation. Production-ship gates: SSO design + deployment shape.
 
 ## Notes for Next AI Session
 
-- **Server is currently running** in background (uvicorn with `--reload`) — pkill if you want a fresh start.
-- **Auto-seed runs on empty DB** automatically (lifespan hook). Set `DATA_HUB_AUTO_SEED_DEMO=0` to disable. Reset state with `psql -d data_hub -c "truncate hub.clients cascade"`.
-- **Vietnamese is the default UI language**, English is the alternate. `t()` Jinja callable dispatches via `data_hub_lang` cookie. Translation dict in `app/i18n.py` (~150 keys, structured by domain prefix: nav/auth/common/clients/workspace/tabs/catalog/bqd/bcct/bom/proposals/uploads/status).
-- **Mental model: Client first, then workspace.** All entity URLs nested under `/clients/{client_id}/{tab}`. There's no global "all materials across clients" view — that was rejected as wrong UX.
-- **Code seed is `barry-CO-main` (capital CO)** at `~/workspace/client/barry-CO-main`. The lowercase `barry-co-main` doesn't exist on disk — fixed in earlier session but worth re-noting if you `cd` based on memory.
-- **Dual-source materials** are detected at query time (EXISTS subqueries in catalog list query). NOT stored. Cost is negligible at current scale (indexes cover both subqueries). Phase 2 may materialize.
-- **BCCT payload jsonb captures every column** from source workbook by original Vietnamese header name. Typed columns are query/index layer; payload is raw archive. Real HQ Excels with 25-30 columns will preserve all of them.
-- **CSS is mostly inherited verbatim from CO** (`barry-CO-main/app/static/css/app.css`, ~1300 lines). Data Hub appended ~150 lines for breadcrumb, settings page, button restyle, dual badge, dark theme tweaks.
-- **Sister-repo cross-link decisions**: anchor architecture in `~/workspace/client/BCQT-System/.ai/DECISIONS.md` "2026-04-30 PM — Data Hub 3-app architecture" with 2026-05-01 BCCT-amendment block at top.
+- **Server NOT running.** Start with `uv run uvicorn app.main:app --port 8754 --host 127.0.0.1 --reload`. Auto-seed runs on empty DB via lifespan hook. Set `DATA_HUB_AUTO_SEED_DEMO=0` to disable. Reset: `psql -d data_hub -c "truncate hub.clients cascade"`.
+- **Migrations applied:** 001..009. Latest = 009 dropped resolver artifacts. Migration ledger in `hub.schema_migrations`.
+- **Settlement resolver lives at `scripts/settlement_resolver.py`** as a CLI tool, NOT imported by `app/`. Hub schema does NOT have `code_mapping_resolutions` or `bcct_rows.resolved_customs_code`. Don't reintroduce — coupling is intentionally severed. When BCQT migrates to consumer mode, this script ports there + gets NVL/TP split fix per `bcqt-growatt/settlement/code_map.py`.
+- **`scripts/seed_demo.py` deleted** in this commit — was rotting (HTTP-based, pointed at renamed `/dncxs` URLs). Auto-seed at lifespan superseded it.
+- **RBAC enforcement layers:** Postgres CHECK + partial unique index (DB), `app/auth/permissions.py` helpers (app), Jinja `can_*` flags in templates (UI). DB is source of truth.
+- **Single-dev invariant** enforced by `unique on hub.users((1)) where role='dev'`. Trying to create 2nd dev → `UniqueViolation`. The seed admin (`admin@data-hub.local`) is auto-promoted to `dev` by migration 008.
+- **Vietnamese is default UI language**, English is toggle. `t()` Jinja callable, cookie `data_hub_lang`. Translation dict in `app/i18n.py` (~190 keys).
+- **Mental model: Client first, then workspace.** All entity URLs nested under `/clients/{client_id}/{tab}`. No global "all materials across clients" view.
+- **Code seed is `barry-CO-main` (capital CO)** at `~/workspace/client/barry-CO-main`.
+- **Dual-source materials** detected at query time (EXISTS subqueries). NOT stored.
+- **BCCT payload jsonb captures every source column** by original Vietnamese header. Typed columns are query/index layer; payload is raw archive.
+- **CSS mostly inherited from CO** (`barry-CO-main/app/static/css/app.css`). Data Hub appended ~180 lines for breadcrumb, settings, admin pages, dual badge, dark theme.
+- **Sister-repo cross-link decisions**: anchor architecture in `~/workspace/client/BCQT-System/.ai/DECISIONS.md` "2026-04-30 PM — Data Hub 3-app architecture" with 2026-05-01 BCCT-amendment block at top. Local DECISIONS adds 2026-05-02 entry for resolver rip-out.
 
 ## Reference
 
@@ -79,7 +84,7 @@ None for MVP validation. Production-ship gates: SSO design + deployment shape.
   - `.ai/features/epic-2026-05-01-data-hub-mvp.md` — MVP epic plan + waves
   - `.ai/sessions/` — dated session summaries (this and one autopilot)
 - Demo + dev:
-  - `scripts/seed_demo.py` — HTTP-based demo seeder (alternative to auto-seed)
   - `scripts/screenshot.py` — Playwright UI capture
+  - `scripts/settlement_resolver.py` — CLI for BCQT-flavored canonical resolver (hub-runtime-isolated; destined for BCQT migration)
 - Memory: `~/.claude/projects/-home-vp-workspace-client-data-hub/memory/`
   - `project_architecture_lock.md`, `project_bom_multisource.md`, `reference_co_codebase.md`

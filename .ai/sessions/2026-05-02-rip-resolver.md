@@ -94,3 +94,46 @@ psql -d data_hub -c "truncate hub.clients cascade"
 ```
 
 Settlement resolver lives at `scripts/settlement_resolver.py`. Hub's app/ no longer imports it. When BCQT migration sprint lands, this file moves to BCQT-System repo, gets NVL/TP fix, and stores output in `bcqt` schema.
+
+## Post-implementation cleanup (after second critic pass)
+
+User asked for a thorough post-rip review before commit. Critic spawned a second time, this time auditing the RESULT of the rip-out. Findings (all WARN, no CRITICAL):
+
+1. **6 dangling i18n keys** in `app/i18n.py` referencing UI that was deleted: `bqd.resolve_btn`, `bqd.resolve_hint`, `bqd.basis_label`, `bqd.section.resolutions`, `bqd.col.resolved`, `bqd.col.basis`, `bqd.col.updated`. Both vi + en dicts. Originally listed in feature brief's "i18n cleanup" section but skipped during implementation. **Fixed:** all 14 entries deleted.
+
+2. **User-visible lying string:** `workspace.module.bqd_meta` rendered "{n} mapping · resolver tự chạy sau upload" on workspace overview tile. Hub no longer auto-runs any resolver. **Fixed:** replaced with neutral "{n} cặp mã NB ↔ HQ" / "{n} internal ↔ customs pairs".
+
+3. **Pre-existing docstring bug** in `app/parsers/goods_name.py`: docstring claimed "fall back to None" for non-Growatt clients in simple_mapping mode, but code unconditionally returned Growatt regex. Predates this work but surfaced during review. **Fixed:** rewrote docstring to match actual code; deleted unused `_GROWATT_DNCX_TOKENS` constant.
+
+Critic also flagged but did NOT need fix:
+- Migration 003/005 historical text still mentions dropped artifacts (immutable migration history convention; intentional).
+- `scripts/seed_demo.py` rot (HTTP-seeder pointed at renamed URLs). User asked to delete in cleanup pass — done.
+- Settlement resolver script `sys.path` hack works fine; will be revisited when ported to BCQT.
+
+After cleanup: 40 pytest passing, server smoke OK, BQD page renders without dangling strings, workspace overview shows truthful tile text, all orphan refs swept.
+
+## Commit `e3a5697`
+
+Single commit covering both 2026-05-02 features (RBAC + ACL **and** resolver rip). File overlap (i18n, bcct, bqd, clients routes had both kinds of changes) made splitting via `git add -p` risky. Commit message has structured sections naming both features and pointing at briefs/sessions/decisions. 38 files, +2029/-636. Working tree clean post-commit.
+
+`git rename` detected: `app/auth.py → app/auth/session.py` (100% similarity).
+
+## Resume next session
+
+```bash
+cd ~/workspace/client/data-hub
+uv run uvicorn app.main:app --port 8754 --host 127.0.0.1 --reload  # server NOT running at handoff
+uv run pytest -q  # 40 passing
+
+# Sanity: settlement resolver script standalone
+uv run python scripts/settlement_resolver.py growatt-vn
+
+# Reset DB:
+psql -d data_hub -c "delete from hub.user_managed_clients; delete from hub.user_client_access; delete from hub.users where role != 'dev'; truncate hub.clients cascade;"
+# (auto-seed re-runs on next request via lifespan)
+```
+
+Key open items rolled forward (also in STATUS.md):
+- `code_resolution_mode` reparse-on-change — dropdown is editable for dev now, but POST handler doesn't auto re-parse existing rows. ~15-line helper waiting.
+- Real-data validation (Growatt + DKE + Johnson + Dothanh) at scale.
+- Cross-app SSO Phase 2 — when BCQT/CO migrate.
