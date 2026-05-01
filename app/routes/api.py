@@ -138,6 +138,11 @@ async def api_list_bcct(
                declaration_type, direction, registration_date,
                customs_code, internal_code, goods_name, hs_code,
                quantity, unit, total_value, currency, origin,
+               exporter_name, exporter_tax_code, consignee_name, incoterms,
+               weight, weight_unit, package_count, package_unit,
+               invoice_date, departure_date,
+               destination_code, destination_name,
+               transport_mode, exchange_rate,
                bom_version_id, indexed_at
         from hub.bcct_rows where client_id = %s
     """
@@ -175,6 +180,11 @@ async def api_get_bcct(
                        declaration_type, direction, registration_date,
                        customs_code, internal_code, goods_name, hs_code,
                        quantity, unit, total_value, currency, origin,
+                       exporter_name, exporter_tax_code, consignee_name, incoterms,
+                       weight, weight_unit, package_count, package_unit,
+                       invoice_date, departure_date,
+                       destination_code, destination_name,
+                       transport_mode, exchange_rate,
                        bom_version_id, indexed_at, payload
                 from hub.bcct_rows
                 where client_id = %s and transaction_key = %s

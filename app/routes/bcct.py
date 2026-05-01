@@ -51,7 +51,7 @@ async def upload_view(request: Request, client_id: str):
 
 @router.post("/clients/{client_id}/bcct/upload")
 async def upload_submit(request: Request, client_id: str,
-                        year: int = Form(...), file: UploadFile = File(...)):
+                        file: UploadFile = File(...)):
     user = auth.require_user(request)
     auth.require_can_edit_client(user, client_id)
     client = get_client(client_id)
@@ -77,14 +77,23 @@ async def upload_submit(request: Request, client_id: str,
                     (str(e), upload_id))
         raise HTTPException(400, f"Parse error: {e}")
     parser = internal_code_parser_for(client_id, client["code_resolution_mode"])
-    n = _insert_bcct(client_id=client_id, year=year, rows=rows,
+    # Year is derived per-row by the DB (GENERATED column from registration_date);
+    # rows missing registration_date are skipped (the generated year column is
+    # NOT NULL, so they would violate the constraint). Pre-filter so the upload
+    # surfaces a clean count rather than a 500.
+    rows_with_date = [r for r in rows if r.get("registration_date")]
+    skipped = len(rows) - len(rows_with_date)
+    n = _insert_bcct(client_id=client_id, rows=rows_with_date,
                      upload_id=upload_id, parser=parser)
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "update hub.file_uploads set parse_status='done', row_count=%s, parsed_at=now() where upload_id=%s",
                 (n, upload_id))
-    return RedirectResponse(url=f"/clients/{client_id}/bcct?year={year}", status_code=303)
+    redirect_url = f"/clients/{client_id}/bcct"
+    if skipped:
+        redirect_url += f"?skipped={skipped}"
+    return RedirectResponse(url=redirect_url, status_code=303)
 
 
 def _list_bcct(client_id: str, year: int | None, direction: str | None,
@@ -124,8 +133,10 @@ def _years(client_id: str) -> list[int]:
             return [y for (y,) in cur.fetchall()]
 
 
-def _insert_bcct(*, client_id: str, year: int, rows: list[dict],
+def _insert_bcct(*, client_id: str, rows: list[dict],
                  upload_id: str, parser) -> int:
+    """Insert BCCT rows. `year` column is GENERATED ALWAYS AS STORED in the
+    DB (from `registration_date`), so it's not in the column list."""
     import json
     n = 0
     with connect() as conn:
@@ -149,13 +160,25 @@ def _insert_bcct(*, client_id: str, year: int, rows: list[dict],
                 cur.execute(
                     """
                     insert into hub.bcct_rows
-                      (client_id, year, transaction_key, line_no, declaration_no,
+                      (client_id, transaction_key, line_no, declaration_no,
                        declaration_type, direction, registration_date, customs_code,
                        internal_code, goods_name, hs_code, quantity, unit,
                        quantity_2, unit_2, unit_price, total_value, currency, origin,
-                       invoice_ref, upload_id, payload)
-                    values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                       invoice_ref,
+                       exporter_name, exporter_tax_code, consignee_name, incoterms,
+                       weight, weight_unit, package_count, package_unit,
+                       invoice_date, departure_date,
+                       destination_code, destination_name,
+                       transport_mode, exchange_rate,
+                       upload_id, payload)
+                    values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s,
+                            %s, %s, %s, %s,
+                            %s, %s,
+                            %s, %s,
+                            %s, %s,
+                            %s, %s::jsonb)
                     on conflict (client_id, year, transaction_key, line_no) do update set
                       declaration_no = excluded.declaration_no,
                       customs_code = excluded.customs_code,
@@ -163,11 +186,25 @@ def _insert_bcct(*, client_id: str, year: int, rows: list[dict],
                       goods_name = excluded.goods_name,
                       quantity = excluded.quantity,
                       total_value = excluded.total_value,
+                      exporter_name = excluded.exporter_name,
+                      exporter_tax_code = excluded.exporter_tax_code,
+                      consignee_name = excluded.consignee_name,
+                      incoterms = excluded.incoterms,
+                      weight = excluded.weight,
+                      weight_unit = excluded.weight_unit,
+                      package_count = excluded.package_count,
+                      package_unit = excluded.package_unit,
+                      invoice_date = excluded.invoice_date,
+                      departure_date = excluded.departure_date,
+                      destination_code = excluded.destination_code,
+                      destination_name = excluded.destination_name,
+                      transport_mode = excluded.transport_mode,
+                      exchange_rate = excluded.exchange_rate,
                       payload = excluded.payload,
                       upload_id = excluded.upload_id,
                       indexed_at = now()
                     """,
-                    (client_id, year, r["transaction_key"], r.get("line_no", "0"),
+                    (client_id, r["transaction_key"], r.get("line_no", "0"),
                      r.get("declaration_no"), r.get("declaration_type"),
                      r.get("direction"), r.get("registration_date"),
                      customs_code, internal_code, goods_name, r.get("hs_code"),
@@ -175,6 +212,13 @@ def _insert_bcct(*, client_id: str, year: int, rows: list[dict],
                      r.get("quantity_2"), r.get("unit_2"),
                      r.get("unit_price"), r.get("total_value"),
                      r.get("currency"), r.get("origin"), r.get("invoice_ref"),
+                     r.get("exporter_name"), r.get("exporter_tax_code"),
+                     r.get("consignee_name"), r.get("incoterms"),
+                     r.get("weight"), r.get("weight_unit"),
+                     r.get("package_count"), r.get("package_unit"),
+                     r.get("invoice_date"), r.get("departure_date"),
+                     r.get("destination_code"), r.get("destination_name"),
+                     r.get("transport_mode"), r.get("exchange_rate"),
                      upload_id, payload_json))
                 n += 1
     return n

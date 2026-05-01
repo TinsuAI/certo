@@ -13,10 +13,6 @@
   </div>
   <form method="post" action="/clients/{{ client.client_id }}/bcct/upload"
         enctype="multipart/form-data" class="zone mini-panel" style="max-width: 700px;">
-    <label class="field">
-      <span class="field-label">{{ t('bcct.year') }}</span>
-      <input type="number" name="year" min="2020" max="2099" value="2025" required>
-    </label>
     <div class="upload-zone">
       <input type="file" name="file" accept=".xlsx,.xls" required>
       <p class="meta">{{ t('bcct.upload_help') }}</p>
