@@ -1,6 +1,7 @@
 # Project Status
 
-**Date:** 2026-05-02 EOD — Phase 1+2+3 shipped (parser bug fixes + universal preview-confirm + LLM fallback for BOM/BQD).
+**Date:** 2026-05-02 — Visibility sprint shipped (A2 LLM-gate cement + A3 staleness bar + A4 catalog provenance).
+**Earlier:** Phase 1+2+3 (parser bug fixes + universal preview-confirm + LLM fallback for BOM/BQD).
 
 ## Current State
 
@@ -23,7 +24,9 @@ What works (post Phase 1+2+3):
 - i18n bilingual: Vietnamese default + English toggle (cookie). ~190 translation keys.
 - Auto-seed on empty DB: creates Growatt VN + Johnson VN demo data.
 - 4-role RBAC + per-client ACL (2026-05-02). `dev` / `admin` / `manager` / `staff`.
-- **119 pytest tests passing with `DATA_HUB_REAL_DATA_DIR` set + 104+15skip without env. 0 xfail.**
+- **132 pytest tests passing without `DATA_HUB_REAL_DATA_DIR` (was 104). +15 real-data tests with env var set. 0 xfail.**
+- **Catalog provenance tracking** (post Sprint A4): every `hub.materials` row carries `provenance jsonb` with three optional keys (`registered_with_hq` / `seen_in_bcct` / `user_added`). BCCT auto-derive runs in same txn as `_apply_bcct_rows` so new declaration codes flow into catalog as ⚠seen rows. Audit alarm surfaces "X codes on BCCT but not registered" when count > 0.
+- **Staleness bar** (post Sprint A3) at top of every workspace tab: last upload + most recent data row.
 - Playwright UI smoke at `scripts/smoke_real_uploads.py` (9-job matrix: BQD×3 + Catalog×2 + BOM×3 + BCCT×1, all jobs route through preview-confirm).
 - Real-data corpus staged at `/tmp/dh_real_data/{growatt,dke,dothanh,johnson,manual_test}/`.
 - Audit script `scripts/audit_pass2_deps.py` for future alias drift detection.
@@ -36,6 +39,12 @@ DB state (post Phase 1-3 UI smoke):
 - 5119 BCCT rows from earlier sessions remain.
 
 ## Recent Changes
+
+**2026-05-02 — Visibility sprint (autopilot, ~20 min, 3 commits, ~700 LoC).** Brief: `.ai/features/2026-05-02-visibility-sprint.md`. Session log: `.ai/sessions/2026-05-02-visibility-sprint.md`.
+
+- **A2 (commit `1f4d70a`):** STATUS follow-up #1 was stale — Phase 2's universal `_ingest_rows` stash already routed `parse_mapping_confirm` through the diff-preview gate. Locked with 2 regression tests (`test_ingest_rows_default_routes_through_preview_gate`, `test_ingest_rows_partial_confirm_still_gated`).
+- **A3 (commit `53da49b`):** staleness metadata bar at top of all 4 workspace tabs (BCCT/BOM/BQD/Catalog). Two distinct signals: last upload + most recent data row. New `app/stores/staleness.py` (`tab_freshness` + `humanize_age` bilingual). 16 new tests + curl smoke verified.
+- **A4 (commit `6141d1e`):** catalog multi-source provenance. `hub.materials.provenance jsonb` with 3 keys (registered_with_hq / seen_in_bcct / user_added). Migration 014 backfills existing rows. New `app/stores/provenance.py:derive_from_bcct` runs in same transaction as `_apply_bcct_rows`. Catalog UI gets badge column + Source filter chip row + audit alarm "X mã trên BCCT chưa ĐK HQ". 10 new tests + E2E UI smoke verified.
 
 **2026-05-02 EOD — Phase 1+2+3 shipped (~2,400 LoC, 4 commits, autopilot run).** Session log: `.ai/sessions/2026-05-02-phase-1-3-parser-and-preview.md`. Feature brief: `.ai/features/2026-05-02-universal-preview-and-parser-fixes.md`.
 
