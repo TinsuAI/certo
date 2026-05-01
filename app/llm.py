@@ -172,23 +172,32 @@ def propose_header_mapping(
         "logical_fields": target_fields,
     }
 
+    # OpenAI's structured-output rule + many compat servers (LM Studio,
+    # llama.cpp grammar mode, vLLM) enforce: when response_format is json,
+    # the word "json" must appear lowercase in the messages. Make sure it
+    # does — both in system prompt and in the user payload.
     system = (
-        "You are a Vietnamese-customs Excel column-mapping assistant. The user "
-        "uploads a spreadsheet whose headers don't match the rigid parser's "
-        "alias list. Given headers + a few sample rows + a list of logical "
-        "fields, return a JSON object mapping each input header to one logical "
-        "field (or omit if unmapped). Headers are Vietnamese, English, or "
-        "Chinese. Match by both the header text and the value patterns in the "
-        "samples (numeric vs date vs short codes).\n\n"
-        "Rules:\n"
+        "You are a Vietnamese-customs Excel column-mapping assistant. The "
+        "user uploads a spreadsheet whose headers don't match the rigid "
+        "parser's alias list. Given headers + a few sample rows + a list "
+        "of logical fields, return a json object mapping each input header "
+        "to one logical field (or omit if unmapped). Headers are "
+        "Vietnamese, English, or Chinese. Match by both the header text "
+        "and the value patterns in the samples (numeric vs date vs short "
+        "codes).\n\n"
+        "Output rules:\n"
         "1. Each logical field is mapped to AT MOST one header.\n"
         "2. Each header maps to AT MOST one logical field (omit ambiguous).\n"
         "3. Use only the provided logical_fields. Don't invent new ones.\n"
         "4. Prefer omitting over guessing.\n"
-        "5. Return strict JSON: {\"mapping\": {\"<header>\": \"<logical_field>\", ...}}.\n"
-        "Do not return anything outside the JSON."
+        "5. Reply with strict json only: "
+        "{\"mapping\": {\"<header>\": \"<logical_field>\", ...}}\n"
+        "Do not return anything outside the json object."
     )
-    user = json.dumps(user_payload, ensure_ascii=False)
+    user = (
+        "json input follows. Reply with json only.\n\n"
+        + json.dumps(user_payload, ensure_ascii=False)
+    )
 
     from openai import OpenAI
 
