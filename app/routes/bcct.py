@@ -371,23 +371,26 @@ def _stash_pending(*, client_id: str, upload_id: str, parsed: list[dict],
     return pending_id
 
 
-def _apply_bcct_rows(*, client_id: str, rows: list[dict], upload_id: str,
+def _apply_bcct_rows(*, client_id: str, rows: list[dict], upload_id: str | None,
                     parser, orphans_to_delete: list[dict],
                     user_id: str | None) -> int:
-    """Insert/update parsed rows; delete confirmed orphans. All in one
-    txn so the audit trigger sees a coherent actor."""
-    n = _insert_bcct(client_id=client_id, rows=rows, upload_id=upload_id,
-                     parser=parser, user_id=user_id)
-    if orphans_to_delete:
-        with connect(user_id=user_id) as conn:
-            with conn.cursor() as cur:
-                for o in orphans_to_delete:
-                    txn, line = o["key"]
-                    cur.execute(
-                        "delete from hub.bcct_rows where client_id=%s "
-                        "  and transaction_key=%s and line_no=%s",
-                        (client_id, txn, line),
-                    )
+    """Insert/update parsed rows; delete confirmed orphans. SHARED CONNECTION
+    so the whole apply runs in a single transaction — partial failure
+    (insert succeeds, delete crashes) cannot leave the DB inconsistent.
+    """
+    with connect(user_id=user_id) as conn:
+        with conn.cursor() as cur:
+            n = _insert_bcct_with_cursor(
+                cur, client_id=client_id, rows=rows,
+                upload_id=upload_id, parser=parser,
+            )
+            for o in orphans_to_delete:
+                txn, line = o["key"]
+                cur.execute(
+                    "delete from hub.bcct_rows where client_id=%s "
+                    "  and transaction_key=%s and line_no=%s",
+                    (client_id, txn, line),
+                )
     return n
 
 
@@ -404,6 +407,7 @@ async def _request_llm_mapping(
                 cur.execute(
                     "update hub.file_uploads set parse_status='error', parse_error=%s, parsed_at=now() where upload_id=%s",
                     (rigid_error, upload_id))
+        # Rigid-error message is hub-generated, safe to surface.
         raise HTTPException(400, f"Parse error: {rigid_error}")
 
     headers, sample_rows = _sample_rows_first_sheet(blob)
@@ -413,12 +417,21 @@ async def _request_llm_mapping(
             headers=headers, sample_rows=sample_rows, cfg=cfg,
         )
     except (llm.LLMUnavailable, llm.LLMProposalError) as e:
+        # SDK exception strings can carry the request URL with the
+        # Authorization header in some libs/versions. Log full detail
+        # server-side; surface only a generic message to the browser.
+        import logging
+        logging.getLogger(__name__).exception("LLM proposal failed")
         with connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "update hub.file_uploads set parse_status='error', parse_error=%s, parsed_at=now() where upload_id=%s",
-                    (f"{rigid_error}; LLM: {e}", upload_id))
-        raise HTTPException(400, f"Parse error (LLM unavailable): {e}")
+                    (f"{rigid_error}; LLM: {type(e).__name__}", upload_id))
+        raise HTTPException(
+            400,
+            "Parse error and LLM proposal failed. Check server logs or try "
+            "another file. (Detail withheld to avoid leaking credentials.)",
+        )
 
     payload = {
         "file_signature": file_signature,
@@ -636,6 +649,14 @@ async def bcct_row_history(request: Request, client_id: str,
 
 @router.post("/clients/{client_id}/bcct/upload/preview/{pending_id}/confirm")
 async def upload_preview_confirm(request: Request, client_id: str, pending_id: str):
+    """Apply a stashed upload, honouring the user's confirm choices.
+
+    CRITICAL: this path uses the *stashed* diff_summary as the single source
+    of truth for what's NEW / DIFF / ORPHAN. It does NOT re-classify after
+    filtering rows, because filtering would turn unconfirmed-DIFF rows into
+    new ORPHANs (they're now missing from `rows`), and a `confirm_orphans=
+    True` would then DELETE rows the user explicitly chose to preserve.
+    """
     user = auth.require_user(request)
     auth.require_can_edit_client(user, client_id)
     client = get_client(client_id)
@@ -674,20 +695,41 @@ async def upload_preview_confirm(request: Request, client_id: str, pending_id: s
                 except ValueError:
                     r[k] = None
         return r
-    rows = [_restore_dates(r) for r in parsed_rows]
+    parsed_rows = [_restore_dates(r) for r in parsed_rows]
 
-    # If user didn't confirm DIFFs, drop those rows from the apply set so
-    # we don't UPDATE existing values. Identify by (transaction_key, line_no).
-    if not confirm_diffs and diff_summary.get("diff"):
-        diff_keys = {tuple(d["key"]) for d in diff_summary["diff"]}
-        rows = [r for r in rows
-                if (r.get("transaction_key"), r.get("line_no", "0")) not in diff_keys]
+    # Use stashed diff to bucket rows. Don't re-classify.
+    diff_keys = {tuple(d["key"]) for d in diff_summary.get("diff", [])}
+    # Rows to apply:
+    #   • all NEW + NOOP rows (always — NOOPs are no-op upserts, NEWs insert)
+    #   • DIFF rows iff confirm_diffs (otherwise the existing DB row is
+    #     left untouched)
+    rows_to_apply: list[dict] = []
+    for r in parsed_rows:
+        key = (r.get("transaction_key"), r.get("line_no", "0"))
+        if key in diff_keys:
+            if confirm_diffs:
+                rows_to_apply.append(r)
+            # else: skip — leave DB row as-is
+        else:
+            rows_to_apply.append(r)
 
-    request.state.user = user
-    return _ingest_rows(
-        client_id=client_id, client=client,
-        rows=rows, upload_id=upload_id, request=request,
-        confirm_diffs=True, confirm_orphans=confirm_orphans,
+    orphans_to_delete = diff_summary.get("orphan", []) if confirm_orphans else []
+
+    parser = internal_code_parser_for(client_id, client["code_resolution_mode"])
+    n = _apply_bcct_rows(
+        client_id=client_id, rows=rows_to_apply, upload_id=upload_id,
+        parser=parser, orphans_to_delete=orphans_to_delete,
+        user_id=user.user_id,
+    )
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "update hub.file_uploads set parse_status='done', "
+                "  row_count=%s, parsed_at=now() where upload_id=%s",
+                (n, upload_id),
+            )
+    return RedirectResponse(
+        url=f"/clients/{client_id}/bcct", status_code=303,
     )
 
 
@@ -729,92 +771,102 @@ def _years(client_id: str) -> list[int]:
 
 
 def _insert_bcct(*, client_id: str, rows: list[dict],
-                 upload_id: str, parser, user_id: str | None = None) -> int:
-    """Insert BCCT rows. `year` column is GENERATED ALWAYS AS STORED in the
-    DB (from `registration_date`), so it's not in the column list. The
-    caller passes user_id to set the audit-log GUC."""
-    import json
-    n = 0
+                 upload_id: str | None, parser, user_id: str | None = None) -> int:
+    """Insert BCCT rows. Opens its own connection. For multi-step apply
+    paths (e.g. confirm flow that also DELETEs orphans), call
+    `_insert_bcct_with_cursor` directly to share the transaction."""
     with connect(user_id=user_id) as conn:
         with conn.cursor() as cur:
-            for r in rows:
-                customs_code = r.get("customs_code")
-                goods_name = r.get("goods_name") or ""
-                # internal_code is the AGENCY's ERP/internal code, distinct from
-                # the HQ-assigned customs_code. BCCT files don't carry an
-                # internal-code column natively (if they do, staff added it
-                # post-export). Hub derives it from goods_name via per-client
-                # parser. NULL is the correct state when the parser can't
-                # extract — staff/BQD pairs it explicitly later. Don't conflate
-                # with customs_code unless the client opted into identity mode.
-                if parser is None:
-                    # identity mode: client declares internal == customs
-                    internal_code = customs_code
-                else:
-                    internal_code = parser(goods_name)
-                payload_json = json.dumps(r.get("payload") or {}, ensure_ascii=False)
-                cur.execute(
-                    """
-                    insert into hub.bcct_rows
-                      (client_id, transaction_key, line_no, declaration_no,
-                       declaration_type, direction, registration_date, customs_code,
-                       internal_code, goods_name, hs_code, quantity, unit,
-                       quantity_2, unit_2, unit_price, total_value, currency, origin,
-                       invoice_ref,
-                       exporter_name, exporter_tax_code, consignee_name, incoterms,
-                       weight, weight_unit, package_count, package_unit,
-                       invoice_date, departure_date,
-                       destination_code, destination_name,
-                       transport_mode, exchange_rate,
-                       upload_id, payload)
-                    values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s,
-                            %s, %s, %s, %s,
-                            %s, %s,
-                            %s, %s,
-                            %s, %s,
-                            %s, %s::jsonb)
-                    on conflict (client_id, year, transaction_key, line_no) do update set
-                      declaration_no = excluded.declaration_no,
-                      customs_code = excluded.customs_code,
-                      internal_code = excluded.internal_code,
-                      goods_name = excluded.goods_name,
-                      quantity = excluded.quantity,
-                      total_value = excluded.total_value,
-                      exporter_name = excluded.exporter_name,
-                      exporter_tax_code = excluded.exporter_tax_code,
-                      consignee_name = excluded.consignee_name,
-                      incoterms = excluded.incoterms,
-                      weight = excluded.weight,
-                      weight_unit = excluded.weight_unit,
-                      package_count = excluded.package_count,
-                      package_unit = excluded.package_unit,
-                      invoice_date = excluded.invoice_date,
-                      departure_date = excluded.departure_date,
-                      destination_code = excluded.destination_code,
-                      destination_name = excluded.destination_name,
-                      transport_mode = excluded.transport_mode,
-                      exchange_rate = excluded.exchange_rate,
-                      payload = excluded.payload,
-                      upload_id = excluded.upload_id,
-                      indexed_at = now()
-                    """,
-                    (client_id, r["transaction_key"], r.get("line_no", "0"),
-                     r.get("declaration_no"), r.get("declaration_type"),
-                     r.get("direction"), r.get("registration_date"),
-                     customs_code, internal_code, goods_name, r.get("hs_code"),
-                     r.get("quantity"), r.get("unit"),
-                     r.get("quantity_2"), r.get("unit_2"),
-                     r.get("unit_price"), r.get("total_value"),
-                     r.get("currency"), r.get("origin"), r.get("invoice_ref"),
-                     r.get("exporter_name"), r.get("exporter_tax_code"),
-                     r.get("consignee_name"), r.get("incoterms"),
-                     r.get("weight"), r.get("weight_unit"),
-                     r.get("package_count"), r.get("package_unit"),
-                     r.get("invoice_date"), r.get("departure_date"),
-                     r.get("destination_code"), r.get("destination_name"),
-                     r.get("transport_mode"), r.get("exchange_rate"),
-                     upload_id, payload_json))
-                n += 1
+            return _insert_bcct_with_cursor(
+                cur, client_id=client_id, rows=rows,
+                upload_id=upload_id, parser=parser,
+            )
+
+
+def _insert_bcct_with_cursor(cur, *, client_id: str, rows: list[dict],
+                             upload_id: str | None, parser) -> int:
+    """Insert/upsert BCCT rows on the given cursor. `year` is GENERATED
+    ALWAYS AS STORED (from registration_date); not in the column list."""
+    import json
+    n = 0
+    for r in rows:
+        customs_code = r.get("customs_code")
+        goods_name = r.get("goods_name") or ""
+        # internal_code is the AGENCY's ERP/internal code, distinct from
+        # the HQ-assigned customs_code. BCCT files don't carry an
+        # internal-code column natively (if they do, staff added it
+        # post-export). Hub derives it from goods_name via per-client
+        # parser. NULL is the correct state when the parser can't
+        # extract — staff/BQD pairs it explicitly later. Don't conflate
+        # with customs_code unless the client opted into identity mode.
+        if parser is None:
+            # identity mode: client declares internal == customs
+            internal_code = customs_code
+        else:
+            internal_code = parser(goods_name)
+        payload_json = json.dumps(r.get("payload") or {}, ensure_ascii=False)
+        cur.execute(
+            """
+            insert into hub.bcct_rows
+              (client_id, transaction_key, line_no, declaration_no,
+               declaration_type, direction, registration_date, customs_code,
+               internal_code, goods_name, hs_code, quantity, unit,
+               quantity_2, unit_2, unit_price, total_value, currency, origin,
+               invoice_ref,
+               exporter_name, exporter_tax_code, consignee_name, incoterms,
+               weight, weight_unit, package_count, package_unit,
+               invoice_date, departure_date,
+               destination_code, destination_name,
+               transport_mode, exchange_rate,
+               upload_id, payload)
+            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s,
+                    %s, %s,
+                    %s, %s,
+                    %s, %s::jsonb)
+            on conflict (client_id, year, transaction_key, line_no) do update set
+              declaration_no = excluded.declaration_no,
+              customs_code = excluded.customs_code,
+              internal_code = excluded.internal_code,
+              goods_name = excluded.goods_name,
+              quantity = excluded.quantity,
+              total_value = excluded.total_value,
+              exporter_name = excluded.exporter_name,
+              exporter_tax_code = excluded.exporter_tax_code,
+              consignee_name = excluded.consignee_name,
+              incoterms = excluded.incoterms,
+              weight = excluded.weight,
+              weight_unit = excluded.weight_unit,
+              package_count = excluded.package_count,
+              package_unit = excluded.package_unit,
+              invoice_date = excluded.invoice_date,
+              departure_date = excluded.departure_date,
+              destination_code = excluded.destination_code,
+              destination_name = excluded.destination_name,
+              transport_mode = excluded.transport_mode,
+              exchange_rate = excluded.exchange_rate,
+              payload = excluded.payload,
+              upload_id = excluded.upload_id,
+              indexed_at = now()
+            """,
+            (client_id, r["transaction_key"], r.get("line_no", "0"),
+             r.get("declaration_no"), r.get("declaration_type"),
+             r.get("direction"), r.get("registration_date"),
+             customs_code, internal_code, goods_name, r.get("hs_code"),
+             r.get("quantity"), r.get("unit"),
+             r.get("quantity_2"), r.get("unit_2"),
+             r.get("unit_price"), r.get("total_value"),
+             r.get("currency"), r.get("origin"), r.get("invoice_ref"),
+             r.get("exporter_name"), r.get("exporter_tax_code"),
+             r.get("consignee_name"), r.get("incoterms"),
+             r.get("weight"), r.get("weight_unit"),
+             r.get("package_count"), r.get("package_unit"),
+             r.get("invoice_date"), r.get("departure_date"),
+             r.get("destination_code"), r.get("destination_name"),
+             r.get("transport_mode"), r.get("exchange_rate"),
+             upload_id, payload_json))
+        n += 1
     return n

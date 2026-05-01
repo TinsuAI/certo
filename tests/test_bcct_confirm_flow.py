@@ -259,6 +259,99 @@ def test_trigger_writes_system_when_guc_unset():
 # upload_pending TTL + idempotency
 # ───────────────────────────────────────────────────────────────────────
 
+def test_confirm_orphans_only_does_not_delete_unconfirmed_diff_rows():
+    """Regression for the data-loss bug found in /rev (2026-05-04):
+
+    File [A,B,C], DB [A,B,C,D]. A's quantity changed (DIFF), D is orphan.
+    User submits confirm_orphans=True, confirm_diffs=False.
+
+    Old buggy behavior: filter A from rows → re-classify [B,C] vs DB →
+      A and D both detected as orphan → both deleted.
+    Correct behavior: A is preserved (user didn't confirm overwrite);
+      only D is deleted.
+    """
+    from app.routes.bcct import _apply_bcct_rows
+    from app.parsers.goods_name import internal_code_parser_for
+
+    # Use distinct decl_nos so each row has a unique txn_key (helper
+    # constructs the key from decl_no alone).
+    txn_a = _seed_row("REGRESS_A", "1", quantity=100, customs_code="A-CODE")
+    txn_b = _seed_row("REGRESS_B", "1", quantity=200, customs_code="B-CODE")
+    txn_c = _seed_row("REGRESS_C", "1", quantity=300, customs_code="C-CODE")
+    txn_d = _seed_row("REGRESS_D", "1", quantity=400, customs_code="D-CODE")
+
+    # Simulate the confirm-route bucketing logic. Stashed diff_summary
+    # would say: A is DIFF (quantity changed), B/C are NOOP, D is ORPHAN.
+    diff_summary = {
+        "new": 0, "noop": 2,
+        "diff": [{"key": [txn_a, "1"], "decl_no": "REGRESS_A", "line_no": "1",
+                  "old": {"quantity": 100}, "new": {"quantity": 95},
+                  "changed_fields": ["quantity"]}],
+        "orphan": [{"key": [txn_d, "1"], "decl_no": "REGRESS_D", "line_no": "1"}],
+    }
+    parsed_rows = [
+        # A — would-be DIFF if applied
+        {"transaction_key": txn_a, "line_no": "1", "declaration_no": "REGRESS_A",
+         "registration_date": "2025-01-15", "customs_code": "A-CODE",
+         "internal_code": "A-CODE", "goods_name": "PE-001#&Polyethylene",
+         "quantity": 95, "total_value": 250,
+         "declaration_type": "E11", "direction": "import"},
+        # B, C — unchanged
+        {"transaction_key": txn_b, "line_no": "1", "declaration_no": "REGRESS_B",
+         "registration_date": "2025-01-15", "customs_code": "B-CODE",
+         "internal_code": "B-CODE", "goods_name": "PE-001#&Polyethylene",
+         "quantity": 200, "total_value": 250,
+         "declaration_type": "E11", "direction": "import"},
+        {"transaction_key": txn_c, "line_no": "1", "declaration_no": "REGRESS_C",
+         "registration_date": "2025-01-15", "customs_code": "C-CODE",
+         "internal_code": "C-CODE", "goods_name": "PE-001#&Polyethylene",
+         "quantity": 300, "total_value": 250,
+         "declaration_type": "E11", "direction": "import"},
+    ]
+
+    # Apply the (fixed) confirm logic: confirm_orphans=True, confirm_diffs=False
+    confirm_diffs = False
+    confirm_orphans = True
+    diff_keys = {tuple(d["key"]) for d in diff_summary["diff"]}
+    rows_to_apply = []
+    for r in parsed_rows:
+        key = (r["transaction_key"], r["line_no"])
+        if key in diff_keys:
+            if confirm_diffs:
+                rows_to_apply.append(r)
+        else:
+            rows_to_apply.append(r)
+    orphans_to_delete = diff_summary["orphan"] if confirm_orphans else []
+
+    parser = internal_code_parser_for(CLIENT, "batch_aggregate_resolution")
+    _apply_bcct_rows(
+        client_id=CLIENT, rows=rows_to_apply, upload_id=None,
+        parser=parser, orphans_to_delete=orphans_to_delete,
+        user_id="regress-test",
+    )
+
+    # Verify final DB state:
+    #   A still exists with quantity=100 (user did NOT confirm DIFF)
+    #   B,C unchanged
+    #   D deleted (user confirmed ORPHAN)
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select transaction_key, quantity from hub.bcct_rows "
+                "where transaction_key like %s order by transaction_key",
+                (TXN_PREFIX + "REGRESS_%",),
+            )
+            present = {row[0]: float(row[1]) for row in cur.fetchall()}
+
+    assert txn_a in present, "Row A was wrongly deleted (data-loss regression!)"
+    assert present[txn_a] == 100, (
+        f"Row A's quantity changed without user confirmation: {present[txn_a]}"
+    )
+    assert txn_b in present and present[txn_b] == 200
+    assert txn_c in present and present[txn_c] == 300
+    assert txn_d not in present, "Row D should have been deleted (confirmed orphan)"
+
+
 def test_force_apply_cli_records_synthetic_actor():
     """scripts/bcct_force_apply.py should set the GUC to 'ops:script' so
     the audit trigger captures the bypass actor."""
