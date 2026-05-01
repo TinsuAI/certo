@@ -39,11 +39,20 @@
       <tr>
         <td class="mono">{{ u.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
         <td><span class="badge">{{ u.module }}</span></td>
-        <td>{{ u.original_filename }}</td>
+        <td>
+          {{ u.original_filename }}
+          {% if u.parse_status == 'proposed_mapping' and u.module == 'bcct' %}
+            · <a href="/clients/{{ client.client_id }}/bcct/parse-mapping/{{ u.upload_id }}">
+                review mapping →
+              </a>
+          {% endif %}
+        </td>
         <td class="mono">{{ '%d KB'|format(u.size_bytes // 1024) if u.size_bytes else '—' }}</td>
         <td>
           {% if u.parse_status == 'done' %}<span class="badge badge-success">done</span>
           {% elif u.parse_status == 'error' %}<span class="badge badge-warning">error</span>
+          {% elif u.parse_status == 'proposed_mapping' %}<span class="badge badge-info">proposed_mapping</span>
+          {% elif u.parse_status == 'rejected' %}<span class="badge badge-warning">rejected</span>
           {% else %}<span class="badge">{{ u.parse_status }}</span>{% endif %}
         </td>
         <td class="mono">{{ u.row_count if u.row_count is not none else '—' }}</td>
