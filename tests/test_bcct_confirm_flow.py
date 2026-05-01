@@ -259,6 +259,27 @@ def test_trigger_writes_system_when_guc_unset():
 # upload_pending TTL + idempotency
 # ───────────────────────────────────────────────────────────────────────
 
+def test_force_apply_cli_records_synthetic_actor():
+    """scripts/bcct_force_apply.py should set the GUC to 'ops:script' so
+    the audit trigger captures the bypass actor."""
+    txn = _seed_row("CLI_TEST", "1", quantity=100)
+    # Simulate what the CLI does: connect with the synthetic user_id.
+    with connect(user_id="ops:script") as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "update hub.bcct_rows set quantity=42 where transaction_key=%s",
+                (txn,),
+            )
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select changed_by from hub.bcct_row_history where transaction_key=%s",
+                (txn,),
+            )
+            (actor,) = cur.fetchone()
+    assert actor == "ops:script"
+
+
 def test_pending_purge_function_clears_expired():
     with connect() as conn:
         with conn.cursor() as cur:

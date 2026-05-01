@@ -577,6 +577,63 @@ async def upload_preview_view(request: Request, client_id: str, pending_id: str)
     )
 
 
+@router.get("/clients/{client_id}/bcct/history/{transaction_key}/{line_no}",
+            response_class=HTMLResponse)
+async def bcct_row_history(request: Request, client_id: str,
+                           transaction_key: str, line_no: str):
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select action, changed_by, changed_at, upload_id,
+                       old_row, new_row
+                from hub.bcct_row_history
+                where client_id = %s and transaction_key = %s and line_no = %s
+                order by changed_at desc
+                limit 200
+                """,
+                (client_id, transaction_key, line_no),
+            )
+            cols = [d[0] for d in cur.description]
+            events = [dict(zip(cols, r)) for r in cur.fetchall()]
+            cur.execute(
+                """
+                select declaration_no, registration_date, customs_code,
+                       internal_code, goods_name, quantity, unit, total_value
+                from hub.bcct_rows
+                where client_id = %s and transaction_key = %s and line_no = %s
+                """,
+                (client_id, transaction_key, line_no),
+            )
+            current_row = cur.fetchone()
+    # Compute changed fields per event for the template
+    for ev in events:
+        old_row = ev.get("old_row") or {}
+        new_row = ev.get("new_row") or {}
+        if ev["action"] == "delete":
+            ev["changed_fields"] = list(old_row.keys())
+        else:
+            ev["changed_fields"] = sorted(
+                k for k in (old_row.keys() | new_row.keys())
+                if old_row.get(k) != new_row.get(k)
+            )
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/bcct_history.html",
+        {
+            "client": client, "stats": stats_for_client(client_id),
+            "transaction_key": transaction_key, "line_no": line_no,
+            "events": events,
+            "current_row": current_row,
+            "active_root": "clients", "active_tab": "bcct",
+        },
+    )
+
+
 @router.post("/clients/{client_id}/bcct/upload/preview/{pending_id}/confirm")
 async def upload_preview_confirm(request: Request, client_id: str, pending_id: str):
     user = auth.require_user(request)

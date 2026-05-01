@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Lịch sử dòng BCCT · {{ client.name }} · {{ t('app.brand') }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Lịch sử thay đổi · {{ transaction_key }} · dòng {{ line_no }}</h2>
+      <p class="meta">
+        Tracker AFTER UPDATE / DELETE trigger trên <code>hub.bcct_rows</code>.
+        Insert không log riêng; recover bằng <code>upload_id</code>.
+      </p>
+    </div>
+    <div>
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bcct">{{ t('common.cancel') }}</a>
+    </div>
+  </div>
+
+  {% if not events %}
+  <p class="meta">Không có thay đổi nào được log cho dòng này.</p>
+  {% else %}
+  <table class="dh-table">
+    <thead>
+      <tr>
+        <th>Khi</th>
+        <th>Ai</th>
+        <th>Hành động</th>
+        <th>Field thay đổi</th>
+        <th>Cũ → Mới</th>
+        <th>Upload</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ev in events %}
+      <tr>
+        <td class="mono">{{ ev.changed_at }}</td>
+        <td><code>{{ ev.changed_by }}</code></td>
+        <td>
+          {% if ev.action == 'delete' %}
+            <span class="badge badge-danger">delete</span>
+          {% else %}
+            <span class="badge badge-warn">update</span>
+          {% endif %}
+        </td>
+        <td>
+          {% for f in ev.changed_fields %}<code>{{ f }}</code>{% if not loop.last %} · {% endif %}{% endfor %}
+        </td>
+        <td class="meta">
+          {% for f in ev.changed_fields[:5] %}
+            <div>
+              <strong>{{ f }}</strong>:
+              {{ (ev.old_row or {}).get(f) | default('—', true) }}
+              {% if ev.action == 'update' %}→ {{ (ev.new_row or {}).get(f) | default('—', true) }}{% endif %}
+            </div>
+          {% endfor %}
+          {% if ev.changed_fields|length > 5 %}
+            <span class="meta">… +{{ ev.changed_fields|length - 5 }} fields</span>
+          {% endif %}
+        </td>
+        <td class="mono">{{ ev.upload_id or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+{% endblock %}
