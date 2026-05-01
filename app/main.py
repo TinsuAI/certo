@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 
 from app import auth, i18n
 from app.database import apply_migrations
-from app.routes import admin, api, bcct, bom, bqd, catalog, clients, proposals, uploads
+from app.routes import admin, api, bcct, bom, bqd, catalog, clients, notifications as notif_routes, proposals, uploads
 from app.seed import auto_seed_demo_if_empty
 
 ROOT = Path(__file__).resolve().parent
@@ -28,6 +28,22 @@ def template_context(request: Request) -> dict:
     theme = normalize_theme(request.cookies.get(THEME_COOKIE))
     lang = i18n.normalize_lang(request.cookies.get(LANG_COOKIE))
     user = auth.current_user(request)
+
+    # Bell badge data — single COUNT() per page render. Skipped when no
+    # user (login page); skipped when notifications module not loaded.
+    notif_unread = 0
+    notif_recent: list = []
+    if user is not None:
+        try:
+            from app import notifications as _notifs
+            notif_unread = _notifs.unread_count(user.user_id)
+            if notif_unread > 0:
+                notif_recent = _notifs.list_for_user(
+                    user.user_id, status="unread", limit=5,
+                )
+        except Exception:
+            pass  # bell is non-critical; never crash page render
+
     return {
         "theme": theme,
         "next_theme": "dark" if theme == "light" else "light",
@@ -36,6 +52,8 @@ def template_context(request: Request) -> dict:
         "t": lambda key: i18n.t(key, lang),
         "user": user,
         "can_manage_staff": lambda client_id: auth.can_assign_staff_to_client(user, client_id),
+        "notif_unread_count": notif_unread,
+        "notif_recent": notif_recent,
         "active_root": "",
         "active_tab": "",
         "message": None,
@@ -74,6 +92,7 @@ app.include_router(proposals.router)
 app.include_router(uploads.router)
 app.include_router(admin.router)
 app.include_router(api.router)
+app.include_router(notif_routes.router)
 
 
 @app.get("/healthz")

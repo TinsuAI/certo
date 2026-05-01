@@ -1,0 +1,48 @@
+{# Navbar bell: badge + dropdown of latest 5 unread.
+   Data injected by template_context (notif_unread_count, notif_recent).
+   Pure CSS dropdown via <details>; no JS needed. #}
+{% if user is not none %}
+<details class="notif-bell">
+  <summary class="notif-bell-summary topnav-chip topnav-chip-button"
+           aria-label="{{ t('notif.bell_aria') }}"
+           title="{{ t('notif.bell_aria') }}">
+    <svg class="topnav-chip-icon" xmlns="http://www.w3.org/2000/svg"
+         viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/>
+      <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>
+    </svg>
+    {% if notif_unread_count and notif_unread_count > 0 %}
+    <span class="notif-bell-badge" aria-label="{{ notif_unread_count }} {{ t('notif.unread') }}">{{ notif_unread_count if notif_unread_count < 100 else '99+' }}</span>
+    {% endif %}
+  </summary>
+  <div class="notif-bell-dropdown" role="menu">
+    <div class="notif-bell-header">
+      <strong>{{ t('notif.title') }}</strong>
+      {% if notif_unread_count and notif_unread_count > 0 %}
+      <form method="post" action="/notifications/read-all" class="notif-bell-clear-form">
+        <button type="submit" class="btn-link">{{ t('notif.mark_all_read') }}</button>
+      </form>
+      {% endif %}
+    </div>
+    {% if notif_recent %}
+    <ul class="notif-bell-list">
+      {% for n in notif_recent %}
+      <li class="notif-bell-item">
+        <form method="post" action="/notifications/{{ n.id }}/read">
+          <button type="submit" class="notif-bell-link">
+            <strong>{{ n.title }}</strong>
+            {% if n.body %}<div class="meta notif-body">{{ n.body }}</div>{% endif %}
+            <div class="meta notif-when">{{ n.created_at.strftime('%Y-%m-%d %H:%M') if n.created_at else '' }}</div>
+          </button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    <a href="/notifications" class="notif-bell-footer">{{ t('notif.view_all') }} →</a>
+    {% else %}
+    <p class="meta notif-bell-empty">{{ t('notif.empty') }}</p>
+    {% endif %}
+  </div>
+</details>
+{% endif %}

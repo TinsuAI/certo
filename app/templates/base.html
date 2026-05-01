@@ -35,6 +35,7 @@
         {{ t('nav.admin') }}
       </a>
       {% endif %}
+      {% include "notifications/_bell.html" ignore missing %}
       <span class="topnav-user" title="{{ user.role }}">{{ user.display_name }}</span>
       <form method="post" action="/settings/lang" class="topnav-toggle-form">
         <input type="hidden" name="lang" value="{{ next_lang }}">

@@ -311,6 +311,18 @@ STRINGS: dict[str, dict[str, str]] = {
         "staleness.most_recent_bom": "BOM mới nhất",
         "staleness.never": "chưa upload lần nào",
         "staleness.no_data": "chưa có dữ liệu",
+        # Notifications
+        "notif.title": "Thông báo",
+        "notif.bell_aria": "Mở thông báo",
+        "notif.unread": "chưa đọc",
+        "notif.read": "đã đọc",
+        "notif.read_at": "đọc lúc",
+        "notif.mark_all_read": "Đánh dấu tất cả đã đọc",
+        "notif.view_all": "Xem tất cả",
+        "notif.empty": "Chưa có thông báo nào.",
+        "notif.no_unread": "Không có thông báo chưa đọc.",
+        "notif.no_read": "Chưa có thông báo đã đọc.",
+        "notif.page_title": "Thông báo",
     },
     "en": {
         "app.brand": "Data Hub",
@@ -601,6 +613,18 @@ STRINGS: dict[str, dict[str, str]] = {
         "staleness.most_recent_bom": "Latest BOM",
         "staleness.never": "no uploads yet",
         "staleness.no_data": "no data yet",
+        # Notifications
+        "notif.title": "Notifications",
+        "notif.bell_aria": "Open notifications",
+        "notif.unread": "unread",
+        "notif.read": "read",
+        "notif.read_at": "read at",
+        "notif.mark_all_read": "Mark all read",
+        "notif.view_all": "View all",
+        "notif.empty": "No notifications yet.",
+        "notif.no_unread": "No unread notifications.",
+        "notif.no_read": "No read notifications yet.",
+        "notif.page_title": "Notifications",
     },
 }
 

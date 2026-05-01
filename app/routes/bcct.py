@@ -231,6 +231,28 @@ def _ingest_rows(*, client_id: str, client: dict, rows: list[dict],
             client_id=client_id, upload_id=upload_id, parsed=rows_with_date,
             diff_summary=diff_summary, created_by=actor_id,
         )
+        # Notify the uploader: their file is parked at the preview gate.
+        # Useful as a reminder if they navigate away — and as an audit
+        # trail showing what's pending across past sessions.
+        if actor_id:
+            from app import notifications as _notifs
+            n_total = diff_summary.get("total", 0)
+            n_diff = len(diff_summary.get("diff", []))
+            n_orph = len(diff_summary.get("orphan", []))
+            body = f"Tổng {n_total} dòng"
+            if n_diff or n_orph:
+                body += f" · {n_diff} cập nhật · {n_orph} xóa-có-thể"
+            try:
+                _notifs.notify(
+                    user_id=actor_id, kind="bcct_preview_pending",
+                    title=f"BCCT của {client_id} chờ xác nhận",
+                    body=body,
+                    link_url=f"/clients/{client_id}/bcct/upload/preview/{pending_id}",
+                    client_id=client_id, related_kind="upload_pending",
+                    related_id=pending_id,
+                )
+            except Exception:
+                pass  # notification is non-critical
         return RedirectResponse(
             url=f"/clients/{client_id}/bcct/upload/preview/{pending_id}",
             status_code=303,
@@ -434,7 +456,7 @@ def _apply_bcct_rows(*, client_id: str, rows: list[dict], upload_id: str | None,
     Also derives catalog provenance for the touched customs_codes so the
     'seen on declaration but not registered' alarm stays in sync (Sprint A4).
     """
-    from app.stores.provenance import derive_from_bcct
+    from app.stores.provenance import derive_from_bcct, unregistered_seen_count
 
     touched_codes: set[str] = set()
     for r in rows:
@@ -442,8 +464,12 @@ def _apply_bcct_rows(*, client_id: str, rows: list[dict], upload_id: str | None,
         if c:
             touched_codes.add(c)
 
+    unreg_before = 0
+    unreg_after = 0
     with connect(user_id=user_id) as conn:
         with conn.cursor() as cur:
+            if touched_codes:
+                unreg_before = unregistered_seen_count(cur, client_id=client_id)
             n = _insert_bcct_with_cursor(
                 cur, client_id=client_id, rows=rows,
                 upload_id=upload_id, parser=parser,
@@ -459,6 +485,28 @@ def _apply_bcct_rows(*, client_id: str, rows: list[dict], upload_id: str | None,
                 derive_from_bcct(
                     cur, client_id=client_id, customs_codes=touched_codes,
                 )
+                unreg_after = unregistered_seen_count(cur, client_id=client_id)
+
+    # Fan-out alarm if new unregistered codes appeared. Fires once per
+    # apply-batch even if many codes — staff doesn't get spam.
+    if unreg_after > unreg_before:
+        try:
+            from app import notifications as _notifs
+            new_unreg = unreg_after - unreg_before
+            user_ids = _notifs.staff_with_edit_access_to_client(client_id)
+            _notifs.notify_many(
+                user_ids=user_ids, kind="provenance_alarm",
+                title=f"{new_unreg} mã trên BCCT chưa đăng ký HQ",
+                body=(
+                    f"Khách hàng {client_id} vừa có {new_unreg} mã mới "
+                    f"xuất hiện trên tờ khai nhưng chưa được đăng ký với HQ. "
+                    f"Tổng còn chờ: {unreg_after}."
+                ),
+                link_url=f"/clients/{client_id}/catalog?provenance=unregistered",
+                client_id=client_id, related_kind="materials",
+            )
+        except Exception:
+            pass  # notification is non-critical
     return n
 
 

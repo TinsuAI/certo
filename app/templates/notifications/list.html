@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}{{ t('notif.page_title') }}{% endblock %}
+{% block content %}
+
+<section class="page-bar">
+  <h1>{{ t('notif.page_title') }}</h1>
+  <span class="page-tagline">
+    {{ unread_items|length }} {{ t('notif.unread') }} · {{ read_items|length }} {{ t('notif.read') }}
+  </span>
+  <div class="page-actions">
+    {% if unread_items %}
+    <form method="post" action="/notifications/read-all">
+      <button type="submit" class="btn-secondary">{{ t('notif.mark_all_read') }}</button>
+    </form>
+    {% endif %}
+  </div>
+</section>
+
+<section class="zone">
+  <h2>{{ t('notif.unread') }}</h2>
+  {% if unread_items %}
+  <ul class="notif-list">
+    {% for n in unread_items %}
+    <li class="notif-list-item notif-status-unread">
+      <div class="notif-list-meta">
+        <span class="badge badge-info">{{ n.kind }}</span>
+        {% if n.client_id %}<span class="meta">· {{ n.client_id }}</span>{% endif %}
+        <span class="meta">· {{ n.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+      </div>
+      <form method="post" action="/notifications/{{ n.id }}/read">
+        <button type="submit" class="notif-list-link">
+          <strong>{{ n.title }}</strong>
+          {% if n.body %}<div>{{ n.body }}</div>{% endif %}
+        </button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="meta">{{ t('notif.no_unread') }}</p>
+  {% endif %}
+
+  <h2 style="margin-top: 2rem;">{{ t('notif.read') }}</h2>
+  {% if read_items %}
+  <ul class="notif-list">
+    {% for n in read_items %}
+    <li class="notif-list-item notif-status-read">
+      <div class="notif-list-meta">
+        <span class="badge">{{ n.kind }}</span>
+        {% if n.client_id %}<span class="meta">· {{ n.client_id }}</span>{% endif %}
+        <span class="meta">· {{ n.created_at.strftime('%Y-%m-%d %H:%M') }} · {{ t('notif.read_at') }} {{ n.read_at.strftime('%Y-%m-%d %H:%M') if n.read_at else '' }}</span>
+      </div>
+      {% if n.link_url %}
+        <a href="{{ n.link_url }}" class="notif-list-link"><strong>{{ n.title }}</strong>{% if n.body %}<div>{{ n.body }}</div>{% endif %}</a>
+      {% else %}
+        <div class="notif-list-link"><strong>{{ n.title }}</strong>{% if n.body %}<div>{{ n.body }}</div>{% endif %}</div>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="meta">{{ t('notif.no_read') }}</p>
+  {% endif %}
+</section>
+
+{% endblock %}
