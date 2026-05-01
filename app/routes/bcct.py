@@ -133,7 +133,10 @@ def _insert_bcct(*, client_id: str, year: int, rows: list[dict],
             for r in rows:
                 customs_code = r.get("customs_code")
                 goods_name = r.get("goods_name") or ""
-                internal_code = parser(goods_name) if parser else customs_code
+                # Fall back to customs_code when the goods_name parser yields
+                # nothing (real BCCT often has rows whose Tên hàng doesn't fit
+                # any internal-code pattern; customs_code is the right anchor).
+                internal_code = (parser(goods_name) if parser else None) or customs_code
                 payload_json = json.dumps(r.get("payload") or {}, ensure_ascii=False)
                 cur.execute(
                     """

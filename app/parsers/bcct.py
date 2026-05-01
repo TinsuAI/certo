@@ -36,9 +36,12 @@ ALIASES = {
 }
 
 IMPORT_TYPES = {"E11", "E13", "E15", "E21", "E23", "E31", "E41",
-                "A11", "A12", "A41", "A42", "G11", "G12", "G13"}
+                "A11", "A12", "A41", "A42", "G11", "G12", "G13",
+                "H11", "H12", "H13",   # phi mậu dịch (non-commercial) imports
+                "C11", "C12"}          # tạm nhập kinh doanh (temporary commercial import)
 EXPORT_TYPES = {"E42", "E52", "E54", "E62", "E82",
-                "B11", "B12", "B13", "G21", "G22", "G23"}
+                "B11", "B12", "B13", "G21", "G22", "G23",
+                "H21", "H22", "H23"}   # phi mậu dịch (non-commercial) exports
 
 
 def parse_bcct_workbook(blob: bytes) -> list[dict]:

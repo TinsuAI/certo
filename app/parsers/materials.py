@@ -21,8 +21,11 @@ CATEGORY_MAP = {
 }
 
 ALIASES = {
-    "customs_code": ["mã hq", "mã hải quan", "ma hq", "ma hai quan", "customs code", "customs_code"],
-    "product_code": ["mã nội bộ", "ma noi bo", "mã nb", "internal code", "product code", "product_code"],
+    "customs_code": ["mã hq", "mã hải quan", "ma hq", "ma hai quan",
+                     "customs code", "customs_code",
+                     "mã"],   # fallback: bare 'Mã' in single-id Danh Mục files
+    "product_code": ["mã nội bộ", "ma noi bo", "mã nb", "internal code",
+                     "product code", "product_code"],
     "name": ["tên", "ten", "name", "tên hàng", "ten hang", "description"],
     "category": ["loại", "loai", "category", "type", "phân loại", "phan loai"],
     "unit": ["đvt", "dvt", "unit", "đơn vị tính"],
@@ -41,6 +44,26 @@ def normalize_category(value: str | None) -> str | None:
         if k in s or s in k:
             return v
     return None
+
+
+# DB CHECK constraint allows only ('active', 'discontinued'). Source files
+# carry agency-side lifecycle labels — normalize known VI/EN forms.
+STATUS_MAP = {
+    "active": "active", "đang dùng": "active", "dang dung": "active",
+    "đã duyệt": "active", "da duyet": "active",
+    "approved": "active", "in use": "active",
+    "discontinued": "discontinued", "ngừng": "discontinued", "ngung": "discontinued",
+    "không dùng": "discontinued", "khong dung": "discontinued",
+    "chờ duyệt": "discontinued", "cho duyet": "discontinued",
+    "pending": "discontinued", "inactive": "discontinued",
+}
+
+
+def normalize_status(value: str | None) -> str:
+    if not value:
+        return "active"
+    s = str(value).strip().lower()
+    return STATUS_MAP.get(s, "active")
 
 
 def parse_materials_workbook(blob: bytes, *, default_category: str = "nvl") -> list[dict]:
@@ -79,10 +102,12 @@ def parse_materials_workbook(blob: bytes, *, default_category: str = "nvl") -> l
                 "category": category,
                 "unit": _cell_str(row, cols.get("unit")),
                 "hs_code": _cell_str(row, cols.get("hs_code")),
-                "status": (_cell_str(row, cols.get("status")) or "active").lower(),
+                "status": normalize_status(_cell_str(row, cols.get("status"))),
             })
     if not rows:
-        raise MaterialsParseError("No material rows recognized; check headers (Mã HQ + Loại required).")
+        raise MaterialsParseError(
+            "No material rows recognized; need at least one identifier column "
+            "(Mã HQ / Mã NB / Mã / product_code).")
     return rows
 
 
