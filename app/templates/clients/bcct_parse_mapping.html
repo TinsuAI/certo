@@ -30,6 +30,12 @@
       </thead>
       <tbody>
         {% for header in headers %}
+          {# Capture outer loop's column index BEFORE the inner samples
+             loop overrides `loop.index0`. This was the bug: the inner
+             loop's index0 was used for the column position, so every
+             header row showed the same cells (samples[0][0] · samples[1][1] · …)
+             instead of column-specific values. #}
+          {% set col_idx = loop.index0 %}
         <tr>
           <td><code>{{ header }}</code></td>
           <td>
@@ -40,8 +46,10 @@
           </td>
           <td class="meta">
             {% for row in samples %}
-              {% set value = row[loop.index0] if loop.index0 < (samples[0]|length if samples else 0) else '' %}
-              {{ value | default('—', true) | string | truncate(32) }}{% if not loop.last %} · {% endif %}
+              {% if col_idx < row|length %}
+                {{ row[col_idx] | default('—', true) | string | truncate(32) }}
+              {% else %}—{% endif %}
+              {%- if not loop.last %} · {% endif %}
             {% endfor %}
           </td>
         </tr>
