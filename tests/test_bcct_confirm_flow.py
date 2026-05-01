@@ -373,6 +373,135 @@ def test_force_apply_cli_records_synthetic_actor():
     assert actor == "ops:script"
 
 
+def test_ingest_rows_default_routes_through_preview_gate():
+    """Phase 2 contract: any caller of _ingest_rows that doesn't pass
+    BOTH confirm_diffs=True AND confirm_orphans=True gets the preview
+    gate. Cementing this so the LLM-mapping-confirm path
+    (parse_mapping_confirm → _ingest_rows with no confirm flags) cannot
+    silently regress to bypass the diff/orphan check."""
+    import secrets
+    from app.routes.bcct import _ingest_rows
+    from app.routes.clients import get_client
+
+    # Seed an empty file_uploads row so the pending insert's FK is valid.
+    upload_id = "GATE_TEST_" + secrets.token_hex(6)
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into hub.file_uploads
+                  (upload_id, client_id, module, original_filename,
+                   stored_path, content_sha256, size_bytes, parse_status)
+                values (%s, %s, 'bcct', 'test.xlsx', '/dev/null',
+                        'deadbeef', 0, 'pending')
+                """,
+                (upload_id, CLIENT),
+            )
+
+    rows = [{
+        "transaction_key": TXN_PREFIX + "GATE",
+        "line_no": "1",
+        "declaration_no": TXN_PREFIX + "GATE",
+        "registration_date": "2025-04-01",
+        "customs_code": "X-GATE", "internal_code": "X-GATE",
+        "goods_name": "X-GATE#&Test",
+        "quantity": 1, "total_value": 1,
+        "declaration_type": "E11", "direction": "import",
+    }]
+    client = get_client(CLIENT)
+
+    # No confirm flags → must redirect to preview, must not insert into bcct_rows.
+    response = _ingest_rows(client_id=CLIENT, client=client,
+                            rows=rows, upload_id=upload_id, request=None)
+
+    assert response.status_code == 303
+    location = response.headers["location"]
+    assert "/upload/preview/" in location, (
+        f"Expected preview redirect, got: {location}. "
+        "Did Phase 2's universal-preview gate get bypassed?"
+    )
+    pending_id = location.rsplit("/", 1)[-1]
+
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select 1 from hub.upload_pending where pending_id = %s",
+                (pending_id,),
+            )
+            assert cur.fetchone() is not None, "preview pending row missing"
+            cur.execute(
+                "select 1 from hub.bcct_rows where transaction_key = %s",
+                (TXN_PREFIX + "GATE",),
+            )
+            assert cur.fetchone() is None, (
+                "Row was applied without confirm — gate bypassed!"
+            )
+
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "delete from hub.upload_pending where pending_id = %s",
+                (pending_id,),
+            )
+            cur.execute(
+                "delete from hub.file_uploads where upload_id = %s",
+                (upload_id,),
+            )
+
+
+def test_ingest_rows_partial_confirm_still_gated():
+    """Both flags must be True to bypass gate. confirm_diffs=True alone
+    still routes to preview."""
+    import secrets
+    from app.routes.bcct import _ingest_rows
+    from app.routes.clients import get_client
+
+    upload_id = "GATE_PARTIAL_" + secrets.token_hex(6)
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into hub.file_uploads
+                  (upload_id, client_id, module, original_filename,
+                   stored_path, content_sha256, size_bytes, parse_status)
+                values (%s, %s, 'bcct', 'test.xlsx', '/dev/null',
+                        'deadbeef', 0, 'pending')
+                """,
+                (upload_id, CLIENT),
+            )
+    rows = [{
+        "transaction_key": TXN_PREFIX + "PARTIAL",
+        "line_no": "1",
+        "declaration_no": TXN_PREFIX + "PARTIAL",
+        "registration_date": "2025-04-01",
+        "customs_code": "X-PARTIAL", "internal_code": "X-PARTIAL",
+        "goods_name": "X-PARTIAL#&Test",
+        "quantity": 1, "total_value": 1,
+        "declaration_type": "E11", "direction": "import",
+    }]
+    client = get_client(CLIENT)
+    # Only one flag → still gated.
+    response = _ingest_rows(
+        client_id=CLIENT, client=client, rows=rows,
+        upload_id=upload_id, request=None,
+        confirm_diffs=True, confirm_orphans=False,
+    )
+    assert response.status_code == 303
+    assert "/upload/preview/" in response.headers["location"]
+
+    pending_id = response.headers["location"].rsplit("/", 1)[-1]
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "delete from hub.upload_pending where pending_id = %s",
+                (pending_id,),
+            )
+            cur.execute(
+                "delete from hub.file_uploads where upload_id = %s",
+                (upload_id,),
+            )
+
+
 def test_pending_purge_function_clears_expired():
     with connect() as conn:
         with conn.cursor() as cur:

@@ -54,9 +54,9 @@ DB state (post Phase 1-3 UI smoke):
 
 ## Next Steps
 
-Five follow-ups from the autopilot Phases 1-3 + earlier backlog:
+Four follow-ups from the autopilot Phases 1-3 + earlier backlog:
 
-1. **BCCT LLM-fallback bypasses diff-preview gate** (pre-existing, surfaced in Phase 3 /rev). `parse_mapping_confirm` calls `_apply_bcct_rows` directly instead of going through `_ingest_rows` → no diff vs DB check after staff confirms LLM mapping. **Fix:** route LLM-confirmed parse through `_ingest_rows` (now always stashes for preview).
+1. ~~**BCCT LLM-fallback bypasses diff-preview gate**~~ — **CLOSED 2026-05-02 visibility sprint A2.** Phase 2's `_ingest_rows` universal stash already routes the LLM-confirm path through preview; locked with regression tests `test_ingest_rows_default_routes_through_preview_gate` + `test_ingest_rows_partial_confirm_still_gated`.
 2. **Focused unit tests for `header_row` + `index_headers` edge cases** (deferred from Phase 1 /rev). Real-data tests cover the production path; need positive unit tests for: alias-match scoring with 1-match-only fallback, claim-once enforcement, `aliases=None` fallback path.
 3. **Refactor: shared upload_pending helper module.** 3 module preview/confirm/reject route trios (~150 LoC each) are duplicated across `bom.py`, `bqd.py`, `catalog.py`. Defer until 5th customer forces shape change.
 4. **`normalize_header` caching for BCCT-scale workbooks** (deferred from Phase 1 /rev). Phase 2 preview path re-parses files at preview AND confirm time, doubling the cost. Cache `normalize_header(headers)` once per sheet.
