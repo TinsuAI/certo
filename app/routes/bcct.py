@@ -214,11 +214,16 @@ def _ingest_rows(*, client_id: str, client: dict, rows: list[dict],
 
     diff_summary = _classify_rows(client_id=client_id, parsed=rows_with_date,
                                   parser=parser)
+    # Carry the row-skipped-without-date count into the preview so staff
+    # sees it alongside NEW/UPDATED/DELETED/NOOP counts.
+    diff_summary["skipped_no_date"] = skipped
 
-    needs_confirm = bool(diff_summary["diff"]) or bool(diff_summary["orphan"])
-    if needs_confirm and not (confirm_diffs and confirm_orphans):
-        # Stash for staff confirm. Preserve user_id of the uploader so
-        # confirm step can attribute changes correctly.
+    if not (confirm_diffs and confirm_orphans):
+        # Phase 2: universal preview — every BCCT upload goes through the
+        # confirm gate. NEW-only uploads previously bypassed this; closing
+        # the gap means staff always eyeballs parsed rows + diff before
+        # commit (defense in depth against any future parser regression
+        # that might silently misclassify rows).
         actor_id = request.state.user.user_id if (request and hasattr(request.state, "user")) else None
         pending_id = _stash_pending(
             client_id=client_id, upload_id=upload_id, parsed=rows_with_date,
@@ -229,7 +234,7 @@ def _ingest_rows(*, client_id: str, client: dict, rows: list[dict],
             status_code=303,
         )
 
-    # NEW-only OR confirmed → apply.
+    # Confirmed → apply.
     user_id = request.state.user.user_id if (request and hasattr(request.state, "user")) else None
     n = _apply_bcct_rows(client_id=client_id, rows=rows_with_date,
                         upload_id=upload_id, parser=parser,

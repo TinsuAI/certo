@@ -47,12 +47,19 @@ JOBS = [
     ("growatt", "bqd", None, "growatt/bqd_nvl.xlsx", "ok"),
     # DKE — BQD (Bug B fix: 'Mã ERP' / 'Mã NPL/TP' aliases now wired)
     ("dke",     "bqd", None, "dke/bqd.xls",          "ok"),
+    # Growatt — Catalog (DS NVL + DS SP curated fixtures)
+    ("growatt", "catalog", None, "growatt/catalog_nvl.xlsx", "ok"),
+    ("growatt", "catalog", None, "growatt/catalog_sp.xlsx",  "ok"),
     # Johnson — BOM (synthetic SAP fixture)
     ("johnson", "bom", "johnson_sap_exploded", "johnson/bom_sap.xlsx", "ok"),
     # Growatt — BOM TP + BTP (Bug A fix: header_row alias-aware scoring
     # now picks the real header row past the leading-empty STT cell)
     ("growatt", "bom", "manual_flat", "growatt/bom_tp.xlsx",  "ok"),
     ("growatt", "bom", "manual_flat", "growatt/bom_btp.xlsx", "ok"),
+    # Growatt — BCCT (Phase 2: all-NEW path now goes through preview gate
+    # too, not only the existing UPDATED/DELETED flow). Uses the small
+    # manual_test fixture (MAN_C1_* keys won't conflict with real data).
+    ("growatt", "bcct", None, "manual_test/bcct_baseline.xlsx", "ok"),
 ]
 
 
@@ -71,11 +78,21 @@ async def shot(page, slug: str) -> Path:
     return out
 
 
-async def _submit_and_classify(page, *, post_url: str, list_url: str, slug: str) -> str:
+async def _submit_and_classify(
+    page, *, post_url: str, list_url: str, slug: str,
+    preview_pattern: str | None = None,
+) -> str:
     """Submit the upload form. Capture status from the POST response and end-state.
 
-    Returns 'ok' (303 → list page), 'parse_error' (400 with 'Parse error:' body),
-    or 'http:<status>' for other failures.
+    Phase 2 universal preview: upload now redirects to a preview page; this
+    helper auto-clicks the primary "Save" button to drive through preview to
+    list. `preview_pattern` is a substring expected in the preview URL
+    (e.g., "/bqd/preview/"). When None, the legacy direct-redirect flow
+    applies. Captures separate screenshots for the preview state.
+
+    Returns 'ok' (303 chain → list page), 'parse_error' (400 with
+    'Parse error:' body), 'preview_only' (preview rendered but Save button
+    missing), or 'http:<status>' for other failures.
     """
     captured: dict[str, int | str] = {}
 
@@ -85,24 +102,49 @@ async def _submit_and_classify(page, *, post_url: str, list_url: str, slug: str)
 
     page.on("response", _on_response)
     try:
-        # Multiple submit buttons live in the topnav (lang/theme/logout toggles);
-        # scope to the upload form's primary submit specifically.
         await page.click("form[action*='/upload'] button.btn-primary[type='submit']")
-        # Wait either for redirect to list page or for an error page render.
+        # Wait either for the preview URL (Phase 2 happy path), the list URL
+        # (Phase 1 legacy or post-confirm landing), or an error page render.
         try:
-            await page.wait_for_url(list_url, timeout=30000)
+            if preview_pattern:
+                await page.wait_for_url(
+                    lambda url: preview_pattern in url or url == list_url,
+                    timeout=30000,
+                )
+            else:
+                await page.wait_for_url(list_url, timeout=30000)
         except Exception:
-            # 400 errors render an error page in place; still need a moment.
             await page.wait_for_load_state("networkidle", timeout=5000)
     finally:
         page.remove_listener("response", _on_response)
+
     status = captured.get("status")
-    if status == 303 and page.url == list_url:
-        await shot(page, f"{slug}_after")
-        return "ok"
     if status == 400:
         await shot(page, f"{slug}_error")
         return "parse_error"
+
+    if preview_pattern and preview_pattern in page.url:
+        # Preview shown — capture, then auto-confirm via the Save button.
+        await shot(page, f"{slug}_preview")
+        save_btn = await page.query_selector(
+            # BQD/BOM/Catalog use multi-button forms with formaction;
+            # BCCT uses single-button form with action on <form>. Match both.
+            "form[action*='/confirm'] button.btn-primary[type='submit'], "
+            "form button.btn-primary[formaction*='/preview/'][formaction$='/confirm']"
+        )
+        if save_btn is None:
+            return "preview_only"
+        await save_btn.click()
+        try:
+            await page.wait_for_url(
+                lambda url: list_url in url, timeout=30000,
+            )
+        except Exception:
+            await page.wait_for_load_state("networkidle", timeout=5000)
+
+    if list_url in page.url:
+        await shot(page, f"{slug}_after")
+        return "ok"
     await shot(page, f"{slug}_unexpected")
     return f"http:{status}"
 
@@ -113,7 +155,10 @@ async def upload_bqd(page, *, client_id: str, file_path: Path, slug: str) -> str
     await page.goto(upload_url)
     await shot(page, f"{slug}_form")
     await page.set_input_files('input[type="file"]', str(file_path))
-    return await _submit_and_classify(page, post_url=upload_url, list_url=list_url, slug=slug)
+    return await _submit_and_classify(
+        page, post_url=upload_url, list_url=list_url, slug=slug,
+        preview_pattern="/bqd/preview/",
+    )
 
 
 async def upload_bom(page, *, client_id: str, profile: str, file_path: Path, slug: str) -> str:
@@ -123,7 +168,34 @@ async def upload_bom(page, *, client_id: str, profile: str, file_path: Path, slu
     await shot(page, f"{slug}_form")
     await page.select_option('select[name="profile"]', profile)
     await page.set_input_files('input[type="file"]', str(file_path))
-    return await _submit_and_classify(page, post_url=upload_url, list_url=list_url, slug=slug)
+    return await _submit_and_classify(
+        page, post_url=upload_url, list_url=list_url, slug=slug,
+        preview_pattern="/bom/preview/",
+    )
+
+
+async def upload_catalog(page, *, client_id: str, file_path: Path, slug: str) -> str:
+    upload_url = f"{BASE}/clients/{client_id}/catalog/upload"
+    list_url = f"{BASE}/clients/{client_id}/catalog"
+    await page.goto(upload_url)
+    await shot(page, f"{slug}_form")
+    await page.set_input_files('input[type="file"]', str(file_path))
+    return await _submit_and_classify(
+        page, post_url=upload_url, list_url=list_url, slug=slug,
+        preview_pattern="/catalog/preview/",
+    )
+
+
+async def upload_bcct(page, *, client_id: str, file_path: Path, slug: str) -> str:
+    upload_url = f"{BASE}/clients/{client_id}/bcct/upload"
+    list_url = f"{BASE}/clients/{client_id}/bcct"
+    await page.goto(upload_url)
+    await shot(page, f"{slug}_form")
+    await page.set_input_files('input[type="file"]', str(file_path))
+    return await _submit_and_classify(
+        page, post_url=upload_url, list_url=list_url, slug=slug,
+        preview_pattern="/bcct/upload/preview/",
+    )
 
 
 async def main() -> int:
@@ -157,6 +229,10 @@ async def main() -> int:
                     outcome = await upload_bqd(page, client_id=client_id, file_path=file_path, slug=slug)
                 elif entity == "bom":
                     outcome = await upload_bom(page, client_id=client_id, profile=profile, file_path=file_path, slug=slug)
+                elif entity == "catalog":
+                    outcome = await upload_catalog(page, client_id=client_id, file_path=file_path, slug=slug)
+                elif entity == "bcct":
+                    outcome = await upload_bcct(page, client_id=client_id, file_path=file_path, slug=slug)
                 else:
                     outcome = "skip_unknown_entity"
             except Exception as e:

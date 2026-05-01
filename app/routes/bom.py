@@ -1,6 +1,9 @@
 """BOM routes — nested under /clients/{client_id}/. Plus public proposal POST API."""
 from __future__ import annotations
 
+import json
+import secrets
+
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
@@ -20,6 +23,8 @@ from app.stores.uploads import record_upload
 
 router = APIRouter()
 BOM_PROFILES = ["manual_flat", "growatt_multi_workbook", "johnson_sap_exploded"]
+PREVIEW_SAMPLE_PRODUCTS = 5
+PREVIEW_SAMPLE_ROWS_PER_PRODUCT = 4
 
 
 @router.get("/clients/{client_id}/bom", response_class=HTMLResponse)
@@ -57,6 +62,13 @@ async def upload_view(request: Request, client_id: str):
 async def upload_submit(request: Request, client_id: str,
                         profile: str = Form("manual_flat"),
                         file: UploadFile = File(...)):
+    """Parse + stash to upload_pending; redirect to preview for confirm.
+
+    Phase 2 universal-preview pattern: staff sees parsed products + sample
+    rows before any new BOM version lands. Mandatory sample-row rendering
+    in the preview UI is the staff-eyeball guard against LLM-confirmed
+    wrong-mapping silent corruption.
+    """
     user = auth.require_user(request)
     auth.require_can_edit_client(user, client_id)
     client = get_client(client_id)
@@ -83,6 +95,101 @@ async def upload_submit(request: Request, client_id: str,
                     "update hub.file_uploads set parse_status='error', parse_error=%s, parsed_at=now() where upload_id=%s",
                     (str(e), upload_id))
         raise HTTPException(400, f"Parse error: {e}")
+    pending_id = _stash_pending(
+        client_id=client_id, upload_id=upload_id, products=products,
+        profile=profile, created_by=user.user_id,
+    )
+    total_rows = sum(len(rows) for rows in products.values())
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "update hub.file_uploads set parse_status='pending_preview', row_count=%s, parsed_at=now() where upload_id=%s",
+                (total_rows, upload_id))
+    return RedirectResponse(
+        url=f"/clients/{client_id}/bom/preview/{pending_id}",
+        status_code=303,
+    )
+
+
+@router.get("/clients/{client_id}/bom/preview/{pending_id}",
+            response_class=HTMLResponse)
+async def preview_view(request: Request, client_id: str, pending_id: str):
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select parsed_rows, diff_summary, expires_at, created_at
+                from hub.upload_pending
+                where pending_id = %s and client_id = %s and module = 'bom'
+                """,
+                (pending_id, client_id),
+            )
+            row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Pending upload not found or expired")
+    parsed_rows, diff_summary, expires_at, created_at = row
+    # parsed_rows shape: {"products": {product_code: [row, ...], ...}}
+    products = parsed_rows.get("products", {}) if isinstance(parsed_rows, dict) else {}
+    profile = (diff_summary or {}).get("profile", "manual_flat")
+    summary, sample = _summarize_bom(products)
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/bom_preview.html",
+        {
+            "client": client, "stats": stats_for_client(client_id),
+            "pending_id": pending_id,
+            "profile": profile,
+            "summary": summary,
+            "sample": sample,
+            "expires_at": expires_at, "created_at": created_at,
+            "active_root": "clients", "active_tab": "bom",
+        },
+    )
+
+
+@router.post("/clients/{client_id}/bom/preview/{pending_id}/confirm")
+async def preview_confirm(request: Request, client_id: str, pending_id: str):
+    """Apply stashed BOM upload as new versions.
+
+    Order matters: load pending (no DELETE yet) → create all versions →
+    only then DELETE pending + flip parse_status. If create_version fails
+    mid-loop, pending stays so staff can re-trigger; the file_uploads row
+    stays in 'pending_preview' status, signalling "not committed". Hash-
+    dedup in stores.bom makes a successful retry idempotent on the
+    versions already created.
+    """
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+
+    # Step 1: read pending (no delete yet).
+    with connect(user_id=user.user_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select parsed_rows, diff_summary, upload_id
+                from hub.upload_pending
+                where pending_id = %s and client_id = %s and module = 'bom'
+                  and expires_at > now()
+                """,
+                (pending_id, client_id),
+            )
+            row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Pending upload not found or expired")
+    parsed_rows, diff_summary, upload_id = row
+    products = parsed_rows.get("products", {}) if isinstance(parsed_rows, dict) else {}
+    profile = (diff_summary or {}).get("profile", "manual_flat")
+
+    # Step 2: create versions outside the pending-row tx. Each create_version
+    # manages its own connection + canonicalization + dedup-by-hash. If any
+    # version creation raises, propagate — the staff sees an error AND can
+    # re-confirm later because we haven't deleted pending yet.
     n = 0
     for product_code, rows in products.items():
         version_id = create_version(
@@ -94,12 +201,108 @@ async def upload_submit(request: Request, client_id: str,
         )
         if version_id:
             n += 1
+
+    # Step 3: only on full success — delete pending + flip status.
+    with connect(user_id=user.user_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                delete from hub.upload_pending
+                where pending_id = %s and client_id = %s and module = 'bom'
+                """,
+                (pending_id, client_id),
+            )
+            cur.execute(
+                "update hub.file_uploads set parse_status='done', "
+                "row_count=%s, parsed_at=now() where upload_id=%s",
+                (n, upload_id),
+            )
+    return RedirectResponse(
+        url=f"/clients/{client_id}/bom?ingested={n}", status_code=303,
+    )
+
+
+@router.post("/clients/{client_id}/bom/preview/{pending_id}/reject")
+async def preview_reject(request: Request, client_id: str, pending_id: str):
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+    with connect(user_id=user.user_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                delete from hub.upload_pending
+                where pending_id = %s and client_id = %s and module = 'bom'
+                returning upload_id
+                """,
+                (pending_id, client_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(404, "Pending upload not found or expired")
+            (upload_id,) = row
+            cur.execute(
+                "update hub.file_uploads set parse_status='rejected', parsed_at=now() where upload_id=%s",
+                (upload_id,),
+            )
+    return RedirectResponse(
+        url=f"/clients/{client_id}/bom?rejected=1", status_code=303,
+    )
+
+
+def _stash_pending(*, client_id: str, upload_id: str,
+                   products: dict[str, list[dict]],
+                   profile: str, created_by: str | None) -> str:
+    pending_id = secrets.token_urlsafe(16)
+    parsed_payload = {"products": products}
+    diff_summary = {"profile": profile}
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "update hub.file_uploads set parse_status='done', row_count=%s, parsed_at=now() where upload_id=%s",
-                (n, upload_id))
-    return RedirectResponse(url=f"/clients/{client_id}/bom", status_code=303)
+                """
+                insert into hub.upload_pending
+                  (pending_id, client_id, module, upload_id,
+                   parsed_rows, diff_summary, created_by)
+                values (%s, %s, 'bom', %s, %s::jsonb, %s::jsonb, %s)
+                """,
+                (pending_id, client_id, upload_id,
+                 json.dumps(parsed_payload, ensure_ascii=False, default=str),
+                 json.dumps(diff_summary, ensure_ascii=False, default=str),
+                 created_by),
+            )
+    return pending_id
+
+
+def _summarize_bom(products: dict[str, list[dict]]) -> tuple[dict, list[dict]]:
+    """Return (summary, sample). Sample = top-N products × first M rows each,
+    grouped by product so staff sees product diversity (per /rev finding —
+    flat sampling hides whether product_code mapping is right across products).
+    """
+    n_products = len(products)
+    n_rows = sum(len(rows) for rows in products.values())
+    n_with_qty = sum(
+        1 for rows in products.values() for r in rows
+        if (r.get("qty_per_unit") or 0) > 0
+    )
+    n_distinct_materials = len({
+        r.get("material_code") for rows in products.values() for r in rows
+        if r.get("material_code")
+    })
+    summary = {
+        "n_products": n_products,
+        "n_rows": n_rows,
+        "n_with_qty": n_with_qty,
+        "n_distinct_materials": n_distinct_materials,
+    }
+    sample = []
+    for product_code, rows in list(products.items())[:PREVIEW_SAMPLE_PRODUCTS]:
+        sample.append({
+            "product_code": product_code,
+            "n_rows": len(rows),
+            "rows": rows[:PREVIEW_SAMPLE_ROWS_PER_PRODUCT],
+        })
+    return summary, sample
 
 
 @router.get("/clients/{client_id}/bom/{product_code:path}/versions", response_class=HTMLResponse)

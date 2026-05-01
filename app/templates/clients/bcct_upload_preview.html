@@ -6,12 +6,20 @@
 <section class="zone">
   <div class="zone-head">
     <div>
+      {% if summary.diff or summary.orphan %}
       <h2>Xác nhận thay đổi BCCT</h2>
       <p class="meta">
         File upload có dòng đè lên dữ liệu đã tồn tại. Hub không tự động ghi đè
         — staff phải xác nhận tường minh. Tick checkbox để confirm; bỏ tick để giữ
         nguyên DB hiện tại.
       </p>
+      {% else %}
+      <h2>Xem trước BCCT trước khi lưu</h2>
+      <p class="meta">
+        Tất cả {{ summary.new }} dòng đều là mới — không đè lên dữ liệu cũ.
+        Kiểm tra số liệu bên dưới và nhấn Lưu để commit.
+      </p>
+      {% endif %}
       <p class="meta">
         Pending ID: <code>{{ pending_id }}</code> · hết hạn {{ expires_at }}
       </p>
@@ -32,6 +40,11 @@
         (DB có nhưng file mới không có)
         {% if summary.orphan %}<span class="badge badge-warn">orphan candidate</span>{% endif %}
       </li>
+      {% if summary.skipped_no_date %}
+      <li>
+        <strong>{{ summary.skipped_no_date }}</strong> dòng bị bỏ qua (thiếu ngày đăng ký)
+      </li>
+      {% endif %}
     </ul>
   </div>
 
@@ -93,13 +106,19 @@
     {% endif %}
 
     <div style="display:flex; gap:0.5rem; margin-top: 1.5rem;">
+      {% if summary.diff or summary.orphan %}
       <button type="submit" class="btn-primary">Apply confirmed changes</button>
+      {% else %}
+      <button type="submit" class="btn-primary">Lưu {{ summary.new }} dòng</button>
+      {% endif %}
       <a class="btn-secondary" href="/clients/{{ client.client_id }}/bcct">Hủy</a>
     </div>
+    {% if summary.diff or summary.orphan %}
     <p class="meta" style="margin-top:0.5rem;">
       Dòng mới ({{ summary.new }}) sẽ luôn được insert. Dòng không tick sẽ
       giữ nguyên giá trị cũ trong DB.
     </p>
+    {% endif %}
   </form>
 </section>
 {% endblock %}

@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Xem trước BQD · {{ client.name }} · {{ t('app.brand') }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Xem trước BQD trước khi lưu</h2>
+      <p class="meta">
+        Hub đã đọc {{ summary.total }} dòng từ file. Kiểm tra mẫu bên dưới —
+        nếu khớp dữ liệu mong đợi, nhấn <strong>Lưu</strong>. Nếu file sai
+        (sai shape, sai client), nhấn <strong>Reject</strong> để bỏ.
+      </p>
+      <p class="meta">
+        Pending ID: <code>{{ pending_id }}</code> · hết hạn {{ expires_at }}
+      </p>
+    </div>
+    <div>
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bqd">{{ t('common.cancel') }}</a>
+    </div>
+  </div>
+
+  <div class="zone mini-panel" style="margin-bottom: 1rem;">
+    <strong>Tổng quan:</strong>
+    <ul style="margin: 0.5rem 0 0 1.2rem;">
+      <li><strong>{{ summary.total }}</strong> mã quy đổi sẽ được thêm/cập nhật (upsert theo cặp internal+customs).</li>
+      <li><strong>{{ summary.n_distinct_internal }}</strong> mã nội bộ phân biệt · <strong>{{ summary.n_distinct_customs }}</strong> mã hải quan phân biệt.</li>
+      {% if summary.n_one_to_many > 0 %}
+      <li><strong>{{ summary.n_one_to_many }}</strong> mã nội bộ ánh xạ tới nhiều mã hải quan (1-N).</li>
+      {% endif %}
+      {% if summary.by_category and summary.by_category|length > 1 %}
+      <li>Theo loại:
+        {% for cat, n in summary.by_category.items() %}
+        <span class="badge">{{ cat }}: {{ n }}</span>
+        {% endfor %}
+      </li>
+      {% endif %}
+    </ul>
+  </div>
+
+  <div class="zone mini-panel" style="margin-bottom: 1rem;">
+    <strong>Mẫu {{ sample_rows|length }} dòng đầu (trên tổng {{ summary.total }}):</strong>
+    <table class="data-table" style="margin-top: 0.6rem;">
+      <thead>
+        <tr>
+          <th>Mã nội bộ</th>
+          <th>Mã hải quan</th>
+          <th>Loại</th>
+          <th>Ghi chú</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in sample_rows %}
+        <tr>
+          <td><code>{{ r.internal_code }}</code></td>
+          <td><code>{{ r.customs_code }}</code></td>
+          <td>{{ r.category or "—" }}</td>
+          <td class="meta">{{ r.notes or "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <form method="post" style="display: flex; gap: 0.6rem; align-items: center;">
+    <button type="submit"
+            formaction="/clients/{{ client.client_id }}/bqd/preview/{{ pending_id }}/confirm"
+            class="btn-primary">
+      Lưu {{ summary.total }} mã quy đổi
+    </button>
+    <button type="submit"
+            formaction="/clients/{{ client.client_id }}/bqd/preview/{{ pending_id }}/reject"
+            class="btn-secondary"
+            onclick="return confirm('Reject file? Pending sẽ bị xóa, không lưu mã nào.');">
+      Reject (file sai)
+    </button>
+    <a class="btn-secondary" href="/clients/{{ client.client_id }}/bqd">
+      Quay lại sau (giữ pending)
+    </a>
+  </form>
+</section>
+{% endblock %}

@@ -1,6 +1,9 @@
 """Code mappings (BQD = Bảng Quy Đổi) — nested under /clients/{client_id}/."""
 from __future__ import annotations
 
+import json
+import secrets
+
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 
@@ -12,6 +15,8 @@ from app.storage import save_upload, sha256_bytes
 from app.stores.uploads import record_upload
 
 router = APIRouter()
+
+PREVIEW_SAMPLE_ROWS = 20
 
 
 @router.get("/clients/{client_id}/bqd", response_class=HTMLResponse)
@@ -55,6 +60,12 @@ async def upload_submit(
     request: Request, client_id: str,
     file: UploadFile = File(...),
 ):
+    """Parse + stash to upload_pending; redirect to preview for confirm.
+
+    All upload paths route through preview before any DB write — staff sees
+    parsed rows + counts before commit. Same pattern as BCCT confirm-on-update
+    gate, simpler payload (no diff vs DB; BQD is upsert-on-conflict).
+    """
     user = auth.require_user(request)
     auth.require_can_edit_client(user, client_id)
     if not get_client(client_id):
@@ -79,14 +90,121 @@ async def upload_submit(
                     (str(e), upload_id),
                 )
         raise HTTPException(400, f"Parse error: {e}")
-    n = _insert_mappings(client_id=client_id, rows=rows)
+    pending_id = _stash_pending(
+        client_id=client_id, upload_id=upload_id, parsed=rows,
+        created_by=user.user_id,
+    )
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "update hub.file_uploads set parse_status='done', row_count=%s, parsed_at=now() where upload_id=%s",
-                (n, upload_id),
+                "update hub.file_uploads set parse_status='pending_preview', row_count=%s, parsed_at=now() where upload_id=%s",
+                (len(rows), upload_id),
             )
-    return RedirectResponse(url=f"/clients/{client_id}/bqd", status_code=303)
+    return RedirectResponse(
+        url=f"/clients/{client_id}/bqd/preview/{pending_id}",
+        status_code=303,
+    )
+
+
+@router.get("/clients/{client_id}/bqd/preview/{pending_id}",
+            response_class=HTMLResponse)
+async def preview_view(request: Request, client_id: str, pending_id: str):
+    """Render preview: counters + sample rows. Staff confirms or rejects."""
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select parsed_rows, expires_at, created_at
+                from hub.upload_pending
+                where pending_id = %s and client_id = %s and module = 'bqd'
+                """,
+                (pending_id, client_id),
+            )
+            row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Pending upload not found or expired")
+    parsed_rows, expires_at, created_at = row
+    summary = _summarize_bqd(parsed_rows)
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/bqd_preview.html",
+        {
+            "client": client, "stats": stats_for_client(client_id),
+            "pending_id": pending_id,
+            "summary": summary,
+            "sample_rows": parsed_rows[:PREVIEW_SAMPLE_ROWS],
+            "expires_at": expires_at, "created_at": created_at,
+            "active_root": "clients", "active_tab": "bqd",
+        },
+    )
+
+
+@router.post("/clients/{client_id}/bqd/preview/{pending_id}/confirm")
+async def preview_confirm(request: Request, client_id: str, pending_id: str):
+    """Apply stashed BQD upload. Single-use: DELETE in same tx as load."""
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+    with connect(user_id=user.user_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                delete from hub.upload_pending
+                where pending_id = %s and client_id = %s and module = 'bqd'
+                  and expires_at > now()
+                returning parsed_rows, upload_id
+                """,
+                (pending_id, client_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(404, "Pending upload not found or expired")
+            parsed_rows, upload_id = row
+            n = _insert_mappings_with_cursor(
+                cur, client_id=client_id, rows=parsed_rows,
+            )
+            cur.execute(
+                "update hub.file_uploads set parse_status='done', parsed_at=now() where upload_id=%s",
+                (upload_id,),
+            )
+    return RedirectResponse(
+        url=f"/clients/{client_id}/bqd?ingested={n}", status_code=303,
+    )
+
+
+@router.post("/clients/{client_id}/bqd/preview/{pending_id}/reject")
+async def preview_reject(request: Request, client_id: str, pending_id: str):
+    """Reject stashed upload — discard pending row + mark file_upload errored."""
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+    with connect(user_id=user.user_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                delete from hub.upload_pending
+                where pending_id = %s and client_id = %s and module = 'bqd'
+                returning upload_id
+                """,
+                (pending_id, client_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(404, "Pending upload not found or expired")
+            (upload_id,) = row
+            cur.execute(
+                "update hub.file_uploads set parse_status='rejected', parsed_at=now() where upload_id=%s",
+                (upload_id,),
+            )
+    return RedirectResponse(
+        url=f"/clients/{client_id}/bqd?rejected=1", status_code=303,
+    )
 
 
 @router.post("/clients/{client_id}/bqd/manual")
@@ -101,16 +219,63 @@ async def manual_add(
     auth.require_can_edit_client(user, client_id)
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
-    _insert_mappings(
-        client_id=client_id,
-        rows=[{
-            "internal_code": internal_code.strip(),
-            "customs_code": customs_code.strip(),
-            "category": category.strip() or None,
-            "notes": notes.strip() or None,
-        }],
-    )
+    with connect() as conn:
+        with conn.cursor() as cur:
+            _insert_mappings_with_cursor(
+                cur,
+                client_id=client_id,
+                rows=[{
+                    "internal_code": internal_code.strip(),
+                    "customs_code": customs_code.strip(),
+                    "category": category.strip() or None,
+                    "notes": notes.strip() or None,
+                }],
+            )
     return RedirectResponse(url=f"/clients/{client_id}/bqd", status_code=303)
+
+
+# ── helpers ────────────────────────────────────────────────────────────────
+
+def _stash_pending(*, client_id: str, upload_id: str,
+                   parsed: list[dict], created_by: str | None) -> str:
+    """Insert parsed rows into upload_pending; return new pending_id."""
+    pending_id = secrets.token_urlsafe(16)
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into hub.upload_pending
+                  (pending_id, client_id, module, upload_id,
+                   parsed_rows, diff_summary, created_by)
+                values (%s, %s, 'bqd', %s, %s::jsonb, '{}'::jsonb, %s)
+                """,
+                (pending_id, client_id, upload_id,
+                 json.dumps(parsed, ensure_ascii=False, default=str),
+                 created_by),
+            )
+    return pending_id
+
+
+def _summarize_bqd(parsed_rows: list[dict]) -> dict:
+    """Counts for the preview header strip — total + per-category breakdown."""
+    by_cat: dict[str, int] = {}
+    distinct_internal: set[str] = set()
+    distinct_customs: set[str] = set()
+    for r in parsed_rows:
+        cat = r.get("category") or "—"
+        by_cat[cat] = by_cat.get(cat, 0) + 1
+        distinct_internal.add(r["internal_code"])
+        distinct_customs.add(r["customs_code"])
+    return {
+        "total": len(parsed_rows),
+        "by_category": by_cat,
+        "n_distinct_internal": len(distinct_internal),
+        "n_distinct_customs": len(distinct_customs),
+        "n_one_to_many": sum(
+            1 for ic in distinct_internal
+            if sum(1 for r in parsed_rows if r["internal_code"] == ic) > 1
+        ),
+    }
 
 
 def _list_mappings(client_id: str, q: str | None = None) -> list[dict]:
@@ -157,22 +322,32 @@ def _mapping_stats(client_id: str) -> dict:
             return {"total": row[0], "n_internal": row[1], "n_customs": row[2], "n_1n": n_1n}
 
 
-def _insert_mappings(*, client_id: str, rows: list[dict]) -> int:
+def _insert_mappings_with_cursor(cur, *, client_id: str, rows: list[dict]) -> int:
+    """Insert mappings on a shared cursor (for transactional confirm flow)."""
     n = 0
+    for r in rows:
+        cur.execute(
+            """
+            insert into hub.code_mappings
+              (client_id, internal_code, customs_code, category, notes)
+            values (%s, %s, %s, %s, %s)
+            on conflict (client_id, internal_code, customs_code) do update set
+              category = excluded.category,
+              notes = excluded.notes
+            """,
+            (client_id, r["internal_code"], r["customs_code"],
+             r.get("category"), r.get("notes")),
+        )
+        n += 1
+    return n
+
+
+def _insert_mappings(*, client_id: str, rows: list[dict]) -> int:
+    """Standalone insert with a fresh connection (used by seed).
+
+    Most upload paths go through `_insert_mappings_with_cursor` inside the
+    confirm transaction. This wrapper is for non-transactional callers.
+    """
     with connect() as conn:
         with conn.cursor() as cur:
-            for r in rows:
-                cur.execute(
-                    """
-                    insert into hub.code_mappings
-                      (client_id, internal_code, customs_code, category, notes)
-                    values (%s, %s, %s, %s, %s)
-                    on conflict (client_id, internal_code, customs_code) do update set
-                      category = excluded.category,
-                      notes = excluded.notes
-                    """,
-                    (client_id, r["internal_code"], r["customs_code"],
-                     r.get("category"), r.get("notes")),
-                )
-                n += 1
-    return n
+            return _insert_mappings_with_cursor(cur, client_id=client_id, rows=rows)
