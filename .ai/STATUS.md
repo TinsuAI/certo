@@ -1,58 +1,76 @@
 # Project Status
 
-**Date:** 2026-05-01 PM (autopilot session)
+**Date:** 2026-05-01 (end of day — post-autopilot iteration)
 
-## Currently Working On
+## Current State
 
-**MVP scaffold shipped end-to-end.** A full FastAPI + Postgres + Jinja2 web app with:
-- 7 DB tables across 6 migrations (`hub` schema)
-- Argon2 session-based auth, seed admin
-- 5 entity routers + 11-endpoint JSON read API
-- Excel parsers (Materials, BQD, BCCT, BOM in 3 profiles) with Growatt regex
-- Code resolution worker (Growatt-style 1:n disambiguation via BCCT aggregates)
-- BOM proposal queue with auto-rule (5-condition gate, idempotent)
-- 28 passing pytest tests
-- Playwright UI screenshots (16 light + 4 dark)
+**Working MVP web app + read API.** Running locally at `http://127.0.0.1:8754`.
+Login: `admin@data-hub.local / admin123`.
 
-Run: `uv run uvicorn app.main:app --port 8754`. Login: `admin@data-hub.local / admin123`.
+What works:
+- Client management with workspace pattern (URLs nested under `/clients/{client_id}/{tab}`).
+- 7 entity tabs per client: Overview, Catalog, Code Mappings (BQD), BCCT, BOM, Proposals, Uploads, Config.
+- Excel upload + parsing for: Materials (5-category enum), BQD (N-to-N), BCCT (Growatt regex internal_code parser), BOM (3 profiles: manual_flat / growatt_multi_workbook / johnson_sap_exploded).
+- Code resolver: ports Growatt's BCCT-aggregate disambiguation; runs after BQD/BCCT upload.
+- BOM proposal queue: auto-only mode, 5-condition gate, idempotent.
+- Public read API: 11 endpoints under `/v1/hub/*`, bearer-token auth.
+- BCCT raw columns captured into `payload` jsonb (full Vietnamese headers preserved).
+- Dual-source material detection: query-time EXISTS subqueries flag materials present in both BCCT imports + BOM products.
+- i18n bilingual: Vietnamese default + English toggle (cookie). ~150 translation keys.
+- Auto-seed on empty DB: creates Growatt VN (10 catalog + 8 BQD pairs incl. 1:n + 10 BCCT + 5 BOM versions + 2 proposals) and Johnson VN (4 catalog identity-mode + 3 BCCT + 1 BOM).
+- 28 pytest tests passing.
+- 27 Playwright UI screenshots in `data/screenshots/` covering all flows in light + dark + EN.
 
 ## Recent Changes
 
-- 2026-05-01 (autopilot): scaffold → SSO → DNCX → Materials/Mappings → BCCT (Growatt regex) → BOM (8-table model + proposal queue) → resolver → JSON API → audit views (proposals, uploads). 6 commits, 30+ source files, ~3500 LOC.
-- 2026-05-01 evening: locked BOM-write-via-proposal pattern (auto-only MVP), point-of-use binding, two-axis (actor, intent) provenance, immutable per-DNCX `code_resolution_mode`, deferred SSO design + manual review mode + S3 storage to phase 2.
-- 2026-04-30: design week — CO schema audit, brief drafted + 3 critique rounds, BCCT amendment (single-writer for MVP), tracking-code shape verified against Growatt.
+**Today (2026-05-01) is one session — see two `.ai/sessions/` files for full breakdown:**
+
+- `2026-05-01-autopilot-mvp-scaffold.md` — initial autopilot build of foundation, schema, auth, entity routers, JSON API, audit views.
+- `2026-05-01-client-restructure-i18n-redesign.md` — post-autopilot UX iteration: DNCX→Clients rename, workspace mental model, breadcrumb, dual-source detection, BCCT payload capture, button restyle, i18n overhaul, settings page redesign.
+
+12 commits total since project scaffold (`f1eaae5`).
 
 ## Next Steps
 
-1. **Real SSO design pass.** Currently MVP uses a single-deployment auth center with seed admin. Need to design: cross-app session sharing (data-hub ↔ BCQT ↔ CO), token model, role/scope matrix.
-2. **Run `code_resolution` worker as background job** (currently runs synchronously after BCCT/BQD upload — fine for now but will block on big uploads). Consider Celery / RQ / async task queue when uploads grow.
-3. **Test against real Growatt data** (~/workspace/client/bcqt-growatt/data/). Current synthetic seed has 5 BCCT rows; real Growatt files have thousands. Validate parser performance + resolver correctness at scale.
-4. **Additional auto-rule criteria for BOM proposals.** The 5-condition gate is speculative; tune against real CO modification flows when CO integration starts.
-5. **Production deployment shape** (M9 deliverable #6): 1 VPS / systemd / pg_dump backup / nginx reverse proxy. Not done — currently dev-only.
-6. **Real Growatt BOM upload validation** — only `manual_flat` profile tested with synthetic data. Validate `growatt_multi_workbook` against real data.
-7. **CO write-API integration.** Currently the proposal endpoint accepts any bearer token; phase 2 adds JWT scope checks (`hub:propose:bom`).
+1. **Validate against real Growatt data** at `~/workspace/client/bcqt-growatt/data/` — synthetic seed has only 10 BCCT rows; real files have thousands. Test parsers + resolver at scale.
+2. **Audit other reference clients** (DKE, Dothanh, Johnson real data) for parser quirks the synthetic seed doesn't surface.
+3. **Background job for resolver** — currently runs synchronously inside upload handlers; will block on big uploads. Move to a queue (RQ / arq / celery) when first slow upload appears.
+4. **SSO design pass** (M9 deliverable #4) — currently MVP uses single-deployment session-cookie auth + seed admin. Need cross-app SSO design for federation with BCQT and CO.
+5. **Service-discovery for auto-rule case_id validation** — currently DROPPED from MVP because CO has no HTTP API. Reinstate when CO grows one.
+6. **Manual + hybrid BOM review modes** — schema is shaped to accept these; phase 2 work involves notification system, latency SLO, review queue endpoints.
+7. **Production deployment** (M9 deliverable #6) — systemd, pg_dump backup pipeline, Litestream for per-project SQLite (BCQT-side), nginx reverse proxy.
+8. **JWT scope auth on read API** — currently accepts any non-empty bearer token; phase 2 adds proper JWT scope validation.
 
 ## Blockers
 
-None for MVP scaffold. Production deployment + cross-app SSO are the gates for real shipping.
+None for MVP validation. Production-ship gates: SSO design + deployment shape.
 
 ## Notes for Next AI Session
 
-- All design rationale lives in `.ai/DECISIONS.md` (this repo) and `~/workspace/client/BCQT-System/.ai/DECISIONS.md` (canonical 3-app architecture).
-- Read-API contract is at `.ai/features/2026-05-01-data-hub-read-api.md` (v2 — covers axis-split, point-of-use binding, idempotency canonicalization, tracking-code-mode).
-- Epic plan at `.ai/features/epic-2026-05-01-data-hub-mvp.md` — sequence and done criteria (most done).
-- Memory under `~/.claude/projects/-home-vp-workspace-client-data-hub/memory/`:
-  - `project_architecture_lock.md` — 3-app architecture
-  - `project_bom_multisource.md` — proposal pattern + provenance axes
-  - `reference_co_codebase.md` — `~/workspace/client/barry-CO-main` (capital CO)
-- Sister-repo `BCQT-System/.ai/DECISIONS.md` line 443 has a 2026-05-01 amendment block at top of the canonical entry.
-- Tech stack inherited from CO: FastAPI + Jinja2 + psycopg + raw SQL migrations + uv + argon2-cffi. Tests use pytest + httpx + playwright.
+- **Server is currently running** in background (uvicorn with `--reload`) — pkill if you want a fresh start.
+- **Auto-seed runs on empty DB** automatically (lifespan hook). Set `DATA_HUB_AUTO_SEED_DEMO=0` to disable. Reset state with `psql -d data_hub -c "truncate hub.clients cascade"`.
+- **Vietnamese is the default UI language**, English is the alternate. `t()` Jinja callable dispatches via `data_hub_lang` cookie. Translation dict in `app/i18n.py` (~150 keys, structured by domain prefix: nav/auth/common/clients/workspace/tabs/catalog/bqd/bcct/bom/proposals/uploads/status).
+- **Mental model: Client first, then workspace.** All entity URLs nested under `/clients/{client_id}/{tab}`. There's no global "all materials across clients" view — that was rejected as wrong UX.
+- **Code seed is `barry-CO-main` (capital CO)** at `~/workspace/client/barry-CO-main`. The lowercase `barry-co-main` doesn't exist on disk — fixed in earlier session but worth re-noting if you `cd` based on memory.
+- **Dual-source materials** are detected at query time (EXISTS subqueries in catalog list query). NOT stored. Cost is negligible at current scale (indexes cover both subqueries). Phase 2 may materialize.
+- **BCCT payload jsonb captures every column** from source workbook by original Vietnamese header name. Typed columns are query/index layer; payload is raw archive. Real HQ Excels with 25-30 columns will preserve all of them.
+- **CSS is mostly inherited verbatim from CO** (`barry-CO-main/app/static/css/app.css`, ~1300 lines). Data Hub appended ~150 lines for breadcrumb, settings page, button restyle, dual badge, dark theme tweaks.
+- **Sister-repo cross-link decisions**: anchor architecture in `~/workspace/client/BCQT-System/.ai/DECISIONS.md` "2026-04-30 PM — Data Hub 3-app architecture" with 2026-05-01 BCCT-amendment block at top.
 
 ## Reference
 
 - Sister repos:
-  - `~/workspace/client/BCQT-System` — settlement product, will become consumer
-  - `~/workspace/client/barry-CO-main` — origin certificates, code seed
+  - `~/workspace/client/BCQT-System` — settlement product, future consumer of Data Hub
+  - `~/workspace/client/barry-CO-main` — origin certificate product, code seed
   - `~/workspace/client/bcqt-growatt` — Growatt reference data + N-N mapping algorithm port
-- Demo data seed: `scripts/seed_demo.py` (uploads synthetic Growatt-shape Excel via HTTP)
-- UI screenshots: `data/screenshots/`
+- Local design docs:
+  - `.ai/DECISIONS.md` — local architecture decisions log
+  - `.ai/features/2026-04-30-data-hub-mvp.md` — original discovery brief (3 critique rounds + amendments)
+  - `.ai/features/2026-05-01-data-hub-read-api.md` — read-API contract design (v2)
+  - `.ai/features/epic-2026-05-01-data-hub-mvp.md` — MVP epic plan + waves
+  - `.ai/sessions/` — dated session summaries (this and one autopilot)
+- Demo + dev:
+  - `scripts/seed_demo.py` — HTTP-based demo seeder (alternative to auto-seed)
+  - `scripts/screenshot.py` — Playwright UI capture
+- Memory: `~/.claude/projects/-home-vp-workspace-client-data-hub/memory/`
+  - `project_architecture_lock.md`, `project_bom_multisource.md`, `reference_co_codebase.md`
