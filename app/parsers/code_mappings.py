@@ -21,7 +21,17 @@ ALIASES = {
 }
 
 
-def parse_code_mappings_workbook(blob: bytes) -> list[dict]:
+def parse_code_mappings_workbook(
+    blob: bytes,
+    *,
+    mapping_override: dict[str, str] | None = None,
+) -> list[dict]:
+    """Parse a BQD workbook.
+
+    `mapping_override`: optional dict[header_name → logical_field] from a
+    confirmed LLM proposal (cached via `hub.parser_mappings`). Bypasses
+    alias matching when present.
+    """
     try:
         wb = load_xlsx(blob)
     except Exception as e:
@@ -32,7 +42,10 @@ def parse_code_mappings_workbook(blob: bytes) -> list[dict]:
         if not hdr:
             continue
         header_idx, headers = hdr
-        cols = index_headers(headers, ALIASES)
+        if mapping_override:
+            cols = _cols_from_override(headers, mapping_override)
+        else:
+            cols = index_headers(headers, ALIASES)
         if "internal_code" not in cols or "customs_code" not in cols:
             continue
         sheet_default_cat = _cat_from_sheet(ws.title)
@@ -51,6 +64,21 @@ def parse_code_mappings_workbook(blob: bytes) -> list[dict]:
     if not rows:
         raise CodeMappingsParseError("No mapping rows recognized; expected 'Mã nội bộ' + 'Mã hải quan' columns.")
     return rows
+
+
+def _cols_from_override(headers: list[str], override: dict[str, str]) -> dict[str, int]:
+    """Convert a header→logical_field override dict into the
+    {logical_field: column_index} shape that the parser uses.
+
+    Header names compare case-insensitively post-strip; first match wins.
+    """
+    cols: dict[str, int] = {}
+    norm_to_idx = {(h or "").strip().lower(): i for i, h in enumerate(headers)}
+    for header_name, logical_field in override.items():
+        idx = norm_to_idx.get((header_name or "").strip().lower())
+        if idx is not None and logical_field not in cols:
+            cols[logical_field] = idx
+    return cols
 
 
 def _cat_from_sheet(name: str) -> str | None:

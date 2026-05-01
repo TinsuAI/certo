@@ -7,10 +7,18 @@ import secrets
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from app import auth
+from app import auth, llm
 from app.database import connect
 from app.parsers.bom import parse_bom_workbook, BomParseError
+from app.parsers._excel import compute_file_signature
 from app.routes.clients import get_client, stats_for_client
+from app.routes._llm_fallback import (
+    cache_confirmed_mapping,
+    headers_per_sheet,
+    lookup_cached_mapping,
+    record_mapping_use,
+    request_llm_mapping,
+)
 from app.storage import save_upload, sha256_bytes
 from app.stores.bom import (
     create_version,
@@ -86,18 +94,84 @@ async def upload_submit(request: Request, client_id: str,
         stored_path=stored.path, content_sha256=sha, size_bytes=len(blob),
         mime_type=file.content_type, uploader_user_id=user.user_id,
     )
-    try:
-        products = parse_bom_workbook(blob, profile=profile)
-    except BomParseError as e:
-        with connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "update hub.file_uploads set parse_status='error', parse_error=%s, parsed_at=now() where upload_id=%s",
-                    (str(e), upload_id))
-        raise HTTPException(400, f"Parse error: {e}")
+    # ── Step 1: cached mapping for this client + file shape (manual_flat only) ──
+    file_signature: str | None = None
+    cached_mapping: dict | None = None
+    if profile == "manual_flat":
+        try:
+            sheets = headers_per_sheet(blob)
+            if sheets:
+                file_signature = compute_file_signature(
+                    client_id=client_id, module="bom", headers_per_sheet=sheets,
+                )
+                cached_mapping = lookup_cached_mapping(
+                    client_id=client_id, module="bom", file_signature=file_signature,
+                )
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ── Step 2: parse — cached mapping if present, else rigid, else LLM ──
+    products: dict[str, list[dict]] | None = None
+    rigid_error: str | None = None
+    used_mapping: dict[str, str] | None = None
+    proposed_by = "rigid"
+    if cached_mapping is not None:
+        try:
+            products = parse_bom_workbook(blob, profile=profile, mapping_override=cached_mapping)
+            record_mapping_use(client_id=client_id, module="bom", file_signature=file_signature)
+            used_mapping = cached_mapping
+            proposed_by = "llm_cached"
+        except BomParseError as e:
+            rigid_error = f"cached mapping failed: {e}"
+    if products is None:
+        try:
+            products = parse_bom_workbook(blob, profile=profile)
+        except BomParseError as e:
+            rigid_error = str(e)
+
+    if products is None:
+        # LLM fallback only for manual_flat — other profiles infer from
+        # sheet layout, not column matching, so column-mapping override
+        # doesn't help them.
+        if profile != "manual_flat":
+            with connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "update hub.file_uploads set parse_status='error', parse_error=%s, parsed_at=now() where upload_id=%s",
+                        (rigid_error, upload_id))
+            raise HTTPException(400, f"Parse error: {rigid_error}")
+        try:
+            mapping, _headers, _sample, file_sig = request_llm_mapping(
+                client_id=client_id, module="bom", blob=blob,
+                rigid_error=rigid_error or "unknown",
+            )
+        except (llm.LLMUnavailable, llm.LLMProposalError) as e:
+            with connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "update hub.file_uploads set parse_status='error', parse_error=%s, parsed_at=now() where upload_id=%s",
+                        (f"{rigid_error}; LLM: {type(e).__name__}: {e}", upload_id),
+                    )
+            raise HTTPException(400, str(e))
+        try:
+            products = parse_bom_workbook(blob, profile="manual_flat", mapping_override=mapping)
+        except BomParseError as e:
+            with connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "update hub.file_uploads set parse_status='error', parse_error=%s, parsed_at=now() where upload_id=%s",
+                        (f"LLM mapping unparseable: {e}", upload_id),
+                    )
+            raise HTTPException(400, f"LLM mapping rejected by parser: {e}")
+        used_mapping = mapping
+        file_signature = file_sig
+        proposed_by = "llm_proposed"
+
     pending_id = _stash_pending(
         client_id=client_id, upload_id=upload_id, products=products,
         profile=profile, created_by=user.user_id,
+        used_mapping=used_mapping, file_signature=file_signature,
+        proposed_by=proposed_by,
     )
     total_rows = sum(len(rows) for rows in products.values())
     with connect() as conn:
@@ -217,6 +291,19 @@ async def preview_confirm(request: Request, client_id: str, pending_id: str):
                 "row_count=%s, parsed_at=now() where upload_id=%s",
                 (n, upload_id),
             )
+
+    # If this upload used an LLM-proposed mapping, persist it now (the
+    # staff just verified the resulting products+rows looked correct).
+    if (diff_summary or {}).get("proposed_by") == "llm_proposed":
+        used_mapping = diff_summary.get("used_mapping")
+        file_signature = diff_summary.get("file_signature")
+        if used_mapping and file_signature:
+            cache_confirmed_mapping(
+                client_id=client_id, module="bom",
+                file_signature=file_signature, mapping=used_mapping,
+                headers=list(used_mapping.keys()),
+                confirmed_by_user_id=user.user_id, proposed_by="llm",
+            )
     return RedirectResponse(
         url=f"/clients/{client_id}/bom?ingested={n}", status_code=303,
     )
@@ -253,10 +340,18 @@ async def preview_reject(request: Request, client_id: str, pending_id: str):
 
 def _stash_pending(*, client_id: str, upload_id: str,
                    products: dict[str, list[dict]],
-                   profile: str, created_by: str | None) -> str:
+                   profile: str, created_by: str | None,
+                   used_mapping: dict[str, str] | None = None,
+                   file_signature: str | None = None,
+                   proposed_by: str = "rigid") -> str:
     pending_id = secrets.token_urlsafe(16)
     parsed_payload = {"products": products}
-    diff_summary = {"profile": profile}
+    diff_summary = {
+        "profile": profile,
+        "used_mapping": used_mapping,
+        "file_signature": file_signature,
+        "proposed_by": proposed_by,
+    }
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(

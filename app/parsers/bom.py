@@ -33,9 +33,22 @@ COMMON_ALIASES = {
 }
 
 
-def parse_bom_workbook(blob: bytes, *, profile: str = "manual_flat") -> dict[str, list[dict]]:
+def parse_bom_workbook(
+    blob: bytes,
+    *,
+    profile: str = "manual_flat",
+    mapping_override: dict[str, str] | None = None,
+) -> dict[str, list[dict]]:
+    """Parse a BOM workbook.
+
+    `mapping_override`: optional dict[header_name → logical_field] from a
+    confirmed LLM proposal (cached via `hub.parser_mappings`). Bypasses
+    alias matching when present. Only the manual_flat profile honours
+    overrides today; the other two profiles infer structure from sheet
+    layout, not column matching.
+    """
     if profile == "manual_flat":
-        return _parse_flat(blob)
+        return _parse_flat(blob, mapping_override=mapping_override)
     if profile == "growatt_multi_workbook":
         return _parse_growatt_multi(blob)
     if profile == "johnson_sap_exploded":
@@ -43,7 +56,11 @@ def parse_bom_workbook(blob: bytes, *, profile: str = "manual_flat") -> dict[str
     raise BomParseError(f"Unknown BOM profile: {profile}")
 
 
-def _parse_flat(blob: bytes) -> dict[str, list[dict]]:
+def _parse_flat(
+    blob: bytes,
+    *,
+    mapping_override: dict[str, str] | None = None,
+) -> dict[str, list[dict]]:
     """One sheet, columns include product_code + material_code + qty_per_unit."""
     try:
         wb = load_xlsx(blob)
@@ -55,7 +72,10 @@ def _parse_flat(blob: bytes) -> dict[str, list[dict]]:
         if not hdr:
             continue
         header_idx, headers = hdr
-        cols = index_headers(headers, COMMON_ALIASES)
+        if mapping_override:
+            cols = _cols_from_override(headers, mapping_override)
+        else:
+            cols = index_headers(headers, COMMON_ALIASES)
         if "product_code" not in cols or "material_code" not in cols:
             continue
         for raw in iter_data_rows(ws, header_idx):
@@ -167,6 +187,17 @@ def _parse_johnson(blob: bytes) -> dict[str, list[dict]]:
     if not products:
         raise BomParseError("No BOM rows recognized in SAP-exploded format.")
     return dict(products)
+
+
+def _cols_from_override(headers: list[str], override: dict[str, str]) -> dict[str, int]:
+    """Convert header→logical_field override dict to {logical_field: col_idx}."""
+    cols: dict[str, int] = {}
+    norm_to_idx = {(h or "").strip().lower(): i for i, h in enumerate(headers)}
+    for header_name, logical_field in override.items():
+        idx = norm_to_idx.get((header_name or "").strip().lower())
+        if idx is not None and logical_field not in cols:
+            cols[logical_field] = idx
+    return cols
 
 
 def _cell_str(row, idx) -> str | None:
