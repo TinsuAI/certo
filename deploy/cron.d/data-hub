@@ -1,0 +1,10 @@
+# Data Hub cron schedule. Install at /etc/cron.d/data-hub (root-owned).
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=ops@example.com
+
+# Daily Postgres dump @ 02:30 (low-traffic window)
+30 2 * * * hub /usr/local/bin/backup-postgres.sh >> /var/log/data-hub/backup.log 2>&1
+
+# Hourly purge of expired upload_pending rows (safety-net; lifespan task
+# already does this, but cron catches the case where the app was restarted)
+17 * * * * hub psql -d data_hub -c "select hub.purge_expired_pending_uploads();" > /dev/null
