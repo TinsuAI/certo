@@ -5,7 +5,9 @@
   <h1>{{ t('clients.title') }}</h1>
   <span class="page-tagline">{{ items|length }} · {{ t('clients.tagline') }}</span>
   <div class="page-actions">
+    {% if can_create_client %}
     <a class="btn-primary" href="/clients/new">+ {{ t('clients.add') }}</a>
+    {% endif %}
   </div>
 </section>
 
@@ -41,7 +43,9 @@
   {% else %}
   <div class="empty-state">
     <p>{{ t('clients.empty') }}</p>
+    {% if can_create_client %}
     <a class="btn-primary" href="/clients/new">+ {{ t('clients.add') }}</a>
+    {% endif %}
   </div>
   {% endif %}
 </section>

@@ -20,7 +20,6 @@ from app.stores.bom import (
     list_versions_for_product,
     list_products_with_bom,
 )
-from app.stores.code_resolution import lookup_resolution
 
 router = APIRouter(prefix="/v1/hub", tags=["api"])
 
@@ -139,7 +138,7 @@ async def api_list_bcct(
                declaration_type, direction, registration_date,
                customs_code, internal_code, goods_name, hs_code,
                quantity, unit, total_value, currency, origin,
-               resolved_customs_code, bom_version_id, indexed_at
+               bom_version_id, indexed_at
         from hub.bcct_rows where client_id = %s
     """
     params: list = [client_id]
@@ -176,7 +175,7 @@ async def api_get_bcct(
                        declaration_type, direction, registration_date,
                        customs_code, internal_code, goods_name, hs_code,
                        quantity, unit, total_value, currency, origin,
-                       resolved_customs_code, bom_version_id, indexed_at, payload
+                       bom_version_id, indexed_at, payload
                 from hub.bcct_rows
                 where client_id = %s and transaction_key = %s
                 order by line_no
@@ -207,28 +206,6 @@ async def api_list_code_mappings(
                 select client_id, internal_code, customs_code, category, notes
                 from hub.code_mappings where client_id = %s
                 order by internal_code, customs_code
-                """,
-                (client_id,),
-            )
-            cols = [d[0] for d in cur.description]
-            items = [dict(zip(cols, r)) for r in cur.fetchall()]
-    return _json({"items": items, "total_estimate": len(items)})
-
-
-@router.get("/code-mappings/resolutions")
-async def api_list_resolutions(
-    client_id: str,
-    authorization: str | None = Header(None),
-):
-    _require_token(authorization)
-    with connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                select client_id, internal_code, resolved_customs_code,
-                       resolution_basis, resolved_at, details
-                from hub.code_mapping_resolutions where client_id = %s
-                order by internal_code
                 """,
                 (client_id,),
             )

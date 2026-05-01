@@ -29,7 +29,13 @@
       {% endif %}
     </nav>
     <div class="topnav-meta">
-      <span class="topnav-user">{{ user.display_name }}</span>
+      {% if user.role in ('dev', 'admin') %}
+      <a class="topnav-chip topnav-chip-link {% if active_root == 'admin' %}topnav-chip-active{% endif %}"
+         href="/admin/users" title="{{ t('nav.admin') }}">
+        {{ t('nav.admin') }}
+      </a>
+      {% endif %}
+      <span class="topnav-user" title="{{ user.role }}">{{ user.display_name }}</span>
       <form method="post" action="/settings/lang" class="topnav-toggle-form">
         <input type="hidden" name="lang" value="{{ next_lang }}">
         <input type="hidden" name="next_url" value="{{ request.url.path }}">

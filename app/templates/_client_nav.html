@@ -33,6 +33,10 @@
      href="/clients/{{ client.client_id }}/proposals">{{ t('tabs.proposals') }}</a>
   <a class="tab-link {{ 'tab-link-active' if active_tab == 'uploads' else '' }}"
      href="/clients/{{ client.client_id }}/uploads">{{ t('tabs.uploads') }}</a>
+  {% if can_manage_staff(client.client_id) %}
+  <a class="tab-link {{ 'tab-link-active' if active_tab == 'staff' else '' }}"
+     href="/clients/{{ client.client_id }}/staff">{{ t('tabs.staff') }}</a>
+  {% endif %}
   <a class="tab-link {{ 'tab-link-active' if active_tab == 'config' else '' }}"
      href="/clients/{{ client.client_id }}/edit">{{ t('tabs.config') }}</a>
 </nav>

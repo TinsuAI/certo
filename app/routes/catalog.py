@@ -21,7 +21,8 @@ async def list_view(
     request: Request, client_id: str,
     category: str | None = None, q: str | None = None,
 ):
-    auth.require_user(request)
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
@@ -40,7 +41,8 @@ async def list_view(
 
 @router.get("/clients/{client_id}/catalog/upload", response_class=HTMLResponse)
 async def upload_view(request: Request, client_id: str):
-    auth.require_user(request)
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
@@ -59,6 +61,7 @@ async def upload_submit(
     file: UploadFile = File(...),
 ):
     user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
     blob = await file.read()

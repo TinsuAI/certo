@@ -13,7 +13,8 @@ router = APIRouter()
 
 @router.get("/clients/{client_id}/uploads", response_class=HTMLResponse)
 async def list_view(request: Request, client_id: str, module: str | None = None):
-    auth.require_user(request)
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")

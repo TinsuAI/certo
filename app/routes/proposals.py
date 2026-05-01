@@ -13,7 +13,8 @@ router = APIRouter()
 
 @router.get("/clients/{client_id}/proposals", response_class=HTMLResponse)
 async def list_view(request: Request, client_id: str, status: str | None = None):
-    auth.require_user(request)
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
@@ -29,7 +30,8 @@ async def list_view(request: Request, client_id: str, status: str | None = None)
 
 @router.get("/clients/{client_id}/proposals/{proposal_id}", response_class=HTMLResponse)
 async def detail_view(request: Request, client_id: str, proposal_id: str):
-    auth.require_user(request)
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")

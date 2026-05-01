@@ -1,45 +1,54 @@
 # Project Status
 
-**Date:** 2026-05-01 (end of day — post-autopilot iteration)
+**Date:** 2026-05-02 (RBAC + per-client ACL landed; settlement resolver ripped out of hub)
 
 ## Current State
 
-**Working MVP web app + read API.** Running locally at `http://127.0.0.1:8754`.
-Login: `admin@data-hub.local / admin123`.
+**Working MVP web app + read API + 4-role auth.** Running locally at `http://127.0.0.1:8754`.
+Login: `admin@data-hub.local / admin123` (role=`dev`).
 
 What works:
 - Client management with workspace pattern (URLs nested under `/clients/{client_id}/{tab}`).
-- 7 entity tabs per client: Overview, Catalog, Code Mappings (BQD), BCCT, BOM, Proposals, Uploads, Config.
+- 7+1 entity tabs per client: Overview, Catalog, Code Mappings (BQD), BCCT, BOM, Proposals, Uploads, Staff (admin/manager-of-this-client only), Config.
 - Excel upload + parsing for: Materials (5-category enum), BQD (N-to-N), BCCT (Growatt regex internal_code parser), BOM (3 profiles: manual_flat / growatt_multi_workbook / johnson_sap_exploded).
-- Code resolver: ports Growatt's BCCT-aggregate disambiguation; runs after BQD/BCCT upload.
+- Code parser: extracts `internal_code` from BCCT `goods_name` at upload time (Growatt regex). Settlement-flavored canonical-code resolver was REMOVED from hub on 2026-05-02 — see DECISIONS entry. Resolver script lives at `scripts/settlement_resolver.py` (CLI-only, hub-runtime-isolated, destined for BCQT migration).
 - BOM proposal queue: auto-only mode, 5-condition gate, idempotent.
 - Public read API: 11 endpoints under `/v1/hub/*`, bearer-token auth.
 - BCCT raw columns captured into `payload` jsonb (full Vietnamese headers preserved).
 - Dual-source material detection: query-time EXISTS subqueries flag materials present in both BCCT imports + BOM products.
-- i18n bilingual: Vietnamese default + English toggle (cookie). ~150 translation keys.
+- i18n bilingual: Vietnamese default + English toggle (cookie). ~200 translation keys.
 - Auto-seed on empty DB: creates Growatt VN (10 catalog + 8 BQD pairs incl. 1:n + 10 BCCT + 5 BOM versions + 2 proposals) and Johnson VN (4 catalog identity-mode + 3 BCCT + 1 BOM).
-- 28 pytest tests passing.
+- **4-role RBAC + per-client ACL** (2026-05-02):
+  - Roles: `dev` (single, vendor) / `admin` / `manager` (scoped to client group) / `staff` (per-client read|edit).
+  - Migration 008: role CHECK constraint, partial unique index for single-dev, `hub.user_managed_clients`, `hub.user_client_access`.
+  - Admin UI at `/admin/users` (list/create/role/lock) + `/admin/users/{id}/clients` (manager group).
+  - Per-client `/clients/{id}/staff` tab for manager-of-client/admin/dev.
+  - Permission gates wired into all per-client routes (catalog/bqd/bcct/bom/uploads/proposals/config).
+- 40 pytest tests passing (45 - 5 dropped resolver tests).
 - 27 Playwright UI screenshots in `data/screenshots/` covering all flows in light + dark + EN.
 
 ## Recent Changes
 
-**Today (2026-05-01) is one session — see two `.ai/sessions/` files for full breakdown:**
+**2026-05-02 — Settlement resolver ripped out of hub.** After critic review, removed BCQT-flavored canonical-code resolver from hub (was a lossy port of bcqt-growatt algorithm — wrong for TP today). Migration `009_rip_resolver.sql` drops `hub.code_mapping_resolutions` + `bcct_rows.resolved_customs_code`. Algorithm moved to `scripts/settlement_resolver.py` (CLI). DECISIONS entry "2026-05-02 Settlement code resolver moved out of hub". Brief: `.ai/features/2026-05-02-rip-resolver-from-hub.md`.
 
+**2026-05-02 — RBAC + per-client ACL.** Feature brief: `.ai/features/2026-05-02-auth-rbac-acl.md`. Session: `.ai/sessions/2026-05-02-rbac-acl.md`. Pre-SSO phase: cross-app token issuer deferred until BCQT/CO consumers exist.
+
+**2026-05-01 (full day):**
 - `2026-05-01-autopilot-mvp-scaffold.md` — initial autopilot build of foundation, schema, auth, entity routers, JSON API, audit views.
 - `2026-05-01-client-restructure-i18n-redesign.md` — post-autopilot UX iteration: DNCX→Clients rename, workspace mental model, breadcrumb, dual-source detection, BCCT payload capture, button restyle, i18n overhaul, settings page redesign.
-
-12 commits total since project scaffold (`f1eaae5`).
 
 ## Next Steps
 
 1. **Validate against real Growatt data** at `~/workspace/client/bcqt-growatt/data/` — synthetic seed has only 10 BCCT rows; real files have thousands. Test parsers + resolver at scale.
 2. **Audit other reference clients** (DKE, Dothanh, Johnson real data) for parser quirks the synthetic seed doesn't surface.
 3. **Background job for resolver** — currently runs synchronously inside upload handlers; will block on big uploads. Move to a queue (RQ / arq / celery) when first slow upload appears.
-4. **SSO design pass** (M9 deliverable #4) — currently MVP uses single-deployment session-cookie auth + seed admin. Need cross-app SSO design for federation with BCQT and CO.
+4. **Cross-app SSO Phase 2** (M9 deliverable #4) — local RBAC + ACL is in place. Phase 2 = JWT issuer / JWKS / cookie-domain federation when BCQT and CO consumers come online. Defer until BCQT/CO migration audits land.
 5. **Service-discovery for auto-rule case_id validation** — currently DROPPED from MVP because CO has no HTTP API. Reinstate when CO grows one.
 6. **Manual + hybrid BOM review modes** — schema is shaped to accept these; phase 2 work involves notification system, latency SLO, review queue endpoints.
 7. **Production deployment** (M9 deliverable #6) — systemd, pg_dump backup pipeline, Litestream for per-project SQLite (BCQT-side), nginx reverse proxy.
 8. **JWT scope auth on read API** — currently accepts any non-empty bearer token; phase 2 adds proper JWT scope validation.
+9. **Audit log UI for permission changes** — `granted_by`/`granted_at` columns are populated; an admin-side history view is deferred.
+10. **Password reset / invite email / 2FA** — current admin creates user with chosen password directly; phase 2 should add reset flow, invite emails, optional 2FA.
 
 ## Blockers
 

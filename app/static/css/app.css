@@ -1512,3 +1512,35 @@ input[type="submit"].btn-primary { padding: 0.5rem 0.95rem; }
   margin-top: .4rem;
 }
 [data-theme="dark"] .settings-footer { border-color: #2e3447; }
+
+/* === Admin pages === */
+.inline-form { display: inline-flex; gap: 0.4rem; align-items: center; margin: 0; }
+.inline-form select { padding: 0.3rem 0.5rem; font-size: 0.82rem; border-radius: var(--radius-sm, 6px); border: 1px solid var(--border, #d8dde7); background: var(--surface, #fff); color: var(--text, #1a1f2c); }
+[data-theme="dark"] .inline-form select { background: #1d2235; color: #d6d9e5; border-color: #2e3447; }
+.btn-danger-sm {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 0.3rem; min-height: 1.95rem; padding: 0.32rem 0.7rem;
+  border: 1px solid #b3261e; background: transparent; color: #b3261e;
+  font-size: 0.78rem; font-weight: 700; border-radius: var(--radius-sm, 6px);
+  cursor: pointer; transition: background 0.12s, color 0.12s;
+}
+.btn-danger-sm:hover { background: #b3261e; color: #fff; }
+[data-theme="dark"] .btn-danger-sm { border-color: #e0625a; color: #e0625a; }
+[data-theme="dark"] .btn-danger-sm:hover { background: #b3261e; color: #fff; }
+
+.actions-cell { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
+.dh-table .actions-cell { padding-top: 0.3rem; padding-bottom: 0.3rem; }
+.dh-table td.mono.small { font-size: 0.82rem; color: var(--text-soft, #5b6478); }
+
+.topnav-chip-link {
+  display: inline-flex; align-items: center; padding: 0.32rem 0.7rem;
+  font-size: 0.82rem; font-weight: 600; text-decoration: none;
+  color: var(--text, #1a1f2c); border: 1px solid var(--border, #d8dde7);
+  border-radius: 999px; background: var(--surface, #fff);
+  transition: background 0.12s, color 0.12s;
+}
+.topnav-chip-link:hover { background: var(--surface-hover, #f5f6fa); }
+.topnav-chip-active { background: var(--primary, #2c40c8); color: #fff; border-color: var(--primary, #2c40c8); }
+.topnav-chip-active:hover { background: var(--primary-hover, #1f2fa8); color: #fff; }
+[data-theme="dark"] .topnav-chip-link { background: #1d2235; color: #d6d9e5; border-color: #2e3447; }
+[data-theme="dark"] .topnav-chip-link:hover { background: #2a3149; }

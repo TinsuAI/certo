@@ -32,20 +32,14 @@ def growatt_parse_internal_code(goods_name: str) -> Optional[str]:
     return None
 
 
-_GROWATT_DNCX_TOKENS = ("growatt", "grw")
-
-
 def internal_code_parser_for(client_id: str, code_resolution_mode: str) -> Callable[[str], Optional[str]]:
     """Return a parser callable: goods_name -> internal_code | None.
 
-    Identity mode: returns lambda that maps any goods_name to None — caller falls back to customs_code.
-    batch_aggregate_resolution + dncx looks like growatt: use Growatt regex.
-    Other DNCXs in simple_mapping: heuristic — try Growatt regex (it covers a few common shapes),
-    fall back to None (caller uses customs_code as fallback).
+    - `identity` mode: returns lambda → None for every goods_name (caller falls back to customs_code).
+    - Any other mode: returns Growatt regex parser (`growatt_parse_internal_code`).
+      Extension hook: when a non-Growatt client appears with a different goods_name format,
+      dispatch by client_id token here.
     """
     if code_resolution_mode == "identity":
         return lambda _: None
-    lower = (client_id or "").lower()
-    if any(tok in lower for tok in _GROWATT_DNCX_TOKENS):
-        return growatt_parse_internal_code
-    return growatt_parse_internal_code  # default — extension hook for additional DNCXs
+    return growatt_parse_internal_code

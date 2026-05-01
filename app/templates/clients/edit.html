@@ -45,19 +45,20 @@
         <h2>{{ t('clients.section.code_resolution') }}</h2>
         <p class="meta">{{ t('clients.section.code_resolution_meta') }}</p>
       </div>
-      {% if client %}<span class="badge badge-warning">{{ t('clients.field.code_resolution_mode_locked') }}</span>{% endif %}
+      {% if client and not can_edit_technical %}<span class="badge badge-warning">{{ t('clients.field.code_resolution_mode_locked') }}</span>{% endif %}
+      {% if client and can_edit_technical %}<span class="badge badge-info">{{ t('clients.field.code_resolution_mode_dev') }}</span>{% endif %}
     </div>
     <div class="settings-grid">
       <label class="field field-wide">
         <span class="field-label">{{ t('clients.field.code_resolution_mode') }}</span>
-        <select name="code_resolution_mode" {% if client %}disabled{% endif %}>
+        <select name="code_resolution_mode" {% if client and not can_edit_technical %}disabled{% endif %}>
           {% for m in modes %}
           <option value="{{ m }}"
             {% if client and client.code_resolution_mode == m %}selected
             {% elif not client and m == 'simple_mapping' %}selected{% endif %}>{{ t('clients.mode.' + m) }}</option>
           {% endfor %}
         </select>
-        {% if client %}<input type="hidden" name="code_resolution_mode" value="{{ client.code_resolution_mode }}">{% endif %}
+        {% if client and not can_edit_technical %}<input type="hidden" name="code_resolution_mode" value="{{ client.code_resolution_mode }}">{% endif %}
       </label>
     </div>
   </section>

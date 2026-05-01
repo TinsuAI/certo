@@ -103,6 +103,41 @@ This is **time-scoped, not permanent**. Phase 2 may revisit if a real driver app
 
 ---
 
+## 2026-05-02 Settlement code resolver moved out of hub
+
+**Context:** Hub hosted `app/stores/code_resolution.py` — a canonical-pick resolver materializing `hub.code_mapping_resolutions` and a denormalized `bcct_rows.resolved_customs_code` column. Code comments explicitly stated the algorithm was ported from `bcqt-growatt/settlement/code_map.py`. Independent critic review (`.ai/features/2026-05-02-rip-resolver-from-hub.md` for the brief) surfaced three issues:
+
+1. **BCQT-flavor leaks into hub schema.** `bcct_qty_pick` strategy + `direction='import'` filter + 5-enum `resolution_basis` CHECK constraint are all settlement-side rollup concepts. Hub is master-data app — should not encode consumer-specific views.
+2. **Lossy port.** Original Growatt algorithm distinguishes NVL (E11/E15/E13 import qty) vs TP (E42 export qty). Hub's port collapses to `direction='import'` for everything → resolved_customs_code stored for TP rows is *wrong today*.
+3. **Window cost.** Read API has zero real consumers (CO not migrated, BCQT not migrated). Cost of removal = 0 right now, grows weekly.
+
+**Decision:** **Option B-lite** — drop the materialization from hub; move algorithm to a CLI script. Specifically:
+
+- Drop `hub.code_mapping_resolutions` table.
+- Drop `hub.bcct_rows.resolved_customs_code` column + `idx_bcct_resolved` index. Migration `009_rip_resolver.sql`.
+- Move `app/stores/code_resolution.py` → `scripts/settlement_resolver.py` (CLI, NOT imported by `app/`). Reads hub raw data as a consumer would. Writes nothing to hub.
+- Remove API endpoint `/v1/hub/code-mappings/resolutions`. Remove `resolved_customs_code` field from `/v1/hub/bcct/*` responses.
+- Remove BQD page resolutions panel + manual "Resolve" button.
+- Drop `tests/test_code_resolution.py` (5 tests). Equivalent tests get rebuilt in BCQT when it migrates and adopts/fixes the algorithm.
+
+**Alternatives considered:**
+- **Option A (rename + DECISIONS entry, keep in hub):** rejected. Critic point 2 — hub stores wrong canonical data for TP today. Renaming doesn't fix data integrity. Tech debt entry doesn't undo coupling.
+- **Full Option B (move to BCQT-System repo):** rejected for now. BCQT hasn't migrated to consumer mode yet. Putting it in `data-hub/scripts/` keeps the algorithm reachable for current demo/dev needs while signaling it's destined for BCQT. When BCQT migrates, this script gets ported there + fixed for NVL/TP split.
+- **Option C pluggable strategies:** rejected — over-engineering for MVP.
+
+**Consequences:**
+- Hub schema shrinks: 1 table dropped, 1 column dropped, 1 index dropped, 1 API endpoint gone, 1 API field gone.
+- `app/parsers/goods_name.py` STAYS at hub — that's genuine ingestion (parser extracts internal_code from goods_name at upload time). Hub-job legitimate.
+- `bcct_rows.internal_code` still populated at upload via the parser. BQD pairs in `hub.code_mappings` still master data hub-owned.
+- `hub.clients.code_resolution_mode` field still meaningful — controls parser pick (identity vs growatt regex). Not the canonical-pick strategy (that's gone).
+- `scripts/settlement_resolver.py` is a hub-side helper for now. When BCQT migrates: copy/move into BCQT repo, fix NVL/TP split per original Growatt algorithm, store output in `bcqt` schema or per-project SQLite.
+- Cross-app coupling permanently severed — hub will never serve a "canonical HQ" answer that depends on consumer-side strategy.
+- M9 deliverable list updates: BCQT migration scope grows by "build settlement_resolver consumer-side" — but that work was always going to happen, just deferred to BCQT-side from day 1 instead of being a hub→BCQT decoupling later.
+
+**Cross-repo:** No update to BCQT-System or CO-main needed — they haven't migrated yet, no integration code exists. When migration sprint lands, settlement_resolver.py goes with BCQT.
+
+---
+
 ## Decisions to add post-discovery
 
 (Placeholder — entries to be written during/after M9 discovery sprint)

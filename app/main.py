@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 
 from app import auth, i18n
 from app.database import apply_migrations
-from app.routes import api, bcct, bom, bqd, catalog, clients, proposals, uploads
+from app.routes import admin, api, bcct, bom, bqd, catalog, clients, proposals, uploads
 from app.seed import auto_seed_demo_if_empty
 
 ROOT = Path(__file__).resolve().parent
@@ -35,6 +35,7 @@ def template_context(request: Request) -> dict:
         "next_lang": "en" if lang == "vi" else "vi",
         "t": lambda key: i18n.t(key, lang),
         "user": user,
+        "can_manage_staff": lambda client_id: auth.can_assign_staff_to_client(user, client_id),
         "active_root": "",
         "active_tab": "",
         "message": None,
@@ -71,6 +72,7 @@ app.include_router(bcct.router)
 app.include_router(bom.router)
 app.include_router(proposals.router)
 app.include_router(uploads.router)
+app.include_router(admin.router)
 app.include_router(api.router)
 
 

@@ -112,17 +112,24 @@ def slug(name: str) -> str:
 
 @router.get("/clients", response_class=HTMLResponse)
 async def list_view(request: Request):
-    auth.require_user(request)
+    user = auth.require_user(request)
     items = list_clients()
+    allowed = auth.visible_clients(user)
+    if allowed is not None:
+        allowed_set = set(allowed)
+        items = [it for it in items if it["client_id"] in allowed_set]
     return request.app.state.templates.TemplateResponse(
         request, "clients/list.html",
-        {"items": items, "active_root": "clients"},
+        {"items": items, "active_root": "clients",
+         "can_create_client": auth.can_create_client(user)},
     )
 
 
 @router.get("/clients/new", response_class=HTMLResponse)
 async def new_view(request: Request):
-    auth.require_user(request)
+    user = auth.require_user(request)
+    if not auth.can_create_client(user):
+        raise HTTPException(403, "forbidden")
     return request.app.state.templates.TemplateResponse(
         request, "clients/edit.html",
         {"client": None, "modes": CODE_RESOLUTION_MODES, "bom_modes": BOM_PROPOSAL_MODES,
@@ -139,7 +146,9 @@ async def new_submit(
     bom_proposal_qty_tolerance_pct: float = Form(5.0),
     notes: str = Form(""),
 ):
-    auth.require_user(request)
+    user = auth.require_user(request)
+    if not auth.can_create_client(user):
+        raise HTTPException(403, "forbidden")
     if code_resolution_mode not in CODE_RESOLUTION_MODES:
         raise HTTPException(400, "Invalid code_resolution_mode")
     client_id = slug(name)
@@ -154,7 +163,8 @@ async def new_submit(
 
 @router.get("/clients/{client_id}", response_class=HTMLResponse)
 async def workspace_view(request: Request, client_id: str):
-    auth.require_user(request)
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
@@ -162,13 +172,17 @@ async def workspace_view(request: Request, client_id: str):
     return request.app.state.templates.TemplateResponse(
         request, "clients/workspace.html",
         {"client": client, "stats": stats,
-         "active_root": "clients", "active_tab": "overview"},
+         "active_root": "clients", "active_tab": "overview",
+         "can_edit": auth.can_edit_client(user, client_id),
+         "can_edit_config": auth.can_edit_client_config(user, client_id)},
     )
 
 
 @router.get("/clients/{client_id}/edit", response_class=HTMLResponse)
 async def edit_view(request: Request, client_id: str):
-    auth.require_user(request)
+    user = auth.require_user(request)
+    if not auth.can_edit_client_config(user, client_id):
+        raise HTTPException(403, "forbidden")
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
@@ -177,7 +191,8 @@ async def edit_view(request: Request, client_id: str):
         request, "clients/edit.html",
         {"client": client, "stats": stats,
          "modes": CODE_RESOLUTION_MODES, "bom_modes": BOM_PROPOSAL_MODES,
-         "active_root": "clients", "active_tab": "config"},
+         "active_root": "clients", "active_tab": "config",
+         "can_edit_technical": auth.can_edit_client_technical(user, client_id)},
     )
 
 
@@ -185,17 +200,26 @@ async def edit_view(request: Request, client_id: str):
 async def edit_submit(
     request: Request, client_id: str,
     name: str = Form(...), tax_code: str = Form(""),
+    code_resolution_mode: str = Form(""),
     bom_proposal_mode: str = Form("auto"),
     bom_proposal_qty_tolerance_pct: float = Form(5.0),
     notes: str = Form(""), status: str = Form("active"),
 ):
-    auth.require_user(request)
+    user = auth.require_user(request)
+    if not auth.can_edit_client_config(user, client_id):
+        raise HTTPException(403, "forbidden")
     existing = get_client(client_id)
     if not existing:
         raise HTTPException(404, "Client not found")
+    if auth.can_edit_client_technical(user, client_id) and code_resolution_mode:
+        if code_resolution_mode not in CODE_RESOLUTION_MODES:
+            raise HTTPException(400, "Invalid code_resolution_mode")
+        new_mode = code_resolution_mode
+    else:
+        new_mode = existing["code_resolution_mode"]
     upsert_client(
         client_id=client_id, name=name.strip(), tax_code=tax_code.strip() or None,
-        code_resolution_mode=existing["code_resolution_mode"],
+        code_resolution_mode=new_mode,
         bom_proposal_mode=bom_proposal_mode,
         bom_proposal_qty_tolerance_pct=bom_proposal_qty_tolerance_pct,
         status=status, notes=notes.strip() or None,

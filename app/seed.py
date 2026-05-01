@@ -12,7 +12,6 @@ from app.routes.bcct import _insert_bcct
 from app.routes.bqd import _insert_mappings
 from app.routes.catalog import _insert_materials
 from app.stores.bom import create_version
-from app.stores.code_resolution import resolve_for_dncx
 
 
 def auto_seed_demo_if_empty() -> str:
@@ -141,8 +140,6 @@ def _seed_growatt(client_id: str) -> None:
     parser = internal_code_parser_for(client_id, "batch_aggregate_resolution")
     _insert_bcct(client_id=client_id, year=2025, rows=parsed,
                  upload_id=f"seed-bcct-{client_id}", parser=parser)
-
-    resolve_for_dncx(client_id)
 
     # BOM — 3 finished products + 1 dual-source sub-assembly (HEATSINK-A: vừa import vừa tự sản xuất)
     wb = Workbook(); ws = wb.active; ws.title = "BOM"
@@ -277,7 +274,6 @@ def _seed_johnson(client_id: str) -> None:
     _insert_bcct(client_id=client_id, year=2025,
                  rows=parse_bcct_workbook(buf.getvalue()),
                  upload_id="seed-johnson-bcct", parser=parser)
-    resolve_for_dncx(client_id)
 
     # 1 BOM
     wb = Workbook(); ws = wb.active; ws.title = "BOM"

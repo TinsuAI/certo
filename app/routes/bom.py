@@ -24,7 +24,8 @@ BOM_PROFILES = ["manual_flat", "growatt_multi_workbook", "johnson_sap_exploded"]
 
 @router.get("/clients/{client_id}/bom", response_class=HTMLResponse)
 async def list_view(request: Request, client_id: str):
-    auth.require_user(request)
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
@@ -39,7 +40,8 @@ async def list_view(request: Request, client_id: str):
 
 @router.get("/clients/{client_id}/bom/upload", response_class=HTMLResponse)
 async def upload_view(request: Request, client_id: str):
-    auth.require_user(request)
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
@@ -56,6 +58,7 @@ async def upload_submit(request: Request, client_id: str,
                         profile: str = Form("manual_flat"),
                         file: UploadFile = File(...)):
     user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
@@ -101,7 +104,8 @@ async def upload_submit(request: Request, client_id: str,
 
 @router.get("/clients/{client_id}/bom/{product_code:path}/versions", response_class=HTMLResponse)
 async def versions_view(request: Request, client_id: str, product_code: str):
-    auth.require_user(request)
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
@@ -116,7 +120,8 @@ async def versions_view(request: Request, client_id: str, product_code: str):
 
 @router.get("/clients/{client_id}/bom/version/{version_id}", response_class=HTMLResponse)
 async def version_detail(request: Request, client_id: str, version_id: str):
-    auth.require_user(request)
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")

@@ -10,9 +10,6 @@
       <p class="meta">{{ t('bqd.subtitle') }}</p>
     </div>
     <div class="page-actions">
-      <form method="post" action="/clients/{{ client.client_id }}/bqd/resolve" style="display: inline;">
-        <button type="submit" class="btn-secondary" title="{{ t('bqd.resolve_hint') }}">{{ t('bqd.resolve_btn') }}</button>
-      </form>
       <a class="btn-primary" href="/clients/{{ client.client_id }}/bqd/upload">{{ t('bqd.upload_btn') }}</a>
     </div>
   </div>
@@ -22,7 +19,6 @@
     <span class="chip">{{ mapping_stats.n_internal }} internal</span>
     <span class="chip">{{ mapping_stats.n_customs }} customs</span>
     <span class="chip">{{ mapping_stats.n_1n }} 1:n</span>
-    <span class="chip">{{ resolutions|length }} resolved</span>
   </div>
 
   <details>
@@ -80,31 +76,4 @@
   </div>
   {% endif %}
 </section>
-
-{% if resolutions %}
-<section class="zone zone-muted">
-  <div class="subsection-head">
-    <h3>{{ t('bqd.section.resolutions') }} ({{ resolutions|length }})</h3>
-    <p class="meta">{{ t('bqd.resolve_hint') }}</p>
-  </div>
-  <table class="dh-table">
-    <thead><tr>
-      <th>{{ t('bqd.col.internal_code') }}</th>
-      <th>{{ t('bqd.col.resolved') }}</th>
-      <th>{{ t('bqd.col.basis') }}</th>
-      <th>{{ t('bqd.col.updated') }}</th>
-    </tr></thead>
-    <tbody>
-      {% for r in resolutions %}
-      <tr>
-        <td class="mono">{{ r.internal_code }}</td>
-        <td class="mono">{{ r.resolved_customs_code }}</td>
-        <td><span class="badge badge-{{ 'info' if r.resolution_basis in ['bqd_unique','identity'] else ('success' if r.resolution_basis == 'bcct_qty_pick' else 'warning') }}">{{ r.resolution_basis }}</span></td>
-        <td class="mono">{{ r.resolved_at.strftime('%Y-%m-%d %H:%M') if r.resolved_at else '' }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</section>
-{% endif %}
 {% endblock %}

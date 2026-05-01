@@ -10,7 +10,6 @@ from app.parsers.bcct import parse_bcct_workbook, BcctParseError
 from app.parsers.goods_name import internal_code_parser_for
 from app.routes.clients import get_client, stats_for_client
 from app.storage import save_upload, sha256_bytes
-from app.stores.code_resolution import resolve_for_dncx
 from app.stores.uploads import record_upload
 
 router = APIRouter()
@@ -20,7 +19,8 @@ router = APIRouter()
 async def list_view(request: Request, client_id: str,
                     year: int | None = None, direction: str | None = None,
                     q: str | None = None):
-    auth.require_user(request)
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
@@ -37,7 +37,8 @@ async def list_view(request: Request, client_id: str,
 
 @router.get("/clients/{client_id}/bcct/upload", response_class=HTMLResponse)
 async def upload_view(request: Request, client_id: str):
-    auth.require_user(request)
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
@@ -52,6 +53,7 @@ async def upload_view(request: Request, client_id: str):
 async def upload_submit(request: Request, client_id: str,
                         year: int = Form(...), file: UploadFile = File(...)):
     user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
@@ -77,7 +79,6 @@ async def upload_submit(request: Request, client_id: str,
     parser = internal_code_parser_for(client_id, client["code_resolution_mode"])
     n = _insert_bcct(client_id=client_id, year=year, rows=rows,
                      upload_id=upload_id, parser=parser)
-    resolve_for_dncx(client_id)
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(

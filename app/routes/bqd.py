@@ -9,7 +9,6 @@ from app.database import connect
 from app.parsers.code_mappings import parse_code_mappings_workbook, CodeMappingsParseError
 from app.routes.clients import get_client, stats_for_client
 from app.storage import save_upload, sha256_bytes
-from app.stores.code_resolution import resolve_for_dncx
 from app.stores.uploads import record_upload
 
 router = APIRouter()
@@ -17,19 +16,19 @@ router = APIRouter()
 
 @router.get("/clients/{client_id}/bqd", response_class=HTMLResponse)
 async def list_view(request: Request, client_id: str, q: str | None = None):
-    auth.require_user(request)
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
     items = _list_mappings(client_id, q)
     stats_basic = _mapping_stats(client_id)
-    resolutions = _list_resolutions(client_id)
     return request.app.state.templates.TemplateResponse(
         request, "clients/bqd.html",
         {
             "client": client, "stats": stats_for_client(client_id),
             "items": items, "q": q or "",
-            "mapping_stats": stats_basic, "resolutions": resolutions,
+            "mapping_stats": stats_basic,
             "active_root": "clients", "active_tab": "bqd",
         },
     )
@@ -37,7 +36,8 @@ async def list_view(request: Request, client_id: str, q: str | None = None):
 
 @router.get("/clients/{client_id}/bqd/upload", response_class=HTMLResponse)
 async def upload_view(request: Request, client_id: str):
-    auth.require_user(request)
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
@@ -56,6 +56,7 @@ async def upload_submit(
     file: UploadFile = File(...),
 ):
     user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
     blob = await file.read()
@@ -79,22 +80,12 @@ async def upload_submit(
                 )
         raise HTTPException(400, f"Parse error: {e}")
     n = _insert_mappings(client_id=client_id, rows=rows)
-    resolve_for_dncx(client_id)
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "update hub.file_uploads set parse_status='done', row_count=%s, parsed_at=now() where upload_id=%s",
                 (n, upload_id),
             )
-    return RedirectResponse(url=f"/clients/{client_id}/bqd", status_code=303)
-
-
-@router.post("/clients/{client_id}/bqd/resolve")
-async def trigger_resolve(request: Request, client_id: str):
-    auth.require_user(request)
-    if not get_client(client_id):
-        raise HTTPException(404, "Client not found")
-    resolve_for_dncx(client_id)
     return RedirectResponse(url=f"/clients/{client_id}/bqd", status_code=303)
 
 
@@ -106,7 +97,8 @@ async def manual_add(
     category: str = Form(""),
     notes: str = Form(""),
 ):
-    auth.require_user(request)
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
     _insert_mappings(
@@ -163,21 +155,6 @@ def _mapping_stats(client_id: str) -> dict:
             )
             (n_1n,) = cur.fetchone()
             return {"total": row[0], "n_internal": row[1], "n_customs": row[2], "n_1n": n_1n}
-
-
-def _list_resolutions(client_id: str) -> list[dict]:
-    with connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                select internal_code, resolved_customs_code, resolution_basis, resolved_at
-                from hub.code_mapping_resolutions where client_id = %s
-                order by internal_code
-                """,
-                (client_id,),
-            )
-            cols = [d[0] for d in cur.description]
-            return [dict(zip(cols, r)) for r in cur.fetchall()]
 
 
 def _insert_mappings(*, client_id: str, rows: list[dict]) -> int:
