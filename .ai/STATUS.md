@@ -105,6 +105,18 @@ None for MVP validation. Production-ship gates: SSO design + deployment shape.
 - **CSS mostly inherited from CO** (`barry-CO-main/app/static/css/app.css`). Data Hub appended ~180 lines for breadcrumb, settings, admin pages, dual badge, dark theme.
 - **Sister-repo cross-link decisions**: anchor architecture in `~/workspace/client/BCQT-System/.ai/DECISIONS.md` "2026-04-30 PM — Data Hub 3-app architecture" with 2026-05-01 BCCT-amendment block at top. Local DECISIONS adds 2026-05-02 entry for resolver rip-out.
 
+## Backlog
+
+See `.ai/BACKLOG.md` for ideas captured but not yet planned. Recent
+additions (2026-05-04 EOD):
+
+- Pre-commit upload preview at all stages (catalog/bqd/bom — BCCT
+  already half-done via parser-mapping flow).
+- Catalog with multi-source provenance (DS HQ-registered vs auto-derived
+  from BCCT vs user-uploaded). Track which codes are HQ-registered.
+- BCCT tab staleness metadata (last upload date + most recent declaration
+  date — two distinct signals).
+
 ## Reference
 
 - Sister repos:
