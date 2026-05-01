@@ -694,13 +694,21 @@ async def bcct_row_history(request: Request, client_id: str,
         raise HTTPException(404, "Client not found")
     with connect() as conn:
         with conn.cursor() as cur:
+            # LEFT JOIN hub.users so 'Ai' column shows the human's email +
+            # display_name, not the raw u_xxx id. Sentinel actors
+            # ('system', 'ops:script') don't match a user row → JOIN
+            # returns NULL on email/name and template falls back to raw.
             cur.execute(
                 """
-                select action, changed_by, changed_at, upload_id,
-                       old_row, new_row
-                from hub.bcct_row_history
-                where client_id = %s and transaction_key = %s and line_no = %s
-                order by changed_at desc
+                select h.action, h.changed_by, h.changed_at, h.upload_id,
+                       h.old_row, h.new_row,
+                       u.email as actor_email,
+                       u.display_name as actor_display_name
+                from hub.bcct_row_history h
+                left join hub.users u on u.user_id = h.changed_by
+                where h.client_id = %s and h.transaction_key = %s
+                  and h.line_no = %s
+                order by h.changed_at desc
                 limit 200
                 """,
                 (client_id, transaction_key, line_no),

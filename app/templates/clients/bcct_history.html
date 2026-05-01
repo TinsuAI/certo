@@ -35,7 +35,16 @@
       {% for ev in events %}
       <tr>
         <td class="mono">{{ ev.changed_at }}</td>
-        <td><code>{{ ev.changed_by }}</code></td>
+        <td>
+          {% if ev.actor_email %}
+            <strong>{{ ev.actor_display_name or ev.actor_email }}</strong>
+            <br><span class="meta">{{ ev.actor_email }}</span>
+          {% elif ev.changed_by in ('system', 'ops:script') %}
+            <span class="badge badge-warn" title="Sentinel actor (không phải user)">{{ ev.changed_by }}</span>
+          {% else %}
+            <code class="meta">{{ ev.changed_by }}</code>
+          {% endif %}
+        </td>
         <td>
           {% if ev.action == 'delete' %}
             <span class="badge badge-danger">delete</span>
