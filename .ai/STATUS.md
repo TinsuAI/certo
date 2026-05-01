@@ -1,6 +1,6 @@
 # Project Status
 
-**Date:** 2026-05-04 (BCCT overhaul + LLM smart parser shipped; 4 stages + post-rev fixes)
+**Date:** 2026-05-04 EOD (BCCT overhaul + LLM smart parser + UX iteration done; ready for manual customer testing)
 
 ## Current State
 
@@ -25,12 +25,35 @@ What works:
   - Admin UI at `/admin/users` (list/create/role/lock) + `/admin/users/{id}/clients` (manager group).
   - Per-client `/clients/{id}/staff` tab for manager-of-client/admin/dev.
   - Permission gates wired into all per-client routes (catalog/bqd/bcct/bom/uploads/proposals/config).
-- 68 pytest tests passing + 7 skipped (real-data, env-gated). 0 xfail (all parser bugs fixed).
+- **109 pytest tests passing + 7 skipped** (real-data, env-gated). 0 xfail.
 - With real-data dir set: +6 more passing (real `.xls` BCCT for Growatt/DKE/Dothanh + Growatt 51MB settlement workbook).
-- 27 Playwright UI screenshots in `data/screenshots/` covering all flows in light + dark + EN.
-- Fixture corpus at `tests/fixtures/` (18 manual `.xlsx` + 9 synthetic edge cases incl. 2 legacy `.xls`). Driven by `tests/test_fixture_corpus.py`. Real `.xls`/`.xlsm` via `DATA_HUB_REAL_DATA_DIR` env var (`tests/test_real_data_external.py`).
+- Playwright screenshots in `data/screenshots/` (light + dark + EN + new ones for stages A+B / D / C1 / C2 / fix-toast).
+- Fixture corpus at `tests/fixtures/` (18 manual `.xlsx` + 9 synthetic edge cases incl. 2 legacy `.xls`). Driven by `tests/test_fixture_corpus.py`.
+- **Manual test fixtures at `data/manual_test/`** (4 .xlsx + README + cleanup SQL). Each file documented with its target URL + expected outcome.
+- **`/admin/settings/technical`** (dev-only): LLM endpoint + auto-fetched model list dropdown + auto-default first model. After save → redirects with `?fetch_models=1`, populates dropdown from `GET {base_url}/models`.
+- **BCCT row table** has `Lịch sử` column with `✏ N` badge linking to per-row history page; rows that have changed show event count + last-changed time.
+- **Audit history page** resolves user_id → display_name + email; sentinels (`system`, `ops:script`) shown distinctly.
+- **Upload preview/parse-mapping page** uses `<select>` dropdowns (not free text) populated from canonical 27-field BCCT logical-field list. 3 explicit decisions: Lưu / Reject / Quay lại sau. Reject path marks `parse_status='rejected'`. `/uploads` page links back to propose UI for `proposed_mapping` files.
+- **Post-upload toast** on `/clients/{id}/bcct` shows ingest counts (NEW · UPDATED · DELETED · NOOP · SKIPPED).
 
 ## Recent Changes
+
+**2026-05-04 EOD — UX iteration + manual-test fixtures + /rev follow-ups (~10 commits).** Session log: `.ai/sessions/2026-05-04-ux-iteration-and-rev-followups.md`. Triggered by user manual-testing the just-shipped 4 stages — surfaced 8 UX issues + minor /rev follow-ups, all fixed:
+- Manual test fixtures at `data/manual_test/` (4 files + README + cleanup SQL); each clearly maps to its target URL + expected behavior.
+- Post-upload toast (silent success was alarming): `?ingested=N&new=...&updated=...&deleted=...&noop=...&skipped=...` query string → green banner.
+- LLM error sanitization v2: 3 distinct messages (LLM-disabled / call-failed / empty workbook) — `Detail withheld to avoid leaking credentials` was misleading when the real issue was misconfigured model name.
+- LLM auto-fetch model list from `GET /v1/models`; auto-defaults the first model when user saves base_url + key (no more typing model names by hand).
+- Prompt fix: "json" lowercase in messages (OpenAI strict-output rule rejected our prompt on real endpoint).
+- Template bug: parse-mapping showed `samples[0][0] · samples[1][1]` for every column instead of column-specific values (col_idx capture).
+- Logical-field input → `<select>` dropdown populated from canonical 27-field list, with `(skip)` option.
+- Reject button on parse-mapping UI (3 explicit decisions instead of binary).
+- `review mapping →` link from `/uploads` for files in `proposed_mapping` state.
+- BCCT row table: new `Lịch sử` column with event-count badge linking to per-row history.
+- History page actor column: resolves user_id → display_name + email; sentinels render as warn badge with tooltip.
+- 3 ideas captured to `.ai/BACKLOG.md` (upload preview at all stages / catalog provenance / BCCT staleness metadata).
+- /rev minor follow-ups #1 (`use_count` overcount) + #2 (FileNotFoundError on missing blob) fixed; #3 (migration numbering gap) intentionally deferred — renaming applied migrations risks `schema_migrations` divergence cross-environment.
+
+Tests: 106 → 109 passed (+3 LLM `list_models` tests). Server live at `http://127.0.0.1:8754`.
 
 **2026-05-04 — BCCT overhaul + LLM smart parser (4 stages, ~3000 LoC).** Brief: `.ai/features/2026-05-04-bcct-overhaul-and-llm-parsing.md` (discover → critic → synthesize → plan → tdd → ui+screenshot → rev). Five commits `365bfed` → `1d79247`.
 
@@ -107,15 +130,16 @@ None for MVP validation. Production-ship gates: SSO design + deployment shape.
 
 ## Backlog
 
-See `.ai/BACKLOG.md` for ideas captured but not yet planned. Recent
-additions (2026-05-04 EOD):
+See `.ai/BACKLOG.md` for ideas captured but not yet planned. Top items:
 
-- Pre-commit upload preview at all stages (catalog/bqd/bom — BCCT
-  already half-done via parser-mapping flow).
-- Catalog with multi-source provenance (DS HQ-registered vs auto-derived
-  from BCCT vs user-uploaded). Track which codes are HQ-registered.
-- BCCT tab staleness metadata (last upload date + most recent declaration
-  date — two distinct signals).
+- **Pre-commit upload preview at all stages** (catalog/bqd/bom — BCCT already half-done via parser-mapping flow).
+- **Catalog with multi-source provenance** (DS HQ-registered vs auto-derived from BCCT vs user-uploaded). Most valuable: which codes are actually registered with HQ. Auto-derive from BCCT can show codes that appeared on declarations but aren't registered.
+- **BCCT tab staleness metadata** (last upload date + most recent declaration date — two distinct signals).
+- **Apply confirm-gate pattern to catalog/bqd/bom** (only BCCT has pre-flight diff today).
+- **Manual mapping UI** when LLM is disabled (today: upload errors with no recourse).
+- Migration numbering gap 010→012 (cosmetic; deferred — would need cross-env `schema_migrations` fixup).
+- CSRF protection on POST endpoints (pre-existing project gap).
+- `set_config('app.user_id', ..., true)` (LOCAL) when connection pooling lands.
 
 ## Reference
 
