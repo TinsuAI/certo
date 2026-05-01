@@ -294,6 +294,75 @@ def test_runtime_terminates_on_submit_final_answer(viewer_user):
     assert "tool" in roles
 
 
+def test_query_uploads_returns_recent(viewer_user):
+    result = tools.dispatch_tool(
+        user=viewer_user, client_id=CLIENT,
+        name="query_uploads", args={"limit": 5},
+    )
+    assert result["ok"] is True
+    # Just shape — no assumption about how many rows exist
+    assert isinstance(result["rows"], list)
+
+
+def test_query_uploads_filters_by_module(viewer_user):
+    result = tools.dispatch_tool(
+        user=viewer_user, client_id=CLIENT,
+        name="query_uploads", args={"module": "bcct", "limit": 5},
+    )
+    assert result["ok"] is True
+    for row in result["rows"]:
+        assert row["module"] == "bcct"
+
+
+def test_query_bcct_history_requires_key(viewer_user):
+    """Without declaration_no or transaction_key, return error."""
+    result = tools.dispatch_tool(
+        user=viewer_user, client_id=CLIENT,
+        name="query_bcct_history", args={},
+    )
+    assert result["ok"] is False
+    assert "required" in result["error"]
+
+
+def test_query_bcct_history_with_decl_no(viewer_user):
+    """Passing declaration_no resolves to transaction_keys + returns rows
+    (possibly empty)."""
+    result = tools.dispatch_tool(
+        user=viewer_user, client_id=CLIENT,
+        name="query_bcct_history",
+        args={"declaration_no": "NONEXISTENT_DECL_XYZ"},
+    )
+    assert result["ok"] is True
+    assert result["rows"] == []
+
+
+def test_lookup_glossary_finds_term(viewer_user):
+    result = tools.dispatch_tool(
+        user=viewer_user, client_id=CLIENT,
+        name="lookup_glossary", args={"term": "BCCT"},
+    )
+    assert result["ok"] is True
+    assert result["match_count"] >= 1
+    assert any("BCCT" in m for m in result["matches"])
+
+
+def test_lookup_glossary_no_match(viewer_user):
+    result = tools.dispatch_tool(
+        user=viewer_user, client_id=CLIENT,
+        name="lookup_glossary", args={"term": "ZZZNOMATCHZZZ"},
+    )
+    assert result["ok"] is True
+    assert result["match_count"] == 0
+
+
+def test_lookup_glossary_empty_term(viewer_user):
+    result = tools.dispatch_tool(
+        user=viewer_user, client_id=CLIENT,
+        name="lookup_glossary", args={"term": ""},
+    )
+    assert result["ok"] is False
+
+
 def test_runtime_refuses_outsider(outsider_user):
     """Outsider with no access to client → require_can_view_client raises
     BEFORE any LLM call."""

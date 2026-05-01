@@ -71,6 +71,9 @@ Tools available:
 - query_catalog — material registry
 - query_bom — bills of materials
 - query_provenance_alarms — codes seen on BCCT but not registered
+- query_uploads — file upload history (when, who, parse_status)
+- query_bcct_history — per-row audit log (who changed what when)
+- lookup_glossary — customs / domain term definitions
 - submit_final_answer — terminator
 """
 

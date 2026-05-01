@@ -116,6 +116,70 @@ TOOL_DEFINITIONS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "query_uploads",
+            "description": (
+                "List recent file_uploads for the current client. Useful for "
+                "questions like 'when was the last BCCT uploaded?' or 'why "
+                "did this upload fail?'. Returns up to 20 by default."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "module": {"type": "string",
+                               "enum": ["bcct", "catalog", "bqd", "bom"]},
+                    "parse_status": {"type": "string",
+                                     "enum": ["pending", "done", "error",
+                                              "proposed_mapping", "rejected"]},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 50,
+                              "default": 20},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_bcct_history",
+            "description": (
+                "Audit-log lookup for a specific BCCT row's change history. "
+                "Use when user asks 'who changed this row?' or 'when was it "
+                "last updated?'. Requires either declaration_no OR transaction_key."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "declaration_no": {"type": "string"},
+                    "transaction_key": {"type": "string"},
+                    "line_no": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100,
+                              "default": 50},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "lookup_glossary",
+            "description": (
+                "Look up customs / domain terminology. Returns the definition "
+                "from Data Hub's glossary if the term is found. Use for "
+                "user questions like 'what is BCCT?' or 'what does NVL mean?'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "term": {"type": "string",
+                             "description": "Term to look up (case-insensitive, "
+                                            "matches by substring)."},
+                },
+                "required": ["term"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "submit_final_answer",
             "description": (
                 "Call when you have the final answer for the user. The text "
@@ -332,6 +396,114 @@ def _query_provenance_alarms(*, client_id: str, limit: int = 50) -> dict:
     }
 
 
+def _query_uploads(*, client_id: str, module: str | None = None,
+                   parse_status: str | None = None,
+                   limit: int = 20) -> dict:
+    sql = (
+        "select upload_id, module, original_filename, parse_status, "
+        "       parsed_at, uploader_user_id, parse_error, row_count, size_bytes "
+        "from hub.file_uploads where client_id = %s"
+    )
+    params: list = [client_id]
+    if module:
+        sql += " and module = %s"
+        params.append(module)
+    if parse_status:
+        sql += " and parse_status = %s"
+        params.append(parse_status)
+    sql += " order by parsed_at desc nulls last, upload_id desc limit %s"
+    params.append(min(max(int(limit or 20), 1), 50))
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            cols = [d[0] for d in cur.description]
+            rows = cur.fetchall()
+    return {
+        "ok": True, "row_count": len(rows),
+        "rows": [
+            {c: (v.isoformat() if hasattr(v, "isoformat") else v)
+             for c, v in zip(cols, r)}
+            for r in rows
+        ],
+    }
+
+
+def _query_bcct_history(*, client_id: str,
+                        declaration_no: str | None = None,
+                        transaction_key: str | None = None,
+                        line_no: str | None = None,
+                        limit: int = 50) -> dict:
+    if not (declaration_no or transaction_key):
+        return {"ok": False,
+                "error": "either declaration_no or transaction_key is required"}
+    sql = (
+        "select h.transaction_key, h.line_no, h.action, h.changed_by, "
+        "       h.changed_at, "
+        "       u.email as actor_email, "
+        "       (h.old_row->>'quantity') as old_quantity, "
+        "       (h.new_row->>'quantity') as new_quantity "
+        "from hub.bcct_row_history h "
+        "left join hub.users u on u.user_id = h.changed_by "
+        "where h.client_id = %s"
+    )
+    params: list = [client_id]
+    if transaction_key:
+        sql += " and h.transaction_key = %s"
+        params.append(transaction_key)
+    elif declaration_no:
+        # transaction_key isn't always == declaration_no; use the index on
+        # bcct_rows to map. Easier: query history rows whose transaction_key
+        # appears in bcct_rows for this declaration.
+        sql += (" and h.transaction_key in ("
+                "select distinct transaction_key from hub.bcct_rows "
+                "where client_id = %s and declaration_no = %s)")
+        params.extend([client_id, declaration_no])
+    if line_no:
+        sql += " and h.line_no = %s"
+        params.append(line_no)
+    sql += " order by h.changed_at desc limit %s"
+    params.append(min(max(int(limit or 50), 1), 100))
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            cols = [d[0] for d in cur.description]
+            rows = cur.fetchall()
+    return {
+        "ok": True, "row_count": len(rows),
+        "rows": [
+            {c: (v.isoformat() if hasattr(v, "isoformat") else v)
+             for c, v in zip(cols, r)}
+            for r in rows
+        ],
+    }
+
+
+def _lookup_glossary(*, client_id: str, term: str) -> dict:
+    """Substring search on .ai/GLOSSARY.md. Returns the matching bullet
+    + 1-2 lines of context. Don't expose the full file (it's project
+    metadata, not user content), just matched entries."""
+    from pathlib import Path
+
+    term_lower = (term or "").strip().lower()
+    if not term_lower:
+        return {"ok": False, "error": "term is required"}
+    path = (Path(__file__).resolve().parent.parent.parent
+            / ".ai" / "GLOSSARY.md")
+    if not path.exists():
+        return {"ok": False, "error": "glossary not available"}
+    content = path.read_text(encoding="utf-8")
+    matches: list[str] = []
+    for line in content.splitlines():
+        ls = line.strip()
+        if not ls.startswith("- **"):
+            continue
+        if term_lower in ls.lower():
+            matches.append(ls)
+            if len(matches) >= 5:
+                break
+    return {"ok": True, "match_count": len(matches), "matches": matches}
+
+
 def _submit_final_answer(*, client_id: str, answer: str) -> dict:
     """Marker tool — runtime detects this name and terminates the loop.
     The implementation just echoes the answer so it's recorded as tool
@@ -344,5 +516,8 @@ _IMPLS: dict[str, Any] = {
     "query_catalog": _query_catalog,
     "query_bom": _query_bom,
     "query_provenance_alarms": _query_provenance_alarms,
+    "query_uploads": _query_uploads,
+    "query_bcct_history": _query_bcct_history,
+    "lookup_glossary": _lookup_glossary,
     "submit_final_answer": _submit_final_answer,
 }
