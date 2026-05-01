@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 
 from app import auth, i18n
 from app.database import apply_migrations
-from app.routes import admin, agent, api, bcct, bom, bqd, catalog, clients, notifications as notif_routes, proposals, uploads
+from app.routes import admin, agent, api, auth_api, bcct, bom, bqd, catalog, clients, notifications as notif_routes, proposals, uploads
 from app.seed import auto_seed_demo_if_empty
 
 ROOT = Path(__file__).resolve().parent
@@ -94,6 +94,7 @@ app.include_router(admin.router)
 app.include_router(api.router)
 app.include_router(notif_routes.router)
 app.include_router(agent.router)
+app.include_router(auth_api.router)
 
 
 @app.get("/healthz")
