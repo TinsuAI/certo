@@ -83,18 +83,53 @@ def normalize_header(s: str) -> str:
 
 
 def index_headers(headers: list[str], aliases: dict[str, list[str]]) -> dict[str, int]:
-    """Map logical field names to column indices using fuzzy alias match."""
+    """Map logical field names to column indices.
+
+    Two-pass with column claiming: exact matches first (high specificity),
+    then substring matches as fallback. Once a field claims a column, no
+    other field can match it. Prevents bare aliases ('mã') from shadowing
+    longer ones ('mã nội bộ') when both are present, and avoids the
+    'staff-added internal-code column accidentally read as customs_code'
+    case where two fields would otherwise resolve to the same column.
+    """
     norm = [normalize_header(h) for h in headers]
     found: dict[str, int] = {}
+    claimed: set[int] = set()
+
+    def _claim(field: str, idx: int) -> None:
+        found[field] = idx
+        claimed.add(idx)
+
+    # Pass 1: exact match (highest specificity).
     for field, alts in aliases.items():
+        if field in found:
+            continue
         for alt in alts:
             target = normalize_header(alt)
             for i, h in enumerate(norm):
-                if h == target or target in h:
-                    found[field] = i
+                if i in claimed:
+                    continue
+                if h == target:
+                    _claim(field, i)
                     break
             if field in found:
                 break
+
+    # Pass 2: substring match — only on columns not already claimed.
+    for field, alts in aliases.items():
+        if field in found:
+            continue
+        for alt in alts:
+            target = normalize_header(alt)
+            for i, h in enumerate(norm):
+                if i in claimed:
+                    continue
+                if target in h or h in target:
+                    _claim(field, i)
+                    break
+            if field in found:
+                break
+
     return found
 
 
