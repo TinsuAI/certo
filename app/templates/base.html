@@ -25,13 +25,7 @@
       {% endif %}
       {% if client %}
         <span class="breadcrumb-sep">/</span>
-        {% if active_tab and active_tab != 'overview' %}
-          <a href="/clients/{{ client.client_id }}">{{ client.name }}</a>
-          <span class="breadcrumb-sep">/</span>
-          <span class="breadcrumb-current">{{ t('tabs.' + active_tab) }}</span>
-        {% else %}
-          <span class="breadcrumb-current">{{ client.name }}</span>
-        {% endif %}
+        <span class="breadcrumb-current">{{ client.name }}</span>
       {% endif %}
     </nav>
     <div class="topnav-meta">

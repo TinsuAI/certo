@@ -125,6 +125,7 @@ def _years(client_id: str) -> list[int]:
 
 def _insert_bcct(*, client_id: str, year: int, rows: list[dict],
                  upload_id: str, parser) -> int:
+    import json
     n = 0
     with connect() as conn:
         with conn.cursor() as cur:
@@ -132,6 +133,7 @@ def _insert_bcct(*, client_id: str, year: int, rows: list[dict],
                 customs_code = r.get("customs_code")
                 goods_name = r.get("goods_name") or ""
                 internal_code = parser(goods_name) if parser else customs_code
+                payload_json = json.dumps(r.get("payload") or {}, ensure_ascii=False)
                 cur.execute(
                     """
                     insert into hub.bcct_rows
@@ -149,6 +151,7 @@ def _insert_bcct(*, client_id: str, year: int, rows: list[dict],
                       goods_name = excluded.goods_name,
                       quantity = excluded.quantity,
                       total_value = excluded.total_value,
+                      payload = excluded.payload,
                       upload_id = excluded.upload_id,
                       indexed_at = now()
                     """,
@@ -160,6 +163,6 @@ def _insert_bcct(*, client_id: str, year: int, rows: list[dict],
                      r.get("quantity_2"), r.get("unit_2"),
                      r.get("unit_price"), r.get("total_value"),
                      r.get("currency"), r.get("origin"), r.get("invoice_ref"),
-                     upload_id, "{}"))
+                     upload_id, payload_json))
                 n += 1
     return n

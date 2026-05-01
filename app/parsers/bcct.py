@@ -59,6 +59,25 @@ def parse_bcct_workbook(blob: bytes) -> list[dict]:
             transaction_key = f"{decl}-{line_no}" if decl else f"{customs}-{secrets.token_hex(4)}"
             decl_type = _cell_str(raw, cols.get("declaration_type"))
             direction = _direction_from(decl_type, _cell_str(raw, cols.get("direction")))
+            # Capture ALL source columns by original header name for payload jsonb.
+            # Includes both promoted (typed) columns AND any HQ-side fields we don't
+            # map to typed columns (importer name, weight, taxable value, etc.).
+            payload = {}
+            for i, header_name in enumerate(headers):
+                if not header_name or i >= len(raw):
+                    continue
+                value = raw[i]
+                if value is None:
+                    continue
+                if hasattr(value, "isoformat"):
+                    value = value.isoformat()
+                elif not isinstance(value, (str, int, float, bool)):
+                    value = str(value)
+                if isinstance(value, str):
+                    value = value.strip()
+                    if not value:
+                        continue
+                payload[header_name] = value
             rows.append({
                 "transaction_key": transaction_key,
                 "line_no": line_no,
@@ -78,6 +97,7 @@ def parse_bcct_workbook(blob: bytes) -> list[dict]:
                 "currency": _cell_str(raw, cols.get("currency")),
                 "origin": _cell_str(raw, cols.get("origin")),
                 "invoice_ref": _cell_str(raw, cols.get("invoice_ref")),
+                "payload": payload,
             })
     if not rows:
         raise BcctParseError("No BCCT rows recognized; check headers (Số tờ khai / Mã NPL+SP).")

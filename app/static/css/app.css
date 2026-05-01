@@ -1431,3 +1431,58 @@ table.dh-table .mono { font-family: 'IBM Plex Mono', monospace; font-size: .85re
 /* dual-source / multi-source material badge */
 .badge-dual { background: rgba(180, 60, 200, 0.15); color: #8b3fb5; }
 [data-theme="dark"] .badge-dual { background: rgba(180, 100, 220, 0.25); color: #d8a8eb; }
+
+/* === Button redesign — match barry-CO-main lean style (overrides earlier .btn-* additions) === */
+.btn-primary, button.btn-primary, a.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 2.25rem;
+  border: 0;
+  border-radius: var(--radius-sm, 8px);
+  padding: 0.5rem 0.95rem;
+  color: var(--primary-foreground, #ffffff);
+  background: var(--primary, #2c40c8);
+  font-size: 0.86rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.12s, transform 0.06s;
+  line-height: 1;
+}
+.btn-primary:hover, button.btn-primary:hover, a.btn-primary:hover {
+  background: var(--primary-hover, #1f2fa8);
+}
+.btn-primary:active, button.btn-primary:active {
+  transform: translateY(1px);
+}
+
+a.btn-secondary, .btn-secondary {
+  text-decoration: none;
+}
+
+.btn-danger, button.btn-danger, a.btn-danger {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 0.4rem; min-height: 2.25rem;
+  border: 0; border-radius: var(--radius-sm, 8px);
+  padding: 0.5rem 0.95rem; color: #fff;
+  background: #b3261e; font-size: 0.86rem; font-weight: 700;
+  text-decoration: none; cursor: pointer;
+  transition: background 0.12s;
+}
+.btn-danger:hover { background: #951d18; }
+
+/* Generic .btn — same as primary so old uses don't break */
+.btn { display: inline-flex; align-items: center; justify-content: center;
+  gap: 0.4rem; min-height: 2.25rem; border: 0; border-radius: var(--radius-sm, 8px);
+  padding: 0.5rem 0.95rem; color: var(--primary-foreground, #fff);
+  background: var(--primary, #2c40c8); font-size: 0.86rem; font-weight: 700;
+  text-decoration: none; cursor: pointer; transition: background 0.12s; }
+.btn:hover { background: var(--primary-hover, #1f2fa8); }
+
+/* Page-actions row spacing for buttons placed side-by-side */
+.page-actions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+
+/* Override our earlier verbose btn-primary card-style if it shipped */
+input[type="submit"].btn-primary { padding: 0.5rem 0.95rem; }
