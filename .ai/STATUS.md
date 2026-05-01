@@ -50,6 +50,8 @@ DB state (post Phase 1-3 UI smoke):
 - **Sprint A — Visibility** (commits `1f4d70a` → `589d7aa`): A2 LLM-gate cement + A3 staleness bar + A4 catalog provenance.
 - **Sprint B — Notifications + chat-agent + SSO** (commits `692e5cf` → `bb6cccf`): B0 BCQT survey, B1 in-app notification system + bell, B2 chat agent with strict ACL, B3 JWT issuer / JWKS / validate (M9 #4).
 - **Sprint C — Follow-ups** (commits `3433d88` → `a7ce00e`): C1 LLM self-correction retry loop, C2 JWT auth on read API with permissive fallback, C3 three more chat-agent tools (query_uploads, query_bcct_history, lookup_glossary).
+- **Notification triggers added** (commit `2c9b004`): LLM-proposed mapping → notify uploader; BOM auto-rejected → fan-out to editors of the client.
+- **D1 — Production deployment scaffold** (commit `cbde15a`, M9 #6): `deploy/` directory with systemd unit (hardened), nginx reverse-proxy config (200MB body limit for BCCT workbooks), backup-postgres.sh, rotate-keys.sh, cron.d schedule, and on-call runbook covering common failure modes + Postgres restore drill + cross-app coordination protocol.
 
 **2026-05-02 — Visibility sprint (earlier)** see `.ai/sessions/2026-05-02-visibility-sprint.md`.
 
