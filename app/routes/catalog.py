@@ -25,20 +25,25 @@ PREVIEW_SAMPLE_ROWS = 20
 async def list_view(
     request: Request, client_id: str,
     category: str | None = None, q: str | None = None,
+    provenance: str | None = None,
 ):
     user = auth.require_user(request)
     auth.require_can_view_client(user, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
-    items = _query_materials(client_id=client_id, category=category, q=q)
+    items = _query_materials(client_id=client_id, category=category, q=q,
+                             provenance=provenance)
     counts = _category_counts(client_id)
+    prov_counts = _provenance_counts(client_id)
     return request.app.state.templates.TemplateResponse(
         request, "clients/catalog.html",
         {
             "client": client, "stats": stats_for_client(client_id),
             "items": items, "categories": CATEGORIES,
             "active_category": category, "q": q or "", "counts": counts,
+            "active_provenance": provenance,
+            "prov_counts": prov_counts,
             "freshness": freshness_for_template(request, client_id, "catalog"),
             "active_root": "clients", "active_tab": "catalog",
         },
@@ -170,6 +175,7 @@ async def preview_confirm(request: Request, client_id: str, pending_id: str):
             parsed_rows, upload_id = row
             n = _insert_materials_with_cursor(
                 cur, client_id=client_id, rows=parsed_rows,
+                upload_id=upload_id,
             )
             cur.execute(
                 "update hub.file_uploads set parse_status='done', parsed_at=now() where upload_id=%s",
@@ -251,10 +257,21 @@ def _summarize_catalog(parsed_rows: list[dict]) -> dict:
     }
 
 
-def _query_materials(*, client_id: str, category: str | None, q: str | None) -> list[dict]:
+def _query_materials(*, client_id: str, category: str | None,
+                     q: str | None, provenance: str | None = None) -> list[dict]:
+    """Query catalog rows with provenance signals annotated.
+
+    `provenance` filter values:
+      - 'registered'     → only rows with registered_with_hq
+      - 'unregistered'   → seen_in_bcct but NOT registered_with_hq (audit case)
+      - 'user_added'     → user_added present
+    """
     sql = """
         select m.customs_code, m.product_code, m.name, m.category, m.category_override,
-               m.status, m.unit, m.hs_code, m.updated_at,
+               m.status, m.unit, m.hs_code, m.updated_at, m.provenance,
+               (m.provenance ? 'registered_with_hq') as is_registered,
+               (m.provenance ? 'seen_in_bcct') as is_seen_in_bcct,
+               (m.provenance ? 'user_added') as is_user_added,
                exists (
                  select 1 from hub.bcct_rows b
                  where b.client_id = m.client_id
@@ -275,6 +292,13 @@ def _query_materials(*, client_id: str, category: str | None, q: str | None) -> 
     if category:
         sql += " and m.category = %s"
         params.append(category)
+    if provenance == "registered":
+        sql += " and (m.provenance ? 'registered_with_hq')"
+    elif provenance == "unregistered":
+        sql += (" and (m.provenance ? 'seen_in_bcct')"
+                " and not (m.provenance ? 'registered_with_hq')")
+    elif provenance == "user_added":
+        sql += " and (m.provenance ? 'user_added')"
     if q:
         sql += (" and (m.customs_code ilike %s or m.product_code ilike %s "
                 "or m.name ilike %s or m.hs_code ilike %s)")
@@ -291,6 +315,28 @@ def _query_materials(*, client_id: str, category: str | None, q: str | None) -> 
             return rows
 
 
+def _provenance_counts(client_id: str) -> dict:
+    """Counts per provenance facet — drives the filter chip badges and
+    the 'X codes seen on declaration but not registered' audit alarm."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select
+                  count(*) as total,
+                  count(*) filter (where provenance ? 'registered_with_hq') as registered,
+                  count(*) filter (
+                    where provenance ? 'seen_in_bcct'
+                      and not provenance ? 'registered_with_hq') as unregistered,
+                  count(*) filter (where provenance ? 'user_added') as user_added
+                from hub.materials where client_id = %s
+                """,
+                (client_id,),
+            )
+            cols = [d[0] for d in cur.description]
+            return dict(zip(cols, cur.fetchone()))
+
+
 def _category_counts(client_id: str) -> dict:
     with connect() as conn:
         with conn.cursor() as cur:
@@ -301,15 +347,26 @@ def _category_counts(client_id: str) -> dict:
             return dict(cur.fetchall())
 
 
-def _insert_materials_with_cursor(cur, *, client_id: str, rows: list[dict]) -> int:
-    """Insert materials on a shared cursor (for transactional confirm flow)."""
+def _insert_materials_with_cursor(cur, *, client_id: str, rows: list[dict],
+                                  upload_id: str | None = None) -> int:
+    """Insert materials on a shared cursor (for transactional confirm flow).
+
+    `upload_id` (when set) is recorded inside provenance.registered_with_hq
+    so staff can trace any catalog row back to the upload that registered
+    it. Existing seen_in_bcct / user_added provenance keys are preserved
+    via the jsonb || merge in the conflict branch.
+    """
     n = 0
     for r in rows:
         cur.execute(
             """
             insert into hub.materials
-              (client_id, customs_code, product_code, name, category, status, unit, hs_code)
-            values (%s, %s, %s, %s, %s, %s, %s, %s)
+              (client_id, customs_code, product_code, name, category, status,
+               unit, hs_code, provenance)
+            values (%s, %s, %s, %s, %s, %s, %s, %s,
+                    jsonb_build_object('registered_with_hq',
+                      jsonb_build_object('first_seen', to_char(now(), 'YYYY-MM-DD'),
+                                         'source_upload_id', %s::text)))
             on conflict (client_id, customs_code) do update set
               product_code = excluded.product_code,
               name = excluded.name,
@@ -317,10 +374,14 @@ def _insert_materials_with_cursor(cur, *, client_id: str, rows: list[dict]) -> i
               status = excluded.status,
               unit = excluded.unit,
               hs_code = excluded.hs_code,
+              -- Merge: registered_with_hq overwritten with this upload;
+              -- other keys (seen_in_bcct, user_added) preserved.
+              provenance = hub.materials.provenance || excluded.provenance,
               updated_at = now()
             """,
             (client_id, r["customs_code"], r.get("product_code"), r.get("name"),
-             r["category"], r.get("status", "active"), r.get("unit"), r.get("hs_code")),
+             r["category"], r.get("status", "active"), r.get("unit"), r.get("hs_code"),
+             upload_id),
         )
         n += 1
     return n

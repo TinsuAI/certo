@@ -430,7 +430,18 @@ def _apply_bcct_rows(*, client_id: str, rows: list[dict], upload_id: str | None,
     """Insert/update parsed rows; delete confirmed orphans. SHARED CONNECTION
     so the whole apply runs in a single transaction — partial failure
     (insert succeeds, delete crashes) cannot leave the DB inconsistent.
+
+    Also derives catalog provenance for the touched customs_codes so the
+    'seen on declaration but not registered' alarm stays in sync (Sprint A4).
     """
+    from app.stores.provenance import derive_from_bcct
+
+    touched_codes: set[str] = set()
+    for r in rows:
+        c = r.get("customs_code")
+        if c:
+            touched_codes.add(c)
+
     with connect(user_id=user_id) as conn:
         with conn.cursor() as cur:
             n = _insert_bcct_with_cursor(
@@ -443,6 +454,10 @@ def _apply_bcct_rows(*, client_id: str, rows: list[dict], upload_id: str | None,
                     "delete from hub.bcct_rows where client_id=%s "
                     "  and transaction_key=%s and line_no=%s",
                     (client_id, txn, line),
+                )
+            if touched_codes:
+                derive_from_bcct(
+                    cur, client_id=client_id, customs_codes=touched_codes,
                 )
     return n
 

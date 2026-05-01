@@ -83,6 +83,12 @@ def cleanup():
             cur.execute(
                 "delete from hub.upload_pending where pending_id like 'test_%'",
             )
+            # Auto-derived materials rows from _apply_bcct_rows tests:
+            cur.execute(
+                "delete from hub.materials where client_id = %s "
+                "  and customs_code in ('A-CODE','B-CODE','C-CODE','D-CODE','X-GATE','X-PARTIAL','PE-001')",
+                (CLIENT,),
+            )
 
 
 # ───────────────────────────────────────────────────────────────────────

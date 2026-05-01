@@ -25,19 +25,47 @@
   </div>
   {% endif %}
 
+  {% if prov_counts and prov_counts.unregistered and prov_counts.unregistered > 0 and active_provenance != 'unregistered' %}
+  <div class="toast toast-error" style="margin-bottom: 1rem;">
+    ⚠ <strong>{{ prov_counts.unregistered }}</strong> {{ t('catalog.alarm_unregistered') }}
+    <a href="/clients/{{ client.client_id }}/catalog?provenance=unregistered">{{ t('catalog.alarm_view') }} →</a>
+  </div>
+  {% endif %}
+
   <div class="chip-row" aria-label="Category filter">
     <a class="chip {{ 'chip-active' if not active_category else '' }}"
-       href="/clients/{{ client.client_id }}/catalog">{{ t('catalog.cat_all') }} ({{ items|length }})</a>
+       href="/clients/{{ client.client_id }}/catalog{% if active_provenance %}?provenance={{ active_provenance }}{% endif %}">{{ t('catalog.cat_all') }} ({{ items|length }})</a>
     {% for c in categories %}
     <a class="chip {{ 'chip-active' if active_category == c else '' }}"
-       href="/clients/{{ client.client_id }}/catalog?category={{ c }}">
+       href="/clients/{{ client.client_id }}/catalog?category={{ c }}{% if active_provenance %}&provenance={{ active_provenance }}{% endif %}">
       {{ t('catalog.cat_' + c) }} ({{ counts.get(c, 0) }})
     </a>
     {% endfor %}
   </div>
 
+  <div class="chip-row" aria-label="{{ t('catalog.provenance_filter') }}" style="margin-top: 0.5rem;">
+    <span class="meta" style="align-self: center;">{{ t('catalog.source') }}:</span>
+    <a class="chip {{ 'chip-active' if not active_provenance else '' }}"
+       href="/clients/{{ client.client_id }}/catalog{% if active_category %}?category={{ active_category }}{% endif %}">{{ t('catalog.prov_all') }} ({{ prov_counts.total }})</a>
+    <a class="chip {{ 'chip-active' if active_provenance == 'registered' else '' }}"
+       href="/clients/{{ client.client_id }}/catalog?provenance=registered{% if active_category %}&category={{ active_category }}{% endif %}">
+      ✓ {{ t('catalog.prov_registered') }} ({{ prov_counts.registered }})
+    </a>
+    <a class="chip {{ 'chip-active' if active_provenance == 'unregistered' else '' }}"
+       href="/clients/{{ client.client_id }}/catalog?provenance=unregistered{% if active_category %}&category={{ active_category }}{% endif %}">
+      ⚠ {{ t('catalog.prov_unregistered') }} ({{ prov_counts.unregistered }})
+    </a>
+    {% if prov_counts.user_added %}
+    <a class="chip {{ 'chip-active' if active_provenance == 'user_added' else '' }}"
+       href="/clients/{{ client.client_id }}/catalog?provenance=user_added{% if active_category %}&category={{ active_category }}{% endif %}">
+      📥 {{ t('catalog.prov_user_added') }} ({{ prov_counts.user_added }})
+    </a>
+    {% endif %}
+  </div>
+
   <form method="get" action="/clients/{{ client.client_id }}/catalog" class="stack-form" style="max-width: 600px; margin: 1rem 0;">
     {% if active_category %}<input type="hidden" name="category" value="{{ active_category }}">{% endif %}
+    {% if active_provenance %}<input type="hidden" name="provenance" value="{{ active_provenance }}">{% endif %}
     <input type="search" name="q" value="{{ q }}" placeholder="{{ t('catalog.search_placeholder') }}">
   </form>
 
@@ -49,6 +77,7 @@
         <th>{{ t('catalog.col.product_code') }}</th>
         <th>{{ t('catalog.col.name') }}</th>
         <th>{{ t('catalog.col.category') }}</th>
+        <th>{{ t('catalog.col.source') }}</th>
         <th>{{ t('catalog.col.unit') }}</th>
         <th>{{ t('catalog.col.hs_code') }}</th>
         <th>{{ t('common.status') }}</th>
@@ -64,6 +93,19 @@
           <span class="badge badge-info">{{ m.category }}</span>
           {% if m.is_dual_source %}
             <span class="badge badge-dual" title="{{ t('catalog.dual_source_tooltip') }}">⇄ dual</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if m.is_registered %}
+            <span class="badge badge-success" title="{{ t('catalog.prov_registered_tip') }}">✓ {{ t('catalog.prov_registered') }}</span>
+          {% endif %}
+          {% if m.is_seen_in_bcct and not m.is_registered %}
+            <span class="badge badge-warn" title="{{ t('catalog.prov_unregistered_tip') }}">⚠ {{ t('catalog.prov_unregistered') }}</span>
+          {% elif m.is_seen_in_bcct %}
+            <span class="badge badge-info" title="{{ t('catalog.prov_seen_tip') }}">📋 BCCT</span>
+          {% endif %}
+          {% if m.is_user_added %}
+            <span class="badge">📥 {{ t('catalog.prov_user_added') }}</span>
           {% endif %}
         </td>
         <td class="mono">{{ m.unit or '' }}</td>
