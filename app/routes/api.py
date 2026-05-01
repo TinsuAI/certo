@@ -1,18 +1,27 @@
 """Public read API for sister apps (BCQT, CO).
 
-All routes under /v1/hub/. Bearer token auth (dev: accepts any non-empty token;
-production will JWT-validate against the SSO design doc's scope claims).
+All routes under /v1/hub/. Bearer token auth.
+
+Two-mode auth (per `api_auth_strict` setting):
+- Default: try JWT verify against the SSO issuer (Sprint B3); fall
+  back to permissive (any-non-empty) on JWT failure with a warning
+  so legacy callers + tests keep working in dev.
+- Strict (`api_auth_strict=true`): require valid JWT only. Set this
+  for production.
 """
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
+import jwt as pyjwt
 from fastapi import APIRouter, Header, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
+from app import jwt_issuer, settings_store
 from app.database import connect
 from app.routes.clients import get_client, list_clients
 from app.stores.bom import (
@@ -21,17 +30,44 @@ from app.stores.bom import (
     list_products_with_bom,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/v1/hub", tags=["api"])
 
 
-def _require_token(authorization: str | None) -> str:
+def _strict_mode() -> bool:
+    """Read api_auth_strict from app_settings. Default False (dev-friendly)."""
+    return (settings_store.get("api_auth_strict") or "").lower() in {"1", "true", "yes"}
+
+
+def _require_token(authorization: str | None) -> dict | None:
+    """Verify bearer auth. Returns claims dict on JWT success, None on
+    permissive fallback (legacy bearer-anything in dev). Raises 401 in
+    strict mode or when no bearer at all.
+    """
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "bearer token required")
     token = authorization[7:].strip()
     if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "empty bearer token")
-    # MVP: accept any non-empty token. Phase 2: JWT-validate scopes.
-    return token
+
+    # Try JWT verify first.
+    try:
+        claims = jwt_issuer.verify_token(token)
+        return claims
+    except pyjwt.ExpiredSignatureError:
+        # Always reject expired tokens regardless of strict mode.
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "token expired",
+        )
+    except pyjwt.InvalidTokenError as e:
+        if _strict_mode():
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED, f"invalid token: {e}",
+            )
+        # Permissive: accept any non-empty bearer for dev / legacy callers.
+        logger.warning("api: permissive accept of non-JWT bearer: %s", e)
+        return None
 
 
 def _serialize(v: Any):
