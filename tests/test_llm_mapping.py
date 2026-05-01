@@ -118,6 +118,20 @@ def _mock_openai_response(content: str):
     return fake_client
 
 
+def _mock_openai_responses(contents: list[str]):
+    """Yield each content string on successive calls (for self-correction
+    retry loop testing)."""
+    completions = []
+    for c in contents:
+        comp = MagicMock()
+        comp.choices = [MagicMock()]
+        comp.choices[0].message.content = c
+        completions.append(comp)
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.side_effect = completions
+    return fake_client
+
+
 def test_propose_returns_mapping_when_llm_responds_valid(cfg_enabled):
     response_json = json.dumps({
         "mapping": {
@@ -140,28 +154,51 @@ def test_propose_returns_mapping_when_llm_responds_valid(cfg_enabled):
     }
 
 
-def test_propose_drops_unknown_logical_field(cfg_enabled):
-    """LLM hallucinated a logical_field not in the spec — must be dropped."""
-    response_json = json.dumps({"mapping": {"Số TK": "made_up_field"}})
+def test_propose_drops_partial_invalid_silently(cfg_enabled):
+    """LLM hallucinated ONE field but kept others valid → keep the valid
+    ones, drop the invalid silently (no retry needed if any valid pair
+    exists)."""
+    response_json = json.dumps({
+        "mapping": {
+            "Số TK": "declaration_no",      # valid
+            "Junk": "made_up_field",         # invalid header AND field
+        }
+    })
     with patch("openai.OpenAI", return_value=_mock_openai_response(response_json)):
         result = llm.propose_header_mapping(
             client_id="growatt-vn", module="bcct",
             headers=["Số TK"], sample_rows=[["123"]],
             cfg=cfg_enabled,
         )
-    assert result == {}
+    assert result == {"Số TK": "declaration_no"}
 
 
-def test_propose_drops_unknown_header(cfg_enabled):
-    """LLM mapped a header that wasn't actually in the input."""
-    response_json = json.dumps({"mapping": {"Hallucinated col": "declaration_no"}})
-    with patch("openai.OpenAI", return_value=_mock_openai_response(response_json)):
+def test_propose_self_corrects_when_first_attempt_all_invalid(cfg_enabled):
+    """ALL mappings invalid → retry with feedback. LLM gets it right
+    on the second attempt. Demonstrates the self-correction loop."""
+    bad = json.dumps({"mapping": {"Hallucinated col": "made_up_field"}})
+    good = json.dumps({"mapping": {"Số TK": "declaration_no"}})
+    with patch("openai.OpenAI",
+               return_value=_mock_openai_responses([bad, good])):
         result = llm.propose_header_mapping(
             client_id="growatt-vn", module="bcct",
             headers=["Số TK"], sample_rows=[["123"]],
             cfg=cfg_enabled,
         )
-    assert result == {}
+    assert result == {"Số TK": "declaration_no"}
+
+
+def test_propose_raises_after_max_retries(cfg_enabled):
+    """If LLM never returns valid mapping, raise after max_retries+1 attempts."""
+    bad = json.dumps({"mapping": {"Hallucinated col": "made_up_field"}})
+    with patch("openai.OpenAI",
+               return_value=_mock_openai_responses([bad, bad, bad])):
+        with pytest.raises(llm.LLMProposalError):
+            llm.propose_header_mapping(
+                client_id="growatt-vn", module="bcct",
+                headers=["Số TK"], sample_rows=[["123"]],
+                cfg=cfg_enabled,
+            )
 
 
 def test_propose_raises_on_malformed_json(cfg_enabled):

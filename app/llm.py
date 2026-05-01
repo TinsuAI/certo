@@ -208,43 +208,99 @@ def propose_header_mapping(
         max_retries=cfg.max_retries,
     )
 
-    try:
-        completion = client.chat.completions.create(
-            model=cfg.model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            temperature=cfg.temperature,
-            response_format={"type": "json_object"},
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.exception("llm.propose_header_mapping: API call raised")
-        raise LLMProposalError(f"LLM API error: {e}") from e
-
-    content = completion.choices[0].message.content or ""
-    try:
-        parsed = json.loads(content)
-    except json.JSONDecodeError as e:
-        raise LLMProposalError(f"LLM returned non-JSON: {content[:200]!r}") from e
-
-    mapping = parsed.get("mapping")
-    if not isinstance(mapping, dict):
-        raise LLMProposalError(f"LLM response missing 'mapping' object: {content[:200]!r}")
-
-    # Schema validation: only known logical fields, mapped from known headers.
     valid_fields = set(target_fields)
     valid_headers = set(headers)
-    cleaned: dict[str, str] = {}
-    for header, field in mapping.items():
-        if header not in valid_headers:
-            logger.warning("llm.propose: drop unknown header %r", header)
+
+    # Self-correction loop: if the LLM returns invalid output (non-JSON,
+    # missing 'mapping' key, all-zero valid pairs), feed the error back
+    # and ask for a fix. Pattern lifted from BCQT-System's draft_and_validate
+    # in app/pipeline/user_checks.py.
+    messages: list[dict] = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+    last_err: str | None = None
+    for attempt in range(max(1, cfg.max_retries) + 1):
+        try:
+            completion = client.chat.completions.create(
+                model=cfg.model,
+                messages=messages,
+                temperature=cfg.temperature,
+                response_format={"type": "json_object"},
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.exception("llm.propose_header_mapping: API call raised")
+            raise LLMProposalError(f"LLM API error: {e}") from e
+
+        content = completion.choices[0].message.content or ""
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError:
+            last_err = (
+                f"Reply was not valid json: {content[:120]!r}. "
+                f"Reply with strict json only, no prose, no markdown, no code fences."
+            )
+            messages.append({"role": "assistant", "content": content})
+            messages.append({"role": "user", "content": last_err})
             continue
-        if field not in valid_fields:
-            logger.warning("llm.propose: drop unknown field %r", field)
+
+        mapping = parsed.get("mapping") if isinstance(parsed, dict) else None
+        if not isinstance(mapping, dict):
+            last_err = (
+                f"Reply missing required 'mapping' object key. "
+                f"You returned {list(parsed)!r}. "
+                f"Wrap your mapping inside {{\"mapping\": {{...}}}}."
+            )
+            messages.append({"role": "assistant", "content": content})
+            messages.append({"role": "user", "content": last_err})
             continue
-        cleaned[header] = field
-    return cleaned
+
+        # Schema validation
+        cleaned: dict[str, str] = {}
+        invalid_headers: list[str] = []
+        invalid_fields: list[tuple[str, str]] = []
+        for header, field in mapping.items():
+            if header not in valid_headers:
+                invalid_headers.append(header)
+                continue
+            if field not in valid_fields:
+                invalid_fields.append((header, field))
+                continue
+            cleaned[header] = field
+
+        if not cleaned and (invalid_headers or invalid_fields):
+            # Whole proposal is garbage. Tell LLM what we expected.
+            errs = []
+            if invalid_headers:
+                errs.append(f"unknown headers: {invalid_headers[:5]}")
+            if invalid_fields:
+                errs.append(
+                    f"unknown logical_fields: "
+                    f"{[f for _, f in invalid_fields[:5]]}"
+                )
+            last_err = (
+                f"All proposed mappings were invalid: {'; '.join(errs)}. "
+                f"Use ONLY headers from {sorted(valid_headers)[:8]}... "
+                f"and ONLY logical_fields from {sorted(valid_fields)[:8]}..."
+            )
+            messages.append({"role": "assistant", "content": content})
+            messages.append({"role": "user", "content": last_err})
+            continue
+
+        # Valid (possibly partial) mapping. Drop silently logged invalid
+        # entries and accept what cleaned.
+        if invalid_headers:
+            logger.warning("llm.propose: dropped unknown headers %r",
+                           invalid_headers[:5])
+        if invalid_fields:
+            logger.warning("llm.propose: dropped unknown fields %r",
+                           [f for _, f in invalid_fields[:5]])
+        return cleaned
+
+    raise LLMProposalError(
+        f"LLM returned invalid mapping after {cfg.max_retries + 1} attempts: "
+        f"{last_err}"
+    )
 
 
 def usage_today_for_client(client_id: str) -> int:
