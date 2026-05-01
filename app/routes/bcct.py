@@ -69,7 +69,13 @@ def _lookup_cached_mapping(*, client_id: str, file_signature: str) -> dict | Non
 @router.get("/clients/{client_id}/bcct", response_class=HTMLResponse)
 async def list_view(request: Request, client_id: str,
                     year: int | None = None, direction: str | None = None,
-                    q: str | None = None):
+                    q: str | None = None,
+                    ingested: int | None = None,
+                    new: int | None = None,
+                    updated: int | None = None,
+                    deleted: int | None = None,
+                    noop: int | None = None,
+                    skipped: int | None = None):
     user = auth.require_user(request)
     auth.require_can_view_client(user, client_id)
     client = get_client(client_id)
@@ -77,11 +83,20 @@ async def list_view(request: Request, client_id: str,
         raise HTTPException(404, "Client not found")
     items = _list_bcct(client_id, year, direction, q)
     years = _years(client_id)
+    upload_summary = None
+    if ingested is not None:
+        upload_summary = {
+            "ingested": ingested or 0,
+            "new": new or 0, "updated": updated or 0,
+            "deleted": deleted or 0, "noop": noop or 0,
+            "skipped": skipped or 0,
+        }
     return request.app.state.templates.TemplateResponse(
         request, "clients/bcct.html",
         {"client": client, "stats": stats_for_client(client_id),
          "items": items, "years": years,
          "year": year, "direction": direction, "q": q or "",
+         "upload_summary": upload_summary,
          "active_root": "clients", "active_tab": "bcct"},
     )
 
@@ -208,10 +223,24 @@ def _ingest_rows(*, client_id: str, client: dict, rows: list[dict],
             cur.execute(
                 "update hub.file_uploads set parse_status='done', row_count=%s, parsed_at=now() where upload_id=%s",
                 (n, upload_id))
-    redirect_url = f"/clients/{client_id}/bcct"
+    # Return query string so the list view can flash a toast. Counts:
+    #   ingested = total rows applied (insert+update)
+    #   new      = brand-new rows (DB had nothing at this PK)
+    #   updated  = existing rows confirmed for overwrite
+    #   noop     = identical rows (skipped silently)
+    #   skipped  = rows missing registration_date (rejected)
+    new_count = diff_summary.get("new", 0)
+    updated_count = len(diff_summary.get("diff", [])) if confirm_diffs else 0
+    deleted_count = len(diff_summary.get("orphan", [])) if confirm_orphans else 0
+    noop_count = diff_summary.get("noop", 0)
+    qs = (
+        f"?ingested={n}&new={new_count}&updated={updated_count}"
+        f"&deleted={deleted_count}&noop={noop_count}"
+    )
     if skipped:
-        redirect_url += f"?skipped={skipped}"
-    return RedirectResponse(url=redirect_url, status_code=303)
+        qs += f"&skipped={skipped}"
+    return RedirectResponse(url=f"/clients/{client_id}/bcct{qs}",
+                            status_code=303)
 
 
 # Fields whose change matters for the diff. Excludes purely-derived fields
@@ -401,14 +430,30 @@ async def _request_llm_mapping(
     """When rigid+cache fail, ask the LLM for a mapping proposal. Stash on
     the upload row; redirect to the propose UI for staff confirmation."""
     cfg = llm.LLMConfig.load()
-    if not cfg.is_enabled() or file_signature is None:
+    if not cfg.is_enabled():
+        # LLM not configured. Tell the user directly + point at the
+        # settings page. Don't conflate with a configured-but-failed call.
         with connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "update hub.file_uploads set parse_status='error', parse_error=%s, parsed_at=now() where upload_id=%s",
                     (rigid_error, upload_id))
-        # Rigid-error message is hub-generated, safe to surface.
-        raise HTTPException(400, f"Parse error: {rigid_error}")
+        raise HTTPException(
+            400,
+            f"File không khớp parser tự động: {rigid_error}. "
+            f"Bật LLM Smart Parser ở /admin/settings/technical hoặc upload "
+            f"file đúng format BCCT.",
+        )
+    if file_signature is None:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "update hub.file_uploads set parse_status='error', parse_error=%s, parsed_at=now() where upload_id=%s",
+                    (rigid_error, upload_id))
+        raise HTTPException(
+            400,
+            f"File không có sheet nhận được header (rỗng?): {rigid_error}",
+        )
 
     headers, sample_rows = _sample_rows_first_sheet(blob)
     try:
@@ -417,20 +462,28 @@ async def _request_llm_mapping(
             headers=headers, sample_rows=sample_rows, cfg=cfg,
         )
     except (llm.LLMUnavailable, llm.LLMProposalError) as e:
-        # SDK exception strings can carry the request URL with the
-        # Authorization header in some libs/versions. Log full detail
-        # server-side; surface only a generic message to the browser.
+        # LLM IS configured but the call failed. Could be: bad model
+        # name, wrong base_url, timeout, malformed response, budget
+        # exceeded, etc. Log full detail server-side; surface a useful
+        # message that points at where to fix it without echoing the
+        # raw SDK error (which on some lib versions includes the
+        # request URL + Authorization header).
         import logging
         logging.getLogger(__name__).exception("LLM proposal failed")
         with connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "update hub.file_uploads set parse_status='error', parse_error=%s, parsed_at=now() where upload_id=%s",
-                    (f"{rigid_error}; LLM: {type(e).__name__}", upload_id))
+                    (f"{rigid_error}; LLM: {type(e).__name__}: {e}", upload_id))
+        # Friendlier surface message — point at settings + upload-audit
+        # for full server log. Type name is safe to show.
+        kind = type(e).__name__
         raise HTTPException(
             400,
-            "Parse error and LLM proposal failed. Check server logs or try "
-            "another file. (Detail withheld to avoid leaking credentials.)",
+            f"Parser cứng từ chối + LLM gọi không thành công ({kind}). "
+            f"Kiểm tra cấu hình tại /admin/settings/technical "
+            f"(base_url, model, api_key) hoặc xem chi tiết tại "
+            f"/clients/{client_id}/uploads.",
         )
 
     payload = {

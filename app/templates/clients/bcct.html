@@ -3,6 +3,18 @@
 {% block content %}
 {% include "_client_nav.html" %}
 
+{% if upload_summary %}
+<div class="toast toast-success" style="margin-bottom: 1rem;">
+  ✓ Đã ingest <strong>{{ upload_summary.ingested }}</strong> dòng
+  ({{ upload_summary.new }} mới
+  {%- if upload_summary.updated %} · {{ upload_summary.updated }} cập nhật{% endif -%}
+  {%- if upload_summary.deleted %} · {{ upload_summary.deleted }} đã xóa{% endif -%}
+  {%- if upload_summary.noop %} · {{ upload_summary.noop }} không đổi{% endif -%}
+  {%- if upload_summary.skipped %} · <span style="color: var(--warn)">{{ upload_summary.skipped }} bỏ qua (thiếu Ngày ĐK)</span>{% endif -%}
+  ).
+</div>
+{% endif %}
+
 <section class="zone">
   <div class="zone-head">
     <div>
