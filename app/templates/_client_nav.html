@@ -31,6 +31,8 @@
      href="/clients/{{ client.client_id }}/bom">{{ t('tabs.bom') }}</a>
   <a class="tab-link {{ 'tab-link-active' if active_tab == 'proposals' else '' }}"
      href="/clients/{{ client.client_id }}/proposals">{{ t('tabs.proposals') }}</a>
+  <a class="tab-link {{ 'tab-link-active' if active_tab == 'agent' else '' }}"
+     href="/clients/{{ client.client_id }}/agent">{{ t('tabs.agent') }}</a>
   <a class="tab-link {{ 'tab-link-active' if active_tab == 'uploads' else '' }}"
      href="/clients/{{ client.client_id }}/uploads">{{ t('tabs.uploads') }}</a>
   {% if can_manage_staff(client.client_id) %}

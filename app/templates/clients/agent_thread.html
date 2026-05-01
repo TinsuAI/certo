@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}{{ thread.title or t('agent.untitled_thread') }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ thread.title or t('agent.untitled_thread') }}</h2>
+      <p class="meta">{{ t('agent.scope_label') }}: <span class="badge badge-info">{{ client.client_id }}</span></p>
+    </div>
+    <div class="page-actions">
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/agent">{{ t('agent.back_to_threads') }}</a>
+    </div>
+  </div>
+
+  <div class="agent-conversation">
+    {% if messages %}
+      {% for m in messages %}
+        {% if m.role == 'user' %}
+        <div class="agent-msg agent-msg-user">
+          <div class="agent-msg-role">{{ t('agent.role_you') }}</div>
+          <div class="agent-msg-body">{{ m.content }}</div>
+        </div>
+        {% elif m.role == 'assistant' %}
+          {% if m.content %}
+          <div class="agent-msg agent-msg-assistant">
+            <div class="agent-msg-role">{{ t('agent.role_assistant') }}</div>
+            <div class="agent-msg-body">{{ m.content }}</div>
+          </div>
+          {% endif %}
+          {% if m.tool_calls %}
+            {% for tc in m.tool_calls %}
+            <div class="agent-msg agent-msg-tool-call">
+              <div class="agent-msg-role">→ {{ tc.function.name }}</div>
+              <code class="meta">{{ tc.function.arguments }}</code>
+            </div>
+            {% endfor %}
+          {% endif %}
+        {% elif m.role == 'tool' %}
+        <details class="agent-msg agent-msg-tool-result">
+          <summary class="agent-msg-role">← {{ m.tool_name }} {{ t('agent.result') }}</summary>
+          <pre class="meta agent-tool-content">{{ m.content[:2000] }}{% if m.content|length > 2000 %}…{% endif %}</pre>
+        </details>
+        {% endif %}
+      {% endfor %}
+    {% else %}
+      <p class="meta">{{ t('agent.empty_thread') }}</p>
+    {% endif %}
+  </div>
+
+  <form method="post" action="/clients/{{ client.client_id }}/agent/{{ thread.thread_id }}/message"
+        class="agent-compose">
+    <textarea name="text" rows="3" required
+              placeholder="{{ t('agent.compose_placeholder') }}"
+              autofocus></textarea>
+    <button type="submit" class="btn-primary">{{ t('agent.send') }}</button>
+  </form>
+</section>
+
+{% endblock %}
