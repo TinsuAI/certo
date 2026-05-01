@@ -21,19 +21,19 @@
 
   {% if version.context %}
   <details>
-    <summary class="subsection-head" style="cursor: pointer;"><h3 style="display: inline; margin: 0;">Context</h3></summary>
+    <summary class="subsection-head" style="cursor: pointer;"><h3 style="display: inline; margin: 0;">{{ t('bom.context') }}</h3></summary>
     <pre class="mono" style="background: var(--surface-alt, #f7f8fc); padding: .8rem; border-radius: 8px; overflow: auto; margin-top: .5rem;">{{ version.context | tojson(indent=2) }}</pre>
   </details>
   {% endif %}
 
   <table class="dh-table" style="margin-top: 1rem;">
     <thead><tr>
-      <th>#</th>
-      <th>Material</th>
-      <th>Qty per unit</th>
-      <th>UoM</th>
-      <th>BOM code</th>
-      <th>Variant</th>
+      <th>{{ t('bom.row_index') }}</th>
+      <th>{{ t('bom.material') }}</th>
+      <th>{{ t('bom.qty_per_unit') }}</th>
+      <th>{{ t('bom.uom') }}</th>
+      <th>{{ t('bom.bom_code') }}</th>
+      <th>{{ t('bom.bom_variant') }}</th>
     </tr></thead>
     <tbody>
       {% for r in rows %}

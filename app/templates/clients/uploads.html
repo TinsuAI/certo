@@ -8,8 +8,8 @@
     <div>
       <h2>{{ t('uploads.title') }}</h2>
       <p class="meta">
-        {{ counts.get('done', 0) }} done · {{ counts.get('error', 0) }} errors
-        {% if counts.get('pending') %} · {{ counts.get('pending') }} pending{% endif %}
+        {{ counts.get('done', 0) }} {{ t('uploads.summary_done') }} · {{ counts.get('error', 0) }} {{ t('uploads.summary_error') }}
+        {% if counts.get('pending') %} · {{ counts.get('pending') }} {{ t('uploads.summary_pending') }}{% endif %}
       </p>
     </div>
   </div>

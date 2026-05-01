@@ -7,7 +7,7 @@
   <div class="zone-head">
     <div>
       <h2>{{ t('bqd.upload_btn') }}</h2>
-      <p class="meta">File Excel với hai cột: <span class="mono">Mã nội bộ</span> + <span class="mono">Mã hải quan</span>. Lặp dòng để gán N-N.</p>
+      <p class="meta">{{ t('bqd.upload_help') }}</p>
     </div>
     <div><a class="btn-secondary" href="/clients/{{ client.client_id }}/bqd">{{ t('common.cancel') }}</a></div>
   </div>
@@ -16,7 +16,7 @@
     <div class="upload-zone">
       <input type="file" name="file" accept=".xlsx,.xls" required>
     </div>
-    <button type="submit" class="btn-primary">{{ t('common.upload') }} & Parse</button>
+    <button type="submit" class="btn-primary">{{ t('common.upload_btn') }}</button>
   </form>
 </section>
 {% endblock %}

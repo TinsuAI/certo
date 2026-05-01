@@ -30,7 +30,7 @@
   <form method="get" action="/clients/{{ client.client_id }}/bcct" class="stack-form" style="margin: 1rem 0; max-width: 720px;">
     {% if direction %}<input type="hidden" name="direction" value="{{ direction }}">{% endif %}
     {% if year %}<input type="hidden" name="year" value="{{ year }}">{% endif %}
-    <input type="search" name="q" value="{{ q }}" placeholder="{{ t('common.search') }}: declaration_no / customs / internal / goods name...">
+    <input type="search" name="q" value="{{ q }}" placeholder="{{ t('bcct.search_placeholder') }}">
   </form>
 
   {% if items %}

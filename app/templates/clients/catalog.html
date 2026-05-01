@@ -27,7 +27,7 @@
 
   <form method="get" action="/clients/{{ client.client_id }}/catalog" class="stack-form" style="max-width: 600px; margin: 1rem 0;">
     {% if active_category %}<input type="hidden" name="category" value="{{ active_category }}">{% endif %}
-    <input type="search" name="q" value="{{ q }}" placeholder="{{ t('common.search') }}: customs / internal / name / HS...">
+    <input type="search" name="q" value="{{ q }}" placeholder="{{ t('catalog.search_placeholder') }}">
   </form>
 
   {% if items %}
@@ -52,12 +52,12 @@
         <td>
           <span class="badge badge-info">{{ m.category }}</span>
           {% if m.is_dual_source %}
-            <span class="badge badge-dual" title="Mã này vừa có BCCT imports vừa là BOM product (settlement-time treat as dual-source).">⇄ dual</span>
+            <span class="badge badge-dual" title="{{ t('catalog.dual_source_tooltip') }}">⇄ dual</span>
           {% endif %}
         </td>
         <td class="mono">{{ m.unit or '' }}</td>
         <td class="mono">{{ m.hs_code or '' }}</td>
-        <td><span class="badge badge-{{ 'success' if m.status == 'active' else 'warning' }}">{{ m.status }}</span></td>
+        <td><span class="badge badge-{{ 'success' if m.status == 'active' else 'warning' }}">{{ t('status.' + m.status) if m.status in ['active','discontinued'] else m.status }}</span></td>
       </tr>
       {% endfor %}
     </tbody>

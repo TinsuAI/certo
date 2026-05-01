@@ -7,7 +7,7 @@
   <div class="zone-head">
     <div>
       <h2>{{ t('bom.versions_title') }} <span class="mono">{{ product_code }}</span></h2>
-      <p class="meta">{{ versions|length }} versions, immutable + append-only.</p>
+      <p class="meta">{{ versions|length }} · {{ t('bom.versions_immutable') }}</p>
     </div>
     <div><a class="btn-secondary" href="/clients/{{ client.client_id }}/bom">{{ t('bom.versions_back') }}</a></div>
   </div>

@@ -11,23 +11,23 @@
   <div class="hero-divider"></div>
   <div class="hero-stat">
     <span class="hero-stat-value">{{ stats.materials }}</span>
-    <span class="hero-stat-label">Catalog</span>
+    <span class="hero-stat-label">{{ t('workspace.stat.catalog') }}</span>
   </div>
   <div class="hero-stat">
     <span class="hero-stat-value">{{ stats.mappings }}</span>
-    <span class="hero-stat-label">BQD</span>
+    <span class="hero-stat-label">{{ t('workspace.stat.bqd') }}</span>
   </div>
   <div class="hero-stat">
     <span class="hero-stat-value">{{ stats.bcct }}</span>
-    <span class="hero-stat-label">BCCT</span>
+    <span class="hero-stat-label">{{ t('workspace.stat.bcct') }}</span>
   </div>
   <div class="hero-stat">
     <span class="hero-stat-value">{{ stats.bom }}</span>
-    <span class="hero-stat-label">BOM</span>
+    <span class="hero-stat-label">{{ t('workspace.stat.bom') }}</span>
   </div>
   <div class="hero-stat">
     <span class="hero-stat-value">{{ stats.proposals }}</span>
-    <span class="hero-stat-label">Proposals</span>
+    <span class="hero-stat-label">{{ t('workspace.stat.proposals') }}</span>
   </div>
 </section>
 
@@ -41,27 +41,27 @@
   <div class="module-grid">
     <a class="module-tile module-link" href="/clients/{{ client.client_id }}/catalog">
       <strong>{{ t('tabs.catalog') }}</strong>
-      <span>{{ stats.materials }} entries · NVL/SP/BTP/CCDC</span>
+      <span>{{ t('workspace.module.catalog_meta')|replace('{n}', stats.materials|string) }}</span>
     </a>
     <a class="module-tile module-link" href="/clients/{{ client.client_id }}/bqd">
       <strong>{{ t('tabs.bqd') }}</strong>
-      <span>{{ stats.mappings }} mappings · resolver-driven</span>
+      <span>{{ t('workspace.module.bqd_meta')|replace('{n}', stats.mappings|string) }}</span>
     </a>
     <a class="module-tile module-link" href="/clients/{{ client.client_id }}/bcct">
       <strong>{{ t('tabs.bcct') }}</strong>
-      <span>{{ stats.bcct }} declaration lines</span>
+      <span>{{ t('workspace.module.bcct_meta')|replace('{n}', stats.bcct|string) }}</span>
     </a>
     <a class="module-tile module-link" href="/clients/{{ client.client_id }}/bom">
       <strong>{{ t('tabs.bom') }}</strong>
-      <span>{{ stats.bom }} active versions</span>
+      <span>{{ t('workspace.module.bom_meta')|replace('{n}', stats.bom|string) }}</span>
     </a>
     <a class="module-tile module-link" href="/clients/{{ client.client_id }}/proposals">
       <strong>{{ t('tabs.proposals') }}</strong>
-      <span>{{ stats.proposals }} proposals · auto-rule audit</span>
+      <span>{{ t('workspace.module.proposals_meta')|replace('{n}', stats.proposals|string) }}</span>
     </a>
     <a class="module-tile module-link" href="/clients/{{ client.client_id }}/uploads">
       <strong>{{ t('tabs.uploads') }}</strong>
-      <span>Upload history · parse status</span>
+      <span>{{ t('workspace.module.uploads_meta') }}</span>
     </a>
   </div>
 </section>
@@ -76,9 +76,9 @@
     </div>
   </div>
   <div class="rowlist">
-    <div class="rowitem"><div><strong>code_resolution_mode</strong><div class="meta mono">{{ client.code_resolution_mode }}</div></div></div>
-    <div class="rowitem"><div><strong>bom_proposal_mode</strong><div class="meta mono">{{ client.bom_proposal_mode }}</div></div></div>
-    <div class="rowitem"><div><strong>bom_proposal_qty_tolerance_pct</strong><div class="meta mono">{{ client.bom_proposal_qty_tolerance_pct }}%</div></div></div>
+    <div class="rowitem"><div><strong>{{ t('clients.field.code_resolution_mode') }}</strong><div class="meta mono">{{ client.code_resolution_mode }}</div></div></div>
+    <div class="rowitem"><div><strong>{{ t('clients.field.bom_proposal_mode') }}</strong><div class="meta mono">{{ client.bom_proposal_mode }}</div></div></div>
+    <div class="rowitem"><div><strong>{{ t('clients.field.bom_tolerance') }}</strong><div class="meta mono">{{ client.bom_proposal_qty_tolerance_pct }}%</div></div></div>
     {% if client.notes %}
     <div class="rowitem"><div><strong>{{ t('clients.field.notes') }}</strong><div class="meta">{{ client.notes }}</div></div></div>
     {% endif %}

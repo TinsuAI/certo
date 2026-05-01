@@ -1486,3 +1486,29 @@ a.btn-secondary, .btn-secondary {
 
 /* Override our earlier verbose btn-primary card-style if it shipped */
 input[type="submit"].btn-primary { padding: 0.5rem 0.95rem; }
+
+/* === Settings page (config / edit) === */
+.settings-form { display: flex; flex-direction: column; gap: 1rem; }
+.settings-section .zone-head { align-items: flex-start; }
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem 1.25rem;
+}
+.field-wide { grid-column: 1 / -1; }
+.field-required {
+  font-style: normal; font-weight: 400; font-size: .72rem;
+  color: var(--text-soft, #5b6478); margin-left: .35rem;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.field-hint {
+  display: block; margin-top: .35rem;
+  font-size: .8rem; color: var(--text-soft, #5b6478);
+}
+.settings-footer {
+  display: flex; gap: .55rem; justify-content: flex-end;
+  padding: .8rem 0 .2rem;
+  border-top: 1px solid var(--border, #e3e6ee);
+  margin-top: .4rem;
+}
+[data-theme="dark"] .settings-footer { border-color: #2e3447; }

@@ -18,22 +18,22 @@
   </div>
 
   <table class="dh-table">
-    <tr><th>Product</th><td class="mono">{{ proposal.product_code }}</td></tr>
+    <tr><th>{{ t('proposals.col.product') }}</th><td class="mono">{{ proposal.product_code }}</td></tr>
     <tr><th>{{ t('bom.col.actor') }}</th><td><span class="badge">{{ proposal.actor }}</span></td></tr>
     <tr><th>{{ t('bom.col.intent') }}</th><td><span class="badge badge-info">{{ proposal.intent }}</span></td></tr>
-    <tr><th>{{ t('bom.col.parent') }}</th><td class="mono">
+    <tr><th>{{ t('proposals.parent') }}</th><td class="mono">
       {% if proposal.parent_version_id %}<a href="/clients/{{ client.client_id }}/bom/version/{{ proposal.parent_version_id }}">{{ proposal.parent_version_id }}</a>
       {% else %}—{% endif %}
     </td></tr>
-    <tr><th>Materialized</th><td class="mono">
+    <tr><th>{{ t('proposals.materialized') }}</th><td class="mono">
       {% if proposal.materialized_version_id %}<a href="/clients/{{ client.client_id }}/bom/version/{{ proposal.materialized_version_id }}">{{ proposal.materialized_version_id }}</a>
       {% else %}—{% endif %}
     </td></tr>
-    <tr><th>Decision reason</th><td>{{ proposal.decision_reason or '' }}</td></tr>
-    <tr><th>Decided by</th><td class="mono">{{ proposal.decided_by or '' }}</td></tr>
-    <tr><th>Decided at</th><td class="mono">{{ proposal.decided_at.strftime('%Y-%m-%d %H:%M:%S') if proposal.decided_at else '' }}</td></tr>
+    <tr><th>{{ t('proposals.decision_reason') }}</th><td>{{ proposal.decision_reason or '' }}</td></tr>
+    <tr><th>{{ t('proposals.decided_by') }}</th><td class="mono">{{ proposal.decided_by or '' }}</td></tr>
+    <tr><th>{{ t('proposals.decided_at') }}</th><td class="mono">{{ proposal.decided_at.strftime('%Y-%m-%d %H:%M:%S') if proposal.decided_at else '' }}</td></tr>
     <tr><th>{{ t('common.created') }}</th><td class="mono">{{ proposal.created_at.strftime('%Y-%m-%d %H:%M:%S') if proposal.created_at else '' }}</td></tr>
-    <tr><th>Hash</th><td class="mono">{{ proposal.normalized_hash[:24] }}…</td></tr>
+    <tr><th>{{ t('proposals.hash') }}</th><td class="mono">{{ proposal.normalized_hash[:24] }}…</td></tr>
   </table>
 
   {% if proposal.failed_conditions %}
@@ -60,7 +60,7 @@
       <h3>{{ t('proposals.proposed_rows') }} ({{ proposal.rows_payload|length }})</h3>
     </div>
     <table class="dh-table">
-      <thead><tr><th>Material</th><th>Qty per unit</th><th>UoM</th><th>BOM code</th></tr></thead>
+      <thead><tr><th>{{ t('bom.material') }}</th><th>{{ t('bom.qty_per_unit') }}</th><th>{{ t('bom.uom') }}</th><th>{{ t('bom.bom_code') }}</th></tr></thead>
       <tbody>
         {% for r in proposal.rows_payload %}
         <tr>

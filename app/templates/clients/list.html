@@ -29,11 +29,11 @@
         </div>
       </div>
       <div class="rowitem-side">
-        <span class="badge badge-{{ 'success' if c.n_materials else 'warning' }}">Catalog {{ c.n_materials }}</span>
-        <span class="badge badge-{{ 'success' if c.n_mappings else 'warning' }}">BQD {{ c.n_mappings }}</span>
+        <span class="badge badge-{{ 'success' if c.n_materials else 'warning' }}">{{ t('workspace.stat.catalog') }} {{ c.n_materials }}</span>
+        <span class="badge badge-{{ 'success' if c.n_mappings else 'warning' }}">{{ t('workspace.stat.bqd') }} {{ c.n_mappings }}</span>
         <span class="badge badge-{{ 'success' if c.n_bcct else 'warning' }}">BCCT {{ c.n_bcct }}</span>
         <span class="badge badge-{{ 'success' if c.n_bom else 'warning' }}">BOM {{ c.n_bom }}</span>
-        <span class="badge badge-{{ 'success' if c.status == 'active' else 'warning' }}">{{ c.status }}</span>
+        <span class="badge badge-{{ 'success' if c.status == 'active' else 'warning' }}">{{ t('status.' + c.status) if c.status in ['active','archived'] else c.status }}</span>
       </div>
     </a>
     {% endfor %}
@@ -54,12 +54,12 @@
     </div>
   </div>
   <div class="module-grid">
-    <div class="module-tile"><strong>{{ t('tabs.catalog') }}</strong><span>NVL · SP · BTP_SX · BTP_NM · CCDC</span></div>
-    <div class="module-tile"><strong>{{ t('tabs.bqd') }}</strong><span>Internal ↔ customs N-N mapping + resolver</span></div>
-    <div class="module-tile"><strong>{{ t('tabs.bcct') }}</strong><span>Customs declaration registry per year</span></div>
-    <div class="module-tile"><strong>{{ t('tabs.bom') }}</strong><span>Per-product immutable versioned BOM</span></div>
-    <div class="module-tile"><strong>{{ t('tabs.proposals') }}</strong><span>BOM proposal queue + auto-rule audit</span></div>
-    <div class="module-tile"><strong>{{ t('tabs.uploads') }}</strong><span>Excel upload history + parse status</span></div>
+    <div class="module-tile"><strong>{{ t('tabs.catalog') }}</strong><span>{{ t('catalog.subtitle') }}</span></div>
+    <div class="module-tile"><strong>{{ t('tabs.bqd') }}</strong><span>{{ t('bqd.subtitle') }}</span></div>
+    <div class="module-tile"><strong>{{ t('tabs.bcct') }}</strong><span>{{ t('bcct.subtitle') }}</span></div>
+    <div class="module-tile"><strong>{{ t('tabs.bom') }}</strong><span>{{ t('bom.subtitle') }}</span></div>
+    <div class="module-tile"><strong>{{ t('tabs.proposals') }}</strong><span>{{ t('proposals.subtitle') }}</span></div>
+    <div class="module-tile"><strong>{{ t('tabs.uploads') }}</strong><span>{{ t('workspace.module.uploads_meta') }}</span></div>
   </div>
 </section>
 {% endblock %}

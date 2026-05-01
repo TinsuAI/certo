@@ -18,9 +18,9 @@
         enctype="multipart/form-data" class="zone mini-panel" style="max-width: 700px;">
     <div class="upload-zone">
       <input type="file" name="file" accept=".xlsx,.xls" required>
-      <p class="meta">Sheet name có thể chứa hint loại (vd. "DM NVL", "DM TP").</p>
+      <p class="meta">{{ t('catalog.upload_hint_sheet') }}</p>
     </div>
-    <button type="submit" class="btn-primary">{{ t('common.upload') }} & Parse</button>
+    <button type="submit" class="btn-primary">{{ t('common.upload_btn') }}</button>
   </form>
 </section>
 {% endblock %}

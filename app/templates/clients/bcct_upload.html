@@ -19,8 +19,9 @@
     </label>
     <div class="upload-zone">
       <input type="file" name="file" accept=".xlsx,.xls" required>
+      <p class="meta">{{ t('bcct.upload_help') }}</p>
     </div>
-    <button type="submit" class="btn-primary">{{ t('common.upload') }} & Parse</button>
+    <button type="submit" class="btn-primary">{{ t('common.upload_btn') }}</button>
   </form>
 </section>
 {% endblock %}

@@ -7,7 +7,7 @@
   <div class="zone-head">
     <div>
       <h2>{{ t('bom.upload_title') }}</h2>
-      <p class="meta">Mỗi product trong file = 1 version mới (intent <span class="mono">asserted_technical</span>).</p>
+      <p class="meta">{{ t('bom.upload_help') }}</p>
     </div>
     <div><a class="btn-secondary" href="/clients/{{ client.client_id }}/bom">{{ t('common.cancel') }}</a></div>
   </div>
@@ -23,9 +23,9 @@
     </label>
     <div class="upload-zone">
       <input type="file" name="file" accept=".xlsx,.xls" required>
-      <p class="meta">manual_flat: 1 sheet với product/material/qty · growatt_multi_workbook: 1 sheet/product · johnson_sap_exploded: SAP multi-level.</p>
+      <p class="meta">{{ t('bom.upload_profile_help') }}</p>
     </div>
-    <button type="submit" class="btn-primary">{{ t('common.upload') }} & Parse</button>
+    <button type="submit" class="btn-primary">{{ t('common.upload_btn') }}</button>
   </form>
 </section>
 {% endblock %}

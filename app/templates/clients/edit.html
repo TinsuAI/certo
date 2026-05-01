@@ -3,67 +3,125 @@
 {% block content %}
 {% if client %}{% include "_client_nav.html" %}{% endif %}
 
-<section class="zone">
-  <div class="zone-head">
-    <div>
-      <h2>{{ t('clients.edit_title' if client else 'clients.new_title') }}</h2>
-    </div>
-    <div>
-      <a class="btn-secondary" href="{{ '/clients/' + client.client_id if client else '/clients' }}">{{ t('common.cancel') }}</a>
-    </div>
-  </div>
+<form method="post"
+      action="{{ '/clients/' + client.client_id + '/edit' if client else '/clients/new' }}"
+      class="settings-form">
 
-  <form method="post" action="{{ '/clients/' + client.client_id + '/edit' if client else '/clients/new' }}"
-        class="auth-form" style="max-width: 560px;">
-    <label class="field">
-      <span class="field-label">{{ t('clients.field.name') }} *</span>
-      <input type="text" name="name" required value="{{ client.name if client else '' }}">
-    </label>
-    <label class="field">
-      <span class="field-label">{{ t('clients.field.tax_code') }}</span>
-      <input type="text" name="tax_code" value="{{ client.tax_code or '' if client else '' }}">
-    </label>
-    <label class="field">
-      <span class="field-label">
-        {{ t('clients.field.code_resolution_mode') }}
-        {% if client %}<em style="color: var(--text-soft); font-weight: 400;">{{ t('clients.field.code_resolution_mode_locked') }}</em>{% endif %}
+  <section class="page-bar">
+    <div>
+      <h1>{{ t('clients.edit_title' if client else 'clients.new_title') }}</h1>
+      <span class="page-tagline">
+        {% if client %}<span class="mono">{{ client.client_id }}</span>{% endif %}
       </span>
-      <select name="code_resolution_mode" {% if client %}disabled{% endif %}>
-        {% for m in modes %}
-        <option value="{{ m }}"
-          {% if client and client.code_resolution_mode == m %}selected
-          {% elif not client and m == 'simple_mapping' %}selected{% endif %}>{{ m }}</option>
-        {% endfor %}
-      </select>
-      {% if client %}<input type="hidden" name="code_resolution_mode" value="{{ client.code_resolution_mode }}">{% endif %}
+    </div>
+    <div class="page-actions">
+      <a class="btn-secondary" href="{{ '/clients/' + client.client_id if client else '/clients' }}">{{ t('common.cancel') }}</a>
+      <button type="submit" class="btn-primary">{{ t('common.save' if client else 'common.create') }}</button>
+    </div>
+  </section>
+
+  <section class="zone settings-section">
+    <div class="zone-head">
+      <div>
+        <h2>{{ t('clients.section.identity') }}</h2>
+        <p class="meta">{{ t('clients.section.identity_meta') }}</p>
+      </div>
+    </div>
+    <div class="settings-grid">
+      <label class="field">
+        <span class="field-label">{{ t('clients.field.name') }} <em class="field-required">{{ t('common.required') }}</em></span>
+        <input type="text" name="name" required value="{{ client.name if client else '' }}">
+      </label>
+      <label class="field">
+        <span class="field-label">{{ t('clients.field.tax_code') }} <em class="field-required">{{ t('common.optional') }}</em></span>
+        <input type="text" name="tax_code" value="{{ client.tax_code or '' if client else '' }}" placeholder="0307123456">
+      </label>
+    </div>
+  </section>
+
+  <section class="zone settings-section">
+    <div class="zone-head">
+      <div>
+        <h2>{{ t('clients.section.code_resolution') }}</h2>
+        <p class="meta">{{ t('clients.section.code_resolution_meta') }}</p>
+      </div>
+      {% if client %}<span class="badge badge-warning">{{ t('clients.field.code_resolution_mode_locked') }}</span>{% endif %}
+    </div>
+    <div class="settings-grid">
+      <label class="field field-wide">
+        <span class="field-label">{{ t('clients.field.code_resolution_mode') }}</span>
+        <select name="code_resolution_mode" {% if client %}disabled{% endif %}>
+          {% for m in modes %}
+          <option value="{{ m }}"
+            {% if client and client.code_resolution_mode == m %}selected
+            {% elif not client and m == 'simple_mapping' %}selected{% endif %}>{{ t('clients.mode.' + m) }}</option>
+          {% endfor %}
+        </select>
+        {% if client %}<input type="hidden" name="code_resolution_mode" value="{{ client.code_resolution_mode }}">{% endif %}
+      </label>
+    </div>
+  </section>
+
+  <section class="zone settings-section">
+    <div class="zone-head">
+      <div>
+        <h2>{{ t('clients.section.bom_proposal') }}</h2>
+        <p class="meta">{{ t('clients.section.bom_proposal_meta') }}</p>
+      </div>
+    </div>
+    <div class="settings-grid">
+      <label class="field">
+        <span class="field-label">{{ t('clients.field.bom_proposal_mode') }}</span>
+        <select name="bom_proposal_mode">
+          {% for m in bom_modes %}
+          <option value="{{ m }}" {% if client and client.bom_proposal_mode == m %}selected{% endif %}>{{ m }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span class="field-label">{{ t('clients.field.bom_tolerance') }}</span>
+        <input type="number" step="0.001" min="0" max="100" name="bom_proposal_qty_tolerance_pct"
+               value="{{ client.bom_proposal_qty_tolerance_pct if client else 5.0 }}">
+        <span class="field-hint">{{ t('clients.field.bom_tolerance_meta') }}</span>
+      </label>
+    </div>
+  </section>
+
+  {% if client %}
+  <section class="zone settings-section">
+    <div class="zone-head">
+      <div>
+        <h2>{{ t('clients.section.lifecycle') }}</h2>
+        <p class="meta">{{ t('clients.section.lifecycle_meta') }}</p>
+      </div>
+    </div>
+    <div class="settings-grid">
+      <label class="field">
+        <span class="field-label">{{ t('clients.field.status') }}</span>
+        <select name="status">
+          <option value="active" {% if client.status == 'active' %}selected{% endif %}>{{ t('clients.field.status_active') }}</option>
+          <option value="archived" {% if client.status == 'archived' %}selected{% endif %}>{{ t('clients.field.status_archived') }}</option>
+        </select>
+      </label>
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="zone settings-section">
+    <div class="zone-head">
+      <div>
+        <h2>{{ t('clients.section.notes') }}</h2>
+        <p class="meta">{{ t('clients.section.notes_meta') }}</p>
+      </div>
+    </div>
+    <label class="field field-wide">
+      <textarea name="notes" rows="4">{{ client.notes or '' if client else '' }}</textarea>
     </label>
-    <label class="field">
-      <span class="field-label">{{ t('clients.field.bom_proposal_mode') }}</span>
-      <select name="bom_proposal_mode">
-        {% for m in bom_modes %}
-        <option value="{{ m }}" {% if client and client.bom_proposal_mode == m %}selected{% endif %}>{{ m }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label class="field">
-      <span class="field-label">{{ t('clients.field.bom_tolerance') }}</span>
-      <input type="number" step="0.001" min="0" max="100" name="bom_proposal_qty_tolerance_pct"
-             value="{{ client.bom_proposal_qty_tolerance_pct if client else 5.0 }}">
-    </label>
-    {% if client %}
-    <label class="field">
-      <span class="field-label">{{ t('common.status') }}</span>
-      <select name="status">
-        <option value="active" {% if client.status == 'active' %}selected{% endif %}>active</option>
-        <option value="archived" {% if client.status == 'archived' %}selected{% endif %}>archived</option>
-      </select>
-    </label>
-    {% endif %}
-    <label class="field">
-      <span class="field-label">{{ t('clients.field.notes') }}</span>
-      <textarea name="notes" rows="3">{{ client.notes or '' if client else '' }}</textarea>
-    </label>
+  </section>
+
+  <section class="settings-footer">
+    <a class="btn-secondary" href="{{ '/clients/' + client.client_id if client else '/clients' }}">{{ t('common.cancel') }}</a>
     <button type="submit" class="btn-primary">{{ t('common.save' if client else 'common.create') }}</button>
-  </form>
-</section>
+  </section>
+</form>
 {% endblock %}
