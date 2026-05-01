@@ -1,6 +1,42 @@
-# Manual test guide — 2026-05-04 BCCT overhaul + LLM smart parser
+# Manual test guide — Data Hub upload pipeline
 
-Mỗi file → upload vào ĐÂU và phải thấy CÁI GÌ.
+Mỗi file → upload vào ĐÂU và phải thấy CÁI GÌ. Test toàn bộ surface
+upload (BCCT/BOM/BQD/Catalog × rigid/LLM/diff-confirm/reject paths).
+
+## File index
+
+| # | File | Test | Module | URL |
+|---|---|---|---|---|
+| 01 | `01_stage_AB_full_co_bcct.xlsx` | 12 typed CO columns + year derive | BCCT | `/clients/growatt-vn/bcct/upload` |
+| 02 | `02_stage_D_chinese_headers.xlsx` | LLM fallback (3 sub-cases: off/on/misconfigured) | BCCT | `/clients/growatt-vn/bcct/upload` |
+| 03a | `03a_stage_C1_baseline.xlsx` | Baseline 3 NEW rows | BCCT | `/clients/growatt-vn/bcct/upload` |
+| 03b | `03b_stage_C1_changed.xlsx` | Confirm-on-update gate (DIFF/ORPHAN/NEW) | BCCT | `/clients/growatt-vn/bcct/upload` |
+| 04 | `04_bqd_basic_rigid.xlsx` | **(new)** BQD rigid + preview gate + 1-N detection | BQD | `/clients/growatt-vn/bqd/upload` |
+| 05 | `05_bqd_llm_english.xlsx` | **(new)** BQD LLM fallback + cache hit on re-upload | BQD | `/clients/growatt-vn/bqd/upload` |
+| 06 | `06_catalog_basic_rigid.xlsx` | **(new)** Catalog rigid + preview | Catalog | `/clients/growatt-vn/catalog/upload` |
+| 07 | `07_catalog_llm_english.xlsx` | **(new)** Catalog LLM gap (currently HTTP 400) | Catalog | `/clients/growatt-vn/catalog/upload` |
+| 08 | `08_bom_manual_flat_rigid.xlsx` | **(new)** BOM rigid + preview + idempotent re-upload | BOM | `/clients/growatt-vn/bom/upload` |
+| 09 | `09_bom_llm_english.xlsx` | **(new)** BOM LLM fallback + cache | BOM | `/clients/growatt-vn/bom/upload` |
+| 10 | `10_bcct_all_new_phase2.xlsx` | **(new)** Phase 2 BCCT all-NEW preview path | BCCT | `/clients/growatt-vn/bcct/upload` |
+| 11 | `11_malformed_random.xlsx` | **(new)** Rigid+LLM both fail → HTTP 400 audit trail | any | any /upload |
+
+## Cheatsheet — what's new in Phase 1+2+3 (2026-05-02)
+
+- **Universal preview-confirm:** EVERY upload (BCCT/BOM/BQD/Catalog) now
+  redirects to a `/preview/{pending_id}` page. Staff must click **Lưu**
+  to commit. **Reject** discards the pending; **Quay lại sau** leaves it
+  in DB for 24h.
+- **LLM fallback** wired for BOM + BQD (BCCT existing). When rigid parser
+  fails on header shape, hub asks LLM to propose mapping → re-parses →
+  routes to the SAME preview gate. After confirm, mapping is cached in
+  `hub.parser_mappings` for future hits.
+- **BCCT all-NEW gap closed:** previously BCCT uploads with no DIFF/ORPHAN
+  bypassed preview and ingested directly. Phase 2 always routes through
+  the preview gate.
+- **`index_headers` no longer does pass-2 substring matching** (Bug C
+  silent-corruption fix). Adding a new customer's header variant is now
+  a 1-line append to the relevant `ALIASES` list, OR the LLM fallback
+  handles it automatically.
 
 ## 0. Setup
 
@@ -270,10 +306,368 @@ Sau đó vào `/clients/growatt-vn/bcct/history/MAN_C1_A-1/1` → row mới nh�
 
 ---
 
+---
+
+# Phase 1+2+3 (2026-05-02) — universal preview + LLM fallback cho BOM/BQD/Catalog
+
+Files 04-11 test các surface mới: rigid happy path qua preview gate (mọi
+upload đều phải qua preview-confirm), LLM fallback cho BOM/BQD, reject
+button, idempotent re-upload, cache hit cho LLM-confirmed mapping.
+
+**Khác biệt chính so với cũ:** trước đây upload BCCT/BOM/BQD/Catalog đi
+thẳng vào DB. Bây giờ luôn redirect qua **preview** trước, staff phải
+nhấn **Lưu** mới ingest. BOM/BQD cũng có **LLM fallback** khi rigid
+parser không nhận diện được header shape.
+
+## File 04 — `04_bqd_basic_rigid.xlsx` ← BQD rigid + preview gate
+
+### Upload vào đâu
+
+```
+http://127.0.0.1:8754/clients/growatt-vn/bqd/upload
+```
+
+### Phải thấy gì
+
+1. Submit → redirect sang `/clients/growatt-vn/bqd/preview/{pending_id}`
+2. Trang preview hiển thị:
+
+   ```
+   Xem trước BQD trước khi lưu
+
+   Tổng quan:
+     • 5 mã quy đổi sẽ được thêm/cập nhật
+     • 4 mã nội bộ phân biệt · 5 mã hải quan phân biệt
+     • 1 mã nội bộ ánh xạ tới nhiều mã hải quan (1-N)    ← MAN_BQD_001
+     • Theo loại: nvl: 3, tp: 1, ccdc: 1
+
+   Mẫu 5 dòng đầu (trên tổng 5):
+     Mã nội bộ      Mã hải quan      Loại    Ghi chú
+     MAN_BQD_001    MAN-HQ-A1        nvl     Test mapping 1
+     MAN_BQD_001    MAN-HQ-A2        nvl     1-to-N case
+     ...
+
+   [Lưu 5 mã quy đổi]   [Reject (file sai)]   [Quay lại sau (giữ pending)]
+   ```
+
+3. Nhấn **Lưu** → redirect về `/clients/growatt-vn/bqd?ingested=5`
+4. Toast xanh: `✓ Đã lưu 5 mã quy đổi.`
+5. Bảng BQD có 5 dòng MAN_BQD_*
+
+### Test reject path
+
+Upload lại file 04 → redirect preview → nhấn **Reject** (xác nhận confirm
+dialog) → redirect về `/bqd?rejected=1` → toast vàng: `⚠ File đã bị
+reject. Không có mã nào được lưu.` → DB không thay đổi.
+
+### Test "Quay lại sau"
+
+Upload file 04 → preview → nhấn **Quay lại sau** → quay về `/bqd` không
+ingest. Pending row còn nguyên (24h TTL):
+
+```sql
+select pending_id, expires_at from hub.upload_pending
+where module='bqd' and client_id='growatt-vn';
+```
+
+Click vào URL preview cũ trong browser → vẫn xem được + confirm/reject
+được. Sau 24h tự động bị purge.
+
+---
+
+## File 05 — `05_bqd_llm_english.xlsx` ← BQD LLM fallback
+
+Yêu cầu: LLM phải được cấu hình ở `/admin/settings/technical` (xem File
+02 ở trên). Nếu không, sẽ nhận HTTP 400 với hướng dẫn bật LLM.
+
+### Upload vào đâu
+
+```
+http://127.0.0.1:8754/clients/growatt-vn/bqd/upload
+```
+
+### Phải thấy gì (LLM ON)
+
+1. Headers `Internal/Customs/Type/Note` không match alias rigid → rigid
+   raise `CodeMappingsParseError`.
+2. Hub gọi LLM → LLM đề xuất mapping
+   `{Internal→internal_code, Customs→customs_code, Type→category, Note→notes}`.
+3. Re-parse với mapping → 3 dòng được parse.
+4. Stash vào `upload_pending` với `proposed_by='llm_proposed'`, `used_mapping`
+   trong `diff_summary`.
+5. Redirect sang preview, hiển thị 3 dòng MAN_BQD_LLM_*.
+6. Nhấn **Lưu** → mapping được persist vào `hub.parser_mappings` (cache):
+
+   ```sql
+   select module, file_signature, proposed_by, confirmed_by,
+          mapping, use_count
+   from hub.parser_mappings
+   where client_id='growatt-vn' and module='bqd'
+   order by created_at desc limit 1;
+   ```
+
+   `proposed_by='llm'`, `confirmed_by` = user_id của ông, `use_count=0`
+   (chưa cache hit lần nào).
+
+### Test cache hit (re-upload cùng file)
+
+Upload lại file 05 → KHÔNG gọi LLM nữa. Verify trong DB:
+
+```sql
+select use_count, last_used_at from hub.parser_mappings
+where client_id='growatt-vn' and module='bqd';
+-- use_count = 1 sau lần upload thứ 2
+```
+
+Trang preview hiển thị bình thường (như rigid path) — staff không thấy
+khác gì giữa cache hit và rigid; điểm khác duy nhất là `proposed_by`
+trong `upload_pending.diff_summary` = `'llm_cached'`.
+
+---
+
+## File 06 — `06_catalog_basic_rigid.xlsx` ← Catalog rigid + preview
+
+### Upload vào đâu
+
+```
+http://127.0.0.1:8754/clients/growatt-vn/catalog/upload
+```
+
+### Phải thấy gì
+
+Preview với:
+
+```
+Tổng quan:
+  • 3 mã sẽ được thêm/cập nhật (upsert theo customs_code)
+  • 3 mã có HQ-code · 3 mã có internal-code
+  • Theo loại: nvl: 3
+  • Theo trạng thái: active: 3
+
+Mẫu 3 dòng đầu:
+  Mã HQ        Mã nội bộ     Tên                Loại   ĐVT   HS         Trạng thái
+  MAN-MAT-A    MAN_CAT_A     Test material A    nvl    KGM   39031900   active
+  ...
+```
+
+Lưu → 3 mã ngấm vào `hub.materials`. Verify:
+
+```sql
+select customs_code, product_code, name, category from hub.materials
+where customs_code like 'MAN-MAT-%' order by customs_code;
+```
+
+---
+
+## File 07 — `07_catalog_llm_english.xlsx` ← Catalog LLM fallback
+
+**LƯU Ý:** hiện tại Catalog (route `/catalog/upload`) **không có** LLM
+fallback wired (Phase 3 chỉ wire BOM + BQD). File 07 sẽ raise HTTP 400
+với `MaterialsParseError`. Đây là **gap đã biết**, không phải bug.
+
+Upload file 07 vào `/clients/growatt-vn/catalog/upload` → nhận:
+
+```json
+{"detail":"Parse error: ..."}
+```
+
+Để fix: extend `app/routes/catalog.py upload_submit` theo pattern của
+`bqd.py` (rigid → cache → LLM → preview). 1-2 giờ work, có trong backlog.
+
+---
+
+## File 08 — `08_bom_manual_flat_rigid.xlsx` ← BOM rigid + preview
+
+### Upload vào đâu
+
+```
+http://127.0.0.1:8754/clients/growatt-vn/bom/upload
+```
+
+Profile: chọn **`manual_flat`** trong dropdown.
+
+### Phải thấy gì
+
+Preview với:
+
+```
+Xem trước BOM trước khi tạo phiên bản
+
+Hub đã đọc 2 sản phẩm với 5 dòng nguyên-phụ-liệu (profile: manual_flat).
+Hãy kiểm tra mẫu bên dưới — đặc biệt là cột Mã SP và Mã NPL...
+
+Tổng quan:
+  • 2 sản phẩm · 5 dòng NPL · 4 mã NPL phân biệt
+  • 5 dòng có định mức (qty > 0)
+
+Mẫu 2 sản phẩm đầu tiên (xem cấu trúc mã SP × NPL):
+
+  SP: MAN_PROD_A  — 3 dòng NPL
+    Mã NPL          Định mức   ĐVT   BOM code   Variant
+    MAN_NVL_001     2.5        KGM
+    MAN_NVL_002     1.0        PCS
+    MAN_NVL_003     0.5        KGM
+
+  SP: MAN_PROD_B  — 2 dòng NPL
+    ...
+
+[Lưu BOM (2 sản phẩm)]   [Reject]   [Quay lại sau]
+```
+
+Lưu → 2 BOM versions tạo (mỗi product 1 version). Verify:
+
+```sql
+select v.product_code, v.version_no, v.canonical_hash
+from hub.bom_versions v
+where v.client_id='growatt-vn' and v.product_code like 'MAN_PROD_%'
+order by v.product_code, v.version_no;
+```
+
+### Test idempotent re-upload (Phase 2 /rev fix)
+
+Upload lại cùng file 08 → preview lại → Lưu → KHÔNG tạo version mới
+(stores.bom hash-dedup). Toast: `✓ Đã lưu 0 BOM version.`
+
+```sql
+select v.product_code, count(*) as version_count from hub.bom_versions v
+where v.client_id='growatt-vn' and v.product_code like 'MAN_PROD_%'
+group by v.product_code;
+-- Vẫn là 1 version mỗi product
+```
+
+### Test partial-commit safety (Phase 2 /rev fix)
+
+Original Phase 2 code DELETE pending TRƯỚC khi loop create_version. Nếu
+create_version fail giữa chừng, pending bị xóa, không retry được. Phase 2
+/rev fix: load pending → create all versions → CHỈ xóa pending sau khi
+toàn bộ thành công. Hard to test manually without injecting failure;
+verify trong code: `app/routes/bom.py:preview_confirm` order là load →
+loop → delete.
+
+---
+
+## File 09 — `09_bom_llm_english.xlsx` ← BOM LLM fallback
+
+Yêu cầu LLM ON. Upload file 09 với profile=**`manual_flat`** (LLM
+fallback chỉ áp dụng cho profile này, vì 2 profile kia infer structure
+từ sheet layout).
+
+```
+http://127.0.0.1:8754/clients/growatt-vn/bom/upload
+```
+
+### Phải thấy gì
+
+1. Headers `Finished Goods/Component/Standard Usage/Unit` không match
+   alias rigid → `BomParseError`.
+2. Hub gọi LLM → đề xuất `{Finished Goods→product_code,
+   Component→material_code, Standard Usage→qty_per_unit, Unit→uom}`.
+3. Re-parse → 2 sản phẩm (`MAN_BOM_LLM_P1` + `_P2`), 3 dòng tổng cộng.
+4. Preview → Lưu → 2 versions tạo + mapping cached.
+
+Verify cache:
+
+```sql
+select proposed_by, mapping, use_count from hub.parser_mappings
+where client_id='growatt-vn' and module='bom'
+order by created_at desc limit 1;
+-- proposed_by='llm', use_count=0 (sau lần đầu)
+```
+
+Re-upload file 09 → cache hit → use_count=1.
+
+---
+
+## File 10 — `10_bcct_all_new_phase2.xlsx` ← BCCT all-NEW preview gate
+
+**Phase 2 closes the gap:** trước đây BCCT all-NEW upload đi thẳng vào
+DB, bypass preview. Bây giờ MỌI BCCT upload qua preview.
+
+### Upload vào đâu
+
+```
+http://127.0.0.1:8754/clients/growatt-vn/bcct/upload
+```
+
+### Phải thấy gì
+
+Redirect sang `/clients/growatt-vn/bcct/upload/preview/{pending_id}`.
+
+Heading: **"Xem trước BCCT trước khi lưu"** (KHÔNG phải "Xác nhận thay
+đổi BCCT" như khi có DIFF/ORPHAN).
+
+Tổng quan:
+```
+  • 3 dòng mới sẽ được thêm
+  • 0 dòng không đổi (skip)
+  • 0 dòng có thay đổi
+  • 0 dòng mất tích
+```
+
+KHÔNG có bảng diff (vì không có DIFF rows). KHÔNG có bảng orphan. KHÔNG
+có checkbox confirm_diffs/confirm_orphans. Chỉ có nút `[Lưu 3 dòng]`.
+
+Nhấn Lưu → 3 dòng MAN_P2_X/Y/Z ngấm vào DB:
+
+```sql
+select transaction_key, line_no, customs_code, quantity from hub.bcct_rows
+where transaction_key like 'MAN_P2_%' order by transaction_key;
+```
+
+---
+
+## File 11 — `11_malformed_random.xlsx` ← Error path test
+
+File có headers `Foo/Bar/Baz` không match bất kỳ alias nào.
+
+Upload vào BQD → rigid fail → LLM (nếu ON) sẽ thử mapping nhưng targets
+không có ý nghĩa → có thể trả mapping rỗng hoặc parser fail second time.
+
+### Phải thấy gì
+
+- LLM OFF: HTTP 400 với hướng dẫn bật LLM.
+- LLM ON: LLM trả mapping rỗng → re-parse fail → HTTP 400 với
+  `LLM mapping rejected by parser: ...` → file_uploads ghi nhận
+  `parse_status='error'` + `parse_error` chi tiết.
+
+Verify upload đã ghi vào audit dù fail:
+
+```sql
+select upload_id, parse_status, parse_error, parsed_at from hub.file_uploads
+where original_filename='11_malformed_random.xlsx' order by uploaded_at desc;
+```
+
+---
+
+## Cross-cut tests (không cần file mới)
+
+### Test `expires_at` purge
+
+Upload bất kỳ file 04-10 → preview → "Quay lại sau" (không confirm).
+
+```sql
+update hub.upload_pending set expires_at = now() - interval '1 second'
+where module='bqd' and client_id='growatt-vn';
+```
+
+Click vào URL preview lại → 404 (Phase 2 /rev fix: confirm SELECT có
+`expires_at > now()` guard, expired = không tìm thấy).
+
+### Test multiple submit buttons (regression Phase 2 smoke fix)
+
+Upload BQD file 04 → preview page có 3 buttons (Lưu / Reject / Quay lại
+sau) cùng một form (formaction differs). Verify cả 3 đều hoạt động —
+không bị bấm nhầm topnav lang/theme/logout submit (Playwright smoke có
+bug đó được fix bằng selector `form[action*='/upload'] button.btn-primary`).
+
+---
+
 ## Reset giữa các lần test
 
 ```bash
 psql -d data_hub -f data/manual_test/_cleanup.sql
 ```
 
-Wipe các row `MAN_*` + history + pending + parser_mappings (Chinese headers) + audit của upload manual-test. Settings LLM không bị xóa.
+Wipe các row `MAN_*` (BCCT + BQD + Catalog + BOM versions) + history +
+pending + parser_mappings (Chinese/English headers) + audit của upload
+manual-test. Settings LLM **không** bị xóa (giữ config để tiếp tục test).
