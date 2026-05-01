@@ -70,9 +70,8 @@ def test_legacy_xls_bcct_loads(rel, parser, min_rows):
     assert len(rows) >= min_rows, f"{rel}: only {len(rows)} rows parsed"
 
 
-# Out of scope: the Growatt 51MB .xlsm is a CO/settlement workspace file
-# (RVC/LVC + BCCT extracts + ERP transactions), not one of the 4 supported
-# upload types (BCCT, DS NVL, DS SP, BOM). Hub MVP doesn't handle it; if
-# uploaded to the BCCT slot it would ingest BCCT-shaped sheets contained
-# within, which is a misuse rather than a parser bug. Pinned here as
-# documentation, no test.
+# Out of scope: the Growatt 51MB .xlsm is the CO app's working workbook
+# (staff processing CO requests). Hub doesn't ingest it; CO owns it. Hub's
+# upload types are BCCT, DS NVL, DS SP, BOM — none of which this file is.
+# If uploaded to a hub slot it would parse misleadingly; that's a misuse
+# rather than a parser bug.
