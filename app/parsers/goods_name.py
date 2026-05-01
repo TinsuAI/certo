@@ -32,14 +32,15 @@ def growatt_parse_internal_code(goods_name: str) -> Optional[str]:
     return None
 
 
-def internal_code_parser_for(client_id: str, code_resolution_mode: str) -> Callable[[str], Optional[str]]:
-    """Return a parser callable: goods_name -> internal_code | None.
+def internal_code_parser_for(client_id: str, code_resolution_mode: str) -> Optional[Callable[[str], Optional[str]]]:
+    """Return a parser callable: goods_name -> internal_code | None, OR None.
 
-    - `identity` mode: returns lambda → None for every goods_name (caller falls back to customs_code).
-    - Any other mode: returns Growatt regex parser (`growatt_parse_internal_code`).
-      Extension hook: when a non-Growatt client appears with a different goods_name format,
-      dispatch by client_id token here.
+    - `identity` mode → returns None (caller treats internal_code = customs_code).
+    - Any other mode → returns the Growatt regex parser. NULL output is the
+      correct state when the regex can't extract; staff/BQD will map later.
+    Extension hook: when a non-Growatt client appears with a different
+    goods_name format, dispatch by client_id token here.
     """
     if code_resolution_mode == "identity":
-        return lambda _: None
+        return None
     return growatt_parse_internal_code

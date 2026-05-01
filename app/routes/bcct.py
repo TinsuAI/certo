@@ -133,10 +133,18 @@ def _insert_bcct(*, client_id: str, year: int, rows: list[dict],
             for r in rows:
                 customs_code = r.get("customs_code")
                 goods_name = r.get("goods_name") or ""
-                # Fall back to customs_code when the goods_name parser yields
-                # nothing (real BCCT often has rows whose Tên hàng doesn't fit
-                # any internal-code pattern; customs_code is the right anchor).
-                internal_code = (parser(goods_name) if parser else None) or customs_code
+                # internal_code is the AGENCY's ERP/internal code, distinct from
+                # the HQ-assigned customs_code. BCCT files don't carry an
+                # internal-code column natively (if they do, staff added it
+                # post-export). Hub derives it from goods_name via per-client
+                # parser. NULL is the correct state when the parser can't
+                # extract — staff/BQD pairs it explicitly later. Don't conflate
+                # with customs_code unless the client opted into identity mode.
+                if parser is None:
+                    # identity mode: client declares internal == customs
+                    internal_code = customs_code
+                else:
+                    internal_code = parser(goods_name)
                 payload_json = json.dumps(r.get("payload") or {}, ensure_ascii=False)
                 cur.execute(
                     """

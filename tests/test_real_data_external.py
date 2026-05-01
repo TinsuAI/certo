@@ -34,9 +34,7 @@ from pathlib import Path
 
 import pytest
 
-from app.parsers.bcct import parse_bcct_workbook, BcctParseError
-from app.parsers.bom import parse_bom_workbook, BomParseError
-from app.parsers.materials import parse_materials_workbook, MaterialsParseError
+from app.parsers.bcct import parse_bcct_workbook
 
 REAL_DIR_ENV = "DATA_HUB_REAL_DATA_DIR"
 real_dir = os.environ.get(REAL_DIR_ENV)
@@ -72,19 +70,9 @@ def test_legacy_xls_bcct_loads(rel, parser, min_rows):
     assert len(rows) >= min_rows, f"{rel}: only {len(rows)} rows parsed"
 
 
-def test_growatt_settlement_workbook_has_bcct_sheets():
-    """The Growatt 'BOM' .xlsm is actually a settlement workbook with multiple
-    BCCT-shaped sheets (NK/NK2/XK/X-N/Save) — confirmed during 2026-05-03
-    parser audit. The BCCT parser correctly accepts these via the tightened
-    declaration_no AND registration_date gate. This test pins the row count
-    so a regression to either (a) accepting too few or (b) leaking through
-    LVC/RVC summary sheets becomes visible.
-    """
-    p = _opt("growatt/bom_2025_full.xlsm")
-    if p is None:
-        pytest.skip("missing growatt/bom_2025_full.xlsm")
-    blob = p.read_bytes()
-    rows = parse_bcct_workbook(blob)
-    # Observed 2026-05-03: 197,356 rows across the 5 BCCT-shaped sheets.
-    # Tolerance ±5% to allow for small datasource churn.
-    assert 187_000 <= len(rows) <= 207_000, f"got {len(rows)}"
+# Out of scope: the Growatt 51MB .xlsm is a CO/settlement workspace file
+# (RVC/LVC + BCCT extracts + ERP transactions), not one of the 4 supported
+# upload types (BCCT, DS NVL, DS SP, BOM). Hub MVP doesn't handle it; if
+# uploaded to the BCCT slot it would ingest BCCT-shaped sheets contained
+# within, which is a misuse rather than a parser bug. Pinned here as
+# documentation, no test.
