@@ -242,6 +242,23 @@ def submit_proposal(*, client_id: str, product_code: str, actor: str, intent: st
             "version_id": version_id, "decision_reason": decision["reason"],
             "failed_conditions": [],
         }
+    # Auto-rule rejected this proposal — fan-out to every staff member
+    # with edit access to the client so someone can review/override.
+    try:
+        from app import notifications as _notifs
+        user_ids = _notifs.staff_with_edit_access_to_client(client_id)
+        _notifs.notify_many(
+            user_ids=user_ids, kind="bom_proposal_rejected",
+            title=f"BOM proposal cho {product_code} bị reject",
+            body=(f"Reason: {decision['reason']}. "
+                  f"Cần staff review thủ công."),
+            link_url=f"/clients/{client_id}/proposals",
+            client_id=client_id, related_kind="bom_change_requests",
+            related_id=proposal_id,
+        )
+    except Exception:
+        pass  # notification is non-critical
+
     return {
         "proposal_id": proposal_id, "status": "rejected",
         "version_id": None, "decision_reason": decision["reason"],

@@ -590,6 +590,23 @@ async def _request_llm_mapping(
                 """,
                 (json.dumps(payload, ensure_ascii=False, default=str), upload_id),
             )
+    # Notify the uploader: their file needs them to review the
+    # LLM-proposed column mapping before ingest can proceed.
+    actor_id = request.state.user.user_id if hasattr(request.state, "user") else None
+    if actor_id:
+        try:
+            from app import notifications as _notifs
+            _notifs.notify(
+                user_id=actor_id, kind="llm_mapping_proposed",
+                title=f"BCCT của {client_id}: LLM đã đề xuất column mapping",
+                body=("Parser cứng không khớp file này. LLM đã đề xuất "
+                      "ánh xạ cột → trường — staff cần review trước khi ingest."),
+                link_url=f"/clients/{client_id}/bcct/parse-mapping/{upload_id}",
+                client_id=client_id, related_kind="file_uploads",
+                related_id=upload_id,
+            )
+        except Exception:
+            pass
     return RedirectResponse(
         url=f"/clients/{client_id}/bcct/parse-mapping/{upload_id}",
         status_code=303,
