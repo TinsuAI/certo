@@ -119,7 +119,7 @@ def main() -> int:
     with httpx.Client(timeout=30.0, follow_redirects=False) as client:
         _login(client)
 
-        # Find an existing batch_aggregate_resolution DNCX (Growatt) or create one.
+        # Find an existing batch_aggregate_resolution Client (Growatt) or create one.
         r = client.get(f"{BASE}/dncxs")
         if "Growatt VN" not in r.text:
             client.post(f"{BASE}/dncxs/new", data={
@@ -134,42 +134,42 @@ def main() -> int:
         import re
         m = re.search(r'href="/dncxs/(growatt-vn-[a-f0-9]+)"', r.text)
         if not m:
-            print("Could not find Growatt DNCX in list")
+            print("Could not find Growatt Client in list")
             return 1
-        dncx_id = m.group(1)
-        print(f"Using DNCX: {dncx_id}")
+        client_id = m.group(1)
+        print(f"Using Client: {client_id}")
 
         # Upload Materials
         r = client.post(f"{BASE}/materials/upload",
-                        data={"dncx_id": dncx_id},
+                        data={"client_id": client_id},
                         files={"file": ("materials.xlsx", _make_materials_xlsx(),
                                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
         print(f"  Materials upload -> {r.status_code}")
 
         # Upload BQD
         r = client.post(f"{BASE}/code-mappings/upload",
-                        data={"dncx_id": dncx_id},
+                        data={"client_id": client_id},
                         files={"file": ("bqd.xlsx", _make_bqd_xlsx(),
                                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
         print(f"  BQD upload -> {r.status_code}")
 
         # Upload BCCT
         r = client.post(f"{BASE}/bcct/upload",
-                        data={"dncx_id": dncx_id, "year": "2025"},
+                        data={"client_id": client_id, "year": "2025"},
                         files={"file": ("bcct.xlsx", _make_bcct_xlsx(),
                                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
         print(f"  BCCT upload -> {r.status_code}")
 
         # Upload BOM (manual_flat profile)
         r = client.post(f"{BASE}/bom/upload",
-                        data={"dncx_id": dncx_id, "profile": "manual_flat"},
+                        data={"client_id": client_id, "profile": "manual_flat"},
                         files={"file": ("bom.xlsx", _make_bom_xlsx(),
                                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
         print(f"  BOM upload -> {r.status_code}")
 
         # Verify by reading detail page.
-        r = client.get(f"{BASE}/dncxs/{dncx_id}")
-        print(f"  DNCX detail page -> {r.status_code}")
+        r = client.get(f"{BASE}/dncxs/{client_id}")
+        print(f"  Client detail page -> {r.status_code}")
         for line in r.text.split("\n"):
             if "card-meta" in line and (
                 "mã NVL/SP/BTP" in line or "mapping" in line

@@ -70,9 +70,9 @@ def get_backend() -> FileBackend:
     return _BACKEND
 
 
-def save_upload(blob: bytes, *, filename: str, module: str, dncx_id: str | None) -> StoredFile:
+def save_upload(blob: bytes, *, filename: str, module: str, client_id: str | None) -> StoredFile:
     """Persist an uploaded file under a sanitized key. Returns StoredFile."""
     safe = "".join(c if c.isalnum() or c in ".-_" else "_" for c in filename)[:120] or "upload"
-    sub = dncx_id or "_global"
+    sub = client_id or "_global"
     key = f"{module}/{sub}/{secrets.token_hex(8)}_{safe}"
     return get_backend().put(blob, key=key)

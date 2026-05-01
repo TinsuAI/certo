@@ -26,20 +26,20 @@ def normalized_hash(rows: list[dict]) -> str:
     return hashlib.sha256(blob).hexdigest()
 
 
-def _next_version_no(cur, *, dncx_id: str, product_code: str) -> int:
+def _next_version_no(cur, *, client_id: str, product_code: str) -> int:
     cur.execute(
         """
         select coalesce(max(version_no), 0) + 1
         from hub.bom_versions
-        where dncx_id = %s and product_code = %s
+        where client_id = %s and product_code = %s
         """,
-        (dncx_id, product_code),
+        (client_id, product_code),
     )
     (n,) = cur.fetchone()
     return n
 
 
-def create_version(*, dncx_id: str, product_code: str, rows: list[dict],
+def create_version(*, client_id: str, product_code: str, rows: list[dict],
                    actor: str, intent: str, parent_version_id: str | None,
                    context: dict, source_upload_id: str | None) -> str | None:
     """Append a new BOM version. Idempotent on the constraint key. Returns version_id
@@ -53,24 +53,24 @@ def create_version(*, dncx_id: str, product_code: str, rows: list[dict],
             cur.execute(
                 """
                 select version_id from hub.bom_versions
-                where dncx_id=%s and product_code=%s and actor=%s and intent=%s
+                where client_id=%s and product_code=%s and actor=%s and intent=%s
                   and parent_norm=%s and normalized_hash=%s
                 """,
-                (dncx_id, product_code, actor, intent, parent_norm, nh),
+                (client_id, product_code, actor, intent, parent_norm, nh),
             )
             existing = cur.fetchone()
             if existing:
                 return existing[0]
-            version_no = _next_version_no(cur, dncx_id=dncx_id, product_code=product_code)
+            version_no = _next_version_no(cur, client_id=client_id, product_code=product_code)
             cur.execute(
                 """
                 insert into hub.bom_versions
-                  (version_id, dncx_id, product_code, version_no, actor, intent,
+                  (version_id, client_id, product_code, version_no, actor, intent,
                    parent_version_id, context, source_upload_id, normalized_hash,
                    row_count, status, published_at)
                 values (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, 'published', now())
                 """,
-                (version_id, dncx_id, product_code, version_no, actor, intent,
+                (version_id, client_id, product_code, version_no, actor, intent,
                  parent_version_id, json.dumps(context), source_upload_id, nh, len(rows)),
             )
             for i, r in enumerate(rows):
@@ -89,15 +89,15 @@ def create_version(*, dncx_id: str, product_code: str, rows: list[dict],
                 )
             cur.execute(
                 """
-                insert into hub.bom_audit_events (dncx_id, product_code, version_id, event_type, actor, details)
+                insert into hub.bom_audit_events (client_id, product_code, version_id, event_type, actor, details)
                 values (%s, %s, %s, 'version.created', %s, %s::jsonb)
                 """,
-                (dncx_id, product_code, version_id, actor, json.dumps({"intent": intent})),
+                (client_id, product_code, version_id, actor, json.dumps({"intent": intent})),
             )
     return version_id
 
 
-def list_products_with_bom(dncx_id: str) -> list[dict]:
+def list_products_with_bom(client_id: str) -> list[dict]:
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -107,17 +107,17 @@ def list_products_with_bom(dncx_id: str) -> list[dict]:
                        max(version_no) as latest_version,
                        max(published_at) as last_published
                 from hub.bom_versions
-                where dncx_id = %s and tombstoned_at is null
+                where client_id = %s and tombstoned_at is null
                 group by product_code
                 order by max(published_at) desc nulls last
                 """,
-                (dncx_id,),
+                (client_id,),
             )
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, r)) for r in cur.fetchall()]
 
 
-def list_versions_for_product(*, dncx_id: str, product_code: str) -> list[dict]:
+def list_versions_for_product(*, client_id: str, product_code: str) -> list[dict]:
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -126,10 +126,10 @@ def list_versions_for_product(*, dncx_id: str, product_code: str) -> list[dict]:
                        row_count, normalized_hash, status, tombstoned_at,
                        created_at, published_at, context
                 from hub.bom_versions
-                where dncx_id = %s and product_code = %s
+                where client_id = %s and product_code = %s
                 order by version_no desc
                 """,
-                (dncx_id, product_code),
+                (client_id, product_code),
             )
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, r)) for r in cur.fetchall()]
@@ -140,7 +140,7 @@ def get_version_with_rows(version_id: str) -> dict | None:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select version_id, dncx_id, product_code, version_no, actor, intent,
+                select version_id, client_id, product_code, version_no, actor, intent,
                        parent_version_id, context, normalized_hash, row_count,
                        status, tombstoned_at, created_at, published_at
                 from hub.bom_versions where version_id = %s
@@ -168,7 +168,7 @@ def get_version_with_rows(version_id: str) -> dict | None:
 
 # ---- Proposal queue ----
 
-def submit_proposal(*, dncx_id: str, product_code: str, actor: str, intent: str,
+def submit_proposal(*, client_id: str, product_code: str, actor: str, intent: str,
                     parent_version_id: str | None, context: dict,
                     rows: list[dict]) -> dict:
     """Submit a BOM proposal. Auto-rule evaluates synchronously. Returns
@@ -185,12 +185,12 @@ def submit_proposal(*, dncx_id: str, product_code: str, actor: str, intent: str,
                 select proposal_id, status, materialized_version_id, decision_reason,
                        failed_conditions
                 from hub.bom_change_requests
-                where dncx_id=%s and product_code=%s and actor=%s and intent=%s
+                where client_id=%s and product_code=%s and actor=%s and intent=%s
                   and coalesce(parent_version_id, '00000000-0000-0000-0000-000000000000') = %s
                   and normalized_hash=%s
                 order by created_at desc limit 1
                 """,
-                (dncx_id, product_code, actor, intent, parent_norm, nh),
+                (client_id, product_code, actor, intent, parent_norm, nh),
             )
             existing = cur.fetchone()
             if existing:
@@ -204,7 +204,7 @@ def submit_proposal(*, dncx_id: str, product_code: str, actor: str, intent: str,
                 }
 
     decision = _auto_evaluate(
-        dncx_id=dncx_id, product_code=product_code,
+        client_id=client_id, product_code=product_code,
         parent_version_id=parent_version_id, context=context, rows=rows,
     )
 
@@ -213,20 +213,20 @@ def submit_proposal(*, dncx_id: str, product_code: str, actor: str, intent: str,
             cur.execute(
                 """
                 insert into hub.bom_change_requests
-                  (proposal_id, dncx_id, product_code, actor, intent,
+                  (proposal_id, client_id, product_code, actor, intent,
                    parent_version_id, context, rows_payload, normalized_hash,
                    status, decided_at, decided_by, decision_reason, failed_conditions)
                 values (%s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s,
                         %s, now(), 'auto-rule', %s, %s::jsonb)
                 """,
-                (proposal_id, dncx_id, product_code, actor, intent,
+                (proposal_id, client_id, product_code, actor, intent,
                  parent_version_id, json.dumps(context), json.dumps(rows), nh,
                  "approved" if decision["approved"] else "rejected",
                  decision["reason"], json.dumps(decision.get("failed", []))),
             )
     if decision["approved"]:
         version_id = create_version(
-            dncx_id=dncx_id, product_code=product_code, rows=rows,
+            client_id=client_id, product_code=product_code, rows=rows,
             actor=actor, intent=intent, parent_version_id=parent_version_id,
             context={**context, "proposal_id": proposal_id},
             source_upload_id=None,
@@ -249,7 +249,7 @@ def submit_proposal(*, dncx_id: str, product_code: str, actor: str, intent: str,
     }
 
 
-def _auto_evaluate(*, dncx_id: str, product_code: str,
+def _auto_evaluate(*, client_id: str, product_code: str,
                    parent_version_id: str | None, context: dict,
                    rows: list[dict]) -> dict:
     """Apply 5-condition auto-rule. Speculative criteria — to be tuned with
@@ -263,9 +263,9 @@ def _auto_evaluate(*, dncx_id: str, product_code: str,
                 cur.execute(
                     """
                     select 1 from hub.bom_versions
-                    where version_id=%s and dncx_id=%s and product_code=%s
+                    where version_id=%s and client_id=%s and product_code=%s
                     """,
-                    (parent_version_id, dncx_id, product_code),
+                    (parent_version_id, client_id, product_code),
                 )
                 if not cur.fetchone():
                     failed.append("parent_version_id_invalid")
@@ -279,9 +279,9 @@ def _auto_evaluate(*, dncx_id: str, product_code: str,
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    select bom_proposal_qty_tolerance_pct from hub.dncxs where dncx_id = %s
+                    select bom_proposal_qty_tolerance_pct from hub.clients where client_id = %s
                     """,
-                    (dncx_id,),
+                    (client_id,),
                 )
                 row = cur.fetchone()
                 tolerance = float(row[0]) if row else 5.0
@@ -313,9 +313,9 @@ def _auto_evaluate(*, dncx_id: str, product_code: str,
                 cur.execute(
                     """
                     select customs_code from hub.materials
-                    where dncx_id = %s and customs_code = any(%s) and status = 'active'
+                    where client_id = %s and customs_code = any(%s) and status = 'active'
                     """,
-                    (dncx_id, codes),
+                    (client_id, codes),
                 )
                 active = {c for (c,) in cur.fetchall()}
         missing = [c for c in codes if c not in active]

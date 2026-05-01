@@ -5,7 +5,7 @@ import secrets
 from app.database import connect
 
 
-def record_upload(*, dncx_id: str | None, module: str, original_filename: str,
+def record_upload(*, client_id: str | None, module: str, original_filename: str,
                   stored_path: str, content_sha256: str, size_bytes: int,
                   mime_type: str | None = None,
                   uploader_user_id: str | None = None,
@@ -16,12 +16,12 @@ def record_upload(*, dncx_id: str | None, module: str, original_filename: str,
             cur.execute(
                 """
                 insert into hub.file_uploads
-                  (upload_id, dncx_id, module, original_filename, stored_path,
+                  (upload_id, client_id, module, original_filename, stored_path,
                    storage_backend, content_sha256, size_bytes, mime_type,
                    uploader_user_id, parse_status)
                 values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending')
                 """,
-                (upload_id, dncx_id, module, original_filename, stored_path,
+                (upload_id, client_id, module, original_filename, stored_path,
                  storage_backend, content_sha256, size_bytes, mime_type,
                  uploader_user_id),
             )

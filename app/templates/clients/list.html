@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}{{ t('nav.clients') }} · {{ t('app.brand') }}{% endblock %}
+{% block content %}
+<section class="page-bar">
+  <h1>{{ t('clients.title') }}</h1>
+  <span class="page-tagline">{{ items|length }} · {{ t('clients.tagline') }}</span>
+  <div class="page-actions">
+    <a class="btn-primary" href="/clients/new">+ {{ t('clients.add') }}</a>
+  </div>
+</section>
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('clients.list_heading') }}</h2>
+      <p class="meta">{{ t('clients.list_meta') }}</p>
+    </div>
+  </div>
+  {% if items %}
+  <div class="rowlist">
+    {% for c in items %}
+    <a class="rowitem client-row stripe-{{ loop.index }}" href="/clients/{{ c.client_id }}">
+      <div class="rowitem-main">
+        <strong>{{ c.name }}</strong>
+        <div class="meta">
+          <span class="mono">{{ c.client_id }}</span>
+          {% if c.tax_code %} · MST <span class="mono">{{ c.tax_code }}</span>{% endif %}
+          · <span class="badge badge-info">{{ c.code_resolution_mode }}</span>
+        </div>
+      </div>
+      <div class="rowitem-side">
+        <span class="badge badge-{{ 'success' if c.n_materials else 'warning' }}">Catalog {{ c.n_materials }}</span>
+        <span class="badge badge-{{ 'success' if c.n_mappings else 'warning' }}">BQD {{ c.n_mappings }}</span>
+        <span class="badge badge-{{ 'success' if c.n_bcct else 'warning' }}">BCCT {{ c.n_bcct }}</span>
+        <span class="badge badge-{{ 'success' if c.n_bom else 'warning' }}">BOM {{ c.n_bom }}</span>
+        <span class="badge badge-{{ 'success' if c.status == 'active' else 'warning' }}">{{ c.status }}</span>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <p>{{ t('clients.empty') }}</p>
+    <a class="btn-primary" href="/clients/new">+ {{ t('clients.add') }}</a>
+  </div>
+  {% endif %}
+</section>
+
+<section class="zone zone-muted">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('clients.module_grid_heading') }}</h2>
+      <p class="meta">{{ t('clients.module_grid_meta') }}</p>
+    </div>
+  </div>
+  <div class="module-grid">
+    <div class="module-tile"><strong>{{ t('tabs.catalog') }}</strong><span>NVL · SP · BTP_SX · BTP_NM · CCDC</span></div>
+    <div class="module-tile"><strong>{{ t('tabs.bqd') }}</strong><span>Internal ↔ customs N-N mapping + resolver</span></div>
+    <div class="module-tile"><strong>{{ t('tabs.bcct') }}</strong><span>Customs declaration registry per year</span></div>
+    <div class="module-tile"><strong>{{ t('tabs.bom') }}</strong><span>Per-product immutable versioned BOM</span></div>
+    <div class="module-tile"><strong>{{ t('tabs.proposals') }}</strong><span>BOM proposal queue + auto-rule audit</span></div>
+    <div class="module-tile"><strong>{{ t('tabs.uploads') }}</strong><span>Excel upload history + parse status</span></div>
+  </div>
+</section>
+{% endblock %}

@@ -14,7 +14,7 @@ from fastapi import APIRouter, Header, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
 from app.database import connect
-from app.routes.dncxs import get_dncx, list_dncxs
+from app.routes.clients import get_client, list_clients
 from app.stores.bom import (
     get_version_with_rows,
     list_versions_for_product,
@@ -54,21 +54,21 @@ def _json(payload: Any, status_code: int = 200) -> JSONResponse:
 @router.get("/dncxs")
 async def api_list_dncxs(authorization: str | None = Header(None)):
     _require_token(authorization)
-    return _json({"items": list_dncxs(), "total_estimate": None})
+    return _json({"items": list_clients(), "total_estimate": None})
 
 
-@router.get("/dncxs/{dncx_id}")
-async def api_get_dncx(dncx_id: str, authorization: str | None = Header(None)):
+@router.get("/dncxs/{client_id}")
+async def api_get_dncx(client_id: str, authorization: str | None = Header(None)):
     _require_token(authorization)
-    dncx = get_dncx(dncx_id)
+    dncx = get_client(client_id)
     if not dncx:
-        raise HTTPException(404, "DNCX not found")
+        raise HTTPException(404, "Client not found")
     return _json(dncx)
 
 
 @router.get("/materials")
 async def api_list_materials(
-    dncx_id: str,
+    client_id: str,
     category: str | None = None,
     status: str | None = None,
     cursor: str | None = None,
@@ -76,14 +76,14 @@ async def api_list_materials(
     authorization: str | None = Header(None),
 ):
     _require_token(authorization)
-    if not get_dncx(dncx_id):
-        raise HTTPException(404, "DNCX not found")
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
     sql = """
-        select dncx_id, customs_code, product_code, name, category, category_override,
+        select client_id, customs_code, product_code, name, category, category_override,
                status, unit, hs_code, updated_at
-        from hub.materials where dncx_id = %s
+        from hub.materials where client_id = %s
     """
-    params: list = [dncx_id]
+    params: list = [client_id]
     if category:
         sql += " and category = %s"
         params.append(category)
@@ -102,7 +102,7 @@ async def api_list_materials(
 
 @router.get("/materials/{customs_code}")
 async def api_get_material(
-    customs_code: str, dncx_id: str,
+    customs_code: str, client_id: str,
     authorization: str | None = Header(None),
 ):
     _require_token(authorization)
@@ -110,11 +110,11 @@ async def api_get_material(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select dncx_id, customs_code, product_code, name, category, category_override,
+                select client_id, customs_code, product_code, name, category, category_override,
                        status, unit, hs_code, updated_at
-                from hub.materials where dncx_id = %s and customs_code = %s
+                from hub.materials where client_id = %s and customs_code = %s
                 """,
-                (dncx_id, customs_code),
+                (client_id, customs_code),
             )
             row = cur.fetchone()
             if not row:
@@ -125,24 +125,24 @@ async def api_get_material(
 
 @router.get("/bcct")
 async def api_list_bcct(
-    dncx_id: str, year: int | None = None,
+    client_id: str, year: int | None = None,
     direction: str | None = None,
     declaration_no: str | None = None,
     cursor: str | None = None, limit: int = 200,
     authorization: str | None = Header(None),
 ):
     _require_token(authorization)
-    if not get_dncx(dncx_id):
-        raise HTTPException(404, "DNCX not found")
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
     sql = """
-        select dncx_id, year, transaction_key, line_no, declaration_no,
+        select client_id, year, transaction_key, line_no, declaration_no,
                declaration_type, direction, registration_date,
                customs_code, internal_code, goods_name, hs_code,
                quantity, unit, total_value, currency, origin,
                resolved_customs_code, bom_version_id, indexed_at
-        from hub.bcct_rows where dncx_id = %s
+        from hub.bcct_rows where client_id = %s
     """
-    params: list = [dncx_id]
+    params: list = [client_id]
     if year:
         sql += " and year = %s"
         params.append(year)
@@ -164,7 +164,7 @@ async def api_list_bcct(
 
 @router.get("/bcct/{transaction_key}")
 async def api_get_bcct(
-    transaction_key: str, dncx_id: str,
+    transaction_key: str, client_id: str,
     authorization: str | None = Header(None),
 ):
     _require_token(authorization)
@@ -172,16 +172,16 @@ async def api_get_bcct(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select dncx_id, year, transaction_key, line_no, declaration_no,
+                select client_id, year, transaction_key, line_no, declaration_no,
                        declaration_type, direction, registration_date,
                        customs_code, internal_code, goods_name, hs_code,
                        quantity, unit, total_value, currency, origin,
                        resolved_customs_code, bom_version_id, indexed_at, payload
                 from hub.bcct_rows
-                where dncx_id = %s and transaction_key = %s
+                where client_id = %s and transaction_key = %s
                 order by line_no
                 """,
-                (dncx_id, transaction_key),
+                (client_id, transaction_key),
             )
             cols = [d[0] for d in cur.description]
             rows = [dict(zip(cols, r)) for r in cur.fetchall()]
@@ -194,21 +194,21 @@ async def api_get_bcct(
 
 @router.get("/code-mappings")
 async def api_list_code_mappings(
-    dncx_id: str,
+    client_id: str,
     authorization: str | None = Header(None),
 ):
     _require_token(authorization)
-    if not get_dncx(dncx_id):
-        raise HTTPException(404, "DNCX not found")
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select dncx_id, internal_code, customs_code, category, notes
-                from hub.code_mappings where dncx_id = %s
+                select client_id, internal_code, customs_code, category, notes
+                from hub.code_mappings where client_id = %s
                 order by internal_code, customs_code
                 """,
-                (dncx_id,),
+                (client_id,),
             )
             cols = [d[0] for d in cur.description]
             items = [dict(zip(cols, r)) for r in cur.fetchall()]
@@ -217,7 +217,7 @@ async def api_list_code_mappings(
 
 @router.get("/code-mappings/resolutions")
 async def api_list_resolutions(
-    dncx_id: str,
+    client_id: str,
     authorization: str | None = Header(None),
 ):
     _require_token(authorization)
@@ -225,12 +225,12 @@ async def api_list_resolutions(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select dncx_id, internal_code, resolved_customs_code,
+                select client_id, internal_code, resolved_customs_code,
                        resolution_basis, resolved_at, details
-                from hub.code_mapping_resolutions where dncx_id = %s
+                from hub.code_mapping_resolutions where client_id = %s
                 order by internal_code
                 """,
-                (dncx_id,),
+                (client_id,),
             )
             cols = [d[0] for d in cur.description]
             items = [dict(zip(cols, r)) for r in cur.fetchall()]
@@ -239,7 +239,7 @@ async def api_list_resolutions(
 
 @router.get("/products/{product_code}/bom/latest")
 async def api_bom_latest(
-    product_code: str, dncx_id: str,
+    product_code: str, client_id: str,
     authorization: str | None = Header(None),
 ):
     _require_token(authorization)
@@ -248,12 +248,12 @@ async def api_bom_latest(
             cur.execute(
                 """
                 select version_id from hub.bom_versions
-                where dncx_id=%s and product_code=%s and tombstoned_at is null
+                where client_id=%s and product_code=%s and tombstoned_at is null
                   and intent in ('asserted_technical', 'staff_edit', 'derived')
                   and status = 'published'
                 order by published_at desc nulls last, version_no desc limit 1
                 """,
-                (dncx_id, product_code),
+                (client_id, product_code),
             )
             row = cur.fetchone()
             if not row:
@@ -264,12 +264,12 @@ async def api_bom_latest(
 
 @router.get("/products/{product_code}/bom/versions")
 async def api_bom_versions(
-    product_code: str, dncx_id: str,
+    product_code: str, client_id: str,
     actor: str | None = None, intent: str | None = None,
     authorization: str | None = Header(None),
 ):
     _require_token(authorization)
-    versions = list_versions_for_product(dncx_id=dncx_id, product_code=product_code)
+    versions = list_versions_for_product(client_id=client_id, product_code=product_code)
     if actor:
         versions = [v for v in versions if v["actor"] == actor]
     if intent:
@@ -279,27 +279,27 @@ async def api_bom_versions(
 
 @router.get("/products/{product_code}/bom")
 async def api_bom_pinned(
-    product_code: str, dncx_id: str, version_id: str | None = None,
+    product_code: str, client_id: str, version_id: str | None = None,
     authorization: str | None = Header(None),
 ):
     _require_token(authorization)
     if version_id:
         data = get_version_with_rows(version_id)
-        if not data or data["version"]["dncx_id"] != dncx_id \
+        if not data or data["version"]["client_id"] != client_id \
                 or data["version"]["product_code"] != product_code:
             raise HTTPException(404, "version not found")
         return _json(data)
     # No pin → equivalent to latest
-    return await api_bom_latest(product_code, dncx_id, authorization)
+    return await api_bom_latest(product_code, client_id, authorization)
 
 
 @router.get("/products")
 async def api_list_products(
-    dncx_id: str,
+    client_id: str,
     authorization: str | None = Header(None),
 ):
     _require_token(authorization)
-    return _json({"items": list_products_with_bom(dncx_id), "total_estimate": None})
+    return _json({"items": list_products_with_bom(client_id), "total_estimate": None})
 
 
 @router.get("/proposals/{proposal_id}")
@@ -312,7 +312,7 @@ async def api_get_proposal(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select proposal_id, dncx_id, product_code, actor, intent,
+                select proposal_id, client_id, product_code, actor, intent,
                        parent_version_id, context, status, decided_at, decided_by,
                        decision_reason, failed_conditions, materialized_version_id,
                        normalized_hash, created_at

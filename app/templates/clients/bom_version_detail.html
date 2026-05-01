@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}BOM v{{ version.version_no }} · {{ version.product_code }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ version.product_code }} <span class="badge badge-info">v{{ version.version_no }}</span></h2>
+      <p class="meta">
+        <span class="badge">{{ version.actor }}</span>
+        <span class="badge">{{ version.intent }}</span>
+        · hash <span class="mono">{{ version.normalized_hash[:16] }}</span>
+        {% if version.parent_version_id %}
+        · forked from <a href="/clients/{{ client.client_id }}/bom/version/{{ version.parent_version_id }}" class="mono">{{ version.parent_version_id[:12] }}</a>
+        {% endif %}
+      </p>
+    </div>
+    <div><a class="btn-secondary" href="/clients/{{ client.client_id }}/bom/{{ version.product_code }}/versions">← versions</a></div>
+  </div>
+
+  {% if version.context %}
+  <details>
+    <summary class="subsection-head" style="cursor: pointer;"><h3 style="display: inline; margin: 0;">Context</h3></summary>
+    <pre class="mono" style="background: var(--surface-alt, #f7f8fc); padding: .8rem; border-radius: 8px; overflow: auto; margin-top: .5rem;">{{ version.context | tojson(indent=2) }}</pre>
+  </details>
+  {% endif %}
+
+  <table class="dh-table" style="margin-top: 1rem;">
+    <thead><tr>
+      <th>#</th>
+      <th>Material</th>
+      <th>Qty per unit</th>
+      <th>UoM</th>
+      <th>BOM code</th>
+      <th>Variant</th>
+    </tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.row_index }}</td>
+        <td class="mono">{{ r.material_code }}</td>
+        <td class="mono">{{ '%.6f'|format(r.qty_per_unit) if r.qty_per_unit else '0' }}</td>
+        <td class="mono">{{ r.uom or '' }}</td>
+        <td class="mono">{{ r.bom_code or '' }}</td>
+        <td class="mono">{{ r.bom_variant_id or '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

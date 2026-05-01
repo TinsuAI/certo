@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}{{ t('uploads.title') }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('uploads.title') }}</h2>
+      <p class="meta">
+        {{ counts.get('done', 0) }} done · {{ counts.get('error', 0) }} errors
+        {% if counts.get('pending') %} · {{ counts.get('pending') }} pending{% endif %}
+      </p>
+    </div>
+  </div>
+
+  <div class="chip-row">
+    <a class="chip {{ 'chip-active' if not selected_module else '' }}"
+       href="/clients/{{ client.client_id }}/uploads">{{ t('common.all') }}</a>
+    {% for m in ['materials', 'code_mappings', 'bcct', 'bom'] %}
+    <a class="chip {{ 'chip-active' if selected_module == m else '' }}"
+       href="/clients/{{ client.client_id }}/uploads?module={{ m }}">{{ m }}</a>
+    {% endfor %}
+  </div>
+
+  {% if items %}
+  <table class="dh-table">
+    <thead><tr>
+      <th>{{ t('uploads.col.when') }}</th>
+      <th>{{ t('uploads.col.module') }}</th>
+      <th>{{ t('uploads.col.filename') }}</th>
+      <th>{{ t('uploads.col.size') }}</th>
+      <th>{{ t('common.status') }}</th>
+      <th>{{ t('uploads.col.rows') }}</th>
+      <th>{{ t('uploads.col.error') }}</th>
+    </tr></thead>
+    <tbody>
+      {% for u in items %}
+      <tr>
+        <td class="mono">{{ u.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td><span class="badge">{{ u.module }}</span></td>
+        <td>{{ u.original_filename }}</td>
+        <td class="mono">{{ '%d KB'|format(u.size_bytes // 1024) if u.size_bytes else '—' }}</td>
+        <td>
+          {% if u.parse_status == 'done' %}<span class="badge badge-success">done</span>
+          {% elif u.parse_status == 'error' %}<span class="badge badge-warning">error</span>
+          {% else %}<span class="badge">{{ u.parse_status }}</span>{% endif %}
+        </td>
+        <td class="mono">{{ u.row_count if u.row_count is not none else '—' }}</td>
+        <td style="font-size: .82rem; color: var(--text-soft, #5b6478); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ u.parse_error or '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state"><p>{{ t('uploads.empty') }}</p></div>
+  {% endif %}
+</section>
+{% endblock %}

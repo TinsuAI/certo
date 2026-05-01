@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}{{ t('bqd.title') }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('bqd.title') }}</h2>
+      <p class="meta">{{ t('bqd.subtitle') }}</p>
+    </div>
+    <div class="page-actions">
+      <form method="post" action="/clients/{{ client.client_id }}/bqd/resolve" style="display: inline;">
+        <button type="submit" class="btn-secondary" title="{{ t('bqd.resolve_hint') }}">{{ t('bqd.resolve_btn') }}</button>
+      </form>
+      <a class="btn-primary" href="/clients/{{ client.client_id }}/bqd/upload">{{ t('bqd.upload_btn') }}</a>
+    </div>
+  </div>
+
+  <div class="chip-row">
+    <span class="chip">{{ mapping_stats.total }} pairs</span>
+    <span class="chip">{{ mapping_stats.n_internal }} internal</span>
+    <span class="chip">{{ mapping_stats.n_customs }} customs</span>
+    <span class="chip">{{ mapping_stats.n_1n }} 1:n</span>
+    <span class="chip">{{ resolutions|length }} resolved</span>
+  </div>
+
+  <details>
+    <summary class="subsection-head" style="cursor: pointer; margin: 1rem 0 .4rem;">
+      <h3 style="display: inline; margin: 0;">{{ t('bqd.manual_add') }}</h3>
+    </summary>
+    <form method="post" action="/clients/{{ client.client_id }}/bqd/manual"
+          class="auth-form" style="max-width: 540px; margin-top: .8rem;">
+      <label class="field"><span class="field-label">{{ t('bqd.col.internal_code') }}</span>
+        <input type="text" name="internal_code" required></label>
+      <label class="field"><span class="field-label">{{ t('bqd.col.customs_code') }}</span>
+        <input type="text" name="customs_code" required></label>
+      <label class="field"><span class="field-label">{{ t('catalog.col.category') }}</span>
+        <select name="category">
+          <option value="">—</option>
+          <option value="nvl">NVL</option>
+          <option value="tp">TP</option>
+          <option value="ccdc">CCDC</option>
+        </select>
+      </label>
+      <label class="field"><span class="field-label">{{ t('common.notes') }}</span>
+        <input type="text" name="notes"></label>
+      <button type="submit" class="btn-primary">{{ t('common.save') }}</button>
+    </form>
+  </details>
+</section>
+
+<section class="zone">
+  <div class="subsection-head">
+    <h3>{{ t('bqd.section.bqd') }}</h3>
+  </div>
+  {% if items %}
+  <table class="dh-table">
+    <thead><tr>
+      <th>{{ t('bqd.col.internal_code') }}</th>
+      <th>{{ t('bqd.col.customs_code') }}</th>
+      <th>{{ t('catalog.col.category') }}</th>
+      <th>{{ t('common.notes') }}</th>
+    </tr></thead>
+    <tbody>
+      {% for r in items %}
+      <tr>
+        <td class="mono">{{ r.internal_code }}</td>
+        <td class="mono">{{ r.customs_code }}</td>
+        <td>{{ r.category or '' }}</td>
+        <td>{{ r.notes or '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <p>{{ t('bqd.empty') }}</p>
+    <a class="btn-primary" href="/clients/{{ client.client_id }}/bqd/upload">{{ t('bqd.upload_btn') }}</a>
+  </div>
+  {% endif %}
+</section>
+
+{% if resolutions %}
+<section class="zone zone-muted">
+  <div class="subsection-head">
+    <h3>{{ t('bqd.section.resolutions') }} ({{ resolutions|length }})</h3>
+    <p class="meta">Run by the resolution worker after each BCCT/BQD upload.</p>
+  </div>
+  <table class="dh-table">
+    <thead><tr>
+      <th>{{ t('bqd.col.internal_code') }}</th>
+      <th>{{ t('bqd.col.resolved') }}</th>
+      <th>{{ t('bqd.col.basis') }}</th>
+      <th>{{ t('bqd.col.updated') }}</th>
+    </tr></thead>
+    <tbody>
+      {% for r in resolutions %}
+      <tr>
+        <td class="mono">{{ r.internal_code }}</td>
+        <td class="mono">{{ r.resolved_customs_code }}</td>
+        <td><span class="badge badge-{{ 'info' if r.resolution_basis in ['bqd_unique','identity'] else ('success' if r.resolution_basis == 'bcct_qty_pick' else 'warning') }}">{{ r.resolution_basis }}</span></td>
+        <td class="mono">{{ r.resolved_at.strftime('%Y-%m-%d %H:%M') if r.resolved_at else '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+{% endblock %}

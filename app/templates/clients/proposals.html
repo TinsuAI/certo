@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}{{ t('proposals.title') }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('proposals.title') }}</h2>
+      <p class="meta">{{ t('proposals.subtitle') }}</p>
+    </div>
+  </div>
+
+  <div class="chip-row">
+    <a class="chip {{ 'chip-active' if not status else '' }}"
+       href="/clients/{{ client.client_id }}/proposals">{{ t('common.all') }} ({{ counts.values()|sum }})</a>
+    <a class="chip {{ 'chip-active' if status == 'approved' else '' }}"
+       href="/clients/{{ client.client_id }}/proposals?status=approved">approved ({{ counts.get('approved', 0) }})</a>
+    <a class="chip {{ 'chip-active' if status == 'rejected' else '' }}"
+       href="/clients/{{ client.client_id }}/proposals?status=rejected">rejected ({{ counts.get('rejected', 0) }})</a>
+    {% if counts.get('pending') %}
+    <a class="chip {{ 'chip-active' if status == 'pending' else '' }}"
+       href="/clients/{{ client.client_id }}/proposals?status=pending">pending ({{ counts.get('pending') }})</a>
+    {% endif %}
+  </div>
+
+  {% if items %}
+  <table class="dh-table">
+    <thead><tr>
+      <th>{{ t('proposals.col.id') }}</th>
+      <th>{{ t('proposals.col.product') }}</th>
+      <th>{{ t('bom.col.actor') }}</th>
+      <th>{{ t('bom.col.intent') }}</th>
+      <th>{{ t('bom.col.parent') }}</th>
+      <th>{{ t('common.status') }}</th>
+      <th>{{ t('proposals.col.reason') }}</th>
+      <th>{{ t('common.created') }}</th>
+      <th></th>
+    </tr></thead>
+    <tbody>
+      {% for p in items %}
+      <tr>
+        <td class="mono">{{ p.proposal_id[:14] }}…</td>
+        <td class="mono">{{ p.product_code }}</td>
+        <td><span class="badge">{{ p.actor }}</span></td>
+        <td><span class="badge badge-info">{{ p.intent }}</span></td>
+        <td class="mono">{{ p.parent_version_id[:12] + '…' if p.parent_version_id else '—' }}</td>
+        <td>
+          {% if p.status == 'approved' %}<span class="badge badge-success">approved</span>
+          {% elif p.status == 'rejected' %}<span class="badge badge-warning">rejected</span>
+          {% else %}<span class="badge">{{ p.status }}</span>{% endif %}
+        </td>
+        <td>{{ p.decision_reason or '' }}</td>
+        <td class="mono">{{ p.created_at.strftime('%Y-%m-%d %H:%M') if p.created_at else '' }}</td>
+        <td><a href="/clients/{{ client.client_id }}/proposals/{{ p.proposal_id }}">{{ t('common.detail') }} →</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <p>{{ t('proposals.empty') }}</p>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

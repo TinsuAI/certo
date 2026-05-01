@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}{{ client.name }} · {{ t('app.brand') }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="hero hero-primary client-snapshot" aria-label="Client overview">
+  <div>
+    <div class="hero-headline">{{ client.name }}</div>
+    <p class="hero-meta">{{ t('workspace.subtitle') }}</p>
+  </div>
+  <div class="hero-divider"></div>
+  <div class="hero-stat">
+    <span class="hero-stat-value">{{ stats.materials }}</span>
+    <span class="hero-stat-label">Catalog</span>
+  </div>
+  <div class="hero-stat">
+    <span class="hero-stat-value">{{ stats.mappings }}</span>
+    <span class="hero-stat-label">BQD</span>
+  </div>
+  <div class="hero-stat">
+    <span class="hero-stat-value">{{ stats.bcct }}</span>
+    <span class="hero-stat-label">BCCT</span>
+  </div>
+  <div class="hero-stat">
+    <span class="hero-stat-value">{{ stats.bom }}</span>
+    <span class="hero-stat-label">BOM</span>
+  </div>
+  <div class="hero-stat">
+    <span class="hero-stat-value">{{ stats.proposals }}</span>
+    <span class="hero-stat-label">Proposals</span>
+  </div>
+</section>
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('workspace.module_heading') }}</h2>
+      <p class="meta">{{ t('workspace.module_meta') }}</p>
+    </div>
+  </div>
+  <div class="module-grid">
+    <a class="module-tile module-link" href="/clients/{{ client.client_id }}/catalog">
+      <strong>{{ t('tabs.catalog') }}</strong>
+      <span>{{ stats.materials }} entries · NVL/SP/BTP/CCDC</span>
+    </a>
+    <a class="module-tile module-link" href="/clients/{{ client.client_id }}/bqd">
+      <strong>{{ t('tabs.bqd') }}</strong>
+      <span>{{ stats.mappings }} mappings · resolver-driven</span>
+    </a>
+    <a class="module-tile module-link" href="/clients/{{ client.client_id }}/bcct">
+      <strong>{{ t('tabs.bcct') }}</strong>
+      <span>{{ stats.bcct }} declaration lines</span>
+    </a>
+    <a class="module-tile module-link" href="/clients/{{ client.client_id }}/bom">
+      <strong>{{ t('tabs.bom') }}</strong>
+      <span>{{ stats.bom }} active versions</span>
+    </a>
+    <a class="module-tile module-link" href="/clients/{{ client.client_id }}/proposals">
+      <strong>{{ t('tabs.proposals') }}</strong>
+      <span>{{ stats.proposals }} proposals · auto-rule audit</span>
+    </a>
+    <a class="module-tile module-link" href="/clients/{{ client.client_id }}/uploads">
+      <strong>{{ t('tabs.uploads') }}</strong>
+      <span>Upload history · parse status</span>
+    </a>
+  </div>
+</section>
+
+<section class="zone zone-muted">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('workspace.config_summary') }}</h2>
+    </div>
+    <div>
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/edit">{{ t('common.edit') }}</a>
+    </div>
+  </div>
+  <div class="rowlist">
+    <div class="rowitem"><div><strong>code_resolution_mode</strong><div class="meta mono">{{ client.code_resolution_mode }}</div></div></div>
+    <div class="rowitem"><div><strong>bom_proposal_mode</strong><div class="meta mono">{{ client.bom_proposal_mode }}</div></div></div>
+    <div class="rowitem"><div><strong>bom_proposal_qty_tolerance_pct</strong><div class="meta mono">{{ client.bom_proposal_qty_tolerance_pct }}%</div></div></div>
+    {% if client.notes %}
+    <div class="rowitem"><div><strong>{{ t('clients.field.notes') }}</strong><div class="meta">{{ client.notes }}</div></div></div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

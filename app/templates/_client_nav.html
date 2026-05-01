@@ -1,0 +1,38 @@
+{# Per-client header + tab nav, included by every workspace page. #}
+<section class="page-bar">
+  <h1>{{ client.name }}</h1>
+  <span class="page-tagline">
+    <span class="mono">{{ client.client_id }}</span>
+    {% if client.tax_code %} · MST <span class="mono">{{ client.tax_code }}</span>{% endif %}
+    · <span class="badge badge-info">{{ client.code_resolution_mode }}</span>
+    {% if stats %}
+      · {{ stats.materials }} catalog
+      · {{ stats.mappings }} BQD
+      · {{ stats.bcct }} BCCT
+      · {{ stats.bom }} BOM
+    {% endif %}
+  </span>
+  <div class="page-actions">
+    <span class="badge badge-{{ 'success' if client.status == 'active' else 'warning' }}">{{ client.status }}</span>
+    <a class="btn-secondary" href="/clients">{{ t('workspace.switch_client') }}</a>
+  </div>
+</section>
+
+<nav class="tabs" aria-label="Client workspace tabs">
+  <a class="tab-link {{ 'tab-link-active' if active_tab == 'overview' else '' }}"
+     href="/clients/{{ client.client_id }}">{{ t('tabs.overview') }}</a>
+  <a class="tab-link {{ 'tab-link-active' if active_tab == 'catalog' else '' }}"
+     href="/clients/{{ client.client_id }}/catalog">{{ t('tabs.catalog') }}</a>
+  <a class="tab-link {{ 'tab-link-active' if active_tab == 'bqd' else '' }}"
+     href="/clients/{{ client.client_id }}/bqd">{{ t('tabs.bqd') }}</a>
+  <a class="tab-link {{ 'tab-link-active' if active_tab == 'bcct' else '' }}"
+     href="/clients/{{ client.client_id }}/bcct">{{ t('tabs.bcct') }}</a>
+  <a class="tab-link {{ 'tab-link-active' if active_tab == 'bom' else '' }}"
+     href="/clients/{{ client.client_id }}/bom">{{ t('tabs.bom') }}</a>
+  <a class="tab-link {{ 'tab-link-active' if active_tab == 'proposals' else '' }}"
+     href="/clients/{{ client.client_id }}/proposals">{{ t('tabs.proposals') }}</a>
+  <a class="tab-link {{ 'tab-link-active' if active_tab == 'uploads' else '' }}"
+     href="/clients/{{ client.client_id }}/uploads">{{ t('tabs.uploads') }}</a>
+  <a class="tab-link {{ 'tab-link-active' if active_tab == 'config' else '' }}"
+     href="/clients/{{ client.client_id }}/edit">{{ t('tabs.config') }}</a>
+</nav>

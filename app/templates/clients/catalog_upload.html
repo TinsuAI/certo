@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ t('catalog.upload_title') }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('catalog.upload_title') }}</h2>
+      <p class="meta">{{ t('catalog.upload_help') }}</p>
+    </div>
+    <div>
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/catalog">{{ t('common.cancel') }}</a>
+    </div>
+  </div>
+
+  <form method="post" action="/clients/{{ client.client_id }}/catalog/upload"
+        enctype="multipart/form-data" class="zone mini-panel" style="max-width: 700px;">
+    <div class="upload-zone">
+      <input type="file" name="file" accept=".xlsx,.xls" required>
+      <p class="meta">Sheet name có thể chứa hint loại (vd. "DM NVL", "DM TP").</p>
+    </div>
+    <button type="submit" class="btn-primary">{{ t('common.upload') }} & Parse</button>
+  </form>
+</section>
+{% endblock %}

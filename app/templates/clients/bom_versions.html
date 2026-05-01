@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}BOM {{ product_code }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('bom.versions_title') }} <span class="mono">{{ product_code }}</span></h2>
+      <p class="meta">{{ versions|length }} versions, immutable + append-only.</p>
+    </div>
+    <div><a class="btn-secondary" href="/clients/{{ client.client_id }}/bom">{{ t('bom.versions_back') }}</a></div>
+  </div>
+
+  <table class="dh-table">
+    <thead><tr>
+      <th>v#</th>
+      <th>{{ t('bom.col.actor') }}</th>
+      <th>{{ t('bom.col.intent') }}</th>
+      <th>{{ t('bom.col.parent') }}</th>
+      <th>{{ t('bom.col.rows') }}</th>
+      <th>{{ t('bom.col.hash') }}</th>
+      <th>{{ t('common.status') }}</th>
+      <th>{{ t('bom.col.published') }}</th>
+      <th></th>
+    </tr></thead>
+    <tbody>
+      {% for v in versions %}
+      <tr {% if v.tombstoned_at %}style="opacity: .55;"{% endif %}>
+        <td><span class="badge badge-info">v{{ v.version_no }}</span></td>
+        <td class="mono">{{ v.actor }}</td>
+        <td><span class="badge badge-info">{{ v.intent }}</span></td>
+        <td class="mono">{{ v.parent_version_id[:12] + '…' if v.parent_version_id else '—' }}</td>
+        <td>{{ v.row_count }}</td>
+        <td class="mono">{{ v.normalized_hash[:8] }}</td>
+        <td>{{ v.status }}{% if v.tombstoned_at %} · tombstoned{% endif %}</td>
+        <td class="mono">{{ v.published_at.strftime('%Y-%m-%d %H:%M') if v.published_at else '' }}</td>
+        <td><a href="/clients/{{ client.client_id }}/bom/version/{{ v.version_id }}">{{ t('common.detail') }} →</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

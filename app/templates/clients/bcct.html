@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}{{ t('bcct.title') }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('bcct.title') }}</h2>
+      <p class="meta">{{ t('bcct.subtitle') }}</p>
+    </div>
+    <div class="page-actions">
+      <a class="btn-primary" href="/clients/{{ client.client_id }}/bcct/upload">{{ t('bcct.upload_btn') }}</a>
+    </div>
+  </div>
+
+  <div class="chip-row">
+    <a class="chip {{ 'chip-active' if not direction else '' }}"
+       href="/clients/{{ client.client_id }}/bcct{% if year %}?year={{ year }}{% endif %}">{{ t('common.all') }} ({{ items|length }})</a>
+    <a class="chip {{ 'chip-active' if direction == 'import' else '' }}"
+       href="/clients/{{ client.client_id }}/bcct?direction=import{% if year %}&year={{ year }}{% endif %}">{{ t('bcct.direction.import') }}</a>
+    <a class="chip {{ 'chip-active' if direction == 'export' else '' }}"
+       href="/clients/{{ client.client_id }}/bcct?direction=export{% if year %}&year={{ year }}{% endif %}">{{ t('bcct.direction.export') }}</a>
+    {% for y in years %}
+    <a class="chip {{ 'chip-active' if year == y else '' }}"
+       href="/clients/{{ client.client_id }}/bcct?year={{ y }}{% if direction %}&direction={{ direction }}{% endif %}">{{ y }}</a>
+    {% endfor %}
+  </div>
+
+  <form method="get" action="/clients/{{ client.client_id }}/bcct" class="stack-form" style="margin: 1rem 0; max-width: 720px;">
+    {% if direction %}<input type="hidden" name="direction" value="{{ direction }}">{% endif %}
+    {% if year %}<input type="hidden" name="year" value="{{ year }}">{% endif %}
+    <input type="search" name="q" value="{{ q }}" placeholder="{{ t('common.search') }}: declaration_no / customs / internal / goods name...">
+  </form>
+
+  {% if items %}
+  <table class="dh-table">
+    <thead>
+      <tr>
+        <th>{{ t('bcct.col.declaration_no') }}</th>
+        <th>{{ t('bcct.col.line') }}</th>
+        <th>{{ t('bcct.col.type') }}</th>
+        <th>{{ t('bcct.col.direction') }}</th>
+        <th>{{ t('bcct.col.date') }}</th>
+        <th>{{ t('bcct.col.customs_code') }}</th>
+        <th>{{ t('bcct.col.internal_code') }}</th>
+        <th>{{ t('bcct.col.goods_name') }}</th>
+        <th>{{ t('bcct.col.qty') }}</th>
+        <th>{{ t('bcct.col.unit') }}</th>
+        <th>{{ t('bcct.col.value') }}</th>
+        <th>{{ t('bcct.col.currency') }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in items %}
+      <tr>
+        <td class="mono">{{ r.declaration_no or '' }}</td>
+        <td>{{ r.line_no }}</td>
+        <td class="mono">{{ r.declaration_type or '' }}</td>
+        <td>
+          {% if r.direction == 'import' %}<span class="badge badge-info">N</span>
+          {% elif r.direction == 'export' %}<span class="badge badge-success">X</span>
+          {% endif %}
+        </td>
+        <td class="mono">{{ r.registration_date.strftime('%Y-%m-%d') if r.registration_date else '' }}</td>
+        <td class="mono">{{ r.customs_code or '' }}</td>
+        <td class="mono">{{ r.internal_code or '' }}</td>
+        <td>{{ r.goods_name[:48] if r.goods_name else '' }}{% if r.goods_name and r.goods_name|length > 48 %}…{% endif %}</td>
+        <td class="mono">{{ '%.2f'|format(r.quantity) if r.quantity else '' }}</td>
+        <td class="mono">{{ r.unit or '' }}</td>
+        <td class="mono">{{ '%.2f'|format(r.total_value) if r.total_value else '' }}</td>
+        <td class="mono">{{ r.currency or '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <p>{{ t('bcct.empty') }}</p>
+    <a class="btn-primary" href="/clients/{{ client.client_id }}/bcct/upload">{{ t('bcct.upload_btn') }}</a>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

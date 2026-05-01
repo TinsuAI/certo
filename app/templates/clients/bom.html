@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}{{ t('bom.title') }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('bom.title') }}</h2>
+      <p class="meta">{{ t('bom.subtitle') }}</p>
+    </div>
+    <div class="page-actions">
+      <a class="btn-primary" href="/clients/{{ client.client_id }}/bom/upload">{{ t('bom.upload_btn') }}</a>
+    </div>
+  </div>
+
+  {% if products %}
+  <table class="dh-table">
+    <thead>
+      <tr>
+        <th>{{ t('bom.col.product') }}</th>
+        <th>{{ t('bom.col.versions') }}</th>
+        <th>{{ t('bom.col.latest') }}</th>
+        <th>{{ t('bom.col.last_published') }}</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in products %}
+      <tr>
+        <td class="mono">{{ p.product_code }}</td>
+        <td><span class="badge badge-info">{{ p.n_versions }}</span></td>
+        <td>v{{ p.latest_version }}</td>
+        <td class="mono">{{ p.last_published.strftime('%Y-%m-%d %H:%M') if p.last_published else '' }}</td>
+        <td><a href="/clients/{{ client.client_id }}/bom/{{ p.product_code }}/versions">{{ t('common.detail') }} →</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <p>{{ t('bom.empty') }}</p>
+    <a class="btn-primary" href="/clients/{{ client.client_id }}/bom/upload">{{ t('bom.upload_btn') }}</a>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

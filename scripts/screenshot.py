@@ -1,4 +1,4 @@
-"""Take screenshots of all main pages with Playwright. Saves to data/screenshots/."""
+"""Playwright UI screenshots — walks the client-workspace pattern."""
 from __future__ import annotations
 
 import asyncio
@@ -13,25 +13,7 @@ PASSWORD = "admin123"
 OUT = Path("data/screenshots")
 OUT.mkdir(parents=True, exist_ok=True)
 
-
-PAGES = [
-    ("01_login", "/login", False),
-    ("02_dncxs_list", "/dncxs", True),
-    ("03_dncxs_new", "/dncxs/new", True),
-    ("10_dncx_detail", "_DETAIL_", True),
-    ("20_materials_list", "/materials", True),
-    ("21_materials_upload", "/materials/upload", True),
-    ("30_code_mappings_list", "/code-mappings", True),
-    ("31_code_mappings_upload", "/code-mappings/upload", True),
-    ("40_bcct_list", "/bcct", True),
-    ("41_bcct_upload", "/bcct/upload", True),
-    ("50_bom_list", "/bom", True),
-    ("51_bom_upload", "/bom/upload", True),
-    ("52_bom_versions", "_BOM_VERSIONS_", True),
-    ("53_bom_version_detail", "_BOM_DETAIL_", True),
-    ("60_proposals_list", "/proposals", True),
-    ("61_proposal_detail", "_PROPOSAL_DETAIL_", True),
-]
+CLIENT_ID = "growatt-vn"  # auto-seed creates this with full data
 
 
 async def capture(page, slug: str, theme: str = "light"):
@@ -40,111 +22,85 @@ async def capture(page, slug: str, theme: str = "light"):
     print(f"  saved {out}")
 
 
-async def run():
+async def main():
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(viewport={"width": 1440, "height": 900})
-        page = await context.new_page()
+        for theme in ("light", "dark"):
+            context = await browser.new_context(viewport={"width": 1440, "height": 900})
+            await context.add_cookies([{
+                "name": "data_hub_theme", "value": theme, "url": BASE,
+            }, {
+                "name": "data_hub_lang", "value": "vi", "url": BASE,
+            }])
+            page = await context.new_page()
+            print(f"--- {theme} ---")
+            await page.goto(f"{BASE}/login")
+            if theme == "light":
+                await capture(page, "01_login")
+            await page.fill('input[name="email"]', EMAIL)
+            await page.fill('input[name="password"]', PASSWORD)
+            await page.click('button[type="submit"]')
+            await page.wait_for_url(f"{BASE}/clients", timeout=5000)
 
-        # login
-        print("Logging in...")
-        await page.goto(f"{BASE}/login")
-        await capture(page, "01_login")
-        await page.fill('input[name="email"]', EMAIL)
-        await page.fill('input[name="password"]', PASSWORD)
-        await page.click('button[type="submit"]')
-        await page.wait_for_url(f"{BASE}/dncxs", timeout=5000)
+            paths = [
+                ("02_clients_list", "/clients"),
+                ("03_client_workspace", f"/clients/{CLIENT_ID}"),
+                ("04_client_edit", f"/clients/{CLIENT_ID}/edit"),
+                ("10_catalog", f"/clients/{CLIENT_ID}/catalog"),
+                ("11_catalog_filtered", f"/clients/{CLIENT_ID}/catalog?category=nvl"),
+                ("12_catalog_upload", f"/clients/{CLIENT_ID}/catalog/upload"),
+                ("20_bqd", f"/clients/{CLIENT_ID}/bqd"),
+                ("21_bqd_upload", f"/clients/{CLIENT_ID}/bqd/upload"),
+                ("30_bcct", f"/clients/{CLIENT_ID}/bcct"),
+                ("31_bcct_imports", f"/clients/{CLIENT_ID}/bcct?direction=import"),
+                ("32_bcct_upload", f"/clients/{CLIENT_ID}/bcct/upload"),
+                ("40_bom", f"/clients/{CLIENT_ID}/bom"),
+                ("41_bom_upload", f"/clients/{CLIENT_ID}/bom/upload"),
+                ("42_bom_versions", f"/clients/{CLIENT_ID}/bom/INV-3000/versions"),
+                ("50_proposals", f"/clients/{CLIENT_ID}/proposals"),
+                ("60_uploads", f"/clients/{CLIENT_ID}/uploads"),
+            ]
+            for slug, path in paths:
+                if theme == "dark" and slug not in {"02_clients_list", "03_client_workspace", "10_catalog", "20_bqd", "30_bcct", "40_bom", "50_proposals"}:
+                    continue
+                await page.goto(f"{BASE}{path}")
+                try: await page.wait_for_load_state("networkidle", timeout=3000)
+                except Exception: pass
+                await capture(page, slug, theme)
 
-        # find Growatt DNCX (the one with data) for detail/list previews
-        links = await page.query_selector_all('.card-grid a.card')
-        detail_url = None
-        dncx_id = None
-        for link in links:
-            text = (await link.inner_text()) or ""
-            if "Growatt" in text:
-                href = await link.get_attribute("href")
-                detail_url = f"{BASE}{href}"
-                dncx_id = href.rsplit("/", 1)[-1]
-                break
-        if not detail_url and links:
-            href = await links[0].get_attribute("href")
-            detail_url = f"{BASE}{href}"
-            dncx_id = href.rsplit("/", 1)[-1]
+            # capture a BOM version detail too (need a real version_id)
+            if theme == "light":
+                await page.goto(f"{BASE}/clients/{CLIENT_ID}/bom/INV-3000/versions")
+                try: await page.wait_for_load_state("networkidle", timeout=3000)
+                except Exception: pass
+                ver_link = await page.query_selector('a[href*="/bom/version/"]')
+                if ver_link:
+                    href = await ver_link.get_attribute("href")
+                    await page.goto(f"{BASE}{href}")
+                    await capture(page, "43_bom_version_detail", "light")
+                # proposal detail
+                await page.goto(f"{BASE}/clients/{CLIENT_ID}/proposals")
+                try: await page.wait_for_load_state("networkidle", timeout=3000)
+                except Exception: pass
+                prop_link = await page.query_selector('a[href*="/proposals/"]')
+                if prop_link:
+                    href = await prop_link.get_attribute("href")
+                    await page.goto(f"{BASE}{href}")
+                    await capture(page, "51_proposal_detail", "light")
+                # English language toggle screenshot
+                await page.goto(f"{BASE}/clients")
+                # Hit the lang toggle
+                await page.evaluate(
+                    "document.cookie = 'data_hub_lang=en; path=/'"
+                )
+                await page.goto(f"{BASE}/clients/{CLIENT_ID}")
+                try: await page.wait_for_load_state("networkidle", timeout=3000)
+                except Exception: pass
+                await capture(page, "99_workspace_english", "light")
 
-        # Discover a BOM product + version + proposal for detail screenshots
-        await page.goto(f"{BASE}/bom?dncx_id={dncx_id}")
-        try: await page.wait_for_load_state("networkidle", timeout=3000)
-        except Exception: pass
-        bom_versions_url = None
-        bom_detail_url = None
-        prod_link = await page.query_selector('a[href*="/bom/"][href*="/versions"]')
-        if prod_link:
-            href = await prod_link.get_attribute("href")
-            bom_versions_url = f"{BASE}{href}"
-            await page.goto(bom_versions_url)
-            try: await page.wait_for_load_state("networkidle", timeout=3000)
-            except Exception: pass
-            ver_link = await page.query_selector('a[href*="/bom/version/"]')
-            if ver_link:
-                href = await ver_link.get_attribute("href")
-                bom_detail_url = f"{BASE}{href}"
-
-        await page.goto(f"{BASE}/proposals?dncx_id={dncx_id}")
-        try: await page.wait_for_load_state("networkidle", timeout=3000)
-        except Exception: pass
-        prop_detail_url = None
-        prop_link = await page.query_selector('a[href*="/proposals/"]')
-        if prop_link:
-            href = await prop_link.get_attribute("href")
-            prop_detail_url = f"{BASE}{href}"
-
-        for slug, path, _ in PAGES[1:]:
-            if path == "_DETAIL_":
-                url = detail_url
-            elif path == "_BOM_VERSIONS_":
-                url = bom_versions_url
-            elif path == "_BOM_DETAIL_":
-                url = bom_detail_url
-            elif path == "_PROPOSAL_DETAIL_":
-                url = prop_detail_url
-            elif path in ("/materials", "/code-mappings", "/bcct", "/bom", "/proposals") and dncx_id:
-                url = f"{BASE}{path}?dncx_id={dncx_id}"
-            else:
-                url = f"{BASE}{path}"
-            if url is None:
-                continue
-            print(f"  GET {url}")
-            await page.goto(url)
-            try:
-                await page.wait_for_load_state("networkidle", timeout=3000)
-            except Exception:
-                pass
-            await capture(page, slug, "light")
-
-        # Toggle dark theme via the topnav button form, then re-shoot a few
-        print("Toggling dark theme...")
-        await page.goto(f"{BASE}/dncxs")
-        # set cookie directly
-        await context.add_cookies([{
-            "name": "data_hub_theme", "value": "dark",
-            "url": BASE,
-        }])
-        for slug, path, _ in [("02_dncxs_list", "/dncxs", True),
-                              ("20_materials_list", "/materials", True),
-                              ("40_bcct_list", "/bcct", True),
-                              ("50_bom_list", "/bom", True)]:
-            url = f"{BASE}{path}"
-            if path in ("/materials", "/bcct", "/bom") and dncx_id:
-                url += f"?dncx_id={dncx_id}"
-            await page.goto(url)
-            try:
-                await page.wait_for_load_state("networkidle", timeout=3000)
-            except Exception:
-                pass
-            await capture(page, slug, "dark")
-
+            await context.close()
         await browser.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(run())
+    asyncio.run(main())

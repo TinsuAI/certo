@@ -1,25 +1,23 @@
 {% extends "base.html" %}
-{% block title %}Đăng nhập · Data Hub{% endblock %}
+{% block title %}{{ t('auth.login') }} · {{ t('app.brand') }}{% endblock %}
 {% block content %}
 <section class="auth-card">
   <header class="auth-header">
-    <h1>Data Hub</h1>
-    <p>Đăng nhập để quản lý hồ sơ DNCX.</p>
+    <h1>{{ t('app.brand') }}</h1>
+    <p>{{ t('auth.subtitle') }}</p>
   </header>
-  {% if error %}
-  <div class="flash flash-error">{{ error }}</div>
-  {% endif %}
+  {% if error %}<div class="toast toast-error">{{ error }}</div>{% endif %}
   <form method="post" action="/login" class="auth-form">
     <label class="field">
-      <span class="field-label">Email</span>
+      <span class="field-label">{{ t('auth.email') }}</span>
       <input type="email" name="email" required autocomplete="username" autofocus
              value="{{ email or '' }}">
     </label>
     <label class="field">
-      <span class="field-label">Mật khẩu</span>
+      <span class="field-label">{{ t('auth.password') }}</span>
       <input type="password" name="password" required autocomplete="current-password">
     </label>
-    <button type="submit" class="btn btn-primary">Đăng nhập</button>
+    <button type="submit" class="btn-primary">{{ t('auth.signin') }}</button>
   </form>
 </section>
 {% endblock %}

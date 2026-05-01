@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="vi">
+<html lang="{{ lang }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Data Hub{% endblock %}</title>
+  <title>{% block title %}{{ t('app.brand') }}{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -14,26 +14,29 @@
   <header class="topnav">
     <a class="brand" href="/">
       <span class="brand-mark">DH</span>
-      <span>Data Hub</span>
+      <span>{{ t('app.brand') }}</span>
     </a>
     {% if user %}
-    <nav class="topnav-links" aria-label="Điều hướng">
-      <a href="/dncxs" class="{% if active == 'dncxs' %}active{% endif %}">DNCX</a>
-      <a href="/materials" class="{% if active == 'materials' %}active{% endif %}">Danh Mục</a>
-      <a href="/code-mappings" class="{% if active == 'mappings' %}active{% endif %}">Mã Quy Đổi</a>
-      <a href="/bcct" class="{% if active == 'bcct' %}active{% endif %}">BCCT</a>
-      <a href="/bom" class="{% if active == 'bom' %}active{% endif %}">BOM</a>
-      <a href="/proposals" class="{% if active == 'proposals' %}active{% endif %}">Proposals</a>
-      <a href="/uploads" class="{% if active == 'uploads' %}active{% endif %}">Uploads</a>
+    <nav class="topnav-links" aria-label="Navigation">
+      <a href="/clients" class="{% if active_root == 'clients' %}active{% endif %}">{{ t('nav.clients') }}</a>
     </nav>
     <div class="topnav-meta">
       <span class="topnav-user">{{ user.display_name }}</span>
+      <form method="post" action="/settings/lang" class="topnav-toggle-form">
+        <input type="hidden" name="lang" value="{{ next_lang }}">
+        <input type="hidden" name="next_url" value="{{ request.url.path }}">
+        <button type="submit" class="topnav-chip topnav-chip-button"
+                title="{{ t('ui.lang.toggle') }} ({{ next_lang|upper }})"
+                aria-label="{{ t('ui.lang.toggle') }}">
+          <span style="font-size: 0.78rem; font-weight: 700;">{{ lang|upper }}</span>
+        </button>
+      </form>
       <form method="post" action="/settings/theme" class="topnav-toggle-form">
         <input type="hidden" name="theme" value="{{ next_theme }}">
         <input type="hidden" name="next_url" value="{{ request.url.path }}">
         <button type="submit" class="topnav-chip topnav-chip-button"
-                title="Giao diện - {{ 'Sáng' if next_theme == 'light' else 'Tối' }}"
-                aria-label="Đổi giao diện">
+                title="{{ t('ui.theme.toggle') }}"
+                aria-label="{{ t('ui.theme.toggle') }}">
           {% if theme == "dark" %}
           <svg class="topnav-chip-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
                fill="none" stroke="currentColor" stroke-width="1.7"
@@ -51,7 +54,7 @@
         </button>
       </form>
       <form method="post" action="/logout" class="topnav-toggle-form">
-        <button type="submit" class="topnav-chip topnav-chip-button" title="Đăng xuất" aria-label="Đăng xuất">
+        <button type="submit" class="topnav-chip topnav-chip-button" title="{{ t('auth.logout') }}" aria-label="{{ t('auth.logout') }}">
           <svg class="topnav-chip-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
                fill="none" stroke="currentColor" stroke-width="1.7"
                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -65,9 +68,8 @@
     {% endif %}
   </header>
   <main class="shell">
-    {% if flash %}
-    <div class="flash flash-{{ flash.kind }}">{{ flash.message }}</div>
-    {% endif %}
+    {% if message %}<div class="toast">{{ message }}</div>{% endif %}
+    {% if error %}<div class="toast toast-error">{{ error }}</div>{% endif %}
     {% block content %}{% endblock %}
   </main>
 </body>

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Proposal {{ proposal.proposal_id[:12] }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>
+        Proposal
+        {% if proposal.status == 'approved' %}<span class="badge badge-success">approved</span>
+        {% elif proposal.status == 'rejected' %}<span class="badge badge-warning">rejected</span>
+        {% else %}<span class="badge">{{ proposal.status }}</span>{% endif %}
+      </h2>
+      <p class="meta mono">{{ proposal.proposal_id }}</p>
+    </div>
+    <div><a class="btn-secondary" href="/clients/{{ client.client_id }}/proposals">← {{ t('proposals.title') }}</a></div>
+  </div>
+
+  <table class="dh-table">
+    <tr><th>Product</th><td class="mono">{{ proposal.product_code }}</td></tr>
+    <tr><th>{{ t('bom.col.actor') }}</th><td><span class="badge">{{ proposal.actor }}</span></td></tr>
+    <tr><th>{{ t('bom.col.intent') }}</th><td><span class="badge badge-info">{{ proposal.intent }}</span></td></tr>
+    <tr><th>{{ t('bom.col.parent') }}</th><td class="mono">
+      {% if proposal.parent_version_id %}<a href="/clients/{{ client.client_id }}/bom/version/{{ proposal.parent_version_id }}">{{ proposal.parent_version_id }}</a>
+      {% else %}—{% endif %}
+    </td></tr>
+    <tr><th>Materialized</th><td class="mono">
+      {% if proposal.materialized_version_id %}<a href="/clients/{{ client.client_id }}/bom/version/{{ proposal.materialized_version_id }}">{{ proposal.materialized_version_id }}</a>
+      {% else %}—{% endif %}
+    </td></tr>
+    <tr><th>Decision reason</th><td>{{ proposal.decision_reason or '' }}</td></tr>
+    <tr><th>Decided by</th><td class="mono">{{ proposal.decided_by or '' }}</td></tr>
+    <tr><th>Decided at</th><td class="mono">{{ proposal.decided_at.strftime('%Y-%m-%d %H:%M:%S') if proposal.decided_at else '' }}</td></tr>
+    <tr><th>{{ t('common.created') }}</th><td class="mono">{{ proposal.created_at.strftime('%Y-%m-%d %H:%M:%S') if proposal.created_at else '' }}</td></tr>
+    <tr><th>Hash</th><td class="mono">{{ proposal.normalized_hash[:24] }}…</td></tr>
+  </table>
+
+  {% if proposal.failed_conditions %}
+  <section class="callout callout-danger" style="margin-top: 1rem;">
+    <span class="callout-icon">!</span>
+    <div>
+      <div class="callout-title">{{ t('proposals.failed_conditions') }}</div>
+      <ul class="mono" style="margin: .4rem 0 0 1rem;">
+        {% for c in proposal.failed_conditions %}<li>{{ c }}</li>{% endfor %}
+      </ul>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if proposal.context %}
+  <details style="margin-top: 1rem;">
+    <summary class="subsection-head" style="cursor: pointer;"><h3 style="display: inline; margin: 0;">{{ t('proposals.context') }}</h3></summary>
+    <pre class="mono" style="background: var(--surface-alt, #f7f8fc); padding: .8rem; border-radius: 8px; margin-top: .5rem; overflow: auto;">{{ proposal.context | tojson(indent=2) }}</pre>
+  </details>
+  {% endif %}
+
+  <section class="zone" style="margin-top: 1rem;">
+    <div class="subsection-head">
+      <h3>{{ t('proposals.proposed_rows') }} ({{ proposal.rows_payload|length }})</h3>
+    </div>
+    <table class="dh-table">
+      <thead><tr><th>Material</th><th>Qty per unit</th><th>UoM</th><th>BOM code</th></tr></thead>
+      <tbody>
+        {% for r in proposal.rows_payload %}
+        <tr>
+          <td class="mono">{{ r.material_code }}</td>
+          <td class="mono">{{ r.qty_per_unit }}</td>
+          <td class="mono">{{ r.uom or '' }}</td>
+          <td class="mono">{{ r.bom_code or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</section>
+{% endblock %}

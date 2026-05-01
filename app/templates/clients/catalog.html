@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}{{ t('catalog.title') }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('catalog.title') }}</h2>
+      <p class="meta">{{ t('catalog.subtitle') }}</p>
+    </div>
+    <div class="page-actions">
+      <a class="btn-primary" href="/clients/{{ client.client_id }}/catalog/upload">{{ t('catalog.upload_btn') }}</a>
+    </div>
+  </div>
+
+  <div class="chip-row" aria-label="Category filter">
+    <a class="chip {{ 'chip-active' if not active_category else '' }}"
+       href="/clients/{{ client.client_id }}/catalog">{{ t('catalog.cat_all') }} ({{ items|length }})</a>
+    {% for c in categories %}
+    <a class="chip {{ 'chip-active' if active_category == c else '' }}"
+       href="/clients/{{ client.client_id }}/catalog?category={{ c }}">
+      {{ t('catalog.cat_' + c) }} ({{ counts.get(c, 0) }})
+    </a>
+    {% endfor %}
+  </div>
+
+  <form method="get" action="/clients/{{ client.client_id }}/catalog" class="stack-form" style="max-width: 600px; margin: 1rem 0;">
+    {% if active_category %}<input type="hidden" name="category" value="{{ active_category }}">{% endif %}
+    <input type="search" name="q" value="{{ q }}" placeholder="{{ t('common.search') }}: customs / internal / name / HS...">
+  </form>
+
+  {% if items %}
+  <table class="dh-table">
+    <thead>
+      <tr>
+        <th>{{ t('catalog.col.customs_code') }}</th>
+        <th>{{ t('catalog.col.product_code') }}</th>
+        <th>{{ t('catalog.col.name') }}</th>
+        <th>{{ t('catalog.col.category') }}</th>
+        <th>{{ t('catalog.col.unit') }}</th>
+        <th>{{ t('catalog.col.hs_code') }}</th>
+        <th>{{ t('common.status') }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in items %}
+      <tr>
+        <td class="mono">{{ m.customs_code }}</td>
+        <td class="mono">{{ m.product_code or '' }}</td>
+        <td>{{ m.name or '' }}</td>
+        <td><span class="badge badge-info">{{ m.category }}</span></td>
+        <td class="mono">{{ m.unit or '' }}</td>
+        <td class="mono">{{ m.hs_code or '' }}</td>
+        <td><span class="badge badge-{{ 'success' if m.status == 'active' else 'warning' }}">{{ m.status }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <p>{{ t('catalog.empty') }}</p>
+    <a class="btn-primary" href="/clients/{{ client.client_id }}/catalog/upload">{{ t('catalog.upload_btn') }}</a>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

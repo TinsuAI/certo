@@ -1,4 +1,4 @@
-"""Per-DNCX parsers extracting internal_code from BCCT 'Tên hàng' field.
+"""Per-Client parsers extracting internal_code from BCCT 'Tên hàng' field.
 
 Growatt regex inherited verbatim from `bcqt-growatt/settlement/load.py`.
 For other DNCXs (and non-Growatt mode), default to identity (internal_code = customs_code).
@@ -35,7 +35,7 @@ def growatt_parse_internal_code(goods_name: str) -> Optional[str]:
 _GROWATT_DNCX_TOKENS = ("growatt", "grw")
 
 
-def internal_code_parser_for(dncx_id: str, code_resolution_mode: str) -> Callable[[str], Optional[str]]:
+def internal_code_parser_for(client_id: str, code_resolution_mode: str) -> Callable[[str], Optional[str]]:
     """Return a parser callable: goods_name -> internal_code | None.
 
     Identity mode: returns lambda that maps any goods_name to None — caller falls back to customs_code.
@@ -45,7 +45,7 @@ def internal_code_parser_for(dncx_id: str, code_resolution_mode: str) -> Callabl
     """
     if code_resolution_mode == "identity":
         return lambda _: None
-    lower = (dncx_id or "").lower()
+    lower = (client_id or "").lower()
     if any(tok in lower for tok in _GROWATT_DNCX_TOKENS):
         return growatt_parse_internal_code
     return growatt_parse_internal_code  # default — extension hook for additional DNCXs

@@ -1,6 +1,6 @@
 """Code-mapping resolution worker — populates hub.code_mapping_resolutions.
 
-For each DNCX, materializes the canonical (internal_code → customs_code)
+For each Client, materializes the canonical (internal_code → customs_code)
 disambiguation. Algorithm ported from bcqt-growatt/settlement/code_map.py:
 - BQD (code_mappings) provides theoretical N-N pairings
 - BCCT imports provide actual usage frequencies
@@ -18,10 +18,10 @@ from typing import Iterable
 from app.database import connect
 
 
-def _load_bqd(cur, dncx_id: str) -> dict[str, list[str]]:
+def _load_bqd(cur, client_id: str) -> dict[str, list[str]]:
     cur.execute(
-        "select internal_code, customs_code from hub.code_mappings where dncx_id = %s",
-        (dncx_id,),
+        "select internal_code, customs_code from hub.code_mappings where client_id = %s",
+        (client_id,),
     )
     nb_to_hq: dict[str, list[str]] = defaultdict(list)
     for nb, hq in cur.fetchall():
@@ -30,7 +30,7 @@ def _load_bqd(cur, dncx_id: str) -> dict[str, list[str]]:
     return dict(nb_to_hq)
 
 
-def _load_bcct_aggregates(cur, dncx_id: str) -> dict[str, dict[str, float]]:
+def _load_bcct_aggregates(cur, client_id: str) -> dict[str, dict[str, float]]:
     """Sum import quantities per (internal_code, customs_code).
 
     Used for 1:n disambiguation. Imports are the canonical "consumption side"
@@ -40,11 +40,11 @@ def _load_bcct_aggregates(cur, dncx_id: str) -> dict[str, dict[str, float]]:
         """
         select internal_code, customs_code, sum(coalesce(quantity, 0))
         from hub.bcct_rows
-        where dncx_id = %s and direction = 'import'
+        where client_id = %s and direction = 'import'
           and internal_code is not null and customs_code is not null
         group by internal_code, customs_code
         """,
-        (dncx_id,),
+        (client_id,),
     )
     nb_hq_qty: dict[str, dict[str, float]] = defaultdict(dict)
     for nb, hq, qty in cur.fetchall():
@@ -52,35 +52,35 @@ def _load_bcct_aggregates(cur, dncx_id: str) -> dict[str, dict[str, float]]:
     return dict(nb_hq_qty)
 
 
-def _load_bcct_universe(cur, dncx_id: str) -> set[str]:
+def _load_bcct_universe(cur, client_id: str) -> set[str]:
     """All internal codes seen in BCCT (any direction) — for identity fallback."""
     cur.execute(
         """
         select distinct internal_code from hub.bcct_rows
-        where dncx_id = %s and internal_code is not null
+        where client_id = %s and internal_code is not null
         """,
-        (dncx_id,),
+        (client_id,),
     )
     return {nb for (nb,) in cur.fetchall()}
 
 
-def resolve_for_dncx(dncx_id: str) -> dict:
-    """Re-run resolution for one DNCX. Returns summary dict."""
+def resolve_for_dncx(client_id: str) -> dict:
+    """Re-run resolution for one Client. Returns summary dict."""
     summary = {
         "identity": 0, "bqd_unique": 0, "bcct_qty_pick": 0,
         "fallback": 0, "manual_override": 0, "total": 0,
     }
     with connect() as conn:
         with conn.cursor() as cur:
-            bqd = _load_bqd(cur, dncx_id)
-            bcct = _load_bcct_aggregates(cur, dncx_id)
-            bcct_universe = _load_bcct_universe(cur, dncx_id)
+            bqd = _load_bqd(cur, client_id)
+            bcct = _load_bcct_aggregates(cur, client_id)
+            bcct_universe = _load_bcct_universe(cur, client_id)
 
             # Universe of internal codes = union of BQD entries and ANY BCCT row.
             all_nbs: set[str] = set(bqd) | set(bcct) | bcct_universe
             cur.execute(
-                "delete from hub.code_mapping_resolutions where dncx_id = %s",
-                (dncx_id,),
+                "delete from hub.code_mapping_resolutions where client_id = %s",
+                (client_id,),
             )
             for nb in sorted(all_nbs):
                 bqd_hqs = bqd.get(nb, [])
@@ -109,10 +109,10 @@ def resolve_for_dncx(dncx_id: str) -> dict:
                 cur.execute(
                     """
                     insert into hub.code_mapping_resolutions
-                      (dncx_id, internal_code, resolved_customs_code, resolution_basis, details)
+                      (client_id, internal_code, resolved_customs_code, resolution_basis, details)
                     values (%s, %s, %s, %s, %s::jsonb)
                     """,
-                    (dncx_id, nb, resolved, basis,
+                    (client_id, nb, resolved, basis,
                      _details_payload(bqd_hqs, bcct_hqs, resolved, basis)),
                 )
                 summary[basis] += 1
@@ -124,20 +124,20 @@ def resolve_for_dncx(dncx_id: str) -> dict:
                 update hub.bcct_rows
                 set resolved_customs_code = r.resolved_customs_code
                 from hub.code_mapping_resolutions r
-                where hub.bcct_rows.dncx_id = %s
-                  and r.dncx_id = hub.bcct_rows.dncx_id
+                where hub.bcct_rows.client_id = %s
+                  and r.client_id = hub.bcct_rows.client_id
                   and r.internal_code = hub.bcct_rows.internal_code
                 """,
-                (dncx_id,),
+                (client_id,),
             )
             # For rows where internal_code is null (no parse), fall back to customs_code.
             cur.execute(
                 """
                 update hub.bcct_rows set resolved_customs_code = customs_code
-                where dncx_id = %s and internal_code is null
+                where client_id = %s and internal_code is null
                   and resolved_customs_code is null and customs_code is not null
                 """,
-                (dncx_id,),
+                (client_id,),
             )
     return summary
 
@@ -153,7 +153,7 @@ def _details_payload(bqd_hqs: list[str], bcct_hqs: dict[str, float],
     })
 
 
-def lookup_resolution(*, dncx_id: str, internal_code: str) -> dict | None:
+def lookup_resolution(*, client_id: str, internal_code: str) -> dict | None:
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -161,9 +161,9 @@ def lookup_resolution(*, dncx_id: str, internal_code: str) -> dict | None:
                 select internal_code, resolved_customs_code, resolution_basis,
                        resolved_at, details
                 from hub.code_mapping_resolutions
-                where dncx_id = %s and internal_code = %s
+                where client_id = %s and internal_code = %s
                 """,
-                (dncx_id, internal_code),
+                (client_id, internal_code),
             )
             row = cur.fetchone()
             if not row:

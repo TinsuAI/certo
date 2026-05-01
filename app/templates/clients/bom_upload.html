@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}{{ t('bom.upload_title') }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('bom.upload_title') }}</h2>
+      <p class="meta">Mỗi product trong file = 1 version mới (intent <span class="mono">asserted_technical</span>).</p>
+    </div>
+    <div><a class="btn-secondary" href="/clients/{{ client.client_id }}/bom">{{ t('common.cancel') }}</a></div>
+  </div>
+  <form method="post" action="/clients/{{ client.client_id }}/bom/upload"
+        enctype="multipart/form-data" class="zone mini-panel" style="max-width: 700px;">
+    <label class="field">
+      <span class="field-label">{{ t('bom.upload_profile') }}</span>
+      <select name="profile">
+        {% for p in profiles %}
+        <option value="{{ p }}">{{ p }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="upload-zone">
+      <input type="file" name="file" accept=".xlsx,.xls" required>
+      <p class="meta">manual_flat: 1 sheet với product/material/qty · growatt_multi_workbook: 1 sheet/product · johnson_sap_exploded: SAP multi-level.</p>
+    </div>
+    <button type="submit" class="btn-primary">{{ t('common.upload') }} & Parse</button>
+  </form>
+</section>
+{% endblock %}

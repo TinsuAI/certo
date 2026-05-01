@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}{{ t('clients.edit_title' if client else 'clients.new_title') }} · {{ t('app.brand') }}{% endblock %}
+{% block content %}
+{% if client %}{% include "_client_nav.html" %}{% endif %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('clients.edit_title' if client else 'clients.new_title') }}</h2>
+    </div>
+    <div>
+      <a class="btn-secondary" href="{{ '/clients/' + client.client_id if client else '/clients' }}">{{ t('common.cancel') }}</a>
+    </div>
+  </div>
+
+  <form method="post" action="{{ '/clients/' + client.client_id + '/edit' if client else '/clients/new' }}"
+        class="auth-form" style="max-width: 560px;">
+    <label class="field">
+      <span class="field-label">{{ t('clients.field.name') }} *</span>
+      <input type="text" name="name" required value="{{ client.name if client else '' }}">
+    </label>
+    <label class="field">
+      <span class="field-label">{{ t('clients.field.tax_code') }}</span>
+      <input type="text" name="tax_code" value="{{ client.tax_code or '' if client else '' }}">
+    </label>
+    <label class="field">
+      <span class="field-label">
+        {{ t('clients.field.code_resolution_mode') }}
+        {% if client %}<em style="color: var(--text-soft); font-weight: 400;">{{ t('clients.field.code_resolution_mode_locked') }}</em>{% endif %}
+      </span>
+      <select name="code_resolution_mode" {% if client %}disabled{% endif %}>
+        {% for m in modes %}
+        <option value="{{ m }}"
+          {% if client and client.code_resolution_mode == m %}selected
+          {% elif not client and m == 'simple_mapping' %}selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+      </select>
+      {% if client %}<input type="hidden" name="code_resolution_mode" value="{{ client.code_resolution_mode }}">{% endif %}
+    </label>
+    <label class="field">
+      <span class="field-label">{{ t('clients.field.bom_proposal_mode') }}</span>
+      <select name="bom_proposal_mode">
+        {% for m in bom_modes %}
+        <option value="{{ m }}" {% if client and client.bom_proposal_mode == m %}selected{% endif %}>{{ m }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="field">
+      <span class="field-label">{{ t('clients.field.bom_tolerance') }}</span>
+      <input type="number" step="0.001" min="0" max="100" name="bom_proposal_qty_tolerance_pct"
+             value="{{ client.bom_proposal_qty_tolerance_pct if client else 5.0 }}">
+    </label>
+    {% if client %}
+    <label class="field">
+      <span class="field-label">{{ t('common.status') }}</span>
+      <select name="status">
+        <option value="active" {% if client.status == 'active' %}selected{% endif %}>active</option>
+        <option value="archived" {% if client.status == 'archived' %}selected{% endif %}>archived</option>
+      </select>
+    </label>
+    {% endif %}
+    <label class="field">
+      <span class="field-label">{{ t('clients.field.notes') }}</span>
+      <textarea name="notes" rows="3">{{ client.notes or '' if client else '' }}</textarea>
+    </label>
+    <button type="submit" class="btn-primary">{{ t('common.save' if client else 'common.create') }}</button>
+  </form>
+</section>
+{% endblock %}

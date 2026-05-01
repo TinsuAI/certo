@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}{{ t('bqd.upload_btn') }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('bqd.upload_btn') }}</h2>
+      <p class="meta">File Excel với hai cột: <span class="mono">Mã nội bộ</span> + <span class="mono">Mã hải quan</span>. Lặp dòng để gán N-N.</p>
+    </div>
+    <div><a class="btn-secondary" href="/clients/{{ client.client_id }}/bqd">{{ t('common.cancel') }}</a></div>
+  </div>
+  <form method="post" action="/clients/{{ client.client_id }}/bqd/upload"
+        enctype="multipart/form-data" class="zone mini-panel" style="max-width: 700px;">
+    <div class="upload-zone">
+      <input type="file" name="file" accept=".xlsx,.xls" required>
+    </div>
+    <button type="submit" class="btn-primary">{{ t('common.upload') }} & Parse</button>
+  </form>
+</section>
+{% endblock %}
