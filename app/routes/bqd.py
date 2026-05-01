@@ -20,6 +20,7 @@ from app.routes._llm_fallback import (
 )
 from app.parsers._excel import compute_file_signature
 from app.storage import save_upload, sha256_bytes
+from app.stores.staleness import freshness_for_template
 from app.stores.uploads import record_upload
 
 router = APIRouter()
@@ -42,6 +43,7 @@ async def list_view(request: Request, client_id: str, q: str | None = None):
             "client": client, "stats": stats_for_client(client_id),
             "items": items, "q": q or "",
             "mapping_stats": stats_basic,
+            "freshness": freshness_for_template(request, client_id, "bqd"),
             "active_root": "clients", "active_tab": "bqd",
         },
     )

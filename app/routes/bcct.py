@@ -13,6 +13,7 @@ from app.parsers.bcct import parse_bcct_workbook, BcctParseError
 from app.parsers.goods_name import internal_code_parser_for
 from app.routes.clients import get_client, stats_for_client
 from app.storage import save_upload, sha256_bytes
+from app.stores.staleness import freshness_for_template
 from app.stores.uploads import record_upload
 
 router = APIRouter()
@@ -113,6 +114,7 @@ async def list_view(request: Request, client_id: str,
          "items": items, "years": years,
          "year": year, "direction": direction, "q": q or "",
          "upload_summary": upload_summary,
+         "freshness": freshness_for_template(request, client_id, "bcct"),
          "active_root": "clients", "active_tab": "bcct"},
     )
 

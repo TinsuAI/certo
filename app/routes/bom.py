@@ -20,6 +20,7 @@ from app.routes._llm_fallback import (
     request_llm_mapping,
 )
 from app.storage import save_upload, sha256_bytes
+from app.stores.staleness import freshness_for_template
 from app.stores.bom import (
     create_version,
     list_products_with_bom,
@@ -47,6 +48,7 @@ async def list_view(request: Request, client_id: str):
         request, "clients/bom.html",
         {"client": client, "stats": stats_for_client(client_id),
          "products": products,
+         "freshness": freshness_for_template(request, client_id, "bom"),
          "active_root": "clients", "active_tab": "bom"},
     )
 

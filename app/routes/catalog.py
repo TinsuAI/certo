@@ -12,6 +12,7 @@ from app.database import connect
 from app.parsers.materials import parse_materials_workbook, MaterialsParseError
 from app.routes.clients import get_client, stats_for_client
 from app.storage import save_upload, sha256_bytes
+from app.stores.staleness import freshness_for_template
 from app.stores.uploads import record_upload
 
 router = APIRouter()
@@ -38,6 +39,7 @@ async def list_view(
             "client": client, "stats": stats_for_client(client_id),
             "items": items, "categories": CATEGORIES,
             "active_category": category, "q": q or "", "counts": counts,
+            "freshness": freshness_for_template(request, client_id, "catalog"),
             "active_root": "clients", "active_tab": "catalog",
         },
     )

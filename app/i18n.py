@@ -291,6 +291,13 @@ STRINGS: dict[str, dict[str, str]] = {
         "admin.staff_assign.granted_by": "Phân công bởi",
         "tabs.staff": "Staff",
         "clients.field.code_resolution_mode_dev": "Chỉ dev đổi được",
+        # Staleness bar
+        "staleness.last_upload": "Lần upload gần nhất",
+        "staleness.most_recent_decl": "Tờ khai gần nhất",
+        "staleness.most_recent_data": "Dữ liệu cập nhật",
+        "staleness.most_recent_bom": "BOM mới nhất",
+        "staleness.never": "chưa upload lần nào",
+        "staleness.no_data": "chưa có dữ liệu",
     },
     "en": {
         "app.brand": "Data Hub",
@@ -561,6 +568,13 @@ STRINGS: dict[str, dict[str, str]] = {
         "admin.staff_assign.granted_by": "Granted by",
         "tabs.staff": "Staff",
         "clients.field.code_resolution_mode_dev": "Dev only",
+        # Staleness bar
+        "staleness.last_upload": "Last upload",
+        "staleness.most_recent_decl": "Most recent declaration",
+        "staleness.most_recent_data": "Data last updated",
+        "staleness.most_recent_bom": "Latest BOM",
+        "staleness.never": "no uploads yet",
+        "staleness.no_data": "no data yet",
     },
 }
 

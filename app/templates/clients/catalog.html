@@ -2,6 +2,7 @@
 {% block title %}{{ t('catalog.title') }} · {{ client.name }}{% endblock %}
 {% block content %}
 {% include "_client_nav.html" %}
+{% include "clients/_staleness_bar.html" %}
 
 <section class="zone">
   <div class="zone-head">

@@ -1,0 +1,25 @@
+{# Two-line status bar: when did staff last upload, when is data from.
+   Helper `freshness_for_template` pre-renders all strings; partial just
+   shows them. #}
+{% if freshness and freshness.any %}
+<div class="staleness-bar">
+  <div class="staleness-row">
+    <span class="staleness-label">{{ t('staleness.last_upload') }}:</span>
+    {% if freshness.last_upload_at %}
+      <strong>{{ freshness.last_upload_at }}</strong>
+      <span class="meta">({{ freshness.upload_age }})</span>
+    {% else %}
+      <span class="meta">{{ t('staleness.never') }}</span>
+    {% endif %}
+  </div>
+  <div class="staleness-row">
+    <span class="staleness-label">{{ freshness.data_label }}:</span>
+    {% if freshness.last_data_at %}
+      <strong>{{ freshness.last_data_at }}</strong>
+      <span class="meta">({{ freshness.data_age }})</span>
+    {% else %}
+      <span class="meta">{{ t('staleness.no_data') }}</span>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
