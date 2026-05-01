@@ -50,6 +50,26 @@ def _sample_rows_first_sheet(blob: bytes, n: int = 5) -> tuple[list[str], list[l
 
 
 def _lookup_cached_mapping(*, client_id: str, file_signature: str) -> dict | None:
+    """Read-only lookup. `use_count` is incremented separately by
+    `_record_mapping_use` only AFTER the cached mapping was actually
+    used to parse successfully — otherwise the counter overcounts when
+    cached mapping fails and the route falls back to rigid (or LLM)."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select mapping from hub.parser_mappings
+                where client_id = %s and module = 'bcct' and file_signature = %s
+                  and confirmed_at is not null
+                """,
+                (client_id, file_signature),
+            )
+            row = cur.fetchone()
+            return row[0] if row else None
+
+
+def _record_mapping_use(*, client_id: str, file_signature: str) -> None:
+    """Bump usage counter after a cached mapping successfully parses."""
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -57,13 +77,9 @@ def _lookup_cached_mapping(*, client_id: str, file_signature: str) -> dict | Non
                 update hub.parser_mappings
                   set use_count = use_count + 1, last_used_at = now()
                 where client_id = %s and module = 'bcct' and file_signature = %s
-                  and confirmed_at is not null
-                returning mapping
                 """,
                 (client_id, file_signature),
             )
-            row = cur.fetchone()
-            return row[0] if row else None
 
 
 @router.get("/clients/{client_id}/bcct", response_class=HTMLResponse)
@@ -156,6 +172,7 @@ async def upload_submit(request: Request, client_id: str,
     if cached_mapping is not None:
         try:
             rows = parse_bcct_workbook(blob, mapping_override=cached_mapping)
+            _record_mapping_use(client_id=client_id, file_signature=file_signature)
         except BcctParseError as e:
             rigid_error = f"cached mapping failed: {e}"
     if rows is None:
@@ -640,7 +657,23 @@ async def parse_mapping_confirm(request: Request, client_id: str, upload_id: str
 
     # Re-read the original blob from disk (LocalFS for now) and parse with the mapping.
     from pathlib import Path
-    blob = Path(stored_path).read_bytes()
+    try:
+        blob = Path(stored_path).read_bytes()
+    except FileNotFoundError:
+        # Blob missing (cleanup, FS issue, manually deleted). The
+        # file_uploads row still exists; mark it errored and tell the
+        # user instead of 500-ing.
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "update hub.file_uploads set parse_status='error', "
+                    "  parse_error=%s, parsed_at=now() where upload_id=%s",
+                    (f"Stored blob missing: {stored_path}", upload_id),
+                )
+        raise HTTPException(
+            410,
+            "File blob đã không còn trong storage. Hãy upload lại file.",
+        )
     rows = parse_bcct_workbook(blob, mapping_override=mapping)
     request.state.user = user
     return _ingest_rows(client_id=client_id, client=client,
