@@ -829,10 +829,23 @@ async def upload_preview_confirm(request: Request, client_id: str, pending_id: s
 def _list_bcct(client_id: str, year: int | None, direction: str | None,
                q: str | None) -> list[dict]:
     sql = """
-        select transaction_key, line_no, declaration_no, declaration_type, direction,
-               registration_date, customs_code, internal_code, goods_name, hs_code,
-               quantity, unit, total_value, currency, origin
-        from hub.bcct_rows where client_id = %s
+        select b.transaction_key, b.line_no, b.declaration_no, b.declaration_type,
+               b.direction, b.registration_date, b.customs_code, b.internal_code,
+               b.goods_name, b.hs_code, b.quantity, b.unit, b.total_value,
+               b.currency, b.origin,
+               coalesce(h.event_count, 0) as history_count,
+               h.last_changed_at
+        from hub.bcct_rows b
+        left join (
+          select client_id, transaction_key, line_no,
+                 count(*) as event_count,
+                 max(changed_at) as last_changed_at
+          from hub.bcct_row_history
+          group by client_id, transaction_key, line_no
+        ) h on h.client_id = b.client_id
+           and h.transaction_key = b.transaction_key
+           and h.line_no = b.line_no
+        where b.client_id = %s
     """
     params: list = [client_id]
     if year:

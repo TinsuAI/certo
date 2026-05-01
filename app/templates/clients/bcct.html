@@ -61,6 +61,7 @@
         <th>{{ t('bcct.col.unit') }}</th>
         <th>{{ t('bcct.col.value') }}</th>
         <th>{{ t('bcct.col.currency') }}</th>
+        <th title="Số lần thay đổi">Lịch sử</th>
       </tr>
     </thead>
     <tbody>
@@ -82,6 +83,17 @@
         <td class="mono">{{ r.unit or '' }}</td>
         <td class="mono">{{ '%.2f'|format(r.total_value) if r.total_value else '' }}</td>
         <td class="mono">{{ r.currency or '' }}</td>
+        <td>
+          {% if r.history_count and r.history_count > 0 %}
+            <a href="/clients/{{ client.client_id }}/bcct/history/{{ r.transaction_key }}/{{ r.line_no }}"
+               title="{{ r.history_count }} lần thay đổi · gần nhất {{ r.last_changed_at.strftime('%Y-%m-%d %H:%M') if r.last_changed_at else '' }}">
+              <span class="badge badge-warn">✏ {{ r.history_count }}</span>
+            </a>
+          {% else %}
+            <a href="/clients/{{ client.client_id }}/bcct/history/{{ r.transaction_key }}/{{ r.line_no }}"
+               title="Chưa có thay đổi" class="meta">—</a>
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
