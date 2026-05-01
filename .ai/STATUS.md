@@ -1,6 +1,6 @@
 # Project Status
 
-**Date:** 2026-05-02 — Visibility sprint shipped (A2 LLM-gate cement + A3 staleness bar + A4 catalog provenance).
+**Date:** 2026-05-02 — Long autopilot run shipped: Sprint A (visibility) + Sprint B (notifications + chat-agent + SSO) + Sprint C (LLM self-correction + JWT API auth + agent tools). 13 tasks, 12 commits, 0 → 50 new tests.
 **Earlier:** Phase 1+2+3 (parser bug fixes + universal preview-confirm + LLM fallback for BOM/BQD).
 
 ## Current State
@@ -24,9 +24,14 @@ What works (post Phase 1+2+3):
 - i18n bilingual: Vietnamese default + English toggle (cookie). ~190 translation keys.
 - Auto-seed on empty DB: creates Growatt VN + Johnson VN demo data.
 - 4-role RBAC + per-client ACL (2026-05-02). `dev` / `admin` / `manager` / `staff`.
-- **132 pytest tests passing without `DATA_HUB_REAL_DATA_DIR` (was 104). +15 real-data tests with env var set. 0 xfail.**
+- **182 pytest tests passing without `DATA_HUB_REAL_DATA_DIR` (was 104). +15 real-data tests with env var set. 0 xfail.**
 - **Catalog provenance tracking** (post Sprint A4): every `hub.materials` row carries `provenance jsonb` with three optional keys (`registered_with_hq` / `seen_in_bcct` / `user_added`). BCCT auto-derive runs in same txn as `_apply_bcct_rows` so new declaration codes flow into catalog as ⚠seen rows. Audit alarm surfaces "X codes on BCCT but not registered" when count > 0.
 - **Staleness bar** (post Sprint A3) at top of every workspace tab: last upload + most recent data row.
+- **In-app notifications** (post Sprint B1): `hub.notifications` table + bell in topnav + `/notifications` list page. Two wired triggers: BCCT preview-pending (uploader) and provenance-alarm fan-out (every editor of the client). Helper `notify()` callable from background tasks.
+- **Chat agent** (post Sprint B2): `/clients/{id}/agent` thread list + thread view. 8 read-only tools (query_bcct/catalog/bom/provenance_alarms/uploads/bcct_history + lookup_glossary + submit_final_answer). Strict ACL: `dispatch_tool` re-verifies `auth.require_can_view_client` on every call AND strips client_id/user_id from LLM-supplied args. Cross-client queries are structurally impossible.
+- **SSO JWT issuer** (post Sprint B3, M9 deliverable #4): `/v1/auth/token` (email+password → JWT), `/v1/auth/jwks` (Ed25519 public keys), `/v1/auth/validate` (debug). Keys live on disk under `keys/` (gitignored, auto-generated on first run). Multi-key JWKS for rotation overlap. Consumer-side local verify simulated end-to-end.
+- **Read API auth upgraded** (post Sprint C2): `/v1/hub/*` now JWT-verifies bearer tokens. Permissive default keeps legacy callers working; `api_auth_strict=true` enforces JWT-only for production.
+- **LLM self-correction loop** (post Sprint C1): `propose_header_mapping` retries up to `cfg.max_retries` when LLM returns garbage; feeds the specific error back so the LLM can adapt.
 - Playwright UI smoke at `scripts/smoke_real_uploads.py` (9-job matrix: BQD×3 + Catalog×2 + BOM×3 + BCCT×1, all jobs route through preview-confirm).
 - Real-data corpus staged at `/tmp/dh_real_data/{growatt,dke,dothanh,johnson,manual_test}/`.
 - Audit script `scripts/audit_pass2_deps.py` for future alias drift detection.
@@ -40,7 +45,13 @@ DB state (post Phase 1-3 UI smoke):
 
 ## Recent Changes
 
-**2026-05-02 — Visibility sprint (autopilot, ~20 min, 3 commits, ~700 LoC).** Brief: `.ai/features/2026-05-02-visibility-sprint.md`. Session log: `.ai/sessions/2026-05-02-visibility-sprint.md`.
+**2026-05-02 — Long autopilot run (~52 min build, 12 commits, ~3,800 LoC).** Session log: `.ai/sessions/2026-05-02-autopilot-long-run.md`. Briefs: `.ai/features/2026-05-02-{visibility-sprint,bcqt-borrow-survey,sso-design}.md`.
+
+- **Sprint A — Visibility** (commits `1f4d70a` → `589d7aa`): A2 LLM-gate cement + A3 staleness bar + A4 catalog provenance.
+- **Sprint B — Notifications + chat-agent + SSO** (commits `692e5cf` → `bb6cccf`): B0 BCQT survey, B1 in-app notification system + bell, B2 chat agent with strict ACL, B3 JWT issuer / JWKS / validate (M9 #4).
+- **Sprint C — Follow-ups** (commits `3433d88` → `a7ce00e`): C1 LLM self-correction retry loop, C2 JWT auth on read API with permissive fallback, C3 three more chat-agent tools (query_uploads, query_bcct_history, lookup_glossary).
+
+**2026-05-02 — Visibility sprint (earlier)** see `.ai/sessions/2026-05-02-visibility-sprint.md`.
 
 - **A2 (commit `1f4d70a`):** STATUS follow-up #1 was stale — Phase 2's universal `_ingest_rows` stash already routed `parse_mapping_confirm` through the diff-preview gate. Locked with 2 regression tests (`test_ingest_rows_default_routes_through_preview_gate`, `test_ingest_rows_partial_confirm_still_gated`).
 - **A3 (commit `53da49b`):** staleness metadata bar at top of all 4 workspace tabs (BCCT/BOM/BQD/Catalog). Two distinct signals: last upload + most recent data row. New `app/stores/staleness.py` (`tab_freshness` + `humanize_age` bilingual). 16 new tests + curl smoke verified.
