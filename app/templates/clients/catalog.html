@@ -49,7 +49,12 @@
         <td class="mono">{{ m.customs_code }}</td>
         <td class="mono">{{ m.product_code or '' }}</td>
         <td>{{ m.name or '' }}</td>
-        <td><span class="badge badge-info">{{ m.category }}</span></td>
+        <td>
+          <span class="badge badge-info">{{ m.category }}</span>
+          {% if m.is_dual_source %}
+            <span class="badge badge-dual" title="Mã này vừa có BCCT imports vừa là BOM product (settlement-time treat as dual-source).">⇄ dual</span>
+          {% endif %}
+        </td>
         <td class="mono">{{ m.unit or '' }}</td>
         <td class="mono">{{ m.hs_code or '' }}</td>
         <td><span class="badge badge-{{ 'success' if m.status == 'active' else 'warning' }}">{{ m.status }}</span></td>

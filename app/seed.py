@@ -144,7 +144,7 @@ def _seed_growatt(client_id: str) -> None:
 
     resolve_for_dncx(client_id)
 
-    # BOM — 3 products with rich rows
+    # BOM — 3 finished products + 1 dual-source sub-assembly (HEATSINK-A: vừa import vừa tự sản xuất)
     wb = Workbook(); ws = wb.active; ws.title = "BOM"
     ws.append(["Mã SP", "Mã NVL", "Định mức", "ĐVT"])
     bom_rows = [
@@ -166,6 +166,9 @@ def _seed_growatt(client_id: str) -> None:
         ("INV-10K", "PCB-12", 2.0, "pcs"),
         ("INV-10K", "HEATSINK-A", 2.0, "pcs"),
         ("INV-10K", "CASE-INV", 1.0, "pcs"),
+        # Dual-source: HEATSINK-A có thể vừa nhập (NVL trong BCCT) vừa tự đúc từ AL-100.
+        # Khi BOM có HEATSINK-A là product_code, settlement nhận diện dual-source.
+        ("HEATSINK-A", "AL-100", 0.18, "kg"),
     ]
     for r in bom_rows:
         ws.append(r)

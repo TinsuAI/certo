@@ -17,8 +17,22 @@
       <span>{{ t('app.brand') }}</span>
     </a>
     {% if user %}
-    <nav class="topnav-links" aria-label="Navigation">
-      <a href="/clients" class="{% if active_root == 'clients' %}active{% endif %}">{{ t('nav.clients') }}</a>
+    <nav class="topnav-breadcrumb" aria-label="Breadcrumb">
+      {% if active_root == 'clients' and not client %}
+        <span class="breadcrumb-current">{{ t('nav.clients') }}</span>
+      {% else %}
+        <a href="/clients">{{ t('nav.clients') }}</a>
+      {% endif %}
+      {% if client %}
+        <span class="breadcrumb-sep">/</span>
+        {% if active_tab and active_tab != 'overview' %}
+          <a href="/clients/{{ client.client_id }}">{{ client.name }}</a>
+          <span class="breadcrumb-sep">/</span>
+          <span class="breadcrumb-current">{{ t('tabs.' + active_tab) }}</span>
+        {% else %}
+          <span class="breadcrumb-current">{{ client.name }}</span>
+        {% endif %}
+      {% endif %}
     </nav>
     <div class="topnav-meta">
       <span class="topnav-user">{{ user.display_name }}</span>

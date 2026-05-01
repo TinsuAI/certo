@@ -1399,3 +1399,35 @@ table.dh-table .mono { font-family: 'IBM Plex Mono', monospace; font-size: .85re
   --text: #e8ebf2;
   --text-soft: #98a0b3;
 }
+
+/* === Breadcrumb (replaces topnav-links) === */
+.topnav-breadcrumb {
+  display: flex; align-items: center; gap: .5rem; flex: 1;
+  font-size: 0.92rem; color: var(--text, #1a1f2c);
+  margin-left: 1.4rem;
+  overflow: hidden;
+}
+.topnav-breadcrumb a {
+  color: var(--text-soft, #5b6478); text-decoration: none;
+  padding: .25rem .55rem; border-radius: .4rem;
+  transition: all .12s; white-space: nowrap;
+  max-width: 280px; overflow: hidden; text-overflow: ellipsis;
+}
+.topnav-breadcrumb a:hover {
+  background: rgba(60, 80, 220, 0.07);
+  color: var(--accent, #3c50dc);
+}
+.topnav-breadcrumb .breadcrumb-sep {
+  color: var(--text-soft, #5b6478); opacity: 0.5;
+  font-weight: 400;
+}
+.topnav-breadcrumb .breadcrumb-current {
+  color: var(--text, #1a1f2c); font-weight: 600;
+  padding: .25rem .55rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+/* dual-source / multi-source material badge */
+.badge-dual { background: rgba(180, 60, 200, 0.15); color: #8b3fb5; }
+[data-theme="dark"] .badge-dual { background: rgba(180, 100, 220, 0.25); color: #d8a8eb; }

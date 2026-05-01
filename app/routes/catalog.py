@@ -93,23 +93,42 @@ async def upload_submit(
 
 def _query_materials(*, client_id: str, category: str | None, q: str | None) -> list[dict]:
     sql = """
-        select customs_code, product_code, name, category, status, unit, hs_code, updated_at
-        from hub.materials where client_id = %s
+        select m.customs_code, m.product_code, m.name, m.category, m.category_override,
+               m.status, m.unit, m.hs_code, m.updated_at,
+               exists (
+                 select 1 from hub.bcct_rows b
+                 where b.client_id = m.client_id
+                   and b.customs_code = m.customs_code
+                   and b.direction = 'import'
+               ) as has_imports,
+               exists (
+                 select 1 from hub.bom_versions v
+                 where v.client_id = m.client_id
+                   and v.product_code = m.customs_code
+                   and v.tombstoned_at is null
+                   and v.status = 'published'
+               ) as has_bom
+        from hub.materials m
+        where m.client_id = %s
     """
     params: list = [client_id]
     if category:
-        sql += " and category = %s"
+        sql += " and m.category = %s"
         params.append(category)
     if q:
-        sql += " and (customs_code ilike %s or product_code ilike %s or name ilike %s or hs_code ilike %s)"
+        sql += (" and (m.customs_code ilike %s or m.product_code ilike %s "
+                "or m.name ilike %s or m.hs_code ilike %s)")
         like = f"%{q}%"
         params.extend([like, like, like, like])
-    sql += " order by customs_code limit 1000"
+    sql += " order by m.customs_code limit 1000"
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
             cols = [d[0] for d in cur.description]
-            return [dict(zip(cols, r)) for r in cur.fetchall()]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            for r in rows:
+                r["is_dual_source"] = bool(r.get("has_imports") and r.get("has_bom"))
+            return rows
 
 
 def _category_counts(client_id: str) -> dict:
