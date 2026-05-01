@@ -248,3 +248,40 @@ def usage_today_for_client(client_id: str) -> int:
             )
             row = cur.fetchone()
             return row[0] if row else 0
+
+
+def list_models(cfg: LLMConfig | None = None) -> list[str]:
+    """Fetch available models from the configured OpenAI-compat endpoint.
+
+    Returns sorted list of model IDs, or empty list if the endpoint
+    doesn't expose `GET /models` (some OpenAI-compat servers don't).
+
+    Raises:
+        LLMUnavailable — base_url or api_key not set.
+        LLMProposalError — endpoint reachable but returned malformed list
+                           or error.
+    """
+    cfg = cfg or LLMConfig.load()
+    if not cfg.base_url or not cfg.api_key:
+        raise LLMUnavailable("Base URL and API key required to list models")
+
+    from openai import OpenAI
+
+    client = OpenAI(
+        base_url=cfg.base_url,
+        api_key=cfg.api_key or "not-needed",
+        timeout=cfg.timeout_s,
+        max_retries=0,
+    )
+    try:
+        page = client.models.list()
+    except Exception as e:  # noqa: BLE001
+        logger.exception("llm.list_models: API call raised")
+        raise LLMProposalError(f"List models failed: {type(e).__name__}") from e
+
+    ids = []
+    for m in getattr(page, "data", []) or []:
+        mid = getattr(m, "id", None)
+        if mid:
+            ids.append(str(mid))
+    return sorted(set(ids))

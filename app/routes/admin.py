@@ -90,14 +90,31 @@ async def admin_root(request: Request):
 # ── Technical settings (LLM) — dev-only ────────────────────────────────
 
 @router.get("/admin/settings/technical", response_class=HTMLResponse)
-async def settings_technical_view(request: Request, saved: bool = False):
-    from app import settings_store
+async def settings_technical_view(request: Request, saved: bool = False,
+                                  fetch_models: bool = False):
+    from app import llm, settings_store
     user = auth.require_user(request)
     if user.role != "dev":
         raise HTTPException(403, "dev only")
     values = settings_store.get_many(settings_store.LLM_KEYS)
-    # Don't echo the secret key value back to the form; show a placeholder.
     api_key_set = bool(values.get("llm_api_key"))
+
+    # Optionally probe the endpoint for available models.
+    models: list[str] = []
+    fetch_error: str | None = None
+    if fetch_models:
+        try:
+            cfg = llm.LLMConfig.load()
+            models = llm.list_models(cfg)
+            # Auto-default model: if we have a list and no model saved
+            # yet, persist the first one so subsequent uploads work.
+            if models and not values.get("llm_model"):
+                settings_store.set_many({"llm_model": models[0]},
+                                        updated_by=user.user_id)
+                values = settings_store.get_many(settings_store.LLM_KEYS)
+        except (llm.LLMUnavailable, llm.LLMProposalError) as e:
+            fetch_error = f"{type(e).__name__}: {e}"
+
     return request.app.state.templates.TemplateResponse(
         request, "admin/settings_technical.html",
         {
@@ -105,6 +122,8 @@ async def settings_technical_view(request: Request, saved: bool = False):
                        for k in settings_store.LLM_KEYS},
             "api_key_set": api_key_set,
             "saved": saved,
+            "models": models,
+            "fetch_error": fetch_error,
             "active_root": "admin",
         },
     )
@@ -139,8 +158,13 @@ async def settings_technical_submit(
     if llm_api_key.strip():
         values["llm_api_key"] = llm_api_key.strip()
     settings_store.set_many(values, updated_by=user.user_id)
+    # After saving base_url + api_key, fetching models is the natural
+    # next step. The GET handler with fetch_models=1 also auto-sets the
+    # first model when llm_model is empty — so a user can paste URL+key,
+    # click Save, and have a working config without typing model names.
     return RedirectResponse(
-        url="/admin/settings/technical?saved=1", status_code=303,
+        url="/admin/settings/technical?saved=1&fetch_models=1",
+        status_code=303,
     )
 
 

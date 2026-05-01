@@ -221,6 +221,38 @@ def test_propose_enforces_per_client_daily_budget(cfg_enabled):
                 cur.execute("delete from hub.llm_usage where client_id='growatt-vn' and date = current_date")
 
 
+def test_list_models_returns_sorted_unique(cfg_enabled):
+    """list_models surfaces /v1/models output, deduped + sorted."""
+    fake_models = MagicMock()
+    fake_models.data = [
+        MagicMock(id="gpt-4o-mini"),
+        MagicMock(id="claude-sonnet-4-6"),
+        MagicMock(id="gpt-4o-mini"),  # dup
+        MagicMock(id="llama-3.1-8b"),
+    ]
+    fake_client = MagicMock()
+    fake_client.models.list.return_value = fake_models
+    with patch("openai.OpenAI", return_value=fake_client):
+        result = llm.list_models(cfg_enabled)
+    assert result == ["claude-sonnet-4-6", "gpt-4o-mini", "llama-3.1-8b"]
+
+
+def test_list_models_raises_when_disabled():
+    cfg = llm.LLMConfig(base_url="", model="", api_key="", temperature=0.0,
+                        timeout_s=10, max_retries=1,
+                        max_calls_per_day_per_client=10)
+    with pytest.raises(llm.LLMUnavailable):
+        llm.list_models(cfg)
+
+
+def test_list_models_raises_proposal_error_on_endpoint_failure(cfg_enabled):
+    fake_client = MagicMock()
+    fake_client.models.list.side_effect = RuntimeError("404 Not Found")
+    with patch("openai.OpenAI", return_value=fake_client):
+        with pytest.raises(llm.LLMProposalError, match="List models failed"):
+            llm.list_models(cfg_enabled)
+
+
 def test_propose_increments_usage_counter(cfg_enabled):
     from app.database import connect
     from datetime import date

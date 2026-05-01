@@ -10,6 +10,18 @@
 <div class="toast toast-success">Đã lưu cài đặt.</div>
 {% endif %}
 
+{% if fetch_error %}
+<div class="toast toast-error">
+  Không lấy được danh sách models từ endpoint: <code>{{ fetch_error }}</code>.
+  Kiểm tra <code>Base URL</code> (có cần <code>/v1</code> ở cuối không?) và API key.
+</div>
+{% elif models %}
+<div class="toast toast-success">
+  Endpoint trả {{ models|length }} model{% if models|length > 1 %}s{% endif %}.
+  {% if values.llm_model %}Đang dùng <code>{{ values.llm_model }}</code>.{% endif %}
+</div>
+{% endif %}
+
 <section class="zone">
   <div class="zone-head">
     <div>
@@ -20,6 +32,12 @@
         file_signature)</code> sau khi staff confirm. Settings này áp dụng
         toàn cục cho mọi client; budget per-client mỗi ngày.
       </p>
+      <p class="meta">
+        Hub gọi endpoint OpenAI-compat (Anthropic OAI shim, OpenAI, vLLM,
+        Ollama, OpenRouter, LM Studio, …). Sau khi điền Base URL + API key,
+        bấm <strong>Lưu</strong> — hub tự gọi <code>GET /models</code>,
+        liệt kê model có sẵn và auto-pick model đầu tiên nếu chưa có.
+      </p>
     </div>
   </div>
 
@@ -29,15 +47,31 @@
         <label for="llm_base_url">Base URL</label>
         <input type="text" id="llm_base_url" name="llm_base_url"
                value="{{ values.llm_base_url }}"
-               placeholder="https://api.anthropic.com/v1 hoặc https://api.openai.com/v1">
-        <p class="meta">Endpoint OpenAI-compat: Anthropic OAI shim, OpenAI, vLLM, Ollama, OpenRouter…</p>
+               placeholder="https://api.anthropic.com/v1, http://192.168.1.88:2455/v1, …">
+        <p class="meta">Endpoint OpenAI-compat. Phải có <code>/v1</code> ở cuối nếu server theo chuẩn OpenAI.</p>
       </div>
 
       <div class="field">
         <label for="llm_model">Model</label>
-        <input type="text" id="llm_model" name="llm_model"
-               value="{{ values.llm_model }}"
-               placeholder="claude-sonnet-4-6, gpt-4o-mini, …">
+        {% if models %}
+          <select id="llm_model" name="llm_model">
+            {% for m in models %}
+              <option value="{{ m }}" {% if m == values.llm_model %}selected{% endif %}>{{ m }}</option>
+            {% endfor %}
+            {% if values.llm_model and values.llm_model not in models %}
+              <option value="{{ values.llm_model }}" selected>{{ values.llm_model }} (custom — không có trong danh sách)</option>
+            {% endif %}
+          </select>
+          <p class="meta">{{ models|length }} model nhận được từ endpoint.</p>
+        {% else %}
+          <input type="text" id="llm_model" name="llm_model"
+                 value="{{ values.llm_model }}"
+                 placeholder="claude-sonnet-4-6, gpt-4o-mini, …" list="model_suggestions">
+          <p class="meta">
+            Lưu base_url + api_key trước; hub sẽ tự fetch danh sách model.
+            Hoặc gõ tay nếu endpoint không expose <code>/models</code>.
+          </p>
+        {% endif %}
       </div>
 
       <div class="field">
@@ -73,8 +107,9 @@
       </div>
     </div>
 
-    <div class="form-actions">
+    <div class="form-actions" style="display:flex; gap:0.5rem;">
       <button type="submit" class="btn-primary">Lưu</button>
+      <a class="btn-secondary" href="/admin/settings/technical?fetch_models=1">Refresh model list</a>
     </div>
   </form>
 </section>
