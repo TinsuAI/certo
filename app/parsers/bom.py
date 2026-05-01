@@ -16,11 +16,18 @@ class BomParseError(RuntimeError):
 
 COMMON_ALIASES = {
     "product_code": ["mã sp", "ma sp", "product", "product code", "product_code",
-                     "thành phẩm", "thanh pham", "sp"],
+                     "thành phẩm", "thanh pham", "sp",
+                     "成品物料"],  # zh: finished-product material
     "material_code": ["mã nvl", "ma nvl", "material", "material code", "material_code",
-                      "nvl", "nguyen lieu"],
-    "qty_per_unit": ["định mức", "dinh muc", "qty", "quantity", "qty per", "định lượng"],
-    "uom": ["đvt", "dvt", "unit", "uom"],
+                      "nvl", "nguyen lieu",
+                      "组件物料",      # zh: component material
+                      "component number", "component code"],
+    "qty_per_unit": ["định mức", "dinh muc", "qty", "quantity", "qty per", "định lượng",
+                     "标准用量",       # zh: standard quantity
+                     "comp. qty", "comp qty"],
+    "uom": ["đvt", "dvt", "unit", "uom",
+            "单位",                    # zh: unit
+            "component unit"],
     "bom_code": ["bom code", "bom", "công thức"],
     "bom_variant_id": ["variant", "phiên bản"],
 }
@@ -131,13 +138,20 @@ def _parse_johnson(blob: bytes) -> dict[str, list[dict]]:
         if "material_code" not in cols:
             continue
         current_product: str | None = None
+        parent_level: int | None = None
         for raw in iter_data_rows(ws, header_idx):
             material = _cell_str(raw, cols.get("material_code"))
             if not material:
                 continue
             level_raw = _cell_str(raw, cols.get("level"))
             level = _to_int(level_raw)
-            if level == 0 or _cell_str(raw, cols.get("product_code")) == material:
+            # The first level we see is the "parent" level (0 in true SAP
+            # exports, 1 in Johnson's variant). Rows at that level are
+            # finished products; their material rows live at deeper levels.
+            if level is not None and parent_level is None:
+                parent_level = level
+            if level == 0 or level == parent_level \
+               or _cell_str(raw, cols.get("product_code")) == material:
                 current_product = material
                 continue
             if not current_product:

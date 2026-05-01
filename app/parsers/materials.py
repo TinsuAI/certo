@@ -56,17 +56,25 @@ def parse_materials_workbook(blob: bytes, *, default_category: str = "nvl") -> l
             continue
         header_idx, headers = hdr
         cols = index_headers(headers, ALIASES)
-        if "customs_code" not in cols:
+        # Need at least one identifier column. DS NVL files have Mã HQ;
+        # DS SP/TP files often have only product_code (Mã NB / product_code)
+        # because the agency assigns HQ codes later during declaration.
+        if "customs_code" not in cols and "product_code" not in cols:
             continue
         for row in iter_data_rows(ws, header_idx):
             cc = _cell_str(row, cols.get("customs_code"))
+            pc = _cell_str(row, cols.get("product_code"))
+            # If only product_code exists, use it as the canonical id (it
+            # becomes both customs_code and product_code in the row dict).
+            if not cc and pc:
+                cc = pc
             if not cc:
                 continue
             category_raw = _cell_str(row, cols.get("category"))
             category = normalize_category(category_raw) or sheet_default
             rows.append({
                 "customs_code": cc,
-                "product_code": _cell_str(row, cols.get("product_code")),
+                "product_code": pc,
                 "name": _cell_str(row, cols.get("name")),
                 "category": category,
                 "unit": _cell_str(row, cols.get("unit")),

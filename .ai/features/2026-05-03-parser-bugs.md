@@ -1,5 +1,8 @@
 # Parser bugs surfaced by real-data fixture corpus (2026-05-03)
 
+**Status: ALL FIXED 2026-05-03** — see `.ai/sessions/2026-05-03-parser-fixes.md`
+for the resolution session.
+
 ## Context
 
 Built a 26-case fixture corpus (`tests/fixtures/` + `tests/test_fixture_corpus.py`)

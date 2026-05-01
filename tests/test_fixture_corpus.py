@@ -43,7 +43,7 @@ CASES: list[tuple] = [
     ("growatt_dsnvl_partial_edit", MANUAL / "02-growatt-ds-nvl-partial-edit-demo-npl-001.xlsx",
      "materials", {}, {"rows": 1}),
     ("growatt_dssp_full_no_hq", MANUAL / "03-growatt-ds-sp-full-products.xlsx",
-     "materials", {}, {"xfail": "P1: SP catalog has no Mã HQ column; parser requires it"}),
+     "materials", {}, {"rows": 2}),  # P1 fixed 2026-05-03: product_code-only catalog accepted
 
     # ---- manual_test: Do Thanh BCCT ----
     ("dothanh_bcct_import_pcs", MANUAL / "10-do-thanh-bcct-import-tk001-pcs.xlsx",
@@ -73,16 +73,13 @@ CASES: list[tuple] = [
 
     # ---- manual_test: Growatt technical BOM (Chinese template) ----
     ("growatt_technical_chinese_review", MANUAL / "25-growatt-technical-needs-flatten-review.xlsx",
-     "bom", {"profile": "manual_flat"},
-     {"xfail": "P1: Chinese headers (成品物料/组件物料/标准用量/单位) not aliased"}),
+     "bom", {"profile": "manual_flat"}, {"products": 1, "rows": 1}),
     ("growatt_technical_chinese_accept", MANUAL / "26-growatt-technical-accept-as-flat.xlsx",
-     "bom", {"profile": "manual_flat"},
-     {"xfail": "P1: Chinese headers not aliased"}),
+     "bom", {"profile": "manual_flat"}, {"products": 1, "rows": 1}),
 
     # ---- manual_test: Johnson SAP ----
     ("johnson_sap_leaf_only", MANUAL / "30-johnson-technical-sap-leaf-only.xlsx",
-     "bom", {"profile": "johnson_sap_exploded"},
-     {"xfail": "P1: SAP English headers (Component number, Comp. Qty (CUn)) not aliased"}),
+     "bom", {"profile": "johnson_sap_exploded"}, {"products": 1, "rows": 2}),
 
     # ---- manual_test: not applicable (CO-app concept, not hub) ----
     # 00-growatt-demo-input.xlsx is a CO case workbook (Case/Documents/Products/Materials
@@ -90,14 +87,11 @@ CASES: list[tuple] = [
 
     # ---- edge_cases: hub-specific bug traps ----
     ("edge_growatt_bom_chinese", EDGE / "growatt_bom_chinese_headers.xlsx",
-     "bom", {"profile": "manual_flat"},
-     {"xfail": "P1: Chinese BOM headers"}),
+     "bom", {"profile": "manual_flat"}, {"products": 2, "rows": 3}),
     ("edge_growatt_sp_no_hq", EDGE / "growatt_sp_catalog_no_hq.xlsx",
-     "materials", {},
-     {"raises": MaterialsParseError, "match": "Mã HQ"}),
+     "materials", {}, {"rows": 2}),
     ("edge_johnson_sap_english", EDGE / "johnson_sap_english_headers.xlsx",
-     "bom", {"profile": "johnson_sap_exploded"},
-     {"xfail": "P1: SAP English headers (Component number)"}),
+     "bom", {"profile": "johnson_sap_exploded"}, {"products": 1, "rows": 2}),
     ("edge_empty_workbook_bcct", EDGE / "empty_workbook.xlsx",
      "bcct", {}, {"raises": BcctParseError, "match": None}),
     ("edge_empty_workbook_materials", EDGE / "empty_workbook.xlsx",
@@ -107,10 +101,15 @@ CASES: list[tuple] = [
     ("edge_headers_in_row_5", EDGE / "headers_in_row_5.xlsx",
      "bcct", {}, {"rows": 1}),
     ("edge_bom_uploaded_as_bcct", EDGE / "bom_workbook_uploaded_as_bcct.xlsx",
-     "bcct", {},
-     {"xfail": "P0: BCCT parser falsely matches BOM workbook (197K rows seen on real Growatt 51MB BOM)"}),
+     "bcct", {}, {"raises": BcctParseError, "match": None}),
     ("edge_dke_synthetic_bcct", EDGE / "dke_bcct_synthetic.xlsx",
      "bcct", {}, {"rows": 3}),
+
+    # ---- edge_cases: legacy .xls (OLE format) — exercises xlrd adapter ----
+    ("edge_legacy_xls_bcct", EDGE / "legacy_xls_bcct.xls",
+     "bcct", {}, {"rows": 2}),
+    ("edge_legacy_xls_materials", EDGE / "legacy_xls_materials.xls",
+     "materials", {}, {"rows": 2}),
 ]
 
 

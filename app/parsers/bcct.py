@@ -12,11 +12,14 @@ class BcctParseError(RuntimeError):
 
 
 ALIASES = {
-    "declaration_no": ["số tờ khai", "so to khai", "declaration no", "declaration_no"],
+    "declaration_no": ["số tờ khai", "so to khai", "số tk", "so tk",
+                       "declaration no", "declaration_no"],
     "line_no": ["dòng", "line", "stt"],
     "declaration_type": ["mã loại hình", "ma loai hinh", "loại hình"],
     "direction": ["hướng", "huong", "direction", "nhập/xuất", "nhap xuat"],
-    "registration_date": ["ngày đăng ký", "ngay dang ky", "registration date", "ngày tk"],
+    "registration_date": ["ngày đăng ký", "ngay dang ky", "ngày đk", "ngay dk",
+                          "registration date", "ngày tk",
+                          "declaration date", "declaration_date"],
     "customs_code": ["mã npl/sp", "ma npl sp", "mã hq", "ma hq",
                      "mã hải quan", "customs code", "mã hàng hq"],
     "goods_name": ["tên hàng", "ten hang", "goods name", "description", "mô tả"],
@@ -32,8 +35,10 @@ ALIASES = {
     "invoice_ref": ["số hóa đơn", "so hoa don", "invoice"],
 }
 
-IMPORT_TYPES = {"E11", "E15", "E13"}
-EXPORT_TYPES = {"E42", "E62", "E52"}
+IMPORT_TYPES = {"E11", "E13", "E15", "E21", "E23", "E31", "E41",
+                "A11", "A12", "A41", "A42", "G11", "G12", "G13"}
+EXPORT_TYPES = {"E42", "E52", "E54", "E62", "E82",
+                "B11", "B12", "B13", "G21", "G22", "G23"}
 
 
 def parse_bcct_workbook(blob: bytes) -> list[dict]:
@@ -48,7 +53,10 @@ def parse_bcct_workbook(blob: bytes) -> list[dict]:
             continue
         header_idx, headers = hdr
         cols = index_headers(headers, ALIASES)
-        if "customs_code" not in cols and "declaration_no" not in cols:
+        # BCCT requires both declaration_no (Số tờ khai) AND a date column. BOM
+        # files have neither; settlement workbooks (RVC/LVC summary sheets) may
+        # cite a declaration_no but lack the date, so the AND keeps them out.
+        if "declaration_no" not in cols or "registration_date" not in cols:
             continue
         for raw in iter_data_rows(ws, header_idx):
             decl = _cell_str(raw, cols.get("declaration_no"))

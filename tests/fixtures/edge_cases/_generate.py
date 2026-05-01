@@ -12,6 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from openpyxl import Workbook
+import xlwt
 
 OUT = Path(__file__).parent
 
@@ -24,6 +25,20 @@ def _write(name: str, sheets: list[tuple[str, list[tuple]]]) -> None:
         for r in rows:
             ws.append(r)
     wb.save(OUT / name)
+
+
+def _write_xls(name: str, sheets: list[tuple[str, list[tuple]]]) -> None:
+    """Write legacy .xls (OLE compound) format via xlwt — for testing the
+    `_excel.load_xlsx` magic-byte dispatch and `_XlsBook` adapter."""
+    book = xlwt.Workbook(encoding="utf-8")
+    for title, rows in sheets:
+        sheet = book.add_sheet(title[:31])
+        for r_idx, row in enumerate(rows):
+            for c_idx, value in enumerate(row):
+                if value is None:
+                    continue
+                sheet.write(r_idx, c_idx, value)
+    book.save(OUT / name)
 
 
 def growatt_bom_chinese_headers() -> None:
@@ -123,6 +138,35 @@ def bom_workbook_uploaded_as_bcct() -> None:
     ])
 
 
+def legacy_xls_bcct() -> None:
+    """Legacy .xls (OLE format) BCCT — exercises the xlrd adapter in
+    `_excel.py:_XlsBook`. Same content shape as `dke_bcct_synthetic.xlsx`
+    so the assertion is parity with the OOXML branch."""
+    _write_xls("legacy_xls_bcct.xls", [
+        ("BCCT 2025", [
+            ("Số tờ khai", "Dòng", "Mã loại hình", "Ngày đăng ký",
+             "Mã NPL/SP", "Tên hàng", "Tổng số lượng", "ĐVT", "Trị giá",
+             "Nguyên tệ"),
+            ("301999001", 1, "E11", "2025-01-15", "DKE-NVL-A1",
+             "Steel coil", 5000.0, "kg", 12500.0, "USD"),
+            ("301999099", 1, "E42", "2025-09-30", "DKE-TP-X",
+             "Door panel", 600.0, "pcs", 90000.0, "USD"),
+        ]),
+    ])
+
+
+def legacy_xls_materials() -> None:
+    """Legacy .xls Danh Mục NVL — shape mirrors real DKE
+    `BẢNG MÃ NVL-SP - Update March 24.xls`."""
+    _write_xls("legacy_xls_materials.xls", [
+        ("NVL", [
+            ("Mã HQ", "Mã NB", "Tên", "Loại", "ĐVT", "HS"),
+            ("PE-001", "PE-001", "Polyethylene", "nvl", "kg", "39011010"),
+            ("AL-100", "AL-100", "Aluminum sheet", "nvl", "kg", "76069100"),
+        ]),
+    ])
+
+
 def dke_bcct_real_shape() -> None:
     """DKE 2025 BCCT shape — a fourth client beyond seed.
 
@@ -153,7 +197,9 @@ def main() -> None:
     headers_in_row_5()
     bom_workbook_uploaded_as_bcct()
     dke_bcct_real_shape()
-    print("Wrote 7 synthetic fixtures to", OUT)
+    legacy_xls_bcct()
+    legacy_xls_materials()
+    print("Wrote synthetic fixtures to", OUT)
 
 
 if __name__ == "__main__":
