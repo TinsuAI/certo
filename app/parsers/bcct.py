@@ -69,7 +69,18 @@ EXPORT_TYPES = {"E42", "E52", "E54", "E62", "E82",
                 "H21", "H22", "H23"}   # phi mậu dịch (non-commercial) exports
 
 
-def parse_bcct_workbook(blob: bytes) -> list[dict]:
+def parse_bcct_workbook(
+    blob: bytes,
+    *,
+    mapping_override: dict[str, str] | None = None,
+) -> list[dict]:
+    """Parse a BCCT workbook.
+
+    `mapping_override`: optional dict[header_name → logical_field] to bypass
+    the rigid alias-based discovery. Used by the LLM-assisted flow once a
+    user has confirmed an LLM-proposed mapping; subsequent uploads with the
+    same `file_signature` re-use the stored mapping without an LLM call.
+    """
     try:
         wb = load_xlsx(blob)
     except Exception as e:
@@ -80,7 +91,10 @@ def parse_bcct_workbook(blob: bytes) -> list[dict]:
         if not hdr:
             continue
         header_idx, headers = hdr
-        cols = index_headers(headers, ALIASES)
+        if mapping_override:
+            cols = _cols_from_mapping(headers, mapping_override)
+        else:
+            cols = index_headers(headers, ALIASES)
         # BCCT requires both declaration_no (Số tờ khai) AND a date column. BOM
         # files have neither; settlement workbooks (RVC/LVC summary sheets) may
         # cite a declaration_no but lack the date, so the AND keeps them out.
@@ -153,6 +167,21 @@ def parse_bcct_workbook(blob: bytes) -> list[dict]:
     if not rows:
         raise BcctParseError("No BCCT rows recognized; check headers (Số tờ khai / Mã NPL+SP).")
     return rows
+
+
+def _cols_from_mapping(headers: list[str], mapping: dict[str, str]) -> dict[str, int]:
+    """Translate a `{header_name: logical_field}` mapping (from cached
+    LLM-proposed parser_mappings) into the `{logical_field: col_idx}` shape
+    that the row loop expects. Headers that aren't in `mapping` go to the
+    payload jsonb (caught later in the row loop)."""
+    cols: dict[str, int] = {}
+    for i, h in enumerate(headers):
+        if h is None:
+            continue
+        field = mapping.get(h) or mapping.get(h.strip())
+        if field and field not in cols:
+            cols[field] = i
+    return cols
 
 
 def _direction_from(decl_type: str | None, explicit: str | None) -> str | None:

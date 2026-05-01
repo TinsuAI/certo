@@ -1,0 +1,258 @@
+"""Stage D: LLM-driven parser-mapping fallback.
+
+LLM API isn't called in tests — we monkeypatch `openai.OpenAI` to return
+canned responses. Validates the contract (request shape, response parsing,
+schema validation, budget enforcement, signature stability).
+"""
+from __future__ import annotations
+
+import json
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from app import llm, settings_store
+from app.parsers._excel import compute_file_signature
+
+
+# ---------------------------------------------------------------------------
+# settings_store
+# ---------------------------------------------------------------------------
+
+def test_settings_get_falls_back_to_default():
+    assert settings_store.get("nonexistent_key", "default") == "default"
+
+
+def test_settings_set_then_get_roundtrip():
+    settings_store.set_many({"_test_key": "hello"})
+    try:
+        assert settings_store.get("_test_key") == "hello"
+    finally:
+        # Clean up
+        from app.database import connect
+        with connect() as c:
+            with c.cursor() as cur:
+                cur.execute("delete from hub.app_settings where key='_test_key'")
+
+
+def test_settings_get_int_recovers_from_bad_value():
+    settings_store.set_many({"_test_int": "not-a-number"})
+    try:
+        assert settings_store.get_int("_test_int", 42) == 42
+    finally:
+        from app.database import connect
+        with connect() as c:
+            with c.cursor() as cur:
+                cur.execute("delete from hub.app_settings where key='_test_int'")
+
+
+# ---------------------------------------------------------------------------
+# compute_file_signature
+# ---------------------------------------------------------------------------
+
+def test_signature_is_stable_for_same_shape():
+    a = compute_file_signature(client_id="x", module="bcct",
+                               headers_per_sheet=[["A", "B", "C"]])
+    b = compute_file_signature(client_id="x", module="bcct",
+                               headers_per_sheet=[["A", "B", "C"]])
+    assert a == b
+
+
+def test_signature_invariant_under_column_order():
+    a = compute_file_signature(client_id="x", module="bcct",
+                               headers_per_sheet=[["A", "B", "C"]])
+    b = compute_file_signature(client_id="x", module="bcct",
+                               headers_per_sheet=[["C", "A", "B"]])
+    assert a == b
+
+
+def test_signature_changes_with_header_set():
+    a = compute_file_signature(client_id="x", module="bcct",
+                               headers_per_sheet=[["A", "B", "C"]])
+    b = compute_file_signature(client_id="x", module="bcct",
+                               headers_per_sheet=[["A", "B", "D"]])
+    assert a != b
+
+
+def test_signature_is_client_scoped():
+    """Two clients with the same headers → different signatures.
+    This prevents cross-client cache poisoning."""
+    a = compute_file_signature(client_id="growatt", module="bcct",
+                               headers_per_sheet=[["A", "B"]])
+    b = compute_file_signature(client_id="dke", module="bcct",
+                               headers_per_sheet=[["A", "B"]])
+    assert a != b
+
+
+def test_signature_is_module_scoped():
+    a = compute_file_signature(client_id="x", module="bcct",
+                               headers_per_sheet=[["A", "B"]])
+    b = compute_file_signature(client_id="x", module="bom",
+                               headers_per_sheet=[["A", "B"]])
+    assert a != b
+
+
+# ---------------------------------------------------------------------------
+# LLM client (mocked OpenAI)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def cfg_enabled():
+    return llm.LLMConfig(
+        base_url="https://example.invalid/v1",
+        model="claude-sonnet-4-6",
+        api_key="test-key",
+        temperature=0.0,
+        timeout_s=10,
+        max_retries=1,
+        max_calls_per_day_per_client=10,
+    )
+
+
+def _mock_openai_response(content: str):
+    fake_completion = MagicMock()
+    fake_completion.choices = [MagicMock()]
+    fake_completion.choices[0].message.content = content
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.return_value = fake_completion
+    return fake_client
+
+
+def test_propose_returns_mapping_when_llm_responds_valid(cfg_enabled):
+    response_json = json.dumps({
+        "mapping": {
+            "Số TK": "declaration_no",
+            "Ngày ĐK": "registration_date",
+            "Mã hàng": "customs_code",
+        }
+    })
+    with patch("openai.OpenAI", return_value=_mock_openai_response(response_json)):
+        result = llm.propose_header_mapping(
+            client_id="growatt-vn", module="bcct",
+            headers=["Số TK", "Ngày ĐK", "Mã hàng", "Junk col"],
+            sample_rows=[["123", "2025-01-01", "X", "y"]],
+            cfg=cfg_enabled,
+        )
+    assert result == {
+        "Số TK": "declaration_no",
+        "Ngày ĐK": "registration_date",
+        "Mã hàng": "customs_code",
+    }
+
+
+def test_propose_drops_unknown_logical_field(cfg_enabled):
+    """LLM hallucinated a logical_field not in the spec — must be dropped."""
+    response_json = json.dumps({"mapping": {"Số TK": "made_up_field"}})
+    with patch("openai.OpenAI", return_value=_mock_openai_response(response_json)):
+        result = llm.propose_header_mapping(
+            client_id="growatt-vn", module="bcct",
+            headers=["Số TK"], sample_rows=[["123"]],
+            cfg=cfg_enabled,
+        )
+    assert result == {}
+
+
+def test_propose_drops_unknown_header(cfg_enabled):
+    """LLM mapped a header that wasn't actually in the input."""
+    response_json = json.dumps({"mapping": {"Hallucinated col": "declaration_no"}})
+    with patch("openai.OpenAI", return_value=_mock_openai_response(response_json)):
+        result = llm.propose_header_mapping(
+            client_id="growatt-vn", module="bcct",
+            headers=["Số TK"], sample_rows=[["123"]],
+            cfg=cfg_enabled,
+        )
+    assert result == {}
+
+
+def test_propose_raises_on_malformed_json(cfg_enabled):
+    with patch("openai.OpenAI", return_value=_mock_openai_response("not json at all")):
+        with pytest.raises(llm.LLMProposalError):
+            llm.propose_header_mapping(
+                client_id="growatt-vn", module="bcct",
+                headers=["Số TK"], sample_rows=[["123"]],
+                cfg=cfg_enabled,
+            )
+
+
+def test_propose_raises_when_llm_disabled():
+    cfg = llm.LLMConfig(base_url="", model="", api_key="", temperature=0.0,
+                        timeout_s=10, max_retries=1,
+                        max_calls_per_day_per_client=10)
+    with pytest.raises(llm.LLMUnavailable):
+        llm.propose_header_mapping(
+            client_id="growatt-vn", module="bcct",
+            headers=["X"], sample_rows=[["y"]], cfg=cfg,
+        )
+
+
+def test_propose_enforces_per_client_daily_budget(cfg_enabled):
+    """When call_count exceeds max_calls_per_day_per_client → raise."""
+    from app.database import connect
+    from datetime import date
+
+    cfg = llm.LLMConfig(
+        base_url="https://example.invalid/v1", model="claude-sonnet-4-6",
+        api_key="test-key", temperature=0.0, timeout_s=10, max_retries=1,
+        max_calls_per_day_per_client=2,
+    )
+    response_json = json.dumps({"mapping": {}})
+
+    # Pre-seed 2 prior calls today for growatt-vn
+    with connect() as c:
+        with c.cursor() as cur:
+            cur.execute(
+                """
+                insert into hub.llm_usage (date, client_id, call_count)
+                values (%s, 'growatt-vn', 2)
+                on conflict (date, client_id) do update set call_count = 2
+                """,
+                (date.today(),),
+            )
+    try:
+        with patch("openai.OpenAI", return_value=_mock_openai_response(response_json)):
+            with pytest.raises(llm.LLMUnavailable, match="budget exceeded"):
+                llm.propose_header_mapping(
+                    client_id="growatt-vn", module="bcct",
+                    headers=["X"], sample_rows=[["y"]], cfg=cfg,
+                )
+    finally:
+        with connect() as c:
+            with c.cursor() as cur:
+                cur.execute("delete from hub.llm_usage where client_id='growatt-vn' and date = current_date")
+
+
+def test_propose_increments_usage_counter(cfg_enabled):
+    from app.database import connect
+    from datetime import date
+
+    response_json = json.dumps({"mapping": {}})
+    test_client = "growatt-vn"
+
+    with connect() as c:
+        with c.cursor() as cur:
+            cur.execute(
+                "delete from hub.llm_usage where date = current_date and client_id=%s",
+                (test_client,),
+            )
+
+    try:
+        with patch("openai.OpenAI", return_value=_mock_openai_response(response_json)):
+            llm.propose_header_mapping(
+                client_id=test_client, module="bcct",
+                headers=["X"], sample_rows=[["y"]], cfg=cfg_enabled,
+            )
+        with connect() as c:
+            with c.cursor() as cur:
+                cur.execute(
+                    "select call_count from hub.llm_usage where date=current_date and client_id=%s",
+                    (test_client,),
+                )
+                (n,) = cur.fetchone()
+                assert n == 1
+    finally:
+        with connect() as c:
+            with c.cursor() as cur:
+                cur.execute(
+                    "delete from hub.llm_usage where date=current_date and client_id=%s",
+                    (test_client,),
+                )

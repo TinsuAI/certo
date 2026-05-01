@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Smart parser mapping · {{ client.name }} · {{ t('app.brand') }}{% endblock %}
+{% block content %}
+{% include "clients/_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Smart parser — đề xuất column mapping</h2>
+      <p class="meta">
+        File <code>{{ filename }}</code> không khớp parser cứng. LLM đã đề xuất
+        mapping bên dưới. Hãy review từng cột; tick xác nhận hoặc bỏ chọn cột
+        nào sai. Sau khi lưu, mapping được cache cho client này — lần sau cùng
+        shape file sẽ tự dùng, không gọi LLM nữa.
+      </p>
+      <p class="meta">
+        <strong>Lý do parser cứng từ chối:</strong> {{ rigid_error }}
+      </p>
+    </div>
+  </div>
+
+  <form method="post" action="/clients/{{ client.client_id }}/bcct/parse-mapping/{{ upload_id }}/confirm" class="zone mini-panel">
+    <table class="dh-table" style="margin-bottom: 1rem;">
+      <thead>
+        <tr>
+          <th style="width: 32%;">Header trong file</th>
+          <th style="width: 28%;">Logical field (LLM đề xuất)</th>
+          <th>Mẫu dữ liệu (5 dòng đầu)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for header in headers %}
+        <tr>
+          <td><code>{{ header }}</code></td>
+          <td>
+            {% set proposed_field = proposed.get(header, '') %}
+            <input type="text" name="map__{{ header }}" value="{{ proposed_field }}"
+                   placeholder="(unmapped — leave empty to skip)"
+                   style="width: 100%; font-family: monospace;">
+          </td>
+          <td class="meta">
+            {% for row in samples %}
+              {% set value = row[loop.index0] if loop.index0 < (samples[0]|length if samples else 0) else '' %}
+              {{ value | default('—', true) | string | truncate(32) }}{% if not loop.last %} · {% endif %}
+            {% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div style="display:flex; gap:0.5rem;">
+      <button type="submit" class="btn-primary">Lưu mapping & ingest</button>
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bcct">Hủy</a>
+    </div>
+    <p class="meta" style="margin-top:0.5rem;">
+      Logical fields: <code>declaration_no</code>, <code>line_no</code>,
+      <code>declaration_type</code>, <code>registration_date</code>,
+      <code>customs_code</code>, <code>goods_name</code>, <code>hs_code</code>,
+      <code>quantity</code>, <code>unit</code>, <code>total_value</code>,
+      <code>currency</code>, <code>origin</code>, <code>invoice_ref</code>,
+      <code>exporter_name</code>, <code>exporter_tax_code</code>,
+      <code>consignee_name</code>, <code>incoterms</code>, <code>weight</code>,
+      <code>weight_unit</code>, <code>package_count</code>,
+      <code>package_unit</code>, <code>invoice_date</code>,
+      <code>departure_date</code>, <code>destination_code</code>,
+      <code>destination_name</code>, <code>transport_mode</code>,
+      <code>exchange_rate</code>.
+    </p>
+  </form>
+</section>
+{% endblock %}

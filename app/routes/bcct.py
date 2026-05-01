@@ -1,11 +1,14 @@
 """BCCT routes — nested under /clients/{client_id}/."""
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import auth
+from app import auth, llm
 from app.database import connect
+from app.parsers._excel import compute_file_signature, header_row, load_xlsx
 from app.parsers.bcct import parse_bcct_workbook, BcctParseError
 from app.parsers.goods_name import internal_code_parser_for
 from app.routes.clients import get_client, stats_for_client
@@ -13,6 +16,54 @@ from app.storage import save_upload, sha256_bytes
 from app.stores.uploads import record_upload
 
 router = APIRouter()
+
+
+def _headers_per_sheet(blob: bytes) -> list[list[str]]:
+    """Extract the best header row from each sheet for signature + LLM input."""
+    wb = load_xlsx(blob)
+    out: list[list[str]] = []
+    for ws in wb.worksheets:
+        hdr = header_row(ws, max_scan=20)
+        if hdr:
+            out.append([h for h in hdr[1] if h])
+    return out
+
+
+def _sample_rows_first_sheet(blob: bytes, n: int = 5) -> tuple[list[str], list[list]]:
+    """Return (headers, first n data rows) of the first plausible sheet — used
+    to brief the LLM."""
+    wb = load_xlsx(blob)
+    for ws in wb.worksheets:
+        hdr = header_row(ws, max_scan=20)
+        if not hdr:
+            continue
+        header_idx, headers = hdr
+        rows: list[list] = []
+        for raw in ws.iter_rows(min_row=header_idx + 1, values_only=True):
+            if all(c is None or (isinstance(c, str) and not c.strip()) for c in raw):
+                continue
+            rows.append(list(raw))
+            if len(rows) >= n:
+                break
+        return [h for h in headers if h], rows
+    return [], []
+
+
+def _lookup_cached_mapping(*, client_id: str, file_signature: str) -> dict | None:
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                update hub.parser_mappings
+                  set use_count = use_count + 1, last_used_at = now()
+                where client_id = %s and module = 'bcct' and file_signature = %s
+                  and confirmed_at is not null
+                returning mapping
+                """,
+                (client_id, file_signature),
+            )
+            row = cur.fetchone()
+            return row[0] if row else None
 
 
 @router.get("/clients/{client_id}/bcct", response_class=HTMLResponse)
@@ -67,20 +118,54 @@ async def upload_submit(request: Request, client_id: str,
         stored_path=stored.path, content_sha256=sha, size_bytes=len(blob),
         mime_type=file.content_type, uploader_user_id=user.user_id,
     )
+
+    # ── Step 1: cached parser_mapping for this client + file shape? ──
+    file_signature = None
+    cached_mapping = None
     try:
-        rows = parse_bcct_workbook(blob)
-    except BcctParseError as e:
-        with connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "update hub.file_uploads set parse_status='error', parse_error=%s, parsed_at=now() where upload_id=%s",
-                    (str(e), upload_id))
-        raise HTTPException(400, f"Parse error: {e}")
+        sheets = _headers_per_sheet(blob)
+        if sheets:
+            file_signature = compute_file_signature(
+                client_id=client_id, module="bcct",
+                headers_per_sheet=sheets,
+            )
+            cached_mapping = _lookup_cached_mapping(
+                client_id=client_id, file_signature=file_signature,
+            )
+    except Exception:  # noqa: BLE001 — best-effort; falls through to rigid
+        pass
+
+    # ── Step 2: parse — cached mapping if present, else rigid, else LLM ──
+    rows: list[dict] | None = None
+    rigid_error: str | None = None
+    if cached_mapping is not None:
+        try:
+            rows = parse_bcct_workbook(blob, mapping_override=cached_mapping)
+        except BcctParseError as e:
+            rigid_error = f"cached mapping failed: {e}"
+    if rows is None:
+        try:
+            rows = parse_bcct_workbook(blob)
+        except BcctParseError as e:
+            rigid_error = str(e)
+
+    if rows is None:
+        # Rigid + cached both failed. Fall back to LLM if enabled.
+        return await _request_llm_mapping(
+            request, client_id=client_id, upload_id=upload_id,
+            blob=blob, file_signature=file_signature,
+            rigid_error=rigid_error or "unknown",
+        )
+
+    return _ingest_rows(
+        client_id=client_id, client=client,
+        rows=rows, upload_id=upload_id,
+    )
+
+
+def _ingest_rows(*, client_id: str, client: dict, rows: list[dict],
+                 upload_id: str) -> RedirectResponse:
     parser = internal_code_parser_for(client_id, client["code_resolution_mode"])
-    # Year is derived per-row by the DB (GENERATED column from registration_date);
-    # rows missing registration_date are skipped (the generated year column is
-    # NOT NULL, so they would violate the constraint). Pre-filter so the upload
-    # surfaces a clean count rather than a 500.
     rows_with_date = [r for r in rows if r.get("registration_date")]
     skipped = len(rows) - len(rows_with_date)
     n = _insert_bcct(client_id=client_id, rows=rows_with_date,
@@ -94,6 +179,155 @@ async def upload_submit(request: Request, client_id: str,
     if skipped:
         redirect_url += f"?skipped={skipped}"
     return RedirectResponse(url=redirect_url, status_code=303)
+
+
+async def _request_llm_mapping(
+    request: Request, *, client_id: str, upload_id: str,
+    blob: bytes, file_signature: str | None, rigid_error: str,
+) -> RedirectResponse:
+    """When rigid+cache fail, ask the LLM for a mapping proposal. Stash on
+    the upload row; redirect to the propose UI for staff confirmation."""
+    cfg = llm.LLMConfig.load()
+    if not cfg.is_enabled() or file_signature is None:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "update hub.file_uploads set parse_status='error', parse_error=%s, parsed_at=now() where upload_id=%s",
+                    (rigid_error, upload_id))
+        raise HTTPException(400, f"Parse error: {rigid_error}")
+
+    headers, sample_rows = _sample_rows_first_sheet(blob)
+    try:
+        proposed = llm.propose_header_mapping(
+            client_id=client_id, module="bcct",
+            headers=headers, sample_rows=sample_rows, cfg=cfg,
+        )
+    except (llm.LLMUnavailable, llm.LLMProposalError) as e:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "update hub.file_uploads set parse_status='error', parse_error=%s, parsed_at=now() where upload_id=%s",
+                    (f"{rigid_error}; LLM: {e}", upload_id))
+        raise HTTPException(400, f"Parse error (LLM unavailable): {e}")
+
+    payload = {
+        "file_signature": file_signature,
+        "proposed_mapping": proposed,
+        "headers": headers,
+        "sample_rows": sample_rows[:5],
+        "rigid_error": rigid_error,
+    }
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                update hub.file_uploads
+                  set parse_status='proposed_mapping', result=%s::jsonb, parsed_at=now()
+                where upload_id=%s
+                """,
+                (json.dumps(payload, ensure_ascii=False, default=str), upload_id),
+            )
+    return RedirectResponse(
+        url=f"/clients/{client_id}/bcct/parse-mapping/{upload_id}",
+        status_code=303,
+    )
+
+
+@router.get("/clients/{client_id}/bcct/parse-mapping/{upload_id}",
+            response_class=HTMLResponse)
+async def parse_mapping_view(request: Request, client_id: str, upload_id: str):
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select original_filename, parse_status, result
+                from hub.file_uploads
+                where upload_id=%s and client_id=%s and module='bcct'
+                """,
+                (upload_id, client_id),
+            )
+            row = cur.fetchone()
+    if not row or row[1] != "proposed_mapping":
+        raise HTTPException(404, "No pending mapping for this upload")
+    filename, _, result = row
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/bcct_parse_mapping.html",
+        {
+            "client": client, "stats": stats_for_client(client_id),
+            "upload_id": upload_id, "filename": filename,
+            "headers": result.get("headers", []),
+            "samples": result.get("sample_rows", []),
+            "proposed": result.get("proposed_mapping", {}),
+            "rigid_error": result.get("rigid_error", ""),
+            "active_root": "clients", "active_tab": "bcct",
+        },
+    )
+
+
+@router.post("/clients/{client_id}/bcct/parse-mapping/{upload_id}/confirm")
+async def parse_mapping_confirm(request: Request, client_id: str, upload_id: str):
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select stored_path, parse_status, result
+                from hub.file_uploads
+                where upload_id=%s and client_id=%s and module='bcct'
+                """,
+                (upload_id, client_id),
+            )
+            row = cur.fetchone()
+    if not row or row[1] != "proposed_mapping":
+        raise HTTPException(404, "No pending mapping for this upload")
+    stored_path, _, result = row
+
+    form = await request.form()
+    # Per-header overrides: any field named map__<header> in the form.
+    mapping: dict[str, str] = {}
+    for k, v in form.items():
+        if k.startswith("map__"):
+            header = k[5:]
+            field = (v or "").strip()
+            if field:
+                mapping[header] = field
+    if not mapping:
+        raise HTTPException(400, "No fields confirmed; cancel and try again.")
+
+    file_signature = result.get("file_signature")
+    # Persist mapping for future uploads of the same shape
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into hub.parser_mappings
+                  (client_id, module, file_signature, mapping, sample_headers,
+                   proposed_by, confirmed_by, confirmed_at)
+                values (%s, 'bcct', %s, %s::jsonb, %s::jsonb, 'llm', %s, now())
+                on conflict (client_id, module, file_signature) do update set
+                  mapping = excluded.mapping,
+                  confirmed_by = excluded.confirmed_by,
+                  confirmed_at = now()
+                """,
+                (client_id, file_signature, json.dumps(mapping, ensure_ascii=False),
+                 json.dumps(result.get("headers", [])), user.user_id),
+            )
+
+    # Re-read the original blob from disk (LocalFS for now) and parse with the mapping.
+    from pathlib import Path
+    blob = Path(stored_path).read_bytes()
+    rows = parse_bcct_workbook(blob, mapping_override=mapping)
+    return _ingest_rows(client_id=client_id, client=client,
+                        rows=rows, upload_id=upload_id)
 
 
 def _list_bcct(client_id: str, year: int | None, direction: str | None,

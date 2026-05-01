@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Cài đặt kỹ thuật · {{ t('app.brand') }}{% endblock %}
+{% block content %}
+<section class="page-bar">
+  <h1>Cài đặt kỹ thuật</h1>
+  <span class="page-tagline">LLM endpoint, model, API key. Chỉ <code>dev</code>-role.</span>
+</section>
+
+{% if saved %}
+<div class="toast toast-success">Đã lưu cài đặt.</div>
+{% endif %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>LLM (smart parser fallback)</h2>
+      <p class="meta">
+        Khi parser cứng từ chối file Excel mới, hub gọi LLM để đề xuất
+        column mapping. Mapping được cache theo <code>(client_id, module,
+        file_signature)</code> sau khi staff confirm. Settings này áp dụng
+        toàn cục cho mọi client; budget per-client mỗi ngày.
+      </p>
+    </div>
+  </div>
+
+  <form method="post" action="/admin/settings/technical" class="settings-form" style="max-width: 760px;">
+    <div class="settings-grid">
+      <div class="field">
+        <label for="llm_base_url">Base URL</label>
+        <input type="text" id="llm_base_url" name="llm_base_url"
+               value="{{ values.llm_base_url }}"
+               placeholder="https://api.anthropic.com/v1 hoặc https://api.openai.com/v1">
+        <p class="meta">Endpoint OpenAI-compat: Anthropic OAI shim, OpenAI, vLLM, Ollama, OpenRouter…</p>
+      </div>
+
+      <div class="field">
+        <label for="llm_model">Model</label>
+        <input type="text" id="llm_model" name="llm_model"
+               value="{{ values.llm_model }}"
+               placeholder="claude-sonnet-4-6, gpt-4o-mini, …">
+      </div>
+
+      <div class="field">
+        <label for="llm_api_key">API Key</label>
+        <input type="password" id="llm_api_key" name="llm_api_key"
+               placeholder="{% if api_key_set %}(đã lưu — để trống để giữ nguyên){% else %}sk-...{% endif %}">
+        <p class="meta">Submit trống để giữ giá trị hiện tại; nhập mới để overwrite.</p>
+      </div>
+
+      <div class="field">
+        <label for="llm_temperature">Temperature</label>
+        <input type="text" id="llm_temperature" name="llm_temperature"
+               value="{{ values.llm_temperature }}" style="max-width: 120px;">
+      </div>
+
+      <div class="field">
+        <label for="llm_timeout_s">Timeout (s)</label>
+        <input type="number" id="llm_timeout_s" name="llm_timeout_s"
+               value="{{ values.llm_timeout_s }}" min="5" max="120" style="max-width: 120px;">
+      </div>
+
+      <div class="field">
+        <label for="llm_max_retries">Max retries</label>
+        <input type="number" id="llm_max_retries" name="llm_max_retries"
+               value="{{ values.llm_max_retries }}" min="0" max="5" style="max-width: 120px;">
+      </div>
+
+      <div class="field">
+        <label for="llm_max_calls_per_day_per_client">Max calls / day / client</label>
+        <input type="number" id="llm_max_calls_per_day_per_client" name="llm_max_calls_per_day_per_client"
+               value="{{ values.llm_max_calls_per_day_per_client }}" min="0" max="10000" style="max-width: 120px;">
+        <p class="meta">Budget cứng per-client. Vượt → upload bị reject với thông báo.</p>
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn-primary">Lưu</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

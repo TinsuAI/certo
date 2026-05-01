@@ -87,6 +87,63 @@ async def admin_root(request: Request):
     return RedirectResponse(url="/admin/users", status_code=302)
 
 
+# ── Technical settings (LLM) — dev-only ────────────────────────────────
+
+@router.get("/admin/settings/technical", response_class=HTMLResponse)
+async def settings_technical_view(request: Request, saved: bool = False):
+    from app import settings_store
+    user = auth.require_user(request)
+    if user.role != "dev":
+        raise HTTPException(403, "dev only")
+    values = settings_store.get_many(settings_store.LLM_KEYS)
+    # Don't echo the secret key value back to the form; show a placeholder.
+    api_key_set = bool(values.get("llm_api_key"))
+    return request.app.state.templates.TemplateResponse(
+        request, "admin/settings_technical.html",
+        {
+            "values": {k: ("" if k == "llm_api_key" else values.get(k, ""))
+                       for k in settings_store.LLM_KEYS},
+            "api_key_set": api_key_set,
+            "saved": saved,
+            "active_root": "admin",
+        },
+    )
+
+
+@router.post("/admin/settings/technical")
+async def settings_technical_submit(
+    request: Request,
+    llm_base_url: str = Form(""),
+    llm_model: str = Form(""),
+    llm_api_key: str = Form(""),
+    llm_temperature: str = Form("0.0"),
+    llm_timeout_s: str = Form("30"),
+    llm_max_retries: str = Form("2"),
+    llm_max_calls_per_day_per_client: str = Form("50"),
+):
+    from app import settings_store
+    user = auth.require_user(request)
+    if user.role != "dev":
+        raise HTTPException(403, "dev only")
+    values: dict[str, str] = {
+        "llm_base_url": llm_base_url.strip(),
+        "llm_model": llm_model.strip(),
+        "llm_temperature": llm_temperature.strip() or "0.0",
+        "llm_timeout_s": llm_timeout_s.strip() or "30",
+        "llm_max_retries": llm_max_retries.strip() or "2",
+        "llm_max_calls_per_day_per_client":
+            llm_max_calls_per_day_per_client.strip() or "50",
+    }
+    # Only update the API key when a non-empty value was submitted; an
+    # empty submit means "leave existing". Avoids accidental wipe.
+    if llm_api_key.strip():
+        values["llm_api_key"] = llm_api_key.strip()
+    settings_store.set_many(values, updated_by=user.user_id)
+    return RedirectResponse(
+        url="/admin/settings/technical?saved=1", status_code=303,
+    )
+
+
 @router.get("/admin/users", response_class=HTMLResponse)
 async def users_view(request: Request, error: str | None = None):
     user = auth.require_user(request)

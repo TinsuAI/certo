@@ -138,3 +138,27 @@ def iter_data_rows(ws, header_row_idx: int) -> Iterator[tuple]:
         if all(c is None or (isinstance(c, str) and not c.strip()) for c in row):
             continue
         yield row
+
+
+def compute_file_signature(
+    *, client_id: str, module: str, headers_per_sheet: list[list[str]],
+) -> str:
+    """Stable hash for a workbook's structural shape.
+
+    Used to cache LLM-proposed parser mappings under
+    `hub.parser_mappings(client_id, module, file_signature)`. Includes
+    `client_id` + `module` to avoid cross-client cache poisoning even if
+    two agencies happen to have lexically-similar headers.
+
+    Headers are normalized (lowercase, single-space) and sorted within
+    each sheet (so column-order changes don't invalidate the cache).
+    Sheets in the same order as the workbook (so reordering sheets DOES
+    invalidate, since shape is different).
+    """
+    import hashlib
+
+    parts: list[str] = [f"client={client_id}", f"module={module}"]
+    for sheet_idx, headers in enumerate(headers_per_sheet):
+        normalized = sorted(normalize_header(h) for h in headers if h)
+        parts.append(f"sheet{sheet_idx}={'|'.join(normalized)}")
+    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
