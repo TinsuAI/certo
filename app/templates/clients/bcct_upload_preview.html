@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Xác nhận thay đổi BCCT · {{ client.name }} · {{ t('app.brand') }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Xác nhận thay đổi BCCT</h2>
+      <p class="meta">
+        File upload có dòng đè lên dữ liệu đã tồn tại. Hub không tự động ghi đè
+        — staff phải xác nhận tường minh. Tick checkbox để confirm; bỏ tick để giữ
+        nguyên DB hiện tại.
+      </p>
+      <p class="meta">
+        Pending ID: <code>{{ pending_id }}</code> · hết hạn {{ expires_at }}
+      </p>
+    </div>
+  </div>
+
+  <div class="zone mini-panel" style="margin-bottom: 1rem;">
+    <strong>Tổng quan:</strong>
+    <ul style="margin: 0.5rem 0 0 1.2rem;">
+      <li><strong>{{ summary.new }}</strong> dòng mới sẽ được thêm</li>
+      <li><strong>{{ summary.noop }}</strong> dòng không đổi (skip)</li>
+      <li>
+        <strong>{{ summary.diff|length }}</strong> dòng có thay đổi
+        {% if summary.diff %}<span class="badge badge-warn">cần confirm</span>{% endif %}
+      </li>
+      <li>
+        <strong>{{ summary.orphan|length }}</strong> dòng mất tích
+        (DB có nhưng file mới không có)
+        {% if summary.orphan %}<span class="badge badge-warn">orphan candidate</span>{% endif %}
+      </li>
+    </ul>
+  </div>
+
+  <form method="post" action="/clients/{{ client.client_id }}/bcct/upload/preview/{{ pending_id }}/confirm">
+    {% if summary.diff %}
+    <h3 style="margin-top: 1.5rem;">Thay đổi giá trị ({{ summary.diff|length }} dòng)</h3>
+    <table class="dh-table">
+      <thead>
+        <tr>
+          <th>Số TK</th>
+          <th>Dòng</th>
+          <th>Field</th>
+          <th>Hiện tại (DB)</th>
+          <th>Mới (file)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in summary.diff %}
+          {% for field in d.changed_fields %}
+          <tr {% if loop.first %}style="border-top: 2px solid var(--border);"{% endif %}>
+            {% if loop.first %}
+              <td rowspan="{{ d.changed_fields|length }}"><code>{{ d.decl_no }}</code></td>
+              <td rowspan="{{ d.changed_fields|length }}">{{ d.line_no }}</td>
+            {% endif %}
+            <td><code>{{ field }}</code></td>
+            <td class="meta">{{ d.old[field] | default('—', true) }}</td>
+            <td><strong>{{ d.new[field] | default('—', true) }}</strong></td>
+          </tr>
+          {% endfor %}
+        {% endfor %}
+      </tbody>
+    </table>
+    <label class="field" style="margin-top: 0.5rem;">
+      <input type="checkbox" name="confirm_diffs">
+      <span>Xác nhận ghi đè <strong>tất cả</strong> {{ summary.diff|length }} dòng đã đổi</span>
+    </label>
+    {% endif %}
+
+    {% if summary.orphan %}
+    <h3 style="margin-top: 1.5rem;">Dòng mất tích — orphan ({{ summary.orphan|length }} dòng)</h3>
+    <p class="meta">
+      Tờ khai có trong file mới nhưng line_no này không xuất hiện. Có thể HQ
+      đã xóa dòng. Confirm để soft-delete (audit log giữ bản gốc).
+    </p>
+    <table class="dh-table">
+      <thead>
+        <tr><th>Số TK</th><th>Dòng</th></tr>
+      </thead>
+      <tbody>
+        {% for o in summary.orphan %}
+        <tr><td><code>{{ o.decl_no }}</code></td><td>{{ o.line_no }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <label class="field" style="margin-top: 0.5rem;">
+      <input type="checkbox" name="confirm_orphans">
+      <span>Xác nhận xóa <strong>tất cả</strong> {{ summary.orphan|length }} dòng orphan</span>
+    </label>
+    {% endif %}
+
+    <div style="display:flex; gap:0.5rem; margin-top: 1.5rem;">
+      <button type="submit" class="btn-primary">Apply confirmed changes</button>
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bcct">Hủy</a>
+    </div>
+    <p class="meta" style="margin-top:0.5rem;">
+      Dòng mới ({{ summary.new }}) sẽ luôn được insert. Dòng không tick sẽ
+      giữ nguyên giá trị cũ trong DB.
+    </p>
+  </form>
+</section>
+{% endblock %}

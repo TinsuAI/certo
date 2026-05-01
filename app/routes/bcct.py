@@ -157,19 +157,52 @@ async def upload_submit(request: Request, client_id: str,
             rigid_error=rigid_error or "unknown",
         )
 
+    # Stash request.state.user for downstream ingest/audit attribution.
+    request.state.user = user
     return _ingest_rows(
         client_id=client_id, client=client,
-        rows=rows, upload_id=upload_id,
+        rows=rows, upload_id=upload_id, request=request,
     )
 
 
 def _ingest_rows(*, client_id: str, client: dict, rows: list[dict],
-                 upload_id: str) -> RedirectResponse:
+                 upload_id: str, request: Request | None = None,
+                 confirm_diffs: bool = False, confirm_orphans: bool = False,
+                 ) -> RedirectResponse:
+    """Ingest parsed BCCT rows. If existing rows would change (DIFF) or
+    rows in DB scope are missing from upload (ORPHAN), block and route to
+    a preview-confirm flow unless confirm_* flags are explicitly set.
+
+    confirm_diffs=False (default): UPDATE on existing rows is gated. NEW-only
+    uploads still flow straight through.
+    """
     parser = internal_code_parser_for(client_id, client["code_resolution_mode"])
     rows_with_date = [r for r in rows if r.get("registration_date")]
     skipped = len(rows) - len(rows_with_date)
-    n = _insert_bcct(client_id=client_id, rows=rows_with_date,
-                     upload_id=upload_id, parser=parser)
+
+    diff_summary = _classify_rows(client_id=client_id, parsed=rows_with_date,
+                                  parser=parser)
+
+    needs_confirm = bool(diff_summary["diff"]) or bool(diff_summary["orphan"])
+    if needs_confirm and not (confirm_diffs and confirm_orphans):
+        # Stash for staff confirm. Preserve user_id of the uploader so
+        # confirm step can attribute changes correctly.
+        actor_id = request.state.user.user_id if (request and hasattr(request.state, "user")) else None
+        pending_id = _stash_pending(
+            client_id=client_id, upload_id=upload_id, parsed=rows_with_date,
+            diff_summary=diff_summary, created_by=actor_id,
+        )
+        return RedirectResponse(
+            url=f"/clients/{client_id}/bcct/upload/preview/{pending_id}",
+            status_code=303,
+        )
+
+    # NEW-only OR confirmed → apply.
+    user_id = request.state.user.user_id if (request and hasattr(request.state, "user")) else None
+    n = _apply_bcct_rows(client_id=client_id, rows=rows_with_date,
+                        upload_id=upload_id, parser=parser,
+                        orphans_to_delete=diff_summary["orphan"] if confirm_orphans else [],
+                        user_id=user_id)
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -179,6 +212,183 @@ def _ingest_rows(*, client_id: str, client: dict, rows: list[dict],
     if skipped:
         redirect_url += f"?skipped={skipped}"
     return RedirectResponse(url=redirect_url, status_code=303)
+
+
+# Fields whose change matters for the diff. Excludes purely-derived fields
+# (year is GENERATED) and bookkeeping (upload_id, indexed_at).
+_DIFF_FIELDS = (
+    "declaration_no", "declaration_type", "direction", "customs_code",
+    "internal_code", "goods_name", "hs_code", "quantity", "unit", "total_value",
+    "currency", "origin", "invoice_ref",
+    "exporter_name", "exporter_tax_code", "consignee_name", "incoterms",
+    "weight", "weight_unit", "package_count", "package_unit",
+    "invoice_date", "departure_date",
+    "destination_code", "destination_name",
+    "transport_mode", "exchange_rate",
+)
+
+
+def _classify_rows(*, client_id: str, parsed: list[dict], parser) -> dict:
+    """Categorize parsed rows vs DB state. Returns:
+        {new: int, noop: int, diff: list[{key, old, new, changed_fields}],
+         orphan: list[{key, decl_no, line_no}], total: int}
+    Orphans are scoped to declarations present in the upload (per critic):
+    a partial re-upload of just one declaration shouldn't soft-delete others.
+    """
+    if not parsed:
+        return {"new": 0, "noop": 0, "diff": [], "orphan": [], "total": 0}
+    keys_in_upload: set[tuple[str, str]] = set()
+    decl_nos_in_upload: set[str] = set()
+    rows_by_key: dict[tuple[str, str], dict] = {}
+    for r in parsed:
+        decl = r.get("declaration_no")
+        line = r.get("line_no", "0")
+        txn = r.get("transaction_key")
+        keys_in_upload.add((txn, line))
+        if decl:
+            decl_nos_in_upload.add(decl)
+        rows_by_key[(txn, line)] = r
+
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select transaction_key, line_no, declaration_no, "
+                "       declaration_type, direction, customs_code, internal_code, "
+                "       goods_name, hs_code, quantity, unit, total_value, currency, "
+                "       origin, invoice_ref, "
+                "       exporter_name, exporter_tax_code, consignee_name, incoterms, "
+                "       weight, weight_unit, package_count, package_unit, "
+                "       invoice_date, departure_date, "
+                "       destination_code, destination_name, "
+                "       transport_mode, exchange_rate "
+                "from hub.bcct_rows where client_id = %s "
+                "  and declaration_no = any(%s)",
+                (client_id, list(decl_nos_in_upload) if decl_nos_in_upload else [None]),
+            )
+            db_rows = {(r[0], r[1]): r for r in cur.fetchall()}
+
+    diff: list[dict] = []
+    orphan: list[dict] = []
+    new_count = 0
+    noop_count = 0
+
+    db_field_names = list(_DIFF_FIELDS)
+
+    for key, parsed_row in rows_by_key.items():
+        db_row = db_rows.get(key)
+        if db_row is None:
+            new_count += 1
+            continue
+        # Compute internal_code the same way _apply_bcct_rows will so we
+        # don't false-flag identity-mode rows as DIFF.
+        if parser is None:
+            parsed_internal = parsed_row.get("customs_code")
+        else:
+            parsed_internal = parser(parsed_row.get("goods_name") or "")
+        # db_row layout: (txn, line, then _DIFF_FIELDS in order)
+        db_dict = dict(zip(["transaction_key", "line_no"] + db_field_names, db_row))
+        merged_parsed = dict(parsed_row)
+        merged_parsed["internal_code"] = parsed_internal
+        changed: list[str] = []
+        for f in _DIFF_FIELDS:
+            old_v = db_dict.get(f)
+            new_v = merged_parsed.get(f)
+            if _coerce(old_v) != _coerce(new_v):
+                changed.append(f)
+        if not changed:
+            noop_count += 1
+        else:
+            diff.append({
+                "key": list(key),
+                "decl_no": parsed_row.get("declaration_no"),
+                "line_no": parsed_row.get("line_no"),
+                "old": {f: _serialize(db_dict.get(f)) for f in changed},
+                "new": {f: _serialize(merged_parsed.get(f)) for f in changed},
+                "changed_fields": changed,
+            })
+
+    # Orphans: rows in DB whose declaration_no is in upload but key not in upload.
+    for db_key, db_row in db_rows.items():
+        if db_key not in keys_in_upload:
+            orphan.append({
+                "key": list(db_key),
+                "decl_no": db_row[2],
+                "line_no": db_row[1],
+            })
+
+    return {
+        "new": new_count, "noop": noop_count,
+        "diff": diff, "orphan": orphan,
+        "total": len(parsed),
+    }
+
+
+def _coerce(v):
+    """Cross-type comparison helper for diff. Decimal vs float etc."""
+    from decimal import Decimal
+    if v is None or v == "":
+        return None
+    if isinstance(v, (int, Decimal, float)):
+        return float(v)
+    return str(v).strip()
+
+
+def _serialize(v):
+    """JSON-safe serialize for stashed diff payload."""
+    if v is None:
+        return None
+    if hasattr(v, "isoformat"):
+        return v.isoformat()
+    from decimal import Decimal
+    if isinstance(v, Decimal):
+        return float(v)
+    return v
+
+
+def _stash_pending(*, client_id: str, upload_id: str, parsed: list[dict],
+                   diff_summary: dict, created_by: str | None) -> str:
+    """Insert into upload_pending; return the new pending_id."""
+    import secrets
+    pending_id = secrets.token_urlsafe(16)
+    serialized_rows = [
+        {k: _serialize(v) for k, v in r.items()}
+        for r in parsed
+    ]
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into hub.upload_pending
+                  (pending_id, client_id, module, upload_id, parsed_rows,
+                   diff_summary, created_by)
+                values (%s, %s, 'bcct', %s, %s::jsonb, %s::jsonb, %s)
+                """,
+                (pending_id, client_id, upload_id,
+                 json.dumps(serialized_rows, ensure_ascii=False, default=str),
+                 json.dumps(diff_summary, ensure_ascii=False, default=str),
+                 created_by),
+            )
+    return pending_id
+
+
+def _apply_bcct_rows(*, client_id: str, rows: list[dict], upload_id: str,
+                    parser, orphans_to_delete: list[dict],
+                    user_id: str | None) -> int:
+    """Insert/update parsed rows; delete confirmed orphans. All in one
+    txn so the audit trigger sees a coherent actor."""
+    n = _insert_bcct(client_id=client_id, rows=rows, upload_id=upload_id,
+                     parser=parser, user_id=user_id)
+    if orphans_to_delete:
+        with connect(user_id=user_id) as conn:
+            with conn.cursor() as cur:
+                for o in orphans_to_delete:
+                    txn, line = o["key"]
+                    cur.execute(
+                        "delete from hub.bcct_rows where client_id=%s "
+                        "  and transaction_key=%s and line_no=%s",
+                        (client_id, txn, line),
+                    )
+    return n
 
 
 async def _request_llm_mapping(
@@ -326,8 +536,102 @@ async def parse_mapping_confirm(request: Request, client_id: str, upload_id: str
     from pathlib import Path
     blob = Path(stored_path).read_bytes()
     rows = parse_bcct_workbook(blob, mapping_override=mapping)
+    request.state.user = user
     return _ingest_rows(client_id=client_id, client=client,
-                        rows=rows, upload_id=upload_id)
+                        rows=rows, upload_id=upload_id, request=request)
+
+
+# ── Confirm-on-update preview/confirm routes ─────────────────────────────
+
+@router.get("/clients/{client_id}/bcct/upload/preview/{pending_id}",
+            response_class=HTMLResponse)
+async def upload_preview_view(request: Request, client_id: str, pending_id: str):
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select diff_summary, expires_at, created_at
+                from hub.upload_pending
+                where pending_id = %s and client_id = %s and module = 'bcct'
+                """,
+                (pending_id, client_id),
+            )
+            row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Pending upload not found or expired")
+    diff_summary, expires_at, created_at = row
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/bcct_upload_preview.html",
+        {
+            "client": client, "stats": stats_for_client(client_id),
+            "pending_id": pending_id,
+            "summary": diff_summary,
+            "expires_at": expires_at, "created_at": created_at,
+            "active_root": "clients", "active_tab": "bcct",
+        },
+    )
+
+
+@router.post("/clients/{client_id}/bcct/upload/preview/{pending_id}/confirm")
+async def upload_preview_confirm(request: Request, client_id: str, pending_id: str):
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+
+    form = await request.form()
+    confirm_diffs = form.get("confirm_diffs") == "on"
+    confirm_orphans = form.get("confirm_orphans") == "on"
+
+    # Single-use: DELETE in same tx as load. Double-click → second click 404s.
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                delete from hub.upload_pending
+                where pending_id = %s and client_id = %s and module = 'bcct'
+                returning upload_id, parsed_rows, diff_summary
+                """,
+                (pending_id, client_id),
+            )
+            row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Pending upload not found or already applied")
+    upload_id, parsed_rows, diff_summary = row
+
+    # parsed_rows is jsonb so dates come back as strings; coerce back to
+    # date for the DB insert.
+    from datetime import date as _date
+    def _restore_dates(r):
+        for k in ("registration_date", "invoice_date", "departure_date"):
+            v = r.get(k)
+            if isinstance(v, str) and len(v) >= 10:
+                try:
+                    r[k] = _date.fromisoformat(v[:10])
+                except ValueError:
+                    r[k] = None
+        return r
+    rows = [_restore_dates(r) for r in parsed_rows]
+
+    # If user didn't confirm DIFFs, drop those rows from the apply set so
+    # we don't UPDATE existing values. Identify by (transaction_key, line_no).
+    if not confirm_diffs and diff_summary.get("diff"):
+        diff_keys = {tuple(d["key"]) for d in diff_summary["diff"]}
+        rows = [r for r in rows
+                if (r.get("transaction_key"), r.get("line_no", "0")) not in diff_keys]
+
+    request.state.user = user
+    return _ingest_rows(
+        client_id=client_id, client=client,
+        rows=rows, upload_id=upload_id, request=request,
+        confirm_diffs=True, confirm_orphans=confirm_orphans,
+    )
 
 
 def _list_bcct(client_id: str, year: int | None, direction: str | None,
@@ -368,12 +672,13 @@ def _years(client_id: str) -> list[int]:
 
 
 def _insert_bcct(*, client_id: str, rows: list[dict],
-                 upload_id: str, parser) -> int:
+                 upload_id: str, parser, user_id: str | None = None) -> int:
     """Insert BCCT rows. `year` column is GENERATED ALWAYS AS STORED in the
-    DB (from `registration_date`), so it's not in the column list."""
+    DB (from `registration_date`), so it's not in the column list. The
+    caller passes user_id to set the audit-log GUC."""
     import json
     n = 0
-    with connect() as conn:
+    with connect(user_id=user_id) as conn:
         with conn.cursor() as cur:
             for r in rows:
                 customs_code = r.get("customs_code")

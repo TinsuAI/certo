@@ -16,12 +16,25 @@ def database_url() -> str:
     return os.environ.get(DATABASE_URL_ENV, DEFAULT_URL).strip() or DEFAULT_URL
 
 
-def connect(url: str | None = None):
+def connect(url: str | None = None, *, user_id: str | None = None):
+    """Open a Postgres connection.
+
+    `user_id`: optional. When supplied, sets the session GUC `app.user_id`
+    so the AFTER UPDATE/DELETE trigger on `hub.bcct_rows` records who
+    made each change. Use the request user's id from write paths; ad-hoc
+    sessions can leave it None and the trigger writes 'system'.
+    """
     try:
         import psycopg
     except ImportError as exc:
         raise DatabaseUnavailable("Install psycopg to use Postgres.") from exc
-    return psycopg.connect(url or database_url())
+    conn = psycopg.connect(url or database_url())
+    if user_id:
+        with conn.cursor() as cur:
+            # SET needs a literal in its DDL syntax; use set_config() to
+            # parameterize safely. is_local=false → outlives the txn.
+            cur.execute("select set_config('app.user_id', %s, false)", (user_id,))
+    return conn
 
 
 def apply_migrations(url: str | None = None) -> None:
