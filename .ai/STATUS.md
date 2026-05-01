@@ -1,6 +1,6 @@
 # Project Status
 
-**Date:** 2026-05-03 EOD (HTTP-route real-data run; 4 more fixes landed)
+**Date:** 2026-05-04 (BCCT overhaul + LLM smart parser shipped; 4 stages + post-rev fixes)
 
 ## Current State
 
@@ -31,6 +31,20 @@ What works:
 - Fixture corpus at `tests/fixtures/` (18 manual `.xlsx` + 9 synthetic edge cases incl. 2 legacy `.xls`). Driven by `tests/test_fixture_corpus.py`. Real `.xls`/`.xlsm` via `DATA_HUB_REAL_DATA_DIR` env var (`tests/test_real_data_external.py`).
 
 ## Recent Changes
+
+**2026-05-04 — BCCT overhaul + LLM smart parser (4 stages, ~3000 LoC).** Brief: `.ai/features/2026-05-04-bcct-overhaul-and-llm-parsing.md` (discover → critic → synthesize → plan → tdd → ui+screenshot → rev). Five commits `365bfed` → `1d79247`.
+
+- **A+B:** 12 CO-essential typed columns promoted from payload jsonb (`exporter_name/exporter_tax_code/consignee_name/incoterms/weight+unit/package_count+unit/invoice_date/departure_date/destination_code+name/transport_mode/exchange_rate`). Back-fill from existing 5119 rows. Year column converted to `GENERATED ALWAYS AS (EXTRACT(YEAR FROM registration_date)) STORED`; PK rebuilt; 5 covering indexes recreated. Year form field dropped — staff just picks file.
+- **D:** LLM-driven smart parser fallback. New `hub.app_settings` (key/value/audit), `hub.parser_mappings` (cache by client_id+module+file_signature), `hub.llm_usage` (per-(date,client) budget). New `app/llm.py` (OpenAI-compat → Anthropic OAI shim / OpenAI / vLLM / Ollama). Settings UI at `/admin/settings/technical` (dev-only). Flow: rigid parse → if fail → cache lookup → if miss → LLM proposes → preview UI → staff confirms → mapping cached for future uploads. file_signature client-scoped, prevents cross-client cache poisoning. Hallucinated fields/headers dropped via schema validation.
+- **C1:** Confirm-on-update gate. New `hub.upload_pending` (24h TTL via expires_at), `hub.bcct_row_history` (append-only audit log), AFTER UPDATE/DELETE trigger reading `app.user_id` GUC, `purge_expired_pending_uploads()` SQL fn. `app/database.py:connect(user_id=...)` plumbs the GUC via `set_config()` for audit attribution. Pre-flight diff classifies NEW/NOOP/DIFF/ORPHAN; orphans scoped to declarations in upload (per critic — partial re-upload of one declaration won't delete others). Single-use pending_id (DELETE...RETURNING in same tx). NEW-only flows skip preview entirely.
+- **C2:** Per-row history page (`/clients/{id}/bcct/history/{txn_key}/{line_no}`). Ops bypass CLI `scripts/bcct_force_apply.py` writes directly with synthetic `app.user_id='ops:script'` so audit log captures the bypass actor.
+
+Post-`/rev` fixes (commit `1d79247`):
+- **Critical** data-loss bug: confirm path was re-classifying after filtering out unconfirmed DIFFs, turning them into new ORPHANs that `confirm_orphans=True` would then DELETE. Fixed: confirm path now applies stashed diff_summary directly without re-classification. Regression test added.
+- **Critical** `_apply_bcct_rows` ran inserts and orphan-deletes in two separate transactions despite "all in one txn" docstring. Refactored to share one cursor.
+- **Critical** LLM error message echoed raw OpenAI SDK exception to browser → potential API-key leak in transport-error strings. Fixed: log full exception server-side, surface only exception class name + generic message.
+
+Test suite: **40 → 106 passed** (1 day, +66 new). Brief tracks all 4 stages + open follow-ups.
 
 **2026-05-03 (EOD revised) — HTTP-route real-data run + correction round.** Drove all 5 real `.xls` BCCT files through `/clients/{id}/bcct/upload` (Growatt NK 3045 + XK 137, Dothanh E31 132 + E62 317, DKE 2025 1488 — total 5119 rows). Idempotent re-upload verified. DKE Danh Mục NPL+SP through `/clients/{id}/catalog/upload` — 45 materials. Dual-source: 44/45 DKE in BCCT, 3/4 Johnson.
 
