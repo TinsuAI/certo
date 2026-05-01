@@ -531,6 +531,9 @@ async def parse_mapping_view(request: Request, client_id: str, upload_id: str):
     if not row or row[1] != "proposed_mapping":
         raise HTTPException(404, "No pending mapping for this upload")
     filename, _, result = row
+    # Pull the canonical logical-field list for BCCT so the template can
+    # render a <select> instead of a free-text input.
+    from app.llm import _TARGET_FIELDS_BY_MODULE
     return request.app.state.templates.TemplateResponse(
         request, "clients/bcct_parse_mapping.html",
         {
@@ -540,8 +543,45 @@ async def parse_mapping_view(request: Request, client_id: str, upload_id: str):
             "samples": result.get("sample_rows", []),
             "proposed": result.get("proposed_mapping", {}),
             "rigid_error": result.get("rigid_error", ""),
+            "logical_fields": _TARGET_FIELDS_BY_MODULE["bcct"],
             "active_root": "clients", "active_tab": "bcct",
         },
+    )
+
+
+@router.post("/clients/{client_id}/bcct/parse-mapping/{upload_id}/reject")
+async def parse_mapping_reject(request: Request, client_id: str, upload_id: str):
+    """Staff explicitly says 'this file isn't BCCT'. Mark the upload as
+    rejected so it shows up cleanly in the audit page; do NOT save any
+    LLM mapping (mapping was speculative and shouldn't influence future
+    uploads of the same shape — they may genuinely be valid for this
+    client even though this one upload was misrouted)."""
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    form = await request.form()
+    note = (form.get("reject_note") or "Rejected via parse-mapping UI").strip()
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                update hub.file_uploads
+                  set parse_status='rejected',
+                      parse_error=%s,
+                      parsed_at=now()
+                where upload_id=%s and client_id=%s and module='bcct'
+                  and parse_status='proposed_mapping'
+                returning upload_id
+                """,
+                (f"{note} (by {user.user_id})", upload_id, client_id),
+            )
+            row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Pending mapping not found or already resolved")
+    return RedirectResponse(
+        url=f"/clients/{client_id}/uploads?module=bcct", status_code=303,
     )
 
 

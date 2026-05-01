@@ -9,8 +9,9 @@
       <h2>Smart parser — đề xuất column mapping</h2>
       <p class="meta">
         File <code>{{ filename }}</code> không khớp parser cứng. LLM đã đề xuất
-        mapping bên dưới. Hãy review từng cột; tick xác nhận hoặc bỏ chọn cột
-        nào sai. Sau khi lưu, mapping được cache cho client này — lần sau cùng
+        mapping bên dưới. Hãy review từng cột — chọn logical field đúng từ dropdown,
+        hoặc <em>(skip — bỏ qua cột này)</em> nếu cột không cần. Sau khi
+        <strong>Lưu</strong>, mapping được cache cho client này — lần sau cùng
         shape file sẽ tự dùng, không gọi LLM nữa.
       </p>
       <p class="meta">
@@ -19,61 +20,69 @@
     </div>
   </div>
 
-  <form method="post" action="/clients/{{ client.client_id }}/bcct/parse-mapping/{{ upload_id }}/confirm" class="zone mini-panel">
+  <form method="post"
+        action="/clients/{{ client.client_id }}/bcct/parse-mapping/{{ upload_id }}/confirm"
+        class="zone mini-panel" id="mapping-form">
     <table class="dh-table" style="margin-bottom: 1rem;">
       <thead>
         <tr>
-          <th style="width: 32%;">Header trong file</th>
-          <th style="width: 28%;">Logical field (LLM đề xuất)</th>
-          <th>Mẫu dữ liệu (5 dòng đầu)</th>
+          <th style="width: 28%;">Header trong file</th>
+          <th style="width: 32%;">Logical field</th>
+          <th>Mẫu dữ liệu ({{ samples|length }} dòng đầu)</th>
         </tr>
       </thead>
       <tbody>
         {% for header in headers %}
-          {# Capture outer loop's column index BEFORE the inner samples
-             loop overrides `loop.index0`. This was the bug: the inner
-             loop's index0 was used for the column position, so every
-             header row showed the same cells (samples[0][0] · samples[1][1] · …)
-             instead of column-specific values. #}
           {% set col_idx = loop.index0 %}
+          {% set proposed_field = proposed.get(header, '') %}
         <tr>
           <td><code>{{ header }}</code></td>
           <td>
-            {% set proposed_field = proposed.get(header, '') %}
-            <input type="text" name="map__{{ header }}" value="{{ proposed_field }}"
-                   placeholder="(unmapped — leave empty to skip)"
-                   style="width: 100%; font-family: monospace;">
+            <select name="map__{{ header }}" style="width: 100%; font-family: monospace;">
+              <option value="">(skip — bỏ qua cột này)</option>
+              {% for f in logical_fields %}
+                <option value="{{ f }}" {% if f == proposed_field %}selected{% endif %}>{{ f }}</option>
+              {% endfor %}
+              {% if proposed_field and proposed_field not in logical_fields %}
+                <option value="{{ proposed_field }}" selected>{{ proposed_field }} (custom)</option>
+              {% endif %}
+            </select>
           </td>
           <td class="meta">
             {% for row in samples %}
               {% if col_idx < row|length %}
-                {{ row[col_idx] | default('—', true) | string | truncate(32) }}
+                {{ row[col_idx] | default('—', true) | string | truncate(40) }}
               {% else %}—{% endif %}
               {%- if not loop.last %} · {% endif %}
             {% endfor %}
+            {% if not samples %}<em>(không có dòng dữ liệu mẫu)</em>{% endif %}
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
 
-    <div style="display:flex; gap:0.5rem;">
+    <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
       <button type="submit" class="btn-primary">Lưu mapping & ingest</button>
-      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bcct">Hủy</a>
+      <button type="submit"
+              formaction="/clients/{{ client.client_id }}/bcct/parse-mapping/{{ upload_id }}/reject"
+              class="btn-secondary"
+              style="border-color: var(--danger, #c33); color: var(--danger, #c33);"
+              onclick="return confirm('Đánh dấu file này là KHÔNG phải BCCT? Mapping LLM sẽ bị bỏ; file vào trang Uploads với trạng thái rejected.');">
+        Reject — file không phải BCCT
+      </button>
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bcct">
+        Quay lại sau
+      </a>
     </div>
     <p class="meta" style="margin-top:0.5rem;">
-      Logical fields: <code>declaration_no</code>, <code>line_no</code>,
-      <code>declaration_type</code>, <code>registration_date</code>,
-      <code>customs_code</code>, <code>goods_name</code>, <code>hs_code</code>,
-      <code>quantity</code>, <code>unit</code>, <code>total_value</code>,
-      <code>currency</code>, <code>origin</code>, <code>invoice_ref</code>,
-      <code>exporter_name</code>, <code>exporter_tax_code</code>,
-      <code>consignee_name</code>, <code>incoterms</code>, <code>weight</code>,
-      <code>weight_unit</code>, <code>package_count</code>,
-      <code>package_unit</code>, <code>invoice_date</code>,
-      <code>departure_date</code>, <code>destination_code</code>,
-      <code>destination_name</code>, <code>transport_mode</code>,
-      <code>exchange_rate</code>.
+      <strong>3 lựa chọn:</strong>
+      <em>Lưu</em> = chấp nhận mapping (đã edit hoặc nguyên bản LLM đề xuất),
+      ingest và cache cho lần sau.
+      <em>Reject</em> = file này không phải BCCT (sẽ vào trang Uploads với
+      status <code>rejected</code>; không cache mapping).
+      <em>Quay lại sau</em> = không quyết định bây giờ; file ở trạng thái
+      <code>proposed_mapping</code>, vào lại qua trang Uploads để xử lý sau.
     </p>
   </form>
 </section>
