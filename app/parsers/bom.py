@@ -23,8 +23,8 @@ COMMON_ALIASES = {
                       "组件物料",      # zh: component material
                       "component number", "component code"],
     "qty_per_unit": ["định mức", "dinh muc", "qty", "quantity", "qty per", "định lượng",
-                     "标准用量",       # zh: standard quantity
-                     "comp. qty", "comp qty"],
+                     "标准用量",                              # zh: standard quantity
+                     "comp. qty", "comp qty", "comp qty cun"],  # SAP "Comp. Qty (CUn)"
     "uom": ["đvt", "dvt", "unit", "uom",
             "单位",                    # zh: unit
             "component unit"],
@@ -51,7 +51,7 @@ def _parse_flat(blob: bytes) -> dict[str, list[dict]]:
         raise BomParseError(f"Cannot open workbook: {e}") from e
     products: dict[str, list[dict]] = defaultdict(list)
     for ws in wb.worksheets:
-        hdr = header_row(ws)
+        hdr = header_row(ws, aliases=COMMON_ALIASES)
         if not hdr:
             continue
         header_idx, headers = hdr
@@ -91,7 +91,7 @@ def _parse_growatt_multi(blob: bytes) -> dict[str, list[dict]]:
         title = ws.title.strip()
         if not title or title.lower() in {"summary", "tong hop", "config"}:
             continue
-        hdr = header_row(ws)
+        hdr = header_row(ws, aliases=COMMON_ALIASES)
         if not hdr:
             continue
         header_idx, headers = hdr
@@ -125,16 +125,17 @@ def _parse_johnson(blob: bytes) -> dict[str, list[dict]]:
     except Exception as e:
         raise BomParseError(f"Cannot open workbook: {e}") from e
     products: dict[str, list[dict]] = defaultdict(list)
+    sap_aliases = {
+        **COMMON_ALIASES,
+        "level": ["level", "lvl", "cấp"],
+        "parent": ["parent", "tk cha", "cha"],
+    }
     for ws in wb.worksheets:
-        hdr = header_row(ws)
+        hdr = header_row(ws, aliases=sap_aliases)
         if not hdr:
             continue
         header_idx, headers = hdr
-        cols = index_headers(headers, {
-            **COMMON_ALIASES,
-            "level": ["level", "lvl", "cấp"],
-            "parent": ["parent", "tk cha", "cha"],
-        })
+        cols = index_headers(headers, sap_aliases)
         if "material_code" not in cols:
             continue
         current_product: str | None = None

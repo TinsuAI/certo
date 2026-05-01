@@ -1,6 +1,6 @@
 # Project Status
 
-**Date:** 2026-05-04 EOD (BCCT overhaul + LLM smart parser + UX iteration done; ready for manual customer testing)
+**Date:** 2026-05-02 — Tier 1 real-data smoke (BOM + BQD) closed. 4 parser/UX bugs logged.
 
 ## Current State
 
@@ -37,6 +37,13 @@ What works:
 - **Post-upload toast** on `/clients/{id}/bcct` shows ingest counts (NEW · UPDATED · DELETED · NOOP · SKIPPED).
 
 ## Recent Changes
+
+**2026-05-02 — Tier 1 real-data smoke (BOM + BQD).** Session log: `.ai/sessions/2026-05-02-tier-1-real-data-smoke.md`. First end-to-end run of real BOM + BQD through the live UI (STATUS Next-Steps #1+#2). Approach: explore sister-repo data → stage `/tmp/dh_real_data/{company}/*` → parser-layer xfail-aware test → Playwright UI smoke with screenshots.
+- **Real-data corpus staged** (6 new symlinks in `/tmp/dh_real_data/`): Growatt BOM TP/BTP + BQD TP/NVL, DKE BQD multi-sheet, Johnson SAP fixture.
+- **Parser-layer test extended:** `tests/test_real_data_external.py` BOM + BQD blocks. Result with env: 9 passed + 5 xfailed. Suite green: 104 passed.
+- **UI smoke script:** `scripts/smoke_real_uploads.py` (Playwright). 4/4 active jobs matched expectation; 1 intentionally skipped to avoid silent corruption.
+- **DB verified:** Growatt 2900 BQD mappings (8 seed + 73 TP + 2819 NVL); Johnson 2 BOM versions; Growatt BOM TP errored cleanly.
+- **4 bugs logged to `.ai/BACKLOG.md`** (Bug A / B / C / UX-1). Bug C is silent BOM data corruption (P0); Bug A blocks all real Growatt BOM today (P0); Bug B is a 1-line alias fix (P1); UX-1 is a raw-JSON error page (low).
 
 **2026-05-04 EOD — UX iteration + manual-test fixtures + /rev follow-ups (~10 commits).** Session log: `.ai/sessions/2026-05-04-ux-iteration-and-rev-followups.md`. Triggered by user manual-testing the just-shipped 4 stages — surfaced 8 UX issues + minor /rev follow-ups, all fixed:
 - Manual test fixtures at `data/manual_test/` (4 files + README + cleanup SQL); each clearly maps to its target URL + expected behavior.
@@ -93,13 +100,14 @@ Test suite: 73 passed.
 
 ## Next Steps
 
-1. **Real BOM upload** — haven't driven any real BOM through HTTP yet. Need a real, in-scope BOM file (NOT the 51MB settlement workbook — that's out of MVP). Synthetic Chinese-headers BOM works at parser level. Find a real customer-submitted BOM, upload, verify dual-source flag flips for materials present in both BCCT + BOM.
-2. **Real BQD (code mappings) upload** — also untested at HTTP level. Need to locate a real BQD file or build one from agency.
-3. **Header-matching greediness** — substring-match in `index_headers` is too greedy on real Vietnamese files: `STT` matches `line_no` (via "stt" alias) but ALSO `currency` (via "tt" alias). `Mã ĐVT kiện` (package unit) matches `unit` ahead of `Đơn vị tính`. Fix: prefer exact match over substring; rank by alias specificity.
-4. **DKE catalog category default** — real DKE NPL → category=nvl ✓, SP → also nvl (default fallback). Sheet name `Sheet1` doesn't carry category hint. Either add `category` Form param to upload route (UI selection) or filename-heuristic ("SP" in name → tp).
-5. **DKE/Dothanh per-client goods_name parser.** Both clients are in `identity` mode (internal=customs) as a fallback; if their goods_name has structured codes worth extracting, add a per-client regex parser in `goods_name.py:internal_code_parser_for`.
-6. **51MB Growatt `.xlsm`** — CO app working workbook, not a hub upload type. Hub never ingests it; CO owns it.
-3. **`code_resolution_mode` reparse-on-change** — dropdown unlocked for dev (2026-05-02) but POST handler doesn't auto re-parse `bcct_rows.internal_code` for existing rows when mode changes. Add `reparse_internal_codes(client_id, mode)` helper (~15 lines) and wire into POST `/clients/{id}/edit` when mode differs. Idempotent given deterministic parsers + raw `goods_name` preserved.
+1. **Fix Bug C (silent BOM corruption) + Bug A (header_row) together** — both in `app/parsers/_excel.py`. P0. Bug C is silent data corruption on real Growatt BTP via empty-cell substring match in `index_headers` pass 2; Bug A is `header_row()` picking data row over header row. Fixes likely overlap. See `.ai/BACKLOG.md` "Parser bugs surfaced by 2026-05-02 real-data smoke test".
+2. **Fix Bug B** (DKE BQD alias gap) — 1-line addition to `app/parsers/code_mappings.py:11 ALIASES` (`Mã ERP`, `Mã NPL/TP`).
+3. **Header-matching greediness** — substring-match in `index_headers` is too greedy on real Vietnamese files: `STT` matches `line_no` (via "stt" alias) but ALSO `currency` (via "tt" alias). `Mã ĐVT kiện` (package unit) matches `unit` ahead of `Đơn vị tính`. Fix: prefer exact match over substring; rank by alias specificity. *Probably resolved as part of Bug A+C fix; verify with same smoke test.*
+4. **UX-1: BOM upload parse error renders as raw FastAPI JSON** — `app/routes/bom.py:85` raises HTTPException → browser shows `{"detail":"Parse error: ..."}`. Catch + render error template (or BCCT-style toast) instead.
+5. **DKE catalog category default** — real DKE NPL → category=nvl ✓, SP → also nvl (default fallback). Sheet name `Sheet1` doesn't carry category hint. Either add `category` Form param to upload route (UI selection) or filename-heuristic ("SP" in name → tp).
+6. **DKE/Dothanh per-client goods_name parser.** Both clients are in `identity` mode (internal=customs) as a fallback; if their goods_name has structured codes worth extracting, add a per-client regex parser in `goods_name.py:internal_code_parser_for`.
+7. **51MB Growatt `.xlsm`** — CO app working workbook, not a hub upload type. Hub never ingests it; CO owns it.
+8. **`code_resolution_mode` reparse-on-change** — dropdown unlocked for dev (2026-05-02) but POST handler doesn't auto re-parse `bcct_rows.internal_code` for existing rows when mode changes. Add `reparse_internal_codes(client_id, mode)` helper (~15 lines) and wire into POST `/clients/{id}/edit` when mode differs. Idempotent given deterministic parsers + raw `goods_name` preserved.
 4. **Cross-app SSO Phase 2** (M9 deliverable #4) — local RBAC + ACL is in place. Phase 2 = JWT issuer / JWKS / cookie-domain federation when BCQT and CO consumers come online. Defer until BCQT/CO migration audits land.
 5. **Service-discovery for auto-rule case_id validation** — currently DROPPED from MVP because CO has no HTTP API. Reinstate when CO grows one.
 6. **Manual + hybrid BOM review modes** — schema is shaped to accept these; phase 2 work involves notification system, latency SLO, review queue endpoints.

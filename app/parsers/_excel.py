@@ -65,14 +65,60 @@ class _XlsSheet:
         return v
 
 
-def header_row(ws, max_scan: int = 15, min_non_empty: int = 2) -> tuple[int, list[str]] | None:
-    """Find the first row containing several non-empty string cells. Returns (row_index, headers)."""
-    best: tuple[int, list[str]] | None = None
+def header_row(
+    ws,
+    *,
+    aliases: dict[str, list[str]] | None = None,
+    max_scan: int = 15,
+    min_non_empty: int = 2,
+    min_alias_matches: int = 2,
+) -> tuple[int, list[str]] | None:
+    """Find the header row in a worksheet. Returns (row_index, cells).
+
+    Two-stage detection:
+    1. If `aliases` provided: try every candidate row, score by how many
+       logical fields the row's cells resolve via `index_headers`. The row
+       with the most matches wins (≥ `min_alias_matches`); earliest row
+       breaks ties. This protects against the "STT data row beats header
+       row by raw non-empty count" pitfall: a data row scores 0 alias
+       matches no matter how many cells are populated.
+    2. Fallback (no aliases, or no row reaches the threshold): classic
+       non-empty count, earliest row tie-break. Backwards-compatible with
+       callers that don't pass aliases yet.
+
+    `min_alias_matches=2` filters out incidental 1-match noise (e.g., a
+    legend/label row containing just "Mã NPL: see column B").
+    """
+    candidates: list[tuple[int, list[str]]] = []
     for r_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=max_scan, values_only=True), start=1):
         cells = [str(c).strip() if c is not None else "" for c in row]
         n_non_empty = sum(1 for c in cells if c)
-        if n_non_empty >= min_non_empty and (best is None or n_non_empty > sum(1 for c in best[1] if c)):
+        if n_non_empty >= min_non_empty:
+            candidates.append((r_idx, cells))
+
+    if not candidates:
+        return None
+
+    if aliases:
+        best_match_count = 0
+        best: tuple[int, list[str]] | None = None
+        for r_idx, cells in candidates:
+            matches = len(index_headers(cells, aliases))
+            if matches > best_match_count:
+                best_match_count = matches
+                best = (r_idx, cells)
+            # Tie: keep earliest (already first-seen, do nothing).
+        if best is not None and best_match_count >= min_alias_matches:
+            return best
+
+    # Fallback: pick the row with the most non-empty cells; earliest wins on tie.
+    best = candidates[0]
+    best_count = sum(1 for c in best[1] if c)
+    for r_idx, cells in candidates[1:]:
+        n = sum(1 for c in cells if c)
+        if n > best_count:
             best = (r_idx, cells)
+            best_count = n
     return best
 
 
@@ -83,49 +129,37 @@ def normalize_header(s: str) -> str:
 
 
 def index_headers(headers: list[str], aliases: dict[str, list[str]]) -> dict[str, int]:
-    """Map logical field names to column indices.
+    """Map logical field names to column indices via curated alias exact match.
 
-    Two-pass with column claiming: exact matches first (high specificity),
-    then substring matches as fallback. Once a field claims a column, no
-    other field can match it. Prevents bare aliases ('mã') from shadowing
-    longer ones ('mã nội bộ') when both are present, and avoids the
-    'staff-added internal-code column accidentally read as customs_code'
-    case where two fields would otherwise resolve to the same column.
+    Each field claims at most one column; once a column is claimed it is not
+    available to other fields. This prevents bare aliases ('mã') from
+    shadowing longer ones ('mã nội bộ') when both happen to be in scope.
+
+    Substring matching is intentionally not supported — aliases must be
+    enumerated explicitly. Past substring fallback caused (a) silent
+    corruption when an empty header cell '' substring-matched any alias
+    target ('' in 'mã' is True), and (b) wrong-column claims when a short
+    alias like 'hq' substring-matched unrelated headers like 'shq' or
+    'hq date'. Adding a new header variant is a 1-line append to the
+    relevant ALIASES list.
     """
     norm = [normalize_header(h) for h in headers]
     found: dict[str, int] = {}
     claimed: set[int] = set()
 
-    def _claim(field: str, idx: int) -> None:
-        found[field] = idx
-        claimed.add(idx)
-
-    # Pass 1: exact match (highest specificity).
     for field, alts in aliases.items():
         if field in found:
             continue
         for alt in alts:
             target = normalize_header(alt)
+            if not target:
+                continue
             for i, h in enumerate(norm):
-                if i in claimed:
+                if i in claimed or not h:
                     continue
                 if h == target:
-                    _claim(field, i)
-                    break
-            if field in found:
-                break
-
-    # Pass 2: substring match — only on columns not already claimed.
-    for field, alts in aliases.items():
-        if field in found:
-            continue
-        for alt in alts:
-            target = normalize_header(alt)
-            for i, h in enumerate(norm):
-                if i in claimed:
-                    continue
-                if target in h or h in target:
-                    _claim(field, i)
+                    found[field] = i
+                    claimed.add(i)
                     break
             if field in found:
                 break

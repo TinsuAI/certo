@@ -74,7 +74,7 @@ def parse_materials_workbook(blob: bytes, *, default_category: str = "nvl") -> l
     rows: list[dict] = []
     for ws in wb.worksheets:
         sheet_default = _category_from_sheet_name(ws.title) or default_category
-        hdr = header_row(ws)
+        hdr = header_row(ws, aliases=ALIASES)
         if not hdr:
             continue
         header_idx, headers = hdr

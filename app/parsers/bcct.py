@@ -14,7 +14,7 @@ class BcctParseError(RuntimeError):
 ALIASES = {
     "declaration_no": ["số tờ khai", "so to khai", "số tk", "so tk",
                        "declaration no", "declaration_no"],
-    "line_no": ["stt hàng", "stt hang", "dòng", "line"],
+    "line_no": ["stt hàng", "stt hang", "dòng", "line", "line no"],
     "declaration_type": ["mã loại hình", "ma loai hinh", "loại hình"],
     "direction": ["hướng", "huong", "direction", "nhập/xuất", "nhap xuat"],
     "registration_date": ["ngày đăng ký", "ngay dang ky", "ngày đk", "ngay dk",
@@ -29,10 +29,10 @@ ALIASES = {
     "quantity_2": ["tổng số lượng 2", "lượng 2", "qty 2", "số lượng 2"],
     "unit_2": ["đơn vị tính 2", "đvt 2", "unit 2"],
     "unit_price": ["đơn giá tính thuế", "đơn giá", "don gia", "unit price"],
-    "total_value": ["tổng trị giá", "trị giá nt", "trị giá", "tri gia", "total value", "value"],
+    "total_value": ["tổng trị giá", "trị giá nt", "trị giá", "tri gia", "total value", "value", "customs value"],
     "currency": ["đơn vị tiền tệ", "nguyên tệ", "currency"],
     "origin": ["xuất xứ", "xuat xu", "origin"],
-    "invoice_ref": ["số hóa đơn", "so hoa don", "invoice"],
+    "invoice_ref": ["số hóa đơn", "so hoa don", "invoice", "invoice ref"],
     # ── 12 CO-essential columns (promoted from payload 2026-05-04) ──
     "exporter_name": ["tên doanh nghiệp", "ten doanh nghiep",
                       "exporter name", "exporter"],
@@ -87,7 +87,7 @@ def parse_bcct_workbook(
         raise BcctParseError(f"Cannot open workbook: {e}") from e
     rows: list[dict] = []
     for ws in wb.worksheets:
-        hdr = header_row(ws, max_scan=20)
+        hdr = header_row(ws, aliases=ALIASES, max_scan=20)
         if not hdr:
             continue
         header_idx, headers = hdr

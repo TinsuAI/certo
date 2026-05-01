@@ -115,6 +115,77 @@ needed.
 
 ---
 
+## Parser bugs surfaced by 2026-05-02 real-data smoke test
+
+Captured driving real Growatt/DKE/Johnson BOM + BQD files through the live
+UI (see `tests/test_real_data_external.py` BOM/BQD parametrize blocks +
+`scripts/smoke_real_uploads.py`). Files staged at `/tmp/dh_real_data/`.
+
+### Bug A — `header_row()` picks data row over header row
+**Severity:** P0 (blocks every real Growatt BOM today).
+
+`app/parsers/_excel.py:68` scores rows by raw non-empty count. When the
+header row has a leading empty STT cell but data row 2 has STT populated,
+data row beats header row (10 > 9 non-empty), and `index_headers` runs
+against data values. `_parse_flat` then either rejects the file
+(BomParseError) or produces garbage when Bug C kicks in.
+
+Real Growatt BOM TP (963 KB) and BTP (462 KB) are both blocked by this.
+
+**Fix idea:** prefer the first row hitting a min-non-empty floor (e.g. ≥4
+distinct strings, no all-numeric cells); or score rows by alias-match
+count rather than raw non-empty count.
+
+### Bug B — DKE BQD alias gap
+**Severity:** P1 (blocks DKE BQD upload; probably affects other agencies).
+
+`app/parsers/code_mappings.py:11` ALIASES doesn't recognize `Mã ERP`
+(=internal_code) or `Mã NPL/TP` (=customs_code) — DKE's actual column
+names. Pure alias gap. Plus DKE BQD multi-sheet `.xls` has headers on row
+4-5, not row 0; `header_row()` `max_scan=15` does cover this, so when
+aliases are added the file should parse.
+
+**Fix:** 1-line addition — `"mã erp"` to internal_code aliases, `"mã npl tp"`
++ `"mã npl/tp"` to customs_code aliases.
+
+### Bug C — `index_headers()` empty-header substring match silently corrupts
+**Severity:** P0 — silent data corruption. *Found while triaging Bug A.*
+
+`app/parsers/_excel.py:118` pass-2 substring matching uses
+`target in h or h in target`. When `h` (header cell) is empty (`''`),
+`'' in target` is always True. Empty trailing header cells therefore
+get claimed as columns for any unmatched logical field, with column
+indices in document order.
+
+**Real-world impact:** Growatt BTP file's data rows have random values at
+the trailing-empty-header positions. Hub silently ingests 50 "products"
+keyed on values like `'FARATRONIC'` (a brand string that happened to land
+at the wrong column). NO user-visible error. Would corrupt customer DB if
+shipped.
+
+**Fix:** add `if not target or not h: continue` in the inner pass-2 loop.
+
+### UX-1 — BOM upload parse error renders as raw FastAPI JSON
+**Severity:** UX, low.
+
+`app/routes/bom.py:85` raises `HTTPException(400, "Parse error: ...")`
+which the browser renders as `{"detail":"Parse error: ..."}` JSON page.
+Compare BCCT's parse-mapping flow (`app/routes/bcct.py`) which renders a
+proper template with the error embedded + recovery options.
+
+**Fix:** catch BomParseError in route, render an error template (or
+redirect with `?error=...` toast pattern matching the BCCT post-upload
+toast).
+
+### UX-2 — BOM upload silently corrupts on Bug C path
+**Severity:** Critical — see Bug C above. Same root cause; surfaces in UI
+as "successful upload" when in fact the parser produced garbage rows.
+Mitigated only if Bug A and Bug C are both fixed; until then, BOM uploads
+of Growatt-shape files create version/row records that look valid but
+reference nonexistent material codes.
+
+---
+
 ## Cross-cut from /rev (still open)
 
 - **Cache `use_count` overcounts** when cached mapping fails parse and

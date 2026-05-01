@@ -10,9 +10,12 @@ class CodeMappingsParseError(RuntimeError):
 
 ALIASES = {
     "internal_code": ["mã nội bộ", "ma noi bo", "internal code", "mã nb", "ma nb",
-                      "internal_code", "nb"],
+                      "internal_code", "nb",
+                      "mã erp", "ma erp"],          # DKE: ERP system identifier
     "customs_code": ["mã hải quan", "mã hq", "ma hai quan", "ma hq",
-                     "customs code", "customs_code", "hq"],
+                     "customs code", "customs_code", "hq",
+                     "mã npl tp", "mã npl/tp",      # DKE: customs-registered NPL/TP code
+                     "ma npl tp", "ma npl/tp"],
     "category": ["loại", "loai", "category"],
     "notes": ["ghi chú", "ghi chu", "notes", "remark"],
 }
@@ -25,7 +28,7 @@ def parse_code_mappings_workbook(blob: bytes) -> list[dict]:
         raise CodeMappingsParseError(f"Cannot open workbook: {e}") from e
     rows: list[dict] = []
     for ws in wb.worksheets:
-        hdr = header_row(ws)
+        hdr = header_row(ws, aliases=ALIASES)
         if not hdr:
             continue
         header_idx, headers = hdr
@@ -51,9 +54,13 @@ def parse_code_mappings_workbook(blob: bytes) -> list[dict]:
 
 
 def _cat_from_sheet(name: str) -> str | None:
+    """Heuristic: map sheet name → category. BTP must be checked before TP
+    because 'tp' is a substring of 'btp' (Bug D)."""
     n = name.lower()
     if "nvl" in n:
         return "nvl"
+    if "btp" in n:
+        return "btp"
     if "tp" in n:
         return "tp"
     if "ccdc" in n or "tool" in n:
