@@ -1,7 +1,18 @@
 # Project: barry-CO
 
 ## Session Start
-Read `.ai/STATUS.md` and last 2-3 session summaries in `.ai/sessions/` before doing anything.
+Read `.ai/STATUS.md` and last 3-5 session summaries in `.ai/sessions/` before doing anything.
+After the context refresh, start the development server for the app by default so the workspace is ready for manual checks. Reuse an already-running server when available; otherwise run the project dev command on the default port, or the next available port if the default is busy, and report the URL.
+
+### Context Budget For Getting Up To Date
+Getting up to date must be a low-context refresh, not a repository inventory.
+
+- Default read set: `AGENTS.md`, `.ai/STATUS.md`, `.ai/DECISIONS.md`, and the latest 3-5 files in `.ai/sessions/`.
+- Use targeted reads only. Read selected session summaries in full; read status/decision files in full unless they become unusually large.
+- Do not run broad file inventories over `docs/legal/`, `data/`, generated corpora, extracted archives, or large local artifacts during session start.
+- Do not run tests, browser checks, or dependency installs just to get up to date. Save verification for implementation or when the user asks.
+- Do not spawn sub-agents for routine session start or "get up to date". Session refresh is not the same as codebase exploration.
+- If more context is needed, state the specific question first, then read only the files needed to answer it.
 
 ## Overview
 Future webapp for agency staff who prepare and submit certificate of origin (CO) dossiers. The current repo is still in discovery: the immediate goal is to understand the supplied archives, workflow documents, and spreadsheet-driven process before choosing app architecture.
@@ -49,6 +60,7 @@ Scale rigor to the change — a quick fix needs less ceremony than a payments in
 - **Progressive rigor:** Small change = lightweight. Risky change = thorough spec and review.
 - **Assumptions mode:** On existing codebases, state assumptions from reading the code rather than asking many questions. User corrects what's wrong.
 - **Verify before claiming done:** No "done" without running tests and confirming the change works. Evidence, not claims.
+- **Screenshot hygiene:** When UI/browser testing creates screenshots, save them under `.ai/screenshots/<feature-slug>/`, where `<feature-slug>` names the feature currently being developed. Do not dump screenshots directly into `.ai/screenshots/`.
 
 ## Data Hub API Requests
 
