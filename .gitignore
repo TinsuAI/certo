@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 *.pyo
 data/files/
+data/screenshots/
 .pytest_cache/
 .uv-cache/
 node_modules/

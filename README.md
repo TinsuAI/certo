@@ -22,7 +22,7 @@ Open http://127.0.0.1:8754. Default admin: `admin@data-hub.local / admin123`
 
 ```bash
 uv run python scripts/seed_demo.py    # synthetic Growatt-shape uploads
-uv run python scripts/screenshot.py   # Playwright UI capture → data/screenshots/
+uv run python scripts/screenshot.py   # Playwright UI capture → data/screenshots/ (gitignored)
 ```
 
 ### Tests
