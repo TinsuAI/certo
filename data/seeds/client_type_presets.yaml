@@ -1,0 +1,44 @@
+# DNCX activity-type presets seed.
+#
+# Loaded ONCE on first install into hub.client_type_presets.
+# After first install, the table is the source of truth — staff edit via
+# /admin/client-type-presets. System presets (is_system=true here) cannot
+# be deleted but can be edited or disabled. User-created presets via UI
+# are fully deletable.
+#
+# Schema: list of {preset_key, display_name, default_eligible_import,
+#                  default_relevant_export, is_system?, notes?}
+#
+# When a client picks a preset, Data Hub copies the current defaults into
+# hub.client_config (snapshot). Subsequent preset edits do NOT cascade
+# automatically — staff must explicitly "Re-apply preset" on the client
+# page.
+
+presets:
+  - preset_key: dncx
+    display_name: Doanh nghiệp chế xuất (DNCX)
+    is_system: true
+    default_eligible_import: [E11, E15]
+    default_relevant_export: [E42]
+    notes: Nhập NVL E11/E15, xuất sản phẩm E42
+
+  - preset_key: sxxk
+    display_name: Sản xuất xuất khẩu (SXXK)
+    is_system: true
+    default_eligible_import: [E31]
+    default_relevant_export: [E62]
+    notes: Nhập NVL E31, xuất sản phẩm E62
+
+  - preset_key: gia_cong
+    display_name: Gia công cho thương nhân nước ngoài
+    is_system: true
+    default_eligible_import: [E21, E23]
+    default_relevant_export: [E52, E54]
+    notes: Nhập NVL gia công E21/E23, xuất sản phẩm gia công E52/E54
+
+  - preset_key: manual
+    display_name: Tự cấu hình
+    is_system: true
+    default_eligible_import: []
+    default_relevant_export: []
+    notes: Không áp dụng preset; staff tự nhập từng loại tờ khai

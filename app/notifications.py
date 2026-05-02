@@ -86,6 +86,36 @@ def notify_many(
             return cur.rowcount or 0
 
 
+def notify_api_contract_changed(
+    *, summary: str, changelog_url: str | None = None,
+) -> int:
+    """Fan a `Breaking:` API contract change to all dev + admin users.
+
+    Used by scripts/announce_breaking_change.py after API_CHANGELOG.md
+    gets a new `## YYYY-MM-DD — Breaking: ...` entry. Sister-app
+    operators (CO + BCQT dev/admin) read the bell and adjust consumer
+    code.
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select user_id from hub.users
+                where role in ('dev', 'admin') and status = 'active'
+                """
+            )
+            user_ids = [row[0] for row in cur.fetchall()]
+    if not user_ids:
+        return 0
+    return notify_many(
+        user_ids=user_ids,
+        kind="api_contract_changed",
+        title="Breaking API contract change",
+        body=summary,
+        link_url=changelog_url or "/docs/API_CHANGELOG.md",
+    )
+
+
 def list_for_user(
     user_id: str,
     *,

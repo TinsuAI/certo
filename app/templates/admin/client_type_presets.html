@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Preset loại hình DNCX · {{ t('app.brand') }}{% endblock %}
+{% block content %}
+<section class="page-bar">
+  <h1>Preset loại hình DNCX</h1>
+  <span class="page-tagline">Profiles loại hình hoạt động (DNCX, SXXK, gia công, ...). Snapshot vào client lúc apply, không cascade.</span>
+  <div class="page-actions">
+    <a class="btn-secondary" href="/admin/declaration-types">← Mã loại hình</a>
+    <a class="btn-secondary" href="/admin/users">Quản lý user</a>
+  </div>
+</section>
+
+{% if saved %}
+<div class="toast toast-success">Đã lưu.</div>
+{% endif %}
+{% if error %}
+<div class="toast toast-error">{{ error }}</div>
+{% endif %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Thêm preset</h2>
+      <p class="meta">User-created preset có thể xóa được. Mã loại hình điền cách nhau bằng dấu phẩy.</p>
+    </div>
+  </div>
+  <form method="post" action="/admin/client-type-presets/new" class="settings-form">
+    <div class="settings-grid">
+      <div class="field">
+        <label for="preset_key">Key</label>
+        <input type="text" id="preset_key" name="preset_key" required placeholder="my_preset" maxlength="32">
+      </div>
+      <div class="field">
+        <label for="display_name">Tên hiển thị</label>
+        <input type="text" id="display_name" name="display_name" required placeholder="Doanh nghiệp loại X">
+      </div>
+      <div class="field">
+        <label for="default_eligible_import">Default import (CSV)</label>
+        <input type="text" id="default_eligible_import" name="default_eligible_import" placeholder="E11, E15">
+      </div>
+      <div class="field">
+        <label for="default_relevant_export">Default export (CSV)</label>
+        <input type="text" id="default_relevant_export" name="default_relevant_export" placeholder="E42">
+      </div>
+      <div class="field" style="grid-column: span 2;">
+        <label for="notes">Ghi chú</label>
+        <input type="text" id="notes" name="notes">
+      </div>
+    </div>
+    <div class="settings-footer">
+      <button type="submit" class="btn-primary">+ Thêm</button>
+    </div>
+  </form>
+</section>
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Preset hiện có</h2>
+      <p class="meta">{{ rows|length }} preset · system preset không xóa được</p>
+    </div>
+  </div>
+  <table class="dh-table">
+    <thead>
+      <tr>
+        <th>Key</th>
+        <th>Tên hiển thị</th>
+        <th>Import default</th>
+        <th>Export default</th>
+        <th>Loại</th>
+        <th>Trạng thái</th>
+        <th>Hành động</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="mono">{{ r.preset_key }}</td>
+        <td>
+          <form method="post" action="/admin/client-type-presets/{{ r.preset_key }}/update" class="inline-form">
+            <input type="text" name="display_name" value="{{ r.display_name }}" onchange="this.form.submit()">
+            <input type="hidden" name="default_eligible_import" value="{{ r.default_eligible_import|join(', ') }}">
+            <input type="hidden" name="default_relevant_export" value="{{ r.default_relevant_export|join(', ') }}">
+            <input type="hidden" name="notes" value="{{ r.notes }}">
+            <input type="hidden" name="is_active" value="{{ 'true' if r.is_active else 'false' }}">
+          </form>
+        </td>
+        <td>
+          <form method="post" action="/admin/client-type-presets/{{ r.preset_key }}/update" class="inline-form">
+            <input type="text" name="default_eligible_import" value="{{ r.default_eligible_import|join(', ') }}" onchange="this.form.submit()" style="min-width: 140px;">
+            <input type="hidden" name="display_name" value="{{ r.display_name }}">
+            <input type="hidden" name="default_relevant_export" value="{{ r.default_relevant_export|join(', ') }}">
+            <input type="hidden" name="notes" value="{{ r.notes }}">
+            <input type="hidden" name="is_active" value="{{ 'true' if r.is_active else 'false' }}">
+          </form>
+        </td>
+        <td>
+          <form method="post" action="/admin/client-type-presets/{{ r.preset_key }}/update" class="inline-form">
+            <input type="text" name="default_relevant_export" value="{{ r.default_relevant_export|join(', ') }}" onchange="this.form.submit()" style="min-width: 140px;">
+            <input type="hidden" name="display_name" value="{{ r.display_name }}">
+            <input type="hidden" name="default_eligible_import" value="{{ r.default_eligible_import|join(', ') }}">
+            <input type="hidden" name="notes" value="{{ r.notes }}">
+            <input type="hidden" name="is_active" value="{{ 'true' if r.is_active else 'false' }}">
+          </form>
+        </td>
+        <td>
+          {% if r.is_system %}
+          <span class="badge badge-info" title="Seeded từ data/seeds/client_type_presets.yaml; không xóa được.">system</span>
+          {% else %}
+          <span class="badge">user</span>
+          {% endif %}
+        </td>
+        <td>
+          <span class="badge badge-{{ 'success' if r.is_active else 'warning' }}">{{ 'active' if r.is_active else 'disabled' }}</span>
+        </td>
+        <td class="actions-cell">
+          <form method="post" action="/admin/client-type-presets/{{ r.preset_key }}/update" class="inline-form">
+            <input type="hidden" name="display_name" value="{{ r.display_name }}">
+            <input type="hidden" name="default_eligible_import" value="{{ r.default_eligible_import|join(', ') }}">
+            <input type="hidden" name="default_relevant_export" value="{{ r.default_relevant_export|join(', ') }}">
+            <input type="hidden" name="notes" value="{{ r.notes }}">
+            <input type="hidden" name="is_active" value="{{ 'false' if r.is_active else 'true' }}">
+            <button type="submit" class="btn-{{ 'danger-sm' if r.is_active else 'secondary' }}">{{ 'Disable' if r.is_active else 'Enable' }}</button>
+          </form>
+          {% if not r.is_system %}
+          <form method="post" action="/admin/client-type-presets/{{ r.preset_key }}/delete" class="inline-form" onsubmit="return confirm('Xóa preset {{ r.preset_key }}?');">
+            <button type="submit" class="btn-danger-sm">Xóa</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

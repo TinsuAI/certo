@@ -1,0 +1,84 @@
+# Vietnamese customs declaration type codes seed.
+#
+# Loaded ONCE on first install into hub.declaration_type_catalog.
+# After first install, the table is the source of truth — staff edit via
+# /admin/declaration-types. This file is NOT re-read on subsequent
+# startups. To force re-seed: scripts/reseed_declaration_types.py --force
+#
+# Schema: list of {code, direction, description, notes?}
+# - code: HQ declaration type code (E11, E15, …)
+# - direction: import | export
+# - description: short Vietnamese description
+# - notes: optional internal notes
+#
+# Sources:
+# - Thông tư 38/2015/TT-BTC (sửa đổi bởi 39/2018) — bảng mã loại hình.
+# - Thực tế nghiệp vụ thấy trong code CO (Growatt/DKE/Johnson).
+#
+# Codes here are a starter set, not exhaustive. Add more via UI as needed.
+
+declaration_types:
+  # Import types
+  - code: A11
+    direction: import
+    description: Nhập kinh doanh tiêu dùng
+  - code: A12
+    direction: import
+    description: Nhập kinh doanh sản xuất
+  - code: A41
+    direction: import
+    description: Nhập kinh doanh của doanh nghiệp đầu tư
+  - code: A42
+    direction: import
+    description: Chuyển tiêu thụ nội địa khác
+  - code: E11
+    direction: import
+    description: Nhập nguyên liệu của DNCX
+  - code: E13
+    direction: import
+    description: Nhập tạo tài sản cố định DNCX
+  - code: E15
+    direction: import
+    description: Nhập nguyên liệu DNCX từ nội địa
+  - code: E21
+    direction: import
+    description: Nhập nguyên liệu để gia công cho thương nhân nước ngoài
+  - code: E23
+    direction: import
+    description: Nhập nguyên liệu gia công từ hợp đồng khác chuyển sang
+  - code: E31
+    direction: import
+    description: Nhập nguyên liệu sản xuất xuất khẩu (SXXK)
+  - code: G11
+    direction: import
+    description: Tạm nhập hàng kinh doanh tạm nhập tái xuất
+    notes: Hàng tạm nhập, không tính tồn C/O
+  - code: G13
+    direction: import
+    description: Tạm nhập miễn thuế
+
+  # Export types
+  - code: B11
+    direction: export
+    description: Xuất kinh doanh
+  - code: B13
+    direction: export
+    description: Xuất khẩu hàng đã nhập khẩu
+  - code: E42
+    direction: export
+    description: Xuất sản phẩm của DNCX
+  - code: E52
+    direction: export
+    description: Xuất sản phẩm gia công cho thương nhân nước ngoài
+  - code: E54
+    direction: export
+    description: Xuất nguyên liệu gia công sang hợp đồng khác
+  - code: E62
+    direction: export
+    description: Xuất sản phẩm sản xuất xuất khẩu (SXXK)
+  - code: G21
+    direction: export
+    description: Tái xuất hàng kinh doanh tạm nhập tái xuất
+  - code: G23
+    direction: export
+    description: Tái xuất hàng tạm nhập miễn thuế

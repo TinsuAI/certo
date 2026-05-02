@@ -1,0 +1,197 @@
+"""Admin UIs for master data: declaration type catalog + client type presets.
+
+Both gated to dev/admin (can_manage_users). Lists, create, edit, disable.
+System presets cannot be deleted; user presets can.
+"""
+from __future__ import annotations
+
+from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+
+from app import auth
+from app.stores import client_type_presets, declaration_types
+
+router = APIRouter()
+
+
+def _csv_to_codes(raw: str) -> list[str]:
+    """Parse a comma/space/newline separated list of codes."""
+    if not raw:
+        return []
+    parts: list[str] = []
+    buf = ""
+    for ch in raw:
+        if ch in ",;\n\r\t ":
+            if buf.strip():
+                parts.append(buf.strip())
+            buf = ""
+        else:
+            buf += ch
+    if buf.strip():
+        parts.append(buf.strip())
+    return parts
+
+
+# ── Declaration type catalog ───────────────────────────────────────────
+
+@router.get("/admin/declaration-types", response_class=HTMLResponse)
+async def declaration_types_view(request: Request, error: str | None = None,
+                                 saved: bool = False):
+    user = auth.require_user(request)
+    if not auth.can_manage_users(user):
+        raise HTTPException(403, "forbidden")
+    rows = declaration_types.list_all()
+    return request.app.state.templates.TemplateResponse(
+        request, "admin/declaration_types.html",
+        {"rows": rows, "error": error, "saved": saved,
+         "active_root": "admin"},
+    )
+
+
+@router.post("/admin/declaration-types/new")
+async def declaration_types_create(
+    request: Request,
+    code: str = Form(...),
+    direction: str = Form(...),
+    description: str = Form(""),
+    notes: str = Form(""),
+):
+    user = auth.require_user(request)
+    if not auth.can_manage_users(user):
+        raise HTTPException(403, "forbidden")
+    try:
+        declaration_types.create(
+            code=code, direction=direction, description=description,
+            notes=notes, user_id=user.user_id,
+        )
+    except ValueError as exc:
+        return RedirectResponse(
+            url=f"/admin/declaration-types?error={exc}", status_code=303,
+        )
+    except Exception:
+        return RedirectResponse(
+            url="/admin/declaration-types?error=duplicate", status_code=303,
+        )
+    return RedirectResponse(url="/admin/declaration-types?saved=1", status_code=303)
+
+
+@router.post("/admin/declaration-types/{code}/update")
+async def declaration_types_update(
+    request: Request, code: str,
+    direction: str = Form(""),
+    description: str = Form(""),
+    notes: str = Form(""),
+    is_active: str = Form("true"),
+):
+    user = auth.require_user(request)
+    if not auth.can_manage_users(user):
+        raise HTTPException(403, "forbidden")
+    try:
+        declaration_types.update(
+            code,
+            direction=direction or None,
+            description=description,
+            notes=notes,
+            is_active=(is_active.strip().lower() == "true"),
+            user_id=user.user_id,
+        )
+    except ValueError as exc:
+        return RedirectResponse(
+            url=f"/admin/declaration-types?error={exc}", status_code=303,
+        )
+    return RedirectResponse(url="/admin/declaration-types?saved=1", status_code=303)
+
+
+# ── Client type presets ────────────────────────────────────────────────
+
+@router.get("/admin/client-type-presets", response_class=HTMLResponse)
+async def presets_view(request: Request, error: str | None = None,
+                       saved: bool = False):
+    user = auth.require_user(request)
+    if not auth.can_manage_users(user):
+        raise HTTPException(403, "forbidden")
+    rows = client_type_presets.list_all()
+    return request.app.state.templates.TemplateResponse(
+        request, "admin/client_type_presets.html",
+        {"rows": rows, "error": error, "saved": saved,
+         "active_root": "admin"},
+    )
+
+
+@router.post("/admin/client-type-presets/new")
+async def presets_create(
+    request: Request,
+    preset_key: str = Form(...),
+    display_name: str = Form(...),
+    default_eligible_import: str = Form(""),
+    default_relevant_export: str = Form(""),
+    notes: str = Form(""),
+):
+    user = auth.require_user(request)
+    if not auth.can_manage_users(user):
+        raise HTTPException(403, "forbidden")
+    try:
+        client_type_presets.create(
+            preset_key=preset_key,
+            display_name=display_name,
+            default_eligible_import=_csv_to_codes(default_eligible_import),
+            default_relevant_export=_csv_to_codes(default_relevant_export),
+            notes=notes,
+            user_id=user.user_id,
+        )
+    except ValueError as exc:
+        return RedirectResponse(
+            url=f"/admin/client-type-presets?error={exc}", status_code=303,
+        )
+    except Exception:
+        return RedirectResponse(
+            url="/admin/client-type-presets?error=duplicate", status_code=303,
+        )
+    return RedirectResponse(url="/admin/client-type-presets?saved=1", status_code=303)
+
+
+@router.post("/admin/client-type-presets/{preset_key}/update")
+async def presets_update(
+    request: Request, preset_key: str,
+    display_name: str = Form(""),
+    default_eligible_import: str = Form(""),
+    default_relevant_export: str = Form(""),
+    notes: str = Form(""),
+    is_active: str = Form("true"),
+):
+    user = auth.require_user(request)
+    if not auth.can_manage_users(user):
+        raise HTTPException(403, "forbidden")
+    try:
+        client_type_presets.update(
+            preset_key,
+            display_name=display_name or None,
+            default_eligible_import=_csv_to_codes(default_eligible_import),
+            default_relevant_export=_csv_to_codes(default_relevant_export),
+            notes=notes,
+            is_active=(is_active.strip().lower() == "true"),
+            user_id=user.user_id,
+        )
+    except ValueError as exc:
+        return RedirectResponse(
+            url=f"/admin/client-type-presets?error={exc}", status_code=303,
+        )
+    return RedirectResponse(
+        url="/admin/client-type-presets?saved=1", status_code=303,
+    )
+
+
+@router.post("/admin/client-type-presets/{preset_key}/delete")
+async def presets_delete(request: Request, preset_key: str):
+    user = auth.require_user(request)
+    if not auth.can_manage_users(user):
+        raise HTTPException(403, "forbidden")
+    try:
+        client_type_presets.delete(preset_key, user_id=user.user_id)
+    except ValueError as exc:
+        return RedirectResponse(
+            url=f"/admin/client-type-presets?error={exc}", status_code=303,
+        )
+    return RedirectResponse(
+        url="/admin/client-type-presets?saved=1", status_code=303,
+    )

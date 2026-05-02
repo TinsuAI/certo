@@ -12,7 +12,8 @@ from fastapi.templating import Jinja2Templates
 
 from app import auth, i18n, settings_store
 from app.database import apply_migrations
-from app.routes import admin, agent, api, auth_api, bcct, bom, bqd, catalog, clients, notifications as notif_routes, proposals, uploads
+from app.seed_master_data import seed_master_data_if_empty
+from app.routes import admin, agent, api, auth_api, bcct, bom, bqd, catalog, client_config_ui, clients, master_data, notifications as notif_routes, proposals, uploads
 from app.seed import auto_seed_demo_if_empty
 
 ROOT = Path(__file__).resolve().parent
@@ -84,6 +85,9 @@ def template_context(request: Request) -> dict:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     apply_migrations()
+    seeded_master = seed_master_data_if_empty()
+    if any(seeded_master.values()):
+        print(f"[seed] Master data seeded: {seeded_master}")
     seed_email = os.environ.get("DATA_HUB_SEED_EMAIL", "admin@data-hub.local")
     seed_password = os.environ.get("DATA_HUB_SEED_PASSWORD", "admin123")
     seeded_admin = auth.seed_admin_if_empty(email=seed_email, password=seed_password)
@@ -137,6 +141,8 @@ app.include_router(bom.router)
 app.include_router(proposals.router)
 app.include_router(uploads.router)
 app.include_router(admin.router)
+app.include_router(master_data.router)
+app.include_router(client_config_ui.router)
 app.include_router(api.router)
 app.include_router(notif_routes.router)
 app.include_router(agent.router)

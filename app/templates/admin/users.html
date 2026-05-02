@@ -4,11 +4,13 @@
 <section class="page-bar">
   <h1>{{ t('admin.title') }}</h1>
   <span class="page-tagline">{{ t('admin.subtitle') }}</span>
-  {% if user.role == 'dev' %}
   <span style="margin-left:auto;">
+    <a class="btn-secondary" href="/admin/declaration-types">Mã loại hình</a>
+    <a class="btn-secondary" href="/admin/client-type-presets">Preset DNCX</a>
+    {% if user.role == 'dev' %}
     <a class="btn-secondary" href="/admin/settings/technical">Cài đặt kỹ thuật</a>
+    {% endif %}
   </span>
-  {% endif %}
 </section>
 
 {% if error == 'duplicate_email' %}

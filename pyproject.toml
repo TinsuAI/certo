@@ -16,6 +16,7 @@ dependencies = [
     "httpx>=0.28.1",
     "openai>=2.33.0",
     "pyjwt[crypto]>=2.10",
+    "pyyaml>=6.0.3",
 ]
 
 [dependency-groups]

@@ -189,16 +189,21 @@ Response item fields include:
 
 Fetch one DNCX. Caller must have view access.
 
-### CO Consumer Config
+### Client Config (master data)
 
-#### `GET /v1/hub/dncxs/{client_id}/co-config`
+#### `GET /v1/hub/dncxs/{client_id}/client-config`
 
-Returns a CO-compatible config envelope.
+Returns consumer-agnostic master config for a DNCX. **Replaces the deprecated `/co-config` endpoint.**
 
-Important semantics:
-- `bcct.eligible_import_declaration_types` is currently empty because Data Hub does not yet store per-client CO declaration-type filters.
-- `bcct.relevant_export_declaration_types` is currently empty for the same reason.
-- `bcct.declaration_type_filter_status = "unconfigured"` means consumers must not interpret the empty arrays as a confirmed business rule.
+Owns only true agency master data:
+- `eligible_import_declaration_types` — HQ declaration types this DNCX is registered to import (E11, E15, E31, ...).
+- `relevant_export_declaration_types` — Export declaration types relevant for C/O and settlement (E42, E62, ...).
+- `fiscal_year_start_month` — 1..12. Default 1 (calendar year). Some Japanese DNCX use 4.
+- `preset_key` — Optional reference to `hub.client_type_presets` (`dncx`, `sxxk`, `gia_cong`, `manual`, or user-created). Snapshot only — preset edits do NOT cascade.
+- `config_version` — Monotonic, bumped on each save. `0` means "not yet configured" (virtual default response).
+- `config_hash` — sha256(canonical JSON)[:16]. Consumers should compare this on each fetch to invalidate caches.
+
+CO-specific fields (`co_stock.lot_policy`, `allocation_code.*`) and BCQT-specific fields (Mẫu 15/15a column mappings) are NOT in this payload — those live in CO and BCQT respectively.
 
 Example:
 
@@ -206,43 +211,48 @@ Example:
 {
   "schema_version": 1,
   "client_id": "growatt-vn",
-  "config_version": 1,
-  "config_hash": "data-hub:growatt-vn:...",
-  "source": "data-hub",
-  "bcct": {
-    "declaration_type_preset": "data_hub",
-    "declaration_type_filter_status": "unconfigured",
-    "eligible_import_declaration_types": [],
-    "relevant_export_declaration_types": []
-  },
-  "co_stock": {
-    "lot_policy": "line_level"
-  },
-  "allocation_code": {
-    "strategy": "same_as_customs_code",
-    "description_regex": "",
-    "fallback": "same_as_customs_code",
-    "data_hub_code_resolution_mode": "simple_mapping"
-  }
+  "preset_key": "dncx",
+  "eligible_import_declaration_types": ["E11", "E15"],
+  "relevant_export_declaration_types": ["E42"],
+  "fiscal_year_start_month": 1,
+  "config_version": 3,
+  "config_hash": "601d43362456eee3"
 }
 ```
+
+#### `GET /v1/hub/dncxs/{client_id}/co-config` *(deprecated)*
+
+**Deprecated 2026-05-02. Sunset 2026-05-16.** Use `/client-config` for master data; CO-runtime fields belong in CO local config.
+
+Response carries:
+- `Deprecation: true`
+- `Sunset: Sat, 16 May 2026 00:00:00 GMT`
+- `Link: </v1/hub/dncxs/{id}/client-config>; rel="successor-version"`
+
+During grace window: master fields (`bcct.eligible_import_declaration_types`, `bcct.relevant_export_declaration_types`) are sourced from `hub.client_config`. CO-runtime placeholders (`co_stock.lot_policy`, `allocation_code.*`) keep returning legacy values for back-compat. After 2026-05-16 this endpoint returns 410 Gone.
 
 ### Source Summary
 
 #### `GET /v1/hub/dncxs/{client_id}/source-summary`
 
-Returns row-count summaries for Data Hub source records.
+Returns row-count summaries for Data Hub source records plus the master `client_config`.
 
-Important semantics:
-- `co_stock_row_count` is currently raw import BCCT row count.
-- `co_stock_row_count_semantics = "raw_import_rows_unfiltered"` means this is not yet a CO stock calculation after declaration-type filtering, allocation, or lot policy.
-- Consumers should display it as raw source coverage, not as usable CO stock.
+Note: `co_stock_row_count` and `co_stock_row_count_semantics` were removed 2026-05-02. CO must compute its own stock from filtered BCCT reads (use `eligible_import_declaration_types` from `/client-config` to filter `/bcct?direction=import&...`).
 
 Example:
 
 ```json
 {
-  "client_config": { "...": "same shape as /co-config" },
+  "client_config": {
+    "schema_version": 1,
+    "client_id": "growatt-vn",
+    "preset_key": "dncx",
+    "eligible_import_declaration_types": ["E11", "E15"],
+    "relevant_export_declaration_types": ["E42"],
+    "fiscal_year_start_month": 1,
+    "config_version": 3,
+    "config_hash": "601d43362456eee3"
+  },
   "material_catalog": {
     "module": "material_catalog",
     "published_row_count": 100,
@@ -260,9 +270,7 @@ Example:
     "published_row_count": 1000,
     "reviewed_row_count": 1000,
     "export_row_count": 300
-  },
-  "co_stock_row_count": 700,
-  "co_stock_row_count_semantics": "raw_import_rows_unfiltered"
+  }
 }
 ```
 

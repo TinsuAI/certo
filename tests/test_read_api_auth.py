@@ -188,7 +188,8 @@ def test_materials_endpoint_returns_next_cursor(strict_mode_on):
                 cur.execute("delete from hub.clients where client_id = %s", (client_id,))
 
 
-def test_co_config_and_source_summary_endpoints(strict_mode_on):
+def test_client_config_and_source_summary_endpoints(strict_mode_on):
+    """New /client-config endpoint + slimmed /source-summary (Hướng B)."""
     client_id = "read-api-summary"
     with connect() as conn:
         with conn.cursor() as cur:
@@ -224,29 +225,54 @@ def test_co_config_and_source_summary_endpoints(strict_mode_on):
             display_name="Summary Admin",
         )["access_token"]
 
+        # New endpoint: master config only.
         config = _client().get(
+            f"/v1/hub/dncxs/{client_id}/client-config",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        assert config.status_code == 200
+        body = config.json()
+        assert body["client_id"] == client_id
+        assert body["preset_key"] is None  # not yet configured
+        assert body["eligible_import_declaration_types"] == []
+        assert body["fiscal_year_start_month"] == 1
+        assert body["config_version"] == 0  # virtual default
+        assert body["config_hash"]  # populated even for virtual default
+        assert "co_stock" not in body
+        assert "allocation_code" not in body
+
+        # Deprecated endpoint still works during grace window + carries headers.
+        legacy = _client().get(
             f"/v1/hub/dncxs/{client_id}/co-config",
             headers={"authorization": f"Bearer {token}"},
         )
+        assert legacy.status_code == 200
+        assert legacy.headers.get("Deprecation") == "true"
+        assert "Sunset" in legacy.headers
+        assert legacy.json()["allocation_code"]["data_hub_code_resolution_mode"] == "simple_mapping"
+
         summary = _client().get(
             f"/v1/hub/dncxs/{client_id}/source-summary",
             headers={"authorization": f"Bearer {token}"},
         )
-
-        assert config.status_code == 200
-        assert config.json()["allocation_code"]["data_hub_code_resolution_mode"] == "simple_mapping"
-        assert config.json()["bcct"]["declaration_type_filter_status"] == "unconfigured"
         assert summary.status_code == 200
-        assert summary.json()["material_catalog"]["published_row_count"] == 1
-        assert summary.json()["product_catalog"]["published_row_count"] == 1
-        assert summary.json()["bcct"]["published_row_count"] == 2
-        assert summary.json()["co_stock_row_count"] == 1
-        assert summary.json()["co_stock_row_count_semantics"] == "raw_import_rows_unfiltered"
+        sbody = summary.json()
+        assert sbody["material_catalog"]["published_row_count"] == 1
+        assert sbody["product_catalog"]["published_row_count"] == 1
+        assert sbody["bcct"]["published_row_count"] == 2
+        # CO stock counters were dropped 2026-05-02.
+        assert "co_stock_row_count" not in sbody
+        assert "co_stock_row_count_semantics" not in sbody
+        # client_config sub-payload now matches /client-config shape.
+        assert sbody["client_config"]["client_id"] == client_id
+        assert sbody["client_config"]["fiscal_year_start_month"] == 1
+        assert "co_stock" not in sbody["client_config"]
     finally:
         with connect() as conn:
             with conn.cursor() as cur:
                 cur.execute("delete from hub.bcct_rows where client_id = %s", (client_id,))
                 cur.execute("delete from hub.materials where client_id = %s", (client_id,))
+                cur.execute("delete from hub.client_config where client_id = %s", (client_id,))
                 cur.execute("delete from hub.clients where client_id = %s", (client_id,))
 
 

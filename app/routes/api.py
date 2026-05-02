@@ -26,6 +26,7 @@ from app import auth
 from app import jwt_issuer, settings_store
 from app.database import connect
 from app.routes.clients import get_client, list_clients
+from app.stores import client_config as client_config_store
 from app.stores.bom import (
     get_version_with_rows,
     list_versions_for_product,
@@ -218,18 +219,68 @@ async def api_get_dncx(client_id: str, authorization: str | None = Header(None))
     return _json(dncx)
 
 
-@router.get("/dncxs/{client_id}/co-config")
-async def api_co_config(client_id: str, authorization: str | None = Header(None)):
+@router.get("/dncxs/{client_id}/client-config")
+async def api_client_config(client_id: str, authorization: str | None = Header(None)):
+    """Consumer-agnostic master config for a DNCX.
+
+    Replaces the deprecated `/co-config` endpoint. Owns only true master
+    data: declaration-type registry + fiscal year start month. CO-runtime
+    fields (lot_policy, allocation_code) live in CO; settlement column
+    mappings live in BCQT.
+    """
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
-    return _json(_co_config(client))
+    cfg_row = client_config_store.get_or_default(client_id)
+    return _json(client_config_store.to_api_payload(cfg_row))
+
+
+@router.get("/dncxs/{client_id}/co-config", deprecated=True)
+async def api_co_config(client_id: str, authorization: str | None = Header(None)):
+    """DEPRECATED 2026-05-02. Use /client-config + CO local config.
+
+    Sunset: 2026-05-16 (deploy + 14 days). After that, this endpoint
+    returns 410 Gone. Master fields (declaration types + fiscal year)
+    are now sourced from hub.client_config; CO-runtime placeholders
+    (co_stock.lot_policy, allocation_code.*) keep returning the legacy
+    shape during the grace window so existing CO calls don't 500.
+    """
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    cfg_row = client_config_store.get_or_default(client_id)
+    payload = _co_config(client)
+    payload["bcct"]["eligible_import_declaration_types"] = list(
+        cfg_row.get("eligible_import_declaration_types") or []
+    )
+    payload["bcct"]["relevant_export_declaration_types"] = list(
+        cfg_row.get("relevant_export_declaration_types") or []
+    )
+    if cfg_row.get("config_version", 0) > 0:
+        payload["bcct"]["declaration_type_filter_status"] = "configured"
+        payload["config_version"] = cfg_row["config_version"]
+        payload["config_hash"] = cfg_row.get("config_hash", "")
+    response = _json(payload)
+    response.headers["Deprecation"] = "true"
+    response.headers["Sunset"] = "Sat, 16 May 2026 00:00:00 GMT"
+    response.headers["Link"] = (
+        f'</v1/hub/dncxs/{client_id}/client-config>; rel="successor-version"'
+    )
+    return response
 
 
 @router.get("/dncxs/{client_id}/source-summary")
 async def api_source_summary(client_id: str, authorization: str | None = Header(None)):
+    """Row-count summaries for Data Hub source records.
+
+    `client_config` carries the new `/client-config` shape (master data
+    only). CO-specific stock counters were removed 2026-05-02 — CO
+    computes its own stock from raw filterable BCCT.
+    """
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
     client = get_client(client_id)
@@ -251,15 +302,15 @@ async def api_source_summary(client_id: str, authorization: str | None = Header(
                 """
                 select
                   count(*) as n_bcct,
-                  count(*) filter (where direction = 'import') as n_imports,
                   count(*) filter (where direction = 'export') as n_exports
                 from hub.bcct_rows where client_id = %s
                 """,
                 (client_id,),
             )
-            n_bcct, n_imports, n_exports = cur.fetchone()
+            n_bcct, n_exports = cur.fetchone()
+    cfg_row = client_config_store.get_or_default(client_id)
     return _json({
-        "client_config": _co_config(client),
+        "client_config": client_config_store.to_api_payload(cfg_row),
         "material_catalog": _module_summary("material_catalog", int(n_materials or 0)),
         "product_catalog": _module_summary("product_catalog", int(n_products or 0)),
         "bcct": {
@@ -267,8 +318,6 @@ async def api_source_summary(client_id: str, authorization: str | None = Header(
             "reviewed_row_count": int(n_bcct or 0),
             "export_row_count": int(n_exports or 0),
         },
-        "co_stock_row_count": int(n_imports or 0),
-        "co_stock_row_count_semantics": "raw_import_rows_unfiltered",
     })
 
 

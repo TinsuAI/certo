@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Mã loại hình tờ khai · {{ t('app.brand') }}{% endblock %}
+{% block content %}
+<section class="page-bar">
+  <h1>Mã loại hình tờ khai</h1>
+  <span class="page-tagline">Catalog mã HQ — staff thêm/sửa/disable. Seed lần đầu từ data/seeds/declaration_types.yaml.</span>
+  <div class="page-actions">
+    <a class="btn-secondary" href="/admin/users">← Quản lý user</a>
+    <a class="btn-secondary" href="/admin/client-type-presets">Preset loại hình →</a>
+  </div>
+</section>
+
+{% if saved %}
+<div class="toast toast-success">Đã lưu.</div>
+{% endif %}
+{% if error %}
+<div class="toast toast-error">{{ error }}</div>
+{% endif %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Thêm mã loại hình</h2>
+      <p class="meta">Code phải là duy nhất (E11, E15, A12, ...).</p>
+    </div>
+  </div>
+  <form method="post" action="/admin/declaration-types/new" class="settings-form">
+    <div class="settings-grid">
+      <div class="field">
+        <label for="code">Code</label>
+        <input type="text" id="code" name="code" required placeholder="E11" maxlength="16">
+      </div>
+      <div class="field">
+        <label for="direction">Direction</label>
+        <select id="direction" name="direction" required>
+          <option value="import">import</option>
+          <option value="export">export</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="description">Mô tả</label>
+        <input type="text" id="description" name="description" placeholder="Nhập nguyên liệu của DNCX">
+      </div>
+      <div class="field">
+        <label for="notes">Ghi chú</label>
+        <input type="text" id="notes" name="notes">
+      </div>
+    </div>
+    <div class="settings-footer">
+      <button type="submit" class="btn-primary">+ Thêm</button>
+    </div>
+  </form>
+</section>
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Catalog hiện tại</h2>
+      <p class="meta">{{ rows|length }} mã</p>
+    </div>
+  </div>
+  <table class="dh-table">
+    <thead>
+      <tr>
+        <th>Code</th>
+        <th>Direction</th>
+        <th>Mô tả</th>
+        <th>Ghi chú</th>
+        <th>Trạng thái</th>
+        <th>Cập nhật</th>
+        <th>Hành động</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td class="mono">{{ r.code }}</td>
+        <td>
+          <form method="post" action="/admin/declaration-types/{{ r.code }}/update" class="inline-form">
+            <select name="direction" onchange="this.form.submit()">
+              <option value="import" {% if r.direction == 'import' %}selected{% endif %}>import</option>
+              <option value="export" {% if r.direction == 'export' %}selected{% endif %}>export</option>
+            </select>
+            <input type="hidden" name="description" value="{{ r.description }}">
+            <input type="hidden" name="notes" value="{{ r.notes }}">
+            <input type="hidden" name="is_active" value="{{ 'true' if r.is_active else 'false' }}">
+          </form>
+        </td>
+        <td>
+          <form method="post" action="/admin/declaration-types/{{ r.code }}/update" class="inline-form">
+            <input type="text" name="description" value="{{ r.description }}" onchange="this.form.submit()">
+            <input type="hidden" name="direction" value="{{ r.direction }}">
+            <input type="hidden" name="notes" value="{{ r.notes }}">
+            <input type="hidden" name="is_active" value="{{ 'true' if r.is_active else 'false' }}">
+          </form>
+        </td>
+        <td class="small">{{ r.notes }}</td>
+        <td>
+          <span class="badge badge-{{ 'success' if r.is_active else 'warning' }}">{{ 'active' if r.is_active else 'disabled' }}</span>
+        </td>
+        <td class="mono small">{{ r.updated_at.strftime('%Y-%m-%d %H:%M') if r.updated_at else '' }}</td>
+        <td class="actions-cell">
+          <form method="post" action="/admin/declaration-types/{{ r.code }}/update" class="inline-form">
+            <input type="hidden" name="direction" value="{{ r.direction }}">
+            <input type="hidden" name="description" value="{{ r.description }}">
+            <input type="hidden" name="notes" value="{{ r.notes }}">
+            <input type="hidden" name="is_active" value="{{ 'false' if r.is_active else 'true' }}">
+            <button type="submit" class="btn-{{ 'danger-sm' if r.is_active else 'secondary' }}">{{ 'Disable' if r.is_active else 'Enable' }}</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
