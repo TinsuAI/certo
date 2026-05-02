@@ -45,10 +45,14 @@ def _strict_mode() -> bool:
     return (settings_store.get("api_auth_strict") or "").lower() in {"1", "true", "yes"}
 
 
-def _require_token(authorization: str | None) -> dict | None:
+def _require_token(authorization: str | None, *, scope: str = "hub:read") -> dict | None:
     """Verify bearer auth. Returns claims dict on JWT success, None on
     permissive fallback (legacy bearer-anything in dev). Raises 401 in
     strict mode or when no bearer at all.
+
+    `scope`: required for service tokens (`typ=service`). Default
+    'hub:read' covers all read endpoints. User tokens ignore the scope
+    arg; their access is role-gated per `_require_can_view_client`.
     """
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "bearer token required")
@@ -59,11 +63,17 @@ def _require_token(authorization: str | None) -> dict | None:
     # Try JWT verify first.
     try:
         claims = jwt_issuer.verify_token(token)
-        return claims
     except pyjwt.ExpiredSignatureError:
         # Always reject expired tokens regardless of strict mode.
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, "token expired",
+        )
+    except jwt_issuer.ServiceTokenInvalid as e:
+        # A revoked/deleted/malformed service token MUST NEVER fall back
+        # to permissive mode — that would grant unauthenticated access on
+        # a revoked token in dev. Always 401.
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, f"invalid service token: {e}",
         )
     except pyjwt.InvalidTokenError as e:
         if _strict_mode():
@@ -73,24 +83,34 @@ def _require_token(authorization: str | None) -> dict | None:
         # Permissive: accept any non-empty bearer for dev / legacy callers.
         logger.warning("api: permissive accept of non-JWT bearer: %s", e)
         return None
+    _require_scope(claims, scope)
+    return claims
 
 
-def _require_jwt_claims(authorization: str | None) -> dict:
+def _require_jwt_claims(authorization: str | None, *, scope: str = "hub:read") -> dict:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "bearer token required")
     token = authorization[7:].strip()
     if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "empty bearer token")
     try:
-        return jwt_issuer.verify_token(token)
+        claims = jwt_issuer.verify_token(token)
     except pyjwt.ExpiredSignatureError:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "token expired")
+    except jwt_issuer.ServiceTokenInvalid as e:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"invalid service token: {e}")
     except pyjwt.InvalidTokenError as e:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"invalid token: {e}")
+    _require_scope(claims, scope)
+    return claims
+
+
+def _is_service_claims(claims: dict | None) -> bool:
+    return bool(claims) and claims.get("typ") == "service"
 
 
 def _user_from_claims(claims: dict | None) -> auth.User | None:
-    if not claims:
+    if not claims or _is_service_claims(claims):
         return None
     return auth.User(
         user_id=str(claims.get("sub", "")),
@@ -104,11 +124,44 @@ def _user_from_claims(claims: dict | None) -> auth.User | None:
 def _visible_clients_from_claims(claims: dict | None) -> list[str] | None:
     if claims is None:
         return None
+    if _is_service_claims(claims):
+        # Service tokens with a client_ids whitelist see only those.
+        # client_ids=null = all clients (no filtering).
+        wl = claims.get("client_ids")
+        return list(wl) if wl is not None else None
     return auth.visible_clients(_user_from_claims(claims))
+
+
+def _require_scope(claims: dict | None, scope: str) -> None:
+    """Service tokens must carry the named scope. User tokens are
+    role-gated separately and don't go through this check."""
+    if not _is_service_claims(claims):
+        return
+    granted = claims.get("scopes") or []
+    # Defense in depth against a malformed token — `"x" in "csv,string"` is
+    # True for substring matches, so refuse anything that isn't a list.
+    if not isinstance(granted, list):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "service token scopes claim malformed",
+        )
+    if scope not in granted:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f"service token missing required scope: {scope}",
+        )
 
 
 def _require_can_view_client(claims: dict | None, client_id: str) -> None:
     if claims is None:
+        return
+    if _is_service_claims(claims):
+        wl = claims.get("client_ids")
+        if wl is not None and client_id not in wl:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "client not in service-account whitelist",
+            )
         return
     if not auth.can_view_client(_user_from_claims(claims), client_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "forbidden")
@@ -116,6 +169,14 @@ def _require_can_view_client(claims: dict | None, client_id: str) -> None:
 
 def _require_can_edit_client(claims: dict | None, client_id: str) -> None:
     if claims is None:
+        return
+    if _is_service_claims(claims):
+        wl = claims.get("client_ids")
+        if wl is not None and client_id not in wl:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "client not in service-account whitelist",
+            )
         return
     if not auth.can_edit_client(_user_from_claims(claims), client_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "forbidden")
@@ -615,7 +676,7 @@ async def api_submit_bom_proposal(
     product_code: str,
     authorization: str | None = Header(None),
 ):
-    claims = _require_jwt_claims(authorization)
+    claims = _require_jwt_claims(authorization, scope="bom:propose")
     body = await request.json()
     client_id = body.get("client_id") or body.get("dncx_id")
     if not client_id or not get_client(client_id):

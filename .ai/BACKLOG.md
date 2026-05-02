@@ -10,7 +10,8 @@ For past architectural decisions, see `DECISIONS.md`.
 
 ## API auth — flip dev-permissive reads to strict by default
 
-**Captured 2026-05-02.**
+**Captured 2026-05-02.** **Unblocked 2026-05-02 PM** — service-account
+JWTs shipped (migration 020). Now waiting on sister-app cutover.
 
 Today the read API on `/v1/hub/*` accepts non-empty legacy bearer strings
 when `api_auth_strict=false` (default). Writes (BOM proposal POST) always
@@ -19,9 +20,8 @@ chosen deliberately: prioritize dev/integration ergonomics today,
 prioritize corruption prevention on writes.
 
 **Promote when:**
-- CO and BCQT have stable JWT issuance flows wired in (no longer relying
-  on hand-pasted bearer strings during integration).
-- Service-account JWTs land (see "Service-account JWTs" below).
+- CO and BCQT have switched to service-account JWTs (per
+  `.ai/sister-app-notes/2026-05-02-service-account-jwts-available.md`).
 - We have a staging environment where strict mode can be soak-tested
   before flipping prod.
 
@@ -32,40 +32,6 @@ prioritize corruption prevention on writes.
    the JWT validation branch.
 3. Update `docs/API_CONTRACT.md` to drop the dev-permissive mode section.
 4. Update CO/BCQT consumer code to send real JWT on every read call.
-
----
-
-## Service-account JWTs and scoped tokens
-
-**Captured 2026-05-02. Blocks "auth strict" promotion above.**
-
-Strict-write auth today uses real **user** JWTs plus the user's current
-client ACL. There is no notion of a "machine identity" — CO and BCQT have
-to carry a real user's token to call mutating endpoints.
-
-**Why this matters:**
-- Background jobs (cron, batch ingest) have no logged-in user; pinning a
-  human user's token to a job is fragile (user offboarding, password
-  rotation breaks the job).
-- Audit log `bcct_row_history.changed_by` records the user_id, so CO
-  ingest writes look like a human edit in history view.
-- User ACL is broader than what CO actually needs (CO only needs
-  bom:propose / bcct:write for its own clients).
-
-**Design sketch when implementing:**
-- New `hub.service_accounts` table (name, scopes[], created_at,
-  revoked_at, hashed_secret).
-- Token issue endpoint or bootstrap script that mints a service JWT
-  with `typ=service`, `sub=svc:co|svc:bcqt`, `scopes=[...]`.
-- `_require_token` branches on `typ`: user JWTs validate against ACL;
-  service JWTs validate against scopes.
-- Audit GUC `app.user_id` set to `svc:<name>` for service requests so
-  history view distinguishes machine actors from humans.
-- Per-token revocation independent of user accounts.
-
-**Cross-repo:** needs sister-app notes for CO + BCQT once design is
-locked. CO consumer code in `app/data_hub_client.py` will need to
-swap from user-JWT to service-JWT on writes.
 
 ---
 
@@ -123,6 +89,9 @@ of 2026-05-02 PM):
   FileNotFoundError → `2e8cd05`.
 - Apply confirm-gate pattern to catalog/bqd/bom (was a cross-cut from
   prior /rev) → `359ebec` Phase 2.
+- Service-account JWTs → migration 020, `app/jwt_issuer.py:make_service_token`,
+  `scripts/mint_service_token.py`, `tests/test_service_account_jwts.py`
+  (13 new tests, 232 total).
 
 These were removed from this file on 2026-05-02 PM. See git history of
 `.ai/BACKLOG.md` for the original entries.
