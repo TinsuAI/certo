@@ -47,6 +47,7 @@ class DataHubTokenVerifier:
             raise jwt.InvalidTokenError(f"unknown kid: {kid}")
         signing_key = jwt.PyJWK.from_dict(key).key
         last_error: jwt.InvalidTokenError | None = None
+        claims = {}
         for issuer in self.issuers:
             try:
                 claims = jwt.decode(
@@ -115,6 +116,8 @@ def fetch_data_hub_jwks(url: str) -> dict:
         response = httpx.get(url, timeout=data_hub_request_timeout_seconds())
         response.raise_for_status()
         jwks = response.json()
+        if not isinstance(jwks, dict):
+            raise ValueError("Data Hub JWKS response must be a JSON object.")
     except (httpx.HTTPError, ValueError):
         if cached:
             return cached[1]

@@ -131,6 +131,20 @@ def test_fetch_data_hub_jwks_uses_stale_cache_when_data_hub_is_offline(monkeypat
     assert co_auth.fetch_data_hub_jwks("http://hub.test/v1/auth/jwks") == jwks
 
 
+def test_fetch_data_hub_jwks_rejects_non_object_response(monkeypatch):
+    from app import co_auth
+
+    co_auth.clear_jwks_cache()
+
+    def get_list(url: str, **_kwargs):
+        return httpx.Response(200, json=[], request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(co_auth.httpx, "get", get_list)
+
+    with pytest.raises(ValueError):
+        co_auth.fetch_data_hub_jwks("http://hub.test/v1/auth/jwks")
+
+
 def test_auth_required_redirects_clients_without_data_hub_session(monkeypatch):
     monkeypatch.setenv("CO_AUTH_REQUIRED", "1")
 
@@ -347,6 +361,20 @@ def test_data_hub_settings_page_renders_config_and_masks_token(monkeypatch, tmp_
     assert 'href="/settings"' in response.text
 
 
+def test_data_hub_settings_page_shows_env_token_source_when_env_overrides_local(monkeypatch, tmp_path):
+    config_path = tmp_path / "data-hub-link.json"
+    config_path.write_text(json.dumps({"DATA_HUB_API_TOKEN": "local-secret-token"}), encoding="utf-8")
+    monkeypatch.setenv("DATA_HUB_CONFIG_PATH", str(config_path))
+    monkeypatch.setenv("DATA_HUB_API_TOKEN", "env-secret-token")
+
+    response = TestClient(app).get("/settings/technical")
+
+    assert response.status_code == 200
+    assert "token environment" in response.text
+    assert "local-secret-token" not in response.text
+    assert "env-secret-token" not in response.text
+
+
 def test_data_hub_settings_page_saves_local_override(monkeypatch, tmp_path):
     from app.data_hub_settings import data_hub_link_settings
 
@@ -380,6 +408,23 @@ def test_data_hub_settings_page_saves_local_override(monkeypatch, tmp_path):
     assert settings.source_enabled is True
     assert settings.data_hub_api_base_url == "http://hub-api.internal:8754"
     assert settings.client_claim_keys == ("tenant_ids", "dncx_ids")
+
+
+def test_data_hub_settings_save_rejects_invalid_local_override(monkeypatch, tmp_path):
+    config_path = tmp_path / "data-hub-link.json"
+    monkeypatch.setenv("DATA_HUB_CONFIG_PATH", str(config_path))
+    monkeypatch.setenv("DATA_HUB_REQUEST_TIMEOUT_SECONDS", "8")
+
+    response = TestClient(app).post(
+        "/settings/technical",
+        data={
+            "DATA_HUB_REQUEST_TIMEOUT_SECONDS": "not-a-number",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "DATA_HUB_REQUEST_TIMEOUT_SECONDS must be a positive number." in response.text
+    assert not config_path.exists()
 
 
 def test_data_hub_settings_page_is_guarded_when_auth_required(monkeypatch):

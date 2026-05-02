@@ -18,6 +18,7 @@ body[data-theme="light"] {
   --foreground-muted: #64748b;
   --card: rgba(255, 255, 255, 0.94);
   --card-muted: rgba(248, 250, 252, 0.98);
+  --menu-surface: #ffffff;
   --surface-subtle: rgba(241, 245, 249, 0.86);
   --surface-hover: rgba(226, 232, 240, 0.72);
   --surface-overlay: rgba(255, 255, 255, 0.78);
@@ -52,6 +53,7 @@ body[data-theme="dark"] {
   --foreground-muted: #94a3b8;
   --card: rgba(19, 28, 39, 0.92);
   --card-muted: rgba(25, 35, 49, 0.9);
+  --menu-surface: #111827;
   --surface-subtle: rgba(255, 255, 255, 0.03);
   --surface-hover: rgba(255, 255, 255, 0.06);
   --surface-overlay: rgba(17, 24, 39, 0.82);
@@ -374,7 +376,7 @@ small,
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 0.35rem;
-  background: var(--surface-overlay);
+  background: var(--menu-surface);
   box-shadow: var(--shadow-md);
 }
 

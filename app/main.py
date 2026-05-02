@@ -262,7 +262,7 @@ def data_hub_settings_context(request: Request, *, saved: bool = False, error: s
     settings = data_hub_link_settings()
     overrides = load_data_hub_overrides()
     env_values = os.environ
-    token_source = "local override" if "DATA_HUB_API_TOKEN" in overrides else "environment" if env_values.get("DATA_HUB_API_TOKEN") else "missing"
+    token_source = "environment" if env_values.get("DATA_HUB_API_TOKEN") else "local override" if "DATA_HUB_API_TOKEN" in overrides else "missing"
     rows = [
         {"key": "DATA_HUB_ENABLED", "label": "Dùng Data Hub cho source/master data", "value": "1" if settings.source_enabled else "0", "type": "checkbox"},
         {"key": "CO_AUTH_REQUIRED", "label": "Bắt buộc Data Hub SSO cho CO", "value": "1" if settings.auth_required else "0", "type": "checkbox"},
@@ -386,7 +386,8 @@ async def save_data_hub_settings(request: Request):
     form = await request.form()
     payload = data_hub_override_payload(form, load_data_hub_overrides())
     try:
-        DataHubLinkSettings.from_env({**os.environ, **payload})
+        DataHubLinkSettings.from_env(payload)
+        DataHubLinkSettings.from_env({**payload, **os.environ})
     except RuntimeError as exc:
         return templates.TemplateResponse(
             request=request,
