@@ -8,10 +8,45 @@ For past architectural decisions, see `DECISIONS.md`.
 
 ---
 
+## CO + BCQT — adopt service-account JWTs
+
+**Captured 2026-05-02 PM.** Ship-blocking dependency for "API auth strict
+promotion" below. No hard deadline — coexistence works fine.
+
+Service-account JWTs are live in Data Hub (migration 020 + CLI). Sister
+apps still call with permissive bearer / user JWT. To adopt:
+
+1. **Mint tokens** (Data Hub admin):
+   ```bash
+   uv run python scripts/mint_service_token.py create \
+     --name co --scopes hub:read,bom:propose \
+     --client-ids growatt-vn,dke-vietnam-d0e3,johnson-vn,do-thanh-vietnam-2614 \
+     --created-by <admin-email>
+
+   uv run python scripts/mint_service_token.py create \
+     --name bcqt --scopes hub:read \
+     --created-by <admin-email>
+   ```
+2. **CO repo** (`barry-CO-main`): inject `DATA_HUB_SERVICE_TOKEN` env
+   into `app/data_hub_client.py` Bearer header on every call. If CO
+   verifies tokens locally, branch on `claims["typ"] == "service"` —
+   service tokens have no email/role/name; `sub` is `svc:co`.
+3. **BCQT repo**: same pattern, `hub:read` scope only.
+
+Full instructions: `.ai/sister-app-notes/2026-05-02-service-account-jwts-available.md`.
+Design rationale: `.ai/features/2026-05-02-service-account-jwts.md`.
+
+**Pull this out of backlog when:** ready to coordinate the sister-repo
+PRs, or when about to flip `api_auth_strict=true` (then it becomes
+ship-blocking).
+
+---
+
 ## API auth — flip dev-permissive reads to strict by default
 
 **Captured 2026-05-02.** **Unblocked 2026-05-02 PM** — service-account
-JWTs shipped (migration 020). Now waiting on sister-app cutover.
+JWTs shipped (migration 020). Now waiting on sister-app cutover (item
+above).
 
 Today the read API on `/v1/hub/*` accepts non-empty legacy bearer strings
 when `api_auth_strict=false` (default). Writes (BOM proposal POST) always

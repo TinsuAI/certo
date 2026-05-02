@@ -46,14 +46,13 @@ Test count: 219 passed, 15 skipped (was 204 passed; +15 new in `tests/test_clien
 2. **BCQT one-line entry in DECISIONS.md** — point a BCQT agent at `.ai/sister-app-notes/2026-05-02-bcqt-client-config-available.md`.
 3. **Schedule `/co-config` removal** — after CO confirms cutover, run `/schedule` to open removal PR per `.ai/scheduled/2026-05-16-remove-co-config.md`.
 4. **Backfill johnson-vn** if needed — currently it has a `sxxk` config from manual testing; CO had it as `manual` with empty lists. Decide whether to overwrite from CO or leave the test config.
-5. ~~Service-account JWTs~~ **shipped 2026-05-02 PM.** See
-   `.ai/sister-app-notes/2026-05-02-service-account-jwts-available.md`
-   for CO/BCQT coordination. Test count: 232 passed, 15 skipped (+13
-   new in `tests/test_service_account_jwts.py`).
-6. **Flip `api_auth_strict=true`** — unblocked by #5 once CO + BCQT
-   adopt service-account JWTs. No fixed deadline; can soak in staging
-   first. See `BACKLOG.md` "API auth — flip dev-permissive reads".
-7. Backlog items from earlier (CSRF, manual mapping UI, BOM parse-error UX, migration numbering) unchanged.
+5. ~~Service-account JWTs~~ **shipped 2026-05-02 PM** (commit `a47df52`).
+   Test count: 239 passed, 15 skipped (+20 new). CO/BCQT adoption
+   deferred to backlog — see `BACKLOG.md` "CO + BCQT — adopt
+   service-account JWTs". Coexistence works; not urgent.
+6. Backlog items unchanged: CSRF, manual mapping UI, BOM parse-error
+   UX, migration numbering, auth strict promotion (blocked on
+   sister-app adoption above).
 
 ## Blockers
 
