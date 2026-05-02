@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import File, Form, HTTPException, Request, UploadFile
 from fastapi import FastAPI
@@ -8,6 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from app import co_auth
 from app.bom_store import (
     attach_case_bom_snapshot,
     create_bom_template_workbook,
@@ -28,9 +30,14 @@ from app.co_case_store import (
     update_case_record,
 )
 from app.co_forms import form_candidates_for_market
-from app.client_registry import get_client, get_client_case, get_clients
+from app.client_registry import get_client as registry_get_client
+from app.client_registry import get_client_case
+from app.data_hub_client import reset_current_data_hub_token, set_current_data_hub_token
 from app.demo_data import (
+    DEMO_CASE,
     SOURCE_NOTES,
+    attach_results,
+    clone_case,
     update_products_from_form,
 )
 from app.portfolio import portfolio_app, portfolio_service
@@ -58,7 +65,11 @@ def normalize_theme(value: str | None) -> str:
 
 def theme_context(request: Request) -> dict[str, str]:
     theme = normalize_theme(request.cookies.get(THEME_COOKIE))
-    return {"theme": theme, "next_theme": "light" if theme == "dark" else "dark"}
+    return {
+        "theme": theme,
+        "next_theme": "light" if theme == "dark" else "dark",
+        "co_user": co_auth.current_user(request),
+    }
 
 
 app = FastAPI(title="Barry CO Demo")
@@ -66,6 +77,22 @@ app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 app.mount("/portfolio", portfolio_app, name="portfolio")
 
 templates = Jinja2Templates(directory=ROOT / "templates", context_processors=[theme_context])
+
+
+@app.middleware("http")
+async def require_data_hub_auth(request: Request, call_next):
+    redirect = co_auth.guard_response(request)
+    if redirect:
+        return redirect
+    token_context = None
+    user = co_auth.current_user(request)
+    if user and user.access_token:
+        token_context = set_current_data_hub_token(user.access_token)
+    try:
+        return await call_next(request)
+    finally:
+        if token_context:
+            reset_current_data_hub_token(token_context)
 
 CATALOG_VIEWS = {
     "materials": {
@@ -206,9 +233,79 @@ async def set_theme(theme: str = Form("light"), next_url: str = Form("/clients")
     return response
 
 
+@app.get("/auth/login")
+async def auth_login(request: Request, next: str = "/clients"):
+    redirect_uri = f"{co_auth.co_public_base_url(request)}/auth/callback"
+    return RedirectResponse(
+        co_auth.data_hub_authorize_url(redirect_uri=redirect_uri, state=next),
+        status_code=303,
+    )
+
+
+@app.get("/auth/callback", name="auth_callback")
+async def auth_callback(request: Request, code: str = "", state: str = "/clients"):
+    next_url = co_auth.safe_next_path(state)
+    if not code:
+        return RedirectResponse(f"/auth/login?next={quote(next_url, safe='/')}", status_code=303)
+    redirect_uri = f"{co_auth.co_public_base_url(request)}/auth/callback"
+    try:
+        payload = co_auth.exchange_data_hub_sso_code(code, redirect_uri=redirect_uri)
+        token = str(payload["access_token"])
+        verifier = co_auth.DataHubTokenVerifier(
+            issuer=co_auth.data_hub_issuer_url(),
+            jwks_provider=lambda: co_auth.fetch_data_hub_jwks(co_auth.data_hub_jwks_url()),
+        )
+        verifier.verify(token)
+    except Exception:
+        return RedirectResponse(f"/auth/login?next={quote(next_url, safe='/')}", status_code=303)
+    response = RedirectResponse(next_url, status_code=303)
+    co_auth.set_session_cookie(response, token, int(payload.get("expires_in") or 600))
+    return response
+
+
+def require_local_source_writes() -> None:
+    if co_auth.data_hub_source_mode_enabled():
+        raise HTTPException(
+            status_code=409,
+            detail="Shared source data is read-only in CO when DATA_HUB_ENABLED is active. Use Data Hub for source changes.",
+        )
+
+
+def resolve_client(client_id: str) -> dict:
+    service_client = getattr(portfolio_service, "client", None)
+    if callable(service_client):
+        return service_client(client_id)
+    return registry_get_client(client_id)
+
+
+def default_client_case(client: dict) -> dict:
+    case = clone_case(DEMO_CASE)
+    case.update(
+        {
+            "id": f"{client['id']}-empty-co-case",
+            "customer": client["name"],
+            "case_code": "Chưa tạo",
+            "title": f"Hồ sơ C/O {client['name']}",
+            "destination_market": "Chưa nhập",
+            "agreement": "Chưa nhập",
+            "co_form_type": "Chưa nhập",
+            "source_label": "Chưa có dữ liệu C/O",
+            "products": [],
+        }
+    )
+    return attach_results(case)
+
+
+def client_case(client: dict) -> dict:
+    try:
+        return get_client_case(client["id"])
+    except KeyError:
+        return default_client_case(client)
+
+
 def client_context(client_id: str, active: str, **extra):
-    client = get_client(client_id)
-    case = extra.pop("case", get_client_case(client_id))
+    client = resolve_client(client_id)
+    case = extra.pop("case", client_case(client))
     source_workspace, source_backend = source_workspace_for_client(client)
     client = enrich_client_with_source_workspace(client, source_workspace)
     bom_workspace = get_bom_workspace(client)
@@ -236,7 +333,7 @@ def source_workspace_for_client(client: dict) -> tuple[dict, str]:
 
 
 def co_case_light_context(client_id: str, case: dict, current_step: str, **extra) -> dict:
-    client = get_client(client_id)
+    client = resolve_client(client_id)
     source_context = co_case_source_context(client, case)
     source_summary = source_context["source_summary"]
     bom_workspace = get_bom_workspace(client) if current_step == "origin" else minimal_bom_workspace()
@@ -392,13 +489,13 @@ def co_stock_table_context(request: Request, client_id: str) -> dict:
 
 
 def co_case_context(client_id: str, case_id: str = "", current_step: str = "index", **extra) -> dict:
-    client = get_client(client_id)
+    client = resolve_client(client_id)
     case = extra.pop("case", None)
     effective_case_id = case_id or (case or {}).get("persisted_case_id", "")
     workspace = get_case_workspace(client, effective_case_id)
     record = get_case_record(client, effective_case_id) if effective_case_id else None
     if case is None:
-        case = get_client_case(client_id)
+        case = client_case(client)
         if record:
             case = case_from_record(case, client, record)
     elif record:
@@ -497,10 +594,13 @@ def stock_reason_label(row: dict, status: str) -> str:
 @app.get("/", response_class=HTMLResponse)
 @app.get("/clients", response_class=HTMLResponse)
 async def clients(request: Request):
+    clients = portfolio_service.clients()
+    if co_auth.auth_required():
+        clients = co_auth.filter_visible_clients(clients, co_auth.current_user(request))
     return templates.TemplateResponse(
         request=request,
         name="clients.html",
-        context={"clients": get_clients()},
+        context={"clients": clients},
     )
 
 
@@ -542,7 +642,7 @@ async def product_catalog(request: Request, client_id: str):
 
 @app.get("/clients/{client_id}/catalog/material-template.xlsx")
 async def download_material_catalog_template(client_id: str):
-    content = portfolio_service.material_catalog_template(get_client(client_id))
+    content = portfolio_service.material_catalog_template(resolve_client(client_id))
     return StreamingResponse(
         iter([content]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -552,7 +652,7 @@ async def download_material_catalog_template(client_id: str):
 
 @app.get("/clients/{client_id}/catalog/product-template.xlsx")
 async def download_product_catalog_template(client_id: str):
-    content = portfolio_service.product_catalog_template(get_client(client_id))
+    content = portfolio_service.product_catalog_template(resolve_client(client_id))
     return StreamingResponse(
         iter([content]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -568,7 +668,8 @@ async def upload_catalog_workbook(
     catalog_type: str = Form("material"),
     upload_scope: str = Form("full_catalog"),
 ):
-    client = get_client(client_id)
+    require_local_source_writes()
+    client = resolve_client(client_id)
     result = portfolio_service.process_catalog_upload(
         client,
         catalog_type,
@@ -604,7 +705,8 @@ async def bom(request: Request, client_id: str):
 
 @app.post("/clients/{client_id}/bom/config", response_class=HTMLResponse)
 async def save_bom_config(request: Request, client_id: str):
-    client = get_client(client_id)
+    require_local_source_writes()
+    client = resolve_client(client_id)
     form = await request.form()
     update_bom_config(client, {key: str(value) for key, value in form.items()})
     return templates.TemplateResponse(
@@ -625,7 +727,8 @@ async def client_config(request: Request, client_id: str):
 
 @app.post("/clients/{client_id}/config", response_class=HTMLResponse)
 async def save_client_config_route(request: Request, client_id: str):
-    client = get_client(client_id)
+    require_local_source_writes()
+    client = resolve_client(client_id)
     form = await request.form()
     config = portfolio_service.get_client_config(client)
     config["bcct"]["eligible_import_declaration_types"] = str(form.get("eligible_import_declaration_types", ""))
@@ -660,7 +763,8 @@ async def upload_bom_workbook(
     upload_scope: str = Form(""),
     accept_review_required: str = Form(""),
 ):
-    client = get_client(client_id)
+    require_local_source_writes()
+    client = resolve_client(client_id)
     result = process_bom_upload(
         client,
         await file.read(),
@@ -686,7 +790,7 @@ async def upload_bom_workbook(
 
 @app.get("/clients/{client_id}/bom/template.xlsx")
 async def download_bom_template(client_id: str):
-    content = create_bom_template_workbook(get_client(client_id))
+    content = create_bom_template_workbook(resolve_client(client_id))
     return StreamingResponse(
         iter([content]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -732,7 +836,7 @@ async def bcct_exports(request: Request, client_id: str):
 
 @app.get("/clients/{client_id}/bcct/template.xlsx")
 async def download_bcct_template(client_id: str):
-    content = portfolio_service.bcct_template(get_client(client_id))
+    content = portfolio_service.bcct_template(resolve_client(client_id))
     return StreamingResponse(
         iter([content]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -742,7 +846,8 @@ async def download_bcct_template(client_id: str):
 
 @app.post("/clients/{client_id}/bcct/upload", response_class=HTMLResponse)
 async def upload_bcct_workbook(request: Request, client_id: str, file: UploadFile = File(...)):
-    client = get_client(client_id)
+    require_local_source_writes()
+    client = resolve_client(client_id)
     result = portfolio_service.process_bcct_upload(client, await file.read(), file.filename or "bcct.xlsx")
     status_code = 400 if result["status"] == "failed" else 200
     return templates.TemplateResponse(
@@ -770,7 +875,7 @@ async def co_case(request: Request, client_id: str):
 
 @app.post("/clients/{client_id}/co-case/create")
 async def create_co_case(request: Request, client_id: str):
-    client = get_client(client_id)
+    client = resolve_client(client_id)
     form = await request.form()
     record = create_case_record(client, {key: str(value) for key, value in form.items()})
     return RedirectResponse(f"/clients/{client_id}/co-case/{record['case_id']}", status_code=303)
@@ -780,7 +885,7 @@ async def create_co_case(request: Request, client_id: str):
 async def update_co_case_shipment(request: Request, client_id: str, case_id: str):
     form = {key: str(value) for key, value in (await request.form()).items()}
     update_case_record(
-        get_client(client_id),
+        resolve_client(client_id),
         {
             **form,
             "id": case_id,
@@ -824,7 +929,7 @@ async def upload_co_case_supporting_file(
     invoice_no: str = Form(""),
     bill_of_lading_no: str = Form(""),
 ):
-    client = get_client(client_id)
+    client = resolve_client(client_id)
     content = await file.read(MAX_SUPPORTING_FILE_BYTES + 1)
     try:
         save_supporting_file(
@@ -869,7 +974,7 @@ async def evaluate(request: Request, client_id: str):
     case = update_products_from_form({key: str(value) for key, value in form.items()})
     if case.get("persisted_case_id"):
         try:
-            update_case_record(get_client(client_id), case)
+            update_case_record(resolve_client(client_id), case)
         except KeyError:
             pass
     return templates.TemplateResponse(
@@ -881,7 +986,7 @@ async def evaluate(request: Request, client_id: str):
 
 @app.post("/clients/{client_id}/upload", response_class=HTMLResponse)
 async def upload_workbook(request: Request, client_id: str, file: UploadFile = File(...)):
-    client = get_client(client_id)
+    client = resolve_client(client_id)
     content = await file.read()
     try:
         case = parse_input_workbook(content, source_label=f"Upload: {file.filename}")
@@ -902,7 +1007,7 @@ async def upload_workbook(request: Request, client_id: str, file: UploadFile = F
 
 @app.get("/clients/{client_id}/demo-input.xlsx")
 async def download_demo_input(client_id: str):
-    content = create_input_workbook(get_client_case(client_id))
+    content = create_input_workbook(client_case(resolve_client(client_id)))
     return StreamingResponse(
         iter([content]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -912,7 +1017,7 @@ async def download_demo_input(client_id: str):
 
 @app.post("/clients/{client_id}/export")
 async def export_evidence(request: Request, client_id: str):
-    get_client(client_id)
+    resolve_client(client_id)
     form = await request.form()
     case = update_products_from_form({key: str(value) for key, value in form.items()})
     content = create_evidence_workbook(case)

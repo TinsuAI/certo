@@ -32,6 +32,9 @@ Key directories and their purposes.
 ## Build & Run
 Commands to build, run dev server, run tests, lint.
 - `npm run extract:rars`
+- `npm test`
+- `uv run pytest`
+- `npm run co:serve`
 
 ## How We Work
 Scale rigor to the change — a quick fix needs less ceremony than a payments integration.
@@ -46,6 +49,20 @@ Scale rigor to the change — a quick fix needs less ceremony than a payments in
 - **Progressive rigor:** Small change = lightweight. Risky change = thorough spec and review.
 - **Assumptions mode:** On existing codebases, state assumptions from reading the code rather than asking many questions. User corrects what's wrong.
 - **Verify before claiming done:** No "done" without running tests and confirming the change works. Evidence, not claims.
+
+## Data Hub API Requests
+
+CO is a consumer of Data Hub. Do not add, modify, or assume Data Hub API endpoints from this repo.
+
+When CO needs new Data Hub data or behavior:
+1. Check the existing `app/data_hub_client.py` adapter and current Data Hub contract first.
+2. If the existing contract is insufficient, create a request artifact under `.ai/api-requests/YYYY-MM-DD-<slug>.md` using `.ai/templates/data-hub-api-request.md`.
+3. The artifact must include the use case, existing endpoint gap, proposed request/response JSON, auth scope, client scoping rule, pagination, precision, idempotency, error cases, and required Data Hub provider tests.
+4. Stop and ask for Data Hub-side contract approval. Do not implement CO behavior against an unapproved endpoint.
+5. After Data Hub implements the endpoint and provider tests pass, consume it only through `app/data_hub_client.py`. Do not scatter raw `/v1/hub/*` HTTP calls across the app.
+6. Mutating Data Hub behavior requires an explicit service-token scope (for example `hub:propose:bom`). Never rely on permissive bearer auth.
+
+Guardrail: `tests/test_data_hub_policy.py` fails if raw `/v1/hub` endpoint strings appear outside `app/data_hub_client.py`.
 
 ## Skills
 - `/tdd` — test-driven development

@@ -11,6 +11,7 @@ from app.app_state_store import get_app_state_store
 from app.client_config_store import get_client_config as load_client_config
 from app.client_config_store import save_client_config as persist_client_config
 from app.co_case_store import match_case_bcct_exports
+from app.data_hub_client import DataHubPortfolioService, current_data_hub_token, data_hub_client_from_env
 from app.demo_data import get_client as seed_get_client
 from app.demo_data import get_clients as seed_get_clients
 from app.source_index_store import get_source_index_store, rebuild_source_index_if_configured
@@ -162,7 +163,14 @@ class PortfolioService:
         return create_bcct_template_workbook(client)
 
 
-portfolio_service = PortfolioService()
+def get_portfolio_service() -> PortfolioService | DataHubPortfolioService:
+    data_hub_client = data_hub_client_from_env(token_provider=current_data_hub_token)
+    if data_hub_client:
+        return DataHubPortfolioService(data_hub_client)
+    return PortfolioService()
+
+
+portfolio_service = get_portfolio_service()
 portfolio_app = FastAPI(title="Barry Source Portfolio")
 
 

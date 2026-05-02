@@ -5,9 +5,11 @@ description = "Demo C/O preparation workspace for agency operators"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
+    "httpx>=0.28",
     "jinja2>=3.1",
     "openpyxl>=3.1",
     "psycopg[binary]>=3.2",
+    "pyjwt[crypto]>=2.10",
     "python-multipart>=0.0.18",
     "uvicorn[standard]>=0.34",
     "xlrd>=2.0",
@@ -15,7 +17,6 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28",
     "pytest>=8.0",
 ]
 
