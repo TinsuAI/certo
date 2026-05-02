@@ -4,7 +4,7 @@
 
 ## Current State
 
-Data Hub is a working MVP web app with upload preview-confirm flows, SSO/JWT auth, read APIs, BOM proposals, chat agent, CO-facing contract guardrails, and now a slim `/client-config` master-data API plus full UI for declaration-type catalog, presets, and per-client config. Latest full suite green: `218 passed, 15 skipped`.
+Data Hub is a working MVP web app with upload preview-confirm flows, SSO/JWT auth, read APIs, BOM proposals, chat agent, CO-facing contract guardrails, and now a slim `/client-config` master-data API plus full UI for declaration-type catalog, presets, and per-client config. Latest full suite green: `219 passed, 15 skipped`.
 
 Hướng B refactor (2026-05-02) shipped: CO-runtime config moved out of Data Hub responses, `co-config` deprecated with a 14-day grace window (Sunset 2026-05-16). Master data (declaration types, presets, fiscal year start month) is now in `hub.declaration_type_catalog`, `hub.client_type_presets`, `hub.client_config` — staff-editable, no hardcoded domain knowledge.
 
@@ -23,8 +23,9 @@ Hướng B refactor (2026-05-02) shipped: CO-runtime config moved out of Data Hu
 - **Piece 9 — Backfill script.** `scripts/backfill_client_config_from_co.py` reads CO JSON files and seeds `hub.client_config`. Already applied: 2 clients backfilled (growatt-vn, do-thanh-vietnam-2614), johnson-vn skipped (already had a manual config from Piece 4 testing).
 - **Piece 10 — Cross-repo notes.** Drafts in `.ai/sister-app-notes/` for CO + BCQT to action.
 - **Piece 11 — Removal artifact.** `.ai/scheduled/2026-05-16-remove-co-config.md` documents what to delete on sunset day. NOT auto-scheduled — user runs `/schedule` if desired.
+- **UX iteration after manual test feedback.** Checkbox grid CSS (`app.css`) — added `.checkbox-grid`/`.checkbox-cell` so import/export codes wrap across columns instead of cramming inline. Manual save (POST `/declaration-config`) now hardcodes `preset_key=None` so any hand-edit drops the preset link → state becomes "tự cấu hình". Apply-preset path is the only one that sets `preset_key`. Badge in zone-head shows current state ("Đang dùng preset: X" vs "Tự cấu hình").
 
-Test count: 218 passed, 15 skipped (was 204 passed; +14 new in `tests/test_client_config.py`, plus rewritten `test_client_config_and_source_summary_endpoints`).
+Test count: 219 passed, 15 skipped (was 204 passed; +15 new in `tests/test_client_config.py`, plus rewritten `test_client_config_and_source_summary_endpoints`).
 
 ## Next Steps
 
