@@ -226,12 +226,7 @@ TOOL_DEFINITIONS: list[dict] = [
 
 
 def tool_definitions_for_user(user) -> list[dict]:
-    if getattr(user, "role", "") in {"dev", "admin"}:
-        return TOOL_DEFINITIONS
-    return [
-        tool for tool in TOOL_DEFINITIONS
-        if tool.get("function", {}).get("name") != "search_knowledge_base"
-    ]
+    return TOOL_DEFINITIONS
 
 
 # ── Dispatcher with ACL ─────────────────────────────────────────────────
@@ -254,12 +249,6 @@ def dispatch_tool(*, user, client_id: str, name: str, args: dict) -> dict:
     # runtime-bound one. Same for user_id.
     args = {k: v for k, v in (args or {}).items()
             if k not in {"client_id", "user_id"}}
-
-    if name == "search_knowledge_base" and user.role not in {"dev", "admin"}:
-        return {
-            "ok": False,
-            "error": "permission denied: knowledge-base search is admin/dev only",
-        }
 
     impl = _IMPLS.get(name)
     if impl is None:
@@ -549,11 +538,10 @@ def _lookup_glossary(*, client_id: str, term: str) -> dict:
 
 
 def _search_knowledge_base(*, client_id: str, query: str, limit: int = 5) -> dict:
-    """Small deterministic doc search over project-owned AI context.
+    """Small deterministic doc search over curated agent knowledge.
 
     This is not vector RAG. It is a constrained keyword search that gives
-    the agent grounded snippets for business/system questions without
-    exposing entire internal documents.
+    the agent grounded snippets without exposing internal `.ai/*` context.
     """
     from pathlib import Path
     import re
@@ -566,17 +554,15 @@ def _search_knowledge_base(*, client_id: str, query: str, limit: int = 5) -> dic
         return {"ok": False, "error": "query has no searchable terms"}
 
     root = Path(__file__).resolve().parent.parent.parent
-    sources = [
-        root / ".ai" / "GLOSSARY.md",
-        root / ".ai" / "DECISIONS.md",
-        root / ".ai" / "features" / "2026-05-01-data-hub-read-api.md",
-        root / ".ai" / "features" / "2026-05-02-sso-design.md",
-        root / ".ai" / "features" / "2026-05-02-auth-rbac-acl.md",
-        root / ".ai" / "features" / "2026-05-02-visibility-sprint.md",
-    ]
+    knowledge_root = root / "docs" / "agent_knowledge"
+    if not knowledge_root.exists():
+        return {"ok": False, "error": "knowledge base not available"}
+    sources = sorted(knowledge_root.rglob("*.md"))
     matches: list[tuple[int, str, str]] = []
     for path in sources:
-        if not path.exists():
+        try:
+            path.relative_to(knowledge_root)
+        except ValueError:
             continue
         content = path.read_text(encoding="utf-8")
         blocks = re.split(r"\n(?=#{1,3} |\s*[-*] \*\*|\s*\d+\. )", content)
@@ -589,7 +575,7 @@ def _search_knowledge_base(*, client_id: str, query: str, limit: int = 5) -> dic
             if score <= 0:
                 continue
             snippet = text[:900] + ("..." if len(text) > 900 else "")
-            matches.append((score, str(path.relative_to(root)), snippet))
+            matches.append((score, str(path.relative_to(knowledge_root)), snippet))
     matches.sort(key=lambda item: (-item[0], item[1], item[2]))
     cap = min(max(int(limit or 5), 1), 8)
     return {

@@ -386,15 +386,17 @@ def test_lookup_glossary_empty_term(viewer_user):
     assert result["ok"] is False
 
 
-def test_search_knowledge_base_denies_staff(viewer_user):
+def test_search_knowledge_base_uses_curated_docs_for_staff(viewer_user):
     result = tools.dispatch_tool(
         user=viewer_user, client_id=CLIENT,
-        name="search_knowledge_base", args={"query": "Data Hub BCQT CO architecture"},
+        name="search_knowledge_base", args={"query": "Data Hub source records"},
     )
-    assert result["ok"] is False
-    assert "permission" in result["error"].lower()
-    assert all(
-        tool["function"]["name"] != "search_knowledge_base"
+    assert result["ok"] is True
+    assert result["match_count"] >= 1
+    assert all(not m["source"].startswith(".ai/") for m in result["matches"])
+    assert any("source records" in m["snippet"].lower() for m in result["matches"])
+    assert any(
+        tool["function"]["name"] == "search_knowledge_base"
         for tool in tools.tool_definitions_for_user(viewer_user)
     )
 
@@ -411,7 +413,7 @@ def test_search_knowledge_base_finds_architecture_context_for_admin():
     )
     result = tools.dispatch_tool(
         user=admin, client_id=CLIENT,
-        name="search_knowledge_base", args={"query": "Data Hub BCQT CO architecture"},
+        name="search_knowledge_base", args={"query": "Data Hub source records"},
     )
     assert result["ok"] is True
     assert any(
