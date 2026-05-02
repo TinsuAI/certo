@@ -30,14 +30,29 @@
           </div>
           {% endif %}
           {% if m.tool_calls %}
-            {% for tc in m.tool_calls %}
+            {% set non_final = m.tool_calls | rejectattr('function.name', 'equalto', 'submit_final_answer') | list %}
+            {% if non_final %}
             <div class="agent-msg agent-msg-tool-call">
-              <div class="agent-msg-role">→ {{ tc.function.name }}</div>
-              <code class="meta">{{ tc.function.arguments }}</code>
+              <div class="agent-msg-role">
+                {% for tc in non_final %}
+                  → {{ tc.function.name }}{% if not loop.last %}, {% endif %}
+                {% endfor %}
+              </div>
             </div>
-            {% endfor %}
+            {% endif %}
+            {# Legacy threads: answer was only stored inside submit_final_answer.arguments.
+               If no sibling assistant content exists for this turn, fall back to render
+               the answer from there so old threads aren't blank. #}
+            {% if not m.content %}
+              {% for tc in m.tool_calls if tc.function.name == 'submit_final_answer' %}
+                <div class="agent-msg agent-msg-assistant agent-msg-legacy">
+                  <div class="agent-msg-role">{{ t('agent.role_assistant') }}</div>
+                  <div class="agent-msg-body">{{ (tc.function.arguments | from_json).answer if tc.function.arguments else '' }}</div>
+                </div>
+              {% endfor %}
+            {% endif %}
           {% endif %}
-        {% elif m.role == 'tool' %}
+        {% elif m.role == 'tool' and m.tool_name != 'submit_final_answer' %}
         <details class="agent-msg agent-msg-tool-result">
           <summary class="agent-msg-role">← {{ m.tool_name }} {{ t('agent.result') }}</summary>
           <pre class="meta agent-tool-content">{{ m.content[:2000] }}{% if m.content|length > 2000 %}…{% endif %}</pre>

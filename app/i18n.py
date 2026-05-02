@@ -345,6 +345,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "agent.empty_thread": "Bắt đầu hỏi…",
         "agent.compose_placeholder": "Hỏi về dữ liệu của khách hàng này…",
         "agent.send": "Gửi",
+        # Floating chat widget
+        "agent.widget_label": "Trợ lý",
+        "agent.widget_open": "Mở trợ lý",
+        "agent.widget_close": "Đóng",
+        "agent.widget_new_thread": "Cuộc trò chuyện mới",
+        "agent.widget_open_full": "Mở toàn màn hình",
+        "agent.widget_thinking": "Trợ lý đang suy nghĩ",
+        "agent.widget_empty": "Bắt đầu hỏi…",
+        "agent.widget_placeholder": "Hỏi về dữ liệu của khách hàng này…",
+        "agent.widget_error": "Có lỗi xảy ra. Thử lại nhé.",
     },
     "en": {
         "app.brand": "Data Hub",
@@ -669,6 +679,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "agent.empty_thread": "Ask something…",
         "agent.compose_placeholder": "Ask about this client's data…",
         "agent.send": "Send",
+        # Floating chat widget
+        "agent.widget_label": "Assistant",
+        "agent.widget_open": "Open assistant",
+        "agent.widget_close": "Close",
+        "agent.widget_new_thread": "New conversation",
+        "agent.widget_open_full": "Open in full page",
+        "agent.widget_thinking": "Assistant is thinking",
+        "agent.widget_empty": "Ask something…",
+        "agent.widget_placeholder": "Ask about this client's data…",
+        "agent.widget_error": "Something went wrong. Try again.",
     },
 }
 

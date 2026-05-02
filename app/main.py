@@ -54,10 +54,11 @@ def template_context(request: Request) -> dict:
         "can_manage_staff": lambda client_id: auth.can_assign_staff_to_client(user, client_id),
         "notif_unread_count": notif_unread,
         "notif_recent": notif_recent,
-        "active_root": "",
-        "active_tab": "",
-        "message": None,
-        "error": None,
+        # Note: do NOT set active_root/active_tab/message/error defaults
+        # here. Starlette's context_processor output overrides the route's
+        # explicit context dict, so any default we set would clobber the
+        # per-route value. Routes that don't set these get Jinja's
+        # undefined treated as falsy in {% if %}.
     }
 
 
@@ -81,6 +82,23 @@ app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 templates = Jinja2Templates(directory=ROOT / "templates", context_processors=[template_context])
 
 app.state.templates = templates
+
+
+def _from_json_filter(s):
+    """Jinja filter: parse a JSON string. Returns {} on failure (for
+    use in templates that show legacy chat-thread tool_call args)."""
+    import json as _json
+    if not s:
+        return {}
+    if isinstance(s, dict):
+        return s
+    try:
+        return _json.loads(s)
+    except Exception:
+        return {}
+
+
+templates.env.filters["from_json"] = _from_json_filter
 
 # Routers
 app.include_router(clients.router)

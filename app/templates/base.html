@@ -87,5 +87,8 @@
     {% if error %}<div class="toast toast-error">{{ error }}</div>{% endif %}
     {% block content %}{% endblock %}
   </main>
+  {% if user %}
+    {% include "_chat_widget.html" %}
+  {% endif %}
 </body>
 </html>
