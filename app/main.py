@@ -33,6 +33,7 @@ from app.co_case_store import (
 from app.co_forms import form_candidates_for_market
 from app.client_registry import get_client as registry_get_client
 from app.client_registry import get_client_case
+from app.customs_fx_store import CUSTOMS_FX_CLIENT_ID, get_customs_fx_store, refresh_customs_exchange_rates
 from app.data_hub_client import DataHubClient, reset_current_data_hub_token, set_current_data_hub_token
 from app.data_hub_settings import (
     DATA_HUB_LINK_ENV_KEYS,
@@ -230,6 +231,15 @@ CO_STOCK_COLUMNS = [
     {"key": "remaining_qty", "label": "Còn lại", "class": "num"},
     {"key": "status_label", "label": "Trạng thái"},
     {"key": "stock_reason_label", "label": "Lý do"},
+]
+
+CUSTOMS_FX_COLUMNS = [
+    {"key": "currency_code", "label": "Nguyên tệ", "class": "mono"},
+    {"key": "currency_name", "label": "Tên ngoại tệ"},
+    {"key": "effective_date", "label": "Ngày hiệu lực", "class": "mono"},
+    {"key": "rate_display", "label": "Tỷ giá", "class": "num", "sortable": False},
+    {"key": "source_endpoint", "label": "Nguồn API", "class": "mono"},
+    {"key": "fetched_at", "label": "Lần lấy", "class": "mono"},
 ]
 
 
@@ -691,6 +701,33 @@ def co_stock_table_context(request: Request, client_id: str) -> dict:
     return context
 
 
+def customs_exchange_rate_context(request: Request, **extra) -> dict:
+    context = dict(extra)
+    store = get_customs_fx_store()
+    rows = store.rows(CUSTOMS_FX_CLIENT_ID)
+    query = dict(request.query_params)
+    if "sort" not in query:
+        query["sort"] = "effective_date"
+        query["dir"] = "desc"
+    context["customs_fx_scope"] = CUSTOMS_FX_CLIENT_ID
+    context["customs_fx_summary"] = store.summary(CUSTOMS_FX_CLIENT_ID)
+    context["source_table"] = build_table_view(
+        rows,
+        columns=CUSTOMS_FX_COLUMNS,
+        query=query,
+        filters=[
+            {"name": "currency", "field": "currency_code", "label": "Nguyên tệ"},
+            {"name": "endpoint", "field": "source_endpoint", "label": "Nguồn API"},
+        ],
+        summary_fields=[
+            {"field": "currency_code", "label": "Nguyên tệ"},
+            {"field": "source_endpoint", "label": "Nguồn API"},
+        ],
+        default_sort="effective_date",
+    )
+    return context
+
+
 def co_case_context(client_id: str, case_id: str = "", current_step: str = "index", **extra) -> dict:
     client = resolve_client(client_id)
     case = extra.pop("case", None)
@@ -1035,6 +1072,49 @@ async def bcct_exports(request: Request, client_id: str):
         name="bcct.html",
         context=bcct_table_context(request, client_id, "export"),
     )
+
+
+@app.get("/customs-exchange-rates", response_class=HTMLResponse)
+async def customs_exchange_rates(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="customs_exchange_rates.html",
+        context=customs_exchange_rate_context(request),
+    )
+
+
+@app.post("/customs-exchange-rates/refresh", response_class=HTMLResponse)
+async def refresh_customs_exchange_rates_route(request: Request):
+    require_local_source_writes()
+    try:
+        result = refresh_customs_exchange_rates(client_id=CUSTOMS_FX_CLIENT_ID)
+    except Exception as exc:
+        return templates.TemplateResponse(
+            request=request,
+            name="customs_exchange_rates.html",
+            status_code=502,
+            context=customs_exchange_rate_context(
+                request,
+                error=f"Không cập nhật được tỷ giá hải quan: {exc}",
+            ),
+        )
+    return templates.TemplateResponse(
+        request=request,
+        name="customs_exchange_rates.html",
+        context=customs_exchange_rate_context(
+            request,
+            customs_fx_result=result,
+            message=(
+                f"Đã cập nhật {result['fetched_row_count']} dòng tỷ giá hải quan; "
+                f"đang lưu {result['saved_row_count']} dòng."
+            ),
+        ),
+    )
+
+
+@app.get("/clients/{client_id}/customs-exchange-rates")
+async def client_customs_exchange_rates_redirect(client_id: str):
+    return RedirectResponse("/customs-exchange-rates", status_code=303)
 
 
 @app.get("/clients/{client_id}/bcct/template.xlsx")

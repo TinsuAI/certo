@@ -24,6 +24,7 @@
     "db:import-app-state": "uv run python -m app.source_index_cli import-app-state",
     "db:import-workflow-state": "uv run python -m app.source_index_cli import-workflow-state",
     "db:rebuild-source-index": "uv run python -m app.source_index_cli rebuild-client",
+    "customs-fx:refresh": "uv run python -m app.customs_fx_cli refresh",
     "co:serve": "uv run uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload"
   },
   "dependencies": {

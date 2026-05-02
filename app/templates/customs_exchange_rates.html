@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Tỷ giá hải quan - Barry CO{% endblock %}
+
+{% block content %}
+{% if message %}
+<div class="toast">{{ message }}</div>
+{% endif %}
+{% if error %}
+<div class="toast toast-error">{{ error }}</div>
+{% endif %}
+
+<section class="zone" id="customs-exchange-rates">
+  <div class="zone-head">
+    <div>
+      <h2>Tỷ giá hải quan</h2>
+      <p class="meta">Bảng tỷ giá ngoại tệ app-level công bố bởi Hải quan, dùng chung cho mọi công ty khi chuẩn hóa trị giá theo ngày tờ khai.</p>
+    </div>
+    <div class="chip-row">
+      <span class="chip">{{ customs_fx_summary.row_count }} dòng</span>
+      <span class="chip">{{ customs_fx_summary.currency_count }} nguyên tệ</span>
+      <span class="chip">Mới nhất {{ customs_fx_summary.latest_effective_date or 'chưa có' }}</span>
+      <span class="chip">backend {{ customs_fx_summary.backend }}</span>
+    </div>
+  </div>
+
+  <div class="split-balanced">
+    <form method="post" action="/customs-exchange-rates/refresh" class="zone mini-panel">
+      <div class="subsection-head">
+        <h3>Cập nhật tự động</h3>
+        <p class="meta">Lấy USD và các ngoại tệ khác từ API công khai của Hải quan, sau đó upsert vào scope <span class="mono">{{ customs_fx_scope }}</span>.</p>
+      </div>
+      <div class="source-actions">
+        <button type="submit">Refresh tỷ giá</button>
+      </div>
+    </form>
+    <section class="zone mini-panel">
+      <div class="subsection-head">
+        <h3>Lần cập nhật gần nhất</h3>
+        <p class="meta">
+          {% if customs_fx_summary.latest_refresh %}
+          {{ customs_fx_summary.latest_refresh.created_at }} · fetched {{ customs_fx_summary.latest_refresh.fetched_row_count }} · saved {{ customs_fx_summary.latest_refresh.saved_row_count }}
+          {% else %}
+          Chưa có lần cập nhật nào trong store hiện tại.
+          {% endif %}
+        </p>
+      </div>
+      {% if customs_fx_result %}
+      <div class="chip-row">
+        <span class="chip">fetched {{ customs_fx_result.fetched_row_count }}</span>
+        <span class="chip">saved {{ customs_fx_result.saved_row_count }}</span>
+        <span class="chip">latest {{ customs_fx_result.latest_effective_date }}</span>
+      </div>
+      {% endif %}
+    </section>
+  </div>
+
+  {% include "_advanced_table.html" %}
+</section>
+{% endblock %}

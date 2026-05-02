@@ -5,6 +5,7 @@ from io import BytesIO
 from pathlib import Path
 from zipfile import ZipFile
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from openpyxl import Workbook, load_workbook
@@ -47,6 +48,7 @@ def isolate_bom_store(tmp_path, monkeypatch):
     monkeypatch.setenv("SOURCE_STORE_ROOT", str(tmp_path / "source-store"))
     monkeypatch.setenv("CLIENT_CONFIG_ROOT", str(tmp_path / "client-config"))
     monkeypatch.setenv("CO_CASE_STORE_ROOT", str(tmp_path / "co-case-store"))
+    monkeypatch.setenv("CUSTOMS_FX_STORE_ROOT", str(tmp_path / "customs-fx-store"))
 
 
 def workbook_bytes(workbook: Workbook) -> bytes:
@@ -280,6 +282,7 @@ def test_catalog_bom_stock_bcct_are_data_views_and_co_case_is_workflow_entry():
     bom_response = client.get("/clients/growatt/bom")
     stock_response = client.get("/clients/growatt/co-stock")
     bcct_response = client.get("/clients/growatt/bcct")
+    customs_fx_response = client.get("/customs-exchange-rates")
     co_case_response = client.get("/clients/growatt/co-case")
 
     assert catalog_response.status_code == 200
@@ -288,6 +291,7 @@ def test_catalog_bom_stock_bcct_are_data_views_and_co_case_is_workflow_entry():
     assert bom_response.status_code == 200
     assert stock_response.status_code == 200
     assert bcct_response.status_code == 200
+    assert customs_fx_response.status_code == 200
     assert co_case_response.status_code == 200
     assert "Upload danh mục" in catalog_response.text
     assert "/clients/growatt/catalog/materials" in catalog_response.text
@@ -301,6 +305,9 @@ def test_catalog_bom_stock_bcct_are_data_views_and_co_case_is_workflow_entry():
     assert "Tồn CO khác tồn kho vật lý" in stock_response.text
     assert "BCCT nhập khẩu / xuất khẩu" in bcct_response.text
     assert "107101950210" in bcct_response.text
+    assert "Tỷ giá hải quan" in customs_fx_response.text
+    assert "app-level" in customs_fx_response.text
+    assert "Refresh tỷ giá" in customs_fx_response.text
     assert "Quy trình làm C/O" in co_case_response.text
     assert "Tạo hoặc mở hồ sơ" in co_case_response.text
     assert "Danh sách hồ sơ C/O" in co_case_response.text
@@ -382,6 +389,97 @@ def test_bcct_route_paginates_rows_server_side():
     assert "GIN01425L031" in response.text
     assert "107101950210" not in response.text
     assert "Trang 2 / 3" in response.text
+
+
+def customs_fx_payloads() -> tuple[dict, dict, dict]:
+    return (
+        {
+            "d": [
+                {"DONG_TIEN": "USD", "TEN_DONG_TIEN": "Đô-la Mỹ"},
+                {"DONG_TIEN": "JPY", "TEN_DONG_TIEN": "Yên Nhật"},
+            ]
+        },
+        {"d": [{"LOAI_NGOAI_TE": "USD", "HIEU_LUC_TU_NGAY": "27/04/2026", "TY_GIA": "26.130 VNĐ"}]},
+        {"d": [{"LOAI_NGOAI_TE": "JPY", "TEN_NGOAI_TE": "Yên Nhật", "HIEU_LUC_TU_NGAY": "27/04/2026", "TY_GIA": "177 VNĐ"}]},
+    )
+
+
+def test_customs_fx_parser_preserves_vietnamese_rate_format():
+    from app.customs_fx_store import lookup_exchange_rate, parse_customs_exchange_rate_payloads, parse_vnd_rate_text
+
+    rows = parse_customs_exchange_rate_payloads(*customs_fx_payloads())
+
+    usd = [row for row in rows if row["currency_code"] == "USD"][0]
+    assert parse_vnd_rate_text("26.130 VNĐ") == Decimal("26130")
+    assert usd["effective_date"] == "2026-04-27"
+    assert usd["rate_vnd_per_unit"] == "26130"
+    assert usd["rate_display"] == "26.130 VNĐ"
+    assert lookup_exchange_rate(rows, "USD", "2026-05-01")["rate_vnd_per_unit"] == "26130"
+
+
+def test_customs_fx_fetch_uses_customs_public_json_endpoints():
+    from app.customs_fx_store import fetch_customs_exchange_rates
+
+    currency_payload, usd_payload, other_payload = customs_fx_payloads()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "GetListDongTienTyGia" in url:
+            return httpx.Response(200, json=currency_payload)
+        if "GetListUSDRate" in url:
+            return httpx.Response(200, json=usd_payload)
+        if "GetListOtherRate" in url:
+            return httpx.Response(200, json=other_payload)
+        return httpx.Response(404, json={})
+
+    rows = fetch_customs_exchange_rates(transport=httpx.MockTransport(handler))
+
+    assert {row["currency_code"] for row in rows} == {"USD", "JPY"}
+    assert rows[0]["source"] == "customs.gov.vn"
+
+
+def test_customs_fx_file_store_upserts_global_rate_rows():
+    from app.customs_fx_store import CUSTOMS_FX_CLIENT_ID, FileCustomsFxStore, parse_customs_exchange_rate_payloads
+
+    rows = parse_customs_exchange_rate_payloads(*customs_fx_payloads())
+    store = FileCustomsFxStore()
+
+    first = store.save_refresh(CUSTOMS_FX_CLIENT_ID, rows)
+    second = store.save_refresh(CUSTOMS_FX_CLIENT_ID, rows)
+
+    assert first["fetched_row_count"] == 2
+    assert first["saved_row_count"] == 2
+    assert second["upserted_row_count"] == 0
+    assert store.summary()["currency_count"] == 2
+    assert store.rows()[0]["effective_date"] == "2026-04-27"
+
+
+def test_customs_fx_route_refreshes_and_filters_rows(monkeypatch):
+    from app import customs_fx_store as customs_fx_module
+    from app.customs_fx_store import parse_customs_exchange_rate_payloads
+
+    rows = parse_customs_exchange_rate_payloads(*customs_fx_payloads())
+    monkeypatch.setattr(customs_fx_module, "fetch_customs_exchange_rates", lambda **_kwargs: rows)
+
+    client = TestClient(app)
+    refresh = client.post("/customs-exchange-rates/refresh")
+    filtered = client.get("/customs-exchange-rates?currency=JPY")
+
+    assert refresh.status_code == 200
+    assert "Đã cập nhật 2 dòng tỷ giá hải quan" in refresh.text
+    assert "26.130 VNĐ" in refresh.text
+    assert filtered.status_code == 200
+    assert "JPY" in filtered.text
+    assert "26.130 VNĐ" not in filtered.text
+
+
+def test_customs_fx_client_route_redirects_to_app_level_surface():
+    client = TestClient(app)
+
+    response = client.get("/clients/growatt/customs-exchange-rates", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/customs-exchange-rates"
 
 
 def test_co_stock_route_search_and_status_filter():
