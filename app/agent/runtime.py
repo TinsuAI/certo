@@ -211,6 +211,14 @@ def run_turn(*, thread_id: str, user, client_id: str, user_text: str,
                                        ensure_ascii=False),
                     tool_call_id=tc["id"], tool_name=name,
                 )
+                # Persist a final assistant message with the user-facing
+                # answer text so the chat UI renders it cleanly. Without
+                # this row, the answer is buried inside tool_calls JSON
+                # and the conversation appears blank.
+                store.append_message(
+                    thread_id=thread_id, role="assistant",
+                    content=final_answer,
+                )
                 break
 
             result = tools.dispatch_tool(

@@ -20,6 +20,15 @@
       <input type="file" name="file" accept=".xlsx,.xls" required>
       <p class="meta">{{ t('catalog.upload_hint_sheet') }}</p>
     </div>
+
+    <label class="prov-toggle">
+      <input type="checkbox" name="is_hq_registered" value="1">
+      <div class="prov-toggle-text">
+        <strong>{{ t('catalog.upload_hq_label') }}</strong>
+        <span class="meta">{{ t('catalog.upload_hq_hint') }}</span>
+      </div>
+    </label>
+
     <button type="submit" class="btn-primary">{{ t('common.upload_btn') }}</button>
   </form>
 </section>

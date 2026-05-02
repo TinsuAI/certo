@@ -21,6 +21,16 @@
     </div>
   </div>
 
+  {% if provenance_kind == 'registered' %}
+  <div class="toast" style="margin-bottom: 1rem;">
+    {{ t('catalog.preview_provenance_registered') }}
+  </div>
+  {% else %}
+  <div class="toast toast-warn" style="margin-bottom: 1rem;">
+    {{ t('catalog.preview_provenance_user_added') }}
+  </div>
+  {% endif %}
+
   <div class="zone mini-panel" style="margin-bottom: 1rem;">
     <strong>Tổng quan:</strong>
     <ul style="margin: 0.5rem 0 0 1.2rem;">

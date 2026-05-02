@@ -70,11 +70,16 @@ async def upload_view(request: Request, client_id: str):
 async def upload_submit(
     request: Request, client_id: str,
     file: UploadFile = File(...),
+    is_hq_registered: str = Form(""),
 ):
     """Parse + stash to upload_pending; redirect to preview for confirm.
 
     All upload paths route through preview before any DB write — staff sees
     parsed rows + counts before commit (Phase 2 universal-preview pattern).
+
+    `is_hq_registered`: "1" if staff confirmed this file is the official
+    HQ-registered Danh Mục (mark every row registered_with_hq); empty
+    otherwise (mark as user_added — internal catalog without HQ status).
     """
     user = auth.require_user(request)
     auth.require_can_edit_client(user, client_id)
@@ -100,9 +105,10 @@ async def upload_submit(
                     (str(e), upload_id),
                 )
         raise HTTPException(400, f"Parse error: {e}")
+    provenance_kind = "registered" if is_hq_registered == "1" else "user_added"
     pending_id = _stash_pending(
         client_id=client_id, upload_id=upload_id, parsed=rows,
-        created_by=user.user_id,
+        created_by=user.user_id, provenance_kind=provenance_kind,
     )
     with connect() as conn:
         with conn.cursor() as cur:
@@ -128,7 +134,7 @@ async def preview_view(request: Request, client_id: str, pending_id: str):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select parsed_rows, expires_at, created_at
+                select parsed_rows, diff_summary, expires_at, created_at
                 from hub.upload_pending
                 where pending_id = %s and client_id = %s and module = 'catalog'
                 """,
@@ -137,8 +143,9 @@ async def preview_view(request: Request, client_id: str, pending_id: str):
             row = cur.fetchone()
     if not row:
         raise HTTPException(404, "Pending upload not found or expired")
-    parsed_rows, expires_at, created_at = row
+    parsed_rows, diff_summary, expires_at, created_at = row
     summary = _summarize_catalog(parsed_rows)
+    provenance_kind = (diff_summary or {}).get("provenance_kind", "registered")
     return request.app.state.templates.TemplateResponse(
         request, "clients/catalog_preview.html",
         {
@@ -146,6 +153,7 @@ async def preview_view(request: Request, client_id: str, pending_id: str):
             "pending_id": pending_id,
             "summary": summary,
             "sample_rows": parsed_rows[:PREVIEW_SAMPLE_ROWS],
+            "provenance_kind": provenance_kind,
             "expires_at": expires_at, "created_at": created_at,
             "active_root": "clients", "active_tab": "catalog",
         },
@@ -165,17 +173,19 @@ async def preview_confirm(request: Request, client_id: str, pending_id: str):
                 delete from hub.upload_pending
                 where pending_id = %s and client_id = %s and module = 'catalog'
                   and expires_at > now()
-                returning parsed_rows, upload_id
+                returning parsed_rows, upload_id, diff_summary
                 """,
                 (pending_id, client_id),
             )
             row = cur.fetchone()
             if not row:
                 raise HTTPException(404, "Pending upload not found or expired")
-            parsed_rows, upload_id = row
+            parsed_rows, upload_id, diff_summary = row
+            provenance_kind = (diff_summary or {}).get("provenance_kind",
+                                                       "registered")
             n = _insert_materials_with_cursor(
                 cur, client_id=client_id, rows=parsed_rows,
-                upload_id=upload_id,
+                upload_id=upload_id, provenance_kind=provenance_kind,
             )
             cur.execute(
                 "update hub.file_uploads set parse_status='done', parsed_at=now() where upload_id=%s",
@@ -216,8 +226,10 @@ async def preview_reject(request: Request, client_id: str, pending_id: str):
 
 
 def _stash_pending(*, client_id: str, upload_id: str,
-                   parsed: list[dict], created_by: str | None) -> str:
+                   parsed: list[dict], created_by: str | None,
+                   provenance_kind: str = "registered") -> str:
     pending_id = secrets.token_urlsafe(16)
+    diff_summary = {"provenance_kind": provenance_kind}
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -225,10 +237,11 @@ def _stash_pending(*, client_id: str, upload_id: str,
                 insert into hub.upload_pending
                   (pending_id, client_id, module, upload_id,
                    parsed_rows, diff_summary, created_by)
-                values (%s, %s, 'catalog', %s, %s::jsonb, '{}'::jsonb, %s)
+                values (%s, %s, 'catalog', %s, %s::jsonb, %s::jsonb, %s)
                 """,
                 (pending_id, client_id, upload_id,
                  json.dumps(parsed, ensure_ascii=False, default=str),
+                 json.dumps(diff_summary),
                  created_by),
             )
     return pending_id
@@ -348,37 +361,59 @@ def _category_counts(client_id: str) -> dict:
 
 
 def _insert_materials_with_cursor(cur, *, client_id: str, rows: list[dict],
-                                  upload_id: str | None = None) -> int:
+                                  upload_id: str | None = None,
+                                  provenance_kind: str = "registered") -> int:
     """Insert materials on a shared cursor (for transactional confirm flow).
 
-    `upload_id` (when set) is recorded inside provenance.registered_with_hq
-    so staff can trace any catalog row back to the upload that registered
-    it. Existing seen_in_bcct / user_added provenance keys are preserved
-    via the jsonb || merge in the conflict branch.
+    `provenance_kind`:
+      - 'registered' (default): mark every row as registered_with_hq.
+        Use when staff confirmed the file is the official Danh Mục
+        (registered with customs).
+      - 'user_added': mark rows as user_added — internal catalog without
+        HQ status. Existing registered_with_hq is preserved.
+
+    `upload_id` (when set) is recorded inside the provenance jsonb so
+    staff can trace any catalog row back to the upload that wrote it.
+    Existing keys not matching `provenance_kind` are preserved via the
+    jsonb || merge in the conflict branch.
+    """
+    if provenance_kind == "registered":
+        prov_sql = (
+            "jsonb_build_object('registered_with_hq', "
+            "jsonb_build_object('first_seen', to_char(now(), 'YYYY-MM-DD'), "
+            "'source_upload_id', %s::text))"
+        )
+    elif provenance_kind == "user_added":
+        prov_sql = (
+            "jsonb_build_object('user_added', "
+            "jsonb_build_object('first_seen', to_char(now(), 'YYYY-MM-DD'), "
+            "'source_upload_id', %s::text))"
+        )
+    else:
+        raise ValueError(f"unknown provenance_kind: {provenance_kind}")
+
+    sql = f"""
+        insert into hub.materials
+          (client_id, customs_code, product_code, name, category, status,
+           unit, hs_code, provenance)
+        values (%s, %s, %s, %s, %s, %s, %s, %s, {prov_sql})
+        on conflict (client_id, customs_code) do update set
+          product_code = excluded.product_code,
+          name = excluded.name,
+          category = excluded.category,
+          status = excluded.status,
+          unit = excluded.unit,
+          hs_code = excluded.hs_code,
+          -- Merge: only the chosen key overwrites; other keys
+          -- (seen_in_bcct, the other of registered_with_hq/user_added)
+          -- are preserved.
+          provenance = hub.materials.provenance || excluded.provenance,
+          updated_at = now()
     """
     n = 0
     for r in rows:
         cur.execute(
-            """
-            insert into hub.materials
-              (client_id, customs_code, product_code, name, category, status,
-               unit, hs_code, provenance)
-            values (%s, %s, %s, %s, %s, %s, %s, %s,
-                    jsonb_build_object('registered_with_hq',
-                      jsonb_build_object('first_seen', to_char(now(), 'YYYY-MM-DD'),
-                                         'source_upload_id', %s::text)))
-            on conflict (client_id, customs_code) do update set
-              product_code = excluded.product_code,
-              name = excluded.name,
-              category = excluded.category,
-              status = excluded.status,
-              unit = excluded.unit,
-              hs_code = excluded.hs_code,
-              -- Merge: registered_with_hq overwritten with this upload;
-              -- other keys (seen_in_bcct, user_added) preserved.
-              provenance = hub.materials.provenance || excluded.provenance,
-              updated_at = now()
-            """,
+            sql,
             (client_id, r["customs_code"], r.get("product_code"), r.get("name"),
              r["category"], r.get("status", "active"), r.get("unit"), r.get("hs_code"),
              upload_id),

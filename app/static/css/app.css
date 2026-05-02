@@ -1191,6 +1191,36 @@ small,
   background: var(--error-soft);
 }
 
+.toast-warn {
+  border-color: rgba(217, 119, 6, 0.32);
+  color: #92400e;
+  background: rgba(252, 211, 77, 0.18);
+}
+
+/* Provenance toggle on catalog upload */
+.prov-toggle {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  padding: 0.7rem 0.9rem;
+  margin: 0.8rem 0;
+  border: 1px solid var(--border, rgba(0,0,0,0.12));
+  border-radius: var(--radius-md);
+  background: var(--surface-2, var(--background-2, #f7f8fa));
+  cursor: pointer;
+}
+.prov-toggle:has(input:checked) {
+  background: var(--primary-soft, rgba(5,150,105,0.08));
+  border-color: rgba(5,150,105,0.3);
+}
+.prov-toggle input[type=checkbox] {
+  margin-top: 0.2rem;
+  flex-shrink: 0;
+}
+.prov-toggle-text { display: flex; flex-direction: column; gap: 0.15rem; }
+.prov-toggle-text strong { font-size: 0.95rem; }
+.prov-toggle-text .meta { font-size: 0.82rem; line-height: 1.4; }
+
 .staleness-bar {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
