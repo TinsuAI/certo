@@ -438,11 +438,12 @@ async def version_detail(request: Request, client_id: str, version_id: str):
 
 @router.post("/api/v1/hub/products/{product_code:path}/bom/proposals")
 async def submit_bom_proposal(request: Request, product_code: str):
-    auth.require_user(request)
+    user = auth.require_user(request)
     body = await request.json()
     client_id = body.get("client_id") or body.get("dncx_id")
     if not client_id or not get_client(client_id):
         raise HTTPException(404, "Client not found")
+    auth.require_can_edit_client(user, client_id)
     actor = body.get("actor", "co_system")
     intent = body.get("intent", "modified_for_case")
     parent_version_id = body.get("parent_version_id")

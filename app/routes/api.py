@@ -21,6 +21,7 @@ import jwt as pyjwt
 from fastapi import APIRouter, Header, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
+from app import auth
 from app import jwt_issuer, settings_store
 from app.database import connect
 from app.routes.clients import get_client, list_clients
@@ -28,6 +29,7 @@ from app.stores.bom import (
     get_version_with_rows,
     list_versions_for_product,
     list_products_with_bom,
+    submit_proposal,
 )
 
 logger = logging.getLogger(__name__)
@@ -70,6 +72,58 @@ def _require_token(authorization: str | None) -> dict | None:
         return None
 
 
+def _user_from_claims(claims: dict | None) -> auth.User | None:
+    if not claims:
+        return None
+    return auth.User(
+        user_id=str(claims.get("sub", "")),
+        email=str(claims.get("email", "")),
+        display_name=str(claims.get("name", "")),
+        role=str(claims.get("role", "")),
+        status="active",
+    )
+
+
+def _visible_clients_from_claims(claims: dict | None) -> list[str] | None:
+    if claims is None:
+        return None
+    return auth.visible_clients(_user_from_claims(claims))
+
+
+def _require_can_view_client(claims: dict | None, client_id: str) -> None:
+    if claims is None:
+        return
+    if not auth.can_view_client(_user_from_claims(claims), client_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "forbidden")
+
+
+def _require_can_edit_client(claims: dict | None, client_id: str) -> None:
+    if claims is None:
+        return
+    if not auth.can_edit_client(_user_from_claims(claims), client_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "forbidden")
+
+
+def _page_args(cursor: str | None, limit: int) -> tuple[int, int]:
+    try:
+        offset = int(cursor or 0)
+    except ValueError as exc:
+        raise HTTPException(400, "invalid cursor") from exc
+    if offset < 0:
+        raise HTTPException(400, "invalid cursor")
+    return offset, min(max(limit, 1), 1000)
+
+
+def _paged(items: list[dict], *, offset: int, limit: int) -> dict:
+    has_next = len(items) > limit
+    page = items[:limit]
+    return {
+        "items": page,
+        "total_estimate": None,
+        "next_cursor": str(offset + limit) if has_next else None,
+    }
+
+
 def _serialize(v: Any):
     if isinstance(v, (datetime, date)):
         return v.isoformat()
@@ -88,13 +142,19 @@ def _json(payload: Any, status_code: int = 200) -> JSONResponse:
 
 @router.get("/dncxs")
 async def api_list_dncxs(authorization: str | None = Header(None)):
-    _require_token(authorization)
-    return _json({"items": list_clients(), "total_estimate": None})
+    claims = _require_token(authorization)
+    rows = list_clients()
+    visible = _visible_clients_from_claims(claims)
+    if visible is not None:
+        allowed = set(visible)
+        rows = [row for row in rows if (row.get("id") or row.get("client_id")) in allowed]
+    return _json({"items": rows, "total_estimate": len(rows)})
 
 
 @router.get("/dncxs/{client_id}")
 async def api_get_dncx(client_id: str, authorization: str | None = Header(None)):
-    _require_token(authorization)
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
     dncx = get_client(client_id)
     if not dncx:
         raise HTTPException(404, "Client not found")
@@ -110,9 +170,11 @@ async def api_list_materials(
     limit: int = 200,
     authorization: str | None = Header(None),
 ):
-    _require_token(authorization)
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
+    offset, safe_limit = _page_args(cursor, limit)
     sql = """
         select client_id, customs_code, internal_code, name, category, category_override,
                status, unit, hs_code, updated_at
@@ -125,14 +187,14 @@ async def api_list_materials(
     if status:
         sql += " and status = %s"
         params.append(status)
-    sql += " order by customs_code limit %s"
-    params.append(min(max(limit, 1), 1000))
+    sql += " order by customs_code limit %s offset %s"
+    params.extend([safe_limit + 1, offset])
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
             cols = [d[0] for d in cur.description]
             items = [dict(zip(cols, r)) for r in cur.fetchall()]
-    return _json({"items": items, "total_estimate": len(items)})
+    return _json(_paged(items, offset=offset, limit=safe_limit))
 
 
 @router.get("/materials/{customs_code}")
@@ -140,7 +202,8 @@ async def api_get_material(
     customs_code: str, client_id: str,
     authorization: str | None = Header(None),
 ):
-    _require_token(authorization)
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -166,14 +229,16 @@ async def api_list_bcct(
     cursor: str | None = None, limit: int = 200,
     authorization: str | None = Header(None),
 ):
-    _require_token(authorization)
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
+    offset, safe_limit = _page_args(cursor, limit)
     sql = """
         select client_id, year, transaction_key, line_no, declaration_no,
                declaration_type, direction, registration_date,
                customs_code, internal_code, goods_name, hs_code,
-               quantity, unit, total_value, currency, origin,
+               quantity, unit, total_value, currency, origin, invoice_ref,
                exporter_name, exporter_tax_code, consignee_name, incoterms,
                weight, weight_unit, package_count, package_unit,
                invoice_date, departure_date,
@@ -192,14 +257,14 @@ async def api_list_bcct(
     if declaration_no:
         sql += " and declaration_no = %s"
         params.append(declaration_no)
-    sql += " order by registration_date desc nulls last, declaration_no, line_no limit %s"
-    params.append(min(max(limit, 1), 1000))
+    sql += " order by registration_date desc nulls last, declaration_no, line_no limit %s offset %s"
+    params.extend([safe_limit + 1, offset])
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
             cols = [d[0] for d in cur.description]
             items = [dict(zip(cols, r)) for r in cur.fetchall()]
-    return _json({"items": items, "total_estimate": len(items)})
+    return _json(_paged(items, offset=offset, limit=safe_limit))
 
 
 @router.get("/bcct/{transaction_key}")
@@ -207,7 +272,8 @@ async def api_get_bcct(
     transaction_key: str, client_id: str,
     authorization: str | None = Header(None),
 ):
-    _require_token(authorization)
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -215,7 +281,7 @@ async def api_get_bcct(
                 select client_id, year, transaction_key, line_no, declaration_no,
                        declaration_type, direction, registration_date,
                        customs_code, internal_code, goods_name, hs_code,
-                       quantity, unit, total_value, currency, origin,
+                       quantity, unit, total_value, currency, origin, invoice_ref,
                        exporter_name, exporter_tax_code, consignee_name, incoterms,
                        weight, weight_unit, package_count, package_unit,
                        invoice_date, departure_date,
@@ -242,7 +308,8 @@ async def api_list_code_mappings(
     client_id: str,
     authorization: str | None = Header(None),
 ):
-    _require_token(authorization)
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
     with connect() as conn:
@@ -265,7 +332,8 @@ async def api_bom_latest(
     product_code: str, client_id: str,
     authorization: str | None = Header(None),
 ):
-    _require_token(authorization)
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -291,7 +359,8 @@ async def api_bom_versions(
     actor: str | None = None, intent: str | None = None,
     authorization: str | None = Header(None),
 ):
-    _require_token(authorization)
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
     versions = list_versions_for_product(client_id=client_id, product_code=product_code)
     if actor:
         versions = [v for v in versions if v["actor"] == actor]
@@ -305,7 +374,8 @@ async def api_bom_pinned(
     product_code: str, client_id: str, version_id: str | None = None,
     authorization: str | None = Header(None),
 ):
-    _require_token(authorization)
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
     if version_id:
         data = get_version_with_rows(version_id)
         if not data or data["version"]["client_id"] != client_id \
@@ -321,8 +391,37 @@ async def api_list_products(
     client_id: str,
     authorization: str | None = Header(None),
 ):
-    _require_token(authorization)
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
     return _json({"items": list_products_with_bom(client_id), "total_estimate": None})
+
+
+@router.post("/products/{product_code:path}/bom/proposals")
+async def api_submit_bom_proposal(
+    request: Request,
+    product_code: str,
+    authorization: str | None = Header(None),
+):
+    claims = _require_token(authorization)
+    body = await request.json()
+    client_id = body.get("client_id") or body.get("dncx_id")
+    if not client_id or not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+    _require_can_edit_client(claims, client_id)
+    actor = body.get("actor", "co_system")
+    intent = body.get("intent", "modified_for_case")
+    rows = body.get("rows", [])
+    if not isinstance(rows, list) or not rows:
+        raise HTTPException(400, "rows required")
+    return _json(submit_proposal(
+        client_id=client_id,
+        product_code=product_code,
+        actor=actor,
+        intent=intent,
+        parent_version_id=body.get("parent_version_id"),
+        context=body.get("context", {}),
+        rows=rows,
+    ))
 
 
 @router.get("/proposals/{proposal_id}")
@@ -330,7 +429,7 @@ async def api_get_proposal(
     proposal_id: str,
     authorization: str | None = Header(None),
 ):
-    _require_token(authorization)
+    claims = _require_token(authorization)
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -347,7 +446,9 @@ async def api_get_proposal(
             if not row:
                 raise HTTPException(404, "proposal not found")
             cols = [d[0] for d in cur.description]
-            return _json(dict(zip(cols, row)))
+            proposal = dict(zip(cols, row))
+    _require_can_view_client(claims, proposal["client_id"])
+    return _json(proposal)
 
 
 @router.get("/healthz")

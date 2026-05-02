@@ -8,6 +8,7 @@
   </header>
   {% if error %}<div class="toast toast-error">{{ error }}</div>{% endif %}
   <form method="post" action="/login" class="auth-form">
+    <input type="hidden" name="next" value="{{ next or '/clients' }}">
     <label class="field">
       <span class="field-label">{{ t('auth.email') }}</span>
       <input type="email" name="email" required autocomplete="username" autofocus

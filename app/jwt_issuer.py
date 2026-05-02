@@ -92,8 +92,14 @@ def get_token_ttl_seconds() -> int:
     return settings_store.get_int("sso_token_ttl_seconds", 600)
 
 
-def make_token(*, user_id: str, email: str, role: str,
-               display_name: str) -> dict:
+def make_token(
+    *,
+    user_id: str,
+    email: str,
+    role: str,
+    display_name: str,
+    extra_claims: dict | None = None,
+) -> dict:
     """Issue a fresh access token for a user. Returns dict matching
     OAuth2 token-response shape (access_token + token_type + expires_in)."""
     kid = get_active_kid()
@@ -109,6 +115,8 @@ def make_token(*, user_id: str, email: str, role: str,
         "role": role,
         "name": display_name,
     }
+    if extra_claims:
+        payload.update(extra_claims)
     encoded = jwt.encode(
         payload, priv, algorithm="EdDSA",
         headers={"kid": kid, "typ": "JWT"},

@@ -13,7 +13,9 @@ import jwt as pyjwt
 import pytest
 from fastapi.testclient import TestClient
 
+from app import auth
 from app import jwt_issuer, settings_store
+from app.database import connect
 from app.main import app
 
 
@@ -83,6 +85,203 @@ def test_valid_jwt_accepted_in_strict_mode(strict_mode_on):
         ENDPOINT, headers={"authorization": f"Bearer {out['access_token']}"},
     )
     assert r.status_code == 200
+
+
+def test_valid_jwt_filters_clients_by_acl(strict_mode_on):
+    user_id = "u_read_api_acl"
+    allowed_client = "read-api-allowed"
+    blocked_client = "read-api-blocked"
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into hub.users (user_id, email, display_name, password_hash, role)
+                values (%s, %s, %s, %s, 'staff')
+                on conflict (user_id) do update set role = excluded.role
+                """,
+                (user_id, "read-api-acl@test.local", "Read API ACL", auth.hash_password("test")),
+            )
+            cur.execute(
+                """
+                insert into hub.clients (client_id, name) values (%s, %s), (%s, %s)
+                on conflict (client_id) do nothing
+                """,
+                (allowed_client, "Allowed", blocked_client, "Blocked"),
+            )
+            cur.execute(
+                """
+                insert into hub.user_client_access (user_id, client_id, scope, granted_by)
+                values (%s, %s, 'read', %s)
+                on conflict (user_id, client_id) do update set scope = excluded.scope
+                """,
+                (user_id, allowed_client, user_id),
+            )
+    try:
+        out = jwt_issuer.make_token(
+            user_id=user_id,
+            email="read-api-acl@test.local",
+            role="staff",
+            display_name="Read API ACL",
+        )
+        list_response = _client().get(
+            ENDPOINT,
+            headers={"authorization": f"Bearer {out['access_token']}"},
+        )
+        blocked_response = _client().get(
+            f"/v1/hub/dncxs/{blocked_client}",
+            headers={"authorization": f"Bearer {out['access_token']}"},
+        )
+
+        ids = {row.get("id") or row.get("client_id") for row in list_response.json()["items"]}
+        assert allowed_client in ids
+        assert blocked_client not in ids
+        assert blocked_response.status_code == 403
+    finally:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("delete from hub.user_client_access where user_id = %s", (user_id,))
+                cur.execute("delete from hub.users where user_id = %s", (user_id,))
+                cur.execute("delete from hub.clients where client_id in (%s, %s)", (allowed_client, blocked_client))
+
+
+def test_materials_endpoint_returns_next_cursor(strict_mode_on):
+    client_id = "read-api-page-materials"
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "insert into hub.clients (client_id, name) values (%s, 'Paged Materials') on conflict (client_id) do nothing",
+                (client_id,),
+            )
+            cur.execute(
+                """
+                insert into hub.materials (client_id, customs_code, name, category, status)
+                values (%s, 'M-001', 'M1', 'nvl', 'active'), (%s, 'M-002', 'M2', 'nvl', 'active')
+                on conflict do nothing
+                """,
+                (client_id, client_id),
+            )
+    try:
+        token = jwt_issuer.make_token(
+            user_id="u_page_admin",
+            email="page-admin@test.local",
+            role="admin",
+            display_name="Page Admin",
+        )["access_token"]
+
+        first = _client().get(
+            f"/v1/hub/materials?client_id={client_id}&limit=1",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        second = _client().get(
+            f"/v1/hub/materials?client_id={client_id}&limit=1&cursor={first.json()['next_cursor']}",
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        assert [row["customs_code"] for row in first.json()["items"]] == ["M-001"]
+        assert first.json()["next_cursor"] == "1"
+        assert [row["customs_code"] for row in second.json()["items"]] == ["M-002"]
+        assert second.json()["next_cursor"] is None
+    finally:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("delete from hub.materials where client_id = %s", (client_id,))
+                cur.execute("delete from hub.clients where client_id = %s", (client_id,))
+
+
+def test_bcct_endpoint_returns_next_cursor(strict_mode_on):
+    client_id = "read-api-page-bcct"
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "insert into hub.clients (client_id, name) values (%s, 'Paged BCCT') on conflict (client_id) do nothing",
+                (client_id,),
+            )
+            cur.execute(
+                """
+                insert into hub.bcct_rows
+                  (client_id, transaction_key, line_no, declaration_no, declaration_type,
+                   direction, registration_date, customs_code, goods_name, payload)
+                values
+                  (%s, 'PAGE_BCCT_1', '1', 'D001', 'E11', 'import', '2025-01-02', 'M-001', 'M1', '{}'::jsonb),
+                  (%s, 'PAGE_BCCT_2', '1', 'D002', 'E11', 'import', '2025-01-01', 'M-002', 'M2', '{}'::jsonb)
+                on conflict do nothing
+                """,
+                (client_id, client_id),
+            )
+    try:
+        token = jwt_issuer.make_token(
+            user_id="u_page_admin",
+            email="page-admin@test.local",
+            role="admin",
+            display_name="Page Admin",
+        )["access_token"]
+
+        first = _client().get(
+            f"/v1/hub/bcct?client_id={client_id}&limit=1",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        second = _client().get(
+            f"/v1/hub/bcct?client_id={client_id}&limit=1&cursor={first.json()['next_cursor']}",
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        assert [row["transaction_key"] for row in first.json()["items"]] == ["PAGE_BCCT_1"]
+        assert first.json()["next_cursor"] == "1"
+        assert [row["transaction_key"] for row in second.json()["items"]] == ["PAGE_BCCT_2"]
+        assert second.json()["next_cursor"] is None
+    finally:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("delete from hub.bcct_rows where client_id = %s", (client_id,))
+                cur.execute("delete from hub.clients where client_id = %s", (client_id,))
+
+
+def test_bom_proposal_api_requires_edit_access(strict_mode_on):
+    user_id = "u_bom_read_only"
+    client_id = "read-api-bom-client"
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into hub.users (user_id, email, display_name, password_hash, role)
+                values (%s, 'bom-read-only@test.local', 'BOM Read Only', %s, 'staff')
+                on conflict (user_id) do update set role = excluded.role
+                """,
+                (user_id, auth.hash_password("test")),
+            )
+            cur.execute(
+                "insert into hub.clients (client_id, name) values (%s, 'BOM Client') on conflict (client_id) do nothing",
+                (client_id,),
+            )
+            cur.execute(
+                """
+                insert into hub.user_client_access (user_id, client_id, scope, granted_by)
+                values (%s, %s, 'read', %s)
+                on conflict (user_id, client_id) do update set scope = excluded.scope
+                """,
+                (user_id, client_id, user_id),
+            )
+    try:
+        token = jwt_issuer.make_token(
+            user_id=user_id,
+            email="bom-read-only@test.local",
+            role="staff",
+            display_name="BOM Read Only",
+        )["access_token"]
+
+        response = _client().post(
+            "/v1/hub/products/P-001/bom/proposals",
+            headers={"authorization": f"Bearer {token}"},
+            json={"client_id": client_id, "rows": [{"material_code": "M-001"}]},
+        )
+
+        assert response.status_code == 403
+    finally:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("delete from hub.user_client_access where user_id = %s", (user_id,))
+                cur.execute("delete from hub.users where user_id = %s", (user_id,))
+                cur.execute("delete from hub.clients where client_id = %s", (client_id,))
 
 
 def test_expired_jwt_always_rejected(strict_mode_off):

@@ -30,7 +30,7 @@ What works (post Phase 1+2+3):
 - **In-app notifications** (post Sprint B1): `hub.notifications` table + bell in topnav + `/notifications` list page. Two wired triggers: BCCT preview-pending (uploader) and provenance-alarm fan-out (every editor of the client). Helper `notify()` callable from background tasks.
 - **Chat agent** (post Sprint B2): `/clients/{id}/agent` thread list + thread view. 8 read-only tools (query_bcct/catalog/bom/provenance_alarms/uploads/bcct_history + lookup_glossary + submit_final_answer). Strict ACL: `dispatch_tool` re-verifies `auth.require_can_view_client` on every call AND strips client_id/user_id from LLM-supplied args. Cross-client queries are structurally impossible.
 - **SSO JWT issuer** (post Sprint B3, M9 deliverable #4): `/v1/auth/token` (email+password → JWT), `/v1/auth/jwks` (Ed25519 public keys), `/v1/auth/validate` (debug). Keys live on disk under `keys/` (gitignored, auto-generated on first run). Multi-key JWKS for rotation overlap. Consumer-side local verify simulated end-to-end.
-- **Read API auth upgraded** (post Sprint C2): `/v1/hub/*` now JWT-verifies bearer tokens. Permissive default keeps legacy callers working; `api_auth_strict=true` enforces JWT-only for production.
+- **Read API auth upgraded** (post Sprint C2 + follow-up): `/v1/hub/*` now JWT-verifies bearer tokens and re-checks current client ACL for JWT callers. Permissive default keeps legacy callers working; `api_auth_strict=true` enforces JWT-only for production.
 - **LLM self-correction loop** (post Sprint C1): `propose_header_mapping` retries up to `cfg.max_retries` when LLM returns garbage; feeds the specific error back so the LLM can adapt.
 - Playwright UI smoke at `scripts/smoke_real_uploads.py` (9-job matrix: BQD×3 + Catalog×2 + BOM×3 + BCCT×1, all jobs route through preview-confirm).
 - Real-data corpus staged at `/tmp/dh_real_data/{growatt,dke,dothanh,johnson,manual_test}/`.
@@ -91,7 +91,7 @@ Earlier-still backlog (see `.ai/BACKLOG.md`):
 9. **`set_config('app.user_id', ..., true)` LOCAL** when connection pooling lands.
 10. **Cross-app SSO Phase 2** (M9 deliverable #4) — JWT issuer / JWKS / cookie-domain federation when BCQT and CO consumers come online. Defer until BCQT/CO migration audits land.
 11. **Production deployment** (M9 deliverable #6) — systemd, pg_dump backup pipeline, Litestream for per-project SQLite (BCQT-side), nginx reverse proxy.
-12. **JWT scope auth on read API** — currently accepts any non-empty bearer token; phase 2 adds proper JWT scope validation.
+12. **Service-token scope auth on read/proposal API** — user JWTs now re-check current client ACL; service-account scopes (`hub:read:*`, `hub:propose:bom`) are still phase 2.
 13. **Audit log UI for permission changes** — `granted_by`/`granted_at` columns are populated; an admin-side history view is deferred.
 14. **Password reset / invite email / 2FA** — current admin creates user with chosen password directly; phase 2 should add reset flow, invite emails, optional 2FA.
 15. **Migration numbering 010→012 cosmetic gap** (intentionally deferred — would need cross-env `schema_migrations` fixup).

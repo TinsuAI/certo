@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import FastAPI, Form, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -84,6 +85,15 @@ templates = Jinja2Templates(directory=ROOT / "templates", context_processors=[te
 app.state.templates = templates
 
 
+def safe_next_path(value: str | None, default: str = "/clients") -> str:
+    if not value:
+        return default
+    parsed = urlsplit(value)
+    if parsed.scheme or parsed.netloc or not parsed.path.startswith("/") or parsed.path.startswith("//"):
+        return default
+    return urlunsplit(("", "", parsed.path, parsed.query, parsed.fragment))
+
+
 def _from_json_filter(s):
     """Jinja filter: parse a JSON string. Returns {} on failure (for
     use in templates that show legacy chat-thread tool_call args)."""
@@ -129,13 +139,13 @@ async def index(request: Request):
 
 
 @app.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request, error: str | None = None, email: str | None = None):
+async def login_page(request: Request, error: str | None = None, email: str | None = None, next: str = "/clients"):
     user = auth.current_user(request)
     if user:
-        return RedirectResponse(url="/clients", status_code=302)
+        return RedirectResponse(url=safe_next_path(next), status_code=302)
     return templates.TemplateResponse(
         request, "login.html",
-        {"error": error, "email": email},
+        {"error": error, "email": email, "next": safe_next_path(next)},
     )
 
 
@@ -144,13 +154,14 @@ async def login_submit(
     request: Request,
     email: str = Form(...),
     password: str = Form(...),
+    next: str = Form("/clients"),
 ):
     user = auth.authenticate(email, password)
     if not user:
         lang = i18n.normalize_lang(request.cookies.get(LANG_COOKIE))
         return templates.TemplateResponse(
             request, "login.html",
-            {"error": i18n.t("auth.error_invalid", lang), "email": email},
+            {"error": i18n.t("auth.error_invalid", lang), "email": email, "next": safe_next_path(next)},
             status_code=401,
         )
     session_id = auth.create_session(
@@ -158,7 +169,7 @@ async def login_submit(
         user_agent=request.headers.get("user-agent"),
         ip=request.client.host if request.client else None,
     )
-    response = RedirectResponse(url="/clients", status_code=303)
+    response = RedirectResponse(url=safe_next_path(next), status_code=303)
     auth.set_session_cookie(response, session_id)
     return response
 

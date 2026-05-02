@@ -54,12 +54,24 @@ against Data Hub's read API. Reasoning: ACL changes shouldn't require
 re-issue. (If consumer is bandwidth-bound, we can add a `clients` array
 with the user's accessible client_ids in v2.)
 
+**Update 2026-05-02 PM:** browser SSO now includes a convenience
+`client_ids` claim for scoped users and `all_clients=true` for dev/admin.
+Data Hub still re-checks current DB ACL on every `/v1/hub/*` request; the
+claim is for consumer-side UI filtering and should not be treated as the
+only authorization source.
+
 ## Endpoints
 
 - `POST /v1/auth/token` — body: `{email, password}` → `{access_token,
   expires_in, token_type: "Bearer"}`. Verifies password against
   `hub.users.password_hash` (argon2). 401 on bad creds. Same rate
   limit as the current login form.
+- `GET /v1/auth/authorize` — browser SSO start. Requires an allowed
+  absolute `redirect_uri`; unauthenticated users are sent through
+  `/login?next=...`; authenticated users receive a short-lived one-time
+  code at the callback.
+- `POST /v1/auth/exchange` — exchanges the one-time code plus matching
+  `redirect_uri` for a JWT.
 - `GET /v1/auth/jwks` — public-key set in standard JWK format.
   Cache-Control: public, max-age 600. No auth required.
 - `GET /v1/auth/validate` — bearer-required. Returns
