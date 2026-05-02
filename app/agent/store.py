@@ -45,6 +45,37 @@ def get_thread(*, thread_id: str, user_id: str, client_id: str) -> dict | None:
             return dict(zip(cols, row))
 
 
+def update_thread_title(*, thread_id: str, user_id: str, client_id: str,
+                        title: str) -> bool:
+    """Owner-scoped rename. Returns True if a row was updated."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                update hub.chat_threads
+                  set title = %s, updated_at = now()
+                where thread_id = %s and user_id = %s and client_id = %s
+                """,
+                (title, thread_id, user_id, client_id),
+            )
+            return (cur.rowcount or 0) > 0
+
+
+def delete_thread(*, thread_id: str, user_id: str, client_id: str) -> bool:
+    """Owner-scoped delete. Cascades to chat_messages via FK
+    on delete cascade. Returns True if a row was deleted."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                delete from hub.chat_threads
+                where thread_id = %s and user_id = %s and client_id = %s
+                """,
+                (thread_id, user_id, client_id),
+            )
+            return (cur.rowcount or 0) > 0
+
+
 def list_threads(*, user_id: str, client_id: str, limit: int = 20) -> list[dict]:
     with connect() as conn:
         with conn.cursor() as cur:

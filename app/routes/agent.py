@@ -133,6 +133,80 @@ async def widget_new_thread(request: Request, client_id: str):
     return JSONResponse({"thread_id": thread_id, "messages": []})
 
 
+@router.get("/clients/{client_id}/agent/_widget/threads")
+async def widget_list_threads(request: Request, client_id: str):
+    """Return all threads for the (user, client). Used by the
+    in-widget threads list view."""
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
+    threads = store.list_threads(
+        user_id=user.user_id, client_id=client_id, limit=100,
+    )
+    return JSONResponse({
+        "threads": [
+            {
+                "thread_id": t["thread_id"],
+                "title": t.get("title") or "",
+                "message_count": t.get("message_count", 0),
+                "updated_at": t["updated_at"].isoformat()
+                if t.get("updated_at") else None,
+            }
+            for t in threads
+        ],
+    })
+
+
+@router.get("/clients/{client_id}/agent/_widget/threads/{thread_id}")
+async def widget_select_thread(request: Request, client_id: str,
+                               thread_id: str):
+    """Switch the widget to an existing thread. Returns its messages.
+    Owner-scoped — foreign threads return 404 (no existence leak)."""
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
+    thread = store.get_thread(
+        thread_id=thread_id, user_id=user.user_id, client_id=client_id,
+    )
+    if not thread:
+        raise HTTPException(404, "Thread not found")
+    msgs = store.list_messages(thread_id=thread_id)
+    return JSONResponse({
+        "thread_id": thread_id,
+        "title": thread.get("title") or "",
+        "messages": [_serialize_msg(m) for m in msgs],
+    })
+
+
+@router.post("/clients/{client_id}/agent/_widget/threads/{thread_id}/rename")
+async def widget_rename_thread(request: Request, client_id: str,
+                               thread_id: str):
+    """Body: {title: str}. Owner-scoped."""
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
+    body = await request.json()
+    title = (body.get("title") or "").strip()[:120]
+    ok = store.update_thread_title(
+        thread_id=thread_id, user_id=user.user_id,
+        client_id=client_id, title=title,
+    )
+    if not ok:
+        raise HTTPException(404, "Thread not found")
+    return JSONResponse({"ok": True, "title": title})
+
+
+@router.post("/clients/{client_id}/agent/_widget/threads/{thread_id}/delete")
+async def widget_delete_thread(request: Request, client_id: str,
+                               thread_id: str):
+    """Owner-scoped delete. Messages cascade via FK."""
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
+    ok = store.delete_thread(
+        thread_id=thread_id, user_id=user.user_id, client_id=client_id,
+    )
+    if not ok:
+        raise HTTPException(404, "Thread not found")
+    return JSONResponse({"ok": True})
+
+
 @router.get("/clients/{client_id}/agent", response_class=HTMLResponse)
 async def thread_list(request: Request, client_id: str):
     user = auth.require_user(request)

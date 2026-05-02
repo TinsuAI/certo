@@ -6,7 +6,14 @@
      data-client-id="{{ client.client_id }}"
      data-i18n-thinking="{{ t('agent.widget_thinking') }}"
      data-i18n-empty="{{ t('agent.widget_empty') }}"
-     data-i18n-error="{{ t('agent.widget_error') }}">
+     data-i18n-error="{{ t('agent.widget_error') }}"
+     data-i18n-untitled="{{ t('agent.widget_thread_untitled') }}"
+     data-i18n-rename="{{ t('agent.widget_thread_rename') }}"
+     data-i18n-rename-prompt="{{ t('agent.widget_thread_rename_prompt') }}"
+     data-i18n-delete="{{ t('agent.widget_thread_delete') }}"
+     data-i18n-delete-confirm="{{ t('agent.widget_thread_delete_confirm') }}"
+     data-i18n-no-threads="{{ t('agent.widget_no_threads') }}"
+     data-i18n-msgs="{{ t('agent.widget_msgs_count') }}">
 
   <button type="button" class="chat-widget-toggle" aria-label="{{ t('agent.widget_open') }}">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="22" height="22"
@@ -19,31 +26,47 @@
 
   <div class="chat-widget-panel chat-widget-panel-hidden">
     <header class="chat-widget-head">
-      <div>
-        <strong>{{ t('agent.title') }}</strong>
+      <div class="chat-widget-head-title">
+        <strong class="chat-widget-current-title">{{ t('agent.title') }}</strong>
         <div class="meta">
           <span class="badge badge-info">{{ client.client_id }}</span>
         </div>
       </div>
       <div class="chat-widget-head-actions">
+        <button type="button" class="btn-link chat-widget-list"
+                title="{{ t('agent.widget_list_threads') }}">☰</button>
         <button type="button" class="btn-link chat-widget-new"
-                title="{{ t('agent.widget_new_thread') }}">↻</button>
+                title="{{ t('agent.widget_new_thread') }}">＋</button>
         <a class="btn-link" href="/clients/{{ client.client_id }}/agent"
            title="{{ t('agent.widget_open_full') }}">↗</a>
         <button type="button" class="btn-link chat-widget-close"
                 aria-label="{{ t('agent.widget_close') }}">✕</button>
       </div>
     </header>
-    <div class="chat-widget-messages" role="log" aria-live="polite">
-      <p class="chat-widget-empty meta">{{ t('agent.widget_empty') }}</p>
+
+    {# View 1: conversation #}
+    <div class="chat-widget-view-conversation">
+      <div class="chat-widget-messages" role="log" aria-live="polite">
+        <p class="chat-widget-empty meta">{{ t('agent.widget_empty') }}</p>
+      </div>
+      <form class="chat-widget-form">
+        <textarea class="chat-widget-input" rows="1"
+                  placeholder="{{ t('agent.widget_placeholder') }}"
+                  aria-label="{{ t('agent.widget_placeholder') }}"></textarea>
+        <button type="submit" class="btn-primary chat-widget-send"
+                aria-label="{{ t('agent.send') }}">→</button>
+      </form>
     </div>
-    <form class="chat-widget-form">
-      <textarea class="chat-widget-input" rows="1"
-                placeholder="{{ t('agent.widget_placeholder') }}"
-                aria-label="{{ t('agent.widget_placeholder') }}"></textarea>
-      <button type="submit" class="btn-primary chat-widget-send"
-              aria-label="{{ t('agent.send') }}">→</button>
-    </form>
+
+    {# View 2: threads list #}
+    <div class="chat-widget-view-threads chat-widget-view-hidden">
+      <div class="chat-widget-threads-head">
+        <strong>{{ t('agent.widget_threads_title') }}</strong>
+        <button type="button" class="btn-link chat-widget-back-to-chat"
+                title="{{ t('common.back') }}">←</button>
+      </div>
+      <ul class="chat-widget-threads-list" role="list"></ul>
+    </div>
   </div>
 </div>
 <script src="/static/js/chat-widget.js" defer></script>

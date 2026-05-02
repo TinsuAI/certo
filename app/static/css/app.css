@@ -1628,6 +1628,114 @@ small,
   }
 }
 
+/* Threads list view inside the widget panel */
+.chat-widget-view-conversation,
+.chat-widget-view-threads {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.chat-widget-view-hidden {
+  display: none;
+}
+
+.chat-widget-head-title {
+  flex: 1;
+  min-width: 0;
+}
+.chat-widget-current-title {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.chat-widget-threads-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.55rem 0.9rem;
+  border-bottom: 1px solid var(--border, rgba(0,0,0,0.08));
+  flex-shrink: 0;
+}
+
+.chat-widget-threads-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.chat-widget-thread-item {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--border-soft, rgba(0,0,0,0.06));
+}
+.chat-widget-thread-item.chat-widget-thread-active {
+  background: var(--primary-soft, rgba(5,150,105,0.08));
+}
+.chat-widget-thread-item:hover {
+  background: var(--surface-2, rgba(0,0,0,0.03));
+}
+
+.chat-widget-thread-main {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  padding: 0.3rem 0.4rem;
+  color: inherit;
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  border-radius: var(--radius-sm, 6px);
+}
+.chat-widget-thread-main strong {
+  font-size: 0.92rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chat-widget-thread-main .meta {
+  font-size: 0.78rem;
+}
+
+.chat-widget-thread-actions {
+  display: flex;
+  gap: 0.1rem;
+  flex-shrink: 0;
+}
+.chat-widget-thread-actions .btn-link {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.95rem;
+  color: var(--foreground-soft, #6b7280);
+  border-radius: var(--radius-sm, 6px);
+}
+.chat-widget-thread-actions .btn-link:hover {
+  background: var(--surface-2, rgba(0,0,0,0.06));
+  color: inherit;
+}
+.chat-widget-thread-delete:hover {
+  color: var(--error, #b91c1c) !important;
+}
+
+.chat-widget-threads-loading {
+  text-align: center;
+  padding: 1rem;
+  font-size: 0.86rem;
+}
+
 .staleness-row {
   display: flex;
   flex-wrap: wrap;

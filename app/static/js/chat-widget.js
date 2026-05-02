@@ -1,10 +1,9 @@
 // Floating chat widget for the Data Hub agent.
-// - Lazy-load: first toggle-click fetches the latest thread.
-// - Enter to send, Shift+Enter for newline.
-// - Sync POST with "thinking" indicator while waiting (LLM 5–30s).
-// - Disables input during in-flight requests; re-enables on response.
+// Two views inside the panel:
+// - conversation: messages + compose
+// - threads: list of saved conversations with rename/delete
 //
-// All state in widget element dataset; no globals leak to page.
+// All state lives on the widget element + closure. No globals.
 (function() {
   'use strict';
 
@@ -13,20 +12,34 @@
 
   const clientId = widget.dataset.clientId;
   const I18N = {
-    thinking: widget.dataset.i18nThinking || 'Trợ lý đang suy nghĩ…',
-    empty:    widget.dataset.i18nEmpty    || 'Bắt đầu hỏi…',
-    error:    widget.dataset.i18nError    || 'Có lỗi. Thử lại nhé.',
+    thinking:        widget.dataset.i18nThinking        || 'Đang suy nghĩ',
+    empty:           widget.dataset.i18nEmpty           || 'Bắt đầu hỏi…',
+    error:           widget.dataset.i18nError           || 'Có lỗi.',
+    untitled:        widget.dataset.i18nUntitled        || '(không tên)',
+    rename:          widget.dataset.i18nRename          || 'Đổi tên',
+    renamePrompt:    widget.dataset.i18nRenamePrompt    || 'Tên mới:',
+    delete:          widget.dataset.i18nDelete          || 'Xoá',
+    deleteConfirm:   widget.dataset.i18nDeleteConfirm   || 'Xoá cuộc trò chuyện?',
+    noThreads:       widget.dataset.i18nNoThreads       || 'Chưa có cuộc trò chuyện nào.',
+    msgs:            widget.dataset.i18nMsgs            || 'tin nhắn',
   };
 
-  const toggleBtn = widget.querySelector('.chat-widget-toggle');
-  const panel     = widget.querySelector('.chat-widget-panel');
-  const closeBtn  = widget.querySelector('.chat-widget-close');
-  const newBtn    = widget.querySelector('.chat-widget-new');
-  const form      = widget.querySelector('.chat-widget-form');
-  const input     = widget.querySelector('.chat-widget-input');
-  const sendBtn   = widget.querySelector('.chat-widget-send');
-  const msgList   = widget.querySelector('.chat-widget-messages');
-  const empty     = widget.querySelector('.chat-widget-empty');
+  const $ = (sel) => widget.querySelector(sel);
+  const toggleBtn  = $('.chat-widget-toggle');
+  const panel      = $('.chat-widget-panel');
+  const closeBtn   = $('.chat-widget-close');
+  const newBtn     = $('.chat-widget-new');
+  const listBtn    = $('.chat-widget-list');
+  const backBtn    = $('.chat-widget-back-to-chat');
+  const form       = $('.chat-widget-form');
+  const input      = $('.chat-widget-input');
+  const sendBtn    = $('.chat-widget-send');
+  const msgList    = $('.chat-widget-messages');
+  const empty      = $('.chat-widget-empty');
+  const titleEl    = $('.chat-widget-current-title');
+  const viewConv   = $('.chat-widget-view-conversation');
+  const viewThreads= $('.chat-widget-view-threads');
+  const threadsList= $('.chat-widget-threads-list');
 
   let threadId = null;
   let busy = false;
@@ -57,14 +70,33 @@
     else open();
   });
   closeBtn.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    close();
+    e.preventDefault(); e.stopPropagation(); close();
+  });
+
+  // ── View switching ───────────────────────────────────────────────────
+  function showView(name) {
+    if (name === 'threads') {
+      viewConv.classList.add('chat-widget-view-hidden');
+      viewThreads.classList.remove('chat-widget-view-hidden');
+    } else {
+      viewConv.classList.remove('chat-widget-view-hidden');
+      viewThreads.classList.add('chat-widget-view-hidden');
+    }
+  }
+  listBtn.addEventListener('click', async (e) => {
+    e.preventDefault(); e.stopPropagation();
+    showView('threads');
+    await loadThreadsList();
+  });
+  backBtn.addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    showView('conversation');
+    setTimeout(() => input.focus(), 50);
   });
 
   // ── Bootstrap: fetch latest thread ───────────────────────────────────
   async function bootstrap() {
-    setBusy(true, 'loading');
+    setBusy(true);
     try {
       const res = await fetch(`/clients/${clientId}/agent/_widget`, {
         credentials: 'same-origin',
@@ -73,6 +105,7 @@
       const data = await res.json();
       threadId = data.thread_id;
       renderMessages(data.messages);
+      updateTitle(data.title || '');
     } catch (e) {
       console.error('chat-widget bootstrap failed', e);
       msgList.innerHTML = `<p class="chat-widget-error">${escapeHtml(I18N.error)}</p>`;
@@ -81,23 +114,163 @@
     }
   }
 
+  // ── Threads CRUD ─────────────────────────────────────────────────────
+  async function loadThreadsList() {
+    threadsList.innerHTML = '<li class="meta chat-widget-threads-loading">…</li>';
+    try {
+      const res = await fetch(
+        `/clients/${clientId}/agent/_widget/threads`,
+        {credentials: 'same-origin'},
+      );
+      const data = await res.json();
+      renderThreads(data.threads || []);
+    } catch (e) {
+      threadsList.innerHTML = `<li class="chat-widget-error">${escapeHtml(I18N.error)}</li>`;
+    }
+  }
+
+  function renderThreads(threads) {
+    threadsList.innerHTML = '';
+    if (!threads.length) {
+      threadsList.innerHTML = `<li class="meta chat-widget-empty">${escapeHtml(I18N.noThreads)}</li>`;
+      return;
+    }
+    for (const t of threads) {
+      const li = document.createElement('li');
+      li.className = 'chat-widget-thread-item';
+      if (t.thread_id === threadId) li.classList.add('chat-widget-thread-active');
+
+      const main = document.createElement('button');
+      main.type = 'button';
+      main.className = 'chat-widget-thread-main';
+      main.innerHTML = `
+        <strong>${escapeHtml(t.title || I18N.untitled)}</strong>
+        <span class="meta">${t.message_count} ${escapeHtml(I18N.msgs)} · ${formatDate(t.updated_at)}</span>
+      `;
+      main.addEventListener('click', () => selectThread(t.thread_id));
+      li.appendChild(main);
+
+      const actions = document.createElement('div');
+      actions.className = 'chat-widget-thread-actions';
+
+      const renameBtn = document.createElement('button');
+      renameBtn.type = 'button';
+      renameBtn.className = 'btn-link';
+      renameBtn.title = I18N.rename;
+      renameBtn.textContent = '✎';
+      renameBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        renameThread(t);
+      });
+      actions.appendChild(renameBtn);
+
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'btn-link chat-widget-thread-delete';
+      delBtn.title = I18N.delete;
+      delBtn.textContent = '🗑';
+      delBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteThread(t);
+      });
+      actions.appendChild(delBtn);
+
+      li.appendChild(actions);
+      threadsList.appendChild(li);
+    }
+  }
+
+  async function selectThread(tid) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const res = await fetch(
+        `/clients/${clientId}/agent/_widget/threads/${tid}`,
+        {credentials: 'same-origin'},
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      threadId = data.thread_id;
+      renderMessages(data.messages);
+      updateTitle(data.title || '');
+      showView('conversation');
+      setTimeout(() => input.focus(), 50);
+    } catch (e) {
+      console.error('select thread failed', e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function renameThread(thread) {
+    const next = prompt(I18N.renamePrompt, thread.title || '');
+    if (next === null) return;  // cancelled
+    const title = next.trim();
+    setBusy(true);
+    try {
+      const res = await fetch(
+        `/clients/${clientId}/agent/_widget/threads/${thread.thread_id}/rename`,
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {'content-type': 'application/json'},
+          body: JSON.stringify({title}),
+        },
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // Reflect locally
+      thread.title = title;
+      if (thread.thread_id === threadId) updateTitle(title);
+      await loadThreadsList();
+    } catch (e) {
+      console.error('rename failed', e);
+      alert(I18N.error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteThread(thread) {
+    if (!confirm(I18N.deleteConfirm)) return;
+    setBusy(true);
+    try {
+      const res = await fetch(
+        `/clients/${clientId}/agent/_widget/threads/${thread.thread_id}/delete`,
+        {method: 'POST', credentials: 'same-origin'},
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // If we deleted the currently-loaded thread, drop it.
+      if (thread.thread_id === threadId) {
+        threadId = null;
+        renderMessages([]);
+        updateTitle('');
+      }
+      await loadThreadsList();
+    } catch (e) {
+      console.error('delete failed', e);
+      alert(I18N.error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // ── New thread ───────────────────────────────────────────────────────
   newBtn.addEventListener('click', async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
+    e.preventDefault(); e.stopPropagation();
     if (busy) return;
     setBusy(true);
     try {
       const res = await fetch(`/clients/${clientId}/agent/_widget/new`, {
-        method: 'POST',
-        credentials: 'same-origin',
+        method: 'POST', credentials: 'same-origin',
       });
       const data = await res.json();
       threadId = data.thread_id;
       renderMessages([]);
+      updateTitle('');
+      showView('conversation');
       input.focus();
     } catch (err) {
-      console.error('chat-widget new-thread failed', err);
+      console.error('new-thread failed', err);
     } finally {
       setBusy(false);
     }
@@ -108,17 +281,12 @@
     e.preventDefault();
     sendMessage();
   });
-
-  // Enter to send, Shift+Enter to insert newline. Don't send on
-  // composition (IME — Vietnamese, Chinese, etc.).
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       sendMessage();
     }
   });
-
-  // Auto-grow textarea up to 5 rows
   input.addEventListener('input', () => {
     input.style.height = 'auto';
     const max = parseInt(getComputedStyle(input).lineHeight) * 5;
@@ -129,23 +297,15 @@
     if (busy) return;
     const text = input.value.trim();
     if (!text) return;
-    // If user typed + hit Enter before bootstrap finished, run bootstrap
-    // synchronously now so we have a thread to send into.
     if (!threadId) {
-      if (!initialized) {
-        initialized = true;
-        await bootstrap();
-      }
-      if (!threadId) return;  // bootstrap failed; error already shown
+      if (!initialized) { initialized = true; await bootstrap(); }
+      if (!threadId) return;
     }
-
-    // Optimistic UI: append user message + thinking indicator
     appendMessage({role: 'user', content: text});
     appendThinking();
     input.value = '';
     input.style.height = 'auto';
     setBusy(true);
-
     try {
       const res = await fetch(`/clients/${clientId}/agent/_widget/send`, {
         method: 'POST',
@@ -180,18 +340,13 @@
       msgList.innerHTML = `<p class="chat-widget-empty meta">${escapeHtml(I18N.empty)}</p>`;
       return;
     }
-    for (const m of msgs) appendMessage(m, /* skipScroll */ true);
+    for (const m of msgs) appendMessage(m, true);
     scrollToBottom();
   }
 
   function appendMessage(m, skipScroll) {
-    if (empty && empty.parentNode === msgList) msgList.removeChild(empty);
-
-    // Skip the noise: tool-result rows (raw JSON) are useful in the
-    // full thread page but cluttery in the widget. Show only:
-    // - user content
-    // - assistant content (final or intermediate)
-    // - assistant tool_call_summary as "→ tool_a, tool_b"
+    const e = msgList.querySelector('.chat-widget-empty');
+    if (e) e.remove();
     if (m.role === 'tool') return;
     if (m.role === 'system') return;
     if (m.role === 'assistant' && !m.content && !m.tool_call_summary) return;
@@ -201,7 +356,6 @@
     if (m._isError) div.classList.add('chat-widget-msg-error');
 
     if (m.role === 'assistant' && m.tool_call_summary && !m.content) {
-      // Intermediate "I'm calling these tools" turn
       const summary = m.tool_call_summary.join(', ');
       div.classList.add('chat-widget-msg-tools');
       div.innerHTML = '<span class="chat-widget-msg-meta">→ ' + escapeHtml(summary) + '</span>';
@@ -226,30 +380,45 @@
     if (d) d.remove();
   }
 
+  function updateTitle(t) {
+    if (titleEl) titleEl.textContent = t || I18N.untitled;
+  }
+
   function scrollToBottom() {
     msgList.scrollTop = msgList.scrollHeight;
   }
-
   function setBusy(state) {
     busy = state;
     input.disabled = state;
     sendBtn.disabled = state;
     newBtn.disabled = state;
+    listBtn.disabled = state;
     widget.classList.toggle('chat-widget-busy', state);
   }
-
   function escapeHtml(s) {
     const d = document.createElement('div');
-    d.textContent = s;
+    d.textContent = s == null ? '' : String(s);
     return d.innerHTML;
   }
+  function formatDate(iso) {
+    if (!iso) return '';
+    try {
+      const d = new Date(iso);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const HH = String(d.getHours()).padStart(2, '0');
+      const MM = String(d.getMinutes()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd} ${HH}:${MM}`;
+    } catch { return iso; }
+  }
 
-  // Keyboard shortcut: Ctrl+/ or Cmd+/ to toggle widget
+  // Ctrl+/ keyboard shortcut
   document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === '/') {
       e.preventDefault();
-      if (panel.hidden) open();
-      else close();
+      if (isOpen()) close();
+      else open();
     }
   });
 })();
