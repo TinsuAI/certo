@@ -48,6 +48,33 @@
     </div>
   </div>
 
+  {% if bom_workspace.read_only %}
+  <div class="callout callout-info">
+    <div class="callout-icon">i</div>
+    <div>
+      <div class="callout-title">BOM đang lấy từ Data Hub.</div>
+      <p>Upload, flatten và cấu hình BOM canonical được xử lý trong Data Hub; CO chỉ đọc version đã publish để bind vào hồ sơ.</p>
+    </div>
+  </div>
+  {% if bom_workspace.variant_conflicts %}
+  <div class="callout">
+    <div class="callout-icon">i</div>
+    <div>
+      <div class="callout-title">Có TP cần chọn variant BOM rõ ràng.</div>
+      <div class="rowlist audit-trail">
+        {% for conflict in bom_workspace.variant_conflicts %}
+        <div class="rowitem">
+          <div>
+            <strong>{{ conflict.product_code }}</strong>
+            <div class="meta">{{ conflict.variants|length }} variant Data Hub đang publish; hồ sơ C/O phải bind bằng version_id cụ thể.</div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  {% else %}
   <div class="split-balanced">
     <form method="post" action="/clients/{{ client.id }}/bom/config" class="module-tile stack-form">
       <h3>Cấu hình công ty</h3>
@@ -106,6 +133,7 @@
       <p class="meta">Direct BOM mặc định là full aggregate. Technical BOM mặc định chỉ cập nhật TP trong file.</p>
     </form>
   </div>
+  {% endif %}
 
   {% if bom_result %}
   <div class="callout {{ 'callout-info' if bom_result.status != 'failed' else '' }}">

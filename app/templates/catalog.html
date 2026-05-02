@@ -13,10 +13,23 @@
     <div class="chip-row" aria-label="Loại mã hàng">
       <a class="chip" href="/clients/{{ client.id }}/catalog/materials">NVL ({{ client.counts.materials }})</a>
       <a class="chip" href="/clients/{{ client.id }}/catalog/products">TP ({{ client.counts.products }})</a>
+      {% if source_backend == "data-hub" %}
+      <span class="chip chip-active">Data Hub</span>
+      {% else %}
       <span class="chip chip-active">Upload</span>
+      {% endif %}
     </div>
   </div>
 
+  {% if source_backend == "data-hub" %}
+  <section class="callout callout-info">
+    <span class="callout-icon">i</span>
+    <div>
+      <div class="callout-title">Danh mục đang lấy từ Data Hub.</div>
+      Canonical DS NVL và DS SP được upload, preview và publish trong Data Hub; CO chỉ đọc version đã publish.
+    </div>
+  </section>
+  {% else %}
   <section class="callout callout-info">
     <span class="callout-icon">i</span>
     <div>
@@ -24,6 +37,7 @@
       DS NVL và DS SP là catalog hải quan. Hỗ trợ <span class="mono">.xls</span>, <span class="mono">.xlsx</span>, hoặc ZIP chứa file gốc. Full upload thiếu mã cũ sẽ đánh dấu <span class="mono">inactive_pending_review</span>, không xóa tự động.
     </div>
   </section>
+  {% endif %}
 
   {% if catalog_result %}
   <div class="callout {{ 'callout-info' if catalog_result.status != 'failed' else 'callout-danger' }}">
@@ -38,6 +52,7 @@
   </div>
   {% endif %}
 
+  {% if source_backend != "data-hub" %}
   <div class="split-balanced">
     <form method="post" action="/clients/{{ client.id }}/catalog/upload" enctype="multipart/form-data" class="zone mini-panel" hx-boost="false">
       <div class="subsection-head">
@@ -78,5 +93,19 @@
       </div>
     </section>
   </div>
+  {% else %}
+  <section class="zone mini-panel">
+    <div class="subsection-head">
+      <h3>Version và bảng</h3>
+      <p class="meta">Catalog hiện tại được publish trong Data Hub.</p>
+    </div>
+    <div class="chip-row">
+      <a class="chip" href="/clients/{{ client.id }}/catalog/materials">Mở DS NVL DK HQ</a>
+      <a class="chip" href="/clients/{{ client.id }}/catalog/products">Mở DS SP DK HQ</a>
+      <span class="chip">NVL v{{ source_workspace.material_catalog.latest_version.version_no if source_workspace.material_catalog.latest_version else 'none' }}</span>
+      <span class="chip">TP v{{ source_workspace.product_catalog.latest_version.version_no if source_workspace.product_catalog.latest_version else 'none' }}</span>
+    </div>
+  </section>
+  {% endif %}
 </section>
 {% endblock %}

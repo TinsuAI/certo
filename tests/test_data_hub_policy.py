@@ -16,6 +16,11 @@ APPROVED_DATA_HUB_ENDPOINTS = {
     "/v1/hub/bcct/invoice-matches",
     "/v1/hub/code-mappings",
     "/v1/hub/products",
+    "/v1/hub/products/{product_code}/bom",
+    "/v1/hub/products/{product_code}/bom/latest",
+    "/v1/hub/products/{product_code}/bom/proposals",
+    "/v1/hub/products/{product_code}/bom/versions",
+    "/v1/hub/proposals/{proposal_id}",
 }
 
 

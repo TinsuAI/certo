@@ -11,13 +11,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app import co_auth
-from app.bom_store import (
-    attach_case_bom_snapshot,
-    create_bom_template_workbook,
-    get_bom_workspace,
-    process_bom_upload,
-    update_bom_config,
-)
+from app.bom_store import attach_case_bom_snapshot
+from app.bom_service import bom_service
 from app.co_case_store import (
     MAX_SUPPORTING_FILE_BYTES,
     build_case_criteria_rows,
@@ -521,7 +516,7 @@ def client_context(client_id: str, active: str, **extra):
     case = extra.pop("case", client_case(client))
     source_workspace, source_backend = source_workspace_for_client(client)
     client = enrich_client_with_source_workspace(client, source_workspace)
-    bom_workspace = get_bom_workspace(client)
+    bom_workspace = bom_service.workspace(client)
     case = attach_case_bom_snapshot(case, bom_workspace)
     case = attach_case_source_snapshot(case, source_workspace)
     return {
@@ -549,7 +544,7 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
     client = resolve_client(client_id)
     source_context = co_case_source_context(client, case)
     source_summary = source_context["source_summary"]
-    bom_workspace = get_bom_workspace(client) if current_step == "origin" else minimal_bom_workspace()
+    bom_workspace = bom_service.workspace(client) if current_step == "origin" else minimal_bom_workspace()
     client = enrich_client_with_source_summary(client, source_summary)
     case = attach_case_source_summary_snapshot(case, source_summary)
     if current_step == "origin":
@@ -882,6 +877,7 @@ async def product_catalog(request: Request, client_id: str):
 
 @app.get("/clients/{client_id}/catalog/material-template.xlsx")
 async def download_material_catalog_template(client_id: str):
+    require_local_source_writes()
     content = portfolio_service.material_catalog_template(resolve_client(client_id))
     return StreamingResponse(
         iter([content]),
@@ -892,6 +888,7 @@ async def download_material_catalog_template(client_id: str):
 
 @app.get("/clients/{client_id}/catalog/product-template.xlsx")
 async def download_product_catalog_template(client_id: str):
+    require_local_source_writes()
     content = portfolio_service.product_catalog_template(resolve_client(client_id))
     return StreamingResponse(
         iter([content]),
@@ -948,7 +945,7 @@ async def save_bom_config(request: Request, client_id: str):
     require_local_source_writes()
     client = resolve_client(client_id)
     form = await request.form()
-    update_bom_config(client, {key: str(value) for key, value in form.items()})
+    bom_service.update_config(client, {key: str(value) for key, value in form.items()})
     return templates.TemplateResponse(
         request=request,
         name="bom.html",
@@ -1005,7 +1002,7 @@ async def upload_bom_workbook(
 ):
     require_local_source_writes()
     client = resolve_client(client_id)
-    result = process_bom_upload(
+    result = bom_service.process_upload(
         client,
         await file.read(),
         file.filename or "bom.xlsx",
@@ -1030,7 +1027,10 @@ async def upload_bom_workbook(
 
 @app.get("/clients/{client_id}/bom/template.xlsx")
 async def download_bom_template(client_id: str):
-    content = create_bom_template_workbook(resolve_client(client_id))
+    try:
+        content = bom_service.template(resolve_client(client_id))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return StreamingResponse(
         iter([content]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1119,6 +1119,7 @@ async def client_customs_exchange_rates_redirect(client_id: str):
 
 @app.get("/clients/{client_id}/bcct/template.xlsx")
 async def download_bcct_template(client_id: str):
+    require_local_source_writes()
     content = portfolio_service.bcct_template(resolve_client(client_id))
     return StreamingResponse(
         iter([content]),

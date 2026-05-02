@@ -596,6 +596,7 @@ def test_data_hub_client_uses_bearer_token_and_normalizes_clients():
         "tax_code": "0312345678",
         "status": "active",
         "contact": "",
+        "counts": {},
     }
     assert seen == [("GET", "/v1/hub/dncxs", "Bearer secret-token")]
 
@@ -658,6 +659,117 @@ def test_data_hub_client_follows_cursor_pagination():
     assert client.list_materials("growatt-vn") == [{"customs_code": "NVL-1"}, {"customs_code": "NVL-2"}]
 
 
+def test_data_hub_client_fetches_bom_contract_and_conflicts():
+    from app.data_hub_client import DataHubBomVariantConflict, DataHubClient
+
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path, dict(request.url.params)))
+        if request.url.path == "/v1/hub/products":
+            return httpx.Response(200, json={"items": [{"product_code": "TP-1", "n_versions": 2}]})
+        if request.url.path == "/v1/hub/products/TP-1/bom/versions":
+            return httpx.Response(200, json={"items": [{"version_id": "bv-1", "version_no": 1}]})
+        if request.url.path == "/v1/hub/products/TP-1/bom/latest":
+            return httpx.Response(
+                409,
+                json={
+                    "error": "dual_source_variants",
+                    "variants": [{"version_id": "bv-a"}, {"version_id": "bv-b"}],
+                },
+            )
+        if request.url.path == "/v1/hub/products/TP-1/bom":
+            return httpx.Response(
+                200,
+                json={
+                    "version": {
+                        "version_id": "bv-1",
+                        "product_code": "TP-1",
+                        "version_no": 1,
+                        "flatten_status": "flattened",
+                    },
+                    "rows": [{"material_code": "NVL-1", "qty_per_unit": 2, "uom": "kg"}],
+                    "unresolved": [],
+                    "decisions": [],
+                },
+            )
+        if request.url.path == "/v1/hub/proposals/prop-1":
+            return httpx.Response(200, json={"proposal_id": "prop-1", "status": "approved"})
+        return httpx.Response(404)
+
+    client = DataHubClient(
+        base_url="https://hub.test",
+        token="secret-token",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert client.list_bom_products("growatt-vn") == [{"product_code": "TP-1", "n_versions": 2}]
+    assert client.list_bom_versions("growatt-vn", "TP-1") == [{"version_id": "bv-1", "version_no": 1}]
+    with pytest.raises(DataHubBomVariantConflict) as exc:
+        client.get_bom_latest("growatt-vn", "TP-1")
+    assert exc.value.variants == [{"version_id": "bv-a"}, {"version_id": "bv-b"}]
+    assert client.get_bom_version("growatt-vn", "TP-1", "bv-1")["rows"][0]["material_code"] == "NVL-1"
+    assert client.get_bom_proposal("prop-1")["status"] == "approved"
+    assert seen == [
+        ("GET", "/v1/hub/products", {"client_id": "growatt-vn", "limit": "1000"}),
+        ("GET", "/v1/hub/products/TP-1/bom/versions", {"client_id": "growatt-vn", "limit": "1000"}),
+        ("GET", "/v1/hub/products/TP-1/bom/latest", {"client_id": "growatt-vn"}),
+        ("GET", "/v1/hub/products/TP-1/bom", {"client_id": "growatt-vn", "version_id": "bv-1"}),
+        ("GET", "/v1/hub/proposals/prop-1", {}),
+    ]
+
+
+def test_data_hub_bom_service_adapts_workspace():
+    from app.bom_service import DataHubBomService
+
+    class FakeDataHubClient:
+        def list_bom_products(self, client_id: str):
+            assert client_id == "growatt-vn"
+            return [{"product_code": "TP-1", "n_versions": 1}]
+
+        def get_bom_latest(self, client_id: str, product_code: str):
+            assert client_id == "growatt-vn"
+            assert product_code == "TP-1"
+            return {
+                "version": {
+                    "version_id": "bv-1",
+                    "client_id": "growatt-vn",
+                    "product_code": "TP-1",
+                    "version_no": 3,
+                    "normalized_hash": "hash-1",
+                    "row_count": 1,
+                    "status": "published",
+                    "published_at": "2026-05-03T00:00:00+08:00",
+                    "source_bom_kind": "technical_flattened",
+                    "flatten_status": "flattened",
+                    "flatten_strategy": "technical_exploded",
+                    "display_label": "TP-1 · default · v3 · technical_flattened",
+                },
+                "rows": [
+                    {
+                        "material_code": "NVL-1",
+                        "bom_code": "TP-1",
+                        "bom_variant_id": "default",
+                        "qty_per_unit": 2.5,
+                        "uom": "kg",
+                        "payload": {"material_name": "Input material"},
+                    }
+                ],
+                "unresolved": [],
+                "decisions": [],
+            }
+
+    workspace = DataHubBomService(FakeDataHubClient()).workspace({"id": "growatt-vn"})
+
+    assert workspace["backend"] == "data-hub"
+    assert workspace["latest_version"]["version_id"].startswith("dhagg-")
+    assert workspace["latest_version"]["product_versions"][0]["product_version_id"] == "bv-1"
+    assert workspace["product_versions"][0]["flatten_status"] == "flattened"
+    assert workspace["latest_rows"][0]["product_code"] == "TP-1"
+    assert workspace["latest_rows"][0]["qty_per"] == 2.5
+    assert workspace["product_version_options_by_code"]["TP-1"][0]["product_version_id"] == "bv-1"
+
+
 def test_data_hub_portfolio_service_uses_data_hub_source_summary():
     from app.data_hub_client import DataHubPortfolioService
 
@@ -714,6 +826,36 @@ def test_data_hub_portfolio_service_uses_invoice_lookup_api():
 
     assert context["source_backend"] == "data-hub"
     assert context["invoice_matches"] == [{"declaration_no": "XK1", "invoice_ref": "INV-001"}]
+
+
+def test_data_hub_portfolio_service_skips_invoice_lookup_without_invoice_no():
+    from app.data_hub_client import DataHubPortfolioService
+
+    class FakeDataHubClient:
+        def source_summary(self, _client_id: str):
+            return {
+                "client_config": {
+                    "config_version": 1,
+                    "config_hash": "hub-cfg",
+                    "co_stock": {"lot_policy": "line_level"},
+                    "bcct": {"eligible_import_declaration_types": [], "relevant_export_declaration_types": ["E42"]},
+                    "allocation_code": {"strategy": "same_as_customs_code"},
+                },
+                "material_catalog": {"published_row_count": 0, "latest_version": {}},
+                "product_catalog": {"published_row_count": 0, "latest_version": {}},
+                "bcct": {"published_row_count": 3, "reviewed_row_count": 3, "latest_version": {}},
+                "co_stock_row_count": 0,
+            }
+
+        def invoice_matches(self, *_args, **_kwargs):
+            raise AssertionError("blank invoices should not call Data Hub invoice-matches")
+
+    service = DataHubPortfolioService(FakeDataHubClient())
+
+    context = service.co_case_source_context({"id": "growatt-vn"}, {"shipment": {"invoice_no": ""}})
+
+    assert context["source_backend"] == "data-hub"
+    assert context["invoice_matches"] == []
 
 
 def test_clients_page_uses_portfolio_service_boundary(monkeypatch):
@@ -775,6 +917,86 @@ def test_client_detail_uses_portfolio_service_boundary(monkeypatch):
     assert "Hub Only Client" in response.text
 
 
+def test_bom_page_uses_bom_service_boundary(monkeypatch):
+    from app import main as main_module
+
+    empty_state = {
+        "published_rows": [],
+        "latest_version": {},
+        "versions": [],
+        "uploads": [],
+        "correction_candidates": [],
+        "audit_events": [],
+    }
+
+    class FakePortfolioService:
+        def client(self, client_id: str):
+            assert client_id == "hub-only"
+            return {"id": "hub-only", "name": "Hub Only Client", "code": "hub-only", "tax_code": "", "counts": {}}
+
+        def source_workspace(self, _client: dict):
+            return {
+                "client_config": {"config_version": 1, "config_hash": "cfg", "co_stock": {"lot_policy": "line_level"}, "bcct": {"eligible_import_declaration_types": []}, "allocation_code": {"strategy": "same_as_customs_code"}},
+                "material_catalog": {"module": "material_catalog", **empty_state},
+                "product_catalog": {"module": "product_catalog", **empty_state},
+                "bcct": {"module": "bcct", **empty_state},
+                "co_stock_rows": [],
+            }, "data-hub"
+
+    class FakeBomService:
+        def workspace(self, _client: dict):
+            return {
+                "backend": "data-hub",
+                "read_only": True,
+                "config": {"bom_profile": "data_hub", "default_import_mode": "data_hub", "code_system_mode": "data_hub"},
+                "versions": [
+                    {
+                        "version_id": "dhagg-1",
+                        "version_no": 1,
+                        "version_hash": "hash-aggregate",
+                        "status": "published",
+                        "row_count": 1,
+                        "product_versions": [{"product_code": "TP-1", "product_version_id": "bv-1", "product_version_no": 4, "version_hash": "hash-1", "row_count": 1, "status": "current"}],
+                        "diff_summary": {},
+                        "published_at": "",
+                    }
+                ],
+                "product_versions": [
+                    {
+                        "product_code": "TP-1",
+                        "product_version_id": "bv-1",
+                        "product_version_no": 4,
+                        "version_hash": "hash-1",
+                        "row_count": 1,
+                        "status": "current",
+                        "diff_summary": {},
+                        "source_upload_id": "data-hub",
+                    }
+                ],
+                "product_version_options_by_code": {"TP-1": [{"product_version_id": "bv-1", "product_version_no": 4, "row_count": 1}]},
+                "product_composition": [{"product_code": "TP-1", "product_version_id": "bv-1", "product_version_no": 4, "version_hash": "hash-1", "row_count": 1, "status": "current"}],
+                "uploads": [],
+                "audit": [],
+                "latest_version": {"version_id": "dhagg-1", "version_no": 1, "version_hash": "hash-aggregate", "status": "published", "row_count": 1, "product_versions": [{"product_code": "TP-1"}], "diff_summary": {}, "published_at": ""},
+                "latest_rows": [{"product_code": "TP-1", "bom_code": "TP-1", "product_version_no": 4, "material_code": "NVL-1", "material_name": "Input", "qty_per": 2, "uom": "kg", "scrap_rate": "", "source": "technical_flattened", "row_class": "flattened"}],
+                "profile_options": [],
+                "upload_mode_options": [],
+                "upload_scope_options": [],
+                "code_system_options": [],
+                "variant_conflicts": [],
+            }
+
+    monkeypatch.setattr(main_module, "portfolio_service", FakePortfolioService())
+    monkeypatch.setattr(main_module, "bom_service", FakeBomService())
+
+    response = TestClient(app).get("/clients/hub-only/bom")
+
+    assert response.status_code == 200
+    assert "BOM đang lấy từ Data Hub" in response.text
+    assert "NVL-1" in response.text
+    assert "Upload và so sánh" not in response.text
+
+
 def test_clients_page_filters_by_jwt_client_claims(monkeypatch):
     from app import co_auth
     from app import main as main_module
@@ -816,3 +1038,117 @@ def test_data_hub_mode_blocks_local_shared_source_uploads(monkeypatch):
 
     assert response.status_code == 409
     assert "Shared source data is read-only in CO" in response.text
+
+
+def test_data_hub_mode_blocks_local_bom_writes(monkeypatch):
+    monkeypatch.setenv("DATA_HUB_ENABLED", "1")
+    client = TestClient(app)
+
+    config_response = client.post(
+        "/clients/growatt/bom/config",
+        data={"bom_profile": "manual_flat"},
+    )
+    upload_response = client.post(
+        "/clients/growatt/bom/upload",
+        data={"upload_mode": "direct_bom"},
+        files={"file": ("bom.xlsx", b"not-an-xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+
+    assert config_response.status_code == 409
+    assert upload_response.status_code == 409
+    assert "Shared source data is read-only in CO" in config_response.text
+    assert "Shared source data is read-only in CO" in upload_response.text
+
+
+def test_data_hub_mode_hides_shared_source_upload_ui(monkeypatch):
+    from app import main as main_module
+
+    empty_state = {
+        "published_rows": [],
+        "latest_version": {},
+        "versions": [],
+        "uploads": [],
+        "correction_candidates": [],
+        "audit_events": [],
+    }
+
+    class FakePortfolioService:
+        def client(self, client_id: str):
+            assert client_id == "hub-only"
+            return {
+                "id": "hub-only",
+                "name": "Hub Only Client",
+                "code": "hub-only",
+                "tax_code": "",
+                "counts": {"materials": 0, "products": 0, "bom_lines": 0, "co_stock": 0, "bcct": 0},
+            }
+
+        def source_workspace(self, _client: dict):
+            return {
+                "client_config": {
+                    "config_version": 1,
+                    "config_hash": "cfg",
+                    "co_stock": {"lot_policy": "line_level"},
+                    "bcct": {"eligible_import_declaration_types": [], "relevant_export_declaration_types": []},
+                    "allocation_code": {"strategy": "same_as_customs_code"},
+                },
+                "material_catalog": {"module": "material_catalog", **empty_state},
+                "product_catalog": {"module": "product_catalog", **empty_state},
+                "bcct": {"module": "bcct", **empty_state},
+                "co_stock_rows": [],
+            }, "data-hub"
+
+    class FakeBomService:
+        def workspace(self, _client: dict):
+            return {
+                "backend": "data-hub",
+                "read_only": True,
+                "config": {"bom_profile": "data_hub", "default_import_mode": "data_hub", "code_system_mode": "data_hub"},
+                "versions": [],
+                "product_versions": [],
+                "product_version_options_by_code": {},
+                "product_composition": [],
+                "uploads": [],
+                "audit": [],
+                "latest_version": {"version_no": 0, "version_id": "", "row_count": 0, "product_versions": []},
+                "latest_rows": [],
+                "profile_options": [],
+                "upload_mode_options": [],
+                "upload_scope_options": [],
+                "code_system_options": [],
+                "variant_conflicts": [],
+            }
+
+    monkeypatch.setenv("DATA_HUB_ENABLED", "1")
+    monkeypatch.setattr(main_module, "portfolio_service", FakePortfolioService())
+    monkeypatch.setattr(main_module, "bom_service", FakeBomService())
+    client = TestClient(app)
+
+    catalog = client.get("/clients/hub-only/catalog")
+    materials = client.get("/clients/hub-only/catalog/materials")
+    bcct = client.get("/clients/hub-only/bcct")
+
+    assert catalog.status_code == 200
+    assert materials.status_code == 200
+    assert bcct.status_code == 200
+    assert "Upload danh mục" not in catalog.text
+    assert "Tải template DS NVL" not in catalog.text
+    assert ">Upload<" not in materials.text
+    assert "Tải template DS NVL" not in materials.text
+    assert "Upload BCCT" not in bcct.text
+    assert "Tải template BCCT" not in bcct.text
+    assert "Data Hub" in catalog.text
+    assert "Data Hub" in bcct.text
+
+
+def test_data_hub_mode_blocks_shared_source_templates(monkeypatch):
+    monkeypatch.setenv("DATA_HUB_ENABLED", "1")
+    client = TestClient(app)
+
+    responses = [
+        client.get("/clients/growatt/catalog/material-template.xlsx"),
+        client.get("/clients/growatt/catalog/product-template.xlsx"),
+        client.get("/clients/growatt/bcct/template.xlsx"),
+    ]
+
+    assert [response.status_code for response in responses] == [409, 409, 409]

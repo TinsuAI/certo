@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextvars import ContextVar, Token
 from typing import Any, Callable
+from urllib.parse import quote
 
 import httpx
 
@@ -12,6 +13,21 @@ from app.source_store import (
 )
 
 CURRENT_DATA_HUB_TOKEN: ContextVar[str] = ContextVar("current_data_hub_token", default="")
+HUB_BOM_PATH = "/v1/hub/products/{product_code}/bom"
+HUB_BOM_LATEST_PATH = "/v1/hub/products/{product_code}/bom/latest"
+HUB_BOM_PROPOSALS_PATH = "/v1/hub/products/{product_code}/bom/proposals"
+HUB_BOM_VERSIONS_PATH = "/v1/hub/products/{product_code}/bom/versions"
+HUB_PROPOSAL_PATH = "/v1/hub/proposals/{proposal_id}"
+
+
+class DataHubBomVariantConflict(RuntimeError):
+    def __init__(self, product_code: str, payload: dict):
+        super().__init__(payload.get("message") or f"Multiple BOM variants exist for {product_code}.")
+        self.product_code = product_code
+        self.payload = payload
+        self.variants = items(payload)
+        if not self.variants and isinstance(payload.get("variants"), list):
+            self.variants = payload["variants"]
 
 
 def set_current_data_hub_token(token: str) -> Token[str]:
@@ -63,6 +79,55 @@ class DataHubClient:
     def list_products(self, client_id: str) -> list[dict]:
         return self._get_all("/v1/hub/products", {"client_id": client_id})
 
+    def list_bom_products(self, client_id: str) -> list[dict]:
+        return self._get_all("/v1/hub/products", {"client_id": client_id})
+
+    def list_bom_versions(self, client_id: str, product_code: str, **query) -> list[dict]:
+        return self._get_all(
+            hub_bom_path(HUB_BOM_VERSIONS_PATH, product_code),
+            {"client_id": client_id, **query},
+        )
+
+    def get_bom_latest(self, client_id: str, product_code: str) -> dict:
+        try:
+            return self._get(hub_bom_path(HUB_BOM_LATEST_PATH, product_code), {"client_id": client_id})
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 409:
+                raise DataHubBomVariantConflict(product_code, exc.response.json()) from exc
+            raise
+
+    def get_bom_version(self, client_id: str, product_code: str, version_id: str) -> dict:
+        return self._get(
+            hub_bom_path(HUB_BOM_PATH, product_code),
+            {"client_id": client_id, "version_id": version_id},
+        )
+
+    def submit_bom_proposal(
+        self,
+        client_id: str,
+        product_code: str,
+        *,
+        parent_version_id: str,
+        rows: list[dict],
+        context: dict | None = None,
+        actor: str = "co_system",
+        intent: str = "modified_for_case",
+    ) -> dict:
+        return self._post(
+            hub_bom_path(HUB_BOM_PROPOSALS_PATH, product_code),
+            {
+                "client_id": client_id,
+                "actor": actor,
+                "intent": intent,
+                "parent_version_id": parent_version_id,
+                "context": context or {},
+                "rows": rows,
+            },
+        )
+
+    def get_bom_proposal(self, proposal_id: str) -> dict:
+        return self._get(HUB_PROPOSAL_PATH.format(proposal_id=hub_path_part(proposal_id)))
+
     def get_co_config(self, client_id: str) -> dict:
         return self._get(f"/v1/hub/dncxs/{client_id}/co-config")
 
@@ -70,6 +135,8 @@ class DataHubClient:
         return self._get(f"/v1/hub/dncxs/{client_id}/source-summary")
 
     def invoice_matches(self, client_id: str, invoice_no: str, declaration_types: list[str]) -> list[dict]:
+        if not invoice_no.strip():
+            return []
         return items(self._get(
             "/v1/hub/bcct/invoice-matches",
             {
@@ -82,6 +149,11 @@ class DataHubClient:
     def _get(self, path: str, params: dict[str, Any] | None = None) -> dict:
         params = {key: value for key, value in (params or {}).items() if value not in (None, "")}
         response = self._client.get(path, params=params, headers=self._auth_headers())
+        response.raise_for_status()
+        return response.json()
+
+    def _post(self, path: str, payload: dict[str, Any]) -> dict:
+        response = self._client.post(path, json=payload, headers=self._auth_headers())
         response.raise_for_status()
         return response.json()
 
@@ -113,13 +185,15 @@ class DataHubPortfolioService:
         self.data_hub = client
 
     def clients(self) -> list[dict]:
-        return [self.client_summary(row["id"]) for row in self.data_hub.list_clients()]
+        return [self._client_summary(row) for row in self.data_hub.list_clients()]
 
     def client(self, client_id: str) -> dict:
         return self.data_hub.get_client(client_id)
 
     def client_summary(self, client_id: str) -> dict:
-        client = self.client(client_id)
+        return self._client_summary(self.client(client_id))
+
+    def _client_summary(self, client: dict) -> dict:
         source_summary, source_backend = self.source_summary(client)
         return {
             **client,
@@ -128,7 +202,7 @@ class DataHubPortfolioService:
                 "materials": source_summary["material_catalog"]["published_row_count"],
                 "products": source_summary["product_catalog"]["published_row_count"],
                 "bcct": source_summary["bcct"]["published_row_count"],
-                "co_stock": source_summary["co_stock_row_count"],
+                "co_stock": source_summary.get("co_stock_row_count", 0),
             },
             "source_backend": source_backend,
             "source_versions": {
@@ -150,7 +224,8 @@ class DataHubPortfolioService:
 
     def source_summary(self, client: dict) -> tuple[dict, str]:
         summary = self.data_hub.source_summary(client["id"])
-        summary["client_config"] = migrate_config(summary.get("client_config") or {}, client)
+        summary["client_config"] = normalize_data_hub_client_config(summary.get("client_config") or {}, client)
+        summary.setdefault("co_stock_row_count", 0)
         return summary, "data-hub"
 
     def source_workspace(self, client: dict) -> tuple[dict, str]:
@@ -168,10 +243,11 @@ class DataHubPortfolioService:
         client_config = source_summary["client_config"]
         invoice_no = case.get("shipment", {}).get("invoice_no", "")
         relevant_types = client_config.get("bcct", {}).get("relevant_export_declaration_types", [])
+        invoice_matches = self.data_hub.invoice_matches(client["id"], invoice_no, relevant_types) if invoice_no else []
         return {
             "source_backend": source_backend,
             "source_summary": source_summary,
-            "invoice_matches": self.data_hub.invoice_matches(client["id"], invoice_no, relevant_types),
+            "invoice_matches": invoice_matches,
         }
 
     def process_catalog_upload(self, *_args, **_kwargs) -> dict:
@@ -236,6 +312,9 @@ def next_cursor(payload: dict) -> str:
 
 def normalize_client(row: dict) -> dict:
     client_id = row.get("id") or row.get("client_id") or row.get("dncx_id") or ""
+    counts = dict(row.get("counts") or {})
+    if "n_bom" in row:
+        counts["bom_lines"] = row.get("n_bom") or 0
     return {
         "id": client_id,
         "name": row.get("name", client_id),
@@ -243,7 +322,25 @@ def normalize_client(row: dict) -> dict:
         "tax_code": row.get("tax_code", ""),
         "status": row.get("status", "active"),
         "contact": row.get("contact", ""),
+        "counts": counts,
     }
+
+
+def normalize_data_hub_client_config(payload: dict, client: dict) -> dict:
+    if "bcct" in payload:
+        return migrate_config(payload, client)
+    config = {
+        "schema_version": payload.get("schema_version", 1),
+        "client_id": payload.get("client_id") or client["id"],
+        "config_version": payload.get("config_version", 1),
+        "config_hash": payload.get("config_hash", ""),
+        "bcct": {
+            "declaration_type_preset": payload.get("preset_key", "data_hub"),
+            "eligible_import_declaration_types": payload.get("eligible_import_declaration_types", []),
+            "relevant_export_declaration_types": payload.get("relevant_export_declaration_types", []),
+        },
+    }
+    return migrate_config(config, client)
 
 
 def normalize_material_row(row: dict) -> dict:
@@ -305,6 +402,14 @@ def first_value(*values) -> str:
         if value not in (None, ""):
             return str(value)
     return ""
+
+
+def hub_path_part(value: str) -> str:
+    return quote(str(value), safe="")
+
+
+def hub_bom_path(template: str, product_code: str) -> str:
+    return template.format(product_code=hub_path_part(product_code))
 
 
 def source_state_from_workspace(module: str, rows: list[dict]) -> dict:

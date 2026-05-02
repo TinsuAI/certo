@@ -13,7 +13,11 @@
     <div class="chip-row" aria-label="Loại mã hàng">
       <a class="chip {{ 'chip-active' if catalog_view.name == 'materials' else '' }}" href="/clients/{{ client.id }}/catalog/materials">NVL ({{ client.counts.materials }})</a>
       <a class="chip {{ 'chip-active' if catalog_view.name == 'products' else '' }}" href="/clients/{{ client.id }}/catalog/products">TP ({{ client.counts.products }})</a>
+      {% if source_backend == "data-hub" %}
+      <span class="chip">Data Hub</span>
+      {% else %}
       <a class="chip" href="/clients/{{ client.id }}/catalog">Upload</a>
+      {% endif %}
     </div>
   </div>
 
@@ -31,7 +35,11 @@
   {% endif %}
 
   <div class="table-action-row">
+    {% if source_backend != "data-hub" %}
     <a class="chip" href="/clients/{{ client.id }}/catalog/{{ catalog_view.template_url }}">{{ catalog_view.template_label }}</a>
+    {% else %}
+    <span class="chip">Data Hub</span>
+    {% endif %}
     <span class="chip">v{{ source_workspace[catalog_view.module].latest_version.version_no if source_workspace[catalog_view.module].latest_version else 'none' }}</span>
   </div>
 
