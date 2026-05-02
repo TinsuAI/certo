@@ -204,3 +204,60 @@ reference nonexistent material codes.
   BCCT has the pre-flight diff).
 - Manual mapping UI when LLM is disabled (today: upload errors with
   no recourse besides edit-in-DB).
+
+---
+
+## API auth — flip dev-permissive reads to strict by default
+
+**Captured 2026-05-02.**
+
+Today the read API on `/v1/hub/*` accepts non-empty legacy bearer strings
+when `api_auth_strict=false` (default). Writes (BOM proposal POST) always
+require a valid Data Hub JWT regardless of the flag. The trade-off was
+chosen deliberately: prioritize dev/integration ergonomics today,
+prioritize corruption prevention on writes.
+
+**Promote when:**
+- CO and BCQT have stable JWT issuance flows wired in (no longer relying
+  on hand-pasted bearer strings during integration).
+- Service-account JWTs land (see "Service-account JWTs" backlog item).
+- We have a staging environment where strict mode can be soak-tested
+  before flipping prod.
+
+**Steps when promoting:**
+1. Default `api_auth_strict=true` in fresh installs; add a one-time
+   migration to flip existing installs after CO/BCQT confirm readiness.
+2. Remove the legacy bearer fallback path in `_require_token`; keep only
+   the JWT validation branch.
+3. Update `docs/API_CONTRACT.md` to drop the dev-permissive mode section.
+4. Update CO/BCQT consumer code to send real JWT on every read call.
+
+---
+
+## Service-account JWTs and scoped tokens
+
+**Captured 2026-05-02.**
+
+Strict-write auth today uses real **user** JWTs plus the user's current
+client ACL. There is no notion of a "machine identity" — CO and BCQT have
+to carry a real user's token to call mutating endpoints.
+
+**Why this matters:**
+- Background jobs (cron, batch ingest) have no logged-in user; pinning a
+  human user's token to a job is fragile (user offboarding, password
+  rotation breaks the job).
+- Audit log `bcct_row_history.changed_by` records the user_id, so CO
+  ingest writes look like a human edit in history view.
+- User ACL is broader than what CO actually needs (CO only needs
+  bom:propose / bcct:write for its own clients).
+
+**Design sketch when implementing:**
+- New `hub.service_accounts` table (name, scopes[], created_at,
+  revoked_at, hashed_secret).
+- Token issue endpoint or bootstrap script that mints a service JWT
+  with `typ=service`, `sub=svc:co|svc:bcqt`, `scopes=[...]`.
+- `_require_token` branches on `typ`: user JWTs validate against ACL;
+  service JWTs validate against scopes.
+- Audit GUC `app.user_id` set to `svc:<name>` for service requests so
+  history view distinguishes machine actors from humans.
+- Per-token revocation independent of user accounts.
