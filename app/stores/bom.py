@@ -1,12 +1,19 @@
-"""BOM persistence + proposal-queue auto-rule."""
+"""BOM persistence + proposal-queue auto-rule + flatten materialization."""
 from __future__ import annotations
 
 import hashlib
 import json
 import secrets
-from typing import Any
+from decimal import Decimal
+from typing import Any, Iterable
 
 from app.database import connect
+from app.flatten import (
+    FLATTEN_METHOD, FLATTEN_METHOD_VERSION, FlattenResult, FlattenedVersion,
+    build_display_label,
+)
+from app.flatten.types import CatalogEntry, ParsedBom, ParsedRow
+from app.stores import flatten_decisions as decisions_store
 
 
 def normalized_hash(rows: list[dict]) -> str:
@@ -41,80 +48,228 @@ def _next_version_no(cur, *, client_id: str, product_code: str) -> int:
 
 def create_version(*, client_id: str, product_code: str, rows: list[dict],
                    actor: str, intent: str, parent_version_id: str | None,
-                   context: dict, source_upload_id: str | None) -> str | None:
-    """Append a new BOM version. Idempotent on the constraint key. Returns version_id
-    (or existing one if duplicate)."""
-    nh = normalized_hash(rows)
-    version_id = "bv_" + secrets.token_urlsafe(12)
+                   context: dict, source_upload_id: str | None,
+                   # Flatten/identity fields — defaults preserve manual_flat
+                   # backward compat. Caller (create_flattened_version_set)
+                   # overrides these for technical_flatten.
+                   source_bom_kind: str = "manual_flat",
+                   flatten_status: str = "not_applicable",
+                   flatten_strategy: str = "manual_flat_as_provided",
+                   source_channel: str = "agency_upload",
+                   bom_code: str | None = None,
+                   bom_variant_id: str | None = None,
+                   lineage: dict | None = None,
+                   flatten_method: str = "none",
+                   flatten_method_version: str = "0",
+                   display_label: str | None = None,
+                   # /rev finding C1: optional cursor for transactional
+                   # composition with create_flattened_version_set.
+                   cursor=None,
+                   ) -> str | None:
+    """Append a new BOM version. Idempotent on the constraint key.
+    Returns version_id (or existing one if duplicate).
+
+    If `cursor` is provided, runs SQL ops on it without managing the
+    connection lifecycle — caller (create_flattened_version_set) is
+    responsible for transaction boundaries. Otherwise opens a fresh
+    connection + transaction.
+    """
+    if cursor is not None:
+        return _create_version_inner(
+            cursor,
+            client_id=client_id, product_code=product_code, rows=rows,
+            actor=actor, intent=intent, parent_version_id=parent_version_id,
+            context=context, source_upload_id=source_upload_id,
+            source_bom_kind=source_bom_kind, flatten_status=flatten_status,
+            flatten_strategy=flatten_strategy, source_channel=source_channel,
+            bom_code=bom_code, bom_variant_id=bom_variant_id,
+            lineage=lineage, flatten_method=flatten_method,
+            flatten_method_version=flatten_method_version,
+            display_label=display_label,
+        )
     with connect() as conn:
         with conn.cursor() as cur:
-            # Check idempotency manually to return existing version_id if dup.
-            parent_norm = parent_version_id or "00000000-0000-0000-0000-000000000000"
-            cur.execute(
-                """
-                select version_id from hub.bom_versions
-                where client_id=%s and product_code=%s and actor=%s and intent=%s
-                  and parent_norm=%s and normalized_hash=%s
-                """,
-                (client_id, product_code, actor, intent, parent_norm, nh),
+            return _create_version_inner(
+                cur,
+                client_id=client_id, product_code=product_code, rows=rows,
+                actor=actor, intent=intent, parent_version_id=parent_version_id,
+                context=context, source_upload_id=source_upload_id,
+                source_bom_kind=source_bom_kind, flatten_status=flatten_status,
+                flatten_strategy=flatten_strategy, source_channel=source_channel,
+                bom_code=bom_code, bom_variant_id=bom_variant_id,
+                lineage=lineage, flatten_method=flatten_method,
+                flatten_method_version=flatten_method_version,
+                display_label=display_label,
             )
-            existing = cur.fetchone()
-            if existing:
-                return existing[0]
-            version_no = _next_version_no(cur, client_id=client_id, product_code=product_code)
-            cur.execute(
-                """
-                insert into hub.bom_versions
-                  (version_id, client_id, product_code, version_no, actor, intent,
-                   parent_version_id, context, source_upload_id, normalized_hash,
-                   row_count, status, published_at)
-                values (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, 'published', now())
-                """,
-                (version_id, client_id, product_code, version_no, actor, intent,
-                 parent_version_id, json.dumps(context), source_upload_id, nh, len(rows)),
-            )
-            for i, r in enumerate(rows):
-                cur.execute(
-                    """
-                    insert into hub.bom_version_rows
-                      (version_id, row_index, material_code, bom_code, bom_variant_id,
-                       qty_per_unit, uom, payload)
-                    values (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
-                    """,
-                    (version_id, i, r["material_code"],
-                     r.get("bom_code"), r.get("bom_variant_id"),
-                     r.get("qty_per_unit") or 0, r.get("uom"),
-                     json.dumps({k: v for k, v in r.items()
-                                 if k not in {"material_code","bom_code","bom_variant_id","qty_per_unit","uom"}})),
-                )
-            cur.execute(
-                """
-                insert into hub.bom_audit_events (client_id, product_code, version_id, event_type, actor, details)
-                values (%s, %s, %s, 'version.created', %s, %s::jsonb)
-                """,
-                (client_id, product_code, version_id, actor, json.dumps({"intent": intent})),
-            )
+
+
+def _create_version_inner(cur, *, client_id, product_code, rows, actor, intent,
+                          parent_version_id, context, source_upload_id,
+                          source_bom_kind, flatten_status, flatten_strategy,
+                          source_channel, bom_code, bom_variant_id, lineage,
+                          flatten_method, flatten_method_version, display_label):
+    nh = normalized_hash(rows)
+    version_id = "bv_" + secrets.token_urlsafe(12)
+    bom_code_norm = bom_code or ""
+    bom_variant_id_norm = bom_variant_id or "default"
+    parent_norm = parent_version_id or "00000000-0000-0000-0000-000000000000"
+    cur.execute(
+        """
+        select version_id from hub.bom_versions
+        where client_id=%s and product_code=%s and actor=%s and intent=%s
+          and parent_norm=%s and normalized_hash=%s
+          and coalesce(flatten_strategy,'') = %s
+          and coalesce(bom_variant_id,'default') = %s
+        """,
+        (client_id, product_code, actor, intent, parent_norm, nh,
+         flatten_strategy, bom_variant_id_norm),
+    )
+    existing = cur.fetchone()
+    if existing:
+        return existing[0]
+    version_no = _next_version_no_for_variant(
+        cur, client_id=client_id, product_code=product_code,
+        bom_variant_id=bom_variant_id_norm,
+    )
+    label = display_label or build_display_label(
+        product_code=product_code,
+        bom_variant_id=bom_variant_id_norm,
+        version_no=version_no,
+        source_bom_kind=source_bom_kind,
+        flatten_status=flatten_status,
+        flatten_strategy=flatten_strategy,
+    )
+    cur.execute(
+        """
+        insert into hub.bom_versions
+          (version_id, client_id, product_code, version_no, actor, intent,
+           parent_version_id, context, source_upload_id, normalized_hash,
+           row_count, status, published_at,
+           source_bom_kind, flatten_status, flatten_strategy,
+           source_channel, bom_code, bom_variant_id, lineage,
+           display_label, flatten_method, flatten_method_version)
+        values (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s,
+                'published', now(),
+                %s, %s, %s, %s, %s, %s, %s::jsonb,
+                %s, %s, %s)
+        """,
+        (version_id, client_id, product_code, version_no, actor, intent,
+         parent_version_id, json.dumps(context), source_upload_id, nh, len(rows),
+         source_bom_kind, flatten_status, flatten_strategy,
+         source_channel, bom_code_norm or None, bom_variant_id_norm,
+         json.dumps(lineage or {}, ensure_ascii=False, default=str),
+         label, flatten_method, flatten_method_version),
+    )
+    for i, r in enumerate(rows):
+        cur.execute(
+            """
+            insert into hub.bom_version_rows
+              (version_id, row_index, material_code, bom_code, bom_variant_id,
+               qty_per_unit, uom, payload)
+            values (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+            """,
+            (version_id, i, r["material_code"],
+             r.get("bom_code"), r.get("bom_variant_id"),
+             r.get("qty_per_unit") or 0, r.get("uom"),
+             json.dumps({k: v for k, v in r.items()
+                         if k not in {"material_code","bom_code","bom_variant_id","qty_per_unit","uom"}},
+                        default=str)),
+        )
+    cur.execute(
+        """
+        insert into hub.bom_audit_events (client_id, product_code, version_id, event_type, actor, details)
+        values (%s, %s, %s, 'version.created', %s, %s::jsonb)
+        """,
+        (client_id, product_code, version_id, actor,
+         json.dumps({"intent": intent,
+                     "source_bom_kind": source_bom_kind,
+                     "flatten_status": flatten_status,
+                     "flatten_strategy": flatten_strategy})),
+    )
     return version_id
 
 
+def _next_version_no_for_variant(cur, *, client_id: str, product_code: str,
+                                 bom_variant_id: str) -> int:
+    """Variant-scoped version_no — spec §3A: 'version_no must not mix
+    unrelated variants. If bom_variant_id creates a distinct variant,
+    version_no must be scoped to that variant key.'"""
+    cur.execute(
+        """
+        select coalesce(max(version_no), 0) + 1
+        from hub.bom_versions
+        where client_id = %s and product_code = %s
+          and coalesce(bom_variant_id, 'default') = %s
+        """,
+        (client_id, product_code, bom_variant_id),
+    )
+    (n,) = cur.fetchone()
+    return n
+
+
 def list_products_with_bom(client_id: str) -> list[dict]:
+    """List BOM products plus flatten-aware metadata per product.
+
+    Per-product fields:
+      n_versions:           total alive versions (any flatten_status).
+      n_flattened:          count where flatten_status in (flattened, not_applicable).
+      n_non_flattened:      count where flatten_status = non_flattened.
+      n_dual_variants:      count of distinct flatten_strategies among
+                            flattened versions — >1 ⇒ dual-source variants live.
+      latest_version:       max version_no.
+      last_published:       most recent published_at.
+      latest_flatten_status: status of the most-recently-published version.
+      product_kind:         'btp' if hub.materials.category in (btp_sx,btp_nm),
+                            else 'tp'. Falls back to 'tp' when no catalog entry.
+    Used by bom.html for status badges + the All/Flattened/Non-flattened filter.
+    """
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select product_code,
-                       count(*) as n_versions,
-                       max(version_no) as latest_version,
-                       max(published_at) as last_published
-                from hub.bom_versions
-                where client_id = %s and tombstoned_at is null
-                group by product_code
-                order by max(published_at) desc nulls last
+                with v as (
+                    select product_code, version_no, published_at, flatten_status,
+                           flatten_strategy,
+                           row_number() over (
+                               partition by product_code
+                               order by published_at desc nulls last, version_no desc
+                           ) as rn
+                    from hub.bom_versions
+                    where client_id = %s and tombstoned_at is null
+                ),
+                aggr as (
+                    select product_code,
+                           count(*) as n_versions,
+                           count(*) filter (where flatten_status in ('flattened','not_applicable')) as n_flattened,
+                           count(*) filter (where flatten_status = 'non_flattened') as n_non_flattened,
+                           count(distinct flatten_strategy) filter (where flatten_status = 'flattened') as n_strategies,
+                           max(version_no) as latest_version,
+                           max(published_at) as last_published
+                    from v group by product_code
+                )
+                select a.product_code, a.n_versions, a.n_flattened, a.n_non_flattened,
+                       a.n_strategies, a.latest_version, a.last_published,
+                       latest.flatten_status as latest_flatten_status,
+                       coalesce(m.category, 'tp') as raw_category
+                from aggr a
+                left join v latest on latest.product_code = a.product_code and latest.rn = 1
+                left join hub.materials m
+                       on m.client_id = %s and m.customs_code = a.product_code
+                order by
+                  a.n_non_flattened desc,        -- non_flattened up top
+                  a.last_published desc nulls last
                 """,
-                (client_id,),
+                (client_id, client_id),
             )
             cols = [d[0] for d in cur.description]
-            return [dict(zip(cols, r)) for r in cur.fetchall()]
+            out = []
+            for r in cur.fetchall():
+                d = dict(zip(cols, r))
+                # Catalog says BTP iff category in btp_*; otherwise treat as TP.
+                d["product_kind"] = "btp" if d.pop("raw_category") in ("btp_sx", "btp_nm") else "tp"
+                d["n_dual_variants"] = d.pop("n_strategies")
+                out.append(d)
+            return out
 
 
 def list_versions_for_product(*, client_id: str, product_code: str) -> list[dict]:
@@ -142,7 +297,10 @@ def get_version_with_rows(version_id: str) -> dict | None:
                 """
                 select version_id, client_id, product_code, version_no, actor, intent,
                        parent_version_id, context, normalized_hash, row_count,
-                       status, tombstoned_at, created_at, published_at
+                       status, tombstoned_at, created_at, published_at,
+                       source_bom_kind, flatten_status, flatten_strategy,
+                       source_channel, bom_code, bom_variant_id, lineage,
+                       display_label, flatten_method, flatten_method_version
                 from hub.bom_versions where version_id = %s
                 """,
                 (version_id,),
@@ -163,7 +321,12 @@ def get_version_with_rows(version_id: str) -> dict | None:
             )
             cols2 = [d[0] for d in cur.description]
             rows = [dict(zip(cols2, r)) for r in cur.fetchall()]
-            return {"version": version, "rows": rows}
+            unresolved = get_unresolved_for_version(version_id)
+            decisions = get_decisions_for_version(version_id)
+            return {
+                "version": version, "rows": rows,
+                "unresolved": unresolved, "decisions": decisions,
+            }
 
 
 # ---- Proposal queue ----
@@ -355,3 +518,322 @@ def _auto_evaluate(*, client_id: str, product_code: str,
     if failed:
         return {"approved": False, "reason": "auto-rule rejected", "failed": failed}
     return {"approved": True, "reason": "auto-rule approved", "failed": []}
+
+
+# ─── Flatten lookups (used by the upload route to build FlattenContext) ──
+
+def make_bcct_import_lookup(client_id: str):
+    """Return a callable `(material_code) -> bool` answering: has this code
+    appeared on any IMPORT BCCT declaration for this client? Preloads the
+    full set so per-row lookups during flatten are O(1).
+
+    Spec §5: BCCT import evidence is scoped to the same client and to import
+    declarations only. Export evidence does not qualify."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select distinct customs_code from hub.bcct_rows
+                where client_id = %s and direction = 'import'
+                  and customs_code is not null and customs_code <> ''
+                """,
+                (client_id,),
+            )
+            seen = {r[0] for r in cur.fetchall()}
+    return lambda code: code in seen
+
+
+def make_catalog_lookup(client_id: str):
+    """Return a callable `(material_code) -> CatalogEntry | None` from
+    hub.materials. Preloaded so per-row lookups are O(1)."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select customs_code, category, status, unit
+                from hub.materials where client_id = %s
+                """,
+                (client_id,),
+            )
+            entries = {r[0]: CatalogEntry(
+                material_code=r[0], category=r[1], status=r[2], unit=r[3],
+            ) for r in cur.fetchall()}
+    return lambda code: entries.get(code)
+
+
+def make_current_db_btp_lookup(client_id: str):
+    """Return a callable `(material_code, bom_code, bom_variant_id) ->
+    list[ParsedRow] | None` returning the rows of the most-recent published
+    flattened/manual_flat version for that (product_code) at the requested
+    variant. Used by the flattener as the fallback when same-upload doesn't
+    have a child BOM."""
+    # Preload: latest published flattened or not_applicable version per
+    # (product_code, bom_variant_id). Excludes 'modified_for_case' (per the
+    # existing /latest semantics).
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                with latest as (
+                    select distinct on (product_code, coalesce(bom_variant_id, 'default'))
+                        product_code, bom_variant_id, version_id, bom_code,
+                        version_no, published_at
+                    from hub.bom_versions
+                    where client_id = %s
+                      and tombstoned_at is null
+                      and status = 'published'
+                      and intent in ('asserted_technical','staff_edit','derived')
+                      and flatten_status in ('flattened','not_applicable')
+                    order by product_code, coalesce(bom_variant_id, 'default'),
+                             published_at desc nulls last, version_no desc
+                )
+                select l.product_code, l.bom_variant_id, l.version_id,
+                       r.material_code, r.bom_code, r.bom_variant_id,
+                       r.qty_per_unit, r.uom
+                from latest l
+                left join hub.bom_version_rows r on r.version_id = l.version_id
+                """,
+                (client_id,),
+            )
+            rows_by_key: dict[tuple, list[ParsedRow]] = {}
+            for product_code, variant, _vid, mat, bcd, bvid, qty, uom in cur.fetchall():
+                k = (product_code, variant or "default")
+                rows_by_key.setdefault(k, [])
+                if mat:  # left join may have no rows
+                    rows_by_key[k].append({
+                        "material_code": mat,
+                        "bom_code": bcd or "",
+                        "bom_variant_id": bvid or "default",
+                        "qty_per_unit": float(qty or 0),
+                        "uom": uom,
+                    })
+
+    def lookup(material_code: str, bom_code: str, bom_variant_id: str):
+        # Strict variant equality (per /rev finding C3): only fall back
+        # to "any variant for this code" when caller passes "" (i.e.
+        # explicitly didn't specify a variant). Caller passing 'default'
+        # MUST match a 'default' variant exactly.
+        if bom_variant_id == "":
+            for k, r in rows_by_key.items():
+                if k[0] == material_code:
+                    return r
+            return None
+        key = (material_code, bom_variant_id)
+        return rows_by_key.get(key)
+
+    return lookup
+
+
+# ─── Flatten materialization ──────────────────────────────────────────────
+
+def create_flattened_version_set(
+    *, client_id: str, source_upload_id: str | None,
+    result: FlattenResult,
+    decision_id_map: dict[int, str] | None = None,
+    actor: str = "agency_staff",
+    intent: str = "asserted_technical",
+    source_channel: str = "agency_upload",
+    publish_filter=None,    # callable(FlattenedVersion) -> bool
+) -> dict[str, str]:
+    """Materialize a FlattenResult ATOMICALLY in a single transaction.
+
+    Steps inside the transaction:
+      1. Insert every FlattenedVersion (pass 1) plus its rows + audit row.
+      2. Insert bom_unresolved_nodes per non_flattened version.
+      3. Link confirmed decisions to materialized version_ids.
+      4. Backfill lineage.btp_versions_used[*].version_id (pass 2).
+
+    Per /rev finding C1: all writes go through ONE psycopg connection
+    + cursor so on any failure the entire materialization rolls back.
+    Pending row stays (managed by caller); staff can re-confirm safely.
+
+    Returns mapping `{flattened_version.key.as_tuple()_str: version_id}`.
+    `publish_filter` lets the upload route exclude variants that staff
+    didn't confirm (e.g. dual-source where they chose only one strategy).
+    """
+    if publish_filter is None:
+        publish_filter = lambda v: True
+
+    decision_id_map = decision_id_map or {}
+    decisions_by_target: dict[tuple, list[str]] = {}
+    for i, d in enumerate(result.decisions):
+        if i not in decision_id_map:
+            continue
+        if d.target_key:
+            sig = (d.target_key.as_tuple(), d.target_strategy)
+            decisions_by_target.setdefault(sig, []).append(decision_id_map[i])
+
+    materialized: dict[str, str] = {}
+    materialized_by_product: dict[str, str] = {}
+
+    with connect() as conn:
+        with conn.cursor() as cur:
+            # Pass 1: insert every version, rows, audit, unresolved
+            # nodes, and link decisions — all inside one cursor.
+            for v in result.versions:
+                if not publish_filter(v):
+                    continue
+                version_rows = [{
+                    "material_code": r.material_code,
+                    "qty_per_unit": float(r.qty) if isinstance(r.qty, Decimal) else r.qty,
+                    "uom": r.uom,
+                    "bom_code": v.key.bom_code or None,
+                    "bom_variant_id": v.key.bom_variant_id,
+                    "node_path": r.node_path,
+                    "classification_evidence": r.classification_evidence,
+                    "classification_evidence_detail": r.classification_evidence_detail,
+                    "conversion_evidence": r.conversion_evidence,
+                    "original_qty": str(r.original_qty) if r.original_qty is not None else None,
+                    "original_uom": r.original_uom,
+                } for r in v.rows]
+                version_id = create_version(
+                    client_id=client_id,
+                    product_code=v.key.product_code,
+                    rows=version_rows,
+                    actor=actor,
+                    intent=intent,
+                    parent_version_id=None,
+                    context={"channel": source_channel,
+                             "profile": "technical_flatten",
+                             "flatten_method": FLATTEN_METHOD,
+                             "flatten_method_version": FLATTEN_METHOD_VERSION},
+                    source_upload_id=source_upload_id,
+                    source_bom_kind=v.source_bom_kind,
+                    flatten_status=v.flatten_status,
+                    flatten_strategy=v.flatten_strategy,
+                    source_channel=source_channel,
+                    bom_code=v.key.bom_code or None,
+                    bom_variant_id=v.key.bom_variant_id,
+                    lineage=dict(v.lineage or {}),
+                    flatten_method=FLATTEN_METHOD,
+                    flatten_method_version=FLATTEN_METHOD_VERSION,
+                    cursor=cur,
+                )
+                if not version_id:
+                    continue
+                key_str = f"{v.key.product_code}|{v.key.bom_code or ''}|{v.key.bom_variant_id}|{v.flatten_strategy}"
+                materialized[key_str] = version_id
+                materialized_by_product.setdefault(v.key.product_code, version_id)
+                for u in (v.unresolved or []):
+                    cur.execute(
+                        """
+                        insert into hub.bom_unresolved_nodes
+                          (version_id, node_path, material_code, reason, evidence)
+                        values (%s, %s, %s, %s, %s::jsonb)
+                        on conflict (version_id, node_path) do nothing
+                        """,
+                        (version_id, u.node_path, u.material_code,
+                         u.reason, json.dumps(u.evidence, default=str)),
+                    )
+                sig_strategy = (v.key.as_tuple(), v.flatten_strategy)
+                sig_unbound = (v.key.as_tuple(), None)
+                for sig in (sig_strategy, sig_unbound):
+                    for did in decisions_by_target.get(sig, []):
+                        cur.execute(
+                            """
+                            update hub.bom_flatten_decisions
+                            set materialized_version_id = %s,
+                                pending_id = null
+                            where decision_id = %s
+                            """,
+                            (version_id, did),
+                        )
+
+            # Pass 2: backfill lineage.btp_versions_used[*].version_id.
+            for v in result.versions:
+                used = (v.lineage or {}).get("btp_versions_used") or []
+                if not used:
+                    continue
+                key_str = f"{v.key.product_code}|{v.key.bom_code or ''}|{v.key.bom_variant_id}|{v.flatten_strategy}"
+                version_id = materialized.get(key_str)
+                if not version_id:
+                    continue
+                enriched = []
+                for entry in used:
+                    mat = entry.get("material_code")
+                    vid = materialized_by_product.get(mat)
+                    if vid:
+                        enriched.append({**entry, "version_id": vid})
+                    else:
+                        enriched.append(entry)
+                new_lineage = dict(v.lineage or {})
+                new_lineage["btp_versions_used"] = enriched
+                cur.execute(
+                    "update hub.bom_versions set lineage = %s::jsonb where version_id = %s",
+                    (json.dumps(new_lineage, ensure_ascii=False, default=str), version_id),
+                )
+        # `with conn` commits on success; rolls back on any exception.
+
+    return materialized
+
+
+def latest_flattened_versions(*, client_id: str, product_code: str) -> list[dict]:
+    """Return the published, non-tombstoned flattened/not_applicable versions
+    for a product. List length > 1 when dual-source variants are published —
+    callers (api/_latest) decide whether to 200 (single), 409 (multiple), etc.
+
+    Per spec §3A: 'latest' must be a query constrained by status and strategy.
+    Excludes 'modified_for_case' to mirror the existing /latest semantics.
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                with ranked as (
+                    select version_id, version_no, flatten_strategy, source_bom_kind,
+                           flatten_status, display_label, bom_variant_id, bom_code,
+                           published_at,
+                           row_number() over (
+                               partition by coalesce(bom_variant_id,'default'),
+                                            flatten_strategy
+                               order by published_at desc nulls last, version_no desc
+                           ) as rn
+                    from hub.bom_versions
+                    where client_id = %s and product_code = %s
+                      and tombstoned_at is null
+                      and status = 'published'
+                      and intent in ('asserted_technical','staff_edit','derived')
+                      and flatten_status in ('flattened','not_applicable')
+                )
+                select version_id, version_no, flatten_strategy, source_bom_kind,
+                       flatten_status, display_label, bom_variant_id, bom_code
+                from ranked where rn = 1
+                order by published_at desc nulls last, version_no desc
+                """,
+                (client_id, product_code),
+            )
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def get_unresolved_for_version(version_id: str) -> list[dict]:
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select node_path, material_code, reason, evidence
+                from hub.bom_unresolved_nodes where version_id = %s
+                order by node_path
+                """,
+                (version_id,),
+            )
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def get_decisions_for_version(version_id: str) -> list[dict]:
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select decision_id, decision_type, chosen_action, alternatives,
+                       evidence, status, staff_confirmation_required,
+                       confirmed_by, confirmed_at
+                from hub.bom_flatten_decisions
+                where materialized_version_id = %s
+                order by created_at
+                """,
+                (version_id,),
+            )
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
