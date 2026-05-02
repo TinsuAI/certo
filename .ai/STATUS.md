@@ -1,148 +1,52 @@
 # Project Status
 
-**Date:** 2026-05-02 — Long autopilot run shipped Sprint A/B/C, then Codex pickup closed the interrupted SSO/API + agent UI follow-ups. 197 pytest tests passing without `DATA_HUB_REAL_DATA_DIR`.
-**Earlier:** Phase 1+2+3 (parser bug fixes + universal preview-confirm + LLM fallback for BOM/BQD).
+**Date:** 2026-05-02
 
 ## Current State
 
-**Working MVP web app + read API + 4-role auth + universal preview pattern + LLM smart parser across all 4 upload modules.** Server should be up at `http://127.0.0.1:8754` (`--reload` mode). Login: `admin@data-hub.local / admin123` (role=`dev`).
+Data Hub is a working MVP web app with upload preview-confirm flows, SSO/JWT auth, read APIs, BOM proposals, chat agent, and CO-facing contract guardrails. The latest full suite is green: `204 passed, 15 skipped`.
 
-What works (post Phase 1+2+3):
-- Client management with workspace pattern (URLs nested under `/clients/{client_id}/{tab}`).
-- 7+1 entity tabs per client: Overview, Catalog, BQD, BCCT, BOM, Proposals, Uploads, Staff (admin/manager-of-this-client only), Config.
-- **Excel upload with universal preview-confirm for ALL 4 modules** (BCCT/BOM/BQD/Catalog): parse → stash to `upload_pending` → preview UI (sample rows + counters) → staff confirms or rejects → ingest.
-  - BCCT keeps its richer NEW/UPDATED/DELETED/NOOP diff preview (with Phase 2 also routing all-NEW uploads through the gate, closing the prior bypass).
-  - BOM/BQD/Catalog get sample-row + counter previews. BOM groups sample by product_code (top 5 × 4 rows each).
-- **LLM smart parser fallback for BCCT (existing) + BOM + BQD (new in Phase 3).** Pattern: rigid parse fails → cache lookup → on miss, LLM proposes mapping → re-parse with override → preview → confirm caches mapping for future hits. Verified via synthetic English-headers BQD round-trip.
-- **Curated parser aliases (post Phase 1).** `index_headers` is pass-1 exact match only — no substring fallback. Adding a new customer's header variant is a 1-line append to the relevant ALIASES list. Pass-2 substring was structurally unsafe (empty cell `'' in target` always True; short aliases like `'hq'` matched unrelated headers).
-- **`header_row()` alias-aware scoring.** Picks the row with the most alias matches (≥2 threshold) over data rows that just have many populated cells. Fixed Bug A on real Growatt BOM TP/BTP.
-- Code parser: extracts `internal_code` from BCCT `goods_name` at upload time (Growatt regex). Settlement-flavored canonical-code resolver moved out of hub on 2026-05-02 (CLI-only at `scripts/settlement_resolver.py`).
-- BOM proposal queue: auto-only mode, 5-condition gate, idempotent.
-- Public read API: 11 endpoints under `/v1/hub/*`, bearer-token auth.
-- BCCT raw columns captured into `payload` jsonb (full Vietnamese headers preserved).
-- Dual-source material detection: query-time EXISTS subqueries flag materials present in both BCCT imports + BOM products.
-- i18n bilingual: Vietnamese default + English toggle (cookie). ~190 translation keys.
-- Auto-seed on empty DB: creates Growatt VN + Johnson VN demo data.
-- 4-role RBAC + per-client ACL (2026-05-02). `dev` / `admin` / `manager` / `staff`.
-- **197 pytest tests passing without `DATA_HUB_REAL_DATA_DIR` (was 104). +15 real-data tests with env var set. 0 xfail.**
-- **Catalog provenance tracking** (post Sprint A4): every `hub.materials` row carries `provenance jsonb` with three optional keys (`registered_with_hq` / `seen_in_bcct` / `user_added`). BCCT auto-derive runs in same txn as `_apply_bcct_rows` so new declaration codes flow into catalog as ⚠seen rows. Audit alarm surfaces "X codes on BCCT but not registered" when count > 0.
-- **Staleness bar** (post Sprint A3) at top of every workspace tab: last upload + most recent data row.
-- **In-app notifications** (post Sprint B1): `hub.notifications` table + bell in topnav + `/notifications` list page. Two wired triggers: BCCT preview-pending (uploader) and provenance-alarm fan-out (every editor of the client). Helper `notify()` callable from background tasks.
-- **Chat agent** (post Sprint B2 + follow-up): `/clients/{id}/agent` is a two-pane workspace with inline thread rename/delete and the floating widget is available on all logged-in pages via a client selector. 9 read-only tools (query_bcct/catalog/bom/provenance_alarms/uploads/bcct_history + lookup_glossary + search_knowledge_base + submit_final_answer). Strict ACL: `dispatch_tool` re-verifies `auth.require_can_view_client` on every call AND strips client_id/user_id from LLM-supplied args. Cross-client queries are structurally impossible.
-- **SSO JWT issuer** (post Sprint B3, M9 deliverable #4): `/v1/auth/token` (email+password → JWT), `/v1/auth/jwks` (Ed25519 public keys), `/v1/auth/validate` (debug). Keys live on disk under `keys/` (gitignored, auto-generated on first run). Multi-key JWKS for rotation overlap. Consumer-side local verify simulated end-to-end.
-- **Read API auth upgraded** (post Sprint C2 + follow-up): `/v1/hub/*` now JWT-verifies bearer tokens and re-checks current client ACL for JWT callers. Permissive default keeps legacy callers working; `api_auth_strict=true` enforces JWT-only for production.
-- **LLM self-correction loop** (post Sprint C1): `propose_header_mapping` retries up to `cfg.max_retries` when LLM returns garbage; feeds the specific error back so the LLM can adapt.
-- Playwright UI smoke at `scripts/smoke_real_uploads.py` (9-job matrix: BQD×3 + Catalog×2 + BOM×3 + BCCT×1, all jobs route through preview-confirm).
-- Real-data corpus staged at `/tmp/dh_real_data/{growatt,dke,dothanh,johnson,manual_test}/`.
-- Audit script `scripts/audit_pass2_deps.py` for future alias drift detection.
-- LLM endpoint configured (`hub.app_settings`): vLLM at `http://192.168.1.88:2455/v1`, model `gpt-5.5`, daily budget 50/client.
+Current external-consumer position:
+- CO/BCQT should use Data Hub only through documented HTTP APIs, not direct `hub` schema reads/writes.
+- Read APIs still support dev-permissive bearer mode when `api_auth_strict=false`.
+- Mutating BOM proposal API now always requires a real Data Hub JWT and current client edit ACL.
+- The current API contract is documented in `docs/API_CONTRACT.md`.
+- Chat Agent knowledge search is scoped to curated markdown under `docs/agent_knowledge/` and no longer searches `.ai/*`.
 
-DB state (post Phase 1-3 UI smoke):
-- Growatt-vn: 2900 BQD mappings, 293 BOM versions / 23,897 rows / 212 distinct products, ~2-3 catalog materials added via preview
-- DKE-vn: 242 BQD mappings (NEW from Bug B fix)
-- Johnson-vn: 2 BOM versions (synthetic SAP fixture)
-- 5119 BCCT rows from earlier sessions remain.
+Worktree was clean before this handoff update.
 
 ## Recent Changes
 
-**2026-05-02 — Codex pickup after Claude subscription cutoff.**
-
-- **SSO/API follow-up** (commit `4ab54e1`): browser `/v1/auth/authorize` + one-time `/exchange`, safe login `next`, user JWT `client_ids/all_clients` convenience claims, current DB ACL re-checks on `/v1/hub/*`, pagination on materials/BCCT, and BOM proposal edit-access enforcement.
-- **CO read-adapter endpoints** (commit `764474a`): `/v1/hub/dncxs/{id}/co-config`, `/source-summary`, and `/v1/hub/bcct/invoice-matches` with all-token invoice matching to avoid prefix false positives.
-- **Agent follow-up** (current): grounded knowledge search over `.ai` context, two-pane `/agent` workspace, inline rename/delete, and floating widget on admin/global pages with client selector.
-
-**2026-05-02 — Long autopilot run (~52 min build, 12 commits, ~3,800 LoC).** Session log: `.ai/sessions/2026-05-02-autopilot-long-run.md`. Briefs: `.ai/features/2026-05-02-{visibility-sprint,bcqt-borrow-survey,sso-design}.md`.
-
-- **Sprint A — Visibility** (commits `1f4d70a` → `589d7aa`): A2 LLM-gate cement + A3 staleness bar + A4 catalog provenance.
-- **Sprint B — Notifications + chat-agent + SSO** (commits `692e5cf` → `bb6cccf`): B0 BCQT survey, B1 in-app notification system + bell, B2 chat agent with strict ACL, B3 JWT issuer / JWKS / validate (M9 #4).
-- **Sprint C — Follow-ups** (commits `3433d88` → `a7ce00e`): C1 LLM self-correction retry loop, C2 JWT auth on read API with permissive fallback, C3 three more chat-agent tools (query_uploads, query_bcct_history, lookup_glossary).
-- **Notification triggers added** (commit `2c9b004`): LLM-proposed mapping → notify uploader; BOM auto-rejected → fan-out to editors of the client.
-- **D1 — Production deployment scaffold** (commit `cbde15a`, M9 #6): `deploy/` directory with systemd unit (hardened), nginx reverse-proxy config (200MB body limit for BCCT workbooks), backup-postgres.sh, rotate-keys.sh, cron.d schedule, and on-call runbook covering common failure modes + Postgres restore drill + cross-app coordination protocol.
-
-**2026-05-02 — Visibility sprint (earlier)** see `.ai/sessions/2026-05-02-visibility-sprint.md`.
-
-- **A2 (commit `1f4d70a`):** STATUS follow-up #1 was stale — Phase 2's universal `_ingest_rows` stash already routed `parse_mapping_confirm` through the diff-preview gate. Locked with 2 regression tests (`test_ingest_rows_default_routes_through_preview_gate`, `test_ingest_rows_partial_confirm_still_gated`).
-- **A3 (commit `53da49b`):** staleness metadata bar at top of all 4 workspace tabs (BCCT/BOM/BQD/Catalog). Two distinct signals: last upload + most recent data row. New `app/stores/staleness.py` (`tab_freshness` + `humanize_age` bilingual). 16 new tests + curl smoke verified.
-- **A4 (commit `6141d1e`):** catalog multi-source provenance. `hub.materials.provenance jsonb` with 3 keys (registered_with_hq / seen_in_bcct / user_added). Migration 014 backfills existing rows. New `app/stores/provenance.py:derive_from_bcct` runs in same transaction as `_apply_bcct_rows`. Catalog UI gets badge column + Source filter chip row + audit alarm "X mã trên BCCT chưa ĐK HQ". 10 new tests + E2E UI smoke verified.
-
-**2026-05-02 EOD — Phase 1+2+3 shipped (~2,400 LoC, 4 commits, autopilot run).** Session log: `.ai/sessions/2026-05-02-phase-1-3-parser-and-preview.md`. Feature brief: `.ai/features/2026-05-02-universal-preview-and-parser-fixes.md`.
-
-- **Phase 1** (commit `338be91`): rigid parser fixes — Bug A (header_row picks data row), Bug B (DKE BQD alias gap), Bug C (silent empty-cell substring corruption — DROPPED pass-2 entirely; promoted 4 production substring deps to explicit pass-1 aliases per `scripts/audit_pass2_deps.py`), Bug D (`_cat_from_sheet` BTP-before-TP). All 5 xfails converted to positive assertions with regex-shape guard.
-- **Phase 2** (commit `359ebec`): universal preview-confirm pattern across all 4 modules. BOM/BQD/Catalog get sample-row+counter previews; BCCT all-NEW now also routes through the existing confirm-on-update gate. /rev fixes: BOM partial-commit (load pending → create versions → THEN delete pending; previously deleted-first was racy on failure), `expires_at > now()` guard on confirm SELECTs, defensive `connect(user_id=...)` plumbing, fixed nonexistent CSS class names.
-- **Phase 3** (commit `5d44b60`): LLM fallback for BOM + BQD via the Phase 2 preview pipeline. New `app/routes/_llm_fallback.py` with shared helpers (lookup_cached_mapping, request_llm_mapping, cache_confirmed_mapping). Parsers got `mapping_override` kwarg. Verified end-to-end via synthetic English-headers BQD: rigid raised → LLM mapped Internal/Customs/Note → re-parsed → preview → 3 rows.
-- **Tooling pre-commit** (commit `2658468`): real-data smoke corpus + Playwright UI smoke + pass-2 audit script + 19 screenshots.
-
-**2026-05-02 — Tier 1 real-data smoke (BOM + BQD).** Session log: `.ai/sessions/2026-05-02-tier-1-real-data-smoke.md`. Discovery work that surfaced the 4 bugs.
-
-**2026-05-04 EOD — UX iteration + manual-test fixtures + /rev follow-ups (~10 commits).** Session log: `.ai/sessions/2026-05-04-ux-iteration-and-rev-followups.md`.
-
-**2026-05-04 — BCCT overhaul + LLM smart parser (4 stages, ~3000 LoC).** Brief: `.ai/features/2026-05-04-bcct-overhaul-and-llm-parsing.md`. Built the LLM infrastructure (`app/llm.py`, `hub.parser_mappings`, `/admin/settings/technical` UI) that Phase 3 above re-used.
-
-(See git log + prior session logs for older history.)
+- `89b108a agent: add technical enable toggle`
+  - Added a technical settings toggle to enable/disable the Chat Agent.
+  - Agent runtime and routes now respect the setting.
+  - Added regression coverage for the toggle.
+- `52aa9f2 api: harden CO contract guardrails`
+  - Required real JWT for `POST /v1/hub/products/{product_code}/bom/proposals`.
+  - Enforced `parent_version_id` for CO/`modified_for_case` BOM proposals.
+  - Fixed invoice matching to apply SQL token filters before the 500-row cap.
+  - Clarified `co-config` and `source-summary` semantics in API payloads.
+- `d418361 docs: add API contract and scoped agent knowledge`
+  - Added `docs/API_CONTRACT.md` as the source of truth for sister-app consumers.
+  - Added curated `docs/agent_knowledge/data_hub.md`.
+  - Reworked `search_knowledge_base` so staff can use it safely without exposing internal AI notes.
 
 ## Next Steps
 
-Four follow-ups from the autopilot Phases 1-3 + earlier backlog:
-
-1. ~~**BCCT LLM-fallback bypasses diff-preview gate**~~ — **CLOSED 2026-05-02 visibility sprint A2.** Phase 2's `_ingest_rows` universal stash already routes the LLM-confirm path through preview; locked with regression tests `test_ingest_rows_default_routes_through_preview_gate` + `test_ingest_rows_partial_confirm_still_gated`.
-2. **Focused unit tests for `header_row` + `index_headers` edge cases** (deferred from Phase 1 /rev). Real-data tests cover the production path; need positive unit tests for: alias-match scoring with 1-match-only fallback, claim-once enforcement, `aliases=None` fallback path.
-3. **Refactor: shared upload_pending helper module.** 3 module preview/confirm/reject route trios (~150 LoC each) are duplicated across `bom.py`, `bqd.py`, `catalog.py`. Defer until 5th customer forces shape change.
-4. **`normalize_header` caching for BCCT-scale workbooks** (deferred from Phase 1 /rev). Phase 2 preview path re-parses files at preview AND confirm time, doubling the cost. Cache `normalize_header(headers)` once per sheet.
-5. **`expires_at` guard on GET preview_view routes** (low priority). Currently relies on lifespan-scheduled `purge_expired_pending_uploads()`. A race could let a stale pending be confirmed.
-
-Earlier-still backlog (see `.ai/BACKLOG.md`):
-6. **Catalog multi-source provenance** (DS NVL/SP ĐK HQ vs auto-derived from BCCT vs user-uploaded; surface "on declaration but not registered").
-7. **BCCT tab staleness metadata** (last upload date + most recent declaration date).
-8. **CSRF protection on POST endpoints** (pre-existing project gap).
-9. **`set_config('app.user_id', ..., true)` LOCAL** when connection pooling lands.
-10. **Cross-app SSO Phase 2** (M9 deliverable #4) — JWT issuer / JWKS / cookie-domain federation when BCQT and CO consumers come online. Defer until BCQT/CO migration audits land.
-11. **Production deployment** (M9 deliverable #6) — systemd, pg_dump backup pipeline, Litestream for per-project SQLite (BCQT-side), nginx reverse proxy.
-12. **Service-token scope auth on read/proposal API** — user JWTs now re-check current client ACL; service-account scopes (`hub:read:*`, `hub:propose:bom`) are still phase 2.
-13. **Audit log UI for permission changes** — `granted_by`/`granted_at` columns are populated; an admin-side history view is deferred.
-14. **Password reset / invite email / 2FA** — current admin creates user with chosen password directly; phase 2 should add reset flow, invite emails, optional 2FA.
-15. **Migration numbering 010→012 cosmetic gap** (intentionally deferred — would need cross-env `schema_migrations` fixup).
+1. Give CO/BCQT agents `docs/API_CONTRACT.md` and require contract-first changes for any new Data Hub endpoint.
+2. When CO needs a new endpoint, add or update the provider contract and Data Hub tests first, then implement the consumer call.
+3. Add service-account JWT/scopes later if CO needs non-user machine auth. Today the real-JWT path is user-based.
+4. Replace `co-config` declaration-type placeholders and `source-summary.co_stock_row_count` semantics when Data Hub has real per-client CO declaration rules and stock calculation.
+5. Keep `docs/agent_knowledge/` curated; do not copy internal handoff, strategy, credentials, or deployment details into it.
 
 ## Blockers
 
-None. Production-ship gates: SSO design + deployment shape + remaining /rev follow-ups (1-5 above are quality-of-life, not blockers).
+None.
 
 ## Notes for Next AI Session
 
-- **Server may still be running** at `:8754` with `--reload`. Background task ID `b2da6aqrc` from this session. Hot-reload picks up changes to `app/`. Restart cleanly with `pkill -f 'uvicorn app.main' && uv run uvicorn app.main:app --port 8754 --host 127.0.0.1 --reload`.
-- **`hub.app_settings` LLM config is live** — vLLM endpoint at `192.168.1.88:2455`, model `gpt-5.5`, budget 50/day/client. To test LLM fallback without hitting the endpoint, build a synthetic file with non-aliased headers and check the `proposed_by` field on the resulting `upload_pending` row.
-- **`hub.parser_mappings` empty before Phase 3 testing** — first LLM-fallback runs will populate it. Cache hits show as `proposed_by='llm_cached'` in preview pending.
-- **Real-data corpus** at `/tmp/dh_real_data/`. Ephemeral (symlinks). Re-create by re-staging from sister repos (paths in `.ai/sessions/2026-05-02-tier-1-real-data-smoke.md`).
-- **`/tmp/dh_real_data/manual_test/bcct_baseline.xlsx`** is a smoke fixture symlink → `data/manual_test/03a_stage_C1_baseline.xlsx`. Smoke uses MAN_C1_* transaction keys to avoid colliding with real BCCT data.
-- **DB has stale 5119 BCCT rows from earlier sessions** + 3 MAN_C1 rows from Phase 2 smoke. Wipe with `delete from hub.bcct_rows where transaction_key like 'MAN_C1_%'` before re-running BCCT smoke.
-- **Adding a new customer's header variant** is now a 1-line append to the relevant ALIASES list (Bug B style), or LLM fallback handles it automatically with mapping cached for future uploads. The audit script (`scripts/audit_pass2_deps.py`) helps validate that an alias addition doesn't shadow another field.
-- **Vietnamese is default UI language**; English toggle via cookie. `t()` Jinja callable in `app/i18n.py`.
-- **Mental model: Client first, then workspace.** All entity URLs nested under `/clients/{client_id}/{tab}`. No global "all materials across clients" view.
-- **Code seed is `barry-CO-main` (capital CO)** at `~/workspace/client/barry-CO-main`.
-- **Sister repos:** `~/workspace/client/BCQT-System` (settlement, future consumer), `~/workspace/client/barry-CO-main` (CO, code seed), `~/workspace/client/bcqt-growatt` (Growatt reference data).
-- **Settlement resolver lives at `scripts/settlement_resolver.py`** as CLI tool, NOT imported by `app/`. Hub schema does NOT have `code_mapping_resolutions` — coupling intentionally severed (2026-05-02 decision).
-- **Universal preview pattern caveat: BCCT 2-stage UI not yet unified.** BCCT has its own parse-mapping page (LLM column-mapping confirm) + diff-confirm page. BOM/BQD/Catalog use single Phase 2 preview. Unifying BCCT to the same single-preview shape is a follow-up refactor, not a current priority.
-
-## Backlog
-
-See `.ai/BACKLOG.md` for ideas captured but not yet planned. Updated 2026-05-02 with the 4 parser bugs (now closed) + cross-cut /rev items still open.
-
-## Reference
-
-- Sister repos:
-  - `~/workspace/client/BCQT-System` — settlement product, future consumer of Data Hub
-  - `~/workspace/client/barry-CO-main` — origin certificate product, code seed
-  - `~/workspace/client/bcqt-growatt` — Growatt reference data + N-N mapping algorithm port
-- Local design docs:
-  - `.ai/DECISIONS.md` — local architecture decisions log
-  - `.ai/features/2026-04-30-data-hub-mvp.md` — original discovery brief (3 critique rounds + amendments)
-  - `.ai/features/2026-05-01-data-hub-read-api.md` — read-API contract design (v2)
-  - `.ai/features/2026-05-04-bcct-overhaul-and-llm-parsing.md` — BCCT 4-stage build (LLM infra origin)
-  - `.ai/features/2026-05-02-universal-preview-and-parser-fixes.md` — Phase 1-3 brief
-  - `.ai/sessions/` — dated session summaries
-- Demo + dev:
-  - `scripts/screenshot.py` — Playwright UI capture (light + dark)
-  - `scripts/smoke_real_uploads.py` — Playwright UI smoke for real-data uploads (9-job matrix)
-  - `scripts/audit_pass2_deps.py` — alias-drift audit tool
-  - `scripts/settlement_resolver.py` — CLI for BCQT-flavored canonical resolver
-- Memory: `~/.claude/projects/-home-vp-workspace-client-data-hub/memory/`
-  - `project_architecture_lock.md`, `project_bom_multisource.md`, `reference_co_codebase.md`
+- Respond in Vietnamese with full accents when the user writes Vietnamese.
+- The user explicitly corrected that review/fix work in this session should happen in this repo, not in the CO repo. Do not jump to `barry-CO-main` unless the user asks for cross-repo changes.
+- For endpoint requests from CO/BCQT, use `docs/API_CONTRACT.md` as the gate: define use case, request/response shape, auth/client scoping, pagination, precision, idempotency, and provider tests before consumer code depends on it.
+- The intentional auth trade-off is: dev-permissive reads for speed, strict JWT writes for corruption prevention.
+- `co-config` is currently a compatibility envelope, not a full CO business-rule source. `source-summary` is source-record coverage, not computed usable CO stock.
