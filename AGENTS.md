@@ -116,7 +116,19 @@ Will likely match CO's existing choices to minimize friction:
 
 ## Build & Run
 
-TBD — Python project not yet scaffolded. Will be filled after M9 discovery sprint picks tech stack from CO audit.
+```bash
+uv run uvicorn app.main:app --port 8754 --host 127.0.0.1 --reload
+# Login admin@data-hub.local / admin123 (role=dev)
+
+uv run pytest -q                                          # 219 passed, 15 skipped
+DATA_HUB_REAL_DATA_DIR=/tmp/dh_real_data uv run pytest -q # +real-data smoke (env-gated)
+```
+
+### Dev port — pinned to **8754**
+
+This is not negotiable. CO's JWT issuer validation expects `http://127.0.0.1:8754` (see `~/workspace/client/barry-CO-main/.ai/STATUS.md` — "CO expected `http://127.0.0.1:8754`, Data Hub issued `iss=http://localhost:8754`" past incident). Same hardcoded in `deploy/systemd/data-hub.service`, `deploy/nginx/data-hub.conf`, `scripts/smoke_real_uploads.py`, `scripts/screenshot.py`, `docs/API_CONTRACT.md`, `README.md`. Sister apps: BCQT runs on 8000.
+
+Do not pick a different port for dev runs. If 8754 is in use, find and stop the existing process — don't start on a different port.
 
 ## How We Work
 

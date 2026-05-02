@@ -48,3 +48,25 @@ Posted from Data Hub side — to be picked up by an agent inside `~/workspace/cl
 ## Risk
 
 - CO production calls keep working during the grace window because Data Hub keeps `/co-config` serving the legacy shape (now backed by `hub.client_config` for master fields). After 2026-05-16 the old endpoint returns 410 Gone — CO must be cut over by then.
+
+---
+
+## Status check — 2026-05-02 PM (Data Hub side)
+
+- **Days until sunset:** 14.
+- **CO migration status:** **NOT STARTED.** Verified by grep on
+  `barry-CO-main/app/data_hub_client.py`:
+  - Line 67 still calls `/v1/hub/dncxs/{client_id}/co-config` (deprecated).
+  - Line 170 still reads from the old nested shape:
+    `client_config.get("bcct", {}).get("relevant_export_declaration_types", [])`.
+- **Action requested from CO repo agent:** open the migration PR per the
+  steps above, ideally before 2026-05-12 to leave a 4-day review buffer.
+- **If CO needs a sunset extension,** request it now — Data Hub agent
+  can hold off the removal PR per `.ai/scheduled/2026-05-16-remove-co-config.md`.
+
+Audit chain on Data Hub side:
+- This file is the source of truth for CO's required changes.
+- `docs/API_CHANGELOG.md` carries the official Breaking entry.
+- `.ai/scheduled/2026-05-16-remove-co-config.md` is the removal artifact;
+  pre-conditions (#1-3) explicitly require CO cutover confirmation before
+  execution.

@@ -1,6 +1,6 @@
 # Project Status
 
-**Date:** 2026-05-02
+**Date:** 2026-05-02 (refreshed PM)
 
 ## Current State
 
@@ -8,7 +8,20 @@ Data Hub is a working MVP web app with upload preview-confirm flows, SSO/JWT aut
 
 Hướng B refactor (2026-05-02) shipped: CO-runtime config moved out of Data Hub responses, `co-config` deprecated with a 14-day grace window (Sunset 2026-05-16). Master data (declaration types, presets, fiscal year start month) is now in `hub.declaration_type_catalog`, `hub.client_type_presets`, `hub.client_config` — staff-editable, no hardcoded domain knowledge.
 
-## Recent Changes (Hướng B refactor — 2026-05-02)
+## Recent Changes
+
+### Prior cycles (2026-05-01 → 2026-05-02 morning)
+
+The 219-test surface didn't land in one sprint. Detail per arc in `.ai/sessions/`:
+
+- **BCCT overhaul A+B/D/C1/C2 + post-/rev fixes** (`2026-05-04-bcct-overhaul-and-llm.md`, despite the filename the work is dated 2026-05-01 in commits `365bfed`..`1d79247`) — 12 typed CO columns, `year` as generated column, LLM smart parser with `parser_mappings` cache, confirm-on-update gate via `upload_pending` + `bcct_row_history` audit trigger, history page, ops escape hatch.
+- **UX iteration after manual test** (`2026-05-04-ux-iteration-and-rev-followups.md`) — post-upload toast, LLM error sanitization, auto-fetch model list, `json` lowercase fix, sample column index bug, logical-field dropdown, reject path on parse-mapping, `/uploads` link to propose UI, history link from BCCT row table, user_id → email + display_name.
+- **Tier 1 real-data smoke + Phase 1-3** (`2026-05-02-tier-1-real-data-smoke.md`) — parser bugs A/B/C/D fixed (commit `338be91`), universal preview-confirm pattern across all 4 modules (`359ebec`), LLM fallback for BOM/BQD via the same pipeline (`5d44b60`).
+- **Visibility sprint A1-A4** (`2026-05-02-visibility-sprint.md`) — A2 LLM-fallback gate cement, A3 staleness bar across all 4 workspace tabs, A4 catalog multi-source provenance + audit alarm.
+- **Sprint B + C + D + E** (autopilot run, see commits `692e5cf`..`b2642d6`) — B1 in-app notifications, B2 chat agent with strict ACL on every tool call, B3 SSO (Data Hub as JWT issuer), C1 LLM self-correction retry loop, C2 JWT auth on `/v1/hub/*` with permissive fallback, C3 chat agent extended with 3 more tools, D1 production deployment scaffold (M9 #6), E1+E2 catalog HQ-registered toggle + chat agent answer-row fix, E3 floating chat widget.
+- **API guardrails** (`52aa9f2` + `4ab54e1` + `764474a` + `89b108a`) — CO contract guardrails, SSO authorize flow + API client ACL, source-summary + invoice-match endpoints, agent technical-enable toggle.
+
+### Hướng B refactor — 2026-05-02
 
 11 pieces, all tests green:
 
@@ -29,11 +42,12 @@ Test count: 219 passed, 15 skipped (was 204 passed; +15 new in `tests/test_clien
 
 ## Next Steps
 
-1. **CO migration PR** — point a CO agent at `.ai/sister-app-notes/2026-05-02-co-migrate-to-client-config.md`. CO must cut over by 2026-05-16.
+1. **CO migration cutover by 2026-05-16** — sister-app note posted at `.ai/sister-app-notes/2026-05-02-co-migrate-to-client-config.md`; needs a ping to CO repo before ~2026-05-12 to verify cutover is in flight.
 2. **BCQT one-line entry in DECISIONS.md** — point a BCQT agent at `.ai/sister-app-notes/2026-05-02-bcqt-client-config-available.md`.
 3. **Schedule `/co-config` removal** — after CO confirms cutover, run `/schedule` to open removal PR per `.ai/scheduled/2026-05-16-remove-co-config.md`.
 4. **Backfill johnson-vn** if needed — currently it has a `sxxk` config from manual testing; CO had it as `manual` with empty lists. Decide whether to overwrite from CO or leave the test config.
-5. Backlog items from earlier (auth strict promotion, service-account JWTs, etc.) unchanged.
+5. **Service-account JWTs** — see `BACKLOG.md`. Blocks flipping `api_auth_strict=true` and removes the "user JWTs in cron jobs" anti-pattern. Multi-service architecture change; needs cross-repo coordination notes for CO/BCQT.
+6. Backlog items from earlier (auth strict promotion, CSRF, etc.) unchanged.
 
 ## Blockers
 
