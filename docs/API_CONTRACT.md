@@ -418,12 +418,70 @@ Fetch latest published BOM version for product.
 Query params:
 - `client_id`: required.
 
-Current latest logic includes published versions with intent:
-- `asserted_technical`
-- `staff_edit`
-- `derived`
+Latest logic — hardened 2026-05-03 with BOM flattening shipping:
+- Includes intent ∈ {`asserted_technical`, `staff_edit`, `derived`}, excludes `modified_for_case`.
+- Includes `flatten_status` ∈ {`flattened`, `not_applicable`}. **Excludes `non_flattened`** — calculation consumers must never silently consume a non-flattened BOM as if it were calculation-ready.
+- When dual-source variants are published for the same product (e.g. both `purchased_btp_as_leaf` and `self_produced_btp_exploded` are live), responds **`409 Conflict`** with the variant list. Caller must rebind to a specific `version_id` via `GET /v1/hub/products/{product_code}/bom?version_id=…`.
 
-It excludes `modified_for_case`.
+`409` response shape:
+
+```json
+{
+  "error": "dual_source_variants",
+  "message": "Multiple flattened variants exist for this product; …",
+  "variants": [
+    {
+      "version_id": "bv_…",
+      "version_no": 4,
+      "flatten_strategy": "purchased_btp_as_leaf",
+      "source_bom_kind": "technical_flattened",
+      "flatten_status": "flattened",
+      "display_label": "TP-A · default · v4 · technical_flattened · flattened · purchased_btp_as_leaf",
+      "bom_variant_id": "default",
+      "bom_code": null
+    },
+    {
+      "version_id": "bv_…",
+      "flatten_strategy": "self_produced_btp_exploded",
+      "...": "…"
+    }
+  ]
+}
+```
+
+`200` response shape (extended with flatten metadata):
+
+```json
+{
+  "version": {
+    "version_id": "bv_…",
+    "client_id": "growatt-vn",
+    "product_code": "TP-A",
+    "version_no": 3,
+    "actor": "agency_staff",
+    "intent": "asserted_technical",
+    "source_bom_kind": "technical_flattened",
+    "flatten_status": "flattened",
+    "flatten_strategy": "technical_exploded",
+    "source_channel": "agency_upload",
+    "bom_code": null,
+    "bom_variant_id": "default",
+    "lineage": { "btp_versions_used": [{"material_code":"BTP-B","version_id":"bv_…"}] },
+    "display_label": "TP-A · default · v3 · technical_flattened · flattened · technical_exploded",
+    "flatten_method": "dh_flatten_v1",
+    "flatten_method_version": "0.1.0",
+    "...": "…"
+  },
+  "rows": [...],
+  "unresolved": [],
+  "decisions": [
+    {"decision_id": "dec_…", "decision_type": "...", "chosen_action": "...",
+     "evidence": {...}, "status": "confirmed", "confirmed_by": "u_…"}
+  ]
+}
+```
+
+`unresolved` carries `{node_path, material_code, reason, evidence}` rows for non_flattened versions (always empty when `flatten_status='flattened'`). `reason` is one of `uom_conversion_missing | uom_conversion_ambiguous | missing_child_bom | cycle_detected | ambiguous_dual_source | classification_unknown | canonical_uom_missing` — all stable English machine codes.
 
 #### `GET /v1/hub/products/{product_code}/bom/versions`
 
@@ -531,6 +589,12 @@ CO:
 - Submit BOM changes only through `/bom/proposals`.
 - Always include `parent_version_id` for `modified_for_case`.
 - Treat `co-config` declaration type arrays as unconfigured until Data Hub exposes real per-client CO config.
+
+BOM consumers (CO and BCQT) — flatten contract:
+- Calculation flows MUST NOT consume versions where `flatten_status='non_flattened'`. The `/bom/latest` endpoint already filters these out; if you fetch a specific `version_id`, check the field yourself.
+- When `/bom/latest` returns `409 dual_source_variants`, the consumer MUST pick a specific variant and rebind via `?version_id=…`. Picking a variant is a business decision that lives outside Data Hub — do not silently default to the first.
+- Persist the picked `version_id` against the consuming entity (BCQT settlement record / CO case) so re-runs are reproducible.
+- Never use `display_label` as a key — it is a denormalized cache. Compare on `(version_id)` or on the structured tuple `(product_code, bom_variant_id, flatten_strategy, version_no)`.
 
 ## Change Management
 

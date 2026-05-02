@@ -606,24 +606,33 @@ async def api_bom_latest(
     product_code: str, client_id: str,
     authorization: str | None = Header(None),
 ):
+    """Latest published flattened (or manual_flat not_applicable) version
+    for a product. Hardened post-2026-05-03 (BOM flattening shipped):
+
+    - Excludes flatten_status='non_flattened' (consumers MUST NOT silently
+      consume non-flattened BOMs as if they were calculation-ready).
+    - When dual-source variants are published (purchased_btp_as_leaf AND
+      self_produced_btp_exploded both live for the same product), responds
+      409 with the variant list. Caller must re-call with explicit
+      version_id via /v1/hub/products/{p}/bom?version_id=… .
+    """
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
-    with connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                select version_id from hub.bom_versions
-                where client_id=%s and product_code=%s and tombstoned_at is null
-                  and intent in ('asserted_technical', 'staff_edit', 'derived')
-                  and status = 'published'
-                order by published_at desc nulls last, version_no desc limit 1
-                """,
-                (client_id, product_code),
-            )
-            row = cur.fetchone()
-            if not row:
-                raise HTTPException(404, "no latest version found")
-    data = get_version_with_rows(row[0])
+    from app.stores.bom import latest_flattened_versions
+    items = latest_flattened_versions(client_id=client_id, product_code=product_code)
+    if not items:
+        raise HTTPException(404, "no latest version found")
+    if len(items) > 1:
+        # Dual-source — caller must bind to a specific variant.
+        return JSONResponse(
+            {"error": "dual_source_variants",
+             "message": "Multiple flattened variants exist for this product; "
+                        "call /v1/hub/products/{product_code}/bom?version_id=… "
+                        "to bind explicitly.",
+             "variants": items},
+            status_code=409,
+        )
+    data = get_version_with_rows(items[0]["version_id"])
     return _json(data)
 
 
