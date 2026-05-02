@@ -1,6 +1,6 @@
 # Project Status
 
-**Date:** 2026-05-02 — Long autopilot run shipped: Sprint A (visibility) + Sprint B (notifications + chat-agent + SSO) + Sprint C (LLM self-correction + JWT API auth + agent tools). 13 tasks, 12 commits, 0 → 50 new tests.
+**Date:** 2026-05-02 — Long autopilot run shipped Sprint A/B/C, then Codex pickup closed the interrupted SSO/API + agent UI follow-ups. 197 pytest tests passing without `DATA_HUB_REAL_DATA_DIR`.
 **Earlier:** Phase 1+2+3 (parser bug fixes + universal preview-confirm + LLM fallback for BOM/BQD).
 
 ## Current State
@@ -24,11 +24,11 @@ What works (post Phase 1+2+3):
 - i18n bilingual: Vietnamese default + English toggle (cookie). ~190 translation keys.
 - Auto-seed on empty DB: creates Growatt VN + Johnson VN demo data.
 - 4-role RBAC + per-client ACL (2026-05-02). `dev` / `admin` / `manager` / `staff`.
-- **182 pytest tests passing without `DATA_HUB_REAL_DATA_DIR` (was 104). +15 real-data tests with env var set. 0 xfail.**
+- **197 pytest tests passing without `DATA_HUB_REAL_DATA_DIR` (was 104). +15 real-data tests with env var set. 0 xfail.**
 - **Catalog provenance tracking** (post Sprint A4): every `hub.materials` row carries `provenance jsonb` with three optional keys (`registered_with_hq` / `seen_in_bcct` / `user_added`). BCCT auto-derive runs in same txn as `_apply_bcct_rows` so new declaration codes flow into catalog as ⚠seen rows. Audit alarm surfaces "X codes on BCCT but not registered" when count > 0.
 - **Staleness bar** (post Sprint A3) at top of every workspace tab: last upload + most recent data row.
 - **In-app notifications** (post Sprint B1): `hub.notifications` table + bell in topnav + `/notifications` list page. Two wired triggers: BCCT preview-pending (uploader) and provenance-alarm fan-out (every editor of the client). Helper `notify()` callable from background tasks.
-- **Chat agent** (post Sprint B2): `/clients/{id}/agent` thread list + thread view. 8 read-only tools (query_bcct/catalog/bom/provenance_alarms/uploads/bcct_history + lookup_glossary + submit_final_answer). Strict ACL: `dispatch_tool` re-verifies `auth.require_can_view_client` on every call AND strips client_id/user_id from LLM-supplied args. Cross-client queries are structurally impossible.
+- **Chat agent** (post Sprint B2 + follow-up): `/clients/{id}/agent` is a two-pane workspace with inline thread rename/delete and the floating widget is available on all logged-in pages via a client selector. 9 read-only tools (query_bcct/catalog/bom/provenance_alarms/uploads/bcct_history + lookup_glossary + search_knowledge_base + submit_final_answer). Strict ACL: `dispatch_tool` re-verifies `auth.require_can_view_client` on every call AND strips client_id/user_id from LLM-supplied args. Cross-client queries are structurally impossible.
 - **SSO JWT issuer** (post Sprint B3, M9 deliverable #4): `/v1/auth/token` (email+password → JWT), `/v1/auth/jwks` (Ed25519 public keys), `/v1/auth/validate` (debug). Keys live on disk under `keys/` (gitignored, auto-generated on first run). Multi-key JWKS for rotation overlap. Consumer-side local verify simulated end-to-end.
 - **Read API auth upgraded** (post Sprint C2 + follow-up): `/v1/hub/*` now JWT-verifies bearer tokens and re-checks current client ACL for JWT callers. Permissive default keeps legacy callers working; `api_auth_strict=true` enforces JWT-only for production.
 - **LLM self-correction loop** (post Sprint C1): `propose_header_mapping` retries up to `cfg.max_retries` when LLM returns garbage; feeds the specific error back so the LLM can adapt.
@@ -44,6 +44,12 @@ DB state (post Phase 1-3 UI smoke):
 - 5119 BCCT rows from earlier sessions remain.
 
 ## Recent Changes
+
+**2026-05-02 — Codex pickup after Claude subscription cutoff.**
+
+- **SSO/API follow-up** (commit `4ab54e1`): browser `/v1/auth/authorize` + one-time `/exchange`, safe login `next`, user JWT `client_ids/all_clients` convenience claims, current DB ACL re-checks on `/v1/hub/*`, pagination on materials/BCCT, and BOM proposal edit-access enforcement.
+- **CO read-adapter endpoints** (commit `764474a`): `/v1/hub/dncxs/{id}/co-config`, `/source-summary`, and `/v1/hub/bcct/invoice-matches` with all-token invoice matching to avoid prefix false positives.
+- **Agent follow-up** (current): grounded knowledge search over `.ai` context, two-pane `/agent` workspace, inline rename/delete, and floating widget on admin/global pages with client selector.
 
 **2026-05-02 — Long autopilot run (~52 min build, 12 commits, ~3,800 LoC).** Session log: `.ai/sessions/2026-05-02-autopilot-long-run.md`. Briefs: `.ai/features/2026-05-02-{visibility-sprint,bcqt-borrow-survey,sso-design}.md`.
 

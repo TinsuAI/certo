@@ -363,6 +363,24 @@ def test_lookup_glossary_empty_term(viewer_user):
     assert result["ok"] is False
 
 
+def test_search_knowledge_base_finds_architecture_context(viewer_user):
+    result = tools.dispatch_tool(
+        user=viewer_user, client_id=CLIENT,
+        name="search_knowledge_base", args={"query": "Data Hub BCQT CO architecture"},
+    )
+    assert result["ok"] is True
+    assert result["match_count"] >= 1
+    assert any("Data Hub" in m["snippet"] for m in result["matches"])
+
+
+def test_search_knowledge_base_empty_query(viewer_user):
+    result = tools.dispatch_tool(
+        user=viewer_user, client_id=CLIENT,
+        name="search_knowledge_base", args={"query": ""},
+    )
+    assert result["ok"] is False
+
+
 def test_runtime_refuses_outsider(outsider_user):
     """Outsider with no access to client → require_can_view_client raises
     BEFORE any LLM call."""

@@ -183,6 +183,28 @@ TOOL_DEFINITIONS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "search_knowledge_base",
+            "description": (
+                "Search Data Hub's curated project knowledge: glossary, "
+                "architecture decisions, SSO/API notes, and feature briefs. "
+                "Use before answering business-rule, architecture, workflow, "
+                "or domain-context questions."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string",
+                              "description": "Search phrase or question"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 8,
+                              "default": 5},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "submit_final_answer",
             "description": (
                 "Call when you have the final answer for the user. The text "
@@ -511,6 +533,60 @@ def _lookup_glossary(*, client_id: str, term: str) -> dict:
     return {"ok": True, "match_count": len(matches), "matches": matches}
 
 
+def _search_knowledge_base(*, client_id: str, query: str, limit: int = 5) -> dict:
+    """Small deterministic doc search over project-owned AI context.
+
+    This is not vector RAG. It is a constrained keyword search that gives
+    the agent grounded snippets for business/system questions without
+    exposing entire internal documents.
+    """
+    from pathlib import Path
+    import re
+
+    q = (query or "").strip()
+    if not q:
+        return {"ok": False, "error": "query is required"}
+    terms = [t for t in re.findall(r"[\wÀ-ỹ]+", q.lower()) if len(t) >= 2]
+    if not terms:
+        return {"ok": False, "error": "query has no searchable terms"}
+
+    root = Path(__file__).resolve().parent.parent.parent
+    sources = [
+        root / ".ai" / "GLOSSARY.md",
+        root / ".ai" / "DECISIONS.md",
+        root / ".ai" / "features" / "2026-05-01-data-hub-read-api.md",
+        root / ".ai" / "features" / "2026-05-02-sso-design.md",
+        root / ".ai" / "features" / "2026-05-02-auth-rbac-acl.md",
+        root / ".ai" / "features" / "2026-05-02-visibility-sprint.md",
+    ]
+    matches: list[tuple[int, str, str]] = []
+    for path in sources:
+        if not path.exists():
+            continue
+        content = path.read_text(encoding="utf-8")
+        blocks = re.split(r"\n(?=#{1,3} |\s*[-*] \*\*|\s*\d+\. )", content)
+        for block in blocks:
+            text = " ".join(line.strip() for line in block.splitlines()).strip()
+            if not text:
+                continue
+            lower = text.lower()
+            score = sum(lower.count(term) for term in terms)
+            if score <= 0:
+                continue
+            snippet = text[:900] + ("..." if len(text) > 900 else "")
+            matches.append((score, str(path.relative_to(root)), snippet))
+    matches.sort(key=lambda item: (-item[0], item[1], item[2]))
+    cap = min(max(int(limit or 5), 1), 8)
+    return {
+        "ok": True,
+        "match_count": len(matches[:cap]),
+        "matches": [
+            {"source": source, "snippet": snippet}
+            for _score, source, snippet in matches[:cap]
+        ],
+    }
+
+
 def _submit_final_answer(*, client_id: str, answer: str) -> dict:
     """Marker tool — runtime detects this name and terminates the loop.
     The implementation just echoes the answer so it's recorded as tool
@@ -526,5 +602,6 @@ _IMPLS: dict[str, Any] = {
     "query_uploads": _query_uploads,
     "query_bcct_history": _query_bcct_history,
     "lookup_glossary": _lookup_glossary,
+    "search_knowledge_base": _search_knowledge_base,
     "submit_final_answer": _submit_final_answer,
 }

@@ -34,6 +34,7 @@ def template_context(request: Request) -> dict:
     # user (login page); skipped when notifications module not loaded.
     notif_unread = 0
     notif_recent: list = []
+    chat_widget_clients: list = []
     if user is not None:
         try:
             from app import notifications as _notifs
@@ -44,6 +45,18 @@ def template_context(request: Request) -> dict:
                 )
         except Exception:
             pass  # bell is non-critical; never crash page render
+        try:
+            rows = clients.list_clients()
+            allowed = auth.visible_clients(user)
+            if allowed is not None:
+                allowed_set = set(allowed)
+                rows = [row for row in rows if row["client_id"] in allowed_set]
+            chat_widget_clients = [
+                {"client_id": row["client_id"], "name": row["name"]}
+                for row in rows[:25]
+            ]
+        except Exception:
+            pass  # chat widget is non-critical; never crash page render
 
     return {
         "theme": theme,
@@ -55,6 +68,7 @@ def template_context(request: Request) -> dict:
         "can_manage_staff": lambda client_id: auth.can_assign_staff_to_client(user, client_id),
         "notif_unread_count": notif_unread,
         "notif_recent": notif_recent,
+        "chat_widget_clients": chat_widget_clients,
         # Note: do NOT set active_root/active_tab/message/error defaults
         # here. Starlette's context_processor output overrides the route's
         # explicit context dict, so any default we set would clobber the

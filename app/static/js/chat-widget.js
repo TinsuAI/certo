@@ -10,7 +10,7 @@
   const widget = document.getElementById('chat-widget');
   if (!widget) return;
 
-  const clientId = widget.dataset.clientId;
+  let clientId = widget.dataset.clientId;
   const I18N = {
     thinking:        widget.dataset.i18nThinking        || 'Đang suy nghĩ',
     empty:           widget.dataset.i18nEmpty           || 'Bắt đầu hỏi…',
@@ -31,6 +31,8 @@
   const newBtn     = $('.chat-widget-new');
   const listBtn    = $('.chat-widget-list');
   const backBtn    = $('.chat-widget-back-to-chat');
+  const clientSel  = $('.chat-widget-client-select');
+  const fullLink   = $('.chat-widget-open-full');
   const form       = $('.chat-widget-form');
   const input      = $('.chat-widget-input');
   const sendBtn    = $('.chat-widget-send');
@@ -44,6 +46,14 @@
   let threadId = null;
   let busy = false;
   let initialized = false;
+
+  function basePath() {
+    return `/clients/${encodeURIComponent(clientId)}/agent`;
+  }
+  function refreshClientLinks() {
+    if (fullLink) fullLink.href = `${basePath()}`;
+  }
+  refreshClientLinks();
 
   // ── Open / close ─────────────────────────────────────────────────────
   function isOpen() {
@@ -72,6 +82,22 @@
   closeBtn.addEventListener('click', (e) => {
     e.preventDefault(); e.stopPropagation(); close();
   });
+  if (clientSel) {
+    clientSel.addEventListener('change', () => {
+      clientId = clientSel.value;
+      widget.dataset.clientId = clientId;
+      threadId = null;
+      initialized = false;
+      refreshClientLinks();
+      updateTitle('');
+      renderMessages([]);
+      showView('conversation');
+      if (isOpen()) {
+        initialized = true;
+        bootstrap();
+      }
+    });
+  }
 
   // ── View switching ───────────────────────────────────────────────────
   function showView(name) {
@@ -98,7 +124,7 @@
   async function bootstrap() {
     setBusy(true);
     try {
-      const res = await fetch(`/clients/${clientId}/agent/_widget`, {
+      const res = await fetch(`${basePath()}/_widget`, {
         credentials: 'same-origin',
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -119,7 +145,7 @@
     threadsList.innerHTML = '<li class="meta chat-widget-threads-loading">…</li>';
     try {
       const res = await fetch(
-        `/clients/${clientId}/agent/_widget/threads`,
+        `${basePath()}/_widget/threads`,
         {credentials: 'same-origin'},
       );
       const data = await res.json();
@@ -143,10 +169,13 @@
       const main = document.createElement('button');
       main.type = 'button';
       main.className = 'chat-widget-thread-main';
-      main.innerHTML = `
-        <strong>${escapeHtml(t.title || I18N.untitled)}</strong>
-        <span class="meta">${t.message_count} ${escapeHtml(I18N.msgs)} · ${formatDate(t.updated_at)}</span>
-      `;
+      const title = document.createElement('strong');
+      title.textContent = t.title || I18N.untitled;
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      meta.textContent = `${t.message_count} ${I18N.msgs} · ${formatDate(t.updated_at)}`;
+      main.appendChild(title);
+      main.appendChild(meta);
       main.addEventListener('click', () => selectThread(t.thread_id));
       li.appendChild(main);
 
@@ -160,7 +189,7 @@
       renameBtn.textContent = '✎';
       renameBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        renameThread(t);
+        beginInlineRename(li, t);
       });
       actions.appendChild(renameBtn);
 
@@ -185,7 +214,7 @@
     setBusy(true);
     try {
       const res = await fetch(
-        `/clients/${clientId}/agent/_widget/threads/${tid}`,
+        `${basePath()}/_widget/threads/${encodeURIComponent(tid)}`,
         {credentials: 'same-origin'},
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -202,14 +231,48 @@
     }
   }
 
-  async function renameThread(thread) {
-    const next = prompt(I18N.renamePrompt, thread.title || '');
-    if (next === null) return;  // cancelled
-    const title = next.trim();
+  function beginInlineRename(li, thread) {
+    if (busy) return;
+    const main = li.querySelector('.chat-widget-thread-main');
+    if (!main) return;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'chat-widget-thread-rename-input';
+    input.value = thread.title || '';
+    input.maxLength = 120;
+    main.replaceChildren(input);
+    input.focus();
+    input.select();
+
+    let finished = false;
+    const cancel = () => {
+      if (finished) return;
+      finished = true;
+      loadThreadsList();
+    };
+    const save = async () => {
+      if (finished) return;
+      finished = true;
+      await renameThread(thread, input.value.trim());
+    };
+    input.addEventListener('click', (e) => e.stopPropagation());
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        save();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancel();
+      }
+    });
+    input.addEventListener('blur', save);
+  }
+
+  async function renameThread(thread, title) {
     setBusy(true);
     try {
       const res = await fetch(
-        `/clients/${clientId}/agent/_widget/threads/${thread.thread_id}/rename`,
+        `${basePath()}/_widget/threads/${encodeURIComponent(thread.thread_id)}/rename`,
         {
           method: 'POST',
           credentials: 'same-origin',
@@ -235,7 +298,7 @@
     setBusy(true);
     try {
       const res = await fetch(
-        `/clients/${clientId}/agent/_widget/threads/${thread.thread_id}/delete`,
+        `${basePath()}/_widget/threads/${encodeURIComponent(thread.thread_id)}/delete`,
         {method: 'POST', credentials: 'same-origin'},
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -260,7 +323,7 @@
     if (busy) return;
     setBusy(true);
     try {
-      const res = await fetch(`/clients/${clientId}/agent/_widget/new`, {
+      const res = await fetch(`${basePath()}/_widget/new`, {
         method: 'POST', credentials: 'same-origin',
       });
       const data = await res.json();
@@ -307,7 +370,7 @@
     input.style.height = 'auto';
     setBusy(true);
     try {
-      const res = await fetch(`/clients/${clientId}/agent/_widget/send`, {
+      const res = await fetch(`${basePath()}/_widget/send`, {
         method: 'POST',
         credentials: 'same-origin',
         headers: {'content-type': 'application/json'},

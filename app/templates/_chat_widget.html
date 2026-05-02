@@ -1,9 +1,12 @@
-{# Floating chat widget. Rendered in base.html when active_root='clients'
-   and a `client` is in scope. Vanilla JS, no framework. Communicates
-   with /clients/{cid}/agent/_widget* JSON endpoints. #}
-{% if active_root == 'clients' and client %}
+{# Floating chat widget. Vanilla JS, no framework. It is always
+   client-scoped: client pages bind to that client; global/admin pages
+   use the first visible client and expose a selector. #}
+{% set current_client = client if client is defined and client else none %}
+{% set widget_clients = chat_widget_clients if chat_widget_clients is defined else [] %}
+{% set widget_client = current_client or (widget_clients[0] if widget_clients else none) %}
+{% if widget_client %}
 <div id="chat-widget" class="chat-widget chat-widget-collapsed"
-     data-client-id="{{ client.client_id }}"
+     data-client-id="{{ widget_client.client_id }}"
      data-i18n-thinking="{{ t('agent.widget_thinking') }}"
      data-i18n-empty="{{ t('agent.widget_empty') }}"
      data-i18n-error="{{ t('agent.widget_error') }}"
@@ -29,7 +32,17 @@
       <div class="chat-widget-head-title">
         <strong class="chat-widget-current-title">{{ t('agent.title') }}</strong>
         <div class="meta">
-          <span class="badge badge-info">{{ client.client_id }}</span>
+          {% if widget_clients|length > 1 %}
+          <select class="chat-widget-client-select" aria-label="{{ t('nav.clients') }}">
+            {% for c in widget_clients %}
+            <option value="{{ c.client_id }}" {% if c.client_id == widget_client.client_id %}selected{% endif %}>
+              {{ c.name }}
+            </option>
+            {% endfor %}
+          </select>
+          {% else %}
+          <span class="badge badge-info">{{ widget_client.client_id }}</span>
+          {% endif %}
         </div>
       </div>
       <div class="chat-widget-head-actions">
@@ -37,7 +50,7 @@
                 title="{{ t('agent.widget_list_threads') }}">☰</button>
         <button type="button" class="btn-link chat-widget-new"
                 title="{{ t('agent.widget_new_thread') }}">＋</button>
-        <a class="btn-link" href="/clients/{{ client.client_id }}/agent"
+        <a class="btn-link chat-widget-open-full" href="/clients/{{ widget_client.client_id }}/agent"
            title="{{ t('agent.widget_open_full') }}">↗</a>
         <button type="button" class="btn-link chat-widget-close"
                 aria-label="{{ t('agent.widget_close') }}">✕</button>

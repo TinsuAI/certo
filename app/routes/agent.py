@@ -216,9 +216,9 @@ async def thread_list(request: Request, client_id: str):
         raise HTTPException(404, "Client not found")
     threads = store.list_threads(user_id=user.user_id, client_id=client_id)
     return request.app.state.templates.TemplateResponse(
-        request, "clients/agent_threads.html",
+        request, "clients/agent_thread.html",
         {"client": client, "stats": stats_for_client(client_id),
-         "threads": threads,
+         "threads": threads, "thread": None, "messages": [],
          "active_root": "clients", "active_tab": "agent"},
     )
 
@@ -254,10 +254,11 @@ async def thread_view(request: Request, client_id: str, thread_id: str):
         # belongs to another user.
         raise HTTPException(404, "Thread not found")
     messages = store.list_messages(thread_id=thread_id)
+    threads = store.list_threads(user_id=user.user_id, client_id=client_id)
     return request.app.state.templates.TemplateResponse(
         request, "clients/agent_thread.html",
         {"client": client, "stats": stats_for_client(client_id),
-         "thread": thread, "messages": messages,
+         "threads": threads, "thread": thread, "messages": messages,
          "active_root": "clients", "active_tab": "agent"},
     )
 
@@ -299,5 +300,4 @@ async def send_message(request: Request, client_id: str, thread_id: str,
     return RedirectResponse(
         url=f"/clients/{client_id}/agent/{thread_id}", status_code=303,
     )
-
 

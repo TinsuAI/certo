@@ -1,76 +1,123 @@
 {% extends "base.html" %}
-{% block title %}{{ thread.title or t('agent.untitled_thread') }} · {{ client.name }}{% endblock %}
+{% block title %}{{ (thread.title if thread else t('agent.title')) or t('agent.untitled_thread') }} · {{ client.name }}{% endblock %}
 {% block content %}
 {% include "_client_nav.html" %}
 
-<section class="zone">
-  <div class="zone-head">
-    <div>
-      <h2>{{ thread.title or t('agent.untitled_thread') }}</h2>
-      <p class="meta">{{ t('agent.scope_label') }}: <span class="badge badge-info">{{ client.client_id }}</span></p>
+<section class="zone agent-workspace"
+         data-client-id="{{ client.client_id }}"
+         data-current-thread-id="{{ thread.thread_id if thread else '' }}"
+         data-i18n-untitled="{{ t('agent.untitled_thread') }}"
+         data-i18n-error="{{ t('agent.widget_error') }}"
+         data-i18n-delete-confirm="{{ t('agent.widget_thread_delete_confirm') }}">
+  <aside class="agent-sidebar">
+    <div class="agent-sidebar-head">
+      <div>
+        <h2>{{ t('agent.title') }}</h2>
+        <p class="meta">{{ t('agent.scope_label') }}: <span class="badge badge-info">{{ client.client_id }}</span></p>
+      </div>
     </div>
-    <div class="page-actions">
-      <a class="btn-secondary" href="/clients/{{ client.client_id }}/agent">{{ t('agent.back_to_threads') }}</a>
-    </div>
-  </div>
 
-  <div class="agent-conversation">
-    {% if messages %}
-      {% for m in messages %}
-        {% if m.role == 'user' %}
-        <div class="agent-msg agent-msg-user">
-          <div class="agent-msg-role">{{ t('agent.role_you') }}</div>
-          <div class="agent-msg-body">{{ m.content }}</div>
+    <form method="post" action="/clients/{{ client.client_id }}/agent/threads"
+          class="agent-new-form">
+      <input type="text" name="title" placeholder="{{ t('agent.thread_title_placeholder') }}" maxlength="120">
+      <button type="submit" class="btn-primary">{{ t('agent.new_thread') }}</button>
+    </form>
+
+    <ul class="agent-thread-list agent-thread-list-pane">
+      {% for th in threads %}
+      <li class="agent-thread-row {% if thread and th.thread_id == thread.thread_id %}agent-thread-active{% endif %}"
+          data-thread-id="{{ th.thread_id }}">
+        <a href="/clients/{{ client.client_id }}/agent/{{ th.thread_id }}" class="agent-thread-main">
+          <strong data-thread-title>{{ th.title or t('agent.untitled_thread') }}</strong>
+          <span class="meta">
+            {{ th.message_count }} {{ t('agent.messages') }} ·
+            {{ t('common.updated') }} {{ th.updated_at.strftime('%Y-%m-%d %H:%M') }}
+          </span>
+        </a>
+        <input type="text" class="agent-thread-rename-input" value="{{ th.title or '' }}" maxlength="120" hidden>
+        <div class="agent-thread-actions">
+          <button type="button" class="btn-link" data-agent-rename title="{{ t('agent.widget_thread_rename') }}">✎</button>
+          <button type="button" class="btn-link agent-thread-delete" data-agent-delete title="{{ t('agent.widget_thread_delete') }}">×</button>
         </div>
-        {% elif m.role == 'assistant' %}
-          {% if m.content %}
-          <div class="agent-msg agent-msg-assistant">
-            <div class="agent-msg-role">{{ t('agent.role_assistant') }}</div>
+      </li>
+      {% else %}
+      <li class="meta agent-empty-sidebar">{{ t('agent.no_threads') }}</li>
+      {% endfor %}
+    </ul>
+  </aside>
+
+  <div class="agent-main">
+    {% if thread %}
+    <header class="agent-main-head">
+      <div>
+        <h2 class="agent-current-title">{{ thread.title or t('agent.untitled_thread') }}</h2>
+        <p class="meta">{{ t('common.updated') }} {{ thread.updated_at.strftime('%Y-%m-%d %H:%M') }}</p>
+      </div>
+    </header>
+
+    <div class="agent-conversation">
+      {% if messages %}
+        {% for m in messages %}
+          {% if m.role == 'user' %}
+          <div class="agent-msg agent-msg-user">
+            <div class="agent-msg-role">{{ t('agent.role_you') }}</div>
             <div class="agent-msg-body">{{ m.content }}</div>
           </div>
-          {% endif %}
-          {% if m.tool_calls %}
-            {% set non_final = m.tool_calls | rejectattr('function.name', 'equalto', 'submit_final_answer') | list %}
-            {% if non_final %}
-            <div class="agent-msg agent-msg-tool-call">
-              <div class="agent-msg-role">
-                {% for tc in non_final %}
-                  → {{ tc.function.name }}{% if not loop.last %}, {% endif %}
-                {% endfor %}
-              </div>
+          {% elif m.role == 'assistant' %}
+            {% if m.content %}
+            <div class="agent-msg agent-msg-assistant">
+              <div class="agent-msg-role">{{ t('agent.role_assistant') }}</div>
+              <div class="agent-msg-body">{{ m.content }}</div>
             </div>
             {% endif %}
-            {# Legacy threads: answer was only stored inside submit_final_answer.arguments.
-               If no sibling assistant content exists for this turn, fall back to render
-               the answer from there so old threads aren't blank. #}
-            {% if not m.content %}
-              {% for tc in m.tool_calls if tc.function.name == 'submit_final_answer' %}
-                <div class="agent-msg agent-msg-assistant agent-msg-legacy">
-                  <div class="agent-msg-role">{{ t('agent.role_assistant') }}</div>
-                  <div class="agent-msg-body">{{ (tc.function.arguments | from_json).answer if tc.function.arguments else '' }}</div>
+            {% if m.tool_calls %}
+              {% set non_final = m.tool_calls | rejectattr('function.name', 'equalto', 'submit_final_answer') | list %}
+              {% if non_final %}
+              <div class="agent-msg agent-msg-tool-call">
+                <div class="agent-msg-role">
+                  {% for tc in non_final %}
+                    → {{ tc.function.name }}{% if not loop.last %}, {% endif %}
+                  {% endfor %}
                 </div>
-              {% endfor %}
+              </div>
+              {% endif %}
+              {% if not m.content %}
+                {% for tc in m.tool_calls if tc.function.name == 'submit_final_answer' %}
+                  <div class="agent-msg agent-msg-assistant agent-msg-legacy">
+                    <div class="agent-msg-role">{{ t('agent.role_assistant') }}</div>
+                    <div class="agent-msg-body">{{ (tc.function.arguments | from_json).answer if tc.function.arguments else '' }}</div>
+                  </div>
+                {% endfor %}
+              {% endif %}
             {% endif %}
+          {% elif m.role == 'tool' and m.tool_name != 'submit_final_answer' %}
+          <details class="agent-msg agent-msg-tool-result">
+            <summary class="agent-msg-role">← {{ m.tool_name }} {{ t('agent.result') }}</summary>
+            <pre class="meta agent-tool-content">{{ m.content[:2000] }}{% if m.content|length > 2000 %}…{% endif %}</pre>
+          </details>
           {% endif %}
-        {% elif m.role == 'tool' and m.tool_name != 'submit_final_answer' %}
-        <details class="agent-msg agent-msg-tool-result">
-          <summary class="agent-msg-role">← {{ m.tool_name }} {{ t('agent.result') }}</summary>
-          <pre class="meta agent-tool-content">{{ m.content[:2000] }}{% if m.content|length > 2000 %}…{% endif %}</pre>
-        </details>
-        {% endif %}
-      {% endfor %}
+        {% endfor %}
+      {% else %}
+        <p class="meta">{{ t('agent.empty_thread') }}</p>
+      {% endif %}
+    </div>
+
+    <form method="post" action="/clients/{{ client.client_id }}/agent/{{ thread.thread_id }}/message"
+          class="agent-compose">
+      <textarea name="text" rows="3" required
+                placeholder="{{ t('agent.compose_placeholder') }}"
+                autofocus></textarea>
+      <button type="submit" class="btn-primary">{{ t('agent.send') }}</button>
+    </form>
     {% else %}
+    <div class="agent-empty-main">
+      <h2>{{ t('agent.no_threads') }}</h2>
       <p class="meta">{{ t('agent.empty_thread') }}</p>
+    </div>
     {% endif %}
   </div>
-
-  <form method="post" action="/clients/{{ client.client_id }}/agent/{{ thread.thread_id }}/message"
-        class="agent-compose">
-    <textarea name="text" rows="3" required
-              placeholder="{{ t('agent.compose_placeholder') }}"
-              autofocus></textarea>
-    <button type="submit" class="btn-primary">{{ t('agent.send') }}</button>
-  </form>
 </section>
+
+<script src="/static/js/agent-page.js" defer></script>
 
 {% endblock %}
