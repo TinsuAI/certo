@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Logout - Barry CO{% endblock %}
+
+{% block content %}
+<section class="page-bar">
+  <h1>Logout</h1>
+  <span class="page-tagline">Đang đăng xuất khỏi Data Hub SSO</span>
+</section>
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Đang hoàn tất đăng xuất</h2>
+      <p class="meta">CO đã xóa session local. Trình duyệt sẽ tiếp tục xóa session Data Hub.</p>
+    </div>
+  </div>
+  <form id="data-hub-logout-form" method="post" action="{{ data_hub_logout_url }}" class="settings-actions">
+    <button type="submit">Tiếp tục logout</button>
+  </form>
+</section>
+
+<script>
+  document.getElementById("data-hub-logout-form")?.submit();
+</script>
+{% endblock %}

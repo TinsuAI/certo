@@ -19,6 +19,8 @@ npm run co:serve
 
 Open the demo app at `http://127.0.0.1:8001/clients`.
 
+For Data Hub consumer mode, see `docs/co-data-hub-link.md` and `config/co-data-hub.env.example`.
+
 ## Data Notes
 
 - The source archive lives under `data/`.

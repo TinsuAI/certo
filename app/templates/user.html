@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}User - Barry CO{% endblock %}
+
+{% block content %}
+<section class="page-bar">
+  <h1>User</h1>
+  <span class="page-tagline">Data Hub session and CO access context</span>
+  <div class="page-actions">
+    <a class="btn-secondary" href="/settings">Settings</a>
+  </div>
+</section>
+
+{% if logged_out %}
+<section class="callout callout-success">
+  <strong>Đã logout khỏi CO.</strong>
+  <span>CO đã xóa session cookie local.</span>
+</section>
+{% endif %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Session</h2>
+      <p class="meta">CO đọc user từ Data Hub JWT trong cookie <span class="mono">co_data_hub_session</span>.</p>
+    </div>
+    {% if user %}
+    <span class="badge badge-success">Logged in</span>
+    {% else %}
+    <span class="badge badge-warning">Local / anonymous</span>
+    {% endif %}
+  </div>
+
+  {% if user %}
+  <div class="module-grid">
+    <div class="module-tile">
+      <strong>{{ user.name or user.email or user.user_id }}</strong>
+      <span>{{ user.email }}</span>
+    </div>
+    <div class="module-tile">
+      <strong>Role</strong>
+      <span>{{ user.role or 'user' }}</span>
+    </div>
+    <div class="module-tile">
+      <strong>Clients</strong>
+      <span>{% if all_clients %}All clients{% elif visible_clients %}{{ visible_clients|join(', ') }}{% else %}No client claims{% endif %}</span>
+    </div>
+  </div>
+  <form method="post" action="/auth/logout" class="settings-actions">
+    <input type="hidden" name="next_url" value="/user">
+    <button type="submit">Logout</button>
+  </form>
+  {% else %}
+  <div class="module-grid">
+    <div class="module-tile">
+      <strong>No Data Hub user</strong>
+      <span>Login is available when Data Hub SSO is enabled for this runtime.</span>
+    </div>
+  </div>
+  {% if show_login %}
+  <div class="settings-actions">
+    <a class="btn-secondary" href="/auth/login?next=/user">Login with Data Hub</a>
+  </div>
+  {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

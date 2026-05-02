@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import File, Form, HTTPException, Request, UploadFile
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -32,7 +33,15 @@ from app.co_case_store import (
 from app.co_forms import form_candidates_for_market
 from app.client_registry import get_client as registry_get_client
 from app.client_registry import get_client_case
-from app.data_hub_client import reset_current_data_hub_token, set_current_data_hub_token
+from app.data_hub_client import DataHubClient, reset_current_data_hub_token, set_current_data_hub_token
+from app.data_hub_settings import (
+    DATA_HUB_LINK_ENV_KEYS,
+    DataHubLinkSettings,
+    data_hub_config_path,
+    data_hub_link_settings,
+    load_data_hub_overrides,
+    save_data_hub_overrides,
+)
 from app.demo_data import (
     DEMO_CASE,
     SOURCE_NOTES,
@@ -65,10 +74,14 @@ def normalize_theme(value: str | None) -> str:
 
 def theme_context(request: Request) -> dict[str, str]:
     theme = normalize_theme(request.cookies.get(THEME_COOKIE))
+    user = co_auth.current_user(request)
     return {
         "theme": theme,
         "next_theme": "light" if theme == "dark" else "dark",
-        "co_user": co_auth.current_user(request),
+        "co_user": user,
+        "auth_required": co_auth.auth_required(),
+        "show_login": (co_auth.auth_required() or co_auth.data_hub_source_mode_enabled()) and request.url.path != "/auth/logout",
+        "can_view_technical_settings": co_auth.can_view_technical_settings(user),
     }
 
 
@@ -84,6 +97,7 @@ async def require_data_hub_auth(request: Request, call_next):
     redirect = co_auth.guard_response(request)
     if redirect:
         return redirect
+    co_auth.load_optional_user(request)
     token_context = None
     user = co_auth.current_user(request)
     if user and user.access_token:
@@ -233,6 +247,168 @@ async def set_theme(theme: str = Form("light"), next_url: str = Form("/clients")
     return response
 
 
+def require_technical_settings_dev(request: Request) -> None:
+    if not co_auth.can_view_technical_settings(co_auth.current_user(request)):
+        raise HTTPException(status_code=403, detail="Technical settings require a dev Data Hub session.")
+
+
+def mask_secret(value: str) -> str:
+    if not value:
+        return "Chưa cấu hình"
+    return f"Đã cấu hình ({len(value)} ký tự)"
+
+
+def data_hub_settings_context(request: Request, *, saved: bool = False, error: str = "", test_result: dict | None = None) -> dict:
+    settings = data_hub_link_settings()
+    overrides = load_data_hub_overrides()
+    env_values = os.environ
+    token_source = "local override" if "DATA_HUB_API_TOKEN" in overrides else "environment" if env_values.get("DATA_HUB_API_TOKEN") else "missing"
+    rows = [
+        {"key": "DATA_HUB_ENABLED", "label": "Dùng Data Hub cho source/master data", "value": "1" if settings.source_enabled else "0", "type": "checkbox"},
+        {"key": "CO_AUTH_REQUIRED", "label": "Bắt buộc Data Hub SSO cho CO", "value": "1" if settings.auth_required else "0", "type": "checkbox"},
+        {"key": "DATA_HUB_BASE_URL", "label": "Data Hub browser URL", "value": settings.data_hub_base_url, "type": "url"},
+        {"key": "DATA_HUB_API_BASE_URL", "label": "Data Hub API URL", "value": settings.data_hub_api_base_url, "type": "url"},
+        {"key": "DATA_HUB_ISSUER_URL", "label": "JWT issuer", "value": settings.issuer_url, "type": "url"},
+        {"key": "DATA_HUB_JWKS_URL", "label": "JWKS URL", "value": settings.jwks_url, "type": "url"},
+        {"key": "CO_PUBLIC_BASE_URL", "label": "CO public URL", "value": settings.co_public_base_url, "type": "url"},
+        {"key": "CO_FORCE_HTTPS_COOKIE", "label": "Secure cookie HTTPS", "value": "1" if settings.force_https_cookie else "0", "type": "checkbox"},
+        {"key": "DATA_HUB_REQUEST_TIMEOUT_SECONDS", "label": "Request timeout seconds", "value": str(settings.request_timeout_seconds), "type": "number"},
+        {"key": "DATA_HUB_CLIENT_CLAIM_KEYS", "label": "Client claim keys", "value": ",".join(settings.client_claim_keys), "type": "text"},
+        {"key": "DATA_HUB_ADMIN_ROLES", "label": "Admin roles", "value": ",".join(sorted(settings.admin_roles)), "type": "text"},
+    ]
+    for row in rows:
+        row["source"] = "environment" if row["key"] in env_values else "local override" if row["key"] in overrides else "default"
+    return {
+        "saved": saved,
+        "error": error,
+        "settings": settings,
+        "rows": rows,
+        "token": {
+            "configured": bool(settings.api_token),
+            "masked": mask_secret(settings.api_token),
+            "source": token_source,
+            "has_local_override": "DATA_HUB_API_TOKEN" in overrides,
+        },
+        "config_path": str(data_hub_config_path()),
+        "test_result": test_result,
+    }
+
+
+def data_hub_override_payload(form, current_overrides: dict[str, str]) -> dict[str, str]:
+    payload: dict[str, str] = {
+        "DATA_HUB_ENABLED": "1" if form.get("DATA_HUB_ENABLED") == "1" else "0",
+        "CO_AUTH_REQUIRED": "1" if form.get("CO_AUTH_REQUIRED") == "1" else "0",
+        "CO_FORCE_HTTPS_COOKIE": "1" if form.get("CO_FORCE_HTTPS_COOKIE") == "1" else "0",
+    }
+    for key in DATA_HUB_LINK_ENV_KEYS:
+        if key in payload or key in {"DATA_HUB_API_TOKEN", "CO_FORCE_HTTPS_COOKIE"}:
+            continue
+        payload[key] = str(form.get(key, "")).strip()
+    token = str(form.get("DATA_HUB_API_TOKEN", "")).strip()
+    if token:
+        payload["DATA_HUB_API_TOKEN"] = token
+    elif form.get("CLEAR_DATA_HUB_API_TOKEN") != "1" and current_overrides.get("DATA_HUB_API_TOKEN"):
+        payload["DATA_HUB_API_TOKEN"] = current_overrides["DATA_HUB_API_TOKEN"]
+    return payload
+
+
+def data_hub_link_check() -> dict:
+    settings = data_hub_link_settings()
+    checks: list[dict] = []
+    try:
+        jwks = co_auth.fetch_data_hub_jwks(settings.jwks_url)
+        key_count = len(jwks.get("keys", [])) if isinstance(jwks, dict) else 0
+        checks.append({"name": "JWKS", "status": "success", "detail": f"{key_count} signing keys"})
+    except Exception as exc:
+        checks.append({"name": "JWKS", "status": "error", "detail": str(exc)})
+
+    if not settings.source_enabled:
+        checks.append({"name": "Source API", "status": "warning", "detail": "DATA_HUB_ENABLED đang tắt"})
+    elif not settings.api_token:
+        checks.append({"name": "Source API", "status": "error", "detail": "DATA_HUB_API_TOKEN chưa cấu hình"})
+    else:
+        client = DataHubClient(
+            base_url=settings.data_hub_api_base_url,
+            token=settings.api_token,
+            timeout=settings.request_timeout_seconds,
+        )
+        try:
+            clients = client.list_clients()
+            checks.append({"name": "Source API", "status": "success", "detail": f"{len(clients)} clients"})
+        except Exception as exc:
+            checks.append({"name": "Source API", "status": "error", "detail": str(exc)})
+        finally:
+            client.close()
+    return {"ok": all(check["status"] != "error" for check in checks), "checks": checks}
+
+
+@app.get("/user", response_class=HTMLResponse)
+async def user_page(request: Request, logged_out: str = ""):
+    user = co_auth.current_user(request)
+    return templates.TemplateResponse(
+        request=request,
+        name="user.html",
+        context={
+            "user": user,
+            "logged_out": logged_out == "1",
+            "visible_clients": sorted(co_auth.visible_client_ids(user) or []) if user and co_auth.visible_client_ids(user) is not None else [],
+            "all_clients": bool(user and co_auth.visible_client_ids(user) is None),
+        },
+    )
+
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="settings.html",
+        context={
+            "can_view_technical_settings": co_auth.can_view_technical_settings(co_auth.current_user(request)),
+        },
+    )
+
+
+@app.get("/settings/technical", response_class=HTMLResponse)
+@app.get("/settings/data-hub", response_class=HTMLResponse)
+async def data_hub_settings_page(request: Request, saved: str = ""):
+    require_technical_settings_dev(request)
+    return templates.TemplateResponse(
+        request=request,
+        name="data_hub_settings.html",
+        context=data_hub_settings_context(request, saved=saved == "1"),
+    )
+
+
+@app.post("/settings/technical", response_class=HTMLResponse)
+@app.post("/settings/data-hub", response_class=HTMLResponse)
+async def save_data_hub_settings(request: Request):
+    require_technical_settings_dev(request)
+    form = await request.form()
+    payload = data_hub_override_payload(form, load_data_hub_overrides())
+    try:
+        DataHubLinkSettings.from_env({**os.environ, **payload})
+    except RuntimeError as exc:
+        return templates.TemplateResponse(
+            request=request,
+            name="data_hub_settings.html",
+            context=data_hub_settings_context(request, error=str(exc)),
+            status_code=400,
+        )
+    save_data_hub_overrides(payload)
+    return RedirectResponse("/settings/technical?saved=1", status_code=303)
+
+
+@app.post("/settings/technical/test", response_class=HTMLResponse)
+@app.post("/settings/data-hub/test", response_class=HTMLResponse)
+async def test_data_hub_settings(request: Request):
+    require_technical_settings_dev(request)
+    return templates.TemplateResponse(
+        request=request,
+        name="data_hub_settings.html",
+        context=data_hub_settings_context(request, test_result=data_hub_link_check()),
+    )
+
+
 @app.get("/auth/login")
 async def auth_login(request: Request, next: str = "/clients"):
     redirect_uri = f"{co_auth.co_public_base_url(request)}/auth/callback"
@@ -240,6 +416,27 @@ async def auth_login(request: Request, next: str = "/clients"):
         co_auth.data_hub_authorize_url(redirect_uri=redirect_uri, state=next),
         status_code=303,
     )
+
+
+@app.post("/auth/logout")
+async def auth_logout(request: Request, next_url: str = Form("/clients")):
+    next_path = co_auth.safe_next_path(next_url)
+    if co_auth.auth_required():
+        request.state.co_user = None
+        response = templates.TemplateResponse(
+            request=request,
+            name="sso_logout.html",
+            context={
+                "data_hub_logout_url": co_auth.data_hub_logout_url(),
+                "next_path": next_path,
+            },
+        )
+        co_auth.clear_session_cookie(response)
+        return response
+    target = f"{next_path}?logged_out=1" if next_path == "/user" else next_path
+    response = RedirectResponse(target, status_code=303)
+    co_auth.clear_session_cookie(response)
+    return response
 
 
 @app.get("/auth/callback", name="auth_callback")
@@ -252,12 +449,17 @@ async def auth_callback(request: Request, code: str = "", state: str = "/clients
         payload = co_auth.exchange_data_hub_sso_code(code, redirect_uri=redirect_uri)
         token = str(payload["access_token"])
         verifier = co_auth.DataHubTokenVerifier(
-            issuer=co_auth.data_hub_issuer_url(),
+            issuer=co_auth.data_hub_issuer_urls(),
             jwks_provider=lambda: co_auth.fetch_data_hub_jwks(co_auth.data_hub_jwks_url()),
         )
         verifier.verify(token)
     except Exception:
-        return RedirectResponse(f"/auth/login?next={quote(next_url, safe='/')}", status_code=303)
+        response = PlainTextResponse(
+            "Data Hub login failed. Check Technical Settings for issuer/JWKS and Data Hub SSO config.",
+            status_code=401,
+        )
+        co_auth.clear_session_cookie(response)
+        return response
     response = RedirectResponse(next_url, status_code=303)
     co_auth.set_session_cookie(response, token, int(payload.get("expires_in") or 600))
     return response

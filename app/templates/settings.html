@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Settings - Barry CO{% endblock %}
+
+{% block content %}
+<section class="page-bar">
+  <h1>Settings</h1>
+  <span class="page-tagline">User session · workspace preferences · technical runtime config</span>
+</section>
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>User</h2>
+      <p class="meta">Thông tin phiên đăng nhập và quyền truy cập hiện tại.</p>
+    </div>
+  </div>
+  <div class="module-grid">
+    <a class="module-tile module-link" href="/user">
+      <strong>User Account</strong>
+      <span>Login, logout và xem role/claim từ Data Hub session.</span>
+    </a>
+    {% if can_view_technical_settings %}
+    <a class="module-tile module-link" href="/settings/technical">
+      <strong>Technical Settings</strong>
+      <span>CO ↔ Data Hub URLs, SSO/JWKS, token state và connection check.</span>
+    </a>
+    {% else %}
+    <div class="module-tile module-disabled">
+      <strong>Technical Settings</strong>
+      <span>Chỉ role dev mới được truy cập.</span>
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Callable, Iterable
 from urllib.parse import quote, urlencode, urlsplit, urlunsplit
@@ -10,9 +9,10 @@ import jwt
 from fastapi import Request
 from fastapi.responses import PlainTextResponse, RedirectResponse
 
+from app.data_hub_settings import data_hub_link_settings
+
 
 CO_SESSION_COOKIE = "co_data_hub_session"
-TRUTHY = {"1", "true", "yes", "on"}
 
 
 @dataclass(frozen=True)
@@ -26,8 +26,11 @@ class DataHubUser:
 
 
 class DataHubTokenVerifier:
-    def __init__(self, *, issuer: str, jwks_provider: Callable[[], dict]):
-        self.issuer = issuer
+    def __init__(self, *, issuer: str | Iterable[str], jwks_provider: Callable[[], dict]):
+        if isinstance(issuer, str):
+            self.issuers = (issuer,)
+        else:
+            self.issuers = tuple(dict.fromkeys(issuer))
         self.jwks_provider = jwks_provider
 
     def verify(self, token: str) -> DataHubUser:
@@ -40,14 +43,22 @@ class DataHubTokenVerifier:
         if key is None:
             raise jwt.InvalidTokenError(f"unknown kid: {kid}")
         signing_key = jwt.PyJWK.from_dict(key).key
-        claims = jwt.decode(
-            token,
-            signing_key,
-            algorithms=["EdDSA"],
-            issuer=self.issuer,
-            options={"require": ["exp", "iat", "iss", "sub"]},
-            leeway=60,
-        )
+        last_error: jwt.InvalidTokenError | None = None
+        for issuer in self.issuers:
+            try:
+                claims = jwt.decode(
+                    token,
+                    signing_key,
+                    algorithms=["EdDSA"],
+                    issuer=issuer,
+                    options={"require": ["exp", "iat", "iss", "sub"]},
+                    leeway=60,
+                )
+                break
+            except jwt.InvalidIssuerError as exc:
+                last_error = exc
+        else:
+            raise last_error or jwt.InvalidTokenError("invalid issuer")
         return DataHubUser(
             user_id=str(claims["sub"]),
             email=str(claims.get("email", "")),
@@ -59,27 +70,41 @@ class DataHubTokenVerifier:
 
 
 def auth_required() -> bool:
-    return os.environ.get("CO_AUTH_REQUIRED", "").lower() in TRUTHY
+    return data_hub_link_settings().auth_required
 
 
 def data_hub_source_mode_enabled() -> bool:
-    return os.environ.get("DATA_HUB_ENABLED", "").lower() in TRUTHY
+    return data_hub_link_settings().source_enabled
 
 
 def data_hub_base_url() -> str:
-    return os.environ.get("DATA_HUB_BASE_URL", "http://127.0.0.1:8754").rstrip("/")
+    return data_hub_link_settings().data_hub_base_url
+
+
+def data_hub_api_base_url() -> str:
+    return data_hub_link_settings().data_hub_api_base_url
 
 
 def data_hub_issuer_url() -> str:
-    return os.environ.get("DATA_HUB_ISSUER_URL", data_hub_base_url()).rstrip("/")
+    return data_hub_link_settings().issuer_url
+
+
+def data_hub_issuer_urls() -> tuple[str, ...]:
+    primary = data_hub_issuer_url()
+    aliases = [primary, *loopback_url_aliases(primary)]
+    return tuple(dict.fromkeys(aliases))
 
 
 def data_hub_jwks_url() -> str:
-    return os.environ.get("DATA_HUB_JWKS_URL", f"{data_hub_issuer_url()}/v1/auth/jwks")
+    return data_hub_link_settings().jwks_url
+
+
+def data_hub_request_timeout_seconds() -> float:
+    return data_hub_link_settings().request_timeout_seconds
 
 
 def fetch_data_hub_jwks(url: str) -> dict:
-    response = httpx.get(url, timeout=10)
+    response = httpx.get(url, timeout=data_hub_request_timeout_seconds())
     response.raise_for_status()
     return response.json()
 
@@ -89,18 +114,37 @@ def current_user(request: Request) -> DataHubUser | None:
     return user if isinstance(user, DataHubUser) else None
 
 
+def verify_session_token(token: str) -> DataHubUser:
+    verifier = DataHubTokenVerifier(
+        issuer=data_hub_issuer_urls(),
+        jwks_provider=lambda: fetch_data_hub_jwks(data_hub_jwks_url()),
+    )
+    return verifier.verify(token)
+
+
+def load_optional_user(request: Request) -> DataHubUser | None:
+    user = current_user(request)
+    if user:
+        return user
+    token = bearer_token(request) or request.cookies.get(CO_SESSION_COOKIE)
+    if not token:
+        return None
+    try:
+        user = verify_session_token(token)
+    except (jwt.InvalidTokenError, httpx.HTTPError, ValueError):
+        return None
+    request.state.co_user = user
+    return user
+
+
 def guard_response(request: Request) -> RedirectResponse | PlainTextResponse | None:
     if not auth_required() or not should_guard_path(request.url.path):
         return None
     token = bearer_token(request) or request.cookies.get(CO_SESSION_COOKIE)
     if not token:
         return login_redirect(request)
-    verifier = DataHubTokenVerifier(
-        issuer=data_hub_issuer_url(),
-        jwks_provider=lambda: fetch_data_hub_jwks(data_hub_jwks_url()),
-    )
     try:
-        user = verifier.verify(token)
+        user = verify_session_token(token)
     except (jwt.InvalidTokenError, httpx.HTTPError, ValueError):
         return login_redirect(request)
     request.state.co_user = user
@@ -111,9 +155,18 @@ def guard_response(request: Request) -> RedirectResponse | PlainTextResponse | N
 
 
 def should_guard_path(path: str) -> bool:
-    if path.startswith(("/static", "/auth", "/settings/theme")):
+    if path.startswith(("/static", "/auth")) or path == "/settings/theme":
         return False
-    return path == "/" or path == "/clients" or path.startswith("/clients/") or path == "/portfolio" or path.startswith("/portfolio/")
+    return (
+        path == "/"
+        or path == "/clients"
+        or path.startswith("/clients/")
+        or path == "/portfolio"
+        or path.startswith("/portfolio/")
+        or path == "/user"
+        or path == "/settings"
+        or path.startswith("/settings/")
+    )
 
 
 def client_id_from_path(path: str) -> str:
@@ -132,6 +185,12 @@ def can_view_client(user: DataHubUser | None, client_id: str) -> bool:
     return visible is None or client_id in visible
 
 
+def can_view_technical_settings(user: DataHubUser | None) -> bool:
+    if not auth_required():
+        return True
+    return bool(user and user.role == "dev")
+
+
 def filter_visible_clients(clients: Iterable[dict], user: DataHubUser | None) -> list[dict]:
     visible = visible_client_ids(user)
     if visible is None:
@@ -142,12 +201,11 @@ def filter_visible_clients(clients: Iterable[dict], user: DataHubUser | None) ->
 def visible_client_ids(user: DataHubUser | None) -> set[str] | None:
     if not user:
         return set()
-    if user.role in {"dev", "admin"} or user.claims.get("all_clients") is True:
+    settings = data_hub_link_settings()
+    if user.role in settings.admin_roles or user.claims.get("all_clients") is True:
         return None
     values: set[str] = set()
-    for key in ("client_ids", "clients", "allowed_clients", "visible_clients", "dncx_ids"):
-        values.update(claim_values(user.claims.get(key)))
-    for key in ("client_id", "dncx_id"):
+    for key in settings.client_claim_keys:
         values.update(claim_values(user.claims.get(key)))
     if "*" in values:
         return None
@@ -196,15 +254,30 @@ def safe_next_path(value: str | None, default: str = "/clients") -> str:
     return urlunsplit(("", "", parsed.path, parsed.query, parsed.fragment))
 
 
+def loopback_url_aliases(value: str) -> list[str]:
+    parsed = urlsplit(value)
+    if parsed.hostname not in {"127.0.0.1", "localhost"}:
+        return []
+    alias_host = "localhost" if parsed.hostname == "127.0.0.1" else "127.0.0.1"
+    netloc = alias_host
+    if parsed.port:
+        netloc = f"{alias_host}:{parsed.port}"
+    return [urlunsplit((parsed.scheme, netloc, parsed.path.rstrip("/"), "", ""))]
+
+
 def co_public_base_url(request: Request) -> str:
-    configured = os.environ.get("CO_PUBLIC_BASE_URL", "").strip()
+    configured = data_hub_link_settings().co_public_base_url
     if configured:
-        return configured.rstrip("/")
+        return configured
     return str(request.base_url).rstrip("/")
 
 
 def data_hub_login_url(next_url: str = "/clients") -> str:
     return f"{data_hub_base_url()}/login?{urlencode({'next': next_url or '/clients'})}"
+
+
+def data_hub_logout_url() -> str:
+    return f"{data_hub_base_url()}/logout"
 
 
 def data_hub_authorize_url(*, redirect_uri: str, state: str = "/clients") -> str:
@@ -215,7 +288,11 @@ def exchange_data_hub_sso_code(code: str, *, redirect_uri: str = "") -> dict:
     payload = {"code": code}
     if redirect_uri:
         payload["redirect_uri"] = redirect_uri
-    response = httpx.post(f"{data_hub_base_url()}/v1/auth/exchange", json=payload, timeout=10)
+    response = httpx.post(
+        f"{data_hub_api_base_url()}/v1/auth/exchange",
+        json=payload,
+        timeout=data_hub_request_timeout_seconds(),
+    )
     response.raise_for_status()
     payload = response.json()
     if not payload.get("access_token"):
@@ -230,6 +307,10 @@ def set_session_cookie(response, token: str, max_age: int = 600) -> None:
         max_age=max_age,
         httponly=True,
         samesite="lax",
-        secure=os.environ.get("CO_FORCE_HTTPS_COOKIE") == "1",
+        secure=data_hub_link_settings().force_https_cookie,
         path="/",
     )
+
+
+def clear_session_cookie(response) -> None:
+    response.delete_cookie(CO_SESSION_COOKIE, path="/")

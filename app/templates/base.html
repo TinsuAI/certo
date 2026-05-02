@@ -43,6 +43,53 @@
         {% endif %}
       </button>
     </form>
+    <div class="topnav-user">
+      {% if co_user %}
+      <details class="user-menu">
+        <summary class="user-menu-trigger" title="{{ co_user.email }}">
+          <span class="user-avatar">{{ (co_user.name or co_user.email or co_user.user_id)[:1] }}</span>
+          <span class="user-chip-text">
+            <strong>{{ co_user.name or co_user.email or co_user.user_id }}</strong>
+            <small>{{ co_user.role or 'user' }}</small>
+          </span>
+        </summary>
+        <div class="user-menu-panel">
+          <div class="user-menu-head">
+            <strong>{{ co_user.name or co_user.email or co_user.user_id }}</strong>
+            <span>{{ co_user.email }}</span>
+          </div>
+          <a href="/user">User profile</a>
+          <a href="/settings">Settings</a>
+          {% if can_view_technical_settings %}
+          <a href="/settings/technical">Technical Settings</a>
+          {% endif %}
+          <form method="post" action="/auth/logout">
+            <input type="hidden" name="next_url" value="{{ request.url.path }}">
+            <button type="submit" class="user-menu-action">Logout</button>
+          </form>
+        </div>
+      </details>
+      {% elif show_login %}
+      <a class="topnav-chip topnav-chip-button" href="/auth/login?next={{ request.url.path }}">Login</a>
+      {% else %}
+      <details class="user-menu">
+        <summary class="user-menu-trigger">
+          <span class="user-avatar">L</span>
+          <span class="user-chip-text">
+            <strong>Local</strong>
+            <small>No SSO</small>
+          </span>
+        </summary>
+        <div class="user-menu-panel">
+          <a href="/user">User profile</a>
+          <a href="/settings">Settings</a>
+          {% if can_view_technical_settings %}
+          <a href="/settings/technical">Technical Settings</a>
+          {% endif %}
+        </div>
+      </details>
+      {% endif %}
+    </div>
   </header>
   <main class="shell">
     {% block content %}{% endblock %}

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import os
 from contextvars import ContextVar, Token
 from typing import Any, Callable
 
 import httpx
 
 from app.client_config_store import default_config, migrate_config
+from app.data_hub_settings import data_hub_link_settings
 from app.source_store import (
     co_stock_rows_from_bcct,
 )
@@ -33,6 +33,7 @@ class DataHubClient:
         base_url: str,
         token: str,
         token_provider: Callable[[], str] | None = None,
+        timeout: float = 20,
         transport: httpx.BaseTransport | None = None,
     ):
         self.base_url = base_url.rstrip("/")
@@ -40,7 +41,7 @@ class DataHubClient:
         self.token_provider = token_provider
         self._client = httpx.Client(
             base_url=self.base_url,
-            timeout=20,
+            timeout=timeout,
             transport=transport,
         )
 
@@ -102,6 +103,9 @@ class DataHubClient:
     def _auth_headers(self) -> dict[str, str]:
         token = self.token_provider() if self.token_provider else ""
         return {"Authorization": f"Bearer {token or self.token}"}
+
+    def close(self) -> None:
+        self._client.close()
 
 
 class DataHubPortfolioService:
@@ -202,15 +206,15 @@ class DataHubPortfolioService:
 
 
 def data_hub_client_from_env(token_provider: Callable[[], str] | None = None) -> DataHubClient | None:
-    if os.environ.get("DATA_HUB_ENABLED", "").lower() not in {"1", "true", "yes", "on"}:
+    settings = data_hub_link_settings()
+    if not settings.source_enabled:
         return None
-    token = os.environ.get("DATA_HUB_API_TOKEN", "")
-    if not token:
-        raise RuntimeError("DATA_HUB_API_TOKEN is required when DATA_HUB_ENABLED is active.")
+    settings.require_source_config()
     return DataHubClient(
-        base_url=os.environ.get("DATA_HUB_BASE_URL", "http://127.0.0.1:8754"),
-        token=token,
+        base_url=settings.data_hub_api_base_url,
+        token=settings.api_token,
         token_provider=token_provider,
+        timeout=settings.request_timeout_seconds,
     )
 
 

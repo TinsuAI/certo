@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -10,6 +11,37 @@ from cryptography.hazmat.primitives.asymmetric import ed25519
 from fastapi.testclient import TestClient
 
 from app.main import app
+
+
+def test_data_hub_link_settings_derives_urls_and_claim_mapping():
+    from app.data_hub_settings import DataHubLinkSettings
+
+    settings = DataHubLinkSettings.from_env({
+        "DATA_HUB_ENABLED": "yes",
+        "CO_AUTH_REQUIRED": "1",
+        "DATA_HUB_BASE_URL": "https://hub.example.test/",
+        "DATA_HUB_API_BASE_URL": "http://hub-api.internal:8754/",
+        "DATA_HUB_ISSUER_URL": "https://issuer.example.test/",
+        "DATA_HUB_API_TOKEN": " service-token ",
+        "CO_PUBLIC_BASE_URL": "https://co.example.test/",
+        "CO_FORCE_HTTPS_COOKIE": "on",
+        "DATA_HUB_REQUEST_TIMEOUT_SECONDS": "3.5",
+        "DATA_HUB_CLIENT_CLAIM_KEYS": "tenant_ids,dncx_ids",
+        "DATA_HUB_ADMIN_ROLES": "owner support",
+    })
+
+    assert settings.source_enabled is True
+    assert settings.auth_required is True
+    assert settings.data_hub_base_url == "https://hub.example.test"
+    assert settings.data_hub_api_base_url == "http://hub-api.internal:8754"
+    assert settings.issuer_url == "https://issuer.example.test"
+    assert settings.jwks_url == "https://issuer.example.test/v1/auth/jwks"
+    assert settings.api_token == "service-token"
+    assert settings.co_public_base_url == "https://co.example.test"
+    assert settings.force_https_cookie is True
+    assert settings.request_timeout_seconds == 3.5
+    assert settings.client_claim_keys == ("tenant_ids", "dncx_ids")
+    assert settings.admin_roles == {"owner", "support"}
 
 
 def _jwk_from_public_key(public_key, kid: str = "k-test") -> dict:
@@ -60,6 +92,23 @@ def test_data_hub_token_verifier_accepts_jwks_signed_token():
     assert user.user_id == "u-test"
     assert user.email == "operator@example.test"
     assert user.role == "staff"
+
+
+def test_data_hub_token_verifier_accepts_localhost_loopback_alias(monkeypatch):
+    from app import co_auth
+    from app.co_auth import DataHubTokenVerifier
+
+    private_key = ed25519.Ed25519PrivateKey.generate()
+    token = _token(private_key, issuer="http://localhost:8754")
+    monkeypatch.setenv("DATA_HUB_ISSUER_URL", "http://127.0.0.1:8754")
+    verifier = DataHubTokenVerifier(
+        issuer=co_auth.data_hub_issuer_urls(),
+        jwks_provider=lambda: {"keys": [_jwk_from_public_key(private_key.public_key())]},
+    )
+
+    user = verifier.verify(token)
+
+    assert user.user_id == "u-test"
 
 
 def test_auth_required_redirects_clients_without_data_hub_session(monkeypatch):
@@ -173,6 +222,281 @@ def test_auth_callback_exchanges_code_sets_session_cookie(monkeypatch):
     assert co_auth.CO_SESSION_COOKIE in response.headers["set-cookie"]
 
 
+def test_auth_callback_verification_failure_does_not_redirect_loop(monkeypatch):
+    from app import co_auth
+
+    private_key = ed25519.Ed25519PrivateKey.generate()
+    token = _token(private_key, issuer="https://wrong-issuer.test")
+    monkeypatch.setenv("DATA_HUB_ISSUER_URL", "https://hub.test")
+    monkeypatch.setattr(co_auth, "exchange_data_hub_sso_code", lambda _code, **_kwargs: {"access_token": token, "expires_in": 300})
+    monkeypatch.setattr(
+        co_auth,
+        "fetch_data_hub_jwks",
+        lambda _url: {"keys": [_jwk_from_public_key(private_key.public_key())]},
+    )
+
+    response = TestClient(app).get("/auth/callback?code=c1&state=/clients", follow_redirects=False)
+
+    assert response.status_code == 401
+    assert "Data Hub login failed" in response.text
+    assert "location" not in response.headers
+    assert "co_data_hub_session" in response.headers["set-cookie"]
+    assert "Max-Age=0" in response.headers["set-cookie"]
+
+
+def test_topnav_shows_login_when_data_hub_auth_required(monkeypatch):
+    monkeypatch.setenv("CO_AUTH_REQUIRED", "1")
+
+    response = TestClient(app).get("/auth/login?next=/clients", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("http://127.0.0.1:8754/v1/auth/authorize?")
+
+
+def test_user_ui_loads_session_and_logout_clears_cookie(monkeypatch):
+    from app import co_auth
+
+    private_key = ed25519.Ed25519PrivateKey.generate()
+    token = _token(private_key, role="dev", extra_claims={"client_ids": ["growatt"]})
+    monkeypatch.setenv("DATA_HUB_ISSUER_URL", "https://hub.test")
+    monkeypatch.setattr(
+        co_auth,
+        "fetch_data_hub_jwks",
+        lambda _url: {"keys": [_jwk_from_public_key(private_key.public_key())]},
+    )
+
+    client = TestClient(app)
+    client.cookies.set(co_auth.CO_SESSION_COOKIE, token)
+    response = client.get("/user")
+
+    assert response.status_code == 200
+    assert "Operator" in response.text
+    assert "dev" in response.text
+    assert "All clients" in response.text
+    assert '<summary class="user-menu-trigger"' in response.text
+    assert "User profile" in response.text
+    assert "Technical Settings" in response.text
+    assert 'action="/auth/logout"' in response.text
+
+    logout = client.post("/auth/logout", data={"next_url": "/user"}, follow_redirects=False)
+
+    assert logout.status_code == 303
+    assert logout.headers["location"] == "/user?logged_out=1"
+    assert "co_data_hub_session" in logout.headers["set-cookie"]
+    assert "Max-Age=0" in logout.headers["set-cookie"]
+
+
+def test_sso_logout_clears_cookie_without_restarting_login(monkeypatch):
+    monkeypatch.setenv("CO_AUTH_REQUIRED", "1")
+    monkeypatch.setenv("DATA_HUB_BASE_URL", "http://hub.test")
+
+    response = TestClient(app).post("/auth/logout", data={"next_url": "/user"}, follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "location" not in response.headers
+    assert 'action="http://hub.test/logout"' in response.text
+    assert 'id="data-hub-logout-form"' in response.text
+    assert "co_data_hub_session" in response.headers["set-cookie"]
+    assert "Max-Age=0" in response.headers["set-cookie"]
+
+
+def test_settings_page_links_technical_settings_for_dev(monkeypatch):
+    response = TestClient(app).get("/settings")
+
+    assert response.status_code == 200
+    assert "Settings" in response.text
+    assert "Technical Settings" in response.text
+    assert 'href="/settings/technical"' in response.text
+    assert 'href="/settings"' in response.text
+
+
+def test_data_hub_settings_page_renders_config_and_masks_token(monkeypatch, tmp_path):
+    monkeypatch.setenv("DATA_HUB_CONFIG_PATH", str(tmp_path / "data-hub-link.json"))
+    monkeypatch.setenv("DATA_HUB_BASE_URL", "https://hub.example.test")
+    monkeypatch.setenv("DATA_HUB_API_BASE_URL", "http://hub-api.internal:8754")
+    monkeypatch.setenv("DATA_HUB_API_TOKEN", "super-secret-token")
+
+    response = TestClient(app).get("/settings/technical")
+
+    assert response.status_code == 200
+    assert "Technical Settings" in response.text
+    assert "https://hub.example.test" in response.text
+    assert "http://hub-api.internal:8754" in response.text
+    assert "Đã cấu hình" in response.text
+    assert "super-secret-token" not in response.text
+    assert 'href="/settings"' in response.text
+
+
+def test_data_hub_settings_page_saves_local_override(monkeypatch, tmp_path):
+    from app.data_hub_settings import data_hub_link_settings
+
+    config_path = tmp_path / "data-hub-link.json"
+    monkeypatch.setenv("DATA_HUB_CONFIG_PATH", str(config_path))
+
+    response = TestClient(app).post(
+        "/settings/technical",
+        data={
+            "DATA_HUB_ENABLED": "1",
+            "CO_AUTH_REQUIRED": "0",
+            "DATA_HUB_BASE_URL": "https://hub.example.test",
+            "DATA_HUB_API_BASE_URL": "http://hub-api.internal:8754",
+            "DATA_HUB_ISSUER_URL": "https://issuer.example.test",
+            "DATA_HUB_JWKS_URL": "https://issuer.example.test/v1/auth/jwks",
+            "CO_PUBLIC_BASE_URL": "https://co.example.test",
+            "DATA_HUB_REQUEST_TIMEOUT_SECONDS": "6",
+            "DATA_HUB_CLIENT_CLAIM_KEYS": "tenant_ids,dncx_ids",
+            "DATA_HUB_ADMIN_ROLES": "owner,support",
+            "DATA_HUB_API_TOKEN": "local-service-token",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/settings/technical?saved=1"
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    assert payload["DATA_HUB_API_TOKEN"] == "local-service-token"
+    assert payload["DATA_HUB_API_BASE_URL"] == "http://hub-api.internal:8754"
+    settings = data_hub_link_settings()
+    assert settings.source_enabled is True
+    assert settings.data_hub_api_base_url == "http://hub-api.internal:8754"
+    assert settings.client_claim_keys == ("tenant_ids", "dncx_ids")
+
+
+def test_data_hub_settings_page_is_guarded_when_auth_required(monkeypatch):
+    monkeypatch.setenv("CO_AUTH_REQUIRED", "1")
+
+    response = TestClient(app).get("/settings/technical", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/auth/login?next=/settings/technical"
+
+
+def test_technical_settings_requires_dev_when_auth_required(monkeypatch):
+    from app import co_auth
+
+    private_key = ed25519.Ed25519PrivateKey.generate()
+    staff_token = _token(private_key, role="staff", extra_claims={"client_ids": ["growatt"]})
+    admin_token = _token(private_key, role="admin")
+    dev_token = _token(private_key, role="dev")
+    monkeypatch.setenv("CO_AUTH_REQUIRED", "1")
+    monkeypatch.setenv("DATA_HUB_ISSUER_URL", "https://hub.test")
+    monkeypatch.setattr(
+        co_auth,
+        "fetch_data_hub_jwks",
+        lambda _url: {"keys": [_jwk_from_public_key(private_key.public_key())]},
+    )
+
+    client = TestClient(app)
+    client.cookies.set(co_auth.CO_SESSION_COOKIE, staff_token)
+    assert client.get("/settings/technical").status_code == 403
+
+    client.cookies.set(co_auth.CO_SESSION_COOKIE, admin_token)
+    assert client.get("/settings/technical").status_code == 403
+
+    client.cookies.set(co_auth.CO_SESSION_COOKIE, dev_token)
+    response = client.get("/settings/technical")
+
+    assert response.status_code == 200
+    assert "Technical Settings" in response.text
+
+
+def test_data_hub_settings_connection_check_uses_existing_adapter(monkeypatch, tmp_path):
+    from app import co_auth
+    from app import main as main_module
+
+    seen = {}
+
+    class FakeDataHubClient:
+        def __init__(self, *, base_url, token, timeout):
+            seen["base_url"] = base_url
+            seen["token"] = token
+            seen["timeout"] = timeout
+
+        def list_clients(self):
+            return [{"id": "growatt"}, {"id": "johnson"}]
+
+        def close(self):
+            seen["closed"] = True
+
+    monkeypatch.setenv("DATA_HUB_CONFIG_PATH", str(tmp_path / "data-hub-link.json"))
+    monkeypatch.setenv("DATA_HUB_ENABLED", "1")
+    monkeypatch.setenv("DATA_HUB_API_BASE_URL", "http://hub-api.internal:8754")
+    monkeypatch.setenv("DATA_HUB_API_TOKEN", "service-token")
+    monkeypatch.setenv("DATA_HUB_REQUEST_TIMEOUT_SECONDS", "5")
+    monkeypatch.setattr(co_auth, "fetch_data_hub_jwks", lambda _url: {"keys": [{"kid": "k-test"}]})
+    monkeypatch.setattr(main_module, "DataHubClient", FakeDataHubClient)
+
+    response = TestClient(app).post("/settings/technical/test")
+
+    assert response.status_code == 200
+    assert "2 clients" in response.text
+    assert seen == {
+        "base_url": "http://hub-api.internal:8754",
+        "token": "service-token",
+        "timeout": 5.0,
+        "closed": True,
+    }
+
+
+def test_auth_exchange_uses_configured_data_hub_api_base_url(monkeypatch):
+    from app import co_auth
+
+    seen = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"access_token": "hub-user-token", "expires_in": 300}
+
+    def fake_post(url, *, json, timeout):
+        seen["url"] = url
+        seen["json"] = json
+        seen["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setenv("DATA_HUB_BASE_URL", "https://hub.example.test")
+    monkeypatch.setenv("DATA_HUB_API_BASE_URL", "http://hub-api.internal:8754")
+    monkeypatch.setenv("DATA_HUB_REQUEST_TIMEOUT_SECONDS", "4.5")
+    monkeypatch.setattr(co_auth.httpx, "post", fake_post)
+
+    payload = co_auth.exchange_data_hub_sso_code("code-1", redirect_uri="https://co.example.test/auth/callback")
+
+    assert payload["access_token"] == "hub-user-token"
+    assert seen == {
+        "url": "http://hub-api.internal:8754/v1/auth/exchange",
+        "json": {"code": "code-1", "redirect_uri": "https://co.example.test/auth/callback"},
+        "timeout": 4.5,
+    }
+
+
+def test_visible_client_ids_uses_configured_claim_keys_and_admin_roles(monkeypatch):
+    from app.co_auth import DataHubUser, visible_client_ids
+
+    monkeypatch.setenv("DATA_HUB_CLIENT_CLAIM_KEYS", "tenant_ids")
+    user = DataHubUser(
+        user_id="u-test",
+        email="operator@example.test",
+        role="staff",
+        name="Operator",
+        claims={"tenant_ids": ["growatt-vn"]},
+    )
+
+    assert visible_client_ids(user) == {"growatt-vn"}
+
+    monkeypatch.setenv("DATA_HUB_ADMIN_ROLES", "ops-admin")
+    admin = DataHubUser(
+        user_id="u-admin",
+        email="admin@example.test",
+        role="ops-admin",
+        name="Admin",
+        claims={},
+    )
+
+    assert visible_client_ids(admin) is None
+
+
 def test_data_hub_client_uses_bearer_token_and_normalizes_clients():
     from app.data_hub_client import DataHubClient
 
@@ -229,6 +553,23 @@ def test_data_hub_client_prefers_current_user_token_when_available():
 
     assert client.list_clients() == []
     assert seen == ["Bearer user-token"]
+
+
+def test_data_hub_client_from_env_uses_configured_api_base_url(monkeypatch):
+    from app.data_hub_client import data_hub_client_from_env
+
+    monkeypatch.setenv("DATA_HUB_ENABLED", "1")
+    monkeypatch.setenv("DATA_HUB_BASE_URL", "https://hub.example.test")
+    monkeypatch.setenv("DATA_HUB_API_BASE_URL", "http://hub-api.internal:8754")
+    monkeypatch.setenv("DATA_HUB_API_TOKEN", "service-token")
+    monkeypatch.setenv("DATA_HUB_REQUEST_TIMEOUT_SECONDS", "7")
+
+    client = data_hub_client_from_env()
+
+    assert client is not None
+    assert client.base_url == "http://hub-api.internal:8754"
+    assert client.token == "service-token"
+    client._client.close()
 
 
 def test_data_hub_client_follows_cursor_pagination():

@@ -12,6 +12,7 @@ from app.client_config_store import get_client_config as load_client_config
 from app.client_config_store import save_client_config as persist_client_config
 from app.co_case_store import match_case_bcct_exports
 from app.data_hub_client import DataHubPortfolioService, current_data_hub_token, data_hub_client_from_env
+from app.data_hub_settings import data_hub_link_settings
 from app.demo_data import get_client as seed_get_client
 from app.demo_data import get_clients as seed_get_clients
 from app.source_index_store import get_source_index_store, rebuild_source_index_if_configured
@@ -170,7 +171,31 @@ def get_portfolio_service() -> PortfolioService | DataHubPortfolioService:
     return PortfolioService()
 
 
-portfolio_service = get_portfolio_service()
+_PORTFOLIO_SERVICE_CACHE: tuple[tuple, PortfolioService | DataHubPortfolioService] | None = None
+
+
+def current_portfolio_service() -> PortfolioService | DataHubPortfolioService:
+    global _PORTFOLIO_SERVICE_CACHE
+    settings = data_hub_link_settings()
+    cache_key = (
+        settings.source_enabled,
+        settings.data_hub_api_base_url,
+        settings.api_token,
+        settings.request_timeout_seconds,
+    )
+    if _PORTFOLIO_SERVICE_CACHE and _PORTFOLIO_SERVICE_CACHE[0] == cache_key:
+        return _PORTFOLIO_SERVICE_CACHE[1]
+    service = get_portfolio_service()
+    _PORTFOLIO_SERVICE_CACHE = (cache_key, service)
+    return service
+
+
+class PortfolioServiceProxy:
+    def __getattr__(self, name: str):
+        return getattr(current_portfolio_service(), name)
+
+
+portfolio_service = PortfolioServiceProxy()
 portfolio_app = FastAPI(title="Barry Source Portfolio")
 
 
