@@ -125,7 +125,7 @@ def run_turn(*, thread_id: str, user, client_id: str, user_text: str,
             completion = oai.chat.completions.create(
                 model=cfg.model,
                 messages=messages,
-                tools=tools.TOOL_DEFINITIONS,
+                tools=tools.tool_definitions_for_user(user),
                 temperature=cfg.temperature,
             )
         except Exception as e:  # noqa: BLE001

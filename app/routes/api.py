@@ -31,6 +31,7 @@ from app.stores.bom import (
     list_versions_for_product,
     list_products_with_bom,
     submit_proposal,
+    validate_proposal_contract,
 )
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,20 @@ def _require_token(authorization: str | None) -> dict | None:
         # Permissive: accept any non-empty bearer for dev / legacy callers.
         logger.warning("api: permissive accept of non-JWT bearer: %s", e)
         return None
+
+
+def _require_jwt_claims(authorization: str | None) -> dict:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "bearer token required")
+    token = authorization[7:].strip()
+    if not token:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "empty bearer token")
+    try:
+        return jwt_issuer.verify_token(token)
+    except pyjwt.ExpiredSignatureError:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "token expired")
+    except pyjwt.InvalidTokenError as e:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"invalid token: {e}")
 
 
 def _user_from_claims(claims: dict | None) -> auth.User | None:
@@ -135,6 +150,7 @@ def _co_config(client: dict) -> dict:
         "source": "data-hub",
         "bcct": {
             "declaration_type_preset": "data_hub",
+            "declaration_type_filter_status": "unconfigured",
             "eligible_import_declaration_types": [],
             "relevant_export_declaration_types": [],
         },
@@ -252,6 +268,7 @@ async def api_source_summary(client_id: str, authorization: str | None = Header(
             "export_row_count": int(n_exports or 0),
         },
         "co_stock_row_count": int(n_imports or 0),
+        "co_stock_row_count_semantics": "raw_import_rows_unfiltered",
     })
 
 
@@ -384,6 +401,9 @@ async def api_invoice_matches(
     if relevant_types:
         sql += " and declaration_type = any(%s)"
         params.append(list(relevant_types))
+    for token in sorted(invoice_tokens):
+        sql += " and upper(invoice_ref) like %s"
+        params.append(f"%{token}%")
     sql += " order by registration_date desc nulls last, declaration_no, line_no limit 500"
     with connect() as conn:
         with conn.cursor() as cur:
@@ -546,7 +566,7 @@ async def api_submit_bom_proposal(
     product_code: str,
     authorization: str | None = Header(None),
 ):
-    claims = _require_token(authorization)
+    claims = _require_jwt_claims(authorization)
     body = await request.json()
     client_id = body.get("client_id") or body.get("dncx_id")
     if not client_id or not get_client(client_id):
@@ -557,6 +577,14 @@ async def api_submit_bom_proposal(
     rows = body.get("rows", [])
     if not isinstance(rows, list) or not rows:
         raise HTTPException(400, "rows required")
+    try:
+        validate_proposal_contract(
+            actor=actor,
+            intent=intent,
+            parent_version_id=body.get("parent_version_id"),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     return _json(submit_proposal(
         client_id=client_id,
         product_code=product_code,

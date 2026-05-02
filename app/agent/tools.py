@@ -225,6 +225,15 @@ TOOL_DEFINITIONS: list[dict] = [
 ]
 
 
+def tool_definitions_for_user(user) -> list[dict]:
+    if getattr(user, "role", "") in {"dev", "admin"}:
+        return TOOL_DEFINITIONS
+    return [
+        tool for tool in TOOL_DEFINITIONS
+        if tool.get("function", {}).get("name") != "search_knowledge_base"
+    ]
+
+
 # ── Dispatcher with ACL ─────────────────────────────────────────────────
 
 class ToolACLError(PermissionError):
@@ -245,6 +254,12 @@ def dispatch_tool(*, user, client_id: str, name: str, args: dict) -> dict:
     # runtime-bound one. Same for user_id.
     args = {k: v for k, v in (args or {}).items()
             if k not in {"client_id", "user_id"}}
+
+    if name == "search_knowledge_base" and user.role not in {"dev", "admin"}:
+        return {
+            "ok": False,
+            "error": "permission denied: knowledge-base search is admin/dev only",
+        }
 
     impl = _IMPLS.get(name)
     if impl is None:

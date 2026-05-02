@@ -168,11 +168,24 @@ def get_version_with_rows(version_id: str) -> dict | None:
 
 # ---- Proposal queue ----
 
+def proposal_requires_parent_version(*, actor: str, intent: str) -> bool:
+    return actor == "co_system" or intent == "modified_for_case"
+
+
+def validate_proposal_contract(*, actor: str, intent: str,
+                               parent_version_id: str | None) -> None:
+    if proposal_requires_parent_version(actor=actor, intent=intent) and not parent_version_id:
+        raise ValueError("parent_version_id is required for CO modified_for_case proposals")
+
+
 def submit_proposal(*, client_id: str, product_code: str, actor: str, intent: str,
                     parent_version_id: str | None, context: dict,
                     rows: list[dict]) -> dict:
     """Submit a BOM proposal. Auto-rule evaluates synchronously. Returns
     {status, ...} dict."""
+    validate_proposal_contract(
+        actor=actor, intent=intent, parent_version_id=parent_version_id,
+    )
     proposal_id = "prop_" + secrets.token_urlsafe(12)
     nh = normalized_hash(rows)
 

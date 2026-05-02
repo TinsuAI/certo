@@ -235,11 +235,13 @@ def test_co_config_and_source_summary_endpoints(strict_mode_on):
 
         assert config.status_code == 200
         assert config.json()["allocation_code"]["data_hub_code_resolution_mode"] == "simple_mapping"
+        assert config.json()["bcct"]["declaration_type_filter_status"] == "unconfigured"
         assert summary.status_code == 200
         assert summary.json()["material_catalog"]["published_row_count"] == 1
         assert summary.json()["product_catalog"]["published_row_count"] == 1
         assert summary.json()["bcct"]["published_row_count"] == 2
         assert summary.json()["co_stock_row_count"] == 1
+        assert summary.json()["co_stock_row_count_semantics"] == "raw_import_rows_unfiltered"
     finally:
         with connect() as conn:
             with conn.cursor() as cur:
@@ -358,6 +360,74 @@ def test_invoice_matches_endpoint_matches_export_invoice(strict_mode_on):
                 cur.execute("delete from hub.clients where client_id = %s", (client_id,))
 
 
+def test_invoice_matches_filters_invoice_before_limit(strict_mode_on):
+    client_id = "read-api-invoice-limit"
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "insert into hub.clients (client_id, name) values (%s, 'Invoice Limit Client') on conflict (client_id) do nothing",
+                (client_id,),
+            )
+            cur.execute(
+                """
+                insert into hub.bcct_rows
+                  (client_id, transaction_key, line_no, declaration_no, declaration_type,
+                   direction, registration_date, customs_code, internal_code, goods_name,
+                   quantity, unit, invoice_ref, payload)
+                values
+                  (%s, 'INV_OLD_TARGET', '1', 'X-OLD', 'E42', 'export', '2025-01-01', 'P-OLD', 'TP-OLD', 'Old Product', 1, 'PCS', 'INV-OLD-001', '{}'::jsonb)
+                on conflict do nothing
+                """,
+                (client_id,),
+            )
+            cur.execute(
+                """
+                insert into hub.bcct_rows
+                  (client_id, transaction_key, line_no, declaration_no, declaration_type,
+                   direction, registration_date, customs_code, internal_code, goods_name,
+                   quantity, unit, invoice_ref, payload)
+                select
+                  %s,
+                  'INV_FILLER_' || g::text,
+                  '1',
+                  'X-FILLER-' || g::text,
+                  'E42',
+                  'export',
+                  date '2026-01-01' + (g * interval '1 day'),
+                  'P-FILLER',
+                  'TP-FILLER',
+                  'Filler Product',
+                  1,
+                  'PCS',
+                  'OTHER-' || g::text,
+                  '{}'::jsonb
+                from generate_series(1, 501) as g
+                on conflict do nothing
+                """,
+                (client_id,),
+            )
+    try:
+        token = jwt_issuer.make_token(
+            user_id="u_invoice_limit_admin",
+            email="invoice-limit-admin@test.local",
+            role="admin",
+            display_name="Invoice Limit Admin",
+        )["access_token"]
+
+        response = _client().get(
+            f"/v1/hub/bcct/invoice-matches?client_id={client_id}&invoice_no=INV-OLD&declaration_types=E42",
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        assert [row["transaction_key"] for row in response.json()["items"]] == ["INV_OLD_TARGET"]
+    finally:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("delete from hub.bcct_rows where client_id = %s", (client_id,))
+                cur.execute("delete from hub.clients where client_id = %s", (client_id,))
+
+
 def test_bom_proposal_api_requires_edit_access(strict_mode_on):
     user_id = "u_bom_read_only"
     client_id = "read-api-bom-client"
@@ -403,6 +473,84 @@ def test_bom_proposal_api_requires_edit_access(strict_mode_on):
             with conn.cursor() as cur:
                 cur.execute("delete from hub.user_client_access where user_id = %s", (user_id,))
                 cur.execute("delete from hub.users where user_id = %s", (user_id,))
+                cur.execute("delete from hub.clients where client_id = %s", (client_id,))
+
+
+def test_bom_proposal_api_rejects_legacy_bearer_in_default_mode(strict_mode_off):
+    client_id = "read-api-bom-legacy-bearer"
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "insert into hub.clients (client_id, name) values (%s, 'Legacy Bearer BOM') on conflict (client_id) do nothing",
+                (client_id,),
+            )
+    try:
+        response = _client().post(
+            "/v1/hub/products/P-001/bom/proposals",
+            headers={"authorization": "Bearer not-a-jwt"},
+            json={"client_id": client_id, "rows": [{"material_code": "M-001"}]},
+        )
+
+        assert response.status_code == 401
+    finally:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("delete from hub.clients where client_id = %s", (client_id,))
+
+
+def test_co_bom_proposal_requires_parent_version_id(strict_mode_on):
+    client_id = "read-api-bom-parent-required"
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "insert into hub.clients (client_id, name) values (%s, 'Parent Required BOM') on conflict (client_id) do nothing",
+                (client_id,),
+            )
+            cur.execute(
+                """
+                insert into hub.materials (client_id, customs_code, name, category, status)
+                values (%s, 'M-PARENT-REQ', 'Parent Material', 'nvl', 'active')
+                on conflict do nothing
+                """,
+                (client_id,),
+            )
+    try:
+        token = jwt_issuer.make_token(
+            user_id="u_bom_parent_admin",
+            email="bom-parent-admin@test.local",
+            role="admin",
+            display_name="BOM Parent Admin",
+        )["access_token"]
+
+        response = _client().post(
+            "/v1/hub/products/P-001/bom/proposals",
+            headers={"authorization": f"Bearer {token}"},
+            json={
+                "client_id": client_id,
+                "actor": "co_system",
+                "intent": "modified_for_case",
+                "rows": [{"material_code": "M-PARENT-REQ", "qty_per_unit": "1"}],
+            },
+        )
+
+        assert response.status_code == 400
+        assert "parent_version_id" in response.json()["detail"]
+    finally:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    delete from hub.bom_version_rows
+                    where version_id in (
+                        select version_id from hub.bom_versions where client_id = %s
+                    )
+                    """,
+                    (client_id,),
+                )
+                cur.execute("delete from hub.bom_audit_events where client_id = %s", (client_id,))
+                cur.execute("delete from hub.bom_change_requests where client_id = %s", (client_id,))
+                cur.execute("delete from hub.bom_versions where client_id = %s", (client_id,))
+                cur.execute("delete from hub.materials where client_id = %s", (client_id,))
                 cur.execute("delete from hub.clients where client_id = %s", (client_id,))
 
 

@@ -386,19 +386,54 @@ def test_lookup_glossary_empty_term(viewer_user):
     assert result["ok"] is False
 
 
-def test_search_knowledge_base_finds_architecture_context(viewer_user):
+def test_search_knowledge_base_denies_staff(viewer_user):
     result = tools.dispatch_tool(
         user=viewer_user, client_id=CLIENT,
         name="search_knowledge_base", args={"query": "Data Hub BCQT CO architecture"},
     )
+    assert result["ok"] is False
+    assert "permission" in result["error"].lower()
+    assert all(
+        tool["function"]["name"] != "search_knowledge_base"
+        for tool in tools.tool_definitions_for_user(viewer_user)
+    )
+
+
+def test_search_knowledge_base_finds_architecture_context_for_admin():
+    from app.auth.session import User
+
+    admin = User(
+        user_id="u_agent_admin",
+        email="agent-admin@test",
+        display_name="Agent Admin",
+        role="admin",
+        status="active",
+    )
+    result = tools.dispatch_tool(
+        user=admin, client_id=CLIENT,
+        name="search_knowledge_base", args={"query": "Data Hub BCQT CO architecture"},
+    )
     assert result["ok"] is True
+    assert any(
+        tool["function"]["name"] == "search_knowledge_base"
+        for tool in tools.tool_definitions_for_user(admin)
+    )
     assert result["match_count"] >= 1
     assert any("Data Hub" in m["snippet"] for m in result["matches"])
 
 
-def test_search_knowledge_base_empty_query(viewer_user):
+def test_search_knowledge_base_empty_query():
+    from app.auth.session import User
+
+    admin = User(
+        user_id="u_agent_admin",
+        email="agent-admin@test",
+        display_name="Agent Admin",
+        role="admin",
+        status="active",
+    )
     result = tools.dispatch_tool(
-        user=viewer_user, client_id=CLIENT,
+        user=admin, client_id=CLIENT,
         name="search_knowledge_base", args={"query": ""},
     )
     assert result["ok"] is False

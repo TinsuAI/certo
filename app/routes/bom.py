@@ -27,6 +27,7 @@ from app.stores.bom import (
     list_versions_for_product,
     get_version_with_rows,
     submit_proposal,
+    validate_proposal_contract,
 )
 from app.stores.uploads import record_upload
 
@@ -451,6 +452,12 @@ async def submit_bom_proposal(request: Request, product_code: str):
     rows = body.get("rows", [])
     if not isinstance(rows, list) or not rows:
         raise HTTPException(400, "rows required")
+    try:
+        validate_proposal_contract(
+            actor=actor, intent=intent, parent_version_id=parent_version_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     result = submit_proposal(
         client_id=client_id, product_code=product_code, actor=actor, intent=intent,
         parent_version_id=parent_version_id, context=context, rows=rows,
