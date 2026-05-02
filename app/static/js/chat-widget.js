@@ -33,8 +33,11 @@
   let initialized = false;
 
   // ── Open / close ─────────────────────────────────────────────────────
+  function isOpen() {
+    return !panel.classList.contains('chat-widget-panel-hidden');
+  }
   function open() {
-    panel.hidden = false;
+    panel.classList.remove('chat-widget-panel-hidden');
     widget.classList.remove('chat-widget-collapsed');
     widget.classList.add('chat-widget-open');
     if (!initialized) {
@@ -44,16 +47,20 @@
     setTimeout(() => input.focus(), 50);
   }
   function close() {
-    panel.hidden = true;
+    panel.classList.add('chat-widget-panel-hidden');
     widget.classList.add('chat-widget-collapsed');
     widget.classList.remove('chat-widget-open');
   }
 
   toggleBtn.addEventListener('click', () => {
-    if (panel.hidden) open();
-    else close();
+    if (isOpen()) close();
+    else open();
   });
-  closeBtn.addEventListener('click', close);
+  closeBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    close();
+  });
 
   // ── Bootstrap: fetch latest thread ───────────────────────────────────
   async function bootstrap() {
@@ -75,9 +82,10 @@
   }
 
   // ── New thread ───────────────────────────────────────────────────────
-  newBtn.addEventListener('click', async () => {
+  newBtn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     if (busy) return;
-    if (!confirm('Bắt đầu cuộc trò chuyện mới?')) return;
     setBusy(true);
     try {
       const res = await fetch(`/clients/${clientId}/agent/_widget/new`, {
@@ -88,6 +96,8 @@
       threadId = data.thread_id;
       renderMessages([]);
       input.focus();
+    } catch (err) {
+      console.error('chat-widget new-thread failed', err);
     } finally {
       setBusy(false);
     }
@@ -116,9 +126,18 @@
   });
 
   async function sendMessage() {
-    if (busy || !threadId) return;
+    if (busy) return;
     const text = input.value.trim();
     if (!text) return;
+    // If user typed + hit Enter before bootstrap finished, run bootstrap
+    // synchronously now so we have a thread to send into.
+    if (!threadId) {
+      if (!initialized) {
+        initialized = true;
+        await bootstrap();
+      }
+      if (!threadId) return;  // bootstrap failed; error already shown
+    }
 
     // Optimistic UI: append user message + thinking indicator
     appendMessage({role: 'user', content: text});

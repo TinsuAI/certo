@@ -1457,6 +1457,12 @@ small,
   box-shadow: 0 12px 32px rgba(0,0,0,0.18);
   overflow: hidden;
 }
+
+/* Use class-based hide instead of [hidden] attr — `display: flex`
+   above otherwise wins over the browser-default [hidden] {display:none}. */
+.chat-widget-panel-hidden {
+  display: none;
+}
 [data-theme="dark"] .chat-widget-panel {
   background-color: #1a1d23;
   background: var(--surface, #1a1d23);
