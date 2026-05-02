@@ -60,7 +60,10 @@ TOOL_DEFINITIONS: list[dict] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "customs_code": {"type": "string"},
+                    "customs_code": {"type": "string",
+                                     "description": "HQ-assigned code (Mã HQ)"},
+                    "internal_code": {"type": "string",
+                                      "description": "Agency's internal code (Mã NB)"},
                     "name_query": {"type": "string",
                                    "description": "Substring match on name"},
                     "category": {"type": "string",
@@ -279,12 +282,13 @@ def _query_bcct(*, client_id: str, year: int | None = None,
 
 
 def _query_catalog(*, client_id: str, customs_code: str | None = None,
+                   internal_code: str | None = None,
                    name_query: str | None = None,
                    category: str | None = None,
                    provenance: str | None = None,
                    limit: int = 20) -> dict:
     sql = (
-        "select customs_code, product_code, name, category, status, unit, "
+        "select customs_code, internal_code, name, category, status, unit, "
         "       hs_code, provenance "
         "from hub.materials where client_id = %s"
     )
@@ -292,6 +296,9 @@ def _query_catalog(*, client_id: str, customs_code: str | None = None,
     if customs_code:
         sql += " and customs_code = %s"
         params.append(customs_code)
+    if internal_code:
+        sql += " and internal_code = %s"
+        params.append(internal_code)
     if name_query:
         sql += " and name ilike %s"
         params.append(f"%{name_query}%")

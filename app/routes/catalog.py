@@ -251,7 +251,7 @@ def _summarize_catalog(parsed_rows: list[dict]) -> dict:
     by_cat: dict[str, int] = {}
     by_status: dict[str, int] = {}
     n_with_customs = 0
-    n_with_product = 0
+    n_with_internal = 0
     for r in parsed_rows:
         cat = r.get("category") or "—"
         by_cat[cat] = by_cat.get(cat, 0) + 1
@@ -259,14 +259,14 @@ def _summarize_catalog(parsed_rows: list[dict]) -> dict:
         by_status[st] = by_status.get(st, 0) + 1
         if r.get("customs_code"):
             n_with_customs += 1
-        if r.get("product_code"):
-            n_with_product += 1
+        if r.get("internal_code"):
+            n_with_internal += 1
     return {
         "total": len(parsed_rows),
         "by_category": by_cat,
         "by_status": by_status,
         "n_with_customs_code": n_with_customs,
-        "n_with_product_code": n_with_product,
+        "n_with_internal_code": n_with_internal,
     }
 
 
@@ -280,7 +280,7 @@ def _query_materials(*, client_id: str, category: str | None,
       - 'user_added'     → user_added present
     """
     sql = """
-        select m.customs_code, m.product_code, m.name, m.category, m.category_override,
+        select m.customs_code, m.internal_code, m.name, m.category, m.category_override,
                m.status, m.unit, m.hs_code, m.updated_at, m.provenance,
                (m.provenance ? 'registered_with_hq') as is_registered,
                (m.provenance ? 'seen_in_bcct') as is_seen_in_bcct,
@@ -313,7 +313,7 @@ def _query_materials(*, client_id: str, category: str | None,
     elif provenance == "user_added":
         sql += " and (m.provenance ? 'user_added')"
     if q:
-        sql += (" and (m.customs_code ilike %s or m.product_code ilike %s "
+        sql += (" and (m.customs_code ilike %s or m.internal_code ilike %s "
                 "or m.name ilike %s or m.hs_code ilike %s)")
         like = f"%{q}%"
         params.extend([like, like, like, like])
@@ -394,11 +394,11 @@ def _insert_materials_with_cursor(cur, *, client_id: str, rows: list[dict],
 
     sql = f"""
         insert into hub.materials
-          (client_id, customs_code, product_code, name, category, status,
+          (client_id, customs_code, internal_code, name, category, status,
            unit, hs_code, provenance)
         values (%s, %s, %s, %s, %s, %s, %s, %s, {prov_sql})
         on conflict (client_id, customs_code) do update set
-          product_code = excluded.product_code,
+          internal_code = excluded.internal_code,
           name = excluded.name,
           category = excluded.category,
           status = excluded.status,
@@ -414,7 +414,7 @@ def _insert_materials_with_cursor(cur, *, client_id: str, rows: list[dict],
     for r in rows:
         cur.execute(
             sql,
-            (client_id, r["customs_code"], r.get("product_code"), r.get("name"),
+            (client_id, r["customs_code"], r.get("internal_code"), r.get("name"),
              r["category"], r.get("status", "active"), r.get("unit"), r.get("hs_code"),
              upload_id),
         )

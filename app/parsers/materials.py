@@ -24,8 +24,8 @@ ALIASES = {
     "customs_code": ["mã hq", "mã hải quan", "ma hq", "ma hai quan",
                      "customs code", "customs_code",
                      "mã"],   # fallback: bare 'Mã' in single-id Danh Mục files
-    "product_code": ["mã nội bộ", "ma noi bo", "mã nb", "internal code",
-                     "product code", "product_code"],
+    "internal_code": ["mã nội bộ", "ma noi bo", "mã nb", "internal code",
+                      "internal_code", "product code", "product_code"],
     "name": ["tên", "ten", "name", "tên hàng", "ten hang", "description"],
     "category": ["loại", "loai", "category", "type", "phân loại", "phan loai"],
     "unit": ["đvt", "dvt", "unit", "đơn vị tính"],
@@ -80,24 +80,25 @@ def parse_materials_workbook(blob: bytes, *, default_category: str = "nvl") -> l
         header_idx, headers = hdr
         cols = index_headers(headers, ALIASES)
         # Need at least one identifier column. DS NVL files have Mã HQ;
-        # DS SP/TP files often have only product_code (Mã NB / product_code)
-        # because the agency assigns HQ codes later during declaration.
-        if "customs_code" not in cols and "product_code" not in cols:
+        # DS SP/TP files often have only internal_code (Mã NB) because
+        # the agency assigns HQ codes later during declaration.
+        if "customs_code" not in cols and "internal_code" not in cols:
             continue
         for row in iter_data_rows(ws, header_idx):
             cc = _cell_str(row, cols.get("customs_code"))
-            pc = _cell_str(row, cols.get("product_code"))
-            # If only product_code exists, use it as the canonical id (it
-            # becomes both customs_code and product_code in the row dict).
-            if not cc and pc:
-                cc = pc
+            ic = _cell_str(row, cols.get("internal_code"))
+            # If only internal_code exists, use it as the canonical id
+            # (it becomes both customs_code and internal_code in the
+            # row dict).
+            if not cc and ic:
+                cc = ic
             if not cc:
                 continue
             category_raw = _cell_str(row, cols.get("category"))
             category = normalize_category(category_raw) or sheet_default
             rows.append({
                 "customs_code": cc,
-                "product_code": pc,
+                "internal_code": ic,
                 "name": _cell_str(row, cols.get("name")),
                 "category": category,
                 "unit": _cell_str(row, cols.get("unit")),
@@ -107,7 +108,7 @@ def parse_materials_workbook(blob: bytes, *, default_category: str = "nvl") -> l
     if not rows:
         raise MaterialsParseError(
             "No material rows recognized; need at least one identifier column "
-            "(Mã HQ / Mã NB / Mã / product_code).")
+            "(Mã HQ / Mã NB).")
     return rows
 
 

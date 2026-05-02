@@ -74,7 +74,7 @@
     <thead>
       <tr>
         <th>{{ t('catalog.col.customs_code') }}</th>
-        <th>{{ t('catalog.col.product_code') }}</th>
+        <th>{{ t('catalog.col.internal_code') }}</th>
         <th>{{ t('catalog.col.name') }}</th>
         <th>{{ t('catalog.col.category') }}</th>
         <th>{{ t('catalog.col.source') }}</th>
@@ -87,7 +87,7 @@
       {% for m in items %}
       <tr>
         <td class="mono">{{ m.customs_code }}</td>
-        <td class="mono">{{ m.product_code or '' }}</td>
+        <td class="mono">{{ m.internal_code or '' }}</td>
         <td>{{ m.name or '' }}</td>
         <td>
           <span class="badge badge-info">{{ m.category }}</span>

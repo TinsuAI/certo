@@ -123,7 +123,25 @@ button:hover {
   background: var(--primary-hover);
 }
 
-input,
+/* Text-like inputs + select get the framed full-width appearance.
+   Special types (checkbox/radio/file/submit/range/color/image) keep
+   their native sizing — stretching a checkbox to 100% width is the
+   classic CSS footgun and was breaking .prov-toggle and other
+   layouts. */
+input:not([type]),
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+input[type="tel"],
+input[type="url"],
+input[type="search"],
+input[type="date"],
+input[type="datetime-local"],
+input[type="time"],
+input[type="month"],
+input[type="week"],
+textarea,
 select {
   width: 100%;
   border: 1px solid var(--border);
@@ -131,6 +149,32 @@ select {
   padding: 0.58rem 0.62rem;
   background: var(--surface-input);
   color: var(--foreground);
+  box-sizing: border-box;
+}
+
+/* Defensive: even if a parent flex container has align-items: stretch
+   (which is the default for column flex), checkboxes/radios should
+   keep their native size. Otherwise the checkbox stretches to the
+   full container width and the next sibling label looks like it's
+   wrapping under a giant box. */
+input[type="checkbox"],
+input[type="radio"] {
+  width: auto;
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+
+/* Pattern for "checkbox + inline label text". Use instead of .field
+   which is column-flex (intended for stacked label+text-input). */
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-weight: 400;
+}
+.checkbox-label input[type="checkbox"] {
+  margin: 0;
 }
 
 h1,
@@ -1217,7 +1261,13 @@ small,
   margin-top: 0.2rem;
   flex-shrink: 0;
 }
-.prov-toggle-text { display: flex; flex-direction: column; gap: 0.15rem; }
+.prov-toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex: 1;            /* fill remaining row space */
+  min-width: 0;       /* allow text to wrap naturally instead of forcing horizontal overflow */
+}
 .prov-toggle-text strong { font-size: 0.95rem; }
 .prov-toggle-text .meta { font-size: 0.82rem; line-height: 1.4; }
 

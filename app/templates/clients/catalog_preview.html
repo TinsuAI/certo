@@ -35,7 +35,7 @@
     <strong>Tổng quan:</strong>
     <ul style="margin: 0.5rem 0 0 1.2rem;">
       <li><strong>{{ summary.total }}</strong> mã sẽ được thêm/cập nhật (upsert theo customs_code).</li>
-      <li><strong>{{ summary.n_with_customs_code }}</strong> mã có HQ-code · <strong>{{ summary.n_with_product_code }}</strong> mã có internal-code.</li>
+      <li><strong>{{ summary.n_with_customs_code }}</strong> mã có HQ-code · <strong>{{ summary.n_with_internal_code }}</strong> mã có internal-code.</li>
       {% if summary.by_category %}
       <li>Theo loại:
         {% for cat, n in summary.by_category.items() %}
@@ -71,7 +71,7 @@
         {% for r in sample_rows %}
         <tr>
           <td><code>{{ r.customs_code or "—" }}</code></td>
-          <td><code>{{ r.product_code or "—" }}</code></td>
+          <td><code>{{ r.internal_code or "—" }}</code></td>
           <td>{{ r.name or "" }}</td>
           <td><span class="badge">{{ r.category }}</span></td>
           <td>{{ r.unit or "" }}</td>

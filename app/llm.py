@@ -122,7 +122,7 @@ _TARGET_FIELDS_BY_MODULE: dict[str, list[str]] = {
         "destination_code", "destination_name",
         "transport_mode", "exchange_rate",
     ],
-    "catalog": ["customs_code", "product_code", "name", "category", "unit",
+    "catalog": ["customs_code", "internal_code", "name", "category", "unit",
                 "hs_code", "status"],
     "bqd": ["internal_code", "customs_code", "category", "notes"],
     "bom": ["product_code", "material_code", "qty_per_unit", "uom",

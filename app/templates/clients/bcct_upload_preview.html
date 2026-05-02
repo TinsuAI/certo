@@ -77,7 +77,7 @@
         {% endfor %}
       </tbody>
     </table>
-    <label class="field" style="margin-top: 0.5rem;">
+    <label class="checkbox-label" style="margin-top: 0.5rem;">
       <input type="checkbox" name="confirm_diffs">
       <span>Xác nhận ghi đè <strong>tất cả</strong> {{ summary.diff|length }} dòng đã đổi</span>
     </label>
@@ -99,7 +99,7 @@
         {% endfor %}
       </tbody>
     </table>
-    <label class="field" style="margin-top: 0.5rem;">
+    <label class="checkbox-label" style="margin-top: 0.5rem;">
       <input type="checkbox" name="confirm_orphans">
       <span>Xác nhận xóa <strong>tất cả</strong> {{ summary.orphan|length }} dòng orphan</span>
     </label>

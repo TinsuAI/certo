@@ -114,7 +114,7 @@ async def api_list_materials(
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
     sql = """
-        select client_id, customs_code, product_code, name, category, category_override,
+        select client_id, customs_code, internal_code, name, category, category_override,
                status, unit, hs_code, updated_at
         from hub.materials where client_id = %s
     """
@@ -145,7 +145,7 @@ async def api_get_material(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select client_id, customs_code, product_code, name, category, category_override,
+                select client_id, customs_code, internal_code, name, category, category_override,
                        status, unit, hs_code, updated_at
                 from hub.materials where client_id = %s and customs_code = %s
                 """,
