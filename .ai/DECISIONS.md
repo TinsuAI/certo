@@ -138,6 +138,29 @@ This is **time-scoped, not permanent**. Phase 2 may revisit if a real driver app
 
 ---
 
+## 2026-05-03 BOM flattening — flatten metadata as separate axis from actor/intent
+
+**Context:** CO repo posted an implementation prompt (`~/workspace/client/barry-CO-main/.ai/features/2026-05-02-data-hub-bom-flattening-instructions.md`) requiring Data Hub to land technical-BOM flattening before CO migrates to consume Data Hub BOM. Spec required new fields for source kind / flatten status / strategy / lineage. Existing `bom_versions.actor` (`agency_staff|co_system|erp_pipeline|system`) and `intent` (`asserted_technical|derived|modified_for_case|staff_edit`) were the obvious tempting overload — but those answer "who created this" and "why", not "what kind of artifact is it" or "is it calculation-ready". Overloading them would have made `intent='asserted_technical'` semantically split between "raw technical BOM" and "manually-written flat BOM", confusing every downstream consumer.
+
+**Decision:** Add **separate** flatten-axis fields (`source_bom_kind`, `flatten_status`, `flatten_strategy`, `source_channel`, `lineage`) to `bom_versions`. Keep `actor` and `intent` semantically pure. Persist staff-confirmation gates as audit rows in `hub.bom_flatten_decisions` (linked to `bom_versions.materialized_version_id`); persist non_flattened evidence per node in `hub.bom_unresolved_nodes`. Stand up a dedicated UOM model (`uom_canonical` + `uom_aliases` + `client_uom_overrides`) — none existed in CO either.
+
+**Alternatives considered:**
+- **Overload `intent`** with new values like `intent='technical_flattened'`: rejected — splits "what artifact" semantics across one field, breaks existing `/v1/hub/proposals` filtering and CO/BCQT consumer code that already keys off `intent`.
+- **Single `flatten_state` enum** combining status+strategy: rejected — strategy is orthogonal to status (a `flattened` version can use any of three strategies; `non_flattened` has no strategy). Keeping them separate makes the dual-source variant case (status=flattened × strategy ∈ {purchased, exploded}) representable.
+- **No staff-confirm at all, auto-publish like CO**: rejected — silent corruption is the spec's explicit primary risk. Staff gates for dual-source / non_flattened / non-alias UOM are non-negotiable.
+
+**Consequences:**
+- **Append-only versioning preserved.** Two dual-source variants are two distinct rows in `bom_versions` (different `flatten_strategy` + different `normalized_hash`) — no in-place mutation. The existing `uq_bom_idempotent` constraint extends to include `flatten_strategy` + `bom_variant_id` so dual variants don't collide.
+- **`/v1/hub/products/{p}/bom/latest` is now flatten-aware.** Filters `flatten_status` and returns `409 dual_source_variants` when multiple flattened variants live for one product. Documented in `docs/API_CONTRACT.md`. Backward-compat: backfilled `manual_flat` versions get `flatten_status='not_applicable'` so legacy callers see `200`.
+- **`version_no` is variant-scoped.** Per spec §3A, two `bom_variant_id` values for the same product can both legitimately be at `version_no=1`. Consumers MUST compare on `version_id` or the structured tuple, not bare `version_no`.
+- **`display_label` is denormalized cache.** Persisted for UI ergonomics but never used as a DB key; spec §3A. Tests assert structured fields, not labels.
+- **All stored values are stable English machine codes.** Vietnamese stays in UI/i18n — spec §3B, enforced by CHECK constraints + a typing-level enum-audit test.
+- **Cross-app coordination:** Sister-app note posted at `.ai/sister-app-notes/2026-05-03-bom-flatten-shipped.md`. CO migration sprint MUST handle the flatten contract before consuming `/v1/hub/products/{p}/bom/*`. BCQT settlement consumer also affected on its eventual migration.
+- **CO write-back path (proposal queue) untouched.** It now flows new versions through the same `create_version` extension with `source_bom_kind='co_modified'` defaulting; no API change.
+- **Test count:** 239 → 295 (+56) all green. 28 spec test items each have ≥1 corresponding test.
+
+---
+
 ## Decisions to add post-discovery
 
 (Placeholder — entries to be written during/after M9 discovery sprint)
