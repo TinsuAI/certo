@@ -13,7 +13,7 @@ delete from hub.code_mappings
  where internal_code like 'MAN\_%' escape '\';
 
 delete from hub.materials
- where customs_code like 'MAN-%' or product_code like 'MAN\_%' escape '\';
+ where customs_code like 'MAN-%' or internal_code like 'MAN\_%' escape '\';
 
 -- Cascade delete BOM versions for MAN_ products (also clears bom_version_rows)
 delete from hub.bom_versions
