@@ -111,6 +111,26 @@ def test_data_hub_token_verifier_accepts_localhost_loopback_alias(monkeypatch):
     assert user.user_id == "u-test"
 
 
+def test_fetch_data_hub_jwks_uses_stale_cache_when_data_hub_is_offline(monkeypatch):
+    from app import co_auth
+
+    co_auth.clear_jwks_cache()
+    jwks = {"keys": [{"kid": "k-test"}]}
+
+    def fresh_get(url: str, **_kwargs):
+        return httpx.Response(200, json=jwks, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(co_auth.httpx, "get", fresh_get)
+    assert co_auth.fetch_data_hub_jwks("http://hub.test/v1/auth/jwks") == jwks
+
+    def offline_get(_url: str, **_kwargs):
+        raise httpx.ConnectError("offline")
+
+    monkeypatch.setattr(co_auth, "JWKS_CACHE_TTL_SECONDS", 0.0)
+    monkeypatch.setattr(co_auth.httpx, "get", offline_get)
+    assert co_auth.fetch_data_hub_jwks("http://hub.test/v1/auth/jwks") == jwks
+
+
 def test_auth_required_redirects_clients_without_data_hub_session(monkeypatch):
     monkeypatch.setenv("CO_AUTH_REQUIRED", "1")
 

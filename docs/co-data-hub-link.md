@@ -31,6 +31,10 @@ Local Data Hub currently issues JWTs with `iss=http://localhost:8754`. CO accept
 - A JWT claim `all_clients=true` also grants all-client visibility.
 - `CO_FORCE_HTTPS_COOKIE=1` marks the CO SSO session cookie as secure for HTTPS deployments.
 
+CO caches Data Hub JWKS in memory and falls back to the cached keys if Data Hub is temporarily unreachable. A previously authenticated CO session can keep working until its JWT expires when the CO process already has the needed JWKS cached. After a CO restart, cache miss, or token expiry, login requires Data Hub to be online again.
+
+`DATA_HUB_ENABLED=1` source/master data reads still require Data Hub to be online because CO does not own that shared data.
+
 Use `config/co-data-hub.env.example` as the local checklist. Do not commit real tokens or environment-specific secrets.
 
 ## UI Settings

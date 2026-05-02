@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from time import monotonic
 from typing import Callable, Iterable
 from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 
@@ -13,6 +14,8 @@ from app.data_hub_settings import data_hub_link_settings
 
 
 CO_SESSION_COOKIE = "co_data_hub_session"
+JWKS_CACHE_TTL_SECONDS = 300.0
+_JWKS_CACHE: dict[str, tuple[float, dict]] = {}
 
 
 @dataclass(frozen=True)
@@ -104,9 +107,24 @@ def data_hub_request_timeout_seconds() -> float:
 
 
 def fetch_data_hub_jwks(url: str) -> dict:
-    response = httpx.get(url, timeout=data_hub_request_timeout_seconds())
-    response.raise_for_status()
-    return response.json()
+    now = monotonic()
+    cached = _JWKS_CACHE.get(url)
+    if cached and now - cached[0] <= JWKS_CACHE_TTL_SECONDS:
+        return cached[1]
+    try:
+        response = httpx.get(url, timeout=data_hub_request_timeout_seconds())
+        response.raise_for_status()
+        jwks = response.json()
+    except (httpx.HTTPError, ValueError):
+        if cached:
+            return cached[1]
+        raise
+    _JWKS_CACHE[url] = (now, jwks)
+    return jwks
+
+
+def clear_jwks_cache() -> None:
+    _JWKS_CACHE.clear()
 
 
 def current_user(request: Request) -> DataHubUser | None:
