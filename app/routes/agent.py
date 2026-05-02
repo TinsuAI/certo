@@ -11,7 +11,7 @@ import json
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from app import auth
+from app import auth, settings_store
 from app.agent import runtime, store
 from app.llm import LLMUnavailable
 from app.routes.clients import get_client, stats_for_client
@@ -24,6 +24,14 @@ router = APIRouter()
 # /agent/{thread_id} pattern below. Same ACL rules as page routes:
 # every call goes through require_can_view_client + owner-scoped
 # get_thread.
+
+def _require_agent_user(request: Request, client_id: str):
+    user = auth.require_user(request)
+    if not settings_store.chat_agent_enabled():
+        raise HTTPException(404, "Chat Agent disabled")
+    auth.require_can_view_client(user, client_id)
+    return user
+
 
 def _serialize_msg(m: dict) -> dict:
     content = m.get("content") or ""
@@ -66,8 +74,7 @@ def _serialize_msg(m: dict) -> dict:
 
 @router.get("/clients/{client_id}/agent/_widget")
 async def widget_init(request: Request, client_id: str):
-    user = auth.require_user(request)
-    auth.require_can_view_client(user, client_id)
+    user = _require_agent_user(request, client_id)
     threads = store.list_threads(
         user_id=user.user_id, client_id=client_id, limit=1,
     )
@@ -89,8 +96,7 @@ async def widget_send(request: Request, client_id: str):
     """Run a turn synchronously and return the updated message list.
     Body: {thread_id: str, text: str}. The frontend shows
     'Trợ lý đang suy nghĩ…' while this is in flight."""
-    user = auth.require_user(request)
-    auth.require_can_view_client(user, client_id)
+    user = _require_agent_user(request, client_id)
     body = await request.json()
     thread_id = body.get("thread_id") or ""
     text = (body.get("text") or "").strip()
@@ -125,8 +131,7 @@ async def widget_send(request: Request, client_id: str):
 
 @router.post("/clients/{client_id}/agent/_widget/new")
 async def widget_new_thread(request: Request, client_id: str):
-    user = auth.require_user(request)
-    auth.require_can_view_client(user, client_id)
+    user = _require_agent_user(request, client_id)
     thread_id = store.create_thread(
         user_id=user.user_id, client_id=client_id, title="",
     )
@@ -137,8 +142,7 @@ async def widget_new_thread(request: Request, client_id: str):
 async def widget_list_threads(request: Request, client_id: str):
     """Return all threads for the (user, client). Used by the
     in-widget threads list view."""
-    user = auth.require_user(request)
-    auth.require_can_view_client(user, client_id)
+    user = _require_agent_user(request, client_id)
     threads = store.list_threads(
         user_id=user.user_id, client_id=client_id, limit=100,
     )
@@ -161,8 +165,7 @@ async def widget_select_thread(request: Request, client_id: str,
                                thread_id: str):
     """Switch the widget to an existing thread. Returns its messages.
     Owner-scoped — foreign threads return 404 (no existence leak)."""
-    user = auth.require_user(request)
-    auth.require_can_view_client(user, client_id)
+    user = _require_agent_user(request, client_id)
     thread = store.get_thread(
         thread_id=thread_id, user_id=user.user_id, client_id=client_id,
     )
@@ -180,8 +183,7 @@ async def widget_select_thread(request: Request, client_id: str,
 async def widget_rename_thread(request: Request, client_id: str,
                                thread_id: str):
     """Body: {title: str}. Owner-scoped."""
-    user = auth.require_user(request)
-    auth.require_can_view_client(user, client_id)
+    user = _require_agent_user(request, client_id)
     body = await request.json()
     title = (body.get("title") or "").strip()[:120]
     ok = store.update_thread_title(
@@ -197,8 +199,7 @@ async def widget_rename_thread(request: Request, client_id: str,
 async def widget_delete_thread(request: Request, client_id: str,
                                thread_id: str):
     """Owner-scoped delete. Messages cascade via FK."""
-    user = auth.require_user(request)
-    auth.require_can_view_client(user, client_id)
+    user = _require_agent_user(request, client_id)
     ok = store.delete_thread(
         thread_id=thread_id, user_id=user.user_id, client_id=client_id,
     )
@@ -209,8 +210,7 @@ async def widget_delete_thread(request: Request, client_id: str,
 
 @router.get("/clients/{client_id}/agent", response_class=HTMLResponse)
 async def thread_list(request: Request, client_id: str):
-    user = auth.require_user(request)
-    auth.require_can_view_client(user, client_id)
+    user = _require_agent_user(request, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
@@ -226,8 +226,7 @@ async def thread_list(request: Request, client_id: str):
 @router.post("/clients/{client_id}/agent/threads")
 async def create_thread(request: Request, client_id: str,
                         title: str = Form("")):
-    user = auth.require_user(request)
-    auth.require_can_view_client(user, client_id)
+    user = _require_agent_user(request, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
@@ -241,8 +240,7 @@ async def create_thread(request: Request, client_id: str,
 
 @router.get("/clients/{client_id}/agent/{thread_id}", response_class=HTMLResponse)
 async def thread_view(request: Request, client_id: str, thread_id: str):
-    user = auth.require_user(request)
-    auth.require_can_view_client(user, client_id)
+    user = _require_agent_user(request, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
@@ -266,8 +264,7 @@ async def thread_view(request: Request, client_id: str, thread_id: str):
 @router.post("/clients/{client_id}/agent/{thread_id}/message")
 async def send_message(request: Request, client_id: str, thread_id: str,
                        text: str = Form(...)):
-    user = auth.require_user(request)
-    auth.require_can_view_client(user, client_id)
+    user = _require_agent_user(request, client_id)
     thread = store.get_thread(
         thread_id=thread_id, user_id=user.user_id, client_id=client_id,
     )
@@ -300,4 +297,3 @@ async def send_message(request: Request, client_id: str, thread_id: str,
     return RedirectResponse(
         url=f"/clients/{client_id}/agent/{thread_id}", status_code=303,
     )
-

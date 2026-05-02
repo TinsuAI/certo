@@ -3,7 +3,7 @@
 {% block content %}
 <section class="page-bar">
   <h1>Cài đặt kỹ thuật</h1>
-  <span class="page-tagline">LLM endpoint, model, API key. Chỉ <code>dev</code>-role.</span>
+  <span class="page-tagline">LLM endpoint, model, API key, Chat Agent. Chỉ <code>dev</code>-role.</span>
 </section>
 
 {% if saved %}
@@ -25,7 +25,7 @@
 <section class="zone">
   <div class="zone-head">
     <div>
-      <h2>LLM (smart parser fallback)</h2>
+      <h2>LLM + Chat Agent</h2>
       <p class="meta">
         Khi parser cứng từ chối file Excel mới, hub gọi LLM để đề xuất
         column mapping. Mapping được cache theo <code>(client_id, module,
@@ -43,6 +43,15 @@
 
   <form method="post" action="/admin/settings/technical" class="settings-form" style="max-width: 760px;">
     <div class="settings-grid">
+      <label class="checkbox-label field-wide">
+        <input type="checkbox" name="chat_agent_enabled" value="true"
+               {% if values.chat_agent_enabled != 'false' %}checked{% endif %}>
+        <span>
+          <strong>Bật Chat Agent</strong><br>
+          <span class="meta">Hiển thị tab Trợ lý, widget chat, và cho phép gọi các endpoint agent.</span>
+        </span>
+      </label>
+
       <div class="field">
         <label for="llm_base_url">Base URL</label>
         <input type="text" id="llm_base_url" name="llm_base_url"

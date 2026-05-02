@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app import auth, i18n
+from app import auth, i18n, settings_store
 from app.database import apply_migrations
 from app.routes import admin, agent, api, auth_api, bcct, bom, bqd, catalog, clients, notifications as notif_routes, proposals, uploads
 from app.seed import auto_seed_demo_if_empty
@@ -35,6 +35,7 @@ def template_context(request: Request) -> dict:
     notif_unread = 0
     notif_recent: list = []
     chat_widget_clients: list = []
+    chat_agent_enabled = True
     if user is not None:
         try:
             from app import notifications as _notifs
@@ -46,15 +47,17 @@ def template_context(request: Request) -> dict:
         except Exception:
             pass  # bell is non-critical; never crash page render
         try:
-            rows = clients.list_clients()
-            allowed = auth.visible_clients(user)
-            if allowed is not None:
-                allowed_set = set(allowed)
-                rows = [row for row in rows if row["client_id"] in allowed_set]
-            chat_widget_clients = [
-                {"client_id": row["client_id"], "name": row["name"]}
-                for row in rows[:25]
-            ]
+            chat_agent_enabled = settings_store.chat_agent_enabled()
+            if chat_agent_enabled:
+                rows = clients.list_clients()
+                allowed = auth.visible_clients(user)
+                if allowed is not None:
+                    allowed_set = set(allowed)
+                    rows = [row for row in rows if row["client_id"] in allowed_set]
+                chat_widget_clients = [
+                    {"client_id": row["client_id"], "name": row["name"]}
+                    for row in rows[:25]
+                ]
         except Exception:
             pass  # chat widget is non-critical; never crash page render
 
@@ -68,6 +71,7 @@ def template_context(request: Request) -> dict:
         "can_manage_staff": lambda client_id: auth.can_assign_staff_to_client(user, client_id),
         "notif_unread_count": notif_unread,
         "notif_recent": notif_recent,
+        "chat_agent_enabled": chat_agent_enabled,
         "chat_widget_clients": chat_widget_clients,
         # Note: do NOT set active_root/active_tab/message/error defaults
         # here. Starlette's context_processor output overrides the route's

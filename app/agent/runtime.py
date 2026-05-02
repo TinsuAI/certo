@@ -16,7 +16,7 @@ import json
 import logging
 from typing import Any
 
-from app import auth
+from app import auth, settings_store
 from app.agent import store, tools
 from app.llm import LLMConfig, LLMUnavailable, _check_and_record_budget
 
@@ -85,6 +85,9 @@ def run_turn(*, thread_id: str, user, client_id: str, user_text: str,
     """Append the user's message, run the agent loop, return the final
     answer text. Idempotent on failure: tool errors become tool-result
     messages so the LLM can adapt; runtime errors raise."""
+    if not settings_store.chat_agent_enabled():
+        raise LLMUnavailable("Chat Agent is disabled in technical settings.")
+
     cfg = cfg or LLMConfig.load()
     if not cfg.is_enabled():
         raise LLMUnavailable("LLM not configured. Set keys at /admin/settings/technical.")

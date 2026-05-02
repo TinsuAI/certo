@@ -31,6 +31,9 @@ LLM_KEYS: tuple[str, ...] = (
     "llm_max_calls_per_day_per_client",
 )
 
+CHAT_AGENT_ENABLED_KEY = "chat_agent_enabled"
+TECHNICAL_KEYS: tuple[str, ...] = LLM_KEYS + (CHAT_AGENT_ENABLED_KEY,)
+
 
 def get(key: str, default: str | None = None) -> str | None:
     with connect() as conn:
@@ -94,3 +97,14 @@ def get_float(key: str, default: float) -> float:
         logger.warning("settings_store.get_float(%r): bad value %r, using default %r",
                        key, raw, default)
         return default
+
+
+def get_bool(key: str, default: bool) -> bool:
+    raw = get(key)
+    if raw is None or raw == "":
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off", "disabled"}
+
+
+def chat_agent_enabled() -> bool:
+    return get_bool(CHAT_AGENT_ENABLED_KEY, True)

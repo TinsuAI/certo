@@ -96,8 +96,9 @@ async def settings_technical_view(request: Request, saved: bool = False,
     user = auth.require_user(request)
     if user.role != "dev":
         raise HTTPException(403, "dev only")
-    values = settings_store.get_many(settings_store.LLM_KEYS)
+    values = settings_store.get_many(settings_store.TECHNICAL_KEYS)
     api_key_set = bool(values.get("llm_api_key"))
+    chat_agent_enabled = settings_store.chat_agent_enabled()
 
     # Optionally probe the endpoint for available models.
     models: list[str] = []
@@ -111,15 +112,20 @@ async def settings_technical_view(request: Request, saved: bool = False,
             if models and not values.get("llm_model"):
                 settings_store.set_many({"llm_model": models[0]},
                                         updated_by=user.user_id)
-                values = settings_store.get_many(settings_store.LLM_KEYS)
+                values = settings_store.get_many(settings_store.TECHNICAL_KEYS)
         except (llm.LLMUnavailable, llm.LLMProposalError) as e:
             fetch_error = f"{type(e).__name__}: {e}"
 
     return request.app.state.templates.TemplateResponse(
         request, "admin/settings_technical.html",
         {
-            "values": {k: ("" if k == "llm_api_key" else values.get(k, ""))
-                       for k in settings_store.LLM_KEYS},
+            "values": {
+                **{k: ("" if k == "llm_api_key" else values.get(k, ""))
+                   for k in settings_store.LLM_KEYS},
+                settings_store.CHAT_AGENT_ENABLED_KEY: (
+                    "true" if chat_agent_enabled else "false"
+                ),
+            },
             "api_key_set": api_key_set,
             "saved": saved,
             "models": models,
@@ -139,6 +145,7 @@ async def settings_technical_submit(
     llm_timeout_s: str = Form("30"),
     llm_max_retries: str = Form("2"),
     llm_max_calls_per_day_per_client: str = Form("50"),
+    chat_agent_enabled: str = Form("false"),
 ):
     from app import settings_store
     user = auth.require_user(request)
@@ -152,6 +159,9 @@ async def settings_technical_submit(
         "llm_max_retries": llm_max_retries.strip() or "2",
         "llm_max_calls_per_day_per_client":
             llm_max_calls_per_day_per_client.strip() or "50",
+        "chat_agent_enabled": (
+            "true" if chat_agent_enabled.strip().lower() == "true" else "false"
+        ),
     }
     # Only update the API key when a non-empty value was submitted; an
     # empty submit means "leave existing". Avoids accidental wipe.

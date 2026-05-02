@@ -11,8 +11,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app import settings_store
 from app.agent import runtime, store, tools
 from app.database import connect
+from app.llm import LLMUnavailable
 
 
 CLIENT = "growatt-vn"
@@ -292,6 +294,27 @@ def test_runtime_terminates_on_submit_final_answer(viewer_user):
     assert roles[0] == "user"
     assert "assistant" in roles
     assert "tool" in roles
+
+
+def test_runtime_disabled_setting_blocks_before_llm(viewer_user):
+    tid = store.create_thread(
+        user_id=viewer_user.user_id, client_id=CLIENT,
+    )
+    fake_cfg = MagicMock()
+    fake_cfg.is_enabled.return_value = True
+
+    previous = settings_store.get("chat_agent_enabled")
+    settings_store.set_many({"chat_agent_enabled": "false"})
+    try:
+        with patch("openai.OpenAI") as openai_mock, pytest.raises(LLMUnavailable):
+            runtime.run_turn(
+                thread_id=tid, user=viewer_user, client_id=CLIENT,
+                user_text="Có bao nhiêu mã NVL?", cfg=fake_cfg,
+            )
+        openai_mock.assert_not_called()
+        assert store.list_messages(thread_id=tid) == []
+    finally:
+        settings_store.set_many({"chat_agent_enabled": previous or "true"})
 
 
 def test_query_uploads_returns_recent(viewer_user):
