@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
@@ -124,6 +125,46 @@ def _paged(items: list[dict], *, offset: int, limit: int) -> dict:
     }
 
 
+def _co_config(client: dict) -> dict:
+    updated_at = client.get("updated_at") or client.get("created_at") or ""
+    return {
+        "schema_version": 1,
+        "client_id": client["client_id"],
+        "config_version": 1,
+        "config_hash": f"data-hub:{client['client_id']}:{updated_at}",
+        "source": "data-hub",
+        "bcct": {
+            "declaration_type_preset": "data_hub",
+            "eligible_import_declaration_types": [],
+            "relevant_export_declaration_types": [],
+        },
+        "co_stock": {
+            "lot_policy": "line_level",
+        },
+        "allocation_code": {
+            "strategy": "same_as_customs_code",
+            "description_regex": "",
+            "fallback": "same_as_customs_code",
+            "data_hub_code_resolution_mode": client.get("code_resolution_mode", ""),
+        },
+    }
+
+
+def _module_summary(module: str, count: int) -> dict:
+    return {
+        "module": module,
+        "published_row_count": count,
+        "latest_version": {},
+        "version_count": 0,
+        "upload_count": 0,
+        "correction_candidate_count": 0,
+    }
+
+
+def _invoice_tokens(value: str) -> set[str]:
+    return {part for part in re.split(r"[^A-Za-z0-9]+", (value or "").upper()) if part}
+
+
 def _serialize(v: Any):
     if isinstance(v, (datetime, date)):
         return v.isoformat()
@@ -159,6 +200,59 @@ async def api_get_dncx(client_id: str, authorization: str | None = Header(None))
     if not dncx:
         raise HTTPException(404, "Client not found")
     return _json(dncx)
+
+
+@router.get("/dncxs/{client_id}/co-config")
+async def api_co_config(client_id: str, authorization: str | None = Header(None)):
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    return _json(_co_config(client))
+
+
+@router.get("/dncxs/{client_id}/source-summary")
+async def api_source_summary(client_id: str, authorization: str | None = Header(None)):
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select
+                  count(*) filter (where coalesce(category, '') <> 'tp') as n_materials,
+                  count(*) filter (where category = 'tp') as n_products
+                from hub.materials where client_id = %s
+                """,
+                (client_id,),
+            )
+            n_materials, n_products = cur.fetchone()
+            cur.execute(
+                """
+                select
+                  count(*) as n_bcct,
+                  count(*) filter (where direction = 'import') as n_imports,
+                  count(*) filter (where direction = 'export') as n_exports
+                from hub.bcct_rows where client_id = %s
+                """,
+                (client_id,),
+            )
+            n_bcct, n_imports, n_exports = cur.fetchone()
+    return _json({
+        "client_config": _co_config(client),
+        "material_catalog": _module_summary("material_catalog", int(n_materials or 0)),
+        "product_catalog": _module_summary("product_catalog", int(n_products or 0)),
+        "bcct": {
+            **_module_summary("bcct", int(n_bcct or 0)),
+            "reviewed_row_count": int(n_bcct or 0),
+            "export_row_count": int(n_exports or 0),
+        },
+        "co_stock_row_count": int(n_imports or 0),
+    })
 
 
 @router.get("/materials")
@@ -265,6 +359,56 @@ async def api_list_bcct(
             cols = [d[0] for d in cur.description]
             items = [dict(zip(cols, r)) for r in cur.fetchall()]
     return _json(_paged(items, offset=offset, limit=safe_limit))
+
+
+@router.get("/bcct/invoice-matches")
+async def api_invoice_matches(
+    client_id: str,
+    invoice_no: str,
+    declaration_types: str = "",
+    authorization: str | None = Header(None),
+):
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
+    invoice_tokens = _invoice_tokens(invoice_no)
+    if not invoice_tokens:
+        return _json({"items": [], "total_estimate": 0})
+    relevant_types = {part.strip() for part in declaration_types.split(",") if part.strip()}
+    sql = """
+        select transaction_key, line_no, declaration_no, declaration_type, customs_code,
+               internal_code, goods_name, hs_code, quantity, unit, invoice_ref
+        from hub.bcct_rows
+        where client_id = %s and direction = 'export' and coalesce(invoice_ref, '') <> ''
+    """
+    params: list = [client_id]
+    if relevant_types:
+        sql += " and declaration_type = any(%s)"
+        params.append(list(relevant_types))
+    sql += " order by registration_date desc nulls last, declaration_no, line_no limit 500"
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            cols = [d[0] for d in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+    matches = []
+    for row in rows:
+        row_tokens = _invoice_tokens(row.get("invoice_ref") or "")
+        if not invoice_tokens.issubset(row_tokens):
+            continue
+        item_code = row.get("internal_code") or row.get("customs_code") or ""
+        matches.append({
+            "declaration_no": row.get("declaration_no", ""),
+            "line_no": row.get("line_no", ""),
+            "declaration_type": row.get("declaration_type", ""),
+            "item_code": item_code,
+            "description": row.get("goods_name", ""),
+            "hs_code": row.get("hs_code", ""),
+            "quantity": row.get("quantity", ""),
+            "unit": row.get("unit", ""),
+            "invoice_ref": row.get("invoice_ref", ""),
+            "transaction_key": row.get("transaction_key", ""),
+        })
+    return _json({"items": matches, "total_estimate": len(matches)})
 
 
 @router.get("/bcct/{transaction_key}")

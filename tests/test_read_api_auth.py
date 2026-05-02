@@ -188,6 +188,66 @@ def test_materials_endpoint_returns_next_cursor(strict_mode_on):
                 cur.execute("delete from hub.clients where client_id = %s", (client_id,))
 
 
+def test_co_config_and_source_summary_endpoints(strict_mode_on):
+    client_id = "read-api-summary"
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "insert into hub.clients (client_id, name, code_resolution_mode) values (%s, 'Summary Client', 'simple_mapping') on conflict (client_id) do nothing",
+                (client_id,),
+            )
+            cur.execute(
+                """
+                insert into hub.materials (client_id, customs_code, name, category, status)
+                values (%s, 'M-SUM-1', 'Material', 'nvl', 'active'), (%s, 'P-SUM-1', 'Product', 'tp', 'active')
+                on conflict do nothing
+                """,
+                (client_id, client_id),
+            )
+            cur.execute(
+                """
+                insert into hub.bcct_rows
+                  (client_id, transaction_key, line_no, declaration_no, declaration_type,
+                   direction, registration_date, customs_code, goods_name, payload)
+                values
+                  (%s, 'SUM_IMPORT', '1', 'SI001', 'E11', 'import', '2025-01-01', 'M-SUM-1', 'Material', '{}'::jsonb),
+                  (%s, 'SUM_EXPORT', '1', 'SX001', 'E42', 'export', '2025-01-02', 'P-SUM-1', 'Product', '{}'::jsonb)
+                on conflict do nothing
+                """,
+                (client_id, client_id),
+            )
+    try:
+        token = jwt_issuer.make_token(
+            user_id="u_summary_admin",
+            email="summary-admin@test.local",
+            role="admin",
+            display_name="Summary Admin",
+        )["access_token"]
+
+        config = _client().get(
+            f"/v1/hub/dncxs/{client_id}/co-config",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        summary = _client().get(
+            f"/v1/hub/dncxs/{client_id}/source-summary",
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        assert config.status_code == 200
+        assert config.json()["allocation_code"]["data_hub_code_resolution_mode"] == "simple_mapping"
+        assert summary.status_code == 200
+        assert summary.json()["material_catalog"]["published_row_count"] == 1
+        assert summary.json()["product_catalog"]["published_row_count"] == 1
+        assert summary.json()["bcct"]["published_row_count"] == 2
+        assert summary.json()["co_stock_row_count"] == 1
+    finally:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("delete from hub.bcct_rows where client_id = %s", (client_id,))
+                cur.execute("delete from hub.materials where client_id = %s", (client_id,))
+                cur.execute("delete from hub.clients where client_id = %s", (client_id,))
+
+
 def test_bcct_endpoint_returns_next_cursor(strict_mode_on):
     client_id = "read-api-page-bcct"
     with connect() as conn:
@@ -229,6 +289,68 @@ def test_bcct_endpoint_returns_next_cursor(strict_mode_on):
         assert first.json()["next_cursor"] == "1"
         assert [row["transaction_key"] for row in second.json()["items"]] == ["PAGE_BCCT_2"]
         assert second.json()["next_cursor"] is None
+    finally:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("delete from hub.bcct_rows where client_id = %s", (client_id,))
+                cur.execute("delete from hub.clients where client_id = %s", (client_id,))
+
+
+def test_invoice_matches_endpoint_matches_export_invoice(strict_mode_on):
+    client_id = "read-api-invoice"
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "insert into hub.clients (client_id, name) values (%s, 'Invoice Client') on conflict (client_id) do nothing",
+                (client_id,),
+            )
+            cur.execute(
+                """
+                insert into hub.bcct_rows
+                  (client_id, transaction_key, line_no, declaration_no, declaration_type,
+                   direction, registration_date, customs_code, internal_code, goods_name,
+                   quantity, unit, invoice_ref, payload)
+                values
+                  (%s, 'INV_EXPORT_1', '1', 'X001', 'E42', 'export', '2025-01-02', 'P-001', 'TP-001', 'Product', 2, 'PCS', 'INV-001/2026', '{}'::jsonb),
+                  (%s, 'INV_EXPORT_2', '1', 'X002', 'E42', 'export', '2025-01-03', 'P-002', 'TP-002', 'Product 2', 1, 'PCS', 'OTHER', '{}'::jsonb)
+                on conflict do nothing
+                """,
+                (client_id, client_id),
+            )
+    try:
+        token = jwt_issuer.make_token(
+            user_id="u_invoice_admin",
+            email="invoice-admin@test.local",
+            role="admin",
+            display_name="Invoice Admin",
+        )["access_token"]
+
+        response = _client().get(
+            f"/v1/hub/bcct/invoice-matches?client_id={client_id}&invoice_no=INV-001&declaration_types=E42",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        no_match = _client().get(
+            f"/v1/hub/bcct/invoice-matches?client_id={client_id}&invoice_no=INV-999&declaration_types=E42",
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["items"] == [
+            {
+                "declaration_no": "X001",
+                "line_no": "1",
+                "declaration_type": "E42",
+                "item_code": "TP-001",
+                "description": "Product",
+                "hs_code": None,
+                "quantity": 2.0,
+                "unit": "PCS",
+                "invoice_ref": "INV-001/2026",
+                "transaction_key": "INV_EXPORT_1",
+            }
+        ]
+        assert no_match.status_code == 200
+        assert no_match.json()["items"] == []
     finally:
         with connect() as conn:
             with conn.cursor() as cur:
