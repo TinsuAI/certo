@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from app import auth, llm
 from app.database import connect
 from app.parsers.bom import parse_bom_workbook, BomParseError
+from app.parsers import bom_adapters
 from app.parsers._excel import compute_file_signature
 from app.routes.clients import get_client, stats_for_client
 from app.routes._llm_fallback import (
@@ -22,17 +23,39 @@ from app.routes._llm_fallback import (
 from app.storage import save_upload, sha256_bytes
 from app.stores.staleness import freshness_for_template
 from app.stores.bom import (
+    create_flattened_version_set,
     create_version,
     list_products_with_bom,
     list_versions_for_product,
     get_version_with_rows,
+    make_bcct_import_lookup,
+    make_catalog_lookup,
+    make_current_db_btp_lookup,
     submit_proposal,
     validate_proposal_contract,
 )
+from app.stores import flatten_decisions as decisions_store
+from app.stores.uom import make_uom_lookup
 from app.stores.uploads import record_upload
+from app.flatten import flatten as flatten_engine
+from app.flatten.types import FlattenContext, FlattenedVersion, FlattenResult, BomKey, FlattenedRow, UnresolvedNode, Decision
+from decimal import Decimal as _Decimal
 
 router = APIRouter()
-BOM_PROFILES = ["manual_flat", "growatt_multi_workbook", "johnson_sap_exploded"]
+
+
+def _bom_profiles() -> list[str]:
+    """Profile list = registered adapter names + technical_flatten meta-profile.
+    Computed dynamically so a new adapter dropped into bom_adapters/ is
+    automatically offered in the upload form. Legacy aliases (e.g.
+    growatt_multi_workbook → sheet_per_product) are accepted via
+    bom_adapters.resolve() but only the canonical name appears in the UI.
+    """
+    return [*bom_adapters.adapter_names(), "technical_flatten"]
+
+
+BOM_PROFILES = _bom_profiles()
+BOM_LEGACY_PROFILES = {"growatt_multi_workbook", "johnson_sap_exploded"}
 PREVIEW_SAMPLE_PRODUCTS = 5
 PREVIEW_SAMPLE_ROWS_PER_PRODUCT = 4
 
@@ -85,8 +108,12 @@ async def upload_submit(request: Request, client_id: str,
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
-    if profile not in BOM_PROFILES:
+    if profile not in BOM_PROFILES and profile not in BOM_LEGACY_PROFILES:
         raise HTTPException(400, "Invalid profile")
+    # technical_flatten is a flatten-stage marker, not a parse-stage profile.
+    # Parse with manual_flat shape primarily; the route tries the other
+    # 2 layout-aware profiles below if the first one yields nothing.
+    parse_profile = "manual_flat" if profile == "technical_flatten" else profile
     blob = await file.read()
     sha = sha256_bytes(blob)
     stored = save_upload(blob, filename=file.filename or "bom.xlsx",
@@ -100,7 +127,7 @@ async def upload_submit(request: Request, client_id: str,
     # ── Step 1: cached mapping for this client + file shape (manual_flat only) ──
     file_signature: str | None = None
     cached_mapping: dict | None = None
-    if profile == "manual_flat":
+    if parse_profile == "manual_flat":
         try:
             sheets = headers_per_sheet(blob)
             if sheets:
@@ -120,7 +147,7 @@ async def upload_submit(request: Request, client_id: str,
     proposed_by = "rigid"
     if cached_mapping is not None:
         try:
-            products = parse_bom_workbook(blob, profile=profile, mapping_override=cached_mapping)
+            products = parse_bom_workbook(blob, profile=parse_profile, mapping_override=cached_mapping)
             record_mapping_use(client_id=client_id, module="bom", file_signature=file_signature)
             used_mapping = cached_mapping
             proposed_by = "llm_cached"
@@ -128,15 +155,29 @@ async def upload_submit(request: Request, client_id: str,
             rigid_error = f"cached mapping failed: {e}"
     if products is None:
         try:
-            products = parse_bom_workbook(blob, profile=profile)
+            products = parse_bom_workbook(blob, profile=parse_profile)
         except BomParseError as e:
             rigid_error = str(e)
+
+    # technical_flatten is parser-agnostic: try every registered adapter
+    # in order via the registry's fallback chain. New adapters dropped
+    # into app/parsers/bom_adapters/ are picked up automatically.
+    # Pass the upload's filename stem as root_code hint — adapters that
+    # need it (sap_indented_walk) consume it, others ignore.
+    if products is None and profile == "technical_flatten":
+        from pathlib import Path as _Path
+        root_hint = _Path(file.filename or "").stem if file.filename else None
+        result = bom_adapters.parse_with_fallback(blob, root_code=root_hint)
+        if result is not None:
+            products, used_adapter = result
+            proposed_by = f"parser_fallback:{used_adapter}"
+            rigid_error = None
 
     if products is None:
         # LLM fallback only for manual_flat — other profiles infer from
         # sheet layout, not column matching, so column-mapping override
         # doesn't help them.
-        if profile != "manual_flat":
+        if parse_profile != "manual_flat":
             with connect() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
@@ -170,18 +211,43 @@ async def upload_submit(request: Request, client_id: str,
         file_signature = file_sig
         proposed_by = "llm_proposed"
 
+    # ── technical_flatten: invoke the flatten engine + stash decisions ──
+    flatten_payload: dict | None = None
+    if profile == "technical_flatten":
+        flatten_payload = _run_flatten_for_upload(
+            client_id=client_id, products=products,
+        )
+
     pending_id = _stash_pending(
         client_id=client_id, upload_id=upload_id, products=products,
         profile=profile, created_by=user.user_id,
         used_mapping=used_mapping, file_signature=file_signature,
         proposed_by=proposed_by,
+        flatten_payload=flatten_payload,
     )
+
+    if flatten_payload:
+        # Stash decisions in their own table so confirm route can audit them.
+        decision_objs = [_decision_from_dict(d) for d in flatten_payload["decisions"]]
+        id_map = decisions_store.stash_decisions(
+            pending_id=pending_id, client_id=client_id, decisions=decision_objs,
+        )
+        # Persist the index→decision_id map alongside the payload so
+        # confirm can re-link by index.
+        flatten_payload["decision_id_map"] = {str(i): did for i, did in id_map.items()}
+        _update_pending_flatten_payload(pending_id=pending_id, payload=flatten_payload)
+
     total_rows = sum(len(rows) for rows in products.values())
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "update hub.file_uploads set parse_status='pending_preview', row_count=%s, parsed_at=now() where upload_id=%s",
                 (total_rows, upload_id))
+    if profile == "technical_flatten":
+        return RedirectResponse(
+            url=f"/clients/{client_id}/bom/flatten-preview/{pending_id}",
+            status_code=303,
+        )
     return RedirectResponse(
         url=f"/clients/{client_id}/bom/preview/{pending_id}",
         status_code=303,
@@ -346,9 +412,12 @@ def _stash_pending(*, client_id: str, upload_id: str,
                    profile: str, created_by: str | None,
                    used_mapping: dict[str, str] | None = None,
                    file_signature: str | None = None,
-                   proposed_by: str = "rigid") -> str:
+                   proposed_by: str = "rigid",
+                   flatten_payload: dict | None = None) -> str:
     pending_id = secrets.token_urlsafe(16)
     parsed_payload = {"products": products}
+    if flatten_payload:
+        parsed_payload["flatten"] = flatten_payload
     diff_summary = {
         "profile": profile,
         "used_mapping": used_mapping,
@@ -370,6 +439,21 @@ def _stash_pending(*, client_id: str, upload_id: str,
                  created_by),
             )
     return pending_id
+
+
+def _update_pending_flatten_payload(*, pending_id: str, payload: dict) -> None:
+    """Re-write parsed_rows.flatten with the latest payload (e.g. once
+    decision_ids are assigned)."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                update hub.upload_pending
+                set parsed_rows = jsonb_set(parsed_rows, '{flatten}', %s::jsonb, true)
+                where pending_id = %s
+                """,
+                (json.dumps(payload, ensure_ascii=False, default=str), pending_id),
+            )
 
 
 def _summarize_bom(products: dict[str, list[dict]]) -> tuple[dict, list[dict]]:
@@ -463,3 +547,428 @@ async def submit_bom_proposal(request: Request, product_code: str):
         parent_version_id=parent_version_id, context=context, rows=rows,
     )
     return JSONResponse(result)
+
+
+# ────────────────────────────────────────────────────────────────────────
+# technical_flatten — flatten engine integration + preview/confirm.
+# ────────────────────────────────────────────────────────────────────────
+
+def _run_flatten_for_upload(*, client_id: str,
+                            products: dict[str, list[dict]]) -> dict:
+    """Build a FlattenContext from current DB state and run the flatten
+    engine. Returns the JSON-serializable payload that goes into
+    upload_pending.parsed_rows.flatten."""
+    ctx = FlattenContext(
+        client_id=client_id,
+        catalog=make_catalog_lookup(client_id),
+        bcct_import=make_bcct_import_lookup(client_id),
+        same_upload_btp=lambda m, b, v: None,   # engine wraps this with parsed
+        current_db_btp=make_current_db_btp_lookup(client_id),
+        uom=make_uom_lookup(client_id),
+        explicit_context=lambda r: r.get("explicit_context"),
+    )
+    result = flatten_engine(products, ctx)
+    return _serialize_flatten_result(result)
+
+
+def _serialize_flatten_result(result: FlattenResult) -> dict:
+    return {
+        "versions": [{
+            "key": {
+                "product_code": v.key.product_code,
+                "bom_code": v.key.bom_code,
+                "bom_variant_id": v.key.bom_variant_id,
+            },
+            "source_bom_kind": v.source_bom_kind,
+            "flatten_status": v.flatten_status,
+            "flatten_strategy": v.flatten_strategy,
+            "rows": [{
+                "material_code": r.material_code,
+                "qty": str(r.qty),
+                "uom": r.uom,
+                "node_path": r.node_path,
+                "classification_evidence": r.classification_evidence,
+                "classification_evidence_detail": r.classification_evidence_detail,
+                "conversion_evidence": r.conversion_evidence,
+                "original_qty": str(r.original_qty) if r.original_qty is not None else None,
+                "original_uom": r.original_uom,
+            } for r in v.rows],
+            "unresolved": [{
+                "node_path": u.node_path,
+                "material_code": u.material_code,
+                "reason": u.reason,
+                "evidence": u.evidence,
+            } for u in v.unresolved],
+            "lineage": v.lineage,
+            "requires_decision_ids": v.requires_decision_ids,
+        } for v in result.versions],
+        "decisions": [{
+            "decision_type": d.decision_type,
+            "chosen_action": d.chosen_action,
+            "alternatives": d.alternatives,
+            "evidence": d.evidence,
+            "status": d.status,
+            "staff_confirmation_required": d.staff_confirmation_required,
+            "target_key": {
+                "product_code": d.target_key.product_code,
+                "bom_code": d.target_key.bom_code,
+                "bom_variant_id": d.target_key.bom_variant_id,
+            } if d.target_key else None,
+            "target_strategy": d.target_strategy,
+        } for d in result.decisions],
+    }
+
+
+def _deserialize_flatten_result(payload: dict) -> FlattenResult:
+    versions = []
+    for vd in payload["versions"]:
+        versions.append(FlattenedVersion(
+            key=BomKey(
+                product_code=vd["key"]["product_code"],
+                bom_code=vd["key"].get("bom_code", "") or "",
+                bom_variant_id=vd["key"].get("bom_variant_id", "default") or "default",
+            ),
+            source_bom_kind=vd["source_bom_kind"],
+            flatten_status=vd["flatten_status"],
+            flatten_strategy=vd["flatten_strategy"],
+            rows=[FlattenedRow(
+                material_code=r["material_code"],
+                qty=_Decimal(r["qty"]),
+                uom=r["uom"],
+                node_path=r["node_path"],
+                classification_evidence=r["classification_evidence"],
+                classification_evidence_detail=r.get("classification_evidence_detail") or {},
+                conversion_evidence=r.get("conversion_evidence"),
+                original_qty=_Decimal(r["original_qty"]) if r.get("original_qty") else None,
+                original_uom=r.get("original_uom"),
+            ) for r in vd["rows"]],
+            unresolved=[UnresolvedNode(
+                node_path=u["node_path"],
+                material_code=u["material_code"],
+                reason=u["reason"],
+                evidence=u.get("evidence") or {},
+            ) for u in vd["unresolved"]],
+            lineage=vd.get("lineage") or {},
+            requires_decision_ids=vd.get("requires_decision_ids") or [],
+        ))
+    decisions = [_decision_from_dict(d) for d in payload["decisions"]]
+    return FlattenResult(versions=versions, decisions=decisions)
+
+
+def _decision_from_dict(d: dict) -> Decision:
+    target = d.get("target_key")
+    return Decision(
+        decision_type=d["decision_type"],
+        chosen_action=d["chosen_action"],
+        alternatives=d.get("alternatives") or [],
+        evidence=d.get("evidence") or {},
+        status=d.get("status") or "pending",
+        staff_confirmation_required=d.get("staff_confirmation_required", True),
+        target_key=BomKey(
+            product_code=target["product_code"],
+            bom_code=target.get("bom_code", "") or "",
+            bom_variant_id=target.get("bom_variant_id", "default") or "default",
+        ) if target else None,
+        target_strategy=d.get("target_strategy"),
+    )
+
+
+def _summarize_flatten(payload: dict, *, products: dict | None = None,
+                       client_id: str | None = None) -> dict:
+    """Aggregate stats + classify each product as TP vs BTP.
+
+    BTP detection — two complementary signals:
+      1. Catalog category (authoritative): hub.materials.category in
+         ('btp_sx','btp_nm') ⇒ definitely BTP. This is the agency's
+         declared truth and works for BTP-only uploads where no other
+         product references the BTP.
+      2. Same-upload reference: code that appears as material_code
+         in another product's rows. Catches BTPs that aren't yet in
+         catalog at upload time.
+    """
+    versions = payload["versions"]
+    n_tp = len(versions)
+    by_status: dict[str, int] = {}
+    by_strategy: dict[str, int] = {}
+    by_kind: dict[str, int] = {}
+    for v in versions:
+        by_status[v["flatten_status"]] = by_status.get(v["flatten_status"], 0) + 1
+        by_strategy[v["flatten_strategy"]] = by_strategy.get(v["flatten_strategy"], 0) + 1
+        by_kind[v["source_bom_kind"]] = by_kind.get(v["source_bom_kind"], 0) + 1
+    n_unresolved = sum(len(v["unresolved"]) for v in versions)
+    n_flattened_rows = sum(len(v["rows"]) for v in versions)
+    n_decisions_pending = sum(
+        1 for d in payload["decisions"]
+        if d.get("staff_confirmation_required") and d.get("status") == "pending"
+    )
+
+    product_codes = set(products.keys()) if products else {v["key"]["product_code"] for v in versions}
+
+    # Signal 1: catalog truth.
+    catalog_btp: set[str] = set()
+    if client_id and product_codes:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    select customs_code from hub.materials
+                    where client_id = %s and customs_code = any(%s)
+                      and category in ('btp_sx', 'btp_nm')
+                    """,
+                    (client_id, list(product_codes)),
+                )
+                catalog_btp = {r[0] for r in cur.fetchall()}
+
+    # Signal 2: same-upload reference.
+    referenced_btp: set[str] = set()
+    if products:
+        for pc, rows in products.items():
+            for r in rows:
+                mat = (r.get("material_code") or "").strip()
+                if mat in product_codes and mat != pc:
+                    referenced_btp.add(mat)
+
+    btp_codes = catalog_btp | referenced_btp
+    tp_codes = product_codes - btp_codes
+    return {
+        "n_versions": n_tp,
+        "n_tp": len(tp_codes),
+        "n_btp": len(btp_codes),
+        "tp_codes": tp_codes,
+        "btp_codes": btp_codes,
+        "by_status": by_status,
+        "by_strategy": by_strategy,
+        "by_kind": by_kind,
+        "n_unresolved": n_unresolved,
+        "n_flattened_rows": n_flattened_rows,
+        "n_decisions_pending": n_decisions_pending,
+        "n_flattened": by_status.get("flattened", 0),
+        "n_non_flattened": by_status.get("non_flattened", 0),
+    }
+
+
+# Decision type labels + explanations are i18n keys
+# (`flatten.dec.<decision_type>.label` and `.why`) — the template looks
+# them up via t(), so adding a new decision_type only requires:
+#   1. add to migration's CHECK constraint (or extend it)
+#   2. add the label_key + why_key to app/i18n.py
+# No changes here.
+
+
+@router.get("/clients/{client_id}/bom/flatten-preview/{pending_id}",
+            response_class=HTMLResponse)
+async def flatten_preview_view(request: Request, client_id: str, pending_id: str):
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select parsed_rows, expires_at, created_at
+                from hub.upload_pending
+                where pending_id = %s and client_id = %s and module = 'bom'
+                """,
+                (pending_id, client_id),
+            )
+            row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Pending upload not found or expired")
+    parsed_rows, expires_at, created_at = row
+    flatten_payload = (parsed_rows or {}).get("flatten")
+    if not flatten_payload:
+        raise HTTPException(400, "Pending is not a technical_flatten upload")
+    products = (parsed_rows or {}).get("products") or {}
+    summary = _summarize_flatten(flatten_payload, products=products,
+                                 client_id=client_id)
+    decisions = decisions_store.decisions_for_pending(pending_id)
+
+    # Group versions by product_code for the redesigned UI.
+    versions_by_product: dict[str, list[dict]] = {}
+    for v in flatten_payload["versions"]:
+        pc = v["key"]["product_code"]
+        versions_by_product.setdefault(pc, []).append(v)
+    # Sort: TPs first (have BTPs as material), then BTPs, then unresolved-only.
+    def _sort_key(item):
+        pc, vlist = item
+        worst = "non_flattened" if any(v["flatten_status"] == "non_flattened" for v in vlist) else "flattened"
+        is_btp = 1 if pc in summary["btp_codes"] else 0
+        return (worst != "non_flattened", is_btp, pc)  # non_flattened first
+    versions_grouped = sorted(versions_by_product.items(), key=_sort_key)
+
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/bom_flatten_preview.html",
+        {
+            "client": client, "stats": stats_for_client(client_id),
+            "pending_id": pending_id,
+            "summary": summary,
+            "versions_grouped": versions_grouped,
+            "decisions": decisions,
+            "expires_at": expires_at, "created_at": created_at,
+            "active_root": "clients", "active_tab": "bom",
+        },
+    )
+
+
+@router.post("/clients/{client_id}/bom/flatten-preview/{pending_id}/confirm")
+async def flatten_preview_confirm(request: Request,
+                                  client_id: str, pending_id: str):
+    """Apply confirmed flatten variants. For each pending decision the
+    form may carry:
+        confirm_<decision_id> = on        → status=confirmed
+        choose_<decision_id>  = <action>  → chosen_action override
+    Variants whose blocking decisions remain `pending` or `rejected`
+    are filtered out at materialization."""
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+
+    form = await request.form()
+
+    with connect(user_id=user.user_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select parsed_rows, upload_id from hub.upload_pending
+                where pending_id = %s and client_id = %s and module = 'bom'
+                  and expires_at > now()
+                """,
+                (pending_id, client_id),
+            )
+            row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Pending upload not found or expired")
+    parsed_rows, upload_id = row
+    flatten_payload = (parsed_rows or {}).get("flatten")
+    if not flatten_payload:
+        raise HTTPException(400, "Pending is not a technical_flatten upload")
+
+    # Apply form decisions to DB.
+    decisions = decisions_store.decisions_for_pending(pending_id)
+    confirmed_actions: dict[str, str] = {}      # decision_id → chosen_action
+    for d in decisions:
+        did = d["decision_id"]
+        if d["status"] == "auto":
+            confirmed_actions[did] = d["chosen_action"]
+            continue
+        confirm_flag = form.get(f"confirm_{did}")
+        chosen = form.get(f"choose_{did}") or d["chosen_action"]
+        if confirm_flag == "on":
+            decisions_store.confirm_decision(
+                decision_id=did, user_id=user.user_id,
+                chosen_action=chosen, status="confirmed",
+            )
+            confirmed_actions[did] = chosen
+        else:
+            decisions_store.confirm_decision(
+                decision_id=did, user_id=user.user_id,
+                chosen_action=chosen, status="rejected",
+            )
+
+    # Build a publish_filter that drops variants whose blocking decisions
+    # weren't confirmed (or whose dual-source decision excluded this strategy).
+    decisions_by_target: dict[tuple, list[dict]] = {}
+    for d in decisions:
+        target = (d.get("product_code") or "")
+        decisions_by_target.setdefault(target, []).append(d)
+
+    def publish_filter(v: FlattenedVersion) -> bool:
+        relevant = decisions_by_target.get(v.key.product_code, [])
+        for d in relevant:
+            did = d["decision_id"]
+            chosen = confirmed_actions.get(did)   # None ⇒ staff did not confirm
+            # Non-flattened publishing requires an explicit confirm
+            # (spec §11 — block by default).
+            if d["decision_type"] == "non_flattened_publish":
+                if v.flatten_status != "non_flattened":
+                    continue
+                if chosen != "publish_with_review_required":
+                    return False
+            # Dual-source variants ALL require explicit confirmation
+            # (spec §11). chosen=None ⇒ staff did not confirm ⇒ block.
+            # Per /rev finding C2: this gate runs regardless of
+            # flatten_status. A dual variant that's also non_flattened
+            # still needs the dual_source_variant confirm BEFORE the
+            # non_flattened_publish gate is consulted.
+            if d["decision_type"] == "dual_source_variant":
+                if v.flatten_strategy not in (
+                        "purchased_btp_as_leaf", "self_produced_btp_exploded"):
+                    continue
+                if chosen is None:
+                    return False
+                if chosen == "purchased_btp_as_leaf" \
+                        and v.flatten_strategy != "purchased_btp_as_leaf":
+                    return False
+                if chosen == "self_produced_btp_exploded" \
+                        and v.flatten_strategy != "self_produced_btp_exploded":
+                    return False
+                # chosen == 'publish_both' → both variants pass through.
+        return True
+
+    # Re-build FlattenResult from stash, then materialize.
+    result = _deserialize_flatten_result(flatten_payload)
+    decision_id_map_str = flatten_payload.get("decision_id_map") or {}
+    decision_id_map = {int(k): v for k, v in decision_id_map_str.items()}
+
+    materialized = create_flattened_version_set(
+        client_id=client_id,
+        source_upload_id=upload_id,
+        result=result,
+        decision_id_map=decision_id_map,
+        publish_filter=publish_filter,
+    )
+
+    # Atomic-ish: only on full success, delete pending + flip status.
+    n = len(materialized)
+    with connect(user_id=user.user_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "delete from hub.upload_pending "
+                "where pending_id = %s and client_id = %s and module = 'bom'",
+                (pending_id, client_id),
+            )
+            cur.execute(
+                "update hub.file_uploads set parse_status='done', "
+                "row_count=%s, parsed_at=now() where upload_id=%s",
+                (n, upload_id),
+            )
+    return RedirectResponse(
+        url=f"/clients/{client_id}/bom?ingested={n}", status_code=303,
+    )
+
+
+@router.post("/clients/{client_id}/bom/flatten-preview/{pending_id}/reject")
+async def flatten_preview_reject(request: Request,
+                                 client_id: str, pending_id: str):
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+    with connect(user_id=user.user_id) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                delete from hub.upload_pending
+                where pending_id = %s and client_id = %s and module = 'bom'
+                returning upload_id
+                """,
+                (pending_id, client_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(404, "Pending upload not found or expired")
+            (upload_id,) = row
+            cur.execute(
+                "delete from hub.bom_flatten_decisions where pending_id = %s",
+                (pending_id,),
+            )
+            cur.execute(
+                "update hub.file_uploads set parse_status='rejected', parsed_at=now() where upload_id=%s",
+                (upload_id,),
+            )
+    return RedirectResponse(
+        url=f"/clients/{client_id}/bom?rejected=1", status_code=303,
+    )

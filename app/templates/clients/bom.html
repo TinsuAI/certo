@@ -26,10 +26,31 @@
   {% endif %}
 
   {% if products %}
-  <table class="dh-table">
+  {# Counts for filter chips #}
+  {% set ns = namespace(flat=0, nflat=0) %}
+  {% for p in products %}
+    {% if p.n_non_flattened > 0 %}{% set ns.nflat = ns.nflat + 1 %}{% endif %}
+    {% if p.n_flattened > 0 and p.n_non_flattened == 0 %}{% set ns.flat = ns.flat + 1 %}{% endif %}
+  {% endfor %}
+
+  <div class="flatten-version-filters" style="margin-bottom: 0.8rem;">
+    <span class="filter-chip is-active" data-filter="all">
+      {{ t('bom.list.filter_all') }} · {{ products|length }}
+    </span>
+    <span class="filter-chip" data-filter="flattened">
+      ✓ {{ t('bom.list.filter_flattened') }} · {{ ns.flat }}
+    </span>
+    <span class="filter-chip" data-filter="non_flattened">
+      ⚠ {{ t('bom.list.filter_non_flattened') }} · {{ ns.nflat }}
+    </span>
+  </div>
+
+  <table class="dh-table" id="bom-products-table">
     <thead>
       <tr>
         <th>{{ t('bom.col.product') }}</th>
+        <th></th>
+        <th>{{ t('common.status') }}</th>
         <th>{{ t('bom.col.versions') }}</th>
         <th>{{ t('bom.col.latest') }}</th>
         <th>{{ t('bom.col.last_published') }}</th>
@@ -38,9 +59,36 @@
     </thead>
     <tbody>
       {% for p in products %}
-      <tr>
+      {% set has_nflat = p.n_non_flattened > 0 %}
+      {% set has_flat = p.n_flattened > 0 %}
+      {% set row_class = 'flat-only' if has_flat and not has_nflat else ('nflat-only' if has_nflat and not has_flat else 'mixed') %}
+      <tr data-status="{{ row_class }}">
         <td class="mono">{{ p.product_code }}</td>
-        <td><span class="badge badge-info">{{ p.n_versions }}</span></td>
+        <td>
+          {% if p.product_kind == 'btp' %}
+            <span class="badge badge-info">{{ t('bom.list.kind_btp') }}</span>
+          {% else %}
+            <span class="badge badge-neutral">{{ t('bom.list.kind_tp') }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if has_nflat and has_flat %}
+            <span class="badge badge-warn">{{ t('bom.list.status.mixed') }}</span>
+          {% elif has_nflat %}
+            <span class="badge badge-warn">⚠ {{ t('bom.list.status.non_flattened') }}</span>
+          {% elif p.latest_flatten_status == 'not_applicable' %}
+            <span class="badge badge-neutral">{{ t('bom.list.status.not_applicable') }}</span>
+          {% else %}
+            <span class="badge badge-success">✓ {{ t('bom.list.status.flattened') }}</span>
+          {% endif %}
+          {% if p.n_dual_variants and p.n_dual_variants > 1 %}
+            <span class="badge badge-info" title="dual-source variants">×{{ p.n_dual_variants }} variants</span>
+          {% endif %}
+        </td>
+        <td>
+          <span class="badge badge-info">{{ p.n_versions }}</span>
+          {% if has_nflat %}<span class="meta">({{ p.n_non_flattened }} non-flat)</span>{% endif %}
+        </td>
         <td>v{{ p.latest_version }}</td>
         <td class="mono">{{ p.last_published.strftime('%Y-%m-%d %H:%M') if p.last_published else '' }}</td>
         <td><a href="/clients/{{ client.client_id }}/bom/{{ p.product_code }}/versions">{{ t('common.detail') }} →</a></td>
@@ -48,6 +96,26 @@
       {% endfor %}
     </tbody>
   </table>
+
+  <script>
+    (function() {
+      const chips = document.querySelectorAll('.flatten-version-filters .filter-chip');
+      const rows = document.querySelectorAll('#bom-products-table tbody tr');
+      chips.forEach(chip => chip.addEventListener('click', () => {
+        chips.forEach(c => c.classList.remove('is-active'));
+        chip.classList.add('is-active');
+        const f = chip.dataset.filter;
+        rows.forEach(r => {
+          const status = r.dataset.status;
+          r.style.display = (
+            f === 'all'
+            || (f === 'flattened' && status === 'flat-only')
+            || (f === 'non_flattened' && (status === 'nflat-only' || status === 'mixed'))
+          ) ? '' : 'none';
+        });
+      }));
+    })();
+  </script>
   {% else %}
   <div class="empty-state">
     <p>{{ t('bom.empty') }}</p>

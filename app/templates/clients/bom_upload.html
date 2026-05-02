@@ -17,7 +17,7 @@
       <span class="field-label">{{ t('bom.upload_profile') }}</span>
       <select name="profile">
         {% for p in profiles %}
-        <option value="{{ p }}">{{ p }}</option>
+        <option value="{{ p }}">{{ t('bom.adapter.' ~ p ~ '.label') }} ({{ p }})</option>
         {% endfor %}
       </select>
     </label>

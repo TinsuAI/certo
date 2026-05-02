@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+{% block title %}{{ t('flatten.preview.title') }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ t('flatten.preview.title') }}</h2>
+      <p class="meta">
+        {{ t('flatten.preview.intro') }}
+        {{ t('flatten.preview.pending') }}: <code>{{ pending_id }}</code> ·
+        {{ t('flatten.preview.expires') }} {{ expires_at }}.
+      </p>
+    </div>
+    <div>
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom">{{ t('common.cancel') }}</a>
+    </div>
+  </div>
+
+  {# ── Stat cards ─────────────────────────────────────────────────── #}
+  <div class="flatten-stats">
+    <div class="flatten-stat-card is-info">
+      <span class="stat-label">{{ t('flatten.stat.versions') }}</span>
+      <span class="stat-value">{{ summary.n_versions }}</span>
+      <span class="stat-sub">{{ t('flatten.stat.versions_sub').format(tp=summary.n_tp, btp=summary.n_btp) }}</span>
+    </div>
+    <div class="flatten-stat-card is-success">
+      <span class="stat-label">{{ t('flatten.stat.flattened') }}</span>
+      <span class="stat-value">{{ summary.n_flattened }}</span>
+      <span class="stat-sub">{{ t('flatten.stat.flattened_sub') }}</span>
+    </div>
+    <div class="flatten-stat-card {% if summary.n_non_flattened %}is-warn{% endif %}">
+      <span class="stat-label">{{ t('flatten.stat.non_flattened') }}</span>
+      <span class="stat-value">{{ summary.n_non_flattened }}</span>
+      <span class="stat-sub">{{ t('flatten.stat.non_flattened_sub') }}</span>
+    </div>
+    <div class="flatten-stat-card {% if summary.n_unresolved %}is-error{% endif %}">
+      <span class="stat-label">{{ t('flatten.stat.unresolved') }}</span>
+      <span class="stat-value">{{ summary.n_unresolved }}</span>
+      <span class="stat-sub">{{ t('flatten.stat.unresolved_sub').format(rows=summary.n_flattened_rows) }}</span>
+    </div>
+  </div>
+
+  <form method="post" action="/clients/{{ client.client_id }}/bom/flatten-preview/{{ pending_id }}/confirm">
+
+  {# ── Decisions section ─────────────────────────────────────────── #}
+  {% set pending_decisions = decisions | rejectattr('status', 'equalto', 'auto') | list %}
+  <div class="flatten-section">
+    <div class="flatten-section-head">
+      <h3>
+        {{ t('flatten.decisions.title') }}
+        {% if pending_decisions %}<span class="badge badge-warn">{{ pending_decisions|length }}</span>{% endif %}
+      </h3>
+      <span class="meta">{{ t('flatten.decisions.help') }}</span>
+    </div>
+
+    {% if not pending_decisions %}
+      <div class="flatten-empty-state">
+        {{ t('flatten.decisions.empty').format(n=decisions|length) }}
+      </div>
+    {% else %}
+      <div class="flatten-decisions">
+        {% for d in pending_decisions %}
+        {% set label_key = 'flatten.dec.' ~ d.decision_type ~ '.label' %}
+        {% set why_key = 'flatten.dec.' ~ d.decision_type ~ '.why' %}
+        <div class="flatten-decision-card dec-{{ d.decision_type }}">
+          <div class="flatten-decision-head">
+            <div>
+              <div class="flatten-decision-title">{{ t(label_key) }}</div>
+              <div class="flatten-decision-target">
+                {{ t('flatten.decisions.target') }}: <code>{{ d.product_code }}</code>
+                · {{ t('flatten.decisions.type') }}: <code>{{ d.decision_type }}</code>
+              </div>
+            </div>
+            <span class="badge badge-warn">{{ d.status }}</span>
+          </div>
+
+          <div class="flatten-decision-why">{{ t(why_key) }}</div>
+
+          {% if d.evidence %}
+          <details>
+            <summary class="meta">{{ t('flatten.decisions.evidence') }}</summary>
+            <div class="flatten-decision-evidence">{{ d.evidence|tojson }}</div>
+          </details>
+          {% endif %}
+
+          <div class="flatten-decision-controls">
+            <label>
+              <input type="checkbox" name="confirm_{{ d.decision_id }}">
+              <span>{{ t('flatten.decisions.confirm') }}</span>
+            </label>
+            {% if d.alternatives %}
+            <label>
+              <span>{{ t('flatten.decisions.action') }}</span>
+              <select name="choose_{{ d.decision_id }}">
+                {% for alt in d.alternatives %}
+                {% set act = alt.action or alt.strategy or alt %}
+                <option value="{{ act }}" {% if act == d.chosen_action %}selected{% endif %}>{{ act }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+
+  {# ── Versions section, grouped by product ──────────────────────── #}
+  <div class="flatten-section">
+    <div class="flatten-section-head">
+      <h3>{{ t('flatten.versions.title') }}
+        <span class="badge badge-neutral">{{ summary.n_versions }}</span>
+      </h3>
+      <span class="meta">
+        {{ t('flatten.versions.summary').format(tp=summary.n_tp, btp=summary.n_btp) }}:
+        {% for k, n in summary.by_status.items() %}
+        <code>{{ t('bom.list.status.' ~ k) if ('bom.list.status.' ~ k) in [
+          'bom.list.status.flattened','bom.list.status.non_flattened','bom.list.status.not_applicable'
+        ] else k }}</code>×{{ n }}{% if not loop.last %} · {% endif %}
+        {% endfor %}
+      </span>
+    </div>
+
+    {% for product_code, vlist in versions_grouped %}
+      {% set ns = namespace(unr=0, rows=0) %}
+      {% for v in vlist %}{% set ns.unr = ns.unr + (v.unresolved|length) %}{% set ns.rows = ns.rows + (v.rows|length) %}{% endfor %}
+      {% set n_unr = ns.unr %}
+      {% set total_rows = ns.rows %}
+      {% set worst_status = 'non_flattened' if vlist | selectattr('flatten_status', 'equalto', 'non_flattened') | list else 'flattened' %}
+      {% set is_btp = product_code in summary.btp_codes %}
+      <details class="flatten-version-block is-{{ worst_status }} {% if is_btp %}kind-btp{% endif %}" open>
+        <summary class="flatten-version-head">
+          <div class="vh-left">
+            <span class="vh-product">{{ product_code }}</span>
+            {% if is_btp %}
+              <span class="badge badge-info">{{ t('bom.list.kind_btp') }}</span>
+            {% else %}
+              <span class="badge badge-neutral">{{ t('bom.list.kind_tp') }}</span>
+            {% endif %}
+            {% if worst_status == 'non_flattened' %}
+              <span class="badge badge-warn">{{ t('bom.list.status.non_flattened') }}</span>
+            {% else %}
+              <span class="badge badge-success">{{ t('bom.list.status.flattened') }}</span>
+            {% endif %}
+            {% if vlist|length > 1 %}
+              <span class="badge badge-info">{{ vlist|length }} {{ t('flatten.versions.variants') }}</span>
+            {% endif %}
+          </div>
+          <span class="vh-counts">
+            {{ total_rows }} {{ t('flatten.versions.flat_rows') }}{% if n_unr %} · <strong>{{ n_unr }} {{ t('flatten.versions.unresolved') }}</strong>{% endif %}
+          </span>
+        </summary>
+        <div class="flatten-version-body">
+          {% for v in vlist %}
+          <div>
+            <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; margin-bottom:0.4rem;">
+              <span class="vh-tag">{{ v.flatten_strategy }}</span>
+              <span class="vh-tag">{{ v.source_bom_kind }}</span>
+              <span class="meta">{{ v.rows|length }} {{ t('flatten.versions.flat_rows') }}{% if v.unresolved %} · {{ v.unresolved|length }} {{ t('flatten.versions.unresolved') }}{% endif %}</span>
+            </div>
+            {% if v.rows %}
+            <details>
+              <summary>{{ t('flatten.versions.rows_sample') }} ({{ v.rows|length }})</summary>
+              <table class="data-table flatten-rows-table">
+                <thead><tr>
+                  <th>{{ t('flatten.versions.col.material') }}</th>
+                  <th class="qty">{{ t('flatten.versions.col.qty') }}</th>
+                  <th>{{ t('flatten.versions.col.uom') }}</th>
+                  <th>{{ t('flatten.versions.col.path') }}</th>
+                  <th>{{ t('flatten.versions.col.evidence') }}</th>
+                </tr></thead>
+                <tbody>
+                  {% for r in v.rows[:25] %}
+                  <tr>
+                    <td><code>{{ r.material_code }}</code></td>
+                    <td class="qty">{{ r.qty }}</td>
+                    <td>{{ r.uom }}</td>
+                    <td class="meta">{{ r.node_path }}</td>
+                    <td><span class="badge badge-info">{{ r.classification_evidence }}</span></td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+              {% if v.rows|length > 25 %}
+              <p class="meta">{{ t('flatten.versions.more_rows').format(n=v.rows|length - 25) }}</p>
+              {% endif %}
+            </details>
+            {% endif %}
+            {% if v.unresolved %}
+            <details open>
+              <summary><strong style="color:var(--warning)">{{ t('flatten.versions.unresolved_table') }} ({{ v.unresolved|length }})</strong></summary>
+              <table class="data-table flatten-unresolved-table">
+                <thead><tr>
+                  <th>{{ t('flatten.versions.col.path') }}</th>
+                  <th>{{ t('flatten.versions.col.material') }}</th>
+                  <th>{{ t('flatten.versions.col.reason') }}</th>
+                  <th>{{ t('flatten.versions.col.evidence') }}</th>
+                </tr></thead>
+                <tbody>
+                  {% for u in v.unresolved %}
+                  <tr>
+                    <td class="meta">{{ u.node_path }}</td>
+                    <td><code>{{ u.material_code }}</code></td>
+                    <td><span class="badge badge-warn">{{ u.reason }}</span></td>
+                    <td class="meta">{{ u.evidence }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </details>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </details>
+    {% endfor %}
+  </div>
+
+  {# ── Sticky action bar ─────────────────────────────────────────── #}
+  <div class="flatten-action-bar">
+    <button type="submit" class="btn-primary">
+      {{ t('flatten.action.materialize').format(n=summary.n_versions) }}
+    </button>
+    <button type="submit"
+            formaction="/clients/{{ client.client_id }}/bom/flatten-preview/{{ pending_id }}/reject"
+            class="btn-secondary"
+            onclick="return confirm('{{ t('flatten.action.reject_confirm') }}');">
+      {{ t('flatten.action.reject') }}
+    </button>
+    <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom">
+      {{ t('flatten.action.back_later') }}
+    </a>
+    <span class="ab-spacer"></span>
+    <span class="ab-hint">{{ t('flatten.action.hint') }}</span>
+  </div>
+
+  </form>
+</section>
+{% endblock %}
