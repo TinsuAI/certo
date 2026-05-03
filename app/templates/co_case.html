@@ -96,7 +96,7 @@
           <td>{{ lane.display_name }}</td>
           <td class="mono">{{ rule.hs_code }}</td>
           <td>{{ rule.criteria }}</td>
-          <td><span class="badge badge-info">{{ rule.status }}</span></td>
+          <td><span class="badge badge-info">{{ 'Chưa lắp' if rule.status == 'coming soon' else rule.status }}</span></td>
           <td>{{ rule.note }}</td>
         </tr>
         {% endfor %}
@@ -218,7 +218,7 @@
     <div>
       <span class="eyebrow">Hồ sơ theo lô hàng</span>
       <h2>{{ case.case_code }}</h2>
-      <p class="meta">{{ case.title }} · {{ case.destination_market }} · invoice {{ case.shipment.invoice_no or 'n/a' }} · B/L {{ case.shipment.bill_of_lading_no or 'n/a' }}</p>
+      <p class="meta">{{ case.title }} · {{ case.destination_market }} · invoice {{ case.shipment.invoice_no or 'n/a' }} · B/L: {{ case.shipment.bill_of_lading_no or 'n/a' }}</p>
     </div>
     <a class="btn-secondary" href="/clients/{{ client.id }}/co-case">Đổi hồ sơ</a>
   </div>
@@ -227,6 +227,7 @@
     <a class="workflow-step {{ 'workflow-step-active' if step.active else '' }} workflow-step-{{ step.status }}" href="{{ step.href }}">
       <span>{{ step.short_label }}</span>
       <strong>{{ step.label }}</strong>
+      <em>{{ step.status_label }}</em>
     </a>
     {% endfor %}
   </nav>
@@ -307,7 +308,13 @@
     {% for file in case.supporting_files %}
     <div class="rowitem">
       <div>
-        <strong>{{ file.filename }}</strong>
+        <strong>
+          {% if file.upload_id %}
+          <a href="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/supporting-files/{{ file.upload_id }}">{{ file.filename }}</a>
+          {% else %}
+          {{ file.filename }}
+          {% endif %}
+        </strong>
         <div class="meta">{{ file.slot }} · invoice {{ file.invoice_no or 'n/a' }} · B/L {{ file.bill_of_lading_no or 'n/a' }}</div>
       </div>
     </div>
@@ -398,7 +405,7 @@
     <div class="chip-row">
       <span class="chip">Thị trường {{ case.destination_market }}</span>
       <span class="chip">Form {{ recommended_form_lane.display_name or case.co_form_type }}</span>
-      <span class="chip">Coming soon: legal PSR engine</span>
+      <span class="chip">Chưa lắp đủ: legal PSR engine</span>
     </div>
   </div>
   <div class="guidance-summary">
@@ -500,7 +507,7 @@
   <div class="callout {{ 'callout-success' if origin_demo_active else 'callout-info' }}">
     <span class="callout-icon">i</span>
     <div>
-      <div class="callout-title">{{ 'Demo tự nạp' if origin_demo_active else 'Coming soon' }}</div>
+      <div class="callout-title">{{ 'Demo tự nạp' if origin_demo_active else 'Chưa lắp đủ' }}</div>
       {% if origin_demo_active %}
       Hồ sơ chưa có dòng BCCT/BOM đủ để tính thật, nên tab Xuất xứ đang nạp sẵn 2 TP mẫu và NVL mẫu để operator nhìn được cách hệ thống dựng bảng tiêu chí. Dữ liệu demo này không phải file upload và không ghi vào hồ sơ lưu.
       {% else %}
@@ -513,7 +520,15 @@
 <form method="post" action="/clients/{{ client.id }}/evaluate" id="co-case" class="workspace-grid">
   <input type="hidden" name="case_id" value="{{ case.id }}">
   <input type="hidden" name="persisted_case_id" value="{{ case.persisted_case_id }}">
+  <input type="hidden" name="customer" value="{{ case.customer }}">
+  <input type="hidden" name="case_code" value="{{ case.case_code }}">
   <input type="hidden" name="title" value="{{ case.title }}">
+  <input type="hidden" name="destination_market" value="{{ case.destination_market }}">
+  <input type="hidden" name="agreement" value="{{ case.agreement }}">
+  <input type="hidden" name="co_form_type" value="{{ recommended_form_lane.display_name or case.co_form_type }}">
+  <input type="hidden" name="rule" value="{{ case.rule }}">
+  <input type="hidden" name="invoice_no" value="{{ case.shipment.invoice_no }}">
+  <input type="hidden" name="bill_of_lading_no" value="{{ case.shipment.bill_of_lading_no }}">
   <input type="hidden" name="mode" value="{{ case.mode }}">
   <input type="hidden" name="mode_note" value="{{ case.mode_note }}">
   <input type="hidden" name="source_label" value="{{ case.source_label }}">
@@ -568,8 +583,7 @@
     </section>
 
     <section class="zone action-panel">
-      <button type="submit">Tính lại</button>
-      <button type="submit" formaction="/clients/{{ client.id }}/export">Xuất evidence XLSX</button>
+      <button type="submit">Tính lại snapshot</button>
       <button type="submit" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export">Xuất dossier XLSX</button>
     </section>
   </aside>
@@ -609,6 +623,14 @@
         <article class="product-block">
           <input type="hidden" name="product_{{ product_index }}_material_count" value="{{ product.materials|length }}">
           <input type="hidden" name="product_{{ product_index }}_non_origin_value" value="{{ product.non_origin_value }}">
+          <input type="hidden" name="product_{{ product_index }}_code" value="{{ product.code }}">
+          <input type="hidden" name="product_{{ product_index }}_name" value="{{ product.name }}">
+          <input type="hidden" name="product_{{ product_index }}_finished_hs" value="{{ product.finished_hs }}">
+          <input type="hidden" name="product_{{ product_index }}_quantity" value="{{ product.quantity }}">
+          <input type="hidden" name="product_{{ product_index }}_fob" value="{{ product.fob }}">
+          <input type="hidden" name="product_{{ product_index }}_rvc_threshold" value="{{ product.rvc_threshold }}">
+          <input type="hidden" name="product_{{ product_index }}_documented_result" value="{{ product.documented_result }}">
+          <input type="hidden" name="product_{{ product_index }}_bom_product_version_id" value="{{ product.bom_product_version_id }}">
 
           <div class="product-head">
             <div>
@@ -623,36 +645,12 @@
             </div>
           </div>
 
-          <div class="input-grid">
-            <label>Mã hàng
-              <input name="product_{{ product_index }}_code" value="{{ product.code }}">
-            </label>
-            <label>Tên hàng
-              <input name="product_{{ product_index }}_name" value="{{ product.name }}">
-            </label>
-            <label>HS thành phẩm
-              <input name="product_{{ product_index }}_finished_hs" value="{{ product.finished_hs }}">
-            </label>
-            <label>Số lượng
-              <input name="product_{{ product_index }}_quantity" value="{{ product.quantity }}">
-            </label>
-            <label>FOB
-              <input type="number" step="0.01" name="product_{{ product_index }}_fob" value="{{ product.fob }}">
-            </label>
-            <label>Ngưỡng RVC
-              <input type="number" step="0.01" name="product_{{ product_index }}_rvc_threshold" value="{{ product.rvc_threshold }}">
-            </label>
-            <label>Kết quả chứng từ gốc
-              <input name="product_{{ product_index }}_documented_result" value="{{ product.documented_result }}">
-            </label>
-            <label>BOM TP version
-              <select name="product_{{ product_index }}_bom_product_version_id">
-                <option value="">Theo BOM tổng hợp</option>
-                {% for bom_product_version in bom_workspace.product_version_options_by_code.get(product.code, []) %}
-                <option value="{{ bom_product_version.product_version_id }}" {% if bom_product_version.product_version_id == product.bom_product_version_id %}selected{% endif %}>TP v{{ bom_product_version.product_version_no }} · {{ bom_product_version.row_count }} dòng</option>
-                {% endfor %}
-              </select>
-            </label>
+          <div class="origin-product-strip">
+            <div><span>HS TP</span><strong class="mono">{{ product.finished_hs }}</strong></div>
+            <div><span>Số lượng</span><strong>{{ product.quantity }}</strong></div>
+            <div><span>FOB</span><strong class="num">{{ product.fob }}</strong></div>
+            <div><span>Ngưỡng RVC</span><strong>{{ product.rvc_threshold }}%</strong></div>
+            <div><span>BOM TP</span><strong>{{ product.bom_product_version_id or 'Theo BOM tổng hợp' }}</strong></div>
           </div>
 
           <div class="rule-grid">
@@ -689,28 +687,52 @@
                 {% for material in product.materials %}
                 {% set material_index = loop.index0 %}
                 <tr>
-                  <td><input class="table-input" name="product_{{ product_index }}_material_{{ material_index }}_source_row" value="{{ material.source_row }}"></td>
-                  <td><input class="table-input" name="product_{{ product_index }}_material_{{ material_index }}_import_declaration_no" value="{{ material.import_declaration_no }}"></td>
-                  <td><input class="table-input mini-input" name="product_{{ product_index }}_material_{{ material_index }}_import_line_no" value="{{ material.import_line_no }}"></td>
-                  <td><input class="table-input" name="product_{{ product_index }}_material_{{ material_index }}_customs_material_code" value="{{ material.customs_material_code }}"></td>
+                  <td>
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_source_row" value="{{ material.source_row }}">
+                    <span class="mono">{{ material.source_row }}</span>
+                  </td>
+                  <td>
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_import_declaration_no" value="{{ material.import_declaration_no }}">
+                    <span class="mono">{{ material.import_declaration_no or 'n/a' }}</span>
+                  </td>
+                  <td>
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_import_line_no" value="{{ material.import_line_no }}">
+                    <span class="mono">{{ material.import_line_no or 'n/a' }}</span>
+                  </td>
+                  <td>
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_customs_material_code" value="{{ material.customs_material_code }}">
+                    <span class="mono">{{ material.customs_material_code or 'n/a' }}</span>
+                  </td>
                   <td>
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_material_code" value="{{ material.material_code }}">
-                    <input class="table-input" name="product_{{ product_index }}_material_{{ material_index }}_internal_material_code" value="{{ material.internal_material_code }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_internal_material_code" value="{{ material.internal_material_code }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_material_description" value="{{ material.material_description }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_uom" value="{{ material.uom }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_source_document_ref" value="{{ material.source_document_ref }}">
+                    <span class="mono">{{ material.internal_material_code or material.material_code or 'n/a' }}</span>
+                    <div class="meta">{{ material.material_description }}</div>
                   </td>
-                  <td><input class="table-input" name="product_{{ product_index }}_material_{{ material_index }}_hs_code" value="{{ material.hs_code }}"></td>
                   <td>
-                    <select name="product_{{ product_index }}_material_{{ material_index }}_origin_status">
-                      <option value="non_origin" {% if material.origin_status == "non_origin" %}selected{% endif %}>Không xuất xứ</option>
-                      <option value="origin" {% if material.origin_status == "origin" %}selected{% endif %}>Có xuất xứ</option>
-                    </select>
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_hs_code" value="{{ material.hs_code }}">
+                    <span class="mono">{{ material.hs_code }}</span>
                   </td>
-                  <td><input class="table-input number-input" type="number" step="0.01" name="product_{{ product_index }}_material_{{ material_index }}_available_qty" value="{{ material.available_qty }}"></td>
-                  <td><input class="table-input number-input" type="number" step="0.01" name="product_{{ product_index }}_material_{{ material_index }}_consumed_qty" value="{{ material.consumed_qty }}"></td>
-                  <td><input class="table-input number-input" type="number" step="0.01" name="product_{{ product_index }}_material_{{ material_index }}_non_origin_cif_value" value="{{ material.non_origin_cif_value }}"></td>
-                  <td>{{ material.available_qty - material.consumed_qty }}</td>
+                  <td>
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_origin_status" value="{{ material.origin_status }}">
+                    <span class="badge {{ 'badge-ok' if material.origin_status == 'origin' else 'badge-neutral' }}">{{ 'Có xuất xứ' if material.origin_status == 'origin' else 'Không xuất xứ' }}</span>
+                  </td>
+                  <td class="num">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_available_qty" value="{{ material.available_qty }}">
+                    {{ material.available_qty }}
+                  </td>
+                  <td class="num">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_consumed_qty" value="{{ material.consumed_qty }}">
+                    {{ material.consumed_qty }}
+                  </td>
+                  <td class="num">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_non_origin_cif_value" value="{{ material.non_origin_cif_value }}">
+                    {{ material.non_origin_cif_value }}
+                  </td>
+                  <td class="num">{{ material.available_qty - material.consumed_qty }}</td>
                 </tr>
                 {% endfor %}
               </tbody>

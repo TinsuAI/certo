@@ -1228,6 +1228,46 @@ small,
   white-space: nowrap;
 }
 
+.origin-product-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+  margin: -0.25rem 0 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.origin-product-strip div {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+  border-right: 1px solid var(--border);
+  padding: 0.48rem 0.58rem;
+  background: transparent;
+}
+
+.origin-product-strip div:last-child {
+  border-right: 0;
+}
+
+.origin-product-strip span {
+  color: var(--foreground-muted);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.origin-product-strip strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .form-lane-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1342,6 +1382,16 @@ small,
   line-height: 1.25;
 }
 
+.workflow-step em {
+  align-self: end;
+  color: var(--foreground-muted);
+  font-size: 0.68rem;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .workflow-step-active {
   border-color: color-mix(in srgb, var(--primary) 52%, var(--border));
   background: color-mix(in srgb, var(--primary) 9%, var(--card));
@@ -1349,6 +1399,28 @@ small,
 
 .workflow-step-active strong {
   color: var(--foreground);
+}
+
+.workflow-step-ready {
+  border-color: color-mix(in srgb, var(--success) 36%, var(--border));
+}
+
+.workflow-step-ready em {
+  color: var(--success);
+}
+
+.workflow-step-review,
+.workflow-step-preview {
+  border-color: color-mix(in srgb, var(--warning) 34%, var(--border));
+}
+
+.workflow-step-review em,
+.workflow-step-preview em {
+  color: var(--warning);
+}
+
+.workflow-step-todo {
+  opacity: 0.78;
 }
 
 .workflow-step-card {
@@ -1976,6 +2048,7 @@ small,
   .co-flow-mini,
   .guidance-summary,
   .origin-source-strip,
+  .origin-product-strip,
   .table-toolbar {
     grid-template-columns: 1fr;
   }

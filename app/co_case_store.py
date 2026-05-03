@@ -39,17 +39,18 @@ def create_case_record(client: dict, form: dict[str, str]) -> dict:
         state = load_state(client["id"])
         created_at = now_iso()
         case_id = make_id("co-case")
+        invoice_no = clean_text(form.get("invoice_no"))
         record = {
             "case_id": case_id,
             "client_id": client["id"],
             "title": clean_text(form.get("title")) or f"Hồ sơ C/O {client['name']}",
-            "case_code": clean_text(form.get("case_code")) or "Chưa nhập",
+            "case_code": clean_text(form.get("case_code")) or generate_case_code(client, invoice_no, created_at, case_id),
             "destination_market": clean_text(form.get("destination_market")) or "Chưa nhập",
             "agreement": clean_text(form.get("agreement")),
             "co_form_type": clean_text(form.get("co_form_type")),
             "rule": clean_text(form.get("rule")),
             "shipment": {
-                "invoice_no": clean_text(form.get("invoice_no")),
+                "invoice_no": invoice_no,
                 "bill_of_lading_no": clean_text(form.get("bill_of_lading_no")),
             },
             "supporting_files": [],
@@ -190,6 +191,21 @@ def save_supporting_file(
         record["updated_at"] = uploaded_at
         save_state(client["id"], state)
         return dict(file_row)
+
+
+def get_supporting_file(client: dict, case_id: str, upload_id: str) -> tuple[dict, Path]:
+    record = get_case_record(client, case_id)
+    file_row = next((row for row in record.get("supporting_files", []) if row.get("upload_id") == upload_id), None)
+    if not file_row:
+        raise KeyError(upload_id)
+    root = case_root(client["id"]).resolve()
+    stored_path = clean_text(file_row.get("stored_path"))
+    if not stored_path:
+        raise FileNotFoundError(upload_id)
+    path = (root / stored_path).resolve()
+    if not path.is_file() or not path.is_relative_to(root):
+        raise FileNotFoundError(upload_id)
+    return dict(file_row), path
 
 
 def match_case_bcct_exports(case: dict, source_workspace: dict, client_config: dict) -> list[dict]:
@@ -449,6 +465,20 @@ def store_root() -> Path:
 
 def make_id(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:12]}"
+
+
+def generate_case_code(client: dict, invoice_no: str, created_at: str, case_id: str) -> str:
+    client_part = code_part(client.get("code") or client.get("id") or "CLIENT", "CLIENT")
+    invoice_part = code_part(invoice_no, "")
+    if not invoice_part:
+        invoice_part = code_part(created_at[:10].replace("-", ""), "DATE")
+    suffix = code_part(case_id.rsplit("-", 1)[-1][:4], "0000")
+    return f"CO-{client_part}-{invoice_part}-{suffix}"
+
+
+def code_part(value: str, fallback: str) -> str:
+    cleaned = re.sub(r"[^A-Z0-9]+", "-", clean_text(value).upper()).strip("-")
+    return cleaned or fallback
 
 
 def safe_filename(filename: str) -> str:

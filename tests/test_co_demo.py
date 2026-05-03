@@ -1,5 +1,6 @@
 import hashlib
 import os
+import re
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
@@ -1699,6 +1700,25 @@ def test_co_case_can_create_persisted_dossier_and_select_it():
     assert "Hồ sơ lưu local: CO-INV-77" not in index.text
 
 
+def test_co_case_auto_generates_case_code_and_step_status_labels():
+    client = TestClient(app)
+
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Auto code", "destination_market": "Canada", "invoice_no": "INV-AUTO"},
+        follow_redirects=False,
+    )
+
+    assert created.status_code == 303
+    detail = client.get(created.headers["location"])
+    index = client.get("/clients/growatt/co-case")
+    assert "CO-GROWATT-INV-AUTO-" in detail.text
+    assert "CO-GROWATT-INV-AUTO-" in index.text
+    assert "Chưa nhập · Auto code" not in index.text
+    assert "Đủ" in detail.text
+    assert "Cần soát" in detail.text
+
+
 def test_co_case_detail_is_split_into_workflow_step_views():
     client = TestClient(app)
     created = client.post(
@@ -1733,8 +1753,11 @@ def test_co_case_detail_is_split_into_workflow_step_views():
     assert "BCCT xuất khẩu theo invoice" in exports.text
     assert "Form và thông tư" in guidance.text
     assert "Đánh giá RVC + CTSH" in origin.text
+    assert "Tính lại snapshot" in origin.text
+    assert 'class="table-input"' not in origin.text
     assert "Upload và parse" not in origin.text
     assert "Tải seed XLSX" not in origin.text
+    assert "Xuất evidence XLSX" not in origin.text
     assert "Xuất dossier XLSX" in review.text
     assert f"{case_url}/documents" in shipment.text
     assert f"{case_url}/origin" in shipment.text
@@ -1833,6 +1856,11 @@ def test_co_case_supporting_upload_saves_invoice_metadata_and_matches_bcct_expor
     documents = client.get(f"{location}/documents")
     exports = client.get(f"{location}/exports")
     assert "invoice-INV-42.pdf" in documents.text
+    download_href = re.search(r'href="([^"]+/supporting-files/[^"]+)"', documents.text)
+    assert download_href is not None
+    downloaded = client.get(download_href.group(1))
+    assert downloaded.status_code == 200
+    assert downloaded.content == b"%PDF-1.4 invoice"
     assert "INV-42" in documents.text
     assert "BL-42" in documents.text
     assert "TP-001" in exports.text

@@ -6,7 +6,7 @@ from urllib.parse import quote
 
 from fastapi import File, Form, HTTPException, Request, UploadFile
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -21,6 +21,7 @@ from app.co_case_store import (
     create_case_workbook,
     get_case_record,
     get_case_workspace,
+    get_supporting_file,
     safe_filename,
     save_supporting_file,
     update_case_record,
@@ -220,6 +221,12 @@ CO_CASE_WORKFLOW_STEPS = [
     },
 ]
 CO_CASE_WORKFLOW_STEP_KEYS = {step["key"] for step in CO_CASE_WORKFLOW_STEPS}
+CO_CASE_STEP_STATUS_LABELS = {
+    "ready": "Đủ",
+    "todo": "Thiếu",
+    "review": "Cần soát",
+    "preview": "Preview",
+}
 
 CO_STOCK_COLUMNS = [
     {"key": "source_row", "label": "Dòng nguồn", "class": "mono"},
@@ -617,7 +624,14 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
         **extra,
     }
     context["co_case_active_step"] = current_step
-    context["co_case_steps"] = co_case_workflow_steps(client_id, context["case"], current_step)
+    context["co_case_steps"] = co_case_workflow_steps(
+        client_id,
+        context["case"],
+        current_step,
+        invoice_matches=invoice_matches,
+        criteria_rows=criteria_rows,
+        origin_demo_active=origin_demo_active,
+    )
     return context
 
 
@@ -990,33 +1004,74 @@ def co_case_context(client_id: str, case_id: str = "", current_step: str = "inde
     )
 
 
-def co_case_workflow_steps(client_id: str, case: dict, current_step: str) -> list[dict]:
+def co_case_workflow_steps(
+    client_id: str,
+    case: dict,
+    current_step: str,
+    invoice_matches: list[dict] | None = None,
+    criteria_rows: list[dict] | None = None,
+    origin_demo_active: bool = False,
+) -> list[dict]:
     case_id = case.get("persisted_case_id", "")
     base_url = f"/clients/{client_id}/co-case/{case_id}" if case_id else ""
     steps = []
     for step in CO_CASE_WORKFLOW_STEPS:
         href = base_url if step["key"] == "shipment" else f"{base_url}/{step['key']}"
+        status = co_case_step_status(
+            case,
+            step["key"],
+            invoice_matches=invoice_matches or [],
+            criteria_rows=criteria_rows or [],
+            origin_demo_active=origin_demo_active,
+        )
         steps.append({
             **step,
             "href": href,
             "active": current_step == step["key"],
-            "status": co_case_step_status(case, step["key"]),
+            "status": status,
+            "status_label": CO_CASE_STEP_STATUS_LABELS.get(status, status),
         })
     return steps
 
 
-def co_case_step_status(case: dict, step_key: str) -> str:
+def co_case_step_status(
+    case: dict,
+    step_key: str,
+    invoice_matches: list[dict] | None = None,
+    criteria_rows: list[dict] | None = None,
+    origin_demo_active: bool = False,
+) -> str:
+    invoice_matches = invoice_matches or []
+    criteria_rows = criteria_rows or []
     shipment = case.get("shipment", {})
+    has_invoice = bool(shipment.get("invoice_no"))
+    has_market = bool(case.get("destination_market") and case.get("destination_market") != "Chưa nhập")
+    has_products = bool(case.get("products") or criteria_rows)
+    has_bom_snapshot = bool(case.get("bom_snapshot", {}).get("composition"))
     if step_key == "shipment":
-        return "ready" if shipment.get("invoice_no") and case.get("destination_market") else "todo"
+        return "ready" if has_invoice and has_market else "todo"
     if step_key == "documents":
         return "ready" if case.get("supporting_files") else "todo"
     if step_key == "exports":
-        return "review"
+        if not has_invoice:
+            return "todo"
+        return "ready" if invoice_matches else "review"
     if step_key == "guidance":
-        return "review"
+        if not has_market:
+            return "todo"
+        return "ready" if invoice_matches else "preview"
     if step_key == "origin":
-        return "preview"
+        if origin_demo_active:
+            return "preview"
+        if invoice_matches and has_products and has_bom_snapshot:
+            return "review"
+        if has_products or invoice_matches:
+            return "preview"
+        return "todo"
+    if step_key == "review":
+        if has_invoice and invoice_matches and has_products:
+            return "ready"
+        return "preview" if has_products else "todo"
     return "todo"
 
 
@@ -1469,6 +1524,19 @@ async def upload_co_case_supporting_file(
             context=co_case_context(client_id, case_id, "documents", error=str(exc)),
         )
     return RedirectResponse(f"/clients/{client_id}/co-case/{case_id}/documents", status_code=303)
+
+
+@app.get("/clients/{client_id}/co-case/{case_id}/supporting-files/{upload_id}")
+async def download_co_case_supporting_file(client_id: str, case_id: str, upload_id: str):
+    try:
+        file_row, path = get_supporting_file(resolve_client(client_id), case_id, upload_id)
+    except (KeyError, FileNotFoundError):
+        raise HTTPException(status_code=404) from None
+    return FileResponse(
+        path,
+        media_type=file_row.get("mime_type") or file_row.get("content_type") or "application/octet-stream",
+        filename=file_row.get("original_filename") or file_row.get("filename") or "supporting-file",
+    )
 
 
 @app.post("/clients/{client_id}/co-case/{case_id}/export")
