@@ -1,11 +1,12 @@
 # Project Status
 
-**Date:** 2026-05-04 (late session — 5-slice unified upload sprint shipped)
+**Date:** 2026-05-04 (end of unified-upload-sprint + screenshot walk)
 
 ## Current State
 
 The **unified flexible upload flow** is shipped end-to-end across all
-4 modules (catalog + BQD + BOM-manual_flat + BCCT). Cache-aware
+4 modules (catalog + BQD + BOM-manual_flat + BCCT) with 20 committed
+screenshots covering mapping page + preview per module. Cache-aware
 2-stage flow with mapping page + LLM suggestion + skipped-row
 inline-edit on preview, fully consistent UX across modules. Layout-
 driven BOM adapters keep their existing direct-to-preview path;
@@ -13,6 +14,8 @@ technical_flatten preserved.
 
 HEAD trail (newest first):
 
+- `3f06586 docs(uploads): screenshot walk for unified upload flow`
+- `6598cff chore(uploads): slice 5 cleanup + sprint handoff`
 - `27aa5c1 feat(uploads): unified mapping flow — slice 4 (bcct)`
 - `b278ff5 feat(uploads): unified mapping flow — slice 3 (bom manual_flat)`
 - `a8126a5 feat(uploads): unified mapping flow — slice 2 (bqd)`
@@ -46,11 +49,21 @@ tests at any slice.
   Parser tuple return + new mapping page endpoints; cache-hit path
   preserved; the bespoke `parse-mapping/{upload_id}` endpoints
   unreachable from the new flow. 4 tests.
-- **Slice 5 (this commit)** — cleanup: deleted `bcct_parse_mapping.html`
+- **Slice 5 (commit `6598cff`)** — cleanup: deleted `bcct_parse_mapping.html`
   + the 4 dead BCCT parse-mapping endpoints + `_request_llm_mapping`
   helper. `_llm_fallback.py` retained — its module-agnostic helpers
   (lookup_cached_mapping, cache_confirmed_mapping, etc.) are reused by
   `_mapping_flow.py` and by BOM's layout-driven cascade.
+- **Screenshot walk (commit `3f06586`)** — `scripts/screenshot_unified_upload.py`
+  drives the live UI via Playwright across all 4 modules. 20 screenshots
+  committed under
+  `.ai/features/2026-05-04-flexible-catalog-intake/screenshots/`:
+  4 module landing pages + 4 × (mapping_page + preview) for VN-header
+  fixtures (rigid auto-match works) + 4 × mapping_page + parse-error
+  for English-header fixtures (rigid alias miss; staff would click
+  "Apply LLM suggestion" or fill manually). BCCT preview snapshots
+  capture the existing confirm-on-update / "Hủy" UI which slice 4
+  intentionally preserved.
 
 ## Sprint outcome — what shipped
 
@@ -97,11 +110,6 @@ Module-specific knobs:
 
 ## Sprint outcome — what was NOT done
 
-- **Manual UI screenshot run** (Playwright on the dev server walking
-  the 30 manual cases). Tests pass end-to-end and prove the flow is
-  correct, but visual screenshots are not captured. Deferred to a
-  follow-up session — needs interactive browser automation that
-  wasn't worth the session budget after 4 slices of code.
 - **`_llm_fallback.py` retirement.** It's still used as the building
   blocks for `_mapping_flow.py` (lookup_cached_mapping, etc.) AND by
   BOM's layout-driven cascade and BCCT's cache-hit recovery path.
@@ -113,15 +121,21 @@ Module-specific knobs:
   `data/source_inventory/feedable_candidates.csv` for catalog, plus
   the BQD/BOM/BCCT real fixtures. Tests prove correctness on
   synthetic fixtures; real-data smoke is a follow-up validation step.
+- **Persistent rigid-match for English headers** in BQD/BOM. Catalog
+  + BCCT rigid alias dicts cover EN aliases; BQD/BOM rigid still misses
+  English-only files (mapping page + LLM suggestion handles them, but
+  staff has to click through). Adding EN aliases to BQD/BOM ALIASES is
+  a 5-line change documented in BACKLOG.
 
 ## Next Steps
 
-1. **Manual UI screenshot run** for the 30 manual cases (catalog 10 +
-   BQD 5 + BOM 7 + BCCT 8). Commit screenshots under
-   `.ai/features/2026-05-04-flexible-catalog-intake/screenshots/`.
-2. **Real-data smoke**: walk the 21 catalog rejects through the new
+1. **Real-data smoke**: walk the 21 catalog rejects from
+   `data/source_inventory/feedable_candidates.csv` through the new
    mapping page; document which now parse vs which need additional
    parser work (DKE BOM/định mức adapter, CO ToKhaiHQ7* adapter, etc.).
+2. **Add EN aliases to BQD + BOM ALIASES** (5-line change per module)
+   so English-header files don't need staff to manually map every
+   column. Catalog + BCCT already have EN aliases.
 3. **Sister-app coordination** for CO migration cutover (deadline
    2026-05-16). Read APIs unchanged so consumers see the same shape;
    no breaking change. Optionally update `co-migrate-to-client-config`

@@ -163,19 +163,44 @@ tests at any slice.
 
 ## Open Items
 
-1. **Manual UI screenshot run** for the 30 manual cases (catalog 10 +
-   BQD 5 + BOM 7 + BCCT 8) via Playwright. Commit under
-   `.ai/features/2026-05-04-flexible-catalog-intake/screenshots/`.
-2. **Real-data smoke**: walk the 21 catalog rejects in
+1. **Real-data smoke**: walk the 21 catalog rejects in
    `data/source_inventory/feedable_candidates.csv` through the new
    mapping page; document which now parse vs which need additional
    parser/adapter work.
+2. **Add EN aliases to BQD + BOM ALIASES** (~5 lines per module) so
+   English-header files rigid-match without staff click-through.
+   Catalog + BCCT already cover EN.
 3. **Per-client required-fields override** — needs new column on
    `hub.client_config` or a new generic
    `hub.client_module_settings(client_id, module, key, value JSONB)`
    table.
 4. **CO migration cutover** deadline 2026-05-16, 12 days remaining.
    Read APIs unchanged; no breaking change for consumers.
+
+## Addendum — screenshot walk (after slice 5 handoff)
+
+User asked to capture screenshots after the sprint handoff. Wrote
+`scripts/screenshot_unified_upload.py` (Playwright over chromium) that
+drives the live UI on `http://127.0.0.1:8754` through 8 cases per
+module, saves PNGs under
+`.ai/features/2026-05-04-flexible-catalog-intake/screenshots/`,
+rejects each pending so DB stays clean.
+
+First run: 12/20 captures errored — `page.click('button[type="submit"]')`
+matched 11 buttons (notification widget has its own submit). Fixed by
+scoping selector to `form[enctype="multipart/form-data"] button[type="submit"]`.
+
+Second run (commit `3f06586`): 20 screenshots captured.
+- Catalog rigid + EN headers: full flow works (mapping → preview).
+- BQD rigid: works. BQD EN headers: rigid alias miss → 400 on parse
+  (staff would use LLM suggest). Documented as BACKLOG item.
+- BOM same as BQD.
+- BCCT rigid + EN headers: mapping → preview works (rigid covers EN).
+  BCCT preview uses "Hủy" not "Reject" (existing template; slice 4
+  intentionally preserved). Reject script step fails non-fatally.
+
+All 20 screenshots are valid documentation snapshots. Future runs of
+the script are idempotent (rejects each pending it creates).
 
 ## Files Touched (whole sprint)
 
