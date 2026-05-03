@@ -161,6 +161,103 @@ This is **time-scoped, not permanent**. Phase 2 may revisit if a real driver app
 
 ---
 
+## 2026-05-03 PM Ghost-code policy: tolerate + surface, never auto-derive from BOM
+
+**Context:** Audit during the parser-quality sprint surfaced a 99.8 %
+gap on Growatt: `hub.materials` has 16 rows but BOM uses 2440 distinct
+material_codes and BCCT seen 301 distinct customs_codes. The pattern
+holds because Growatt's BOM rows are written with **supplier-internal
+codes** (Mã NB), only some of which map to HQ-registered customs codes
+via `code_mappings` (BQD). Many leaf-material codes legitimately have
+no HQ registration — they're supplier-internal-only references.
+
+The temptation: extend the existing `derive_from_bcct` auto-derivation
+helper to ALSO derive from BOM, materializing a catalog row for every
+ghost code. That would close the gap fast.
+
+**Decision:** Do **not** auto-derive catalog rows from BOM. Instead,
+**tolerate ghost codes and surface their count** so staff can review
+and decide register-vs-ignore per code.
+
+Engineering work that lands now:
+- A `bom_unresolved_material_count(client_id)` helper that counts BOM
+  material_codes failing all three resolution paths
+  (materials.customs_code, materials.internal_code, code_mappings.internal_code).
+- A soft toast on the catalog page exposing the count + a hint that
+  the codes may be legitimate supplier-internal OR a sign that DS NVL
+  / BQD upload is incomplete.
+
+**Alternatives considered:**
+
+- **(a) Auto-derive from BOM (rejected).** Would mint catalog rows
+  with no HQ-registration provenance, then later confuse "really
+  registered" vs "fabricated by tooling". Compliance audit needs to
+  trace every catalog row back to a registration event; auto-derive
+  from BOM violates that.
+- **(b) FK constraint + reject ghost BOM rows (rejected for now).**
+  Would block legitimate uploads where the agency genuinely uses
+  supplier-only codes. Could revisit once 100 % of clients have
+  uploaded their authoritative DS NVL.
+- **(c) Tolerate + surface (chosen).** The catalog page surfaces the
+  gap; staff is the human that decides each code's status. Engineering
+  doesn't fabricate provenance.
+
+**Consequences:**
+- Real-data audit shows ~2434 BOM-only codes for `growatt-vn` —
+  expected, not a bug.
+- Staff sees the count badge on the catalog page; they can resolve a
+  ghost by either uploading a complete DS NVL, adding a BQD entry, or
+  manually adding the code to the catalog with explicit "user_added"
+  provenance (catalog UI affordance, planned).
+- BCQT consumers that try to settle a BOM whose materials don't
+  resolve will surface the same gap symptomatically; eventually they
+  may want a stricter contract from Data Hub. Out of scope until BCQT
+  cutover sprint.
+- Sister-app note in `.ai/sister-app-notes/` if/when this changes.
+
+---
+
+## 2026-05-03 PM Future-migration checklist (Sprint A/B/C lessons)
+
+**Context:** Two recent migrations (024, 025) had latent fragility the
+plan-review critic surfaced — a NULL `STT hàng` row would have
+silently survived 025's preflight; 025's currency overwrite would have
+erased rows that used `Nguyên tệ` header instead of `Đơn vị tiền tệ`.
+Neither caused current corruption (corpus uniform), but the pattern
+will bite future migrations.
+
+**Decision:** When a migration backfills typed columns from the
+`payload` jsonb of `hub.bcct_rows` (or any other source-preserving
+jsonb), follow this checklist:
+
+1. **Coalesce all known alternative header names**, not just one
+   canonical key. Example for `currency`:
+   `coalesce(payload->>'Đơn vị tiền tệ', payload->>'Nguyên tệ')` —
+   not just the first.
+2. **Pre-flight count BOTH the populated and the NULL cases** for any
+   key the migration depends on. A pre-flight that filters
+   `where key IS NOT NULL` misses rows that need the migration but
+   are excluded from the count, leading to mid-flight UPDATE order
+   collisions.
+3. **Drop and re-add the PK around UPDATE blocks that change PK
+   columns** (migration 025 hit a transient collision during single-
+   statement UPDATE). NOT the same as `DEFERRABLE INITIALLY DEFERRED`
+   — Postgres validates PK at end-of-statement, not end-of-tx, so
+   UPDATE that swaps two rows' PKs needs the drop-and-re-add pattern.
+4. **Disable user-defined triggers** (e.g., `trg_bcct_row_history`)
+   for bulk system rewrites; don't try to disable system FK triggers
+   (`alter table ... disable trigger all` fails with permission denied
+   on system constraint triggers).
+
+**Alternatives:** Could enforce via a migration-template / linter — too
+heavy for current pace. The checklist + a `/rev` review on every
+migration PR is the right level.
+
+**Consequences:** Future migrations review against this list. If
+checklist grows past ~5 items, promote to a real lint.
+
+---
+
 ## Decisions to add post-discovery
 
 (Placeholder — entries to be written during/after M9 discovery sprint)
