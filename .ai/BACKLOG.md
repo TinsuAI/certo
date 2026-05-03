@@ -8,6 +8,67 @@ For past architectural decisions, see `DECISIONS.md`.
 
 ---
 
+## Sprint D — parser/data architectural follow-ups (post-Sprints A/B/C)
+
+**Captured 2026-05-03 PM** after Sprints A/B/C closed the immediate
+correctness gaps. Each item below is its own PR (per plan-review
+critic: "uncoupled changes — don't bundle"). No fixed order; ship in
+parallel as bandwidth allows.
+
+- **D1: `hub.declaration_types` lookup table.** Replace the hardcoded
+  `IMPORT_TYPES` / `EXPORT_TYPES` Python sets in `app/parsers/bcct.py`
+  with a DB-seeded table sourced from Decision 1357/QĐ-TCHQ. Direction
+  becomes a SQL JOIN; future schedule revisions are a seed-INSERT
+  migration not a code release.
+
+- **D2: `transaction_key` GENERATED ALWAYS AS column.** Make
+  `transaction_key = '{declaration_no}-{line_no}'` a stored generated
+  column on `hub.bcct_rows` so the invariant cannot drift. Migration
+  touches every BCCT insert path; ship as its own PR.
+
+- **D3: `normalized_hash` Decimal end-to-end + dual-version migration.**
+  `app/stores/bom.py:normalized_hash` currently does
+  `round(float(...), 9)` — float arithmetic drift undermines
+  idempotency. Switching to Decimal changes every existing version's
+  hash. Need a phase-in plan: compute v2 hash on writes, store both
+  v1 + v2 during transition, dual-check on insert until backfill.
+
+- **D4: Idempotency canonical-projection re-design.** Critic flagged
+  that re-uploading the same Excel after fixing an unrelated catalog
+  row currently silently dedup's because `normalized_hash` doesn't
+  cover the upload-context dimension. Discovery doc first, then
+  decide: log audit event on dedup-hit, OR widen the canonical
+  projection, OR both.
+
+- **D5: SAP indented-walk level-skip handling.** Reject (or pad with
+  sentinel parents) BOM workbooks where indent levels skip
+  non-contiguously (e.g. L2 → L4 missing L3). Need a real Johnson SAP
+  sample exhibiting the case to reproduce — fixture
+  `johnson_sap_english_headers.xlsx` may already cover it; verify
+  before writing speculative code.
+
+- **D6: BOM idempotency unique index audit.** Same
+  uq_bom_idempotent_v2 design — verify the (`actor`, `intent`)
+  column tuple is the right granularity vs upload identity.
+
+- **D7: Fixture-pinned regression test for BOM-vs-CO compare.**
+  Replace the gitignored `data/screenshots/_compare_report.md` with
+  `tests/regression/test_real_bom_compare.py` env-gated, pinning
+  per-file leaf-set match thresholds against checked-in fixture
+  corpus.
+
+- **D8: Cross-table `hub.integrity_findings` materialized view.**
+  Surface every catalog-vs-BOM-vs-BCCT inconsistency in one place
+  (orphan BTP_SX, UOM mismatches, ghost codes, etc.). Defer until 3+
+  consumers want the same data — currently the per-page badges from
+  Sprint B cover MVP need.
+
+- **D9: `bcct_rows.bom_version_id` point-of-use binding.** Already
+  designed in `.ai/features/2026-04-30-data-hub-mvp.md` (BCQT-side).
+  Implement when BCQT migration sprint lands.
+
+---
+
 ## CO + BCQT — adopt service-account JWTs
 
 **Captured 2026-05-02 PM.** Ship-blocking dependency for "API auth strict
