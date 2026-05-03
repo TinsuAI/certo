@@ -53,9 +53,14 @@ _pool = None  # populated on first connect() call against the default URL
 def _reset_session_state(conn) -> None:
     """Called by the pool on every check-in (putconn). Clears the
     `app.user_id` GUC so SESSION-scoped state from one request can't
-    leak into the next when the same physical connection is reused."""
+    leak into the next when the same physical connection is reused.
+
+    `set_config` runs inside an implicit transaction; commit before
+    returning so the pool sees the connection in IDLE state, not
+    INTRANS (which it would discard)."""
     with conn.cursor() as cur:
         cur.execute("select set_config('app.user_id', '', false)")
+    conn.commit()
 
 
 def _open_pool(*, min_size: int, max_size: int):

@@ -30,6 +30,12 @@ from app.routes._mapping_flow import (
     render_mapping_page_context,
     render_mapping_page_with_llm_suggestion,
 )
+from app.routes._paging import (
+    SortSpec,
+    pagination_context,
+    parse_page_params,
+    sort_link,
+)
 from app.routes.clients import get_client, stats_for_client
 from app.storage import save_upload, sha256_bytes
 from app.stores.staleness import freshness_for_template
@@ -117,7 +123,18 @@ async def list_view(request: Request, client_id: str,
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
-    items = _list_bcct(client_id, year, direction, q)
+    page_params = parse_page_params(query_params=request.query_params)
+    sort = SortSpec.from_params(
+        query_params=request.query_params,
+        whitelist=BCCT_SORT_WHITELIST, default=BCCT_SORT_DEFAULT,
+    )
+    order_by = sort.sql_clause(tiebreakers=BCCT_SORT_TIEBREAKERS)
+    items = _list_bcct(
+        client_id, year, direction, q,
+        order_by=order_by,
+        limit=page_params.page_size, offset=page_params.offset,
+    )
+    total = _count_bcct(client_id, year, direction, q)
     years = _years(client_id)
     upload_summary = None
     if ingested is not None:
@@ -127,12 +144,19 @@ async def list_view(request: Request, client_id: str,
             "deleted": deleted or 0, "noop": noop or 0,
             "skipped": skipped or 0,
         }
+    paging_ctx = pagination_context(
+        request=request, page_params=page_params, total=total,
+    )
+
+    def _sort_link(col: str) -> str:
+        return sort_link(request=request, column=col, current_sort=sort)
     return request.app.state.templates.TemplateResponse(
         request, "clients/bcct.html",
         {"client": client, "stats": stats_for_client(client_id),
          "items": items, "years": years,
          "year": year, "direction": direction, "q": q or "",
          "upload_summary": upload_summary,
+         "paging": paging_ctx, "sort": sort, "sort_link": _sort_link,
          "freshness": freshness_for_template(request, client_id, "bcct"),
          "active_root": "clients", "active_tab": "bcct"},
     )
@@ -894,9 +918,45 @@ async def upload_preview_confirm(request: Request, client_id: str, pending_id: s
     )
 
 
+# Sort whitelist for the BCCT list view. Keys are URL-facing names
+# (?sort=...); values are SQL fragments. Tiebreakers follow the
+# primary in ORDER BY for stable pagination.
+BCCT_SORT_WHITELIST = {
+    "registration_date": "b.registration_date",
+    "declaration_no": "b.declaration_no",
+    "customs_code": "b.customs_code",
+    "internal_code": "b.internal_code",
+}
+BCCT_SORT_DEFAULT = ("registration_date", "desc")
+BCCT_SORT_TIEBREAKERS = ("b.declaration_no", "b.line_no")
+
+
+def _bcct_where_clause(client_id: str, year: int | None,
+                       direction: str | None, q: str | None
+                       ) -> tuple[str, list]:
+    """Build the shared WHERE clause + params used by both the
+    paginated list query and the count query."""
+    sql = "where b.client_id = %s"
+    params: list = [client_id]
+    if year:
+        sql += " and b.year = %s"
+        params.append(year)
+    if direction:
+        sql += " and b.direction = %s"
+        params.append(direction)
+    if q:
+        sql += (" and (b.declaration_no ilike %s or b.customs_code ilike %s "
+                "or b.internal_code ilike %s or b.goods_name ilike %s)")
+        like = f"%{q}%"
+        params.extend([like, like, like, like])
+    return sql, params
+
+
 def _list_bcct(client_id: str, year: int | None, direction: str | None,
-               q: str | None) -> list[dict]:
-    sql = """
+               q: str | None, *, order_by: str, limit: int, offset: int
+               ) -> list[dict]:
+    where, params = _bcct_where_clause(client_id, year, direction, q)
+    sql = f"""
         select b.transaction_key, b.line_no, b.declaration_no, b.declaration_type,
                b.direction, b.registration_date, b.customs_code, b.internal_code,
                b.goods_name, b.hs_code, b.quantity, b.unit, b.total_value,
@@ -904,35 +964,34 @@ def _list_bcct(client_id: str, year: int | None, direction: str | None,
                coalesce(h.event_count, 0) as history_count,
                h.last_changed_at
         from hub.bcct_rows b
-        left join (
-          select client_id, transaction_key, line_no,
-                 count(*) as event_count,
-                 max(changed_at) as last_changed_at
-          from hub.bcct_row_history
-          group by client_id, transaction_key, line_no
-        ) h on h.client_id = b.client_id
-           and h.transaction_key = b.transaction_key
-           and h.line_no = b.line_no
-        where b.client_id = %s
+        left join lateral (
+          select count(*) as event_count, max(changed_at) as last_changed_at
+          from hub.bcct_row_history hh
+          where hh.client_id = b.client_id
+            and hh.transaction_key = b.transaction_key
+            and hh.line_no = b.line_no
+        ) h on true
+        {where}
+        order by {order_by}
+        limit %s offset %s
     """
-    params: list = [client_id]
-    if year:
-        sql += " and year = %s"
-        params.append(year)
-    if direction:
-        sql += " and direction = %s"
-        params.append(direction)
-    if q:
-        sql += """ and (declaration_no ilike %s or customs_code ilike %s
-                        or internal_code ilike %s or goods_name ilike %s)"""
-        like = f"%{q}%"
-        params.extend([like, like, like, like])
-    sql += " order by registration_date desc nulls last, declaration_no, line_no limit 1000"
+    params = [*params, limit, offset]
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def _count_bcct(client_id: str, year: int | None, direction: str | None,
+                q: str | None) -> int:
+    where, params = _bcct_where_clause(client_id, year, direction, q)
+    sql = f"select count(*) from hub.bcct_rows b {where}"
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            (n,) = cur.fetchone()
+    return n
 
 
 def _years(client_id: str) -> list[int]:

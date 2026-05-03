@@ -16,6 +16,18 @@
 </div>
 {% endif %}
 
+{% macro sort_th(col, label) -%}
+  {% set is_active = sort.column == col %}
+  <th class="sortable {% if is_active %}sort-active{% endif %}">
+    <a href="{{ sort_link(col) }}" title="Sắp xếp theo {{ label }}">
+      {{ label }}
+      {%- if is_active %}
+        <span class="sort-arrow">{% if sort.direction == 'asc' %}▲{% else %}▼{% endif %}</span>
+      {%- endif %}
+    </a>
+  </th>
+{%- endmacro %}
+
 <section class="zone">
   <div class="zone-head">
     <div>
@@ -29,7 +41,7 @@
 
   <div class="chip-row">
     <a class="chip {{ 'chip-active' if not direction else '' }}"
-       href="/clients/{{ client.client_id }}/bcct{% if year %}?year={{ year }}{% endif %}">{{ t('common.all') }} ({{ items|length }})</a>
+       href="/clients/{{ client.client_id }}/bcct{% if year %}?year={{ year }}{% endif %}">{{ t('common.all') }} ({{ paging.total }})</a>
     <a class="chip {{ 'chip-active' if direction == 'import' else '' }}"
        href="/clients/{{ client.client_id }}/bcct?direction=import{% if year %}&year={{ year }}{% endif %}">{{ t('bcct.direction.import') }}</a>
     <a class="chip {{ 'chip-active' if direction == 'export' else '' }}"
@@ -43,6 +55,10 @@
   <form method="get" action="/clients/{{ client.client_id }}/bcct" class="stack-form" style="margin: 1rem 0; max-width: 720px;">
     {% if direction %}<input type="hidden" name="direction" value="{{ direction }}">{% endif %}
     {% if year %}<input type="hidden" name="year" value="{{ year }}">{% endif %}
+    {% if sort.column != 'registration_date' or sort.direction != 'desc' %}
+      <input type="hidden" name="sort" value="{{ sort.column }}">
+      <input type="hidden" name="dir" value="{{ sort.direction }}">
+    {% endif %}
     <input type="search" name="q" value="{{ q }}" placeholder="{{ t('bcct.search_placeholder') }}">
   </form>
 
@@ -50,13 +66,13 @@
   <table class="dh-table">
     <thead>
       <tr>
-        <th>{{ t('bcct.col.declaration_no') }}</th>
+        {{ sort_th('declaration_no', t('bcct.col.declaration_no')) }}
         <th>{{ t('bcct.col.line') }}</th>
         <th>{{ t('bcct.col.type') }}</th>
         <th>{{ t('bcct.col.direction') }}</th>
-        <th>{{ t('bcct.col.date') }}</th>
-        <th>{{ t('bcct.col.customs_code') }}</th>
-        <th>{{ t('bcct.col.internal_code') }}</th>
+        {{ sort_th('registration_date', t('bcct.col.date')) }}
+        {{ sort_th('customs_code', t('bcct.col.customs_code')) }}
+        {{ sort_th('internal_code', t('bcct.col.internal_code')) }}
         <th>{{ t('bcct.col.goods_name') }}</th>
         <th>{{ t('bcct.col.qty') }}</th>
         <th>{{ t('bcct.col.unit') }}</th>
@@ -99,10 +115,16 @@
       {% endfor %}
     </tbody>
   </table>
+  {% include "clients/_pagination.html" %}
   {% else %}
   <div class="empty-state">
+    {% if q or year or direction %}
+    <p>Không có kết quả với bộ lọc hiện tại.</p>
+    <a class="btn-ghost" href="/clients/{{ client.client_id }}/bcct">Xóa bộ lọc</a>
+    {% else %}
     <p>{{ t('bcct.empty') }}</p>
     <a class="btn-primary" href="/clients/{{ client.client_id }}/bcct/upload">{{ t('bcct.upload_btn') }}</a>
+    {% endif %}
   </div>
   {% endif %}
 </section>

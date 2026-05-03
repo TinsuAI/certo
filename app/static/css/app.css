@@ -2574,3 +2574,69 @@ input[type="submit"].btn-primary { padding: 0.5rem 0.95rem; }
   background: var(--surface-subtle);
   border-radius: var(--radius-md);
 }
+
+/* Pagination footer (clients/_pagination.html) */
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin: 1rem 0;
+  padding: 0.7rem 0.9rem;
+  background: var(--surface-alt, #f7f8fc);
+  border: 1px solid var(--border, #e3e6ee);
+  border-radius: var(--radius-md, 6px);
+  font-size: 0.85rem;
+}
+.pager-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.pager-controls .btn-ghost {
+  display: inline-block;
+  min-width: 2rem;
+  padding: 0.25rem 0.55rem;
+  text-align: center;
+  border: 1px solid var(--border, #e3e6ee);
+  border-radius: 4px;
+  background: var(--surface, #fff);
+  color: var(--text, inherit);
+  text-decoration: none;
+  line-height: 1.2;
+}
+.pager-controls .btn-ghost:hover {
+  background: var(--surface-hover, #f0f1f5);
+}
+.pager-controls .btn-disabled {
+  color: var(--text-muted, #9aa0ad);
+  background: transparent;
+  cursor: not-allowed;
+}
+.pager-page { padding: 0 0.6rem; }
+.pager-size a {
+  color: var(--primary, #3057d6);
+  text-decoration: none;
+  margin: 0 0.15rem;
+}
+.pager-size a:hover { text-decoration: underline; }
+.pager-size strong { padding: 0 0.15rem; color: var(--text, inherit); }
+
+/* Sortable column headers */
+.dh-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.dh-table th.sortable a {
+  color: inherit;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.dh-table th.sortable .sort-arrow {
+  font-size: 0.7rem;
+  color: var(--text-soft, #5b6478);
+}
+.dh-table th.sortable.sort-active a { color: var(--primary, #3057d6); }
