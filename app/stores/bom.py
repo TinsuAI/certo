@@ -224,7 +224,15 @@ def _next_version_no_for_variant(cur, *, client_id: str, product_code: str,
     return n
 
 
-def list_products_with_bom(client_id: str) -> list[dict]:
+_BOM_PRODUCTS_ORDER_DEFAULT = (
+    "a.n_non_flattened desc, a.last_published desc nulls last"
+)
+
+
+def list_products_with_bom(client_id: str, *,
+                           q: str | None = None,
+                           order_by: str = _BOM_PRODUCTS_ORDER_DEFAULT,
+                           limit: int = 50, offset: int = 0) -> list[dict]:
     """List BOM products plus flatten-aware metadata per product.
 
     Per-product fields:
@@ -239,45 +247,51 @@ def list_products_with_bom(client_id: str) -> list[dict]:
       product_kind:         'btp' if hub.materials.category in (btp_sx,btp_nm),
                             else 'tp'. Falls back to 'tp' when no catalog entry.
     Used by bom.html for status badges + the All/Flattened/Non-flattened filter.
+
+    `q` filters by product_code substring (ILIKE). `order_by`,
+    `limit`, `offset` drive pagination + caller-chosen sort.
     """
+    where_q = ""
+    params_q: list = []
+    if q:
+        where_q = " and product_code ilike %s"
+        params_q = [f"%{q}%"]
+    sql = f"""
+        with v as (
+            select product_code, version_no, published_at, flatten_status,
+                   flatten_strategy,
+                   row_number() over (
+                       partition by product_code
+                       order by published_at desc nulls last, version_no desc
+                   ) as rn
+            from hub.bom_versions
+            where client_id = %s and tombstoned_at is null{where_q}
+        ),
+        aggr as (
+            select product_code,
+                   count(*) as n_versions,
+                   count(*) filter (where flatten_status in ('flattened','not_applicable')) as n_flattened,
+                   count(*) filter (where flatten_status = 'non_flattened') as n_non_flattened,
+                   count(distinct flatten_strategy) filter (where flatten_status = 'flattened') as n_strategies,
+                   max(version_no) as latest_version,
+                   max(published_at) as last_published
+            from v group by product_code
+        )
+        select a.product_code, a.n_versions, a.n_flattened, a.n_non_flattened,
+               a.n_strategies, a.latest_version, a.last_published,
+               latest.flatten_status as latest_flatten_status,
+               coalesce(m.category, 'tp') as raw_category
+        from aggr a
+        left join v latest on latest.product_code = a.product_code and latest.rn = 1
+        left join hub.materials m
+               on m.client_id = %s and m.customs_code = a.product_code
+        order by {order_by}
+        limit %s offset %s
+    """
+    params = [client_id, *params_q, client_id, limit, offset]
     with connect() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                with v as (
-                    select product_code, version_no, published_at, flatten_status,
-                           flatten_strategy,
-                           row_number() over (
-                               partition by product_code
-                               order by published_at desc nulls last, version_no desc
-                           ) as rn
-                    from hub.bom_versions
-                    where client_id = %s and tombstoned_at is null
-                ),
-                aggr as (
-                    select product_code,
-                           count(*) as n_versions,
-                           count(*) filter (where flatten_status in ('flattened','not_applicable')) as n_flattened,
-                           count(*) filter (where flatten_status = 'non_flattened') as n_non_flattened,
-                           count(distinct flatten_strategy) filter (where flatten_status = 'flattened') as n_strategies,
-                           max(version_no) as latest_version,
-                           max(published_at) as last_published
-                    from v group by product_code
-                )
-                select a.product_code, a.n_versions, a.n_flattened, a.n_non_flattened,
-                       a.n_strategies, a.latest_version, a.last_published,
-                       latest.flatten_status as latest_flatten_status,
-                       coalesce(m.category, 'tp') as raw_category
-                from aggr a
-                left join v latest on latest.product_code = a.product_code and latest.rn = 1
-                left join hub.materials m
-                       on m.client_id = %s and m.customs_code = a.product_code
-                order by
-                  a.n_non_flattened desc,        -- non_flattened up top
-                  a.last_published desc nulls last
-                """,
-                (client_id, client_id),
-            )
+            cur.execute(sql, params)
             cols = [d[0] for d in cur.description]
             out = []
             for r in cur.fetchall():
@@ -287,6 +301,26 @@ def list_products_with_bom(client_id: str) -> list[dict]:
                 d["n_dual_variants"] = d.pop("n_strategies")
                 out.append(d)
             return out
+
+
+def count_products_with_bom(client_id: str, *, q: str | None = None) -> int:
+    """Count distinct BOM products matching the same filter shape as
+    `list_products_with_bom`."""
+    where_q = ""
+    params: list = [client_id]
+    if q:
+        where_q = " and product_code ilike %s"
+        params.append(f"%{q}%")
+    sql = f"""
+        select count(distinct product_code)
+        from hub.bom_versions
+        where client_id = %s and tombstoned_at is null{where_q}
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            (n,) = cur.fetchone()
+    return n
 
 
 def list_versions_for_product(*, client_id: str, product_code: str) -> list[dict]:

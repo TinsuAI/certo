@@ -25,8 +25,32 @@
   </div>
   {% endif %}
 
+  {% macro sort_th(col, label) -%}
+    {% set is_active = sort.column == col %}
+    <th class="sortable {% if is_active %}sort-active{% endif %}">
+      <a href="{{ sort_link(col) }}" title="Sắp xếp theo {{ label }}">
+        {{ label }}
+        {%- if is_active %}
+          <span class="sort-arrow">{% if sort.direction == 'asc' %}▲{% else %}▼{% endif %}</span>
+        {%- endif %}
+      </a>
+    </th>
+  {%- endmacro %}
+
+  <form method="get" action="/clients/{{ client.client_id }}/bom"
+        class="stack-form" style="margin: 1rem 0; max-width: 600px;">
+    {% if sort.column != 'last_published' or sort.direction != 'desc' %}
+      <input type="hidden" name="sort" value="{{ sort.column }}">
+      <input type="hidden" name="dir" value="{{ sort.direction }}">
+    {% endif %}
+    <input type="search" name="q" value="{{ q }}"
+           placeholder="Tìm theo mã sản phẩm…">
+  </form>
+
   {% if products %}
-  {# Counts for filter chips #}
+  {# Counts for filter chips — applied to current page only.
+     Page-level filtering is client-side; chip totals reflect what's
+     visible on screen, while paging.total is the absolute count. #}
   {% set ns = namespace(flat=0, nflat=0) %}
   {% for p in products %}
     {% if p.n_non_flattened > 0 %}{% set ns.nflat = ns.nflat + 1 %}{% endif %}
@@ -35,25 +59,25 @@
 
   <div class="flatten-version-filters" style="margin-bottom: 0.8rem;">
     <span class="filter-chip is-active" data-filter="all">
-      {{ t('bom.list.filter_all') }} · {{ products|length }}
+      {{ t('bom.list.filter_all') }} · {{ paging.total }}
     </span>
     <span class="filter-chip" data-filter="flattened">
-      ✓ {{ t('bom.list.filter_flattened') }} · {{ ns.flat }}
+      ✓ {{ t('bom.list.filter_flattened') }} · {{ ns.flat }} (trang)
     </span>
     <span class="filter-chip" data-filter="non_flattened">
-      ⚠ {{ t('bom.list.filter_non_flattened') }} · {{ ns.nflat }}
+      ⚠ {{ t('bom.list.filter_non_flattened') }} · {{ ns.nflat }} (trang)
     </span>
   </div>
 
   <table class="dh-table" id="bom-products-table">
     <thead>
       <tr>
-        <th>{{ t('bom.col.product') }}</th>
+        {{ sort_th('product_code', t('bom.col.product')) }}
         <th></th>
         <th>{{ t('common.status') }}</th>
-        <th>{{ t('bom.col.versions') }}</th>
+        {{ sort_th('n_versions', t('bom.col.versions')) }}
         <th>{{ t('bom.col.latest') }}</th>
-        <th>{{ t('bom.col.last_published') }}</th>
+        {{ sort_th('last_published', t('bom.col.last_published')) }}
         <th></th>
       </tr>
     </thead>
@@ -116,10 +140,16 @@
       }));
     })();
   </script>
+  {% include "clients/_pagination.html" %}
   {% else %}
   <div class="empty-state">
+    {% if q %}
+    <p>Không có sản phẩm khớp "{{ q }}".</p>
+    <a class="btn-ghost" href="/clients/{{ client.client_id }}/bom">Xóa bộ lọc</a>
+    {% else %}
     <p>{{ t('bom.empty') }}</p>
     <a class="btn-primary" href="/clients/{{ client.client_id }}/bom/upload">{{ t('bom.upload_btn') }}</a>
+    {% endif %}
   </div>
   {% endif %}
 </section>

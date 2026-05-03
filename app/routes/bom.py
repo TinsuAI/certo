@@ -30,9 +30,16 @@ from app.routes._mapping_flow import (
     render_mapping_page_context,
     render_mapping_page_with_llm_suggestion,
 )
+from app.routes._paging import (
+    SortSpec,
+    pagination_context,
+    parse_page_params,
+    sort_link,
+)
 from app.storage import save_upload, sha256_bytes
 from app.stores.staleness import freshness_for_template
 from app.stores.bom import (
+    count_products_with_bom,
     create_flattened_version_set,
     create_version,
     list_products_with_bom,
@@ -70,18 +77,53 @@ PREVIEW_SAMPLE_PRODUCTS = 5
 PREVIEW_SAMPLE_ROWS_PER_PRODUCT = 4
 
 
+BOM_SORT_WHITELIST = {
+    # Default — non_flattened first, then last_published.
+    "last_published": "a.last_published",
+    "product_code": "a.product_code",
+    "n_versions": "a.n_versions",
+}
+BOM_SORT_DEFAULT = ("last_published", "desc")
+
+
 @router.get("/clients/{client_id}/bom", response_class=HTMLResponse)
-async def list_view(request: Request, client_id: str):
+async def list_view(request: Request, client_id: str,
+                    q: str | None = None):
     user = auth.require_user(request)
     auth.require_can_view_client(user, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
-    products = list_products_with_bom(client_id)
+    page_params = parse_page_params(query_params=request.query_params)
+    sort = SortSpec.from_params(
+        query_params=request.query_params,
+        whitelist=BOM_SORT_WHITELIST, default=BOM_SORT_DEFAULT,
+    )
+    # The default sort puts non_flattened products on top; that
+    # invariant is desirable but the user can override by clicking a
+    # sortable column header.
+    if sort.column == "last_published" and sort.direction == "desc":
+        order_by = "a.n_non_flattened desc, a.last_published desc nulls last"
+    else:
+        order_by = sort.sql_clause(tiebreakers=("a.product_code",)) \
+            if sort.column != "product_code" else sort.sql_clause()
+    products = list_products_with_bom(
+        client_id, q=q,
+        order_by=order_by,
+        limit=page_params.page_size, offset=page_params.offset,
+    )
+    total = count_products_with_bom(client_id, q=q)
+    paging_ctx = pagination_context(
+        request=request, page_params=page_params, total=total,
+    )
+
+    def _sort_link(col: str) -> str:
+        return sort_link(request=request, column=col, current_sort=sort)
     return request.app.state.templates.TemplateResponse(
         request, "clients/bom.html",
         {"client": client, "stats": stats_for_client(client_id),
-         "products": products,
+         "products": products, "q": q or "",
+         "paging": paging_ctx, "sort": sort, "sort_link": _sort_link,
          "freshness": freshness_for_template(request, client_id, "bom"),
          "active_root": "clients", "active_tab": "bom"},
     )
