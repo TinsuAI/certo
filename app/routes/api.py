@@ -24,7 +24,7 @@ from fastapi import APIRouter, Header, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
 from app import auth
-from app import jwt_issuer, settings_store
+from app import jwt_issuer, markets, settings_store
 from app.database import connect
 from app.routes.clients import get_client, list_clients
 from app.stores import client_config as client_config_store
@@ -509,22 +509,62 @@ async def api_list_bcct(
     return _json(_paged(items, offset=offset, limit=safe_limit))
 
 
+_DECLARATION_TYPE_RE = re.compile(r"^[A-Za-z0-9_]{1,16}$")
+
+
+def _parse_declaration_types(value: str) -> set[str]:
+    """Parse comma-separated declaration-type filter. Empty → no filter.
+    Each token must be alphanumeric/underscore (max 16 chars) — anything
+    else surfaces a 422 to the caller per the invoice-matches contract."""
+    if not value:
+        return set()
+    tokens = {part.strip() for part in value.split(",") if part.strip()}
+    for tok in tokens:
+        if not _DECLARATION_TYPE_RE.match(tok):
+            raise HTTPException(422, f"invalid_declaration_types: {tok!r}")
+    return tokens
+
+
 @router.get("/bcct/invoice-matches")
 async def api_invoice_matches(
     client_id: str,
     invoice_no: str,
     declaration_types: str = "",
+    limit: int = 100,
+    cursor: str | None = None,
+    include_market_hint: bool = True,
     authorization: str | None = Header(None),
 ):
+    """Match BCCT export rows by invoice-token equivalence + return the
+    fields CO needs for C/O case creation, including a `market_hint`
+    derived from `unloading_location` (UN/LOCODE prefix → ISO country).
+
+    Contract spec lives at
+    `barry-CO-main/.ai/api-requests/2026-05-03-bcct-invoice-market-fields.md`
+    (mirrored as `.ai/features/2026-05-03-bcct-invoice-market-fields/brief.md`
+    in this repo)."""
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
+    if not invoice_no or not invoice_no.strip():
+        raise HTTPException(400, "missing_invoice_no")
+    if not get_client(client_id):
+        raise HTTPException(404, "unknown_client")
+    relevant_types = _parse_declaration_types(declaration_types)
     invoice_tokens = _invoice_tokens(invoice_no)
     if not invoice_tokens:
-        return _json({"items": [], "total_estimate": 0})
-    relevant_types = {part.strip() for part in declaration_types.split(",") if part.strip()}
+        return _json({"items": [], "next_cursor": None, "total_estimate": 0})
+
+    offset, safe_limit = _page_args(cursor, limit)
+    safe_limit = min(safe_limit, 500)  # contract: max 500
+
     sql = """
-        select transaction_key, line_no, declaration_no, declaration_type, customs_code,
-               internal_code, goods_name, hs_code, quantity, unit, invoice_ref
+        select transaction_key, line_no, declaration_no, declaration_type,
+               registration_date, customs_code, internal_code,
+               goods_name, hs_code, quantity, unit, invoice_ref,
+               invoice_date, departure_date, incoterms,
+               consignee_name, exporter_name,
+               destination_code, destination_name,
+               nullif(payload->>'Địa điểm dỡ hàng', '') as unloading_location
         from hub.bcct_rows
         where client_id = %s and direction = 'export' and coalesce(invoice_ref, '') <> ''
     """
@@ -535,19 +575,27 @@ async def api_invoice_matches(
     for token in sorted(invoice_tokens):
         sql += " and upper(invoice_ref) like %s"
         params.append(f"%{token}%")
-    sql += " order by registration_date desc nulls last, declaration_no, line_no limit 500"
+    sql += (
+        " order by registration_date desc nulls last,"
+        "          declaration_no asc nulls last,"
+        "          nullif(line_no, '')::numeric asc nulls last,"
+        "          transaction_key asc"
+    )
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
             cols = [d[0] for d in cur.description]
             rows = [dict(zip(cols, r)) for r in cur.fetchall()]
-    matches = []
+
+    matches: list[dict] = []
     for row in rows:
         row_tokens = _invoice_tokens(row.get("invoice_ref") or "")
         if not invoice_tokens.issubset(row_tokens):
             continue
         item_code = row.get("internal_code") or row.get("customs_code") or ""
-        matches.append({
+        # Existing fields keep None-on-NULL semantics so legacy consumers
+        # see the same shape; new additive fields likewise pass None through.
+        item: dict = {
             "declaration_no": row.get("declaration_no", ""),
             "line_no": row.get("line_no", ""),
             "declaration_type": row.get("declaration_type", ""),
@@ -558,8 +606,29 @@ async def api_invoice_matches(
             "unit": row.get("unit", ""),
             "invoice_ref": row.get("invoice_ref", ""),
             "transaction_key": row.get("transaction_key", ""),
-        })
-    return _json({"items": matches, "total_estimate": len(matches)})
+            "invoice_date": row.get("invoice_date"),
+            "departure_date": row.get("departure_date"),
+            "incoterms": row.get("incoterms"),
+            "consignee_name": row.get("consignee_name"),
+            "exporter_name": row.get("exporter_name"),
+            "unloading_location": row.get("unloading_location"),
+            "destination_location_code": row.get("destination_code"),
+            "destination_location_name": row.get("destination_name"),
+        }
+        if include_market_hint:
+            hint = markets.unloading_location_to_market_hint(item["unloading_location"])
+            item["market_hint"] = hint.to_dict() if hint else None
+        matches.append(item)
+
+    page = matches[offset : offset + safe_limit]
+    next_cursor = (
+        str(offset + safe_limit) if offset + safe_limit < len(matches) else None
+    )
+    return _json({
+        "items": page,
+        "next_cursor": next_cursor,
+        "total_estimate": len(matches),
+    })
 
 
 @router.get("/bcct/{transaction_key}")

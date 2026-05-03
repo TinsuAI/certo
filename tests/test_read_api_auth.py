@@ -377,20 +377,24 @@ def test_invoice_matches_endpoint_matches_export_invoice(strict_mode_on):
         )
 
         assert response.status_code == 200
-        assert response.json()["items"] == [
-            {
-                "declaration_no": "X001",
-                "line_no": "1",
-                "declaration_type": "E42",
-                "item_code": "TP-001",
-                "description": "Product",
-                "hs_code": None,
-                "quantity": 2.0,
-                "unit": "PCS",
-                "invoice_ref": "INV-001/2026",
-                "transaction_key": "INV_EXPORT_1",
-            }
-        ]
+        items = response.json()["items"]
+        assert len(items) == 1
+        # Legacy consumers depend on this subset staying stable. Newer
+        # additive fields (invoice_date, market_hint, …) are tested in
+        # test_invoice_market_fields.
+        legacy_subset = {
+            "declaration_no": "X001",
+            "line_no": "1",
+            "declaration_type": "E42",
+            "item_code": "TP-001",
+            "description": "Product",
+            "hs_code": None,
+            "quantity": 2.0,
+            "unit": "PCS",
+            "invoice_ref": "INV-001/2026",
+            "transaction_key": "INV_EXPORT_1",
+        }
+        assert legacy_subset.items() <= items[0].items()
         assert no_match.status_code == 200
         assert no_match.json()["items"] == []
     finally:
