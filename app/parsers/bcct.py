@@ -105,28 +105,67 @@ EXPORT_TYPES = {
 }
 
 
+# Slice 4: required at form time (mapping page validates these are mapped).
+# `declaration_no` + `registration_date` are the original sheet-level
+# requirements; `customs_code` keeps row-level meaning. We don't require
+# `direction` to be mapped — it can be inferred from declaration_type.
+MIN_IDENTIFIER_FIELDS = frozenset({"declaration_no"})
+REQUIRED_MAPPED_FIELDS = frozenset({"declaration_no", "registration_date", "customs_code"})
+
+# Logical field set for the mapping-page <select>. Comprehensive: every
+# typed column the parser knows about + payload-only is the implicit
+# "ignore" choice.
+LOGICAL_FIELDS = (
+    "declaration_no", "line_no", "declaration_type", "direction",
+    "registration_date", "customs_code", "goods_name", "hs_code",
+    "quantity", "unit", "quantity_2", "unit_2",
+    "unit_price", "total_value", "currency", "origin", "invoice_ref",
+    "exporter_name", "exporter_tax_code", "consignee_name", "incoterms",
+    "weight", "weight_unit", "package_count", "package_unit",
+    "invoice_date", "departure_date",
+    "destination_code", "destination_name",
+    "transport_mode", "exchange_rate",
+)
+
+
 def parse_bcct_workbook(
     blob: bytes,
     *,
     mapping_override: dict[str, str] | None = None,
-) -> list[dict]:
+    header_row_override: int | None = None,
+    extra_required_fields: list[str] | None = None,
+    return_skipped: bool = False,
+):
     """Parse a BCCT workbook.
 
     `mapping_override`: optional dict[header_name → logical_field] to bypass
-    the rigid alias-based discovery. Used by the LLM-assisted flow once a
-    user has confirmed an LLM-proposed mapping; subsequent uploads with the
-    same `file_signature` re-use the stored mapping without an LLM call.
+    the rigid alias-based discovery.
+    `header_row_override`: 1-indexed row to treat as the header row
+    (slice-4 flexible-flow override).
+    `extra_required_fields`: rows missing any of these go to skipped_rows[].
+    `return_skipped`: when True, returns `(rows, skipped_rows)` tuple
+    (slice-4 flexible-flow contract). Default False keeps backward-compat
+    return as `list[dict]`.
     """
     try:
         wb = load_xlsx(blob)
     except Exception as e:
         raise BcctParseError(f"Cannot open workbook: {e}") from e
+    extra_required = list(extra_required_fields or [])
     rows: list[dict] = []
+    skipped: list[dict] = []
+    any_sheet_had_required_cols = False
+
     for ws in wb.worksheets:
-        hdr = header_row(ws, aliases=ALIASES, max_scan=20)
-        if not hdr:
-            continue
-        header_idx, headers = hdr
+        if header_row_override is not None:
+            header_idx, headers = _read_header_at_row(ws, header_row_override)
+            if not headers:
+                continue
+        else:
+            hdr = header_row(ws, aliases=ALIASES, max_scan=20)
+            if not hdr:
+                continue
+            header_idx, headers = hdr
         if mapping_override:
             cols = _cols_from_mapping(headers, mapping_override)
         else:
@@ -136,10 +175,31 @@ def parse_bcct_workbook(
         # cite a declaration_no but lack the date, so the AND keeps them out.
         if "declaration_no" not in cols or "registration_date" not in cols:
             continue
-        for raw in iter_data_rows(ws, header_idx):
+        any_sheet_had_required_cols = True
+        for row_idx_1based, raw in _iter_data_rows_with_index(ws, header_idx):
             decl = _cell_str(raw, cols.get("declaration_no"))
             customs = _cell_str(raw, cols.get("customs_code"))
             if not decl and not customs:
+                # Row-level skip — both identifier cells empty.
+                skipped.append({
+                    "row_index": row_idx_1based,
+                    "sheet": ws.title,
+                    "reason": "missing_required:declaration_no_or_customs_code",
+                    "raw": _build_raw_snapshot(raw, cols, headers),
+                })
+                continue
+            # Optional extra required-field check.
+            extra_missing: list[str] = []
+            for f in extra_required:
+                if not _cell_str(raw, cols.get(f)):
+                    extra_missing.append(f)
+            if extra_missing:
+                skipped.append({
+                    "row_index": row_idx_1based,
+                    "sheet": ws.title,
+                    "reason": "missing_required:" + ",".join(extra_missing),
+                    "raw": _build_raw_snapshot(raw, cols, headers),
+                })
                 continue
             line_no = _cell_str(raw, cols.get("line_no")) or "0"
             transaction_key = f"{decl}-{line_no}" if decl else f"{customs}-{secrets.token_hex(4)}"
@@ -200,9 +260,50 @@ def parse_bcct_workbook(
                 "exchange_rate": _cell_num(raw, cols.get("exchange_rate")),
                 "payload": payload,
             })
-    if not rows:
+    if not rows and not any_sheet_had_required_cols:
         raise BcctParseError("No BCCT rows recognized; check headers (Số tờ khai / Mã NPL+SP).")
+    if not rows and not skipped and any_sheet_had_required_cols:
+        # Required cols mapped but no data rows at all (truly empty file).
+        raise BcctParseError("No BCCT rows recognized; check headers (Số tờ khai / Mã NPL+SP).")
+
+    if return_skipped:
+        return rows, skipped
     return rows
+
+
+def _read_header_at_row(ws, row_no_1based: int) -> tuple[int, list[str]]:
+    cells: list[str] = []
+    for r_idx, raw in enumerate(
+        ws.iter_rows(min_row=row_no_1based, max_row=row_no_1based, values_only=True),
+        start=row_no_1based,
+    ):
+        cells = [str(c).strip() if c is not None else "" for c in raw]
+        return r_idx, cells
+    return row_no_1based, cells
+
+
+def _iter_data_rows_with_index(ws, header_row_idx: int):
+    for offset, row in enumerate(
+        ws.iter_rows(min_row=header_row_idx + 1, values_only=True), start=1,
+    ):
+        if all(c is None or (isinstance(c, str) and not c.strip()) for c in row):
+            continue
+        yield header_row_idx + offset, row
+
+
+def _build_raw_snapshot(row, cols: dict[str, int], headers: list[str]) -> dict:
+    snap: dict = {}
+    claimed: set[int] = set()
+    for field, idx in cols.items():
+        snap[field] = _cell_str(row, idx)
+        claimed.add(idx)
+    for i, h in enumerate(headers):
+        if i in claimed or not h:
+            continue
+        v = _cell_str(row, i)
+        if v is not None:
+            snap[f"col_{i}"] = v
+    return snap
 
 
 def _cols_from_mapping(headers: list[str], mapping: dict[str, str]) -> dict[str, int]:

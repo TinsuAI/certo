@@ -1,4 +1,11 @@
-"""BCCT routes — nested under /clients/{client_id}/."""
+"""BCCT routes — nested under /clients/{client_id}/.
+
+Slice 4 of the unified upload flow. BCCT now routes upload through the
+shared mapping page (`_mapping_flow`) on cache miss; cache hit preserves
+the inline rigid-parse path. The bespoke `parse-mapping` 2-stage UI
+endpoints remain for backward compat but are unreachable from the new
+flow — slated for deletion in slice 5 once the new path is validated.
+"""
 from __future__ import annotations
 
 import json
@@ -9,8 +16,20 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app import auth, llm
 from app.database import connect
 from app.parsers._excel import compute_file_signature, header_row, load_xlsx
-from app.parsers.bcct import parse_bcct_workbook, BcctParseError
+from app.parsers.bcct import (
+    LOGICAL_FIELDS as BCCT_LOGICAL_FIELDS,
+    MIN_IDENTIFIER_FIELDS as BCCT_MIN_IDENTIFIER,
+    REQUIRED_MAPPED_FIELDS as BCCT_REQUIRED_MAPPED,
+    parse_bcct_workbook,
+    BcctParseError,
+)
 from app.parsers.goods_name import internal_code_parser_for
+from app.routes._mapping_flow import (
+    ModuleConfig,
+    _load_unmapped,
+    render_mapping_page_context,
+    render_mapping_page_with_llm_suggestion,
+)
 from app.routes.clients import get_client, stats_for_client
 from app.storage import save_upload, sha256_bytes
 from app.stores.staleness import freshness_for_template
@@ -168,30 +187,209 @@ async def upload_submit(request: Request, client_id: str,
     except Exception:  # noqa: BLE001 — best-effort; falls through to rigid
         pass
 
-    # ── Step 2: parse — cached mapping if present, else rigid, else LLM ──
-    rows: list[dict] | None = None
-    rigid_error: str | None = None
-    if cached_mapping is not None:
-        try:
-            rows = parse_bcct_workbook(blob, mapping_override=cached_mapping)
-            _record_mapping_use(client_id=client_id, file_signature=file_signature)
-        except BcctParseError as e:
-            rigid_error = f"cached mapping failed: {e}"
-    if rows is None:
-        try:
-            rows = parse_bcct_workbook(blob)
-        except BcctParseError as e:
-            rigid_error = str(e)
+    # Slice 4: cache miss → unified mapping page (replaces old rigid → LLM
+    # bespoke cascade). Cache hit still parses inline for the no-friction
+    # repeat-upload case.
+    if cached_mapping is None:
+        from app.routes._mapping_flow import _stash_unmapped as _flow_stash_unmapped
+        _flow_stash_unmapped(
+            upload_id=upload_id, file_signature=file_signature, extra={},
+        )
+        return RedirectResponse(
+            url=f"/clients/{client_id}/bcct/upload/mapping/{upload_id}",
+            status_code=303,
+        )
 
-    if rows is None:
-        # Rigid + cached both failed. Fall back to LLM if enabled.
-        return await _request_llm_mapping(
-            request, client_id=client_id, upload_id=upload_id,
-            blob=blob, file_signature=file_signature,
-            rigid_error=rigid_error or "unknown",
+    # ── Step 2: cache hit → parse with cached mapping. ──
+    rows: list[dict] | None = None
+    try:
+        rows = parse_bcct_workbook(blob, mapping_override=cached_mapping)
+        _record_mapping_use(client_id=client_id, file_signature=file_signature)
+    except BcctParseError as e:
+        # Cached mapping went stale → fall through to mapping page.
+        from app.routes._mapping_flow import _stash_unmapped as _flow_stash_unmapped
+        _flow_stash_unmapped(
+            upload_id=upload_id, file_signature=file_signature,
+            extra={"stale_cache_error": str(e)},
+        )
+        return RedirectResponse(
+            url=f"/clients/{client_id}/bcct/upload/mapping/{upload_id}",
+            status_code=303,
         )
 
     # Stash request.state.user for downstream ingest/audit attribution.
+    request.state.user = user
+    return _ingest_rows(
+        client_id=client_id, client=client,
+        rows=rows, upload_id=upload_id, request=request,
+    )
+
+
+# ── Slice 4: mapping page endpoints ──────────────────────────────────────
+
+
+def _bcct_parser_for_mapping(blob, *, mapping_override=None,
+                              header_row_override=None,
+                              extra_required_fields=None):
+    """Adapter so `_mapping_flow.render_mapping_page_context` works for
+    BCCT. The mapping page never actually parses (it just renders); this
+    stub satisfies the cfg.parser_fn type."""
+    return parse_bcct_workbook(
+        blob, mapping_override=mapping_override,
+        header_row_override=header_row_override,
+        extra_required_fields=extra_required_fields,
+        return_skipped=True,
+    )
+
+
+BCCT_MAPPING_CFG = ModuleConfig(
+    name="bcct",
+    upload_pending_module="bcct",
+    save_upload_module="bcct",
+    fallback_filename="bcct.xlsx",
+    list_route=lambda cid: f"/clients/{cid}/bcct",
+    preview_template="clients/bcct_upload_preview.html",
+    parser_fn=_bcct_parser_for_mapping,
+    parser_error=BcctParseError,
+    summarize_fn=lambda _: {},   # not called via this cfg
+    ingest_fn=lambda *a, **kw: 0,  # not called via this cfg
+    logical_fields=BCCT_LOGICAL_FIELDS,
+    min_identifier_fields=BCCT_MIN_IDENTIFIER,
+    required_mapped_fields=BCCT_REQUIRED_MAPPED,
+    extra_required_fields_default=(),
+)
+
+
+@router.get("/clients/{client_id}/bcct/upload/mapping/{upload_id}",
+            response_class=HTMLResponse)
+async def mapping_view(request: Request, client_id: str, upload_id: str):
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    ctx = render_mapping_page_context(
+        client_id=client_id, upload_id=upload_id, cfg=BCCT_MAPPING_CFG,
+    )
+    ctx.update({
+        "client": client, "stats": stats_for_client(client_id),
+        "module_label": "BCCT",
+        "active_root": "clients", "active_tab": "bcct",
+    })
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/_upload_mapping.html", ctx,
+    )
+
+
+@router.post("/clients/{client_id}/bcct/upload/mapping/{upload_id}/llm_suggest",
+             response_class=HTMLResponse)
+async def mapping_llm_suggest(request: Request, client_id: str, upload_id: str):
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    ctx = render_mapping_page_with_llm_suggestion(
+        client_id=client_id, upload_id=upload_id, cfg=BCCT_MAPPING_CFG,
+    )
+    ctx.update({
+        "client": client, "stats": stats_for_client(client_id),
+        "module_label": "BCCT",
+        "active_root": "clients", "active_tab": "bcct",
+    })
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/_upload_mapping.html", ctx,
+    )
+
+
+@router.post("/clients/{client_id}/bcct/upload/mapping/{upload_id}/parse")
+async def mapping_parse(request: Request, client_id: str, upload_id: str):
+    """Parse BCCT with staff-confirmed mapping, then route into the
+    existing classify + preview pipeline (preserving confirm-on-update +
+    diff-on-update + history insert semantics)."""
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    blob, file_signature, _extra = _load_unmapped(upload_id, module="bcct")
+    form = await request.form()
+
+    column_map: dict[str, str] = {}
+    for key, value in form.items():
+        if key.startswith("col_") and key.endswith("__field"):
+            idx = key[len("col_"):-len("__field")]
+            field = (value or "").strip()
+            if not field:
+                continue
+            header_value = (form.get(f"col_{idx}__header") or "").strip()
+            if header_value:
+                column_map[header_value] = field
+
+    mapped_logical = set(column_map.values())
+    missing_mapped = BCCT_REQUIRED_MAPPED - mapped_logical
+    if missing_mapped:
+        raise HTTPException(
+            400,
+            "Thiếu mapping cho các trường bắt buộc: " +
+            ", ".join(sorted(missing_mapped)),
+        )
+
+    header_row_override_str = (form.get("header_row_override") or "").strip()
+    header_row_override = (
+        int(header_row_override_str) if header_row_override_str.isdigit() else None
+    )
+    extra_required_str = (form.get("extra_required_fields") or "").strip()
+    extra_required = (
+        [s.strip() for s in extra_required_str.split(",") if s.strip()]
+        if extra_required_str else None
+    )
+
+    try:
+        rows, _skipped = parse_bcct_workbook(
+            blob, mapping_override=column_map,
+            header_row_override=header_row_override,
+            extra_required_fields=extra_required,
+            return_skipped=True,
+        )
+    except BcctParseError as e:
+        raise HTTPException(400, f"Parse error: {e}") from e
+
+    # Persist this confirmed mapping to the cache so the next upload of
+    # the same shape skips the mapping page.
+    try:
+        if file_signature:
+            with connect() as conn, conn.cursor() as cur:
+                cur.execute(
+                    """
+                    insert into hub.parser_mappings
+                      (client_id, module, file_signature, mapping, sample_headers,
+                       proposed_by, confirmed_by, confirmed_at)
+                    values (%s, 'bcct', %s, %s::jsonb, %s::jsonb,
+                            'manual', %s, now())
+                    on conflict (client_id, module, file_signature) do update set
+                      mapping = excluded.mapping,
+                      proposed_by = excluded.proposed_by,
+                      confirmed_by = excluded.confirmed_by,
+                      confirmed_at = excluded.confirmed_at
+                    """,
+                    (client_id, file_signature,
+                     json.dumps(column_map, ensure_ascii=False),
+                     json.dumps(list(column_map.keys()), ensure_ascii=False),
+                     user.user_id),
+                )
+    except Exception:  # noqa: BLE001 — cache write is best-effort
+        pass
+
+    # Mark file_uploads as parsed (clears mapping_pending status from
+    # _stash_unmapped) and route into the existing classify pipeline.
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "update hub.file_uploads set parse_status='parsed', "
+            "row_count=%s, parsed_at=now() where upload_id=%s",
+            (len(rows), upload_id),
+        )
+
     request.state.user = user
     return _ingest_rows(
         client_id=client_id, client=client,
