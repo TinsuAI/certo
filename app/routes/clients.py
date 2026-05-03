@@ -56,24 +56,24 @@ def get_client(client_id: str) -> dict | None:
 
 
 def stats_for_client(client_id: str) -> dict:
+    """5 nav-badge counts in one round-trip. Each count is its own
+    scalar subquery so the planner picks the best per-table index
+    (each table has a `(client_id, ...)` index)."""
     with connect() as conn:
         with conn.cursor() as cur:
-            cur.execute("select count(*) from hub.materials where client_id = %s", (client_id,))
-            (n_materials,) = cur.fetchone()
-            cur.execute("select count(*) from hub.code_mappings where client_id = %s", (client_id,))
-            (n_mappings,) = cur.fetchone()
-            cur.execute("select count(*) from hub.bcct_rows where client_id = %s", (client_id,))
-            (n_bcct,) = cur.fetchone()
             cur.execute(
-                "select count(*) from hub.bom_versions where client_id = %s and tombstoned_at is null",
-                (client_id,),
+                """
+                select
+                  (select count(*) from hub.materials where client_id = %s),
+                  (select count(*) from hub.code_mappings where client_id = %s),
+                  (select count(*) from hub.bcct_rows where client_id = %s),
+                  (select count(*) from hub.bom_versions
+                     where client_id = %s and tombstoned_at is null),
+                  (select count(*) from hub.bom_change_requests where client_id = %s)
+                """,
+                (client_id, client_id, client_id, client_id, client_id),
             )
-            (n_bom,) = cur.fetchone()
-            cur.execute(
-                "select count(*) from hub.bom_change_requests where client_id = %s",
-                (client_id,),
-            )
-            (n_proposals,) = cur.fetchone()
+            n_materials, n_mappings, n_bcct, n_bom, n_proposals = cur.fetchone()
     return {"materials": n_materials, "mappings": n_mappings,
             "bcct": n_bcct, "bom": n_bom, "proposals": n_proposals}
 

@@ -42,25 +42,23 @@ def tab_freshness(client_id: str, module: str) -> dict:
 
     Both keys are always present; values are None when the module has
     no rows yet. Caller renders '—' for None.
+
+    Single round-trip: one SELECT with two scalar subqueries.
     """
     if module not in _DATA_QUERIES:
         raise ValueError(f"unknown module: {module}")
 
+    sql = f"""
+        select
+          (select max(parsed_at) from hub.file_uploads
+             where client_id = %s and module = %s
+               and parse_status = 'done'),
+          ({_DATA_QUERIES[module]})
+    """
     with connect() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                select max(parsed_at)
-                from hub.file_uploads
-                where client_id = %s and module = %s
-                  and parse_status = 'done'
-                """,
-                (client_id, module),
-            )
-            (last_upload_at,) = cur.fetchone()
-
-            cur.execute(_DATA_QUERIES[module], (client_id,))
-            (last_data_at,) = cur.fetchone()
+            cur.execute(sql, (client_id, module, client_id))
+            last_upload_at, last_data_at = cur.fetchone()
 
     return {
         "last_upload_at": last_upload_at,
