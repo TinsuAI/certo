@@ -51,6 +51,7 @@ def isolate_bom_store(tmp_path, monkeypatch):
     monkeypatch.setenv("CLIENT_CONFIG_ROOT", str(tmp_path / "client-config"))
     monkeypatch.setenv("CO_CASE_STORE_ROOT", str(tmp_path / "co-case-store"))
     monkeypatch.setenv("CUSTOMS_FX_STORE_ROOT", str(tmp_path / "customs-fx-store"))
+    monkeypatch.setenv("CO_FORM_CONFIG_PATH", str(tmp_path / "co-form-index.json"))
 
 
 def workbook_bytes(workbook: Workbook) -> bytes:
@@ -64,6 +65,50 @@ def hidden_form_data(markup: str) -> dict[str, str]:
         name: html.unescape(value)
         for name, value in re.findall(r'<input type="hidden" name="([^"]+)" value="([^"]*)"', markup)
     }
+
+
+def co_form_settings_payload(config: dict) -> dict[str, str]:
+    data = {
+        "source_note": config["source_note"],
+        "form_priority": ", ".join(config["form_priority"]),
+        "form_count": str(len(config["forms"])),
+        "market_count": str(len(config["market_presets"])),
+        "psr_count": str(len(config.get("psr_rules", []))),
+    }
+    for index, form in enumerate(config["forms"]):
+        prefix = f"form_{index}"
+        data[f"{prefix}_enabled"] = "1" if form.get("enabled") else ""
+        for key in [
+            "form_code",
+            "display_name",
+            "agreement",
+            "instrument",
+            "instrument_note",
+            "source_label",
+            "source_url",
+            "verification_status",
+        ]:
+            data[f"{prefix}_{key}"] = form.get(key, "")
+    for index, market in enumerate(config["market_presets"]):
+        prefix = f"market_{index}"
+        data[f"{prefix}_enabled"] = "1" if market.get("enabled") else ""
+        data[f"{prefix}_show_in_picker"] = "1" if market.get("show_in_picker") else ""
+        data[f"{prefix}_market"] = market.get("market", "")
+        data[f"{prefix}_label"] = market.get("label", "")
+        data[f"{prefix}_form_code"] = market.get("form_code", "")
+        data[f"{prefix}_aliases"] = ", ".join(market.get("aliases", []))
+        data[f"{prefix}_selection_reason"] = market.get("selection_reason", "")
+        data[f"{prefix}_source_label"] = market.get("source_label", "")
+    for index, rule in enumerate(config.get("psr_rules", [])):
+        prefix = f"psr_{index}"
+        data[f"{prefix}_enabled"] = "1" if rule.get("enabled") else ""
+        data[f"{prefix}_form_code"] = rule.get("form_code", "")
+        data[f"{prefix}_hs_scope"] = rule.get("hs_scope", "")
+        data[f"{prefix}_criteria"] = rule.get("criteria", "")
+        data[f"{prefix}_source_reference"] = rule.get("source_reference", "")
+        data[f"{prefix}_note"] = rule.get("note", "")
+        data[f"{prefix}_status"] = rule.get("status", "")
+    return data
 
 
 def bcct_workbook(rows: list[dict]) -> bytes:
@@ -2164,8 +2209,8 @@ def test_co_case_guidance_maps_invoice_bcct_products_to_form_instrument_and_hs_c
     assert "03/2019/TT-BCT" in shipment.text
     assert "PV00.0048500" in shipment.text
     assert "850440" in shipment.text
-    assert "CTH hoặc RVC 30/40/50 tùy công thức" in guidance.text
-    assert "03/2019/TT-BCT, Phụ lục II" in guidance.text
+    assert "CTH; hoặc RVC không thấp hơn" in guidance.text
+    assert "03/2019/TT-BCT, Phụ lục I" in guidance.text
 
 
 def test_co_case_state_prefers_postgres_store_and_keeps_supporting_file_metadata(monkeypatch):
@@ -2880,6 +2925,213 @@ def test_co_case_destination_market_shows_verified_form_candidates():
     assert "Form CPTPP" in canada_page.text
     assert "03/2019/TT-BCT" in canada_page.text
     assert "Cần tra cứu PSR theo HS" in canada_page.text
+
+
+def test_co_form_index_defaults_cover_initial_priority_forms():
+    from app.co_forms import criteria_preview_for_hs, form_candidates_for_market, hs_scope_is_ex, prioritized_form_lanes, recommended_form_lane
+    from app.co_form_config_store import default_co_form_config
+
+    config = default_co_form_config()
+    assert form_candidates_for_market("United States")[0]["form_code"] == "B"
+    assert recommended_form_lane(prioritized_form_lanes("India"))["form_code"] == "AI"
+    assert recommended_form_lane(prioritized_form_lanes("Canada"))["form_code"] == "CPTPP"
+    assert recommended_form_lane(prioritized_form_lanes("Pháp"))["form_code"] == "EUR.1"
+    assert len(config["psr_rules"]) > 6000
+    assert all("Chương" not in rule["hs_scope"] for rule in config["psr_rules"])
+    assert any(rule["hs_scope"] == "01" for rule in config["psr_rules"])
+    assert criteria_preview_for_hs("AI", "850440")["criteria"] == "AIFTA 35% FOB + CTSH"
+    assert "Product Specific Rules" in criteria_preview_for_hs("AI", "850440")["note"]
+    assert criteria_preview_for_hs("CPTPP", "850440")["criteria"].startswith("CTH; hoặc RVC không thấp hơn")
+    assert criteria_preview_for_hs("B", "999999")["criteria"] == "Tra PSR Form B theo Phụ lục I"
+    assert hs_scope_is_ex("ex 0307")
+
+
+def test_co_form_ex_hs_scope_requires_product_description_confirmation():
+    from app.co_forms import criteria_preview_for_hs
+
+    preview = criteria_preview_for_hs("EUR.1", "030600")
+
+    assert preview["status"] == "requires_manual_lookup"
+    assert preview["criteria"].startswith("Cần đối chiếu mô tả hàng hóa trước khi áp dụng")
+    assert "Match by HS code alone is not enough" in preview["note"]
+
+
+def test_co_form_settings_page_saves_market_alias_config():
+    from app.co_form_config_store import default_co_form_config
+    from app.co_forms import form_candidates_for_market
+
+    config = default_co_form_config()
+    data = co_form_settings_payload(config)
+    new_index = len(config["market_presets"])
+    data[f"market_{new_index}_enabled"] = "1"
+    data[f"market_{new_index}_show_in_picker"] = "1"
+    data[f"market_{new_index}_market"] = "Bharat"
+    data[f"market_{new_index}_label"] = "Bharat / Form AI"
+    data[f"market_{new_index}_form_code"] = "AI"
+    data[f"market_{new_index}_aliases"] = "Bharat"
+    data[f"market_{new_index}_selection_reason"] = "Test alias maps to Form AI."
+    data[f"market_{new_index}_source_label"] = "test"
+
+    client = TestClient(app)
+    settings = client.get("/settings")
+    saved = client.post("/settings/co-forms", data=data, follow_redirects=False)
+    page = client.get("/settings/co-forms?saved=1")
+
+    assert 'href="/settings/co-forms"' in settings.text
+    assert saved.status_code == 303
+    assert saved.headers["location"] == "/settings/co-forms?saved=1"
+    assert "Đã lưu cấu hình form" in page.text
+    assert form_candidates_for_market("Bharat")[0]["form_code"] == "AI"
+
+
+def test_co_form_settings_page_saves_psr_rule_config():
+    from app.co_form_config_store import default_co_form_config
+    from app.co_forms import criteria_preview_for_hs
+
+    config = default_co_form_config()
+    data = co_form_settings_payload(config)
+    new_index = len(config["psr_rules"])
+    data[f"psr_{new_index}_enabled"] = "1"
+    data[f"psr_{new_index}_form_code"] = "AI"
+    data[f"psr_{new_index}_hs_scope"] = "850760"
+    data[f"psr_{new_index}_criteria"] = "AIFTA custom battery rule"
+    data[f"psr_{new_index}_source_reference"] = "Test source"
+    data[f"psr_{new_index}_note"] = "Test note"
+    data[f"psr_{new_index}_status"] = "confirmed_by_trong_tin"
+
+    client = TestClient(app)
+    saved = client.post("/settings/co-forms", data=data, follow_redirects=False)
+    page = client.get("/settings/co-forms?saved=1")
+    preview = criteria_preview_for_hs("AI", "85076039")
+
+    assert saved.status_code == 303
+    assert "HS Criteria" in page.text
+    assert preview["criteria"] == "AIFTA custom battery rule"
+    assert preview["status"] == "confirmed_by_trong_tin"
+
+
+def test_co_form_settings_page_shows_readable_status_labels():
+    client = TestClient(app)
+    page = client.get("/settings/co-forms?tab=psr&psr_form=AI")
+    forms_page = client.get("/settings/co-forms?tab=forms")
+
+    assert page.status_code == 200
+    assert forms_page.status_code == 200
+    assert "Chờ Trọng Tín xác nhận" in page.text
+    assert "Chờ Trọng Tín xác nhận" in forms_page.text
+    assert 'placeholder="pending_trong_tin_confirmation"' not in page.text
+    assert 'name="psr_0_status"' in page.text
+    assert '<select name="psr_0_status">' in page.text
+
+
+def test_co_form_settings_page_updates_filtered_psr_rule_without_reposting_all_rules():
+    from app.co_form_config_store import default_co_form_config
+    from app.co_forms import criteria_preview_for_hs
+
+    config = default_co_form_config()
+    original_index, rule = next(
+        (index, row)
+        for index, row in enumerate(config["psr_rules"])
+        if row["form_code"] == "CPTPP" and row["hs_scope"] == "85.04"
+    )
+    data = {
+        "active_tab": "psr",
+        "psr_visible_count": "1",
+        "psr_0_original_index": str(original_index),
+        "psr_0_enabled": "1",
+        "psr_0_form_code": rule["form_code"],
+        "psr_0_hs_scope": rule["hs_scope"],
+        "psr_0_criteria": "CPTPP updated filtered 8504 rule",
+        "psr_0_source_reference": rule["source_reference"],
+        "psr_0_note": rule["note"],
+        "psr_0_status": "confirmed_by_trong_tin",
+    }
+
+    client = TestClient(app)
+    filtered_page = client.get("/settings/co-forms?tab=psr&psr_form=CPTPP&psr_query=8504")
+    saved = client.post("/settings/co-forms", data=data, follow_redirects=False)
+
+    assert "Đang hiện" in filtered_page.text
+    assert 'name="psr_0_original_index"' in filtered_page.text
+    assert saved.status_code == 303
+    assert saved.headers["location"] == "/settings/co-forms?saved=1&tab=psr"
+    assert criteria_preview_for_hs("CPTPP", "850440")["criteria"] == "CPTPP updated filtered 8504 rule"
+    assert criteria_preview_for_hs("B", "850440")["criteria"] == "LVC 30% hoặc CTH"
+
+
+def test_co_case_create_explains_invoice_market_hint_without_auto_selecting(monkeypatch):
+    from app import main as main_module
+
+    class FakePortfolioService:
+        def client(self, client_id: str) -> dict:
+            return {"id": client_id, "name": "Growatt VN", "code": client_id, "counts": {}}
+
+        def co_case_source_context(self, client: dict, case: dict) -> dict:
+            return {
+                "source_backend": "data-hub",
+                "source_summary": {
+                    "client_config": {"config_version": 1, "config_hash": "fake"},
+                    "material_catalog": {"published_row_count": 0, "latest_version": {}},
+                    "product_catalog": {"published_row_count": 0, "latest_version": {}},
+                    "bcct": {"published_row_count": 1, "reviewed_row_count": 1, "latest_version": {}},
+                    "co_stock_row_count": 0,
+                },
+                "invoice_matches": [
+                    {
+                        "declaration_no": "XK1",
+                        "line_no": "1",
+                        "item_code": "TP-US",
+                        "invoice_ref": case.get("shipment", {}).get("invoice_no", ""),
+                        "market_hint": {
+                            "country_code": "US",
+                            "country_name": "United States",
+                            "source_field": "unloading_location",
+                            "source_value": "USLAX - LOS ANGELES - CA",
+                            "confidence": "high",
+                        },
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(main_module, "portfolio_service", FakePortfolioService())
+    client = TestClient(app)
+
+    created = client.post(
+        "/clients/growatt-vn/co-case/create",
+        data={"title": "Invoice hinted", "case_code": "CO-HINT", "invoice_no": "GUS28826A131-3F"},
+        follow_redirects=False,
+    )
+    page = client.get(created.headers["location"])
+    preview = client.get(
+        "/clients/growatt-vn/co-case/invoice-preview",
+        params={"invoice_no": "GUS28826A131-3F"},
+    ).json()
+
+    assert created.status_code == 303
+    assert "Thị trường Chưa nhập" in page.text
+    assert "Gợi ý thị trường" in page.text
+    assert "United States" in page.text
+    assert "Form B" in page.text
+    assert 'data-market-value="United States"' in page.text
+    assert preview["market_inference"]["destination_market"] == "United States"
+    assert "unloading_location" in preview["market_inference"]["explanation"]
+    assert preview["suggested_forms"][0]["form_code"] == "B"
+
+
+def test_invoice_market_hint_requires_single_high_confidence_country():
+    from app.co_market_hints import infer_market_from_invoice_matches
+
+    conflict = infer_market_from_invoice_matches([
+        {"market_hint": {"country_code": "US", "country_name": "United States", "confidence": "high"}},
+        {"market_hint": {"country_code": "IN", "country_name": "India", "confidence": "high"}},
+    ])
+    low_confidence = infer_market_from_invoice_matches([
+        {"market_hint": {"country_code": "US", "country_name": "United States", "confidence": "low"}}
+    ])
+
+    assert conflict["status"] == "conflict"
+    assert conflict["destination_market"] == ""
+    assert low_confidence["status"] == "missing"
 
 
 def test_co_case_export_workbook_contains_dossier_sheets_and_criteria_rows():

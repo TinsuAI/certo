@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 import unicodedata
 
+from app.co_form_config_store import load_co_form_config
+
 
 FORM_REFERENCES = {
     "B": {
@@ -218,37 +220,47 @@ EUR1_MARKETS = {
 
 def form_candidates_for_market(market: str) -> list[dict]:
     key = market_key(market)
+    config = load_co_form_config()
+    enabled_forms = {
+        row["form_code"]
+        for row in config["forms"]
+        if row.get("enabled")
+    }
     candidates = []
-    if key in AI_MARKETS:
-        candidates.append(candidate("AI", "Destination is an AIFTA party in the local AI source."))
-    if key in CPTPP_MARKETS:
-        candidates.append(candidate("CPTPP", "Destination is in the local CPTPP member-code guidance."))
-    if key in EUR1_MARKETS:
-        candidates.append(candidate("EUR.1", "Destination is treated as EVFTA/EU market for EUR.1 guidance."))
-    candidates.append(candidate("B", "Non-preferential fallback; operator must confirm when preferential form is not used."))
+    for preset in config["market_presets"]:
+        if not preset.get("enabled") or preset.get("form_code") not in enabled_forms:
+            continue
+        market_keys = [market_key(preset.get("market", "")), market_key(preset.get("label", ""))]
+        market_keys.extend(market_key(alias) for alias in preset.get("aliases", []))
+        if key and key in market_keys:
+            candidates.append(candidate(preset["form_code"], preset["selection_reason"], preset))
+    if "B" in enabled_forms:
+        candidates.append(candidate("B", "Non-preferential fallback; operator must confirm when preferential form is not used."))
     return candidates
 
 
 def prioritized_form_lanes(market: str, hs_codes: list[str] | None = None) -> list[dict]:
     candidates = {row["form_code"]: row for row in form_candidates_for_market(market)}
+    references = form_references()
+    priority = form_priority()
     normalized_hs_codes = normalize_hs_codes(hs_codes or [])
     market_is_set = bool(market_key(market) and market_key(market) != "chua nhap")
     preferential_matches = {form_code for form_code in candidates if form_code != "B"}
-    preferred_form = next((form_code for form_code in FORM_PRIORITY if form_code in preferential_matches), "")
+    preferred_form = next((form_code for form_code in priority if form_code in preferential_matches), "")
     if not preferred_form and "B" in candidates:
         preferred_form = "B"
     lanes = []
-    for index, form_code in enumerate(FORM_PRIORITY, start=1):
-        reference = FORM_REFERENCES[form_code]
+    for index, form_code in enumerate(priority, start=1):
+        reference = references[form_code]
         matched_candidate = candidates.get(form_code)
         recommended = bool(matched_candidate and market_is_set and form_code == preferred_form)
         lanes.append({
             "priority": index,
             "form_code": form_code,
-            "display_name": reference["display_name"],
-            "agreement": reference["agreement"],
-            "instrument": reference["instrument"],
-            "verification_status": reference["verification_status"],
+            "display_name": matched_candidate.get("display_name", reference["display_name"]) if matched_candidate else reference["display_name"],
+            "agreement": matched_candidate.get("agreement", reference["agreement"]) if matched_candidate else reference["agreement"],
+            "instrument": matched_candidate.get("instrument", reference["instrument"]) if matched_candidate else reference["instrument"],
+            "verification_status": matched_candidate.get("verification_status", reference["verification_status"]) if matched_candidate else reference["verification_status"],
             "recommended": recommended,
             "selection_reason": matched_candidate["selection_reason"] if matched_candidate else "Không tự khuyến nghị cho thị trường hiện tại; operator có thể chọn thủ công.",
             "rule_lookup_label": "PSR engine coming soon",
@@ -262,9 +274,14 @@ def recommended_form_lane(lanes: list[dict]) -> dict:
 
 
 def common_market_guidance() -> list[dict]:
+    references = form_references()
     rows = []
-    for preset in COMMON_MARKET_PRESETS:
-        reference = FORM_REFERENCES[preset["form_code"]]
+    for preset in load_co_form_config()["market_presets"]:
+        if not preset.get("enabled") or not preset.get("show_in_picker"):
+            continue
+        reference = references.get(preset["form_code"])
+        if not reference:
+            continue
         rows.append({
             **preset,
             "display_name": reference["display_name"],
@@ -275,39 +292,105 @@ def common_market_guidance() -> list[dict]:
 
 
 def criteria_preview_rows(form_code: str, hs_codes: list[str]) -> list[dict]:
+    reference = form_reference(form_code)
     if hs_codes:
         return [criteria_preview_for_hs(form_code, hs_code) for hs_code in hs_codes]
+    fallback = first_matching_preset(form_code, "")
     return [
         {
-            "hs_code": preset["hs_scope"],
-            "criteria": preset["criteria"],
-            "note": preset["note"],
-            "source_reference": preset.get("source_reference", FORM_REFERENCES[form_code]["instrument"]),
-            "status": "coming soon",
+            "hs_code": fallback["hs_scope"],
+            "criteria": fallback["criteria"],
+            "note": fallback["note"],
+            "source_reference": fallback.get("source_reference", reference["instrument"]),
+            "status": fallback.get("status", "pending_trong_tin_confirmation"),
         }
-        for preset in FORM_CRITERIA_PRESETS[form_code]
     ]
 
 
 def criteria_preview_for_hs(form_code: str, hs_code: str) -> dict:
     hs_key = normalize_hs(hs_code)
     preset = first_matching_preset(form_code, hs_key)
+    reference = form_reference(form_code)
     return {
         "hs_code": hs_code,
         "criteria": preset["criteria"],
         "note": preset["note"],
-        "source_reference": preset.get("source_reference", FORM_REFERENCES[form_code]["instrument"]),
-        "status": "coming soon",
+        "source_reference": preset.get("source_reference", reference["instrument"]),
+        "status": preset.get("status", "pending_trong_tin_confirmation"),
     }
 
 
 def first_matching_preset(form_code: str, hs_key: str) -> dict:
-    presets = FORM_CRITERIA_PRESETS[form_code]
-    for preset in presets:
-        scope = normalize_hs(preset["hs_scope"])
-        if scope and hs_key.startswith(scope):
-            return preset
-    return presets[0]
+    rules = psr_rules_for_form(form_code)
+    fallback_rule = manual_lookup_rule(form_code)
+    matching_rules = []
+    conditional_ex_rules = []
+    for rule in rules:
+        if market_key(rule["hs_scope"]) in {"any hs", "all hs"}:
+            fallback_rule = rule
+            continue
+        if hs_scope_matches(rule["hs_scope"], hs_key):
+            if hs_scope_is_ex(rule["hs_scope"]):
+                conditional_ex_rules.append(rule)
+            else:
+                matching_rules.append(rule)
+    best_rule = max(matching_rules, key=lambda rule: hs_scope_specificity(rule["hs_scope"])) if matching_rules else None
+    best_ex_rule = max(conditional_ex_rules, key=lambda rule: hs_scope_specificity(rule["hs_scope"])) if conditional_ex_rules else None
+    if best_ex_rule and (not best_rule or hs_scope_specificity(best_ex_rule["hs_scope"]) >= hs_scope_specificity(best_rule["hs_scope"])):
+        return conditional_ex_lookup_rule(best_ex_rule)
+    if best_rule:
+        return best_rule
+    return fallback_rule
+
+
+def conditional_ex_lookup_rule(rule: dict) -> dict:
+    note = str(rule.get("note") or "").strip()
+    ex_note = (
+        f"HS scope {rule.get('hs_scope')} is an ex scope: it covers only part of the HS heading/subheading. "
+        "Match by HS code alone is not enough; verify product description before applying this PSR."
+    )
+    return {
+        **rule,
+        "criteria": f"Cần đối chiếu mô tả hàng hóa trước khi áp dụng: {rule.get('criteria', '')}",
+        "note": f"{note} {ex_note}".strip(),
+        "status": "requires_manual_lookup",
+    }
+
+
+def manual_lookup_rule(form_code: str) -> dict:
+    reference = form_reference(form_code)
+    return {
+        "hs_scope": "Any HS",
+        "criteria": "Cần tra cứu PSR theo HS",
+        "source_reference": reference.get("instrument", ""),
+        "note": "Chưa có rule HS/PSR match với mã HS này.",
+        "status": "requires_manual_lookup",
+    }
+
+
+def psr_rules_for_form(form_code: str) -> list[dict]:
+    config_rules = [
+        rule
+        for rule in load_co_form_config().get("psr_rules", [])
+        if rule.get("enabled") and rule.get("form_code") == form_code
+    ]
+    if config_rules:
+        return config_rules
+    fallback_rules = FORM_CRITERIA_PRESETS.get(form_code) or [
+        {
+            "hs_scope": "Any HS",
+            "criteria": "Cần tra cứu PSR theo HS",
+            "source_reference": form_reference(form_code).get("instrument", ""),
+            "note": "Chưa có rule HS/PSR được cấu hình cho form này.",
+        }
+    ]
+    return [
+        {
+            **rule,
+            "status": "coming soon",
+        }
+        for rule in fallback_rules
+    ]
 
 
 def normalize_hs_codes(values: list[str]) -> list[str]:
@@ -326,15 +409,89 @@ def normalize_hs(value: str) -> str:
     return re.sub(r"\D+", "", value or "")[:6]
 
 
-def candidate(form_code: str, reason: str) -> dict:
-    reference = FORM_REFERENCES[form_code]
+def hs_scope_matches(scope: str, hs_key: str) -> bool:
+    ranges = hs_scope_ranges(scope)
+    if not ranges:
+        scope_key = normalize_hs(scope)
+        return bool(scope_key and hs_key.startswith(scope_key))
+    for start, end, width in ranges:
+        target = hs_key[:width]
+        if not target:
+            continue
+        target_value = int(target.ljust(width, "0"))
+        if int(start.ljust(width, "0")) <= target_value <= int(end.ljust(width, "9")):
+            return True
+    return False
+
+
+def hs_scope_specificity(scope: str) -> int:
+    ranges = hs_scope_ranges(scope)
+    if ranges:
+        return max(width for _, _, width in ranges)
+    return len(normalize_hs(scope))
+
+
+def hs_scope_is_ex(scope: str) -> bool:
+    return bool(re.match(r"^\s*ex\s+", strip_accents(scope), flags=re.IGNORECASE))
+
+
+def hs_scope_ranges(scope: str) -> list[tuple[str, str, int]]:
+    tokens = hs_scope_tokens(scope)
+    if not tokens:
+        return []
+    if "-" in scope and len(tokens) >= 2:
+        start, end = tokens[0], tokens[1]
+        width = min(len(start), len(end), 6)
+        return [(start[:width], end[:width], width)]
+    return [(token, token, len(token)) for token in tokens]
+
+
+def hs_scope_tokens(scope: str) -> list[str]:
+    normalized_scope = strip_accents(scope)
+    tokens = []
+    for raw in re.findall(r"(?:Chuong\s*)?(\d{1,4}(?:\.\d{2})?)", normalized_scope, flags=re.IGNORECASE):
+        digits = re.sub(r"\D+", "", raw)
+        if len(digits) == 1:
+            digits = f"0{digits}"
+        if 2 <= len(digits) <= 6:
+            tokens.append(digits)
+    return tokens
+
+
+def candidate(form_code: str, reason: str, market_preset: dict | None = None) -> dict:
+    reference = form_reference(form_code)
     return {
         "form_code": form_code,
         "rule_lookup_status": "needs_rule_lookup",
         "rule_lookup_label": "Cần tra cứu PSR theo HS",
         "selection_reason": reason,
         **reference,
+        **{
+            key: value
+            for key, value in (market_preset or {}).items()
+            if key in {"agreement", "instrument", "instrument_note", "source_label", "source_url", "verification_status"} and value
+        },
     }
+
+
+def form_references() -> dict[str, dict]:
+    references = {code: dict(row) for code, row in FORM_REFERENCES.items()}
+    for row in load_co_form_config()["forms"]:
+        if row.get("enabled"):
+            references[row["form_code"]] = {
+                **references.get(row["form_code"], {}),
+                **row,
+            }
+    return references
+
+
+def form_reference(form_code: str) -> dict:
+    return form_references()[form_code]
+
+
+def form_priority() -> list[str]:
+    references = form_references()
+    return [code for code in load_co_form_config()["form_priority"] if code in references]
 
 
 def market_key(value: str) -> str:

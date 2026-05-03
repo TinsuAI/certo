@@ -659,6 +659,37 @@ def test_data_hub_client_follows_cursor_pagination():
     assert client.list_materials("growatt-vn") == [{"customs_code": "NVL-1"}, {"customs_code": "NVL-2"}]
 
 
+def test_data_hub_client_invoice_matches_requests_market_hint():
+    from app.data_hub_client import DataHubClient
+
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.url.path, dict(request.url.params)))
+        return httpx.Response(200, json={"items": [{"market_hint": {"country_code": "US", "confidence": "high"}}]})
+
+    client = DataHubClient(
+        base_url="https://hub.test",
+        token="secret-token",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert client.invoice_matches("growatt-vn", "INV-001", ["E42"]) == [
+        {"market_hint": {"country_code": "US", "confidence": "high"}}
+    ]
+    assert seen == [
+        (
+            "/v1/hub/bcct/invoice-matches",
+            {
+                "client_id": "growatt-vn",
+                "invoice_no": "INV-001",
+                "declaration_types": "E42",
+                "include_market_hint": "true",
+            },
+        )
+    ]
+
+
 def test_data_hub_client_fetches_bom_contract_and_conflicts():
     from app.data_hub_client import DataHubBomVariantConflict, DataHubClient
 
@@ -858,7 +889,23 @@ def test_data_hub_portfolio_service_uses_invoice_lookup_api():
             assert client_id == "growatt-vn"
             assert invoice_no == "INV-001"
             assert declaration_types == ["E42"]
-            return [{"declaration_no": "XK1", "line_no": "1", "item_code": "TP-001", "invoice_ref": "INV-001", "transaction_key": "XK1-1"}]
+            return [
+                {
+                    "declaration_no": "XK1",
+                    "line_no": "1",
+                    "item_code": "TP-001",
+                    "invoice_ref": "INV-001",
+                    "transaction_key": "XK1-1",
+                    "unloading_location": "USLAX - LOS ANGELES - CA",
+                    "market_hint": {
+                        "country_code": "US",
+                        "country_name": "United States",
+                        "source_field": "unloading_location",
+                        "source_value": "USLAX - LOS ANGELES - CA",
+                        "confidence": "high",
+                    },
+                }
+            ]
 
         def list_bcct(self, client_id: str):
             assert client_id == "growatt-vn"
@@ -895,6 +942,8 @@ def test_data_hub_portfolio_service_uses_invoice_lookup_api():
     assert context["invoice_matches"][0]["customs_value"] == "1234"
     assert context["invoice_matches"][0]["currency"] == "USD"
     assert context["invoice_matches"][0]["value_currency"] == "VND"
+    assert context["invoice_matches"][0]["unloading_location"] == "USLAX - LOS ANGELES - CA"
+    assert context["invoice_matches"][0]["market_hint"]["country_code"] == "US"
     assert context["stock_rows"][0]["customs_item_code"] == "MAT-001"
     assert context["stock_rows"][0]["unit_value"] == "10"
     assert context["stock_rows"][0]["currency"] == "VND"

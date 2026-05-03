@@ -26,6 +26,7 @@ from app.co_case_store import (
     get_case_record,
     get_case_workspace,
     get_supporting_file,
+    invoice_keys,
     safe_filename,
     save_supporting_file,
     update_case_record,
@@ -38,6 +39,15 @@ from app.co_forms import (
     prioritized_form_lanes,
     recommended_form_lane,
 )
+from app.co_form_config_store import (
+    co_form_config_path,
+    load_co_form_config,
+    reset_co_form_config,
+    sanitize_co_form_config,
+    save_co_form_config,
+    unique_text_list,
+)
+from app.co_market_hints import infer_market_from_invoice_matches
 from app.client_registry import get_client as registry_get_client
 from app.client_registry import get_client_case
 from app.customs_fx_store import CUSTOMS_FX_CLIENT_ID, get_customs_fx_store, refresh_customs_exchange_rates
@@ -69,6 +79,15 @@ from app.workbook_io import (
     create_input_workbook,
     parse_input_workbook,
 )
+
+
+PSR_STATUS_LABELS = {
+    "pending_trong_tin_confirmation": "Chờ Trọng Tín xác nhận",
+    "extracted_from_local_corpus_pending_trong_tin_confirmation": "Extract từ corpus, chờ xác nhận",
+    "needs_2026_evfta_refresh": "Cần đối chiếu EVFTA 2026",
+    "requires_manual_lookup": "Cần tra thủ công",
+    "confirmed_by_trong_tin": "Đã xác nhận bởi Trọng Tín",
+}
 
 ROOT = Path(__file__).resolve().parent
 
@@ -402,6 +421,218 @@ def data_hub_link_check() -> dict:
     return {"ok": all(check["status"] != "error" for check in checks), "checks": checks}
 
 
+def co_form_settings_context(request: Request, *, saved: bool = False, error: str = "") -> dict:
+    config = load_co_form_config()
+    display_config = {
+        **config,
+        "forms": [
+            {
+                **form,
+                "verification_status_label": co_form_status_label(form.get("verification_status", "")),
+            }
+            for form in config.get("forms", [])
+        ],
+    }
+    form_codes = [row["form_code"] for row in config["forms"] if row.get("enabled")]
+    psr_rule_counts = {
+        form_code: len([rule for rule in config.get("psr_rules", []) if rule.get("form_code") == form_code])
+        for form_code in form_codes
+    }
+    active_tab = request.query_params.get("tab") or "overview"
+    if active_tab not in {"overview", "forms", "markets", "psr"}:
+        active_tab = "overview"
+    psr_selected_form = request.query_params.get("psr_form") or (form_codes[0] if form_codes else "")
+    psr_query = str(request.query_params.get("psr_query") or "").strip()
+    psr_status = str(request.query_params.get("psr_status") or "").strip()
+    psr_filtered_rules = filter_psr_rules(config.get("psr_rules", []), psr_selected_form, psr_query, psr_status)
+    psr_status_values = [
+        str(rule.get("status") or "")
+        for rule in config.get("psr_rules", [])
+        if rule.get("status")
+    ]
+    form_status_values = [
+        str(form.get("verification_status") or "")
+        for form in config.get("forms", [])
+        if form.get("verification_status")
+    ]
+    return {
+        "saved": saved,
+        "error": error,
+        "config": display_config,
+        "config_path": str(co_form_config_path()),
+        "form_codes": form_codes,
+        "psr_rule_counts": psr_rule_counts,
+        "active_tab": active_tab,
+        "settings_tabs": [
+            {"id": "overview", "label": "Overview"},
+            {"id": "forms", "label": "Forms"},
+            {"id": "markets", "label": "Markets"},
+            {"id": "psr", "label": "HS Criteria"},
+        ],
+        "enabled_form_count": len([row for row in config["forms"] if row.get("enabled")]),
+        "enabled_market_count": len([row for row in config["market_presets"] if row.get("enabled")]),
+        "picker_market_count": len([row for row in config["market_presets"] if row.get("enabled") and row.get("show_in_picker")]),
+        "psr_selected_form": psr_selected_form,
+        "psr_query": psr_query,
+        "psr_status": psr_status,
+        "psr_filtered_count": len(psr_filtered_rules),
+        "psr_visible_rules": [with_co_form_status_label(rule) for rule in psr_filtered_rules[:120]],
+        "form_status_options": co_form_status_options(form_status_values),
+        "psr_status_options": co_form_status_options(psr_status_values),
+    }
+
+
+def co_form_config_from_form(form) -> dict:
+    current = load_co_form_config()
+    source_note = current.get("source_note", "")
+    if "source_note" in form:
+        source_note = form.get("source_note", source_note)
+    form_priority = current.get("form_priority", [])
+    if "form_priority" in form:
+        form_priority = unique_text_list(form.get("form_priority", ""))
+
+    forms = current.get("forms", [])
+    if "form_count" in form:
+        form_count = int(str(form.get("form_count") or "0") or "0")
+        forms = []
+        for index in range(form_count):
+            form_code = str(form.get(f"form_{index}_form_code") or "").strip()
+            if not form_code:
+                continue
+            forms.append({
+                "form_code": form_code,
+                "display_name": form.get(f"form_{index}_display_name", ""),
+                "agreement": form.get(f"form_{index}_agreement", ""),
+                "instrument": form.get(f"form_{index}_instrument", ""),
+                "instrument_note": form.get(f"form_{index}_instrument_note", ""),
+                "source_label": form.get(f"form_{index}_source_label", ""),
+                "source_url": form.get(f"form_{index}_source_url", ""),
+                "verification_status": form.get(f"form_{index}_verification_status", ""),
+                "enabled": form.get(f"form_{index}_enabled") == "1",
+            })
+
+    market_presets = current.get("market_presets", [])
+    if "market_count" in form:
+        market_count = int(str(form.get("market_count") or "0") or "0")
+        market_presets = []
+        for index in range(market_count + 1):
+            market = str(form.get(f"market_{index}_market") or "").strip()
+            form_code = str(form.get(f"market_{index}_form_code") or "").strip()
+            if not market or not form_code:
+                continue
+            market_presets.append({
+                "market": market,
+                "label": form.get(f"market_{index}_label", ""),
+                "form_code": form_code,
+                "aliases": unique_text_list(form.get(f"market_{index}_aliases", "")),
+                "selection_reason": form.get(f"market_{index}_selection_reason", ""),
+                "source_label": form.get(f"market_{index}_source_label", ""),
+                "enabled": form.get(f"market_{index}_enabled") == "1",
+                "show_in_picker": form.get(f"market_{index}_show_in_picker") == "1",
+            })
+
+    psr_rules = current.get("psr_rules", [])
+    if "psr_count" in form:
+        psr_count = int(str(form.get("psr_count") or "0") or "0")
+        psr_rules = []
+        for index in range(psr_count + 1):
+            form_code = str(form.get(f"psr_{index}_form_code") or "").strip()
+            hs_scope = str(form.get(f"psr_{index}_hs_scope") or "").strip()
+            criteria = str(form.get(f"psr_{index}_criteria") or "").strip()
+            if not form_code or not hs_scope or not criteria:
+                continue
+            psr_rules.append({
+                "form_code": form_code,
+                "hs_scope": hs_scope,
+                "criteria": criteria,
+                "source_reference": form.get(f"psr_{index}_source_reference", ""),
+                "note": form.get(f"psr_{index}_note", ""),
+                "status": form.get(f"psr_{index}_status", ""),
+                "enabled": form.get(f"psr_{index}_enabled") == "1",
+            })
+    elif "psr_visible_count" in form:
+        psr_rules = list(psr_rules)
+        psr_visible_count = int(str(form.get("psr_visible_count") or "0") or "0")
+        for index in range(psr_visible_count + 1):
+            form_code = str(form.get(f"psr_{index}_form_code") or "").strip()
+            hs_scope = str(form.get(f"psr_{index}_hs_scope") or "").strip()
+            criteria = str(form.get(f"psr_{index}_criteria") or "").strip()
+            if not form_code or not hs_scope or not criteria:
+                continue
+            rule = {
+                "form_code": form_code,
+                "hs_scope": hs_scope,
+                "criteria": criteria,
+                "source_reference": form.get(f"psr_{index}_source_reference", ""),
+                "note": form.get(f"psr_{index}_note", ""),
+                "status": form.get(f"psr_{index}_status", ""),
+                "enabled": form.get(f"psr_{index}_enabled") == "1",
+            }
+            original_index = str(form.get(f"psr_{index}_original_index") or "").strip()
+            if original_index.isdigit() and int(original_index) < len(psr_rules):
+                psr_rules[int(original_index)] = rule
+            else:
+                psr_rules.append(rule)
+
+    return sanitize_co_form_config({
+        **current,
+        "source_note": source_note,
+        "form_priority": form_priority,
+        "forms": forms,
+        "market_presets": market_presets,
+        "psr_rules": psr_rules,
+    })
+
+
+def filter_psr_rules(rules: list[dict], form_code: str, query: str, status: str) -> list[dict]:
+    query_key = co_form_filter_key(query)
+    output = []
+    for index, rule in enumerate(rules):
+        if form_code and rule.get("form_code") != form_code:
+            continue
+        if status and rule.get("status") != status:
+            continue
+        if query_key:
+            haystack = co_form_filter_key(" ".join([
+                str(rule.get("hs_scope") or ""),
+                str(rule.get("criteria") or ""),
+                str(rule.get("source_reference") or ""),
+                str(rule.get("note") or ""),
+                str(rule.get("status") or ""),
+                co_form_status_label(str(rule.get("status") or "")),
+            ]))
+            if query_key not in haystack:
+                continue
+        output.append({**rule, "original_index": index})
+    return output
+
+
+def with_co_form_status_label(row: dict) -> dict:
+    status = str(row.get("status") or "")
+    return {**row, "status_label": co_form_status_label(status)}
+
+
+def co_form_status_options(statuses: list[str]) -> list[dict]:
+    output = []
+    seen = set()
+    for status in list(PSR_STATUS_LABELS) + sorted(set(statuses)):
+        if not status or status in seen:
+            continue
+        output.append({"value": status, "label": co_form_status_label(status)})
+        seen.add(status)
+    return output
+
+
+def co_form_status_label(status: str) -> str:
+    if not status:
+        return ""
+    return PSR_STATUS_LABELS.get(status, status.replace("_", " ").strip().capitalize())
+
+
+def co_form_filter_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+
+
 @app.get("/user", response_class=HTMLResponse)
 async def user_page(request: Request, logged_out: str = ""):
     user = co_auth.current_user(request)
@@ -426,6 +657,38 @@ async def settings_page(request: Request):
             "can_view_technical_settings": co_auth.can_view_technical_settings(co_auth.current_user(request)),
         },
     )
+
+
+@app.get("/settings/co-forms", response_class=HTMLResponse)
+async def co_form_settings_page(request: Request, saved: str = ""):
+    return templates.TemplateResponse(
+        request=request,
+        name="co_form_settings.html",
+        context=co_form_settings_context(request, saved=saved == "1"),
+    )
+
+
+@app.post("/settings/co-forms", response_class=HTMLResponse)
+async def save_co_form_settings(request: Request):
+    form = await request.form()
+    active_tab = str(form.get("active_tab") or "").strip()
+    try:
+        save_co_form_config(co_form_config_from_form(form))
+    except Exception as exc:
+        return templates.TemplateResponse(
+            request=request,
+            name="co_form_settings.html",
+            context=co_form_settings_context(request, error=str(exc)),
+            status_code=400,
+        )
+    suffix = f"&tab={quote(active_tab)}" if active_tab else ""
+    return RedirectResponse(f"/settings/co-forms?saved=1{suffix}", status_code=303)
+
+
+@app.post("/settings/co-forms/reset")
+async def reset_co_form_settings(request: Request):
+    reset_co_form_config()
+    return RedirectResponse("/settings/co-forms?saved=1", status_code=303)
 
 
 @app.get("/settings/technical", response_class=HTMLResponse)
@@ -641,6 +904,10 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
     form_lanes = prioritized_form_lanes(case.get("destination_market", ""), co_case_hs_codes(case, invoice_matches))
     selected_form_lane = recommended_form_lane(form_lanes)
     invoice_criteria_rows = invoice_match_criteria_rows(invoice_matches, selected_form_lane)
+    invoice_lookup_preview = invoice_preview_from_matches(
+        case.get("shipment", {}).get("invoice_no", ""),
+        invoice_matches,
+    )
     if not criteria_rows and invoice_criteria_rows:
         criteria_rows = invoice_criteria_rows
     context = {
@@ -654,6 +921,7 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
         "form_candidates": form_candidates,
         "form_lanes": form_lanes,
         "recommended_form_lane": selected_form_lane,
+        "invoice_lookup_preview": invoice_lookup_preview,
         "common_market_presets": COMMON_MARKET_PRESETS,
         "common_market_guidance": common_market_guidance(),
         "invoice_matches": invoice_matches,
@@ -679,6 +947,209 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
 
 def co_case_source_context(client: dict, case: dict) -> dict:
     return portfolio_service.co_case_source_context(client, case)
+
+
+def invoice_lookup_payload(client: dict, invoice_no: str, query: str = "") -> dict:
+    invoice_no = str(invoice_no or "").strip()
+    query = str(query or invoice_no or "").strip()
+    options = invoice_search_options(client, query)
+    if not invoice_no:
+        return {
+            "status": "empty",
+            "invoice_no": "",
+            "options": options,
+            "match_count": 0,
+            "matches": [],
+            "summary": {},
+            "market_inference": market_inference_view({"status": "missing", "destination_market": "", "hints": []}),
+            "suggested_forms": [],
+        }
+    try:
+        source_context = co_case_source_context(client, {"shipment": {"invoice_no": invoice_no}})
+    except Exception as exc:
+        return {
+            "status": "error",
+            "invoice_no": invoice_no,
+            "options": options,
+            "match_count": 0,
+            "matches": [],
+            "summary": {},
+            "market_inference": market_inference_view({"status": "missing", "destination_market": "", "hints": []}),
+            "suggested_forms": [],
+            "message": f"Không tra được invoice: {exc}",
+        }
+    payload = invoice_preview_from_matches(invoice_no, source_context.get("invoice_matches", []))
+    payload["options"] = options
+    return payload
+
+
+def invoice_preview_from_matches(invoice_no: str, invoice_matches: list[dict]) -> dict:
+    invoice_no = str(invoice_no or "").strip()
+    inference = infer_market_from_invoice_matches(invoice_matches)
+    hs_codes = co_case_hs_codes({"shipment": {"invoice_no": invoice_no}}, invoice_matches)
+    suggested_forms = []
+    if inference.get("status") == "ready":
+        suggested_forms = [
+            invoice_form_lane_view(row)
+            for row in prioritized_form_lanes(inference["destination_market"], hs_codes)
+        ]
+    summary = invoice_match_summary(invoice_matches)
+    return {
+        "status": "found" if invoice_matches else "not_found" if invoice_no else "empty",
+        "invoice_no": invoice_no,
+        "match_count": len(invoice_matches),
+        "matches": [invoice_match_preview_row(row) for row in invoice_matches[:12]],
+        "summary": summary,
+        "market_inference": market_inference_view(inference),
+        "suggested_forms": suggested_forms,
+        "options": [],
+    }
+
+
+def invoice_search_options(client: dict, query: str, limit: int = 10) -> list[dict]:
+    query = str(query or "").strip()
+    if len(query) < 2:
+        return []
+    try:
+        source_workspace, _source_backend = source_workspace_for_client(client)
+    except Exception:
+        return []
+    client_config = source_workspace.get("client_config", {})
+    relevant_types = set(client_config.get("bcct", {}).get("relevant_export_declaration_types", []))
+    query_keys = invoice_keys(query)
+    query_compact = next(iter(query_keys), re.sub(r"[^A-Z0-9]", "", query.upper()))
+    groups: dict[str, dict] = {}
+    for row in source_workspace.get("bcct", {}).get("published_rows", []):
+        if row.get("direction") != "export":
+            continue
+        if row.get("review_status") not in ("", "reviewed"):
+            continue
+        if relevant_types and row.get("declaration_type") not in relevant_types:
+            continue
+        invoice_ref = str(row.get("invoice_ref") or "").strip()
+        if not invoice_ref:
+            continue
+        row_keys = invoice_keys(invoice_ref)
+        row_compact = re.sub(r"[^A-Z0-9]", "", invoice_ref.upper())
+        if query_compact and query_compact not in row_compact and not query_keys.intersection(row_keys):
+            continue
+        group = groups.setdefault(
+            invoice_ref,
+            {
+                "invoice_no": invoice_ref,
+                "row_count": 0,
+                "declarations": set(),
+                "hs_codes": set(),
+                "item_codes": set(),
+            },
+        )
+        group["row_count"] += 1
+        if row.get("declaration_no"):
+            group["declarations"].add(str(row.get("declaration_no")))
+        if row.get("hs_code"):
+            group["hs_codes"].add(str(row.get("hs_code")))
+        if row.get("item_code"):
+            group["item_codes"].add(str(row.get("item_code")))
+    options = []
+    for group in groups.values():
+        options.append({
+            "invoice_no": group["invoice_no"],
+            "row_count": group["row_count"],
+            "declaration_count": len(group["declarations"]),
+            "hs_codes": sorted(group["hs_codes"])[:6],
+            "item_codes": sorted(group["item_codes"])[:4],
+        })
+    return sorted(options, key=lambda row: (-int(row["row_count"]), row["invoice_no"]))[:limit]
+
+
+def invoice_match_summary(invoice_matches: list[dict]) -> dict:
+    declarations = sorted({
+        str(row.get("declaration_no") or "")
+        for row in invoice_matches
+        if row.get("declaration_no")
+    })
+    hs_codes = sorted({
+        str(row.get("hs_code") or "")
+        for row in invoice_matches
+        if row.get("hs_code")
+    })
+    item_codes = sorted({
+        str(row.get("item_code") or "")
+        for row in invoice_matches
+        if row.get("item_code")
+    })
+    invoice_refs = sorted({
+        str(row.get("invoice_ref") or "")
+        for row in invoice_matches
+        if row.get("invoice_ref")
+    })
+    return {
+        "declaration_count": len(declarations),
+        "declarations": declarations[:8],
+        "hs_codes": hs_codes[:12],
+        "item_codes": item_codes[:8],
+        "invoice_refs": invoice_refs[:4],
+    }
+
+
+def invoice_match_preview_row(row: dict) -> dict:
+    return {
+        "declaration_no": row.get("declaration_no", ""),
+        "line_no": row.get("line_no", ""),
+        "declaration_type": row.get("declaration_type", ""),
+        "item_code": row.get("item_code", ""),
+        "description": row.get("description", ""),
+        "hs_code": row.get("hs_code", ""),
+        "quantity": row.get("quantity", ""),
+        "unit": row.get("unit", ""),
+        "customs_value": row.get("customs_value") or row.get("total_value", ""),
+        "value_currency": row.get("value_currency") or row.get("currency", ""),
+        "invoice_ref": row.get("invoice_ref", ""),
+        "unloading_location": row.get("unloading_location") or row.get("destination_location_name", ""),
+        "consignee_name": row.get("consignee_name", ""),
+    }
+
+
+def market_inference_view(inference: dict) -> dict:
+    status = inference.get("status", "missing")
+    hints = inference.get("hints", [])
+    if status == "ready" and hints:
+        hint = hints[0]
+        source_field = str(hint.get("source_field") or "market_hint")
+        source_value = str(hint.get("source_value") or hint.get("country_name") or hint.get("country_code") or "")
+        explanation = (
+            f"Gợi ý từ {source_field} = {source_value}. "
+            "Các dòng invoice chỉ có một quốc gia đích đủ độ tin cậy cao."
+        )
+        action_label = f"Dùng thị trường {inference.get('destination_market', '')}"
+    elif status == "conflict":
+        markets = ", ".join(
+            str(hint.get("country_name") or hint.get("country_code") or "")
+            for hint in hints
+            if hint.get("country_name") or hint.get("country_code")
+        )
+        explanation = f"Không tự chọn vì invoice có nhiều gợi ý thị trường: {markets}."
+        action_label = ""
+    else:
+        explanation = "Chưa có market hint đủ tin cậy từ dữ liệu invoice; cần chọn thị trường thủ công."
+        action_label = ""
+    return {
+        **inference,
+        "explanation": explanation,
+        "action_label": action_label,
+    }
+
+
+def invoice_form_lane_view(row: dict) -> dict:
+    return {
+        "form_code": row.get("form_code", ""),
+        "display_name": row.get("display_name", ""),
+        "agreement": row.get("agreement", ""),
+        "instrument": row.get("instrument", ""),
+        "reason": row.get("reason", ""),
+        "recommended": bool(row.get("recommended")),
+        "criteria_preview": row.get("criteria_preview", [])[:4],
+    }
 
 
 def should_show_origin_demo(current_step: str, case: dict, invoice_matches: list[dict]) -> bool:
@@ -1903,19 +2374,26 @@ async def co_case(request: Request, client_id: str):
     )
 
 
+@app.get("/clients/{client_id}/co-case/invoice-preview")
+async def co_case_invoice_preview(client_id: str, invoice_no: str = "", q: str = ""):
+    client = resolve_client(client_id)
+    return invoice_lookup_payload(client, invoice_no, q)
+
+
 @app.post("/clients/{client_id}/co-case/create")
 async def create_co_case(request: Request, client_id: str):
     client = resolve_client(client_id)
-    form = await request.form()
-    record = create_case_record(client, {key: str(value) for key, value in form.items()})
+    form = {key: str(value) for key, value in (await request.form()).items()}
+    record = create_case_record(client, form)
     return RedirectResponse(f"/clients/{client_id}/co-case/{record['case_id']}", status_code=303)
 
 
 @app.post("/clients/{client_id}/co-case/{case_id}/shipment")
 async def update_co_case_shipment(request: Request, client_id: str, case_id: str):
     form = {key: str(value) for key, value in (await request.form()).items()}
+    client = resolve_client(client_id)
     update_case_record(
-        resolve_client(client_id),
+        client,
         {
             **form,
             "id": case_id,

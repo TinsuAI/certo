@@ -143,6 +143,7 @@ class DataHubClient:
                 "client_id": client_id,
                 "invoice_no": invoice_no,
                 "declaration_types": ",".join(declaration_types),
+                "include_market_hint": "true",
             },
         ))
 
@@ -460,6 +461,20 @@ def enrich_invoice_matches_with_bcct(invoice_matches: list[dict], bcct_rows: lis
             "value_currency": first_value(match.get("value_currency"), source.get("value_currency")),
             "incoterms": first_value(match.get("incoterms"), source.get("incoterms")),
             "origin_country": first_value(match.get("origin_country"), source.get("origin_country")),
+            "invoice_date": first_value(match.get("invoice_date"), source.get("invoice_date")),
+            "departure_date": first_value(match.get("departure_date"), source.get("departure_date")),
+            "consignee_name": first_value(match.get("consignee_name"), source.get("consignee_name")),
+            "exporter_name": first_value(match.get("exporter_name"), source.get("exporter_name")),
+            "unloading_location": first_value(match.get("unloading_location"), source.get("unloading_location")),
+            "destination_location_code": first_value(
+                match.get("destination_location_code"),
+                source.get("destination_location_code"),
+            ),
+            "destination_location_name": first_value(
+                match.get("destination_location_name"),
+                source.get("destination_location_name"),
+            ),
+            "market_hint": match.get("market_hint") if isinstance(match.get("market_hint"), dict) else source.get("market_hint"),
         })
     return output
 

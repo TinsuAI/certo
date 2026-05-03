@@ -129,6 +129,91 @@
   </div>
 {%- endmacro %}
 
+{% macro invoice_preview_content(preview) -%}
+  {% if preview and preview.invoice_no %}
+  <div class="invoice-preview-summary invoice-preview-{{ preview.status }}">
+    <div class="invoice-preview-head">
+      <span class="mono">{{ preview.invoice_no }}</span>
+      {% if preview.status == "found" %}
+      <strong>{{ preview.match_count }} dòng BCCT xuất khẩu</strong>
+      {% elif preview.status == "not_found" %}
+      <strong>Chưa thấy dòng BCCT khớp</strong>
+      {% else %}
+      <strong>Chưa tra được invoice</strong>
+      {% endif %}
+    </div>
+    {% if preview.status == "found" %}
+    <div class="invoice-facts">
+      <span>{{ preview.summary.declaration_count }} tờ khai</span>
+      <span>HS {{ preview.summary.hs_codes|join(', ') or 'chưa có' }}</span>
+      <span>Mã SP {{ preview.summary.item_codes|join(', ') or 'chưa có' }}</span>
+    </div>
+    {% endif %}
+    <div class="invoice-market-hint invoice-market-{{ preview.market_inference.status }}">
+      <span>Gợi ý thị trường</span>
+      <strong>{{ preview.market_inference.destination_market or 'Chưa đủ dữ liệu' }}</strong>
+      <p>{{ preview.market_inference.explanation }}</p>
+      {% if preview.market_inference.status == "ready" %}
+      {% set suggested_lane = preview.suggested_forms[0] if preview.suggested_forms else none %}
+      <button type="button"
+              class="btn-secondary"
+              data-market-suggestion
+              data-market-value="{{ preview.market_inference.destination_market }}"
+              data-form-name="{{ suggested_lane.display_name if suggested_lane else '' }}"
+              data-agreement="{{ suggested_lane.agreement if suggested_lane else '' }}"
+              data-instrument="{{ suggested_lane.instrument if suggested_lane else '' }}">
+        {{ preview.market_inference.action_label }}
+      </button>
+      {% endif %}
+    </div>
+    {% if preview.suggested_forms %}
+    <div class="invoice-form-hints">
+      {% for lane in preview.suggested_forms[:3] %}
+      <div class="{{ 'is-recommended' if lane.recommended else '' }}">
+        <span>{{ 'Form nên dùng nếu chọn thị trường này' if lane.recommended else 'Form tham khảo' }}</span>
+        <strong>{{ lane.display_name }}</strong>
+        <small>{{ lane.instrument }}</small>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if preview.matches %}
+    <div class="invoice-preview-lines">
+      {% for row in preview.matches[:4] %}
+      <div>
+        <span class="mono">{{ row.declaration_no }} / {{ row.line_no }}</span>
+        <strong class="mono">{{ row.item_code }} · HS {{ row.hs_code }}</strong>
+        <small>{{ row.description or row.invoice_ref }}</small>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+{%- endmacro %}
+
+{% macro invoice_lookup(input_id, value, required=false, preview=none) -%}
+  <div class="invoice-lookup" data-invoice-lookup data-preview-url="/clients/{{ client.id }}/co-case/invoice-preview">
+    <label for="{{ input_id }}">Invoice</label>
+    <div class="invoice-input-row">
+      <input id="{{ input_id }}"
+             name="invoice_no"
+             value="{{ value }}"
+             placeholder="Nhập số invoice"
+             autocomplete="off"
+             role="combobox"
+             aria-expanded="false"
+             data-invoice-input
+             {% if required %}required{% endif %}>
+      <button type="button" class="btn-secondary" data-invoice-search>Tra</button>
+    </div>
+    <div class="invoice-options" data-invoice-options role="listbox"></div>
+    <div class="invoice-preview" data-invoice-preview aria-live="polite">
+      {{ invoice_preview_content(preview) }}
+    </div>
+  </div>
+{%- endmacro %}
+
 {% block content %}
 {% include "_client_nav.html" %}
 
@@ -156,9 +241,7 @@
       </div>
     </div>
     <form method="post" action="/clients/{{ client.id }}/co-case/create" class="co-create-form co-create-flow" hx-boost="false">
-      <label>Invoice
-        <input name="invoice_no" placeholder="INV-..." value="{{ case.shipment.invoice_no }}" required>
-      </label>
+      {{ invoice_lookup("create-invoice-no", case.shipment.invoice_no, true) }}
       {{ market_picker("create-destination-market", "" if case.destination_market == "Chưa nhập" else case.destination_market) }}
       <input type="hidden" name="co_form_type" value="{{ recommended_form_lane.display_name if case.destination_market != 'Chưa nhập' else '' }}" data-selected-form>
       <input type="hidden" name="agreement" value="{{ recommended_form_lane.agreement if case.destination_market != 'Chưa nhập' else '' }}" data-selected-agreement>
@@ -245,16 +328,17 @@
       <span class="chip">Thị trường {{ case.destination_market }}</span>
     </div>
   </div>
-  <div class="co-step-layout">
+  <div class="co-step-layout co-shipment-layout">
     <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/shipment" class="stack-form co-step-form" hx-boost="false">
       <input type="hidden" name="title" value="{{ case.title }}">
       <label>Mã hồ sơ
         <input name="case_code" value="{{ case.case_code }}">
       </label>
-      <label>Invoice
-        <input name="invoice_no" value="{{ case.shipment.invoice_no }}">
-      </label>
-      {{ market_picker("shipment-destination-market", case.destination_market) }}
+      {{ invoice_lookup("shipment-invoice-no", case.shipment.invoice_no, false, invoice_lookup_preview) }}
+      {{ market_picker("shipment-destination-market", "" if case.destination_market == "Chưa nhập" else case.destination_market) }}
+      <input type="hidden" name="co_form_type" value="{{ recommended_form_lane.display_name if case.destination_market != 'Chưa nhập' else '' }}" data-selected-form>
+      <input type="hidden" name="agreement" value="{{ recommended_form_lane.agreement if case.destination_market != 'Chưa nhập' else '' }}" data-selected-agreement>
+      <input type="hidden" name="rule" value="{{ recommended_form_lane.rule_lookup_label if case.destination_market != 'Chưa nhập' else '' }}" data-selected-rule>
       <label>Số B/L
         <input name="bill_of_lading_no" value="{{ case.shipment.bill_of_lading_no }}">
       </label>
@@ -265,20 +349,6 @@
       </div>
       <button type="submit">Lưu lô hàng</button>
     </form>
-    <aside class="co-side-note">
-      <h3>Sản phẩm theo invoice</h3>
-      <div class="invoice-product-list">
-        {% for row in invoice_criteria_rows %}
-        <div>
-          <span class="mono">{{ row.product_code or row.declaration_no }}</span>
-          <strong>{{ row.finished_hs }}</strong>
-          <small>{{ row.form }} · {{ row.rule }}</small>
-        </div>
-        {% else %}
-        <p class="empty-cell">Chưa thấy dòng BCCT xuất khẩu khớp invoice. Lưu invoice đúng rồi kiểm tra bước BCCT.</p>
-        {% endfor %}
-      </div>
-    </aside>
   </div>
 </section>
 {% endif %}
@@ -807,6 +877,139 @@
     scope.querySelector("[data-selected-rule]")?.setAttribute("value", option ? "Cần tra cứu PSR theo HS" : "");
   };
 
+  const escapeHtml = (value) => (value || "")
+    .toString()
+    .replace(/[&<>"']/g, (char) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      "\"": "&quot;",
+      "'": "&#39;",
+    }[char]));
+
+  const renderInvoicePreview = (lookup, payload) => {
+    const optionsPanel = lookup.querySelector("[data-invoice-options]");
+    const previewPanel = lookup.querySelector("[data-invoice-preview]");
+    const input = lookup.querySelector("[data-invoice-input]");
+    const options = payload.options || [];
+    optionsPanel.innerHTML = options.map((option) => `
+      <button type="button" data-invoice-option data-invoice-value="${escapeHtml(option.invoice_no)}">
+        <span class="mono">${escapeHtml(option.invoice_no)}</span>
+        <small>${option.row_count || 0} dòng · ${option.declaration_count || 0} tờ khai · HS ${escapeHtml((option.hs_codes || []).join(", ") || "chưa có")}</small>
+      </button>
+    `).join("");
+    optionsPanel.classList.toggle("is-open", options.length > 0 && document.activeElement === input);
+    input.setAttribute("aria-expanded", options.length > 0 ? "true" : "false");
+
+    if (payload.status === "empty") {
+      if (!options.length) {
+        previewPanel.innerHTML = "";
+      }
+      return;
+    }
+    if (payload.status === "error") {
+      previewPanel.innerHTML = `<div class="invoice-preview-summary invoice-preview-error"><div class="invoice-preview-head"><strong>${escapeHtml(payload.message || "Không tra được invoice")}</strong></div></div>`;
+      return;
+    }
+    const summary = payload.summary || {};
+    const inference = payload.market_inference || {};
+    const forms = payload.suggested_forms || [];
+    const firstForm = forms[0] || {};
+    const matches = payload.matches || [];
+    const facts = payload.status === "found" ? `
+      <div class="invoice-facts">
+        <span>${summary.declaration_count || 0} tờ khai</span>
+        <span>HS ${escapeHtml((summary.hs_codes || []).join(", ") || "chưa có")}</span>
+        <span>Mã SP ${escapeHtml((summary.item_codes || []).join(", ") || "chưa có")}</span>
+      </div>
+    ` : "";
+    const marketButton = inference.status === "ready" ? `
+      <button type="button"
+              class="btn-secondary"
+              data-market-suggestion
+              data-market-value="${escapeHtml(inference.destination_market)}"
+              data-form-name="${escapeHtml(firstForm.display_name)}"
+              data-agreement="${escapeHtml(firstForm.agreement)}"
+              data-instrument="${escapeHtml(firstForm.instrument)}">
+        ${escapeHtml(inference.action_label)}
+      </button>
+    ` : "";
+    const formHints = forms.length ? `
+      <div class="invoice-form-hints">
+        ${forms.slice(0, 3).map((lane) => `
+          <div class="${lane.recommended ? "is-recommended" : ""}">
+            <span>${lane.recommended ? "Form nên dùng nếu chọn thị trường này" : "Form tham khảo"}</span>
+            <strong>${escapeHtml(lane.display_name)}</strong>
+            <small>${escapeHtml(lane.instrument)}</small>
+          </div>
+        `).join("")}
+      </div>
+    ` : "";
+    const previewLines = matches.length ? `
+      <div class="invoice-preview-lines">
+        ${matches.slice(0, 4).map((row) => `
+          <div>
+            <span class="mono">${escapeHtml(row.declaration_no)} / ${escapeHtml(row.line_no)}</span>
+            <strong class="mono">${escapeHtml(row.item_code)} · HS ${escapeHtml(row.hs_code)}</strong>
+            <small>${escapeHtml(row.description || row.invoice_ref)}</small>
+          </div>
+        `).join("")}
+      </div>
+    ` : "";
+    previewPanel.innerHTML = `
+      <div class="invoice-preview-summary invoice-preview-${escapeHtml(payload.status)}">
+        <div class="invoice-preview-head">
+          <span class="mono">${escapeHtml(payload.invoice_no)}</span>
+          <strong>${payload.status === "found" ? `${payload.match_count || 0} dòng BCCT xuất khẩu` : "Chưa thấy dòng BCCT khớp"}</strong>
+        </div>
+        ${facts}
+        <div class="invoice-market-hint invoice-market-${escapeHtml(inference.status)}">
+          <span>Gợi ý thị trường</span>
+          <strong>${escapeHtml(inference.destination_market || "Chưa đủ dữ liệu")}</strong>
+          <p>${escapeHtml(inference.explanation)}</p>
+          ${marketButton}
+        </div>
+        ${formHints}
+        ${previewLines}
+      </div>
+    `;
+  };
+
+  const fetchInvoicePreview = async (lookup, exact = false) => {
+    const input = lookup.querySelector("[data-invoice-input]");
+    const value = input.value.trim();
+    const optionsPanel = lookup.querySelector("[data-invoice-options]");
+    if (value.length < 2) {
+      optionsPanel.innerHTML = "";
+      optionsPanel.classList.remove("is-open");
+      lookup.querySelector("[data-invoice-preview]").innerHTML = "";
+      input.setAttribute("aria-expanded", "false");
+      return;
+    }
+    const url = new URL(lookup.dataset.previewUrl, window.location.origin);
+    url.searchParams.set("q", value);
+    if (exact) {
+      url.searchParams.set("invoice_no", value);
+    }
+    const response = await fetch(url, {headers: {"Accept": "application/json"}});
+    renderInvoicePreview(lookup, await response.json());
+  };
+
+  const applySuggestedMarket = (button) => {
+    const form = button.closest("form");
+    if (!form) return;
+    const input = form.querySelector("[data-market-input]");
+    if (!input) return;
+    input.value = button.dataset.marketValue || "";
+    updatePreview(input, {
+      dataset: {
+        formName: button.dataset.formName || "Chọn thị trường",
+        instrument: button.dataset.instrument || "Thông tư sẽ hiện sau khi chọn thị trường",
+        agreement: button.dataset.agreement || "",
+      },
+    });
+  };
+
   document.querySelectorAll("[data-market-combobox]").forEach((box) => {
     const input = box.querySelector("[data-market-input]");
     const panel = box.querySelector("[data-market-options]");
@@ -819,10 +1022,13 @@
     };
     const filter = () => {
       const key = normalize(input.value);
+      const option = findOption();
       options.forEach((option) => {
         option.hidden = Boolean(key) && !normalize(option.dataset.search).includes(key);
       });
-      updatePreview(input, findOption());
+      if (option || !key) {
+        updatePreview(input, option);
+      }
     };
     input.addEventListener("focus", () => {
       panel.classList.add("is-open");
@@ -841,11 +1047,50 @@
     filter();
   });
 
+  document.querySelectorAll("[data-invoice-lookup]").forEach((lookup) => {
+    const input = lookup.querySelector("[data-invoice-input]");
+    const button = lookup.querySelector("[data-invoice-search]");
+    let timer = null;
+    const scheduleFetch = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => fetchInvoicePreview(lookup).catch(() => {}), 280);
+    };
+    input.addEventListener("input", scheduleFetch);
+    input.addEventListener("focus", () => fetchInvoicePreview(lookup).catch(() => {}));
+    button?.addEventListener("click", () => fetchInvoicePreview(lookup, true).catch(() => {}));
+    if (input.value.trim().length >= 2) {
+      fetchInvoicePreview(lookup, true).catch(() => {});
+    }
+  });
+
+  document.addEventListener("click", (event) => {
+    const invoiceOption = event.target.closest("[data-invoice-option]");
+    if (invoiceOption) {
+      const lookup = invoiceOption.closest("[data-invoice-lookup]");
+      const input = lookup?.querySelector("[data-invoice-input]");
+      if (lookup && input) {
+        input.value = invoiceOption.dataset.invoiceValue || "";
+        lookup.querySelector("[data-invoice-options]")?.classList.remove("is-open");
+        fetchInvoicePreview(lookup, true).catch(() => {});
+      }
+      return;
+    }
+    const marketSuggestion = event.target.closest("[data-market-suggestion]");
+    if (marketSuggestion) {
+      applySuggestedMarket(marketSuggestion);
+    }
+  });
+
   document.addEventListener("click", (event) => {
     document.querySelectorAll("[data-market-combobox]").forEach((box) => {
       if (box.contains(event.target)) return;
       box.querySelector("[data-market-options]")?.classList.remove("is-open");
       box.querySelector("[data-market-input]")?.setAttribute("aria-expanded", "false");
+    });
+    document.querySelectorAll("[data-invoice-lookup]").forEach((box) => {
+      if (box.contains(event.target)) return;
+      box.querySelector("[data-invoice-options]")?.classList.remove("is-open");
+      box.querySelector("[data-invoice-input]")?.setAttribute("aria-expanded", "false");
     });
   });
 
