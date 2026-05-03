@@ -8,14 +8,54 @@
     <div>
       <h2>
         Proposal
-        {% if proposal.status == 'approved' %}<span class="badge badge-success">approved</span>
-        {% elif proposal.status == 'rejected' %}<span class="badge badge-warning">rejected</span>
+        {% if proposal.status == 'pending' %}<span class="badge badge-warning">{{ t('proposals.status_pending') }}</span>
+        {% elif proposal.status == 'approved' %}<span class="badge badge-success">{{ t('proposals.status_approved') }}</span>
+        {% elif proposal.status == 'rejected' %}<span class="badge badge-danger">{{ t('proposals.status_rejected') }}</span>
+        {% elif proposal.status == 'withdrawn' %}<span class="badge">{{ t('proposals.status_withdrawn') }}</span>
         {% else %}<span class="badge">{{ proposal.status }}</span>{% endif %}
       </h2>
       <p class="meta mono">{{ proposal.proposal_id }}</p>
     </div>
     <div><a class="btn-secondary" href="/clients/{{ client.client_id }}/proposals">← {{ t('proposals.title') }}</a></div>
   </div>
+
+  {% if proposal.status == 'pending' %}
+  <section class="callout callout-info" style="margin-top: 1rem;">
+    <div style="display: flex; flex-direction: column; gap: .8rem; flex: 1;">
+      <div>
+        <div class="callout-title">{{ t('proposals.review.heading') }}</div>
+        <p class="meta">{{ t('proposals.review.body') }}</p>
+      </div>
+      {% if can_approve %}
+      <div style="display: flex; gap: .8rem; flex-wrap: wrap; align-items: flex-start;">
+        <form method="post"
+              action="/clients/{{ client.client_id }}/proposals/{{ proposal.proposal_id }}/approve"
+              style="display: inline-flex; gap: .5rem; align-items: center;">
+          <input type="text" name="reason" placeholder="{{ t('proposals.review.approve_reason_placeholder') }}"
+                 style="min-width: 18rem;">
+          <button type="submit" class="btn-primary">{{ t('proposals.review.approve_btn') }}</button>
+        </form>
+        <form method="post"
+              action="/clients/{{ client.client_id }}/proposals/{{ proposal.proposal_id }}/reject"
+              style="display: inline-flex; gap: .5rem; align-items: center;">
+          <input type="text" name="reason" placeholder="{{ t('proposals.review.reject_reason_placeholder') }}"
+                 style="min-width: 18rem;" required>
+          <button type="submit" class="btn-secondary">{{ t('proposals.review.reject_btn') }}</button>
+        </form>
+      </div>
+      {% else %}
+      <p class="meta">{{ t('proposals.review.no_permission') }}</p>
+      {% endif %}
+      {% if can_edit %}
+      <form method="post"
+            action="/clients/{{ client.client_id }}/proposals/{{ proposal.proposal_id }}/withdraw"
+            onsubmit="return confirm('{{ t('proposals.review.withdraw_confirm') }}');">
+        <button type="submit" class="btn-secondary">{{ t('proposals.review.withdraw_btn') }}</button>
+      </form>
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
 
   <table class="dh-table">
     <tr><th>{{ t('proposals.col.product') }}</th><td class="mono">{{ proposal.product_code }}</td></tr>

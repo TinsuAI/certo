@@ -15,6 +15,7 @@ from app.auth.session import (
     verify_password,
 )
 from app.auth.permissions import (
+    can_approve_proposal,
     can_assign_staff_to_client,
     can_create_client,
     can_edit_client,
@@ -24,6 +25,7 @@ from app.auth.permissions import (
     can_manage_managers,
     can_manage_users,
     can_view_client,
+    require_can_approve_proposal,
     require_can_edit_client,
     require_can_view_client,
     visible_clients,
@@ -44,6 +46,7 @@ __all__ = [
     "seed_admin_if_empty",
     "set_session_cookie",
     "verify_password",
+    "can_approve_proposal",
     "can_assign_staff_to_client",
     "can_create_client",
     "can_edit_client",
@@ -53,6 +56,7 @@ __all__ = [
     "can_manage_managers",
     "can_manage_users",
     "can_view_client",
+    "require_can_approve_proposal",
     "require_can_edit_client",
     "require_can_view_client",
     "visible_clients",

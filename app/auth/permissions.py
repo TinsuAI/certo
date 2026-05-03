@@ -79,6 +79,47 @@ def can_edit_client_config(user: User | None, client_id: str) -> bool:
     return False
 
 
+def _client_approver_tier(client_id: str) -> str:
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select bom_approver_tier from hub.clients where client_id = %s",
+                (client_id,),
+            )
+            row = cur.fetchone()
+    return (row[0] if row else "edit") or "edit"
+
+
+def can_approve_proposal(user: User | None, client_id: str) -> bool:
+    """Per-client `bom_approver_tier` decides who can approve / reject a
+    pending BOM proposal:
+
+      edit    — anyone with edit access on the client (default).
+      manager — managers + admin/dev only.
+      admin   — admin / dev only.
+    """
+    if not user:
+        return False
+    tier = _client_approver_tier(client_id)
+    if tier == "admin":
+        return user.role in ("dev", "admin")
+    if tier == "manager":
+        if user.role in ("dev", "admin"):
+            return True
+        if user.role == "manager":
+            return _manages_client(user.user_id, client_id)
+        return False
+    # tier == 'edit' (default)
+    return can_edit_client(user, client_id)
+
+
+def require_can_approve_proposal(user: User | None, client_id: str) -> None:
+    if not can_approve_proposal(user, client_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="forbidden",
+        )
+
+
 def can_edit_client_technical(user: User | None, client_id: str) -> bool:
     """Technical config: code_resolution_mode. Dev only."""
     return _is_dev(user)

@@ -85,6 +85,17 @@ def template_context(request: Request) -> dict:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     apply_migrations()
+    if os.environ.get("DATA_HUB_API_AUTH_DISABLED", "") == "1":
+        if (settings_store.get("api_auth_strict") or "").lower() in {"1", "true", "yes"}:
+            print(
+                "[auth] DATA_HUB_API_AUTH_DISABLED=1 ignored — "
+                "api_auth_strict=true takes precedence",
+            )
+        else:
+            print(
+                "[auth] *** DEV: API auth DISABLED on /v1/hub/* — "
+                "missing/empty bearer is accepted. Never set this in prod.",
+            )
     seeded_master = seed_master_data_if_empty()
     if any(seeded_master.values()):
         print(f"[seed] Master data seeded: {seeded_master}")

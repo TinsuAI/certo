@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from datetime import date, datetime
 from decimal import Decimal
@@ -28,11 +29,15 @@ from app.database import connect
 from app.routes.clients import get_client, list_clients
 from app.stores import client_config as client_config_store
 from app.stores.bom import (
+    ProposalNotFound,
+    ProposalNotPending,
+    get_proposal,
     get_version_with_rows,
     list_versions_for_product,
     list_products_with_bom,
     submit_proposal,
     validate_proposal_contract,
+    withdraw_proposal,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,6 +50,16 @@ def _strict_mode() -> bool:
     return (settings_store.get("api_auth_strict") or "").lower() in {"1", "true", "yes"}
 
 
+def _auth_disabled() -> bool:
+    """Dev-only kill-switch: skip every bearer check on /v1/hub/* when
+    `DATA_HUB_API_AUTH_DISABLED=1` is set. Suppressed automatically when
+    `api_auth_strict=true` so prod can never accidentally turn it on.
+    Loud warning is logged at startup (see app/main.py)."""
+    if _strict_mode():
+        return False
+    return os.environ.get("DATA_HUB_API_AUTH_DISABLED", "") == "1"
+
+
 def _require_token(authorization: str | None, *, scope: str = "hub:read") -> dict | None:
     """Verify bearer auth. Returns claims dict on JWT success, None on
     permissive fallback (legacy bearer-anything in dev). Raises 401 in
@@ -55,6 +70,8 @@ def _require_token(authorization: str | None, *, scope: str = "hub:read") -> dic
     arg; their access is role-gated per `_require_can_view_client`.
     """
     if not authorization or not authorization.lower().startswith("bearer "):
+        if _auth_disabled():
+            return None
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "bearer token required")
     token = authorization[7:].strip()
     if not token:
@@ -87,11 +104,15 @@ def _require_token(authorization: str | None, *, scope: str = "hub:read") -> dic
     return claims
 
 
-def _require_jwt_claims(authorization: str | None, *, scope: str = "hub:read") -> dict:
+def _require_jwt_claims(authorization: str | None, *, scope: str = "hub:read") -> dict | None:
     if not authorization or not authorization.lower().startswith("bearer "):
+        if _auth_disabled():
+            return None
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "bearer token required")
     token = authorization[7:].strip()
     if not token:
+        if _auth_disabled():
+            return None
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "empty bearer token")
     try:
         claims = jwt_issuer.verify_token(token)
@@ -740,6 +761,33 @@ async def api_get_proposal(
             proposal = dict(zip(cols, row))
     _require_can_view_client(claims, proposal["client_id"])
     return _json(proposal)
+
+
+@router.post("/proposals/{proposal_id}/withdraw")
+async def api_withdraw_proposal(
+    proposal_id: str,
+    authorization: str | None = Header(None),
+):
+    """Rescind a still-pending proposal. Allowed for any caller with the
+    `bom:propose` scope (service tokens) or edit access on the client
+    (human reviewers). Returns 409 if the proposal already decided."""
+    claims = _require_jwt_claims(authorization, scope="bom:propose")
+    proposal = get_proposal(proposal_id)
+    if not proposal:
+        raise HTTPException(404, "proposal not found")
+    _require_can_edit_client(claims, proposal["client_id"])
+    try:
+        result = withdraw_proposal(
+            proposal_id=proposal_id,
+            by=str(claims.get("sub", "")) if claims else "unknown",
+        )
+    except ProposalNotFound:
+        raise HTTPException(404, "proposal not found")
+    except ProposalNotPending as exc:
+        raise HTTPException(
+            409, f"Proposal not pending (current status: {exc})",
+        )
+    return _json(result)
 
 
 @router.get("/healthz")

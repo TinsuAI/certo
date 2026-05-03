@@ -24,7 +24,7 @@ def test_client():
                 """
                 insert into hub.clients
                   (client_id, name, code_resolution_mode, bom_proposal_mode)
-                values (%s, 'Provenance Test Co', 'identity', 'auto_only')
+                values (%s, 'Provenance Test Co', 'identity', 'auto')
                 """,
                 (cid,),
             )

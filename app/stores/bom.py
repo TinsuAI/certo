@@ -331,6 +331,18 @@ def get_version_with_rows(version_id: str) -> dict | None:
 
 # ---- Proposal queue ----
 
+PROPOSAL_MODES = ("auto", "manual", "hybrid")
+
+
+class ProposalNotFound(Exception):
+    pass
+
+
+class ProposalNotPending(Exception):
+    """Raised when an action requires status='pending' but the proposal
+    has already been decided or withdrawn."""
+
+
 def proposal_requires_parent_version(*, actor: str, intent: str) -> bool:
     return actor == "co_system" or intent == "modified_for_case"
 
@@ -341,16 +353,56 @@ def validate_proposal_contract(*, actor: str, intent: str,
         raise ValueError("parent_version_id is required for CO modified_for_case proposals")
 
 
+def _client_proposal_mode(client_id: str) -> str:
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select bom_proposal_mode from hub.clients where client_id = %s",
+                (client_id,),
+            )
+            row = cur.fetchone()
+    return (row[0] if row else "auto") or "auto"
+
+
+def _notify_pending_review(*, client_id: str, product_code: str,
+                           proposal_id: str, decision_reason: str | None) -> None:
+    """Fan-out a 'pending review' notification to every staff member with
+    edit access to the client. Non-critical — swallow errors."""
+    try:
+        from app import notifications as _notifs
+        user_ids = _notifs.staff_with_edit_access_to_client(client_id)
+        body = f"Reason: {decision_reason}." if decision_reason else "Đang chờ duyệt thủ công."
+        _notifs.notify_many(
+            user_ids=user_ids, kind="bom_proposal_pending",
+            title=f"BOM proposal cho {product_code} cần duyệt",
+            body=body,
+            link_url=f"/clients/{client_id}/proposals/{proposal_id}",
+            client_id=client_id, related_kind="bom_change_requests",
+            related_id=proposal_id,
+        )
+    except Exception:
+        pass
+
+
 def submit_proposal(*, client_id: str, product_code: str, actor: str, intent: str,
                     parent_version_id: str | None, context: dict,
                     rows: list[dict]) -> dict:
-    """Submit a BOM proposal. Auto-rule evaluates synchronously. Returns
-    {status, ...} dict."""
+    """Submit a BOM proposal. Branches on the client's bom_proposal_mode:
+
+      auto    — auto-rule decides synchronously (existing behaviour).
+      manual  — every proposal lands in 'pending'; a reviewer must act.
+      hybrid  — auto-rule approves clean proposals; rule rejections fall
+                through to 'pending' (with failed_conditions) for override.
+
+    Returns {proposal_id, status, version_id?, decision_reason,
+    failed_conditions, idempotent?}.
+    """
     validate_proposal_contract(
         actor=actor, intent=intent, parent_version_id=parent_version_id,
     )
     proposal_id = "prop_" + secrets.token_urlsafe(12)
     nh = normalized_hash(rows)
+    mode = _client_proposal_mode(client_id)
 
     # Idempotency: if a same-key proposal exists, return its outcome.
     with connect() as conn:
@@ -364,6 +416,7 @@ def submit_proposal(*, client_id: str, product_code: str, actor: str, intent: st
                 where client_id=%s and product_code=%s and actor=%s and intent=%s
                   and coalesce(parent_version_id, '00000000-0000-0000-0000-000000000000') = %s
                   and normalized_hash=%s
+                  and status <> 'withdrawn'
                 order by created_at desc limit 1
                 """,
                 (client_id, product_code, actor, intent, parent_norm, nh),
@@ -379,28 +432,48 @@ def submit_proposal(*, client_id: str, product_code: str, actor: str, intent: st
                     "idempotent": True,
                 }
 
-    decision = _auto_evaluate(
-        client_id=client_id, product_code=product_code,
-        parent_version_id=parent_version_id, context=context, rows=rows,
-    )
+    if mode == "manual":
+        decision = {"approved": False, "reason": None, "failed": []}
+        landed_status = "pending"
+        decided_by = None
+        decision_reason = None
+    else:
+        decision = _auto_evaluate(
+            client_id=client_id, product_code=product_code,
+            parent_version_id=parent_version_id, context=context, rows=rows,
+        )
+        if decision["approved"]:
+            landed_status = "approved"
+            decided_by = "auto-rule"
+            decision_reason = decision["reason"]
+        elif mode == "hybrid":
+            landed_status = "pending"
+            decided_by = None
+            decision_reason = None
+        else:  # auto + auto-rule rejected
+            landed_status = "rejected"
+            decided_by = "auto-rule"
+            decision_reason = decision["reason"]
 
+    decided_at_clause = "now()" if landed_status != "pending" else "null"
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
+                f"""
                 insert into hub.bom_change_requests
                   (proposal_id, client_id, product_code, actor, intent,
                    parent_version_id, context, rows_payload, normalized_hash,
                    status, decided_at, decided_by, decision_reason, failed_conditions)
                 values (%s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s,
-                        %s, now(), 'auto-rule', %s, %s::jsonb)
+                        %s, {decided_at_clause}, %s, %s, %s::jsonb)
                 """,
                 (proposal_id, client_id, product_code, actor, intent,
                  parent_version_id, json.dumps(context), json.dumps(rows), nh,
-                 "approved" if decision["approved"] else "rejected",
-                 decision["reason"], json.dumps(decision.get("failed", []))),
+                 landed_status, decided_by, decision_reason,
+                 json.dumps(decision.get("failed", []))),
             )
-    if decision["approved"]:
+
+    if landed_status == "approved":
         version_id = create_version(
             client_id=client_id, product_code=product_code, rows=rows,
             actor=actor, intent=intent, parent_version_id=parent_version_id,
@@ -418,8 +491,24 @@ def submit_proposal(*, client_id: str, product_code: str, actor: str, intent: st
             "version_id": version_id, "decision_reason": decision["reason"],
             "failed_conditions": [],
         }
-    # Auto-rule rejected this proposal — fan-out to every staff member
-    # with edit access to the client so someone can review/override.
+
+    if landed_status == "pending":
+        _notify_pending_review(
+            client_id=client_id, product_code=product_code,
+            proposal_id=proposal_id,
+            decision_reason=(
+                f"auto-rule rejected: {decision['reason']}"
+                if mode == "hybrid" else None
+            ),
+        )
+        return {
+            "proposal_id": proposal_id, "status": "pending",
+            "version_id": None, "decision_reason": None,
+            "failed_conditions": decision.get("failed", []),
+        }
+
+    # auto mode + auto-rule rejected: legacy notification path so reviewers
+    # know there's a rejection worth eyeballing.
     try:
         from app import notifications as _notifs
         user_ids = _notifs.staff_with_edit_access_to_client(client_id)
@@ -433,13 +522,121 @@ def submit_proposal(*, client_id: str, product_code: str, actor: str, intent: st
             related_id=proposal_id,
         )
     except Exception:
-        pass  # notification is non-critical
+        pass
 
     return {
         "proposal_id": proposal_id, "status": "rejected",
         "version_id": None, "decision_reason": decision["reason"],
         "failed_conditions": decision.get("failed", []),
     }
+
+
+def get_proposal(proposal_id: str) -> dict | None:
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select proposal_id, client_id, product_code, actor, intent,
+                       parent_version_id, context, rows_payload, status,
+                       decided_at, decided_by, decision_reason,
+                       failed_conditions, materialized_version_id,
+                       normalized_hash, created_at
+                from hub.bom_change_requests where proposal_id = %s
+                """,
+                (proposal_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            cols = [d[0] for d in cur.description]
+            return dict(zip(cols, row))
+
+
+def approve_proposal(*, proposal_id: str, decided_by: str,
+                     reason: str | None = None) -> dict:
+    """Materialize a pending proposal as a new BOM version."""
+    proposal = get_proposal(proposal_id)
+    if not proposal:
+        raise ProposalNotFound(proposal_id)
+    if proposal["status"] != "pending":
+        raise ProposalNotPending(proposal["status"])
+    rows = proposal["rows_payload"] or []
+    context = dict(proposal["context"] or {})
+    version_id = create_version(
+        client_id=proposal["client_id"], product_code=proposal["product_code"],
+        rows=rows, actor=proposal["actor"], intent=proposal["intent"],
+        parent_version_id=proposal["parent_version_id"],
+        context={**context, "proposal_id": proposal_id},
+        source_upload_id=None,
+    )
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                update hub.bom_change_requests
+                set status='approved', decided_at=now(), decided_by=%s,
+                    decision_reason=%s, materialized_version_id=%s
+                where proposal_id=%s
+                """,
+                (decided_by, reason or "manual approve", version_id, proposal_id),
+            )
+    try:
+        from app import notifications as _notifs
+        user_ids = _notifs.staff_with_edit_access_to_client(proposal["client_id"])
+        _notifs.notify_many(
+            user_ids=user_ids, kind="bom_proposal_approved",
+            title=f"BOM proposal cho {proposal['product_code']} đã duyệt",
+            body=f"Approved by {decided_by}.",
+            link_url=f"/clients/{proposal['client_id']}/proposals/{proposal_id}",
+            client_id=proposal["client_id"],
+            related_kind="bom_change_requests", related_id=proposal_id,
+        )
+    except Exception:
+        pass
+    return {"proposal_id": proposal_id, "status": "approved", "version_id": version_id}
+
+
+def reject_proposal(*, proposal_id: str, decided_by: str, reason: str) -> dict:
+    """Mark a pending proposal as rejected with a reviewer-supplied reason."""
+    proposal = get_proposal(proposal_id)
+    if not proposal:
+        raise ProposalNotFound(proposal_id)
+    if proposal["status"] != "pending":
+        raise ProposalNotPending(proposal["status"])
+    reason_clean = (reason or "").strip() or "rejected"
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                update hub.bom_change_requests
+                set status='rejected', decided_at=now(), decided_by=%s,
+                    decision_reason=%s
+                where proposal_id=%s
+                """,
+                (decided_by, reason_clean, proposal_id),
+            )
+    return {"proposal_id": proposal_id, "status": "rejected"}
+
+
+def withdraw_proposal(*, proposal_id: str, by: str) -> dict:
+    """Submitter or reviewer rescinds a still-pending proposal."""
+    proposal = get_proposal(proposal_id)
+    if not proposal:
+        raise ProposalNotFound(proposal_id)
+    if proposal["status"] != "pending":
+        raise ProposalNotPending(proposal["status"])
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                update hub.bom_change_requests
+                set status='withdrawn', decided_at=now(), decided_by=%s,
+                    decision_reason='withdrawn'
+                where proposal_id=%s
+                """,
+                (by, proposal_id),
+            )
+    return {"proposal_id": proposal_id, "status": "withdrawn"}
 
 
 def _auto_evaluate(*, client_id: str, product_code: str,

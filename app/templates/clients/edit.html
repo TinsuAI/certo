@@ -78,9 +78,23 @@
         <span class="field-label">{{ t('clients.field.bom_proposal_mode') }}</span>
         <select name="bom_proposal_mode">
           {% for m in bom_modes %}
-          <option value="{{ m }}" {% if client and client.bom_proposal_mode == m %}selected{% endif %}>{{ m }}</option>
+          <option value="{{ m }}"
+            {% if client and client.bom_proposal_mode == m %}selected
+            {% elif not client and m == 'auto' %}selected{% endif %}>{{ t('clients.bom_mode.' + m) }}</option>
           {% endfor %}
         </select>
+        <span class="field-hint">{{ t('clients.field.bom_proposal_mode_meta') }}</span>
+      </label>
+      <label class="field">
+        <span class="field-label">{{ t('clients.field.bom_approver_tier') }}</span>
+        <select name="bom_approver_tier">
+          {% for tier in approver_tiers %}
+          <option value="{{ tier }}"
+            {% if client and client.bom_approver_tier == tier %}selected
+            {% elif not client and tier == 'edit' %}selected{% endif %}>{{ t('clients.approver_tier.' + tier) }}</option>
+          {% endfor %}
+        </select>
+        <span class="field-hint">{{ t('clients.field.bom_approver_tier_meta') }}</span>
       </label>
       <label class="field">
         <span class="field-label">{{ t('clients.field.bom_tolerance') }}</span>

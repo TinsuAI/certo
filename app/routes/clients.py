@@ -12,7 +12,8 @@ from app.database import connect
 router = APIRouter()
 
 CODE_RESOLUTION_MODES = ["identity", "simple_mapping", "batch_aggregate_resolution"]
-BOM_PROPOSAL_MODES = ["auto"]
+BOM_PROPOSAL_MODES = ["auto", "manual", "hybrid"]
+BOM_APPROVER_TIERS = ["edit", "manager", "admin"]
 
 
 def list_clients() -> list[dict]:
@@ -41,7 +42,8 @@ def get_client(client_id: str) -> dict | None:
             cur.execute(
                 """
                 select client_id, name, tax_code, code_resolution_mode, bom_proposal_mode,
-                       bom_proposal_qty_tolerance_pct, status, notes, created_at, updated_at
+                       bom_proposal_qty_tolerance_pct, bom_approver_tier,
+                       status, notes, created_at, updated_at
                 from hub.clients where client_id = %s
                 """,
                 (client_id,),
@@ -78,7 +80,8 @@ def stats_for_client(client_id: str) -> dict:
 
 def upsert_client(*, client_id: str, name: str, tax_code: str | None,
                   code_resolution_mode: str, bom_proposal_mode: str,
-                  bom_proposal_qty_tolerance_pct: float, status: str,
+                  bom_proposal_qty_tolerance_pct: float,
+                  bom_approver_tier: str, status: str,
                   notes: str | None) -> None:
     with connect() as conn:
         with conn.cursor() as cur:
@@ -86,20 +89,21 @@ def upsert_client(*, client_id: str, name: str, tax_code: str | None,
                 """
                 insert into hub.clients
                   (client_id, name, tax_code, code_resolution_mode, bom_proposal_mode,
-                   bom_proposal_qty_tolerance_pct, status, notes)
-                values (%s, %s, %s, %s, %s, %s, %s, %s)
+                   bom_proposal_qty_tolerance_pct, bom_approver_tier, status, notes)
+                values (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 on conflict (client_id) do update set
                   name = excluded.name,
                   tax_code = excluded.tax_code,
                   code_resolution_mode = excluded.code_resolution_mode,
                   bom_proposal_mode = excluded.bom_proposal_mode,
                   bom_proposal_qty_tolerance_pct = excluded.bom_proposal_qty_tolerance_pct,
+                  bom_approver_tier = excluded.bom_approver_tier,
                   status = excluded.status,
                   notes = excluded.notes,
                   updated_at = now()
                 """,
                 (client_id, name, tax_code, code_resolution_mode, bom_proposal_mode,
-                 bom_proposal_qty_tolerance_pct, status, notes),
+                 bom_proposal_qty_tolerance_pct, bom_approver_tier, status, notes),
             )
 
 
@@ -132,7 +136,8 @@ async def new_view(request: Request):
         raise HTTPException(403, "forbidden")
     return request.app.state.templates.TemplateResponse(
         request, "clients/edit.html",
-        {"client": None, "modes": CODE_RESOLUTION_MODES, "bom_modes": BOM_PROPOSAL_MODES,
+        {"client": None, "modes": CODE_RESOLUTION_MODES,
+         "bom_modes": BOM_PROPOSAL_MODES, "approver_tiers": BOM_APPROVER_TIERS,
          "active_root": "clients"},
     )
 
@@ -144,6 +149,7 @@ async def new_submit(
     code_resolution_mode: str = Form("simple_mapping"),
     bom_proposal_mode: str = Form("auto"),
     bom_proposal_qty_tolerance_pct: float = Form(5.0),
+    bom_approver_tier: str = Form("edit"),
     notes: str = Form(""),
 ):
     user = auth.require_user(request)
@@ -151,11 +157,16 @@ async def new_submit(
         raise HTTPException(403, "forbidden")
     if code_resolution_mode not in CODE_RESOLUTION_MODES:
         raise HTTPException(400, "Invalid code_resolution_mode")
+    if bom_proposal_mode not in BOM_PROPOSAL_MODES:
+        raise HTTPException(400, "Invalid bom_proposal_mode")
+    if bom_approver_tier not in BOM_APPROVER_TIERS:
+        raise HTTPException(400, "Invalid bom_approver_tier")
     client_id = slug(name)
     upsert_client(
         client_id=client_id, name=name.strip(), tax_code=tax_code.strip() or None,
         code_resolution_mode=code_resolution_mode, bom_proposal_mode=bom_proposal_mode,
         bom_proposal_qty_tolerance_pct=bom_proposal_qty_tolerance_pct,
+        bom_approver_tier=bom_approver_tier,
         status="active", notes=notes.strip() or None,
     )
     return RedirectResponse(url=f"/clients/{client_id}", status_code=303)
@@ -190,7 +201,8 @@ async def edit_view(request: Request, client_id: str):
     return request.app.state.templates.TemplateResponse(
         request, "clients/edit.html",
         {"client": client, "stats": stats,
-         "modes": CODE_RESOLUTION_MODES, "bom_modes": BOM_PROPOSAL_MODES,
+         "modes": CODE_RESOLUTION_MODES,
+         "bom_modes": BOM_PROPOSAL_MODES, "approver_tiers": BOM_APPROVER_TIERS,
          "active_root": "clients", "active_tab": "config",
          "can_edit_technical": auth.can_edit_client_technical(user, client_id)},
     )
@@ -203,6 +215,7 @@ async def edit_submit(
     code_resolution_mode: str = Form(""),
     bom_proposal_mode: str = Form("auto"),
     bom_proposal_qty_tolerance_pct: float = Form(5.0),
+    bom_approver_tier: str = Form("edit"),
     notes: str = Form(""), status: str = Form("active"),
 ):
     user = auth.require_user(request)
@@ -217,11 +230,16 @@ async def edit_submit(
         new_mode = code_resolution_mode
     else:
         new_mode = existing["code_resolution_mode"]
+    if bom_proposal_mode not in BOM_PROPOSAL_MODES:
+        raise HTTPException(400, "Invalid bom_proposal_mode")
+    if bom_approver_tier not in BOM_APPROVER_TIERS:
+        raise HTTPException(400, "Invalid bom_approver_tier")
     upsert_client(
         client_id=client_id, name=name.strip(), tax_code=tax_code.strip() or None,
         code_resolution_mode=new_mode,
         bom_proposal_mode=bom_proposal_mode,
         bom_proposal_qty_tolerance_pct=bom_proposal_qty_tolerance_pct,
+        bom_approver_tier=bom_approver_tier,
         status=status, notes=notes.strip() or None,
     )
     return RedirectResponse(url=f"/clients/{client_id}", status_code=303)

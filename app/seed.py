@@ -29,6 +29,7 @@ def auto_seed_demo_if_empty() -> str:
         client_id=growatt_id, name="Growatt VN", tax_code="0307123456",
         code_resolution_mode="batch_aggregate_resolution",
         bom_proposal_mode="auto", bom_proposal_qty_tolerance_pct=5.0,
+        bom_approver_tier="edit",
         status="active", notes="Reference Growatt — 1:n BQD with BCCT-aggregate disambiguation.",
     )
 
@@ -37,6 +38,7 @@ def auto_seed_demo_if_empty() -> str:
         client_id=johnson_id, name="Johnson VN", tax_code="0309876543",
         code_resolution_mode="identity",
         bom_proposal_mode="auto", bom_proposal_qty_tolerance_pct=5.0,
+        bom_approver_tier="edit",
         status="active", notes="Identity mode — customs_code IS internal_code.",
     )
 

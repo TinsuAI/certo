@@ -166,3 +166,9 @@ No project-local skills needed currently. If the project develops Data-Hub-speci
 - `.ai/DECISIONS.md` — local decisions (canonical architecture lives in BCQT-System DECISIONS.md for now)
 - `.ai/GLOSSARY.md` — domain-specific terms (customs compliance vocabulary)
 - `.ai/sessions/` — dated session summaries and primary handoff artifacts
+- `.ai/features/<YYYY-MM-DD-slug>/` — per-feature folder: `brief.md` +
+  committed `screenshots/*.png` from the UI smoke + optional
+  `ui_smoke.py`. Use this layout for new features with UI surface; the
+  flat `.ai/features/*.md` files are legacy and stay as-is. UI proof
+  goes here, not in `data/screenshots/` (which is gitignored build
+  output).

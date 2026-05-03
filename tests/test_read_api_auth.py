@@ -54,6 +54,20 @@ def test_no_bearer_returns_401():
     assert r.status_code == 401
 
 
+def test_auth_disabled_env_skips_bearer_check(monkeypatch, strict_mode_off):
+    """DATA_HUB_API_AUTH_DISABLED=1 — dev kill-switch makes bearer optional."""
+    monkeypatch.setenv("DATA_HUB_API_AUTH_DISABLED", "1")
+    r = _client().get(ENDPOINT)
+    assert r.status_code == 200
+
+
+def test_auth_disabled_env_ignored_when_strict(monkeypatch, strict_mode_on):
+    """Strict mode wins — disabled flag is suppressed, prod stays safe."""
+    monkeypatch.setenv("DATA_HUB_API_AUTH_DISABLED", "1")
+    r = _client().get(ENDPOINT)
+    assert r.status_code == 401
+
+
 def test_legacy_bearer_accepted_in_default_mode(strict_mode_off):
     """Permissive default keeps existing dev callers working."""
     r = _client().get(ENDPOINT, headers={"authorization": "Bearer not-a-jwt"})
