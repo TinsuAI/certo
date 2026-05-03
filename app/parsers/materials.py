@@ -52,16 +52,20 @@ def normalize_category(value: str | None) -> str | None:
     return None
 
 
-# DB CHECK constraint allows only ('active', 'discontinued'). Source files
-# carry agency-side lifecycle labels — normalize known VI/EN forms.
+# DB CHECK constraint allows ('active', 'pending', 'discontinued') after
+# migration 026. Pending = the agency has the material in the workflow
+# but HQ approval is still outstanding; not the same as discontinued (=
+# explicitly retired from new declarations). Source files carry
+# agency-side lifecycle labels — normalize known VI/EN forms.
 STATUS_MAP = {
     "active": "active", "đang dùng": "active", "dang dung": "active",
     "đã duyệt": "active", "da duyet": "active",
     "approved": "active", "in use": "active",
     "discontinued": "discontinued", "ngừng": "discontinued", "ngung": "discontinued",
     "không dùng": "discontinued", "khong dung": "discontinued",
-    "chờ duyệt": "discontinued", "cho duyet": "discontinued",
-    "pending": "discontinued", "inactive": "discontinued",
+    "inactive": "discontinued",
+    "pending": "pending", "chờ duyệt": "pending", "cho duyet": "pending",
+    "chờ phê duyệt": "pending", "cho phe duyet": "pending",
 }
 
 

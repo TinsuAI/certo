@@ -17,8 +17,12 @@ from typing import Iterable
 
 _DERIVE_FROM_BCCT_SQL = """
     insert into hub.materials
-      (client_id, customs_code, name, category, status, provenance)
+      (client_id, customs_code, internal_code, name, category, status, provenance)
     select %s, customs_code,
+           customs_code,                  -- internal_code defaults to customs_code
+                                          -- so BQD lookups don't break for
+                                          -- auto-derived rows; staff can
+                                          -- override later in catalog UI.
            max(goods_name),
            'nvl',
            'active',

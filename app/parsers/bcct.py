@@ -67,13 +67,42 @@ ALIASES = {
                       "exchange rate"],
 }
 
-IMPORT_TYPES = {"E11", "E13", "E15", "E21", "E23", "E31", "E41",
-                "A11", "A12", "A41", "A42", "G11", "G12", "G13",
-                "H11", "H12", "H13",   # phi mậu dịch (non-commercial) imports
-                "C11", "C12"}          # tạm nhập kinh doanh (temporary commercial import)
-EXPORT_TYPES = {"E42", "E52", "E54", "E62", "E82",
-                "B11", "B12", "B13", "G21", "G22", "G23",
-                "H21", "H22", "H23"}   # phi mậu dịch (non-commercial) exports
+# Decision 1357/QĐ-TCHQ (2021) — Vietnam customs declaration type schedule.
+# Sets reflect the *current* official catalog. Future schedule revisions
+# (expected post-MVP) should migrate this to a `hub.declaration_types`
+# lookup table. Listed here as Sprint D backlog item.
+#
+# Direction is INCLUSIVE of all codes the schedule maps to that side.
+# Codes not in either set fall through to `direction=NULL`; downstream
+# can flag those rows for manual review rather than silently mis-classify.
+IMPORT_TYPES = {
+    # E-series (sản xuất xuất khẩu / gia công)
+    "E11", "E13", "E15", "E21", "E23", "E31", "E33", "E41",
+    # A-series (kinh doanh tiêu dùng + chuyển mục đích)
+    "A11", "A12", "A21", "A31", "A41", "A42", "A43", "A44",
+    # G-series (tạm nhập)
+    "G11", "G12", "G13", "G14",
+    # H-series (phi mậu dịch — only H11 is import; H21 is export)
+    "H11",
+    # C-series (kho ngoại quan — only C11 is import; C12 is export)
+    "C11",
+    # D11/D13 (chuyển từ kho)
+    "D11", "D13",
+}
+EXPORT_TYPES = {
+    # E-series (xuất sản phẩm gia công / SXXK / DNCX)
+    "E42", "E52", "E54", "E62", "E82",
+    # B-series (xuất kinh doanh / chuyển mục đích)
+    "B11", "B12", "B13",
+    # G-series (tạm xuất + tái xuất)
+    "G21", "G22", "G23", "G24", "G61",
+    # H-series (phi mậu dịch — H21 is export)
+    "H21",
+    # C-series (xuất từ kho ngoại quan)
+    "C12",
+    # D-series (chuyển vào kho)
+    "D21", "D23",
+}
 
 
 def parse_bcct_workbook(
@@ -212,7 +241,21 @@ _cell_str = cell_str
 _cell_num = cell_num
 
 
+_DATE_FORMATS = (
+    "%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y",
+    "%d.%m.%Y", "%Y/%m/%d",  # Thái Sơn TS24 + ECUS5 legacy variants
+)
+
+
 def _cell_date(row, idx):
+    """Coerce a cell to a date. Returns None for empty/missing cells.
+
+    Raises BcctParseError when a non-empty value can't be parsed in any
+    known format — silent None here used to land rows with NULL
+    `registration_date` that subsequently failed at INSERT time against
+    the GENERATED `year` column with an opaque error far from the
+    original cell. Loud-fail at parse time is the better diagnostic.
+    """
     if idx is None or idx >= len(row):
         return None
     v = row[idx]
@@ -225,9 +268,12 @@ def _cell_date(row, idx):
     s = str(v).strip()
     if not s:
         return None
-    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
+    for fmt in _DATE_FORMATS:
         try:
             return datetime.strptime(s, fmt).date()
         except ValueError:
             pass
-    return None
+    raise BcctParseError(
+        f"unrecognized date format: {s!r} "
+        f"(supported: {', '.join(_DATE_FORMATS)})",
+    )

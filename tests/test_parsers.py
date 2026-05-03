@@ -173,6 +173,122 @@ def test_bcct_preserves_real_decimal_when_present():
     assert _cell_str([""], 0) is None
 
 
+def test_bcct_c12_classified_as_export():
+    """Decision 1357/QĐ-TCHQ 2021: C12 = export from bonded warehouse,
+    not import. Pre-fix parser had C12 in IMPORT_TYPES — sign-flip bug
+    that would have flagged any C12 row as import direction."""
+    from app.parsers.bcct import _direction_from
+    assert _direction_from("C12", None) == "export"
+    assert _direction_from("C11", None) == "import"
+
+
+def test_bcct_invalid_h_codes_dropped():
+    """H12/H13/H22/H23 don't exist in the 2021 schedule — only H11 (import)
+    and H21 (export) are valid. Bogus codes should fall through to NULL,
+    not silently land in either bucket."""
+    from app.parsers.bcct import _direction_from
+    assert _direction_from("H11", None) == "import"
+    assert _direction_from("H21", None) == "export"
+    assert _direction_from("H12", None) is None
+    assert _direction_from("H13", None) is None
+    assert _direction_from("H22", None) is None
+    assert _direction_from("H23", None) is None
+
+
+def test_bcct_cell_date_raises_on_unrecognized_format():
+    """Silent None on bad date used to leak through parse and fail later
+    at the GENERATED `year` column with an opaque message. Loud-fail
+    at parse time instead."""
+    from app.parsers.bcct import _cell_date, BcctParseError
+    import pytest
+    assert _cell_date(["2026-04-18"], 0) is not None  # ISO ok
+    assert _cell_date(["18/04/2026"], 0) is not None  # DD/MM/YYYY ok
+    assert _cell_date(["18.04.2026"], 0) is not None  # Thái Sơn ok
+    assert _cell_date(["2026/04/18"], 0) is not None  # ECUS5 ok
+    assert _cell_date([None], 0) is None              # missing ok
+    assert _cell_date([""], 0) is None                # blank ok
+    with pytest.raises(BcctParseError, match="unrecognized date"):
+        _cell_date(["April 18, 2026"], 0)
+    with pytest.raises(BcctParseError, match="unrecognized date"):
+        _cell_date(["20260418"], 0)
+
+
+def test_materials_status_map_chờ_duyệt_is_pending():
+    """`chờ duyệt` (waiting for HQ approval) is semantically pending,
+    not discontinued. Migration 026 extended chk_status to allow
+    'pending' alongside 'active' / 'discontinued'."""
+    from app.parsers.materials import normalize_status
+    assert normalize_status("chờ duyệt") == "pending"
+    assert normalize_status("cho duyet") == "pending"
+    assert normalize_status("chờ phê duyệt") == "pending"
+    assert normalize_status("pending") == "pending"
+    # Keep 'discontinued' semantics for inactive/ngừng
+    assert normalize_status("ngừng") == "discontinued"
+    assert normalize_status("inactive") == "discontinued"
+    # Unknown / empty default to active (existing behaviour)
+    assert normalize_status("active") == "active"
+    assert normalize_status("") == "active"
+    assert normalize_status(None) == "active"
+
+
+def test_bom_create_version_rejects_qty_zero():
+    """Belt-and-suspenders: even though the DB CHECK catches qty<=0,
+    the store layer pre-validates so users get a row-pointed error
+    instead of a generic Postgres constraint violation."""
+    import pytest
+    import secrets
+    from app.database import connect
+    from app.parsers.bom_adapters import BomParseError
+    from app.stores.bom import create_version
+
+    cid = "qty-test-" + secrets.token_hex(4)
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """insert into hub.clients
+               (client_id, name, code_resolution_mode, bom_proposal_mode)
+               values (%s, 'Qty Test', 'identity', 'auto')""",
+            (cid,),
+        )
+        cur.execute(
+            """insert into hub.materials
+               (client_id, customs_code, name, category, status)
+               values (%s, 'M-A', 'A', 'nvl', 'active'),
+                      (%s, 'M-B', 'B', 'nvl', 'active')""",
+            (cid, cid),
+        )
+    try:
+        with pytest.raises(BomParseError, match="qty_per_unit"):
+            create_version(
+                client_id=cid, product_code="P-1",
+                rows=[
+                    {"material_code": "M-A", "qty_per_unit": 1.0, "uom": "kg"},
+                    {"material_code": "M-B", "qty_per_unit": 0, "uom": "kg"},
+                ],
+                actor="agency_staff", intent="asserted_technical",
+                parent_version_id=None, context={}, source_upload_id=None,
+            )
+        with pytest.raises(BomParseError, match="qty_per_unit"):
+            create_version(
+                client_id=cid, product_code="P-1",
+                rows=[
+                    {"material_code": "M-A", "qty_per_unit": None, "uom": "kg"},
+                ],
+                actor="agency_staff", intent="asserted_technical",
+                parent_version_id=None, context={}, source_upload_id=None,
+            )
+    finally:
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "delete from hub.bom_version_rows where version_id in "
+                "(select version_id from hub.bom_versions where client_id=%s)",
+                (cid,),
+            )
+            cur.execute("delete from hub.bom_audit_events where client_id=%s", (cid,))
+            cur.execute("delete from hub.bom_versions where client_id=%s", (cid,))
+            cur.execute("delete from hub.materials where client_id=%s", (cid,))
+            cur.execute("delete from hub.clients where client_id=%s", (cid,))
+
+
 def test_shared_cell_str_used_everywhere():
     """All four parser modules share the same cell_str helper from
     `app/parsers/_excel.py`, so the .0 fix can't drift out of sync.

@@ -160,6 +160,23 @@ def _create_version_inner(cur, *, client_id, product_code, rows, actor, intent,
          json.dumps(lineage or {}, ensure_ascii=False, default=str),
          label, flatten_method, flatten_method_version),
     )
+    # Belt-and-suspenders qty validation. DB has chk_qty_per_unit_positive
+    # (migration 026) so the INSERT would error anyway, but pre-validating
+    # here surfaces a precise message ("row N: material X qty=...") instead
+    # of a generic constraint-violation rollback the user has to puzzle out.
+    bad_qty = [
+        (i, r.get("material_code"), r.get("qty_per_unit"))
+        for i, r in enumerate(rows)
+        if r.get("qty_per_unit") is None or float(r.get("qty_per_unit") or 0) <= 0
+    ]
+    if bad_qty:
+        from app.parsers.bom_adapters import BomParseError
+        sample = ", ".join(f"row {i} ({mat!r})={q!r}" for i, mat, q in bad_qty[:5])
+        raise BomParseError(
+            f"BOM has {len(bad_qty)} row(s) with qty_per_unit <= 0 or NULL. "
+            f"Fix the source workbook or remove these rows. First few: {sample}",
+        )
+
     for i, r in enumerate(rows):
         cur.execute(
             """
@@ -170,7 +187,7 @@ def _create_version_inner(cur, *, client_id, product_code, rows, actor, intent,
             """,
             (version_id, i, r["material_code"],
              r.get("bom_code"), r.get("bom_variant_id"),
-             r.get("qty_per_unit") or 0, r.get("uom"),
+             r["qty_per_unit"], r.get("uom"),
              json.dumps({k: v for k, v in r.items()
                          if k not in {"material_code","bom_code","bom_variant_id","qty_per_unit","uom"}},
                         default=str)),
