@@ -873,7 +873,15 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
     case_workspace = extra.pop("case_workspace")
     form_candidates = extra.pop("form_candidates")
     criteria_rows = extra.pop("criteria_rows")
-    bom_workspace = bom_service.workspace(client) if current_step == "origin" else minimal_bom_workspace()
+    if current_step == "origin":
+        bom_product_codes = co_case_bom_product_codes(case, invoice_matches)
+        bom_workspace = (
+            bom_service.workspace(client, product_codes=bom_product_codes)
+            if bom_product_codes
+            else minimal_bom_workspace()
+        )
+    else:
+        bom_workspace = minimal_bom_workspace()
     origin_demo_allowed = extra.pop("origin_demo_allowed", True)
     preserve_origin_products = extra.pop("preserve_origin_products", False)
     client = enrich_client_with_source_summary(client, source_summary)
@@ -947,6 +955,23 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
 
 def co_case_source_context(client: dict, case: dict) -> dict:
     return portfolio_service.co_case_source_context(client, case)
+
+
+def co_case_bom_product_codes(case: dict, invoice_matches: list[dict]) -> list[str]:
+    codes = []
+    for row in invoice_matches:
+        code = str(row.get("item_code") or row.get("product_code") or row.get("customs_code") or "").strip()
+        if code and code not in codes:
+            codes.append(code)
+    for product in case.get("products", []):
+        code = str(product.get("code") or product.get("product_code") or "").strip()
+        if code and code not in codes:
+            codes.append(code)
+    for code in case.get("bom_product_version_overrides", {}):
+        text = str(code or "").strip()
+        if text and text not in codes:
+            codes.append(text)
+    return codes
 
 
 def invoice_lookup_payload(client: dict, invoice_no: str, query: str = "") -> dict:

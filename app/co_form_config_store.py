@@ -10,6 +10,7 @@ from app.co_form_psr_index import normalize_hs_scope, seed_psr_rules
 
 
 DEFAULT_CO_FORM_CONFIG_PATH = "data/local/runtime/co-form-index.json"
+_CONFIG_CACHE: dict[str, tuple[tuple[str, int, int], dict]] = {}
 
 
 def default_co_form_config() -> dict:
@@ -196,9 +197,17 @@ def co_form_config_path() -> Path:
 
 def load_co_form_config() -> dict:
     path = co_form_config_path()
+    signature = config_file_signature(path)
+    cache_key = str(path)
+    cached = _CONFIG_CACHE.get(cache_key)
+    if cached and cached[0] == signature:
+        return cached[1]
     if not path.exists():
-        return sanitize_co_form_config(default_co_form_config())
-    return sanitize_co_form_config(json.loads(path.read_text(encoding="utf-8")))
+        config = sanitize_co_form_config(default_co_form_config())
+    else:
+        config = sanitize_co_form_config(json.loads(path.read_text(encoding="utf-8")))
+    _CONFIG_CACHE[cache_key] = (signature, config)
+    return config
 
 
 def save_co_form_config(config: dict) -> dict:
@@ -211,11 +220,24 @@ def save_co_form_config(config: dict) -> dict:
         json.dump(sanitized, handle, ensure_ascii=False, indent=2)
         handle.write("\n")
     os.replace(tmp_name, path)
+    clear_co_form_config_cache()
     return sanitized
 
 
 def reset_co_form_config() -> dict:
     return save_co_form_config(default_co_form_config())
+
+
+def clear_co_form_config_cache() -> None:
+    _CONFIG_CACHE.clear()
+
+
+def config_file_signature(path: Path) -> tuple[str, int, int]:
+    try:
+        stat = path.stat()
+    except OSError:
+        return (str(path), 0, 0)
+    return (str(path), stat.st_mtime_ns, stat.st_size)
 
 
 def sanitize_co_form_config(config: dict) -> dict:

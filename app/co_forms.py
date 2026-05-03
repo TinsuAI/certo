@@ -217,6 +217,9 @@ EUR1_MARKETS = {
     "sweden",
 }
 
+_FORM_REFERENCES_CACHE: tuple[int, dict[str, dict]] | None = None
+_PSR_RULE_INDEX_CACHE: tuple[int, dict[str, dict]] | None = None
+
 
 def form_candidates_for_market(market: str) -> list[dict]:
     key = market_key(market)
@@ -321,25 +324,27 @@ def criteria_preview_for_hs(form_code: str, hs_code: str) -> dict:
 
 
 def first_matching_preset(form_code: str, hs_key: str) -> dict:
-    rules = psr_rules_for_form(form_code)
-    fallback_rule = manual_lookup_rule(form_code)
+    index = psr_rule_index_for_form(form_code)
+    indexed_rules = index["rules"]
+    fallback_rule = index["fallback"] or manual_lookup_rule(form_code)
+    if not hs_key:
+        return fallback_rule
     matching_rules = []
     conditional_ex_rules = []
-    for rule in rules:
-        if market_key(rule["hs_scope"]) in {"any hs", "all hs"}:
-            fallback_rule = rule
+    for indexed in indexed_rules:
+        if indexed["is_fallback"]:
             continue
-        if hs_scope_matches(rule["hs_scope"], hs_key):
-            if hs_scope_is_ex(rule["hs_scope"]):
-                conditional_ex_rules.append(rule)
+        if indexed_hs_scope_matches(indexed, hs_key):
+            if indexed["is_ex"]:
+                conditional_ex_rules.append(indexed)
             else:
-                matching_rules.append(rule)
-    best_rule = max(matching_rules, key=lambda rule: hs_scope_specificity(rule["hs_scope"])) if matching_rules else None
-    best_ex_rule = max(conditional_ex_rules, key=lambda rule: hs_scope_specificity(rule["hs_scope"])) if conditional_ex_rules else None
-    if best_ex_rule and (not best_rule or hs_scope_specificity(best_ex_rule["hs_scope"]) >= hs_scope_specificity(best_rule["hs_scope"])):
-        return conditional_ex_lookup_rule(best_ex_rule)
+                matching_rules.append(indexed)
+    best_rule = max(matching_rules, key=lambda row: row["specificity"]) if matching_rules else None
+    best_ex_rule = max(conditional_ex_rules, key=lambda row: row["specificity"]) if conditional_ex_rules else None
+    if best_ex_rule and (not best_rule or best_ex_rule["specificity"] >= best_rule["specificity"]):
+        return conditional_ex_lookup_rule(best_ex_rule["rule"])
     if best_rule:
-        return best_rule
+        return best_rule["rule"]
     return fallback_rule
 
 
@@ -369,13 +374,13 @@ def manual_lookup_rule(form_code: str) -> dict:
 
 
 def psr_rules_for_form(form_code: str) -> list[dict]:
-    config_rules = [
-        rule
-        for rule in load_co_form_config().get("psr_rules", [])
-        if rule.get("enabled") and rule.get("form_code") == form_code
-    ]
+    config_rules = [indexed["rule"] for indexed in psr_rule_index_for_form(form_code)["rules"]]
     if config_rules:
         return config_rules
+    return fallback_psr_rules_for_form(form_code)
+
+
+def fallback_psr_rules_for_form(form_code: str) -> list[dict]:
     fallback_rules = FORM_CRITERIA_PRESETS.get(form_code) or [
         {
             "hs_scope": "Any HS",
@@ -391,6 +396,68 @@ def psr_rules_for_form(form_code: str) -> list[dict]:
         }
         for rule in fallback_rules
     ]
+
+
+def psr_rule_index_for_form(form_code: str) -> dict:
+    index = psr_rule_index()
+    if form_code in index:
+        return index[form_code]
+    fallback_rules = [indexed_psr_rule(rule) for rule in fallback_psr_rules_for_form(form_code)]
+    return {
+        "rules": fallback_rules,
+        "fallback": next((row["rule"] for row in fallback_rules if row["is_fallback"]), None),
+    }
+
+
+def psr_rule_index() -> dict[str, dict]:
+    global _PSR_RULE_INDEX_CACHE
+    config = load_co_form_config()
+    cache_key = id(config)
+    if _PSR_RULE_INDEX_CACHE and _PSR_RULE_INDEX_CACHE[0] == cache_key:
+        return _PSR_RULE_INDEX_CACHE[1]
+    index: dict[str, dict] = {}
+    for rule in config.get("psr_rules", []):
+        if not rule.get("enabled"):
+            continue
+        form_code = str(rule.get("form_code") or "")
+        if not form_code:
+            continue
+        indexed = indexed_psr_rule(rule)
+        form_index = index.setdefault(form_code, {"rules": [], "fallback": None})
+        form_index["rules"].append(indexed)
+        if indexed["is_fallback"]:
+            form_index["fallback"] = rule
+    _PSR_RULE_INDEX_CACHE = (cache_key, index)
+    return index
+
+
+def indexed_psr_rule(rule: dict) -> dict:
+    scope = str(rule.get("hs_scope") or "")
+    ranges = hs_scope_ranges(scope)
+    scope_key = "" if ranges else normalize_hs(scope)
+    return {
+        "rule": rule,
+        "is_fallback": market_key(scope) in {"any hs", "all hs"},
+        "is_ex": hs_scope_is_ex(scope),
+        "ranges": ranges,
+        "scope_key": scope_key,
+        "specificity": max((width for _, _, width in ranges), default=len(scope_key)),
+    }
+
+
+def indexed_hs_scope_matches(indexed: dict, hs_key: str) -> bool:
+    ranges = indexed["ranges"]
+    if not ranges:
+        scope_key = indexed["scope_key"]
+        return bool(scope_key and hs_key.startswith(scope_key))
+    for start, end, width in ranges:
+        target = hs_key[:width]
+        if not target:
+            continue
+        target_value = int(target.ljust(width, "0"))
+        if int(start.ljust(width, "0")) <= target_value <= int(end.ljust(width, "9")):
+            return True
+    return False
 
 
 def normalize_hs_codes(values: list[str]) -> list[str]:
@@ -475,13 +542,19 @@ def candidate(form_code: str, reason: str, market_preset: dict | None = None) ->
 
 
 def form_references() -> dict[str, dict]:
+    global _FORM_REFERENCES_CACHE
+    config = load_co_form_config()
+    cache_key = id(config)
+    if _FORM_REFERENCES_CACHE and _FORM_REFERENCES_CACHE[0] == cache_key:
+        return _FORM_REFERENCES_CACHE[1]
     references = {code: dict(row) for code, row in FORM_REFERENCES.items()}
-    for row in load_co_form_config()["forms"]:
+    for row in config["forms"]:
         if row.get("enabled"):
             references[row["form_code"]] = {
                 **references.get(row["form_code"], {}),
                 **row,
             }
+    _FORM_REFERENCES_CACHE = (cache_key, references)
     return references
 
 
@@ -490,8 +563,9 @@ def form_reference(form_code: str) -> dict:
 
 
 def form_priority() -> list[str]:
+    config = load_co_form_config()
     references = form_references()
-    return [code for code in load_co_form_config()["form_priority"] if code in references]
+    return [code for code in config["form_priority"] if code in references]
 
 
 def market_key(value: str) -> str:

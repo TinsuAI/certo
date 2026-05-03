@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
+from time import monotonic
 
 import httpx
 
@@ -22,9 +24,12 @@ from app.data_hub_client import (
     data_hub_client_from_env,
 )
 
+DATA_HUB_BOM_WORKSPACE_CACHE_TTL_SECONDS = 60.0
+_DATA_HUB_BOM_WORKSPACE_CACHE: dict[tuple[str, str, str, tuple[str, ...]], tuple[float, dict]] = {}
+
 
 class LocalBomService:
-    def workspace(self, client: dict) -> dict:
+    def workspace(self, client: dict, product_codes: list[str] | None = None) -> dict:
         workspace = get_bom_workspace(client)
         workspace["backend"] = "local"
         workspace["read_only"] = False
@@ -59,19 +64,32 @@ class DataHubBomService:
     def __init__(self, data_hub: DataHubClient):
         self.data_hub = data_hub
 
-    def workspace(self, client: dict) -> dict:
+    def workspace(self, client: dict, product_codes: list[str] | None = None) -> dict:
+        cache_key = data_hub_bom_workspace_cache_key(self.data_hub, client["id"], product_codes)
+        now = monotonic()
+        cached = _DATA_HUB_BOM_WORKSPACE_CACHE.get(cache_key)
+        if cached and now - cached[0] <= DATA_HUB_BOM_WORKSPACE_CACHE_TTL_SECONDS:
+            return deepcopy(cached[1])
+        workspace = self._build_workspace(client, product_codes)
+        _DATA_HUB_BOM_WORKSPACE_CACHE[cache_key] = (now, deepcopy(workspace))
+        return workspace
+
+    def _build_workspace(self, client: dict, product_codes: list[str] | None = None) -> dict:
         client_id = client["id"]
+        product_filter = normalized_product_code_filter(product_codes)
         product_rows = self.data_hub.list_bom_products(client_id)
+        if product_filter:
+            product_rows = [
+                product
+                for product in product_rows
+                if product_code_from_row(product) in product_filter
+            ]
         product_versions: list[dict] = []
         latest_rows: list[dict] = []
         variant_conflicts: list[dict] = []
 
         for product in product_rows:
-            product_code = (
-                product.get("product_code")
-                or product.get("customs_code")
-                or product.get("internal_code")
-            )
+            product_code = product_code_from_row(product)
             if not product_code:
                 continue
             version_payloads = self.product_version_payloads(client_id, product_code)
@@ -208,6 +226,35 @@ class BomServiceProxy:
 
 
 bom_service = BomServiceProxy()
+
+
+def data_hub_bom_workspace_cache_key(data_hub: DataHubClient, client_id: str, product_codes: list[str] | None) -> tuple[str, str, str, tuple[str, ...]]:
+    return (
+        data_hub_cache_identity(data_hub),
+        client_id,
+        current_data_hub_token(),
+        tuple(sorted(normalized_product_code_filter(product_codes))),
+    )
+
+
+def data_hub_cache_identity(data_hub: DataHubClient) -> str:
+    base_url = getattr(data_hub, "base_url", "")
+    token = getattr(data_hub, "token", "")
+    if base_url or token:
+        return f"{base_url}|{token}"
+    return f"object:{id(data_hub)}"
+
+
+def normalized_product_code_filter(product_codes: list[str] | None) -> set[str]:
+    return {str(code or "").strip() for code in product_codes or [] if str(code or "").strip()}
+
+
+def clear_data_hub_bom_workspace_cache() -> None:
+    _DATA_HUB_BOM_WORKSPACE_CACHE.clear()
+
+
+def product_code_from_row(row: dict) -> str:
+    return str(row.get("product_code") or row.get("customs_code") or row.get("internal_code") or "").strip()
 
 
 def normalize_hub_version(version: dict, product_code: str) -> dict:

@@ -1058,7 +1058,8 @@
     input.addEventListener("input", scheduleFetch);
     input.addEventListener("focus", () => fetchInvoicePreview(lookup).catch(() => {}));
     button?.addEventListener("click", () => fetchInvoicePreview(lookup, true).catch(() => {}));
-    if (input.value.trim().length >= 2) {
+    const previewPanel = lookup.querySelector("[data-invoice-preview]");
+    if (input.value.trim().length >= 2 && !(previewPanel?.textContent || "").trim()) {
       fetchInvoicePreview(lookup, true).catch(() => {});
     }
   });
