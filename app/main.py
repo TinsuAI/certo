@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import re
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from urllib.parse import quote
 
@@ -94,6 +98,25 @@ app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 app.mount("/portfolio", portfolio_app, name="portfolio")
 
 templates = Jinja2Templates(directory=ROOT / "templates", context_processors=[theme_context])
+
+
+def format_number_display(value, max_decimals: int = 2) -> str:
+    text = "" if value is None else str(value).strip()
+    if not text:
+        return ""
+    try:
+        decimal = Decimal(text.replace(",", ""))
+    except (InvalidOperation, ValueError):
+        return text
+    if decimal == decimal.to_integral():
+        return f"{int(decimal):,}"
+    max_decimals = max(0, min(int(max_decimals), 8))
+    quant = Decimal("1").scaleb(-max_decimals)
+    rounded = decimal.quantize(quant, rounding=ROUND_HALF_UP)
+    return f"{rounded:,.{max_decimals}f}".rstrip("0").rstrip(".")
+
+
+templates.env.filters["number"] = format_number_display
 
 
 @app.middleware("http")
@@ -211,7 +234,7 @@ CO_CASE_WORKFLOW_STEPS = [
         "key": "origin",
         "label": "Xuất xứ",
         "short_label": "5",
-        "description": "Chạy RVC/CTSH và xem preview phân bổ.",
+        "description": "Lập bảng kê LVC từ invoice, BCCT và BOM snapshot.",
     },
     {
         "key": "review",
@@ -588,11 +611,30 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
     form_candidates = extra.pop("form_candidates")
     criteria_rows = extra.pop("criteria_rows")
     bom_workspace = bom_service.workspace(client) if current_step == "origin" else minimal_bom_workspace()
+    origin_demo_allowed = extra.pop("origin_demo_allowed", True)
+    preserve_origin_products = extra.pop("preserve_origin_products", False)
     client = enrich_client_with_source_summary(client, source_summary)
     case = attach_case_source_summary_snapshot(case, source_summary)
     if current_step == "origin":
+        selected_lane = recommended_form_lane(
+            prioritized_form_lanes(case.get("destination_market", ""), co_case_hs_codes(case, invoice_matches))
+        )
+        material_rows = source_context.get("material_rows") or client.get("material_catalog", [])
+        stock_rows = source_context.get("stock_rows") or client.get("co_stock", [])
+        case = prepare_case_origin_products(
+            case,
+            invoice_matches,
+            bom_workspace,
+            selected_lane,
+            material_rows,
+            stock_rows,
+            preserve_existing=preserve_origin_products,
+        )
         case = attach_case_bom_snapshot(case, bom_workspace)
-    origin_demo_active = should_show_origin_demo(current_step, case, invoice_matches)
+        if case.get("products"):
+            case = attach_results(case)
+            criteria_rows = build_case_criteria_rows(case, form_candidates)
+    origin_demo_active = origin_demo_allowed and should_show_origin_demo(current_step, case, invoice_matches)
     if origin_demo_active:
         case = attach_origin_demo(case)
         criteria_rows = build_case_criteria_rows(case, form_candidates)
@@ -676,6 +718,414 @@ def co_case_hs_codes(case: dict, invoice_matches: list[dict]) -> list[str]:
         for row in invoice_matches
         if str(row.get("hs_code", "")).strip()
     ]
+
+
+def prepare_case_origin_products(
+    case: dict,
+    invoice_matches: list[dict],
+    bom_workspace: dict,
+    form_lane: dict,
+    material_rows: list[dict],
+    stock_rows: list[dict],
+    *,
+    preserve_existing: bool = False,
+) -> dict:
+    if not invoice_matches:
+        return case
+
+    bom_rows_by_product = selected_bom_rows_by_product(case, bom_workspace)
+    build_signature = origin_build_signature(invoice_matches, bom_rows_by_product, material_rows, stock_rows, form_lane)
+    if (
+        case.get("products")
+        and (
+            preserve_existing
+            or case.get("origin_snapshot", {}).get("build_signature") == build_signature
+        )
+    ):
+        return case
+
+    material_index = material_catalog_index(material_rows)
+    stock_index = co_stock_index(stock_rows)
+    products = []
+    for match in invoice_matches:
+        product_code = str(match.get("item_code", "")).strip()
+        if not product_code:
+            continue
+        product_rows = bom_rows_by_product.get(product_code, [])
+        products.append(origin_product_from_invoice_match(
+            match,
+            product_rows,
+            form_lane,
+            material_index,
+            stock_index,
+        ))
+    if not products:
+        return case
+
+    prepared = dict(case)
+    prepared["products"] = products
+    prepared["mode"] = "Invoice + BCCT + BOM snapshot"
+    prepared["mode_note"] = "Sản phẩm lấy từ BCCT xuất khẩu khớp invoice; NVL lấy từ BOM snapshot hiện hành. Đơn giá NVL ưu tiên từ tồn CO/BCCT nhập, nếu thiếu mới fallback danh mục NVL."
+    prepared["origin_snapshot"] = {
+        "source": "invoice_bcct_bom",
+        "build_signature": build_signature,
+        "invoice_no": prepared.get("shipment", {}).get("invoice_no", ""),
+        "invoice_match_count": len(invoice_matches),
+        "product_count": len(products),
+        "material_count": sum(len(product.get("materials", [])) for product in products),
+        "stock_row_count": len(stock_rows),
+    }
+    return prepared
+
+
+def origin_build_signature(
+    invoice_matches: list[dict],
+    bom_rows_by_product: dict[str, list[dict]],
+    material_rows: list[dict],
+    stock_rows: list[dict],
+    form_lane: dict,
+) -> str:
+    payload = {
+        "form": {
+            "form_code": form_lane.get("form_code", ""),
+            "display_name": form_lane.get("display_name", ""),
+        },
+        "invoice_matches": [
+            compact_origin_signature_row(
+                row,
+                [
+                    "transaction_key",
+                    "declaration_no",
+                    "line_no",
+                    "item_code",
+                    "hs_code",
+                    "quantity",
+                    "unit",
+                    "customs_value",
+                    "foreign_currency_value",
+                    "total_value",
+                    "currency",
+                    "value_currency",
+                    "invoice_ref",
+                ],
+            )
+            for row in invoice_matches
+        ],
+        "bom_rows": [
+            compact_origin_signature_row(
+                row,
+                [
+                    "product_code",
+                    "product_version_id",
+                    "product_version_no",
+                    "material_code",
+                    "qty_per",
+                    "uom",
+                    "hs_code",
+                    "unit_value",
+                    "unit_price",
+                ],
+            )
+            for product_code in sorted(bom_rows_by_product)
+            for row in bom_rows_by_product[product_code]
+        ],
+        "materials": [
+            compact_origin_signature_row(
+                row,
+                ["customs_code", "internal_code", "origin_default", "origin_status", "unit_price", "taxable_unit_price"],
+            )
+            for row in material_rows
+        ],
+        "stock_rows": [
+            compact_origin_signature_row(
+                row,
+                [
+                    "material_code",
+                    "allocation_code",
+                    "customs_item_code",
+                    "remaining_qty",
+                    "available_qty",
+                    "customs_value",
+                    "currency",
+                    "value_currency",
+                    "unit_value",
+                    "unit_price",
+                    "taxable_unit_price",
+                    "eligibility_status",
+                ],
+            )
+            for row in stock_rows
+        ],
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def compact_origin_signature_row(row: dict, fields: list[str]) -> dict:
+    return {field: str(row.get(field, "")) for field in fields if row.get(field, "") not in (None, "")}
+
+
+def selected_bom_rows_by_product(case: dict, bom_workspace: dict) -> dict[str, list[dict]]:
+    selected_version_id = case.get("bom_version_id") or bom_workspace.get("latest_version", {}).get("version_id", "")
+    aggregate = next(
+        (version for version in bom_workspace.get("versions", []) if version.get("version_id") == selected_version_id),
+        bom_workspace.get("latest_version", {}),
+    )
+    rows = aggregate.get("rows")
+    if rows is None:
+        rows = bom_workspace.get("latest_rows", [])
+    output: dict[str, list[dict]] = {}
+    for row in rows or []:
+        product_code = str(row.get("product_code", "")).strip()
+        if product_code:
+            output.setdefault(product_code, []).append(dict(row))
+
+    version_index = {
+        version.get("product_version_id", ""): version
+        for version in bom_workspace.get("product_versions", [])
+        if version.get("product_version_id")
+    }
+    composition_by_product = {
+        row.get("product_code", ""): row.get("product_version_id", "")
+        for row in aggregate.get("product_versions", [])
+    }
+    overrides = dict(case.get("bom_product_version_overrides", {}))
+    for product in case.get("products", []):
+        product_code = str(product.get("code", "")).strip()
+        selected_product_version_id = (
+            product.get("bom_product_version_id")
+            or overrides.get(product_code)
+            or composition_by_product.get(product_code, "")
+        )
+        selected_product_version = version_index.get(selected_product_version_id)
+        if product_code and selected_product_version and selected_product_version.get("rows") is not None:
+            output[product_code] = [dict(row) for row in selected_product_version.get("rows", [])]
+    return output
+
+
+def material_catalog_index(material_rows: list[dict]) -> dict[str, dict]:
+    output = {}
+    for row in material_rows:
+        for key in [row.get("customs_code", ""), row.get("internal_code", "")]:
+            if str(key).strip():
+                output[str(key).strip()] = row
+    return output
+
+
+def co_stock_index(stock_rows: list[dict]) -> dict[str, dict]:
+    output = {}
+    for row in stock_rows:
+        for key in co_stock_key_candidates(row):
+            existing = output.get(key)
+            if existing is None or co_stock_rank(row) > co_stock_rank(existing):
+                output[key] = row
+    return output
+
+
+def co_stock_key_candidates(row: dict) -> list[str]:
+    keys = []
+    for value in [row.get("material_code"), row.get("allocation_code"), row.get("customs_item_code")]:
+        key = str(value or "").strip()
+        if key and key not in keys:
+            keys.append(key)
+    return keys
+
+
+def co_stock_rank(row: dict) -> tuple[bool, bool, bool]:
+    return (
+        row.get("eligibility_status") == "active",
+        decimal_value(row.get("remaining_qty") or row.get("available_qty") or "0") > 0,
+        bool(first_non_empty([
+            row.get("unit_value", ""),
+            row.get("unit_price", ""),
+            row.get("taxable_unit_price", ""),
+            row.get("customs_value", ""),
+        ])),
+    )
+
+
+def origin_product_from_invoice_match(
+    match: dict,
+    bom_rows: list[dict],
+    form_lane: dict,
+    material_index: dict[str, dict],
+    stock_index: dict[str, dict],
+) -> dict:
+    product_code = str(match.get("item_code", "")).strip()
+    finished_hs = str(match.get("hs_code", "")).strip()
+    preview = criteria_preview_for_hs(form_lane.get("form_code", ""), finished_hs) if form_lane else {}
+    criterion = preview.get("criteria") or "Cần tra cứu PSR theo HS"
+    threshold = lvc_threshold_from_criterion(criterion)
+    quantity = decimal_value(match.get("quantity", "0"))
+    product_value = origin_product_value(match)
+    fob = product_value["value"]
+    materials = [
+        origin_material_from_bom_row(row, quantity, material_index, stock_index)
+        for row in bom_rows
+    ]
+    vnm = sum(
+        decimal_value(material.get("non_origin_cif_value"))
+        for material in materials
+    )
+    missing_material_values = any(
+        material.get("origin_status") == "non_origin" and material.get("unit_value_missing")
+        for material in materials
+    )
+    lvc = calculate_lvc_result(fob, vnm, threshold, missing_material_values)
+    return {
+        "code": product_code,
+        "name": match.get("description") or product_code,
+        "finished_hs": finished_hs,
+        "quantity": decimal_text(quantity),
+        "unit": match.get("unit", ""),
+        "currency": product_value["currency"],
+        "declared_currency": match.get("currency", ""),
+        "value_source": product_value["source"],
+        "source_declaration_no": match.get("declaration_no", ""),
+        "source_line_no": match.get("line_no", ""),
+        "invoice_ref": match.get("invoice_ref", ""),
+        "fob": decimal_text(fob) if fob is not None else "",
+        "non_origin_value": decimal_text(vnm) if materials else "",
+        "rvc_threshold": decimal_text(threshold) if threshold is not None else "",
+        "documented_result": criterion,
+        "lvc_percentage": lvc["percentage"],
+        "lvc_status": lvc["status"],
+        "lvc_status_label": lvc["status_label"],
+        "lvc_threshold": decimal_text(threshold) if threshold is not None else "",
+        "vnm_value": decimal_text(vnm) if materials else "",
+        "bom_product_version_id": first_non_empty(row.get("product_version_id", "") for row in bom_rows),
+        "bom_product_version_no": first_non_empty(row.get("product_version_no", "") for row in bom_rows),
+        "materials": materials,
+    }
+
+
+def origin_product_value(match: dict) -> dict:
+    value_sources = [
+        ("fob_value", match.get("fob_value"), match.get("fob_currency") or match.get("value_currency") or match.get("currency", "")),
+        ("customs_value", match.get("customs_value"), match.get("value_currency") or "VND"),
+        ("total_value", match.get("total_value"), match.get("value_currency") or "VND"),
+        ("foreign_currency_value", match.get("foreign_currency_value"), match.get("currency", "")),
+        ("invoice_value", match.get("invoice_value"), match.get("currency", "")),
+    ]
+    for source, value, currency in value_sources:
+        if value not in (None, ""):
+            return {"value": decimal_value(value), "currency": currency, "source": source}
+    return {"value": None, "currency": "", "source": ""}
+
+
+def origin_material_from_bom_row(
+    row: dict,
+    export_quantity: Decimal,
+    material_index: dict[str, dict],
+    stock_index: dict[str, dict],
+) -> dict:
+    material_code = str(row.get("material_code", "")).strip()
+    material = material_index.get(material_code, {})
+    stock = stock_index.get(material_code, {})
+    qty_per = decimal_value(row.get("qty_per", "0"))
+    consumed_qty = export_quantity * qty_per
+    origin_status = origin_status_from_material(material)
+    unit_value = first_decimal_value(
+        row.get("unit_value"),
+        row.get("unit_price"),
+        stock.get("unit_value"),
+        stock.get("unit_price"),
+        stock.get("taxable_unit_price"),
+        material.get("unit_price"),
+        material.get("taxable_unit_price"),
+    )
+    material_value = consumed_qty * unit_value if unit_value is not None else None
+    vnm_value = material_value if origin_status == "non_origin" and material_value is not None else None
+    return {
+        "source_row": stock.get("source_row") or f"BOM:{row.get('source', '')}",
+        "import_declaration_no": stock.get("import_declaration_no", ""),
+        "import_line_no": stock.get("line_no", ""),
+        "material_code": material_code,
+        "customs_material_code": material.get("customs_code") or material_code,
+        "internal_material_code": material.get("internal_code") or material_code,
+        "material_description": row.get("material_name") or material.get("name", ""),
+        "hs_code": row.get("hs_code") or material.get("hs_code", ""),
+        "origin_status": origin_status,
+        "available_qty": decimal_value(stock.get("remaining_qty") or stock.get("available_qty") or "0"),
+        "consumed_qty": consumed_qty,
+        "unit_value": decimal_text(unit_value) if unit_value is not None else "",
+        "currency": stock.get("value_currency") or stock.get("currency") or material.get("value_currency") or material.get("currency", ""),
+        "material_value": decimal_text(material_value) if material_value is not None else "",
+        "non_origin_cif_value": decimal_text(vnm_value) if vnm_value is not None else "",
+        "unit_value_missing": unit_value is None,
+        "bom_qty_per": decimal_text(qty_per),
+        "bom_scrap_rate": row.get("scrap_rate", ""),
+        "bom_source": row.get("source", ""),
+        "bom_row_class": row.get("row_class", ""),
+        "uom": row.get("uom", ""),
+        "source_document_ref": row.get("source") or row.get("product_version_id", ""),
+    }
+
+
+def origin_status_from_material(material: dict) -> str:
+    value = str(material.get("origin_default") or material.get("origin_status") or "").lower()
+    if "không" in value or "khong" in value or value == "non_origin":
+        return "non_origin"
+    if "có" in value or value == "origin":
+        return "origin"
+    return "non_origin"
+
+
+def lvc_threshold_from_criterion(criterion: str) -> Decimal | None:
+    if not criterion:
+        return None
+    match = re.search(r"(?:LVC|RVC|AIFTA)[^\d]*(\d+(?:[.,]\d+)?)\s*%", criterion, flags=re.IGNORECASE)
+    if not match:
+        match = re.search(r"(\d+(?:[.,]\d+)?)\s*%\s*(?:FOB|LVC|RVC)", criterion, flags=re.IGNORECASE)
+    return decimal_value(match.group(1)) if match else None
+
+
+def calculate_lvc_result(
+    fob: Decimal | None,
+    vnm: Decimal,
+    threshold: Decimal | None,
+    missing_material_values: bool,
+) -> dict:
+    if fob is None or fob <= 0:
+        return {"percentage": "", "status": "missing_value", "status_label": "Thiếu FOB"}
+    if missing_material_values:
+        return {"percentage": "", "status": "missing_value", "status_label": "Thiếu đơn giá NVL"}
+    percentage = ((fob - vnm) / fob * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    percentage_text = f"{percentage:.2f}"
+    if threshold is None:
+        return {"percentage": percentage_text, "status": "review", "status_label": "Thiếu ngưỡng"}
+    if percentage >= threshold:
+        return {"percentage": percentage_text, "status": "pass", "status_label": "Đạt LVC"}
+    return {"percentage": percentage_text, "status": "fail", "status_label": "Không đạt LVC"}
+
+
+def first_non_empty(values) -> str:
+    for value in values:
+        if value not in (None, ""):
+            return str(value)
+    return ""
+
+
+def first_decimal_value(*values) -> Decimal | None:
+    for value in values:
+        if value not in (None, ""):
+            return decimal_value(value)
+    return None
+
+
+def decimal_value(value) -> Decimal:
+    try:
+        return Decimal(str(value or "0").replace(",", "").strip() or "0")
+    except (InvalidOperation, ValueError):
+        return Decimal("0")
+
+
+def decimal_text(value: Decimal | str) -> str:
+    if isinstance(value, str):
+        return value
+    if value == value.to_integral():
+        return str(value.quantize(Decimal("1")))
+    return str(value)
 
 
 def invoice_match_criteria_rows(invoice_matches: list[dict], form_lane: dict) -> list[dict]:
@@ -975,6 +1425,7 @@ def bom_line_table_row(row: dict) -> dict:
 
 def co_case_context(client_id: str, case_id: str = "", current_step: str = "index", **extra) -> dict:
     client = resolve_client(client_id)
+    case_was_supplied = "case" in extra
     case = extra.pop("case", None)
     effective_case_id = case_id or (case or {}).get("persisted_case_id", "")
     workspace = get_case_workspace(client, effective_case_id)
@@ -991,6 +1442,10 @@ def co_case_context(client_id: str, case_id: str = "", current_step: str = "inde
     case["shipment"].setdefault("invoice_no", "")
     case["shipment"].setdefault("bill_of_lading_no", "")
     case.setdefault("supporting_files", [])
+    if case.get("products") and current_step != "origin":
+        case = attach_results(case)
+    if case_was_supplied and current_step == "origin":
+        extra.setdefault("preserve_origin_products", True)
     form_candidates = form_candidates_for_market(case.get("destination_market", ""))
     criteria_rows = build_case_criteria_rows(case, form_candidates)
     return co_case_light_context(
@@ -1540,8 +1995,26 @@ async def download_co_case_supporting_file(client_id: str, case_id: str, upload_
 
 
 @app.post("/clients/{client_id}/co-case/{case_id}/export")
-async def export_co_case_workbook(client_id: str, case_id: str):
-    context = co_case_context(client_id, case_id)
+async def export_co_case_workbook(request: Request, client_id: str, case_id: str):
+    content_type = request.headers.get("content-type", "")
+    posted_case = None
+    if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+        form = await request.form()
+        if form:
+            posted_case = update_products_from_form({key: str(value) for key, value in form.items()})
+            posted_case["persisted_case_id"] = posted_case.get("persisted_case_id") or case_id
+    context = co_case_context(
+        client_id,
+        case_id,
+        current_step="origin",
+        case=posted_case,
+        origin_demo_allowed=False,
+    )
+    if context["case"].get("persisted_case_id") and not context.get("origin_demo_active"):
+        try:
+            update_case_record(resolve_client(client_id), context["case"])
+        except KeyError:
+            pass
     content = create_case_workbook(
         context["case"],
         context["form_candidates"],
@@ -1560,15 +2033,25 @@ async def export_co_case_workbook(client_id: str, case_id: str):
 async def evaluate(request: Request, client_id: str):
     form = await request.form()
     case = update_products_from_form({key: str(value) for key, value in form.items()})
-    if case.get("persisted_case_id"):
+    context = co_case_context(
+        client_id,
+        case=case,
+        current_step="origin",
+        message="Đã tính lại theo dữ liệu đang sửa.",
+        preserve_origin_products=False,
+    )
+    if context["case"].get("persisted_case_id"):
         try:
-            update_case_record(resolve_client(client_id), case)
+            update_case_record(
+                resolve_client(client_id),
+                case if context.get("origin_demo_active") else context["case"],
+            )
         except KeyError:
             pass
     return templates.TemplateResponse(
         request=request,
         name="co_case.html",
-        context=co_case_context(client_id, case=case, current_step="origin", message="Đã tính lại theo dữ liệu đang sửa."),
+        context=context,
     )
 
 

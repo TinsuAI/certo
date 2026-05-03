@@ -74,6 +74,31 @@ class DataHubBomService:
             )
             if not product_code:
                 continue
+            version_payloads = self.product_version_payloads(client_id, product_code)
+            if version_payloads:
+                current_version_id = version_payloads[0]["version"].get("version_id", "")
+                for payload in version_payloads:
+                    version = normalize_hub_version(payload.get("version") or {}, product_code)
+                    rows = [
+                        normalize_hub_row(row, version)
+                        for row in payload.get("rows", [])
+                        if isinstance(row, dict)
+                    ]
+                    version["status"] = (
+                        "current"
+                        if version.get("product_version_id") == current_version_id and version.get("flatten_status") != "non_flattened"
+                        else "non_flattened"
+                        if version.get("flatten_status") == "non_flattened"
+                        else "published"
+                    )
+                    version["rows"] = rows
+                    version["row_count"] = version.get("row_count") or len(rows)
+                    version["unresolved"] = payload.get("unresolved", [])
+                    version["decisions"] = payload.get("decisions", [])
+                    product_versions.append(version)
+                    if version["status"] == "current":
+                        latest_rows.extend(rows)
+                continue
             try:
                 payload = self.data_hub.get_bom_latest(client_id, product_code)
             except DataHubBomVariantConflict as exc:
@@ -126,6 +151,39 @@ class DataHubBomService:
             "code_system_options": CODE_SYSTEM_OPTIONS,
             "variant_conflicts": variant_conflicts,
         }
+
+    def product_version_payloads(self, client_id: str, product_code: str) -> list[dict]:
+        if not hasattr(self.data_hub, "list_bom_versions") or not hasattr(self.data_hub, "get_bom_version"):
+            return []
+        try:
+            summaries = self.data_hub.list_bom_versions(client_id, product_code)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return []
+            raise
+        if len(summaries) <= 1:
+            return []
+        payloads = []
+        for summary in sorted(summaries, key=lambda row: int(row.get("version_no") or 0), reverse=True):
+            version_id = summary.get("version_id", "")
+            if not version_id:
+                continue
+            try:
+                payload = self.data_hub.get_bom_version(client_id, product_code, version_id)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404:
+                    continue
+                raise
+            payloads.append({
+                **payload,
+                "version": {
+                    **summary,
+                    **(payload.get("version") or {}),
+                    "version_id": version_id,
+                    "product_code": product_code,
+                },
+            })
+        return payloads
 
     def update_config(self, *_args, **_kwargs) -> dict:
         raise RuntimeError("Canonical BOM config must be managed in Data Hub.")
@@ -194,6 +252,7 @@ def normalize_hub_row(row: dict, version: dict) -> dict:
         "bom_variant_id": row.get("bom_variant_id") or version.get("bom_variant_id") or "default",
         "material_code": row.get("material_code", ""),
         "material_name": payload.get("material_name") or payload.get("description") or "",
+        "hs_code": row.get("hs_code") or payload.get("hs_code") or payload.get("material_hs_code") or "",
         "qty_per": qty,
         "uom": row.get("uom", ""),
         "scrap_rate": payload.get("scrap_rate", ""),

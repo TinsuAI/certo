@@ -10,6 +10,8 @@ import tempfile
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -91,6 +93,11 @@ def update_case_record(client: dict, case: dict) -> dict:
         record.setdefault("shipment", {})
         record["shipment"]["invoice_no"] = clean_text(shipment.get("invoice_no"))
         record["shipment"]["bill_of_lading_no"] = clean_text(shipment.get("bill_of_lading_no"))
+        if "products" in case:
+            record["products"] = persisted_products(case.get("products", []))
+        for key in ["bom_version_id", "bom_product_version_overrides", "bom_snapshot", "origin_snapshot"]:
+            if key in case:
+                record[key] = json_safe(case.get(key))
         record["updated_at"] = now_iso()
         save_state(client["id"], state)
         return dict(record)
@@ -110,6 +117,11 @@ def case_from_record(base_case: dict, client: dict, record: dict) -> dict:
     case["source_label"] = f"Hồ sơ lưu: {case['case_code']}"
     case["shipment"] = dict(record.get("shipment", {}))
     case["supporting_files"] = [dict(file_row) for file_row in record.get("supporting_files", [])]
+    if "products" in record:
+        case["products"] = restored_products(record.get("products", []))
+    for key in ["bom_version_id", "bom_product_version_overrides", "bom_snapshot", "origin_snapshot"]:
+        if key in record:
+            case[key] = json_safe(record.get(key))
     return case
 
 
@@ -234,6 +246,9 @@ def match_case_bcct_exports(case: dict, source_workspace: dict, client_config: d
             "hs_code": row.get("hs_code", ""),
             "quantity": row.get("quantity", ""),
             "unit": row.get("unit", ""),
+            "customs_value": row.get("customs_value", ""),
+            "foreign_currency_value": row.get("foreign_currency_value", ""),
+            "currency": row.get("currency", ""),
             "invoice_ref": row.get("invoice_ref", ""),
             "transaction_key": row.get("transaction_key", ""),
         })
@@ -332,7 +347,72 @@ def create_case_workbook(case: dict, form_candidates: list[dict], invoice_matche
             row["non_origin_cif_value"],
         ])
 
-    from io import BytesIO
+    bom_sheet = workbook.create_sheet("LVC Statement")
+    bom_sheet.append([
+        "Product code",
+        "Product name",
+        "Finished HS",
+        "Invoice",
+        "Export declaration",
+        "Export line",
+        "Export quantity",
+        "Export unit",
+        "FOB",
+        "Export currency",
+        "VNM",
+        "LVC %",
+        "LVC threshold",
+        "LVC status",
+        "LVC criterion",
+        "BOM aggregate version",
+        "BOM product version",
+        "Material code",
+        "Material name",
+        "Material HS",
+        "Qty per",
+        "BOM UOM",
+        "Required qty",
+        "Unit value",
+        "Material currency",
+        "Material value",
+        "Material origin",
+        "Non-origin value (VNM)",
+        "Source",
+    ])
+    for product in case.get("products", []):
+        materials = product.get("materials", []) or [{}]
+        for material in materials:
+            bom_sheet.append([
+                product.get("code", ""),
+                product.get("name", ""),
+                product.get("finished_hs", ""),
+                case.get("shipment", {}).get("invoice_no", ""),
+                product.get("source_declaration_no", ""),
+                product.get("source_line_no", ""),
+                product.get("quantity", ""),
+                product.get("unit") or product.get("export_unit", ""),
+                product.get("fob", ""),
+                product.get("currency", ""),
+                product.get("vnm_value") or product.get("non_origin_value", ""),
+                product.get("lvc_percentage", ""),
+                product.get("lvc_threshold") or product.get("rvc_threshold", ""),
+                product.get("lvc_status_label", ""),
+                product.get("documented_result", ""),
+                case.get("bom_snapshot", {}).get("aggregate_version_id", ""),
+                product.get("bom_product_version_id", ""),
+                material.get("material_code") or material.get("internal_material_code", ""),
+                material.get("material_description", ""),
+                material.get("hs_code", ""),
+                material.get("bom_qty_per", ""),
+                material.get("uom", ""),
+                material.get("consumed_qty", ""),
+                material.get("unit_value", ""),
+                material.get("currency") or product.get("currency", ""),
+                material.get("material_value", ""),
+                material.get("origin_status", ""),
+                material.get("non_origin_cif_value", ""),
+                material.get("source_document_ref", ""),
+            ])
 
     stream = BytesIO()
     workbook.save(stream)
@@ -354,6 +434,58 @@ def criteria_row(product: dict, material: dict, form: str, rvc: Any, tariff_shif
         "origin_status": material.get("origin_status", ""),
         "non_origin_cif_value": material.get("non_origin_cif_value", ""),
     }
+
+
+def persisted_products(products: list[dict]) -> list[dict]:
+    output = []
+    for product in products:
+        persisted = {
+            key: json_safe(value)
+            for key, value in product.items()
+            if key not in {"materials", "result"}
+        }
+        persisted["materials"] = [
+            {
+                key: json_safe(value)
+                for key, value in material.items()
+            }
+            for material in product.get("materials", [])
+        ]
+        output.append(persisted)
+    return output
+
+
+def restored_products(products: list[dict]) -> list[dict]:
+    restored = []
+    for product in products:
+        item = dict(product)
+        item["materials"] = []
+        for material in product.get("materials", []):
+            row = dict(material)
+            for field in ["available_qty", "consumed_qty", "non_origin_cif_value"]:
+                row[field] = decimal_value(row.get(field, "0"))
+            item["materials"].append(row)
+        restored.append(item)
+    return restored
+
+
+def json_safe(value):
+    if isinstance(value, dict):
+        return {str(key): json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return [json_safe(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def decimal_value(value) -> Decimal:
+    try:
+        return Decimal(str(value or "0").replace(",", "").strip() or "0")
+    except (InvalidOperation, ValueError):
+        return Decimal("0")
 
 
 def invoice_keys(value: str) -> set[str]:

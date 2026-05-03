@@ -18,6 +18,7 @@ from app.demo_data import get_clients as seed_get_clients
 from app.source_index_store import get_source_index_store, rebuild_source_index_if_configured
 from app.source_postgres_store import get_source_write_store
 from app.source_store import (
+    co_stock_rows_from_bcct,
     create_bcct_template_workbook,
     create_material_catalog_template_workbook,
     create_product_catalog_template_workbook,
@@ -127,6 +128,8 @@ class PortfolioService:
                 "source_backend": "postgres",
                 "source_summary": store.source_summary(client["id"], client_config),
                 "invoice_matches": store.match_bcct_exports(client["id"], invoice_no, relevant_types),
+                "material_rows": store.catalog_rows(client["id"], "material_catalog") if hasattr(store, "catalog_rows") else [],
+                "stock_rows": store.co_stock_rows(client["id"]) if hasattr(store, "co_stock_rows") else [],
             }
 
         material = load_module_state(client, "material_catalog")
@@ -140,6 +143,8 @@ class PortfolioService:
                 {"bcct": {"published_rows": bcct["published_rows"]}},
                 client_config,
             ),
+            "material_rows": material["published_rows"],
+            "stock_rows": co_stock_rows_from_bcct(bcct["published_rows"], client_config),
         }
 
     def process_catalog_upload(self, client: dict, catalog_type: str, content: bytes, filename: str, upload_scope: str) -> dict:

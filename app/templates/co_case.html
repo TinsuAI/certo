@@ -500,18 +500,18 @@
       <strong>{{ recommended_form_lane.display_name or case.co_form_type }}</strong>
     </div>
     <div>
-      <span>BOM snapshot</span>
+      <span>BOM</span>
       <strong>{{ origin_demo_material_count ~ ' NVL mẫu' if origin_demo_active else case.bom_snapshot.composition|length ~ ' TP' }}</strong>
     </div>
   </div>
   <div class="callout {{ 'callout-success' if origin_demo_active else 'callout-info' }}">
     <span class="callout-icon">i</span>
     <div>
-      <div class="callout-title">{{ 'Demo tự nạp' if origin_demo_active else 'Chưa lắp đủ' }}</div>
+      <div class="callout-title">{{ 'Demo tự nạp' if origin_demo_active else 'Bảng kê LVC' }}</div>
       {% if origin_demo_active %}
       Hồ sơ chưa có dòng BCCT/BOM đủ để tính thật, nên tab Xuất xứ đang nạp sẵn 2 TP mẫu và NVL mẫu để operator nhìn được cách hệ thống dựng bảng tiêu chí. Dữ liệu demo này không phải file upload và không ghi vào hồ sơ lưu.
       {% else %}
-      PSR legal engine, allocation ledger và case-level Data Hub BOM binding bền vững chưa được lắp hết. Bảng hiện là kết quả hệ thống dựng từ dữ liệu đang có, không phải file operator upload.
+      Bảng này ưu tiên tiêu chí LVC: TP lấy FOB/trị giá từ invoice/BCCT, NVL lấy định mức và đơn giá để tính VNM, sau đó tính LVC = (FOB - VNM) / FOB x 100. Tồn CO và allocation xử lý ở bước riêng, không đưa vào bảng kê này.
       {% endif %}
     </div>
   </div>
@@ -571,17 +571,6 @@
       </div>
     </section>
 
-    <section class="zone">
-      <div class="zone-head">
-        <h2>Kết quả case</h2>
-      </div>
-      <div class="metric-stack">
-        <div><span>Mã đạt</span><strong>{{ case.summary.passed_products }}/{{ case.summary.product_count }}</strong></div>
-        <div><span>RVC thấp nhất</span><strong>{{ case.summary.min_rvc }}%</strong></div>
-        <div><span>Chứng từ</span><strong>{{ case.summary.ready_documents }}/{{ case.summary.document_count }}</strong></div>
-      </div>
-    </section>
-
     <section class="zone action-panel">
       <button type="submit">Tính lại snapshot</button>
       <button type="submit" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export">Xuất dossier XLSX</button>
@@ -589,31 +578,11 @@
   </aside>
 
   <section class="workspace-main">
-    <section class="zone" id="criteria-lanes">
+    <section class="zone" id="lvc-statement">
       <div class="zone-head">
         <div>
-          <h2>Form ưu tiên và tiêu chí theo HS</h2>
-          <p class="meta">Chọn trong 4 form ưu tiên; mỗi HS của TP được hiện ngay tiêu chí preview tương ứng để operator review trước khi tính.</p>
-        </div>
-      </div>
-      {{ form_lane_matrix() }}
-    </section>
-
-    <section class="zone" id="criteria-preview">
-      <div class="zone-head">
-        <div>
-          <h2>Bảng kê dự kiến</h2>
-          <p class="meta">{{ 'Demo từ 2 TP mẫu để minh họa bảng hệ thống tính ra.' if origin_demo_active else 'Tạo từ sản phẩm/BOM snapshot hiện có. Tiêu chí chính thức vẫn cần tra PSR theo form, HS và thông tư.' }}</p>
-        </div>
-      </div>
-      {{ criteria_table() }}
-    </section>
-
-    <section class="zone" id="evaluation">
-      <div class="zone-head">
-        <div>
-          <h2>Đánh giá RVC + CTSH</h2>
-          <p class="meta">{{ 'Dữ liệu demo tự nạp: RVC lấy từ CIF không xuất xứ, CTSH so sánh HS NVL với HS TP.' if origin_demo_active else 'Bảng tính hiện giữ logic demo: RVC lấy từ CIF không xuất xứ, CTSH so sánh HS NVL với HS TP.' }}</p>
+          <h2>Bảng kê LVC</h2>
+          <p class="meta">{{ 'Demo từ 2 TP mẫu để minh họa bảng kê LVC.' if origin_demo_active else 'Một dòng TP theo invoice, các dòng NVL theo BOM. Bảng này chỉ giữ trường cần cho LVC: mã/HS, định mức, lượng dùng, xuất xứ và trị giá KXX/VNM.' }}</p>
         </div>
       </div>
 
@@ -627,10 +596,19 @@
           <input type="hidden" name="product_{{ product_index }}_name" value="{{ product.name }}">
           <input type="hidden" name="product_{{ product_index }}_finished_hs" value="{{ product.finished_hs }}">
           <input type="hidden" name="product_{{ product_index }}_quantity" value="{{ product.quantity }}">
+          <input type="hidden" name="product_{{ product_index }}_unit" value="{{ product.unit or product.export_unit }}">
+          <input type="hidden" name="product_{{ product_index }}_currency" value="{{ product.currency }}">
+          <input type="hidden" name="product_{{ product_index }}_source_declaration_no" value="{{ product.source_declaration_no }}">
+          <input type="hidden" name="product_{{ product_index }}_source_line_no" value="{{ product.source_line_no }}">
+          <input type="hidden" name="product_{{ product_index }}_invoice_ref" value="{{ product.invoice_ref }}">
           <input type="hidden" name="product_{{ product_index }}_fob" value="{{ product.fob }}">
           <input type="hidden" name="product_{{ product_index }}_rvc_threshold" value="{{ product.rvc_threshold }}">
           <input type="hidden" name="product_{{ product_index }}_documented_result" value="{{ product.documented_result }}">
-          <input type="hidden" name="product_{{ product_index }}_bom_product_version_id" value="{{ product.bom_product_version_id }}">
+          <input type="hidden" name="product_{{ product_index }}_lvc_percentage" value="{{ product.lvc_percentage }}">
+          <input type="hidden" name="product_{{ product_index }}_lvc_status" value="{{ product.lvc_status }}">
+          <input type="hidden" name="product_{{ product_index }}_lvc_status_label" value="{{ product.lvc_status_label }}">
+          <input type="hidden" name="product_{{ product_index }}_lvc_threshold" value="{{ product.lvc_threshold }}">
+          <input type="hidden" name="product_{{ product_index }}_vnm_value" value="{{ product.vnm_value }}">
 
           <div class="product-head">
             <div>
@@ -638,49 +616,45 @@
               <h3>{{ product.code }}</h3>
               <p>{{ product.name }}</p>
             </div>
-            <div class="product-result">
-              {{ result_badge(product.result.passed) }}
-              <strong>{{ product.result.rvc.percentage }}%</strong>
-              <small>Doc: {{ product.documented_result }}</small>
-            </div>
+            {% set bom_options = bom_workspace.product_version_options_by_code.get(product.code, []) %}
+            <label class="product-bom-picker">BOM TP
+              <select name="product_{{ product_index }}_bom_product_version_id" data-bom-version-select>
+                {% for option in bom_options %}
+                <option value="{{ option.product_version_id }}" {% if option.product_version_id == product.bom_product_version_id %}selected{% endif %}>v{{ option.product_version_no }} · {{ option.row_count }} dòng · {{ option.status }}</option>
+                {% endfor %}
+                {% if not bom_options %}
+                <option value="{{ product.bom_product_version_id }}">{{ product.bom_product_version_no or 'n/a' }}</option>
+                {% endif %}
+              </select>
+            </label>
           </div>
 
           <div class="origin-product-strip">
             <div><span>HS TP</span><strong class="mono">{{ product.finished_hs }}</strong></div>
-            <div><span>Số lượng</span><strong>{{ product.quantity }}</strong></div>
-            <div><span>FOB</span><strong class="num">{{ product.fob }}</strong></div>
-            <div><span>Ngưỡng RVC</span><strong>{{ product.rvc_threshold }}%</strong></div>
-            <div><span>BOM TP</span><strong>{{ product.bom_product_version_id or 'Theo BOM tổng hợp' }}</strong></div>
-          </div>
-
-          <div class="rule-grid">
-            <div>
-              <span>RVC</span>
-              {{ result_badge(product.result.rvc.passed) }}
-              <p>({{ product.result.rvc.fob }} - {{ product.result.rvc.non_origin_value }}) / {{ product.result.rvc.fob }} x 100 = {{ product.result.rvc.percentage }}%</p>
-            </div>
-            <div>
-              <span>CTSH</span>
-              {{ result_badge(product.result.tariff_shift.passed, product.result.tariff_shift.skipped) }}
-              <p>HS thành phẩm: {{ product.result.tariff_shift.finished_key }}. HS nguyên liệu không xuất xứ: {{ product.result.tariff_shift.input_keys|join(", ") }}.</p>
-            </div>
+            <div><span>Số lượng invoice</span><strong>{{ product.quantity|number(6) }} {{ product.unit or product.export_unit }}</strong></div>
+            <div><span>FOB/trị giá TP</span><strong class="num">{{ product.fob|number if product.fob else 'Thiếu' }} <em>{{ product.currency }}</em></strong></div>
+            <div><span>VNM</span><strong class="num">{{ (product.vnm_value or product.non_origin_value or '0')|number }} <em>{{ product.currency }}</em></strong></div>
+            <div><span>LVC</span><strong class="num">{{ product.lvc_percentage ~ '%' if product.lvc_percentage else product.lvc_status_label or 'Thiếu trị giá' }}</strong></div>
+            <div><span>Ngưỡng</span><strong>{{ product.lvc_threshold or product.rvc_threshold or 'n/a' }}%</strong></div>
+            <div><span>Trạng thái</span><strong>{{ product.lvc_status_label or 'Chưa tính' }}</strong></div>
           </div>
 
           <div class="table-scroll">
             <table class="table">
               <thead>
                 <tr>
-                  <th>Dòng nguồn</th>
-                  <th>Tờ khai nhập</th>
                   <th>STT</th>
-                  <th>Mã HQ</th>
-                  <th>Mã nội bộ</th>
-                  <th>HS</th>
-                  <th>Xuất xứ</th>
-                  <th>Tồn CO</th>
-                  <th>Đã dùng</th>
-                  <th>CIF KXX</th>
-                  <th>Còn lại</th>
+                  <th>Mã NVL</th>
+                  <th>Tên NVL</th>
+                  <th>HS NVL</th>
+                  <th>Định mức</th>
+                  <th>ĐVT</th>
+                  <th>Lượng dùng</th>
+                  <th>Đơn giá</th>
+                  <th>Tiền tệ</th>
+                  <th>Trị giá NVL</th>
+                  <th>Xuất xứ NVL</th>
+                  <th>Trị giá KXX/VNM</th>
                 </tr>
               </thead>
               <tbody>
@@ -689,19 +663,10 @@
                 <tr>
                   <td>
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_source_row" value="{{ material.source_row }}">
-                    <span class="mono">{{ material.source_row }}</span>
-                  </td>
-                  <td>
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_import_declaration_no" value="{{ material.import_declaration_no }}">
-                    <span class="mono">{{ material.import_declaration_no or 'n/a' }}</span>
-                  </td>
-                  <td>
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_import_line_no" value="{{ material.import_line_no }}">
-                    <span class="mono">{{ material.import_line_no or 'n/a' }}</span>
-                  </td>
-                  <td>
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_customs_material_code" value="{{ material.customs_material_code }}">
-                    <span class="mono">{{ material.customs_material_code or 'n/a' }}</span>
+                    <span class="mono">{{ loop.index }}</span>
                   </td>
                   <td>
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_material_code" value="{{ material.material_code }}">
@@ -709,30 +674,44 @@
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_material_description" value="{{ material.material_description }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_uom" value="{{ material.uom }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_source_document_ref" value="{{ material.source_document_ref }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_bom_qty_per" value="{{ material.bom_qty_per }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_bom_scrap_rate" value="{{ material.bom_scrap_rate }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_bom_source" value="{{ material.bom_source }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_bom_row_class" value="{{ material.bom_row_class }}">
                     <span class="mono">{{ material.internal_material_code or material.material_code or 'n/a' }}</span>
-                    <div class="meta">{{ material.material_description }}</div>
                   </td>
+                  <td>{{ material.material_description }}</td>
                   <td>
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_hs_code" value="{{ material.hs_code }}">
                     <span class="mono">{{ material.hs_code }}</span>
+                  </td>
+                  <td class="num">{{ (material.bom_qty_per or '0')|number(6) }}</td>
+                  <td>{{ material.uom }}</td>
+                  <td class="num">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_available_qty" value="{{ material.available_qty }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_consumed_qty" value="{{ material.consumed_qty }}">
+                    {{ material.consumed_qty|number(6) }}
+                  </td>
+                  <td class="num">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_unit_value" value="{{ material.unit_value }}">
+                    {{ material.unit_value|number(6) if material.unit_value else 'Thiếu' }}
+                  </td>
+                  <td class="mono">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_currency" value="{{ material.currency }}">
+                    {{ material.currency or product.currency or 'n/a' }}
+                  </td>
+                  <td class="num">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_material_value" value="{{ material.material_value }}">
+                    {{ material.material_value|number if material.material_value else 'Thiếu' }}
                   </td>
                   <td>
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_origin_status" value="{{ material.origin_status }}">
                     <span class="badge {{ 'badge-ok' if material.origin_status == 'origin' else 'badge-neutral' }}">{{ 'Có xuất xứ' if material.origin_status == 'origin' else 'Không xuất xứ' }}</span>
                   </td>
                   <td class="num">
-                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_available_qty" value="{{ material.available_qty }}">
-                    {{ material.available_qty }}
-                  </td>
-                  <td class="num">
-                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_consumed_qty" value="{{ material.consumed_qty }}">
-                    {{ material.consumed_qty }}
-                  </td>
-                  <td class="num">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_non_origin_cif_value" value="{{ material.non_origin_cif_value }}">
-                    {{ material.non_origin_cif_value }}
+                    {{ material.non_origin_cif_value|number }}
                   </td>
-                  <td class="num">{{ material.available_qty - material.consumed_qty }}</td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -867,6 +846,18 @@
       if (box.contains(event.target)) return;
       box.querySelector("[data-market-options]")?.classList.remove("is-open");
       box.querySelector("[data-market-input]")?.setAttribute("aria-expanded", "false");
+    });
+  });
+
+  document.querySelectorAll("[data-bom-version-select]").forEach((select) => {
+    select.addEventListener("change", () => {
+      const form = select.form;
+      if (!form) return;
+      if (form.requestSubmit) {
+        form.requestSubmit();
+        return;
+      }
+      form.submit();
     });
   });
 })();

@@ -1,4 +1,5 @@
 import hashlib
+import html
 import os
 import re
 from decimal import Decimal
@@ -12,7 +13,7 @@ from fastapi.testclient import TestClient
 from openpyxl import Workbook, load_workbook
 
 from app.bom_store import get_bom_workspace
-from app.co_case_store import MAX_SUPPORTING_FILE_BYTES, match_case_bcct_exports
+from app.co_case_store import MAX_SUPPORTING_FILE_BYTES, match_case_bcct_exports, update_case_record
 from app.client_config_store import (
     get_client_config,
     resolve_allocation_code,
@@ -58,6 +59,13 @@ def workbook_bytes(workbook: Workbook) -> bytes:
     return stream.getvalue()
 
 
+def hidden_form_data(markup: str) -> dict[str, str]:
+    return {
+        name: html.unescape(value)
+        for name, value in re.findall(r'<input type="hidden" name="([^"]+)" value="([^"]*)"', markup)
+    }
+
+
 def bcct_workbook(rows: list[dict]) -> bytes:
     workbook = Workbook()
     worksheet = workbook.active
@@ -76,6 +84,7 @@ def bcct_workbook(rows: list[dict]) -> bytes:
         "quantity",
         "unit",
         "customs_value",
+        "currency",
         "invoice_ref",
     ])
     for row in rows:
@@ -93,7 +102,26 @@ def bcct_workbook(rows: list[dict]) -> bytes:
             row["quantity"],
             row["unit"],
             row.get("customs_value", ""),
+            row.get("currency", ""),
             row.get("invoice_ref", ""),
+        ])
+    return workbook_bytes(workbook)
+
+
+def material_catalog_value_workbook(rows: list[dict]) -> bytes:
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "NVL"
+    worksheet.append(["customs_code", "name", "unit", "hs_code", "unit_price", "origin_default", "status"])
+    for row in rows:
+        worksheet.append([
+            row["customs_code"],
+            row.get("name", ""),
+            row.get("unit", ""),
+            row.get("hs_code", ""),
+            row.get("unit_price", ""),
+            row.get("origin_default", ""),
+            row.get("status", "active"),
         ])
     return workbook_bytes(workbook)
 
@@ -1249,7 +1277,7 @@ def test_client_config_rejects_invalid_regex():
 def test_bcct_import_rows_create_immutable_co_stock_source_rows():
     client = get_client("do-thanh")
     upload = bcct_workbook([
-        {"direction": "import", "declaration_no": "TK-001", "line_no": "1", "item_code": "MAT-001", "quantity": "100", "unit": "PCS"},
+        {"direction": "import", "declaration_no": "TK-001", "line_no": "1", "item_code": "MAT-001", "quantity": "100", "unit": "PCS", "customs_value": "1000"},
         {"direction": "export", "declaration_no": "XK-001", "line_no": "1", "item_code": "TP-001", "quantity": "10", "unit": "PCS"},
     ])
 
@@ -1273,6 +1301,9 @@ def test_bcct_import_rows_create_immutable_co_stock_source_rows():
     assert stock_row["available_qty"] == "100"
     assert stock_row["used_qty"] == "0"
     assert stock_row["remaining_qty"] == "100"
+    assert stock_row["customs_value"] == "1000"
+    assert stock_row["unit_value"] == "10"
+    assert stock_row["unit_value_source"] == "bcct_customs_value_per_qty"
 
 
 def test_co_stock_line_level_keeps_duplicate_codes_as_separate_lots():
@@ -1752,7 +1783,7 @@ def test_co_case_detail_is_split_into_workflow_step_views():
     assert "Supporting files" in documents.text
     assert "BCCT xuất khẩu theo invoice" in exports.text
     assert "Form và thông tư" in guidance.text
-    assert "Đánh giá RVC + CTSH" in origin.text
+    assert "Bảng kê LVC" in origin.text
     assert "Tính lại snapshot" in origin.text
     assert 'class="table-input"' not in origin.text
     assert "Upload và parse" not in origin.text
@@ -1801,7 +1832,7 @@ def test_co_case_shipment_step_updates_metadata_without_dropping_origin_view():
     assert "INV-NEW" in shipment.text
     assert "BL-NEW" in shipment.text
     assert "PV00.0048500" in origin.text
-    assert "Đánh giá RVC + CTSH" in origin.text
+    assert "Bảng kê LVC" in origin.text
 
 
 def test_co_case_origin_preloads_demo_when_case_has_no_invoice_source_data():
@@ -1824,6 +1855,244 @@ def test_co_case_origin_preloads_demo_when_case_has_no_invoice_source_data():
     assert "Upload và parse" not in origin.text
     assert "Demo tự nạp" not in review.text
     assert "2 TP mẫu" not in review.text
+
+
+def test_co_case_origin_builds_and_persists_invoice_bom_snapshot():
+    client = TestClient(app)
+    client.post(
+        "/clients/growatt/bcct/upload",
+        files={
+            "file": (
+                "bcct.xlsx",
+                bcct_workbook([
+                    {
+                        "direction": "import",
+                        "declaration_type": "E11",
+                        "declaration_no": "NK-BOM-1",
+                        "line_no": "1",
+                        "item_code": "DEMO-NPL-001",
+                        "description": "Main control board",
+                        "hs_code": "8542.39",
+                        "quantity": "100",
+                        "unit": "PCE",
+                        "customs_value": "1000",
+                        "currency": "VND",
+                    },
+                    {
+                        "direction": "import",
+                        "declaration_type": "E11",
+                        "declaration_no": "NK-BOM-2",
+                        "line_no": "1",
+                        "item_code": "DEMO-NPL-002",
+                        "description": "Connector set",
+                        "hs_code": "8536.90",
+                        "quantity": "100",
+                        "unit": "PCE",
+                        "customs_value": "2000",
+                        "currency": "VND",
+                    },
+                    {
+                        "direction": "export",
+                        "declaration_type": "E42",
+                        "declaration_no": "XK-BOM",
+                        "line_no": "1",
+                        "item_code": "PV00.0048500",
+                        "description": "Growatt inverter",
+                        "hs_code": "850440",
+                        "quantity": "3",
+                        "unit": "PCS",
+                        "customs_value": "1000",
+                        "currency": "VND",
+                        "invoice_ref": "INV-BOM",
+                    }
+                ]),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Invoice BOM", "case_code": "CO-BOM-INV", "destination_market": "Ấn Độ", "invoice_no": "INV-BOM"},
+        follow_redirects=False,
+    )
+    location = created.headers["location"]
+    case_id = location.rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "shipment": {"invoice_no": "INV-BOM", "bill_of_lading_no": ""},
+            "products": [
+                {
+                    "code": "STALE-TP",
+                    "materials": [{"material_code": "STALE-MAT", "unit_value": ""}],
+                }
+            ],
+            "origin_snapshot": {"source": "invoice_bcct_bom", "invoice_no": "INV-BOM"},
+        },
+    )
+
+    origin = client.get(f"{location}/origin")
+
+    assert origin.status_code == 200
+    assert "Demo tự nạp" not in origin.text
+    assert "STALE-MAT" not in origin.text
+    assert "PV00.0048500" in origin.text
+    assert "DEMO-NPL-001" in origin.text
+    assert 'name="product_0_material_0_material_code" value="DEMO-NPL-001"' in origin.text
+    form_data = hidden_form_data(origin.text)
+    assert form_data["product_0_fob"] == "1000"
+    assert form_data["product_0_currency"] == "VND"
+    assert form_data["product_0_material_0_consumed_qty"] == "3"
+    assert form_data["product_0_material_0_unit_value"] == "10"
+    assert form_data["product_0_material_0_currency"] == "VND"
+    assert form_data["product_0_material_0_material_value"] == "30"
+    assert form_data["product_0_material_1_material_value"] == "105"
+    assert form_data["product_0_vnm_value"] == "135"
+    assert form_data["product_0_lvc_percentage"] == "86.50"
+    assert "1,000" in origin.text
+    assert "VND" in origin.text
+    assert 'name="product_0_bom_product_version_id"' in origin.text
+    assert "86.50%" in origin.text
+    assert "Đạt LVC" in origin.text
+    assert "<th>Tờ khai nhập</th>" not in origin.text
+    assert "<th>Tồn CO</th>" not in origin.text
+    assert "<th>Còn lại</th>" not in origin.text
+    assert "<th>Định mức</th>" in origin.text
+    assert "<th>Lượng dùng</th>" in origin.text
+    assert "<th>Đơn giá</th>" in origin.text
+    assert "<th>Trị giá NVL</th>" in origin.text
+    assert "<th>Trị giá KXX/VNM</th>" in origin.text
+
+    recalculated = client.post("/clients/growatt/evaluate", data=form_data)
+    persisted = client.get(f"{location}/origin")
+
+    assert recalculated.status_code == 200
+    assert "Đã tính lại theo dữ liệu đang sửa." in recalculated.text
+    assert "DEMO-NPL-001" in persisted.text
+    assert "TP BOM v1" in persisted.text
+
+
+def test_co_case_origin_switches_product_bom_version_from_dropdown():
+    client = TestClient(app)
+    template = client.get("/clients/growatt/bom/template.xlsx")
+    workbook = load_workbook(BytesIO(template.content))
+    workbook["BOM"]["F2"] = "2.00"
+    stream = BytesIO()
+    workbook.save(stream)
+    client.post(
+        "/clients/growatt/bom/upload",
+        data={"upload_mode": "direct_bom"},
+        files={"file": ("growatt-bom-v2.xlsx", stream.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    versions = get_bom_workspace(get_client("growatt"))["product_version_options_by_code"]["PV00.0048500"]
+    v1 = [version for version in versions if version["product_version_no"] == 1][0]
+    v2 = [version for version in versions if version["product_version_no"] == 2][0]
+    client.post(
+        "/clients/growatt/bcct/upload",
+        files={
+            "file": (
+                "bcct.xlsx",
+                bcct_workbook([
+                    {"direction": "import", "declaration_type": "E11", "declaration_no": "NK-BOM-SWITCH-1", "line_no": "1", "item_code": "DEMO-NPL-001", "description": "Main control board", "hs_code": "8542.39", "quantity": "100", "unit": "PCE", "customs_value": "1000", "currency": "VND"},
+                    {"direction": "import", "declaration_type": "E11", "declaration_no": "NK-BOM-SWITCH-2", "line_no": "1", "item_code": "DEMO-NPL-002", "description": "Connector set", "hs_code": "8536.90", "quantity": "100", "unit": "PCE", "customs_value": "2000", "currency": "VND"},
+                    {"direction": "export", "declaration_type": "E42", "declaration_no": "XK-BOM-SWITCH", "line_no": "1", "item_code": "PV00.0048500", "description": "Growatt inverter", "hs_code": "850440", "quantity": "3", "unit": "PCS", "customs_value": "1000", "currency": "VND", "invoice_ref": "INV-BOM-SWITCH"},
+                ]),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "BOM switch", "case_code": "CO-BOM-SWITCH", "destination_market": "Ấn Độ", "invoice_no": "INV-BOM-SWITCH"},
+        follow_redirects=False,
+    )
+
+    origin = client.get(f"{created.headers['location']}/origin")
+
+    assert origin.status_code == 200
+    assert f'value="{v2["product_version_id"]}" selected' in origin.text
+    assert "v1 · 2 dòng" in origin.text
+    assert "v2 · 2 dòng" in origin.text
+
+    form_data = hidden_form_data(origin.text)
+    form_data["product_0_bom_product_version_id"] = v1["product_version_id"]
+    switched = client.post("/clients/growatt/evaluate", data=form_data)
+    switched_data = hidden_form_data(switched.text)
+
+    assert switched.status_code == 200
+    assert f'value="{v1["product_version_id"]}" selected' in switched.text
+    assert switched_data["product_0_material_0_consumed_qty"] == "3"
+    assert switched_data["product_0_material_0_material_value"] == "30"
+
+
+def test_co_case_export_workbook_contains_bom_snapshot_rows_from_origin_form():
+    client = TestClient(app)
+    client.post(
+        "/clients/growatt/bcct/upload",
+        files={
+            "file": (
+                "bcct.xlsx",
+                bcct_workbook([
+                    {
+                        "direction": "import",
+                        "declaration_type": "E11",
+                        "declaration_no": "NK-BOM-XLSX-1",
+                        "line_no": "1",
+                        "item_code": "DEMO-NPL-001",
+                        "description": "Main control board",
+                        "hs_code": "8542.39",
+                        "quantity": "100",
+                        "unit": "PCE",
+                        "customs_value": "1000",
+                    },
+                    {
+                        "direction": "import",
+                        "declaration_type": "E11",
+                        "declaration_no": "NK-BOM-XLSX-2",
+                        "line_no": "1",
+                        "item_code": "DEMO-NPL-002",
+                        "description": "Connector set",
+                        "hs_code": "8536.90",
+                        "quantity": "100",
+                        "unit": "PCE",
+                        "customs_value": "2000",
+                    },
+                    {
+                        "direction": "export",
+                        "declaration_type": "E42",
+                        "declaration_no": "XK-BOM-XLSX",
+                        "line_no": "1",
+                        "item_code": "PV00.0048500",
+                        "description": "Growatt inverter",
+                        "hs_code": "850440",
+                        "quantity": "2",
+                        "unit": "PCS",
+                        "customs_value": "1000",
+                        "invoice_ref": "INV-BOM-XLSX",
+                    }
+                ]),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "BOM export", "case_code": "CO-BOM-XLSX", "destination_market": "Ấn Độ", "invoice_no": "INV-BOM-XLSX"},
+        follow_redirects=False,
+    )
+    origin = client.get(f"{created.headers['location']}/origin")
+
+    response = client.post(f"{created.headers['location']}/export", data=hidden_form_data(origin.text))
+
+    assert response.status_code == 200
+    workbook = load_workbook(BytesIO(response.content))
+    assert "LVC Statement" in workbook.sheetnames
+    values = [cell.value for row in workbook["LVC Statement"].iter_rows(values_only=False) for cell in row]
+    assert "PV00.0048500" in values
+    assert "DEMO-NPL-001" in values
+    assert "91.00" in values
+    assert "90" in values
 
 
 def test_co_case_supporting_upload_saves_invoice_metadata_and_matches_bcct_exports():

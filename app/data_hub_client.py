@@ -225,7 +225,7 @@ class DataHubPortfolioService:
     def source_summary(self, client: dict) -> tuple[dict, str]:
         summary = self.data_hub.source_summary(client["id"])
         summary["client_config"] = normalize_data_hub_client_config(summary.get("client_config") or {}, client)
-        summary.setdefault("co_stock_row_count", 0)
+        summary["co_stock_row_count"] = int(summary.get("co_stock_row_count") or 0)
         return summary, "data-hub"
 
     def source_workspace(self, client: dict) -> tuple[dict, str]:
@@ -243,11 +243,24 @@ class DataHubPortfolioService:
         client_config = source_summary["client_config"]
         invoice_no = case.get("shipment", {}).get("invoice_no", "")
         relevant_types = client_config.get("bcct", {}).get("relevant_export_declaration_types", [])
+        material_rows = []
+        if hasattr(self.data_hub, "list_materials"):
+            material_rows = [
+                normalize_material_row(row)
+                for row in self.data_hub.list_materials(client["id"])
+                if row.get("category") != "tp"
+            ]
+        bcct_rows = []
+        if hasattr(self.data_hub, "list_bcct"):
+            bcct_rows = [normalize_bcct_row(row) for row in self.data_hub.list_bcct(client["id"])]
         invoice_matches = self.data_hub.invoice_matches(client["id"], invoice_no, relevant_types) if invoice_no else []
+        invoice_matches = enrich_invoice_matches_with_bcct(invoice_matches, bcct_rows)
         return {
             "source_backend": source_backend,
             "source_summary": source_summary,
             "invoice_matches": invoice_matches,
+            "material_rows": material_rows,
+            "stock_rows": co_stock_rows_from_bcct(bcct_rows, client_config),
         }
 
     def process_catalog_upload(self, *_args, **_kwargs) -> dict:
@@ -351,6 +364,7 @@ def normalize_material_row(row: dict) -> dict:
         "category": row.get("category", ""),
         "unit": row.get("unit", ""),
         "hs_code": row.get("hs_code", ""),
+        "unit_price": row.get("unit_price") or row.get("taxable_unit_price") or "",
         "status": row.get("status", "active"),
     }
 
@@ -385,16 +399,78 @@ def normalize_bcct_row(row: dict) -> dict:
         payload.get("so_hoa_don"),
         payload.get("hoa_don"),
     )
+    customs_value = first_value(
+        row.get("customs_value"),
+        row.get("total_value"),
+        payload.get("customs_value"),
+        payload.get("total_value"),
+        payload.get("tri_gia"),
+        payload.get("tong_tri_gia"),
+    )
+    foreign_currency_value = first_value(
+        row.get("foreign_currency_value"),
+        payload.get("foreign_currency_value"),
+        payload.get("tri_gia_nt"),
+    )
+    currency = first_value(row.get("currency"), payload.get("currency"), payload.get("don_vi_tien_te"))
     return {
         **row,
         "transaction_key": transaction_key,
         "item_code": item_code,
         "description": row.get("description") or row.get("goods_name", ""),
         "origin_country": row.get("origin_country") or row.get("origin", ""),
-        "customs_value": row.get("customs_value") or row.get("total_value", ""),
+        "customs_value": customs_value,
+        "taxable_unit_price": first_value(
+            row.get("taxable_unit_price"),
+            row.get("unit_price"),
+            payload.get("taxable_unit_price"),
+            payload.get("unit_price"),
+            payload.get("don_gia_tinh_thue"),
+            payload.get("don_gia"),
+        ),
+        "total_value": first_value(row.get("total_value"), payload.get("total_value"), payload.get("tong_tri_gia")),
+        "foreign_currency_value": foreign_currency_value,
+        "currency": currency,
+        "value_currency": "VND" if customs_value else currency if foreign_currency_value else "",
         "invoice_ref": invoice_ref,
         "review_status": row.get("review_status", "reviewed"),
     }
+
+
+def enrich_invoice_matches_with_bcct(invoice_matches: list[dict], bcct_rows: list[dict]) -> list[dict]:
+    by_transaction = {
+        str(row.get("transaction_key", "")): row
+        for row in bcct_rows
+        if row.get("direction") == "export" and row.get("transaction_key")
+    }
+    by_line = {
+        bcct_line_key(row): row
+        for row in bcct_rows
+        if row.get("direction") == "export"
+    }
+    output = []
+    for match in invoice_matches:
+        source = by_transaction.get(str(match.get("transaction_key", ""))) or by_line.get(bcct_line_key(match)) or {}
+        output.append({
+            **match,
+            "customs_value": first_value(match.get("customs_value"), source.get("customs_value")),
+            "total_value": first_value(match.get("total_value"), source.get("total_value")),
+            "foreign_currency_value": first_value(match.get("foreign_currency_value"), source.get("foreign_currency_value")),
+            "currency": first_value(match.get("currency"), source.get("currency")),
+            "value_currency": first_value(match.get("value_currency"), source.get("value_currency")),
+            "incoterms": first_value(match.get("incoterms"), source.get("incoterms")),
+            "origin_country": first_value(match.get("origin_country"), source.get("origin_country")),
+        })
+    return output
+
+
+def bcct_line_key(row: dict) -> tuple[str, str, str, str]:
+    return (
+        str(row.get("declaration_no", "")),
+        str(row.get("line_no", "")),
+        str(row.get("item_code") or row.get("internal_code") or row.get("customs_code") or ""),
+        str(row.get("invoice_ref", "")),
+    )
 
 
 def first_value(*values) -> str:

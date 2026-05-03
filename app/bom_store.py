@@ -946,6 +946,7 @@ def attach_case_bom_snapshot(case: dict, bom_workspace: dict) -> dict:
     }
     overrides = dict(case.get("bom_product_version_overrides", {}))
     snapshot_composition = []
+    seen_product_versions = set()
 
     for product in case.get("products", []):
         product_code = product.get("code", "")
@@ -956,7 +957,9 @@ def attach_case_bom_snapshot(case: dict, bom_workspace: dict) -> dict:
         if selected_product_version:
             product["bom_product_version_id"] = selected_product_version["product_version_id"]
             product["bom_product_version_no"] = selected_product_version["product_version_no"]
-            snapshot_composition.append(composition_entry(selected_product_version))
+            if selected_product_version["product_version_id"] not in seen_product_versions:
+                snapshot_composition.append(composition_entry(selected_product_version))
+                seen_product_versions.add(selected_product_version["product_version_id"])
         else:
             product["bom_product_version_id"] = ""
             product["bom_product_version_no"] = ""

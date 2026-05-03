@@ -744,6 +744,7 @@ def parse_bcct_workbook(content: bytes) -> list[dict]:
         row["quantity"] = quantity
         row["unit"] = unit
         row["customs_value"] = normalize_decimal(row.get("customs_value"))
+        row["value_currency"] = "VND" if row.get("customs_value") else row.get("currency", "") if row.get("foreign_currency_value") else ""
         row["transaction_key"] = transaction_key(row)
         rows.append(row)
     if not rows:
@@ -1094,6 +1095,7 @@ def normalize_seed_bcct(row: dict, index: int) -> dict:
         "quantity": normalize_decimal(row.get("qty") or row.get("quantity")),
         "unit": normalize_unit(row.get("unit")),
         "customs_value": normalize_decimal(row.get("customs_value")),
+        "value_currency": "VND" if row.get("customs_value") else row.get("currency", "") if row.get("foreign_currency_value") else "",
         "invoice_ref": cell_text(row.get("invoice_ref")),
         "source_upload_id": "",
         "review_status": "reviewed",
@@ -1196,6 +1198,7 @@ def co_stock_rows_from_bcct(rows: list[dict], client_config: dict) -> list[dict]
             continue
         quantity = row.get("quantity", "")
         source_row = row.get("import_row_id") or import_row_id(row["transaction_key"])
+        value_fields = co_stock_value_fields(row, quantity)
         eligibility = resolve_stock_eligibility(row, client_config)
         allocation = resolve_allocation_code(row, client_config)
         if lot_policy == "manual_review":
@@ -1203,6 +1206,7 @@ def co_stock_rows_from_bcct(rows: list[dict], client_config: dict) -> list[dict]
         usable = eligibility["status"] == "active" and allocation["status"] == "resolved"
         output.append({
             "source_row": source_row,
+            "source_transaction_key": row.get("transaction_key", ""),
             "source_line_ids": [source_row],
             "import_declaration_no": row.get("declaration_no", ""),
             "line_no": row.get("line_no", ""),
@@ -1223,10 +1227,53 @@ def co_stock_rows_from_bcct(rows: list[dict], client_config: dict) -> list[dict]
             "available_qty": quantity,
             "used_qty": "0",
             "remaining_qty": quantity if usable else "0",
+            **value_fields,
         })
     if lot_policy == "aggregate_by_declaration_and_allocation_code":
         return aggregate_co_stock_rows(output)
     return output
+
+
+def co_stock_value_fields(row: dict, quantity: str) -> dict:
+    taxable_unit_price = first_normalized_decimal(
+        row.get("taxable_unit_price"),
+        row.get("unit_price"),
+    )
+    customs_value = first_normalized_decimal(
+        row.get("customs_value"),
+        row.get("total_value"),
+    )
+    foreign_currency_value = first_normalized_decimal(row.get("foreign_currency_value"))
+    value_currency = "VND" if customs_value or taxable_unit_price else row.get("currency", "") if foreign_currency_value else ""
+    customs_value = customs_value or foreign_currency_value
+    quantity_value = decimal_text_value(quantity)
+    unit_value = taxable_unit_price
+    unit_value_source = "bcct_taxable_unit_price" if unit_value else ""
+
+    if not unit_value and customs_value:
+        unit_value = unit_value_from_total(customs_value, quantity)
+        unit_value_source = "bcct_customs_value_per_qty" if unit_value else ""
+    if not customs_value and unit_value and quantity_value is not None:
+        unit_decimal = decimal_text_value(unit_value)
+        if unit_decimal is not None:
+            customs_value = decimal_to_text(unit_decimal * quantity_value)
+
+    return {
+        "customs_value": customs_value,
+        "taxable_unit_price": taxable_unit_price,
+        "unit_value": unit_value,
+        "unit_value_source": unit_value_source,
+        "currency": value_currency,
+        "value_currency": value_currency,
+    }
+
+
+def first_normalized_decimal(*values) -> str:
+    for value in values:
+        text = normalize_decimal(value)
+        if text:
+            return text
+    return ""
 
 
 def resolve_stock_eligibility(row: dict, client_config: dict) -> dict:
@@ -1254,6 +1301,7 @@ def aggregate_co_stock_rows(rows: list[dict]) -> list[dict]:
             row["import_declaration_no"],
             row["allocation_code"],
             row["unit"],
+            row.get("currency", ""),
             row["origin_country"],
             row["eligibility_status"],
             row["eligibility_reason"],
@@ -1268,6 +1316,17 @@ def aggregate_co_stock_rows(rows: list[dict]) -> list[dict]:
         current["line_no"] = ",".join(filter(None, [current.get("line_no", ""), row.get("line_no", "")]))
         current["available_qty"] = sum_decimal_text(current["available_qty"], row["available_qty"])
         current["remaining_qty"] = sum_decimal_text(current["remaining_qty"], row["remaining_qty"])
+        if current.get("customs_value") or row.get("customs_value"):
+            current["customs_value"] = sum_decimal_text(current.get("customs_value", ""), row.get("customs_value", ""))
+        current["taxable_unit_price"] = (
+            current.get("taxable_unit_price", "")
+            if current.get("taxable_unit_price", "") == row.get("taxable_unit_price", "")
+            else ""
+        )
+        unit_value = unit_value_from_total(current.get("customs_value", ""), current.get("available_qty", ""))
+        if unit_value:
+            current["unit_value"] = unit_value
+            current["unit_value_source"] = "bcct_customs_value_per_qty"
     return list(grouped.values())
 
 
@@ -1290,6 +1349,20 @@ def decimal_text_value(value) -> Decimal | None:
         return Decimal(text)
     except InvalidOperation:
         return None
+
+
+def unit_value_from_total(customs_value: str, quantity: str) -> str:
+    total = decimal_text_value(customs_value)
+    qty = decimal_text_value(quantity)
+    if total is None or qty is None or qty == 0:
+        return ""
+    return decimal_to_text(total / qty)
+
+
+def decimal_to_text(value: Decimal) -> str:
+    if value == value.to_integral():
+        return str(value.quantize(Decimal("1")))
+    return format(value.normalize(), "f").rstrip("0").rstrip(".")
 
 
 def display_bcct_row(row: dict) -> dict:

@@ -770,6 +770,46 @@ def test_data_hub_bom_service_adapts_workspace():
     assert workspace["product_version_options_by_code"]["TP-1"][0]["product_version_id"] == "bv-1"
 
 
+def test_data_hub_bom_service_exposes_switchable_product_versions():
+    from app.bom_service import DataHubBomService
+
+    class FakeDataHubClient:
+        def list_bom_products(self, client_id: str):
+            assert client_id == "growatt-vn"
+            return [{"product_code": "TP-1", "n_versions": 2}]
+
+        def list_bom_versions(self, client_id: str, product_code: str):
+            assert client_id == "growatt-vn"
+            assert product_code == "TP-1"
+            return [
+                {"version_id": "bv-1", "version_no": 1, "row_count": 1, "status": "published"},
+                {"version_id": "bv-2", "version_no": 2, "row_count": 1, "status": "published"},
+            ]
+
+        def get_bom_version(self, client_id: str, product_code: str, version_id: str):
+            assert client_id == "growatt-vn"
+            assert product_code == "TP-1"
+            qty = 2 if version_id == "bv-2" else 1
+            return {
+                "version": {
+                    "version_id": version_id,
+                    "product_code": "TP-1",
+                    "version_no": 2 if version_id == "bv-2" else 1,
+                    "normalized_hash": version_id,
+                    "row_count": 1,
+                    "flatten_status": "flattened",
+                },
+                "rows": [{"material_code": "NVL-1", "qty_per_unit": qty, "uom": "PCS", "payload": {}}],
+            }
+
+    workspace = DataHubBomService(FakeDataHubClient()).workspace({"id": "growatt-vn"})
+
+    options = workspace["product_version_options_by_code"]["TP-1"]
+    assert [row["product_version_id"] for row in options] == ["bv-1", "bv-2"]
+    assert [row["product_version_id"] for row in workspace["product_versions"] if row["status"] == "current"] == ["bv-2"]
+    assert workspace["latest_rows"][0]["qty_per"] == 2
+
+
 def test_data_hub_portfolio_service_uses_data_hub_source_summary():
     from app.data_hub_client import DataHubPortfolioService
 
@@ -818,14 +858,46 @@ def test_data_hub_portfolio_service_uses_invoice_lookup_api():
             assert client_id == "growatt-vn"
             assert invoice_no == "INV-001"
             assert declaration_types == ["E42"]
-            return [{"declaration_no": "XK1", "invoice_ref": "INV-001"}]
+            return [{"declaration_no": "XK1", "line_no": "1", "item_code": "TP-001", "invoice_ref": "INV-001", "transaction_key": "XK1-1"}]
+
+        def list_bcct(self, client_id: str):
+            assert client_id == "growatt-vn"
+            return [
+                {
+                    "direction": "export",
+                    "declaration_no": "XK1",
+                    "line_no": "1",
+                    "item_code": "TP-001",
+                    "quantity": "2",
+                    "unit": "PCS",
+                    "total_value": "1234",
+                    "currency": "USD",
+                    "invoice_ref": "INV-001",
+                    "transaction_key": "XK1-1",
+                },
+                {
+                    "direction": "import",
+                    "declaration_no": "NK1",
+                    "line_no": "1",
+                    "item_code": "MAT-001",
+                    "quantity": "100",
+                    "unit": "PCS",
+                    "customs_value": "1000",
+                }
+            ]
 
     service = DataHubPortfolioService(FakeDataHubClient())
 
     context = service.co_case_source_context({"id": "growatt-vn"}, {"shipment": {"invoice_no": "INV-001"}})
 
     assert context["source_backend"] == "data-hub"
-    assert context["invoice_matches"] == [{"declaration_no": "XK1", "invoice_ref": "INV-001"}]
+    assert context["invoice_matches"][0]["declaration_no"] == "XK1"
+    assert context["invoice_matches"][0]["customs_value"] == "1234"
+    assert context["invoice_matches"][0]["currency"] == "USD"
+    assert context["invoice_matches"][0]["value_currency"] == "VND"
+    assert context["stock_rows"][0]["customs_item_code"] == "MAT-001"
+    assert context["stock_rows"][0]["unit_value"] == "10"
+    assert context["stock_rows"][0]["currency"] == "VND"
 
 
 def test_data_hub_portfolio_service_skips_invoice_lookup_without_invoice_no():
