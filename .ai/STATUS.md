@@ -3,53 +3,40 @@
 ## Current State
 - Active branch: `main`.
 - CO dev server is running at `http://127.0.0.1:8001`; unauthenticated requests redirect to `/auth/login`.
-- Sibling Data Hub dev server is running at `http://127.0.0.1:8754`.
+- Sibling Data Hub dev server responds at `http://127.0.0.1:8754` (`/health` currently returns `404`, but the server is reachable).
 - CO remains a Data Hub consumer. Keep raw `/v1/hub/*` endpoint strings inside `app/data_hub_client.py`; `tests/test_data_hub_policy.py` enforces this.
-- C/O case tab performance was investigated and fixed. Measured on a no-auth local CO server (`http://127.0.0.1:8014`, now stopped) against `growatt-vn/co-case-f78ab7a0ba8b`: normal tabs dropped from about `4.4-4.6s` to `0.5-1.1s`, and the origin tab dropped from about `20.3s` to `0.74s`.
-- Runtime C/O form config remains in-app at `/settings/co-forms` for priority forms `B`, `CPTPP`, `EUR.1`, and `AI`, including market aliases and HS-scope PSR preview rules.
-- Default PSR seed is extracted from the local legal corpus: `B` 5,609 rows, `CPTPP` 1,156 rows, `EUR.1` 128 rows, `AI` 1 general AIFTA rule. `EUR.1` still needs refresh/confirmation against `14/2026/TT-BCT`.
-- Client-facing confirmation workbook is at `docs/co-form-index-confirmation.xlsx`. Tab `04_HS kiểm trước` prioritizes export products/HS from Growatt, Johnson, DKE, and Đô Thành across sibling projects under `/home/vp/workspace/client`.
-- Invoice entry on the C/O shipment screen supports lookup/preview before save: BCCT export matches, HS/product summary, market hint explanation, and explicit “Dùng thị trường …” action. It no longer silently sets `destination_market` from invoice hints on create/update.
-- Pre-existing untracked artifacts remain separate and are not part of this work unless explicitly requested:
+- This session was research/documentation only; no application code was changed.
+- Legacy `tru lui CO final ...xlsm` output sheet structure is now documented in `docs/legacy-workbook-output-sheet-structure.md`.
+- Origin calculation workflow risks are summarized in `.ai/features/2026-05-04-co-origin-calculation-workflow.md`.
+- Pre-existing untracked artifacts remain separate and should not be committed unless explicitly requested:
   - `.ai/features/2026-05-02-co-bom-data-hub-migration.md`
   - `.ai/features/2026-05-02-data-hub-bom-flattening-instructions.md`
   - `.ai/sessions/2026-05-03-data-hub-bom-flattening-plan.md`
 
 ## Recent Changes
-- Added file-signature caching for sanitized C/O form config so the 2.9 MB runtime PSR config is not reparsed repeatedly during a page request.
-- Added an indexed PSR lookup path in `app/co_forms.py` so HS matching no longer scans 6,894 rules repeatedly for every form lane and criteria preview.
-- Limited Data Hub BOM workspace loading for C/O origin to product codes present in invoice matches/current case products instead of fetching all BOM products and versions for the client.
-- Added short-lived Data Hub BOM workspace caching keyed by Data Hub identity, client, token, and requested product codes.
-- Avoided an unnecessary client-side invoice-preview fetch when the shipment tab already rendered invoice preview HTML server-side.
-- Confirmed the slowness was mostly CO-side repeated broad loading/indexing, not a single slow Data Hub API call. Direct Data Hub checks were roughly `30ms` for source summary, `49ms` for materials, `125ms` for BCCT page 1, and `135ms` for products.
-
-## Verification
-- `uv run pytest -q -x` passed `158` tests in `27.90s`.
-- `git diff --check` passed.
-- Targeted checks also passed for Form/PSR settings, C/O shipment/origin/guidance, Data Hub BOM adapter behavior, and Data Hub endpoint policy.
-- HTTP timings after the fix on the temporary no-auth server:
-  - shipment: `1.06s`
-  - documents: `0.66s`
-  - exports: `0.51s`
-  - guidance: `0.55s`
-  - origin: `0.74s`
-  - review: `0.54s`
+- Investigated the legacy workbook/macro calculation path for value-content sheets.
+- Confirmed the workbook uses build-down/indirect calculation for `M1607`: `(FOB - non-origin value) / FOB * 100`.
+- Confirmed direct labor and direct allocation costs are calculated for the price/cost explanation footer, not for the final RVC/LVC percentage.
+- Identified source of direct cost values: template/input coefficient cells `P1590`, `P1591`, `P1595`, `P1596`, and `P1597`, multiplied by `K10`.
+- Inspected output templates `LVC`, `RVC`, `CTH`, `CTSH`, and `EUR1`, including body columns, helper columns, footer blocks, hidden rows, print areas, and export ranges.
+- Documented the legacy export strategy: copy the template sheet, fill values, hide empty rows/helper columns, then paste values over the copied range to preserve formatting.
 
 ## Next Steps
-1. Send `docs/co-form-index-confirmation.xlsx` to Trọng Tín and update `/settings/co-forms` if they correct market aliases, HS scopes, or criteria.
-2. If real search-as-you-type invoice suggestions are required from live Data Hub, create a Data Hub API request first. Current CO preview still uses exact invoice match plus local/source-workspace option filtering; do not invent a new Data Hub endpoint in CO.
-3. Continue replacing the configurable PSR preview with the durable legal PSR engine and allocation ledger.
-4. Migrate/normalize missing Growatt legacy BCCT import data into Data Hub before relying on all LVC valuations for `growatt-vn`.
+1. Use `docs/legacy-workbook-output-sheet-structure.md` as the reference when implementing generated bang ke Excel export.
+2. For exact Excel parity, preserve template sheets and fill/copy values instead of rebuilding styles manually.
+3. Decide product behavior for criteria modes: build-down RVC/LVC, direct/build-up, `CTH`, `CTSH`, `EUR1/PSR`, and compound rules.
+4. Do not implement build-up/direct formulas until the required `VOM`, direct labor, overhead, profit, and agreement-specific inclusion rules are modeled explicitly.
+5. For `CTH/CTSH`, do not assume the macro proves HS rule evaluation. The legacy macro mostly exports the template and conclusion; a real evaluator still needs to compare product/material HS according to the selected rule.
 
 ## Blockers
-- Form AI still has only the general AIFTA rule from available sources. Any HS-specific AI PSR rows need Trọng Tín or official source confirmation.
-- Live Data Hub Growatt data still lacks some legacy BCCT import evidence needed for complete BOM material valuation.
+- Direct/build-up value-content calculation is not implemented in the app or clearly present in the legacy workbook logic.
+- The legacy workbook's direct cost coefficients appear to be preset/input template values, not derived from BOM or Data Hub.
+- Durable allocation/evidence for originating material values and supplier declarations is still required before direct/build-up or stronger LVC/RVC evidence can be implemented safely.
 
 ## Notes for Next AI Session
 - User writes Vietnamese casually; respond in fully accented Vietnamese.
-- User is sensitive to hidden business logic. Do not silently infer market/form from invoice; show the evidence and require operator action.
-- For customs data, never assume `currency` labels `total_value/customs_value`; BCCT customs values are VND and declared foreign currency must stay separate.
-- Do not reintroduce criteria workbook upload in the C/O origin tab; criteria should be system-generated/configured.
-- Do not infer C/O market from Vietnam-side logistics fields like `destination_location_name = CANG LACH HUYEN HP`.
+- User is sensitive to hidden business logic. Briefly explain what was inspected, what was tried, and what conclusion is evidence-backed.
+- The five relevant legacy output sheets are `LVC`, `RVC`, `CTH`, `CTSH`, and `EUR1`.
+- `LVC/RVC` visibly show value-content calculation; `CTH/CTSH` hide the value-content footer and show tariff-shift conclusions; `EUR1` adds an EXW/coefficient block around rows `1610:1615`.
 - Keep Data Hub API literals inside `app/data_hub_client.py`.
-- Do not commit or modify the pre-existing untracked `.ai/features/...` and `.ai/sessions/2026-05-03-data-hub-bom-flattening-plan.md` files unless asked.
+- Do not commit or modify the pre-existing untracked `.ai/features/2026-05-02-*` files or `.ai/sessions/2026-05-03-data-hub-bom-flattening-plan.md` unless asked.
