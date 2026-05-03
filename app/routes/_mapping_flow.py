@@ -729,4 +729,9 @@ __all__ = [
     "render_preview_context",
     "confirm_pending",
     "reject_pending",
+    # Slice 3: BOM uses these directly (bypassing the all-in-one
+    # parse_with_overrides_and_stash) because BOM's stash shape is
+    # `{"products": ..., "flatten": ...}` not the flat rows array.
+    "_load_unmapped",
+    "_stash_unmapped",
 ]

@@ -474,9 +474,11 @@ def test_growatt_chinese_fixture_flattens_via_manual_flat(auth_client):
 
 # ── manual_flat path is unaffected ────────────────────────────────────
 
-def test_manual_flat_profile_still_uses_legacy_preview(auth_client):
-    """Existing manual_flat upload routes through the existing preview
-    page, NOT the flatten-preview. Backward-compat (item 25)."""
+def test_manual_flat_profile_routes_to_mapping_page(auth_client):
+    """Slice 3 of the unified upload flow: manual_flat first goes through
+    the interactive mapping page on cache miss (was: straight to preview).
+    Crucially does NOT route to flatten-preview, since profile is not
+    technical_flatten."""
     blob = _xlsx([
         ("Mã SP",      "Mã NVL",   "Định mức", "ĐVT"),
         ("FT_U_LEGACY","FT_U_M",   1,          "kg"),
@@ -488,6 +490,5 @@ def test_manual_flat_profile_still_uses_legacy_preview(auth_client):
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
     )
     assert resp.status_code == 303
-    # Routes to the legacy preview, not flatten-preview.
-    assert "/bom/preview/" in resp.headers["location"]
+    assert "/bom/upload/mapping/" in resp.headers["location"]
     assert "/bom/flatten-preview/" not in resp.headers["location"]

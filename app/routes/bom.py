@@ -10,6 +10,9 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from app import auth, llm
 from app.database import connect
 from app.parsers.bom import parse_bom_workbook, BomParseError
+from app.parsers.bom_adapters.manual_flat import (
+    parse_with_skipped as parse_manual_flat_with_skipped,
+)
 from app.parsers import bom_adapters
 from app.parsers._excel import compute_file_signature
 from app.routes.clients import get_client, stats_for_client
@@ -19,6 +22,13 @@ from app.routes._llm_fallback import (
     lookup_cached_mapping,
     record_mapping_use,
     request_llm_mapping,
+)
+from app.routes._mapping_flow import (
+    ModuleConfig,
+    _load_unmapped,
+    _stash_unmapped,
+    render_mapping_page_context,
+    render_mapping_page_with_llm_suggestion,
 )
 from app.storage import save_upload, sha256_bytes
 from app.stores.staleness import freshness_for_template
@@ -139,6 +149,23 @@ async def upload_submit(request: Request, client_id: str,
                 )
         except Exception:  # noqa: BLE001
             pass
+
+    # Slice 3: cache miss for manual_flat (no technical_flatten) →
+    # interactive mapping page. Layout-driven adapters + technical_flatten
+    # keep the inline rigid+LLM path below.
+    if (
+        parse_profile == "manual_flat"
+        and profile != "technical_flatten"
+        and cached_mapping is None
+    ):
+        _stash_unmapped(
+            upload_id=upload_id, file_signature=file_signature,
+            extra={"profile": profile},
+        )
+        return RedirectResponse(
+            url=f"/clients/{client_id}/bom/upload/mapping/{upload_id}",
+            status_code=303,
+        )
 
     # ── Step 2: parse — cached mapping if present, else rigid, else LLM ──
     products: dict[str, list[dict]] | None = None
@@ -279,15 +306,26 @@ async def preview_view(request: Request, client_id: str, pending_id: str):
     # parsed_rows shape: {"products": {product_code: [row, ...], ...}}
     products = parsed_rows.get("products", {}) if isinstance(parsed_rows, dict) else {}
     profile = (diff_summary or {}).get("profile", "manual_flat")
+    skipped_rows = (diff_summary or {}).get("skipped_rows") or []
     summary, sample = _summarize_bom(products)
+    # Shared-template adapter: provide `summary.total` for shared chrome.
+    summary_for_chrome = dict(summary)
+    summary_for_chrome["total"] = summary["n_rows"]
     return request.app.state.templates.TemplateResponse(
         request, "clients/bom_preview.html",
         {
             "client": client, "stats": stats_for_client(client_id),
             "pending_id": pending_id,
             "profile": profile,
-            "summary": summary,
+            "summary": summary_for_chrome,
             "sample": sample,
+            "sample_rows": [],  # BOM uses per-product `sample`; shared sample slot is overridden
+            "skipped_rows": skipped_rows,
+            "skipped_count": len(skipped_rows),
+            "diff_summary": diff_summary or {},
+            "required_fields": ["product_code", "material_code", "qty_per_unit"],
+            "module_label": "BOM",
+            "list_url": f"/clients/{client_id}/bom",
             "expires_at": expires_at, "created_at": created_at,
             "active_root": "clients", "active_tab": "bom",
         },
@@ -407,13 +445,162 @@ async def preview_reject(request: Request, client_id: str, pending_id: str):
     )
 
 
+# ── Slice 3: manual_flat mapping page ────────────────────────────────────
+
+
+def _bom_manual_flat_parser_stub(blob, *, mapping_override=None,
+                                  header_row_override=None,
+                                  extra_required_fields=None):
+    """Adapter so `_mapping_flow.render_mapping_page_context` works for BOM.
+    Returns (rows, skipped) where rows = products dict (treated opaquely
+    by the helper)."""
+    return parse_manual_flat_with_skipped(
+        blob, mapping_override=mapping_override,
+        header_row_override=header_row_override,
+        extra_required_fields=extra_required_fields,
+    )
+
+
+BOM_MAPPING_CFG = ModuleConfig(
+    name="bom",
+    upload_pending_module="bom",
+    save_upload_module="bom",
+    fallback_filename="bom.xlsx",
+    list_route=lambda cid: f"/clients/{cid}/bom",
+    preview_template="clients/bom_preview.html",
+    parser_fn=_bom_manual_flat_parser_stub,
+    parser_error=BomParseError,
+    summarize_fn=lambda _: {},   # not called via this cfg
+    ingest_fn=lambda *a, **kw: 0,  # not called via this cfg
+    logical_fields=("product_code", "material_code", "qty_per_unit", "uom",
+                    "bom_code", "bom_variant_id"),
+    min_identifier_fields=frozenset(),
+    required_mapped_fields=frozenset({"product_code", "material_code"}),
+    extra_required_fields_default=("qty_per_unit",),
+)
+
+
+@router.get("/clients/{client_id}/bom/upload/mapping/{upload_id}",
+            response_class=HTMLResponse)
+async def mapping_view(request: Request, client_id: str, upload_id: str):
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    ctx = render_mapping_page_context(
+        client_id=client_id, upload_id=upload_id, cfg=BOM_MAPPING_CFG,
+    )
+    ctx.update({
+        "client": client, "stats": stats_for_client(client_id),
+        "module_label": "BOM",
+        "active_root": "clients", "active_tab": "bom",
+    })
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/_upload_mapping.html", ctx,
+    )
+
+
+@router.post("/clients/{client_id}/bom/upload/mapping/{upload_id}/llm_suggest",
+             response_class=HTMLResponse)
+async def mapping_llm_suggest(request: Request, client_id: str, upload_id: str):
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    ctx = render_mapping_page_with_llm_suggestion(
+        client_id=client_id, upload_id=upload_id, cfg=BOM_MAPPING_CFG,
+    )
+    ctx.update({
+        "client": client, "stats": stats_for_client(client_id),
+        "module_label": "BOM",
+        "active_root": "clients", "active_tab": "bom",
+    })
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/_upload_mapping.html", ctx,
+    )
+
+
+@router.post("/clients/{client_id}/bom/upload/mapping/{upload_id}/parse")
+async def mapping_parse(request: Request, client_id: str, upload_id: str):
+    """Parse with staff-confirmed mapping (manual_flat only),
+    stash the products + skipped_rows, redirect to existing /preview."""
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+    blob, file_signature, extra = _load_unmapped(upload_id, module="bom")
+    profile = (extra or {}).get("profile", "manual_flat")
+    form = await request.form()
+
+    column_map: dict[str, str] = {}
+    for key, value in form.items():
+        if key.startswith("col_") and key.endswith("__field"):
+            idx = key[len("col_"):-len("__field")]
+            field = (value or "").strip()
+            if not field:
+                continue
+            header_value = (form.get(f"col_{idx}__header") or "").strip()
+            if header_value:
+                column_map[header_value] = field
+
+    # Form validation: BOM requires product_code + material_code mapped.
+    mapped_logical = set(column_map.values())
+    missing_mapped = BOM_MAPPING_CFG.required_mapped_fields - mapped_logical
+    if missing_mapped:
+        raise HTTPException(
+            400,
+            "Thiếu mapping cho các trường bắt buộc: " +
+            ", ".join(sorted(missing_mapped)),
+        )
+
+    header_row_override_str = (form.get("header_row_override") or "").strip()
+    header_row_override = (
+        int(header_row_override_str) if header_row_override_str.isdigit() else None
+    )
+    extra_required_str = (form.get("extra_required_fields") or "").strip()
+    extra_required = (
+        [s.strip() for s in extra_required_str.split(",") if s.strip()]
+        if extra_required_str else None
+    )
+
+    try:
+        products, skipped = parse_manual_flat_with_skipped(
+            blob, mapping_override=column_map,
+            header_row_override=header_row_override,
+            extra_required_fields=extra_required,
+        )
+    except BomParseError as e:
+        raise HTTPException(400, f"Parse error: {e}") from e
+
+    pending_id = _stash_pending(
+        client_id=client_id, upload_id=upload_id, products=products,
+        profile=profile, created_by=user.user_id,
+        used_mapping=column_map, file_signature=file_signature,
+        proposed_by="manual",
+        skipped_rows=skipped,
+    )
+    total_rows = sum(len(rows) for rows in products.values())
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "update hub.file_uploads set parse_status='pending_preview', "
+            "row_count=%s, parse_error=NULL, parsed_at=now() where upload_id=%s",
+            (total_rows, upload_id),
+        )
+    return RedirectResponse(
+        url=f"/clients/{client_id}/bom/preview/{pending_id}", status_code=303,
+    )
+
+
 def _stash_pending(*, client_id: str, upload_id: str,
                    products: dict[str, list[dict]],
                    profile: str, created_by: str | None,
                    used_mapping: dict[str, str] | None = None,
                    file_signature: str | None = None,
                    proposed_by: str = "rigid",
-                   flatten_payload: dict | None = None) -> str:
+                   flatten_payload: dict | None = None,
+                   skipped_rows: list[dict] | None = None) -> str:
     pending_id = secrets.token_urlsafe(16)
     parsed_payload = {"products": products}
     if flatten_payload:
@@ -423,6 +610,7 @@ def _stash_pending(*, client_id: str, upload_id: str,
         "used_mapping": used_mapping,
         "file_signature": file_signature,
         "proposed_by": proposed_by,
+        "skipped_rows": skipped_rows or [],
     }
     with connect() as conn:
         with conn.cursor() as cur:
