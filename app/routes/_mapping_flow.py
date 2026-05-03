@@ -76,6 +76,11 @@ class ModuleConfig:
     # Mapping form
     logical_fields: tuple[str, ...]
     min_identifier_fields: frozenset[str] = frozenset()
+    # `min_identifier_fields`: at-least-one-of these logical fields must be
+    # mapped (catalog uses this — customs_code OR internal_code).
+    required_mapped_fields: frozenset[str] = frozenset()
+    # `required_mapped_fields`: ALL of these logical fields must be mapped
+    # at form time (BQD uses this — internal_code AND customs_code).
     extra_required_fields_default: tuple[str, ...] = ()
 
     # Optional knobs
@@ -255,14 +260,22 @@ def parse_with_overrides_and_stash(
         upload_id, module=cfg.upload_pending_module,
     )
 
-    # Identifier rule (defence in depth — UI form should already enforce).
+    # Identifier rules (defence in depth — UI form should already enforce).
+    mapped_logical = {v for v in column_map.values() if v and v != "ignore"}
     if cfg.min_identifier_fields:
-        mapped_logical = {v for v in column_map.values() if v and v != "ignore"}
         if not (mapped_logical & cfg.min_identifier_fields):
             raise HTTPException(
                 400,
                 "Cần map ít nhất một cột là " +
                 " hoặc ".join(sorted(cfg.min_identifier_fields)),
+            )
+    if cfg.required_mapped_fields:
+        missing = cfg.required_mapped_fields - mapped_logical
+        if missing:
+            raise HTTPException(
+                400,
+                "Thiếu mapping cho các trường bắt buộc: " +
+                ", ".join(sorted(missing)),
             )
 
     try:

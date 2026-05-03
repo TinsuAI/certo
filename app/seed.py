@@ -94,7 +94,8 @@ def _seed_growatt(client_id: str) -> None:
     ]:
         ws.append((ic, cc))
     buf = io.BytesIO(); wb.save(buf)
-    _insert_mappings(client_id=client_id, rows=parse_code_mappings_workbook(buf.getvalue()))
+    _bqd_rows, _ = parse_code_mappings_workbook(buf.getvalue())
+    _insert_mappings(client_id=client_id, rows=_bqd_rows)
 
     # BCCT (Growatt-style #&-prefix in goods name)
     wb = Workbook(); ws = wb.active; ws.title = "BCCT"

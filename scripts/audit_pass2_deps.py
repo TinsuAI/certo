@@ -122,9 +122,14 @@ for rel in ["growatt/bom_tp.xlsx", "growatt/bom_btp.xlsx", "johnson/bom_sap.xlsx
     for prof in ["manual_flat", "growatt_multi_workbook", "johnson_sap_exploded"]:
         CASES.append(("bom", str(REAL_ROOT / rel), parse_bom_workbook, {"profile": prof}))
 
+def _bqd_rows_only(blob, **kw):
+    rows, _ = parse_code_mappings_workbook(blob, **kw)
+    return rows
+
+
 # BQD — real data
 for rel in ["growatt/bqd_tp.xlsx", "growatt/bqd_nvl.xlsx", "dke/bqd.xls"]:
-    CASES.append(("bqd", str(REAL_ROOT / rel), parse_code_mappings_workbook, {}))
+    CASES.append(("bqd", str(REAL_ROOT / rel), _bqd_rows_only, {}))
 
 def _materials_rows_only(blob, **kw):
     """parse_materials_workbook returns (rows, skipped) since Slice 1 of

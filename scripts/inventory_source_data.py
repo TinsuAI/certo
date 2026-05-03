@@ -155,8 +155,9 @@ def probe_excel(path: Path, kind: str) -> tuple[str, str, str]:
             extra = f" skipped={len(skipped)}" if skipped else ""
             return "ok", "materials", f"rows={len(rows)}{extra}"
         if kind == "code_mappings":
-            rows = parse_code_mappings_workbook(blob)
-            return "ok", "code_mappings", f"rows={len(rows)}"
+            rows, skipped = parse_code_mappings_workbook(blob)
+            extra = f" skipped={len(skipped)}" if skipped else ""
+            return "ok", "code_mappings", f"rows={len(rows)}{extra}"
         if kind == "bom":
             errors: list[str] = []
             for profile in adapter_names():

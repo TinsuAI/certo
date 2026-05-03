@@ -168,7 +168,7 @@ def test_bqd_real_data_parses(rel, min_rows):
     if p is None:
         pytest.skip(f"missing real fixture: {rel}")
     blob = p.read_bytes()
-    rows = parse_code_mappings_workbook(blob)
+    rows, _ = parse_code_mappings_workbook(blob)
     assert len(rows) >= min_rows, f"{rel}: only {len(rows)} mappings"
     # Sanity: every row has both codes set.
     assert all(r["internal_code"] and r["customs_code"] for r in rows)
@@ -181,7 +181,7 @@ def test_bqd_growatt_nvl_carries_n_to_n_mappings():
     p = _opt("growatt/bqd_nvl.xlsx")
     if p is None:
         pytest.skip("missing real fixture: growatt/bqd_nvl.xlsx")
-    rows = parse_code_mappings_workbook(p.read_bytes())
+    rows, _ = parse_code_mappings_workbook(p.read_bytes())
     by_internal: dict[str, set[str]] = {}
     for r in rows:
         by_internal.setdefault(r["internal_code"], set()).add(r["customs_code"])

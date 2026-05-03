@@ -89,7 +89,7 @@ def test_code_mappings_n_n_via_repeated_rows():
         ("PE-001", "PE-ALT"),  # 1:n
         ("PE-002", "PE-002"),
     ])
-    rows = parse_code_mappings_workbook(blob)
+    rows, _ = parse_code_mappings_workbook(blob)
     assert len(rows) == 3
     pairs = {(r["internal_code"], r["customs_code"]) for r in rows}
     assert ("PE-001", "PE-001") in pairs
@@ -102,7 +102,7 @@ def test_code_mappings_two_columns_minimum_works():
         ("Mã nội bộ", "Mã hải quan"),
         ("X", "Y"),
     ])
-    rows = parse_code_mappings_workbook(blob)
+    rows, _ = parse_code_mappings_workbook(blob)
     assert rows == [{
         "internal_code": "X", "customs_code": "Y", "category": None, "notes": None,
     }]
