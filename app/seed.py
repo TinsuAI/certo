@@ -76,7 +76,8 @@ def _seed_growatt(client_id: str) -> None:
     ]:
         ws_tp.append(r)
     buf = io.BytesIO(); wb.save(buf)
-    _insert_materials(client_id=client_id, rows=parse_materials_workbook(buf.getvalue()))
+    _rows, _ = parse_materials_workbook(buf.getvalue())
+    _insert_materials(client_id=client_id, rows=_rows)
 
     # BQD (with 1:n example for PE-001)
     wb = Workbook(); ws = wb.active; ws.title = "BQD NVL"
@@ -242,7 +243,8 @@ def _seed_johnson(client_id: str) -> None:
     ws_tp.append(["Mã HQ", "Mã NB", "Tên", "Loại", "ĐVT", "HS"])
     ws_tp.append(("3401300090", "3401300090", "Liquid soap 500ml retail", "tp", "pcs", "34013000"))
     buf = io.BytesIO(); wb.save(buf)
-    _insert_materials(client_id=client_id, rows=parse_materials_workbook(buf.getvalue()))
+    _rows, _ = parse_materials_workbook(buf.getvalue())
+    _insert_materials(client_id=client_id, rows=_rows)
 
     # No BQD needed (identity mode)
     # Tiny BCCT

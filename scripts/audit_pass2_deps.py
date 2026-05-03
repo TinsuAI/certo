@@ -126,9 +126,16 @@ for rel in ["growatt/bom_tp.xlsx", "growatt/bom_btp.xlsx", "johnson/bom_sap.xlsx
 for rel in ["growatt/bqd_tp.xlsx", "growatt/bqd_nvl.xlsx", "dke/bqd.xls"]:
     CASES.append(("bqd", str(REAL_ROOT / rel), parse_code_mappings_workbook, {}))
 
+def _materials_rows_only(blob, **kw):
+    """parse_materials_workbook returns (rows, skipped) since Slice 1 of
+    the unified upload flow; this audit harness only checks row count."""
+    rows, _ = parse_materials_workbook(blob, **kw)
+    return rows
+
+
 # Materials (Catalog) — real BCCT-adjacent files won't help, but fixtures will.
 for p in (FIXTURE_ROOT / "manual_test").glob("*ds*.xlsx"):  # ds_nvl / ds_sp filename hints
-    CASES.append(("catalog", str(p), parse_materials_workbook, {}))
+    CASES.append(("catalog", str(p), _materials_rows_only, {}))
 
 
 # ─── Run ──────────────────────────────────────────────────────────────────

@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Map cột — {{ module_label }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Xác nhận cột trước khi import — {{ module_label }}</h2>
+      <p class="meta">
+        File <code>{{ sheet_title }}</code>. Hub đã đoán ánh xạ cột →
+        trường dữ liệu dựa trên header. Hãy kiểm tra lại, sửa nếu sai,
+        rồi <strong>Lưu mapping</strong> để chạy parse và xem preview.
+      </p>
+      {% if llm_error %}
+      <div class="toast toast-warn" style="margin-top: 0.5rem;">
+        {{ llm_error }}
+      </div>
+      {% elif llm_applied %}
+      <div class="toast" style="margin-top: 0.5rem;">
+        Đã áp dụng đề xuất từ LLM. Kiểm tra lại trước khi lưu.
+      </div>
+      {% endif %}
+    </div>
+    <div>
+      <a class="btn-secondary" href="{{ list_url }}">Hủy</a>
+    </div>
+  </div>
+
+  <div class="zone mini-panel" style="margin-bottom: 1rem;">
+    <strong>Xem trước file (10 dòng đầu)</strong>
+    <table class="data-table mapping-raw-table" style="margin-top: 0.5rem;">
+      <thead>
+        <tr>
+          <th class="meta">Dòng</th>
+          {% for col in column_map %}
+          <th>{{ loop.index }}: {{ col.header or '—' }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in raw_rows %}
+        <tr {% if loop.index == default_header_row_no %}class="row-as-header"{% endif %}>
+          <td class="meta">{{ loop.index }}</td>
+          {% for cell in r %}
+          <td>{{ cell }}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <form method="post" action="{{ post_url }}" class="zone mini-panel">
+    <div class="form-row">
+      <label for="header_row_override"><strong>Dòng header:</strong></label>
+      <select name="header_row_override" id="header_row_override">
+        {% for r_no, n_filled in candidate_header_rows %}
+        <option value="{{ r_no }}" {% if r_no == default_header_row_no %}selected{% endif %}>
+          Dòng {{ r_no }} ({{ n_filled }} ô có dữ liệu)
+        </option>
+        {% endfor %}
+      </select>
+      <span class="meta">Mặc định = dòng Hub đoán là header. Đổi nếu file có banner/legend phía trên.</span>
+    </div>
+
+    <div class="form-row">
+      <strong>Map từng cột</strong>
+      <span class="meta">
+        Bắt buộc map ít nhất một cột là
+        {% for f in min_identifier_fields %}
+        <code>{{ f }}</code>{% if not loop.last %} hoặc {% endif %}
+        {% endfor %}.
+      </span>
+    </div>
+
+    <table class="data-table mapping-config-table" style="margin-top: 0.5rem;">
+      <thead>
+        <tr>
+          <th>Cột trong file</th>
+          <th>→</th>
+          <th>Trường dữ liệu</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for col in column_map %}
+        <tr>
+          <td><code>{{ col.header or '(cột '+ col.index|string +')' }}</code></td>
+          <td class="meta">→</td>
+          <td>
+            <select name="col_{{ col.index }}__field" data-header="{{ col.header }}">
+              <option value="">— Bỏ qua —</option>
+              {% for f in logical_fields %}
+              <option value="{{ f }}" {% if col.proposed == f %}selected{% endif %}>{{ f }}</option>
+              {% endfor %}
+            </select>
+            <input type="hidden" name="col_{{ col.index }}__header" value="{{ col.header }}">
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if extra_required_fields_default %}
+    <details style="margin-top: 0.8rem;">
+      <summary class="meta">Trường bắt buộc bổ sung (nâng cao)</summary>
+      <p class="meta">
+        Mặc định: dòng nào thiếu một trong các cột bên dưới sẽ được đánh dấu
+        <em>skip</em> trong preview, staff có thể inline-edit để include.
+      </p>
+      <input type="text" name="extra_required_fields"
+             value="{{ extra_required_fields_default|join(',') }}"
+             placeholder="vd: unit,name (cách nhau dấu phẩy)">
+    </details>
+    {% endif %}
+
+    <div class="form-actions" style="margin-top: 0.8rem; display: flex; gap: 0.6rem;">
+      <button type="submit" class="btn-primary">Lưu mapping &amp; chạy parse</button>
+      <button type="submit" formaction="{{ llm_suggest_url }}" class="btn-secondary">
+        Áp dụng đề xuất từ LLM
+      </button>
+      <a class="btn-secondary" href="{{ list_url }}">Hủy</a>
+    </div>
+  </form>
+</section>
+
+<style>
+  .mapping-raw-table { font-size: 0.85rem; }
+  .mapping-raw-table .row-as-header { background: var(--card-muted, #f5f5f5); font-weight: 600; }
+  .mapping-config-table td { vertical-align: middle; }
+  .form-row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; padding: 0.4rem 0; }
+</style>
+
+{% endblock %}

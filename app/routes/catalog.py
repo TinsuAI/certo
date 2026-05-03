@@ -1,15 +1,38 @@
-"""Catalog (Materials / Danh mục mã hàng) — nested under /clients/{client_id}/."""
-from __future__ import annotations
+"""Catalog (Materials / Danh mục mã hàng) — nested under /clients/{client_id}/.
 
-import json
-import secrets
+Slice 1 of the unified upload flow. The upload route now goes through
+`_mapping_flow` helpers: cache lookup → (mapping page if cache miss) →
+parse with overrides → preview with skipped-row inline-edit → confirm.
+
+Per-module wiring:
+  - parser: parse_materials_workbook (returns rows, skipped tuple)
+  - logical_fields + min_identifier_fields: from materials.LOGICAL_FIELDS
+  - ingest: _insert_materials_with_cursor (preserves provenance_kind)
+  - preview template: clients/catalog_preview.html (extends shared)
+"""
+from __future__ import annotations
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import auth
 from app.database import connect
-from app.parsers.materials import parse_materials_workbook, MaterialsParseError
+from app.parsers.materials import (
+    LOGICAL_FIELDS,
+    MIN_IDENTIFIER_FIELDS,
+    MaterialsParseError,
+    parse_materials_workbook,
+)
+from app.routes._mapping_flow import (
+    ModuleConfig,
+    confirm_pending,
+    parse_with_overrides_and_stash,
+    reject_pending,
+    render_mapping_page_context,
+    render_mapping_page_with_llm_suggestion,
+    render_preview_context,
+    upload_initial_dispatch,
+)
 from app.routes.clients import get_client, stats_for_client
 from app.storage import save_upload, sha256_bytes
 from app.stores.staleness import freshness_for_template
@@ -18,8 +41,59 @@ from app.stores.uploads import record_upload
 router = APIRouter()
 
 CATEGORIES = ["nvl", "btp_sx", "btp_nm", "tp", "ccdc"]
-PREVIEW_SAMPLE_ROWS = 20
 
+
+def _summarize_catalog(parsed_rows: list[dict]) -> dict:
+    by_cat: dict[str, int] = {}
+    by_status: dict[str, int] = {}
+    n_with_customs = 0
+    n_with_internal = 0
+    for r in parsed_rows:
+        cat = r.get("category") or "—"
+        by_cat[cat] = by_cat.get(cat, 0) + 1
+        st = r.get("status") or "active"
+        by_status[st] = by_status.get(st, 0) + 1
+        if r.get("customs_code"):
+            n_with_customs += 1
+        if r.get("internal_code"):
+            n_with_internal += 1
+    return {
+        "total": len(parsed_rows),
+        "by_category": by_cat,
+        "by_status": by_status,
+        "n_with_customs_code": n_with_customs,
+        "n_with_internal_code": n_with_internal,
+    }
+
+
+def _ingest_materials(
+    cur, *, client_id: str, rows: list[dict], upload_id: str | None,
+    provenance_kind: str = "registered", **_kw,
+) -> int:
+    return _insert_materials_with_cursor(
+        cur, client_id=client_id, rows=rows,
+        upload_id=upload_id, provenance_kind=provenance_kind,
+    )
+
+
+CATALOG_CFG = ModuleConfig(
+    name="catalog",
+    upload_pending_module="catalog",
+    save_upload_module="materials",
+    fallback_filename="materials.xlsx",
+    list_route=lambda cid: f"/clients/{cid}/catalog",
+    preview_template="clients/catalog_preview.html",
+    parser_fn=parse_materials_workbook,
+    parser_error=MaterialsParseError,
+    summarize_fn=_summarize_catalog,
+    ingest_fn=_ingest_materials,
+    logical_fields=LOGICAL_FIELDS,
+    min_identifier_fields=MIN_IDENTIFIER_FIELDS,
+    extra_required_fields_default=(),
+)
+
+
+# ── List + upload landing ────────────────────────────────────────────────
 
 @router.get("/clients/{client_id}/catalog", response_class=HTMLResponse)
 async def list_view(
@@ -75,20 +149,19 @@ async def upload_view(request: Request, client_id: str):
     )
 
 
+# ── Upload submit ────────────────────────────────────────────────────────
+
 @router.post("/clients/{client_id}/catalog/upload")
 async def upload_submit(
     request: Request, client_id: str,
     file: UploadFile = File(...),
     is_hq_registered: str = Form(""),
 ):
-    """Parse + stash to upload_pending; redirect to preview for confirm.
+    """Save blob → cache lookup → mapping page (cache miss) or preview (cache hit).
 
-    All upload paths route through preview before any DB write — staff sees
-    parsed rows + counts before commit (Phase 2 universal-preview pattern).
-
-    `is_hq_registered`: "1" if staff confirmed this file is the official
-    HQ-registered Danh Mục (mark every row registered_with_hq); empty
-    otherwise (mark as user_added — internal catalog without HQ status).
+    `is_hq_registered`: '1' = file is the official HQ-registered Danh Mục
+    (every row marked registered_with_hq); empty = user_added (internal
+    catalog without HQ status). Carried via diff_summary into ingest.
     """
     user = auth.require_user(request)
     auth.require_can_edit_client(user, client_id)
@@ -96,40 +169,121 @@ async def upload_submit(
         raise HTTPException(404, "Client not found")
     blob = await file.read()
     sha = sha256_bytes(blob)
-    stored = save_upload(blob, filename=file.filename or "materials.xlsx",
-                         module="materials", client_id=client_id)
+    stored = save_upload(blob, filename=file.filename or CATALOG_CFG.fallback_filename,
+                         module=CATALOG_CFG.save_upload_module, client_id=client_id)
     upload_id = record_upload(
-        client_id=client_id, module="materials",
-        original_filename=file.filename or "materials.xlsx",
+        client_id=client_id, module=CATALOG_CFG.save_upload_module,
+        original_filename=file.filename or CATALOG_CFG.fallback_filename,
         stored_path=stored.path, content_sha256=sha, size_bytes=len(blob),
         mime_type=file.content_type, uploader_user_id=user.user_id,
     )
-    try:
-        rows = parse_materials_workbook(blob)
-    except MaterialsParseError as e:
-        with connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "update hub.file_uploads set parse_status='error', parse_error=%s, parsed_at=now() where upload_id=%s",
-                    (str(e), upload_id),
-                )
-        raise HTTPException(400, f"Parse error: {e}")
     provenance_kind = "registered" if is_hq_registered == "1" else "user_added"
-    pending_id = _stash_pending(
-        client_id=client_id, upload_id=upload_id, parsed=rows,
-        created_by=user.user_id, provenance_kind=provenance_kind,
+    redirect_url, _, _mode = upload_initial_dispatch(
+        client_id=client_id, blob=blob, upload_id=upload_id, cfg=CATALOG_CFG,
+        extra_pending={"provenance_kind": provenance_kind},
     )
-    with connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "update hub.file_uploads set parse_status='pending_preview', row_count=%s, parsed_at=now() where upload_id=%s",
-                (len(rows), upload_id),
-            )
+    return RedirectResponse(url=redirect_url, status_code=303)
+
+
+# ── Mapping page (cache miss) ────────────────────────────────────────────
+
+@router.get("/clients/{client_id}/catalog/upload/mapping/{upload_id}",
+            response_class=HTMLResponse)
+async def mapping_view(request: Request, client_id: str, upload_id: str):
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    ctx = render_mapping_page_context(
+        client_id=client_id, upload_id=upload_id, cfg=CATALOG_CFG,
+    )
+    ctx.update({
+        "client": client, "stats": stats_for_client(client_id),
+        "module_label": "Danh Mục",
+        "active_root": "clients", "active_tab": "catalog",
+    })
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/_upload_mapping.html", ctx,
+    )
+
+
+@router.post("/clients/{client_id}/catalog/upload/mapping/{upload_id}/llm_suggest",
+             response_class=HTMLResponse)
+async def mapping_llm_suggest(request: Request, client_id: str, upload_id: str):
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    ctx = render_mapping_page_with_llm_suggestion(
+        client_id=client_id, upload_id=upload_id, cfg=CATALOG_CFG,
+    )
+    ctx.update({
+        "client": client, "stats": stats_for_client(client_id),
+        "module_label": "Danh Mục",
+        "active_root": "clients", "active_tab": "catalog",
+    })
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/_upload_mapping.html", ctx,
+    )
+
+
+@router.post("/clients/{client_id}/catalog/upload/mapping/{upload_id}/parse")
+async def mapping_parse(
+    request: Request, client_id: str, upload_id: str,
+):
+    """Parse with the staff-confirmed mapping → stash pending → /preview."""
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+    form = await request.form()
+
+    # Extract per-column field selections from form fields named col_<idx>__field.
+    column_map: dict[str, str] = {}
+    for key, value in form.items():
+        if key.startswith("col_") and key.endswith("__field"):
+            idx = key[len("col_"):-len("__field")]
+            field = (value or "").strip()
+            if not field:
+                continue
+            header_value = (form.get(f"col_{idx}__header") or "").strip()
+            if header_value:
+                column_map[header_value] = field
+
+    header_row_override_str = (form.get("header_row_override") or "").strip()
+    header_row_override = (
+        int(header_row_override_str) if header_row_override_str.isdigit() else None
+    )
+    extra_required_str = (form.get("extra_required_fields") or "").strip()
+    extra_required = (
+        [s.strip() for s in extra_required_str.split(",") if s.strip()]
+        if extra_required_str else None
+    )
+
+    # Detect "did staff edit the LLM/rigid suggestion?" — by checking
+    # whether the form was submitted from the LLM-suggest page (proposed_by
+    # comes through the form as a hidden input set by the LLM page). For
+    # MVP we simplify: treat any explicit submit as 'manual'. If staff
+    # used "Apply LLM suggestion" earlier, the mapping cache will still
+    # record proposed_by='manual' — that's fine; the LLM contributed but
+    # staff is the one accepting.
+    pending_id = parse_with_overrides_and_stash(
+        client_id=client_id, upload_id=upload_id, user_id=user.user_id,
+        column_map=column_map,
+        header_row_override=header_row_override,
+        extra_required_fields=extra_required,
+        proposed_by="manual",
+        cfg=CATALOG_CFG,
+    )
     return RedirectResponse(
         url=f"/clients/{client_id}/catalog/preview/{pending_id}",
         status_code=303,
     )
 
+
+# ── Preview ──────────────────────────────────────────────────────────────
 
 @router.get("/clients/{client_id}/catalog/preview/{pending_id}",
             response_class=HTMLResponse)
@@ -139,33 +293,21 @@ async def preview_view(request: Request, client_id: str, pending_id: str):
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
-    with connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                select parsed_rows, diff_summary, expires_at, created_at
-                from hub.upload_pending
-                where pending_id = %s and client_id = %s and module = 'catalog'
-                """,
-                (pending_id, client_id),
-            )
-            row = cur.fetchone()
-    if not row:
-        raise HTTPException(404, "Pending upload not found or expired")
-    parsed_rows, diff_summary, expires_at, created_at = row
-    summary = _summarize_catalog(parsed_rows)
-    provenance_kind = (diff_summary or {}).get("provenance_kind", "registered")
+    ctx = render_preview_context(
+        client_id=client_id, pending_id=pending_id, cfg=CATALOG_CFG,
+    )
+    provenance_kind = (ctx.get("diff_summary") or {}).get(
+        "provenance_kind", "registered",
+    )
+    ctx.update({
+        "client": client, "stats": stats_for_client(client_id),
+        "module_label": "Danh Mục",
+        "list_url": f"/clients/{client_id}/catalog",
+        "provenance_kind": provenance_kind,
+        "active_root": "clients", "active_tab": "catalog",
+    })
     return request.app.state.templates.TemplateResponse(
-        request, "clients/catalog_preview.html",
-        {
-            "client": client, "stats": stats_for_client(client_id),
-            "pending_id": pending_id,
-            "summary": summary,
-            "sample_rows": parsed_rows[:PREVIEW_SAMPLE_ROWS],
-            "provenance_kind": provenance_kind,
-            "expires_at": expires_at, "created_at": created_at,
-            "active_root": "clients", "active_tab": "catalog",
-        },
+        request, "clients/catalog_preview.html", ctx,
     )
 
 
@@ -175,31 +317,78 @@ async def preview_confirm(request: Request, client_id: str, pending_id: str):
     auth.require_can_edit_client(user, client_id)
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
-    with connect(user_id=user.user_id) as conn:
+    form = await request.form()
+
+    # Fetch pending to learn which skipped rows existed + provenance kind.
+    with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                delete from hub.upload_pending
+                select diff_summary from hub.upload_pending
                 where pending_id = %s and client_id = %s and module = 'catalog'
-                  and expires_at > now()
-                returning parsed_rows, upload_id, diff_summary
                 """,
                 (pending_id, client_id),
             )
             row = cur.fetchone()
-            if not row:
-                raise HTTPException(404, "Pending upload not found or expired")
-            parsed_rows, upload_id, diff_summary = row
-            provenance_kind = (diff_summary or {}).get("provenance_kind",
-                                                       "registered")
-            n = _insert_materials_with_cursor(
-                cur, client_id=client_id, rows=parsed_rows,
-                upload_id=upload_id, provenance_kind=provenance_kind,
+    if not row:
+        raise HTTPException(404, "Pending upload not found or expired")
+    diff_summary = (row[0] or {})
+    skipped = diff_summary.get("skipped_rows") or []
+    provenance_kind = diff_summary.get("provenance_kind", "registered")
+
+    # Resolve included skipped rows from the form. The preview template
+    # uses `skipped[<idx>][<field>]` and `include_skipped[]=<idx>` names.
+    included_idx = {
+        int(v) for v in form.getlist("include_skipped[]") if str(v).isdigit()
+    }
+    included_skipped = []
+    for idx in sorted(included_idx):
+        if idx >= len(skipped):
+            continue
+        original = skipped[idx]
+        merged = dict(original.get("raw") or {})
+        # Apply staff-edited values for this row.
+        for k in list(form.keys()):
+            prefix = f"skipped[{idx}]["
+            if k.startswith(prefix) and k.endswith("]"):
+                fname = k[len(prefix):-1]
+                v = (form.get(k) or "").strip()
+                if v:
+                    merged[fname] = v
+        # Validate identifier rule for this promoted row.
+        cc = merged.get("customs_code") or ""
+        ic = merged.get("internal_code") or ""
+        if not cc and ic:
+            cc = ic
+            merged["customs_code"] = ic
+        if not cc and not ic:
+            # Staff tried to include a row that still lacks an identifier.
+            # Surface a 400 so they can go back and fill it.
+            raise HTTPException(
+                400,
+                "Có dòng skipped được Include nhưng vẫn chưa có "
+                "customs_code / internal_code. Hãy điền giá trị inline trước.",
             )
-            cur.execute(
-                "update hub.file_uploads set parse_status='done', parsed_at=now() where upload_id=%s",
-                (upload_id,),
-            )
+        # Build a row in the same shape as parsed_rows (the parser output).
+        promoted = {
+            "customs_code": cc,
+            "internal_code": ic or cc,
+            "name": merged.get("name"),
+            "category": merged.get("category") or "nvl",
+            "unit": merged.get("unit"),
+            "hs_code": merged.get("hs_code"),
+            "status": merged.get("status") or "active",
+            "_promoted_from_skipped": True,
+            "_skip_reason": original.get("reason"),
+        }
+        included_skipped.append(promoted)
+
+    n = confirm_pending(
+        client_id=client_id, pending_id=pending_id, user_id=user.user_id,
+        cfg=CATALOG_CFG,
+        included_skipped=included_skipped,
+        ingest_extra={"provenance_kind": provenance_kind},
+    )
     return RedirectResponse(
         url=f"/clients/{client_id}/catalog?ingested={n}", status_code=303,
     )
@@ -211,73 +400,16 @@ async def preview_reject(request: Request, client_id: str, pending_id: str):
     auth.require_can_edit_client(user, client_id)
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
-    with connect(user_id=user.user_id) as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                delete from hub.upload_pending
-                where pending_id = %s and client_id = %s and module = 'catalog'
-                returning upload_id
-                """,
-                (pending_id, client_id),
-            )
-            row = cur.fetchone()
-            if not row:
-                raise HTTPException(404, "Pending upload not found or expired")
-            (upload_id,) = row
-            cur.execute(
-                "update hub.file_uploads set parse_status='rejected', parsed_at=now() where upload_id=%s",
-                (upload_id,),
-            )
+    reject_pending(
+        client_id=client_id, pending_id=pending_id, user_id=user.user_id,
+        cfg=CATALOG_CFG,
+    )
     return RedirectResponse(
         url=f"/clients/{client_id}/catalog?rejected=1", status_code=303,
     )
 
 
-def _stash_pending(*, client_id: str, upload_id: str,
-                   parsed: list[dict], created_by: str | None,
-                   provenance_kind: str = "registered") -> str:
-    pending_id = secrets.token_urlsafe(16)
-    diff_summary = {"provenance_kind": provenance_kind}
-    with connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                insert into hub.upload_pending
-                  (pending_id, client_id, module, upload_id,
-                   parsed_rows, diff_summary, created_by)
-                values (%s, %s, 'catalog', %s, %s::jsonb, %s::jsonb, %s)
-                """,
-                (pending_id, client_id, upload_id,
-                 json.dumps(parsed, ensure_ascii=False, default=str),
-                 json.dumps(diff_summary),
-                 created_by),
-            )
-    return pending_id
-
-
-def _summarize_catalog(parsed_rows: list[dict]) -> dict:
-    by_cat: dict[str, int] = {}
-    by_status: dict[str, int] = {}
-    n_with_customs = 0
-    n_with_internal = 0
-    for r in parsed_rows:
-        cat = r.get("category") or "—"
-        by_cat[cat] = by_cat.get(cat, 0) + 1
-        st = r.get("status") or "active"
-        by_status[st] = by_status.get(st, 0) + 1
-        if r.get("customs_code"):
-            n_with_customs += 1
-        if r.get("internal_code"):
-            n_with_internal += 1
-    return {
-        "total": len(parsed_rows),
-        "by_category": by_cat,
-        "by_status": by_status,
-        "n_with_customs_code": n_with_customs,
-        "n_with_internal_code": n_with_internal,
-    }
-
+# ── Internals ────────────────────────────────────────────────────────────
 
 def _query_materials(*, client_id: str, category: str | None,
                      q: str | None, provenance: str | None = None) -> list[dict]:
@@ -383,8 +515,6 @@ def _insert_materials_with_cursor(cur, *, client_id: str, rows: list[dict],
 
     `upload_id` (when set) is recorded inside the provenance jsonb so
     staff can trace any catalog row back to the upload that wrote it.
-    Existing keys not matching `provenance_kind` are preserved via the
-    jsonb || merge in the conflict branch.
     """
     if provenance_kind == "registered":
         prov_sql = (

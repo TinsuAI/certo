@@ -1,103 +1,67 @@
-{% extends "base.html" %}
-{% block title %}Xem trước Danh Mục · {{ client.name }} · {{ t('app.brand') }}{% endblock %}
-{% block content %}
-{% include "_client_nav.html" %}
+{% extends "clients/_upload_preview.html" %}
 
-<section class="zone">
-  <div class="zone-head">
-    <div>
-      <h2>Xem trước Danh Mục trước khi lưu</h2>
-      <p class="meta">
-        Hub đã đọc {{ summary.total }} dòng từ file. Kiểm tra mẫu bên dưới —
-        nếu khớp dữ liệu mong đợi, nhấn <strong>Lưu</strong>. Nếu file sai
-        (sai shape, sai client), nhấn <strong>Reject</strong>.
-      </p>
-      <p class="meta">
-        Pending ID: <code>{{ pending_id }}</code> · hết hạn {{ expires_at }}
-      </p>
-    </div>
-    <div>
-      <a class="btn-secondary" href="/clients/{{ client.client_id }}/catalog">{{ t('common.cancel') }}</a>
-    </div>
-  </div>
+{% block module_summary %}
+{% if provenance_kind == 'registered' %}
+<div class="toast" style="margin-bottom: 1rem;">
+  {{ t('catalog.preview_provenance_registered') }}
+</div>
+{% else %}
+<div class="toast toast-warn" style="margin-bottom: 1rem;">
+  {{ t('catalog.preview_provenance_user_added') }}
+</div>
+{% endif %}
 
-  {% if provenance_kind == 'registered' %}
-  <div class="toast" style="margin-bottom: 1rem;">
-    {{ t('catalog.preview_provenance_registered') }}
-  </div>
-  {% else %}
-  <div class="toast toast-warn" style="margin-bottom: 1rem;">
-    {{ t('catalog.preview_provenance_user_added') }}
-  </div>
-  {% endif %}
+<div class="zone mini-panel" style="margin-bottom: 1rem;">
+  <strong>Tổng quan:</strong>
+  <ul style="margin: 0.5rem 0 0 1.2rem;">
+    <li><strong>{{ summary.total }}</strong> mã sẽ được thêm/cập nhật (upsert theo customs_code).</li>
+    <li><strong>{{ summary.n_with_customs_code }}</strong> mã có HQ-code · <strong>{{ summary.n_with_internal_code }}</strong> mã có internal-code.</li>
+    {% if summary.by_category %}
+    <li>Theo loại:
+      {% for cat, n in summary.by_category.items() %}
+      <span class="badge">{{ cat }}: {{ n }}</span>
+      {% endfor %}
+    </li>
+    {% endif %}
+    {% if summary.by_status and summary.by_status|length > 1 %}
+    <li>Theo trạng thái:
+      {% for st, n in summary.by_status.items() %}
+      <span class="badge">{{ st }}: {{ n }}</span>
+      {% endfor %}
+    </li>
+    {% endif %}
+  </ul>
+</div>
+{% endblock %}
 
-  <div class="zone mini-panel" style="margin-bottom: 1rem;">
-    <strong>Tổng quan:</strong>
-    <ul style="margin: 0.5rem 0 0 1.2rem;">
-      <li><strong>{{ summary.total }}</strong> mã sẽ được thêm/cập nhật (upsert theo customs_code).</li>
-      <li><strong>{{ summary.n_with_customs_code }}</strong> mã có HQ-code · <strong>{{ summary.n_with_internal_code }}</strong> mã có internal-code.</li>
-      {% if summary.by_category %}
-      <li>Theo loại:
-        {% for cat, n in summary.by_category.items() %}
-        <span class="badge">{{ cat }}: {{ n }}</span>
-        {% endfor %}
-      </li>
-      {% endif %}
-      {% if summary.by_status and summary.by_status|length > 1 %}
-      <li>Theo trạng thái:
-        {% for st, n in summary.by_status.items() %}
-        <span class="badge">{{ st }}: {{ n }}</span>
-        {% endfor %}
-      </li>
-      {% endif %}
-    </ul>
-  </div>
-
-  <div class="zone mini-panel" style="margin-bottom: 1rem;">
-    <strong>Mẫu {{ sample_rows|length }} dòng đầu (trên tổng {{ summary.total }}):</strong>
-    <table class="data-table" style="margin-top: 0.6rem;">
-      <thead>
-        <tr>
-          <th>Mã HQ</th>
-          <th>Mã nội bộ</th>
-          <th>Tên</th>
-          <th>Loại</th>
-          <th>ĐVT</th>
-          <th>HS</th>
-          <th>Trạng thái</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in sample_rows %}
-        <tr>
-          <td><code>{{ r.customs_code or "—" }}</code></td>
-          <td><code>{{ r.internal_code or "—" }}</code></td>
-          <td>{{ r.name or "" }}</td>
-          <td><span class="badge">{{ r.category }}</span></td>
-          <td>{{ r.unit or "" }}</td>
-          <td class="meta">{{ r.hs_code or "" }}</td>
-          <td>{{ r.status or "active" }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <form method="post" style="display: flex; gap: 0.6rem; align-items: center;">
-    <button type="submit"
-            formaction="/clients/{{ client.client_id }}/catalog/preview/{{ pending_id }}/confirm"
-            class="btn-primary">
-      Lưu {{ summary.total }} mã
-    </button>
-    <button type="submit"
-            formaction="/clients/{{ client.client_id }}/catalog/preview/{{ pending_id }}/reject"
-            class="btn-secondary"
-            onclick="return confirm('Reject file? Pending sẽ bị xóa, không lưu mã nào.');">
-      Reject (file sai)
-    </button>
-    <a class="btn-secondary" href="/clients/{{ client.client_id }}/catalog">
-      Quay lại sau (giữ pending)
-    </a>
-  </form>
-</section>
+{% block module_sample %}
+<div class="zone mini-panel" style="margin-bottom: 1rem;">
+  <strong>Mẫu {{ sample_rows|length }} dòng đầu (trên tổng {{ summary.total }}):</strong>
+  <table class="data-table" style="margin-top: 0.6rem;">
+    <thead>
+      <tr>
+        <th>Mã HQ</th>
+        <th>Mã nội bộ</th>
+        <th>Tên</th>
+        <th>Loại</th>
+        <th>ĐVT</th>
+        <th>HS</th>
+        <th>Trạng thái</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in sample_rows %}
+      <tr>
+        <td><code>{{ r.customs_code or "—" }}</code></td>
+        <td><code>{{ r.internal_code or "—" }}</code></td>
+        <td>{{ r.name or "" }}</td>
+        <td><span class="badge">{{ r.category }}</span></td>
+        <td>{{ r.unit or "" }}</td>
+        <td class="meta">{{ r.hs_code or "" }}</td>
+        <td>{{ r.status or "active" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endblock %}

@@ -1,4 +1,27 @@
-"""Parser for Materials (Danh Mục NVL/SP/BTP) Excel uploads."""
+"""Parser for Materials (Danh Mục NVL/SP/BTP) Excel uploads.
+
+Flexible-intake contract (Slice 1 of unified upload flow):
+
+    parse_materials_workbook(
+        blob, *,
+        mapping_override=None,        # dict[header_text, logical_field]
+        header_row_override=None,     # 1-indexed row number on the first sheet
+        extra_required_fields=None,   # list[str] in addition to identifier rule
+        default_category="nvl",
+    ) -> tuple[list[dict], list[dict]]
+
+Returns `(rows, skipped_rows)`:
+
+  - `rows[]`: parsed material records ready for ingest.
+  - `skipped_rows[]`: rows that were rejected at parse time, each carrying
+    `{"row_index": int, "reason": "missing_required:<field>", "raw": {...}}`.
+    The preview UI surfaces these so staff can inline-edit + include or
+    leave skipped. The source XLSX is never mutated.
+
+`MIN_IDENTIFIER_FIELDS` is the public minimum: at least one of these
+logical fields must be mapped to a real column AND non-empty per row.
+The route layer reads this when validating the mapping form.
+"""
 from __future__ import annotations
 
 from app.parsers._excel import (
@@ -39,6 +62,17 @@ ALIASES = {
     "status": ["trạng thái", "trang thai", "status"],
 }
 
+# At-least-one-of these must resolve to a non-empty cell on every kept row.
+# Public so the route + UI form validator can read the same source of truth.
+MIN_IDENTIFIER_FIELDS = frozenset({"customs_code", "internal_code"})
+
+# Logical fields the parser knows about. The mapping page lets staff pick
+# from this set (plus "ignore") for each column.
+LOGICAL_FIELDS = (
+    "customs_code", "internal_code", "name", "category",
+    "unit", "hs_code", "status",
+)
+
 
 def normalize_category(value: str | None) -> str | None:
     if not value:
@@ -76,50 +110,172 @@ def normalize_status(value: str | None) -> str:
     return STATUS_MAP.get(s, "active")
 
 
-def parse_materials_workbook(blob: bytes, *, default_category: str = "nvl") -> list[dict]:
+def _cols_from_override(headers: list[str], override: dict[str, str]) -> dict[str, int]:
+    """Resolve mapping override (header_text → logical_field) to column indices.
+
+    `override` is staff-confirmed (or LLM-proposed) and authoritative.
+    Headers not present in the workbook are silently dropped from the
+    resulting `cols` map so the parser falls back to "field absent" for
+    them. Same field claimed twice = first wins (UI prevents this).
+    """
+    norm_to_idx = {h.strip().lower(): i for i, h in enumerate(headers) if h}
+    cols: dict[str, int] = {}
+    for header_text, field in override.items():
+        if not header_text or not field or field == "ignore":
+            continue
+        idx = norm_to_idx.get(str(header_text).strip().lower())
+        if idx is None:
+            continue
+        cols.setdefault(field, idx)
+    return cols
+
+
+def parse_materials_workbook(
+    blob: bytes,
+    *,
+    mapping_override: dict[str, str] | None = None,
+    header_row_override: int | None = None,
+    extra_required_fields: list[str] | None = None,
+    default_category: str = "nvl",
+) -> tuple[list[dict], list[dict]]:
+    """Parse a Danh Mục workbook into (rows, skipped_rows).
+
+    See module docstring for arg semantics.
+
+    Multi-sheet workbooks: the same `mapping_override` / `header_row_override`
+    are applied to every sheet (current behaviour: parser iterates sheets
+    and applies the same logical-field resolution). If a sheet's column
+    set doesn't contain any identifier under the override, it is silently
+    skipped — same as today's "no recognizable header" branch.
+    """
     try:
         wb = load_xlsx(blob)
     except Exception as e:
         raise MaterialsParseError(f"Cannot open workbook: {e}") from e
+
+    extra_required = list(extra_required_fields or [])
     rows: list[dict] = []
+    skipped: list[dict] = []
+    any_sheet_had_identifier = False
+
     for ws in wb.worksheets:
         sheet_default = _category_from_sheet_name(ws.title) or default_category
-        hdr = header_row(ws, aliases=ALIASES)
-        if not hdr:
+
+        # Resolve header row + cell list.
+        if header_row_override is not None:
+            header_idx, headers = _read_header_at(ws, header_row_override)
+            if not headers:
+                continue
+        else:
+            hdr = header_row(ws, aliases=ALIASES)
+            if not hdr:
+                continue
+            header_idx, headers = hdr
+
+        # Resolve column map (override OR rigid alias index).
+        if mapping_override:
+            cols = _cols_from_override(headers, mapping_override)
+        else:
+            cols = index_headers(headers, ALIASES)
+
+        # Identifier rule: at least one identifier mapped.
+        has_identifier_col = any(
+            field in cols for field in MIN_IDENTIFIER_FIELDS
+        )
+        if not has_identifier_col:
             continue
-        header_idx, headers = hdr
-        cols = index_headers(headers, ALIASES)
-        # Need at least one identifier column. DS NVL files have Mã HQ;
-        # DS SP/TP files often have only internal_code (Mã NB) because
-        # the agency assigns HQ codes later during declaration.
-        if "customs_code" not in cols and "internal_code" not in cols:
-            continue
-        for row in iter_data_rows(ws, header_idx):
-            cc = _cell_str(row, cols.get("customs_code"))
-            ic = _cell_str(row, cols.get("internal_code"))
-            # If only internal_code exists, use it as the canonical id
-            # (it becomes both customs_code and internal_code in the
-            # row dict).
+        any_sheet_had_identifier = True
+
+        for row_idx_1based, row in _iter_data_rows_with_index(ws, header_idx):
+            cc = cell_str(row, cols.get("customs_code"))
+            ic = cell_str(row, cols.get("internal_code"))
             if not cc and ic:
                 cc = ic
-            if not cc:
+
+            raw_snapshot = _build_raw_snapshot(row, cols, headers)
+
+            # Identifier check: at least one non-empty.
+            if not cc and not ic:
+                skipped.append({
+                    "row_index": row_idx_1based,
+                    "sheet": ws.title,
+                    "reason": "missing_required:identifier",
+                    "raw": raw_snapshot,
+                })
                 continue
-            category_raw = _cell_str(row, cols.get("category"))
+
+            # Extra required-field check.
+            extra_missing = [
+                f for f in extra_required
+                if not cell_str(row, cols.get(f))
+            ]
+            if extra_missing:
+                skipped.append({
+                    "row_index": row_idx_1based,
+                    "sheet": ws.title,
+                    "reason": "missing_required:" + ",".join(extra_missing),
+                    "raw": raw_snapshot,
+                })
+                continue
+
+            category_raw = cell_str(row, cols.get("category"))
             category = normalize_category(category_raw) or sheet_default
             rows.append({
                 "customs_code": cc,
                 "internal_code": ic,
-                "name": _cell_str(row, cols.get("name")),
+                "name": cell_str(row, cols.get("name")),
                 "category": category,
-                "unit": _cell_str(row, cols.get("unit")),
-                "hs_code": _cell_str(row, cols.get("hs_code")),
-                "status": normalize_status(_cell_str(row, cols.get("status"))),
+                "unit": cell_str(row, cols.get("unit")),
+                "hs_code": cell_str(row, cols.get("hs_code")),
+                "status": normalize_status(cell_str(row, cols.get("status"))),
             })
-    if not rows:
+
+    if not any_sheet_had_identifier:
         raise MaterialsParseError(
             "No material rows recognized; need at least one identifier column "
             "(Mã HQ / Mã NB).")
-    return rows
+
+    return rows, skipped
+
+
+def _read_header_at(ws, row_no_1based: int) -> tuple[int, list[str]]:
+    """Read a specific row as the header row (staff-overridden)."""
+    cells: list[str] = []
+    for r_idx, raw in enumerate(
+        ws.iter_rows(min_row=row_no_1based, max_row=row_no_1based, values_only=True),
+        start=row_no_1based,
+    ):
+        cells = [str(c).strip() if c is not None else "" for c in raw]
+        return r_idx, cells
+    return row_no_1based, cells
+
+
+def _iter_data_rows_with_index(ws, header_row_idx: int):
+    """Yield (1-based row index, row tuple) for non-empty data rows."""
+    for offset, row in enumerate(
+        ws.iter_rows(min_row=header_row_idx + 1, values_only=True), start=1,
+    ):
+        if all(c is None or (isinstance(c, str) and not c.strip()) for c in row):
+            continue
+        yield header_row_idx + offset, row
+
+
+def _build_raw_snapshot(row, cols: dict[str, int], headers: list[str]) -> dict:
+    """Snapshot a row keyed by logical field (mapped) plus 'col_<n>' for
+    unmapped cells. The preview UI uses this to render inline-edit inputs
+    on each required field for skipped rows."""
+    snap: dict = {}
+    claimed: set[int] = set()
+    for field, idx in cols.items():
+        snap[field] = cell_str(row, idx)
+        claimed.add(idx)
+    for i, h in enumerate(headers):
+        if i in claimed or not h:
+            continue
+        v = cell_str(row, i)
+        if v is not None:
+            snap[f"col_{i}"] = v
+    return snap
 
 
 def _category_from_sheet_name(name: str) -> str | None:

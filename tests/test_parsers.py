@@ -34,7 +34,7 @@ def test_materials_parses_basic_sheet():
         ("PE-001", "PE-001", "Polyethylene", "nvl", "kg", "39011010"),
         ("INV-3000", "INV-3000", "Solar inverter", "tp", "pcs", "85044090"),
     ])
-    rows = parse_materials_workbook(blob)
+    rows, _ = parse_materials_workbook(blob)
     assert len(rows) == 2
     assert rows[0]["customs_code"] == "PE-001"
     assert rows[0]["category"] == "nvl"
@@ -49,7 +49,7 @@ def test_materials_uses_sheet_default_when_category_missing():
         ],
         sheet_title="DM NVL",
     )
-    rows = parse_materials_workbook(blob)
+    rows, _ = parse_materials_workbook(blob)
     assert rows[0]["category"] == "nvl"
 
 
@@ -59,9 +59,11 @@ def test_materials_skips_blank_customs_code():
         ("", "Empty row", "nvl"),
         ("OK-1", "Real row", "nvl"),
     ])
-    rows = parse_materials_workbook(blob)
+    rows, skipped = parse_materials_workbook(blob)
     assert len(rows) == 1
     assert rows[0]["customs_code"] == "OK-1"
+    assert len(skipped) == 1
+    assert skipped[0]["reason"] == "missing_required:identifier"
 
 
 def test_materials_raises_when_no_recognizable_headers():

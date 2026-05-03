@@ -113,8 +113,16 @@ CASES: list[tuple] = [
 ]
 
 
+def _materials_rows_only(blob, **kw):
+    """Adapter: parse_materials_workbook returns (rows, skipped) since
+    Slice 1 of the unified upload flow. The fixture-corpus check only
+    cares about row count, not skipped tracking."""
+    rows, _ = parse_materials_workbook(blob, **kw)
+    return rows
+
+
 PARSERS = {
-    "materials": parse_materials_workbook,
+    "materials": _materials_rows_only,
     "bcct": parse_bcct_workbook,
     "bom": parse_bom_workbook,
 }
