@@ -1,53 +1,83 @@
 # Project Status
 
-**Date:** 2026-05-03 (late session)
+**Date:** 2026-05-04
 
 ## Current State
 
-Data Hub MVP web app is running and broadly functional: client workspaces, upload preview/confirm flows, SSO/session auth + JWT/service tokens, read APIs, BCCT confirm-on-update + history, LLM smart parser, BQD/catalog/BOM upload flows, BOM proposal modes, technical BOM flattening, catalog provenance/staleness signals, and CO-facing API contract guardrails.
+Data Hub MVP web app is running and broadly functional. Slice 1 of the
+**unified flexible upload flow** has shipped — catalog upload now goes
+through an interactive 2-stage column-mapping flow with cache-hit fast
+path, LLM suggestion (opt-in), and skipped-row inline-edit on preview.
+Pattern + shared helpers are proven on catalog and ready to port to
+BQD / BOM-manual_flat / BCCT in slices 2-4.
 
-Latest committed HEAD is `6bb0866 docs(backlog): Sprint D parser/data architectural follow-ups`. The worktree currently has uncommitted handoff/session and source-inventory changes from this session.
+HEAD: `5dd49e0 feat(uploads): unified mapping flow — slice 1 (catalog + shared helpers)`.
 
-Dev server is running at `http://127.0.0.1:8754` (required port). `/` returns `302`. Test suite verified this session: **361 passed, 15 skipped**.
+Dev server expected at `http://127.0.0.1:8754` (required port).
+Test suite: **383 passed, 15 skipped** (was 361 baseline + 22 new tests).
+0 regressions.
 
-## Recent Changes
+## Recent Changes (this session, 2026-05-04)
 
-- Read project handoff files, recent session summaries, and the latest Claude Code session history.
-- Confirmed Claude's last interrupted task: measure how many Growatt BOM ghost codes are resolved by BQD archive files.
-- Measured Growatt resolution state:
-  - 2,440 distinct BOM material codes.
-  - 2,434 not present in `hub.materials`.
-  - BQD archive resolves 2,234 of those by `internal_code`.
-  - 200 remain unresolved; DB `hub.code_mappings` current state matches this exactly.
-- Created a historical source-data inventory flow:
-  - `scripts/inventory_source_data.py` scans sibling project roots and probes candidate Excel files with current Data Hub parsers.
-  - Generated local artifacts under `data/source_inventory/` (`manifest.csv`, `feedable_candidates.csv`, `source_roots.csv`, `README.md`).
-  - Added `data/source_inventory/` to `.gitignore` because it is local cross-repo inventory output.
-  - Wrote discovery brief `.ai/features/2026-05-03-source-data-inventory.md`.
-- Source inventory scanned 24 source roots and indexed 4,076 data files:
-  - `direct_feed_ready`: 89 files.
-  - `parser_ok_but_generated_source`: 19 files.
-  - `needs_parser_or_mapping`: 1,377 files.
-  - `needs_csv_adapter_or_conversion`: 16 files.
-  - `not_current_data_hub_scope`: 398 files.
+- Wrote feature brief
+  `.ai/features/2026-05-04-flexible-catalog-intake.md` (~330 lines)
+  scoping the 5-slice unified-upload-flow plan across all 4 modules.
+  Plan B chosen (sequential per-slice PRs) over Plan A (single mega-PR).
+- **Slice 1 shipped** (commit `5dd49e0`):
+  - Materials parser: tuple return `(rows, skipped_rows)`,
+    `mapping_override` + `header_row_override` + `extra_required_fields`
+    kwargs, public `MIN_IDENTIFIER_FIELDS` + `LOGICAL_FIELDS` constants.
+    All callers updated.
+  - `app/routes/_mapping_flow.py` (NEW) — module-agnostic flow coordinator:
+    `ModuleConfig` dataclass + `upload_initial_dispatch`,
+    `render_mapping_page_context`, `render_mapping_page_with_llm_suggestion`,
+    `parse_with_overrides_and_stash`, `render_preview_context`,
+    `confirm_pending`, `reject_pending`.
+  - Shared templates: `_upload_mapping.html` (raw 10-row preview +
+    header picker + column-map grid + LLM-suggest button) and
+    `_upload_preview.html` (skipped-rows inline-edit + confirm/reject).
+    Per-module wrappers fill `{% block module_summary %}` /
+    `module_sample`. `diff_view` block reserved for BCCT slice 4.
+  - Catalog route rewired to use shared helpers; bespoke single-stage
+    upload replaced with cache-aware 2-stage flow.
+  - 22 new tests: 13 unit (parser overrides, skipped_rows shape,
+    identifier rule, back-compat) + 9 integration via `TestClient`
+    (cache miss/hit, mapping POST, skipped-row promotion, identifier
+    defence, reject, second-upload cache hit).
+- Prior-session inventory work committed separately as `89794b6`.
 
 ## Next Steps
 
-1. Review `data/source_inventory/feedable_candidates.csv` and select one canonical intake batch per client/module before importing anything into the DB.
-2. Prioritize raw source feeds:
-   - Growatt BCCT/BQD/BOM from `bcqt-growatt/data`.
-   - Growatt/Johnson supplier BOMs from `barry-CO-data/extracted/CO/bom-supplier-zips` and `barry-CO-bom-data/extracted`.
-   - DKE BCCT + DS NPL from `BCQT-DKE/input`.
-   - Do Thanh BCCT E31/E62 from `bcqt-dothanh/data`.
-   - Johnson raw docs from `Johnson/docs`.
-3. Treat `barry-CO-data/cases`, `barry-CO-data/derived`, normalized CSVs, RVC/replacement outputs, BCQT settlement outputs, and `Johnson/output/CLEAN_*` as reference/oracle data unless explicitly approved as backfill input.
-4. If bulk intake is desired, build a dedicated smoke/import script that consumes the shortlist and runs through Data Hub's existing preview/confirm semantics. Do not bypass source-of-truth decisions.
-5. Parser backlog from inventory:
-   - DS SP / TP-BTP catalog shapes that current `parse_materials_workbook()` rejects.
-   - DKE BOM/định mức adapters.
-   - CO per-declaration `ToKhaiHQ7*` adapter and policy (BCCT vs CO evidence).
-   - Optional CSV adapters for cleaned/reference data.
-6. CO migration cutover remains due by 2026-05-16; consumers must handle the BOM flatten contract and service-account JWT adoption before strict auth.
+Slices 2-5 of the sprint are pending. See
+`.ai/features/2026-05-04-flexible-catalog-intake.md` for full slice plan
++ manual test cases per slice. Summary:
+
+1. **Slice 2 — BQD migrate to shared flow.** Port `app/routes/bqd.py`
+   from `_llm_fallback.py` to `_mapping_flow` helpers. Lowest-risk port
+   (BQD already on the older shared helpers). ~6-8 new tests; manual
+   cases 1-5.
+2. **Slice 3 — BOM-manual_flat migrate; layout-driven adapter
+   bypass.** Branch route on adapter capability:
+   `supports_mapping_override=True` → unified flow; layout-driven
+   adapters (`sap_indented_walk`, `multi_sheet_per_root`,
+   `sheet_per_product`, `sap_exploded_levels`) keep direct-to-preview.
+   Proposal-mode selector inserts AFTER mapping confirm. Manual cases 1-7.
+3. **Slice 4 — BCCT migrate** (highest risk). Replace bespoke
+   `bcct_parse_mapping.html` flow; preserve confirm-on-update +
+   diff-on-update + history. Risk gate: if not done by 2026-05-14, ship
+   1-3 alone and defer BCCT to next sprint to protect 2026-05-16 CO
+   cutover. Manual cases 1-8.
+4. **Slice 5 — cleanup + screenshots + handoff.** Delete
+   `_llm_fallback.py`. Walk all 30 manual cases via Playwright;
+   commit screenshots under
+   `.ai/features/2026-05-04-flexible-catalog-intake/screenshots/`.
+   Update STATUS, BACKLOG, sister-app notes.
+
+Plus carryover from prior session:
+
+5. Pick canonical intake batches from
+   `data/source_inventory/feedable_candidates.csv` per client/module.
+6. CO migration cutover deadline 2026-05-16.
 
 ## Blockers
 
@@ -56,11 +86,21 @@ None.
 ## Notes for Next AI Session
 
 - Respond in Vietnamese with full accents when the user writes Vietnamese.
-- Dev port **8754 is non-negotiable**. If already running, use it; do not start Data Hub on another port.
-- Current server process: `uv run uvicorn app.main:app --port 8754 --host 127.0.0.1 --reload`.
-- `data/source_inventory/` is gitignored generated output; regenerate with:
-  `uv run python scripts/inventory_source_data.py`
-- Full parser probing over many Excel workbooks can take a few minutes and may appear quiet because the script writes at the end.
-- `scripts/inventory_source_data.py` was syntax-checked with `uv run python -m py_compile scripts/inventory_source_data.py`.
-- Do not copy multi-GB sibling corpora into this repo. Keep raw files in place and use metadata/staging/indexes.
-- Current uncommitted files after handoff should include `.gitignore`, `.ai/STATUS.md`, `.ai/features/2026-05-03-source-data-inventory.md`, `.ai/sessions/2026-05-03-source-data-inventory.md`, and `scripts/inventory_source_data.py`.
+- Dev port **8754 is non-negotiable**.
+- Read `_mapping_flow.ModuleConfig` + the `CATALOG_CFG` instance in
+  `app/routes/catalog.py` as the reference template for slice 2-4
+  configs. The `parse_with_overrides_and_stash` validates
+  `min_identifier_fields` per module — define this carefully in each
+  config (e.g., bqd needs `frozenset({"internal_code"})` since BQD
+  always has internal_code as the join key).
+- Test pattern: copy `tests/test_catalog_flexible_flow.py` and adjust
+  CLIENT name + module path + parser-specific assertions.
+- The mapping page form uses `col_<idx>__field` + `col_<idx>__header`
+  hidden input pattern. Reuse verbatim across slices 2-4 for
+  consistency.
+- `hub.file_uploads.result.mapping_state` JSONB carries
+  mapping-pending state between upload submit and mapping page GET.
+  Don't introduce a new table for this.
+- BACKLOG entry to add when next session opens: per-client
+  `<module>.required_fields` override (deferred from slice 1 because
+  `hub.client_config` is fixed-schema, not generic key-value).
