@@ -205,6 +205,12 @@ def _cell_str(row, idx) -> str | None:
     v = row[idx]
     if v is None:
         return None
+    # openpyxl returns numeric cells as float, so str(308449399330.0) →
+    # "308449399330.0". For text-of-number fields (declaration_no, line_no,
+    # tax codes, …) drop the trailing .0 so the rendered string matches what
+    # the customs system actually printed.
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
     s = str(v).strip()
     return s or None
 

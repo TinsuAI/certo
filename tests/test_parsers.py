@@ -138,6 +138,41 @@ def test_bcct_raises_on_unknown_format():
         parse_bcct_workbook(blob)
 
 
+def test_bcct_strips_trailing_zero_from_numeric_cells():
+    """Excel stores numeric cells as float. The parser must coerce
+    integer-valued floats back to int before stringifying so
+    declaration_no '308449399330.0' does not leak into the DB.
+
+    Regression for /v1/hub/bcct/invoice-matches contract — CO consumes
+    declaration_no / line_no / transaction_key as opaque strings and
+    rejects values that do not match the customs system's printed form.
+    """
+    blob = _xlsx([
+        ("Số tờ khai", "Dòng", "Mã loại hình", "Ngày đăng ký", "Mã NPL/SP",
+         "Tên hàng", "Tổng số lượng", "ĐVT", "Trị giá", "Nguyên tệ"),
+        # Numeric values written as int — openpyxl returns them as float.
+        (308449399330, 133, "E42", "2026-04-18", "SD00.0010600",
+         "SD00.0010600#&pin", 368.0, "CT", 12000.0, "USD"),
+    ])
+    rows = parse_bcct_workbook(blob)
+    assert len(rows) == 1
+    assert rows[0]["declaration_no"] == "308449399330"
+    assert rows[0]["line_no"] == "133"
+    assert rows[0]["transaction_key"] == "308449399330-133"
+
+
+def test_bcct_preserves_real_decimal_when_present():
+    """Decimal values like 1.5 must survive — only integer-valued floats
+    get coerced back to int in the parser."""
+    from app.parsers.bcct import _cell_str
+    assert _cell_str([1.5], 0) == "1.5"
+    assert _cell_str([1.0], 0) == "1"
+    assert _cell_str([308449399330.0], 0) == "308449399330"
+    assert _cell_str(["133"], 0) == "133"
+    assert _cell_str([None], 0) is None
+    assert _cell_str([""], 0) is None
+
+
 # ---- BOM ----
 
 def test_bom_manual_flat_groups_by_product():
