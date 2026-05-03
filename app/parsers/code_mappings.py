@@ -1,7 +1,13 @@
 """Parser for code-mapping (BQD = Bảng Quy Đổi) Excel uploads."""
 from __future__ import annotations
 
-from app.parsers._excel import load_xlsx, header_row, index_headers, iter_data_rows
+from app.parsers._excel import (
+    cell_str,
+    header_row,
+    index_headers,
+    iter_data_rows,
+    load_xlsx,
+)
 
 
 class CodeMappingsParseError(RuntimeError):
@@ -96,11 +102,4 @@ def _cat_from_sheet(name: str) -> str | None:
     return None
 
 
-def _cell_str(row, idx) -> str | None:
-    if idx is None or idx >= len(row):
-        return None
-    v = row[idx]
-    if v is None:
-        return None
-    s = str(v).strip()
-    return s or None
+_cell_str = cell_str  # backward-compat alias

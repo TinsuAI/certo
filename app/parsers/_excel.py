@@ -174,6 +174,45 @@ def iter_data_rows(ws, header_row_idx: int) -> Iterator[tuple]:
         yield row
 
 
+def cell_str(row, idx) -> str | None:
+    """Read a cell as a stripped string, coercing integer-valued floats
+    back to int first.
+
+    openpyxl returns numeric Excel cells as float, so the naive
+    `str(v)` flow leaks `'308449399330.0'` for what is conceptually a
+    text-of-number identifier (declaration_no, line_no, tax_code, etc.).
+    Real decimal values like `1.5` survive untouched because
+    `(1.5).is_integer()` is False.
+
+    Every BCCT/Materials/CodeMappings/BOM parser MUST go through this
+    helper for string fields — see migration 024 / 025 for the cleanup
+    that was needed when individual parsers had their own `str(v)`
+    copies and drifted out of sync.
+    """
+    if idx is None or idx >= len(row):
+        return None
+    v = row[idx]
+    if v is None:
+        return None
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
+    s = str(v).strip()
+    return s or None
+
+
+def cell_num(row, idx) -> float | None:
+    """Read a cell as a float. Empty / unparseable returns None."""
+    if idx is None or idx >= len(row):
+        return None
+    v = row[idx]
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def compute_file_signature(
     *, client_id: str, module: str, headers_per_sheet: list[list[str]],
 ) -> str:

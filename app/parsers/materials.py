@@ -1,7 +1,13 @@
 """Parser for Materials (Danh Mục NVL/SP/BTP) Excel uploads."""
 from __future__ import annotations
 
-from app.parsers._excel import load_xlsx, header_row, index_headers, iter_data_rows
+from app.parsers._excel import (
+    cell_str,
+    header_row,
+    index_headers,
+    iter_data_rows,
+    load_xlsx,
+)
 
 
 class MaterialsParseError(RuntimeError):
@@ -127,11 +133,4 @@ def _category_from_sheet_name(name: str) -> str | None:
     return None
 
 
-def _cell_str(row, idx) -> str | None:
-    if idx is None or idx >= len(row):
-        return None
-    v = row[idx]
-    if v is None:
-        return None
-    s = str(v).strip()
-    return s or None
+_cell_str = cell_str  # backward-compat alias for legacy direct imports

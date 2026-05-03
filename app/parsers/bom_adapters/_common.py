@@ -1,6 +1,9 @@
 """Shared helpers for BOM adapters."""
 from __future__ import annotations
 
+from app.parsers._excel import cell_num as _cell_num_shared
+from app.parsers._excel import cell_str as _cell_str_shared
+
 
 COMMON_ALIASES = {
     "product_code": ["mã sp", "ma sp", "product", "product code", "product_code",
@@ -21,26 +24,12 @@ COMMON_ALIASES = {
 }
 
 
-def cell_str(row, idx) -> str | None:
-    if idx is None or idx >= len(row):
-        return None
-    v = row[idx]
-    if v is None:
-        return None
-    s = str(v).strip()
-    return s or None
-
-
-def cell_num(row, idx) -> float | None:
-    if idx is None or idx >= len(row):
-        return None
-    v = row[idx]
-    if v is None or v == "":
-        return None
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
+# BOM adapters used to ship their own copy of cell_str/cell_num here.
+# The shared helper in app/parsers/_excel.py has the int-coerce fix that
+# prevents `'308449399330.0'`-style trailing-zero pollution; re-export
+# from there so every adapter gets the fix automatically.
+cell_str = _cell_str_shared
+cell_num = _cell_num_shared
 
 
 def to_int(v) -> int | None:

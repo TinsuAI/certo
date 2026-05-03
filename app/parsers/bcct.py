@@ -4,7 +4,14 @@ from __future__ import annotations
 from datetime import date, datetime
 import secrets
 
-from app.parsers._excel import load_xlsx, header_row, index_headers, iter_data_rows
+from app.parsers._excel import (
+    cell_num,
+    cell_str,
+    header_row,
+    index_headers,
+    iter_data_rows,
+    load_xlsx,
+)
 
 
 class BcctParseError(RuntimeError):
@@ -199,32 +206,10 @@ def _direction_from(decl_type: str | None, explicit: str | None) -> str | None:
     return None
 
 
-def _cell_str(row, idx) -> str | None:
-    if idx is None or idx >= len(row):
-        return None
-    v = row[idx]
-    if v is None:
-        return None
-    # openpyxl returns numeric cells as float, so str(308449399330.0) →
-    # "308449399330.0". For text-of-number fields (declaration_no, line_no,
-    # tax codes, …) drop the trailing .0 so the rendered string matches what
-    # the customs system actually printed.
-    if isinstance(v, float) and v.is_integer():
-        v = int(v)
-    s = str(v).strip()
-    return s or None
-
-
-def _cell_num(row, idx) -> float | None:
-    if idx is None or idx >= len(row):
-        return None
-    v = row[idx]
-    if v is None or v == "":
-        return None
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
+# Backward-compat aliases for the test that imports the underscore-prefixed
+# helpers directly. New code should `from app.parsers._excel import cell_str`.
+_cell_str = cell_str
+_cell_num = cell_num
 
 
 def _cell_date(row, idx):

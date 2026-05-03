@@ -173,6 +173,25 @@ def test_bcct_preserves_real_decimal_when_present():
     assert _cell_str([""], 0) is None
 
 
+def test_shared_cell_str_used_everywhere():
+    """All four parser modules share the same cell_str helper from
+    `app/parsers/_excel.py`, so the .0 fix can't drift out of sync.
+
+    Regression for the 4-copy duplication that allowed the bug to
+    persist in materials.py / code_mappings.py / bom_adapters/_common.py
+    even after bcct.py was patched."""
+    from app.parsers._excel import cell_str as shared
+    from app.parsers.bcct import _cell_str as bcct_cs
+    from app.parsers.materials import _cell_str as materials_cs
+    from app.parsers.code_mappings import _cell_str as code_mappings_cs
+    from app.parsers.bom_adapters._common import cell_str as bom_cs
+    # All four should be the SAME function object.
+    assert bcct_cs is shared
+    assert materials_cs is shared
+    assert code_mappings_cs is shared
+    assert bom_cs is shared
+
+
 # ---- BOM ----
 
 def test_bom_manual_flat_groups_by_product():
