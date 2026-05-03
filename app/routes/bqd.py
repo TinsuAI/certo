@@ -29,6 +29,12 @@ from app.routes._mapping_flow import (
     render_preview_context,
     upload_initial_dispatch,
 )
+from app.routes._paging import (
+    SortSpec,
+    pagination_context,
+    parse_page_params,
+    sort_link,
+)
 from app.routes.clients import get_client, stats_for_client
 from app.storage import save_upload, sha256_bytes
 from app.stores.staleness import freshness_for_template
@@ -94,14 +100,33 @@ async def list_view(request: Request, client_id: str, q: str | None = None):
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
-    items = _list_mappings(client_id, q)
+    page_params = parse_page_params(query_params=request.query_params)
+    sort = SortSpec.from_params(
+        query_params=request.query_params,
+        whitelist=BQD_SORT_WHITELIST, default=BQD_SORT_DEFAULT,
+    )
+    order_by = sort.sql_clause(tiebreakers=("customs_code",)) \
+        if sort.column != "customs_code" else sort.sql_clause()
+    items = _list_mappings(
+        client_id, q,
+        order_by=order_by,
+        limit=page_params.page_size, offset=page_params.offset,
+    )
+    total = _count_mappings(client_id, q)
     stats_basic = _mapping_stats(client_id)
+    paging_ctx = pagination_context(
+        request=request, page_params=page_params, total=total,
+    )
+
+    def _sort_link(col: str) -> str:
+        return sort_link(request=request, column=col, current_sort=sort)
     return request.app.state.templates.TemplateResponse(
         request, "clients/bqd.html",
         {
             "client": client, "stats": stats_for_client(client_id),
             "items": items, "q": q or "",
             "mapping_stats": stats_basic,
+            "paging": paging_ctx, "sort": sort, "sort_link": _sort_link,
             "freshness": freshness_for_template(request, client_id, "bqd"),
             "active_root": "clients", "active_tab": "bqd",
         },
@@ -375,22 +400,50 @@ async def manual_add(
 
 # ── Internals ────────────────────────────────────────────────────────────
 
-def _list_mappings(client_id: str, q: str | None = None) -> list[dict]:
-    sql = """
-        select internal_code, customs_code, category, notes, created_at
-        from hub.code_mappings where client_id = %s
-    """
+BQD_SORT_WHITELIST = {
+    "internal_code": "internal_code",
+    "customs_code": "customs_code",
+    "created_at": "created_at",
+}
+BQD_SORT_DEFAULT = ("internal_code", "asc")
+
+
+def _bqd_where_clause(client_id: str, q: str | None) -> tuple[str, list]:
+    sql = "where client_id = %s"
     params: list = [client_id]
     if q:
         sql += " and (internal_code ilike %s or customs_code ilike %s)"
         like = f"%{q}%"
         params.extend([like, like])
-    sql += " order by internal_code, customs_code limit 2000"
+    return sql, params
+
+
+def _list_mappings(client_id: str, q: str | None = None, *,
+                   order_by: str = "internal_code asc, customs_code",
+                   limit: int = 50, offset: int = 0) -> list[dict]:
+    where, params = _bqd_where_clause(client_id, q)
+    sql = f"""
+        select internal_code, customs_code, category, notes, created_at
+        from hub.code_mappings
+        {where}
+        order by {order_by}
+        limit %s offset %s
+    """
+    params = [*params, limit, offset]
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def _count_mappings(client_id: str, q: str | None) -> int:
+    where, params = _bqd_where_clause(client_id, q)
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"select count(*) from hub.code_mappings {where}", params)
+            (n,) = cur.fetchone()
+    return n
 
 
 def _mapping_stats(client_id: str) -> dict:
