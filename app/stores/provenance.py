@@ -79,3 +79,51 @@ def unregistered_seen_count(cur, *, client_id: str) -> int:
     )
     (n,) = cur.fetchone()
     return n
+
+
+def bom_unresolved_material_count(cur, *, client_id: str) -> int:
+    """Count BOM material_codes (from alive versions) that don't resolve
+    to any catalog row, even via the BQD (`code_mappings`) translation
+    layer.
+
+    Resolution path the agency workflow expects:
+      BOM.material_code (typically internal_code)
+        ↓ direct: matches materials.customs_code (identity-mode clients)
+        ↓ direct: matches materials.internal_code
+        ↓ via BQD: matches code_mappings.internal_code → customs_code
+                   → materials.customs_code
+
+    A code that fails ALL three is genuinely unregistered. For clients
+    that use supplier-internal codes in BOM (common — Growatt does this),
+    these are EXPECTED holes rather than compliance violations: surface
+    the count so staff can decide register-vs-ignore per code, but do
+    not auto-derive (would fake HQ provenance).
+
+    BCCT-side gap is tracked separately via `unregistered_seen_count`.
+    """
+    cur.execute(
+        """
+        with bom_codes as (
+          select distinct bvr.material_code
+          from hub.bom_version_rows bvr
+          join hub.bom_versions bv on bv.version_id = bvr.version_id
+          where bv.client_id = %s and bv.tombstoned_at is null
+        )
+        select count(*) from bom_codes bc
+        where not exists (
+          select 1 from hub.materials m
+          where m.client_id = %s and m.customs_code = bc.material_code
+        )
+        and not exists (
+          select 1 from hub.materials m
+          where m.client_id = %s and m.internal_code = bc.material_code
+        )
+        and not exists (
+          select 1 from hub.code_mappings cm
+          where cm.client_id = %s and cm.internal_code = bc.material_code
+        )
+        """,
+        (client_id, client_id, client_id, client_id),
+    )
+    (n,) = cur.fetchone()
+    return n

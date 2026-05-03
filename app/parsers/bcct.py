@@ -220,12 +220,27 @@ def _cols_from_mapping(headers: list[str], mapping: dict[str, str]) -> dict[str,
     return cols
 
 
+_IMPORT_DIR_TOKENS = {
+    "nhập", "nhap", "nhập khẩu", "nhap khau",
+    "import", "imp", "i", "n",
+}
+_EXPORT_DIR_TOKENS = {
+    "xuất", "xuat", "xuất khẩu", "xuat khau",
+    "export", "exp", "e", "x",
+}
+
+
 def _direction_from(decl_type: str | None, explicit: str | None) -> str | None:
+    """Resolve direction from an explicit `Hướng` cell (if any) plus the
+    declaration_type code. Explicit cell uses an exact-match token set
+    instead of `startswith` to avoid mis-classifying values like
+    'Nhà cung cấp' (supplier) as 'import' — older parser had that bug.
+    """
     if explicit:
         s = explicit.strip().lower()
-        if s.startswith("nh") or s.startswith("import") or s == "i":
+        if s in _IMPORT_DIR_TOKENS:
             return "import"
-        if s.startswith("xu") or s.startswith("export") or s == "e":
+        if s in _EXPORT_DIR_TOKENS:
             return "export"
     if decl_type:
         if decl_type in IMPORT_TYPES:

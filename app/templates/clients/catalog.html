@@ -32,6 +32,13 @@
   </div>
   {% endif %}
 
+  {% if unresolved_bom and unresolved_bom > 0 %}
+  <div class="toast" style="margin-bottom: 1rem; background: #fff8e1; border-left: 4px solid #f59e0b;">
+    ⓘ <strong>{{ unresolved_bom }}</strong> {{ t('catalog.alarm_bom_unresolved') }}
+    <span class="meta">{{ t('catalog.alarm_bom_unresolved_hint') }}</span>
+  </div>
+  {% endif %}
+
   <div class="chip-row" aria-label="Category filter">
     <a class="chip {{ 'chip-active' if not active_category else '' }}"
        href="/clients/{{ client.client_id }}/catalog{% if active_provenance %}?provenance={{ active_provenance }}{% endif %}">{{ t('catalog.cat_all') }} ({{ items|length }})</a>

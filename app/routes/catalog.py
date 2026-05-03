@@ -36,6 +36,13 @@ async def list_view(
                              provenance=provenance)
     counts = _category_counts(client_id)
     prov_counts = _provenance_counts(client_id)
+    from app.database import connect as _connect
+    from app.stores.provenance import (
+        bom_unresolved_material_count, unregistered_seen_count,
+    )
+    with _connect() as _conn, _conn.cursor() as _cur:
+        unregistered_bcct = unregistered_seen_count(_cur, client_id=client_id)
+        unresolved_bom = bom_unresolved_material_count(_cur, client_id=client_id)
     return request.app.state.templates.TemplateResponse(
         request, "clients/catalog.html",
         {
@@ -44,6 +51,8 @@ async def list_view(
             "active_category": category, "q": q or "", "counts": counts,
             "active_provenance": provenance,
             "prov_counts": prov_counts,
+            "unregistered_bcct": unregistered_bcct,
+            "unresolved_bom": unresolved_bom,
             "freshness": freshness_for_template(request, client_id, "catalog"),
             "active_root": "clients", "active_tab": "catalog",
         },

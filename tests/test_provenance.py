@@ -11,7 +11,11 @@ import secrets
 import pytest
 
 from app.database import connect
-from app.stores.provenance import derive_from_bcct, unregistered_seen_count
+from app.stores.provenance import (
+    bom_unresolved_material_count,
+    derive_from_bcct,
+    unregistered_seen_count,
+)
 
 
 @pytest.fixture
@@ -199,6 +203,87 @@ def test_unregistered_seen_count_zero_when_no_data(test_client):
         with conn.cursor() as cur:
             n = unregistered_seen_count(cur, client_id=test_client)
     assert n == 0
+
+
+# ─── bom_unresolved_material_count ────────────────────────────────────
+
+
+def _seed_bom_with_materials(client_id: str, materials: list[tuple[str, str]],
+                             code_mappings: list[tuple[str, str]],
+                             bom_rows: list[tuple[str, str, float]]):
+    """materials = [(customs_code, internal_code or None)],
+    code_mappings = [(internal_code, customs_code)],
+    bom_rows = [(product_code, material_code, qty)]"""
+    from app.stores.bom import create_version
+    with connect() as conn, conn.cursor() as cur:
+        for cc, ic in materials:
+            cur.execute(
+                """insert into hub.materials
+                   (client_id, customs_code, internal_code, name, category, status)
+                   values (%s, %s, %s, 'X', 'nvl', 'active')
+                   on conflict do nothing""",
+                (client_id, cc, ic),
+            )
+        for ic, cc in code_mappings:
+            cur.execute(
+                """insert into hub.code_mappings
+                   (client_id, internal_code, customs_code)
+                   values (%s, %s, %s)
+                   on conflict do nothing""",
+                (client_id, ic, cc),
+            )
+    by_product: dict[str, list[dict]] = {}
+    for prod, mat, qty in bom_rows:
+        by_product.setdefault(prod, []).append(
+            {"material_code": mat, "qty_per_unit": qty, "uom": "kg"},
+        )
+    for prod, rows in by_product.items():
+        create_version(
+            client_id=client_id, product_code=prod, rows=rows,
+            actor="agency_staff", intent="asserted_technical",
+            parent_version_id=None, context={}, source_upload_id=None,
+        )
+
+
+def test_bom_unresolved_zero_when_all_resolve(test_client):
+    """All BOM material_codes resolve directly via materials.customs_code."""
+    _seed_bom_with_materials(
+        test_client,
+        materials=[("M-A", None), ("M-B", None)],
+        code_mappings=[],
+        bom_rows=[("P-1", "M-A", 1.0), ("P-1", "M-B", 2.0)],
+    )
+    with connect() as conn, conn.cursor() as cur:
+        assert bom_unresolved_material_count(cur, client_id=test_client) == 0
+
+
+def test_bom_unresolved_zero_via_bqd(test_client):
+    """BOM uses internal codes; BQD resolves them — 0 unresolved."""
+    _seed_bom_with_materials(
+        test_client,
+        materials=[("HQ-001", None)],
+        code_mappings=[("INT-001", "HQ-001")],
+        bom_rows=[("P-1", "INT-001", 1.0)],
+    )
+    with connect() as conn, conn.cursor() as cur:
+        assert bom_unresolved_material_count(cur, client_id=test_client) == 0
+
+
+def test_bom_unresolved_counts_unmapped_codes(test_client):
+    """A BOM material that has no catalog row, no internal_code match,
+    no BQD entry — that's the genuine ghost-code case."""
+    _seed_bom_with_materials(
+        test_client,
+        materials=[("HQ-001", None)],
+        code_mappings=[("INT-001", "HQ-001")],
+        bom_rows=[
+            ("P-1", "INT-001", 1.0),       # resolves via BQD
+            ("P-1", "GHOST-A", 0.5),       # neither in catalog nor BQD
+            ("P-1", "GHOST-B", 0.5),
+        ],
+    )
+    with connect() as conn, conn.cursor() as cur:
+        assert bom_unresolved_material_count(cur, client_id=test_client) == 2
 
 
 # ─── catalog upload preserves seen_in_bcct ─────────────────────────────

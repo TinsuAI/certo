@@ -231,6 +231,73 @@ def test_materials_status_map_chờ_duyệt_is_pending():
     assert normalize_status(None) == "active"
 
 
+def test_direction_strict_set_rejects_partial_match():
+    """Old `startswith('nh')` would classify 'Nhà cung cấp' (supplier)
+    as import. Strict token-set match avoids that whole class of error."""
+    from app.parsers.bcct import _direction_from
+    assert _direction_from(None, "Nhập khẩu") == "import"
+    assert _direction_from(None, "Xuất") == "export"
+    assert _direction_from(None, "import") == "import"
+    assert _direction_from(None, "I") == "import"
+    # Old parser would have classified these as import via startswith — now NULL.
+    assert _direction_from(None, "Nhà cung cấp") is None
+    assert _direction_from(None, "Nhập-Xuất tại chỗ") is None
+    assert _direction_from(None, "Xuong san xuat") is None
+    # Falls back to declaration_type when explicit ambiguous.
+    assert _direction_from("E11", "Nhà cung cấp") == "import"
+
+
+def test_llm_mapping_path_runs_full_coercion_guards():
+    """Sprint B audit: when the LLM-confirmed mapping bypasses the rigid
+    alias path, ALL Sprint A coercion guards (qty>0, date raise,
+    .0 strip) must still apply. Otherwise the smart-parse flow becomes
+    a back door for the bugs Sprint A locks down on the rigid flow.
+    """
+    import io
+    import pytest
+    from openpyxl import Workbook
+    from app.parsers.bcct import BcctParseError, parse_bcct_workbook
+
+    def _xlsx(rows):
+        buf = io.BytesIO()
+        wb = Workbook()
+        ws = wb.active
+        for r in rows:
+            ws.append(list(r))
+        wb.save(buf)
+        return buf.getvalue()
+
+    # Excel with non-standard headers; LLM proposes a mapping.
+    blob = _xlsx([
+        ("Decl#", "LineIdx", "TypeCode", "RegDate", "MatCode", "GoodsDesc"),
+        (308449399330, 133, "E42", "March 23, 2026",  # bad date format
+         "SD00.001", "Pin"),
+    ])
+    mapping = {
+        "Decl#": "declaration_no",
+        "LineIdx": "line_no",
+        "TypeCode": "declaration_type",
+        "RegDate": "registration_date",
+        "MatCode": "customs_code",
+        "GoodsDesc": "goods_name",
+    }
+    # H1 guard: bad date format raises through LLM path too.
+    with pytest.raises(BcctParseError, match="unrecognized date"):
+        parse_bcct_workbook(blob, mapping_override=mapping)
+
+    # .0-strip guard: int-formatted Excel cells get coerced via shared
+    # cell_str on the LLM path too.
+    blob_ok = _xlsx([
+        ("Decl#", "LineIdx", "TypeCode", "RegDate", "MatCode", "GoodsDesc"),
+        (308449399330, 133, "E42", "2026-04-18", "SD00.001", "Pin"),
+    ])
+    rows = parse_bcct_workbook(blob_ok, mapping_override=mapping)
+    assert len(rows) == 1
+    assert rows[0]["declaration_no"] == "308449399330"
+    assert rows[0]["line_no"] == "133"
+    assert rows[0]["transaction_key"] == "308449399330-133"
+
+
 def test_bom_create_version_rejects_qty_zero():
     """Belt-and-suspenders: even though the DB CHECK catches qty<=0,
     the store layer pre-validates so users get a row-pointed error
