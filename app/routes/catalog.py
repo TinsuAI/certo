@@ -33,6 +33,12 @@ from app.routes._mapping_flow import (
     render_preview_context,
     upload_initial_dispatch,
 )
+from app.routes._paging import (
+    SortSpec,
+    pagination_context,
+    parse_page_params,
+    sort_link,
+)
 from app.routes.clients import get_client, stats_for_client
 from app.storage import save_upload, sha256_bytes
 from app.stores.staleness import freshness_for_template
@@ -106,8 +112,22 @@ async def list_view(
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
-    items = _query_materials(client_id=client_id, category=category, q=q,
-                             provenance=provenance)
+    page_params = parse_page_params(query_params=request.query_params)
+    sort = SortSpec.from_params(
+        query_params=request.query_params,
+        whitelist=CATALOG_SORT_WHITELIST, default=CATALOG_SORT_DEFAULT,
+    )
+    order_by = sort.sql_clause(tiebreakers=("m.customs_code",)) \
+        if sort.column != "customs_code" else sort.sql_clause()
+    items = _query_materials(
+        client_id=client_id, category=category, q=q,
+        provenance=provenance,
+        order_by=order_by,
+        limit=page_params.page_size, offset=page_params.offset,
+    )
+    total = _count_materials(
+        client_id=client_id, category=category, q=q, provenance=provenance,
+    )
     counts = _category_counts(client_id)
     prov_counts = _provenance_counts(client_id)
     from app.database import connect as _connect
@@ -117,6 +137,12 @@ async def list_view(
     with _connect() as _conn, _conn.cursor() as _cur:
         unregistered_bcct = unregistered_seen_count(_cur, client_id=client_id)
         unresolved_bom = bom_unresolved_material_count(_cur, client_id=client_id)
+    paging_ctx = pagination_context(
+        request=request, page_params=page_params, total=total,
+    )
+
+    def _sort_link(col: str) -> str:
+        return sort_link(request=request, column=col, current_sort=sort)
     return request.app.state.templates.TemplateResponse(
         request, "clients/catalog.html",
         {
@@ -127,6 +153,7 @@ async def list_view(
             "prov_counts": prov_counts,
             "unregistered_bcct": unregistered_bcct,
             "unresolved_bom": unresolved_bom,
+            "paging": paging_ctx, "sort": sort, "sort_link": _sort_link,
             "freshness": freshness_for_template(request, client_id, "catalog"),
             "active_root": "clients", "active_tab": "catalog",
         },
@@ -411,8 +438,43 @@ async def preview_reject(request: Request, client_id: str, pending_id: str):
 
 # ── Internals ────────────────────────────────────────────────────────────
 
+CATALOG_SORT_WHITELIST = {
+    "customs_code": "m.customs_code",
+    "internal_code": "m.internal_code",
+    "name": "m.name",
+    "category": "m.category",
+    "updated_at": "m.updated_at",
+}
+CATALOG_SORT_DEFAULT = ("customs_code", "asc")
+
+
+def _catalog_where_clause(*, client_id: str, category: str | None,
+                          q: str | None, provenance: str | None
+                          ) -> tuple[str, list]:
+    sql = "where m.client_id = %s"
+    params: list = [client_id]
+    if category:
+        sql += " and m.category = %s"
+        params.append(category)
+    if provenance == "registered":
+        sql += " and (m.provenance ? 'registered_with_hq')"
+    elif provenance == "unregistered":
+        sql += (" and (m.provenance ? 'seen_in_bcct')"
+                " and not (m.provenance ? 'registered_with_hq')")
+    elif provenance == "user_added":
+        sql += " and (m.provenance ? 'user_added')"
+    if q:
+        sql += (" and (m.customs_code ilike %s or m.internal_code ilike %s "
+                "or m.name ilike %s or m.hs_code ilike %s)")
+        like = f"%{q}%"
+        params.extend([like, like, like, like])
+    return sql, params
+
+
 def _query_materials(*, client_id: str, category: str | None,
-                     q: str | None, provenance: str | None = None) -> list[dict]:
+                     q: str | None, provenance: str | None = None,
+                     order_by: str = "m.customs_code asc",
+                     limit: int = 50, offset: int = 0) -> list[dict]:
     """Query catalog rows with provenance signals annotated.
 
     `provenance` filter values:
@@ -420,7 +482,10 @@ def _query_materials(*, client_id: str, category: str | None,
       - 'unregistered'   → seen_in_bcct but NOT registered_with_hq (audit case)
       - 'user_added'     → user_added present
     """
-    sql = """
+    where, params = _catalog_where_clause(
+        client_id=client_id, category=category, q=q, provenance=provenance,
+    )
+    sql = f"""
         select m.customs_code, m.internal_code, m.name, m.category, m.category_override,
                m.status, m.unit, m.hs_code, m.updated_at, m.provenance,
                (m.provenance ? 'registered_with_hq') as is_registered,
@@ -440,25 +505,11 @@ def _query_materials(*, client_id: str, category: str | None,
                    and v.status = 'published'
                ) as has_bom
         from hub.materials m
-        where m.client_id = %s
+        {where}
+        order by {order_by}
+        limit %s offset %s
     """
-    params: list = [client_id]
-    if category:
-        sql += " and m.category = %s"
-        params.append(category)
-    if provenance == "registered":
-        sql += " and (m.provenance ? 'registered_with_hq')"
-    elif provenance == "unregistered":
-        sql += (" and (m.provenance ? 'seen_in_bcct')"
-                " and not (m.provenance ? 'registered_with_hq')")
-    elif provenance == "user_added":
-        sql += " and (m.provenance ? 'user_added')"
-    if q:
-        sql += (" and (m.customs_code ilike %s or m.internal_code ilike %s "
-                "or m.name ilike %s or m.hs_code ilike %s)")
-        like = f"%{q}%"
-        params.extend([like, like, like, like])
-    sql += " order by m.customs_code limit 1000"
+    params = [*params, limit, offset]
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
@@ -467,6 +518,18 @@ def _query_materials(*, client_id: str, category: str | None,
             for r in rows:
                 r["is_dual_source"] = bool(r.get("has_imports") and r.get("has_bom"))
             return rows
+
+
+def _count_materials(*, client_id: str, category: str | None,
+                     q: str | None, provenance: str | None) -> int:
+    where, params = _catalog_where_clause(
+        client_id=client_id, category=category, q=q, provenance=provenance,
+    )
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(f"select count(*) from hub.materials m {where}", params)
+            (n,) = cur.fetchone()
+    return n
 
 
 def _provenance_counts(client_id: str) -> dict:

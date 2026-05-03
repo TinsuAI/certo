@@ -39,9 +39,21 @@
   </div>
   {% endif %}
 
+  {% macro sort_th(col, label) -%}
+    {% set is_active = sort.column == col %}
+    <th class="sortable {% if is_active %}sort-active{% endif %}">
+      <a href="{{ sort_link(col) }}" title="Sắp xếp theo {{ label }}">
+        {{ label }}
+        {%- if is_active %}
+          <span class="sort-arrow">{% if sort.direction == 'asc' %}▲{% else %}▼{% endif %}</span>
+        {%- endif %}
+      </a>
+    </th>
+  {%- endmacro %}
+
   <div class="chip-row" aria-label="Category filter">
     <a class="chip {{ 'chip-active' if not active_category else '' }}"
-       href="/clients/{{ client.client_id }}/catalog{% if active_provenance %}?provenance={{ active_provenance }}{% endif %}">{{ t('catalog.cat_all') }} ({{ items|length }})</a>
+       href="/clients/{{ client.client_id }}/catalog{% if active_provenance %}?provenance={{ active_provenance }}{% endif %}">{{ t('catalog.cat_all') }} ({{ paging.total }})</a>
     {% for c in categories %}
     <a class="chip {{ 'chip-active' if active_category == c else '' }}"
        href="/clients/{{ client.client_id }}/catalog?category={{ c }}{% if active_provenance %}&provenance={{ active_provenance }}{% endif %}">
@@ -73,6 +85,10 @@
   <form method="get" action="/clients/{{ client.client_id }}/catalog" class="stack-form" style="max-width: 600px; margin: 1rem 0;">
     {% if active_category %}<input type="hidden" name="category" value="{{ active_category }}">{% endif %}
     {% if active_provenance %}<input type="hidden" name="provenance" value="{{ active_provenance }}">{% endif %}
+    {% if sort.column != 'customs_code' or sort.direction != 'asc' %}
+      <input type="hidden" name="sort" value="{{ sort.column }}">
+      <input type="hidden" name="dir" value="{{ sort.direction }}">
+    {% endif %}
     <input type="search" name="q" value="{{ q }}" placeholder="{{ t('catalog.search_placeholder') }}">
   </form>
 
@@ -80,14 +96,14 @@
   <table class="dh-table">
     <thead>
       <tr>
-        <th>{{ t('catalog.col.customs_code') }}</th>
-        <th>{{ t('catalog.col.internal_code') }}</th>
-        <th>{{ t('catalog.col.name') }}</th>
-        <th>{{ t('catalog.col.category') }}</th>
+        {{ sort_th('customs_code', t('catalog.col.customs_code')) }}
+        {{ sort_th('internal_code', t('catalog.col.internal_code')) }}
+        {{ sort_th('name', t('catalog.col.name')) }}
+        {{ sort_th('category', t('catalog.col.category')) }}
         <th>{{ t('catalog.col.source') }}</th>
         <th>{{ t('catalog.col.unit') }}</th>
         <th>{{ t('catalog.col.hs_code') }}</th>
-        <th>{{ t('common.status') }}</th>
+        {{ sort_th('updated_at', t('common.status')) }}
       </tr>
     </thead>
     <tbody>
@@ -122,10 +138,16 @@
       {% endfor %}
     </tbody>
   </table>
+  {% include "clients/_pagination.html" %}
   {% else %}
   <div class="empty-state">
+    {% if q or active_category or active_provenance %}
+    <p>Không có kết quả với bộ lọc hiện tại.</p>
+    <a class="btn-ghost" href="/clients/{{ client.client_id }}/catalog">Xóa bộ lọc</a>
+    {% else %}
     <p>{{ t('catalog.empty') }}</p>
     <a class="btn-primary" href="/clients/{{ client.client_id }}/catalog/upload">{{ t('catalog.upload_btn') }}</a>
+    {% endif %}
   </div>
   {% endif %}
 </section>
