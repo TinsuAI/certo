@@ -112,6 +112,13 @@ def seeded_export():
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute("delete from hub.bcct_rows where client_id = %s", (cid,))
+            # The DELETE above fires trg_bcct_row_history capturing the
+            # synthetic `.0` rows. Flush the history too so it doesn't
+            # leak into live-DB integrity assertions in other test files.
+            cur.execute(
+                "delete from hub.bcct_row_history where client_id = %s",
+                (cid,),
+            )
             cur.execute("delete from hub.clients where client_id = %s", (cid,))
 
 
@@ -342,6 +349,10 @@ def test_client_isolation_between_clients(seeded_export):
         with connect() as conn:
             with conn.cursor() as cur:
                 cur.execute("delete from hub.bcct_rows where client_id = %s", (other,))
+                cur.execute(
+                    "delete from hub.bcct_row_history where client_id = %s",
+                    (other,),
+                )
                 cur.execute("delete from hub.clients where client_id = %s", (other,))
 
 
