@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 data/files/
 data/screenshots/
+data/source_inventory/
 .pytest_cache/
 .uv-cache/
 node_modules/
