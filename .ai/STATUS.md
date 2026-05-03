@@ -1,147 +1,116 @@
 # Project Status
 
-**Date:** 2026-05-04 (end of unified-upload-sprint + screenshot walk)
+**Date:** 2026-05-04 (end of data-views pagination/perf sprint + screenshot walk)
 
 ## Current State
 
-The **unified flexible upload flow** is shipped end-to-end across all
-4 modules (catalog + BQD + BOM-manual_flat + BCCT) with 20 committed
-screenshots covering mapping page + preview per module. Cache-aware
-2-stage flow with mapping page + LLM suggestion + skipped-row
-inline-edit on preview, fully consistent UX across modules. Layout-
-driven BOM adapters keep their existing direct-to-preview path;
-technical_flatten preserved.
+The **data list views are now paginated, searchable, and sortable** across
+all 4 main client data tabs: BCCT, catalog, BQD, and BOM products.
+The perf cleanup slice also landed: pooled Postgres connections, collapsed
+client stats/freshness queries, and the BCCT list index.
 
-HEAD trail (newest first):
-
-- `3f06586 docs(uploads): screenshot walk for unified upload flow`
-- `6598cff chore(uploads): slice 5 cleanup + sprint handoff`
-- `27aa5c1 feat(uploads): unified mapping flow — slice 4 (bcct)`
-- `b278ff5 feat(uploads): unified mapping flow — slice 3 (bom manual_flat)`
-- `a8126a5 feat(uploads): unified mapping flow — slice 2 (bqd)`
-- `5dd49e0 feat(uploads): unified mapping flow — slice 1 (catalog + shared helpers)`
-- `89794b6 chore(inventory): historical source-data inventory + .gitignore + STATUS`
+The previous **unified flexible upload flow** remains shipped end-to-end
+across catalog + BQD + BOM-manual_flat + BCCT. The new list-view work did
+not change upload/API contracts.
 
 Dev server expected at `http://127.0.0.1:8754` (required port).
-Test suite: **401 passed, 15 skipped** (was 361 baseline + 40 new tests
-across the 4 module-flow integration suites). 0 regressions on existing
-tests at any slice.
+Latest verification:
 
-## Recent Changes (this session, 2026-05-04)
+- `uv run pytest -q` -> **437 passed, 15 skipped**
+- `uv run python scripts/screenshot_paginated_views.py` -> **16 PNGs**
+  under `.ai/features/2026-05-04-data-views-pagination/screenshots/`
+- Live root smoke: `/` returns `302` on port 8754
+
+HEAD trail before the final screenshot/status commit (newest first):
+
+- `bb7ed68 feat(views): slice A4 - BOM products paginate + search + sortable headers`
+- `42de56d feat(views): slice A3 - BQD paginate + search + sortable headers`
+- `f53d9bc feat(views): slice A2 - catalog paginate + sortable headers`
+- `deb506f feat(views): slice A1 - pagination + sort + footer (BCCT first)`
+- `c7df89a perf(db): slice B2 - collapse stats/freshness to single SQL + bcct index`
+- `055b9d4 feat(db): slice B1 - psycopg connection pool with reset-on-checkin`
+- `3f06586 docs(uploads): screenshot walk for unified upload flow`
+
+## Recent Changes (2026-05-04 data views sprint)
 
 - Wrote feature brief
-  `.ai/features/2026-05-04-flexible-catalog-intake.md` (~330 lines)
-  with the 5-slice plan; Plan B (sequential per-slice PRs) chosen
-  over Plan A (single mega-PR).
-- **Slice 1 (commit `5dd49e0`)** — catalog + shared helpers:
-  `app/routes/_mapping_flow.py` (NEW), shared templates
-  `_upload_mapping.html` + `_upload_preview.html`, parser tuple
-  return, 22 tests.
-- **Slice 2 (commit `a8126a5`)** — BQD migrate. Added
-  `ModuleConfig.required_mapped_fields` (all-of semantics) since BQD
-  needs both `internal_code` AND `customs_code` mapped. 8 tests.
-- **Slice 3 (commit `b278ff5`)** — BOM-manual_flat migrate.
-  `parse_with_skipped()` entry point on the manual_flat adapter;
-  layout-driven adapters (`sheet_per_product`, `multi_sheet_per_root`,
-  `sap_indented_walk`, `sap_exploded_levels`) keep existing flow;
-  technical_flatten preserved. 6 tests.
-- **Slice 4 (commit `27aa5c1`)** — BCCT migrate. Highest risk slice.
-  Parser tuple return + new mapping page endpoints; cache-hit path
-  preserved; the bespoke `parse-mapping/{upload_id}` endpoints
-  unreachable from the new flow. 4 tests.
-- **Slice 5 (commit `6598cff`)** — cleanup: deleted `bcct_parse_mapping.html`
-  + the 4 dead BCCT parse-mapping endpoints + `_request_llm_mapping`
-  helper. `_llm_fallback.py` retained — its module-agnostic helpers
-  (lookup_cached_mapping, cache_confirmed_mapping, etc.) are reused by
-  `_mapping_flow.py` and by BOM's layout-driven cascade.
-- **Screenshot walk (commit `3f06586`)** — `scripts/screenshot_unified_upload.py`
-  drives the live UI via Playwright across all 4 modules. 20 screenshots
-  committed under
-  `.ai/features/2026-05-04-flexible-catalog-intake/screenshots/`:
-  4 module landing pages + 4 × (mapping_page + preview) for VN-header
-  fixtures (rigid auto-match works) + 4 × mapping_page + parse-error
-  for English-header fixtures (rigid alias miss; staff would click
-  "Apply LLM suggestion" or fill manually). BCCT preview snapshots
-  capture the existing confirm-on-update / "Hủy" UI which slice 4
-  intentionally preserved.
+  `.ai/features/2026-05-04-data-views-pagination/brief.md` for pagination,
+  sorting, search, and DB-layer cleanup.
+- **Slice B1 (commit `055b9d4`)** - introduced
+  `psycopg_pool.ConnectionPool`, kept `app.database.connect()` as the
+  single app entrypoint, and added reset-on-checkin for `app.user_id`.
+- **Slice B2 (commit `c7df89a`)** - collapsed `stats_for_client` and
+  `freshness_for_template` DB work to fewer SQL calls and added
+  `db/migrations/028_bcct_client_regdate_index.sql`.
+- **Slice A1 (commit `deb506f`)** - added shared paging/sort helpers,
+  shared pagination template, CSS, and BCCT list pagination/sort/search.
+- **Slice A2 (commit `f53d9bc`)** - migrated catalog list to the shared
+  pagination/sort/search shape while preserving category/provenance chips.
+- **Slice A3 (commit `42de56d`)** - migrated BQD list to the shared
+  pagination/sort/search shape.
+- **Slice A4 (commit `bb7ed68`)** - migrated BOM products list to the
+  shared pagination/sort/search shape, including product count and paged
+  product aggregation store helpers.
+- **Screenshot walk** - `scripts/screenshot_paginated_views.py` drives
+  the live UI with Playwright and captures 4 states per module:
+  page 1, page 2, sorted alternate column, filtered `q=`.
 
-## Sprint outcome — what shipped
+## Data Views Outcome
 
-Across all 4 modules the upload flow now uses the same shape:
+All 4 list views now support:
 
-```
-POST /clients/{c}/<m>/upload (file)
-  → save blob → record_upload → compute file_signature
-  ├─ cache hit (confirmed mapping) → parse → /<m>/preview/{id}
-  └─ cache miss → /<m>/upload/mapping/{upload_id}
-
-GET /<m>/upload/mapping/{upload_id}
-  → raw 10-row preview + header picker + column-map grid
-  → "Apply LLM suggestion" button (opt-in, no LLM call on page load)
-
-POST /<m>/upload/mapping/{upload_id}/parse
-  → validate min_identifier_fields + required_mapped_fields
-  → parse with overrides → stash pending → /<m>/preview/{id}
-
-GET /<m>/preview/{pending_id}
-  → per-module summary + sample rows + skipped-rows inline-edit
-
-POST /<m>/preview/{pending_id}/confirm
-  → ingest + cache mapping (proposed_by='manual'|'llm')
-
-POST /<m>/preview/{pending_id}/reject
-  → discard pending, mark file_uploads as 'rejected'
+```text
+?page=N&page_size=25|50|100|200&sort=<whitelisted-col>&dir=asc|desc&q=...
 ```
 
-Module-specific knobs:
+View-specific behavior:
 
-- **catalog**: `min_identifier_fields={customs_code, internal_code}`
-  (at-least-one); provenance toggle (registered vs user_added).
-- **BQD**: `required_mapped_fields={internal_code, customs_code}`
-  (both required); single-table upsert on (internal, customs).
-- **BOM-manual_flat**: `required_mapped_fields={product_code,
-  material_code}`; `extra_required_fields_default=("qty_per_unit",)`;
-  layout-driven adapters bypass mapping page;
-  technical_flatten → /flatten-preview unchanged.
-- **BCCT**: `required_mapped_fields={declaration_no,
-  registration_date, customs_code}`; mapping POST routes into existing
-  `_ingest_rows` → classify + diff + /upload/preview/ → confirm-on-update +
-  history-insert all preserved.
+- **BCCT**: default sort `registration_date desc`; sortable
+  `registration_date`, `declaration_no`, `customs_code`, `internal_code`;
+  existing `year` and `direction` chips compose with pagination/search.
+- **Catalog**: default sort `customs_code asc`; sortable `customs_code`,
+  `internal_code`, `name`, `category`, `updated_at`; existing category and
+  provenance chips compose with pagination/search.
+- **BQD**: default sort `internal_code asc`; sortable `internal_code`,
+  `customs_code`, `created_at`; search over internal/customs codes.
+- **BOM**: default sort keeps non-flattened products first, then latest
+  publish time; sortable `last_published`, `product_code`, `n_versions`;
+  search over product code.
 
-## Sprint outcome — what was NOT done
+## Previous Upload Flow Outcome
 
-- **`_llm_fallback.py` retirement.** It's still used as the building
-  blocks for `_mapping_flow.py` (lookup_cached_mapping, etc.) AND by
-  BOM's layout-driven cascade and BCCT's cache-hit recovery path.
-  Renaming would be churn; staying as-is.
-- **Per-client `<module>.required_fields` override** (admin UI for
-  per-tenant required-fields) — not implemented. Hard-coded minimums
-  per module suffice for MVP. Logged as BACKLOG entry.
-- **Real-data smoke** against the 21 inventory rejects in
-  `data/source_inventory/feedable_candidates.csv` for catalog, plus
-  the BQD/BOM/BCCT real fixtures. Tests prove correctness on
-  synthetic fixtures; real-data smoke is a follow-up validation step.
-- **Persistent rigid-match for English headers** in BQD/BOM. Catalog
-  + BCCT rigid alias dicts cover EN aliases; BQD/BOM rigid still misses
-  English-only files (mapping page + LLM suggestion handles them, but
-  staff has to click through). Adding EN aliases to BQD/BOM ALIASES is
-  a 5-line change documented in BACKLOG.
+Across catalog + BQD + BOM-manual_flat + BCCT the upload flow uses the
+same shape:
 
-## Next Steps
+```text
+POST /clients/{c}/<m>/upload
+  -> save blob -> record_upload -> compute file_signature
+  -> cache hit: parse -> preview
+  -> cache miss: mapping page -> parse with overrides -> preview -> confirm
+```
 
-1. **Real-data smoke**: walk the 21 catalog rejects from
-   `data/source_inventory/feedable_candidates.csv` through the new
-   mapping page; document which now parse vs which need additional
-   parser work (DKE BOM/định mức adapter, CO ToKhaiHQ7* adapter, etc.).
-2. **Add EN aliases to BQD + BOM ALIASES** (5-line change per module)
-   so English-header files don't need staff to manually map every
-   column. Catalog + BCCT already have EN aliases.
-3. **Sister-app coordination** for CO migration cutover (deadline
-   2026-05-16). Read APIs unchanged so consumers see the same shape;
-   no breaking change. Optionally update `co-migrate-to-client-config`
-   sister-app note with status.
-4. **Ghost-code triage**: 200 unresolved Growatt BOM material codes
-   from prior session.
+Module-specific notes:
+
+- **catalog**: at least one of `customs_code` or `internal_code`; provenance
+  toggle registered vs user_added.
+- **BQD**: requires both `internal_code` and `customs_code`.
+- **BOM-manual_flat**: requires `product_code`, `material_code`, and
+  quantity by default; layout-driven adapters bypass the mapping page;
+  technical_flatten unchanged.
+- **BCCT**: requires `declaration_no`, `registration_date`, and
+  `customs_code`; confirm-on-update and history semantics preserved.
+
+## Not Done / Deferred
+
+- Real-data smoke against the 21 catalog rejects in
+  `data/source_inventory/feedable_candidates.csv`.
+- English rigid aliases for BQD + BOM headers; mapping page + LLM still
+  handles those, but rigid auto-match does not.
+- Per-client module required-fields override.
+- Column-level filters, saved filters, CSV export, live updates, and
+  virtual scrolling for data views. These remain backlog ideas.
+- Ghost-code triage: 200 unresolved Growatt BOM material codes from a
+  prior session.
 
 ## Blockers
 
@@ -149,29 +118,23 @@ None.
 
 ## Notes for Next AI Session
 
-- Respond in Vietnamese with full accents when the user writes
-  Vietnamese.
-- Dev port **8754 is non-negotiable**.
-- `app/routes/_mapping_flow.py` `ModuleConfig` has 4 reference
-  configs (CATALOG_CFG in catalog.py, BQD_CFG in bqd.py,
-  BOM_MAPPING_CFG in bom.py, BCCT_MAPPING_CFG in bcct.py). Use
-  whichever matches your need as the template.
-- The mapping page form uses `col_<idx>__field` + `col_<idx>__header`
-  hidden input pattern. Reuse verbatim for any 5th-module config.
-- `hub.file_uploads.result.mapping_state` JSONB carries
-  mapping-pending state; don't introduce a new table.
-- BOM has 5 adapters total. Only `manual_flat` participates in the
-  mapping flow. The other 4 (`sheet_per_product`,
-  `multi_sheet_per_root`, `sap_indented_walk`,
-  `sap_exploded_levels`) are layout-driven (`supports_mapping_override
-  =False`) and stay on the inline rigid+LLM cascade.
-- BCCT cache-hit path still goes through inline `parse_bcct_workbook`
-  + `_ingest_rows`; only cache miss routes through the new mapping
-  page. This keeps friction-free repeat uploads + preserves all
-  confirm-on-update + history semantics.
-- Layout-driven BOM adapters and BCCT cache-hit paths keep using
-  `_llm_fallback.py` helpers. Don't delete that module.
-- Per-client required-fields override is a known BACKLOG item —
-  needs a new column on `hub.client_config` (currently fixed-schema)
-  or a new generic `hub.client_module_settings(client_id, module,
-  key, value JSONB)` table.
+- Respond in Vietnamese with full accents when the user writes Vietnamese.
+- Dev port **8754 is non-negotiable**. If occupied, stop the existing
+  process; do not start on another port.
+- Latest known green suite: `437 passed, 15 skipped`.
+- `app/routes/_paging.py` owns pagination, page-size clamping, sort
+  whitelist resolution, and link building.
+- `app/templates/clients/_pagination.html` is the shared footer.
+- List views call `parse_page_params`, `SortSpec.from_params`,
+  `pagination_context`, and `sort_link`.
+- Keep sort columns whitelist-only. Do not splice raw query params into
+  SQL fragments.
+- `app/database.py` now pools default DB connections. Custom `url=...`
+  connections still bypass the pool for tests/scripts.
+- Pool reset clears `app.user_id` on check-in; do not remove it unless
+  the BCCT history trigger attribution model changes.
+- `scripts/screenshot_paginated_views.py` assumes the dev server is live
+  on `http://127.0.0.1:8754` and logs PNG sizes after capture.
+- `app/routes/_mapping_flow.py` and `_llm_fallback.py` are still both
+  live. Do not delete `_llm_fallback.py`; BOM layout-driven adapters and
+  BCCT cache-hit paths still use it.
