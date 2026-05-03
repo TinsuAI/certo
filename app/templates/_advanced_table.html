@@ -1,28 +1,31 @@
 <form method="get" class="table-toolbar" aria-label="Bộ lọc bảng">
+  {% for key, value in source_table.passthrough_params.items() %}
+  <input type="hidden" name="{{ key }}" value="{{ value }}">
+  {% endfor %}
   <label class="table-search">Tìm kiếm
-    <input type="search" name="q" value="{{ source_table.q }}" placeholder="Mã, tên, tờ khai, HS...">
+    <input type="search" name="{{ source_table.field_names.q }}" value="{{ source_table.q }}" placeholder="{{ source_table.search_placeholder|default('Mã, tên, tờ khai, HS...') }}">
   </label>
   {% for filter in source_table.filters %}
   <label>{{ filter.label }}
-    <select name="{{ filter.name }}">
+    <select name="{{ filter.query_name }}">
       <option value="">Tất cả</option>
       {% for option in filter.options %}
-      <option value="{{ option.value }}" {% if option.value == source_table.query.get(filter.name, '') %}selected{% endif %}>{{ option.label }}</option>
+      <option value="{{ option.value }}" {% if option.value == filter.value %}selected{% endif %}>{{ option.label }}</option>
       {% endfor %}
     </select>
   </label>
   {% endfor %}
   <label>Hiển thị
-    <select name="per_page">
+    <select name="{{ source_table.field_names.per_page }}">
       {% for page_size in source_table.page_sizes %}
       <option value="{{ page_size }}" {% if page_size == source_table.per_page %}selected{% endif %}>{{ page_size }}</option>
       {% endfor %}
     </select>
   </label>
-  <input type="hidden" name="sort" value="{{ source_table.sort }}">
-  <input type="hidden" name="dir" value="{{ source_table.dir }}">
+  <input type="hidden" name="{{ source_table.field_names.sort }}" value="{{ source_table.sort }}">
+  <input type="hidden" name="{{ source_table.field_names.dir }}" value="{{ source_table.dir }}">
   <button type="submit">Lọc</button>
-  <a class="btn-secondary" href="?">Xóa lọc</a>
+  <a class="btn-secondary" href="?{{ source_table.reset_query }}">Xóa lọc</a>
 </form>
 
 <div class="table-meta-row">
@@ -59,7 +62,13 @@
       {% for row in source_table.rows %}
       <tr>
         {% for column in source_table.columns %}
-        <td class="{{ column.class }}">{{ row.get(column.key, "") }}</td>
+        <td class="{{ column.class }}">
+          {% if column.link_key and row.get(column.link_key) %}
+          <a class="table-link" href="{{ row.get(column.link_key) }}">{{ row.get(column.key, "") }}</a>
+          {% else %}
+          {{ row.get(column.key, "") }}
+          {% endif %}
+        </td>
         {% endfor %}
       </tr>
       {% else %}

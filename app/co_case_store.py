@@ -15,6 +15,7 @@ from typing import Any
 
 from openpyxl import Workbook
 
+from app.co_forms import form_candidates_for_market
 from app.workflow_state_store import get_co_case_state_store
 
 
@@ -55,6 +56,7 @@ def create_case_record(client: dict, form: dict[str, str]) -> dict:
             "created_at": created_at,
             "updated_at": created_at,
         }
+        apply_form_defaults(record)
         state["cases"].append(record)
         save_state(client["id"], state)
         return dict(record)
@@ -80,6 +82,10 @@ def update_case_record(client: dict, case: dict) -> dict:
         for key in ["title", "case_code", "destination_market", "agreement", "co_form_type", "rule"]:
             if clean_text(case.get(key)):
                 record[key] = clean_text(case.get(key))
+        if not clean_text(case.get("co_form_type")):
+            apply_form_defaults(record, force=True)
+        else:
+            apply_form_defaults(record)
         shipment = case.get("shipment", {})
         record.setdefault("shipment", {})
         record["shipment"]["invoice_no"] = clean_text(shipment.get("invoice_no"))
@@ -104,6 +110,27 @@ def case_from_record(base_case: dict, client: dict, record: dict) -> dict:
     case["shipment"] = dict(record.get("shipment", {}))
     case["supporting_files"] = [dict(file_row) for file_row in record.get("supporting_files", [])]
     return case
+
+
+def apply_form_defaults(record: dict, force: bool = False) -> None:
+    defaults = form_defaults_for_market(record.get("destination_market", ""))
+    for key, value in defaults.items():
+        if force or not clean_text(record.get(key)):
+            record[key] = value
+
+
+def form_defaults_for_market(destination_market: str) -> dict:
+    market = clean_text(destination_market)
+    if not market or market == "Chưa nhập":
+        return {}
+    candidate = next(iter(form_candidates_for_market(market)), {})
+    if not candidate:
+        return {}
+    return {
+        "agreement": candidate.get("agreement", ""),
+        "co_form_type": candidate.get("display_name", ""),
+        "rule": candidate.get("rule_lookup_label", ""),
+    }
 
 
 def save_supporting_file(

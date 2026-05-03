@@ -12,8 +12,9 @@
 <div class="toast toast-error">{{ error }}</div>
 {% endif %}
 
+<div class="bom-page">
 {% if client.bom_source_profile %}
-<section class="zone zone-muted">
+<section class="zone zone-muted bom-source-zone">
   <div class="zone-head">
     <div>
       <h2>{{ client.bom_source_profile.kind }}</h2>
@@ -34,11 +35,11 @@
 </section>
 {% endif %}
 
-<section class="zone">
+<section class="zone bom-admin-zone">
   <div class="zone-head">
     <div>
-      <h2>Cấu hình và nạp BOM</h2>
-      <p class="meta">Mỗi công ty chọn profile parse riêng. Upload BOM mới sẽ so sánh theo từng mã TP, rồi publish BOM tổng hợp nếu composition đổi.</p>
+      <h2>{{ "BOM từ Data Hub" if bom_workspace.read_only else "Cấu hình và nạp BOM" }}</h2>
+      <p class="meta">{{ "CO chỉ đọc BOM đã publish để bind vào hồ sơ; upload, flatten và cấu hình canonical nằm ở Data Hub." if bom_workspace.read_only else "Mỗi công ty chọn profile parse riêng. Upload BOM mới sẽ so sánh theo từng mã TP, rồi publish BOM tổng hợp nếu composition đổi." }}</p>
     </div>
     <div class="chip-row">
       <span class="chip chip-active">BOM tổng hợp v{{ latest.version_no }}</span>
@@ -166,56 +167,49 @@
   {% endif %}
 </section>
 
-<section class="zone">
+<section class="zone data-zone">
   <div class="zone-head">
     <div>
-      <h2>BOM đang publish</h2>
-      <p class="meta">Version này là baseline để hồ sơ C/O snapshot và phân bổ tồn CO theo từng dòng NVL.</p>
+      <h2>Thành phẩm có BOM</h2>
+      <p class="meta">Chọn một TP để xem đúng BOM của TP đó. Bảng này có tìm kiếm, filter trạng thái, sort và phân trang riêng.</p>
     </div>
     <div class="chip-row">
-      <a class="chip chip-active" href="#bom-lines">{{ bom_workspace.latest_rows|length }} dòng</a>
+      <span class="chip chip-active">{{ bom_workspace.product_composition|length }} TP</span>
+      <span class="chip">{{ bom_workspace.latest_rows|length }} dòng BOM</span>
       <a class="chip" href="/clients/{{ client.id }}/co-case">Dùng trong hồ sơ C/O</a>
     </div>
   </div>
-  <div class="table-scroll" id="bom-lines">
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Mã TP</th>
-          <th>BOM</th>
-          <th>Phiên bản TP</th>
-          <th>Mã NVL</th>
-          <th>Tên NVL</th>
-          <th>Định mức</th>
-          <th>ĐVT</th>
-          <th>Hao hụt</th>
-          <th>Nguồn</th>
-          <th>Trạng thái</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in bom_workspace.latest_rows %}
-        <tr>
-          <td class="mono">{{ row.product_code }}</td>
-          <td class="mono">{{ row.bom_code }}</td>
-          <td>TP v{{ row.product_version_no|default("?") }}</td>
-          <td class="mono">{{ row.material_code }}</td>
-          <td>{{ row.material_name }}</td>
-          <td class="num">{{ row.qty_per }}</td>
-          <td>{{ row.uom }}</td>
-          <td>{{ row.scrap_rate }}</td>
-          <td>{{ row.source }}</td>
-          <td><span class="badge badge-warning">{{ row.row_class }}</span></td>
-        </tr>
-        {% else %}
-        <tr><td colspan="10" class="empty-cell">Chưa có dữ liệu BOM.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  {% with source_table=bom_product_table %}
+  {% include "_advanced_table.html" %}
+  {% endwith %}
 </section>
 
-<section class="zone">
+<section class="zone data-zone" id="bom-lines">
+  <div class="zone-head">
+    <div>
+      <h2>BOM của TP đang xem</h2>
+      <p class="meta">
+        {% if selected_bom_product %}
+        TP <span class="mono">{{ selected_bom_product }}</span> · version {{ selected_bom_product_summary.product_version_no or 'n/a' }} · {{ selected_bom_product_summary.row_count or 0 }} dòng.
+        {% else %}
+        Chọn một thành phẩm ở bảng trên để xem dòng BOM.
+        {% endif %}
+      </p>
+    </div>
+    <div class="chip-row">
+      {% if selected_bom_product %}
+      <span class="chip chip-active mono">{{ selected_bom_product }}</span>
+      {% endif %}
+      <span class="chip">BOM tổng hợp v{{ latest.version_no }}</span>
+      <span class="chip">{{ bom_line_table.filtered_count }} dòng sau lọc</span>
+    </div>
+  </div>
+  {% with source_table=bom_line_table %}
+  {% include "_advanced_table.html" %}
+  {% endwith %}
+</section>
+
+<section class="zone bom-trace-zone">
   <div class="zone-head">
     <div>
       <h2>Version và truy vết</h2>
@@ -365,7 +359,7 @@
   </div>
 </section>
 
-<section class="zone zone-muted">
+<section class="zone zone-muted bom-case-zone">
   <div class="zone-head">
     <div>
       <h2>Quan hệ với hồ sơ C/O</h2>
@@ -389,4 +383,5 @@
     {% endfor %}
   </div>
 </section>
+</div>
 {% endblock %}

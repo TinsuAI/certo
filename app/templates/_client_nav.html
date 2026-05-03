@@ -7,6 +7,7 @@
   </div>
 </section>
 
+{% if active != "co-case" %}
 <nav class="workflow-primary" aria-label="Luồng làm C/O">
   <a class="workflow-primary-link {{ 'workflow-primary-link-active' if active == 'co-case' else '' }}" href="/clients/{{ client.id }}/co-case">
     <span>Luồng chính</span>
@@ -14,6 +15,7 @@
     <small>Tạo shipment, gom chứng từ, đối chiếu BCCT, kiểm tra xuất xứ và xuất dossier.</small>
   </a>
 </nav>
+{% endif %}
 
 {% if active != "co-case" %}
   <nav class="tabs" aria-label="Dữ liệu nền công ty">

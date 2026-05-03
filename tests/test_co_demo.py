@@ -1733,6 +1733,8 @@ def test_co_case_detail_is_split_into_workflow_step_views():
     assert "BCCT xuất khẩu theo invoice" in exports.text
     assert "Form và thông tư" in guidance.text
     assert "Đánh giá RVC + CTSH" in origin.text
+    assert "Upload và parse" not in origin.text
+    assert "Tải seed XLSX" not in origin.text
     assert "Xuất dossier XLSX" in review.text
     assert f"{case_url}/documents" in shipment.text
     assert f"{case_url}/origin" in shipment.text
@@ -1779,6 +1781,28 @@ def test_co_case_shipment_step_updates_metadata_without_dropping_origin_view():
     assert "Đánh giá RVC + CTSH" in origin.text
 
 
+def test_co_case_origin_preloads_demo_when_case_has_no_invoice_source_data():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/do-thanh/co-case/create",
+        data={"title": "Origin demo", "case_code": "CO-DEMO", "destination_market": "Canada"},
+        follow_redirects=False,
+    )
+    assert created.status_code == 303
+
+    origin = client.get(f"{created.headers['location']}/origin")
+    review = client.get(f"{created.headers['location']}/review")
+
+    assert origin.status_code == 200
+    assert "Demo tự nạp" in origin.text
+    assert "2 TP mẫu" in origin.text
+    assert "4 NVL mẫu" in origin.text
+    assert "PV00.0048500" in origin.text
+    assert "Upload và parse" not in origin.text
+    assert "Demo tự nạp" not in review.text
+    assert "2 TP mẫu" not in review.text
+
+
 def test_co_case_supporting_upload_saves_invoice_metadata_and_matches_bcct_exports():
     client = TestClient(app)
     upload = bcct_workbook([
@@ -1815,6 +1839,36 @@ def test_co_case_supporting_upload_saves_invoice_metadata_and_matches_bcct_expor
     assert "XK-001" in exports.text
     assert "MAT-001" not in exports.text
     assert "TP-OTHER" not in exports.text
+
+
+def test_co_case_guidance_maps_invoice_bcct_products_to_form_instrument_and_hs_criteria():
+    client = TestClient(app)
+    upload = bcct_workbook([
+        {"direction": "export", "declaration_type": "E42", "declaration_no": "XK-PSR", "line_no": "1", "item_code": "PV00.0048500", "description": "Growatt inverter", "hs_code": "850440", "quantity": "12", "unit": "PCS", "invoice_ref": "INV-PSR"},
+    ])
+    client.post(
+        "/clients/growatt/bcct/upload",
+        files={"file": ("bcct.xlsx", upload, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Criteria lookup", "case_code": "CO-PSR", "destination_market": "Canada", "invoice_no": "INV-PSR"},
+        follow_redirects=False,
+    )
+    location = created.headers["location"]
+
+    index = client.get("/clients/growatt/co-case")
+    shipment = client.get(location)
+    guidance = client.get(f"{location}/guidance")
+
+    assert 'role="combobox"' in index.text
+    assert "Form CPTPP" in shipment.text
+    assert "03/2019/TT-BCT" in shipment.text
+    assert "PV00.0048500" in shipment.text
+    assert "850440" in shipment.text
+    assert "CTH hoặc RVC 30/40/50 tùy công thức" in guidance.text
+    assert "03/2019/TT-BCT, Phụ lục II" in guidance.text
 
 
 def test_co_case_state_prefers_postgres_store_and_keeps_supporting_file_metadata(monkeypatch):

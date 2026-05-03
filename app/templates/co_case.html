@@ -58,100 +58,158 @@
   </div>
 {%- endmacro %}
 
+{% macro form_lane_matrix() -%}
+  <div class="form-lane-grid">
+    {% for lane in form_lanes %}
+    <article class="form-lane {{ 'form-lane-recommended' if lane.recommended else '' }}">
+      <div class="form-lane-head">
+        <span class="eyebrow">Priority {{ lane.priority }}</span>
+        <strong>{{ lane.display_name }}</strong>
+        <span class="badge {{ 'badge-ok' if lane.recommended else 'badge-neutral' }}">{{ 'Gợi ý' if lane.recommended else 'Chọn thủ công' }}</span>
+      </div>
+      <div class="mini-rule-list">
+        {% for rule in lane.criteria_preview[:1] %}
+        <div>
+          <span class="mono">{{ rule.hs_code }}</span>
+          <strong>{{ rule.criteria }}</strong>
+        </div>
+        {% endfor %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  <div class="table-scroll compact-table">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Form</th>
+          <th>HS</th>
+          <th>Tiêu chí preview</th>
+          <th>Trạng thái</th>
+          <th>Ghi chú</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for lane in form_lanes %}
+        {% for rule in lane.criteria_preview %}
+        <tr>
+          <td>{{ lane.display_name }}</td>
+          <td class="mono">{{ rule.hs_code }}</td>
+          <td>{{ rule.criteria }}</td>
+          <td><span class="badge badge-info">{{ rule.status }}</span></td>
+          <td>{{ rule.note }}</td>
+        </tr>
+        {% endfor %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{%- endmacro %}
+
+{% macro market_picker(input_id, value) -%}
+  <div class="market-combobox" data-market-combobox>
+    <label for="{{ input_id }}">Thị trường</label>
+    <input id="{{ input_id }}" name="destination_market" value="{{ value }}" autocomplete="off" role="combobox" aria-expanded="false" data-market-input placeholder="Gõ để tìm thị trường">
+    <div class="market-options" role="listbox" data-market-options>
+      {% for preset in common_market_guidance %}
+      <button type="button"
+              role="option"
+              data-market-option
+              data-market-value="{{ preset.market }}"
+              data-search="{{ preset.label }} {{ preset.market }} {{ preset.aliases|join(' ') }}"
+              data-form-name="{{ preset.display_name }}"
+              data-form-code="{{ preset.form_code }}"
+              data-agreement="{{ preset.agreement }}"
+              data-instrument="{{ preset.instrument }}">
+        <span>{{ preset.label }}</span>
+        <strong>{{ preset.display_name }}</strong>
+      </button>
+      {% endfor %}
+    </div>
+  </div>
+{%- endmacro %}
+
 {% block content %}
 {% include "_client_nav.html" %}
 
 {% if co_case_active_step == "index" %}
-<section class="hero hero-primary co-workflow-hero" aria-label="Quy trình làm C/O">
+<section class="zone co-command-bar" aria-label="Luồng làm C/O">
   <div>
-    <span class="eyebrow">Luồng chính</span>
-    <div class="hero-headline">Quy trình làm C/O</div>
-    <p class="hero-meta">Tạo hoặc mở hồ sơ theo từng shipment, rồi đi qua chứng từ, tờ khai xuất, form/PSR, xuất xứ và review dossier.</p>
+    <span class="eyebrow">Làm hồ sơ C/O</span>
+    <h2>Tạo hồ sơ từ invoice</h2>
+    <p class="meta">Quy trình làm C/O: nhập invoice, chọn thị trường; hệ thống gợi ý form, thông tư và tiêu chí HS sau khi đối chiếu BCCT xuất khẩu.</p>
   </div>
-  <div class="hero-divider"></div>
-  <div class="hero-stat">
-    <span class="hero-stat-value">{{ case_workspace.cases|length }}</span>
-    <span class="hero-stat-label">Hồ sơ đã lưu</span>
-  </div>
-  <div class="hero-stat">
-    <span class="hero-stat-value">{{ case.source_snapshot.bcct_reviewed_row_count }}</span>
-    <span class="hero-stat-label">BCCT reviewed</span>
-  </div>
+  <ol class="co-flow-mini">
+    <li><strong>1</strong><span>Invoice</span></li>
+    <li><strong>2</strong><span>Thị trường</span></li>
+    <li><strong>3</strong><span>Form + thông tư</span></li>
+    <li><strong>4</strong><span>HS + tiêu chí</span></li>
+  </ol>
 </section>
 
-<section class="zone source-panel">
-  <div class="zone-head">
-    <div>
-      <h2>Tạo hoặc mở hồ sơ</h2>
-      <p class="meta">Mỗi hồ sơ C/O bám một lô xuất cụ thể. Dữ liệu nền chỉ được lấy vào sau khi có shipment context.</p>
+<section class="co-case-grid co-case-grid-simple">
+  <section class="zone source-panel co-new-case-panel co-primary-create">
+    <div class="zone-head">
+      <div>
+        <h2>Tạo hoặc mở hồ sơ</h2>
+        <p class="meta">Chỉ cần invoice và thị trường để bắt đầu. Form ưu tiên: B, CPTPP, EUR.1, AI.</p>
+      </div>
     </div>
-  </div>
-  <form method="post" action="/clients/{{ client.id }}/co-case/create" class="upload-form" hx-boost="false">
-    <input name="title" placeholder="Tên hồ sơ" value="{{ case.title }}">
-    <input name="case_code" placeholder="Mã hồ sơ" value="{{ case.case_code }}">
-    <input name="destination_market" placeholder="Thị trường" value="{{ case.destination_market }}">
-    <input name="invoice_no" placeholder="Số invoice" value="{{ case.shipment.invoice_no }}">
-    <input name="bill_of_lading_no" placeholder="Số B/L" value="{{ case.shipment.bill_of_lading_no }}">
-    <button type="submit">Tạo hồ sơ</button>
-  </form>
-</section>
+    <form method="post" action="/clients/{{ client.id }}/co-case/create" class="co-create-form co-create-flow" hx-boost="false">
+      <label>Invoice
+        <input name="invoice_no" placeholder="INV-..." value="{{ case.shipment.invoice_no }}" required>
+      </label>
+      {{ market_picker("create-destination-market", "" if case.destination_market == "Chưa nhập" else case.destination_market) }}
+      <input type="hidden" name="co_form_type" value="{{ recommended_form_lane.display_name if case.destination_market != 'Chưa nhập' else '' }}" data-selected-form>
+      <input type="hidden" name="agreement" value="{{ recommended_form_lane.agreement if case.destination_market != 'Chưa nhập' else '' }}" data-selected-agreement>
+      <input type="hidden" name="rule" value="{{ recommended_form_lane.rule_lookup_label if case.destination_market != 'Chưa nhập' else '' }}" data-selected-rule>
+      <div class="co-form-preview" data-form-preview>
+        <span>Form gợi ý</span>
+        <strong data-preview-form>{{ recommended_form_lane.display_name if case.destination_market != 'Chưa nhập' else 'Chọn thị trường' }}</strong>
+        <small data-preview-instrument>{{ recommended_form_lane.instrument if case.destination_market != 'Chưa nhập' else 'Thông tư sẽ hiện sau khi chọn thị trường' }}</small>
+      </div>
+      <details class="co-optional-fields">
+        <summary>Thông tin thêm</summary>
+        <label>Tên hồ sơ
+          <input name="title" placeholder="Tên hồ sơ" value="{{ case.title }}">
+        </label>
+        <label>Mã hồ sơ
+          <input name="case_code" placeholder="Tự sinh nếu bỏ trống" value="">
+        </label>
+        <label>Số B/L
+          <input name="bill_of_lading_no" placeholder="Tùy chọn" value="{{ case.shipment.bill_of_lading_no }}">
+        </label>
+      </details>
+      <button type="submit">Tạo hồ sơ</button>
+    </form>
+  </section>
 
-<section class="zone source-panel" aria-label="Danh sách hồ sơ C/O">
-  <div class="zone-head">
-    <div>
-      <h2>Danh sách hồ sơ C/O</h2>
-      <p class="meta">Mở đúng shipment theo mã hồ sơ, thị trường, invoice và vận đơn.</p>
-    </div>
-  </div>
-  <div class="dossier-list">
-    <div class="dossier-list-head" aria-hidden="true">
-      <span>Tên hồ sơ</span>
-      <span>Mã hồ sơ</span>
-      <span>Thị trường</span>
-      <span>Invoice</span>
-      <span>B/L</span>
-      <span>Files</span>
-      <span>Cập nhật</span>
-      <span></span>
-    </div>
-    {% for dossier in case_workspace.cases %}
-    <div class="dossier-row">
-      <div class="dossier-title">
-        <span>Tên hồ sơ</span>
-        <strong>{{ dossier.title }}</strong>
-      </div>
+  <aside class="zone source-panel co-case-list-panel" aria-label="Danh sách hồ sơ C/O">
+    <div class="zone-head">
       <div>
-        <span>Mã hồ sơ</span>
-        <strong class="mono">{{ dossier.case_code }}</strong>
-      </div>
-      <div>
-        <span>Thị trường</span>
-        <strong>{{ dossier.destination_market }}</strong>
-      </div>
-      <div>
-        <span>Invoice</span>
-        <strong class="mono">{{ dossier.shipment.invoice_no or 'n/a' }}</strong>
-      </div>
-      <div>
-        <span>B/L</span>
-        <strong class="mono">{{ dossier.shipment.bill_of_lading_no or 'n/a' }}</strong>
-      </div>
-      <div>
-        <span>Files</span>
-        <strong class="num">{{ dossier.supporting_files|length }}</strong>
-      </div>
-      <div>
-        <span>Cập nhật</span>
-        <strong class="mono">{{ dossier.updated_at[:16].replace("T", " ") }}</strong>
-      </div>
-      <div class="dossier-action">
-        <a class="btn-secondary" href="/clients/{{ client.id }}/co-case/{{ dossier.case_id }}">Mở hồ sơ</a>
+        <h2>Danh sách hồ sơ C/O</h2>
+        <p class="meta">{{ case_workspace.cases|length }} hồ sơ đang lưu.</p>
       </div>
     </div>
-    {% else %}
-    <p class="empty-cell">Chưa có hồ sơ lưu riêng cho công ty này.</p>
-    {% endfor %}
-  </div>
+    <div class="case-list">
+      {% for dossier in case_workspace.cases %}
+      <a class="case-list-row" href="/clients/{{ client.id }}/co-case/{{ dossier.case_id }}">
+        <span>
+          <strong class="mono">{{ dossier.shipment.invoice_no or dossier.case_code }}</strong>
+          <small>{{ dossier.case_code }} · {{ dossier.title }}</small>
+        </span>
+        <span class="case-list-meta">
+          <em>{{ dossier.destination_market }}</em>
+          <em>{{ dossier.co_form_type or 'Chưa chọn form' }}</em>
+          <em>{{ dossier.shipment.bill_of_lading_no or 'Chưa có B/L' }}</em>
+        </span>
+        <b>Mở hồ sơ</b>
+      </a>
+      {% else %}
+      <p class="empty-cell">Chưa có hồ sơ lưu riêng cho công ty này.</p>
+      {% endfor %}
+    </div>
+  </aside>
 </section>
 
 {% else %}
@@ -179,37 +237,48 @@
   <div class="zone-head">
     <div>
       <h2>Thông tin lô hàng</h2>
-      <p class="meta">Đây là context chính của hồ sơ C/O: thị trường, invoice, vận đơn, form dự kiến và quy tắc đang review.</p>
+      <p class="meta">Nhập invoice và thị trường trước; các bước sau sẽ tự dùng context này để load BCCT, gợi ý form và dựng bảng tính tiêu chí.</p>
+    </div>
+    <div class="chip-row">
+      <span class="chip">Invoice {{ case.shipment.invoice_no or 'chưa nhập' }}</span>
+      <span class="chip">Thị trường {{ case.destination_market }}</span>
     </div>
   </div>
-  <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/shipment" class="stack-form co-step-form" hx-boost="false">
-    <input type="hidden" name="title" value="{{ case.title }}">
-    <label>Khách hàng
-      <input name="customer" value="{{ case.customer }}">
-    </label>
-    <label>Mã hồ sơ
-      <input name="case_code" value="{{ case.case_code }}">
-    </label>
-    <label>Thị trường
-      <input name="destination_market" value="{{ case.destination_market }}">
-    </label>
-    <label>Số invoice
-      <input name="invoice_no" value="{{ case.shipment.invoice_no }}">
-    </label>
-    <label>Số B/L
-      <input name="bill_of_lading_no" value="{{ case.shipment.bill_of_lading_no }}">
-    </label>
-    <label>Hiệp định
-      <input name="agreement" value="{{ case.agreement }}">
-    </label>
-    <label>Loại mẫu C/O
-      <input name="co_form_type" value="{{ case.co_form_type }}">
-    </label>
-    <label>Quy tắc áp dụng
-      <input name="rule" value="{{ case.rule }}">
-    </label>
-    <button type="submit">Lưu lô hàng</button>
-  </form>
+  <div class="co-step-layout">
+    <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/shipment" class="stack-form co-step-form" hx-boost="false">
+      <input type="hidden" name="title" value="{{ case.title }}">
+      <label>Mã hồ sơ
+        <input name="case_code" value="{{ case.case_code }}">
+      </label>
+      <label>Invoice
+        <input name="invoice_no" value="{{ case.shipment.invoice_no }}">
+      </label>
+      {{ market_picker("shipment-destination-market", case.destination_market) }}
+      <label>Số B/L
+        <input name="bill_of_lading_no" value="{{ case.shipment.bill_of_lading_no }}">
+      </label>
+      <div class="co-form-preview" data-form-preview>
+        <span>Form gợi ý</span>
+        <strong data-preview-form>{{ recommended_form_lane.display_name or case.co_form_type }}</strong>
+        <small data-preview-instrument>{{ recommended_form_lane.instrument or 'Thông tư sẽ hiện sau khi chọn thị trường' }}</small>
+      </div>
+      <button type="submit">Lưu lô hàng</button>
+    </form>
+    <aside class="co-side-note">
+      <h3>Sản phẩm theo invoice</h3>
+      <div class="invoice-product-list">
+        {% for row in invoice_criteria_rows %}
+        <div>
+          <span class="mono">{{ row.product_code or row.declaration_no }}</span>
+          <strong>{{ row.finished_hs }}</strong>
+          <small>{{ row.form }} · {{ row.rule }}</small>
+        </div>
+        {% else %}
+        <p class="empty-cell">Chưa thấy dòng BCCT xuất khẩu khớp invoice. Lưu invoice đúng rồi kiểm tra bước BCCT.</p>
+        {% endfor %}
+      </div>
+    </aside>
+  </div>
 </section>
 {% endif %}
 
@@ -323,8 +392,67 @@
 <section class="zone">
   <div class="zone-head">
     <div>
-      <h2>Form và thông tư</h2>
-      <p class="meta">Gợi ý theo thị trường để operator chọn lane phù hợp. Tiêu chí chính thức vẫn cần tra PSR theo HS.</p>
+      <h2>Form và thông tư / tiêu chí theo HS</h2>
+      <p class="meta">Form được gợi ý từ thị trường; tiêu chí được preview theo HS lấy từ BCCT export khớp invoice.</p>
+    </div>
+    <div class="chip-row">
+      <span class="chip">Thị trường {{ case.destination_market }}</span>
+      <span class="chip">Form {{ recommended_form_lane.display_name or case.co_form_type }}</span>
+      <span class="chip">Coming soon: legal PSR engine</span>
+    </div>
+  </div>
+  <div class="guidance-summary">
+    <div>
+      <span>Form gợi ý</span>
+      <strong>{{ recommended_form_lane.display_name or case.co_form_type }}</strong>
+    </div>
+    <div>
+      <span>Thông tư</span>
+      <strong>{{ recommended_form_lane.instrument or 'Chưa chọn thị trường' }}</strong>
+    </div>
+    <div>
+      <span>Hiệp định</span>
+      <strong>{{ recommended_form_lane.agreement or case.agreement }}</strong>
+    </div>
+  </div>
+  <div class="table-scroll compact-table">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Sản phẩm từ BCCT</th>
+          <th>HS</th>
+          <th>Form</th>
+          <th>Thông tư / nguồn</th>
+          <th>Tiêu chí preview</th>
+          <th>Ghi chú</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in invoice_criteria_rows %}
+        <tr>
+          <td>
+            <strong class="mono">{{ row.product_code or row.declaration_no }}</strong>
+            <div class="meta">{{ row.product_name or row.invoice_ref }}</div>
+          </td>
+          <td class="mono">{{ row.finished_hs }}</td>
+          <td>{{ row.form }}</td>
+          <td>{{ row.source_reference }}</td>
+          <td>{{ row.rule }}</td>
+          <td>{{ row.rule_note }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty-cell">Chưa có sản phẩm từ BCCT cho invoice này. Sau khi BCCT khớp invoice, bảng này sẽ hiện từng HS và tiêu chí tương ứng.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Thông tư / nguồn tham chiếu</h2>
+      <p class="meta">Danh sách này chỉ dùng để định hướng operator trước khi engine pháp lý thật được lắp.</p>
     </div>
   </div>
   <div class="rowlist audit-trail">
@@ -347,18 +475,39 @@
 <section class="zone source-panel">
   <div class="zone-head">
     <div>
-      <h2>Nạp dữ liệu tính C/O</h2>
-      <p class="meta">Dữ liệu case hiện tại: <strong>{{ case.source_label }}</strong>. Upload workbook sẽ parse thành TP/NVL rồi chạy engine.</p>
-    </div>
-    <div class="source-actions">
-      <a class="btn-secondary" href="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin">Nạp seed {{ client.name }}</a>
-      <a class="btn-secondary" href="/clients/{{ client.id }}/demo-input.xlsx">Tải seed XLSX</a>
+      <h2>Bảng tính tiêu chí C/O</h2>
+      <p class="meta">Bảng tiêu chí do hệ thống tính từ invoice, BCCT xuất khẩu, form/thông tư và BOM snapshot. Operator không upload bảng tiêu chí thủ công.</p>
     </div>
   </div>
-  <form method="post" action="/clients/{{ client.id }}/upload" enctype="multipart/form-data" class="upload-form" hx-boost="false">
-    <input type="file" name="file" accept=".xlsx" required>
-    <button type="submit">Upload và parse</button>
-  </form>
+  <div class="origin-source-strip">
+    <div>
+      <span>Invoice</span>
+      <strong class="mono">{{ case.shipment.invoice_no or 'Chưa nhập' }}</strong>
+    </div>
+    <div>
+      <span>{{ 'Demo' if origin_demo_active else 'BCCT khớp' }}</span>
+      <strong>{{ case.products|length ~ ' TP mẫu' if origin_demo_active else invoice_matches|length ~ ' dòng' }}</strong>
+    </div>
+    <div>
+      <span>Form</span>
+      <strong>{{ recommended_form_lane.display_name or case.co_form_type }}</strong>
+    </div>
+    <div>
+      <span>BOM snapshot</span>
+      <strong>{{ origin_demo_material_count ~ ' NVL mẫu' if origin_demo_active else case.bom_snapshot.composition|length ~ ' TP' }}</strong>
+    </div>
+  </div>
+  <div class="callout {{ 'callout-success' if origin_demo_active else 'callout-info' }}">
+    <span class="callout-icon">i</span>
+    <div>
+      <div class="callout-title">{{ 'Demo tự nạp' if origin_demo_active else 'Coming soon' }}</div>
+      {% if origin_demo_active %}
+      Hồ sơ chưa có dòng BCCT/BOM đủ để tính thật, nên tab Xuất xứ đang nạp sẵn 2 TP mẫu và NVL mẫu để operator nhìn được cách hệ thống dựng bảng tiêu chí. Dữ liệu demo này không phải file upload và không ghi vào hồ sơ lưu.
+      {% else %}
+      PSR legal engine, allocation ledger và case-level Data Hub BOM binding bền vững chưa được lắp hết. Bảng hiện là kết quả hệ thống dựng từ dữ liệu đang có, không phải file operator upload.
+      {% endif %}
+    </div>
+  </div>
 </section>
 
 <form method="post" action="/clients/{{ client.id }}/evaluate" id="co-case" class="workspace-grid">
@@ -426,11 +575,21 @@
   </aside>
 
   <section class="workspace-main">
+    <section class="zone" id="criteria-lanes">
+      <div class="zone-head">
+        <div>
+          <h2>Form ưu tiên và tiêu chí theo HS</h2>
+          <p class="meta">Chọn trong 4 form ưu tiên; mỗi HS của TP được hiện ngay tiêu chí preview tương ứng để operator review trước khi tính.</p>
+        </div>
+      </div>
+      {{ form_lane_matrix() }}
+    </section>
+
     <section class="zone" id="criteria-preview">
       <div class="zone-head">
         <div>
           <h2>Bảng kê dự kiến</h2>
-          <p class="meta">Tạo từ sản phẩm/BOM snapshot hiện có. Tiêu chí chính thức vẫn cần tra PSR theo form, HS và thông tư.</p>
+          <p class="meta">{{ 'Demo từ 2 TP mẫu để minh họa bảng hệ thống tính ra.' if origin_demo_active else 'Tạo từ sản phẩm/BOM snapshot hiện có. Tiêu chí chính thức vẫn cần tra PSR theo form, HS và thông tư.' }}</p>
         </div>
       </div>
       {{ criteria_table() }}
@@ -440,7 +599,7 @@
       <div class="zone-head">
         <div>
           <h2>Đánh giá RVC + CTSH</h2>
-          <p class="meta">RVC lấy từ tổng CIF không xuất xứ của các dòng NVL; CTSH so sánh HS NVL với HS thành phẩm.</p>
+          <p class="meta">{{ 'Dữ liệu demo tự nạp: RVC lấy từ CIF không xuất xứ, CTSH so sánh HS NVL với HS TP.' if origin_demo_active else 'Bảng tính hiện giữ logic demo: RVC lấy từ CIF không xuất xứ, CTSH so sánh HS NVL với HS TP.' }}</p>
         </div>
       </div>
 
@@ -622,4 +781,72 @@
 </section>
 {% endif %}
 {% endif %}
+<script>
+(() => {
+  const normalize = (value) => (value || "")
+    .toString()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+  const updatePreview = (input, option) => {
+    const form = input.closest("form");
+    const scope = form || document;
+    const preview = scope.querySelector("[data-form-preview]");
+    if (!preview) return;
+    const formName = option?.dataset.formName || "Chọn thị trường";
+    const instrument = option?.dataset.instrument || "Thông tư sẽ hiện sau khi chọn thị trường";
+    preview.querySelector("[data-preview-form]").textContent = formName;
+    preview.querySelector("[data-preview-instrument]").textContent = instrument;
+    scope.querySelector("[data-selected-form]")?.setAttribute("value", option?.dataset.formName || "");
+    scope.querySelector("[data-selected-agreement]")?.setAttribute("value", option?.dataset.agreement || "");
+    scope.querySelector("[data-selected-rule]")?.setAttribute("value", option ? "Cần tra cứu PSR theo HS" : "");
+  };
+
+  document.querySelectorAll("[data-market-combobox]").forEach((box) => {
+    const input = box.querySelector("[data-market-input]");
+    const panel = box.querySelector("[data-market-options]");
+    const options = Array.from(box.querySelectorAll("[data-market-option]"));
+    const findOption = () => {
+      const key = normalize(input.value);
+      if (!key) return null;
+      return options.find((option) => normalize(option.dataset.marketValue) === key)
+        || options.find((option) => normalize(option.dataset.search).includes(key));
+    };
+    const filter = () => {
+      const key = normalize(input.value);
+      options.forEach((option) => {
+        option.hidden = Boolean(key) && !normalize(option.dataset.search).includes(key);
+      });
+      updatePreview(input, findOption());
+    };
+    input.addEventListener("focus", () => {
+      panel.classList.add("is-open");
+      input.setAttribute("aria-expanded", "true");
+      filter();
+    });
+    input.addEventListener("input", filter);
+    options.forEach((option) => {
+      option.addEventListener("click", () => {
+        input.value = option.dataset.marketValue;
+        panel.classList.remove("is-open");
+        input.setAttribute("aria-expanded", "false");
+        updatePreview(input, option);
+      });
+    });
+    filter();
+  });
+
+  document.addEventListener("click", (event) => {
+    document.querySelectorAll("[data-market-combobox]").forEach((box) => {
+      if (box.contains(event.target)) return;
+      box.querySelector("[data-market-options]")?.classList.remove("is-open");
+      box.querySelector("[data-market-input]")?.setAttribute("aria-expanded", "false");
+    });
+  });
+})();
+</script>
 {% endblock %}

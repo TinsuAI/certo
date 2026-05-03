@@ -17,11 +17,13 @@ def build_table_view(
     summary_fields: Sequence[Mapping] | None = None,
     default_sort: str | None = None,
     default_per_page: int = DEFAULT_PAGE_SIZE,
+    param_prefix: str = "",
 ) -> dict:
     query_values = normalize_query(query or {})
+    field_names = table_field_names(param_prefix)
     column_defs = [normalize_column(column) for column in columns]
-    filter_defs = [normalize_filter(filter_def, rows) for filter_def in filters or []]
-    q = query_values.get("q", "").strip()
+    filter_defs = [normalize_filter(filter_def, rows, param_prefix) for filter_def in filters or []]
+    q = query_values.get(field_names["q"], "").strip()
 
     filtered_rows = [dict(row) for row in rows]
     if q:
@@ -36,7 +38,8 @@ def build_table_view(
         ]
 
     for filter_def in filter_defs:
-        value = query_values.get(filter_def["name"], "").strip()
+        value = query_values.get(filter_def["query_name"], "").strip()
+        filter_def["value"] = value
         if value:
             field = filter_def["field"]
             filtered_rows = [
@@ -44,36 +47,44 @@ def build_table_view(
                 if normalize_value(row.get(field)) == normalize_value(value)
             ]
 
-    sort_key = query_values.get("sort") or default_sort or (column_defs[0]["key"] if column_defs else "")
+    sort_key = query_values.get(field_names["sort"]) or default_sort or (column_defs[0]["key"] if column_defs else "")
     sortable_keys = {column["key"] for column in column_defs if column.get("sortable", True)}
     if sort_key not in sortable_keys:
         sort_key = default_sort if default_sort in sortable_keys else (column_defs[0]["key"] if column_defs else "")
-    direction = "desc" if query_values.get("dir") == "desc" else "asc"
+    direction = "desc" if query_values.get(field_names["dir"]) == "desc" else "asc"
     if sort_key:
         filtered_rows.sort(
             key=lambda row: natural_sort_value(row.get(sort_key)),
             reverse=direction == "desc",
         )
 
-    per_page = min(max(1, parse_int(query_values.get("per_page"), default_per_page)), 500)
+    per_page = min(max(1, parse_int(query_values.get(field_names["per_page"]), default_per_page)), 500)
     page_count = max(1, ceil(len(filtered_rows) / per_page))
-    page = min(max(1, parse_int(query_values.get("page"), 1)), page_count)
+    page = min(max(1, parse_int(query_values.get(field_names["page"]), 1)), page_count)
     start = (page - 1) * per_page
     end = start + per_page
 
     prepared_query = {
         key: value
         for key, value in query_values.items()
-        if key not in {"page"}
+        if key != field_names["page"]
+    }
+    owned_names = table_owned_query_names(filter_defs, field_names)
+    reset_query = {
+        key: value
+        for key, value in query_values.items()
+        if key not in owned_names
     }
     for column in column_defs:
         column["sort_active"] = column["key"] == sort_key
         column["sort_dir"] = direction if column["sort_active"] else ""
         column["sort_query"] = page_query(
             prepared_query,
-            sort=column["key"],
-            dir="desc" if column["sort_active"] and direction == "asc" else "asc",
-            page=1,
+            **{
+                field_names["sort"]: column["key"],
+                field_names["dir"]: "desc" if column["sort_active"] and direction == "asc" else "asc",
+                field_names["page"]: 1,
+            },
         )
 
     return {
@@ -82,6 +93,9 @@ def build_table_view(
         "filters": filter_defs,
         "summary_chips": build_summary_chips(filtered_rows, summary_fields or []),
         "query": query_values,
+        "field_names": field_names,
+        "passthrough_params": reset_query,
+        "param_prefix": param_prefix,
         "q": q,
         "sort": sort_key,
         "dir": direction,
@@ -95,10 +109,11 @@ def build_table_view(
         "end_index": min(end, len(filtered_rows)),
         "has_previous": page > 1,
         "has_next": page < page_count,
-        "previous_query": page_query(prepared_query, page=page - 1),
-        "next_query": page_query(prepared_query, page=page + 1),
-        "first_query": page_query(prepared_query, page=1),
-        "last_query": page_query(prepared_query, page=page_count),
+        "previous_query": page_query(prepared_query, **{field_names["page"]: page - 1}),
+        "next_query": page_query(prepared_query, **{field_names["page"]: page + 1}),
+        "first_query": page_query(prepared_query, **{field_names["page"]: 1}),
+        "last_query": page_query(prepared_query, **{field_names["page"]: page_count}),
+        "reset_query": page_query(reset_query),
     }
 
 
@@ -117,10 +132,11 @@ def normalize_column(column: Mapping) -> dict:
         "class": str(column.get("class", "")),
         "searchable": bool(column.get("searchable", True)),
         "sortable": bool(column.get("sortable", True)),
+        "link_key": str(column.get("link_key", "")),
     }
 
 
-def normalize_filter(filter_def: Mapping, rows: Sequence[Mapping]) -> dict:
+def normalize_filter(filter_def: Mapping, rows: Sequence[Mapping], param_prefix: str = "") -> dict:
     name = str(filter_def["name"])
     field = str(filter_def.get("field") or name)
     options = filter_def.get("options")
@@ -136,10 +152,26 @@ def normalize_filter(filter_def: Mapping, rows: Sequence[Mapping]) -> dict:
         options = [{"value": value, "label": value} for value in values]
     return {
         "name": name,
+        "query_name": f"{param_prefix}{name}" if param_prefix else name,
         "field": field,
         "label": str(filter_def.get("label") or name),
         "options": [normalize_filter_option(option) for option in options],
+        "value": "",
     }
+
+
+def table_field_names(param_prefix: str) -> dict[str, str]:
+    return {
+        "q": f"{param_prefix}q" if param_prefix else "q",
+        "sort": f"{param_prefix}sort" if param_prefix else "sort",
+        "dir": f"{param_prefix}dir" if param_prefix else "dir",
+        "page": f"{param_prefix}page" if param_prefix else "page",
+        "per_page": f"{param_prefix}per_page" if param_prefix else "per_page",
+    }
+
+
+def table_owned_query_names(filters: Sequence[Mapping], field_names: Mapping[str, str]) -> set[str]:
+    return set(field_names.values()) | {str(filter_def["query_name"]) for filter_def in filters}
 
 
 def normalize_filter_option(option) -> dict[str, str]:

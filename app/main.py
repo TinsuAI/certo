@@ -25,7 +25,14 @@ from app.co_case_store import (
     save_supporting_file,
     update_case_record,
 )
-from app.co_forms import form_candidates_for_market
+from app.co_forms import (
+    COMMON_MARKET_PRESETS,
+    common_market_guidance,
+    criteria_preview_for_hs,
+    form_candidates_for_market,
+    prioritized_form_lanes,
+    recommended_form_lane,
+)
 from app.client_registry import get_client as registry_get_client
 from app.client_registry import get_client_case
 from app.customs_fx_store import CUSTOMS_FX_CLIENT_ID, get_customs_fx_store, refresh_customs_exchange_rates
@@ -235,6 +242,24 @@ CUSTOMS_FX_COLUMNS = [
     {"key": "rate_display", "label": "Tỷ giá", "class": "num", "sortable": False},
     {"key": "source_endpoint", "label": "Nguồn API", "class": "mono"},
     {"key": "fetched_at", "label": "Lần lấy", "class": "mono"},
+]
+
+BOM_PRODUCT_COLUMNS = [
+    {"key": "product_code", "label": "Mã TP", "class": "mono", "link_key": "view_href"},
+    {"key": "product_version_no", "label": "TP version", "class": "mono"},
+    {"key": "row_count", "label": "Dòng BOM", "class": "num"},
+    {"key": "status", "label": "Trạng thái"},
+    {"key": "version_hash_short", "label": "Hash", "class": "mono"},
+]
+
+BOM_LINE_COLUMNS = [
+    {"key": "material_code", "label": "Mã NVL", "class": "mono"},
+    {"key": "material_name", "label": "Tên NVL"},
+    {"key": "qty_per", "label": "Định mức", "class": "num"},
+    {"key": "uom", "label": "ĐVT", "class": "mono"},
+    {"key": "scrap_rate", "label": "Hao hụt", "class": "num"},
+    {"key": "source", "label": "Nguồn"},
+    {"key": "row_class", "label": "Trạng thái"},
 ]
 
 
@@ -528,7 +553,14 @@ def client_context(client_id: str, active: str, **extra):
         "client_config": source_workspace["client_config"],
         "case_workspace": extra.pop("case_workspace", get_case_workspace(client)),
         "form_candidates": extra.pop("form_candidates", form_candidates_for_market(case.get("destination_market", ""))),
+        "form_lanes": prioritized_form_lanes(case.get("destination_market", ""), case_finished_hs_codes(case)),
+        "recommended_form_lane": recommended_form_lane(
+            prioritized_form_lanes(case.get("destination_market", ""), case_finished_hs_codes(case))
+        ),
+        "common_market_presets": COMMON_MARKET_PRESETS,
+        "common_market_guidance": common_market_guidance(),
         "invoice_matches": extra.pop("invoice_matches", []),
+        "invoice_criteria_rows": extra.pop("invoice_criteria_rows", []),
         "criteria_rows": extra.pop("criteria_rows", []),
         "source_notes": SOURCE_NOTES,
         "source_backend": source_backend,
@@ -544,11 +576,24 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
     client = resolve_client(client_id)
     source_context = co_case_source_context(client, case)
     source_summary = source_context["source_summary"]
+    invoice_matches = source_context["invoice_matches"]
+    case_workspace = extra.pop("case_workspace")
+    form_candidates = extra.pop("form_candidates")
+    criteria_rows = extra.pop("criteria_rows")
     bom_workspace = bom_service.workspace(client) if current_step == "origin" else minimal_bom_workspace()
     client = enrich_client_with_source_summary(client, source_summary)
     case = attach_case_source_summary_snapshot(case, source_summary)
     if current_step == "origin":
         case = attach_case_bom_snapshot(case, bom_workspace)
+    origin_demo_active = should_show_origin_demo(current_step, case, invoice_matches)
+    if origin_demo_active:
+        case = attach_origin_demo(case)
+        criteria_rows = build_case_criteria_rows(case, form_candidates)
+    form_lanes = prioritized_form_lanes(case.get("destination_market", ""), co_case_hs_codes(case, invoice_matches))
+    selected_form_lane = recommended_form_lane(form_lanes)
+    invoice_criteria_rows = invoice_match_criteria_rows(invoice_matches, selected_form_lane)
+    if not criteria_rows and invoice_criteria_rows:
+        criteria_rows = invoice_criteria_rows
     context = {
         "client": client,
         "case": case,
@@ -556,10 +601,17 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
         "bom_workspace": bom_workspace,
         "source_workspace": {},
         "client_config": source_summary["client_config"],
-        "case_workspace": extra.pop("case_workspace"),
-        "form_candidates": extra.pop("form_candidates"),
-        "invoice_matches": source_context["invoice_matches"],
-        "criteria_rows": extra.pop("criteria_rows"),
+        "case_workspace": case_workspace,
+        "form_candidates": form_candidates,
+        "form_lanes": form_lanes,
+        "recommended_form_lane": selected_form_lane,
+        "common_market_presets": COMMON_MARKET_PRESETS,
+        "common_market_guidance": common_market_guidance(),
+        "invoice_matches": invoice_matches,
+        "invoice_criteria_rows": invoice_criteria_rows,
+        "criteria_rows": criteria_rows,
+        "origin_demo_active": origin_demo_active,
+        "origin_demo_material_count": origin_material_count(case) if origin_demo_active else 0,
         "source_notes": SOURCE_NOTES,
         "source_backend": source_context["source_backend"],
         **extra,
@@ -571,6 +623,84 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
 
 def co_case_source_context(client: dict, case: dict) -> dict:
     return portfolio_service.co_case_source_context(client, case)
+
+
+def should_show_origin_demo(current_step: str, case: dict, invoice_matches: list[dict]) -> bool:
+    return current_step == "origin" and not case.get("products") and not invoice_matches
+
+
+def attach_origin_demo(case: dict) -> dict:
+    demo = attach_results(clone_case(DEMO_CASE))
+    case = dict(case)
+    case["products"] = demo["products"]
+    if not case.get("documents"):
+        case["documents"] = demo["documents"]
+    case["summary"] = demo["summary"]
+    case["mode"] = "Demo tự nạp trong tab Xuất xứ"
+    case["mode_note"] = "Dùng khi hồ sơ chưa có đủ invoice/BCCT/BOM để tính thật; không ghi vào hồ sơ lưu."
+    return case
+
+
+def origin_material_count(case: dict) -> int:
+    return sum(len(product.get("materials", [])) for product in case.get("products", []))
+
+
+def case_finished_hs_codes(case: dict) -> list[str]:
+    return [
+        str(product.get("finished_hs", ""))
+        for product in case.get("products", [])
+        if str(product.get("finished_hs", "")).strip()
+    ]
+
+
+def co_case_hs_codes(case: dict, invoice_matches: list[dict]) -> list[str]:
+    product_hs = case_finished_hs_codes(case)
+    if product_hs:
+        return product_hs
+    return [
+        str(row.get("hs_code", ""))
+        for row in invoice_matches
+        if str(row.get("hs_code", "")).strip()
+    ]
+
+
+def invoice_match_criteria_rows(invoice_matches: list[dict], form_lane: dict) -> list[dict]:
+    if not form_lane:
+        return []
+    rows = []
+    seen = set()
+    for row in invoice_matches:
+        hs_code = str(row.get("hs_code", "")).strip()
+        product_code = str(row.get("item_code", "")).strip()
+        key = (product_code, hs_code, str(row.get("declaration_no", "")), str(row.get("line_no", "")))
+        if not hs_code or key in seen:
+            continue
+        seen.add(key)
+        preview = criteria_preview_for_hs(form_lane["form_code"], hs_code)
+        rows.append({
+            "product_code": product_code,
+            "product_name": row.get("description", ""),
+            "finished_hs": hs_code,
+            "form": form_lane["display_name"],
+            "agreement": form_lane["agreement"],
+            "instrument": form_lane["instrument"],
+            "rule": preview["criteria"],
+            "rule_note": preview["note"],
+            "source_reference": preview["source_reference"],
+            "rvc_percentage": "",
+            "tariff_shift_status": "Chờ BOM",
+            "material_code": "",
+            "material_name": "",
+            "material_hs": "",
+            "origin_status": "BCCT invoice",
+            "non_origin_cif_value": "",
+            "declaration_no": row.get("declaration_no", ""),
+            "line_no": row.get("line_no", ""),
+            "quantity": row.get("quantity", ""),
+            "unit": row.get("unit", ""),
+            "invoice_ref": row.get("invoice_ref", ""),
+        })
+    return rows
 
 
 def enrich_client_with_source_summary(client: dict, source_summary: dict) -> dict:
@@ -721,6 +851,112 @@ def customs_exchange_rate_context(request: Request, **extra) -> dict:
         default_sort="effective_date",
     )
     return context
+
+
+def bom_context(request: Request, client_id: str, **extra) -> dict:
+    context = client_context(client_id, "bom", **extra)
+    workspace = context["bom_workspace"]
+    selected_product = selected_bom_product(workspace, request.query_params.get("product", ""))
+    product_rows = bom_product_table_rows(workspace, client_id, selected_product)
+    line_rows = [
+        bom_line_table_row(row)
+        for row in workspace.get("latest_rows", [])
+        if not selected_product or row.get("product_code") == selected_product
+    ]
+    product_table = build_table_view(
+        product_rows,
+        columns=BOM_PRODUCT_COLUMNS,
+        query=request.query_params,
+        filters=[{"name": "status", "field": "status", "label": "Trạng thái"}],
+        summary_fields=[{"field": "status", "label": "Trạng thái"}],
+        default_sort="product_code",
+        default_per_page=25,
+        param_prefix="tp_",
+    )
+    product_table["search_placeholder"] = "Mã thành phẩm, version, hash..."
+    line_table = build_table_view(
+        line_rows,
+        columns=BOM_LINE_COLUMNS,
+        query=request.query_params,
+        filters=[
+            {"name": "uom", "field": "uom", "label": "ĐVT"},
+            {"name": "source", "field": "source", "label": "Nguồn"},
+            {"name": "status", "field": "row_class", "label": "Trạng thái"},
+        ],
+        summary_fields=[
+            {"field": "row_class", "label": "Trạng thái"},
+            {"field": "uom", "label": "ĐVT"},
+        ],
+        default_sort="material_code",
+        default_per_page=50,
+        param_prefix="line_",
+    )
+    line_table["search_placeholder"] = "Mã NVL, tên NVL, trạng thái..."
+    context["selected_bom_product"] = selected_product
+    context["selected_bom_product_summary"] = next(
+        (row for row in product_rows if row["product_code"] == selected_product),
+        {},
+    )
+    context["bom_product_table"] = product_table
+    context["bom_line_table"] = line_table
+    return context
+
+
+def selected_bom_product(workspace: dict, requested_product: str = "") -> str:
+    codes = sorted({str(row.get("product_code", "")) for row in workspace.get("product_composition", []) if row.get("product_code")})
+    if not codes:
+        codes = sorted({str(row.get("product_code", "")) for row in workspace.get("latest_rows", []) if row.get("product_code")})
+    requested = str(requested_product or "").strip()
+    if requested in codes:
+        return requested
+    return codes[0] if codes else ""
+
+
+def bom_product_table_rows(workspace: dict, client_id: str, selected_product: str) -> list[dict]:
+    version_index = {
+        version.get("product_version_id"): version
+        for version in workspace.get("product_versions", [])
+        if version.get("product_version_id")
+    }
+    rows = []
+    composition = workspace.get("product_composition", [])
+    if not composition:
+        composition = [
+            {
+                "product_code": version.get("product_code", ""),
+                "product_version_id": version.get("product_version_id", ""),
+                "product_version_no": version.get("product_version_no", ""),
+                "row_count": version.get("row_count", 0),
+                "status": version.get("status", ""),
+                "version_hash": version.get("version_hash", ""),
+            }
+            for version in workspace.get("product_versions", [])
+        ]
+    for row in composition:
+        version = version_index.get(row.get("product_version_id"), {})
+        product_code = str(row.get("product_code", ""))
+        version_hash = str(row.get("version_hash") or version.get("version_hash") or "")
+        rows.append({
+            "product_code": product_code,
+            "product_version_no": row.get("product_version_no", version.get("product_version_no", "")),
+            "row_count": row.get("row_count", version.get("row_count", 0)),
+            "status": row.get("status", version.get("status", "")),
+            "version_hash": version_hash,
+            "version_hash_short": version_hash[:10],
+            "selected": "Đang xem" if product_code == selected_product else "",
+            "view_href": f"/clients/{client_id}/bom?product={quote(product_code, safe='')}#bom-lines",
+        })
+    return rows
+
+
+def bom_line_table_row(row: dict) -> dict:
+    return {
+        **row,
+        "material_name": row.get("material_name", ""),
+        "scrap_rate": row.get("scrap_rate", ""),
+        "source": row.get("source", ""),
+        "row_class": row.get("row_class", ""),
+    }
 
 
 def co_case_context(client_id: str, case_id: str = "", current_step: str = "index", **extra) -> dict:
@@ -936,7 +1172,7 @@ async def bom(request: Request, client_id: str):
     return templates.TemplateResponse(
         request=request,
         name="bom.html",
-        context=client_context(client_id, "bom"),
+        context=bom_context(request, client_id),
     )
 
 
@@ -949,7 +1185,7 @@ async def save_bom_config(request: Request, client_id: str):
     return templates.TemplateResponse(
         request=request,
         name="bom.html",
-        context=client_context(client_id, "bom", message="Đã lưu cấu hình BOM cho công ty này."),
+        context=bom_context(request, client_id, message="Đã lưu cấu hình BOM cho công ty này."),
     )
 
 
@@ -1015,9 +1251,9 @@ async def upload_bom_workbook(
         request=request,
         name="bom.html",
         status_code=status_code,
-        context=client_context(
+        context=bom_context(
+            request,
             client_id,
-            "bom",
             bom_result=result,
             message=result["message"] if status_code == 200 else "",
             error=result["message"] if status_code == 400 else "",
