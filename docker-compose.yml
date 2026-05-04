@@ -1,0 +1,40 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hub}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-data_hub}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./data/seed:/seed:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hub} -d ${POSTGRES_DB:-data_hub}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATA_HUB_DATABASE_URL: postgresql://${POSTGRES_USER:-hub}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-data_hub}
+      DATA_HUB_SEED_EMAIL: ${DATA_HUB_SEED_EMAIL:-admin@data-hub.local}
+      DATA_HUB_SEED_PASSWORD: ${DATA_HUB_SEED_PASSWORD:?DATA_HUB_SEED_PASSWORD is required}
+      DATA_HUB_AUTO_SEED_DEMO: "0"
+      DATA_HUB_KEYS_DIR: /var/lib/data-hub/keys
+      DATA_HUB_FILES_DIR: /var/lib/data-hub/files
+    ports:
+      - "${APP_BIND:-0.0.0.0}:8754:8754"
+    volumes:
+      - appfiles:/var/lib/data-hub/files
+      - appkeys:/var/lib/data-hub/keys
+
+volumes:
+  pgdata:
+  appfiles:
+  appkeys:

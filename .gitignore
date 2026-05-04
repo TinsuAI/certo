@@ -5,6 +5,7 @@ __pycache__/
 data/files/
 data/screenshots/
 data/source_inventory/
+data/seed/
 .pytest_cache/
 .uv-cache/
 node_modules/
