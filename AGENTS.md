@@ -181,18 +181,35 @@ No project-local skills needed currently. If the project develops Data-Hub-speci
 
 ## Standards
 
-This repo follows TinsuAI cross-product standards:
+This repo follows TinsuAI cross-product standards.
 
-- Canonical source: https://github.com/TinsuAI/standards (private).
+- Canonical source: `TinsuAI/standards` on GitHub (private repo).
 - Pinned version: see `.standards-version` at repo root
-  (currently `v2026.05.04`).
+  (currently `v2026.05.05`).
 - Per-product mapping: `docs/release-engineering.md`.
-- Policy areas:
-  - https://github.com/TinsuAI/standards/blob/main/policies/release-engineering.md
-  - https://github.com/TinsuAI/standards/blob/main/policies/security.md (stub)
-  - https://github.com/TinsuAI/standards/blob/main/policies/code-style.md (stub)
-  - https://github.com/TinsuAI/standards/blob/main/policies/ci-cd.md (stub)
-  - https://github.com/TinsuAI/standards/blob/main/policies/ai-collaboration.md (stub)
+- Policy files (read at the pinned tag):
+  - `policies/release-engineering.md`
+  - `policies/security.md` (stub)
+  - `policies/code-style.md` (stub)
+  - `policies/ci-cd.md` (stub)
+  - `policies/ai-collaboration.md` (stub)
+
+How AI agents resolve the policy (the standards repo is private,
+so direct WebFetch returns 404):
+
+1. **Local checkout**: most maintainer machines have it at
+   `~/workspace/client/tinsu-standards`. Read at the pinned
+   tag:
+   ```
+   git -C ~/workspace/client/tinsu-standards show \
+       $(cat .standards-version):policies/release-engineering.md
+   ```
+2. **Authenticated `gh`** as fallback:
+   ```
+   gh api repos/TinsuAI/standards/contents/policies/release-engineering.md \
+       --ref $(cat .standards-version) --jq .content | base64 -d
+   ```
+3. Otherwise ask the user.
 
 When the standards repo changes, update `.standards-version` and
 reconcile `docs/release-engineering.md`. When this repo's reality

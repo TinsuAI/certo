@@ -5,9 +5,10 @@ this repo's concrete values.
 
 - **Policy source**: https://github.com/TinsuAI/standards (private),
   file `policies/release-engineering.md`.
-- **Standards version pinned**: `v2026.05.04` (also in
+- **Standards version pinned**: `v2026.05.05` (also in
   `.standards-version` at the repo root).
-- **Last reconciled**: 2026-05-04.
+- **Last reconciled**: 2026-05-04 (second pass after the
+  v2026.05.05 amendments).
 
 When this file disagrees with the policy doc, the policy doc wins;
 update this file. When the policy doc disagrees with reality on the
@@ -113,9 +114,16 @@ must be documented per-tenant.
 |----------|--------------|----------|
 | **C1 schema** | `db/migrations/NNN_*.sql` | Append-only. Runner: `apply_migrations()` in `app/database.py`. Idempotent on filename via `hub.schema_migrations`. |
 | **C2 reference** | `app/seed_master_data.py` + `data/seeds/*.yaml` | **One-shot**: seeds only when target table is empty; subsequent changes flow via C1 migrations. Conflict resolution: `on conflict do nothing`. |
-| **C3 demo** | `app/seed.py` (`auto_seed_demo_if_empty`) + `scripts/feed_demo_company.py` | Gated by env `DATA_HUB_AUTO_SEED_DEMO`. **Currently disabled** in compose (`DATA_HUB_AUTO_SEED_DEMO: "0"`); demo data was loaded via the `feed_demo_company.py` script run once. |
+| **C3 demo** | `app/seed.py` (`auto_seed_demo_if_empty`) | Gated by env `DATA_HUB_AUTO_SEED_DEMO` **at lifespan startup only**. Compose currently sets `DATA_HUB_AUTO_SEED_DEMO: "0"`, so the lifespan path is disabled. Test bootstrap in `tests/conftest.py` calls `auto_seed_demo_if_empty()` directly and intentionally bypasses the env gate (see C5 row). The current demo deploy was originally seeded via `app/seed.py` while the env gate was `"1"`; demo data has since been edited via UI. |
 | **C4 customer** | UI / API only. Never seeded. | — |
-| **C5 test fixtures** | `tests/conftest.py` (session autouse) + per-test fixtures | Reuses C2 + C3: `tests/conftest.py` calls `apply_migrations()` + `seed_master_data_if_empty()` + `seed_admin_if_empty()` + `auto_seed_demo_if_empty()`. **C3 doubles as C5** — Growatt/Johnson clients are required by tests in `test_agent.py`, `test_llm_*.py`, `test_co_columns.py`, etc. |
+| **C5 test fixtures** | `tests/conftest.py` (session autouse) + per-test fixtures | Reuses C2 + C3: `tests/conftest.py` calls `apply_migrations()` + `seed_master_data_if_empty()` + `seed_admin_if_empty()` + `auto_seed_demo_if_empty()`. **C3 doubles as C5** — Growatt/Johnson clients (and the test data their fixtures expect) are required by tests in `test_agent.py`, `test_llm_*.py`, `test_co_columns.py`, etc. |
+
+`scripts/feed_demo_company.py` is **not** a C3 seed. It is an
+offline Playwright UI driver used to generate one specific demo
+company end-to-end against a live dev server, with the resulting
+artifacts archived under `.ai/features/2026-05-04-demo-company-feed/`.
+It does not run on the deploy host and shouldn't be classified as
+a startup seed.
 
 When schema changes require transforming existing data:
 
@@ -126,15 +134,30 @@ When schema changes require transforming existing data:
 ## 5. Backup & restore
 
 - **Tier**: 1 (Demo).
-- **Method**: `pg_dump --format=custom`, daily at 02:30.
-- **Script**: `deploy/scripts/backup-postgres.sh`.
-- **Schedule**: `deploy/cron.d/data-hub`.
-- **Location**: `/var/backups/data-hub/*.dump` on the `tinsu` host.
+- **Method**: `pg_dump --format=custom` inside the `db` container,
+  daily at 02:30. Driver: `deploy/scripts/backup-postgres.sh`
+  (Compose-aware; wraps `docker compose exec -T db pg_dump`).
+- **Schedule**: user crontab on `tinsu` (since the user lacks
+  passwordless sudo, system cron at `/etc/cron.d/data-hub` isn't
+  installed; the file `deploy/cron.d/data-hub` in this repo is
+  preserved as the prod-with-sudo template). The user-cron entry
+  on `tinsu`:
+  ```
+  30 2 * * * BACKUP_ROOT=/home/tinsu/backups/data-hub \
+    COMPOSE_DIR=/home/tinsu/data-hub \
+    /home/tinsu/data-hub/deploy/scripts/backup-postgres.sh \
+    >> /home/tinsu/logs/data-hub-backup.log 2>&1
+  ```
+- **Location**: `/home/tinsu/backups/data-hub/*.dump` on the `tinsu`
+  host (user-owned). Tier-2 uplift moves this to `/var/backups`
+  with off-site shipping.
 - **Retention**: 30 days local. No off-site (S3 ship block in the
   script is commented out).
 - **File volumes (`appfiles`, `appkeys`)**: NOT backed up.
 - **Last restore drill**: never. Will be a Tier-2-uplift action
   before the first paying customer.
+- **Last verified backup run**: 2026-05-04 (manual trigger; dump
+  9.9 MB; `pg_restore --list` opens cleanly).
 
 ### Restore procedure (Tier-1, Compose)
 
@@ -188,7 +211,7 @@ policy §5 (post-Tier-2 action).
 
 | # | Question | Owner | Decide by / trigger | Default if undecided |
 |---|----------|-------|---------------------|----------------------|
-| P1 | Implement `GET /version` + Docker build args (`VERSION`, `GIT_SHA`) | Maintainer | Before the first `v0.2.0` tag | Skip; rely on deploy log |
+| P1 | Implement `GET /version` + Docker build args (`VERSION`, `GIT_SHA`) | Maintainer | Before standing up Tier S (policy §1 makes it a hard requirement at S/P) | Skip; rely on deploy log |
 | P2 | Bump `pyproject.toml.version` from `0.1.0` to `0.2.0` and start tagging | Maintainer | Same trigger as P1 | Stay at `0.1.0` |
 | P3 | Push image to GHCR | Maintainer | When deploying to a second host | Build on host (status quo) |
 | P4 | Reconcile `deploy/runbook.md` to drop the systemd-era flow | Maintainer | Done in 2026-05-04 commit; verify no fragments left | n/a |

@@ -22,6 +22,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY app ./app
 COPY db ./db
 COPY scripts ./scripts
+COPY data ./data
 
 EXPOSE 8754
 
