@@ -2071,6 +2071,77 @@ def test_co_case_origin_switches_product_bom_version_from_dropdown():
     assert switched_data["product_0_material_0_material_value"] == "30"
 
 
+def test_co_case_origin_page_surfaces_method_readiness_and_evidence_gaps():
+    client = TestClient(app)
+    client.post(
+        "/clients/growatt/bcct/upload",
+        files={
+            "file": (
+                "bcct.xlsx",
+                bcct_workbook([
+                    {
+                        "direction": "import",
+                        "declaration_type": "E11",
+                        "declaration_no": "NK-ORIGIN-READY",
+                        "line_no": "1",
+                        "item_code": "DEMO-NPL-001",
+                        "description": "Main control board",
+                        "hs_code": "8542.39",
+                        "quantity": "100",
+                        "unit": "PCE",
+                        "customs_value": "1000",
+                        "currency": "VND",
+                    },
+                    {
+                        "direction": "export",
+                        "declaration_type": "E42",
+                        "declaration_no": "XK-ORIGIN-READY",
+                        "line_no": "1",
+                        "item_code": "PV00.0048500",
+                        "description": "Growatt inverter",
+                        "hs_code": "850440",
+                        "quantity": "3",
+                        "unit": "PCS",
+                        "customs_value": "1000",
+                        "currency": "VND",
+                        "invoice_ref": "INV-ORIGIN-READY",
+                    },
+                ]),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={
+            "title": "Origin readiness",
+            "case_code": "CO-ORIGIN-READY",
+            "destination_market": "Ấn Độ",
+            "invoice_no": "INV-ORIGIN-READY",
+        },
+        follow_redirects=False,
+    )
+
+    origin = client.get(f"{created.headers['location']}/origin")
+
+    assert origin.status_code == 200
+    assert "Bảng tính Xuất xứ" in origin.text
+    assert "Build-down LVC/RVC" in origin.text
+    assert "(FOB - VNM) / FOB x 100" in origin.text
+    assert "Cần bổ sung evidence" in origin.text
+    assert "Thiếu đơn giá NVL" in origin.text
+    assert "DEMO-NPL-002: thiếu đơn giá để tính trị giá NVL/VNM." in origin.text
+    assert "CTSH preview" in origin.text
+    assert "chưa thay thế PSR engine/legal review" in origin.text
+    assert "Nguồn giá" in origin.text
+    assert "Trạng thái dữ liệu" in origin.text
+
+    form_data = hidden_form_data(origin.text)
+    assert form_data["product_0_origin_method"] == "build_down_lvc"
+    assert form_data["product_0_origin_readiness_status"] == "blocked"
+    assert form_data["product_0_material_1_valuation_status"] == "missing_unit_value"
+
+
 def test_co_case_export_workbook_contains_bom_snapshot_rows_from_origin_form():
     client = TestClient(app)
     client.post(
@@ -2138,6 +2209,40 @@ def test_co_case_export_workbook_contains_bom_snapshot_rows_from_origin_form():
     assert "DEMO-NPL-001" in values
     assert "91.00" in values
     assert "90" in values
+
+
+def test_co_case_export_workbook_contains_origin_snapshot_metadata_from_web():
+    client = TestClient(app)
+    client.post(
+        "/clients/growatt/bcct/upload",
+        files={
+            "file": (
+                "bcct.xlsx",
+                bcct_workbook([
+                    {"direction": "import", "declaration_type": "E11", "declaration_no": "NK-ORIGIN-XLSX-1", "line_no": "1", "item_code": "DEMO-NPL-001", "description": "Main control board", "hs_code": "8542.39", "quantity": "100", "unit": "PCE", "customs_value": "1000", "currency": "VND"},
+                    {"direction": "export", "declaration_type": "E42", "declaration_no": "XK-ORIGIN-XLSX", "line_no": "1", "item_code": "PV00.0048500", "description": "Growatt inverter", "hs_code": "850440", "quantity": "3", "unit": "PCS", "customs_value": "1000", "currency": "VND", "invoice_ref": "INV-ORIGIN-XLSX"},
+                ]),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Origin export", "case_code": "CO-ORIGIN-XLSX", "destination_market": "Ấn Độ", "invoice_no": "INV-ORIGIN-XLSX"},
+        follow_redirects=False,
+    )
+    origin = client.get(f"{created.headers['location']}/origin")
+
+    response = client.post(f"{created.headers['location']}/export", data=hidden_form_data(origin.text))
+
+    assert response.status_code == 200
+    workbook = load_workbook(BytesIO(response.content))
+    assert "Origin Snapshot" in workbook.sheetnames
+    values = [cell.value for row in workbook["Origin Snapshot"].iter_rows(values_only=False) for cell in row]
+    assert "build_down_lvc" in values
+    assert "blocked" in values
+    assert "DEMO-NPL-002: thiếu đơn giá để tính trị giá NVL/VNM." in values
+    assert "CTSH preview" in values
 
 
 def test_co_case_supporting_upload_saves_invoice_metadata_and_matches_bcct_exports():

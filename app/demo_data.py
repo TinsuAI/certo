@@ -612,6 +612,18 @@ def case_from_form(form: dict[str, str]) -> dict:
             "lvc_threshold": form.get(prefix + "lvc_threshold", ""),
             "vnm_value": form.get(prefix + "vnm_value", ""),
             "bom_product_version_id": form.get(prefix + "bom_product_version_id", ""),
+            "origin_method": form.get(prefix + "origin_method", ""),
+            "origin_method_label": form.get(prefix + "origin_method_label", ""),
+            "origin_formula": form.get(prefix + "origin_formula", ""),
+            "origin_criterion_mode": form.get(prefix + "origin_criterion_mode", ""),
+            "origin_readiness_status": form.get(prefix + "origin_readiness_status", ""),
+            "origin_readiness_label": form.get(prefix + "origin_readiness_label", ""),
+            "origin_warnings_text": form.get(prefix + "origin_warnings", ""),
+            "origin_warnings": text_list(form.get(prefix + "origin_warnings", "")),
+            "tariff_shift_rule": form.get(prefix + "tariff_shift_rule", ""),
+            "tariff_shift_status": form.get(prefix + "tariff_shift_status", ""),
+            "tariff_shift_status_label": form.get(prefix + "tariff_shift_status_label", ""),
+            "tariff_shift_note": form.get(prefix + "tariff_shift_note", ""),
             "materials": [],
         }
         if product["code"] and product["bom_product_version_id"]:
@@ -629,12 +641,22 @@ def case_from_form(form: dict[str, str]) -> dict:
                     "material_description": form.get(material_prefix + "material_description", ""),
                     "hs_code": form.get(material_prefix + "hs_code", ""),
                     "origin_status": form.get(material_prefix + "origin_status", "non_origin"),
+                    "origin_status_label": form.get(material_prefix + "origin_status_label", ""),
+                    "origin_status_source": form.get(material_prefix + "origin_status_source", ""),
+                    "origin_status_note": form.get(material_prefix + "origin_status_note", ""),
                     "available_qty": Decimal(form.get(material_prefix + "available_qty", "0") or "0"),
                     "consumed_qty": Decimal(form.get(material_prefix + "consumed_qty", "0") or "0"),
                     "non_origin_cif_value": Decimal(form.get(material_prefix + "non_origin_cif_value", "0") or "0"),
                     "unit_value": form.get(material_prefix + "unit_value", ""),
                     "currency": form.get(material_prefix + "currency", ""),
                     "material_value": form.get(material_prefix + "material_value", ""),
+                    "valuation_status": form.get(material_prefix + "valuation_status", ""),
+                    "valuation_status_label": form.get(material_prefix + "valuation_status_label", ""),
+                    "valuation_source": form.get(material_prefix + "valuation_source", ""),
+                    "valuation_source_label": form.get(material_prefix + "valuation_source_label", ""),
+                    "data_status_label": form.get(material_prefix + "data_status_label", ""),
+                    "material_warnings_text": form.get(material_prefix + "material_warnings", ""),
+                    "material_warnings": text_list(form.get(material_prefix + "material_warnings", "")),
                     "bom_qty_per": form.get(material_prefix + "bom_qty_per", ""),
                     "bom_scrap_rate": form.get(material_prefix + "bom_scrap_rate", ""),
                     "bom_source": form.get(material_prefix + "bom_source", ""),
@@ -645,3 +667,7 @@ def case_from_form(form: dict[str, str]) -> dict:
             )
         case["products"].append(product)
     return case
+
+
+def text_list(value: str) -> list[str]:
+    return [item.strip() for item in str(value or "").split("|") if item.strip()]

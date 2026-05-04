@@ -80,8 +80,7 @@ class DataHubLinkSettings:
         )
 
     def require_source_config(self) -> None:
-        if self.source_enabled and not self.api_token:
-            raise RuntimeError("DATA_HUB_API_TOKEN is required when DATA_HUB_ENABLED is active.")
+        return None
 
 
 def data_hub_link_settings() -> DataHubLinkSettings:

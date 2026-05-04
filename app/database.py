@@ -5,6 +5,8 @@ from pathlib import Path
 
 
 DATABASE_URL_ENV = "BARRY_DATABASE_URL"
+DATABASE_SCHEMA_ENV = "BARRY_DATABASE_SCHEMA"
+DEFAULT_DATABASE_SCHEMA = "co"
 MIGRATIONS_ROOT = Path(__file__).resolve().parent.parent / "db" / "migrations"
 
 
@@ -19,14 +21,28 @@ def database_url() -> str:
 def connect(url: str | None = None):
     try:
         import psycopg
+        from psycopg import sql
     except ImportError as exc:
         raise DatabaseUnavailable("Install psycopg to use Postgres.") from exc
-    return psycopg.connect(url or database_url())
+    connection = psycopg.connect(url or database_url())
+    schema = database_schema()
+    if schema:
+        with connection.cursor() as cursor:
+            cursor.execute(sql.SQL("create schema if not exists {}").format(sql.Identifier(schema)))
+            cursor.execute(
+                sql.SQL("set search_path to {}, public").format(sql.Identifier(schema))
+            )
+    return connection
+
+
+def database_schema() -> str:
+    return os.environ.get(DATABASE_SCHEMA_ENV, DEFAULT_DATABASE_SCHEMA).strip()
 
 
 def apply_migrations(url: str | None = None) -> None:
     with connect(url) as connection:
         with connection.cursor() as cursor:
+            cursor.execute("select pg_advisory_xact_lock(hashtext('barry_co_migrations'))")
             cursor.execute(
                 """
                 create table if not exists schema_migrations (

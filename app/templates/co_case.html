@@ -573,15 +573,19 @@
       <span>BOM</span>
       <strong>{{ origin_demo_material_count ~ ' NVL mẫu' if origin_demo_active else case.bom_snapshot.composition|length ~ ' TP' }}</strong>
     </div>
+    <div>
+      <span>Trạng thái</span>
+      <strong>{{ case.origin_snapshot.readiness_label or 'Chưa tính' }}</strong>
+    </div>
   </div>
   <div class="callout {{ 'callout-success' if origin_demo_active else 'callout-info' }}">
     <span class="callout-icon">i</span>
     <div>
-      <div class="callout-title">{{ 'Demo tự nạp' if origin_demo_active else 'Bảng kê LVC' }}</div>
+      <div class="callout-title">{{ 'Demo tự nạp' if origin_demo_active else 'Bảng tính Xuất xứ' }}</div>
       {% if origin_demo_active %}
       Hồ sơ chưa có dòng BCCT/BOM đủ để tính thật, nên tab Xuất xứ đang nạp sẵn 2 TP mẫu và NVL mẫu để operator nhìn được cách hệ thống dựng bảng tiêu chí. Dữ liệu demo này không phải file upload và không ghi vào hồ sơ lưu.
       {% else %}
-      Bảng này ưu tiên tiêu chí LVC: TP lấy FOB/trị giá từ invoice/BCCT, NVL lấy định mức và đơn giá để tính VNM, sau đó tính LVC = (FOB - VNM) / FOB x 100. Tồn CO và allocation xử lý ở bước riêng, không đưa vào bảng kê này.
+      Trang web là snapshot tính toán chính cho hồ sơ này và là nguồn cho Bảng kê LVC/RVC khi export. Phương pháp đang áp dụng là <strong>Build-down LVC/RVC</strong> với công thức <span class="mono">(FOB - VNM) / FOB x 100</span>; phần CTC chỉ là preview HS và chưa thay thế PSR engine/legal review.
       {% endif %}
     </div>
   </div>
@@ -651,8 +655,8 @@
     <section class="zone" id="lvc-statement">
       <div class="zone-head">
         <div>
-          <h2>Bảng kê LVC</h2>
-          <p class="meta">{{ 'Demo từ 2 TP mẫu để minh họa bảng kê LVC.' if origin_demo_active else 'Một dòng TP theo invoice, các dòng NVL theo BOM. Bảng này chỉ giữ trường cần cho LVC: mã/HS, định mức, lượng dùng, xuất xứ và trị giá KXX/VNM.' }}</p>
+          <h2>Bảng tính Xuất xứ</h2>
+          <p class="meta">{{ 'Demo từ 2 TP mẫu để minh họa bảng tính xuất xứ.' if origin_demo_active else 'Một dòng TP theo invoice, các dòng NVL theo BOM. Web snapshot giữ công thức, evidence, cảnh báo và kết luận làm nguồn cho review/export.' }}</p>
         </div>
       </div>
 
@@ -679,6 +683,17 @@
           <input type="hidden" name="product_{{ product_index }}_lvc_status_label" value="{{ product.lvc_status_label }}">
           <input type="hidden" name="product_{{ product_index }}_lvc_threshold" value="{{ product.lvc_threshold }}">
           <input type="hidden" name="product_{{ product_index }}_vnm_value" value="{{ product.vnm_value }}">
+          <input type="hidden" name="product_{{ product_index }}_origin_method" value="{{ product.origin_method }}">
+          <input type="hidden" name="product_{{ product_index }}_origin_method_label" value="{{ product.origin_method_label }}">
+          <input type="hidden" name="product_{{ product_index }}_origin_formula" value="{{ product.origin_formula }}">
+          <input type="hidden" name="product_{{ product_index }}_origin_criterion_mode" value="{{ product.origin_criterion_mode }}">
+          <input type="hidden" name="product_{{ product_index }}_origin_readiness_status" value="{{ product.origin_readiness_status }}">
+          <input type="hidden" name="product_{{ product_index }}_origin_readiness_label" value="{{ product.origin_readiness_label }}">
+          <input type="hidden" name="product_{{ product_index }}_origin_warnings" value="{{ product.origin_warnings_text }}">
+          <input type="hidden" name="product_{{ product_index }}_tariff_shift_rule" value="{{ product.tariff_shift_rule }}">
+          <input type="hidden" name="product_{{ product_index }}_tariff_shift_status" value="{{ product.tariff_shift_status }}">
+          <input type="hidden" name="product_{{ product_index }}_tariff_shift_status_label" value="{{ product.tariff_shift_status_label }}">
+          <input type="hidden" name="product_{{ product_index }}_tariff_shift_note" value="{{ product.tariff_shift_note }}">
 
           <div class="product-head">
             <div>
@@ -686,6 +701,7 @@
               <h3>{{ product.code }}</h3>
               <p>{{ product.name }}</p>
             </div>
+            <span class="badge badge-{{ 'success' if product.origin_readiness_status == 'ready' else 'error' if product.origin_readiness_status == 'fail' else 'warning' }}">{{ product.origin_readiness_label }}</span>
             {% set bom_options = bom_workspace.product_version_options_by_code.get(product.code, []) %}
             <label class="product-bom-picker">BOM TP
               <select name="product_{{ product_index }}_bom_product_version_id" data-bom-version-select>
@@ -709,6 +725,32 @@
             <div><span>Trạng thái</span><strong>{{ product.lvc_status_label or 'Chưa tính' }}</strong></div>
           </div>
 
+          <div class="origin-method-grid">
+            <div>
+              <span>Phương pháp</span>
+              <strong>{{ product.origin_method_label }}</strong>
+              <small>{{ product.origin_formula }}</small>
+            </div>
+            <div>
+              <span>Tiêu chí</span>
+              <strong>{{ product.documented_result or 'Cần tra cứu PSR' }}</strong>
+              <small>{{ product.origin_criterion_mode }}</small>
+            </div>
+            <div>
+              <span>CTC/PSR</span>
+              <strong>{{ product.tariff_shift_status_label or 'Không có CTC trong tiêu chí' }}</strong>
+              <small>{{ product.tariff_shift_note }}</small>
+            </div>
+          </div>
+
+          {% if product.origin_warnings %}
+          <div class="origin-warning-list">
+            {% for warning in product.origin_warnings %}
+            <div>{{ warning }}</div>
+            {% endfor %}
+          </div>
+          {% endif %}
+
           <div class="table-scroll">
             <table class="table">
               <thead>
@@ -725,6 +767,8 @@
                   <th>Trị giá NVL</th>
                   <th>Xuất xứ NVL</th>
                   <th>Trị giá KXX/VNM</th>
+                  <th>Nguồn giá</th>
+                  <th>Trạng thái dữ liệu</th>
                 </tr>
               </thead>
               <tbody>
@@ -776,11 +820,26 @@
                   </td>
                   <td>
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_origin_status" value="{{ material.origin_status }}">
-                    <span class="badge {{ 'badge-ok' if material.origin_status == 'origin' else 'badge-neutral' }}">{{ 'Có xuất xứ' if material.origin_status == 'origin' else 'Không xuất xứ' }}</span>
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_origin_status_label" value="{{ material.origin_status_label }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_origin_status_source" value="{{ material.origin_status_source }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_origin_status_note" value="{{ material.origin_status_note }}">
+                    <span class="badge {{ 'badge-ok' if material.origin_status == 'origin' else 'badge-neutral' }}">{{ material.origin_status_label or ('Có xuất xứ' if material.origin_status == 'origin' else 'Không xuất xứ') }}</span>
                   </td>
                   <td class="num">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_non_origin_cif_value" value="{{ material.non_origin_cif_value }}">
                     {{ material.non_origin_cif_value|number }}
+                  </td>
+                  <td>
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_valuation_source" value="{{ material.valuation_source }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_valuation_source_label" value="{{ material.valuation_source_label }}">
+                    {{ material.valuation_source_label }}
+                  </td>
+                  <td>
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_valuation_status" value="{{ material.valuation_status }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_valuation_status_label" value="{{ material.valuation_status_label }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_data_status_label" value="{{ material.data_status_label }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_material_warnings" value="{{ material.material_warnings_text }}">
+                    <span class="badge badge-{{ 'success' if material.valuation_status == 'ready' else 'warning' }}">{{ material.data_status_label }}</span>
                   </td>
                 </tr>
                 {% endfor %}

@@ -1413,7 +1413,7 @@ small,
 
 .origin-source-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0;
   margin: 0.5rem 0 0.75rem;
   border: 1px solid var(--border);
@@ -1497,6 +1497,70 @@ small,
   font-size: 0.72rem;
   font-style: normal;
   font-weight: 700;
+}
+
+.origin-method-grid {
+  display: grid;
+  grid-template-columns: 0.8fr 1.1fr 1.1fr;
+  gap: 0;
+  margin: -0.2rem 0 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.origin-method-grid div {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+  border-right: 1px solid var(--border);
+  padding: 0.55rem 0.62rem;
+  background: color-mix(in srgb, var(--surface-subtle) 42%, transparent);
+}
+
+.origin-method-grid div:last-child {
+  border-right: 0;
+}
+
+.origin-method-grid span {
+  color: var(--foreground-muted);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.origin-method-grid strong,
+.origin-method-grid small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.origin-method-grid strong {
+  color: var(--foreground);
+  font-size: 0.84rem;
+}
+
+.origin-method-grid small {
+  color: var(--foreground-soft);
+  font-size: 0.74rem;
+}
+
+.origin-warning-list {
+  display: grid;
+  gap: 0.32rem;
+  margin: -0.2rem 0 0.75rem;
+}
+
+.origin-warning-list div {
+  border-left: 3px solid var(--warning);
+  padding: 0.32rem 0.55rem;
+  background: var(--warning-soft);
+  color: var(--foreground-soft);
+  font-size: 0.78rem;
+  font-weight: 650;
 }
 
 .form-lane-grid {
@@ -2505,6 +2569,7 @@ small,
   .guidance-summary,
   .origin-source-strip,
   .origin-product-strip,
+  .origin-method-grid,
   .table-toolbar,
   .co-form-split,
   .rule-filter-bar {

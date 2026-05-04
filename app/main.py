@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+from contextlib import asynccontextmanager
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from urllib.parse import quote
@@ -51,6 +52,7 @@ from app.co_market_hints import infer_market_from_invoice_matches
 from app.client_registry import get_client as registry_get_client
 from app.client_registry import get_client_case
 from app.customs_fx_store import CUSTOMS_FX_CLIENT_ID, get_customs_fx_store, refresh_customs_exchange_rates
+from app.database import apply_migrations, database_url
 from app.data_hub_client import DataHubClient, reset_current_data_hub_token, set_current_data_hub_token
 from app.data_hub_settings import (
     DATA_HUB_LINK_ENV_KEYS,
@@ -67,6 +69,7 @@ from app.demo_data import (
     clone_case,
     update_products_from_form,
 )
+from app.origin import evaluate_tariff_shift
 from app.portfolio import portfolio_app, portfolio_service
 from app.source_store import (
     attach_case_source_snapshot,
@@ -112,7 +115,14 @@ def theme_context(request: Request) -> dict[str, str]:
     }
 
 
-app = FastAPI(title="Barry CO Demo")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    if database_url():
+        apply_migrations()
+    yield
+
+
+app = FastAPI(title="Barry CO Demo", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 app.mount("/portfolio", portfolio_app, name="portfolio")
 
@@ -136,6 +146,11 @@ def format_number_display(value, max_decimals: int = 2) -> str:
 
 
 templates.env.filters["number"] = format_number_display
+
+
+@app.get("/healthz")
+async def healthz() -> dict[str, str]:
+    return {"status": "ok"}
 
 
 @app.middleware("http")
@@ -403,8 +418,6 @@ def data_hub_link_check() -> dict:
 
     if not settings.source_enabled:
         checks.append({"name": "Source API", "status": "warning", "detail": "DATA_HUB_ENABLED đang tắt"})
-    elif not settings.api_token:
-        checks.append({"name": "Source API", "status": "error", "detail": "DATA_HUB_API_TOKEN chưa cấu hình"})
     else:
         client = DataHubClient(
             base_url=settings.data_hub_api_base_url,
@@ -903,11 +916,13 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
         )
         case = attach_case_bom_snapshot(case, bom_workspace)
         if case.get("products"):
+            case = attach_origin_readiness(case)
             case = attach_results(case)
             criteria_rows = build_case_criteria_rows(case, form_candidates)
     origin_demo_active = origin_demo_allowed and should_show_origin_demo(current_step, case, invoice_matches)
     if origin_demo_active:
         case = attach_origin_demo(case)
+        case = attach_origin_readiness(case)
         criteria_rows = build_case_criteria_rows(case, form_candidates)
     form_lanes = prioritized_form_lanes(case.get("destination_market", ""), co_case_hs_codes(case, invoice_matches))
     selected_form_lane = recommended_form_lane(form_lanes)
@@ -1468,7 +1483,7 @@ def origin_product_from_invoice_match(
         for material in materials
     )
     lvc = calculate_lvc_result(fob, vnm, threshold, missing_material_values)
-    return {
+    product = {
         "code": product_code,
         "name": match.get("description") or product_code,
         "finished_hs": finished_hs,
@@ -1493,6 +1508,7 @@ def origin_product_from_invoice_match(
         "bom_product_version_no": first_non_empty(row.get("product_version_no", "") for row in bom_rows),
         "materials": materials,
     }
+    return enrich_origin_product(product)
 
 
 def origin_product_value(match: dict) -> dict:
@@ -1520,18 +1536,25 @@ def origin_material_from_bom_row(
     stock = stock_index.get(material_code, {})
     qty_per = decimal_value(row.get("qty_per", "0"))
     consumed_qty = export_quantity * qty_per
-    origin_status = origin_status_from_material(material)
-    unit_value = first_decimal_value(
-        row.get("unit_value"),
-        row.get("unit_price"),
-        stock.get("unit_value"),
-        stock.get("unit_price"),
-        stock.get("taxable_unit_price"),
-        material.get("unit_price"),
-        material.get("taxable_unit_price"),
+    origin_details = origin_status_details_from_material(material)
+    origin_status = origin_details["status"]
+    unit_value, unit_value_source = first_decimal_source(
+        ("bom", row.get("unit_value")),
+        ("bom", row.get("unit_price")),
+        ("co_stock", stock.get("unit_value")),
+        ("co_stock", stock.get("unit_price")),
+        ("co_stock", stock.get("taxable_unit_price")),
+        ("material_catalog", material.get("unit_price")),
+        ("material_catalog", material.get("taxable_unit_price")),
     )
     material_value = consumed_qty * unit_value if unit_value is not None else None
     vnm_value = material_value if origin_status == "non_origin" and material_value is not None else None
+    valuation_status = "ready" if unit_value is not None else "missing_unit_value"
+    material_warnings = []
+    if valuation_status == "missing_unit_value":
+        material_warnings.append(f"{material_code}: thiếu đơn giá để tính trị giá NVL/VNM.")
+    if origin_details["source"] == "default_conservative":
+        material_warnings.append(f"{material_code}: chưa có phân loại xuất xứ, đang tính bảo thủ là không xuất xứ.")
     return {
         "source_row": stock.get("source_row") or f"BOM:{row.get('source', '')}",
         "import_declaration_no": stock.get("import_declaration_no", ""),
@@ -1542,6 +1565,9 @@ def origin_material_from_bom_row(
         "material_description": row.get("material_name") or material.get("name", ""),
         "hs_code": row.get("hs_code") or material.get("hs_code", ""),
         "origin_status": origin_status,
+        "origin_status_label": origin_details["label"],
+        "origin_status_source": origin_details["source"],
+        "origin_status_note": origin_details["note"],
         "available_qty": decimal_value(stock.get("remaining_qty") or stock.get("available_qty") or "0"),
         "consumed_qty": consumed_qty,
         "unit_value": decimal_text(unit_value) if unit_value is not None else "",
@@ -1549,6 +1575,13 @@ def origin_material_from_bom_row(
         "material_value": decimal_text(material_value) if material_value is not None else "",
         "non_origin_cif_value": decimal_text(vnm_value) if vnm_value is not None else "",
         "unit_value_missing": unit_value is None,
+        "valuation_status": valuation_status,
+        "valuation_status_label": "Đủ giá trị" if valuation_status == "ready" else "Thiếu đơn giá NVL",
+        "valuation_source": unit_value_source,
+        "valuation_source_label": valuation_source_label(unit_value_source),
+        "data_status_label": "Đủ evidence tính VNM" if valuation_status == "ready" else "Cần bổ sung evidence",
+        "material_warnings": material_warnings,
+        "material_warnings_text": " | ".join(material_warnings),
         "bom_qty_per": decimal_text(qty_per),
         "bom_scrap_rate": row.get("scrap_rate", ""),
         "bom_source": row.get("source", ""),
@@ -1559,12 +1592,186 @@ def origin_material_from_bom_row(
 
 
 def origin_status_from_material(material: dict) -> str:
+    return origin_status_details_from_material(material)["status"]
+
+
+def origin_status_details_from_material(material: dict) -> dict:
     value = str(material.get("origin_default") or material.get("origin_status") or "").lower()
     if "không" in value or "khong" in value or value == "non_origin":
-        return "non_origin"
+        return {
+            "status": "non_origin",
+            "label": "Không xuất xứ",
+            "source": "material_catalog",
+            "note": "Theo phân loại xuất xứ NVL hiện có.",
+        }
     if "có" in value or value == "origin":
-        return "origin"
-    return "non_origin"
+        return {
+            "status": "origin",
+            "label": "Có xuất xứ",
+            "source": "material_catalog",
+            "note": "Theo phân loại xuất xứ NVL hiện có.",
+        }
+    return {
+        "status": "non_origin",
+        "label": "Không xuất xứ",
+        "source": "default_conservative",
+        "note": "Chưa có phân loại xuất xứ, tạm tính bảo thủ vào VNM.",
+    }
+
+
+def attach_origin_readiness(case: dict) -> dict:
+    enriched = dict(case)
+    products = [enrich_origin_product(product) for product in enriched.get("products", [])]
+    enriched["products"] = products
+    snapshot = dict(enriched.get("origin_snapshot", {}))
+    issue_count = sum(len(product.get("origin_warnings", [])) for product in products)
+    statuses = [product.get("origin_readiness_status", "review") for product in products]
+    if not products:
+        readiness_status = "empty"
+        readiness_label = "Chưa có dữ liệu xuất xứ"
+    elif "blocked" in statuses:
+        readiness_status = "blocked"
+        readiness_label = "Cần bổ sung evidence"
+    elif "fail" in statuses:
+        readiness_status = "fail"
+        readiness_label = "Có TP không đạt"
+    elif "review" in statuses:
+        readiness_status = "review"
+        readiness_label = "Cần review tiêu chí"
+    else:
+        readiness_status = "ready"
+        readiness_label = "Đủ điều kiện build-down"
+    snapshot.update({
+        "calculation_method": "build_down_lvc",
+        "calculation_method_label": "Build-down LVC/RVC",
+        "formula": "(FOB - VNM) / FOB x 100",
+        "readiness_status": readiness_status,
+        "readiness_label": readiness_label,
+        "issue_count": issue_count,
+        "product_count": len(products),
+    })
+    enriched["origin_snapshot"] = snapshot
+    return enriched
+
+
+def enrich_origin_product(product: dict) -> dict:
+    enriched = dict(product)
+    materials = [enrich_origin_material(material) for material in enriched.get("materials", [])]
+    enriched["materials"] = materials
+    criterion = str(enriched.get("documented_result") or enriched.get("rule") or "")
+    ctc_rule = tariff_shift_rule_from_criterion(criterion)
+    lvc_status = str(enriched.get("lvc_status") or "")
+    warnings = []
+    if not materials:
+        warnings.append(f"{enriched.get('code', 'TP')}: chưa có BOM/NVL để tính xuất xứ.")
+    if not enriched.get("fob"):
+        warnings.append(f"{enriched.get('code', 'TP')}: thiếu FOB/trị giá TP.")
+    for material in materials:
+        warnings.extend(material.get("material_warnings", []))
+    tariff_shift_status = ""
+    tariff_shift_status_label = ""
+    tariff_shift_note = ""
+    if ctc_rule:
+        non_origin_hs = [
+            str(material.get("hs_code") or "")
+            for material in materials
+            if material.get("origin_status") == "non_origin"
+        ]
+        tariff_shift = evaluate_tariff_shift(str(enriched.get("finished_hs") or ""), non_origin_hs, ctc_rule)
+        tariff_shift_status = "skipped" if tariff_shift.skipped else "pass" if tariff_shift.passed else "fail"
+        if tariff_shift.skipped:
+            tariff_shift_status_label = f"Thiếu HS cho {ctc_rule} preview"
+        elif tariff_shift.passed:
+            tariff_shift_status_label = f"Đạt {ctc_rule} preview"
+        else:
+            tariff_shift_status_label = f"Không đạt {ctc_rule} preview"
+        tariff_shift_note = f"{ctc_rule} preview chỉ so HS TP với HS NVL không xuất xứ; chưa thay thế PSR engine/legal review."
+    if lvc_status == "missing_value" or any(material.get("valuation_status") == "missing_unit_value" for material in materials):
+        readiness_status = "blocked"
+        readiness_label = "Cần bổ sung evidence"
+    elif lvc_status == "fail":
+        readiness_status = "fail"
+        readiness_label = "Không đạt build-down"
+    elif ctc_rule:
+        readiness_status = "review"
+        readiness_label = "Cần review CTC"
+    elif lvc_status == "pass":
+        readiness_status = "ready"
+        readiness_label = "Đủ điều kiện build-down"
+    else:
+        readiness_status = "review"
+        readiness_label = "Cần review tiêu chí"
+    enriched.update({
+        "origin_method": "build_down_lvc",
+        "origin_method_label": "Build-down LVC/RVC",
+        "origin_formula": "(FOB - VNM) / FOB x 100",
+        "origin_criterion_mode": criterion_mode(criterion),
+        "origin_readiness_status": readiness_status,
+        "origin_readiness_label": readiness_label,
+        "origin_warnings": warnings,
+        "origin_warnings_text": " | ".join(warnings),
+        "tariff_shift_rule": ctc_rule,
+        "tariff_shift_status": tariff_shift_status,
+        "tariff_shift_status_label": tariff_shift_status_label,
+        "tariff_shift_note": tariff_shift_note,
+    })
+    return enriched
+
+
+def enrich_origin_material(material: dict) -> dict:
+    enriched = dict(material)
+    if not enriched.get("origin_status_label"):
+        enriched["origin_status_label"] = "Có xuất xứ" if enriched.get("origin_status") == "origin" else "Không xuất xứ"
+    unit_missing = not str(enriched.get("unit_value") or "").strip()
+    enriched["valuation_status"] = enriched.get("valuation_status") or ("missing_unit_value" if unit_missing else "ready")
+    enriched["valuation_status_label"] = enriched.get("valuation_status_label") or (
+        "Thiếu đơn giá NVL" if unit_missing else "Đủ giá trị"
+    )
+    enriched["valuation_source_label"] = enriched.get("valuation_source_label") or valuation_source_label(enriched.get("valuation_source", ""))
+    enriched["data_status_label"] = enriched.get("data_status_label") or (
+        "Cần bổ sung evidence" if unit_missing else "Đủ evidence tính VNM"
+    )
+    warnings = text_list(enriched.get("material_warnings") or enriched.get("material_warnings_text"))
+    if unit_missing and not warnings:
+        code = enriched.get("material_code") or enriched.get("internal_material_code") or "NVL"
+        warnings.append(f"{code}: thiếu đơn giá để tính trị giá NVL/VNM.")
+    enriched["material_warnings"] = warnings
+    enriched["material_warnings_text"] = " | ".join(warnings)
+    return enriched
+
+
+def tariff_shift_rule_from_criterion(criterion: str) -> str:
+    text = criterion.upper()
+    for rule in ["CTSH", "CTH", "CC"]:
+        if re.search(rf"\b{rule}\b", text):
+            return rule
+    return ""
+
+
+def criterion_mode(criterion: str) -> str:
+    has_value_content = bool(re.search(r"\b(?:LVC|RVC|AIFTA)\b", criterion, flags=re.IGNORECASE))
+    has_tariff_shift = bool(tariff_shift_rule_from_criterion(criterion))
+    if has_value_content and has_tariff_shift:
+        return "compound"
+    if has_value_content:
+        return "value_content"
+    if has_tariff_shift:
+        return "tariff_shift"
+    return "manual_review"
+
+
+def valuation_source_label(source: str) -> str:
+    return {
+        "bom": "BOM",
+        "co_stock": "BCCT nhập/tồn CO",
+        "material_catalog": "Danh mục NVL",
+    }.get(str(source or ""), "Chưa có")
+
+
+def text_list(value) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item).strip()]
+    return [item.strip() for item in str(value or "").split("|") if item.strip()]
 
 
 def lvc_threshold_from_criterion(criterion: str) -> Decimal | None:
@@ -1607,6 +1814,13 @@ def first_decimal_value(*values) -> Decimal | None:
         if value not in (None, ""):
             return decimal_value(value)
     return None
+
+
+def first_decimal_source(*values: tuple[str, object]) -> tuple[Decimal | None, str]:
+    for source, value in values:
+        if value not in (None, ""):
+            return decimal_value(value), source
+    return None, ""
 
 
 def decimal_value(value) -> Decimal:

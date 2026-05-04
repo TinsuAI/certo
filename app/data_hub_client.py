@@ -175,7 +175,8 @@ class DataHubClient:
 
     def _auth_headers(self) -> dict[str, str]:
         token = self.token_provider() if self.token_provider else ""
-        return {"Authorization": f"Bearer {token or self.token}"}
+        effective_token = token or self.token
+        return {"Authorization": f"Bearer {effective_token}"} if effective_token else {}
 
     def close(self) -> None:
         self._client.close()

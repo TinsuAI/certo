@@ -621,6 +621,25 @@ def test_data_hub_client_prefers_current_user_token_when_available():
     assert seen == ["Bearer user-token"]
 
 
+def test_data_hub_client_omits_authorization_when_no_token_is_configured():
+    from app.data_hub_client import DataHubClient
+
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers.get("authorization"))
+        return httpx.Response(200, json={"items": []})
+
+    client = DataHubClient(
+        base_url="https://hub.test",
+        token="",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert client.list_clients() == []
+    assert seen == [None]
+
+
 def test_data_hub_client_from_env_uses_configured_api_base_url(monkeypatch):
     from app.data_hub_client import data_hub_client_from_env
 
@@ -635,6 +654,20 @@ def test_data_hub_client_from_env_uses_configured_api_base_url(monkeypatch):
     assert client is not None
     assert client.base_url == "http://hub-api.internal:8754"
     assert client.token == "service-token"
+    client._client.close()
+
+
+def test_data_hub_client_from_env_allows_empty_token_for_auth_disabled_demo(monkeypatch):
+    from app.data_hub_client import data_hub_client_from_env
+
+    monkeypatch.setenv("DATA_HUB_ENABLED", "1")
+    monkeypatch.setenv("DATA_HUB_API_BASE_URL", "http://hub-api.internal:8754")
+    monkeypatch.delenv("DATA_HUB_API_TOKEN", raising=False)
+
+    client = data_hub_client_from_env()
+
+    assert client is not None
+    assert client.token == ""
     client._client.close()
 
 

@@ -347,6 +347,58 @@ def create_case_workbook(case: dict, form_candidates: list[dict], invoice_matche
             row["non_origin_cif_value"],
         ])
 
+    snapshot_sheet = workbook.create_sheet("Origin Snapshot")
+    snapshot = case.get("origin_snapshot", {})
+    snapshot_sheet.append(["Field", "Value"])
+    snapshot_sheet.append(["Calculation method", snapshot.get("calculation_method", "")])
+    snapshot_sheet.append(["Calculation method label", snapshot.get("calculation_method_label", "")])
+    snapshot_sheet.append(["Formula", snapshot.get("formula", "")])
+    snapshot_sheet.append(["Readiness status", snapshot.get("readiness_status", "")])
+    snapshot_sheet.append(["Readiness label", snapshot.get("readiness_label", "")])
+    snapshot_sheet.append(["Issue count", snapshot.get("issue_count", "")])
+    snapshot_sheet.append([])
+    snapshot_sheet.append([
+        "Product code",
+        "Method",
+        "Formula",
+        "Criterion",
+        "Readiness status",
+        "Readiness label",
+        "LVC %",
+        "LVC threshold",
+        "Tariff shift rule",
+        "Tariff shift preview",
+        "Warnings",
+    ])
+    for product in case.get("products", []):
+        snapshot_sheet.append([
+            product.get("code", ""),
+            product.get("origin_method", ""),
+            product.get("origin_formula", ""),
+            product.get("documented_result", ""),
+            product.get("origin_readiness_status", ""),
+            product.get("origin_readiness_label", ""),
+            product.get("lvc_percentage", ""),
+            product.get("lvc_threshold") or product.get("rvc_threshold", ""),
+            f"{product.get('tariff_shift_rule')} preview" if product.get("tariff_shift_rule") else "",
+            product.get("tariff_shift_status_label", ""),
+            " | ".join(text_list(product.get("origin_warnings") or product.get("origin_warnings_text"))),
+        ])
+        for material in product.get("materials", []):
+            snapshot_sheet.append([
+                product.get("code", ""),
+                "material",
+                material.get("material_code") or material.get("internal_material_code", ""),
+                material.get("material_description", ""),
+                material.get("valuation_status", ""),
+                material.get("valuation_status_label", ""),
+                material.get("material_value", ""),
+                material.get("non_origin_cif_value", ""),
+                "",
+                material.get("valuation_source_label", ""),
+                " | ".join(text_list(material.get("material_warnings") or material.get("material_warnings_text"))),
+            ])
+
     bom_sheet = workbook.create_sheet("LVC Statement")
     bom_sheet.append([
         "Product code",
@@ -434,6 +486,12 @@ def criteria_row(product: dict, material: dict, form: str, rvc: Any, tariff_shif
         "origin_status": material.get("origin_status", ""),
         "non_origin_cif_value": material.get("non_origin_cif_value", ""),
     }
+
+
+def text_list(value) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item).strip()]
+    return [item.strip() for item in str(value or "").split("|") if item.strip()]
 
 
 def persisted_products(products: list[dict]) -> list[dict]:

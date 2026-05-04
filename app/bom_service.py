@@ -67,11 +67,13 @@ class DataHubBomService:
     def workspace(self, client: dict, product_codes: list[str] | None = None) -> dict:
         cache_key = data_hub_bom_workspace_cache_key(self.data_hub, client["id"], product_codes)
         now = monotonic()
-        cached = _DATA_HUB_BOM_WORKSPACE_CACHE.get(cache_key)
-        if cached and now - cached[0] <= DATA_HUB_BOM_WORKSPACE_CACHE_TTL_SECONDS:
-            return deepcopy(cached[1])
+        if cache_key[0]:
+            cached = _DATA_HUB_BOM_WORKSPACE_CACHE.get(cache_key)
+            if cached and now - cached[0] <= DATA_HUB_BOM_WORKSPACE_CACHE_TTL_SECONDS:
+                return deepcopy(cached[1])
         workspace = self._build_workspace(client, product_codes)
-        _DATA_HUB_BOM_WORKSPACE_CACHE[cache_key] = (now, deepcopy(workspace))
+        if cache_key[0]:
+            _DATA_HUB_BOM_WORKSPACE_CACHE[cache_key] = (now, deepcopy(workspace))
         return workspace
 
     def _build_workspace(self, client: dict, product_codes: list[str] | None = None) -> dict:
@@ -242,7 +244,7 @@ def data_hub_cache_identity(data_hub: DataHubClient) -> str:
     token = getattr(data_hub, "token", "")
     if base_url or token:
         return f"{base_url}|{token}"
-    return f"object:{id(data_hub)}"
+    return ""
 
 
 def normalized_product_code_filter(product_codes: list[str] | None) -> set[str]:
