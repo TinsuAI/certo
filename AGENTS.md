@@ -172,3 +172,7 @@ No project-local skills needed currently. If the project develops Data-Hub-speci
   flat `.ai/features/*.md` files are legacy and stay as-is. UI proof
   goes here, not in `data/screenshots/` (which is gitignored build
   output).
+- `docs/release-engineering.md` — versioning, branching, deployment
+  shapes, seed-data taxonomy, backup/restore policy. Read before
+  cutting a release, changing schema, or standing up a new
+  environment.
