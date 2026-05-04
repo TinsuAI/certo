@@ -142,7 +142,7 @@ def _seed_growatt(client_id: str) -> None:
                 (client_id, client_id, len(bcct_rows)),
             )
     parser = internal_code_parser_for(client_id, "batch_aggregate_resolution")
-    _insert_bcct(client_id=client_id, year=2025, rows=parsed,
+    _insert_bcct(client_id=client_id, rows=parsed,
                  upload_id=f"seed-bcct-{client_id}", parser=parser)
 
     # BOM — 3 finished products + 1 dual-source sub-assembly (HEATSINK-A: vừa import vừa tự sản xuất)
@@ -276,7 +276,7 @@ def _seed_johnson(client_id: str) -> None:
                 (client_id,),
             )
     parser = internal_code_parser_for(client_id, "identity")
-    _insert_bcct(client_id=client_id, year=2025,
+    _insert_bcct(client_id=client_id,
                  rows=parse_bcct_workbook(buf.getvalue()),
                  upload_id="seed-johnson-bcct", parser=parser)
 
