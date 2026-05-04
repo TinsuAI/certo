@@ -36,15 +36,24 @@ def refresh_customs_exchange_rates(
     *,
     client_id: str = CUSTOMS_FX_CLIENT_ID,
     language: str = "TIENG_VIET",
+    history_start_date: date | str | None = None,
+    history_end_date: date | str | None = None,
     transport: httpx.BaseTransport | None = None,
 ) -> dict:
-    rows = fetch_customs_exchange_rates(language=language, transport=transport)
+    rows = fetch_customs_exchange_rates(
+        language=language,
+        history_start_date=history_start_date,
+        history_end_date=history_end_date,
+        transport=transport,
+    )
     return get_customs_fx_store().save_refresh(client_id, rows)
 
 
 def fetch_customs_exchange_rates(
     *,
     language: str = "TIENG_VIET",
+    history_start_date: date | str | None = None,
+    history_end_date: date | str | None = None,
     transport: httpx.BaseTransport | None = None,
 ) -> list[dict]:
     encoded_language = quote(language)
@@ -54,9 +63,40 @@ def fetch_customs_exchange_rates(
         headers={"User-Agent": CUSTOMS_FX_USER_AGENT},
     ) as client:
         currency_payload = fetch_customs_json(client, f"GetListDongTienTyGia&language={encoded_language}")
-        usd_payload = fetch_customs_json(client, f"GetListUSDRate&language={encoded_language}")
-        other_payload = fetch_customs_json(client, f"GetListOtherRate&language={encoded_language}")
-    return parse_customs_exchange_rate_payloads(currency_payload, usd_payload, other_payload)
+        rate_payload = fetch_customs_rate_history(
+            client,
+            language=language,
+            history_start_date=history_start_date,
+            history_end_date=history_end_date,
+        )
+    return parse_customs_exchange_rate_payloads(currency_payload, rate_payload)
+
+
+def fetch_customs_rate_history(
+    client: httpx.Client,
+    *,
+    language: str,
+    history_start_date: date | str | None = None,
+    history_end_date: date | str | None = None,
+) -> dict:
+    payload = {
+        "ten_ngoai_te": "",
+        "hieu_luc_tu_ngay": customs_search_date(history_start_date or default_history_start_date()),
+        "hieu_luc_den_ngay": customs_search_date(history_end_date or date.today()),
+        "language": language,
+        "captcha": "",
+    }
+    response = client.post(
+        f"{CUSTOMS_FX_BASE_URL}GetListRateByNameOrDate",
+        content=json.dumps(payload, ensure_ascii=False),
+    )
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict):
+        raise CustomsFxError("Customs FX history endpoint returned a non-object payload.")
+    if data.get("message") == "Invalid Captcha":
+        raise CustomsFxError("Customs FX history endpoint rejected captcha.")
+    return data
 
 
 def fetch_customs_json(client: httpx.Client, endpoint: str) -> dict:
@@ -68,7 +108,7 @@ def fetch_customs_json(client: httpx.Client, endpoint: str) -> dict:
     return payload
 
 
-def parse_customs_exchange_rate_payloads(currency_payload: dict, usd_payload: dict, other_payload: dict) -> list[dict]:
+def parse_customs_exchange_rate_payloads(currency_payload: dict, rate_payload: dict) -> list[dict]:
     fetched_at = now_iso()
     currency_names = {
         clean_text(item.get("DONG_TIEN")).upper(): clean_text(item.get("TEN_DONG_TIEN"))
@@ -76,20 +116,7 @@ def parse_customs_exchange_rate_payloads(currency_payload: dict, usd_payload: di
         if clean_text(item.get("DONG_TIEN"))
     }
     rows = []
-    for item in payload_items(usd_payload):
-        code = clean_text(item.get("LOAI_NGOAI_TE") or "USD").upper() or "USD"
-        row = customs_rate_row(
-            currency_code=code,
-            currency_name=currency_names.get(code, "Đô-la Mỹ" if code == "USD" else ""),
-            effective_date=parse_customs_date(item.get("HIEU_LUC_TU_NGAY")),
-            rate=parse_vnd_rate_text(item.get("TY_GIA")),
-            rate_text=clean_text(item.get("TY_GIA")),
-            source_endpoint="GetListUSDRate",
-            fetched_at=fetched_at,
-        )
-        if row:
-            rows.append(row)
-    for item in payload_items(other_payload):
+    for item in payload_items(rate_payload):
         code = clean_text(item.get("LOAI_NGOAI_TE")).upper()
         row = customs_rate_row(
             currency_code=code,
@@ -97,7 +124,7 @@ def parse_customs_exchange_rate_payloads(currency_payload: dict, usd_payload: di
             effective_date=parse_customs_date(item.get("HIEU_LUC_TU_NGAY")),
             rate=parse_vnd_rate_text(item.get("TY_GIA")),
             rate_text=clean_text(item.get("TY_GIA")),
-            source_endpoint="GetListOtherRate",
+            source_endpoint="GetListRateByNameOrDate",
             fetched_at=fetched_at,
         )
         if row:
@@ -434,6 +461,18 @@ def parse_customs_date(value) -> date | None:
         except ValueError:
             continue
     return None
+
+
+def default_history_start_date() -> date:
+    today = date.today()
+    return date(today.year - 2, 1, 1)
+
+
+def customs_search_date(value: date | str) -> str:
+    parsed = parse_customs_date(value)
+    if parsed is None:
+        raise CustomsFxError(f"Invalid customs FX history date: {value}")
+    return parsed.strftime("%d-%m-%Y")
 
 
 def parse_vnd_rate_text(value) -> Decimal:

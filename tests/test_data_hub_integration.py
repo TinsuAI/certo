@@ -1194,6 +1194,29 @@ def test_data_hub_mode_blocks_local_shared_source_uploads(monkeypatch):
     assert "Shared source data is read-only in CO" in response.text
 
 
+def test_data_hub_mode_allows_customs_fx_refresh_until_hub_contract_exists(monkeypatch):
+    monkeypatch.setenv("DATA_HUB_ENABLED", "1")
+    from app import main as main_module
+
+    calls = []
+
+    def refresh_stub(**kwargs):
+        calls.append(kwargs)
+        return {
+            "fetched_row_count": 2,
+            "saved_row_count": 2,
+            "latest_effective_date": "2026-04-27",
+        }
+
+    monkeypatch.setattr(main_module, "refresh_customs_exchange_rates", refresh_stub)
+
+    response = TestClient(app).post("/customs-exchange-rates/refresh")
+
+    assert response.status_code == 200
+    assert calls == [{"client_id": "global"}]
+    assert "Đã cập nhật 2 dòng tỷ giá hải quan" in response.text
+
+
 def test_data_hub_mode_blocks_local_bom_writes(monkeypatch):
     monkeypatch.setenv("DATA_HUB_ENABLED", "1")
     client = TestClient(app)

@@ -2541,7 +2541,6 @@ async def customs_exchange_rates(request: Request):
 
 @app.post("/customs-exchange-rates/refresh", response_class=HTMLResponse)
 async def refresh_customs_exchange_rates_route(request: Request):
-    require_local_source_writes()
     try:
         result = refresh_customs_exchange_rates(client_id=CUSTOMS_FX_CLIENT_ID)
     except Exception as exc:

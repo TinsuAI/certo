@@ -1,5 +1,6 @@
 import hashlib
 import html
+import json
 import os
 import re
 from decimal import Decimal
@@ -465,7 +466,7 @@ def test_bcct_route_paginates_rows_server_side():
     assert "Trang 2 / 3" in response.text
 
 
-def customs_fx_payloads() -> tuple[dict, dict, dict]:
+def customs_fx_payloads() -> tuple[dict, dict]:
     return (
         {
             "d": [
@@ -473,8 +474,28 @@ def customs_fx_payloads() -> tuple[dict, dict, dict]:
                 {"DONG_TIEN": "JPY", "TEN_DONG_TIEN": "Yên Nhật"},
             ]
         },
-        {"d": [{"LOAI_NGOAI_TE": "USD", "HIEU_LUC_TU_NGAY": "27/04/2026", "TY_GIA": "26.130 VNĐ"}]},
-        {"d": [{"LOAI_NGOAI_TE": "JPY", "TEN_NGOAI_TE": "Yên Nhật", "HIEU_LUC_TU_NGAY": "27/04/2026", "TY_GIA": "177 VNĐ"}]},
+        {
+            "d": [
+                {
+                    "LOAI_NGOAI_TE": "USD",
+                    "TEN_NGOAI_TE": "Đô-la Mỹ",
+                    "HIEU_LUC_TU_NGAY": "27/04/2026",
+                    "TY_GIA": "26.130 VNĐ",
+                },
+                {
+                    "LOAI_NGOAI_TE": "JPY",
+                    "TEN_NGOAI_TE": "Yên Nhật",
+                    "HIEU_LUC_TU_NGAY": "27/04/2026",
+                    "TY_GIA": "177 VNĐ",
+                },
+                {
+                    "LOAI_NGOAI_TE": "JPY",
+                    "TEN_NGOAI_TE": "Yên Nhật",
+                    "HIEU_LUC_TU_NGAY": "20/04/2026",
+                    "TY_GIA": "178 VNĐ",
+                },
+            ]
+        },
     )
 
 
@@ -494,22 +515,31 @@ def test_customs_fx_parser_preserves_vietnamese_rate_format():
 def test_customs_fx_fetch_uses_customs_public_json_endpoints():
     from app.customs_fx_store import fetch_customs_exchange_rates
 
-    currency_payload, usd_payload, other_payload = customs_fx_payloads()
+    currency_payload, history_payload = customs_fx_payloads()
 
     def handler(request: httpx.Request) -> httpx.Response:
         url = str(request.url)
         if "GetListDongTienTyGia" in url:
             return httpx.Response(200, json=currency_payload)
-        if "GetListUSDRate" in url:
-            return httpx.Response(200, json=usd_payload)
-        if "GetListOtherRate" in url:
-            return httpx.Response(200, json=other_payload)
+        if "GetListRateByNameOrDate" in url:
+            payload = json.loads(request.content.decode())
+            assert payload["ten_ngoai_te"] == ""
+            assert payload["hieu_luc_tu_ngay"] == "01-04-2026"
+            assert payload["hieu_luc_den_ngay"] == "01-05-2026"
+            assert payload["captcha"] == ""
+            return httpx.Response(200, json=history_payload)
         return httpx.Response(404, json={})
 
-    rows = fetch_customs_exchange_rates(transport=httpx.MockTransport(handler))
+    rows = fetch_customs_exchange_rates(
+        history_start_date="2026-04-01",
+        history_end_date="2026-05-01",
+        transport=httpx.MockTransport(handler),
+    )
 
     assert {row["currency_code"] for row in rows} == {"USD", "JPY"}
+    assert len([row for row in rows if row["currency_code"] == "JPY"]) == 2
     assert rows[0]["source"] == "customs.gov.vn"
+    assert rows[0]["source_endpoint"] == "GetListRateByNameOrDate"
 
 
 def test_customs_fx_file_store_upserts_global_rate_rows():
@@ -521,8 +551,8 @@ def test_customs_fx_file_store_upserts_global_rate_rows():
     first = store.save_refresh(CUSTOMS_FX_CLIENT_ID, rows)
     second = store.save_refresh(CUSTOMS_FX_CLIENT_ID, rows)
 
-    assert first["fetched_row_count"] == 2
-    assert first["saved_row_count"] == 2
+    assert first["fetched_row_count"] == 3
+    assert first["saved_row_count"] == 3
     assert second["upserted_row_count"] == 0
     assert store.summary()["currency_count"] == 2
     assert store.rows()[0]["effective_date"] == "2026-04-27"
@@ -540,7 +570,7 @@ def test_customs_fx_route_refreshes_and_filters_rows(monkeypatch):
     filtered = client.get("/customs-exchange-rates?currency=JPY")
 
     assert refresh.status_code == 200
-    assert "Đã cập nhật 2 dòng tỷ giá hải quan" in refresh.text
+    assert "Đã cập nhật 3 dòng tỷ giá hải quan" in refresh.text
     assert "26.130 VNĐ" in refresh.text
     assert filtered.status_code == 200
     assert "JPY" in filtered.text
