@@ -1,0 +1,219 @@
+from __future__ import annotations
+
+import io
+
+import openpyxl
+import pytest
+from fastapi.testclient import TestClient
+
+from app.database import connect
+from app.main import app
+from app.parsers.bom_edges import parse_raw_edges_with_fallback
+from app.stores import bom as bom_store
+
+
+CLIENT = "raw_bom_test_client"
+
+
+@pytest.fixture(autouse=True)
+def setup_client():
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into hub.clients (client_id, name)
+                values (%s, %s) on conflict (client_id) do nothing
+                """,
+                (CLIENT, "raw bom test"),
+            )
+    yield
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("delete from hub.clients where client_id = %s", (CLIENT,))
+
+
+@pytest.fixture
+def auth_client():
+    client = TestClient(app, follow_redirects=False)
+    resp = client.post(
+        "/login",
+        data={"email": "admin@data-hub.local", "password": "admin123"},
+    )
+    assert resp.status_code in (200, 303)
+    return client
+
+
+def _xlsx(sheets: dict[str, list[tuple]]) -> bytes:
+    wb = openpyxl.Workbook()
+    default = wb.active
+    wb.remove(default)
+    for title, rows in sheets.items():
+        ws = wb.create_sheet(title)
+        for row in rows:
+            ws.append(list(row))
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_growatt_factory_raw_parser_keeps_direct_edges():
+    blob = _xlsx({
+        "整机": [
+            ("工厂", "成品物料", "组件物料", "单位", "标准用量"),
+            ("6180", "TP-A", "BTP-B", "ST", 2),
+        ],
+        "B700": [
+            ("工厂", "成品物料", "组件物料", "单位", "标准用量"),
+            ("6180", "BTP-B", "NVL-C", "KG", 3),
+        ],
+    })
+
+    edges, adapter = parse_raw_edges_with_fallback(blob, root_code="TP-A")
+
+    assert adapter == "growatt_factory_technical"
+    assert [(e["parent_code"], e["child_code"], e["qty_per_parent"]) for e in edges] == [
+        ("TP-A", "BTP-B", 2.0),
+        ("BTP-B", "NVL-C", 3.0),
+    ]
+    assert not any(e["parent_code"] == "TP-A" and e["child_code"] == "NVL-C" for e in edges)
+    assert edges[1]["node_path"] == "TP-A > BTP-B > NVL-C"
+
+
+def test_growatt_factory_raw_parser_computes_unit_qty_when_missing():
+    blob = _xlsx({
+        "B700": [
+            ("工厂", "顶层物料编码", "顶层基本数量", "子项物料号", "子项数量", "子件单位", "单位用量"),
+            ("6180", "BTP-B", "1,000.000", "NVL-C", "2,000.000", "PCS", None),
+        ],
+    })
+
+    edges, adapter = parse_raw_edges_with_fallback(blob, root_code="BTP-B")
+
+    assert adapter == "growatt_factory_technical"
+    assert edges[0]["parent_code"] == "BTP-B"
+    assert edges[0]["child_code"] == "NVL-C"
+    assert edges[0]["qty_per_parent"] == 2.0
+
+
+def test_growatt_factory_raw_parser_splits_disconnected_roots():
+    blob = _xlsx({
+        "整机": [
+            ("工厂", "成品物料", "组件物料", "单位", "标准用量"),
+            ("6180", "TP-A", "BTP-B", "ST", 1),
+            ("6180", "TP-X", "NVL-X", "ST", 2),
+        ],
+        "B700": [
+            ("工厂", "成品物料", "组件物料", "单位", "标准用量"),
+            ("6180", "BTP-B", "NVL-C", "KG", 3),
+        ],
+    })
+
+    edges, adapter = parse_raw_edges_with_fallback(blob, root_code="TP-A")
+
+    assert adapter == "growatt_factory_technical"
+    by_pair = {(e["parent_code"], e["child_code"]): e for e in edges}
+    assert by_pair[("TP-A", "BTP-B")]["root_code"] == "TP-A"
+    assert by_pair[("BTP-B", "NVL-C")]["root_code"] == "TP-A"
+    assert by_pair[("TP-X", "NVL-X")]["root_code"] == "TP-X"
+
+
+def test_johnson_sap_raw_parser_keeps_level_edges():
+    blob = _xlsx({
+        "Sheet1": [
+            ("Level", "Component number", "Comp. Qty (CUn)", "Component unit"),
+            (1, "BTP-B", 2, "EA"),
+            (2, "NVL-C", 3, "KG"),
+        ],
+    })
+
+    edges, adapter = parse_raw_edges_with_fallback(blob, root_code="ASM-001")
+
+    assert adapter == "sap_indented_raw"
+    assert [(e["parent_code"], e["child_code"], e["qty_per_parent"]) for e in edges] == [
+        ("ASM-001", "BTP-B", 2.0),
+        ("BTP-B", "NVL-C", 3.0),
+    ]
+    assert edges[1]["level"] == 2
+    assert edges[1]["node_path"] == "ASM-001 > BTP-B > NVL-C"
+
+
+def test_create_raw_version_persists_edges_without_flat_rows():
+    version_id = bom_store.create_raw_version(
+        client_id=CLIENT,
+        product_code="TP-A",
+        edges=[
+            {
+                "root_code": "TP-A",
+                "parent_code": "TP-A",
+                "child_code": "BTP-B",
+                "qty_per_parent": 2,
+                "uom": "EA",
+                "level": 1,
+                "node_path": "TP-A > BTP-B",
+            },
+            {
+                "root_code": "TP-A",
+                "parent_code": "BTP-B",
+                "child_code": "NVL-C",
+                "qty_per_parent": 3,
+                "uom": "KG",
+                "level": 2,
+                "node_path": "TP-A > BTP-B > NVL-C",
+            },
+        ],
+        actor="agency_staff",
+        intent="asserted_technical",
+        parent_version_id=None,
+        context={"profile": "technical_raw"},
+        source_upload_id=None,
+    )
+
+    data = bom_store.get_version_with_rows(version_id)
+    assert data["version"]["source_bom_kind"] == "technical_raw"
+    assert data["version"]["flatten_status"] == "non_flattened"
+    assert data["version"]["flatten_strategy"] == "no_strategy"
+    assert data["rows"] == []
+    assert [(e["parent_code"], e["child_code"]) for e in data["edges"]] == [
+        ("TP-A", "BTP-B"),
+        ("BTP-B", "NVL-C"),
+    ]
+
+
+def test_technical_raw_upload_confirm_materializes_edges(auth_client):
+    blob = _xlsx({
+        "整机": [
+            ("工厂", "成品物料", "组件物料", "单位", "标准用量"),
+            ("6180", "RT_TP", "RT_BTP", "ST", 1),
+        ],
+        "B700": [
+            ("工厂", "成品物料", "组件物料", "单位", "标准用量"),
+            ("6180", "RT_BTP", "RT_NVL", "KG", 4),
+        ],
+    })
+    resp = auth_client.post(
+        f"/clients/{CLIENT}/bom/upload",
+        data={"profile": "technical_raw"},
+        files={"file": ("RT_TP.xlsx", blob, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert resp.status_code == 303
+    assert "/bom/preview/" in resp.headers["location"]
+    pending_id = resp.headers["location"].split("/")[-1]
+
+    resp = auth_client.post(f"/clients/{CLIENT}/bom/preview/{pending_id}/confirm")
+    assert resp.status_code == 303
+
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select v.source_bom_kind, count(e.*), count(r.*)
+                from hub.bom_versions v
+                left join hub.bom_edges e on e.version_id = v.version_id
+                left join hub.bom_version_rows r on r.version_id = v.version_id
+                where v.client_id = %s and v.product_code = 'RT_TP'
+                group by v.version_id, v.source_bom_kind
+                """,
+                (CLIENT,),
+            )
+            row = cur.fetchone()
+    assert row == ("technical_raw", 2, 0)

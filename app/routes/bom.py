@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from app import auth, llm
 from app.database import connect
 from app.parsers.bom import parse_bom_workbook, BomParseError
+from app.parsers.bom_edges import parse_raw_edges_with_fallback
 from app.parsers.bom_adapters.manual_flat import (
     parse_with_skipped as parse_manual_flat_with_skipped,
 )
@@ -41,6 +42,7 @@ from app.stores.staleness import freshness_for_template
 from app.stores.bom import (
     count_products_with_bom,
     create_flattened_version_set,
+    create_raw_version,
     create_version,
     list_products_with_bom,
     list_versions_for_product,
@@ -68,7 +70,7 @@ def _bom_profiles() -> list[str]:
     growatt_multi_workbook → sheet_per_product) are accepted via
     bom_adapters.resolve() but only the canonical name appears in the UI.
     """
-    return [*bom_adapters.adapter_names(), "technical_flatten"]
+    return [*bom_adapters.adapter_names(), "technical_raw", "technical_flatten"]
 
 
 BOM_PROFILES = _bom_profiles()
@@ -176,6 +178,40 @@ async def upload_submit(request: Request, client_id: str,
         stored_path=stored.path, content_sha256=sha, size_bytes=len(blob),
         mime_type=file.content_type, uploader_user_id=user.user_id,
     )
+
+    if profile == "technical_raw":
+        from pathlib import Path as _Path
+        root_hint = _Path(file.filename or "").stem if file.filename else None
+        try:
+            raw_edges, used_adapter = parse_raw_edges_with_fallback(
+                blob, root_code=root_hint,
+            )
+        except BomParseError as e:
+            with connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "update hub.file_uploads set parse_status='error', parse_error=%s, parsed_at=now() where upload_id=%s",
+                        (str(e), upload_id),
+                    )
+            raise HTTPException(400, f"Parse error: {e}") from e
+        products = _raw_edges_to_preview_products(raw_edges)
+        pending_id = _stash_pending(
+            client_id=client_id, upload_id=upload_id, products=products,
+            profile=profile, created_by=user.user_id,
+            proposed_by=f"parser_fallback:{used_adapter}",
+            raw_edges=raw_edges,
+        )
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "update hub.file_uploads set parse_status='pending_preview', row_count=%s, parsed_at=now() where upload_id=%s",
+                    (len(raw_edges), upload_id),
+                )
+        return RedirectResponse(
+            url=f"/clients/{client_id}/bom/preview/{pending_id}",
+            status_code=303,
+        )
+
     # ── Step 1: cached mapping for this client + file shape (manual_flat only) ──
     file_signature: str | None = None
     cached_mapping: dict | None = None
@@ -414,16 +450,35 @@ async def preview_confirm(request: Request, client_id: str, pending_id: str):
     # version creation raises, propagate — the staff sees an error AND can
     # re-confirm later because we haven't deleted pending yet.
     n = 0
-    for product_code, rows in products.items():
-        version_id = create_version(
-            client_id=client_id, product_code=product_code, rows=rows,
-            actor="agency_staff", intent="asserted_technical",
-            parent_version_id=None,
-            context={"channel": "agency_upload", "profile": profile},
-            source_upload_id=upload_id,
-        )
-        if version_id:
-            n += 1
+    if profile == "technical_raw":
+        raw_edges = parsed_rows.get("raw_edges", []) if isinstance(parsed_rows, dict) else []
+        edges_by_root: dict[str, list[dict]] = {}
+        for edge in raw_edges:
+            root = edge.get("root_code")
+            if not root:
+                continue
+            edges_by_root.setdefault(root, []).append(edge)
+        for root_code, edges in edges_by_root.items():
+            version_id = create_raw_version(
+                client_id=client_id, product_code=root_code, edges=edges,
+                actor="agency_staff", intent="asserted_technical",
+                parent_version_id=None,
+                context={"channel": "agency_upload", "profile": profile},
+                source_upload_id=upload_id,
+            )
+            if version_id:
+                n += 1
+    else:
+        for product_code, rows in products.items():
+            version_id = create_version(
+                client_id=client_id, product_code=product_code, rows=rows,
+                actor="agency_staff", intent="asserted_technical",
+                parent_version_id=None,
+                context={"channel": "agency_upload", "profile": profile},
+                source_upload_id=upload_id,
+            )
+            if version_id:
+                n += 1
 
     # Step 3: only on full success — delete pending + flip status.
     with connect(user_id=user.user_id) as conn:
@@ -642,11 +697,14 @@ def _stash_pending(*, client_id: str, upload_id: str,
                    file_signature: str | None = None,
                    proposed_by: str = "rigid",
                    flatten_payload: dict | None = None,
+                   raw_edges: list[dict] | None = None,
                    skipped_rows: list[dict] | None = None) -> str:
     pending_id = secrets.token_urlsafe(16)
     parsed_payload = {"products": products}
     if flatten_payload:
         parsed_payload["flatten"] = flatten_payload
+    if raw_edges is not None:
+        parsed_payload["raw_edges"] = raw_edges
     diff_summary = {
         "profile": profile,
         "used_mapping": used_mapping,
@@ -717,6 +775,25 @@ def _summarize_bom(products: dict[str, list[dict]]) -> tuple[dict, list[dict]]:
     return summary, sample
 
 
+def _raw_edges_to_preview_products(edges: list[dict]) -> dict[str, list[dict]]:
+    products: dict[str, list[dict]] = {}
+    for edge in edges:
+        root = edge.get("root_code") or edge.get("parent_code") or ""
+        if not root:
+            continue
+        products.setdefault(root, []).append({
+            "material_code": edge.get("child_code"),
+            "qty_per_unit": edge.get("qty_per_parent"),
+            "uom": edge.get("uom"),
+            "parent_code": edge.get("parent_code"),
+            "level": edge.get("level"),
+            "node_path": edge.get("node_path"),
+            "sheet_name": edge.get("sheet_name"),
+            "source_row_no": edge.get("source_row_no"),
+        })
+    return products
+
+
 @router.get("/clients/{client_id}/bom/{product_code:path}/versions", response_class=HTMLResponse)
 async def versions_view(request: Request, client_id: str, product_code: str):
     user = auth.require_user(request)
@@ -747,6 +824,7 @@ async def version_detail(request: Request, client_id: str, version_id: str):
         request, "clients/bom_version_detail.html",
         {"client": client, "stats": stats_for_client(client_id),
          "version": data["version"], "rows": data["rows"],
+         "edges": data.get("edges") or [],
          "active_root": "clients", "active_tab": "bom"},
     )
 

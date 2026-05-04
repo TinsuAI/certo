@@ -33,6 +33,32 @@ def normalized_hash(rows: list[dict]) -> str:
     return hashlib.sha256(blob).hexdigest()
 
 
+def normalized_edges_hash(edges: list[dict]) -> str:
+    canonical = []
+    for e in sorted(
+        edges,
+        key=lambda e: (
+            str(e.get("root_code", "")),
+            str(e.get("parent_code", "")),
+            str(e.get("child_code", "")),
+            int(e.get("row_index") or 0),
+        ),
+    ):
+        canonical.append({
+            "root_code": (e.get("root_code") or "").strip(),
+            "parent_code": (e.get("parent_code") or "").strip(),
+            "child_code": (e.get("child_code") or "").strip(),
+            "qty_per_parent": round(float(e.get("qty_per_parent") or 0), 9),
+            "uom": (e.get("uom") or "") or None,
+            "level": e.get("level"),
+            "node_path": (e.get("node_path") or "") or None,
+            "sheet_name": (e.get("sheet_name") or "") or None,
+            "source_row_no": e.get("source_row_no"),
+        })
+    blob = json.dumps(canonical, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()
+
+
 def _next_version_no(cur, *, client_id: str, product_code: str) -> int:
     cur.execute(
         """
@@ -44,6 +70,155 @@ def _next_version_no(cur, *, client_id: str, product_code: str) -> int:
     )
     (n,) = cur.fetchone()
     return n
+
+
+def create_raw_version(*, client_id: str, product_code: str, edges: list[dict],
+                       actor: str, intent: str,
+                       parent_version_id: str | None,
+                       context: dict, source_upload_id: str | None,
+                       source_channel: str = "agency_upload",
+                       bom_code: str | None = None,
+                       bom_variant_id: str | None = None,
+                       lineage: dict | None = None,
+                       display_label: str | None = None,
+                       cursor=None,
+                       ) -> str | None:
+    """Append a technical_raw BOM version backed by hub.bom_edges.
+
+    Raw versions intentionally do not write hub.bom_version_rows; consumers
+    should use a derived technical_flattened/staff_flat version for flat rows.
+    """
+    if cursor is not None:
+        return _create_raw_version_inner(
+            cursor,
+            client_id=client_id, product_code=product_code, edges=edges,
+            actor=actor, intent=intent, parent_version_id=parent_version_id,
+            context=context, source_upload_id=source_upload_id,
+            source_channel=source_channel, bom_code=bom_code,
+            bom_variant_id=bom_variant_id, lineage=lineage,
+            display_label=display_label,
+        )
+    with connect() as conn:
+        with conn.cursor() as cur:
+            return _create_raw_version_inner(
+                cur,
+                client_id=client_id, product_code=product_code, edges=edges,
+                actor=actor, intent=intent, parent_version_id=parent_version_id,
+                context=context, source_upload_id=source_upload_id,
+                source_channel=source_channel, bom_code=bom_code,
+                bom_variant_id=bom_variant_id, lineage=lineage,
+                display_label=display_label,
+            )
+
+
+def _create_raw_version_inner(cur, *, client_id, product_code, edges,
+                              actor, intent, parent_version_id, context,
+                              source_upload_id, source_channel, bom_code,
+                              bom_variant_id, lineage, display_label):
+    if not edges:
+        from app.parsers.bom_adapters import BomParseError
+        raise BomParseError("Raw BOM requires at least one edge")
+    bad_qty = [
+        (i, e.get("parent_code"), e.get("child_code"), e.get("qty_per_parent"))
+        for i, e in enumerate(edges)
+        if e.get("qty_per_parent") is None or float(e.get("qty_per_parent") or 0) <= 0
+    ]
+    if bad_qty:
+        from app.parsers.bom_adapters import BomParseError
+        sample = ", ".join(
+            f"row {i} ({p!r}->{c!r})={q!r}"
+            for i, p, c, q in bad_qty[:5]
+        )
+        raise BomParseError(
+            f"Raw BOM has {len(bad_qty)} edge(s) with qty_per_parent <= 0. "
+            f"First few: {sample}",
+        )
+
+    nh = normalized_edges_hash(edges)
+    version_id = "bv_" + secrets.token_urlsafe(12)
+    bom_code_norm = bom_code or ""
+    bom_variant_id_norm = bom_variant_id or "default"
+    parent_norm = parent_version_id or "00000000-0000-0000-0000-000000000000"
+    flatten_strategy = "no_strategy"
+    cur.execute(
+        """
+        select version_id from hub.bom_versions
+        where client_id=%s and product_code=%s and actor=%s and intent=%s
+          and parent_norm=%s and normalized_hash=%s
+          and coalesce(flatten_strategy,'') = %s
+          and coalesce(bom_variant_id,'default') = %s
+        """,
+        (client_id, product_code, actor, intent, parent_norm, nh,
+         flatten_strategy, bom_variant_id_norm),
+    )
+    existing = cur.fetchone()
+    if existing:
+        return existing[0]
+
+    version_no = _next_version_no_for_variant(
+        cur, client_id=client_id, product_code=product_code,
+        bom_variant_id=bom_variant_id_norm,
+    )
+    label = display_label or build_display_label(
+        product_code=product_code,
+        bom_variant_id=bom_variant_id_norm,
+        version_no=version_no,
+        source_bom_kind="technical_raw",
+        flatten_status="non_flattened",
+        flatten_strategy=flatten_strategy,
+    )
+    cur.execute(
+        """
+        insert into hub.bom_versions
+          (version_id, client_id, product_code, version_no, actor, intent,
+           parent_version_id, context, source_upload_id, normalized_hash,
+           row_count, status, published_at,
+           source_bom_kind, flatten_status, flatten_strategy,
+           source_channel, bom_code, bom_variant_id, lineage,
+           display_label, flatten_method, flatten_method_version)
+        values (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s,
+                'published', now(),
+                'technical_raw', 'non_flattened', %s,
+                %s, %s, %s, %s::jsonb,
+                %s, 'none', '0')
+        """,
+        (version_id, client_id, product_code, version_no, actor, intent,
+         parent_version_id, json.dumps(context), source_upload_id, nh, len(edges),
+         flatten_strategy, source_channel, bom_code_norm or None,
+         bom_variant_id_norm,
+         json.dumps(lineage or {}, ensure_ascii=False, default=str), label),
+    )
+    for i, e in enumerate(edges):
+        payload = dict(e.get("payload") or {})
+        cur.execute(
+            """
+            insert into hub.bom_edges
+              (version_id, row_index, root_code, parent_code, child_code,
+               qty_per_parent, uom, level, node_path, sheet_name,
+               source_row_no, payload)
+            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+            """,
+            (
+                version_id, int(e.get("row_index") if e.get("row_index") is not None else i),
+                e["root_code"], e["parent_code"], e["child_code"],
+                e["qty_per_parent"], e.get("uom"), e.get("level"),
+                e.get("node_path"), e.get("sheet_name"), e.get("source_row_no"),
+                json.dumps(payload, ensure_ascii=False, default=str),
+            ),
+        )
+    cur.execute(
+        """
+        insert into hub.bom_audit_events
+          (client_id, product_code, version_id, event_type, actor, details)
+        values (%s, %s, %s, 'version.created', %s, %s::jsonb)
+        """,
+        (client_id, product_code, version_id, actor,
+         json.dumps({"intent": intent,
+                     "source_bom_kind": "technical_raw",
+                     "flatten_status": "non_flattened",
+                     "flatten_strategy": flatten_strategy})),
+    )
+    return version_id
 
 
 def create_version(*, client_id: str, product_code: str, rows: list[dict],
@@ -372,10 +547,22 @@ def get_version_with_rows(version_id: str) -> dict | None:
             )
             cols2 = [d[0] for d in cur.description]
             rows = [dict(zip(cols2, r)) for r in cur.fetchall()]
+            cur.execute(
+                """
+                select row_index, root_code, parent_code, child_code,
+                       qty_per_parent, uom, level, node_path, sheet_name,
+                       source_row_no, payload
+                from hub.bom_edges where version_id = %s
+                order by row_index
+                """,
+                (version_id,),
+            )
+            cols3 = [d[0] for d in cur.description]
+            edges = [dict(zip(cols3, r)) for r in cur.fetchall()]
             unresolved = get_unresolved_for_version(version_id)
             decisions = get_decisions_for_version(version_id)
             return {
-                "version": version, "rows": rows,
+                "version": version, "rows": rows, "edges": edges,
                 "unresolved": unresolved, "decisions": decisions,
             }
 

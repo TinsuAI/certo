@@ -258,6 +258,40 @@ checklist grows past ~5 items, promote to a real lint.
 
 ---
 
+## 2026-05-04 PM — BOM raw graph + flat rows storage
+
+**Context:** Growatt and Johnson factory technical BOMs are multi-level
+graphs. Existing `technical_flatten` parser paths correctly produce
+leaf-flat output, but they lose direct parent-child edges needed for
+audit, source-row traceability, and comparison against staff-converted
+workbooks such as Growatt `GOM BOM TP/BTP`.
+
+**Decision:** Store BOM in two physical row shapes under the existing
+`hub.bom_versions` table:
+
+- `hub.bom_edges` for `source_bom_kind='technical_raw'`,
+  `flatten_status='non_flattened'`, `flatten_strategy='no_strategy'`.
+  Each row is one direct `parent_code -> child_code` edge with
+  `root_code`, `qty_per_parent`, level/path/source-row metadata.
+- `hub.bom_version_rows` remains the flat/manual row table for
+  `manual_flat`, `technical_flattened`, `staff_edit`, and CO/staff
+  modifications.
+
+`technical_raw` upload is a separate profile from `technical_flatten`.
+Raw parsing uses dedicated edge parsers and does not reconstruct edges
+from already-flattened adapter output. `technical_raw` versions are
+excluded from `/latest` by the existing `flatten_status in
+('flattened','not_applicable')` filter; pinned version reads can return
+`edges`.
+
+**Consequences:** Growatt/Johnson factory workbooks can be ingested as
+source graphs, then flattened later with lineage. Staff-converted files
+such as `GOM BOM` stay as flat/staff versions and can be diffed against
+raw or generated-flat output. Existing flat consumers continue to read
+only calculation-ready versions.
+
+---
+
 ## Decisions to add post-discovery
 
 (Placeholder — entries to be written during/after M9 discovery sprint)

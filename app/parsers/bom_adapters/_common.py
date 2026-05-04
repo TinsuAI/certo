@@ -8,16 +8,20 @@ from app.parsers._excel import cell_str as _cell_str_shared
 COMMON_ALIASES = {
     "product_code": ["mã sp", "ma sp", "product", "product code", "product_code",
                      "thành phẩm", "thanh pham", "sp",
-                     "成品物料"],   # zh: finished-product material
+                     "成品物料",    # zh: finished-product material
+                     "顶层物料编码"], # zh: top-level material code
     "material_code": ["mã nvl", "ma nvl", "material", "material code", "material_code",
                       "nvl", "nguyen lieu",
                       "组件物料",       # zh: component material
+                      "子项物料号",     # zh: child material number
                       "component number", "component code"],
     "qty_per_unit": ["định mức", "dinh muc", "qty", "quantity", "qty per", "định lượng",
                      "标准用量",                              # zh: standard quantity
+                     "单位用量",                              # zh: per-unit usage
                      "comp. qty", "comp qty", "comp qty cun"],
     "uom": ["đvt", "dvt", "unit", "uom",
             "单位",                    # zh: unit
+            "子件单位",                # zh: child unit
             "component unit"],
     "bom_code": ["bom code", "bom", "công thức"],
     "bom_variant_id": ["variant", "phiên bản"],

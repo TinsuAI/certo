@@ -214,6 +214,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "bom.adapter.multi_sheet_per_root.desc": "1 sản phẩm với cây explosion trải qua nhiều sheet (Growatt PV*.XLSX). Sinh 1 BOM version duy nhất, không tách BTP intermediate.",
         "bom.adapter.technical_flatten.label": "Technical flatten (auto)",
         "bom.adapter.technical_flatten.desc": "Tự nhận dạng cấu trúc + chạy flatten engine để tạo TP × BTP versions.",
+        "bom.adapter.technical_raw.label": "Technical raw",
+        "bom.adapter.technical_raw.desc": "Lưu BOM kỹ thuật gốc dưới dạng parent → child, chưa flatten.",
         # BOM list — flatten status badges + filter
         "bom.list.filter_all": "Tất cả",
         "bom.list.filter_flattened": "Sẵn sàng tính toán",
@@ -673,6 +675,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "bom.adapter.multi_sheet_per_root.desc": "One product with an explosion tree spread across multiple sheets (Growatt PV*.XLSX). Emits ONE BOM version, no intermediate BTPs.",
         "bom.adapter.technical_flatten.label": "Technical flatten (auto)",
         "bom.adapter.technical_flatten.desc": "Auto-detect structure + run the flatten engine to materialize TP and BTP versions.",
+        "bom.adapter.technical_raw.label": "Technical raw",
+        "bom.adapter.technical_raw.desc": "Store the source technical BOM as parent → child edges without flattening.",
         "bom.list.filter_all": "All",
         "bom.list.filter_flattened": "Calculation-ready",
         "bom.list.filter_non_flattened": "Needs review",

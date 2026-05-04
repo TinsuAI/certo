@@ -26,6 +26,32 @@
   </details>
   {% endif %}
 
+  {% if edges %}
+  <table class="dh-table" style="margin-top: 1rem;">
+    <thead><tr>
+      <th>{{ t('bom.row_index') }}</th>
+      <th>Parent</th>
+      <th>Child</th>
+      <th>{{ t('bom.qty_per_unit') }}</th>
+      <th>{{ t('bom.uom') }}</th>
+      <th>Level</th>
+      <th>Path</th>
+    </tr></thead>
+    <tbody>
+      {% for e in edges %}
+      <tr>
+        <td>{{ e.row_index }}</td>
+        <td class="mono">{{ e.parent_code }}</td>
+        <td class="mono">{{ e.child_code }}</td>
+        <td class="mono">{{ '%.6f'|format(e.qty_per_parent) if e.qty_per_parent else '0' }}</td>
+        <td class="mono">{{ e.uom or '' }}</td>
+        <td class="mono">{{ e.level or '' }}</td>
+        <td class="mono">{{ e.node_path or '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
   <table class="dh-table" style="margin-top: 1rem;">
     <thead><tr>
       <th>{{ t('bom.row_index') }}</th>
@@ -48,5 +74,6 @@
       {% endfor %}
     </tbody>
   </table>
+  {% endif %}
 </section>
 {% endblock %}
