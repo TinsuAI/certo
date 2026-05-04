@@ -19,6 +19,7 @@ import pytest
 
 from app import auth
 from app.database import apply_migrations, connect
+from app.seed import auto_seed_demo_if_empty
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -30,4 +31,10 @@ def _bootstrap_schema():
             "update hub.users set role='dev' where email=%s and role <> 'dev'",
             ("admin@data-hub.local",),
         )
+    # Lifespan in app/main.py auto-seeds Growatt + Johnson demo clients
+    # when no clients exist. Many test fixtures (test_agent, test_llm_*,
+    # test_co_columns, ...) rely on `growatt-vn` already existing. On a
+    # fresh CI database the lifespan hasn't run yet by the time those
+    # fixtures open a cursor, so reproduce the seed here.
+    auto_seed_demo_if_empty()
     yield
