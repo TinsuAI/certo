@@ -1,0 +1,116 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: cicd-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgres:16
+        env:
+          POSTGRES_USER: hub
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: data_hub_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hub -d data_hub_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATA_HUB_DATABASE_URL: postgresql://hub:test@localhost:5432/data_hub_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.5.11"
+      - name: Sync dependencies
+        run: uv sync --frozen
+      - name: Run pytest
+        run: uv run pytest -q
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Validate compose
+        env:
+          POSTGRES_PASSWORD: ci
+          DATA_HUB_SEED_PASSWORD: ci
+        run: docker compose config -q
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: data-hub:ci
+
+  deploy:
+    name: Deploy to tinsu
+    needs: [test, docker]
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, data-hub-demo]
+    concurrency:
+      group: deploy-tinsu
+      cancel-in-progress: false
+    steps:
+      - name: Pull latest code
+        working-directory: /home/tinsu/data-hub
+        run: |
+          git fetch origin main
+          git reset --hard origin/main
+          git log -1 --pretty=format:'deployed %h %s'
+
+      - name: Compose up (build + recreate)
+        working-directory: /home/tinsu/data-hub
+        run: docker compose up -d --build
+
+      - name: Wait for /healthz
+        run: |
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8754/healthz || echo 000)
+            if [ "$code" = "200" ]; then
+              echo "healthy after ${i}s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "app did not become healthy in time"
+          docker compose -f /home/tinsu/data-hub/docker-compose.yml logs --tail=80 app
+          exit 1
+
+      - name: Smoke API consumer endpoint
+        run: |
+          curl -fsS http://127.0.0.1:8754/v1/hub/dncxs > /tmp/dncxs.json
+          test "$(jq '.items | length' /tmp/dncxs.json)" -ge 1 \
+            && echo "/v1/hub/dncxs returned $(jq '.items | length' /tmp/dncxs.json) items"
+
+      - name: Smoke LLM /models (best effort)
+        working-directory: /home/tinsu/data-hub
+        run: |
+          base=$(docker compose exec -T db psql -U hub -d data_hub -tAc \
+            "select value from hub.app_settings where key='llm_base_url'" \
+            | tr -d ' \r\n')
+          if [ -z "$base" ]; then
+            echo "no llm_base_url configured, skipping LLM smoke"
+            exit 0
+          fi
+          echo "probing $base/models"
+          curl -fsS --connect-timeout 10 "$base/models" > /dev/null \
+            && echo "LLM /models OK"
