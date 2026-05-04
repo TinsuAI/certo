@@ -874,6 +874,54 @@ def test_data_hub_bom_service_exposes_switchable_product_versions():
     assert workspace["latest_rows"][0]["qty_per"] == 2
 
 
+def test_data_hub_bom_service_prefers_latest_usable_version_over_non_flattened():
+    from app.bom_service import DataHubBomService
+
+    class FakeDataHubClient:
+        def list_bom_products(self, client_id: str):
+            assert client_id == "growatt-vn"
+            return [{"product_code": "TP-1", "n_versions": 2}]
+
+        def list_bom_versions(self, client_id: str, product_code: str):
+            assert client_id == "growatt-vn"
+            assert product_code == "TP-1"
+            return [
+                {"version_id": "bv-1", "version_no": 1, "row_count": 1, "status": "published"},
+                {"version_id": "bv-2", "version_no": 2, "row_count": 4, "status": "published"},
+            ]
+
+        def get_bom_version(self, client_id: str, product_code: str, version_id: str):
+            assert client_id == "growatt-vn"
+            assert product_code == "TP-1"
+            if version_id == "bv-2":
+                return {
+                    "version": {
+                        "version_id": "bv-2",
+                        "product_code": "TP-1",
+                        "version_no": 2,
+                        "row_count": 4,
+                        "flatten_status": "non_flattened",
+                    },
+                    "rows": [],
+                }
+            return {
+                "version": {
+                    "version_id": "bv-1",
+                    "product_code": "TP-1",
+                    "version_no": 1,
+                    "row_count": 1,
+                    "flatten_status": "not_applicable",
+                },
+                "rows": [{"material_code": "NVL-1", "qty_per_unit": 2, "uom": "PCS", "payload": {}}],
+            }
+
+    workspace = DataHubBomService(FakeDataHubClient()).workspace({"id": "growatt-vn"})
+
+    assert [row["product_version_id"] for row in workspace["product_versions"] if row["status"] == "current"] == ["bv-1"]
+    assert workspace["latest_version"]["product_versions"][0]["product_version_id"] == "bv-1"
+    assert workspace["latest_rows"][0]["material_code"] == "NVL-1"
+
+
 def test_data_hub_portfolio_service_uses_data_hub_source_summary():
     from app.data_hub_client import DataHubPortfolioService
 
@@ -960,6 +1008,8 @@ def test_data_hub_portfolio_service_uses_invoice_lookup_api():
                     "declaration_no": "NK1",
                     "line_no": "1",
                     "item_code": "MAT-001",
+                    "description": "Imported material name",
+                    "hs_code": "853690",
                     "quantity": "100",
                     "unit": "PCS",
                     "customs_value": "1000",
@@ -978,6 +1028,8 @@ def test_data_hub_portfolio_service_uses_invoice_lookup_api():
     assert context["invoice_matches"][0]["unloading_location"] == "USLAX - LOS ANGELES - CA"
     assert context["invoice_matches"][0]["market_hint"]["country_code"] == "US"
     assert context["stock_rows"][0]["customs_item_code"] == "MAT-001"
+    assert context["stock_rows"][0]["material_description"] == "Imported material name"
+    assert context["stock_rows"][0]["hs_code"] == "853690"
     assert context["stock_rows"][0]["unit_value"] == "10"
     assert context["stock_rows"][0]["currency"] == "VND"
 

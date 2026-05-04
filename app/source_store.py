@@ -1222,6 +1222,8 @@ def co_stock_rows_from_bcct(rows: list[dict], client_config: dict) -> list[dict]
             "eligibility_reason": eligibility["reason"],
             "eligibility_config_version": client_config.get("config_version", ""),
             "eligibility_config_hash": client_config.get("config_hash", ""),
+            "material_description": row.get("material_description") or row.get("description") or row.get("goods_name", ""),
+            "hs_code": row.get("hs_code", ""),
             "unit": row.get("unit", ""),
             "origin_country": row.get("origin_country", ""),
             "available_qty": quantity,

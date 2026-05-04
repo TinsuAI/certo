@@ -1409,9 +1409,32 @@ def selected_bom_rows_by_product(case: dict, bom_workspace: dict) -> dict[str, l
             or composition_by_product.get(product_code, "")
         )
         selected_product_version = version_index.get(selected_product_version_id)
+        if product_code and not usable_bom_product_version(selected_product_version):
+            fallback_version_id = composition_by_product.get(product_code, "")
+            selected_product_version = version_index.get(fallback_version_id) or latest_usable_product_version(
+                bom_workspace,
+                product_code,
+            )
         if product_code and selected_product_version and selected_product_version.get("rows") is not None:
             output[product_code] = [dict(row) for row in selected_product_version.get("rows", [])]
     return output
+
+
+def usable_bom_product_version(version: dict | None) -> bool:
+    if not version:
+        return False
+    if version.get("flatten_status") == "non_flattened":
+        return False
+    return bool(version.get("rows"))
+
+
+def latest_usable_product_version(bom_workspace: dict, product_code: str) -> dict:
+    versions = [
+        version
+        for version in bom_workspace.get("product_versions", [])
+        if version.get("product_code") == product_code and usable_bom_product_version(version)
+    ]
+    return max(versions, key=lambda version: int(version.get("product_version_no") or 0), default={})
 
 
 def material_catalog_index(material_rows: list[dict]) -> dict[str, dict]:
@@ -1478,11 +1501,8 @@ def origin_product_from_invoice_match(
         decimal_value(material.get("non_origin_cif_value"))
         for material in materials
     )
-    missing_material_values = any(
-        material.get("origin_status") == "non_origin" and material.get("unit_value_missing")
-        for material in materials
-    )
-    lvc = calculate_lvc_result(fob, vnm, threshold, missing_material_values)
+    missing_material_values = any(material.get("unit_value_missing") for material in materials)
+    lvc = calculate_lvc_result(fob, vnm, threshold, missing_material_values, missing_bom_materials=not materials)
     product = {
         "code": product_code,
         "name": match.get("description") or product_code,
@@ -1551,10 +1571,14 @@ def origin_material_from_bom_row(
     vnm_value = material_value if origin_status == "non_origin" and material_value is not None else None
     valuation_status = "ready" if unit_value is not None else "missing_unit_value"
     material_warnings = []
+    material_description = row.get("material_name") or material.get("name", "") or stock.get("material_description", "")
+    hs_code = row.get("hs_code") or material.get("hs_code", "") or stock.get("hs_code", "")
     if valuation_status == "missing_unit_value":
         material_warnings.append(f"{material_code}: thiếu đơn giá để tính trị giá NVL/VNM.")
     if origin_details["source"] == "default_conservative":
         material_warnings.append(f"{material_code}: chưa có phân loại xuất xứ, đang tính bảo thủ là không xuất xứ.")
+    if not material_description:
+        material_warnings.append(f"{material_code}: thiếu tên NVL từ BOM, danh mục NVL và BCCT nhập.")
     return {
         "source_row": stock.get("source_row") or f"BOM:{row.get('source', '')}",
         "import_declaration_no": stock.get("import_declaration_no", ""),
@@ -1562,8 +1586,9 @@ def origin_material_from_bom_row(
         "material_code": material_code,
         "customs_material_code": material.get("customs_code") or material_code,
         "internal_material_code": material.get("internal_code") or material_code,
-        "material_description": row.get("material_name") or material.get("name", ""),
-        "hs_code": row.get("hs_code") or material.get("hs_code", ""),
+        "material_description": material_description,
+        "material_name_missing": not bool(material_description),
+        "hs_code": hs_code,
         "origin_status": origin_status,
         "origin_status_label": origin_details["label"],
         "origin_status_source": origin_details["source"],
@@ -1659,6 +1684,16 @@ def enrich_origin_product(product: dict) -> dict:
     materials = [enrich_origin_material(material) for material in enriched.get("materials", [])]
     enriched["materials"] = materials
     criterion = str(enriched.get("documented_result") or enriched.get("rule") or "")
+    missing_unit_material_count = sum(1 for material in materials if material.get("valuation_status") == "missing_unit_value")
+    lvc = normalized_lvc_result(enriched, materials, criterion, missing_unit_material_count > 0)
+    enriched["lvc_percentage"] = lvc["percentage"]
+    enriched["lvc_status"] = lvc["status"]
+    enriched["lvc_status_label"] = lvc["status_label"]
+    enriched["lvc_quality_warning_text"] = (
+        f"Thiếu đơn giá {missing_unit_material_count} dòng NVL; LVC đang tạm tính từ các dòng đã có đơn giá."
+        if missing_unit_material_count and lvc["percentage"]
+        else ""
+    )
     ctc_rule = tariff_shift_rule_from_criterion(criterion)
     lvc_status = str(enriched.get("lvc_status") or "")
     warnings = []
@@ -1668,6 +1703,7 @@ def enrich_origin_product(product: dict) -> dict:
         warnings.append(f"{enriched.get('code', 'TP')}: thiếu FOB/trị giá TP.")
     for material in materials:
         warnings.extend(material.get("material_warnings", []))
+    warnings = unique_texts(warnings)
     tariff_shift_status = ""
     tariff_shift_status_label = ""
     tariff_shift_note = ""
@@ -1686,7 +1722,7 @@ def enrich_origin_product(product: dict) -> dict:
         else:
             tariff_shift_status_label = f"Không đạt {ctc_rule} preview"
         tariff_shift_note = f"{ctc_rule} preview chỉ so HS TP với HS NVL không xuất xứ; chưa thay thế PSR engine/legal review."
-    if lvc_status == "missing_value" or any(material.get("valuation_status") == "missing_unit_value" for material in materials):
+    if lvc_status in {"missing_value", "missing_bom"} or any(material.get("valuation_status") == "missing_unit_value" for material in materials):
         readiness_status = "blocked"
         readiness_label = "Cần bổ sung evidence"
     elif lvc_status == "fail":
@@ -1709,6 +1745,7 @@ def enrich_origin_product(product: dict) -> dict:
         "origin_readiness_status": readiness_status,
         "origin_readiness_label": readiness_label,
         "origin_warnings": warnings,
+        "origin_warning_summary": origin_warning_summary(enriched, materials, warnings),
         "origin_warnings_text": " | ".join(warnings),
         "tariff_shift_rule": ctc_rule,
         "tariff_shift_status": tariff_shift_status,
@@ -1720,6 +1757,7 @@ def enrich_origin_product(product: dict) -> dict:
 
 def enrich_origin_material(material: dict) -> dict:
     enriched = dict(material)
+    enriched["material_name_missing"] = not bool(str(enriched.get("material_description") or "").strip())
     if not enriched.get("origin_status_label"):
         enriched["origin_status_label"] = "Có xuất xứ" if enriched.get("origin_status") == "origin" else "Không xuất xứ"
     unit_missing = not str(enriched.get("unit_value") or "").strip()
@@ -1735,9 +1773,65 @@ def enrich_origin_material(material: dict) -> dict:
     if unit_missing and not warnings:
         code = enriched.get("material_code") or enriched.get("internal_material_code") or "NVL"
         warnings.append(f"{code}: thiếu đơn giá để tính trị giá NVL/VNM.")
+    if enriched["material_name_missing"]:
+        code = enriched.get("material_code") or enriched.get("internal_material_code") or "NVL"
+        warnings.append(f"{code}: thiếu tên NVL từ BOM, danh mục NVL và BCCT nhập.")
+    warnings = unique_texts(warnings)
     enriched["material_warnings"] = warnings
     enriched["material_warnings_text"] = " | ".join(warnings)
     return enriched
+
+
+def origin_warning_summary(product: dict, materials: list[dict], warnings: list[str]) -> list[dict]:
+    summary = []
+    if not materials:
+        summary.append({
+            "kind": "missing_bom",
+            "label": "Chưa có BOM/NVL",
+            "count": 1,
+            "detail": "Không kết luận LVC cho tới khi chọn BOM snapshot có dòng NVL.",
+            "examples": product.get("code", ""),
+        })
+    if not product.get("fob"):
+        summary.append({
+            "kind": "missing_fob",
+            "label": "Thiếu FOB",
+            "count": 1,
+            "detail": "Cần trị giá TP để tính build-down LVC/RVC.",
+            "examples": product.get("code", ""),
+        })
+    summary.extend(material_issue_summary(materials, "missing_unit_value", "valuation_status", "Thiếu đơn giá NVL", "LVC đang tạm tính từ các dòng đã có đơn giá."))
+    summary.extend(material_issue_summary(materials, "default_conservative", "origin_status_source", "Chưa phân loại xuất xứ", "Đang tạm tính bảo thủ là không xuất xứ."))
+    missing_name_materials = [material for material in materials if material.get("material_name_missing")]
+    if missing_name_materials:
+        summary.append(material_summary_row(
+            missing_name_materials,
+            "missing_material_name",
+            "Thiếu tên NVL",
+            "Không tìm thấy tên trong BOM, danh mục NVL hoặc BCCT nhập.",
+        ))
+    if summary:
+        return summary
+    return []
+
+
+def material_issue_summary(materials: list[dict], value: str, field: str, label: str, detail: str) -> list[dict]:
+    rows = [material for material in materials if material.get(field) == value]
+    return [material_summary_row(rows, value, label, detail)] if rows else []
+
+
+def material_summary_row(materials: list[dict], kind: str, label: str, detail: str) -> dict:
+    codes = unique_texts(
+        material.get("internal_material_code") or material.get("material_code") or "NVL"
+        for material in materials
+    )
+    return {
+        "kind": kind,
+        "label": label,
+        "count": len(materials),
+        "detail": detail,
+        "examples": ", ".join(codes[:6]),
+    }
 
 
 def tariff_shift_rule_from_criterion(criterion: str) -> str:
@@ -1774,6 +1868,18 @@ def text_list(value) -> list[str]:
     return [item.strip() for item in str(value or "").split("|") if item.strip()]
 
 
+def unique_texts(values) -> list[str]:
+    output = []
+    seen = set()
+    for value in values or []:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        output.append(text)
+        seen.add(text)
+    return output
+
+
 def lvc_threshold_from_criterion(criterion: str) -> Decimal | None:
     if not criterion:
         return None
@@ -1783,22 +1889,46 @@ def lvc_threshold_from_criterion(criterion: str) -> Decimal | None:
     return decimal_value(match.group(1)) if match else None
 
 
+def normalized_lvc_result(product: dict, materials: list[dict], criterion: str, missing_material_values: bool) -> dict:
+    fob = decimal_value(product.get("fob")) if product.get("fob") not in (None, "") else None
+    vnm_source = first_non_empty([product.get("vnm_value"), product.get("non_origin_value")])
+    if vnm_source:
+        vnm = decimal_value(vnm_source)
+    else:
+        vnm = sum(
+            decimal_value(material.get("non_origin_cif_value"))
+            for material in materials
+            if material.get("origin_status") == "non_origin"
+        )
+    threshold_source = first_non_empty([product.get("lvc_threshold"), product.get("rvc_threshold")])
+    threshold = decimal_value(threshold_source) if threshold_source else lvc_threshold_from_criterion(criterion)
+    return calculate_lvc_result(fob, vnm, threshold, missing_material_values, missing_bom_materials=not materials)
+
+
 def calculate_lvc_result(
     fob: Decimal | None,
     vnm: Decimal,
     threshold: Decimal | None,
     missing_material_values: bool,
+    *,
+    missing_bom_materials: bool = False,
 ) -> dict:
     if fob is None or fob <= 0:
         return {"percentage": "", "status": "missing_value", "status_label": "Thiếu FOB"}
-    if missing_material_values:
-        return {"percentage": "", "status": "missing_value", "status_label": "Thiếu đơn giá NVL"}
+    if missing_bom_materials:
+        return {"percentage": "", "status": "missing_bom", "status_label": "Thiếu BOM/NVL"}
     percentage = ((fob - vnm) / fob * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     percentage_text = f"{percentage:.2f}"
     if threshold is None:
+        if missing_material_values:
+            return {"percentage": percentage_text, "status": "partial_review", "status_label": "Tạm tính LVC"}
         return {"percentage": percentage_text, "status": "review", "status_label": "Thiếu ngưỡng"}
     if percentage >= threshold:
+        if missing_material_values:
+            return {"percentage": percentage_text, "status": "partial_pass", "status_label": "Tạm đạt LVC"}
         return {"percentage": percentage_text, "status": "pass", "status_label": "Đạt LVC"}
+    if missing_material_values:
+        return {"percentage": percentage_text, "status": "partial_fail", "status_label": "Tạm không đạt LVC"}
     return {"percentage": percentage_text, "status": "fail", "status_label": "Không đạt LVC"}
 
 

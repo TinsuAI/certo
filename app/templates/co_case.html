@@ -232,7 +232,7 @@
   </ol>
 </section>
 
-<section class="co-case-grid co-case-grid-simple">
+<section class="co-case-index-layout">
   <section class="zone source-panel co-new-case-panel co-primary-create">
     <div class="zone-head">
       <div>
@@ -267,32 +267,91 @@
     </form>
   </section>
 
-  <aside class="zone source-panel co-case-list-panel" aria-label="Danh sách hồ sơ C/O">
+  <section class="zone source-panel co-case-list-panel" aria-label="Danh sách hồ sơ C/O">
     <div class="zone-head">
       <div>
         <h2>Danh sách hồ sơ C/O</h2>
-        <p class="meta">{{ case_workspace.cases|length }} hồ sơ đang lưu.</p>
+        <p class="meta">{{ case_workspace.cases|length }} hồ sơ đang lưu. Lọc nhanh theo invoice, thị trường, form, B/L hoặc trạng thái dữ liệu.</p>
       </div>
     </div>
-    <div class="case-list">
+    <div class="case-filter-bar" data-case-filter>
+      <label>Tìm kiếm
+        <input class="table-search" type="search" placeholder="Invoice, mã hồ sơ, tên hồ sơ, B/L..." data-case-search>
+      </label>
+      <label>Trạng thái
+        <select data-case-status-filter>
+          <option value="">Tất cả</option>
+          <option value="missing-invoice">Thiếu invoice</option>
+          <option value="missing-bill">Thiếu B/L</option>
+          <option value="has-products">Có snapshot xuất xứ</option>
+          <option value="needs-origin">Chưa có snapshot xuất xứ</option>
+        </select>
+      </label>
+      <label>Thị trường
+        <input placeholder="Ví dụ: United States" data-case-market-filter>
+      </label>
+      <label>Form
+        <input placeholder="Ví dụ: Form B" data-case-form-filter>
+      </label>
+    </div>
+    <div class="case-result-meta" data-case-result-count>{{ case_workspace.cases|length }} hồ sơ</div>
+    <div class="dossier-list co-dossier-list">
+      <div class="dossier-list-head" aria-hidden="true">
+        <span>Hồ sơ</span>
+        <span>Invoice</span>
+        <span>Thị trường</span>
+        <span>Form</span>
+        <span>B/L</span>
+        <span>TP</span>
+        <span>Cập nhật</span>
+        <span></span>
+      </div>
       {% for dossier in case_workspace.cases %}
-      <a class="case-list-row" href="/clients/{{ client.id }}/co-case/{{ dossier.case_id }}">
-        <span>
-          <strong class="mono">{{ dossier.shipment.invoice_no or dossier.case_code }}</strong>
-          <small>{{ dossier.case_code }} · {{ dossier.title }}</small>
-        </span>
-        <span class="case-list-meta">
-          <em>{{ dossier.destination_market }}</em>
-          <em>{{ dossier.co_form_type or 'Chưa chọn form' }}</em>
-          <em>{{ dossier.shipment.bill_of_lading_no or 'Chưa có B/L' }}</em>
-        </span>
-        <b>Mở hồ sơ</b>
-      </a>
+      {% set dossier_status = 'missing-invoice' if not dossier.shipment.invoice_no else 'missing-bill' if not dossier.shipment.bill_of_lading_no else 'has-products' if dossier.products else 'needs-origin' %}
+      <div class="dossier-row co-dossier-row"
+        data-case-row
+        data-case-search="{{ (dossier.case_code ~ ' ' ~ dossier.title ~ ' ' ~ dossier.shipment.invoice_no ~ ' ' ~ dossier.destination_market ~ ' ' ~ dossier.co_form_type ~ ' ' ~ dossier.shipment.bill_of_lading_no)|lower }}"
+        data-case-status="{{ dossier_status }}"
+        data-case-market="{{ dossier.destination_market|lower }}"
+        data-case-form="{{ (dossier.co_form_type or '')|lower }}">
+        <div class="dossier-title">
+          <span>Hồ sơ</span>
+          <strong>{{ dossier.title }}</strong>
+          <small class="mono">{{ dossier.case_code }}</small>
+        </div>
+        <div>
+          <span>Invoice</span>
+          <strong class="mono">{{ dossier.shipment.invoice_no or 'Chưa nhập' }}</strong>
+        </div>
+        <div>
+          <span>Thị trường</span>
+          <strong>{{ dossier.destination_market }}</strong>
+        </div>
+        <div>
+          <span>Form</span>
+          <strong>{{ dossier.co_form_type or 'Chưa chọn form' }}</strong>
+        </div>
+        <div>
+          <span>B/L</span>
+          <strong class="mono">{{ dossier.shipment.bill_of_lading_no or 'Chưa có B/L' }}</strong>
+        </div>
+        <div>
+          <span>TP</span>
+          <strong>{{ dossier.products|length }}</strong>
+        </div>
+        <div>
+          <span>Cập nhật</span>
+          <strong>{{ dossier.updated_at[:10] if dossier.updated_at else 'n/a' }}</strong>
+        </div>
+        <div class="dossier-action">
+          <a class="btn-secondary" href="/clients/{{ client.id }}/co-case/{{ dossier.case_id }}">Mở</a>
+        </div>
+      </div>
       {% else %}
       <p class="empty-cell">Chưa có hồ sơ lưu riêng cho công ty này.</p>
       {% endfor %}
     </div>
-  </aside>
+  </section>
 </section>
 
 {% else %}
@@ -591,7 +650,7 @@
   </div>
 </section>
 
-<form method="post" action="/clients/{{ client.id }}/evaluate" id="co-case" class="workspace-grid">
+<form method="post" action="/clients/{{ client.id }}/evaluate" id="co-case" class="origin-workspace">
   <input type="hidden" name="case_id" value="{{ case.id }}">
   <input type="hidden" name="persisted_case_id" value="{{ case.persisted_case_id }}">
   <input type="hidden" name="customer" value="{{ case.customer }}">
@@ -617,41 +676,31 @@
   <input type="hidden" name="document_{{ doc_index }}_status" value="{{ doc.status }}">
   {% endfor %}
 
-  <aside class="rail">
-    <section class="zone">
-      <div class="zone-head">
-        <h2>BOM snapshot</h2>
-      </div>
-      <div class="stack-form">
-        <label>BOM tổng hợp
-          <select name="bom_version_id">
-            {% for version in bom_workspace.versions %}
-            <option value="{{ version.version_id }}" {% if version.version_id == case.bom_snapshot.aggregate_version_id %}selected{% endif %}>BOM tổng hợp v{{ version.version_no }} · {{ version.product_versions|length }} TP</option>
-            {% endfor %}
-          </select>
-        </label>
-      </div>
-      <div class="rowlist audit-trail">
-        {% for product_version in case.bom_snapshot.composition %}
-        <div class="rowitem">
-          <div>
-            <strong>{{ product_version.product_code }}</strong>
-            <div class="meta">TP BOM v{{ product_version.product_version_no }} · {{ product_version.row_count }} dòng</div>
-          </div>
-        </div>
-        {% else %}
-        <p class="empty-cell">Hồ sơ chưa snapshot BOM.</p>
+  <section class="zone origin-workbar" aria-label="Điều khiển snapshot xuất xứ">
+    <label>BOM tổng hợp
+      <select name="bom_version_id">
+        {% for version in bom_workspace.versions %}
+        <option value="{{ version.version_id }}" {% if version.version_id == case.bom_snapshot.aggregate_version_id %}selected{% endif %}>BOM tổng hợp v{{ version.version_no }} · {{ version.product_versions|length }} TP</option>
         {% endfor %}
-      </div>
-    </section>
-
-    <section class="zone action-panel">
+        {% if not bom_workspace.versions %}
+        <option value="">Chọn theo BOM TP</option>
+        {% endif %}
+      </select>
+    </label>
+    <div class="origin-bom-chips">
+      {% for product_version in case.bom_snapshot.composition %}
+      <span class="origin-bom-chip"><strong>{{ product_version.product_code }}</strong> v{{ product_version.product_version_no }} · {{ product_version.row_count }} dòng</span>
+      {% else %}
+      <span class="origin-bom-chip origin-bom-chip-warning">Chưa có BOM snapshot có dòng NVL</span>
+      {% endfor %}
+    </div>
+    <div class="origin-workbar-actions">
       <button type="submit">Tính lại snapshot</button>
       <button type="submit" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export">Xuất dossier XLSX</button>
-    </section>
-  </aside>
+    </div>
+  </section>
 
-  <section class="workspace-main">
+  <section class="workspace-main full-width">
     <section class="zone" id="lvc-statement">
       <div class="zone-head">
         <div>
@@ -660,10 +709,36 @@
         </div>
       </div>
 
-      <div class="product-stack">
+      <div class="product-stack origin-workbook" data-origin-workbook>
+        {% if case.products %}
+        <div class="origin-sheet-tabs" role="tablist" aria-label="Sheet sản phẩm trong bảng kê">
+          {% for product in case.products %}
+          <button
+            type="button"
+            class="origin-sheet-tab {{ 'origin-sheet-tab-active' if loop.first else '' }}"
+            id="origin-sheet-tab-{{ loop.index0 }}"
+            role="tab"
+            aria-controls="origin-sheet-{{ loop.index0 }}"
+            aria-selected="{{ 'true' if loop.first else 'false' }}"
+            data-origin-sheet-tab
+            data-origin-sheet-target="origin-sheet-{{ loop.index0 }}">
+            <span>Sheet {{ loop.index }}</span>
+            <strong class="mono">{{ product.code }}</strong>
+            <small>{{ product.materials|length }} NVL</small>
+          </button>
+          {% endfor %}
+        </div>
+        {% endif %}
+        <div class="origin-sheet-panels">
         {% for product in case.products %}
         {% set product_index = loop.index0 %}
-        <article class="product-block">
+        <article
+          class="product-block origin-sheet-panel {{ 'origin-sheet-panel-active' if loop.first else '' }}"
+          id="origin-sheet-{{ product_index }}"
+          role="tabpanel"
+          aria-labelledby="origin-sheet-tab-{{ product_index }}"
+          data-origin-sheet-panel
+          {% if not loop.first %}hidden{% endif %}>
           <input type="hidden" name="product_{{ product_index }}_material_count" value="{{ product.materials|length }}">
           <input type="hidden" name="product_{{ product_index }}_non_origin_value" value="{{ product.non_origin_value }}">
           <input type="hidden" name="product_{{ product_index }}_code" value="{{ product.code }}">
@@ -715,13 +790,18 @@
             </label>
           </div>
 
+          {% set lvc_metric_class = 'warning' if product.lvc_quality_warning_text else 'blocked' if product.lvc_status in ['missing_value', 'missing_bom'] else product.lvc_status %}
           <div class="origin-product-strip">
             <div><span>HS TP</span><strong class="mono">{{ product.finished_hs }}</strong></div>
             <div><span>Số lượng invoice</span><strong>{{ product.quantity|number(6) }} {{ product.unit or product.export_unit }}</strong></div>
             <div><span>FOB/trị giá TP</span><strong class="num">{{ product.fob|number if product.fob else 'Thiếu' }} <em>{{ product.currency }}</em></strong></div>
             <div><span>VNM</span><strong class="num">{{ (product.vnm_value or product.non_origin_value or '0')|number }} <em>{{ product.currency }}</em></strong></div>
-            <div><span>LVC</span><strong class="num">{{ product.lvc_percentage ~ '%' if product.lvc_percentage else product.lvc_status_label or 'Thiếu trị giá' }}</strong></div>
-            <div><span>Ngưỡng</span><strong>{{ product.lvc_threshold or product.rvc_threshold or 'n/a' }}%</strong></div>
+            <div class="origin-metric-{{ lvc_metric_class }}" title="{{ product.lvc_quality_warning_text or product.lvc_status_label or 'LVC' }}">
+              <span>LVC</span>
+              <strong class="num">{{ product.lvc_percentage ~ '%' if product.lvc_percentage else product.lvc_status_label or 'Thiếu trị giá' }}</strong>
+              {% if product.lvc_quality_warning_text %}<small>{{ product.lvc_status_label }}</small>{% endif %}
+            </div>
+            <div class="origin-metric-{{ 'blocked' if not (product.lvc_threshold or product.rvc_threshold) or product.lvc_status in ['missing_value', 'missing_bom'] else 'ready' }}"><span>Ngưỡng</span><strong>{{ (product.lvc_threshold or product.rvc_threshold) ~ '%' if (product.lvc_threshold or product.rvc_threshold) else 'Thiếu ngưỡng' }}</strong></div>
             <div><span>Trạng thái</span><strong>{{ product.lvc_status_label or 'Chưa tính' }}</strong></div>
           </div>
 
@@ -743,16 +823,20 @@
             </div>
           </div>
 
-          {% if product.origin_warnings %}
-          <div class="origin-warning-list">
-            {% for warning in product.origin_warnings %}
-            <div>{{ warning }}</div>
+          {% if product.origin_warning_summary %}
+          <div class="origin-warning-summary">
+            {% for warning in product.origin_warning_summary %}
+            <div class="origin-warning-item origin-warning-{{ warning.kind }}" title="{{ warning.detail }}{% if warning.examples %} Ví dụ: {{ warning.examples }}{% endif %}">
+              <strong>{{ warning.label }}</strong>
+              {% if warning.count %}<span>{{ warning.count }} dòng</span>{% endif %}
+              <small>{{ warning.detail }}</small>
+            </div>
             {% endfor %}
           </div>
           {% endif %}
 
-          <div class="table-scroll">
-            <table class="table">
+          <div class="table-scroll origin-table-scroll">
+            <table class="table origin-material-table">
               <thead>
                 <tr>
                   <th>STT</th>
@@ -760,21 +844,18 @@
                   <th>Tên NVL</th>
                   <th>HS NVL</th>
                   <th>Định mức</th>
-                  <th>ĐVT</th>
                   <th>Lượng dùng</th>
                   <th>Đơn giá</th>
-                  <th>Tiền tệ</th>
                   <th>Trị giá NVL</th>
                   <th>Xuất xứ NVL</th>
                   <th>Trị giá KXX/VNM</th>
-                  <th>Nguồn giá</th>
-                  <th>Trạng thái dữ liệu</th>
+                  <th>Nguồn giá / Trạng thái dữ liệu</th>
                 </tr>
               </thead>
               <tbody>
                 {% for material in product.materials %}
                 {% set material_index = loop.index0 %}
-                <tr>
+                <tr class="{{ 'origin-row-warning' if material.material_warnings else '' }}">
                   <td>
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_source_row" value="{{ material.source_row }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_import_declaration_no" value="{{ material.import_declaration_no }}">
@@ -794,13 +875,12 @@
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_bom_row_class" value="{{ material.bom_row_class }}">
                     <span class="mono">{{ material.internal_material_code or material.material_code or 'n/a' }}</span>
                   </td>
-                  <td>{{ material.material_description }}</td>
+                  <td class="{{ 'origin-cell-warning' if material.material_name_missing else '' }}" title="{{ material.material_warnings_text if material.material_name_missing else material.material_description }}">{{ material.material_description or 'Chưa có tên NVL' }}</td>
                   <td>
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_hs_code" value="{{ material.hs_code }}">
                     <span class="mono">{{ material.hs_code }}</span>
                   </td>
-                  <td class="num">{{ (material.bom_qty_per or '0')|number(6) }}</td>
-                  <td>{{ material.uom }}</td>
+                  <td class="num">{{ (material.bom_qty_per or '0')|number(6) }} <small>{{ material.uom }}</small></td>
                   <td class="num">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_available_qty" value="{{ material.available_qty }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_consumed_qty" value="{{ material.consumed_qty }}">
@@ -808,11 +888,8 @@
                   </td>
                   <td class="num">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_unit_value" value="{{ material.unit_value }}">
-                    {{ material.unit_value|number(6) if material.unit_value else 'Thiếu' }}
-                  </td>
-                  <td class="mono">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_currency" value="{{ material.currency }}">
-                    {{ material.currency or product.currency or 'n/a' }}
+                    {{ material.unit_value|number(6) if material.unit_value else 'Thiếu' }} <small>{{ material.currency or product.currency or 'n/a' }}</small>
                   </td>
                   <td class="num">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_material_value" value="{{ material.material_value }}">
@@ -823,23 +900,21 @@
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_origin_status_label" value="{{ material.origin_status_label }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_origin_status_source" value="{{ material.origin_status_source }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_origin_status_note" value="{{ material.origin_status_note }}">
-                    <span class="badge {{ 'badge-ok' if material.origin_status == 'origin' else 'badge-neutral' }}">{{ material.origin_status_label or ('Có xuất xứ' if material.origin_status == 'origin' else 'Không xuất xứ') }}</span>
+                    <span class="badge {{ 'badge-ok' if material.origin_status == 'origin' else 'badge-warning' if material.origin_status_source == 'default_conservative' else 'badge-neutral' }}" title="{{ material.origin_status_note }}">{{ material.origin_status_label or ('Có xuất xứ' if material.origin_status == 'origin' else 'Không xuất xứ') }}</span>
                   </td>
                   <td class="num">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_non_origin_cif_value" value="{{ material.non_origin_cif_value }}">
                     {{ material.non_origin_cif_value|number }}
                   </td>
-                  <td>
+                  <td title="{{ material.material_warnings_text }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_valuation_source" value="{{ material.valuation_source }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_valuation_source_label" value="{{ material.valuation_source_label }}">
-                    {{ material.valuation_source_label }}
-                  </td>
-                  <td>
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_valuation_status" value="{{ material.valuation_status }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_valuation_status_label" value="{{ material.valuation_status_label }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_data_status_label" value="{{ material.data_status_label }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_material_warnings" value="{{ material.material_warnings_text }}">
                     <span class="badge badge-{{ 'success' if material.valuation_status == 'ready' else 'warning' }}">{{ material.data_status_label }}</span>
+                    <small>{{ material.valuation_source_label }}</small>
                   </td>
                 </tr>
                 {% endfor %}
@@ -850,6 +925,7 @@
         {% else %}
         <p class="empty-cell">Chưa có sản phẩm trong case C/O này.</p>
         {% endfor %}
+        </div>
       </div>
     </section>
   </section>
@@ -1151,6 +1227,78 @@
       if (box.contains(event.target)) return;
       box.querySelector("[data-invoice-options]")?.classList.remove("is-open");
       box.querySelector("[data-invoice-input]")?.setAttribute("aria-expanded", "false");
+    });
+  });
+
+  document.querySelectorAll("[data-case-filter]").forEach((filter) => {
+    const panel = filter.closest(".co-case-list-panel");
+    if (!panel) return;
+    const rows = Array.from(panel.querySelectorAll("[data-case-row]"));
+    const resultCount = panel.querySelector("[data-case-result-count]");
+    const controls = {
+      search: filter.querySelector("[data-case-search]"),
+      status: filter.querySelector("[data-case-status-filter]"),
+      market: filter.querySelector("[data-case-market-filter]"),
+      form: filter.querySelector("[data-case-form-filter]"),
+    };
+    const applyFilter = () => {
+      const search = normalize(controls.search?.value || "");
+      const status = controls.status?.value || "";
+      const market = normalize(controls.market?.value || "");
+      const form = normalize(controls.form?.value || "");
+      let visible = 0;
+      rows.forEach((row) => {
+        const rowSearch = normalize(row.dataset.caseSearch || "");
+        const matches = (!search || rowSearch.includes(search))
+          && (!status || row.dataset.caseStatus === status)
+          && (!market || normalize(row.dataset.caseMarket || "").includes(market))
+          && (!form || normalize(row.dataset.caseForm || "").includes(form));
+        row.hidden = !matches;
+        if (matches) visible += 1;
+      });
+      if (resultCount) {
+        resultCount.textContent = `${visible} / ${rows.length} hồ sơ`;
+      }
+    };
+    Object.values(controls).forEach((control) => {
+      control?.addEventListener("input", applyFilter);
+      control?.addEventListener("change", applyFilter);
+    });
+    applyFilter();
+  });
+
+  document.querySelectorAll("[data-origin-workbook]").forEach((workbook) => {
+    const tabs = Array.from(workbook.querySelectorAll("[data-origin-sheet-tab]"));
+    const panels = Array.from(workbook.querySelectorAll("[data-origin-sheet-panel]"));
+    const activate = (tab) => {
+      const targetId = tab.dataset.originSheetTarget || "";
+      tabs.forEach((item) => {
+        const active = item === tab;
+        item.classList.toggle("origin-sheet-tab-active", active);
+        item.setAttribute("aria-selected", active ? "true" : "false");
+      });
+      panels.forEach((panel) => {
+        const active = panel.id === targetId;
+        panel.hidden = !active;
+        panel.classList.toggle("origin-sheet-panel-active", active);
+      });
+    };
+    tabs.forEach((tab) => {
+      tab.addEventListener("click", () => activate(tab));
+      tab.addEventListener("keydown", (event) => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const currentIndex = tabs.indexOf(tab);
+        const nextIndex = event.key === "Home"
+          ? 0
+          : event.key === "End"
+          ? tabs.length - 1
+          : event.key === "ArrowRight"
+          ? (currentIndex + 1) % tabs.length
+          : (currentIndex - 1 + tabs.length) % tabs.length;
+        tabs[nextIndex]?.focus();
+        tabs[nextIndex] && activate(tabs[nextIndex]);
+      });
     });
   });
 

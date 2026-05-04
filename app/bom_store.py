@@ -954,6 +954,12 @@ def attach_case_bom_snapshot(case: dict, bom_workspace: dict) -> dict:
         if not selected_product_version_id:
             selected_product_version_id = composition_by_product.get(product_code, {}).get("product_version_id", "")
         selected_product_version = version_index.get(selected_product_version_id)
+        if not usable_product_version(selected_product_version):
+            fallback_version_id = composition_by_product.get(product_code, {}).get("product_version_id", "")
+            selected_product_version = version_index.get(fallback_version_id) or latest_usable_product_version(
+                bom_workspace,
+                product_code,
+            )
         if selected_product_version:
             product["bom_product_version_id"] = selected_product_version["product_version_id"]
             product["bom_product_version_no"] = selected_product_version["product_version_no"]
@@ -971,6 +977,23 @@ def attach_case_bom_snapshot(case: dict, bom_workspace: dict) -> dict:
         "composition": sorted(snapshot_composition, key=lambda row: row["product_code"]),
     }
     return case
+
+
+def usable_product_version(version: dict | None) -> bool:
+    if not version:
+        return False
+    if version.get("flatten_status") == "non_flattened":
+        return False
+    return bool(version.get("rows"))
+
+
+def latest_usable_product_version(bom_workspace: dict, product_code: str) -> dict:
+    versions = [
+        version
+        for version in bom_workspace.get("product_versions", [])
+        if version.get("product_code") == product_code and usable_product_version(version)
+    ]
+    return max(versions, key=lambda version: int(version.get("product_version_no") or 0), default={})
 
 
 def latest_composition_map(state: dict) -> dict[str, dict]:

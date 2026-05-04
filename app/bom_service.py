@@ -96,7 +96,16 @@ class DataHubBomService:
                 continue
             version_payloads = self.product_version_payloads(client_id, product_code)
             if version_payloads:
-                current_version_id = version_payloads[0]["version"].get("version_id", "")
+                current_payload = next(
+                    (
+                        payload
+                        for payload in version_payloads
+                        if (payload.get("version") or {}).get("flatten_status") != "non_flattened"
+                        and payload.get("rows")
+                    ),
+                    version_payloads[0],
+                )
+                current_version_id = current_payload["version"].get("version_id", "")
                 for payload in version_payloads:
                     version = normalize_hub_version(payload.get("version") or {}, product_code)
                     rows = [

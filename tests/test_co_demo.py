@@ -1006,7 +1006,7 @@ def test_co_case_can_select_aggregate_bom_version_snapshot():
 
     assert post_response.status_code == 200
     assert f'value="{v1["version_id"]}" selected' in post_response.text
-    assert "TP BOM v1" in post_response.text
+    assert "v1 · 2 dòng" in post_response.text
 
 
 def test_johnson_technical_bom_upload_keeps_sap_leaf_rows_only():
@@ -1795,10 +1795,13 @@ def test_co_case_can_create_persisted_dossier_and_select_it():
     index = client.get("/clients/growatt/co-case")
     assert 'aria-label="Danh sách hồ sơ C/O"' in index.text
     assert "Danh sách hồ sơ C/O" in index.text
+    assert 'data-case-filter' in index.text
+    assert 'data-case-search' in index.text
+    assert "Trạng thái" in index.text
     assert "Tên hồ sơ" in index.text
     assert "Invoice" in index.text
     assert "B/L" in index.text
-    assert "Mở hồ sơ" in index.text
+    assert "Mở" in index.text
     assert "C/O GROWATT INV-77" in index.text
     assert "CO-INV-77" in index.text
     assert "INV-77" in index.text
@@ -1860,6 +1863,9 @@ def test_co_case_detail_is_split_into_workflow_step_views():
     assert "Form và thông tư" in guidance.text
     assert "Bảng kê LVC" in origin.text
     assert "Tính lại snapshot" in origin.text
+    assert 'role="tablist" aria-label="Sheet sản phẩm trong bảng kê"' in origin.text
+    assert 'data-origin-sheet-tab' in origin.text
+    assert 'data-origin-sheet-panel' in origin.text
     assert 'class="table-input"' not in origin.text
     assert "Upload và parse" not in origin.text
     assert "Tải seed XLSX" not in origin.text
@@ -2045,7 +2051,7 @@ def test_co_case_origin_builds_and_persists_invoice_bom_snapshot():
     assert recalculated.status_code == 200
     assert "Đã tính lại theo dữ liệu đang sửa." in recalculated.text
     assert "DEMO-NPL-001" in persisted.text
-    assert "TP BOM v1" in persisted.text
+    assert "v1 · 2 dòng" in persisted.text
 
 
 def test_co_case_origin_switches_product_bom_version_from_dropdown():
@@ -2169,7 +2175,93 @@ def test_co_case_origin_page_surfaces_method_readiness_and_evidence_gaps():
     form_data = hidden_form_data(origin.text)
     assert form_data["product_0_origin_method"] == "build_down_lvc"
     assert form_data["product_0_origin_readiness_status"] == "blocked"
+    assert form_data["product_0_lvc_status"] == "partial_pass"
+    assert form_data["product_0_lvc_percentage"] == "97.00"
     assert form_data["product_0_material_1_valuation_status"] == "missing_unit_value"
+    assert "97.00%" in origin.text
+    assert "Tạm đạt LVC" in origin.text
+    assert "Thiếu đơn giá 1 dòng NVL; LVC đang tạm tính từ các dòng đã có đơn giá." in origin.text
+
+
+def test_co_case_origin_does_not_calculate_lvc_without_bom_materials():
+    client = TestClient(app)
+    client.post(
+        "/clients/growatt/bcct/upload",
+        files={
+            "file": (
+                "bcct.xlsx",
+                bcct_workbook([
+                    {
+                        "direction": "export",
+                        "declaration_type": "E42",
+                        "declaration_no": "XK-NO-BOM",
+                        "line_no": "1",
+                        "item_code": "NO-BOM-TP",
+                        "description": "Finished good without BOM",
+                        "hs_code": "850440",
+                        "quantity": "5",
+                        "unit": "PCS",
+                        "customs_value": "1000",
+                        "currency": "VND",
+                        "invoice_ref": "INV-NO-BOM",
+                    },
+                ]),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "No BOM", "case_code": "CO-NO-BOM", "destination_market": "Ấn Độ", "invoice_no": "INV-NO-BOM"},
+        follow_redirects=False,
+    )
+
+    origin = client.get(f"{created.headers['location']}/origin")
+    form_data = hidden_form_data(origin.text)
+
+    assert origin.status_code == 200
+    assert form_data["product_0_lvc_status"] == "missing_bom"
+    assert form_data["product_0_lvc_percentage"] == ""
+    assert "Thiếu BOM/NVL" in origin.text
+    assert "100.00%" not in origin.text
+
+
+def test_origin_material_uses_stock_description_and_summarizes_repeated_warnings():
+    from app.main import enrich_origin_product, origin_material_from_bom_row
+
+    material = origin_material_from_bom_row(
+        {"material_code": "MAT-001", "qty_per": "2", "uom": "PCS"},
+        Decimal("3"),
+        {},
+        {
+            "MAT-001": {
+                "material_description": "Imported material name",
+                "hs_code": "853690",
+                "unit_value": "5",
+                "currency": "USD",
+                "remaining_qty": "100",
+            }
+        },
+    )
+    product = enrich_origin_product({
+        "code": "TP-001",
+        "fob": "100",
+        "non_origin_value": "20",
+        "rvc_threshold": "35",
+        "lvc_status": "missing_value",
+        "materials": [
+            {"material_code": "MAT-001", "unit_value": "", "material_warnings": ["Repeated warning"]},
+            {"material_code": "MAT-002", "unit_value": "", "material_warnings": ["Repeated warning"]},
+        ],
+    })
+
+    assert material["material_description"] == "Imported material name"
+    assert material["hs_code"] == "853690"
+    assert product["lvc_percentage"] == "80.00"
+    assert product["lvc_status"] == "partial_pass"
+    assert product["lvc_status_label"] == "Tạm đạt LVC"
+    assert product["origin_warnings"].count("Repeated warning") == 1
+    assert any(row["label"] == "Thiếu đơn giá NVL" and row["count"] == 2 for row in product["origin_warning_summary"])
 
 
 def test_co_case_export_workbook_contains_bom_snapshot_rows_from_origin_form():
