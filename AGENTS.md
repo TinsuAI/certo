@@ -172,7 +172,29 @@ No project-local skills needed currently. If the project develops Data-Hub-speci
   flat `.ai/features/*.md` files are legacy and stay as-is. UI proof
   goes here, not in `data/screenshots/` (which is gitignored build
   output).
-- `docs/release-engineering.md` — versioning, branching, deployment
-  shapes, seed-data taxonomy, backup/restore policy. Read before
+- `docs/release-engineering.md` — Data Hub instance of the
+  TinsuAI release-engineering policy. Versioning, branching,
+  deployment shapes, seed taxonomy, backup/restore — all mapped
+  onto this repo's concrete files, env vars, hosts. Read before
   cutting a release, changing schema, or standing up a new
   environment.
+
+## Standards
+
+This repo follows TinsuAI cross-product standards:
+
+- Canonical source: https://github.com/TinsuAI/standards (private).
+- Pinned version: see `.standards-version` at repo root
+  (currently `v2026.05.04`).
+- Per-product mapping: `docs/release-engineering.md`.
+- Policy areas:
+  - https://github.com/TinsuAI/standards/blob/main/policies/release-engineering.md
+  - https://github.com/TinsuAI/standards/blob/main/policies/security.md (stub)
+  - https://github.com/TinsuAI/standards/blob/main/policies/code-style.md (stub)
+  - https://github.com/TinsuAI/standards/blob/main/policies/ci-cd.md (stub)
+  - https://github.com/TinsuAI/standards/blob/main/policies/ai-collaboration.md (stub)
+
+When the standards repo changes, update `.standards-version` and
+reconcile `docs/release-engineering.md`. When this repo's reality
+diverges from policy, fix the divergence OR open an RFC against
+`tinsu-standards` to amend the policy.
