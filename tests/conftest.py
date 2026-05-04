@@ -20,11 +20,13 @@ import pytest
 from app import auth
 from app.database import apply_migrations, connect
 from app.seed import auto_seed_demo_if_empty
+from app.seed_master_data import seed_master_data_if_empty
 
 
 @pytest.fixture(scope="session", autouse=True)
 def _bootstrap_schema():
     apply_migrations()
+    seed_master_data_if_empty()
     auth.seed_admin_if_empty(email="admin@data-hub.local", password="admin123")
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
