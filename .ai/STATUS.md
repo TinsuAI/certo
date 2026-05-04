@@ -1,19 +1,16 @@
 # Project Status
 
 ## Current State
-- Active branch: `main`.
-- CO dev server is running at `http://127.0.0.1:8001`; unauthenticated requests redirect to `/auth/login`.
-- Sibling Data Hub dev server remains expected at `http://127.0.0.1:8754`, but this session avoided relying on it because the user said Data Hub data is not stable enough for the customer demo.
+- Active branch: `main`; local branch is in sync with `tinsu/main` at `c5cf9d4`.
+- CO demo is deployed on the server through Docker Compose on app port `8755`; `co-app-1` and `co-db-1` are healthy.
+- CO has CI/CD in GitHub Actions at `.github/workflows/ci.yml`.
+  - Pushes to `main` and manual `workflow_dispatch` run CI, then deploy.
+  - Pull requests run CI only.
+  - Latest run `25303890362` passed: Python tests, Docker config/build, and deploy smoke checks.
+- A self-hosted GitHub Actions runner is registered for this repo with label `co-demo`; service is active on the demo server.
 - CO remains a Data Hub consumer. Keep raw `/v1/hub/*` endpoint strings inside `app/data_hub_client.py`; `tests/test_data_hub_policy.py` enforces this.
-- A self-contained customer demo now exists at `barry-co-interactive-demo.html`. It opens directly in a browser and does not require FastAPI login, Data Hub, or any API calls.
-- The static demo models Growatt, C/O workflow, background data, C/O Form Index, customs FX, origin calculation, BOM switching, editable material values/origin, and demo snapshot export.
-- Current uncommitted application changes from the prior origin-web-snapshot work remain separate and were not included in this demo commit:
-  - `app/main.py`
-  - `app/templates/co_case.html`
-  - `app/co_case_store.py`
-  - `app/demo_data.py`
-  - `app/static/css/app.css`
-  - `tests/test_co_demo.py`
+- Data Hub demo data is now considered ready for live CO demo use. CO reads Data Hub clients/materials/BOM/BCCT directly when `DATA_HUB_ENABLED=1`; CO DB schema `co` stores only CO-owned state.
+- Local CO dev server is still running at `http://127.0.0.1:8001`; unauthenticated requests redirect to `/auth/login`.
 - Pre-existing untracked artifacts remain separate and should not be committed unless explicitly requested:
   - `.ai/features/2026-05-02-co-bom-data-hub-migration.md`
   - `.ai/features/2026-05-02-data-hub-bom-flattening-instructions.md`
@@ -21,48 +18,45 @@
   - `.ai/sessions/2026-05-04-origin-web-snapshot.md`
 
 ## Recent Changes
-- Refreshed context from `AGENTS.md`, `.ai/STATUS.md`, `.ai/DECISIONS.md`, and the latest session summaries.
-- Started the CO dev server on `http://127.0.0.1:8001`.
-- Created `barry-co-interactive-demo.html` as a single-file static customer demo because Data Hub data is currently unstable.
-- Built the demo around the current Barry CO product surfaces:
-  - company workspace and module navigation
-  - C/O case workflow steps: `Lô hàng`, `Chứng từ`, `Tờ khai xuất`, `Form & PSR`, `Xuất xứ`, `Review & xuất`
-  - `Danh mục mã hàng`, `BOM`, `Tồn CO`, `BCCT`, `Config`
-  - app-level `Tỷ giá hải quan`
-  - `C/O Form Index` with overview/forms/markets/HS criteria tabs
-- Added client-side interactions:
-  - market/form inference from invoice workflow
-  - searchable/filterable tables
-  - mock upload/save/refresh actions
-  - document checklist toggling
-  - BOM product version switching
-  - editable FOB, material values, consumed quantities, and material origin
-  - live Build-down LVC/RVC recalculation
-  - origin warning display for missing material valuation
-  - demo Origin Snapshot CSV export from the displayed data
+- Added Docker deployment stack for CO:
+  - `Dockerfile`
+  - `docker-compose.yml`
+  - `.dockerignore`
+  - `.env.example`
+  - `deploy/docker-deploy.md`
+- Updated runtime behavior for demo deploy:
+  - CO DB defaults to schema `co`.
+  - migrations run at FastAPI lifespan startup with a Postgres advisory transaction lock.
+  - Data Hub bearer token is optional, so CO can consume an auth-disabled Data Hub demo.
+  - `/healthz` endpoint added for Docker and CI/CD checks.
+  - Data Hub BOM workspace cache no longer caches fake/no-identity clients, fixing a test-order cache bug.
+- Preserved and committed prior origin-web snapshot application work that was already in the worktree, including origin evidence/readiness fields and related tests.
+- Created GitHub repo `TinsuAI/co` and pushed CO `main`.
+- Deployed CO to the demo server and configured CO server env to point at the Data Hub demo root URL and LLM endpoint values supplied by the user.
+- Updated Data Hub server-side runtime config, not code, so Data Hub SSO accepts the CO callback origin and issues tokens with the public Data Hub issuer.
+- Added CI/CD workflow:
+  - `Python tests`: `uv sync --frozen --dev`, `uv run pytest`.
+  - `Docker config and build`: `docker compose config`, `docker build`.
+  - `Deploy demo`: self-hosted runner fetches `origin/main`, resets the server checkout, rebuilds Compose, waits for CO health, and smokes CO-to-Data-Hub connectivity.
 - Verification completed:
-  - Extracted inline script from `barry-co-interactive-demo.html` and ran `node --check`; passed.
-  - Ran a Puppeteer smoke test against the local file; passed key flows for origin tab, BOM variant warning, and catalog/material navigation.
-  - Ran `npm test`; it still fails 3 pre-existing legal lookup tests around missing `raw-binary` source links. These failures are unrelated to the new HTML demo.
+  - Local `uv run pytest`: `162 passed`.
+  - Local `docker compose config` and Docker build passed.
+  - Server CO `/healthz` passed.
+  - Server CO container reached Data Hub `/v1/hub/dncxs`.
+  - Server CO container reached the configured OpenAI-compatible LLM `/models`.
+  - Browser SSO smoke flow through Data Hub login returned to the CO clients page and showed Data Hub clients.
+  - Latest GitHub Actions CI/CD run passed all jobs.
 
 ## Next Steps
-1. Open `barry-co-interactive-demo.html` in a browser and run through the customer demo script manually.
-2. If the demo direction is accepted, polish customer-facing copy and visual density in the static file before sending it externally.
-3. Keep the static demo disconnected from Data Hub until the Data Hub source data is stable enough for live customer use.
-4. Review and commit or revise the older origin-web-snapshot application changes separately; they were intentionally not bundled with the static demo commit.
-5. For production CO behavior, continue enforcing the Data Hub API guardrail: request approved Data Hub contract changes through `.ai/api-requests/` before consuming new Hub behavior.
-
-## Blockers
-- Data Hub data is currently not stable enough for a customer-facing live demo, which is why the new demo is static and self-contained.
-- Direct/build-up value-content calculation is still not implemented and should not be inferred from legacy workbook footer cost fields.
-- CTC/CTSH in current CO surfaces is still only a preview based on HS comparison; it is not a legal PSR engine.
-- Exact template-copy Excel parity for `LVC`, `RVC`, `CTH`, `CTSH`, and `EUR1` has not been implemented yet.
+1. Set up equivalent CI/CD in the Data Hub repo using a separate self-hosted runner label, as discussed with the user.
+2. Keep `.env`, server paths, credentials, and deploy target details out of committed files; use placeholders in docs and server-side `.env` for real values.
+3. Consider adding branch protection on `main` after Data Hub CI/CD is in place, requiring CI checks before merge.
+4. Revisit rollback strategy later if demo deploys become riskier; current CD rebuilds/restarts but does not perform automatic rollback.
 
 ## Notes for Next AI Session
 - User writes Vietnamese casually; respond in fully accented Vietnamese.
-- User is sensitive to hidden business logic. Briefly explain what was inspected, what was tried, and what conclusion is evidence-backed.
-- The customer demo should be described as static/mock data, not live Data Hub output.
-- `npm ci` was run to install ignored `node_modules/` from the existing lockfile so Puppeteer smoke tests could run; no package files changed.
-- The static demo intentionally starts at the C/O case workflow because that is the main customer-facing value, with company/data tabs available around it.
-- Current origin/product logic demonstrated in the static HTML is Build-down LVC/RVC: `(FOB - VNM) / FOB x 100`.
-- Keep Data Hub API literals inside `app/data_hub_client.py`.
+- User wants concise but non-black-box explanations: say what was inspected, what failed, and what resolved it.
+- For server operations in this environment, follow the Windows OpenSSH workaround from the session instructions instead of WSL native SSH.
+- GitHub `gh` auth now has `workflow` scope because pushing workflow files initially failed without it.
+- Data Hub code was not changed in this repo. Data Hub server runtime config was changed separately to make SSO work with CO public-domain callbacks.
+- GitHub Actions currently shows Node.js 20 deprecation annotations for standard actions. These are warnings only and did not fail the workflow.
