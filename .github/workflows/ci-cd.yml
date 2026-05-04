@@ -38,10 +38,15 @@ jobs:
       - name: Sync dependencies
         run: uv sync --frozen
       - name: Run pytest
-        # test_bcct_paging asserts against a pre-populated dev DB
-        # (growatt-vn 3000+ rows). It does not self-seed and is not
-        # meaningful on a clean CI DB, so it's deselected here.
-        run: uv run pytest -q --ignore=tests/test_bcct_paging.py
+        # Two test files need a pre-populated dev DB and don't
+        # self-seed, so they're deselected on clean CI:
+        #  - test_bcct_paging asserts against growatt-vn 3000+ rows
+        #  - test_co_columns::test_backfill_populates_... checks
+        #    migration 010's back-fill of legacy payload rows
+        run: |
+          uv run pytest -q \
+            --ignore=tests/test_bcct_paging.py \
+            --deselect tests/test_co_columns.py::test_backfill_populates_typed_co_columns_from_payload
 
   docker:
     name: Docker build
