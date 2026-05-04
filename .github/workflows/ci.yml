@@ -1,0 +1,97 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Python tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install dependencies
+        run: uv sync --frozen --dev
+
+      - name: Run tests
+        run: uv run pytest
+
+  docker:
+    name: Docker config and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      APP_BIND: 0.0.0.0
+      APP_PORT: 8755
+      POSTGRES_USER: co
+      POSTGRES_PASSWORD: ci-postgres-password
+      POSTGRES_DB: barry_co
+      BARRY_DATABASE_SCHEMA: co
+      CO_PUBLIC_BASE_URL: http://127.0.0.1:8755
+      DATA_HUB_BASE_URL: http://127.0.0.1:8754
+      DATA_HUB_API_BASE_URL: http://127.0.0.1:8754
+      DATA_HUB_ISSUER_URL: http://127.0.0.1:8754
+      DATA_HUB_JWKS_URL: http://127.0.0.1:8754/v1/auth/jwks
+      DATA_HUB_API_TOKEN: ""
+      LLM_BASE_URL: https://codex-lb-demo.sgnai.dev/v1
+      LLM_MODEL: gpt-5.5
+      LLM_API_KEY: ci-non-empty
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate compose config
+        run: docker compose config
+
+      - name: Build image
+        run: docker build --tag barry-co-ci .
+
+  deploy:
+    name: Deploy demo
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - co-demo
+    needs:
+      - tests
+      - docker
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    timeout-minutes: 20
+    steps:
+      - name: Deploy on tinsu
+        run: |
+          set -euo pipefail
+          cd /home/tinsu/co
+          git remote set-url origin https://github.com/TinsuAI/co.git
+          git fetch --prune origin main
+          git checkout main
+          git reset --hard origin/main
+          docker compose up -d --build
+          docker compose ps
+          curl -fsS http://127.0.0.1:8755/healthz
+          docker compose exec -T app sh -c 'curl -fsS -m 12 "$DATA_HUB_API_BASE_URL/v1/hub/dncxs" >/tmp/co-data-hub-smoke.json'
