@@ -1,0 +1,11 @@
+{
+  "total": 1000,
+  "import_rows": 650,
+  "export_rows": 350,
+  "declaration_types": [
+    "E11",
+    "E31",
+    "E62",
+    "B11"
+  ]
+}

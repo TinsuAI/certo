@@ -1,0 +1,770 @@
+{
+  "summary": {
+    "client_config_status": 200,
+    "materials_sample_count": 5,
+    "bcct_import_sample_count": 5,
+    "products_returned": 15,
+    "tp001_bom_status": 200,
+    "tp001_bom_rows": 10
+  },
+  "responses": {
+    "client_config": {
+      "status": 200,
+      "body": {
+        "schema_version": 1,
+        "client_id": "demo-precision-manufactu-480e",
+        "preset_key": null,
+        "eligible_import_declaration_types": [
+          "E11",
+          "E31"
+        ],
+        "relevant_export_declaration_types": [
+          "B11",
+          "E62"
+        ],
+        "fiscal_year_start_month": 1,
+        "config_version": 1,
+        "config_hash": "dc4a67eb74cfc663"
+      }
+    },
+    "materials": {
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "client_id": "demo-precision-manufactu-480e",
+            "customs_code": "BTP-001",
+            "internal_code": "BTP-001",
+            "name": "Demo sub-assembly level 1 001",
+            "category": "btp_sx",
+            "category_override": null,
+            "status": "active",
+            "unit": "pcs",
+            "hs_code": "85049090",
+            "updated_at": "2026-05-04T02:53:44.447328+08:00"
+          },
+          {
+            "client_id": "demo-precision-manufactu-480e",
+            "customs_code": "BTP-002",
+            "internal_code": "BTP-002",
+            "name": "Demo sub-assembly level 1 002",
+            "category": "btp_sx",
+            "category_override": null,
+            "status": "active",
+            "unit": "pcs",
+            "hs_code": "85049090",
+            "updated_at": "2026-05-04T02:53:44.447328+08:00"
+          },
+          {
+            "client_id": "demo-precision-manufactu-480e",
+            "customs_code": "BTP-003",
+            "internal_code": "BTP-003",
+            "name": "Demo sub-assembly level 1 003",
+            "category": "btp_sx",
+            "category_override": null,
+            "status": "active",
+            "unit": "pcs",
+            "hs_code": "85049090",
+            "updated_at": "2026-05-04T02:53:44.447328+08:00"
+          },
+          {
+            "client_id": "demo-precision-manufactu-480e",
+            "customs_code": "BTP-004",
+            "internal_code": "BTP-004",
+            "name": "Demo sub-assembly level 1 004",
+            "category": "btp_sx",
+            "category_override": null,
+            "status": "active",
+            "unit": "pcs",
+            "hs_code": "85049090",
+            "updated_at": "2026-05-04T02:53:44.447328+08:00"
+          },
+          {
+            "client_id": "demo-precision-manufactu-480e",
+            "customs_code": "BTP-005",
+            "internal_code": "BTP-005",
+            "name": "Demo sub-assembly level 1 005",
+            "category": "btp_sx",
+            "category_override": null,
+            "status": "active",
+            "unit": "pcs",
+            "hs_code": "85049090",
+            "updated_at": "2026-05-04T02:53:44.447328+08:00"
+          }
+        ],
+        "total_estimate": null,
+        "next_cursor": "5"
+      }
+    },
+    "bcct_import_sample": {
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "client_id": "demo-precision-manufactu-480e",
+            "year": 2026,
+            "transaction_key": "DEMOIM202600119-1",
+            "line_no": "1",
+            "declaration_no": "DEMOIM202600119",
+            "declaration_type": "E11",
+            "direction": "import",
+            "registration_date": "2026-05-01",
+            "customs_code": "NVL-018",
+            "internal_code": "NVL-018",
+            "goods_name": "Demo raw material 018 (NVL-018)",
+            "hs_code": "85049090",
+            "quantity": 81.0,
+            "unit": "kg",
+            "total_value": 366.93,
+            "currency": "USD",
+            "origin": "VN",
+            "invoice_ref": "DMI-00120",
+            "exporter_name": "Demo Precision Manufacturing VN",
+            "exporter_tax_code": "0312345678",
+            "consignee_name": "Demo Supplier F",
+            "incoterms": "CIF",
+            "weight": 93.15,
+            "weight_unit": "KGM",
+            "package_count": 9.0,
+            "package_unit": "CT",
+            "invoice_date": "2026-04-29",
+            "departure_date": "2026-05-02",
+            "destination_code": "VNCLI",
+            "destination_name": "Demo bonded warehouse",
+            "transport_mode": null,
+            "exchange_rate": 24500.0,
+            "bom_version_id": null,
+            "indexed_at": "2026-05-04T02:53:55.974885+08:00"
+          },
+          {
+            "client_id": "demo-precision-manufactu-480e",
+            "year": 2026,
+            "transaction_key": "DEMOIM202600239-1",
+            "line_no": "1",
+            "declaration_no": "DEMOIM202600239",
+            "declaration_type": "E11",
+            "direction": "import",
+            "registration_date": "2026-05-01",
+            "customs_code": "NVL-002",
+            "internal_code": "NVL-002",
+            "goods_name": "Demo raw material 002 (NVL-002)",
+            "hs_code": "39069099",
+            "quantity": 90.5,
+            "unit": "kg",
+            "total_value": 376.48,
+            "currency": "USD",
+            "origin": "VN",
+            "invoice_ref": "DMI-00240",
+            "exporter_name": "Demo Precision Manufacturing VN",
+            "exporter_tax_code": "0312345678",
+            "consignee_name": "Demo Supplier F",
+            "incoterms": "CIF",
+            "weight": 104.075,
+            "weight_unit": "KGM",
+            "package_count": 10.0,
+            "package_unit": "CT",
+            "invoice_date": "2026-04-29",
+            "departure_date": "2026-05-02",
+            "destination_code": "VNCLI",
+            "destination_name": "Demo bonded warehouse",
+            "transport_mode": null,
+            "exchange_rate": 24500.0,
+            "bom_version_id": null,
+            "indexed_at": "2026-05-04T02:53:55.974885+08:00"
+          },
+          {
+            "client_id": "demo-precision-manufactu-480e",
+            "year": 2026,
+            "transaction_key": "DEMOIM202600359-1",
+            "line_no": "1",
+            "declaration_no": "DEMOIM202600359",
+            "declaration_type": "E11",
+            "direction": "import",
+            "registration_date": "2026-05-01",
+            "customs_code": "NVL-020",
+            "internal_code": "NVL-020",
+            "goods_name": "Demo raw material 020 (NVL-020)",
+            "hs_code": "85049090",
+            "quantity": 100.0,
+            "unit": "kg",
+            "total_value": 379.0,
+            "currency": "USD",
+            "origin": "VN",
+            "invoice_ref": "DMI-00360",
+            "exporter_name": "Demo Precision Manufacturing VN",
+            "exporter_tax_code": "0312345678",
+            "consignee_name": "Demo Supplier F",
+            "incoterms": "CIF",
+            "weight": 115.0,
+            "weight_unit": "KGM",
+            "package_count": 11.0,
+            "package_unit": "CT",
+            "invoice_date": "2026-04-29",
+            "departure_date": "2026-05-02",
+            "destination_code": "VNCLI",
+            "destination_name": "Demo bonded warehouse",
+            "transport_mode": null,
+            "exchange_rate": 24500.0,
+            "bom_version_id": null,
+            "indexed_at": "2026-05-04T02:53:55.974885+08:00"
+          },
+          {
+            "client_id": "demo-precision-manufactu-480e",
+            "year": 2026,
+            "transaction_key": "DEMOIM202600479-1",
+            "line_no": "1",
+            "declaration_no": "DEMOIM202600479",
+            "declaration_type": "E11",
+            "direction": "import",
+            "registration_date": "2026-05-01",
+            "customs_code": "NVL-004",
+            "internal_code": "NVL-004",
+            "goods_name": "Demo raw material 004 (NVL-004)",
+            "hs_code": "39069099",
+            "quantity": 109.5,
+            "unit": "kg",
+            "total_value": 374.49,
+            "currency": "USD",
+            "origin": "VN",
+            "invoice_ref": "DMI-00480",
+            "exporter_name": "Demo Precision Manufacturing VN",
+            "exporter_tax_code": "0312345678",
+            "consignee_name": "Demo Supplier F",
+            "incoterms": "CIF",
+            "weight": 125.925,
+            "weight_unit": "KGM",
+            "package_count": 11.0,
+            "package_unit": "CT",
+            "invoice_date": "2026-04-29",
+            "departure_date": "2026-05-02",
+            "destination_code": "VNCLI",
+            "destination_name": "Demo bonded warehouse",
+            "transport_mode": null,
+            "exchange_rate": 24500.0,
+            "bom_version_id": null,
+            "indexed_at": "2026-05-04T02:53:55.974885+08:00"
+          },
+          {
+            "client_id": "demo-precision-manufactu-480e",
+            "year": 2026,
+            "transaction_key": "DEMOIM202600599-1",
+            "line_no": "1",
+            "declaration_no": "DEMOIM202600599",
+            "declaration_type": "E11",
+            "direction": "import",
+            "registration_date": "2026-05-01",
+            "customs_code": "NVL-022",
+            "internal_code": "NVL-022",
+            "goods_name": "Demo raw material 022 (NVL-022)",
+            "hs_code": "85049090",
+            "quantity": 119.0,
+            "unit": "kg",
+            "total_value": 362.95,
+            "currency": "USD",
+            "origin": "VN",
+            "invoice_ref": "DMI-00600",
+            "exporter_name": "Demo Precision Manufacturing VN",
+            "exporter_tax_code": "0312345678",
+            "consignee_name": "Demo Supplier F",
+            "incoterms": "CIF",
+            "weight": 136.85,
+            "weight_unit": "KGM",
+            "package_count": 12.0,
+            "package_unit": "CT",
+            "invoice_date": "2026-04-29",
+            "departure_date": "2026-05-02",
+            "destination_code": "VNCLI",
+            "destination_name": "Demo bonded warehouse",
+            "transport_mode": null,
+            "exchange_rate": 24500.0,
+            "bom_version_id": null,
+            "indexed_at": "2026-05-04T02:53:55.974885+08:00"
+          }
+        ],
+        "total_estimate": null,
+        "next_cursor": "5"
+      }
+    },
+    "products": {
+      "status": 200,
+      "body": {
+        "items": [
+          {
+            "product_code": "BTP-001",
+            "n_versions": 1,
+            "n_flattened": 1,
+            "n_non_flattened": 0,
+            "latest_version": 1,
+            "last_published": "2026-05-04T02:54:00.163100+08:00",
+            "latest_flatten_status": "flattened",
+            "product_kind": "btp",
+            "n_dual_variants": 1
+          },
+          {
+            "product_code": "BTP-002",
+            "n_versions": 1,
+            "n_flattened": 1,
+            "n_non_flattened": 0,
+            "latest_version": 1,
+            "last_published": "2026-05-04T02:54:00.163100+08:00",
+            "latest_flatten_status": "flattened",
+            "product_kind": "btp",
+            "n_dual_variants": 1
+          },
+          {
+            "product_code": "BTP-003",
+            "n_versions": 1,
+            "n_flattened": 1,
+            "n_non_flattened": 0,
+            "latest_version": 1,
+            "last_published": "2026-05-04T02:54:00.163100+08:00",
+            "latest_flatten_status": "flattened",
+            "product_kind": "btp",
+            "n_dual_variants": 1
+          },
+          {
+            "product_code": "BTP-004",
+            "n_versions": 1,
+            "n_flattened": 1,
+            "n_non_flattened": 0,
+            "latest_version": 1,
+            "last_published": "2026-05-04T02:54:00.163100+08:00",
+            "latest_flatten_status": "flattened",
+            "product_kind": "btp",
+            "n_dual_variants": 1
+          },
+          {
+            "product_code": "BTP-005",
+            "n_versions": 1,
+            "n_flattened": 1,
+            "n_non_flattened": 0,
+            "latest_version": 1,
+            "last_published": "2026-05-04T02:54:00.163100+08:00",
+            "latest_flatten_status": "flattened",
+            "product_kind": "btp",
+            "n_dual_variants": 1
+          },
+          {
+            "product_code": "BTP-101",
+            "n_versions": 1,
+            "n_flattened": 1,
+            "n_non_flattened": 0,
+            "latest_version": 1,
+            "last_published": "2026-05-04T02:54:00.163100+08:00",
+            "latest_flatten_status": "flattened",
+            "product_kind": "btp",
+            "n_dual_variants": 1
+          },
+          {
+            "product_code": "BTP-102",
+            "n_versions": 1,
+            "n_flattened": 1,
+            "n_non_flattened": 0,
+            "latest_version": 1,
+            "last_published": "2026-05-04T02:54:00.163100+08:00",
+            "latest_flatten_status": "flattened",
+            "product_kind": "btp",
+            "n_dual_variants": 1
+          },
+          {
+            "product_code": "TP-001",
+            "n_versions": 1,
+            "n_flattened": 1,
+            "n_non_flattened": 0,
+            "latest_version": 1,
+            "last_published": "2026-05-04T02:54:00.163100+08:00",
+            "latest_flatten_status": "flattened",
+            "product_kind": "tp",
+            "n_dual_variants": 1
+          },
+          {
+            "product_code": "TP-002",
+            "n_versions": 1,
+            "n_flattened": 1,
+            "n_non_flattened": 0,
+            "latest_version": 1,
+            "last_published": "2026-05-04T02:54:00.163100+08:00",
+            "latest_flatten_status": "flattened",
+            "product_kind": "tp",
+            "n_dual_variants": 1
+          },
+          {
+            "product_code": "TP-003",
+            "n_versions": 1,
+            "n_flattened": 1,
+            "n_non_flattened": 0,
+            "latest_version": 1,
+            "last_published": "2026-05-04T02:54:00.163100+08:00",
+            "latest_flatten_status": "flattened",
+            "product_kind": "tp",
+            "n_dual_variants": 1
+          },
+          {
+            "product_code": "TP-004",
+            "n_versions": 1,
+            "n_flattened": 1,
+            "n_non_flattened": 0,
+            "latest_version": 1,
+            "last_published": "2026-05-04T02:54:00.163100+08:00",
+            "latest_flatten_status": "flattened",
+            "product_kind": "tp",
+            "n_dual_variants": 1
+          },
+          {
+            "product_code": "TP-005",
+            "n_versions": 1,
+            "n_flattened": 1,
+            "n_non_flattened": 0,
+            "latest_version": 1,
+            "last_published": "2026-05-04T02:54:00.163100+08:00",
+            "latest_flatten_status": "flattened",
+            "product_kind": "tp",
+            "n_dual_variants": 1
+          },
+          {
+            "product_code": "TP-006",
+            "n_versions": 1,
+            "n_flattened": 1,
+            "n_non_flattened": 0,
+            "latest_version": 1,
+            "last_published": "2026-05-04T02:54:00.163100+08:00",
+            "latest_flatten_status": "flattened",
+            "product_kind": "tp",
+            "n_dual_variants": 1
+          },
+          {
+            "product_code": "TP-007",
+            "n_versions": 1,
+            "n_flattened": 1,
+            "n_non_flattened": 0,
+            "latest_version": 1,
+            "last_published": "2026-05-04T02:54:00.163100+08:00",
+            "latest_flatten_status": "flattened",
+            "product_kind": "tp",
+            "n_dual_variants": 1
+          },
+          {
+            "product_code": "TP-008",
+            "n_versions": 1,
+            "n_flattened": 1,
+            "n_non_flattened": 0,
+            "latest_version": 1,
+            "last_published": "2026-05-04T02:54:00.163100+08:00",
+            "latest_flatten_status": "flattened",
+            "product_kind": "tp",
+            "n_dual_variants": 1
+          }
+        ],
+        "total_estimate": null
+      }
+    },
+    "tp001_bom_latest": {
+      "status": 200,
+      "body": {
+        "version": {
+          "version_id": "bv_6mdzQN-hiOh5HVut",
+          "client_id": "demo-precision-manufactu-480e",
+          "product_code": "TP-001",
+          "version_no": 1,
+          "actor": "agency_staff",
+          "intent": "asserted_technical",
+          "parent_version_id": null,
+          "context": {
+            "channel": "agency_upload",
+            "profile": "technical_flatten",
+            "flatten_method": "dh_flatten_v1",
+            "flatten_method_version": "0.1.0"
+          },
+          "normalized_hash": "f8c7da6a545dc96233a27a0ed52eabf0eef66a7eacf3405b86ec7eddd4b29ac2",
+          "row_count": 10,
+          "status": "published",
+          "tombstoned_at": null,
+          "created_at": "2026-05-04T02:54:00.163100+08:00",
+          "published_at": "2026-05-04T02:54:00.163100+08:00",
+          "source_bom_kind": "technical_flattened",
+          "flatten_status": "flattened",
+          "flatten_strategy": "technical_exploded",
+          "source_channel": "agency_upload",
+          "bom_code": null,
+          "bom_variant_id": "default",
+          "lineage": {
+            "btp_versions_used": [
+              {
+                "source": "same_upload",
+                "bom_code": "",
+                "version_id": "bv_JhSjvCCrSWFVbpe0",
+                "material_code": "BTP-001",
+                "bom_variant_id": "default"
+              },
+              {
+                "source": "same_upload",
+                "bom_code": "",
+                "version_id": "bv_8C0c_CL8FXVU8KNP",
+                "material_code": "BTP-004",
+                "bom_variant_id": "default"
+              }
+            ]
+          },
+          "display_label": "TP-001 · default · v1 · technical_flattened · flattened · technical_exploded",
+          "flatten_method": "dh_flatten_v1",
+          "flatten_method_version": "0.1.0"
+        },
+        "rows": [
+          {
+            "row_index": 0,
+            "material_code": "NVL-001",
+            "bom_code": null,
+            "bom_variant_id": "default",
+            "qty_per_unit": 0.35,
+            "uom": "kg",
+            "payload": {
+              "node_path": "TP-001>BTP-001>BTP-101>NVL-001",
+              "original_qty": "0.35",
+              "original_uom": "kg",
+              "conversion_evidence": {
+                "factor": "1",
+                "source": "alias",
+                "to_uom": "kg",
+                "from_uom": "kg"
+              },
+              "classification_evidence": "bcct_import",
+              "classification_evidence_detail": {
+                "client_id": "demo-precision-manufactu-480e",
+                "material_code": "NVL-001",
+                "child_bom_present": false
+              }
+            }
+          },
+          {
+            "row_index": 1,
+            "material_code": "NVL-002",
+            "bom_code": null,
+            "bom_variant_id": "default",
+            "qty_per_unit": 0.18,
+            "uom": "kg",
+            "payload": {
+              "node_path": "TP-001>BTP-001>BTP-101>NVL-002",
+              "original_qty": "0.18",
+              "original_uom": "kg",
+              "conversion_evidence": {
+                "factor": "1",
+                "source": "alias",
+                "to_uom": "kg",
+                "from_uom": "kg"
+              },
+              "classification_evidence": "bcct_import",
+              "classification_evidence_detail": {
+                "client_id": "demo-precision-manufactu-480e",
+                "material_code": "NVL-002",
+                "child_bom_present": false
+              }
+            }
+          },
+          {
+            "row_index": 2,
+            "material_code": "NVL-027",
+            "bom_code": null,
+            "bom_variant_id": "default",
+            "qty_per_unit": 0.8,
+            "uom": "m",
+            "payload": {
+              "node_path": "TP-001>BTP-001>BTP-101>NVL-027",
+              "original_qty": "0.8",
+              "original_uom": "m",
+              "conversion_evidence": {
+                "factor": "1",
+                "source": "alias",
+                "to_uom": "m",
+                "from_uom": "m"
+              },
+              "classification_evidence": "bcct_import",
+              "classification_evidence_detail": {
+                "client_id": "demo-precision-manufactu-480e",
+                "material_code": "NVL-027",
+                "child_bom_present": false
+              }
+            }
+          },
+          {
+            "row_index": 3,
+            "material_code": "NVL-005",
+            "bom_code": null,
+            "bom_variant_id": "default",
+            "qty_per_unit": 0.42,
+            "uom": "kg",
+            "payload": {
+              "node_path": "TP-001>BTP-001>NVL-005",
+              "original_qty": "0.42",
+              "original_uom": "kg",
+              "conversion_evidence": {
+                "factor": "1",
+                "source": "alias",
+                "to_uom": "kg",
+                "from_uom": "kg"
+              },
+              "classification_evidence": "bcct_import",
+              "classification_evidence_detail": {
+                "client_id": "demo-precision-manufactu-480e",
+                "material_code": "NVL-005",
+                "child_bom_present": false
+              }
+            }
+          },
+          {
+            "row_index": 4,
+            "material_code": "NVL-006",
+            "bom_code": null,
+            "bom_variant_id": "default",
+            "qty_per_unit": 0.31,
+            "uom": "kg",
+            "payload": {
+              "node_path": "TP-001>BTP-001>NVL-006",
+              "original_qty": "0.31",
+              "original_uom": "kg",
+              "conversion_evidence": {
+                "factor": "1",
+                "source": "alias",
+                "to_uom": "kg",
+                "from_uom": "kg"
+              },
+              "classification_evidence": "bcct_import",
+              "classification_evidence_detail": {
+                "client_id": "demo-precision-manufactu-480e",
+                "material_code": "NVL-006",
+                "child_bom_present": false
+              }
+            }
+          },
+          {
+            "row_index": 5,
+            "material_code": "NVL-010",
+            "bom_code": null,
+            "bom_variant_id": "default",
+            "qty_per_unit": 0.24,
+            "uom": "kg",
+            "payload": {
+              "node_path": "TP-001>BTP-004>NVL-010",
+              "original_qty": "0.48",
+              "original_uom": "kg",
+              "conversion_evidence": {
+                "factor": "1",
+                "source": "alias",
+                "to_uom": "kg",
+                "from_uom": "kg"
+              },
+              "classification_evidence": "bcct_import",
+              "classification_evidence_detail": {
+                "client_id": "demo-precision-manufactu-480e",
+                "material_code": "NVL-010",
+                "child_bom_present": false
+              }
+            }
+          },
+          {
+            "row_index": 6,
+            "material_code": "NVL-011",
+            "bom_code": null,
+            "bom_variant_id": "default",
+            "qty_per_unit": 0.16,
+            "uom": "kg",
+            "payload": {
+              "node_path": "TP-001>BTP-004>NVL-011",
+              "original_qty": "0.32",
+              "original_uom": "kg",
+              "conversion_evidence": {
+                "factor": "1",
+                "source": "alias",
+                "to_uom": "kg",
+                "from_uom": "kg"
+              },
+              "classification_evidence": "bcct_import",
+              "classification_evidence_detail": {
+                "client_id": "demo-precision-manufactu-480e",
+                "material_code": "NVL-011",
+                "child_bom_present": false
+              }
+            }
+          },
+          {
+            "row_index": 7,
+            "material_code": "NVL-032",
+            "bom_code": null,
+            "bom_variant_id": "default",
+            "qty_per_unit": 1.5,
+            "uom": "pcs",
+            "payload": {
+              "node_path": "TP-001>BTP-004>NVL-032",
+              "original_qty": "3.0",
+              "original_uom": "pcs",
+              "conversion_evidence": {
+                "factor": "1",
+                "source": "alias",
+                "to_uom": "pcs",
+                "from_uom": "pcs"
+              },
+              "classification_evidence": "bcct_import",
+              "classification_evidence_detail": {
+                "client_id": "demo-precision-manufactu-480e",
+                "material_code": "NVL-032",
+                "child_bom_present": false
+              }
+            }
+          },
+          {
+            "row_index": 8,
+            "material_code": "NVL-013",
+            "bom_code": null,
+            "bom_variant_id": "default",
+            "qty_per_unit": 0.4,
+            "uom": "kg",
+            "payload": {
+              "node_path": "TP-001>NVL-013",
+              "original_qty": "0.4",
+              "original_uom": "kg",
+              "conversion_evidence": {
+                "factor": "1",
+                "source": "alias",
+                "to_uom": "kg",
+                "from_uom": "kg"
+              },
+              "classification_evidence": "bcct_import",
+              "classification_evidence_detail": {
+                "client_id": "demo-precision-manufactu-480e",
+                "material_code": "NVL-013",
+                "child_bom_present": false
+              }
+            }
+          },
+          {
+            "row_index": 9,
+            "material_code": "NVL-030",
+            "bom_code": null,
+            "bom_variant_id": "default",
+            "qty_per_unit": 1.2,
+            "uom": "m",
+            "payload": {
+              "node_path": "TP-001>NVL-030",
+              "original_qty": "1.2",
+              "original_uom": "m",
+              "conversion_evidence": {
+                "factor": "1",
+                "source": "alias",
+                "to_uom": "m",
+                "from_uom": "m"
+              },
+              "classification_evidence": "bcct_import",
+              "classification_evidence_detail": {
+                "client_id": "demo-precision-manufactu-480e",
+                "material_code": "NVL-030",
+                "child_bom_present": false
+              }
+            }
+          }
+        ],
+        "edges": [],
+        "unresolved": [],
+        "decisions": []
+      }
+    }
+  }
+}
