@@ -28,6 +28,7 @@ services:
       DATA_HUB_AUTO_SEED_DEMO: "0"
       DATA_HUB_KEYS_DIR: /var/lib/data-hub/keys
       DATA_HUB_FILES_DIR: /var/lib/data-hub/files
+      DATA_HUB_API_AUTH_DISABLED: ${DATA_HUB_API_AUTH_DISABLED:-0}
     ports:
       - "${APP_BIND:-0.0.0.0}:8754:8754"
     volumes:
