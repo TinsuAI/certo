@@ -8,6 +8,64 @@ For past architectural decisions, see `DECISIONS.md`.
 
 ---
 
+## UI BOM upload — wire up v3 concepts
+
+**Captured 2026-05-05** after session shipped v3 schema (raw_graph /
+shallow / full_flat shapes), supplier-batch ingest scripts, BTP
+roster, and provenance UI on BOM list/detail pages. The upload route
+itself (`app/routes/bom.py`) was not updated; it still uses the
+unified-mapping-flow from commit `b278ff5` and treats every upload
+as `bom_variant_id='default'` with no post-upload hooks.
+
+**Gaps to close:**
+
+1. **`bom_variant_id` field in upload form** — staff should pick a
+   batch label (e.g. `agency_2026-05-05` or freetext) when uploading
+   multiple supplier batches per product. Auto-derive default from
+   filename or upload date if blank. Without this, multi-batch
+   uploads via UI collide on `(product_code, default)` and trigger
+   version-bump idempotency dedup.
+2. **Auto-materialize post-upload** — when `technical_raw` confirms,
+   trigger `materialize_shallow_and_full_flat` for the new
+   `bom_versions` row inline (or async). Without this, shallow +
+   full_flat versions only exist after a manual script run, which
+   leaves the freshly-uploaded raw_graph orphan from BCQT/CO consumer
+   queries.
+3. **Auto-bootstrap BTP roster** — same trigger should re-run BTP
+   detection (rule: parent_code in bom_edges + not a tp_root).
+   Catalog `btp_sx` entries for newly-introduced intermediate codes
+   land without a separate command.
+4. **Shape badge in preview** — preview page currently shows flat
+   rows. Add a header banner showing "This upload will create a
+   `raw_graph` BOM" / "`shallow`" / "`full_flat`" so staff confirm
+   with intent. Use the `bom_shape()` helper.
+5. **Multi-role warning** — if any code in the upload also appears
+   in `bcct_rows.direction='export'` for this client AND the upload
+   would categorize the code as `btp_sx`, surface a warning: "Code
+   PV01.0104300 has been exported in BCCT — adding it as BTP here
+   creates a multi-role situation. Confirm intent." Reference
+   `project_bom_code_multirole.md` memory for context.
+6. **Per-client policy gate** — `clients.auto_derive_shallow_from_raw`
+   (`disabled` / `draft_only` / `publish`) should gate auto-materialize
+   step. UI upload should respect the value: in `draft_only`, derived
+   shallow/full_flat insert as `status='draft'` not `published`.
+7. **Tests + docs** — Playwright E2E that drives upload → mapping →
+   parse → preview → confirm and asserts shape + materialize side
+   effects. Unit tests for the new auto-trigger functions.
+
+**Why deferred to Phase 3 / a dedicated session:**
+
+The UI integration naturally couples with Phase 3 resolver +
+profiles work — both need shape-aware UX, and shipping them
+together avoids two rounds of UI churn. Pre-MVP scope is covered by
+direct-ingest scripts (`scripts/ingest_technical_raw_batch.py`,
+`scripts/ingest_curated_xlsx_direct.py`) + manual UI for ad-hoc
+single uploads, which is acceptable until first real customer.
+
+Estimated effort: 4-6h for items 1-5, +2-3h for tests + docs (item 7).
+
+---
+
 ## Aggregate-data git-history
 
 **Captured 2026-05-05** as a hard product principle from user.
