@@ -37,6 +37,18 @@ DETECT_BTPS_SQL = """
 -- A BTP is any code that participates as a parent in a BOM (so it has
 -- a structure beneath it) but is NOT a TP root. This handles two shapes:
 --
+-- KNOWN LIMITATION (orphan BTPs): A code that owns its own bom_versions
+-- row AND is never consumed as a child by any other product in this
+-- client's data is classified as a TP root by this rule. For Growatt,
+-- 14 codes (033.*, 100.*, B700.*, B710.*) match this profile — they
+-- have own supplier files but their parent TP files weren't ingested.
+-- Per agency naming convention these are still BTPs, but the rule has
+-- no way to know that without prefix/regex heuristics that don't
+-- generalize across clients. Staff can manually flip category from
+-- whatever default landed (usually 'nvl' from BCCT, or absent) once
+-- they identify the parent TPs.
+--
+--
 -- (A) Growatt-shape: BTP has its own bom_versions row AND appears as
 --     child_code in some BOM. Example: B700.0192500 has its own factory
 --     XLSX file producing a bom_versions row, and is consumed by SD/PV TPs.
@@ -52,13 +64,21 @@ DETECT_BTPS_SQL = """
 -- product).
 with
   tp_roots as (
-    select distinct product_code as code
-    from hub.bom_versions
-    where client_id = %(client_id)s and tombstoned_at is null
-      -- Only roots: a code is a TP root if its bom_versions records it
-      -- as the product. We exclude rows that are derived (auto_derived
-      -- shallow / full_flat) so we treat raw_graph + manual-flat origins
-      -- as canonical for TP-root detection.
+    -- TP root = code that owns a bom_versions row AND is never consumed
+    -- as a child by ANY other product's BOM in this client. Codes that
+    -- own a bom_versions row but are also consumed elsewhere are BTPs
+    -- (Growatt B700.* family pattern: own supplier file + used in TPs).
+    select bv.product_code as code
+    from hub.bom_versions bv
+    where bv.client_id = %(client_id)s and bv.tombstoned_at is null
+      and not exists (
+        select 1 from hub.bom_edges e
+        join hub.bom_versions bv2 on bv2.version_id = e.version_id
+        where bv2.client_id = %(client_id)s
+          and bv2.tombstoned_at is null
+          and e.child_code = bv.product_code
+          and bv2.product_code <> bv.product_code
+      )
   ),
   parents as (
     select distinct e.parent_code as code, max(e.uom) as uom

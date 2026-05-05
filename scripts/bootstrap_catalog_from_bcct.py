@@ -69,9 +69,13 @@ values (%(client_id)s, %(code)s, %(code)s, %(name)s, %(category)s, 'active',
 on conflict (client_id, customs_code) do update set
   provenance = hub.materials.provenance ||
     jsonb_build_object('seen_in_bcct',
-      jsonb_build_object('first_seen', to_char(now(),'YYYY-MM-DD'),
-                          'decl_count', excluded.provenance->'seen_in_bcct'->'decl_count',
-                          'directions', excluded.provenance->'seen_in_bcct'->'directions')),
+      jsonb_build_object(
+        'first_seen', coalesce(
+          hub.materials.provenance->'seen_in_bcct'->>'first_seen',
+          to_char(now(),'YYYY-MM-DD')),
+        'last_seen', to_char(now(),'YYYY-MM-DD'),
+        'decl_count', excluded.provenance->'seen_in_bcct'->'decl_count',
+        'directions', excluded.provenance->'seen_in_bcct'->'directions')),
   updated_at = now()
 """
 

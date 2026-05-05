@@ -212,8 +212,10 @@ def main() -> int:
             else:
                 counters[f"{kind}_dedup"] += 1
 
-        # If draft-only policy, the create_version inserts as 'published'
-        # (default) — flip status if needed.
+        # If draft-only policy, demote NEWLY-created auto_derived rows to
+        # 'draft'. Guard via created_at within last few seconds to avoid
+        # demoting versions that were promoted by a prior --force-publish
+        # run (BOM immutability: don't downgrade already-published rows).
         if not publish:
             with connect() as conn:
                 with conn.cursor() as cur:
@@ -226,6 +228,12 @@ def main() -> int:
                           and source_channel='migration'
                           and context->>'channel'='auto_derived'
                           and status='published'
+                          and created_at > now() - interval '60 seconds'
+                          and not exists (
+                            select 1 from hub.bom_resolution_profiles p
+                            where p.bom_version_id = hub.bom_versions.version_id
+                              and p.tombstoned_at is null
+                          )
                         """,
                         (args.client, product_code, raw_id),
                     )
