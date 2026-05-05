@@ -8,7 +8,7 @@
   <div class="zone-head">
     <div>
       <h2>Tồn CO</h2>
-      <p class="meta">Theo dõi phần tồn có thể dùng cho hồ sơ C/O, giữ theo policy {{ client_config.co_stock.lot_policy }} và match BOM bằng mã phân bổ.</p>
+      <p class="meta">Theo dõi phần tồn có thể dùng cho hồ sơ C/O, giữ theo policy dòng tồn {{ client_config.co_stock.lot_policy }} và match BOM bằng mã phân bổ.</p>
     </div>
     <div class="chip-row">
       <span class="chip chip-active">{{ client.counts.co_stock }} bucket</span>
@@ -20,7 +20,7 @@
     <span class="callout-icon">i</span>
     <div>
       <div class="callout-title">Tồn CO khác tồn kho vật lý</div>
-      Tồn CO chỉ tính lot nhập còn đủ điều kiện dùng cho C/O và chưa bị phân bổ hết cho hồ sơ khác.
+      Tồn CO chỉ tính dòng tồn nhập còn đủ điều kiện dùng cho C/O và chưa bị phân bổ hết cho hồ sơ khác.
     </div>
   </div>
   {% include "_advanced_table.html" %}

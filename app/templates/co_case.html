@@ -855,13 +855,48 @@
               <tbody>
                 {% for material in product.materials %}
                 {% set material_index = loop.index0 %}
+                {% set allocation_count = material.allocation_lines|length %}
+                {% set allocation_has_issue = material.allocation_status == 'shortage' or material.valuation_status in ['partial_allocation', 'partial_valuation', 'missing_unit_value'] %}
+                {% set render_allocation_details = allocation_count > 0 %}
+                {% set allocation_default_expanded = allocation_has_issue %}
+                {% set allocation_group = 'allocation-' ~ product_index ~ '-' ~ material_index %}
                 <tr class="{{ 'origin-row-warning' if material.material_warnings else '' }}">
                   <td>
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_source_row" value="{{ material.source_row }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_import_declaration_no" value="{{ material.import_declaration_no }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_import_line_no" value="{{ material.import_line_no }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_customs_material_code" value="{{ material.customs_material_code }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_status" value="{{ material.allocation_status }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_shortage_qty" value="{{ material.allocation_shortage_qty }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_summary" value="{{ material.allocation_summary }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_line_count" value="{{ material.allocation_lines|length }}">
+                    {% for allocation in material.allocation_lines %}
+                    {% set allocation_index = loop.index0 %}
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_source_row" value="{{ allocation.source_row }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_source_line_ids" value="{{ allocation.source_line_ids }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_import_declaration_no" value="{{ allocation.import_declaration_no }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_import_line_no" value="{{ allocation.import_line_no }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_customs_material_code" value="{{ allocation.customs_material_code }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_allocation_code" value="{{ allocation.allocation_code }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_available_qty" value="{{ allocation.available_qty }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_remaining_qty" value="{{ allocation.remaining_qty }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_allocated_qty" value="{{ allocation.allocated_qty }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_unit_value" value="{{ allocation.unit_value }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_currency" value="{{ allocation.currency }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_material_value" value="{{ allocation.material_value }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_valuation_source" value="{{ allocation.valuation_source }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_valuation_source_label" value="{{ allocation.valuation_source_label }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_material_description" value="{{ allocation.material_description }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_hs_code" value="{{ allocation.hs_code }}">
+                    {% endfor %}
+                    {% if render_allocation_details %}
+                    <button type="button" class="allocation-toggle" data-allocation-toggle data-allocation-group="{{ allocation_group }}" aria-expanded="{{ 'true' if allocation_default_expanded else 'false' }}" title="{{ 'Thu gọn dòng tồn' if allocation_default_expanded else 'Mở dòng tồn' }}">
+                      <span class="allocation-toggle-icon" aria-hidden="true">▾</span>
+                      <span class="mono">{{ loop.index }}</span>
+                    </button>
+                    {% else %}
                     <span class="mono">{{ loop.index }}</span>
+                    {% endif %}
                   </td>
                   <td>
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_material_code" value="{{ material.material_code }}">
@@ -875,7 +910,9 @@
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_bom_row_class" value="{{ material.bom_row_class }}">
                     <span class="mono">{{ material.internal_material_code or material.material_code or 'n/a' }}</span>
                   </td>
-                  <td class="{{ 'origin-cell-warning' if material.material_name_missing else '' }}" title="{{ material.material_warnings_text if material.material_name_missing else material.material_description }}">{{ material.material_description or 'Chưa có tên NVL' }}</td>
+                  <td class="{{ 'origin-cell-warning' if material.material_name_missing else '' }}" title="{{ material.material_warnings_text if material.material_name_missing else material.material_description }}">
+                    <span class="origin-material-name">{{ material.material_description or 'Chưa có tên NVL' }}</span>
+                  </td>
                   <td>
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_hs_code" value="{{ material.hs_code }}">
                     <span class="mono">{{ material.hs_code }}</span>
@@ -913,10 +950,40 @@
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_valuation_status_label" value="{{ material.valuation_status_label }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_data_status_label" value="{{ material.data_status_label }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_material_warnings" value="{{ material.material_warnings_text }}">
-                    <span class="badge badge-{{ 'success' if material.valuation_status == 'ready' else 'warning' }}">{{ material.data_status_label }}</span>
-                    <small>{{ material.valuation_source_label }}</small>
+                    {% set compact_data_status_label = 'Đủ dữ liệu' if material.valuation_status == 'ready' else material.data_status_label %}
+                    <div class="origin-source-cell">
+                      <span class="badge source-status-badge badge-{{ 'success' if material.valuation_status == 'ready' else 'warning' }}" title="{{ material.data_status_label }}">{{ compact_data_status_label }}</span>
+                      {% if allocation_count == 1 %}
+                      {% set single_allocation = material.allocation_lines[0] %}
+                      <span class="source-chip source-chip-reference" title="{{ single_allocation.import_declaration_no }} / line {{ single_allocation.import_line_no }} · {{ single_allocation.source_row }}">{{ single_allocation.import_declaration_no }} / {{ single_allocation.import_line_no }}</span>
+                      {% elif allocation_count > 1 %}
+                      <span class="source-chip source-chip-count" title="{{ material.source_document_ref or material.source_row }}">{{ material.allocation_summary }}</span>
+                      {% elif material.allocation_summary %}
+                      <span class="source-chip source-chip-warning">{{ material.allocation_summary }}</span>
+                      {% endif %}
+                    </div>
                   </td>
                 </tr>
+                {% if render_allocation_details %}
+                {% for allocation in material.allocation_lines %}
+                <tr class="origin-allocation-row" data-allocation-detail data-allocation-group="{{ allocation_group }}" {% if not allocation_default_expanded %}hidden{% endif %}>
+                  <td></td>
+                  <td><span class="allocation-indent">Dòng tồn {{ loop.index }}</span></td>
+                  <td>{{ allocation.material_description or material.material_description }}</td>
+                  <td><span class="mono">{{ allocation.hs_code or material.hs_code }}</span></td>
+                  <td></td>
+                  <td class="num">{{ allocation.allocated_qty|number(6) }} <small>{{ material.uom }}</small></td>
+                  <td class="num">{{ allocation.unit_value|number(6) if allocation.unit_value else 'Thiếu' }} <small>{{ allocation.currency or material.currency }}</small></td>
+                  <td class="num">{{ allocation.material_value|number if allocation.material_value else 'Thiếu' }}</td>
+                  <td></td>
+                  <td class="num">{{ allocation.material_value|number if material.origin_status == 'non_origin' and allocation.material_value else '0' }}</td>
+                  <td>
+                    <strong>{{ allocation.import_declaration_no }} / line {{ allocation.import_line_no }}</strong>
+                    <small>{{ allocation.source_row }}</small>
+                  </td>
+                </tr>
+                {% endfor %}
+                {% endif %}
                 {% endfor %}
               </tbody>
             </table>
@@ -1300,6 +1367,23 @@
         tabs[nextIndex] && activate(tabs[nextIndex]);
       });
     });
+  });
+
+  document.querySelectorAll("[data-allocation-toggle]").forEach((button) => {
+    const group = button.dataset.allocationGroup || "";
+    const rows = Array.from(document.querySelectorAll("[data-allocation-detail]"))
+      .filter((row) => row.dataset.allocationGroup === group);
+    const setExpanded = (expanded) => {
+      button.setAttribute("aria-expanded", expanded ? "true" : "false");
+      button.title = expanded ? "Thu gọn dòng tồn" : "Mở dòng tồn";
+      rows.forEach((row) => {
+        row.hidden = !expanded;
+      });
+    };
+    button.addEventListener("click", () => {
+      setExpanded(button.getAttribute("aria-expanded") !== "true");
+    });
+    setExpanded(button.getAttribute("aria-expanded") === "true");
   });
 
   document.querySelectorAll("[data-bom-version-select]").forEach((select) => {

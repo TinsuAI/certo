@@ -2264,6 +2264,111 @@ def test_origin_material_uses_stock_description_and_summarizes_repeated_warnings
     assert any(row["label"] == "Thiếu đơn giá NVL" and row["count"] == 2 for row in product["origin_warning_summary"])
 
 
+def test_origin_material_allocates_required_quantity_across_multiple_stock_lots():
+    from app.main import co_stock_allocation_pool, origin_material_from_bom_row
+
+    pool = co_stock_allocation_pool([
+        {
+            "source_row": "LOT-001",
+            "import_declaration_no": "NK-LOT-1",
+            "line_no": "1",
+            "material_code": "MAT-LOT",
+            "allocation_code": "MAT-LOT",
+            "customs_item_code": "MAT-LOT",
+            "remaining_qty": "2",
+            "unit_value": "10",
+            "currency": "VND",
+            "value_currency": "VND",
+            "eligibility_status": "active",
+            "allocation_code_status": "resolved",
+        },
+        {
+            "source_row": "LOT-002",
+            "import_declaration_no": "NK-LOT-2",
+            "line_no": "2",
+            "material_code": "MAT-LOT",
+            "allocation_code": "MAT-LOT",
+            "customs_item_code": "MAT-LOT",
+            "remaining_qty": "4",
+            "unit_value": "20",
+            "currency": "VND",
+            "value_currency": "VND",
+            "eligibility_status": "active",
+            "allocation_code_status": "resolved",
+        },
+    ])
+
+    material = origin_material_from_bom_row(
+        {"material_code": "MAT-LOT", "qty_per": "3", "uom": "PCS"},
+        Decimal("2"),
+        {"MAT-LOT": {"origin_default": "Không xuất xứ"}},
+        pool,
+    )
+    depleted = origin_material_from_bom_row(
+        {"material_code": "MAT-LOT", "qty_per": "1", "uom": "PCS"},
+        Decimal("1"),
+        {"MAT-LOT": {"origin_default": "Không xuất xứ"}},
+        pool,
+    )
+
+    assert material["consumed_qty"] == Decimal("6")
+    assert material["source_row"] == "LOT-001,LOT-002"
+    assert material["unit_value"] == "Nhiều đơn giá"
+    assert material["material_value"] == "100"
+    assert material["non_origin_cif_value"] == "100"
+    assert material["allocation_status"] == "covered"
+    assert [line["allocated_qty"] for line in material["allocation_lines"]] == ["2", "4"]
+    assert [line["material_value"] for line in material["allocation_lines"]] == ["20", "80"]
+    assert depleted["allocation_status"] == "shortage"
+    assert depleted["allocation_shortage_qty"] == "1"
+    assert depleted["allocation_lines"] == []
+
+
+def test_origin_material_blocks_mixed_currency_allocation_value():
+    from app.main import co_stock_allocation_pool, origin_material_from_bom_row
+
+    pool = co_stock_allocation_pool([
+        {
+            "source_row": "LOT-USD",
+            "import_declaration_no": "NK-CUR-1",
+            "line_no": "1",
+            "material_code": "MAT-CUR",
+            "remaining_qty": "1",
+            "unit_value": "10",
+            "currency": "USD",
+            "value_currency": "USD",
+            "eligibility_status": "active",
+            "allocation_code_status": "resolved",
+        },
+        {
+            "source_row": "LOT-VND",
+            "import_declaration_no": "NK-CUR-2",
+            "line_no": "2",
+            "material_code": "MAT-CUR",
+            "remaining_qty": "1",
+            "unit_value": "200000",
+            "currency": "VND",
+            "value_currency": "VND",
+            "eligibility_status": "active",
+            "allocation_code_status": "resolved",
+        },
+    ])
+
+    material = origin_material_from_bom_row(
+        {"material_code": "MAT-CUR", "qty_per": "2", "uom": "PCS"},
+        Decimal("1"),
+        {"MAT-CUR": {"origin_default": "Không xuất xứ"}},
+        pool,
+    )
+
+    assert material["allocation_status"] == "covered"
+    assert material["valuation_status"] == "partial_valuation"
+    assert material["currency"] == "Nhiều tiền tệ"
+    assert material["material_value"] == ""
+    assert material["non_origin_cif_value"] == ""
+    assert "MAT-CUR: nhiều tiền tệ trong các dòng tồn, chưa cộng VNM tự động." in material["material_warnings"]
+
+
 def test_co_case_export_workbook_contains_bom_snapshot_rows_from_origin_form():
     client = TestClient(app)
     client.post(
@@ -2365,6 +2470,122 @@ def test_co_case_export_workbook_contains_origin_snapshot_metadata_from_web():
     assert "blocked" in values
     assert "DEMO-NPL-002: thiếu đơn giá để tính trị giá NVL/VNM." in values
     assert "CTSH preview" in values
+
+
+def test_co_case_origin_round_trips_multi_lot_allocation_to_export_workbook():
+    client = TestClient(app)
+    client.post(
+        "/clients/growatt/bcct/upload",
+        files={
+            "file": (
+                "bcct.xlsx",
+                bcct_workbook([
+                    {
+                        "direction": "import",
+                        "declaration_type": "E11",
+                        "declaration_no": "NK-ALLOC-1",
+                        "line_no": "1",
+                        "item_code": "DEMO-NPL-001",
+                        "description": "Main control board dòng tồn 1",
+                        "hs_code": "8542.39",
+                        "quantity": "1",
+                        "unit": "PCE",
+                        "customs_value": "10",
+                        "currency": "VND",
+                    },
+                    {
+                        "direction": "import",
+                        "declaration_type": "E11",
+                        "declaration_no": "NK-ALLOC-2",
+                        "line_no": "2",
+                        "item_code": "DEMO-NPL-001",
+                        "description": "Main control board dòng tồn 2",
+                        "hs_code": "8542.39",
+                        "quantity": "2",
+                        "unit": "PCE",
+                        "customs_value": "40",
+                        "currency": "VND",
+                    },
+                    {
+                        "direction": "import",
+                        "declaration_type": "E11",
+                        "declaration_no": "NK-ALLOC-3",
+                        "line_no": "3",
+                        "item_code": "DEMO-NPL-002",
+                        "description": "Connector set",
+                        "hs_code": "8536.90",
+                        "quantity": "100",
+                        "unit": "PCE",
+                        "customs_value": "2000",
+                        "currency": "VND",
+                    },
+                    {
+                        "direction": "export",
+                        "declaration_type": "E42",
+                        "declaration_no": "XK-ALLOC",
+                        "line_no": "1",
+                        "item_code": "PV00.0048500",
+                        "description": "Growatt inverter",
+                        "hs_code": "850440",
+                        "quantity": "3",
+                        "unit": "PCS",
+                        "customs_value": "1000",
+                        "currency": "VND",
+                        "invoice_ref": "INV-ALLOC",
+                    },
+                ]),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Allocation export", "case_code": "CO-ALLOC", "destination_market": "Ấn Độ", "invoice_no": "INV-ALLOC"},
+        follow_redirects=False,
+    )
+
+    origin = client.get(f"{created.headers['location']}/origin")
+    form_data = hidden_form_data(origin.text)
+    response = client.post(f"{created.headers['location']}/export", data=form_data)
+
+    assert origin.status_code == 200
+    assert form_data["product_0_material_0_allocation_line_count"] == "2"
+    assert form_data["product_0_material_0_allocation_0_import_declaration_no"] == "NK-ALLOC-1"
+    assert form_data["product_0_material_0_allocation_1_import_declaration_no"] == "NK-ALLOC-2"
+    assert form_data["product_0_material_0_allocation_0_allocated_qty"] == "1"
+    assert form_data["product_0_material_0_allocation_1_allocated_qty"] == "2"
+    assert form_data["product_0_material_0_material_value"] == "50"
+    assert "2 dòng tồn" in origin.text
+    assert "Dòng tồn 1" in origin.text
+    assert 'data-allocation-toggle' in origin.text
+    assert 'aria-expanded="false"' in origin.text
+    assert 'data-allocation-detail' in origin.text
+    assert 'class="origin-allocation-row"' in origin.text
+    assert "hidden" in origin.text
+    assert "origin-material-name" in origin.text
+    assert "origin-source-cell" in origin.text
+    assert "source-chip" in origin.text
+    assert "NK-ALLOC-1 / line 1" in origin.text
+    assert "NK-ALLOC-2 / line 2" in origin.text
+    assert "NK-ALLOC-3 / line 3" in origin.text
+    assert response.status_code == 200
+
+    workbook = load_workbook(BytesIO(response.content))
+    lvc_rows = list(workbook["LVC Statement"].iter_rows(values_only=True))
+    snapshot_values = [value for row in workbook["Origin Snapshot"].iter_rows(values_only=True) for value in row]
+    assert "Allocation source row" in lvc_rows[0]
+    declaration_index = lvc_rows[0].index("Allocation declaration")
+    qty_index = lvc_rows[0].index("Allocated qty")
+    allocation_rows = {
+        row[declaration_index]: row
+        for row in lvc_rows[1:]
+        if row[declaration_index] in {"NK-ALLOC-1", "NK-ALLOC-2"}
+    }
+    assert allocation_rows["NK-ALLOC-1"][qty_index] == "1"
+    assert allocation_rows["NK-ALLOC-2"][qty_index] == "2"
+    assert "allocation" in snapshot_values
+    assert "NK-ALLOC-1 / line 1" in snapshot_values
+    assert "NK-ALLOC-2 / line 2" in snapshot_values
 
 
 def test_co_case_supporting_upload_saves_invoice_metadata_and_matches_bcct_exports():

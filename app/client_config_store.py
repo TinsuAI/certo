@@ -105,7 +105,7 @@ def migrate_config(config: dict, client: dict) -> dict:
 
 def validate_config(config: dict) -> None:
     if config["co_stock"].get("lot_policy") not in CO_STOCK_LOT_POLICIES:
-        raise ValueError("Invalid CO stock lot policy.")
+        raise ValueError("Invalid CO stock source-line policy.")
     allocation = config["allocation_code"]
     if allocation.get("strategy") not in ALLOCATION_CODE_STRATEGIES:
         raise ValueError("Invalid allocation code strategy.")

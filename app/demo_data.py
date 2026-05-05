@@ -630,41 +630,67 @@ def case_from_form(form: dict[str, str]) -> dict:
             case["bom_product_version_overrides"][product["code"]] = product["bom_product_version_id"]
         for material_index in range(material_count):
             material_prefix = f"{prefix}material_{material_index}_"
-            product["materials"].append(
-                {
-                    "source_row": form.get(material_prefix + "source_row", ""),
-                    "import_declaration_no": form.get(material_prefix + "import_declaration_no", ""),
-                    "import_line_no": form.get(material_prefix + "import_line_no", ""),
-                    "material_code": form.get(material_prefix + "material_code", ""),
-                    "customs_material_code": form.get(material_prefix + "customs_material_code", ""),
-                    "internal_material_code": form.get(material_prefix + "internal_material_code", ""),
-                    "material_description": form.get(material_prefix + "material_description", ""),
-                    "hs_code": form.get(material_prefix + "hs_code", ""),
-                    "origin_status": form.get(material_prefix + "origin_status", "non_origin"),
-                    "origin_status_label": form.get(material_prefix + "origin_status_label", ""),
-                    "origin_status_source": form.get(material_prefix + "origin_status_source", ""),
-                    "origin_status_note": form.get(material_prefix + "origin_status_note", ""),
-                    "available_qty": Decimal(form.get(material_prefix + "available_qty", "0") or "0"),
-                    "consumed_qty": Decimal(form.get(material_prefix + "consumed_qty", "0") or "0"),
-                    "non_origin_cif_value": Decimal(form.get(material_prefix + "non_origin_cif_value", "0") or "0"),
-                    "unit_value": form.get(material_prefix + "unit_value", ""),
-                    "currency": form.get(material_prefix + "currency", ""),
-                    "material_value": form.get(material_prefix + "material_value", ""),
-                    "valuation_status": form.get(material_prefix + "valuation_status", ""),
-                    "valuation_status_label": form.get(material_prefix + "valuation_status_label", ""),
-                    "valuation_source": form.get(material_prefix + "valuation_source", ""),
-                    "valuation_source_label": form.get(material_prefix + "valuation_source_label", ""),
-                    "data_status_label": form.get(material_prefix + "data_status_label", ""),
-                    "material_warnings_text": form.get(material_prefix + "material_warnings", ""),
-                    "material_warnings": text_list(form.get(material_prefix + "material_warnings", "")),
-                    "bom_qty_per": form.get(material_prefix + "bom_qty_per", ""),
-                    "bom_scrap_rate": form.get(material_prefix + "bom_scrap_rate", ""),
-                    "bom_source": form.get(material_prefix + "bom_source", ""),
-                    "bom_row_class": form.get(material_prefix + "bom_row_class", ""),
-                    "uom": form.get(material_prefix + "uom", ""),
-                    "source_document_ref": form.get(material_prefix + "source_document_ref", ""),
-                }
-            )
+            material = {
+                "source_row": form.get(material_prefix + "source_row", ""),
+                "import_declaration_no": form.get(material_prefix + "import_declaration_no", ""),
+                "import_line_no": form.get(material_prefix + "import_line_no", ""),
+                "material_code": form.get(material_prefix + "material_code", ""),
+                "customs_material_code": form.get(material_prefix + "customs_material_code", ""),
+                "internal_material_code": form.get(material_prefix + "internal_material_code", ""),
+                "material_description": form.get(material_prefix + "material_description", ""),
+                "hs_code": form.get(material_prefix + "hs_code", ""),
+                "origin_status": form.get(material_prefix + "origin_status", "non_origin"),
+                "origin_status_label": form.get(material_prefix + "origin_status_label", ""),
+                "origin_status_source": form.get(material_prefix + "origin_status_source", ""),
+                "origin_status_note": form.get(material_prefix + "origin_status_note", ""),
+                "available_qty": Decimal(form.get(material_prefix + "available_qty", "0") or "0"),
+                "consumed_qty": Decimal(form.get(material_prefix + "consumed_qty", "0") or "0"),
+                "non_origin_cif_value": Decimal(form.get(material_prefix + "non_origin_cif_value", "0") or "0"),
+                "unit_value": form.get(material_prefix + "unit_value", ""),
+                "currency": form.get(material_prefix + "currency", ""),
+                "material_value": form.get(material_prefix + "material_value", ""),
+                "valuation_status": form.get(material_prefix + "valuation_status", ""),
+                "valuation_status_label": form.get(material_prefix + "valuation_status_label", ""),
+                "valuation_source": form.get(material_prefix + "valuation_source", ""),
+                "valuation_source_label": form.get(material_prefix + "valuation_source_label", ""),
+                "data_status_label": form.get(material_prefix + "data_status_label", ""),
+                "allocation_status": form.get(material_prefix + "allocation_status", ""),
+                "allocation_shortage_qty": form.get(material_prefix + "allocation_shortage_qty", ""),
+                "allocation_summary": form.get(material_prefix + "allocation_summary", ""),
+                "allocation_lines": [],
+                "material_warnings_text": form.get(material_prefix + "material_warnings", ""),
+                "material_warnings": text_list(form.get(material_prefix + "material_warnings", "")),
+                "bom_qty_per": form.get(material_prefix + "bom_qty_per", ""),
+                "bom_scrap_rate": form.get(material_prefix + "bom_scrap_rate", ""),
+                "bom_source": form.get(material_prefix + "bom_source", ""),
+                "bom_row_class": form.get(material_prefix + "bom_row_class", ""),
+                "uom": form.get(material_prefix + "uom", ""),
+                "source_document_ref": form.get(material_prefix + "source_document_ref", ""),
+            }
+            allocation_line_count = int(form.get(material_prefix + "allocation_line_count", "0") or "0")
+            for allocation_index in range(allocation_line_count):
+                allocation_prefix = f"{material_prefix}allocation_{allocation_index}_"
+                material["allocation_lines"].append(
+                    {
+                        "source_row": form.get(allocation_prefix + "source_row", ""),
+                        "source_line_ids": form.get(allocation_prefix + "source_line_ids", ""),
+                        "import_declaration_no": form.get(allocation_prefix + "import_declaration_no", ""),
+                        "import_line_no": form.get(allocation_prefix + "import_line_no", ""),
+                        "customs_material_code": form.get(allocation_prefix + "customs_material_code", ""),
+                        "allocation_code": form.get(allocation_prefix + "allocation_code", ""),
+                        "available_qty": form.get(allocation_prefix + "available_qty", ""),
+                        "remaining_qty": form.get(allocation_prefix + "remaining_qty", ""),
+                        "allocated_qty": form.get(allocation_prefix + "allocated_qty", ""),
+                        "unit_value": form.get(allocation_prefix + "unit_value", ""),
+                        "currency": form.get(allocation_prefix + "currency", ""),
+                        "material_value": form.get(allocation_prefix + "material_value", ""),
+                        "valuation_source": form.get(allocation_prefix + "valuation_source", ""),
+                        "valuation_source_label": form.get(allocation_prefix + "valuation_source_label", ""),
+                        "material_description": form.get(allocation_prefix + "material_description", ""),
+                        "hs_code": form.get(allocation_prefix + "hs_code", ""),
+                    }
+                )
+            product["materials"].append(material)
         case["products"].append(product)
     return case
 

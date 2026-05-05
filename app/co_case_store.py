@@ -398,6 +398,20 @@ def create_case_workbook(case: dict, form_candidates: list[dict], invoice_matche
                 material.get("valuation_source_label", ""),
                 " | ".join(text_list(material.get("material_warnings") or material.get("material_warnings_text"))),
             ])
+            for allocation in material.get("allocation_lines", []):
+                snapshot_sheet.append([
+                    product.get("code", ""),
+                    "allocation",
+                    material.get("material_code") or material.get("internal_material_code", ""),
+                    allocation_ref(allocation),
+                    material.get("allocation_status", ""),
+                    allocation.get("allocated_qty", ""),
+                    allocation.get("unit_value", ""),
+                    allocation.get("material_value", ""),
+                    allocation.get("currency", ""),
+                    allocation.get("valuation_source_label", ""),
+                    allocation.get("source_row", ""),
+                ])
 
     bom_sheet = workbook.create_sheet("LVC Statement")
     bom_sheet.append([
@@ -430,41 +444,61 @@ def create_case_workbook(case: dict, form_candidates: list[dict], invoice_matche
         "Material origin",
         "Non-origin value (VNM)",
         "Source",
+        "Allocation source row",
+        "Allocation declaration",
+        "Allocation line",
+        "Allocated qty",
+        "Allocation available qty",
+        "Allocation remaining qty",
+        "Allocation unit value",
+        "Allocation currency",
+        "Allocation value",
     ])
     for product in case.get("products", []):
         materials = product.get("materials", []) or [{}]
         for material in materials:
-            bom_sheet.append([
-                product.get("code", ""),
-                product.get("name", ""),
-                product.get("finished_hs", ""),
-                case.get("shipment", {}).get("invoice_no", ""),
-                product.get("source_declaration_no", ""),
-                product.get("source_line_no", ""),
-                product.get("quantity", ""),
-                product.get("unit") or product.get("export_unit", ""),
-                product.get("fob", ""),
-                product.get("currency", ""),
-                product.get("vnm_value") or product.get("non_origin_value", ""),
-                product.get("lvc_percentage", ""),
-                product.get("lvc_threshold") or product.get("rvc_threshold", ""),
-                product.get("lvc_status_label", ""),
-                product.get("documented_result", ""),
-                case.get("bom_snapshot", {}).get("aggregate_version_id", ""),
-                product.get("bom_product_version_id", ""),
-                material.get("material_code") or material.get("internal_material_code", ""),
-                material.get("material_description", ""),
-                material.get("hs_code", ""),
-                material.get("bom_qty_per", ""),
-                material.get("uom", ""),
-                material.get("consumed_qty", ""),
-                material.get("unit_value", ""),
-                material.get("currency") or product.get("currency", ""),
-                material.get("material_value", ""),
-                material.get("origin_status", ""),
-                material.get("non_origin_cif_value", ""),
-                material.get("source_document_ref", ""),
-            ])
+            allocation_lines = material.get("allocation_lines") or [{}]
+            for allocation in allocation_lines:
+                bom_sheet.append([
+                    product.get("code", ""),
+                    product.get("name", ""),
+                    product.get("finished_hs", ""),
+                    case.get("shipment", {}).get("invoice_no", ""),
+                    product.get("source_declaration_no", ""),
+                    product.get("source_line_no", ""),
+                    product.get("quantity", ""),
+                    product.get("unit") or product.get("export_unit", ""),
+                    product.get("fob", ""),
+                    product.get("currency", ""),
+                    product.get("vnm_value") or product.get("non_origin_value", ""),
+                    product.get("lvc_percentage", ""),
+                    product.get("lvc_threshold") or product.get("rvc_threshold", ""),
+                    product.get("lvc_status_label", ""),
+                    product.get("documented_result", ""),
+                    case.get("bom_snapshot", {}).get("aggregate_version_id", ""),
+                    product.get("bom_product_version_id", ""),
+                    material.get("material_code") or material.get("internal_material_code", ""),
+                    material.get("material_description", ""),
+                    material.get("hs_code", ""),
+                    material.get("bom_qty_per", ""),
+                    material.get("uom", ""),
+                    material.get("consumed_qty", ""),
+                    material.get("unit_value", ""),
+                    material.get("currency") or product.get("currency", ""),
+                    material.get("material_value", ""),
+                    material.get("origin_status", ""),
+                    material.get("non_origin_cif_value", ""),
+                    material.get("source_document_ref", ""),
+                    allocation.get("source_row", ""),
+                    allocation.get("import_declaration_no", ""),
+                    allocation.get("import_line_no", ""),
+                    allocation.get("allocated_qty", ""),
+                    allocation.get("available_qty", ""),
+                    allocation.get("remaining_qty", ""),
+                    allocation.get("unit_value", ""),
+                    allocation.get("currency", ""),
+                    allocation.get("material_value", ""),
+                ])
 
     stream = BytesIO()
     workbook.save(stream)
@@ -486,6 +520,14 @@ def criteria_row(product: dict, material: dict, form: str, rvc: Any, tariff_shif
         "origin_status": material.get("origin_status", ""),
         "non_origin_cif_value": material.get("non_origin_cif_value", ""),
     }
+
+
+def allocation_ref(allocation: dict) -> str:
+    declaration = allocation.get("import_declaration_no", "")
+    line_no = allocation.get("import_line_no", "")
+    if declaration and line_no:
+        return f"{declaration} / line {line_no}"
+    return declaration or allocation.get("source_row", "")
 
 
 def text_list(value) -> list[str]:

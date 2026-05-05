@@ -1256,7 +1256,7 @@ def prepare_case_origin_products(
         return case
 
     material_index = material_catalog_index(material_rows)
-    stock_index = co_stock_index(stock_rows)
+    stock_pool = co_stock_allocation_pool(stock_rows)
     products = []
     for match in invoice_matches:
         product_code = str(match.get("item_code", "")).strip()
@@ -1268,7 +1268,7 @@ def prepare_case_origin_products(
             product_rows,
             form_lane,
             material_index,
-            stock_index,
+            stock_pool,
         ))
     if not products:
         return case
@@ -1354,6 +1354,9 @@ def origin_build_signature(
                     "material_code",
                     "allocation_code",
                     "customs_item_code",
+                    "source_row",
+                    "import_declaration_no",
+                    "line_no",
                     "remaining_qty",
                     "available_qty",
                     "customs_value",
@@ -1467,15 +1470,89 @@ def co_stock_key_candidates(row: dict) -> list[str]:
 
 def co_stock_rank(row: dict) -> tuple[bool, bool, bool]:
     return (
-        row.get("eligibility_status") == "active",
+        co_stock_is_usable(row),
         decimal_value(row.get("remaining_qty") or row.get("available_qty") or "0") > 0,
-        bool(first_non_empty([
-            row.get("unit_value", ""),
-            row.get("unit_price", ""),
-            row.get("taxable_unit_price", ""),
-            row.get("customs_value", ""),
-        ])),
+        co_stock_has_value(row),
     )
+
+
+def co_stock_allocation_pool(stock_rows: list[dict]) -> dict[str, list[dict]]:
+    output: dict[str, list[dict]] = {}
+    for index, row in enumerate(stock_rows):
+        stock = dict(row)
+        stock["_allocation_sequence"] = index
+        stock["_allocation_remaining_qty"] = stock_available_qty(stock)
+        for key in co_stock_key_candidates(stock):
+            output.setdefault(key, []).append(stock)
+    for rows in output.values():
+        rows.sort(key=co_stock_allocation_sort_key)
+    return output
+
+
+def co_stock_allocation_sort_key(row: dict) -> tuple:
+    return (
+        not co_stock_is_usable(row),
+        stock_allocation_remaining_qty(row) <= 0,
+        not co_stock_has_value(row),
+        str(row.get("declaration_date") or row.get("import_declaration_date") or ""),
+        str(row.get("import_declaration_no", "")),
+        numeric_sort_text(row.get("line_no", "")),
+        int(row.get("_allocation_sequence", 0)),
+        str(row.get("source_row", "")),
+    )
+
+
+def numeric_sort_text(value) -> tuple[int, str]:
+    text = str(value or "").strip()
+    try:
+        return int(Decimal(text)), text
+    except (InvalidOperation, ValueError):
+        return 0, text
+
+
+def co_stock_is_usable(row: dict) -> bool:
+    eligibility = str(row.get("eligibility_status") or "").strip()
+    allocation_status = str(row.get("allocation_code_status") or "").strip()
+    if eligibility and eligibility not in {"active", "eligible", "available"}:
+        return False
+    if allocation_status and allocation_status != "resolved":
+        return False
+    return True
+
+
+def co_stock_has_value(row: dict) -> bool:
+    return bool(first_non_empty([
+        row.get("unit_value", ""),
+        row.get("unit_price", ""),
+        row.get("taxable_unit_price", ""),
+        row.get("customs_value", ""),
+    ]))
+
+
+def stock_available_qty(row: dict) -> Decimal:
+    return decimal_value(row.get("remaining_qty") or row.get("available_qty") or "0")
+
+
+def stock_allocation_remaining_qty(row: dict) -> Decimal:
+    if "_allocation_remaining_qty" in row:
+        value = row.get("_allocation_remaining_qty")
+        return value if isinstance(value, Decimal) else decimal_value(value)
+    return stock_available_qty(row)
+
+
+def stock_candidates_for_material(stock_pool: dict, material_code: str) -> list[dict]:
+    candidates = stock_pool.get(material_code, [])
+    if isinstance(candidates, dict):
+        candidates = [candidates]
+    output = []
+    seen = set()
+    for row in candidates or []:
+        marker = id(row)
+        if marker in seen:
+            continue
+        output.append(row)
+        seen.add(marker)
+    return sorted(output, key=co_stock_allocation_sort_key)
 
 
 def origin_product_from_invoice_match(
@@ -1483,7 +1560,7 @@ def origin_product_from_invoice_match(
     bom_rows: list[dict],
     form_lane: dict,
     material_index: dict[str, dict],
-    stock_index: dict[str, dict],
+    stock_pool: dict[str, list[dict]],
 ) -> dict:
     product_code = str(match.get("item_code", "")).strip()
     finished_hs = str(match.get("hs_code", "")).strip()
@@ -1494,14 +1571,17 @@ def origin_product_from_invoice_match(
     product_value = origin_product_value(match)
     fob = product_value["value"]
     materials = [
-        origin_material_from_bom_row(row, quantity, material_index, stock_index)
+        origin_material_from_bom_row(row, quantity, material_index, stock_pool)
         for row in bom_rows
     ]
     vnm = sum(
         decimal_value(material.get("non_origin_cif_value"))
         for material in materials
     )
-    missing_material_values = any(material.get("unit_value_missing") for material in materials)
+    missing_material_values = any(
+        material.get("unit_value_missing") or material.get("allocation_status") == "shortage"
+        for material in materials
+    )
     lvc = calculate_lvc_result(fob, vnm, threshold, missing_material_values, missing_bom_materials=not materials)
     product = {
         "code": product_code,
@@ -1549,40 +1629,85 @@ def origin_material_from_bom_row(
     row: dict,
     export_quantity: Decimal,
     material_index: dict[str, dict],
-    stock_index: dict[str, dict],
+    stock_pool: dict,
 ) -> dict:
     material_code = str(row.get("material_code", "")).strip()
     material = material_index.get(material_code, {})
-    stock = stock_index.get(material_code, {})
     qty_per = decimal_value(row.get("qty_per", "0"))
     consumed_qty = export_quantity * qty_per
+    stock_candidates = stock_candidates_for_material(stock_pool, material_code)
+    stock = stock_candidates[0] if stock_candidates else {}
+    allocation_lines, shortage_qty = allocate_material_stock(
+        material_code,
+        consumed_qty,
+        stock_candidates,
+        row,
+        material,
+    )
     origin_details = origin_status_details_from_material(material)
     origin_status = origin_details["status"]
-    unit_value, unit_value_source = first_decimal_source(
+    fallback_unit_value, fallback_unit_value_source = first_decimal_source(
         ("bom", row.get("unit_value")),
         ("bom", row.get("unit_price")),
-        ("co_stock", stock.get("unit_value")),
-        ("co_stock", stock.get("unit_price")),
-        ("co_stock", stock.get("taxable_unit_price")),
         ("material_catalog", material.get("unit_price")),
         ("material_catalog", material.get("taxable_unit_price")),
     )
-    material_value = consumed_qty * unit_value if unit_value is not None else None
+
+    allocated_values = [
+        decimal_value(line.get("material_value"))
+        for line in allocation_lines
+        if line.get("material_value") not in (None, "")
+    ]
+    mixed_allocation_currency = len(unique_texts(line.get("currency", "") for line in allocation_lines)) > 1
+    if allocated_values and not mixed_allocation_currency:
+        material_value = sum(allocated_values, Decimal("0"))
+    elif not stock_candidates and fallback_unit_value is not None:
+        material_value = consumed_qty * fallback_unit_value
+    else:
+        material_value = None
     vnm_value = material_value if origin_status == "non_origin" and material_value is not None else None
-    valuation_status = "ready" if unit_value is not None else "missing_unit_value"
+    line_unit_missing = any(not line.get("unit_value") for line in allocation_lines)
+    unit_value_missing = material_value is None or line_unit_missing
+    allocation_status = "covered" if shortage_qty <= 0 else "shortage"
+    if mixed_allocation_currency:
+        valuation_status = "partial_valuation"
+        unit_value_missing = True
+    elif unit_value_missing:
+        valuation_status = "missing_unit_value"
+    elif allocation_status == "shortage":
+        valuation_status = "partial_allocation"
+    else:
+        valuation_status = "ready"
     material_warnings = []
     material_description = row.get("material_name") or material.get("name", "") or stock.get("material_description", "")
     hs_code = row.get("hs_code") or material.get("hs_code", "") or stock.get("hs_code", "")
     if valuation_status == "missing_unit_value":
         material_warnings.append(f"{material_code}: thiếu đơn giá để tính trị giá NVL/VNM.")
+    if mixed_allocation_currency:
+        material_warnings.append(f"{material_code}: nhiều tiền tệ trong các dòng tồn, chưa cộng VNM tự động.")
+    if allocation_status == "shortage" and consumed_qty > 0 and allocation_lines:
+        material_warnings.append(
+            f"{material_code}: thiếu tồn CO {decimal_text(shortage_qty)} {row.get('uom', '')} để phủ lượng dùng."
+        )
     if origin_details["source"] == "default_conservative":
         material_warnings.append(f"{material_code}: chưa có phân loại xuất xứ, đang tính bảo thủ là không xuất xứ.")
     if not material_description:
         material_warnings.append(f"{material_code}: thiếu tên NVL từ BOM, danh mục NVL và BCCT nhập.")
+    unit_value_text = allocation_unit_value_summary(allocation_lines)
+    if not unit_value_text and fallback_unit_value is not None:
+        unit_value_text = decimal_text(fallback_unit_value)
+    valuation_source = allocation_valuation_source(allocation_lines) or fallback_unit_value_source
+    allocation_source_rows = unique_texts(line.get("source_row", "") for line in allocation_lines)
+    allocation_import_declarations = unique_texts(line.get("import_declaration_no", "") for line in allocation_lines)
+    allocation_import_lines = unique_texts(line.get("import_line_no", "") for line in allocation_lines)
+    available_qty = allocation_available_qty(allocation_lines, stock_candidates)
+    currency = allocation_currency_summary(allocation_lines)
+    if not currency:
+        currency = stock.get("value_currency") or stock.get("currency") or material.get("value_currency") or material.get("currency", "")
     return {
-        "source_row": stock.get("source_row") or f"BOM:{row.get('source', '')}",
-        "import_declaration_no": stock.get("import_declaration_no", ""),
-        "import_line_no": stock.get("line_no", ""),
+        "source_row": ",".join(allocation_source_rows) or stock.get("source_row") or f"BOM:{row.get('source', '')}",
+        "import_declaration_no": ", ".join(allocation_import_declarations) or stock.get("import_declaration_no", ""),
+        "import_line_no": ", ".join(allocation_import_lines) or stock.get("line_no", ""),
         "material_code": material_code,
         "customs_material_code": material.get("customs_code") or material_code,
         "internal_material_code": material.get("internal_code") or material_code,
@@ -1593,18 +1718,22 @@ def origin_material_from_bom_row(
         "origin_status_label": origin_details["label"],
         "origin_status_source": origin_details["source"],
         "origin_status_note": origin_details["note"],
-        "available_qty": decimal_value(stock.get("remaining_qty") or stock.get("available_qty") or "0"),
+        "available_qty": available_qty,
         "consumed_qty": consumed_qty,
-        "unit_value": decimal_text(unit_value) if unit_value is not None else "",
-        "currency": stock.get("value_currency") or stock.get("currency") or material.get("value_currency") or material.get("currency", ""),
+        "unit_value": unit_value_text,
+        "currency": currency,
         "material_value": decimal_text(material_value) if material_value is not None else "",
         "non_origin_cif_value": decimal_text(vnm_value) if vnm_value is not None else "",
-        "unit_value_missing": unit_value is None,
+        "unit_value_missing": unit_value_missing,
         "valuation_status": valuation_status,
-        "valuation_status_label": "Đủ giá trị" if valuation_status == "ready" else "Thiếu đơn giá NVL",
-        "valuation_source": unit_value_source,
-        "valuation_source_label": valuation_source_label(unit_value_source),
+        "valuation_status_label": valuation_status_label(valuation_status),
+        "valuation_source": valuation_source,
+        "valuation_source_label": valuation_source_label(valuation_source),
         "data_status_label": "Đủ evidence tính VNM" if valuation_status == "ready" else "Cần bổ sung evidence",
+        "allocation_status": allocation_status,
+        "allocation_shortage_qty": decimal_text(shortage_qty) if shortage_qty > 0 else "",
+        "allocation_lines": allocation_lines,
+        "allocation_summary": allocation_summary(allocation_lines, allocation_status),
         "material_warnings": material_warnings,
         "material_warnings_text": " | ".join(material_warnings),
         "bom_qty_per": decimal_text(qty_per),
@@ -1612,8 +1741,145 @@ def origin_material_from_bom_row(
         "bom_source": row.get("source", ""),
         "bom_row_class": row.get("row_class", ""),
         "uom": row.get("uom", ""),
-        "source_document_ref": row.get("source") or row.get("product_version_id", ""),
+        "source_document_ref": allocation_document_ref(allocation_lines) or row.get("source") or row.get("product_version_id", ""),
     }
+
+
+def allocate_material_stock(
+    material_code: str,
+    required_qty: Decimal,
+    stock_candidates: list[dict],
+    bom_row: dict,
+    material: dict,
+) -> tuple[list[dict], Decimal]:
+    remaining_required = required_qty
+    lines = []
+    if remaining_required <= 0:
+        return lines, Decimal("0")
+    for stock in stock_candidates:
+        if not co_stock_is_usable(stock):
+            continue
+        available_qty = stock_allocation_remaining_qty(stock)
+        if available_qty <= 0:
+            continue
+        allocated_qty = min(available_qty, remaining_required)
+        if allocated_qty <= 0:
+            continue
+        lines.append(stock_allocation_line(stock, allocated_qty, available_qty, bom_row, material))
+        if "_allocation_remaining_qty" in stock:
+            stock["_allocation_remaining_qty"] = available_qty - allocated_qty
+        remaining_required -= allocated_qty
+        if remaining_required <= 0:
+            break
+    return lines, max(remaining_required, Decimal("0"))
+
+
+def stock_allocation_line(
+    stock: dict,
+    allocated_qty: Decimal,
+    available_qty: Decimal,
+    bom_row: dict,
+    material: dict,
+) -> dict:
+    unit_value, unit_value_source = first_decimal_source(
+        ("bom", bom_row.get("unit_value")),
+        ("bom", bom_row.get("unit_price")),
+        ("co_stock", stock.get("unit_value")),
+        ("co_stock", stock.get("unit_price")),
+        ("co_stock", stock.get("taxable_unit_price")),
+        ("material_catalog", material.get("unit_price")),
+        ("material_catalog", material.get("taxable_unit_price")),
+    )
+    material_value = allocated_qty * unit_value if unit_value is not None else None
+    source_line_ids = stock.get("source_line_ids", [])
+    if isinstance(source_line_ids, list):
+        source_line_ids_text = ",".join(str(item) for item in source_line_ids if str(item).strip())
+    else:
+        source_line_ids_text = str(source_line_ids or "")
+    return {
+        "source_row": stock.get("source_row", ""),
+        "source_line_ids": source_line_ids_text,
+        "import_declaration_no": stock.get("import_declaration_no", ""),
+        "import_line_no": stock.get("line_no", ""),
+        "customs_material_code": stock.get("customs_item_code", ""),
+        "allocation_code": stock.get("allocation_code", ""),
+        "available_qty": decimal_text(available_qty),
+        "remaining_qty": decimal_text(available_qty - allocated_qty),
+        "allocated_qty": decimal_text(allocated_qty),
+        "unit_value": decimal_text(unit_value) if unit_value is not None else "",
+        "currency": stock.get("value_currency") or stock.get("currency") or material.get("value_currency") or material.get("currency", ""),
+        "material_value": decimal_text(material_value) if material_value is not None else "",
+        "valuation_source": unit_value_source,
+        "valuation_source_label": valuation_source_label(unit_value_source),
+        "material_description": stock.get("material_description", ""),
+        "hs_code": stock.get("hs_code", ""),
+    }
+
+
+def allocation_available_qty(allocation_lines: list[dict], stock_candidates: list[dict]) -> Decimal:
+    if allocation_lines:
+        return sum((decimal_value(line.get("available_qty")) for line in allocation_lines), Decimal("0"))
+    return sum(
+        (stock_allocation_remaining_qty(row) for row in stock_candidates if co_stock_is_usable(row)),
+        Decimal("0"),
+    )
+
+
+def allocation_unit_value_summary(allocation_lines: list[dict]) -> str:
+    unit_values = unique_texts(line.get("unit_value", "") for line in allocation_lines)
+    if len(unit_values) == 1:
+        return unit_values[0]
+    if len(unit_values) > 1:
+        return "Nhiều đơn giá"
+    return ""
+
+
+def allocation_currency_summary(allocation_lines: list[dict]) -> str:
+    currencies = unique_texts(line.get("currency", "") for line in allocation_lines)
+    if len(currencies) == 1:
+        return currencies[0]
+    if len(currencies) > 1:
+        return "Nhiều tiền tệ"
+    return ""
+
+
+def allocation_valuation_source(allocation_lines: list[dict]) -> str:
+    if not allocation_lines:
+        return ""
+    sources = unique_texts(line.get("valuation_source", "") for line in allocation_lines)
+    if len(allocation_lines) > 1 and sources == ["co_stock"]:
+        return "co_stock_allocation"
+    if len(sources) == 1:
+        return sources[0]
+    return "mixed_allocation"
+
+
+def allocation_summary(allocation_lines: list[dict], allocation_status: str) -> str:
+    if not allocation_lines:
+        return "Thiếu tồn CO" if allocation_status == "shortage" else ""
+    suffix = " + thiếu tồn" if allocation_status == "shortage" else ""
+    return f"{len(allocation_lines)} dòng tồn{suffix}"
+
+
+def allocation_document_ref(allocation_lines: list[dict]) -> str:
+    refs = []
+    for line in allocation_lines:
+        declaration = line.get("import_declaration_no", "")
+        line_no = line.get("import_line_no", "")
+        if declaration and line_no:
+            refs.append(f"{declaration}/{line_no}")
+        elif declaration:
+            refs.append(declaration)
+    return "; ".join(unique_texts(refs))
+
+
+def valuation_status_label(status: str) -> str:
+    return {
+        "ready": "Đủ giá trị",
+        "missing_unit_value": "Thiếu đơn giá NVL",
+        "partial_allocation": "Thiếu tồn CO",
+        "partial_valuation": "Tạm tính trị giá",
+    }.get(status, "Cần bổ sung evidence")
 
 
 def origin_status_from_material(material: dict) -> str:
@@ -1685,13 +1951,17 @@ def enrich_origin_product(product: dict) -> dict:
     enriched["materials"] = materials
     criterion = str(enriched.get("documented_result") or enriched.get("rule") or "")
     missing_unit_material_count = sum(1 for material in materials if material.get("valuation_status") == "missing_unit_value")
-    lvc = normalized_lvc_result(enriched, materials, criterion, missing_unit_material_count > 0)
+    shortage_material_count = sum(1 for material in materials if material.get("allocation_status") == "shortage")
+    incomplete_material_count = missing_unit_material_count + shortage_material_count
+    lvc = normalized_lvc_result(enriched, materials, criterion, incomplete_material_count > 0)
     enriched["lvc_percentage"] = lvc["percentage"]
     enriched["lvc_status"] = lvc["status"]
     enriched["lvc_status_label"] = lvc["status_label"]
     enriched["lvc_quality_warning_text"] = (
         f"Thiếu đơn giá {missing_unit_material_count} dòng NVL; LVC đang tạm tính từ các dòng đã có đơn giá."
         if missing_unit_material_count and lvc["percentage"]
+        else f"Thiếu tồn CO {shortage_material_count} dòng NVL; LVC đang tạm tính từ phần đã phân bổ."
+        if shortage_material_count and lvc["percentage"]
         else ""
     )
     ctc_rule = tariff_shift_rule_from_criterion(criterion)
@@ -1722,7 +1992,11 @@ def enrich_origin_product(product: dict) -> dict:
         else:
             tariff_shift_status_label = f"Không đạt {ctc_rule} preview"
         tariff_shift_note = f"{ctc_rule} preview chỉ so HS TP với HS NVL không xuất xứ; chưa thay thế PSR engine/legal review."
-    if lvc_status in {"missing_value", "missing_bom"} or any(material.get("valuation_status") == "missing_unit_value" for material in materials):
+    if lvc_status in {"missing_value", "missing_bom"} or any(
+        material.get("valuation_status") in {"missing_unit_value", "partial_allocation", "partial_valuation"}
+        or material.get("allocation_status") == "shortage"
+        for material in materials
+    ):
         readiness_status = "blocked"
         readiness_label = "Cần bổ sung evidence"
     elif lvc_status == "fail":
@@ -1763,11 +2037,17 @@ def enrich_origin_material(material: dict) -> dict:
     unit_missing = not str(enriched.get("unit_value") or "").strip()
     enriched["valuation_status"] = enriched.get("valuation_status") or ("missing_unit_value" if unit_missing else "ready")
     enriched["valuation_status_label"] = enriched.get("valuation_status_label") or (
-        "Thiếu đơn giá NVL" if unit_missing else "Đủ giá trị"
+        valuation_status_label(enriched["valuation_status"])
     )
     enriched["valuation_source_label"] = enriched.get("valuation_source_label") or valuation_source_label(enriched.get("valuation_source", ""))
     enriched["data_status_label"] = enriched.get("data_status_label") or (
         "Cần bổ sung evidence" if unit_missing else "Đủ evidence tính VNM"
+    )
+    enriched["allocation_lines"] = list(enriched.get("allocation_lines") or [])
+    enriched["allocation_status"] = enriched.get("allocation_status") or ("covered" if enriched["allocation_lines"] else "")
+    enriched["allocation_summary"] = enriched.get("allocation_summary") or allocation_summary(
+        enriched["allocation_lines"],
+        enriched["allocation_status"],
     )
     warnings = text_list(enriched.get("material_warnings") or enriched.get("material_warnings_text"))
     if unit_missing and not warnings:
@@ -1801,6 +2081,14 @@ def origin_warning_summary(product: dict, materials: list[dict], warnings: list[
             "examples": product.get("code", ""),
         })
     summary.extend(material_issue_summary(materials, "missing_unit_value", "valuation_status", "Thiếu đơn giá NVL", "LVC đang tạm tính từ các dòng đã có đơn giá."))
+    shortage_materials = [material for material in materials if material.get("allocation_status") == "shortage"]
+    if shortage_materials:
+        summary.append(material_summary_row(
+            shortage_materials,
+            "allocation_shortage",
+            "Thiếu tồn CO",
+            "LVC đang tạm tính từ phần tồn CO đã phân bổ được.",
+        ))
     summary.extend(material_issue_summary(materials, "default_conservative", "origin_status_source", "Chưa phân loại xuất xứ", "Đang tạm tính bảo thủ là không xuất xứ."))
     missing_name_materials = [material for material in materials if material.get("material_name_missing")]
     if missing_name_materials:
@@ -1858,6 +2146,8 @@ def valuation_source_label(source: str) -> str:
     return {
         "bom": "BOM",
         "co_stock": "BCCT nhập/tồn CO",
+        "co_stock_allocation": "Tồn CO nhiều lô",
+        "mixed_allocation": "Nhiều nguồn giá",
         "material_catalog": "Danh mục NVL",
     }.get(str(source or ""), "Chưa có")
 

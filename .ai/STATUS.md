@@ -1,72 +1,58 @@
 # Project Status
 
 ## Current State
-- Active branch: `main`; current session work is ready to continue from a local commit after handoff. Do not push unless the user asks.
-- Local CO dev server is running at `http://127.0.0.1:8001`; `/healthz` returned `{"status":"ok"}` during this session. With auth enabled, unauthenticated app pages redirect to `/auth/login`.
+- Active branch: `main`; latest session work is captured in handoff artifacts and intended for a local commit. Do not push unless the user asks.
+- Local CO dev server is running at `http://127.0.0.1:8001`; `/healthz` returned `{"status":"ok"}` on 2026-05-05. With auth enabled, unauthenticated app pages redirect to `/auth/login`.
 - CO remains a Data Hub consumer. Keep raw `/v1/hub/*` endpoint strings inside `app/data_hub_client.py`; `tests/test_data_hub_policy.py` enforces this.
-- The C/O origin page now treats the web `Xuất xứ` workbook view as the source snapshot for review/export work:
-  - C/O dossier list moved out of the sidebar into the main page with search/filter controls.
-  - Origin BOM controls moved into a compact workbar.
-  - Each finished product is displayed as an Excel-like sheet tab.
-  - The material table scrolls inside the sheet with sticky opaque headers.
-- LVC now still shows a temporary percentage when NVL unit prices are missing, with warning styling and tooltip. Missing BOM/NVL still blocks calculation.
-- Data Hub BOM consumption now avoids latest `non_flattened` product versions and falls back to the latest usable row-bearing version.
-- Origin material names and HS codes now fall back to BCCT import/stock data when BOM/catalog data is missing.
-- A discovery brief exists for multi-lot C/O stock allocation: `.ai/features/2026-05-05-co-stock-multi-lot-allocation.md`.
+- The C/O origin page now supports snapshot-only multi-line stock allocation:
+  - one material can consume multiple CO stock source lines in deterministic order
+  - allocation lines round-trip through hidden form fields
+  - XLSX export includes allocation detail in `Origin Snapshot` and `LVC Statement`
+  - shortage and mixed-currency cases stay review-only instead of silently summing invalid values
+- The origin material table is now compact:
+  - parent rows show a concise data-status badge plus source/allocation chip
+  - stock source lines render as child rows and are collapsed by default unless the row has an issue
+  - `Tên NVL` is line-clamped and the table uses horizontal scrolling on narrow viewports
+- Demo Precision Manufacturing VN has a demo C/O case for reviewing multiple stock source lines:
+  - `http://127.0.0.1:8001/clients/demo-precision-manufactu-480e/co-case/co-case-b38e3da478f0/origin`
+  - case code: `CO-DEMO-DONG-TON`
+- A library spike for future editable workbook-like tables exists at `.ai/features/2026-05-05-origin-table-grid-library-spike.md`; current recommendation is to keep native HTML for this sprint and evaluate Tabulator first for a future editable-grid POC.
 - Pre-existing unrelated worktree artifacts remain separate and should not be committed unless explicitly requested:
   - `docs/co-form-index-confirmation.md`
   - `docs/co-form-index-confirmation.xlsx`
-- Untracked browser smoke screenshots may remain under `.ai/screenshots/co-case-origin-ux/`; they were not committed.
+- Local screenshot artifacts remain under `.ai/screenshots/co-case-origin-ux/`; they were used for visual verification and are not required for the commit.
 
 ## Recent Changes
-- Reworked `/clients/growatt-vn/co-case`:
-  - moved dossier list into the main content
-  - added search/filter controls for dossier, status, market, and C/O form
-  - expanded dossier metadata shown in the list
-- Reworked `/clients/growatt-vn/co-case/<case_id>/origin`:
-  - compacted BOM snapshot/actions into a workbar
-  - removed the large sidebar from the origin workspace
-  - added workbook-style product sheet tabs
-  - reduced table width pressure by combining related columns
-  - replaced repetitive origin warnings with summarized warning chips and per-cell/tooltips
-- Fixed origin data quality behavior:
-  - LVC returns `partial_pass`, `partial_fail`, or `partial_review` when unit prices are missing but a temporary percentage can be calculated
-  - stale hidden-form LVC values are normalized during enrichment
-  - missing BOM/NVL stays `missing_bom` and does not show a fake `100%`
-  - repeated warning text is deduplicated
-- Fixed Data Hub BOM version selection:
-  - CO prefers the latest usable flattened/row-bearing product BOM version over a newer `non_flattened` version
-  - selected product BOM versions fall back to usable versions when the selected one has no rows
-- Improved material source enrichment:
-  - BCCT import/stock descriptions and HS codes are preserved into stock rows
-  - origin materials fall back through BOM, catalog, then stock data for names and HS codes
-  - rows missing material names are highlighted and summarized
-- Fixed dark-theme sticky header readability:
-  - top navigation and sticky table headers now use opaque surfaces
-  - origin material tables use separate border collapse for sticky header coverage
-- Added multi-lot allocation discovery:
-  - documented the current one-stock-row behavior
-  - proposed a phase-one snapshot-only allocation design
-  - deferred global reservation/trừ tồn until a ledger/Data Hub contract is approved
+- Implemented CO stock allocation across multiple source lines:
+  - added an allocation pool and deterministic source-line consumption helpers
+  - enriched origin material snapshots with `allocation_lines`, status, shortage quantity, source refs, allocation summaries, and line-level material values
+  - preserved BCCT source line IDs, declaration/line numbers, remaining quantities, unit values, currencies, descriptions, and HS codes
+- Updated origin snapshot persistence/export:
+  - hidden form data now carries allocation lines through POST/export
+  - `Origin Snapshot` records allocation rows
+  - `LVC Statement` expands allocation detail columns and outputs one row per material allocation line
+- Reworked origin UI language and density:
+  - replaced visible “lot” wording with “dòng tồn”
+  - added expandable child rows for stock source lines
+  - collapsed clean allocation rows by default, while warning/shortage rows stay expanded
+  - compacted the source/status cell and added horizontal scroll for wide tables
+- Added Demo Precision Manufacturing VN data covering multiple stock source-line scenarios, including mixed-currency and shortage review cases.
+- Added focused regression tests for multi-line allocation, mixed currency handling, hidden form round-trip, workbook export, demo case availability, and the compact/collapsed UI markers.
 - Verification completed:
-  - `uv run pytest` passed: `166 passed in 31.31s`
-  - HTML smoke on an auth-disabled temporary server confirmed LVC warning cells render `46.98%` and `58.16%` for `co-case-af2895ba8cc6`
-  - temporary auth-disabled server on port `8002` was stopped
+  - `uv run pytest tests/test_co_demo.py::test_co_case_origin_round_trips_multi_lot_allocation_to_export_workbook` passed
+  - `uv run pytest` passed: `169 passed in 29.74s`
+  - Puppeteer screenshots confirmed compact chips and horizontal scroll behavior on desktop/narrow viewports
 
 ## Next Steps
-1. Implement multi-lot C/O stock allocation using TDD:
-   - add a pure allocation helper
-   - pass a case-level mutable allocation pool into origin product building
-   - add `allocation_lines` to material snapshots and hidden form round-trips
-   - update web/XLSX output to show source-line allocation detail
-2. Decide whether global stock reservation across dossiers is required. If yes, create/approve a ledger design before implementation, likely Data Hub-owned.
-3. Continue exact legacy-style Excel `bảng kê` export from the accepted web `Xuất xứ` snapshot.
-4. Revisit mixed-currency handling for VNM before summing multi-lot values across currencies.
+1. Have the user manually review the Demo Precision origin page and decide whether collapsed child rows are acceptable for daily review.
+2. If staff editing becomes a near-term requirement, run a small Tabulator POC against the origin table with validation, keyboard navigation, copy/paste, frozen columns, and expandable allocation detail.
+3. Decide whether global stock reservation across dossiers is required. If yes, design/approve a ledger, likely Data Hub-owned, before decrementing shared stock globally.
+4. Revisit mixed-currency allocation rules before automatically summing VNM across currencies.
 
 ## Notes for Next AI Session
 - User writes Vietnamese casually; respond in fully accented Vietnamese.
 - User wants concise but non-black-box explanations: briefly say what was inspected, what failed, and how it was resolved.
-- The user accepted deferring multi-lot allocation to the next session because it touches core calculation, snapshot persistence, UI, and XLSX export.
-- For multi-lot allocation, phase one should be snapshot-only in CO; do not decrement shared stock globally without an explicit ledger decision.
-- Existing source stock rows have `source_row`, `source_line_ids`, `import_declaration_no`, `line_no`, `allocation_code`, `remaining_qty`, `unit_value`, `currency/value_currency`, `hs_code`, and `material_description`.
-- Current origin code still assumes one material row maps to one selected source row; this is the main design surface for the next change.
+- Current allocation behavior is snapshot-only inside CO. It consumes a mutable in-memory pool while building a case snapshot, but it does not reserve or decrement shared stock across dossiers.
+- The term to use in Vietnamese UI is “dòng tồn”, not “lot”.
+- Puppeteer visual checks used a temporary `CO_AUTH_REQUIRED=0` server on port `8002`; that temporary server was stopped. The regular dev server remains on port `8001`.
+- Do not commit the unrelated `docs/co-form-index-confirmation.*` changes unless the user explicitly asks.

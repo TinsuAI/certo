@@ -38,7 +38,7 @@
         <p class="meta">Default giữ từng dòng BCCT riêng để audit rõ.</p>
       </div>
       <div class="stack-form">
-        <label>Policy tạo lot
+        <label>Policy tạo dòng tồn
           <select name="co_stock_lot_policy">
             <option value="line_level" {% if client_config.co_stock.lot_policy == 'line_level' %}selected{% endif %}>line_level</option>
             <option value="aggregate_by_declaration_and_allocation_code" {% if client_config.co_stock.lot_policy == 'aggregate_by_declaration_and_allocation_code' %}selected{% endif %}>aggregate_by_declaration_and_allocation_code</option>
