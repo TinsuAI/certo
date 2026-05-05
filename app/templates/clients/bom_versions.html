@@ -15,8 +15,11 @@
   <table class="dh-table">
     <thead><tr>
       <th>v#</th>
+      <th>variant</th>
+      <th>shape</th>
       <th>{{ t('bom.col.actor') }}</th>
       <th>{{ t('bom.col.intent') }}</th>
+      <th>source</th>
       <th>{{ t('bom.col.parent') }}</th>
       <th>{{ t('bom.col.rows') }}</th>
       <th>{{ t('bom.col.hash') }}</th>
@@ -28,8 +31,21 @@
       {% for v in versions %}
       <tr {% if v.tombstoned_at %}style="opacity: .55;"{% endif %}>
         <td><span class="badge badge-info">v{{ v.version_no }}</span></td>
+        <td class="mono">{{ v.bom_variant_id or 'default' }}</td>
+        <td>
+          {% if v.bom_shape == 'raw_graph' %}<span class="badge" style="background:#e3f2fd;color:#0d47a1">raw_graph</span>
+          {% elif v.bom_shape == 'shallow' %}<span class="badge" style="background:#e8f5e9;color:#1b5e20">shallow</span>
+          {% elif v.bom_shape == 'full_flat' %}<span class="badge" style="background:#fff3e0;color:#e65100">full_flat</span>
+          {% else %}<span class="badge">{{ v.bom_shape }}</span>{% endif %}
+        </td>
         <td class="mono">{{ v.actor }}</td>
         <td><span class="badge badge-info">{{ v.intent }}</span></td>
+        <td class="mono" style="font-size: .85em;">
+          {% set ctx = v.context or {} %}
+          {% if ctx.get('source_filename') %}{{ ctx.source_filename }}{% endif %}
+          {% if ctx.get('source_batch') %}<br/><span style="color:#666">{{ ctx.source_batch }}</span>{% endif %}
+          {% if not ctx.get('source_filename') and not ctx.get('source_batch') %}{{ v.source_channel or '—' }}{% endif %}
+        </td>
         <td class="mono">{{ v.parent_version_id[:12] + '…' if v.parent_version_id else '—' }}</td>
         <td>{{ v.row_count }}</td>
         <td class="mono">{{ v.normalized_hash[:8] }}</td>

@@ -5,7 +5,7 @@ import hashlib
 import json
 import secrets
 from decimal import Decimal
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 
 from app.database import connect
 from app.flatten import (
@@ -14,6 +14,31 @@ from app.flatten import (
 )
 from app.flatten.types import CatalogEntry, ParsedBom, ParsedRow
 from app.stores import flatten_decisions as decisions_store
+
+
+BomShape = Literal["raw_graph", "shallow", "full_flat"]
+
+
+def bom_shape(flatten_status: str, flatten_strategy: str) -> BomShape:
+    """Derive the v3 3-shape concept from existing flatten_status + flatten_strategy.
+
+    - raw_graph: edges-only graph stored in hub.bom_edges (non_flattened).
+    - shallow: flat rows where leaves may be NVL or BTP (BTP-boundary).
+    - full_flat: flat rows where every leaf is NVL (BTPs fully exploded).
+
+    Lives as a derivation, not a stored column, to avoid schema redundancy
+    with flatten_status + flatten_strategy. Use this helper anywhere the
+    semantic 3-shape framing is clearer than the underlying columns.
+    """
+    if flatten_status == "non_flattened":
+        return "raw_graph"
+    if flatten_strategy in ("manual_flat_as_provided", "purchased_btp_as_leaf"):
+        return "shallow"
+    if flatten_strategy in ("technical_exploded", "self_produced_btp_exploded"):
+        return "full_flat"
+    # mixed_confirmed and no_strategy with status=flattened: treat as shallow
+    # (conservative — leaves may still include BTPs).
+    return "shallow"
 
 
 def normalized_hash(rows: list[dict]) -> str:
@@ -505,15 +530,25 @@ def list_versions_for_product(*, client_id: str, product_code: str) -> list[dict
                 """
                 select version_id, version_no, actor, intent, parent_version_id,
                        row_count, normalized_hash, status, tombstoned_at,
-                       created_at, published_at, context
+                       created_at, published_at, context,
+                       bom_variant_id, source_bom_kind, source_channel,
+                       flatten_status, flatten_strategy
                 from hub.bom_versions
                 where client_id = %s and product_code = %s
-                order by version_no desc
+                order by created_at desc, version_no desc
                 """,
                 (client_id, product_code),
             )
             cols = [d[0] for d in cur.description]
-            return [dict(zip(cols, r)) for r in cur.fetchall()]
+            out = []
+            for r in cur.fetchall():
+                row = dict(zip(cols, r))
+                row["bom_shape"] = bom_shape(
+                    row.get("flatten_status") or "",
+                    row.get("flatten_strategy") or "",
+                )
+                out.append(row)
+            return out
 
 
 def get_version_with_rows(version_id: str) -> dict | None:
@@ -523,7 +558,7 @@ def get_version_with_rows(version_id: str) -> dict | None:
                 """
                 select version_id, client_id, product_code, version_no, actor, intent,
                        parent_version_id, context, normalized_hash, row_count,
-                       status, tombstoned_at, created_at, published_at,
+                       status, tombstoned_at, tombstone_reason, created_at, published_at,
                        source_bom_kind, flatten_status, flatten_strategy,
                        source_channel, bom_code, bom_variant_id, lineage,
                        display_label, flatten_method, flatten_method_version

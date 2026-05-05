@@ -98,6 +98,7 @@ TABLES: tuple[TableSpec, ...] = (
         order=75,
     ),
     TableSpec("bom_flatten_decisions", sql.SQL("client_id = %s"),                                              order=78, null_columns=("confirmed_by",)),
+    TableSpec("bom_resolution_profiles", sql.SQL("client_id = %s"),                                            order=80, null_columns=("created_by",)),
     TableSpec("bom_change_requests",   sql.SQL("client_id = %s"),                                              order=85),
 )
 

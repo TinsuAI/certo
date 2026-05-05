@@ -8,6 +8,73 @@ For past architectural decisions, see `DECISIONS.md`.
 
 ---
 
+## Aggregate-data git-history
+
+**Captured 2026-05-05** as a hard product principle from user.
+
+**Principle (already enforced for BOMs, generalize to other aggregates):**
+
+- Never physically `DELETE` rows from any aggregate-data table (BOMs,
+  materials, code_mappings, client_config, parser_mappings, etc.).
+- Edits = INSERT a new version with lineage back to the previous one.
+- "Removal" is via tombstone / deactivation flag on the row, not row
+  deletion.
+- All aggregate data must support **git-like history**: who added what,
+  who removed what, when, with revert / undo capability.
+
+**Current state (HEAD as of 2026-05-05):**
+
+| Table | History tracking | Gap |
+|---|---|---|
+| `bom_versions` + children | ✅ tombstone + parent_version_id lineage (mig 006/029) | Uses migration 027 cleanup pattern. Already conformant. |
+| `bcct_rows` | ✅ `bcct_row_history` audit table + AFTER UPDATE/DELETE trigger (mig 013) | OK, but no UI for revert. |
+| `materials` | ⚠️ `provenance` jsonb merge-on-conflict only | No history table. UPDATE overwrites name/category/unit/etc. |
+| `code_mappings` | ❌ Plain table, UPDATE in place. | No history. |
+| `client_config`, `parser_mappings`, `bom_flatten_decisions`, `client_uom_overrides`, `client_type_presets` | ❌ Plain tables. | No history. |
+| `clients`, `users` | ❌ Plain tables. | No history (probably OK for users, debatable for clients). |
+
+**Work units (each its own PR):**
+
+1. **`materials_history` audit table + trigger** mirroring the
+   `bcct_row_history` pattern. Capture full row before any UPDATE
+   or DELETE, with `changed_at`, `changed_by` (read from
+   `app.user_id` GUC), `change_kind ∈ {insert, update, delete}`.
+2. **`code_mappings_history`** same pattern.
+3. **`client_config_history`** + **`parser_mappings_history`** same.
+4. **`/v1/hub/{table}/{key}/history` endpoints** — paginated audit
+   timeline per entity.
+5. **`/v1/hub/{table}/{key}/revert?to=<changed_at>`** — revert one
+   row to a prior state. Implemented as INSERT-from-history (still
+   append-only); audit captures it as a new change with
+   `change_kind='revert'`.
+6. **UI: history page per entity.** Reuse `bcct_row_history` page
+   pattern. Diff view showing what changed.
+7. **Document the "no DELETE" rule in `AGENTS.md` + standards repo.**
+   Add a CI lint that scans for `DELETE FROM hub.<aggregate-table>`
+   and fails on match unless explicitly tagged
+   `-- ALLOW-DELETE: <reason>`.
+
+**Why this matters:**
+
+- Customs audit (TT 39/2018) requires 5-10 year retention of source
+  data underlying settlement / origin certificates.
+- Disputes between agency and customs auditor often hinge on "which
+  version of the catalog/BOM/mapping was active when this transaction
+  was filed?" — without history, the answer is "current state"
+  which may not be the truth-of-record.
+- Staff confidence: undo / revert lowers the cost of accidental
+  destructive edits, which lowers the activation energy for staff
+  to actually fix bad data.
+
+**Out of scope for this backlog item:**
+
+- BOM versioning is already done — don't redo it. The new history
+  tables are for non-BOM aggregates.
+- Operational tables (sessions, llm_usage, notifications,
+  upload_pending) don't need this — they're transient.
+
+---
+
 ## Sprint D — parser/data architectural follow-ups (post-Sprints A/B/C)
 
 **Captured 2026-05-03 PM** after Sprints A/B/C closed the immediate

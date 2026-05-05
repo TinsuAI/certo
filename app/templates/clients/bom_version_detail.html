@@ -10,6 +10,12 @@
       <p class="meta">
         <span class="badge">{{ version.actor }}</span>
         <span class="badge">{{ version.intent }}</span>
+        {% set ctx = version.context or {} %}
+        {% set shape = 'raw_graph' if version.flatten_status == 'non_flattened' else ('shallow' if version.flatten_strategy in ('manual_flat_as_provided','purchased_btp_as_leaf') else ('full_flat' if version.flatten_strategy in ('technical_exploded','self_produced_btp_exploded') else 'shallow')) %}
+        {% if shape == 'raw_graph' %}<span class="badge" style="background:#e3f2fd;color:#0d47a1">raw_graph</span>
+        {% elif shape == 'shallow' %}<span class="badge" style="background:#e8f5e9;color:#1b5e20">shallow</span>
+        {% elif shape == 'full_flat' %}<span class="badge" style="background:#fff3e0;color:#e65100">full_flat</span>
+        {% endif %}
         · hash <span class="mono">{{ version.normalized_hash[:16] }}</span>
         {% if version.parent_version_id %}
         · forked from <a href="/clients/{{ client.client_id }}/bom/version/{{ version.parent_version_id }}" class="mono">{{ version.parent_version_id[:12] }}</a>
@@ -19,9 +25,49 @@
     <div><a class="btn-secondary" href="/clients/{{ client.client_id }}/bom/{{ version.product_code }}/versions">← versions</a></div>
   </div>
 
+  <div style="background: var(--surface-alt, #f7f8fc); padding: 1rem; border-radius: 8px; margin: 1rem 0;">
+    <h3 style="margin-top: 0;">Provenance</h3>
+    <table style="border: none;">
+      <tbody>
+        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Variant</td>
+            <td class="mono">{{ version.bom_variant_id or 'default' }}</td></tr>
+        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Shape</td>
+            <td><span class="mono">{{ shape }}</span> <span style="color:#666;font-size:.85em">(flatten_status={{ version.flatten_status }} / flatten_strategy={{ version.flatten_strategy }})</span></td></tr>
+        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Source kind</td>
+            <td class="mono">{{ version.source_bom_kind }}</td></tr>
+        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Source channel</td>
+            <td class="mono">{{ version.source_channel }}</td></tr>
+        {% if ctx.get('source_filename') %}
+        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Source file</td>
+            <td class="mono">{{ ctx.source_filename }}</td></tr>
+        {% endif %}
+        {% if ctx.get('source_batch') %}
+        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Source batch</td>
+            <td class="mono">{{ ctx.source_batch }}</td></tr>
+        {% endif %}
+        {% if ctx.get('parser_adapter') %}
+        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Parser adapter</td>
+            <td class="mono">{{ ctx.parser_adapter }}</td></tr>
+        {% endif %}
+        {% if ctx.get('ingest_script') %}
+        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Ingest script</td>
+            <td class="mono">{{ ctx.ingest_script }}</td></tr>
+        {% endif %}
+        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Created at</td>
+            <td class="mono">{{ version.created_at.strftime('%Y-%m-%d %H:%M:%S %Z') if version.created_at else '—' }}</td></tr>
+        {% if version.tombstoned_at %}
+        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Tombstoned at</td>
+            <td class="mono" style="color:#c00">{{ version.tombstoned_at.strftime('%Y-%m-%d %H:%M:%S %Z') }}</td></tr>
+        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Tombstone reason</td>
+            <td>{{ version.tombstone_reason or '—' }}</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
   {% if version.context %}
   <details>
-    <summary class="subsection-head" style="cursor: pointer;"><h3 style="display: inline; margin: 0;">{{ t('bom.context') }}</h3></summary>
+    <summary class="subsection-head" style="cursor: pointer;"><h3 style="display: inline; margin: 0;">{{ t('bom.context') }} (raw)</h3></summary>
     <pre class="mono" style="background: var(--surface-alt, #f7f8fc); padding: .8rem; border-radius: 8px; overflow: auto; margin-top: .5rem;">{{ version.context | tojson(indent=2) }}</pre>
   </details>
   {% endif %}
