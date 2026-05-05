@@ -34,31 +34,61 @@ from app.database import connect
 
 
 DETECT_BTPS_SQL = """
+-- A BTP is any code that participates as a parent in a BOM (so it has
+-- a structure beneath it) but is NOT a TP root. This handles two shapes:
+--
+-- (A) Growatt-shape: BTP has its own bom_versions row AND appears as
+--     child_code in some BOM. Example: B700.0192500 has its own factory
+--     XLSX file producing a bom_versions row, and is consumed by SD/PV TPs.
+--
+-- (B) Johnson-shape: each TP's full multi-level tree is in ONE supplier
+--     file. Intermediate sub-assembly codes (level 2+) appear as
+--     parent_code inside the TP's bom_edges but DON'T have their own
+--     bom_versions row. They're still BTPs by domain meaning.
+--
+-- The union below catches both: any code that appears as parent_code
+-- in bom_edges (including intermediate parents at level 2+) MINUS the
+-- TP roots (codes that have a bom_versions row representing a top-level
+-- product).
 with
-  has_bom as (
-    select distinct product_code
+  tp_roots as (
+    select distinct product_code as code
     from hub.bom_versions
     where client_id = %(client_id)s and tombstoned_at is null
+      -- Only roots: a code is a TP root if its bom_versions records it
+      -- as the product. We exclude rows that are derived (auto_derived
+      -- shallow / full_flat) so we treat raw_graph + manual-flat origins
+      -- as canonical for TP-root detection.
   ),
-  consumed_uoms as (
-    select e.child_code as code, e.uom
+  parents as (
+    select distinct e.parent_code as code, max(e.uom) as uom
     from hub.bom_edges e
     join hub.bom_versions bv using (version_id)
     where bv.client_id = %(client_id)s and bv.tombstoned_at is null
-    union all
-    select r.material_code as code, r.uom
-    from hub.bom_version_rows r
-    join hub.bom_versions bv using (version_id)
-    where bv.client_id = %(client_id)s and bv.tombstoned_at is null
+    group by e.parent_code
   ),
-  consumed as (
-    select code, max(uom) as uom
-    from consumed_uoms where uom is not null group by code
+  -- Plus codes that are explicitly consumed as child somewhere AND have
+  -- their own bom_versions (Growatt-shape sanity check; doesn't add new
+  -- BTPs in Johnson-shape but harmless).
+  has_bom_and_consumed as (
+    select bv.product_code as code, max(coalesce(e.uom, r.uom)) as uom
+    from hub.bom_versions bv
+    left join hub.bom_edges e on e.child_code = bv.product_code
+    left join hub.bom_version_rows r on r.material_code = bv.product_code
+    where bv.client_id = %(client_id)s and bv.tombstoned_at is null
+      and (e.version_id is not null or r.version_id is not null)
+    group by bv.product_code
+  ),
+  candidates as (
+    select code, uom from parents
+    union
+    select code, uom from has_bom_and_consumed
   )
-select hb.product_code, c.uom
-from has_bom hb
-join consumed c on c.code = hb.product_code
-order by hb.product_code
+select c.code as product_code, max(c.uom) as uom
+from candidates c
+where c.code not in (select code from tp_roots)
+group by c.code
+order by c.code
 """
 
 
