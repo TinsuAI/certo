@@ -824,15 +824,17 @@
           </div>
 
           {% if product.origin_warning_summary %}
-          <div class="origin-warning-summary">
+          <div class="origin-warning-summary" data-origin-warning-summary>
             {% for warning in product.origin_warning_summary %}
-            <div class="origin-warning-item origin-warning-{{ warning.kind }}" title="{{ warning.detail }}{% if warning.examples %} Ví dụ: {{ warning.examples }}{% endif %}">
+            <button type="button" class="origin-warning-item origin-warning-{{ warning.kind }}" data-origin-warning-filter="{{ warning.kind }}" aria-pressed="false" title="{{ warning.detail }}{% if warning.examples %} Ví dụ: {{ warning.examples }}{% endif %}">
               <strong>{{ warning.label }}</strong>
               {% if warning.count %}<span>{{ warning.count }} dòng</span>{% endif %}
               <small>{{ warning.detail }}</small>
-            </div>
+            </button>
             {% endfor %}
+            <button type="button" class="origin-warning-clear" data-origin-warning-clear hidden>Tất cả dòng</button>
           </div>
+          <div class="origin-warning-filter-empty" data-origin-warning-empty hidden>Không có dòng NVL khớp cảnh báo đang chọn.</div>
           {% endif %}
 
           <div class="origin-column-controls" data-origin-column-controls aria-label="Ẩn hiện cột bảng NVL">
@@ -873,7 +875,7 @@
                 {% set render_allocation_details = allocation_count > 0 %}
                 {% set allocation_default_expanded = allocation_has_issue %}
                 {% set allocation_group = 'allocation-' ~ product_index ~ '-' ~ material_index %}
-                <tr class="{{ 'origin-row-warning' if material.material_warnings else '' }}">
+                <tr class="{{ 'origin-row-warning' if material.material_warnings else '' }}" data-origin-material-row data-allocation-group="{{ allocation_group }}" data-origin-warning-kinds="{% if material.valuation_status == 'missing_unit_value' %} missing_unit_value{% endif %}{% if material.allocation_status == 'shortage' %} allocation_shortage{% endif %}{% if material.origin_status_source == 'default_conservative' %} default_conservative{% endif %}{% if material.material_name_missing %} missing_material_name{% endif %}">
                   <td data-origin-column="row">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_source_row" value="{{ material.source_row }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_import_declaration_no" value="{{ material.import_declaration_no }}">
@@ -979,7 +981,7 @@
                 </tr>
                 {% if render_allocation_details %}
                 {% for allocation in material.allocation_lines %}
-                <tr class="origin-allocation-row" data-allocation-detail data-allocation-group="{{ allocation_group }}" {% if not allocation_default_expanded %}hidden{% endif %}>
+                <tr class="origin-allocation-row" data-origin-allocation-row data-allocation-detail data-allocation-group="{{ allocation_group }}" {% if not allocation_default_expanded %}hidden{% endif %}>
                   <td data-origin-column="row"></td>
                   <td data-origin-column="code"><span class="allocation-indent">Dòng tồn {{ loop.index }}</span></td>
                   <td data-origin-column="name">{{ allocation.material_description or material.material_description }}</td>
@@ -1380,6 +1382,49 @@
         tabs[nextIndex] && activate(tabs[nextIndex]);
       });
     });
+  });
+
+  document.querySelectorAll("[data-origin-warning-summary]").forEach((summary) => {
+    const panel = summary.closest("[data-origin-sheet-panel]");
+    if (!panel) return;
+    const buttons = Array.from(summary.querySelectorAll("[data-origin-warning-filter]"));
+    const clear = summary.querySelector("[data-origin-warning-clear]");
+    const empty = panel.querySelector("[data-origin-warning-empty]");
+    const materialRows = Array.from(panel.querySelectorAll("[data-origin-material-row]"));
+    const allocationRows = Array.from(panel.querySelectorAll("[data-origin-allocation-row]"));
+    let activeKind = "";
+    const applyWarningFilter = () => {
+      let visibleMaterials = 0;
+      materialRows.forEach((row) => {
+        const kinds = new Set((row.dataset.originWarningKinds || "").trim().split(/\s+/).filter(Boolean));
+        const visible = !activeKind || kinds.has(activeKind);
+        row.classList.toggle("origin-row-filtered", !visible);
+        if (visible) visibleMaterials += 1;
+        const group = row.dataset.allocationGroup || "";
+        allocationRows
+          .filter((allocationRow) => allocationRow.dataset.allocationGroup === group)
+          .forEach((allocationRow) => {
+            allocationRow.classList.toggle("origin-row-filtered", !visible);
+          });
+      });
+      buttons.forEach((button) => {
+        button.setAttribute("aria-pressed", button.dataset.originWarningFilter === activeKind ? "true" : "false");
+      });
+      if (clear) clear.hidden = !activeKind;
+      if (empty) empty.hidden = !activeKind || visibleMaterials > 0;
+    };
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const nextKind = button.dataset.originWarningFilter || "";
+        activeKind = activeKind === nextKind ? "" : nextKind;
+        applyWarningFilter();
+      });
+    });
+    clear?.addEventListener("click", () => {
+      activeKind = "";
+      applyWarningFilter();
+    });
+    applyWarningFilter();
   });
 
   const columnControls = document.querySelectorAll("[data-origin-column-controls]");
