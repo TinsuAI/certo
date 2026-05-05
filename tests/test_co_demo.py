@@ -2039,11 +2039,11 @@ def test_co_case_origin_builds_and_persists_invoice_bom_snapshot():
     assert "<th>Tờ khai nhập</th>" not in origin.text
     assert "<th>Tồn CO</th>" not in origin.text
     assert "<th>Còn lại</th>" not in origin.text
-    assert "<th>Định mức</th>" in origin.text
-    assert "<th>Lượng dùng</th>" in origin.text
-    assert "<th>Đơn giá</th>" in origin.text
-    assert "<th>Trị giá NVL</th>" in origin.text
-    assert "<th>Trị giá KXX/VNM</th>" in origin.text
+    assert '<th data-origin-column="bom">Định mức</th>' in origin.text
+    assert '<th data-origin-column="consumed">Lượng dùng</th>' in origin.text
+    assert '<th data-origin-column="unit-value">Đơn giá</th>' in origin.text
+    assert '<th data-origin-column="material-value">Trị giá NVL</th>' in origin.text
+    assert '<th data-origin-column="non-origin">Trị giá KXX/VNM</th>' in origin.text
 
     recalculated = client.post("/clients/growatt/evaluate", data=form_data)
     persisted = client.get(f"{location}/origin")
@@ -2565,6 +2565,10 @@ def test_co_case_origin_round_trips_multi_lot_allocation_to_export_workbook():
     assert "origin-material-name" in origin.text
     assert "origin-source-cell" in origin.text
     assert "source-chip" in origin.text
+    assert 'data-origin-column-controls' in origin.text
+    assert 'data-origin-column-toggle="hs"' in origin.text
+    assert 'data-origin-column-toggle="source"' in origin.text
+    assert 'data-origin-column="source"' in origin.text
     assert "NK-ALLOC-1 / line 1" in origin.text
     assert "NK-ALLOC-2 / line 2" in origin.text
     assert "NK-ALLOC-3 / line 3" in origin.text

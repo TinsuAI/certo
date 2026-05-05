@@ -2770,6 +2770,56 @@ small,
   background: var(--surface-subtle);
 }
 
+.origin-column-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.32rem;
+  min-width: 0;
+  margin: 0.75rem 0 0.45rem;
+  overflow-x: auto;
+  padding-bottom: 0.15rem;
+}
+
+.origin-column-controls span {
+  flex: 0 0 auto;
+  color: var(--foreground-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.origin-column-controls button {
+  flex: 0 0 auto;
+  min-height: 1.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 0.18rem 0.5rem;
+  color: var(--foreground-muted);
+  background: var(--surface-subtle);
+  font-size: 0.74rem;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.origin-column-controls button[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, var(--card));
+}
+
+.origin-column-controls button[aria-pressed="false"] {
+  color: var(--foreground-muted);
+  background: var(--card);
+  opacity: 0.7;
+}
+
+.origin-column-controls .origin-column-reset {
+  margin-left: 0.15rem;
+  color: var(--foreground-soft);
+  background: var(--menu-surface);
+}
+
 .origin-table-scroll {
   max-height: min(68vh, 46rem);
   overflow-x: auto;
@@ -2779,10 +2829,21 @@ small,
 
 .origin-table-scroll .origin-material-table {
   width: 100%;
-  min-width: 94rem;
+  min-width: max(100%, var(--origin-table-min-width, 94rem));
   border-collapse: separate;
   border-spacing: 0;
   table-layout: fixed;
+}
+
+.origin-hide-col-hs [data-origin-column="hs"],
+.origin-hide-col-bom [data-origin-column="bom"],
+.origin-hide-col-consumed [data-origin-column="consumed"],
+.origin-hide-col-unit-value [data-origin-column="unit-value"],
+.origin-hide-col-material-value [data-origin-column="material-value"],
+.origin-hide-col-origin [data-origin-column="origin"],
+.origin-hide-col-non-origin [data-origin-column="non-origin"],
+.origin-hide-col-source [data-origin-column="source"] {
+  display: none;
 }
 
 .origin-material-table thead th {

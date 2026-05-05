@@ -835,21 +835,34 @@
           </div>
           {% endif %}
 
+          <div class="origin-column-controls" data-origin-column-controls aria-label="Ẩn hiện cột bảng NVL">
+            <span>Cột</span>
+            <button type="button" data-origin-column-toggle="hs" data-origin-column-label="HS NVL" aria-pressed="true">HS</button>
+            <button type="button" data-origin-column-toggle="bom" data-origin-column-label="Định mức" aria-pressed="true">Định mức</button>
+            <button type="button" data-origin-column-toggle="consumed" data-origin-column-label="Lượng dùng" aria-pressed="true">Lượng dùng</button>
+            <button type="button" data-origin-column-toggle="unit-value" data-origin-column-label="Đơn giá" aria-pressed="true">Đơn giá</button>
+            <button type="button" data-origin-column-toggle="material-value" data-origin-column-label="Trị giá NVL" aria-pressed="true">Trị giá</button>
+            <button type="button" data-origin-column-toggle="origin" data-origin-column-label="Xuất xứ NVL" aria-pressed="true">Xuất xứ</button>
+            <button type="button" data-origin-column-toggle="non-origin" data-origin-column-label="Trị giá KXX/VNM" aria-pressed="true">KXX/VNM</button>
+            <button type="button" data-origin-column-toggle="source" data-origin-column-label="Nguồn giá / Trạng thái dữ liệu" aria-pressed="true">Nguồn</button>
+            <button type="button" class="origin-column-reset" data-origin-column-reset>Đầy đủ</button>
+          </div>
+
           <div class="table-scroll origin-table-scroll">
             <table class="table origin-material-table">
               <thead>
                 <tr>
-                  <th>STT</th>
-                  <th>Mã NVL</th>
-                  <th>Tên NVL</th>
-                  <th>HS NVL</th>
-                  <th>Định mức</th>
-                  <th>Lượng dùng</th>
-                  <th>Đơn giá</th>
-                  <th>Trị giá NVL</th>
-                  <th>Xuất xứ NVL</th>
-                  <th>Trị giá KXX/VNM</th>
-                  <th>Nguồn giá / Trạng thái dữ liệu</th>
+                  <th data-origin-column="row">STT</th>
+                  <th data-origin-column="code">Mã NVL</th>
+                  <th data-origin-column="name">Tên NVL</th>
+                  <th data-origin-column="hs">HS NVL</th>
+                  <th data-origin-column="bom">Định mức</th>
+                  <th data-origin-column="consumed">Lượng dùng</th>
+                  <th data-origin-column="unit-value">Đơn giá</th>
+                  <th data-origin-column="material-value">Trị giá NVL</th>
+                  <th data-origin-column="origin">Xuất xứ NVL</th>
+                  <th data-origin-column="non-origin">Trị giá KXX/VNM</th>
+                  <th data-origin-column="source">Nguồn giá / Trạng thái dữ liệu</th>
                 </tr>
               </thead>
               <tbody>
@@ -861,7 +874,7 @@
                 {% set allocation_default_expanded = allocation_has_issue %}
                 {% set allocation_group = 'allocation-' ~ product_index ~ '-' ~ material_index %}
                 <tr class="{{ 'origin-row-warning' if material.material_warnings else '' }}">
-                  <td>
+                  <td data-origin-column="row">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_source_row" value="{{ material.source_row }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_import_declaration_no" value="{{ material.import_declaration_no }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_import_line_no" value="{{ material.import_line_no }}">
@@ -898,7 +911,7 @@
                     <span class="mono">{{ loop.index }}</span>
                     {% endif %}
                   </td>
-                  <td>
+                  <td data-origin-column="code">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_material_code" value="{{ material.material_code }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_internal_material_code" value="{{ material.internal_material_code }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_material_description" value="{{ material.material_description }}">
@@ -910,40 +923,40 @@
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_bom_row_class" value="{{ material.bom_row_class }}">
                     <span class="mono">{{ material.internal_material_code or material.material_code or 'n/a' }}</span>
                   </td>
-                  <td class="{{ 'origin-cell-warning' if material.material_name_missing else '' }}" title="{{ material.material_warnings_text if material.material_name_missing else material.material_description }}">
+                  <td data-origin-column="name" class="{{ 'origin-cell-warning' if material.material_name_missing else '' }}" title="{{ material.material_warnings_text if material.material_name_missing else material.material_description }}">
                     <span class="origin-material-name">{{ material.material_description or 'Chưa có tên NVL' }}</span>
                   </td>
-                  <td>
+                  <td data-origin-column="hs">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_hs_code" value="{{ material.hs_code }}">
                     <span class="mono">{{ material.hs_code }}</span>
                   </td>
-                  <td class="num">{{ (material.bom_qty_per or '0')|number(6) }} <small>{{ material.uom }}</small></td>
-                  <td class="num">
+                  <td data-origin-column="bom" class="num">{{ (material.bom_qty_per or '0')|number(6) }} <small>{{ material.uom }}</small></td>
+                  <td data-origin-column="consumed" class="num">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_available_qty" value="{{ material.available_qty }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_consumed_qty" value="{{ material.consumed_qty }}">
                     {{ material.consumed_qty|number(6) }}
                   </td>
-                  <td class="num">
+                  <td data-origin-column="unit-value" class="num">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_unit_value" value="{{ material.unit_value }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_currency" value="{{ material.currency }}">
                     {{ material.unit_value|number(6) if material.unit_value else 'Thiếu' }} <small>{{ material.currency or product.currency or 'n/a' }}</small>
                   </td>
-                  <td class="num">
+                  <td data-origin-column="material-value" class="num">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_material_value" value="{{ material.material_value }}">
                     {{ material.material_value|number if material.material_value else 'Thiếu' }}
                   </td>
-                  <td>
+                  <td data-origin-column="origin">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_origin_status" value="{{ material.origin_status }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_origin_status_label" value="{{ material.origin_status_label }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_origin_status_source" value="{{ material.origin_status_source }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_origin_status_note" value="{{ material.origin_status_note }}">
                     <span class="badge {{ 'badge-ok' if material.origin_status == 'origin' else 'badge-warning' if material.origin_status_source == 'default_conservative' else 'badge-neutral' }}" title="{{ material.origin_status_note }}">{{ material.origin_status_label or ('Có xuất xứ' if material.origin_status == 'origin' else 'Không xuất xứ') }}</span>
                   </td>
-                  <td class="num">
+                  <td data-origin-column="non-origin" class="num">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_non_origin_cif_value" value="{{ material.non_origin_cif_value }}">
                     {{ material.non_origin_cif_value|number }}
                   </td>
-                  <td title="{{ material.material_warnings_text }}">
+                  <td data-origin-column="source" title="{{ material.material_warnings_text }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_valuation_source" value="{{ material.valuation_source }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_valuation_source_label" value="{{ material.valuation_source_label }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_valuation_status" value="{{ material.valuation_status }}">
@@ -967,17 +980,17 @@
                 {% if render_allocation_details %}
                 {% for allocation in material.allocation_lines %}
                 <tr class="origin-allocation-row" data-allocation-detail data-allocation-group="{{ allocation_group }}" {% if not allocation_default_expanded %}hidden{% endif %}>
-                  <td></td>
-                  <td><span class="allocation-indent">Dòng tồn {{ loop.index }}</span></td>
-                  <td>{{ allocation.material_description or material.material_description }}</td>
-                  <td><span class="mono">{{ allocation.hs_code or material.hs_code }}</span></td>
-                  <td></td>
-                  <td class="num">{{ allocation.allocated_qty|number(6) }} <small>{{ material.uom }}</small></td>
-                  <td class="num">{{ allocation.unit_value|number(6) if allocation.unit_value else 'Thiếu' }} <small>{{ allocation.currency or material.currency }}</small></td>
-                  <td class="num">{{ allocation.material_value|number if allocation.material_value else 'Thiếu' }}</td>
-                  <td></td>
-                  <td class="num">{{ allocation.material_value|number if material.origin_status == 'non_origin' and allocation.material_value else '0' }}</td>
-                  <td>
+                  <td data-origin-column="row"></td>
+                  <td data-origin-column="code"><span class="allocation-indent">Dòng tồn {{ loop.index }}</span></td>
+                  <td data-origin-column="name">{{ allocation.material_description or material.material_description }}</td>
+                  <td data-origin-column="hs"><span class="mono">{{ allocation.hs_code or material.hs_code }}</span></td>
+                  <td data-origin-column="bom"></td>
+                  <td data-origin-column="consumed" class="num">{{ allocation.allocated_qty|number(6) }} <small>{{ material.uom }}</small></td>
+                  <td data-origin-column="unit-value" class="num">{{ allocation.unit_value|number(6) if allocation.unit_value else 'Thiếu' }} <small>{{ allocation.currency or material.currency }}</small></td>
+                  <td data-origin-column="material-value" class="num">{{ allocation.material_value|number if allocation.material_value else 'Thiếu' }}</td>
+                  <td data-origin-column="origin"></td>
+                  <td data-origin-column="non-origin" class="num">{{ allocation.material_value|number if material.origin_status == 'non_origin' and allocation.material_value else '0' }}</td>
+                  <td data-origin-column="source">
                     <strong>{{ allocation.import_declaration_no }} / line {{ allocation.import_line_no }}</strong>
                     <small>{{ allocation.source_row }}</small>
                   </td>
@@ -1368,6 +1381,77 @@
       });
     });
   });
+
+  const columnControls = document.querySelectorAll("[data-origin-column-controls]");
+  if (columnControls.length) {
+    const storageKey = "barryCo.origin.hiddenColumns";
+    const columnWidths = {
+      row: 3.1,
+      code: 7.2,
+      name: 22,
+      hs: 6,
+      bom: 6.6,
+      consumed: 6.6,
+      "unit-value": 6.6,
+      "material-value": 6.6,
+      origin: 7.7,
+      "non-origin": 6.6,
+      source: 11,
+    };
+    const optionalColumns = ["hs", "bom", "consumed", "unit-value", "material-value", "origin", "non-origin", "source"];
+    const readHiddenColumns = () => {
+      try {
+        const saved = JSON.parse(window.localStorage.getItem(storageKey) || "[]");
+        return new Set(Array.isArray(saved) ? saved.filter((key) => optionalColumns.includes(key)) : []);
+      } catch (_error) {
+        return new Set();
+      }
+    };
+    const hiddenColumns = readHiddenColumns();
+    const persistHiddenColumns = () => {
+      try {
+        window.localStorage.setItem(storageKey, JSON.stringify(Array.from(hiddenColumns)));
+      } catch (_error) {
+      }
+    };
+    const applyColumnState = () => {
+      optionalColumns.forEach((key) => {
+        document.documentElement.classList.toggle(`origin-hide-col-${key}`, hiddenColumns.has(key));
+      });
+      document.querySelectorAll("[data-origin-column-toggle]").forEach((button) => {
+        const key = button.dataset.originColumnToggle || "";
+        const visible = !hiddenColumns.has(key);
+        const label = button.dataset.originColumnLabel || button.textContent.trim();
+        button.setAttribute("aria-pressed", visible ? "true" : "false");
+        button.title = `${visible ? "Ẩn" : "Hiện"} cột ${label}`;
+      });
+      const visibleWidth = Object.entries(columnWidths).reduce((total, [key, width]) => {
+        return hiddenColumns.has(key) ? total : total + width;
+      }, 4);
+      document.documentElement.style.setProperty("--origin-table-min-width", `${Math.max(visibleWidth, 35).toFixed(1)}rem`);
+    };
+    document.querySelectorAll("[data-origin-column-toggle]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const key = button.dataset.originColumnToggle || "";
+        if (!optionalColumns.includes(key)) return;
+        if (hiddenColumns.has(key)) {
+          hiddenColumns.delete(key);
+        } else {
+          hiddenColumns.add(key);
+        }
+        persistHiddenColumns();
+        applyColumnState();
+      });
+    });
+    document.querySelectorAll("[data-origin-column-reset]").forEach((button) => {
+      button.addEventListener("click", () => {
+        hiddenColumns.clear();
+        persistHiddenColumns();
+        applyColumnState();
+      });
+    });
+    applyColumnState();
+  }
 
   document.querySelectorAll("[data-allocation-toggle]").forEach((button) => {
     const group = button.dataset.allocationGroup || "";
