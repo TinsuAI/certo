@@ -1,45 +1,51 @@
 # Project Status
 
 ## Current State
-- Active branch: `main`; recent origin-table UX work is captured in local commits. Do not push unless the user asks.
-- Local CO dev server is running at `http://127.0.0.1:8001`; `/healthz` returned `{"status":"ok"}` on 2026-05-05. With auth enabled, unauthenticated app pages redirect to `/auth/login`.
+- Active branch: `main`; do not push unless the user asks.
+- Local CO dev server is running at `http://127.0.0.1:8001`; `/healthz` returned `{"status":"ok"}` on 2026-05-05.
 - CO remains a Data Hub consumer. Keep raw `/v1/hub/*` endpoint strings inside `app/data_hub_client.py`; `tests/test_data_hub_policy.py` enforces this.
-- The C/O origin page now supports snapshot-only multi-line stock allocation:
-  - one material can consume multiple CO stock source lines in deterministic order
-  - allocation lines round-trip through hidden form fields
-  - XLSX export includes allocation detail in `Origin Snapshot` and `LVC Statement`
-  - shortage and mixed-currency cases stay review-only instead of silently summing invalid values
-- The origin material table is now compact and operator-filterable:
-  - parent rows show concise data/source chips
-  - stock source lines render as child rows and are collapsed by default unless the row has an issue
-  - `Tên NVL` is line-clamped and the table uses horizontal scrolling on narrow viewports
-  - optional columns can be hidden/shown with the `Cột` controls; state is stored in browser `localStorage`
-  - warning summary chips filter the table to matching NVL rows, keeping matching allocation child rows visible
-- Demo Precision Manufacturing VN has a demo C/O case for reviewing multiple stock source lines and warning filtering:
-  - `http://127.0.0.1:8001/clients/demo-precision-manufactu-480e/co-case/co-case-b38e3da478f0/origin`
-  - case code: `CO-DEMO-DONG-TON`
-- A library spike for future editable workbook-like tables exists at `.ai/features/2026-05-05-origin-table-grid-library-spike.md`; current recommendation is to keep native HTML for this sprint and evaluate Tabulator first for a future editable-grid POC.
+- The C/O origin page now supports snapshot-only, case-level sequential allocation across multiple finished products:
+  - one shipment can have multiple TP / bảng kê
+  - TP are calculated one by one against the same mutable C/O stock pool
+  - later TP see stock after earlier TP have consumed it
+  - each product/material/allocation line carries sequence metadata for audit
+  - allocation lines record opening quantity, allocated quantity, and remaining quantity
+  - shortages can show that stock was already used by an earlier TP
+- Operators can change the product calculation order in the origin UI:
+  - the `Thứ tự tính lại` control has `Lên` / `Xuống` buttons
+  - the UI writes `origin_product_order`
+  - `Tính lại snapshot` rebuilds products in that order
+  - displayed sheets remain the last calculated snapshot until recalculated
+- XLSX export includes the new sequence and opening-quantity trace in `Origin Snapshot` and `LVC Statement`.
+- The origin material table still supports compact parent rows, expandable dòng tồn rows, warning filters, and optional column visibility.
 - Pre-existing unrelated worktree artifacts remain separate and should not be committed unless explicitly requested:
   - `docs/co-form-index-confirmation.md`
   - `docs/co-form-index-confirmation.xlsx`
-- Local screenshot artifacts remain under `.ai/screenshots/co-case-origin-ux/`; they were used for visual verification and are not required for the commit.
+- Local screenshot artifacts remain under `.ai/screenshots/co-case-origin-ux/`; they are not required for the current commit.
 
 ## Recent Changes
-- Commit `61a9ef4` implemented CO stock allocation across multiple source lines and XLSX/export round-trip support.
-- Commit `a625210` added origin table column controls for hiding/showing optional columns.
-- Current handoff session added filterable origin warning summary chips:
-  - warning summary items are now buttons with stable warning kinds
-  - clicking a warning filters the current product sheet to matching material rows
-  - allocation child rows follow the visible/hidden state of their parent material row
-  - `Tất cả dòng` clears the warning filter
+- Added `.ai/features/2026-05-05-origin-sequential-product-allocation.md` to capture the sequential allocation design.
+- Implemented product order override for origin calculations:
+  - `origin_product_order` is parsed from form data, persisted in case records, and used to sort invoice matches before allocation.
+  - `origin_snapshot.product_order` records the product order used for the snapshot.
+- Added allocation trace fields:
+  - `allocation_sequence` on products
+  - `material_sequence` on materials
+  - `product_sequence`, `product_code`, `material_sequence`, and `opening_qty` on allocation lines
+  - `allocation_shortage_trace` for explaining shortages caused by earlier products
+- Updated origin UI:
+  - sheet tabs show `Bước n`
+  - a sequence note explains non-parallel stock consumption
+  - a reorder control lets operators change the order for the next recalculation
+  - allocation detail rows show opening and remaining stock quantities
+- Updated workbook export and tests for the new trace fields.
 - Verification completed:
-  - `uv run pytest` passed: `169 passed in 28.28s`
-  - Puppeteer confirmed `Thiếu tồn CO` filters Demo Precision sheet 2 from 3 NVL rows to 1 matching NVL row plus its 2 allocation child rows
-  - temporary auth-disabled screenshot server on port `8002` was stopped
+  - `uv run pytest` passed: `171 passed in 32.34s`
+  - `curl -fsS http://127.0.0.1:8001/healthz` returned `{"status":"ok"}`
 
 ## Next Steps
-1. Have the user manually review the Demo Precision origin page and decide whether warning-filter chips should support multi-select, or whether single-select is enough.
-2. If staff editing becomes a near-term requirement, run a small Tabulator POC against the origin table with validation, keyboard navigation, copy/paste, frozen columns, and expandable allocation detail.
+1. Manually review the origin UI reorder control in a browser on a real multi-TP case.
+2. Decide whether product reorder should be drag-and-drop later; current implementation intentionally uses explicit `Lên` / `Xuống` controls.
 3. Decide whether global stock reservation across dossiers is required. If yes, design/approve a ledger, likely Data Hub-owned, before decrementing shared stock globally.
 4. Revisit mixed-currency allocation rules before automatically summing VNM across currencies.
 
@@ -47,8 +53,8 @@
 - User writes Vietnamese casually; respond in fully accented Vietnamese.
 - User wants concise but non-black-box explanations: briefly say what was inspected, what failed, and how it was resolved.
 - Current allocation behavior is snapshot-only inside CO. It consumes a mutable in-memory pool while building a case snapshot, but it does not reserve or decrement shared stock across dossiers.
+- Product order is now a business input for the snapshot. If the user changes order, always recalculate before interpreting shortages.
 - The term to use in Vietnamese UI is “dòng tồn”, not “lot”.
 - Warning summary filtering is intentionally per product sheet and single-select for now.
 - Column visibility is stored in browser `localStorage` key `barryCo.origin.hiddenColumns`.
-- Puppeteer visual checks used a temporary `CO_AUTH_REQUIRED=0` server on port `8002`; that temporary server was stopped. The regular dev server remains on port `8001`.
 - Do not commit the unrelated `docs/co-form-index-confirmation.*` changes unless the user explicitly asks.

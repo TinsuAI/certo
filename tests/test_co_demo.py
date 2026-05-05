@@ -2324,6 +2324,146 @@ def test_origin_material_allocates_required_quantity_across_multiple_stock_lots(
     assert depleted["allocation_lines"] == []
 
 
+def test_origin_products_calculate_sequentially_against_case_stock_pool():
+    from app.main import prepare_case_origin_products
+
+    case = prepare_case_origin_products(
+        {"shipment": {"invoice_no": "INV-SEQ"}},
+        [
+            {
+                "item_code": "TP-A",
+                "description": "Finished product A",
+                "hs_code": "850440",
+                "quantity": "4",
+                "unit": "PCS",
+                "customs_value": "1000",
+                "value_currency": "VND",
+                "invoice_ref": "INV-SEQ",
+            },
+            {
+                "item_code": "TP-B",
+                "description": "Finished product B",
+                "hs_code": "850440",
+                "quantity": "3",
+                "unit": "PCS",
+                "customs_value": "1000",
+                "value_currency": "VND",
+                "invoice_ref": "INV-SEQ",
+            },
+        ],
+        {
+            "latest_version": {
+                "version_id": "bom-seq",
+                "rows": [
+                    {"product_code": "TP-A", "material_code": "MAT-SHARED", "qty_per": "1", "uom": "PCS"},
+                    {"product_code": "TP-B", "material_code": "MAT-SHARED", "qty_per": "1", "uom": "PCS"},
+                ],
+            },
+            "versions": [],
+            "product_versions": [],
+        },
+        {"form_code": "B", "display_name": "C/O form B"},
+        [{"customs_code": "MAT-SHARED", "origin_default": "Không xuất xứ"}],
+        [
+            {
+                "source_row": "SEQ-STOCK-1",
+                "import_declaration_no": "NK-SEQ",
+                "line_no": "1",
+                "material_code": "MAT-SHARED",
+                "remaining_qty": "5",
+                "unit_value": "10",
+                "currency": "VND",
+                "value_currency": "VND",
+                "eligibility_status": "active",
+                "allocation_code_status": "resolved",
+            }
+        ],
+    )
+
+    product_a, product_b = case["products"]
+    material_a = product_a["materials"][0]
+    material_b = product_b["materials"][0]
+
+    assert [product_a["allocation_sequence"], product_b["allocation_sequence"]] == ["1", "2"]
+    assert material_a["allocation_lines"][0]["opening_qty"] == "5"
+    assert material_a["allocation_lines"][0]["allocated_qty"] == "4"
+    assert material_a["allocation_lines"][0]["remaining_qty"] == "1"
+    assert material_b["allocation_status"] == "shortage"
+    assert material_b["allocation_shortage_qty"] == "2"
+    assert material_b["allocation_lines"][0]["opening_qty"] == "1"
+    assert material_b["allocation_lines"][0]["allocated_qty"] == "1"
+    assert material_b["allocation_lines"][0]["product_sequence"] == "2"
+    assert "Bước 1 TP-A dùng 4 PCS" in material_b["allocation_shortage_trace"]
+    assert any("đã dùng ở bước trước" in warning for warning in material_b["material_warnings"])
+
+
+def test_origin_product_order_override_changes_sequential_allocation():
+    from app.main import prepare_case_origin_products
+
+    case = prepare_case_origin_products(
+        {"shipment": {"invoice_no": "INV-SEQ"}, "origin_product_order": ["TP-B", "TP-A"]},
+        [
+            {
+                "item_code": "TP-A",
+                "description": "Finished product A",
+                "hs_code": "850440",
+                "quantity": "4",
+                "unit": "PCS",
+                "customs_value": "1000",
+                "value_currency": "VND",
+            },
+            {
+                "item_code": "TP-B",
+                "description": "Finished product B",
+                "hs_code": "850440",
+                "quantity": "3",
+                "unit": "PCS",
+                "customs_value": "1000",
+                "value_currency": "VND",
+            },
+        ],
+        {
+            "latest_version": {
+                "version_id": "bom-seq",
+                "rows": [
+                    {"product_code": "TP-A", "material_code": "MAT-SHARED", "qty_per": "1", "uom": "PCS"},
+                    {"product_code": "TP-B", "material_code": "MAT-SHARED", "qty_per": "1", "uom": "PCS"},
+                ],
+            },
+            "versions": [],
+            "product_versions": [],
+        },
+        {"form_code": "B", "display_name": "C/O form B"},
+        [{"customs_code": "MAT-SHARED", "origin_default": "Không xuất xứ"}],
+        [
+            {
+                "source_row": "SEQ-STOCK-1",
+                "import_declaration_no": "NK-SEQ",
+                "line_no": "1",
+                "material_code": "MAT-SHARED",
+                "remaining_qty": "5",
+                "unit_value": "10",
+                "currency": "VND",
+                "value_currency": "VND",
+                "eligibility_status": "active",
+                "allocation_code_status": "resolved",
+            }
+        ],
+    )
+
+    product_b, product_a = case["products"]
+    material_b = product_b["materials"][0]
+    material_a = product_a["materials"][0]
+
+    assert [product["code"] for product in case["products"]] == ["TP-B", "TP-A"]
+    assert case["origin_snapshot"]["product_order"] == ["TP-B", "TP-A"]
+    assert material_b["allocation_status"] == "covered"
+    assert material_b["allocation_lines"][0]["allocated_qty"] == "3"
+    assert material_a["allocation_status"] == "shortage"
+    assert material_a["allocation_shortage_qty"] == "2"
+    assert "Bước 1 TP-B dùng 3 PCS" in material_a["allocation_shortage_trace"]
+
+
 def test_origin_material_blocks_mixed_currency_allocation_value():
     from app.main import co_stock_allocation_pool, origin_material_from_bom_row
 
@@ -2549,14 +2689,25 @@ def test_co_case_origin_round_trips_multi_lot_allocation_to_export_workbook():
     response = client.post(f"{created.headers['location']}/export", data=form_data)
 
     assert origin.status_code == 200
+    assert "Tính tuần tự theo tồn CO" in origin.text
+    assert "Thứ tự tính lại" in origin.text
+    assert 'data-origin-product-order' in origin.text
+    assert 'data-origin-sequence-move="up"' in origin.text
+    assert "Bước 1" in origin.text
     assert form_data["product_0_material_0_allocation_line_count"] == "2"
+    assert form_data["origin_product_order"] == "PV00.0048500"
+    assert form_data["product_0_allocation_sequence"] == "1"
+    assert form_data["product_0_material_0_material_sequence"] == "1"
     assert form_data["product_0_material_0_allocation_0_import_declaration_no"] == "NK-ALLOC-1"
     assert form_data["product_0_material_0_allocation_1_import_declaration_no"] == "NK-ALLOC-2"
+    assert form_data["product_0_material_0_allocation_0_product_sequence"] == "1"
+    assert form_data["product_0_material_0_allocation_0_opening_qty"] == "1"
     assert form_data["product_0_material_0_allocation_0_allocated_qty"] == "1"
     assert form_data["product_0_material_0_allocation_1_allocated_qty"] == "2"
     assert form_data["product_0_material_0_material_value"] == "50"
     assert "2 dòng tồn" in origin.text
     assert "Dòng tồn 1" in origin.text
+    assert "tồn trước" in origin.text
     assert 'data-allocation-toggle' in origin.text
     assert 'aria-expanded="false"' in origin.text
     assert 'data-allocation-detail' in origin.text
@@ -2578,14 +2729,18 @@ def test_co_case_origin_round_trips_multi_lot_allocation_to_export_workbook():
     lvc_rows = list(workbook["LVC Statement"].iter_rows(values_only=True))
     snapshot_values = [value for row in workbook["Origin Snapshot"].iter_rows(values_only=True) for value in row]
     assert "Allocation source row" in lvc_rows[0]
+    assert "Product sequence" in lvc_rows[0]
+    assert "Allocation opening qty" in lvc_rows[0]
     declaration_index = lvc_rows[0].index("Allocation declaration")
     qty_index = lvc_rows[0].index("Allocated qty")
+    opening_qty_index = lvc_rows[0].index("Allocation opening qty")
     allocation_rows = {
         row[declaration_index]: row
         for row in lvc_rows[1:]
         if row[declaration_index] in {"NK-ALLOC-1", "NK-ALLOC-2"}
     }
     assert allocation_rows["NK-ALLOC-1"][qty_index] == "1"
+    assert allocation_rows["NK-ALLOC-1"][opening_qty_index] == "1"
     assert allocation_rows["NK-ALLOC-2"][qty_index] == "2"
     assert "allocation" in snapshot_values
     assert "NK-ALLOC-1 / line 1" in snapshot_values

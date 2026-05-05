@@ -95,7 +95,7 @@ def update_case_record(client: dict, case: dict) -> dict:
         record["shipment"]["bill_of_lading_no"] = clean_text(shipment.get("bill_of_lading_no"))
         if "products" in case:
             record["products"] = persisted_products(case.get("products", []))
-        for key in ["bom_version_id", "bom_product_version_overrides", "bom_snapshot", "origin_snapshot"]:
+        for key in ["origin_product_order", "bom_version_id", "bom_product_version_overrides", "bom_snapshot", "origin_snapshot"]:
             if key in case:
                 record[key] = json_safe(case.get(key))
         record["updated_at"] = now_iso()
@@ -119,7 +119,7 @@ def case_from_record(base_case: dict, client: dict, record: dict) -> dict:
     case["supporting_files"] = [dict(file_row) for file_row in record.get("supporting_files", [])]
     if "products" in record:
         case["products"] = restored_products(record.get("products", []))
-    for key in ["bom_version_id", "bom_product_version_overrides", "bom_snapshot", "origin_snapshot"]:
+    for key in ["origin_product_order", "bom_version_id", "bom_product_version_overrides", "bom_snapshot", "origin_snapshot"]:
         if key in record:
             case[key] = json_safe(record.get(key))
     return case
@@ -359,6 +359,7 @@ def create_case_workbook(case: dict, form_candidates: list[dict], invoice_matche
     snapshot_sheet.append([])
     snapshot_sheet.append([
         "Product code",
+        "Sequence",
         "Method",
         "Formula",
         "Criterion",
@@ -373,6 +374,7 @@ def create_case_workbook(case: dict, form_candidates: list[dict], invoice_matche
     for product in case.get("products", []):
         snapshot_sheet.append([
             product.get("code", ""),
+            product.get("allocation_sequence", ""),
             product.get("origin_method", ""),
             product.get("origin_formula", ""),
             product.get("documented_result", ""),
@@ -387,6 +389,7 @@ def create_case_workbook(case: dict, form_candidates: list[dict], invoice_matche
         for material in product.get("materials", []):
             snapshot_sheet.append([
                 product.get("code", ""),
+                product.get("allocation_sequence", ""),
                 "material",
                 material.get("material_code") or material.get("internal_material_code", ""),
                 material.get("material_description", ""),
@@ -401,6 +404,7 @@ def create_case_workbook(case: dict, form_candidates: list[dict], invoice_matche
             for allocation in material.get("allocation_lines", []):
                 snapshot_sheet.append([
                     product.get("code", ""),
+                    allocation.get("product_sequence") or product.get("allocation_sequence", ""),
                     "allocation",
                     material.get("material_code") or material.get("internal_material_code", ""),
                     allocation_ref(allocation),
@@ -416,6 +420,7 @@ def create_case_workbook(case: dict, form_candidates: list[dict], invoice_matche
     bom_sheet = workbook.create_sheet("LVC Statement")
     bom_sheet.append([
         "Product code",
+        "Product sequence",
         "Product name",
         "Finished HS",
         "Invoice",
@@ -433,6 +438,7 @@ def create_case_workbook(case: dict, form_candidates: list[dict], invoice_matche
         "BOM aggregate version",
         "BOM product version",
         "Material code",
+        "Material sequence",
         "Material name",
         "Material HS",
         "Qty per",
@@ -447,6 +453,8 @@ def create_case_workbook(case: dict, form_candidates: list[dict], invoice_matche
         "Allocation source row",
         "Allocation declaration",
         "Allocation line",
+        "Allocation product sequence",
+        "Allocation opening qty",
         "Allocated qty",
         "Allocation available qty",
         "Allocation remaining qty",
@@ -461,6 +469,7 @@ def create_case_workbook(case: dict, form_candidates: list[dict], invoice_matche
             for allocation in allocation_lines:
                 bom_sheet.append([
                     product.get("code", ""),
+                    product.get("allocation_sequence", ""),
                     product.get("name", ""),
                     product.get("finished_hs", ""),
                     case.get("shipment", {}).get("invoice_no", ""),
@@ -478,6 +487,7 @@ def create_case_workbook(case: dict, form_candidates: list[dict], invoice_matche
                     case.get("bom_snapshot", {}).get("aggregate_version_id", ""),
                     product.get("bom_product_version_id", ""),
                     material.get("material_code") or material.get("internal_material_code", ""),
+                    material.get("material_sequence", ""),
                     material.get("material_description", ""),
                     material.get("hs_code", ""),
                     material.get("bom_qty_per", ""),
@@ -492,6 +502,8 @@ def create_case_workbook(case: dict, form_candidates: list[dict], invoice_matche
                     allocation.get("source_row", ""),
                     allocation.get("import_declaration_no", ""),
                     allocation.get("import_line_no", ""),
+                    allocation.get("product_sequence", ""),
+                    allocation.get("opening_qty", ""),
                     allocation.get("allocated_qty", ""),
                     allocation.get("available_qty", ""),
                     allocation.get("remaining_qty", ""),

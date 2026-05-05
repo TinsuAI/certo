@@ -667,6 +667,7 @@
   <input type="hidden" name="source_label" value="{{ case.source_label }}">
   <input type="hidden" name="document_count" value="{{ case.documents|length }}">
   <input type="hidden" name="product_count" value="{{ case.products|length }}">
+  <input type="hidden" name="origin_product_order" value="{% for product in case.products %}{{ '|' if not loop.first else '' }}{{ product.code }}{% endfor %}" data-origin-product-order>
 
   {% for doc in case.documents %}
   {% set doc_index = loop.index0 %}
@@ -705,12 +706,33 @@
       <div class="zone-head">
         <div>
           <h2>Bảng tính Xuất xứ</h2>
-          <p class="meta">{{ 'Demo từ 2 TP mẫu để minh họa bảng tính xuất xứ.' if origin_demo_active else 'Một dòng TP theo invoice, các dòng NVL theo BOM. Web snapshot giữ công thức, evidence, cảnh báo và kết luận làm nguồn cho review/export.' }}</p>
+          <p class="meta">{{ 'Demo từ 2 TP mẫu để minh họa bảng tính xuất xứ.' if origin_demo_active else 'Mỗi TP là một bảng kê, tính tuần tự theo thứ tự invoice/BCCT để tồn CO sau bước trước làm đầu vào cho bước sau.' }}</p>
         </div>
       </div>
 
       <div class="product-stack origin-workbook" data-origin-workbook>
         {% if case.products %}
+        <div class="origin-sequence-note">
+          <strong>Tính tuần tự theo tồn CO</strong>
+          <span>Không tính song song: mỗi bước trừ dòng tồn trong snapshot trước khi tính bước kế tiếp.</span>
+        </div>
+        <div class="origin-sequence-control" data-origin-sequence-control>
+          <div class="origin-sequence-control-head">
+            <strong>Thứ tự tính lại</strong>
+            <span data-origin-sequence-dirty hidden>Đã đổi thứ tự, bấm Tính lại snapshot để áp dụng.</span>
+          </div>
+          <div class="origin-sequence-list">
+            {% for product in case.products %}
+            <div class="origin-sequence-item" data-origin-sequence-item data-product-code="{{ product.code }}">
+              <span class="origin-sequence-step">Bước <span data-origin-sequence-label>{{ product.allocation_sequence or loop.index }}</span></span>
+              <strong class="mono">{{ product.code }}</strong>
+              <span>{{ product.materials|length }} NVL</span>
+              <button type="button" data-origin-sequence-move="up" title="Đưa TP này lên trước">Lên</button>
+              <button type="button" data-origin-sequence-move="down" title="Đưa TP này xuống sau">Xuống</button>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
         <div class="origin-sheet-tabs" role="tablist" aria-label="Sheet sản phẩm trong bảng kê">
           {% for product in case.products %}
           <button
@@ -722,9 +744,9 @@
             aria-selected="{{ 'true' if loop.first else 'false' }}"
             data-origin-sheet-tab
             data-origin-sheet-target="origin-sheet-{{ loop.index0 }}">
-            <span>Sheet {{ loop.index }}</span>
+            <span>Bước {{ product.allocation_sequence or loop.index }}</span>
             <strong class="mono">{{ product.code }}</strong>
-            <small>{{ product.materials|length }} NVL</small>
+            <small>{{ product.materials|length }} NVL · tồn sau bước trước</small>
           </button>
           {% endfor %}
         </div>
@@ -741,6 +763,7 @@
           {% if not loop.first %}hidden{% endif %}>
           <input type="hidden" name="product_{{ product_index }}_material_count" value="{{ product.materials|length }}">
           <input type="hidden" name="product_{{ product_index }}_non_origin_value" value="{{ product.non_origin_value }}">
+          <input type="hidden" name="product_{{ product_index }}_allocation_sequence" value="{{ product.allocation_sequence or loop.index }}">
           <input type="hidden" name="product_{{ product_index }}_code" value="{{ product.code }}">
           <input type="hidden" name="product_{{ product_index }}_name" value="{{ product.name }}">
           <input type="hidden" name="product_{{ product_index }}_finished_hs" value="{{ product.finished_hs }}">
@@ -772,7 +795,7 @@
 
           <div class="product-head">
             <div>
-              <span class="eyebrow">Model {{ loop.index }}</span>
+              <span class="eyebrow">Bước tính {{ product.allocation_sequence or loop.index }}</span>
               <h3>{{ product.code }}</h3>
               <p>{{ product.name }}</p>
             </div>
@@ -792,6 +815,7 @@
 
           {% set lvc_metric_class = 'warning' if product.lvc_quality_warning_text else 'blocked' if product.lvc_status in ['missing_value', 'missing_bom'] else product.lvc_status %}
           <div class="origin-product-strip">
+            <div><span>Thứ tự tính</span><strong>Bước {{ product.allocation_sequence or loop.index }}</strong></div>
             <div><span>HS TP</span><strong class="mono">{{ product.finished_hs }}</strong></div>
             <div><span>Số lượng invoice</span><strong>{{ product.quantity|number(6) }} {{ product.unit or product.export_unit }}</strong></div>
             <div><span>FOB/trị giá TP</span><strong class="num">{{ product.fob|number if product.fob else 'Thiếu' }} <em>{{ product.currency }}</em></strong></div>
@@ -881,8 +905,10 @@
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_import_declaration_no" value="{{ material.import_declaration_no }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_import_line_no" value="{{ material.import_line_no }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_customs_material_code" value="{{ material.customs_material_code }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_material_sequence" value="{{ material.material_sequence or loop.index }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_status" value="{{ material.allocation_status }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_shortage_qty" value="{{ material.allocation_shortage_qty }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_shortage_trace" value="{{ material.allocation_shortage_trace }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_summary" value="{{ material.allocation_summary }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_line_count" value="{{ material.allocation_lines|length }}">
                     {% for allocation in material.allocation_lines %}
@@ -893,6 +919,10 @@
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_import_line_no" value="{{ allocation.import_line_no }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_customs_material_code" value="{{ allocation.customs_material_code }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_allocation_code" value="{{ allocation.allocation_code }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_product_sequence" value="{{ allocation.product_sequence }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_product_code" value="{{ allocation.product_code }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_material_sequence" value="{{ allocation.material_sequence }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_opening_qty" value="{{ allocation.opening_qty }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_available_qty" value="{{ allocation.available_qty }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_remaining_qty" value="{{ allocation.remaining_qty }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_allocated_qty" value="{{ allocation.allocated_qty }}">
@@ -976,11 +1006,15 @@
                       {% elif material.allocation_summary %}
                       <span class="source-chip source-chip-warning">{{ material.allocation_summary }}</span>
                       {% endif %}
+                      {% if material.allocation_shortage_trace %}
+                      <span class="source-chip source-chip-warning" title="{{ material.allocation_shortage_trace }}">Đã dùng ở bước trước</span>
+                      {% endif %}
                     </div>
                   </td>
                 </tr>
                 {% if render_allocation_details %}
                 {% for allocation in material.allocation_lines %}
+                {% set allocation_opening_qty = allocation.opening_qty or allocation.available_qty %}
                 <tr class="origin-allocation-row" data-origin-allocation-row data-allocation-detail data-allocation-group="{{ allocation_group }}" {% if not allocation_default_expanded %}hidden{% endif %}>
                   <td data-origin-column="row"></td>
                   <td data-origin-column="code"><span class="allocation-indent">Dòng tồn {{ loop.index }}</span></td>
@@ -994,6 +1028,7 @@
                   <td data-origin-column="non-origin" class="num">{{ allocation.material_value|number if material.origin_status == 'non_origin' and allocation.material_value else '0' }}</td>
                   <td data-origin-column="source">
                     <strong>{{ allocation.import_declaration_no }} / line {{ allocation.import_line_no }}</strong>
+                    <small>Bước {{ allocation.product_sequence or product.allocation_sequence or product_index + 1 }} · tồn trước {{ allocation_opening_qty|number(6) }} -> còn {{ allocation.remaining_qty|number(6) }}</small>
                     <small>{{ allocation.source_row }}</small>
                   </td>
                 </tr>
@@ -1347,6 +1382,42 @@
       control?.addEventListener("change", applyFilter);
     });
     applyFilter();
+  });
+
+  document.querySelectorAll("[data-origin-sequence-control]").forEach((control) => {
+    const form = control.closest("form");
+    const input = form?.querySelector("[data-origin-product-order]");
+    const list = control.querySelector(".origin-sequence-list");
+    const dirty = control.querySelector("[data-origin-sequence-dirty]");
+    if (!input || !list) return;
+    const syncSequence = (changed = false) => {
+      const items = Array.from(list.querySelectorAll("[data-origin-sequence-item]"));
+      input.value = items.map((item) => item.dataset.productCode || "").filter(Boolean).join("|");
+      items.forEach((item, index) => {
+        const label = item.querySelector("[data-origin-sequence-label]");
+        if (label) label.textContent = String(index + 1);
+        const up = item.querySelector('[data-origin-sequence-move="up"]');
+        const down = item.querySelector('[data-origin-sequence-move="down"]');
+        if (up) up.disabled = index === 0;
+        if (down) down.disabled = index === items.length - 1;
+      });
+      if (dirty && changed) dirty.hidden = false;
+    };
+    control.querySelectorAll("[data-origin-sequence-move]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const item = button.closest("[data-origin-sequence-item]");
+        if (!item) return;
+        if (button.dataset.originSequenceMove === "up" && item.previousElementSibling) {
+          list.insertBefore(item, item.previousElementSibling);
+          syncSequence(true);
+        }
+        if (button.dataset.originSequenceMove === "down" && item.nextElementSibling) {
+          list.insertBefore(item.nextElementSibling, item);
+          syncSequence(true);
+        }
+      });
+    });
+    syncSequence(false);
   });
 
   document.querySelectorAll("[data-origin-workbook]").forEach((workbook) => {

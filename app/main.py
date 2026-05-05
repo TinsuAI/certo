@@ -1244,8 +1244,9 @@ def prepare_case_origin_products(
     if not invoice_matches:
         return case
 
+    ordered_invoice_matches = order_invoice_matches_for_origin(case, invoice_matches)
     bom_rows_by_product = selected_bom_rows_by_product(case, bom_workspace)
-    build_signature = origin_build_signature(invoice_matches, bom_rows_by_product, material_rows, stock_rows, form_lane)
+    build_signature = origin_build_signature(ordered_invoice_matches, bom_rows_by_product, material_rows, stock_rows, form_lane)
     if (
         case.get("products")
         and (
@@ -1258,7 +1259,7 @@ def prepare_case_origin_products(
     material_index = material_catalog_index(material_rows)
     stock_pool = co_stock_allocation_pool(stock_rows)
     products = []
-    for match in invoice_matches:
+    for product_sequence, match in enumerate(ordered_invoice_matches, start=1):
         product_code = str(match.get("item_code", "")).strip()
         if not product_code:
             continue
@@ -1269,6 +1270,7 @@ def prepare_case_origin_products(
             form_lane,
             material_index,
             stock_pool,
+            product_sequence=product_sequence,
         ))
     if not products:
         return case
@@ -1281,12 +1283,43 @@ def prepare_case_origin_products(
         "source": "invoice_bcct_bom",
         "build_signature": build_signature,
         "invoice_no": prepared.get("shipment", {}).get("invoice_no", ""),
-        "invoice_match_count": len(invoice_matches),
+        "invoice_match_count": len(ordered_invoice_matches),
+        "product_order": [product.get("code", "") for product in products],
         "product_count": len(products),
         "material_count": sum(len(product.get("materials", [])) for product in products),
         "stock_row_count": len(stock_rows),
     }
     return prepared
+
+
+def order_invoice_matches_for_origin(case: dict, invoice_matches: list[dict]) -> list[dict]:
+    order = origin_product_order(case)
+    if not order:
+        return list(invoice_matches)
+    rank = {code: index for index, code in enumerate(order)}
+
+    def sort_key(item: tuple[int, dict]) -> tuple[int, int]:
+        index, row = item
+        code = str(row.get("item_code") or row.get("product_code") or row.get("customs_code") or "").strip()
+        return rank.get(code, len(rank) + index), index
+
+    return [row for _, row in sorted(enumerate(invoice_matches), key=sort_key)]
+
+
+def origin_product_order(case: dict) -> list[str]:
+    raw_order = case.get("origin_product_order") or case.get("origin_snapshot", {}).get("product_order", [])
+    if isinstance(raw_order, str):
+        candidates = re.split(r"[|,\n]", raw_order)
+    elif isinstance(raw_order, (list, tuple)):
+        candidates = raw_order
+    else:
+        candidates = []
+    output = []
+    for candidate in candidates:
+        code = str(candidate or "").strip()
+        if code and code not in output:
+            output.append(code)
+    return output
 
 
 def origin_build_signature(
@@ -1561,6 +1594,8 @@ def origin_product_from_invoice_match(
     form_lane: dict,
     material_index: dict[str, dict],
     stock_pool: dict[str, list[dict]],
+    *,
+    product_sequence: int | None = None,
 ) -> dict:
     product_code = str(match.get("item_code", "")).strip()
     finished_hs = str(match.get("hs_code", "")).strip()
@@ -1571,8 +1606,17 @@ def origin_product_from_invoice_match(
     product_value = origin_product_value(match)
     fob = product_value["value"]
     materials = [
-        origin_material_from_bom_row(row, quantity, material_index, stock_pool)
-        for row in bom_rows
+        origin_material_from_bom_row(
+            row,
+            quantity,
+            material_index,
+            stock_pool,
+            product_sequence=product_sequence,
+            product_code=product_code,
+            product_name=match.get("description") or product_code,
+            material_sequence=material_sequence,
+        )
+        for material_sequence, row in enumerate(bom_rows, start=1)
     ]
     vnm = sum(
         decimal_value(material.get("non_origin_cif_value"))
@@ -1585,6 +1629,7 @@ def origin_product_from_invoice_match(
     lvc = calculate_lvc_result(fob, vnm, threshold, missing_material_values, missing_bom_materials=not materials)
     product = {
         "code": product_code,
+        "allocation_sequence": str(product_sequence or ""),
         "name": match.get("description") or product_code,
         "finished_hs": finished_hs,
         "quantity": decimal_text(quantity),
@@ -1630,6 +1675,11 @@ def origin_material_from_bom_row(
     export_quantity: Decimal,
     material_index: dict[str, dict],
     stock_pool: dict,
+    *,
+    product_sequence: int | None = None,
+    product_code: str = "",
+    product_name: str = "",
+    material_sequence: int | None = None,
 ) -> dict:
     material_code = str(row.get("material_code", "")).strip()
     material = material_index.get(material_code, {})
@@ -1637,12 +1687,21 @@ def origin_material_from_bom_row(
     consumed_qty = export_quantity * qty_per
     stock_candidates = stock_candidates_for_material(stock_pool, material_code)
     stock = stock_candidates[0] if stock_candidates else {}
-    allocation_lines, shortage_qty = allocate_material_stock(
+    allocation_context = {
+        "product_sequence": str(product_sequence or ""),
+        "product_code": product_code,
+        "product_name": product_name,
+        "material_sequence": str(material_sequence or ""),
+        "material_code": material_code,
+        "material_uom": row.get("uom", ""),
+    }
+    allocation_lines, shortage_qty, shortage_trace = allocate_material_stock(
         material_code,
         consumed_qty,
         stock_candidates,
         row,
         material,
+        allocation_context,
     )
     origin_details = origin_status_details_from_material(material)
     origin_status = origin_details["status"]
@@ -1689,6 +1748,8 @@ def origin_material_from_bom_row(
         material_warnings.append(
             f"{material_code}: thiếu tồn CO {decimal_text(shortage_qty)} {row.get('uom', '')} để phủ lượng dùng."
         )
+    if allocation_status == "shortage" and shortage_trace:
+        material_warnings.append(f"{material_code}: tồn CO đã dùng ở bước trước: {shortage_trace}.")
     if origin_details["source"] == "default_conservative":
         material_warnings.append(f"{material_code}: chưa có phân loại xuất xứ, đang tính bảo thủ là không xuất xứ.")
     if not material_description:
@@ -1709,6 +1770,7 @@ def origin_material_from_bom_row(
         "import_declaration_no": ", ".join(allocation_import_declarations) or stock.get("import_declaration_no", ""),
         "import_line_no": ", ".join(allocation_import_lines) or stock.get("line_no", ""),
         "material_code": material_code,
+        "material_sequence": str(material_sequence or ""),
         "customs_material_code": material.get("customs_code") or material_code,
         "internal_material_code": material.get("internal_code") or material_code,
         "material_description": material_description,
@@ -1732,6 +1794,7 @@ def origin_material_from_bom_row(
         "data_status_label": "Đủ evidence tính VNM" if valuation_status == "ready" else "Cần bổ sung evidence",
         "allocation_status": allocation_status,
         "allocation_shortage_qty": decimal_text(shortage_qty) if shortage_qty > 0 else "",
+        "allocation_shortage_trace": shortage_trace,
         "allocation_lines": allocation_lines,
         "allocation_summary": allocation_summary(allocation_lines, allocation_status),
         "material_warnings": material_warnings,
@@ -1751,11 +1814,13 @@ def allocate_material_stock(
     stock_candidates: list[dict],
     bom_row: dict,
     material: dict,
-) -> tuple[list[dict], Decimal]:
+    allocation_context: dict | None = None,
+) -> tuple[list[dict], Decimal, str]:
     remaining_required = required_qty
     lines = []
     if remaining_required <= 0:
-        return lines, Decimal("0")
+        return lines, Decimal("0"), ""
+    allocation_context = allocation_context or {}
     for stock in stock_candidates:
         if not co_stock_is_usable(stock):
             continue
@@ -1765,13 +1830,17 @@ def allocate_material_stock(
         allocated_qty = min(available_qty, remaining_required)
         if allocated_qty <= 0:
             continue
-        lines.append(stock_allocation_line(stock, allocated_qty, available_qty, bom_row, material))
+        line = stock_allocation_line(stock, allocated_qty, available_qty, bom_row, material, allocation_context)
+        lines.append(line)
         if "_allocation_remaining_qty" in stock:
             stock["_allocation_remaining_qty"] = available_qty - allocated_qty
+        stock.setdefault("_allocation_consumptions", []).append(stock_allocation_consumption(line, allocation_context))
         remaining_required -= allocated_qty
         if remaining_required <= 0:
             break
-    return lines, max(remaining_required, Decimal("0"))
+    shortage_qty = max(remaining_required, Decimal("0"))
+    shortage_trace = stock_shortage_trace(stock_candidates, allocation_context) if shortage_qty > 0 else ""
+    return lines, shortage_qty, shortage_trace
 
 
 def stock_allocation_line(
@@ -1780,7 +1849,9 @@ def stock_allocation_line(
     available_qty: Decimal,
     bom_row: dict,
     material: dict,
+    allocation_context: dict | None = None,
 ) -> dict:
+    allocation_context = allocation_context or {}
     unit_value, unit_value_source = first_decimal_source(
         ("bom", bom_row.get("unit_value")),
         ("bom", bom_row.get("unit_price")),
@@ -1803,6 +1874,10 @@ def stock_allocation_line(
         "import_line_no": stock.get("line_no", ""),
         "customs_material_code": stock.get("customs_item_code", ""),
         "allocation_code": stock.get("allocation_code", ""),
+        "product_sequence": allocation_context.get("product_sequence", ""),
+        "product_code": allocation_context.get("product_code", ""),
+        "material_sequence": allocation_context.get("material_sequence", ""),
+        "opening_qty": decimal_text(available_qty),
         "available_qty": decimal_text(available_qty),
         "remaining_qty": decimal_text(available_qty - allocated_qty),
         "allocated_qty": decimal_text(allocated_qty),
@@ -1814,6 +1889,71 @@ def stock_allocation_line(
         "material_description": stock.get("material_description", ""),
         "hs_code": stock.get("hs_code", ""),
     }
+
+
+def stock_allocation_consumption(line: dict, allocation_context: dict) -> dict:
+    return {
+        "product_sequence": allocation_context.get("product_sequence", ""),
+        "product_code": allocation_context.get("product_code", ""),
+        "product_name": allocation_context.get("product_name", ""),
+        "material_sequence": allocation_context.get("material_sequence", ""),
+        "material_code": allocation_context.get("material_code", ""),
+        "material_uom": allocation_context.get("material_uom", ""),
+        "allocated_qty": line.get("allocated_qty", ""),
+        "source_row": line.get("source_row", ""),
+        "import_declaration_no": line.get("import_declaration_no", ""),
+        "import_line_no": line.get("import_line_no", ""),
+    }
+
+
+def stock_shortage_trace(stock_candidates: list[dict], allocation_context: dict) -> str:
+    trace = []
+    seen = set()
+    for stock in stock_candidates:
+        for consumption in stock.get("_allocation_consumptions", []):
+            if not stock_consumption_is_before(consumption, allocation_context):
+                continue
+            marker = (
+                consumption.get("product_sequence", ""),
+                consumption.get("product_code", ""),
+                consumption.get("material_sequence", ""),
+                consumption.get("material_code", ""),
+                consumption.get("source_row", ""),
+                consumption.get("allocated_qty", ""),
+            )
+            if marker in seen:
+                continue
+            seen.add(marker)
+            trace.append(stock_consumption_label(consumption))
+    return "; ".join(trace)
+
+
+def stock_consumption_is_before(consumption: dict, allocation_context: dict) -> bool:
+    current_sequence = numeric_sequence(allocation_context.get("product_sequence", ""))
+    consumed_sequence = numeric_sequence(consumption.get("product_sequence", ""))
+    if current_sequence is None or consumed_sequence is None:
+        return False
+    return consumed_sequence < current_sequence
+
+
+def numeric_sequence(value) -> int | None:
+    try:
+        return int(str(value or "").strip())
+    except ValueError:
+        return None
+
+
+def stock_consumption_label(consumption: dict) -> str:
+    step = consumption.get("product_sequence", "")
+    product = consumption.get("product_code", "")
+    qty = consumption.get("allocated_qty", "")
+    uom = consumption.get("material_uom", "")
+    source = consumption.get("import_declaration_no", "") or consumption.get("source_row", "")
+    line_no = consumption.get("import_line_no", "")
+    source_ref = f"{source}/{line_no}" if source and line_no else source
+    prefix = f"Bước {step} {product}".strip()
+    detail = f"{prefix} dùng {qty} {uom}".strip()
+    return f"{detail} từ {source_ref}" if source_ref else detail
 
 
 def allocation_available_qty(allocation_lines: list[dict], stock_candidates: list[dict]) -> Decimal:
@@ -1912,7 +2052,10 @@ def origin_status_details_from_material(material: dict) -> dict:
 
 def attach_origin_readiness(case: dict) -> dict:
     enriched = dict(case)
-    products = [enrich_origin_product(product) for product in enriched.get("products", [])]
+    products = [
+        enrich_origin_product({**product, "allocation_sequence": product.get("allocation_sequence") or str(index)})
+        for index, product in enumerate(enriched.get("products", []), start=1)
+    ]
     enriched["products"] = products
     snapshot = dict(enriched.get("origin_snapshot", {}))
     issue_count = sum(len(product.get("origin_warnings", [])) for product in products)
@@ -1947,6 +2090,7 @@ def attach_origin_readiness(case: dict) -> dict:
 
 def enrich_origin_product(product: dict) -> dict:
     enriched = dict(product)
+    enriched["allocation_sequence"] = str(enriched.get("allocation_sequence") or "")
     materials = [enrich_origin_material(material) for material in enriched.get("materials", [])]
     enriched["materials"] = materials
     criterion = str(enriched.get("documented_result") or enriched.get("rule") or "")
@@ -2044,6 +2188,9 @@ def enrich_origin_material(material: dict) -> dict:
         "Cần bổ sung evidence" if unit_missing else "Đủ evidence tính VNM"
     )
     enriched["allocation_lines"] = list(enriched.get("allocation_lines") or [])
+    for allocation in enriched["allocation_lines"]:
+        if not allocation.get("opening_qty"):
+            allocation["opening_qty"] = allocation.get("available_qty", "")
     enriched["allocation_status"] = enriched.get("allocation_status") or ("covered" if enriched["allocation_lines"] else "")
     enriched["allocation_summary"] = enriched.get("allocation_summary") or allocation_summary(
         enriched["allocation_lines"],
@@ -2056,6 +2203,9 @@ def enrich_origin_material(material: dict) -> dict:
     if enriched["material_name_missing"]:
         code = enriched.get("material_code") or enriched.get("internal_material_code") or "NVL"
         warnings.append(f"{code}: thiếu tên NVL từ BOM, danh mục NVL và BCCT nhập.")
+    if enriched.get("allocation_shortage_trace") and not any("đã dùng ở bước trước" in warning for warning in warnings):
+        code = enriched.get("material_code") or enriched.get("internal_material_code") or "NVL"
+        warnings.append(f"{code}: tồn CO đã dùng ở bước trước: {enriched['allocation_shortage_trace']}.")
     warnings = unique_texts(warnings)
     enriched["material_warnings"] = warnings
     enriched["material_warnings_text"] = " | ".join(warnings)

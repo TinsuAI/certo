@@ -2499,6 +2499,109 @@ small,
   gap: 0;
 }
 
+.origin-sequence-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  padding: 0.48rem 0.65rem;
+  color: var(--foreground-muted);
+  background: var(--card);
+  font-size: 0.78rem;
+}
+
+.origin-sequence-note strong {
+  flex: 0 0 auto;
+  color: var(--foreground);
+}
+
+.origin-sequence-note span {
+  min-width: 0;
+}
+
+.origin-sequence-control {
+  display: grid;
+  gap: 0.45rem;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  padding: 0.55rem 0.65rem;
+  background: var(--surface-subtle);
+}
+
+.origin-sequence-control-head,
+.origin-sequence-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.origin-sequence-control-head {
+  justify-content: space-between;
+  color: var(--foreground-muted);
+  font-size: 0.76rem;
+}
+
+.origin-sequence-control-head strong {
+  color: var(--foreground);
+}
+
+.origin-sequence-control-head span {
+  color: var(--warning);
+  font-weight: 800;
+}
+
+.origin-sequence-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.origin-sequence-item {
+  min-width: min(100%, 18rem);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 0.34rem;
+  background: var(--card);
+}
+
+.origin-sequence-item strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.origin-sequence-item > span:not(.origin-sequence-step) {
+  color: var(--foreground-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.origin-sequence-step {
+  flex: 0 0 auto;
+  min-width: 3.7rem;
+  color: var(--foreground-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.origin-sequence-item button {
+  flex: 0 0 auto;
+  min-height: 1.55rem;
+  padding: 0.08rem 0.34rem;
+  font-size: 0.68rem;
+}
+
+.origin-sequence-item button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
 .origin-sheet-tabs {
   display: flex;
   gap: 0.24rem;
@@ -2506,7 +2609,7 @@ small,
   overflow-x: auto;
   border: 1px solid var(--border);
   border-bottom: 0;
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  border-radius: 0;
   padding: 0.35rem 0.4rem 0;
   background: color-mix(in srgb, var(--surface-subtle) 74%, transparent);
   -webkit-overflow-scrolling: touch;
@@ -2989,6 +3092,7 @@ small,
 .origin-source-cell {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.28rem;
   min-width: 0;
   max-width: 100%;
