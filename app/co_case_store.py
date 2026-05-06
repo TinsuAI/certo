@@ -352,7 +352,7 @@ def match_case_bcct_exports(case: dict, source_workspace: dict, client_config: d
         invoice_mismatch = bool(declaration_match and invoice_tokens and row_tokens and not invoice_match)
         warning = ""
         if invoice_mismatch:
-            warning = f"Invoice nhập {invoice_no} không khớp invoice trên tờ khai {row.get('invoice_ref', '')}."
+            warning = f"Invoice nhập {invoice_no} không khớp invoice_ref {row.get('invoice_ref', '')} trên tờ khai {row.get('declaration_no', '')}."
         elif declaration_match and invoice_tokens and not row_tokens:
             warning = f"Tờ khai {row.get('declaration_no', '')} không có invoice_ref để đối chiếu với invoice nhập {invoice_no}."
         if declaration_match and not invoice_no and not clean_text(row.get("invoice_ref")):

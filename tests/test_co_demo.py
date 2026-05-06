@@ -3108,6 +3108,8 @@ def test_invoice_matching_prefers_export_declaration_and_warns_on_invoice_mismat
     assert [row["item_code"] for row in matches] == ["TP-RIGHT"]
     assert matches[0]["invoice_mismatch"] is True
     assert "INV-WRONG" in matches[0]["reference_warning"]
+    assert "invoice_ref INV-RIGHT" in matches[0]["reference_warning"]
+    assert "tờ khai XK-RIGHT" in matches[0]["reference_warning"]
 
 
 def test_invoice_lookup_options_accept_export_declaration_no():
@@ -3290,6 +3292,38 @@ def test_co_case_page_uses_postgres_source_index_when_available(monkeypatch):
     assert "XK-PG" in response.text
     assert "TP-PG" in response.text
     assert "20 dòng BCCT" in response.text
+
+
+def test_postgres_source_index_signature_check_does_not_swallow_type_errors(monkeypatch):
+    from app import portfolio as portfolio_module
+
+    class FakeSourceIndexStore:
+        def has_client(self, client_id: str) -> bool:
+            return client_id == "growatt"
+
+        def source_summary(self, _client_id: str, client_config: dict) -> dict:
+            return {
+                "client_config": client_config,
+                "material_catalog": {"published_row_count": 0, "latest_version": {}},
+                "product_catalog": {"published_row_count": 0, "latest_version": {}},
+                "bcct": {"published_row_count": 1, "reviewed_row_count": 1, "latest_version": {}},
+                "co_stock_row_count": 0,
+            }
+
+        def match_bcct_exports(self, _client_id: str, _invoice_no: str, _relevant_types: list[str], export_declaration_nos=None) -> list[dict]:
+            raise TypeError("internal matching bug")
+
+    monkeypatch.setattr(portfolio_module, "get_source_index_store", lambda: FakeSourceIndexStore())
+
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Postgres error case", "case_code": "CO-PG-ERR", "destination_market": "Ấn Độ", "invoice_no": "INV-PG-ERR"},
+        follow_redirects=False,
+    )
+
+    with pytest.raises(TypeError, match="internal matching bug"):
+        client.get(f"{created.headers['location']}/exports")
 
 
 def test_postgres_catalog_index_records_keep_payload_and_keys():

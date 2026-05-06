@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 from typing import Any
 
@@ -126,9 +127,9 @@ class PortfolioService:
         export_declaration_nos = shipment.get("export_declaration_nos", [])
         if store and store.has_client(client["id"]):
             relevant_types = client_config.get("bcct", {}).get("relevant_export_declaration_types", [])
-            try:
+            if source_index_accepts_declaration_refs(store.match_bcct_exports):
                 invoice_matches = store.match_bcct_exports(client["id"], invoice_no, relevant_types, export_declaration_nos)
-            except TypeError:
+            else:
                 invoice_matches = store.match_bcct_exports(client["id"], invoice_no, relevant_types)
             return {
                 "source_backend": "postgres",
@@ -173,6 +174,13 @@ class PortfolioService:
 
     def bcct_template(self, client: dict) -> bytes:
         return create_bcct_template_workbook(client)
+
+
+def source_index_accepts_declaration_refs(match_func) -> bool:
+    try:
+        return "export_declaration_nos" in inspect.signature(match_func).parameters
+    except (TypeError, ValueError):
+        return False
 
 
 def get_portfolio_service() -> PortfolioService | DataHubPortfolioService:

@@ -651,12 +651,17 @@ class PostgresSourceIndexStore:
     ) -> list[dict]:
         declarations = declaration_refs(export_declaration_nos or [])
         if declarations:
+            declaration_keys = [
+                "".join(char for char in ref.upper() if char.isalnum())
+                for ref in declarations
+                if ref
+            ]
             params: list[Any] = [client_id]
             type_clause = ""
             if relevant_types:
                 type_clause = "and b.declaration_type = any(%s)"
                 params.append(relevant_types)
-            params.append(declarations)
+            params.append(declaration_keys)
             with self._connect() as connection:
                 with connection.cursor() as cursor:
                     cursor.execute(
@@ -667,7 +672,7 @@ class PostgresSourceIndexStore:
                           and b.direction = 'export'
                           and b.review_status = 'reviewed'
                           {type_clause}
-                          and b.payload->>'declaration_no' = any(%s)
+                          and regexp_replace(upper(b.payload->>'declaration_no'), '[^A-Z0-9]', '', 'g') = any(%s)
                         order by b.payload->>'declaration_no', b.payload->>'line_no', b.payload->>'item_code'
                         """,
                         params,
@@ -681,7 +686,7 @@ class PostgresSourceIndexStore:
                 row["invoice_mismatch"] = invoice_mismatch
                 if invoice_mismatch:
                     row["reference_warning"] = (
-                        f"Invoice nhập {invoice_no} không khớp invoice trên tờ khai {row.get('invoice_ref', '')}."
+                        f"Invoice nhập {invoice_no} không khớp invoice_ref {row.get('invoice_ref', '')} trên tờ khai {row.get('declaration_no', '')}."
                     )
                 elif invoice_tokens and not row_tokens:
                     row["reference_warning"] = (

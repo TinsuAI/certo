@@ -38,7 +38,7 @@
   - file-backed matching prefers `declaration_no` when declarations exist
   - invoice-only dossiers still match by `invoice_ref`
   - invoice mismatch and missing `invoice_ref` cases surface `reference_warning`
-  - Postgres source index matching accepts declaration refs with backward-compatible fallback for older adapters/fakes
+  - Postgres source index matching accepts declaration refs, normalizes declaration formatting/case, and checks adapter capability without swallowing internal `TypeError`s
   - Data Hub mode uses existing `list_bcct` data for declaration-authoritative matching, without adding new Data Hub endpoints
 - Updated C/O UI copy and fields:
   - create form has separate `Invoice` and `Số tờ khai xuất`
@@ -53,7 +53,7 @@
   - existing invoice market hint behavior remaining unchanged
 - Verification completed:
   - targeted invoice/declaration tests passed
-  - `uv run pytest` passed: `178 passed in 30.08s`
+  - `uv run pytest` passed: `179 passed in 33.92s`
   - `curl -fsS http://127.0.0.1:8001/healthz` returned `{"status":"ok"}`
 
 ## Next Steps

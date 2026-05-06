@@ -19,7 +19,7 @@ Date: 2026-05-07
   - Invoice-only dossiers still match by `invoice_ref`.
   - If invoice and declaration disagree, matching follows the declaration and emits a warning.
   - If a declaration row has no `invoice_ref`, the dossier can still proceed and emits a warning.
-  - Postgres source-index matching accepts export declaration refs and keeps a fallback for older call signatures.
+  - Postgres source-index matching accepts export declaration refs, normalizes declaration formatting/case, and checks adapter capability without swallowing internal `TypeError`s.
   - Data Hub mode uses already available BCCT list rows for declaration-authoritative matching; no new Data Hub endpoint was added.
 - Updated the C/O UI.
   - Create form now has separate `Invoice` and `Số tờ khai xuất` fields.
@@ -32,7 +32,7 @@ Date: 2026-05-07
 - Added regression tests for declaration-first behavior and legacy invoice behavior.
 - Verification:
   - targeted invoice/declaration tests passed
-  - full suite passed: `178 passed in 30.08s`
+  - full suite passed: `179 passed in 33.92s`
   - health check returned `{"status":"ok"}` on port `8001`
 
 ## Decisions Made
@@ -52,6 +52,9 @@ Date: 2026-05-07
   - an existing test still asserted the old heading `BCCT xuất khẩu theo invoice`
   - a fake Postgres source index accepted only the old three-argument `match_bcct_exports` signature
   Both were corrected.
+- A post-commit review found two important follow-ups:
+  - Postgres declaration matching initially used raw exact `declaration_no`; it now normalizes both stored declaration and input key.
+  - The source-index compatibility fallback initially caught all `TypeError`s; it now checks function signature before deciding which call shape to use.
 
 ## Open Items
 
