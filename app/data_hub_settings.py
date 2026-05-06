@@ -10,6 +10,7 @@ from typing import Mapping
 DEFAULT_DATA_HUB_BASE_URL = "http://127.0.0.1:8754"
 DEFAULT_DATA_HUB_TIMEOUT_SECONDS = 20.0
 DEFAULT_DATA_HUB_CONFIG_PATH = "data/local/runtime/data-hub-link.json"
+DEFAULT_CO_CASE_DELETE_ROLES = ("dev", "admin")
 DEFAULT_CLIENT_CLAIM_KEYS = (
     "client_ids",
     "clients",
@@ -34,6 +35,7 @@ DATA_HUB_LINK_ENV_KEYS = (
     "DATA_HUB_REQUEST_TIMEOUT_SECONDS",
     "DATA_HUB_CLIENT_CLAIM_KEYS",
     "DATA_HUB_ADMIN_ROLES",
+    "CO_CASE_DELETE_ROLES",
 )
 SECRET_ENV_KEYS = {"DATA_HUB_API_TOKEN"}
 
@@ -52,6 +54,7 @@ class DataHubLinkSettings:
     request_timeout_seconds: float
     client_claim_keys: tuple[str, ...]
     admin_roles: frozenset[str]
+    co_case_delete_roles: frozenset[str]
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> DataHubLinkSettings:
@@ -77,6 +80,7 @@ class DataHubLinkSettings:
             ),
             client_claim_keys=env_list(values.get("DATA_HUB_CLIENT_CLAIM_KEYS"), DEFAULT_CLIENT_CLAIM_KEYS),
             admin_roles=frozenset(env_list(values.get("DATA_HUB_ADMIN_ROLES"), DEFAULT_ADMIN_ROLES)),
+            co_case_delete_roles=frozenset(env_list(values.get("CO_CASE_DELETE_ROLES"), DEFAULT_CO_CASE_DELETE_ROLES)),
         )
 
     def require_source_config(self) -> None:

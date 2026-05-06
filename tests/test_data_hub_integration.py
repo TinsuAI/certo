@@ -394,6 +394,7 @@ def test_data_hub_settings_page_saves_local_override(monkeypatch, tmp_path):
             "DATA_HUB_REQUEST_TIMEOUT_SECONDS": "6",
             "DATA_HUB_CLIENT_CLAIM_KEYS": "tenant_ids,dncx_ids",
             "DATA_HUB_ADMIN_ROLES": "owner,support",
+            "CO_CASE_DELETE_ROLES": "ops,manager",
             "DATA_HUB_API_TOKEN": "local-service-token",
         },
         follow_redirects=False,
@@ -408,6 +409,7 @@ def test_data_hub_settings_page_saves_local_override(monkeypatch, tmp_path):
     assert settings.source_enabled is True
     assert settings.data_hub_api_base_url == "http://hub-api.internal:8754"
     assert settings.client_claim_keys == ("tenant_ids", "dncx_ids")
+    assert settings.co_case_delete_roles == {"ops", "manager"}
 
 
 def test_data_hub_settings_save_rejects_invalid_local_override(monkeypatch, tmp_path):

@@ -20,16 +20,21 @@ from app.bom_store import attach_case_bom_snapshot
 from app.bom_service import bom_service
 from app.co_case_store import (
     MAX_SUPPORTING_FILE_BYTES,
+    acquire_origin_calculation_lock,
+    active_origin_calculation_lock,
     build_case_criteria_rows,
     case_from_record,
+    co_case_delete_block_reason,
     create_case_record,
     create_case_workbook,
+    delete_case_record,
     get_case_record,
     get_case_workspace,
     get_supporting_file,
     invoice_keys,
     safe_filename,
     save_supporting_file,
+    release_origin_calculation_lock,
     update_case_record,
 )
 from app.co_forms import (
@@ -112,6 +117,19 @@ def theme_context(request: Request) -> dict[str, str]:
         "auth_required": co_auth.auth_required(),
         "show_login": (co_auth.auth_required() or co_auth.data_hub_source_mode_enabled()) and request.url.path != "/auth/logout",
         "can_view_technical_settings": co_auth.can_view_technical_settings(user),
+        "can_delete_co_cases": co_auth.can_delete_co_cases(user),
+    }
+
+
+def origin_lock_actor(request: Request) -> dict[str, str]:
+    user = co_auth.current_user(request)
+    if not user:
+        return {"id": "local", "label": "Local user"}
+    return {
+        "id": user.user_id,
+        "label": user.name or user.email or user.user_id,
+        "name": user.name,
+        "email": user.email,
     }
 
 
@@ -369,6 +387,7 @@ def data_hub_settings_context(request: Request, *, saved: bool = False, error: s
         {"key": "DATA_HUB_REQUEST_TIMEOUT_SECONDS", "label": "Request timeout seconds", "value": str(settings.request_timeout_seconds), "type": "number"},
         {"key": "DATA_HUB_CLIENT_CLAIM_KEYS", "label": "Client claim keys", "value": ",".join(settings.client_claim_keys), "type": "text"},
         {"key": "DATA_HUB_ADMIN_ROLES", "label": "Admin roles", "value": ",".join(sorted(settings.admin_roles)), "type": "text"},
+        {"key": "CO_CASE_DELETE_ROLES", "label": "Roles được xoá hồ sơ C/O", "value": ",".join(sorted(settings.co_case_delete_roles)), "type": "text"},
     ]
     for row in rows:
         row["source"] = "environment" if row["key"] in env_values else "local override" if row["key"] in overrides else "default"
@@ -897,9 +916,10 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
         bom_workspace = minimal_bom_workspace()
     origin_demo_allowed = extra.pop("origin_demo_allowed", True)
     preserve_origin_products = extra.pop("preserve_origin_products", False)
+    origin_calculation_blocked = bool(extra.get("origin_calculation_blocked", False))
     client = enrich_client_with_source_summary(client, source_summary)
     case = attach_case_source_summary_snapshot(case, source_summary)
-    if current_step == "origin":
+    if current_step == "origin" and not origin_calculation_blocked:
         selected_lane = recommended_form_lane(
             prioritized_form_lanes(case.get("destination_market", ""), co_case_hs_codes(case, invoice_matches))
         )
@@ -919,6 +939,13 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
             case = attach_origin_readiness(case)
             case = attach_results(case)
             criteria_rows = build_case_criteria_rows(case, form_candidates)
+    elif current_step == "origin" and case.get("products"):
+        case = attach_case_bom_snapshot(case, bom_workspace)
+        case = attach_origin_readiness(case)
+        case = attach_results(case)
+        criteria_rows = build_case_criteria_rows(case, form_candidates)
+    elif current_step == "origin":
+        case = attach_case_bom_snapshot(case, bom_workspace)
     origin_demo_active = origin_demo_allowed and should_show_origin_demo(current_step, case, invoice_matches)
     if origin_demo_active:
         case = attach_origin_demo(case)
@@ -2726,9 +2753,21 @@ def co_case_context(client_id: str, case_id: str = "", current_step: str = "inde
         case = attach_results(case)
     if case_was_supplied and current_step == "origin":
         extra.setdefault("preserve_origin_products", True)
+    origin_lock = active_origin_calculation_lock(client)
+    for dossier in workspace["cases"]:
+        dossier["delete_block_reason"] = co_case_delete_block_reason(dossier, origin_lock)
+    current_case_id = case.get("persisted_case_id") or effective_case_id
+    origin_lock_owned = bool(origin_lock and current_case_id and origin_lock.get("case_id") == current_case_id)
+    origin_lock_blocked = bool(origin_lock and current_case_id and origin_lock.get("case_id") != current_case_id)
+    if current_step == "origin" and origin_lock_blocked:
+        extra["origin_calculation_blocked"] = True
+        extra.setdefault(
+            "error",
+            f"Khách hàng này đang có hồ sơ {origin_lock.get('case_code') or origin_lock.get('case_id')} giữ phiên tính tồn.",
+        )
     form_candidates = form_candidates_for_market(case.get("destination_market", ""))
     criteria_rows = build_case_criteria_rows(case, form_candidates)
-    return co_case_light_context(
+    context = co_case_light_context(
         client_id,
         case=case,
         current_step=current_step,
@@ -2737,6 +2776,10 @@ def co_case_context(client_id: str, case_id: str = "", current_step: str = "inde
         criteria_rows=criteria_rows,
         **extra,
     )
+    context["origin_calculation_lock"] = origin_lock
+    context["origin_calculation_lock_owned"] = origin_lock_owned
+    context["origin_calculation_lock_blocked"] = origin_lock_blocked
+    return context
 
 
 def co_case_workflow_steps(
@@ -3196,6 +3239,25 @@ async def create_co_case(request: Request, client_id: str):
     return RedirectResponse(f"/clients/{client_id}/co-case/{record['case_id']}", status_code=303)
 
 
+@app.post("/clients/{client_id}/co-case/{case_id}/delete", response_class=HTMLResponse)
+async def delete_co_case(request: Request, client_id: str, case_id: str):
+    if not co_auth.can_delete_co_cases(co_auth.current_user(request)):
+        raise HTTPException(status_code=403, detail="Không có quyền xoá hồ sơ C/O.")
+    client = resolve_client(client_id)
+    try:
+        delete_case_record(client, case_id)
+    except KeyError:
+        raise HTTPException(status_code=404) from None
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request=request,
+            name="co_case.html",
+            status_code=409,
+            context=co_case_context(client_id, error=str(exc)),
+        )
+    return RedirectResponse(f"/clients/{client_id}/co-case", status_code=303)
+
+
 @app.post("/clients/{client_id}/co-case/{case_id}/shipment")
 async def update_co_case_shipment(request: Request, client_id: str, case_id: str):
     form = {key: str(value) for key, value in (await request.form()).items()}
@@ -3289,6 +3351,23 @@ async def export_co_case_workbook(request: Request, client_id: str, case_id: str
         if form:
             posted_case = update_products_from_form({key: str(value) for key, value in form.items()})
             posted_case["persisted_case_id"] = posted_case.get("persisted_case_id") or case_id
+    client = resolve_client(client_id)
+    lock_result = acquire_origin_calculation_lock(client, case_id, origin_lock_actor(request))
+    if not lock_result["acquired"]:
+        return templates.TemplateResponse(
+            request=request,
+            name="co_case.html",
+            status_code=409,
+            context=co_case_context(
+                client_id,
+                case_id,
+                current_step="origin",
+                case=posted_case,
+                origin_demo_allowed=False,
+                origin_calculation_blocked=True,
+                error=f"Chưa thể export: hồ sơ {lock_result['lock'].get('case_code') or lock_result['lock'].get('case_id')} đang giữ phiên tính tồn cho khách hàng này.",
+            ),
+        )
     context = co_case_context(
         client_id,
         case_id,
@@ -3298,7 +3377,7 @@ async def export_co_case_workbook(request: Request, client_id: str, case_id: str
     )
     if context["case"].get("persisted_case_id") and not context.get("origin_demo_active"):
         try:
-            update_case_record(resolve_client(client_id), context["case"])
+            update_case_record(client, context["case"])
         except KeyError:
             pass
     content = create_case_workbook(
@@ -3315,10 +3394,35 @@ async def export_co_case_workbook(request: Request, client_id: str, case_id: str
     )
 
 
+@app.post("/clients/{client_id}/co-case/{case_id}/origin-lock/release")
+async def release_co_case_origin_lock(client_id: str, case_id: str, next_url: str = Form("")):
+    release_origin_calculation_lock(resolve_client(client_id), case_id)
+    redirect_url = next_url if next_url.startswith(f"/clients/{client_id}/co-case") else f"/clients/{client_id}/co-case/{case_id}/origin"
+    return RedirectResponse(redirect_url, status_code=303)
+
+
 @app.post("/clients/{client_id}/evaluate", response_class=HTMLResponse)
 async def evaluate(request: Request, client_id: str):
     form = await request.form()
     case = update_products_from_form({key: str(value) for key, value in form.items()})
+    case_id = case.get("persisted_case_id", "")
+    if case_id:
+        client = resolve_client(client_id)
+        lock_result = acquire_origin_calculation_lock(client, case_id, origin_lock_actor(request))
+        if not lock_result["acquired"]:
+            return templates.TemplateResponse(
+                request=request,
+                name="co_case.html",
+                status_code=409,
+                context=co_case_context(
+                    client_id,
+                    case=case,
+                    current_step="origin",
+                    error=f"Chưa thể tính lại: hồ sơ {lock_result['lock'].get('case_code') or lock_result['lock'].get('case_id')} đang giữ phiên tính tồn cho khách hàng này.",
+                    origin_calculation_blocked=True,
+                    preserve_origin_products=True,
+                ),
+            )
     context = co_case_context(
         client_id,
         case=case,

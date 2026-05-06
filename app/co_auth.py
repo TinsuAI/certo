@@ -212,6 +212,12 @@ def can_view_technical_settings(user: DataHubUser | None) -> bool:
     return bool(user and user.role == "dev")
 
 
+def can_delete_co_cases(user: DataHubUser | None) -> bool:
+    if not auth_required():
+        return True
+    return bool(user and user.role in data_hub_link_settings().co_case_delete_roles)
+
+
 def filter_visible_clients(clients: Iterable[dict], user: DataHubUser | None) -> list[dict]:
     visible = visible_client_ids(user)
     if visible is None:

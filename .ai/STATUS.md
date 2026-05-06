@@ -2,59 +2,61 @@
 
 ## Current State
 - Active branch: `main`; do not push unless the user asks.
-- Local CO dev server is running at `http://127.0.0.1:8001`; `/healthz` returned `{"status":"ok"}` on 2026-05-05.
+- Local CO dev server is running at `http://127.0.0.1:8001`; `/healthz` returned `{"status":"ok"}` on 2026-05-06.
 - CO remains a Data Hub consumer. Keep raw `/v1/hub/*` endpoint strings inside `app/data_hub_client.py`; `tests/test_data_hub_policy.py` enforces this.
-- The C/O origin page now supports snapshot-only, case-level sequential allocation across multiple finished products:
-  - one shipment can have multiple TP / bảng kê
-  - TP are calculated one by one against the same mutable C/O stock pool
-  - later TP see stock after earlier TP have consumed it
-  - each product/material/allocation line carries sequence metadata for audit
-  - allocation lines record opening quantity, allocated quantity, and remaining quantity
-  - shortages can show that stock was already used by an earlier TP
-- Operators can change the product calculation order in the origin UI:
-  - the `Thứ tự tính lại` control has `Lên` / `Xuống` buttons
-  - the UI writes `origin_product_order`
-  - `Tính lại snapshot` rebuilds products in that order
-  - displayed sheets remain the last calculated snapshot until recalculated
-- XLSX export includes the new sequence and opening-quantity trace in `Origin Snapshot` and `LVC Statement`.
-- The origin material table still supports compact parent rows, expandable dòng tồn rows, warning filters, and optional column visibility.
+- C/O origin allocation remains snapshot-only inside CO, but calculation/export now uses a customer-scoped soft lock:
+  - multiple dossiers for the same customer can be opened and prepared in parallel
+  - only one dossier per customer can hold the origin stock calculation session at a time
+  - `Tính lại snapshot` and dossier XLSX export acquire/renew the lock
+  - other dossiers stay editable for preparation but cannot calculate/export official origin stock output until the lock is released
+  - lock TTL is currently 60 minutes
+- The C/O case overview now shows stock lock state prominently:
+  - a `Phiên tính tồn đang mở` banner shows the dossier holding the lock
+  - the banner has `Mở hồ sơ giữ tồn` and `Nhả phiên`
+  - the dossier table has a `Tồn C/O` column with `Đang giữ tồn`, `Chỉ chuẩn bị`, or `Sẵn sàng`
+- Dossier deletion is implemented with backend guardrails:
+  - only roles configured in Technical Settings `CO_CASE_DELETE_ROLES` can delete
+  - draft/preparation dossiers can be deleted
+  - dossiers holding the stock lock must release it before deletion
+  - completed/submitted/closed dossiers cannot be deleted
+  - delete uses an in-app confirmation modal, not browser `confirm()`
+- The C/O case overview no longer uses a sidebar for `Tạo hoặc mở hồ sơ`; the create form is in the main view above the full-width dossier list.
 - Pre-existing unrelated worktree artifacts remain separate and should not be committed unless explicitly requested:
   - `docs/co-form-index-confirmation.md`
   - `docs/co-form-index-confirmation.xlsx`
-- Local screenshot artifacts remain under `.ai/screenshots/co-case-origin-ux/`; they are not required for the current commit.
+- Local screenshot artifacts remain under `.ai/screenshots/`; they are not required for the current commit.
 
 ## Recent Changes
-- Added `.ai/features/2026-05-05-origin-sequential-product-allocation.md` to capture the sequential allocation design.
-- Implemented product order override for origin calculations:
-  - `origin_product_order` is parsed from form data, persisted in case records, and used to sort invoice matches before allocation.
-  - `origin_snapshot.product_order` records the product order used for the snapshot.
-- Added allocation trace fields:
-  - `allocation_sequence` on products
-  - `material_sequence` on materials
-  - `product_sequence`, `product_code`, `material_sequence`, and `opening_qty` on allocation lines
-  - `allocation_shortage_trace` for explaining shortages caused by earlier products
-- Updated origin UI:
-  - sheet tabs show `Bước n`
-  - a sequence note explains non-parallel stock consumption
-  - a reorder control lets operators change the order for the next recalculation
-  - allocation detail rows show opening and remaining stock quantities
-- Updated workbook export and tests for the new trace fields.
+- Added customer-scoped origin calculation lock persistence in `app/co_case_store.py`.
+- Added lock acquisition/enforcement for origin recalculation and case workbook export in `app/main.py`.
+- Added release route support with `next_url`, so locks can be released directly from the overview.
+- Added delete route and store deletion with upload cleanup, permission checks, lock checks, and completed-case checks.
+- Added configurable delete roles through Data Hub/Technical Settings as `CO_CASE_DELETE_ROLES`.
+- Reworked `app/templates/co_case.html` and `app/static/css/app.css`:
+  - overview lock banner
+  - `Tồn C/O` status column
+  - release lock action from overview
+  - delete action and confirmation modal
+  - full-width overview list with create form in main content
+  - mobile fixes for overview list and create form
+- Added/updated regression coverage in:
+  - `tests/test_co_demo.py`
+  - `tests/test_data_hub_integration.py`
 - Verification completed:
-  - `uv run pytest` passed: `171 passed in 32.34s`
+  - `uv run pytest` passed: `173 passed in 31.66s`
+  - targeted overview/delete tests passed
   - `curl -fsS http://127.0.0.1:8001/healthz` returned `{"status":"ok"}`
 
 ## Next Steps
-1. Manually review the origin UI reorder control in a browser on a real multi-TP case.
-2. Decide whether product reorder should be drag-and-drop later; current implementation intentionally uses explicit `Lên` / `Xuống` controls.
-3. Decide whether global stock reservation across dossiers is required. If yes, design/approve a ledger, likely Data Hub-owned, before decrementing shared stock globally.
+1. Manually review the C/O case overview in a real authenticated Data Hub session, especially lock release, delete modal, and mobile layout.
+2. Confirm the production definition of a “completed” dossier. Current delete blocking recognizes `completed`, `done`, `finished`, `submitted`, and `closed` from `status`, `case_status`, or `origin_snapshot.case_status`.
+3. Decide whether the origin calculation lock should move from CO local state into a Data Hub-owned reservation/ledger when global shared stock decrement becomes real.
 4. Revisit mixed-currency allocation rules before automatically summing VNM across currencies.
 
 ## Notes for Next AI Session
 - User writes Vietnamese casually; respond in fully accented Vietnamese.
 - User wants concise but non-black-box explanations: briefly say what was inspected, what failed, and how it was resolved.
-- Current allocation behavior is snapshot-only inside CO. It consumes a mutable in-memory pool while building a case snapshot, but it does not reserve or decrement shared stock across dossiers.
-- Product order is now a business input for the snapshot. If the user changes order, always recalculate before interpreting shortages.
 - The term to use in Vietnamese UI is “dòng tồn”, not “lot”.
-- Warning summary filtering is intentionally per product sheet and single-select for now.
-- Column visibility is stored in browser `localStorage` key `barryCo.origin.hiddenColumns`.
-- Do not commit the unrelated `docs/co-form-index-confirmation.*` changes unless the user explicitly asks.
+- Current allocation behavior is still snapshot-only inside CO. The new lock prevents concurrent same-customer calculations in CO, but it does not reserve/decrement shared stock globally.
+- Do not commit unrelated `docs/co-form-index-confirmation.*` changes unless the user explicitly asks.
+- Screenshot folders under `.ai/screenshots/` are local verification artifacts; keep them out of commits unless explicitly requested.

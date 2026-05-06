@@ -233,41 +233,40 @@
 </section>
 
 <section class="co-case-index-layout">
-  <section class="zone source-panel co-new-case-panel co-primary-create">
-    <div class="zone-head">
+  <section class="zone source-panel co-case-list-panel" aria-label="Danh sách hồ sơ C/O">
+    <div class="co-overview-create">
       <div>
+        <span class="eyebrow">Tạo hồ sơ</span>
         <h2>Tạo hoặc mở hồ sơ</h2>
         <p class="meta">Chỉ cần invoice và thị trường để bắt đầu. Form ưu tiên: B, CPTPP, EUR.1, AI.</p>
       </div>
+      <form method="post" action="/clients/{{ client.id }}/co-case/create" class="co-create-form co-create-flow" hx-boost="false">
+        {{ invoice_lookup("create-invoice-no", case.shipment.invoice_no, true) }}
+        {{ market_picker("create-destination-market", "" if case.destination_market == "Chưa nhập" else case.destination_market) }}
+        <input type="hidden" name="co_form_type" value="{{ recommended_form_lane.display_name if case.destination_market != 'Chưa nhập' else '' }}" data-selected-form>
+        <input type="hidden" name="agreement" value="{{ recommended_form_lane.agreement if case.destination_market != 'Chưa nhập' else '' }}" data-selected-agreement>
+        <input type="hidden" name="rule" value="{{ recommended_form_lane.rule_lookup_label if case.destination_market != 'Chưa nhập' else '' }}" data-selected-rule>
+        <div class="co-form-preview" data-form-preview>
+          <span>Form gợi ý</span>
+          <strong data-preview-form>{{ recommended_form_lane.display_name if case.destination_market != 'Chưa nhập' else 'Chọn thị trường' }}</strong>
+          <small data-preview-instrument>{{ recommended_form_lane.instrument if case.destination_market != 'Chưa nhập' else 'Thông tư sẽ hiện sau khi chọn thị trường' }}</small>
+        </div>
+        <details class="co-optional-fields">
+          <summary>Thông tin thêm</summary>
+          <label>Tên hồ sơ
+            <input name="title" placeholder="Tên hồ sơ" value="{{ case.title }}">
+          </label>
+          <label>Mã hồ sơ
+            <input name="case_code" placeholder="Tự sinh nếu bỏ trống" value="">
+          </label>
+          <label>Số B/L
+            <input name="bill_of_lading_no" placeholder="Tùy chọn" value="{{ case.shipment.bill_of_lading_no }}">
+          </label>
+        </details>
+        <button type="submit">Tạo hồ sơ</button>
+      </form>
     </div>
-    <form method="post" action="/clients/{{ client.id }}/co-case/create" class="co-create-form co-create-flow" hx-boost="false">
-      {{ invoice_lookup("create-invoice-no", case.shipment.invoice_no, true) }}
-      {{ market_picker("create-destination-market", "" if case.destination_market == "Chưa nhập" else case.destination_market) }}
-      <input type="hidden" name="co_form_type" value="{{ recommended_form_lane.display_name if case.destination_market != 'Chưa nhập' else '' }}" data-selected-form>
-      <input type="hidden" name="agreement" value="{{ recommended_form_lane.agreement if case.destination_market != 'Chưa nhập' else '' }}" data-selected-agreement>
-      <input type="hidden" name="rule" value="{{ recommended_form_lane.rule_lookup_label if case.destination_market != 'Chưa nhập' else '' }}" data-selected-rule>
-      <div class="co-form-preview" data-form-preview>
-        <span>Form gợi ý</span>
-        <strong data-preview-form>{{ recommended_form_lane.display_name if case.destination_market != 'Chưa nhập' else 'Chọn thị trường' }}</strong>
-        <small data-preview-instrument>{{ recommended_form_lane.instrument if case.destination_market != 'Chưa nhập' else 'Thông tư sẽ hiện sau khi chọn thị trường' }}</small>
-      </div>
-      <details class="co-optional-fields">
-        <summary>Thông tin thêm</summary>
-        <label>Tên hồ sơ
-          <input name="title" placeholder="Tên hồ sơ" value="{{ case.title }}">
-        </label>
-        <label>Mã hồ sơ
-          <input name="case_code" placeholder="Tự sinh nếu bỏ trống" value="">
-        </label>
-        <label>Số B/L
-          <input name="bill_of_lading_no" placeholder="Tùy chọn" value="{{ case.shipment.bill_of_lading_no }}">
-        </label>
-      </details>
-      <button type="submit">Tạo hồ sơ</button>
-    </form>
-  </section>
 
-  <section class="zone source-panel co-case-list-panel" aria-label="Danh sách hồ sơ C/O">
     <div class="zone-head">
       <div>
         <h2>Danh sách hồ sơ C/O</h2>
@@ -294,6 +293,22 @@
         <input placeholder="Ví dụ: Form B" data-case-form-filter>
       </label>
     </div>
+    {% if origin_calculation_lock %}
+    <div class="case-stock-lock-summary">
+      <div>
+        <span class="eyebrow">Phiên tính tồn đang mở</span>
+        <strong>{{ origin_calculation_lock.case_code or origin_calculation_lock.case_id }}</strong>
+        <small>{{ origin_calculation_lock.actor_label }} · hết hạn {{ origin_calculation_lock.expires_at[:16].replace('T', ' ') if origin_calculation_lock.expires_at else 'n/a' }}</small>
+      </div>
+      <div class="case-stock-lock-actions">
+        <a class="btn-secondary" href="/clients/{{ client.id }}/co-case/{{ origin_calculation_lock.case_id }}/origin">Mở hồ sơ giữ tồn</a>
+        <form method="post" action="/clients/{{ client.id }}/co-case/{{ origin_calculation_lock.case_id }}/origin-lock/release">
+          <input type="hidden" name="next_url" value="/clients/{{ client.id }}/co-case">
+          <button type="submit" class="btn-secondary">Nhả phiên</button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
     <div class="case-result-meta" data-case-result-count>{{ case_workspace.cases|length }} hồ sơ</div>
     <div class="dossier-list co-dossier-list">
       <div class="dossier-list-head" aria-hidden="true">
@@ -304,6 +319,7 @@
         <span>B/L</span>
         <span>TP</span>
         <span>Cập nhật</span>
+        <span>Tồn C/O</span>
         <span></span>
       </div>
       {% for dossier in case_workspace.cases %}
@@ -343,8 +359,26 @@
           <span>Cập nhật</span>
           <strong>{{ dossier.updated_at[:10] if dossier.updated_at else 'n/a' }}</strong>
         </div>
+        <div class="dossier-stock-lock">
+          <span>Tồn C/O</span>
+          {% if origin_calculation_lock and origin_calculation_lock.case_id == dossier.case_id %}
+          <strong class="stock-lock-active">Đang giữ tồn</strong>
+          <small>{{ origin_calculation_lock.actor_label }}</small>
+          {% elif origin_calculation_lock %}
+          <strong>Chỉ chuẩn bị</strong>
+          <small>Chờ hồ sơ giữ tồn nhả phiên</small>
+          {% else %}
+          <strong>Sẵn sàng</strong>
+          <small>Chưa có phiên tính tồn</small>
+          {% endif %}
+        </div>
         <div class="dossier-action">
           <a class="btn-secondary" href="/clients/{{ client.id }}/co-case/{{ dossier.case_id }}">Mở</a>
+          {% if can_delete_co_cases %}
+          <form method="post" action="/clients/{{ client.id }}/co-case/{{ dossier.case_id }}/delete" data-delete-case-form data-case-code="{{ dossier.case_code }}" data-case-title="{{ dossier.title }}">
+            <button type="submit" class="btn-secondary btn-danger" data-delete-case-trigger {% if dossier.delete_block_reason %}disabled title="{{ dossier.delete_block_reason }}"{% endif %}>Xoá</button>
+          </form>
+          {% endif %}
         </div>
       </div>
       {% else %}
@@ -353,6 +387,23 @@
     </div>
   </section>
 </section>
+
+{% if can_delete_co_cases %}
+<div class="modal-backdrop" data-delete-case-modal hidden>
+  <section class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-case-title" aria-describedby="delete-case-detail">
+    <div class="confirm-modal-head">
+      <span class="eyebrow">Xoá hồ sơ C/O</span>
+      <h2 id="delete-case-title">Xác nhận xoá hồ sơ</h2>
+    </div>
+    <p id="delete-case-detail" class="meta" data-delete-case-detail>Hồ sơ đang chọn sẽ bị xoá khỏi danh sách.</p>
+    <div class="confirm-modal-warning">Thao tác này không xoá tồn C/O và không thể hoàn tác.</div>
+    <div class="confirm-modal-actions">
+      <button type="button" class="btn-secondary" data-delete-case-cancel>Huỷ</button>
+      <button type="button" class="btn-secondary btn-danger" data-delete-case-confirm>Xoá hồ sơ</button>
+    </div>
+  </section>
+</div>
+{% endif %}
 
 {% else %}
 <section class="zone co-case-header">
@@ -374,6 +425,25 @@
     {% endfor %}
   </nav>
 </section>
+
+{% if origin_calculation_lock %}
+{% set current_case_holds_origin_lock = origin_calculation_lock.case_id == case.persisted_case_id %}
+<section class="callout {{ 'callout-success' if current_case_holds_origin_lock else 'callout-info' }}">
+  <span class="callout-icon">i</span>
+  <div>
+    <div class="callout-title">{{ 'Hồ sơ này đang giữ phiên tính tồn' if current_case_holds_origin_lock else 'Khách hàng đang có hồ sơ khác giữ phiên tính tồn' }}</div>
+    <span>
+      {{ origin_calculation_lock.case_code or origin_calculation_lock.case_id }} ·
+      {{ origin_calculation_lock.actor_label }} ·
+      hết hạn {{ origin_calculation_lock.expires_at[:16].replace('T', ' ') if origin_calculation_lock.expires_at else 'n/a' }}.
+      {% if not current_case_holds_origin_lock and origin_calculation_lock.case_id %}
+      Bạn vẫn có thể chuẩn bị thông tin/chứng từ, nhưng chưa thể tính lại tồn hoặc export bảng kê chính thức.
+      <a href="/clients/{{ client.id }}/co-case/{{ origin_calculation_lock.case_id }}/origin">Mở hồ sơ đang giữ tồn</a>
+      {% endif %}
+    </span>
+  </div>
+</section>
+{% endif %}
 
 {% if co_case_active_step == "shipment" %}
 <section class="zone source-panel">
@@ -650,6 +720,10 @@
   </div>
 </section>
 
+{% if origin_calculation_lock_owned %}
+<form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin-lock/release" id="origin-lock-release"></form>
+{% endif %}
+
 <form method="post" action="/clients/{{ client.id }}/evaluate" id="co-case" class="origin-workspace">
   <input type="hidden" name="case_id" value="{{ case.id }}">
   <input type="hidden" name="persisted_case_id" value="{{ case.persisted_case_id }}">
@@ -678,8 +752,9 @@
   {% endfor %}
 
   <section class="zone origin-workbar" aria-label="Điều khiển snapshot xuất xứ">
+    {% set origin_actions_blocked = origin_calculation_lock_blocked %}
     <label>BOM tổng hợp
-      <select name="bom_version_id">
+      <select name="bom_version_id" {% if origin_actions_blocked %}disabled{% endif %}>
         {% for version in bom_workspace.versions %}
         <option value="{{ version.version_id }}" {% if version.version_id == case.bom_snapshot.aggregate_version_id %}selected{% endif %}>BOM tổng hợp v{{ version.version_no }} · {{ version.product_versions|length }} TP</option>
         {% endfor %}
@@ -696,8 +771,11 @@
       {% endfor %}
     </div>
     <div class="origin-workbar-actions">
-      <button type="submit">Tính lại snapshot</button>
-      <button type="submit" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export">Xuất dossier XLSX</button>
+      <button type="submit" {% if origin_actions_blocked %}disabled title="Khách hàng đang có hồ sơ khác giữ phiên tính tồn"{% endif %}>Tính lại snapshot</button>
+      <button type="submit" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export" {% if origin_actions_blocked %}disabled title="Khách hàng đang có hồ sơ khác giữ phiên tính tồn"{% endif %}>Xuất dossier XLSX</button>
+      {% if origin_calculation_lock_owned %}
+      <button type="submit" form="origin-lock-release" class="btn-secondary">Nhả phiên tính tồn</button>
+      {% endif %}
     </div>
   </section>
 
@@ -1106,6 +1184,46 @@
 {% endif %}
 <script>
 (() => {
+  const deleteModal = document.querySelector("[data-delete-case-modal]");
+  if (deleteModal) {
+    const detail = deleteModal.querySelector("[data-delete-case-detail]");
+    const cancel = deleteModal.querySelector("[data-delete-case-cancel]");
+    const confirmButton = deleteModal.querySelector("[data-delete-case-confirm]");
+    let pendingDeleteForm = null;
+    const closeDeleteModal = () => {
+      deleteModal.hidden = true;
+      pendingDeleteForm = null;
+    };
+    document.querySelectorAll("[data-delete-case-form]").forEach((form) => {
+      form.addEventListener("submit", (event) => {
+        if (form.dataset.deleteConfirmed === "1") return;
+        event.preventDefault();
+        pendingDeleteForm = form;
+        const code = form.dataset.caseCode || "hồ sơ này";
+        const title = form.dataset.caseTitle || "";
+        if (detail) detail.textContent = title ? `${code} · ${title}` : code;
+        deleteModal.hidden = false;
+        confirmButton?.focus();
+      });
+    });
+    cancel?.addEventListener("click", closeDeleteModal);
+    deleteModal.addEventListener("click", (event) => {
+      if (event.target === deleteModal) closeDeleteModal();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !deleteModal.hidden) closeDeleteModal();
+    });
+    confirmButton?.addEventListener("click", () => {
+      if (!pendingDeleteForm) return;
+      pendingDeleteForm.dataset.deleteConfirmed = "1";
+      if (pendingDeleteForm.requestSubmit) {
+        pendingDeleteForm.requestSubmit();
+      } else {
+        pendingDeleteForm.submit();
+      }
+    });
+  }
+
   const normalize = (value) => (value || "")
     .toString()
     .toLowerCase()
