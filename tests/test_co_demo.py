@@ -1859,7 +1859,7 @@ def test_co_case_detail_is_split_into_workflow_step_views():
     assert "Thông tin lô hàng" in shipment.text
     assert "Supporting files" not in shipment.text
     assert "Supporting files" in documents.text
-    assert "BCCT xuất khẩu theo invoice" in exports.text
+    assert "BCCT xuất khẩu theo tham chiếu hồ sơ" in exports.text
     assert "Form và thông tư" in guidance.text
     assert "Bảng kê LVC" in origin.text
     assert "Tính lại snapshot" in origin.text
@@ -3074,6 +3074,114 @@ def test_invoice_matching_uses_only_reviewed_export_rows():
     assert [row["item_code"] for row in matches] == ["TP-OK"]
 
 
+def test_invoice_matching_prefers_export_declaration_when_invoice_is_missing():
+    matches = match_case_bcct_exports(
+        {"shipment": {"invoice_no": "", "export_declaration_nos": ["XK-NO-INV"]}},
+        {
+            "bcct": {
+                "published_rows": [
+                    {"direction": "export", "review_status": "reviewed", "declaration_no": "XK-NO-INV", "line_no": "1", "declaration_type": "E42", "item_code": "TP-DECL", "quantity": "1", "unit": "PCS", "invoice_ref": ""},
+                ]
+            }
+        },
+        {"bcct": {"relevant_export_declaration_types": ["E42"]}},
+    )
+
+    assert [row["item_code"] for row in matches] == ["TP-DECL"]
+    assert matches[0]["match_source"] == "declaration"
+
+
+def test_invoice_matching_prefers_export_declaration_and_warns_on_invoice_mismatch():
+    matches = match_case_bcct_exports(
+        {"shipment": {"invoice_no": "INV-WRONG", "export_declaration_nos": ["XK-RIGHT"]}},
+        {
+            "bcct": {
+                "published_rows": [
+                    {"direction": "export", "review_status": "reviewed", "declaration_no": "XK-RIGHT", "line_no": "1", "declaration_type": "E42", "item_code": "TP-RIGHT", "quantity": "1", "unit": "PCS", "invoice_ref": "INV-RIGHT"},
+                    {"direction": "export", "review_status": "reviewed", "declaration_no": "XK-WRONG", "line_no": "1", "declaration_type": "E42", "item_code": "TP-WRONG", "quantity": "1", "unit": "PCS", "invoice_ref": "INV-WRONG"},
+                ]
+            }
+        },
+        {"bcct": {"relevant_export_declaration_types": ["E42"]}},
+    )
+
+    assert [row["item_code"] for row in matches] == ["TP-RIGHT"]
+    assert matches[0]["invoice_mismatch"] is True
+    assert "INV-WRONG" in matches[0]["reference_warning"]
+
+
+def test_invoice_lookup_options_accept_export_declaration_no():
+    from app.main import invoice_search_options
+
+    client = get_client("growatt")
+    process_bcct_upload(
+        client,
+        bcct_workbook([
+            {"direction": "export", "declaration_type": "E42", "declaration_no": "XK-DECL-001", "line_no": "1", "item_code": "TP-001", "quantity": "2", "unit": "PCS", "invoice_ref": "INV-DECL-001"},
+        ]),
+        "bcct.xlsx",
+    )
+
+    options = invoice_search_options(client, "XK-DECL-001")
+
+    assert options[0]["invoice_no"] == "INV-DECL-001"
+    assert options[0]["declarations"] == ["XK-DECL-001"]
+    preview = TestClient(app).get(
+        "/clients/growatt/co-case/invoice-preview",
+        params={"invoice_no": "XK-DECL-001"},
+    ).json()
+    assert preview["invoice_no"] == "INV-DECL-001"
+    assert preview["source_reference"] == "XK-DECL-001"
+
+
+def test_co_case_create_accepts_export_declaration_no():
+    client_data = get_client("growatt")
+    process_bcct_upload(
+        client_data,
+        bcct_workbook([
+            {"direction": "export", "declaration_type": "E42", "declaration_no": "XK-CREATE-001", "line_no": "1", "item_code": "TP-001", "quantity": "2", "unit": "PCS", "invoice_ref": "INV-CREATE-001"},
+        ]),
+        "bcct.xlsx",
+    )
+    client = TestClient(app)
+
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Declaration create", "case_code": "CO-DECL-CREATE", "destination_market": "Ấn Độ", "invoice_no": "XK-CREATE-001"},
+        follow_redirects=False,
+    )
+    page = client.get(created.headers["location"])
+
+    assert created.status_code == 303
+    assert "Tờ khai XK-CREATE-001" in page.text
+    assert "INV-CREATE-001" in page.text
+    assert "CO-DECL-CREATE" in page.text
+
+
+def test_co_case_create_accepts_export_declaration_without_invoice_ref():
+    client_data = get_client("growatt")
+    process_bcct_upload(
+        client_data,
+        bcct_workbook([
+            {"direction": "export", "declaration_type": "E42", "declaration_no": "XK-NO-INVOICE", "line_no": "1", "item_code": "TP-001", "quantity": "2", "unit": "PCS", "invoice_ref": ""},
+        ]),
+        "bcct.xlsx",
+    )
+    client = TestClient(app)
+
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Declaration only", "case_code": "CO-DECL-ONLY", "destination_market": "Ấn Độ", "export_declaration_nos": "XK-NO-INVOICE"},
+        follow_redirects=False,
+    )
+    page = client.get(f"{created.headers['location']}/exports")
+
+    assert created.status_code == 303
+    assert "Tờ khai XK-NO-INVOICE" in page.text
+    assert "TP-001" in page.text
+    assert "không có invoice_ref" in page.text
+
+
 def test_co_case_page_uses_lightweight_source_summary(monkeypatch):
     from app import portfolio as portfolio_module
     from app import source_store as source_store_module
@@ -3868,6 +3976,7 @@ def test_co_case_create_explains_invoice_market_hint_without_auto_selecting(monk
     assert 'data-market-value="United States"' in page.text
     assert preview["market_inference"]["destination_market"] == "United States"
     assert "unloading_location" in preview["market_inference"]["explanation"]
+    assert "source_reference" not in preview
     assert preview["suggested_forms"][0]["form_code"] == "B"
 
 

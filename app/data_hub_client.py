@@ -7,6 +7,7 @@ from urllib.parse import quote
 import httpx
 
 from app.client_config_store import default_config, migrate_config
+from app.co_case_store import match_case_bcct_exports
 from app.data_hub_settings import data_hub_link_settings
 from app.source_store import (
     co_stock_rows_from_bcct,
@@ -243,7 +244,9 @@ class DataHubPortfolioService:
     def co_case_source_context(self, client: dict, case: dict) -> dict:
         source_summary, source_backend = self.source_summary(client)
         client_config = source_summary["client_config"]
-        invoice_no = case.get("shipment", {}).get("invoice_no", "")
+        shipment = case.get("shipment", {})
+        invoice_no = shipment.get("invoice_no", "")
+        export_declaration_nos = shipment.get("export_declaration_nos", [])
         relevant_types = client_config.get("bcct", {}).get("relevant_export_declaration_types", [])
         material_rows = []
         if hasattr(self.data_hub, "list_materials"):
@@ -255,8 +258,15 @@ class DataHubPortfolioService:
         bcct_rows = []
         if hasattr(self.data_hub, "list_bcct"):
             bcct_rows = [normalize_bcct_row(row) for row in self.data_hub.list_bcct(client["id"])]
-        invoice_matches = self.data_hub.invoice_matches(client["id"], invoice_no, relevant_types) if invoice_no else []
-        invoice_matches = enrich_invoice_matches_with_bcct(invoice_matches, bcct_rows)
+        if export_declaration_nos:
+            invoice_matches = match_case_bcct_exports(
+                case,
+                {"bcct": {"published_rows": bcct_rows}},
+                client_config,
+            )
+        else:
+            invoice_matches = self.data_hub.invoice_matches(client["id"], invoice_no, relevant_types) if invoice_no else []
+            invoice_matches = enrich_invoice_matches_with_bcct(invoice_matches, bcct_rows)
         return {
             "source_backend": source_backend,
             "source_summary": source_summary,

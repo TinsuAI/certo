@@ -27,6 +27,7 @@ from app.co_case_store import (
     co_case_delete_block_reason,
     create_case_record,
     create_case_workbook,
+    declaration_refs,
     delete_case_record,
     get_case_record,
     get_case_workspace,
@@ -1031,12 +1032,14 @@ def invoice_lookup_payload(client: dict, invoice_no: str, query: str = "") -> di
             "market_inference": market_inference_view({"status": "missing", "destination_market": "", "hints": []}),
             "suggested_forms": [],
         }
+    resolved = resolve_shipment_reference(client, invoice_no)
+    lookup_invoice_no = resolved["invoice_no"]
     try:
-        source_context = co_case_source_context(client, {"shipment": {"invoice_no": invoice_no}})
+        source_context = co_case_source_context(client, {"shipment": resolved["shipment"]})
     except Exception as exc:
         return {
             "status": "error",
-            "invoice_no": invoice_no,
+            "invoice_no": lookup_invoice_no,
             "options": options,
             "match_count": 0,
             "matches": [],
@@ -1045,9 +1048,82 @@ def invoice_lookup_payload(client: dict, invoice_no: str, query: str = "") -> di
             "suggested_forms": [],
             "message": f"Không tra được invoice: {exc}",
         }
-    payload = invoice_preview_from_matches(invoice_no, source_context.get("invoice_matches", []))
+    payload = invoice_preview_from_matches(lookup_invoice_no, source_context.get("invoice_matches", []))
     payload["options"] = options
+    if resolved.get("source_reference"):
+        payload["source_reference"] = resolved["source_reference"]
+        payload["source_reference_type"] = resolved["source_reference_type"]
+        payload["reference_label"] = primary_shipment_reference(resolved["shipment"])
+        if not payload.get("invoice_no"):
+            payload["invoice_no"] = resolved["source_reference"]
     return payload
+
+
+def resolve_shipment_reference(client: dict, reference: str, export_declaration_nos: str | list[str] = "") -> dict:
+    reference = str(reference or "").strip()
+    explicit_declarations = declaration_refs(export_declaration_nos)
+    if explicit_declarations:
+        matches = []
+        for declaration in explicit_declarations:
+            matches.extend(declaration_invoice_matches(client, declaration, exact=True, include_invoice=False))
+        invoice_refs = sorted({row.get("invoice_ref", "") for row in matches if row.get("invoice_ref")})
+        invoice_no = reference if reference and not declaration_invoice_matches(client, reference, exact=True, include_invoice=False) else ""
+        if len(invoice_refs) == 1:
+            invoice_no = invoice_no or invoice_refs[0]
+        return {
+            "invoice_no": invoice_no,
+            "export_declaration_nos": explicit_declarations,
+            "source_reference": ", ".join(explicit_declarations),
+            "source_reference_type": "declaration",
+            "shipment": {"invoice_no": invoice_no, "export_declaration_nos": explicit_declarations},
+        }
+    if not reference:
+        return {
+            "invoice_no": "",
+            "export_declaration_nos": [],
+            "source_reference": "",
+            "source_reference_type": "",
+            "shipment": {"invoice_no": "", "export_declaration_nos": []},
+        }
+    matches = declaration_invoice_matches(client, reference, exact=True, include_invoice=False)
+    if matches:
+        invoice_refs = sorted({row["invoice_ref"] for row in matches if row.get("invoice_ref")})
+        invoice_no = invoice_refs[0] if len(invoice_refs) == 1 else ""
+        return {
+            "invoice_no": invoice_no,
+            "export_declaration_nos": [reference],
+            "source_reference": reference,
+            "source_reference_type": "declaration",
+            "shipment": {"invoice_no": invoice_no, "export_declaration_nos": [reference]},
+        }
+    return {
+        "invoice_no": reference,
+        "export_declaration_nos": [],
+        "source_reference": "",
+        "source_reference_type": "",
+        "shipment": {"invoice_no": reference, "export_declaration_nos": []},
+    }
+
+
+def resolve_invoice_reference(client: dict, reference: str) -> dict:
+    resolved = resolve_shipment_reference(client, reference)
+    return {
+        "invoice_no": resolved["invoice_no"],
+        "source_reference": resolved["source_reference"],
+        "source_reference_type": resolved["source_reference_type"],
+    }
+
+
+def primary_shipment_reference(shipment: dict) -> str:
+    declarations = declaration_refs(shipment.get("export_declaration_nos"))
+    if declarations:
+        return "Tờ khai " + ", ".join(declarations)
+    invoice_no = str(shipment.get("invoice_no") or "").strip()
+    return f"Invoice {invoice_no}" if invoice_no else "Chưa nhập"
+
+
+def has_shipment_reference(shipment: dict) -> bool:
+    return bool(str(shipment.get("invoice_no") or "").strip() or declaration_refs(shipment.get("export_declaration_nos")))
 
 
 def invoice_preview_from_matches(invoice_no: str, invoice_matches: list[dict]) -> dict:
@@ -1077,33 +1153,15 @@ def invoice_search_options(client: dict, query: str, limit: int = 10) -> list[di
     query = str(query or "").strip()
     if len(query) < 2:
         return []
-    try:
-        source_workspace, _source_backend = source_workspace_for_client(client)
-    except Exception:
-        return []
-    client_config = source_workspace.get("client_config", {})
-    relevant_types = set(client_config.get("bcct", {}).get("relevant_export_declaration_types", []))
-    query_keys = invoice_keys(query)
-    query_compact = next(iter(query_keys), re.sub(r"[^A-Z0-9]", "", query.upper()))
+    rows = declaration_invoice_matches(client, query, exact=False)
     groups: dict[str, dict] = {}
-    for row in source_workspace.get("bcct", {}).get("published_rows", []):
-        if row.get("direction") != "export":
-            continue
-        if row.get("review_status") not in ("", "reviewed"):
-            continue
-        if relevant_types and row.get("declaration_type") not in relevant_types:
-            continue
-        invoice_ref = str(row.get("invoice_ref") or "").strip()
-        if not invoice_ref:
-            continue
-        row_keys = invoice_keys(invoice_ref)
-        row_compact = re.sub(r"[^A-Z0-9]", "", invoice_ref.upper())
-        if query_compact and query_compact not in row_compact and not query_keys.intersection(row_keys):
-            continue
+    for row in rows:
+        invoice_ref = row.get("invoice_ref", "")
+        option_value = invoice_ref or row.get("declaration_no", "")
         group = groups.setdefault(
-            invoice_ref,
+            option_value,
             {
-                "invoice_no": invoice_ref,
+                "invoice_no": option_value,
                 "row_count": 0,
                 "declarations": set(),
                 "hs_codes": set(),
@@ -1123,10 +1181,47 @@ def invoice_search_options(client: dict, query: str, limit: int = 10) -> list[di
             "invoice_no": group["invoice_no"],
             "row_count": group["row_count"],
             "declaration_count": len(group["declarations"]),
+            "declarations": sorted(group["declarations"])[:4],
             "hs_codes": sorted(group["hs_codes"])[:6],
             "item_codes": sorted(group["item_codes"])[:4],
         })
     return sorted(options, key=lambda row: (-int(row["row_count"]), row["invoice_no"]))[:limit]
+
+
+def declaration_invoice_matches(client: dict, query: str, exact: bool, include_invoice: bool = True) -> list[dict]:
+    query = str(query or "").strip()
+    if len(query) < 2:
+        return []
+    try:
+        source_workspace, _source_backend = source_workspace_for_client(client)
+    except Exception:
+        return []
+    client_config = source_workspace.get("client_config", {})
+    relevant_types = set(client_config.get("bcct", {}).get("relevant_export_declaration_types", []))
+    query_keys = invoice_keys(query)
+    query_compact = next(iter(query_keys), re.sub(r"[^A-Z0-9]", "", query.upper()))
+    matches = []
+    for row in source_workspace.get("bcct", {}).get("published_rows", []):
+        if row.get("direction") != "export":
+            continue
+        if row.get("review_status") not in ("", "reviewed"):
+            continue
+        if relevant_types and row.get("declaration_type") not in relevant_types:
+            continue
+        invoice_ref = str(row.get("invoice_ref") or "").strip()
+        row_keys = invoice_keys(invoice_ref)
+        row_compact = re.sub(r"[^A-Z0-9]", "", invoice_ref.upper())
+        declaration_compact = re.sub(r"[^A-Z0-9]", "", str(row.get("declaration_no") or "").upper())
+        invoice_matches = include_invoice and query_compact and (query_compact in row_compact or bool(query_keys.intersection(row_keys)))
+        declaration_matches = (
+            query_compact == declaration_compact
+            if exact
+            else query_compact and query_compact in declaration_compact
+        )
+        if not invoice_matches and not declaration_matches:
+            continue
+        matches.append({**row, "invoice_ref": invoice_ref})
+    return matches
 
 
 def invoice_match_summary(invoice_matches: list[dict]) -> dict:
@@ -2747,7 +2842,9 @@ def co_case_context(client_id: str, case_id: str = "", current_step: str = "inde
     case.setdefault("persisted_case_id", "")
     case.setdefault("shipment", {"invoice_no": "", "bill_of_lading_no": ""})
     case["shipment"].setdefault("invoice_no", "")
+    case["shipment"]["export_declaration_nos"] = declaration_refs(case["shipment"].get("export_declaration_nos"))
     case["shipment"].setdefault("bill_of_lading_no", "")
+    case["shipment_reference_label"] = primary_shipment_reference(case["shipment"])
     case.setdefault("supporting_files", [])
     if case.get("products") and current_step != "origin":
         case = attach_results(case)
@@ -2822,16 +2919,16 @@ def co_case_step_status(
     invoice_matches = invoice_matches or []
     criteria_rows = criteria_rows or []
     shipment = case.get("shipment", {})
-    has_invoice = bool(shipment.get("invoice_no"))
+    has_reference = has_shipment_reference(shipment)
     has_market = bool(case.get("destination_market") and case.get("destination_market") != "Chưa nhập")
     has_products = bool(case.get("products") or criteria_rows)
     has_bom_snapshot = bool(case.get("bom_snapshot", {}).get("composition"))
     if step_key == "shipment":
-        return "ready" if has_invoice and has_market else "todo"
+        return "ready" if has_reference and has_market else "todo"
     if step_key == "documents":
         return "ready" if case.get("supporting_files") else "todo"
     if step_key == "exports":
-        if not has_invoice:
+        if not has_reference:
             return "todo"
         return "ready" if invoice_matches else "review"
     if step_key == "guidance":
@@ -2847,7 +2944,7 @@ def co_case_step_status(
             return "preview"
         return "todo"
     if step_key == "review":
-        if has_invoice and invoice_matches and has_products:
+        if has_reference and invoice_matches and has_products:
             return "ready"
         return "preview" if has_products else "todo"
     return "todo"
@@ -3235,6 +3332,9 @@ async def co_case_invoice_preview(client_id: str, invoice_no: str = "", q: str =
 async def create_co_case(request: Request, client_id: str):
     client = resolve_client(client_id)
     form = {key: str(value) for key, value in (await request.form()).items()}
+    resolved = resolve_shipment_reference(client, form.get("invoice_no", ""), form.get("export_declaration_nos", ""))
+    form["invoice_no"] = resolved["invoice_no"]
+    form["export_declaration_nos"] = ", ".join(resolved["export_declaration_nos"])
     record = create_case_record(client, form)
     return RedirectResponse(f"/clients/{client_id}/co-case/{record['case_id']}", status_code=303)
 
@@ -3262,6 +3362,7 @@ async def delete_co_case(request: Request, client_id: str, case_id: str):
 async def update_co_case_shipment(request: Request, client_id: str, case_id: str):
     form = {key: str(value) for key, value in (await request.form()).items()}
     client = resolve_client(client_id)
+    resolved = resolve_shipment_reference(client, form.get("invoice_no", ""), form.get("export_declaration_nos", ""))
     update_case_record(
         client,
         {
@@ -3269,7 +3370,8 @@ async def update_co_case_shipment(request: Request, client_id: str, case_id: str
             "id": case_id,
             "persisted_case_id": case_id,
             "shipment": {
-                "invoice_no": form.get("invoice_no", ""),
+                "invoice_no": resolved["invoice_no"],
+                "export_declaration_nos": resolved["export_declaration_nos"],
                 "bill_of_lading_no": form.get("bill_of_lading_no", ""),
             },
         },

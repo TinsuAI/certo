@@ -45,17 +45,20 @@ def create_case_record(client: dict, form: dict[str, str]) -> dict:
         created_at = now_iso()
         case_id = make_id("co-case")
         invoice_no = clean_text(form.get("invoice_no"))
+        export_declaration_nos = declaration_refs(form.get("export_declaration_nos"))
+        case_reference = invoice_no or (export_declaration_nos[0] if export_declaration_nos else "")
         record = {
             "case_id": case_id,
             "client_id": client["id"],
             "title": clean_text(form.get("title")) or f"Hồ sơ C/O {client['name']}",
-            "case_code": clean_text(form.get("case_code")) or generate_case_code(client, invoice_no, created_at, case_id),
+            "case_code": clean_text(form.get("case_code")) or generate_case_code(client, case_reference, created_at, case_id),
             "destination_market": clean_text(form.get("destination_market")) or "Chưa nhập",
             "agreement": clean_text(form.get("agreement")),
             "co_form_type": clean_text(form.get("co_form_type")),
             "rule": clean_text(form.get("rule")),
             "shipment": {
                 "invoice_no": invoice_no,
+                "export_declaration_nos": export_declaration_nos,
                 "bill_of_lading_no": clean_text(form.get("bill_of_lading_no")),
             },
             "supporting_files": [],
@@ -95,6 +98,7 @@ def update_case_record(client: dict, case: dict) -> dict:
         shipment = case.get("shipment", {})
         record.setdefault("shipment", {})
         record["shipment"]["invoice_no"] = clean_text(shipment.get("invoice_no"))
+        record["shipment"]["export_declaration_nos"] = declaration_refs(shipment.get("export_declaration_nos"))
         record["shipment"]["bill_of_lading_no"] = clean_text(shipment.get("bill_of_lading_no"))
         if "products" in case:
             record["products"] = persisted_products(case.get("products", []))
@@ -165,6 +169,7 @@ def acquire_origin_calculation_lock(client: dict, case_id: str, actor: dict | No
             "case_code": case_record.get("case_code", case_id),
             "case_title": case_record.get("title", ""),
             "invoice_no": (case_record.get("shipment") or {}).get("invoice_no", ""),
+            "export_declaration_nos": declaration_refs((case_record.get("shipment") or {}).get("export_declaration_nos")),
             "actor_id": clean_text(actor.get("id") or actor.get("user_id") or "local"),
             "actor_label": clean_text(actor.get("label") or actor.get("name") or actor.get("email") or "Local user"),
             "acquired_at": existing.get("acquired_at") or now.isoformat(),
@@ -316,10 +321,13 @@ def get_supporting_file(client: dict, case_id: str, upload_id: str) -> tuple[dic
 
 
 def match_case_bcct_exports(case: dict, source_workspace: dict, client_config: dict) -> list[dict]:
-    invoice_no = clean_text(case.get("shipment", {}).get("invoice_no"))
-    if not invoice_no:
+    shipment = case.get("shipment", {})
+    invoice_no = clean_text(shipment.get("invoice_no"))
+    declaration_nos = declaration_refs(shipment.get("export_declaration_nos"))
+    if not invoice_no and not declaration_nos:
         return []
     invoice_tokens = invoice_keys(invoice_no)
+    declaration_tokens = {re.sub(r"[^A-Z0-9]", "", ref.upper()) for ref in declaration_nos}
     relevant_types = set(client_config.get("bcct", {}).get("relevant_export_declaration_types", []))
     matches = []
     for row in source_workspace["bcct"]["published_rows"]:
@@ -330,7 +338,26 @@ def match_case_bcct_exports(case: dict, source_workspace: dict, client_config: d
         if relevant_types and row.get("declaration_type") not in relevant_types:
             continue
         row_tokens = invoice_keys(row.get("invoice_ref", ""))
-        if not invoice_tokens.intersection(row_tokens):
+        row_declaration = re.sub(r"[^A-Z0-9]", "", clean_text(row.get("declaration_no")).upper())
+        declaration_match = bool(declaration_tokens and row_declaration in declaration_tokens)
+        invoice_match = bool(invoice_tokens and invoice_tokens.intersection(row_tokens))
+        if declaration_tokens:
+            if not declaration_match:
+                continue
+            match_source = "declaration"
+        else:
+            if not invoice_match:
+                continue
+            match_source = "invoice"
+        invoice_mismatch = bool(declaration_match and invoice_tokens and row_tokens and not invoice_match)
+        warning = ""
+        if invoice_mismatch:
+            warning = f"Invoice nhập {invoice_no} không khớp invoice trên tờ khai {row.get('invoice_ref', '')}."
+        elif declaration_match and invoice_tokens and not row_tokens:
+            warning = f"Tờ khai {row.get('declaration_no', '')} không có invoice_ref để đối chiếu với invoice nhập {invoice_no}."
+        if declaration_match and not invoice_no and not clean_text(row.get("invoice_ref")):
+            warning = f"Tờ khai {row.get('declaration_no', '')} không có invoice_ref."
+        if not declaration_match and not invoice_match:
             continue
         matches.append({
             "declaration_no": row.get("declaration_no", ""),
@@ -346,6 +373,9 @@ def match_case_bcct_exports(case: dict, source_workspace: dict, client_config: d
             "currency": row.get("currency", ""),
             "invoice_ref": row.get("invoice_ref", ""),
             "transaction_key": row.get("transaction_key", ""),
+            "match_source": match_source,
+            "invoice_mismatch": invoice_mismatch,
+            "reference_warning": warning,
         })
     return matches
 
@@ -376,6 +406,7 @@ def create_case_workbook(case: dict, form_candidates: list[dict], invoice_matche
     case_sheet.append(["Customer", case.get("customer", "")])
     case_sheet.append(["Destination market", case.get("destination_market", "")])
     case_sheet.append(["Invoice", case.get("shipment", {}).get("invoice_no", "")])
+    case_sheet.append(["Export declarations", ", ".join(declaration_refs(case.get("shipment", {}).get("export_declaration_nos")))])
     case_sheet.append(["Bill of lading", case.get("shipment", {}).get("bill_of_lading_no", "")])
 
     files_sheet = workbook.create_sheet("Supporting Files")
@@ -390,7 +421,7 @@ def create_case_workbook(case: dict, form_candidates: list[dict], invoice_matche
         ])
 
     matches_sheet = workbook.create_sheet("BCCT Invoice Matches")
-    matches_sheet.append(["Declaration", "Line", "Type", "Item code", "HS", "Quantity", "Unit", "Invoice"])
+    matches_sheet.append(["Declaration", "Line", "Type", "Item code", "HS", "Quantity", "Unit", "Invoice", "Match source", "Warning"])
     for row in invoice_matches:
         matches_sheet.append([
             row.get("declaration_no", ""),
@@ -401,6 +432,8 @@ def create_case_workbook(case: dict, form_candidates: list[dict], invoice_matche
             row.get("quantity", ""),
             row.get("unit", ""),
             row.get("invoice_ref", ""),
+            row.get("match_source", ""),
+            row.get("reference_warning", ""),
         ])
 
     guidance_sheet = workbook.create_sheet("Form Guidance")
@@ -704,6 +737,19 @@ def invoice_keys(value: str) -> set[str]:
     return {part for part in {compact, *parts} if part}
 
 
+def declaration_refs(value) -> list[str]:
+    if isinstance(value, list):
+        raw_values = value
+    else:
+        raw_values = re.split(r"[,;/\s]+", clean_text(value))
+    refs = []
+    for raw in raw_values:
+        ref = clean_text(raw)
+        if ref and ref not in refs:
+            refs.append(ref)
+    return refs
+
+
 def extract_invoice_hint(filename: str) -> str:
     text = clean_text(filename).upper()
     match = re.search(r"(INV[-_A-Z0-9.]+)", text)
@@ -742,6 +788,9 @@ def normalize_state(client_id: str, state: dict) -> dict:
     for case in state["cases"]:
         case.setdefault("supporting_files", [])
         case.setdefault("shipment", {})
+        case["shipment"].setdefault("invoice_no", "")
+        case["shipment"]["export_declaration_nos"] = declaration_refs(case["shipment"].get("export_declaration_nos"))
+        case["shipment"].setdefault("bill_of_lading_no", "")
         for file_row in case["supporting_files"]:
             original_filename = file_row.get("original_filename") or file_row.get("filename", "")
             stored_path = file_row.get("stored_path", "")

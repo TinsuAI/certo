@@ -7,7 +7,7 @@ import mimetypes
 from pathlib import Path
 from typing import Any
 
-from app.co_case_store import invoice_keys
+from app.co_case_store import declaration_refs, invoice_keys
 from app.database import DATABASE_URL_ENV, apply_migrations, connect, database_url
 
 
@@ -642,7 +642,52 @@ class PostgresSourceIndexStore:
                 )
                 return [dict(row[0]) for row in cursor.fetchall()]
 
-    def match_bcct_exports(self, client_id: str, invoice_no: str, relevant_types: list[str]) -> list[dict]:
+    def match_bcct_exports(
+        self,
+        client_id: str,
+        invoice_no: str,
+        relevant_types: list[str],
+        export_declaration_nos: list[str] | str | None = None,
+    ) -> list[dict]:
+        declarations = declaration_refs(export_declaration_nos or [])
+        if declarations:
+            params: list[Any] = [client_id]
+            type_clause = ""
+            if relevant_types:
+                type_clause = "and b.declaration_type = any(%s)"
+                params.append(relevant_types)
+            params.append(declarations)
+            with self._connect() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        f"""
+                        select b.payload
+                        from bcct_rows b
+                        where b.client_id = %s
+                          and b.direction = 'export'
+                          and b.review_status = 'reviewed'
+                          {type_clause}
+                          and b.payload->>'declaration_no' = any(%s)
+                        order by b.payload->>'declaration_no', b.payload->>'line_no', b.payload->>'item_code'
+                        """,
+                        params,
+                    )
+                    rows = [dict(row[0]) for row in cursor.fetchall()]
+            invoice_tokens = invoice_keys(invoice_no)
+            for row in rows:
+                row_tokens = invoice_keys(row.get("invoice_ref", ""))
+                invoice_mismatch = bool(invoice_tokens and row_tokens and not invoice_tokens.intersection(row_tokens))
+                row["match_source"] = "declaration"
+                row["invoice_mismatch"] = invoice_mismatch
+                if invoice_mismatch:
+                    row["reference_warning"] = (
+                        f"Invoice nhập {invoice_no} không khớp invoice trên tờ khai {row.get('invoice_ref', '')}."
+                    )
+                elif invoice_tokens and not row_tokens:
+                    row["reference_warning"] = (
+                        f"Tờ khai {row.get('declaration_no', '')} không có invoice_ref để đối chiếu với invoice nhập {invoice_no}."
+                    )
+            return rows
         keys = sorted(invoice_keys(invoice_no))
         if not keys:
             return []

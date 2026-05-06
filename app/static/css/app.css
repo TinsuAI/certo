@@ -1012,6 +1012,10 @@ small,
   gap: 0.56rem;
 }
 
+.co-overview-create .invoice-lookup:has(.invoice-preview-summary) {
+  grid-column: 1 / -1;
+}
+
 .co-overview-create .co-optional-fields {
   grid-column: 1 / -1;
 }
@@ -1154,8 +1158,10 @@ small,
 
 .invoice-preview-summary {
   display: grid;
-  grid-template-columns: minmax(220px, 0.9fr) minmax(280px, 1.1fr) minmax(220px, 0.95fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
   gap: 0.62rem 0.8rem;
+  width: 100%;
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 0.72rem;
@@ -1285,8 +1291,9 @@ small,
 .invoice-preview-lines {
   display: grid;
   grid-column: 1 / -1;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
   gap: 0 1rem;
+  min-width: 0;
   border-top: 0;
 }
 
@@ -1294,6 +1301,7 @@ small,
   display: grid;
   grid-template-columns: minmax(6rem, auto) minmax(0, 1fr);
   gap: 0.12rem 0.6rem;
+  min-width: 0;
   border-bottom: 1px solid var(--border);
   padding: 0.34rem 0;
 }

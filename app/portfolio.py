@@ -121,13 +121,19 @@ class PortfolioService:
     def co_case_source_context(self, client: dict, case: dict) -> dict:
         client_config = self.get_client_config(client)
         store = get_source_index_store()
-        invoice_no = case.get("shipment", {}).get("invoice_no", "")
+        shipment = case.get("shipment", {})
+        invoice_no = shipment.get("invoice_no", "")
+        export_declaration_nos = shipment.get("export_declaration_nos", [])
         if store and store.has_client(client["id"]):
             relevant_types = client_config.get("bcct", {}).get("relevant_export_declaration_types", [])
+            try:
+                invoice_matches = store.match_bcct_exports(client["id"], invoice_no, relevant_types, export_declaration_nos)
+            except TypeError:
+                invoice_matches = store.match_bcct_exports(client["id"], invoice_no, relevant_types)
             return {
                 "source_backend": "postgres",
                 "source_summary": store.source_summary(client["id"], client_config),
-                "invoice_matches": store.match_bcct_exports(client["id"], invoice_no, relevant_types),
+                "invoice_matches": invoice_matches,
                 "material_rows": store.catalog_rows(client["id"], "material_catalog") if hasattr(store, "catalog_rows") else [],
                 "stock_rows": store.co_stock_rows(client["id"]) if hasattr(store, "co_stock_rows") else [],
             }

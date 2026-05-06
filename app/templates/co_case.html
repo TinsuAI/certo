@@ -221,8 +221,8 @@
 <section class="zone co-command-bar" aria-label="Luồng làm C/O">
   <div>
     <span class="eyebrow">Làm hồ sơ C/O</span>
-    <h2>Tạo hồ sơ từ invoice</h2>
-    <p class="meta">Quy trình làm C/O: nhập invoice, chọn thị trường; hệ thống gợi ý form, thông tư và tiêu chí HS sau khi đối chiếu BCCT xuất khẩu.</p>
+    <h2>Tạo hồ sơ từ invoice hoặc tờ khai</h2>
+    <p class="meta">Quy trình làm C/O: nhập invoice hoặc số tờ khai xuất, chọn thị trường; hệ thống gợi ý form, thông tư và tiêu chí HS sau khi đối chiếu BCCT xuất khẩu.</p>
   </div>
   <ol class="co-flow-mini">
     <li><strong>1</strong><span>Invoice</span></li>
@@ -238,10 +238,13 @@
       <div>
         <span class="eyebrow">Tạo hồ sơ</span>
         <h2>Tạo hoặc mở hồ sơ</h2>
-        <p class="meta">Chỉ cần invoice và thị trường để bắt đầu. Form ưu tiên: B, CPTPP, EUR.1, AI.</p>
+        <p class="meta">Chỉ cần invoice hoặc số tờ khai xuất và thị trường để bắt đầu. Form ưu tiên: B, CPTPP, EUR.1, AI.</p>
       </div>
       <form method="post" action="/clients/{{ client.id }}/co-case/create" class="co-create-form co-create-flow" hx-boost="false">
-        {{ invoice_lookup("create-invoice-no", case.shipment.invoice_no, true) }}
+        {{ invoice_lookup("create-invoice-no", case.shipment.invoice_no, false) }}
+        <label>Số tờ khai xuất
+          <input name="export_declaration_nos" placeholder="Có thể nhập nhiều số, cách nhau dấu phẩy" value="{{ case.shipment.export_declaration_nos|join(', ') }}">
+        </label>
         {{ market_picker("create-destination-market", "" if case.destination_market == "Chưa nhập" else case.destination_market) }}
         <input type="hidden" name="co_form_type" value="{{ recommended_form_lane.display_name if case.destination_market != 'Chưa nhập' else '' }}" data-selected-form>
         <input type="hidden" name="agreement" value="{{ recommended_form_lane.agreement if case.destination_market != 'Chưa nhập' else '' }}" data-selected-agreement>
@@ -323,10 +326,11 @@
         <span></span>
       </div>
       {% for dossier in case_workspace.cases %}
-      {% set dossier_status = 'missing-invoice' if not dossier.shipment.invoice_no else 'missing-bill' if not dossier.shipment.bill_of_lading_no else 'has-products' if dossier.products else 'needs-origin' %}
+      {% set dossier_reference = ('Tờ khai ' ~ dossier.shipment.export_declaration_nos|join(', ')) if dossier.shipment.export_declaration_nos else ('Invoice ' ~ dossier.shipment.invoice_no if dossier.shipment.invoice_no else 'Chưa nhập') %}
+      {% set dossier_status = 'missing-invoice' if not dossier.shipment.invoice_no and not dossier.shipment.export_declaration_nos else 'missing-bill' if not dossier.shipment.bill_of_lading_no else 'has-products' if dossier.products else 'needs-origin' %}
       <div class="dossier-row co-dossier-row"
         data-case-row
-        data-case-search="{{ (dossier.case_code ~ ' ' ~ dossier.title ~ ' ' ~ dossier.shipment.invoice_no ~ ' ' ~ dossier.destination_market ~ ' ' ~ dossier.co_form_type ~ ' ' ~ dossier.shipment.bill_of_lading_no)|lower }}"
+        data-case-search="{{ (dossier.case_code ~ ' ' ~ dossier.title ~ ' ' ~ dossier.shipment.invoice_no ~ ' ' ~ dossier.shipment.export_declaration_nos|join(' ') ~ ' ' ~ dossier.destination_market ~ ' ' ~ dossier.co_form_type ~ ' ' ~ dossier.shipment.bill_of_lading_no)|lower }}"
         data-case-status="{{ dossier_status }}"
         data-case-market="{{ dossier.destination_market|lower }}"
         data-case-form="{{ (dossier.co_form_type or '')|lower }}">
@@ -337,7 +341,7 @@
         </div>
         <div>
           <span>Invoice</span>
-          <strong class="mono">{{ dossier.shipment.invoice_no or 'Chưa nhập' }}</strong>
+          <strong class="mono">{{ dossier_reference }}</strong>
         </div>
         <div>
           <span>Thị trường</span>
@@ -411,7 +415,7 @@
     <div>
       <span class="eyebrow">Hồ sơ theo lô hàng</span>
       <h2>{{ case.case_code }}</h2>
-      <p class="meta">{{ case.title }} · {{ case.destination_market }} · invoice {{ case.shipment.invoice_no or 'n/a' }} · B/L: {{ case.shipment.bill_of_lading_no or 'n/a' }}</p>
+      <p class="meta">{{ case.title }} · {{ case.destination_market }} · {{ case.shipment_reference_label }} · B/L: {{ case.shipment.bill_of_lading_no or 'n/a' }}</p>
     </div>
     <a class="btn-secondary" href="/clients/{{ client.id }}/co-case">Đổi hồ sơ</a>
   </div>
@@ -450,10 +454,10 @@
   <div class="zone-head">
     <div>
       <h2>Thông tin lô hàng</h2>
-      <p class="meta">Nhập invoice và thị trường trước; các bước sau sẽ tự dùng context này để load BCCT, gợi ý form và dựng bảng tính tiêu chí.</p>
+      <p class="meta">Nhập invoice hoặc số tờ khai xuất và thị trường trước; các bước sau sẽ tự dùng context này để load BCCT, gợi ý form và dựng bảng tính tiêu chí.</p>
     </div>
     <div class="chip-row">
-      <span class="chip">Invoice {{ case.shipment.invoice_no or 'chưa nhập' }}</span>
+      <span class="chip">{{ case.shipment_reference_label }}</span>
       <span class="chip">Thị trường {{ case.destination_market }}</span>
     </div>
   </div>
@@ -464,6 +468,9 @@
         <input name="case_code" value="{{ case.case_code }}">
       </label>
       {{ invoice_lookup("shipment-invoice-no", case.shipment.invoice_no, false, invoice_lookup_preview) }}
+      <label>Số tờ khai xuất
+        <input name="export_declaration_nos" value="{{ case.shipment.export_declaration_nos|join(', ') }}">
+      </label>
       {{ market_picker("shipment-destination-market", "" if case.destination_market == "Chưa nhập" else case.destination_market) }}
       <input type="hidden" name="co_form_type" value="{{ recommended_form_lane.display_name if case.destination_market != 'Chưa nhập' else '' }}" data-selected-form>
       <input type="hidden" name="agreement" value="{{ recommended_form_lane.agreement if case.destination_market != 'Chưa nhập' else '' }}" data-selected-agreement>
@@ -557,8 +564,8 @@
 <section class="zone" id="invoice-matches">
   <div class="zone-head">
     <div>
-      <h2>BCCT xuất khẩu theo invoice</h2>
-      <p class="meta">Chỉ lấy dòng BCCT xuất khẩu đã publish và đúng loại hình export đang cấu hình cho công ty.</p>
+      <h2>BCCT xuất khẩu theo tham chiếu hồ sơ</h2>
+      <p class="meta">Ưu tiên khớp theo tờ khai xuất nếu có; nếu không thì khớp theo invoice. Chỉ lấy dòng BCCT xuất khẩu đã publish và đúng loại hình export đang cấu hình cho công ty.</p>
     </div>
   </div>
   <div class="table-scroll">
@@ -572,6 +579,7 @@
           <th>HS</th>
           <th>Số lượng</th>
           <th>Invoice</th>
+          <th>Cảnh báo</th>
         </tr>
       </thead>
       <tbody>
@@ -584,9 +592,10 @@
           <td class="mono">{{ row.hs_code }}</td>
           <td class="num">{{ row.quantity }} {{ row.unit }}</td>
           <td class="mono">{{ row.invoice_ref }}</td>
+          <td>{{ row.reference_warning or '' }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="empty-cell">Chưa có dòng BCCT xuất khẩu khớp invoice.</td></tr>
+        <tr><td colspan="8" class="empty-cell">Chưa có dòng BCCT xuất khẩu khớp tham chiếu hồ sơ.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -682,13 +691,13 @@
   <div class="zone-head">
     <div>
       <h2>Bảng tính tiêu chí C/O</h2>
-      <p class="meta">Bảng tiêu chí do hệ thống tính từ invoice, BCCT xuất khẩu, form/thông tư và BOM snapshot. Operator không upload bảng tiêu chí thủ công.</p>
+      <p class="meta">Bảng tiêu chí do hệ thống tính từ tham chiếu hồ sơ, BCCT xuất khẩu, form/thông tư và BOM snapshot. Operator không upload bảng tiêu chí thủ công.</p>
     </div>
   </div>
   <div class="origin-source-strip">
     <div>
-      <span>Invoice</span>
-      <strong class="mono">{{ case.shipment.invoice_no or 'Chưa nhập' }}</strong>
+      <span>Tham chiếu</span>
+      <strong class="mono">{{ case.shipment_reference_label }}</strong>
     </div>
     <div>
       <span>{{ 'Demo' if origin_demo_active else 'BCCT khớp' }}</span>
@@ -735,6 +744,7 @@
   <input type="hidden" name="co_form_type" value="{{ recommended_form_lane.display_name or case.co_form_type }}">
   <input type="hidden" name="rule" value="{{ case.rule }}">
   <input type="hidden" name="invoice_no" value="{{ case.shipment.invoice_no }}">
+  <input type="hidden" name="export_declaration_nos" value="{{ case.shipment.export_declaration_nos|join(', ') }}">
   <input type="hidden" name="bill_of_lading_no" value="{{ case.shipment.bill_of_lading_no }}">
   <input type="hidden" name="mode" value="{{ case.mode }}">
   <input type="hidden" name="mode_note" value="{{ case.mode_note }}">
@@ -1265,7 +1275,7 @@
     optionsPanel.innerHTML = options.map((option) => `
       <button type="button" data-invoice-option data-invoice-value="${escapeHtml(option.invoice_no)}">
         <span class="mono">${escapeHtml(option.invoice_no)}</span>
-        <small>${option.row_count || 0} dòng · ${option.declaration_count || 0} tờ khai · HS ${escapeHtml((option.hs_codes || []).join(", ") || "chưa có")}</small>
+        <small>${option.row_count || 0} dòng · ${option.declaration_count || 0} tờ khai${(option.declarations || []).length ? ` (${escapeHtml((option.declarations || []).join(", "))})` : ""} · HS ${escapeHtml((option.hs_codes || []).join(", ") || "chưa có")}</small>
       </button>
     `).join("");
     optionsPanel.classList.toggle("is-open", options.length > 0 && document.activeElement === input);
@@ -1326,11 +1336,13 @@
         `).join("")}
       </div>
     ` : "";
+    const sourceReference = payload.source_reference ? ` · từ tờ khai ${escapeHtml(payload.source_reference)}` : "";
+    const referenceLabel = payload.reference_label || payload.invoice_no;
     previewPanel.innerHTML = `
       <div class="invoice-preview-summary invoice-preview-${escapeHtml(payload.status)}">
         <div class="invoice-preview-head">
-          <span class="mono">${escapeHtml(payload.invoice_no)}</span>
-          <strong>${payload.status === "found" ? `${payload.match_count || 0} dòng BCCT xuất khẩu` : "Chưa thấy dòng BCCT khớp"}</strong>
+          <span class="mono">${escapeHtml(referenceLabel)}</span>
+          <strong>${payload.status === "found" ? `${payload.match_count || 0} dòng BCCT xuất khẩu${sourceReference}` : "Chưa thấy dòng BCCT khớp"}</strong>
         </div>
         ${facts}
         <div class="invoice-market-hint invoice-market-${escapeHtml(inference.status)}">
