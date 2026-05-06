@@ -1,149 +1,178 @@
 # Project Status
 
-**Date:** 2026-05-05 (handoff after BOM v3 redesign + local re-ingest)
+**Date:** 2026-05-06 — BOM version UI polish (parent label + Lineage panel)
 
 ## Current State
 
-**Latest:** BOM v3 architecture (3 shapes + resolution profiles) designed
-across 3 critic rounds; **local DB wiped + re-ingested with v3 schema**.
-Demo at ttdatahub.tinsu.ai still on OLD schema — redeploy deferred.
+Local code: BOM version pages now show **human-readable parent labels**
+(`v#·shape·variant`, click-through) and a **Lineage panel** in the
+detail view (ancestors → THIS → descendants, cycle-safe walker). All
+rendering moved off inline styles into `static/css/app.css` +
+`clients/_bom_macros.html` shared macros.
 
-- **Demo URL**: https://ttdatahub.tinsu.ai (Cloudflare tunnel →
-  Compose on `tinsu` VPS). **Still on old schema/data — needs redeploy.**
-- **Login**: `admin@data-hub.local` / `sS3EZgj9lf5b741`.
-- **Repo HEAD (uncommitted v3 work)**: migration 030, bom_shape helper,
-  6 new scripts, BACKLOG + 3 memory files. **Not committed yet.**
-- **Tests local**: 471 passed, 1 fail, 15 skipped. Failure is real-data
-  dependent (`tests/test_co_columns.py` references DKE BCCT not
-  re-ingested). NOT introduced by code changes.
-- **Local DB v3 state**: 5 production clients (growatt-vn, johnson-vn,
-  dke, do-thanh, demo-precision); 446 materials (278 nvl + 148 btp_sx
-  + 20 tp); 285 manual_flat + 139 technical_raw BOMs across 4 batches
-  with distinct `bom_variant_id`s; 47k edges; 3.2k BCCT rows; 3.1k
-  BQD mappings; bom_resolution_profiles table empty (Phase 3+4 use).
-- **Backups**: `/tmp/data_hub_pre_v3/{local,docker}.sql` + files tarball.
+- **Demo URL**: https://ttdatahub.tinsu.ai
+- **Login**: `admin@data-hub.local` / `sS3EZgj9lf5b741`
+- **Repo HEAD**: `2d9dbfb` on `main` — **NOT yet pushed** to origin
+  (CI/CD will not have run; demo schema/code still at last push
+  `8e77996`).
+- **Recent commits**:
+  - `2d9dbfb` feat(bom): human parent labels + lineage panel
+  - `8e77996` docs(backlog): UI BOM upload deferred to Phase 3
+  - `6784762` fix(bom): tp_roots + first_seen + demote guard
+  - `11409c3` fix(bom): BTP detection covers Johnson-shape
+  - `d2899f1` feat(bom): v3 3-shape model + supplier-batch ingest
+- **Tests**: 57 BOM tests pass (4.2s); full suite not re-run this
+  session — last full run from prior session was 471 pass / 1 fail
+  (real-data, deselected) / 15 skip.
+- **Local DB v3 state** (unchanged from 2026-05-05):
+  - Growatt: 451 materials, 23,080 BCCT, 606 alive `bom_versions` in
+    6 variants.
+  - Johnson: 11,129 materials, 52,224 BCCT, 246 alive `bom_versions`.
+  - DKE: 242 BQD only. Do Thanh, demo-precision: empty.
+- **Demo data still OLD** — schema+code on demo at `8e77996`; no data
+  re-ingest performed remotely. This was deferred from 2026-05-05
+  session and remains the #1 next priority.
 
-**Earlier this date — v3 design + investigation:**
+## Recent Changes (this session)
 
-- Audited Growatt SD/SA: v1 manual_flat = v2 technical_raw rolled to
-  BTP boundary (32/41 products match 100%).
-- 3 critic rounds redesigned BOM handling: drop variant
-  pre-materialization, add resolver-on-demand + profiles, distinct
-  `bom_variant_id` per supplier batch. Memory locked: BOMs are
-  immutable in DB (append-only + tombstone, never DELETE).
-- Phase A cutover (~5 min downtime local): drop+recreate+migrate.
-- Phase B re-ingest: 4 raw batches via batch script, curated XLSX
-  via direct ingest (smoke_real_uploads blocked by mapping-flow
-  UI gate), bootstrap BTP + catalog-from-BCCT scripts.
+See `.ai/sessions/2026-05-06-bom-version-lineage-ui.md` for full
+narrative. One commit (`2d9dbfb`) + uncommitted doc/memory/backlog
+updates.
 
-**Still in scope from prior session — `data_promotion` feature**
-(commit `ea34c9d`):
+**Committed (`2d9dbfb`):**
 
-- `app/data_promotion.py` — per-client export/import library
-- `scripts/export_client.py`, `scripts/onboard_client.py --from-export`,
-  `scripts/smoke_roundtrip_client.py`
-- `app/seed_master_data.py` — `DATA_HUB_REFERENCE_DATA_MODE` env flag
-- 22 unit tests + 1 real-data round-trip on growatt-vn passed
+- `app/stores/bom.py` — `list_versions_for_product` self-joins parent;
+  new `get_lineage_for_version()` walker (cycle-safe via `seen` set
+  seeded with self, `max_depth=12` with `truncated` flag, surfaces
+  `missing_parent_id` when chain breaks at a deleted ancestor).
+- `app/routes/bom.py` — derives `version["bom_shape"]` once in route
+  via `bom_shape()` helper; passes lineage to detail template.
+- `app/templates/clients/bom_versions.html` — parent column renders
+  `[v#] [shape_badge] · variant` link; `(deleted)` marker if parent
+  row gone.
+- `app/templates/clients/bom_version_detail.html` — Lineage panel
+  with ancestors → THIS (highlighted) → descendants; "forked from"
+  header uses human label.
+- `app/templates/clients/_bom_macros.html` (new) — `shape_badge` +
+  `lineage_node` macros shared across both templates.
+- `app/static/css/app.css` — `.badge-shape-*`, `.lineage-panel`,
+  `.lineage-node`, `.lineage-node--current`, etc.
+- `.ai/features/2026-05-06-bom-v3-ui-smoke/` — playwright smoke
+  harness (`ui_smoke.py`) + 8 committed screenshots verifying
+  Growatt SD00.0010600 + Johnson MFW0502-571.
+- One round of `/rev` + 7 follow-up fixes (3 Important + 4 Minor)
+  done in same commit. See session log.
 
-**New this session — `data_promotion` feature** (commit `ea34c9d`):
+**Uncommitted (docs + memory + backlog only):**
 
-- `app/data_promotion.py` — per-client export/import library
-- `scripts/export_client.py` — CLI to bundle one client → tar.gz
-- `scripts/onboard_client.py --from-export` — replace-mode import
-- `scripts/smoke_roundtrip_client.py` — real-data smoke (mandatory
-  before releases that touch data_promotion)
-- `app/seed_master_data.py` — `DATA_HUB_REFERENCE_DATA_MODE` env
-  flag (`oneshot` / `upsert` / `migration_only`)
-- 22 unit tests + 1 real-data round-trip on growatt-vn passed
-
-**`--from-excel` is stubbed** (NotImplementedError); deferred to a
-follow-up session — needs to drive `app/parsers/{bcct,materials,bom}.py`
-through the same flow as the UI upload route.
+- `.ai/BACKLOG.md` — added "Modular BOM ingest adapters (per supplier
+  shape)" entry. Captures Growatt vs Johnson divergence as an
+  ingestion gap, not architectural. Includes `derive_btp_shallows.py`
+  spec + adapter registry plan. Bundle with Phase 3.
+- Memory `project_bom_3_shapes.md` (NEW) — canonical raw_graph /
+  shallow / full_flat definitions + worked example. AI repeatedly
+  mis-stated the shallow rule (claimed it never reaches NVL); rule
+  is depth-agnostic, stops at first leaf which can be NVL OR BTP.
+- Memory `feedback_bundle_rev_fixes.md` (REFINED) — corrected to
+  "present all findings including weak ones (labeled), don't self-
+  defer; user certifies, default is bundle-execute". User pushed
+  back on the original "punch list" framing.
+- `.ai/sessions/2026-05-06-bom-version-lineage-ui.md` — extended
+  with Post-Commit Discussion section.
 
 ## Next Steps
 
-In priority order:
+In priority order (item 1 carried forward from 2026-05-05; rest
+unchanged unless noted):
 
-0. **Demo redeploy to tinsu (CRITICAL).** Local v3 verified; demo on
-   OLD schema. Steps: ssh.exe to tinsu, git pull (after committing v3
-   work), docker compose down + build, run migrations or wipe+migrate,
-   run setup_clients_for_reingest.py + ingest_technical_raw_batch.py
-   for 4 batches + ingest_curated_xlsx_direct.py + bootstrap scripts.
-   Estimated 60-90 min downtime per critic R3 finding 5. Pre-announce.
-   Source files for batch ingest: `~/workspace/client/barry-CO-data/`
-   needs to be present on tinsu, OR symlink/scp into place first.
-0a. **Commit the v3 work first** before deploying. Current uncommitted:
-   migration 030, bom_shape helper, data_promotion.py update, 6 new
-   scripts, .ai/BACKLOG.md "aggregate-data git-history" item, .ai/
-   sessions/2026-05-05-bom-v3-redesign-and-reingest.md.
+1. **Push `2d9dbfb` to origin** — quick win, lets CI/CD deploy the
+   UI polish to demo even before data parity. ~5 min.
+2. **Demo data parity** — demo has v3 schema but old data. Choose:
+   - (a) `pg_dump` local data_hub → scp to tinsu → restore. ~30 min.
+     Loses audit chain on tinsu (history triggers re-fire on insert).
+   - (b) scp source XLSX corpus to tinsu (~vài GB) → run scripts
+     there. ~2-4h. Reproduces audit chain locally on tinsu.
+   - Recommendation: (a) for pre-MVP demo; (b) when real customer
+     onboards.
+3. **Phase 3 — resolver + profiles + sourcing_choice intent**.
+   Estimate 25-35h per critic. Bundle UI BOM upload v3 wiring
+   (`.ai/BACKLOG.md` "UI BOM upload — wire up v3 concepts") AND
+   modular ingest adapters (`.ai/BACKLOG.md` "Modular BOM ingest
+   adapters"). Also chốt vào Phase 3: where `derive_btp_shallows.py`
+   lives — adapter post-ingest hook vs resolver on-demand.
+4. **`detect_dual_source_btps.py`** — small script to flag BTPs
+   appearing in BCCT imports as `btp_sourcing='dual_source'`.
+5. **`docs/release-engineering.md`** updates — document mode-aware
+   reference data + the v3 ingest pipeline as standard ops procedures.
+6. **Sister-repo standards adoption** (carry-over) — CO and BCQT
+   need `docs/release-engineering.md`, `.standards-version v2026.05.05`,
+   `AGENTS.md` "Standards" section.
+7. **Restore `bom_proposal_mode='auto'`** for Growatt+Johnson when
+   ready (currently `manual` from re-ingest window).
+8. **Cleanup stale upload state** — 24 file_uploads in
+   mapping_pending / pending_preview from old smoke runs.
 
-1. **Set `DATA_HUB_REFERENCE_DATA_MODE=upsert` on tinsu Compose**
-   so YAML edits in `data/seeds/*.yaml` propagate to demo on the
-   next deploy. Add to `docker-compose.yml` env passthrough +
-   `.env.example`. Currently unset → defaults to `oneshot` (the
-   feature exists but isn't wired into the demo deploy yet).
-2. **Sister-repo adoption of standards** (carry-over from prior
-   handoff; still not done). CO and BCQT need
-   `docs/release-engineering.md`, `.standards-version v2026.05.05`,
-   AGENTS.md "Standards" section.
-3. **`--from-excel` onboarding** (`scripts/onboard_client.py`).
-   Highest-risk slice in the data-promotion feature; the unit-test
-   strategy needs real-data fixtures from
-   `.ai/features/2026-05-03-source-data-inventory/`.
-4. **`docs/release-engineering.md`** — update §4 (mode-aware C2)
-   and add new §8 (promotion runbook). Brief commits to this; not
-   done.
-5. **Mark `scripts/feed_demo_company.py` deprecated** in its
-   docstring (Playwright UI driver is superseded by the future
-   `--from-excel` CLI). Keep the file for archive references.
-6. **Open product items** from prior handoff:
-   - **P1**: `GET /version` + `VERSION`/`GIT_SHA` build args.
-   - **P2**: bump `pyproject.toml` 0.1.0 → 0.2.0; cut first tag.
-   - **P3**: GHCR push when 2nd deploy host appears.
-   - **P5/P6**: Tier-2 backup uplift before first paying customer.
-   - **P7**: branch protection on `main` (needs Pro plan).
+## Blockers
+
+None hard. Soft (carried over):
+- 14 orphan BTPs Growatt (data quality — staff classify when TP
+  context arrives).
+- T1-T2/2026 BCCT for Growatt missing (agency hasn't supplied file).
 
 ## Notes for Next AI Session
 
-- **Real-data smoke is the release ritual for `data_promotion`.**
-  Run `uv run python scripts/smoke_roundtrip_client.py growatt-vn`
-  before tagging any release that touches the feature. The 5-round
-  review history (in `.ai/features/2026-05-04-data-promotion/brief.md`)
-  shows that 2 critical bugs (`file_uploads` SET-NULL FK,
-  `bcct_row_history` trigger accumulation) were caught ONLY by
-  real-data --commit, not by 4 prior code-review rounds.
-- **Lesson:** for any feature that touches schema with triggers /
-  asymmetric FKs, real-data smoke catches what unit tests miss.
-  Don't trust review rounds alone — run the actual commit.
-- **Don't remove** these `data_promotion.py` features — each catches
-  a specific real bug:
-  - `pre_delete=True` on `file_uploads` (catches SET-NULL leftover)
-  - `null_columns` on parser_mappings/client_config/bom_flatten_decisions
-    (catches user-FK leak)
-  - `AUDIT_TABLES_TO_PURGE_ON_IMPORT` (catches trigger accumulation)
-  - generated-column filter in `_column_info` (catches `bcct_rows.year`)
-  - `_CLIENT_ID_RE` validator (catches `client_id=".."` traversal)
-  - `_audit_allow_list` warning (alerts when schema evolves)
-  - `pre_delete` and audit-purge BOTH need to stay; they cover
-    different cascade behaviors.
-- **Local docker stack** is still running on port 8754 on the dev
-  box (user keeps it up). If next session needs `uvicorn` for dev:
-  `cd ~/workspace/client/data-hub && docker compose down` first.
-- **Demo on tinsu was NOT touched this session** — all work was
-  local dev side. Demo's pgdata + appfiles untouched.
-- **Carry-over loose end**: `deploy/runbook.md` references memory
-  `feedback_use_python_heredoc.md` that doesn't exist. Either
-  create or remove the reference.
-- **SSH transport**: WSL native ssh is broken; use
-  `/mnt/c/Windows/System32/OpenSSH/ssh.exe` and `scp.exe`. Memory:
-  `feedback_use_windows_ssh.md`.
-- **Drive remote ops, don't hand off**: user wants AI to execute
-  deploy / scp / push end-to-end. Memory:
-  `feedback_drive_ops_dont_handoff.md`.
-- **Server access**: `tinsu@100.84.189.87` (Tailscale). No
-  passwordless sudo. Repo at `/home/tinsu/data-hub`.
-- **Backup baseline**: daily 02:30 user-cron pg_dump on tinsu →
-  `/home/tinsu/backups/data-hub/*.dump`. Last verified ok.
-- **`appfiles` volume on tinsu still NOT backed up** — flagged in
-  data-promotion brief Risks. Tier-1.5 uplift candidate before
-  first paying customer.
+**Read first**: this STATUS, then
+`.ai/sessions/2026-05-06-bom-version-lineage-ui.md` (this session) +
+`.ai/sessions/2026-05-05-bom-v3-redesign-and-reingest.md` (predecessor),
+then memory files for design principles.
+
+**Key memory**:
+- `project_bom_immutable_principle.md`
+- `project_bom_code_multirole.md`
+- `project_growatt_bom_v1_v2_equivalence.md`
+- `reference_dev_db_topology.md`
+- `project_bom_3_shapes.md` (NEW 2026-05-06) — canonical raw/shallow/
+  full_flat definitions. **Read before reasoning about BOM shape**
+  to avoid the "shallow stops at level 1" misconception.
+- `feedback_bundle_rev_fixes.md` (REFINED 2026-05-06) — present all
+  /rev findings including weak ones; user certifies; default
+  proposal is bundle-execute.
+
+**Environment quirks**:
+- Native Postgres on `127.0.0.1:5432` via unix socket, owner `vp`,
+  peer auth (`psql -h /var/run/postgresql -U vp -d data_hub`).
+- WSL2: Windows OpenSSH (`/mnt/c/Windows/System32/OpenSSH/{ssh,scp}.exe`).
+- `vp` user lacks CREATEDB privilege (need `sudo -u postgres createdb`).
+- Port 8754 pinned for dev (CO JWT issuer expects exact host).
+
+**Running processes** (as of handoff):
+- **uvicorn dev server** still running, background task `bxx7b797v`,
+  log at `/tmp/data-hub-dev.log`. Auto-reload on file changes. Native
+  postgres backend, `DATA_HUB_AUTO_SEED_DEMO=0`.
+- Docker compose `data-hub-app-1` + `data-hub-db-1` were stopped at
+  start of this session; bring back only if compose-shape testing is
+  needed.
+
+**UI smoke harness pattern** (introduced this session):
+- `.ai/features/<YYYY-MM-DD-slug>/ui_smoke.py` — playwright headless
+  script targeting real client/product (not auto-seed INV-3000).
+- Captures both `full_page=True` (regression evidence) and viewport-
+  only (`full=False`, focus on top of page where new UI lives).
+- Screenshots committed under `screenshots/`; small (<1MB each), worth
+  the repo size for future regression diffing.
+- Reusable for future UI changes; copy + adjust `TARGETS` list.
+
+**`/rev` discipline**: after non-trivial UI work, ran `/rev` and
+fixed all 7 findings in same commit before /handoff. User explicitly
+preferred bundled fix (`Tại sao không fix hết luôn đi?`). Treat that
+as the default for code-review output: fix all in same commit unless
+findings are large enough to warrant separate PRs.
+
+**Critic-driven decisions worth re-reading before changing them**
+(unchanged from 2026-05-05):
+- Don't drop `flatten_status` + `flatten_strategy` (170 refs).
+- `bom_variant_id` per supplier batch (not 'default' for all).
+- `bom_proposal_mode='manual'` during re-ingest, flip back later.
+- `auto_derive_shallow_from_raw='draft_only'` default.
+- Profile cardinality is small (strategy-level, not shipment-level).
+- Inventory ledger deferred — Phase 6+, not in MVP.

@@ -1,191 +1,271 @@
-# Session 2026-05-05 — BOM v3 redesign, wipe+re-ingest local DB
+# Session 2026-05-05 — BOM v3 redesign + multi-client re-ingest + push
 
-## What was done
+Single long session. Started as an investigation question ("why does
+Growatt SD00.0010600 v1 have 130 rows but v2 has 484?") and ended
+with a full v3 BOM-handling architecture deployed to demo via CI/CD.
 
-### Investigation phase
-- Audited why `SD00.0010600` and `SA00.0004000` had v1=130 rows vs
-  v2=484/433 edges. Conclusion: v1 (`manual_flat` agency_upload) =
-  v2 (`technical_raw`) rolled up to BTP boundary. 32/41 Growatt
-  product pairs match 100% under that rollup.
-- Memory updated: `project_growatt_bom_v1_v2_equivalence.md`,
-  `reference_dev_db_topology.md` (two independent DBs on dev box —
-  native local socket vs docker compose).
-- Locked principle in memory: `project_bom_immutable_principle.md`
-  — never DELETE BOM rows; edit = new version; tombstone allowed.
-- Added backlog item: aggregate-data git-history (audit trails for
-  materials, code_mappings, client_config, parser_mappings, etc.).
+## What Was Done
 
-### Design v3 (3 critic rounds)
-Adopted **A1 + A3 from critic round 1**:
-- **A3 (3 BOM shapes)**: `raw_graph` / `shallow` / `full_flat` —
-  encapsulate sub-BTPs in their own per-BTP BOMs, recursive resolve
-  per-BTP (k stays small per BOM, no exponential blowup).
-- **A1 (resolution profiles)**: `bom_resolution_profiles` table.
-  CO/BCQT certs reference `(version_id, profile_id)` not per-cert
-  cloned versions. Cardinality grows with strategy reuse, not
-  shipment count.
+### 1. Investigation phase
 
-Decision (per critic round 2): **don't drop `flatten_status` +
-`flatten_strategy`** (170 refs across 19 files = too risky). 3-shape
-concept lives as Python helper deriving from existing columns.
+Audited Growatt SD/SA: discovered that v1 (`manual_flat`,
+agency_upload) is the **level-1 cross-section of v2** (`technical_raw`,
+factory_export). Verified: 32/41 (manual_flat, technical_raw)
+Growatt pairs match perfectly when v2 is rolled up to BTP boundary.
 
-Decision (per critic round 3): **wipe + re-ingest** instead of
-backfill. Pre-production, no customer data, source XLSX files all
-present.
+### 2. Design v3 (3 critic rounds + 1 code-review round)
 
-### Schema
-- `db/migrations/030_btp_sourcing_and_resolution_profiles.sql`:
-  - `materials.btp_sourcing` enum (nullable)
-  - `clients.auto_derive_shallow_from_raw` enum (default `draft_only`)
-  - `bom_resolution_profiles` table (Phase 4 use)
-- `app/stores/bom.py:bom_shape(flatten_status, flatten_strategy)`
-  helper returning `Literal['raw_graph','shallow','full_flat']`.
-- `app/data_promotion.py`: add `bom_resolution_profiles` to TABLES.
+Adopted **A1 + A3 from the critic**:
+- **A3** — 3 BOM shapes (raw_graph / shallow / full_flat) with
+  per-BTP BOMs encapsulating sub-trees (k stays small, no
+  exponential blowup).
+- **A1** — `bom_resolution_profiles` table; CO/BCQT certs reference
+  `(version_id, profile_id)` instead of cloned per-cert versions.
 
-### Scripts (new)
-- `scripts/dry_parse_supplier_xlsx.py` — pre-flight hash compare
-  (139/139 parsed, 119 hash-match, 2 mismatch due to parser
-  improvements between trial 2026-05-04 and HEAD, 18 no_db_match
-  for never-ingested batches).
-- `scripts/setup_clients_for_reingest.py` — creates 5 client rows
-  with `bom_proposal_mode='manual'` (per critic R3 finding 2:
-  auto-rule rejects re-ingests).
-- `scripts/ingest_technical_raw_batch.py` (~280 LoC) — bulk-ingest
-  raw XLSX with `--dry-run`, `--resume-from`, JSON log per file,
-  summary, distinct `bom_variant_id` per batch.
-- `scripts/ingest_curated_xlsx_direct.py` — direct catalog/BQD/BCCT/
-  manual_flat ingest (bypasses unified-mapping-flow UI gate that
-  smoke_real_uploads cannot drive).
-- `scripts/bootstrap_btp_roster.py` (refined from earlier session).
-- `scripts/bootstrap_catalog_from_bcct.py` — fills NVL/TP gaps in
-  `materials` from `bcct_rows`, classifies based on direction +
-  has-own-bom signal.
-- `scripts/verify_btp_rollup.py` (from earlier session).
+Round 2: don't drop `flatten_status` + `flatten_strategy` (170 refs).
+Use a Python helper `bom_shape()` deriving the 3-shape concept.
 
-### Phase A cutover (executed, ~5 min downtime)
-1. `pg_dump` local + docker DBs to `/tmp/data_hub_pre_v3/`
-2. `dropdb data_hub` (sudo via postgres user — `vp` lacks CREATEDB)
-3. `createdb -O vp data_hub`
-4. `apply_migrations()` — 29 migrations applied including 030
-5. Master data seed + admin user
-6. `setup_clients_for_reingest.py` — 5 clients ready
+Round 3: wipe + re-ingest instead of in-place backfill (pre-MVP =
+no customer data to preserve).
 
-### Phase B re-ingest (executed)
-1. **4 raw batches** via `ingest_technical_raw_batch.py`:
-   - Growatt root: 14 versions → `agency_2026-01-root`
-   - Growatt supplemental: 39 versions → `agency_2026-01-supplemental`
-   - Growatt 20260423: 4 versions → `agency_2026-04-23`
-   - Johnson 20260423: 82 versions → `agency_2026-04-23`
-   - Total 139 versions, 47,098 edges
-2. **Curated XLSX direct** via `ingest_curated_xlsx_direct.py`:
-   - Growatt: 4 catalog rows + 2,892 BQD + 3,182 BCCT + 285
-     manual_flat versions (across 207 product codes)
-   - DKE: 242 BQD
-3. **Bootstrap scripts**:
-   - `bootstrap_btp_roster.py --client growatt-vn --commit`:
-     148 BTPs added
-   - `bootstrap_catalog_from_bcct.py --client growatt-vn --commit`:
-     294 inserts (276 nvl + 18 tp from BCCT) + 4 provenance merges
+Round 4 (code review): 3 fixes shipped — tp_roots correctness,
+first_seen preservation, demote-published guard.
 
-### Final state (local DB)
-- 5 production clients + 2 test fixtures
-- 446 materials: 278 nvl + 148 btp_sx + 20 tp
-- 285 manual_flat + 139 technical_raw BOMs
-- 47,098 edges, 3,182 BCCT rows, 3,134 code_mappings
-- `bom_resolution_profiles` table exists, empty (awaits Phase 3+4)
+### 3. Schema (migration 030)
 
-## Decisions made
+- `materials.btp_sourcing` enum (nullable; `purchased_only` /
+  `self_produced_only` / `dual_source` / `unknown`).
+- `clients.auto_derive_shallow_from_raw` enum (default `draft_only`).
+- `bom_resolution_profiles` table (Phase 4 schema; not yet used).
 
-- **Don't drop existing flatten_status / flatten_strategy columns.**
-  170 refs across 19 files; risk > value for pre-MVP. 3-shape concept
-  is Python helper.
-- **Wipe + re-ingest instead of backfill.** Pre-production, all
-  source XLSX files available, fewer subtle migration bugs.
-- **`bom_variant_id` per batch.** Each Growatt sub-batch (root,
-  supplemental, 20260423) gets distinct variant — ordering trap
-  avoided per critic R3 #11.
-- **`bom_proposal_mode='manual'` for re-ingest window.** Auto-rule
-  would reject re-ingest with qty drift > 5%; manual mode bypasses.
-  Flip back to `auto` post-Phase-B per agency preference.
-- **`auto_derive_shallow_from_raw='draft_only'` default.** Phase 2
-  auto-derive (deferred) will not silently publish system-authored
-  BOMs as canonical.
-- **Direct-ingest, not Playwright UI.** smoke_real_uploads.py
-  blocked by unified-mapping-flow that needs UI confirm steps;
-  direct calls to parser + store-level inserters bypass it.
-- **`migration 030` adds 3 things only** (`btp_sourcing`,
-  `auto_derive_shallow_from_raw`, `bom_resolution_profiles`).
-  Doesn't touch `bom_shape`, `flatten_status`, `flatten_strategy`.
+### 4. Scripts (8 new + 1 fix)
 
-## What didn't work
+- `setup_clients_for_reingest.py` — 5 client rows, manual proposal mode.
+- `dry_parse_supplier_xlsx.py` — pre-flight hash compare.
+- `ingest_technical_raw_batch.py` — bulk-ingest raw XLSX with
+  --dry-run, --resume-from, JSON log per file.
+- `ingest_curated_xlsx_direct.py` — direct catalog/BQD/BCCT/manual_flat
+  ingest, bypasses unified-mapping-flow UI gate.
+- `bootstrap_btp_roster.py` — BTP detection. Rule evolved over 3
+  rounds (own_bom + consumed → parent anywhere → parent + never
+  consumed elsewhere as TP-root exclusion).
+- `bootstrap_catalog_from_bcct.py` — fill NVL/TP gaps from BCCT,
+  preserves `first_seen` across re-runs (post round-4 fix).
+- `materialize_shallow_and_full_flat.py` — derives 3-shape derivatives
+  with cycle-safe recursive CTE; demote-published guard (post round-4).
+- `verify_btp_rollup.py` — equivalence check between manual_flat and
+  raw rollup.
 
-- **smoke_real_uploads.py** uploaded files but they all sat in
-  `parse_status='mapping_pending'` — the unified-mapping-flow
-  introduced in commit `b278ff5` requires UI confirm steps that
-  Playwright in smoke does NOT drive. Pivoted to direct ingest.
-- **Local user `vp` lacks `CREATEDB`** privilege — had to `sudo -u
-  postgres createdb`. Documented in re-ingest recipe.
-- **2 BOMs failed manual_flat ingest** with `qty_per_unit <= 0`
-  validation: `B700.0087101-1`, `B700.0236502-1`. Source workbook
-  has rows with qty=0; pre-existing data quality issue, not
-  introduced by re-ingest.
-- **1 test failure** post-re-ingest:
-  `tests/test_co_columns.py::test_backfill_populates_typed_co_columns_from_payload`
-  — depends on `dke-vietnam-d0e3` BCCT data we didn't re-ingest
-  (only re-ingested DKE BQD). Real-data-dependent; should be
-  marked accordingly. NOT introduced by code changes.
-- **SD00.0010600 verify_btp_rollup goes to MISMATCH** (was OK
-  before re-ingest) — newer 20260423 batch's SD differs from
-  agency manual_flat by 6 codes. This is the right behavior:
-  flag for staff reconcile when newer factory data deviates from
-  agency-attested BOM.
-- **Demo at ttdatahub.tinsu.ai NOT redeployed.** Still on old
-  schema. Local re-ingest verified; remote redeploy is task 18
-  deferred to next session (60-90 min downtime; needs announcement).
+### 5. Phase A cutover (~5 min downtime, local only)
 
-## Open items
+`pg_dump` backups → `dropdb && createdb` (sudo) → migrations →
+seed master + admin → `setup_clients_for_reingest.py` → 5 empty
+clients ready.
 
-1. **Demo redeploy to tinsu** — task 18. Steps in task description.
-2. **Phase 3** — resolver + profiles + `intent='sourcing_choice'`
-   + new auto-rule. Estimated 25-35h per critic R3, separate
-   sprint.
-3. **`detect_dual_source_btps.py` script** — set
-   `materials.btp_sourcing='dual_source'` for codes that are both
-   BTPs AND appear in BCCT imports. Was deferred during Phase B.
-4. **Restore `bom_proposal_mode='auto'` for Growatt** if desired
-   — currently `manual` from re-ingest setup.
-5. **`feed_demo_company.py`** — deprecated per STATUS.md but the
-   demo-precision-manufactu-480e client is empty. Either re-run
-   that script to populate, or drop the client.
-6. **9-product mismatch reconciliation** — even after re-ingest
-   with newer batches, some products show divergence between
-   agency manual_flat and factory technical_raw rollup. Owner:
-   agency / business analyst, not engineering.
-7. **Restore data_promotion smoke for `bom_resolution_profiles`**:
-   confirm export-import roundtrip handles the new client-scoped
-   table correctly (data_promotion.py was updated; need an
-   integration smoke).
-8. **`tests/test_co_columns.py` real-data marker** — gate the
-   failing test behind the `DATA_HUB_REAL_DATA_DIR` env, not the
-   regular suite.
+### 6. Phase B re-ingest
 
-## Files changed
+**Growatt** (5 batches):
+- root: 14 TPs (variant `agency_2026-01-root`)
+- supplemental: 39 TPs initially, then deduped 8 (variant
+  `agency_2026-01-supplemental`, 31 alive after dedup)
+- 20260423: 4 TPs (variant `agency_2026-04-23`)
+- BTP files (drive-download/2025 半成品 BOM - BTP/): 137 BTPs
+  (variant `agency_2026-04-23-btp`)
+- TP additional (drive-download/2025年成品BOM/): 6 TPs (variant
+  `agency_2026-04-23-tp-additional`)
+- Rescued: 14 TPs/BTPs cloned from tombstoned GOM BOM rows
+  (variant `agency_rescued_only_gom`) before physical DELETE.
 
+**Johnson** (1 batch):
+- 82 TPs from supplier (variant `agency_2026-04-23`).
+- BCCT: 52,224 rows (T4/2025 → T3/2026, 12 months continuous).
+
+**BCCT for Growatt**: full year 2025 + T3-T4/2026 = 23,080 rows.
+T1-T2/2026 missing (no source file in workspace).
+
+### 7. Cleanup phase (pre-MVP exception to BOM immutability)
+
+User explicitly authorized physical DELETE of 309 tombstoned
+`bom_versions` (285 GOM BOM + 24 supplemental dups), cascading
+27,637 child rows + 4,050 edges. Memory updated to scope this as
+pre-MVP seed-prep only — rule re-engages once first real cert
+references any version_id.
+
+### 8. BTP rule fix (Johnson-shape)
+
+Original rule (`has_own_bom AND consumed_as_child`) detected 0 BTPs
+for Johnson because Johnson supplier dumps full multi-level trees
+in one workbook per TP — intermediate parents have no own
+`bom_versions` row.
+
+New rule (round 4 fix): "code that appears as parent_code AND has
+own_bom but is never consumed elsewhere" = TP root. Anything else
+that appears as parent = BTP. Result:
+- Growatt: 153 BTPs (148 from old rule + 5 from intermediate
+  parents the old rule missed).
+- Johnson: 2,427 BTPs (was 0).
+
+### 9. UI provenance
+
+- `bom_versions.html` (list) — added variant + shape + source columns.
+- `bom_version_detail.html` (single version) — added Provenance
+  panel showing actor / intent / shape / source file / source batch
+  / parser adapter / created_at / tombstone metadata.
+- `list_versions_for_product` query updated to fetch new fields.
+
+### 10. Multi-role insight (recorded in memory)
+
+Discovered during code review: a code can be TP **and** BTP
+simultaneously (rework / cải chế). Growatt has 1 such code
+(PV01.0104300), Johnson has 1 (1000305146). `materials.category`
+single-value enum can't express multi-role; data graph is truth.
+Saved to `project_bom_code_multirole.md` for Phase 3 design.
+
+### 11. Push + deploy
+
+5 commits pushed to `origin/main`:
+- d2899f1 feat(bom): v3 3-shape model + supplier-batch ingest
+- 11409c3 fix(bom): BTP detection covers Johnson-shape
+- 6784762 fix(bom): tp_roots + first_seen + demote guard
+- 8e77996 docs(backlog): UI BOM upload deferred to Phase 3
+- (data-promotion commit was already on origin from prior session)
+
+CI/CD success in 1m20s. Demo `ttdatahub.tinsu.ai` now has v3
+schema + code (migration 030 applied automatically). **Data on
+demo is still old** — re-ingest scripts not yet run there.
+
+## Decisions Made
+
+- **3-shape concept** maps onto existing flatten_status/strategy
+  via Python helper, not a new column. Avoids 170-ref refactor.
+- **Wipe + re-ingest** for pre-MVP, not backfill. Source XLSX
+  files all available; backfill complexity not worth the risk.
+- **`bom_variant_id` per supplier batch** — avoids the
+  ordering-trap critique by giving each batch its own version_no
+  sequence. Same product across batches = parallel variants, not
+  conflicting versions.
+- **`bom_proposal_mode='manual'` for the re-ingest window** —
+  bypasses the auto-rule's 5% qty-tolerance which would silently
+  reject re-ingests. Flip back to `auto` post-Phase-B per agency
+  preference.
+- **`auto_derive_shallow_from_raw='draft_only'` default** — safety
+  rail so system-derived BOMs don't silently land as canonical.
+  Override with `--force-publish` script flag.
+- **Materialize shallow + full_flat AFTER BTP catalog populated**
+  — stop_set depends on `materials.category`, so order matters.
+  If BTPs aren't classified yet, "shallow" walks past them to
+  true leaves (= same as full_flat). Re-materialize after BTP
+  bootstrap.
+- **Pre-MVP DELETE exception** to BOM-immutable rule — explicit,
+  scoped, documented in memory. Re-engages at first real cert.
+- **Don't update UI BOM upload route** in this session — defer to
+  Phase 3 with resolver + profiles work to avoid two rounds of
+  UI churn.
+
+## What Didn't Work
+
+- **`smoke_real_uploads.py`** — uploaded files but they all sat in
+  `parse_status='mapping_pending'`. Unified-mapping-flow (commit
+  `b278ff5`) requires UI confirm steps the smoke script doesn't
+  drive. Pivoted to direct-ingest scripts.
+- **First BTP rule** — `has_own_bom AND consumed_as_child` fits
+  Growatt (where each B700.* has own factory file) but misses
+  Johnson (intermediate parents in a single TP tree).
+- **Round 1 of revised BTP rule** — TP root definition was too
+  inclusive (any code with own bom_versions = TP root), excluded
+  Growatt B700.* family that have own files AND are consumed.
+  Caught by code-review critic. Fixed with "never consumed
+  elsewhere" qualifier.
+- **`createdb` permissions** — local user `vp` lacks CREATEDB
+  privilege. Required `sudo -u postgres createdb -O vp data_hub`.
+  Documented in re-ingest recipe.
+- **2 BOM parses failed** during direct ingest with
+  `qty_per_unit <= 0` validation: `B700.0087101-1`, `B700.0236502-1`.
+  Pre-existing source-data quality issue.
+- **PV01.0104500 + PV02.0229100** — dry-parse hash mismatch from
+  trial 2026-05-04 ingest. Diagnosed as parser improvement (more
+  edges captured by HEAD parser), not regression. Re-ingest produced
+  more-complete data which is desired.
+- **Initial `materialize` policy override** — flipped published →
+  draft regardless of when version was created, risking BOM
+  immutability violation. Round-4 fix: only demote rows created
+  in last 60s and not referenced by any alive profile.
+
+## Open Items
+
+1. **Demo data sync** (highest priority for next session). Demo at
+   `ttdatahub.tinsu.ai` has v3 schema+code but old data. To match
+   local: scp `~/workspace/client/barry-CO-data/extracted/CO/`
+   (~vài GB) to tinsu, install scripts, run pipeline. Or:
+   `pg_dump` local + restore on tinsu (faster but skips audit
+   chain on tinsu side).
+2. **Phase 3 work** — resolver + profile CRUD + sourcing_choice
+   intent + auto-rule + UI integration. ~25-35h per critic
+   estimate. Should bundle UI BOM upload v3 wiring (BACKLOG
+   "UI BOM upload — wire up v3 concepts").
+3. **14 orphan BTPs Growatt** — codes with own raw_graph but no
+   parent TP in current dataset. Documented as known limitation
+   in `bootstrap_btp_roster.py`. Staff manually classify when TP
+   context arrives.
+4. **`detect_dual_source_btps.py` script** — was deferred during
+   Phase B. Cross-join `materials.category='btp_sx'` × `bcct_rows.direction='import'`
+   → set `btp_sourcing='dual_source'`. Small script.
+5. **Restore `bom_proposal_mode='auto'` for Growatt** — currently
+   `manual` from re-ingest. Decide based on whether agency wants
+   auto-validation back on.
+6. **Multi-role schema improvement** (Phase 3+). Replace
+   `materials.category` enum with multi-value flags
+   (`has_decomposable_bom`, `is_finished_product`,
+   `is_consumed_in_bom`, `is_imported`). Per memory
+   `project_bom_code_multirole.md`.
+7. **`tests/test_co_columns.py::test_backfill_populates_typed_co_columns_from_payload`**
+   is real-data dependent. Already deselected on CI. Should be
+   marked with a `@pytest.mark.real_data` and skip-if-missing
+   instead of hardcoded deselect.
+8. **24 stale `mapping_pending` / `pending_preview` file_uploads**
+   in local DB from old smoke runs. Cosmetic — won't hurt anything
+   but staff seeing them in UI might be confused. Cleanup:
+   `delete from hub.upload_pending` + `update file_uploads set
+   parse_status='abandoned' where parse_status in
+   ('mapping_pending','pending_preview','pending')`.
+9. **Push `feed_demo_company.py` deprecation comment** — script
+   still exists, used to seed `demo-precision-manufactu-480e`
+   client which is currently empty after Phase A wipe. Either
+   re-run or drop the client.
+10. **24 BCCT BOM rows still on demo synthetic data**. After
+    demo data sync (item 1), re-verify.
+
+## Files Changed (cumulative across all session commits)
+
+**Schema**:
 - `db/migrations/030_btp_sourcing_and_resolution_profiles.sql` (new)
-- `app/stores/bom.py` — `bom_shape()` helper added
-- `app/data_promotion.py` — `bom_resolution_profiles` in TABLES
-- `scripts/setup_clients_for_reingest.py` (new)
-- `scripts/dry_parse_supplier_xlsx.py` (new)
-- `scripts/ingest_technical_raw_batch.py` (new)
-- `scripts/ingest_curated_xlsx_direct.py` (new)
-- `scripts/bootstrap_catalog_from_bcct.py` (new)
-- (`scripts/bootstrap_btp_roster.py` from prior session, used here)
-- (`scripts/verify_btp_rollup.py` from prior session, used here)
 
-Backlog updated:
-- `.ai/BACKLOG.md` — added "Aggregate-data git-history" item.
+**Code**:
+- `app/stores/bom.py` — `bom_shape()` helper, list_versions_for_product
+  query expansion, get_version_with_rows tombstone_reason fetch.
+- `app/data_promotion.py` — `bom_resolution_profiles` in TABLES.
+- `app/templates/clients/bom_versions.html` — variant/shape/source
+  columns.
+- `app/templates/clients/bom_version_detail.html` — Provenance panel.
 
-Memory updated:
-- `project_growatt_bom_v1_v2_equivalence.md` (post-bootstrap state)
+**Scripts** (all in `scripts/`):
+- `setup_clients_for_reingest.py` (new)
+- `dry_parse_supplier_xlsx.py` (new)
+- `ingest_technical_raw_batch.py` (new)
+- `ingest_curated_xlsx_direct.py` (new)
+- `bootstrap_btp_roster.py` (rule rewritten across 3 rounds)
+- `bootstrap_catalog_from_bcct.py` (new + first_seen fix)
+- `materialize_shallow_and_full_flat.py` (new + demote guard)
+- `verify_btp_rollup.py` (new)
+
+**Docs**:
+- `.ai/STATUS.md` (rewritten)
+- `.ai/BACKLOG.md` (added "Aggregate-data git-history" + "UI BOM upload — wire up v3 concepts")
+- `.ai/sessions/2026-05-05-bom-v3-redesign-and-reingest.md` (this file)
+- `.ai/sessions/2026-05-05-data-promotion.md` (predecessor session, was untracked)
+
+**Memory** (auto-memory, not git):
 - `project_bom_immutable_principle.md` (new)
+- `project_bom_code_multirole.md` (new)
 - `reference_dev_db_topology.md` (new)
+- `project_growatt_bom_v1_v2_equivalence.md` (updated)

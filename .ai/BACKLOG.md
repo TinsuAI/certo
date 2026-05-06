@@ -283,6 +283,63 @@ pattern from `c77da85`).
 
 ---
 
+## Modular BOM ingest adapters (per supplier shape)
+
+**Captured 2026-05-06.** Two distinct supplier-file shapes have
+shipped so far:
+
+- **Growatt-shape** — agency provides one file per code (TP and BTP
+  separately). Ingest yields per-code `raw_graph` directly. Result:
+  144/147 BTP shallow leaves are decomposable from their own
+  `bom_versions` rows.
+- **Johnson-shape** — agency provides one deep-tree file per TP.
+  Ingest yields TP-level `raw_graph` only; intermediate BTPs have
+  edges (in `hub.bom_edges`) but no `bom_versions` row keyed to them.
+  Result: 0/342 BTP shallow leaves decomposable until a derive step
+  runs.
+
+Both shapes converge on the same in-DB model (raw_graph / shallow /
+full_flat per `project_bom_3_shapes.md`), so the divergence lives
+entirely in the **parse + post-ingest** path. Treat each supplier
+shape as a pluggable adapter / add-on.
+
+**Goals:**
+
+1. **Adapter interface** — formalize the contract: `detect(file) →
+   match_score`, `parse(file) → list[bom_version_payload]`,
+   `post_ingest_hooks → [...]`. New supplier shapes drop in as a
+   registered adapter under `app/parsers/bom/adapters/` with no
+   core-code changes.
+2. **`derive_btp_shallows.py`** — post-ingest hook for Johnson-shape
+   adapter (and any future deep-tree shape). For each intermediate
+   `parent_code` in `bom_edges` that is classified `btp_sx`,
+   materialize a `bom_versions` row keyed to that code with
+   `flatten_status='flattened'`,
+   `flatten_strategy='purchased_btp_as_leaf'`, walking from that node
+   down to first BTP/NVL leaves. After this runs, Johnson reaches
+   Growatt-level decomposability and resolver Phase 3 can compose
+   shallow → full_flat without knowing supplier shape.
+3. **Canonical adapter registry** — extract current ingest scripts
+   (`ingest_technical_raw_batch.py`, `ingest_curated_xlsx_direct.py`)
+   into adapter classes: `growatt.py`, `johnson.py`, plus a
+   `default.py` fallback. Selection by `client_id` + filename
+   heuristics; UI override per upload.
+4. **Phase 3 readiness** — resolver should rely only on the unified
+   in-DB model, never on adapter-specific quirks. Divergence ends at
+   parse-time, not propagated downstream.
+
+**Why now:** v3 model has settled and we have two real shapes to
+abstract from — one is enough to risk over-fitting, three risks
+under-fitting, two is the sweet spot. Future shapes to expect: SAP
+multi-sheet exports, ERP-CSV row-keyed BOMs, WeChat-pasted CSVs,
+agency emails with mixed structure.
+
+**Estimate:** ~10-15h to formalize the registry + extract scripts +
+write `derive_btp_shallows.py` + tests. Bundle with Phase 3 resolver
+work since they share the "uniform in-DB model" assumption.
+
+---
+
 ## /rev cross-cuts (still open)
 
 - **CSRF protection** on POST endpoints (pre-existing project gap).
