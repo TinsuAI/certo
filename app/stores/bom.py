@@ -528,14 +528,19 @@ def list_versions_for_product(*, client_id: str, product_code: str) -> list[dict
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select version_id, version_no, actor, intent, parent_version_id,
-                       row_count, normalized_hash, status, tombstoned_at,
-                       created_at, published_at, context,
-                       bom_variant_id, source_bom_kind, source_channel,
-                       flatten_status, flatten_strategy
-                from hub.bom_versions
-                where client_id = %s and product_code = %s
-                order by created_at desc, version_no desc
+                select v.version_id, v.version_no, v.actor, v.intent, v.parent_version_id,
+                       v.row_count, v.normalized_hash, v.status, v.tombstoned_at,
+                       v.created_at, v.published_at, v.context,
+                       v.bom_variant_id, v.source_bom_kind, v.source_channel,
+                       v.flatten_status, v.flatten_strategy,
+                       p.version_no       as parent_version_no,
+                       p.bom_variant_id   as parent_variant_id,
+                       p.flatten_status   as parent_flatten_status,
+                       p.flatten_strategy as parent_flatten_strategy
+                from hub.bom_versions v
+                left join hub.bom_versions p on p.version_id = v.parent_version_id
+                where v.client_id = %s and v.product_code = %s
+                order by v.created_at desc, v.version_no desc
                 """,
                 (client_id, product_code),
             )
@@ -547,6 +552,13 @@ def list_versions_for_product(*, client_id: str, product_code: str) -> list[dict
                     row.get("flatten_status") or "",
                     row.get("flatten_strategy") or "",
                 )
+                if row.get("parent_version_id"):
+                    row["parent_shape"] = bom_shape(
+                        row.get("parent_flatten_status") or "",
+                        row.get("parent_flatten_strategy") or "",
+                    )
+                else:
+                    row["parent_shape"] = None
                 out.append(row)
             return out
 
@@ -600,6 +612,82 @@ def get_version_with_rows(version_id: str) -> dict | None:
                 "version": version, "rows": rows, "edges": edges,
                 "unresolved": unresolved, "decisions": decisions,
             }
+
+
+def get_lineage_for_version(version_id: str, *, max_depth: int = 12) -> dict:
+    """Return ancestor chain (root → ... → parent) and direct descendants
+    for a given version_id. Each node carries human-readable identity:
+    version_id, version_no, bom_variant_id, shape (derived), intent, actor,
+    status, tombstoned_at, created_at.
+
+    `truncated` flag is set if max_depth was hit before reaching a root —
+    callers can render a "(older ancestors hidden)" marker.
+    `missing_parent_id` is the dangling parent_version_id when the chain
+    broke because a parent row was deleted."""
+
+    def _row_to_node(cur, row) -> dict:
+        node = dict(zip([d[0] for d in cur.description], row))
+        node["bom_shape"] = bom_shape(
+            node.get("flatten_status") or "",
+            node.get("flatten_strategy") or "",
+        )
+        return node
+
+    fields = (
+        "version_id, version_no, bom_variant_id, intent, actor, status, "
+        "tombstoned_at, created_at, parent_version_id, "
+        "flatten_status, flatten_strategy"
+    )
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"select {fields} from hub.bom_versions where version_id = %s",
+                (version_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return {"ancestors": [], "descendants": [],
+                        "truncated": False, "missing_parent_id": None}
+            current_node = _row_to_node(cur, row)
+
+            ancestors: list[dict] = []
+            seen: set[str] = {version_id}
+            truncated = False
+            missing_parent_id: str | None = None
+            for _ in range(max_depth):
+                parent_id = current_node.get("parent_version_id")
+                if not parent_id:
+                    break
+                if parent_id in seen:
+                    break
+                seen.add(parent_id)
+                cur.execute(
+                    f"select {fields} from hub.bom_versions where version_id = %s",
+                    (parent_id,),
+                )
+                prow = cur.fetchone()
+                if prow is None:
+                    missing_parent_id = parent_id
+                    break
+                parent_node = _row_to_node(cur, prow)
+                ancestors.append(parent_node)
+                current_node = parent_node
+            else:
+                # for-else: ran max_depth iterations without breaking → check
+                # if there's still an unfetched parent above the wall.
+                if current_node.get("parent_version_id"):
+                    truncated = True
+            ancestors.reverse()
+
+            cur.execute(
+                f"select {fields} from hub.bom_versions where parent_version_id = %s "
+                "order by version_no desc, created_at desc",
+                (version_id,),
+            )
+            descendants = [_row_to_node(cur, r) for r in cur.fetchall()]
+
+            return {"ancestors": ancestors, "descendants": descendants,
+                    "truncated": truncated, "missing_parent_id": missing_parent_id}
 
 
 # ---- Proposal queue ----

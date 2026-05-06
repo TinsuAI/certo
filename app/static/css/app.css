@@ -2640,3 +2640,55 @@ input[type="submit"].btn-primary { padding: 0.5rem 0.95rem; }
   color: var(--text-soft, #5b6478);
 }
 .dh-table th.sortable.sort-active a { color: var(--primary, #3057d6); }
+
+/* ===== BOM v3 shape badges + Lineage panel ===== */
+
+.badge-shape-raw-graph { background: #e3f2fd; color: #0d47a1; }
+.badge-shape-shallow   { background: #e8f5e9; color: #1b5e20; }
+.badge-shape-full-flat { background: #fff3e0; color: #e65100; }
+
+.lineage-panel {
+  background: var(--surface-alt, #f7f8fc);
+  padding: 1rem;
+  border-radius: 8px;
+  margin: 1rem 0;
+}
+.lineage-panel h3 { margin-top: 0; }
+.lineage-chain {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+.lineage-arrow { color: #999; margin-left: 0.6rem; }
+.lineage-arrow-meta { font-size: 0.8em; color: #666; }
+.lineage-truncated { font-size: 0.8em; color: #666; }
+.lineage-deleted {
+  color: #c00;
+  font-size: 0.85em;
+}
+.lineage-descendants {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-left: 1.6rem;
+}
+.lineage-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 6px;
+  border: 1px solid #d0d4dc;
+  background: #fafbfd;
+  text-decoration: none;
+  color: inherit;
+}
+.lineage-node--current {
+  border-color: #0d47a1;
+  background: #e3f2fd;
+}
+.lineage-node--tombstoned { opacity: 0.55; }
+.lineage-node-current-marker { font-weight: 600; color: #0d47a1; }
+.lineage-node-meta { font-size: 0.8em; color: #666; }
+.lineage-node-variant { font-size: 0.85em; color: #444; }

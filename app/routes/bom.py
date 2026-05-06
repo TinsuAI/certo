@@ -46,6 +46,8 @@ from app.stores.bom import (
     create_version,
     list_products_with_bom,
     list_versions_for_product,
+    bom_shape,
+    get_lineage_for_version,
     get_version_with_rows,
     make_bcct_import_lookup,
     make_catalog_lookup,
@@ -820,11 +822,18 @@ async def version_detail(request: Request, client_id: str, version_id: str):
     data = get_version_with_rows(version_id)
     if not data or data["version"]["client_id"] != client_id:
         raise HTTPException(404, "Version not found")
+    version = data["version"]
+    version["bom_shape"] = bom_shape(
+        version.get("flatten_status") or "",
+        version.get("flatten_strategy") or "",
+    )
+    lineage = get_lineage_for_version(version_id)
     return request.app.state.templates.TemplateResponse(
         request, "clients/bom_version_detail.html",
         {"client": client, "stats": stats_for_client(client_id),
-         "version": data["version"], "rows": data["rows"],
+         "version": version, "rows": data["rows"],
          "edges": data.get("edges") or [],
+         "lineage": lineage,
          "active_root": "clients", "active_tab": "bom"},
     )
 

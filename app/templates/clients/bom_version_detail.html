@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "clients/_bom_macros.html" import shape_badge, lineage_node %}
 {% block title %}BOM v{{ version.version_no }} · {{ version.product_code }}{% endblock %}
 {% block content %}
 {% include "_client_nav.html" %}
@@ -11,14 +12,19 @@
         <span class="badge">{{ version.actor }}</span>
         <span class="badge">{{ version.intent }}</span>
         {% set ctx = version.context or {} %}
-        {% set shape = 'raw_graph' if version.flatten_status == 'non_flattened' else ('shallow' if version.flatten_strategy in ('manual_flat_as_provided','purchased_btp_as_leaf') else ('full_flat' if version.flatten_strategy in ('technical_exploded','self_produced_btp_exploded') else 'shallow')) %}
-        {% if shape == 'raw_graph' %}<span class="badge" style="background:#e3f2fd;color:#0d47a1">raw_graph</span>
-        {% elif shape == 'shallow' %}<span class="badge" style="background:#e8f5e9;color:#1b5e20">shallow</span>
-        {% elif shape == 'full_flat' %}<span class="badge" style="background:#fff3e0;color:#e65100">full_flat</span>
-        {% endif %}
+        {{ shape_badge(version.bom_shape) }}
         · hash <span class="mono">{{ version.normalized_hash[:16] }}</span>
-        {% if version.parent_version_id %}
-        · forked from <a href="/clients/{{ client.client_id }}/bom/version/{{ version.parent_version_id }}" class="mono">{{ version.parent_version_id[:12] }}</a>
+        {% set parent = (lineage.ancestors[-1] if lineage and lineage.ancestors else None) %}
+        {% if parent %}
+        · forked from
+        <a href="/clients/{{ client.client_id }}/bom/version/{{ parent.version_id }}"
+           title="{{ parent.version_id }}"
+           style="text-decoration:none">
+          <span class="badge badge-info">v{{ parent.version_no }}</span>
+          {{ shape_badge(parent.bom_shape) }}<span class="mono" style="font-size:.85em;color:#666">· {{ parent.bom_variant_id or 'default' }}</span>
+        </a>
+        {% elif version.parent_version_id %}
+        · forked from <span class="mono" style="color:#c00" title="{{ version.parent_version_id }}">(deleted)</span>
         {% endif %}
       </p>
     </div>
@@ -32,7 +38,7 @@
         <tr><td style="padding: 4px 12px 4px 0; color: #666;">Variant</td>
             <td class="mono">{{ version.bom_variant_id or 'default' }}</td></tr>
         <tr><td style="padding: 4px 12px 4px 0; color: #666;">Shape</td>
-            <td><span class="mono">{{ shape }}</span> <span style="color:#666;font-size:.85em">(flatten_status={{ version.flatten_status }} / flatten_strategy={{ version.flatten_strategy }})</span></td></tr>
+            <td><span class="mono">{{ version.bom_shape }}</span> <span style="color:#666;font-size:.85em">(flatten_status={{ version.flatten_status }} / flatten_strategy={{ version.flatten_strategy }})</span></td></tr>
         <tr><td style="padding: 4px 12px 4px 0; color: #666;">Source kind</td>
             <td class="mono">{{ version.source_bom_kind }}</td></tr>
         <tr><td style="padding: 4px 12px 4px 0; color: #666;">Source channel</td>
@@ -64,6 +70,43 @@
       </tbody>
     </table>
   </div>
+
+  {% if lineage and (lineage.ancestors or lineage.descendants or lineage.missing_parent_id) %}
+  <div class="lineage-panel">
+    <h3>Lineage</h3>
+    <div class="lineage-chain">
+      {% if lineage.truncated %}
+        <span class="lineage-truncated">… older ancestors hidden</span>
+        <span class="lineage-arrow">↓</span>
+      {% endif %}
+      {% for a in lineage.ancestors %}
+        {{ lineage_node(a, version.version_id, client.client_id) }}
+        <span class="lineage-arrow">↓</span>
+      {% endfor %}
+      {% if lineage.missing_parent_id %}
+        <span class="mono lineage-deleted" title="{{ lineage.missing_parent_id }}">(deleted parent: {{ lineage.missing_parent_id[:12] }}…)</span>
+        <span class="lineage-arrow">↓</span>
+      {% endif %}
+      {{ lineage_node({
+            'version_id': version.version_id,
+            'version_no': version.version_no,
+            'bom_variant_id': version.bom_variant_id,
+            'bom_shape': version.bom_shape,
+            'intent': version.intent,
+            'actor': version.actor,
+            'tombstoned_at': version.tombstoned_at,
+         }, version.version_id, client.client_id) }}
+      {% if lineage.descendants %}
+        <span class="lineage-arrow">↓ <span class="lineage-arrow-meta">({{ lineage.descendants|length }} forks)</span></span>
+        <div class="lineage-descendants">
+          {% for d in lineage.descendants %}
+            {{ lineage_node(d, version.version_id, client.client_id) }}
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
 
   {% if version.context %}
   <details>
