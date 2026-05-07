@@ -24,6 +24,11 @@ Stages (D2):
   3. reviewed_line_mapping    — operator-reviewed mapping in bcct_product_identity_review
   4. code_mapping_candidate   — code_mappings rows produce CANDIDATES ONLY (never resolves)
   5. missing                  — no evidence
+
+`ResolverContext` carries memoized per-request state (Q5):
+  material_catalog:    dict[customs_code, dict]   — full per-client materials roster
+  code_mappings:       dict[str, list[dict]]      — keyed by customs_code AND internal_code
+  reviewed:            dict[(decl, line, txkey)]  — latest reviewed mapping per line_key
 """
 from __future__ import annotations
 
@@ -84,17 +89,25 @@ class ResolverContext:
         code_resolution_mode = mode_row[0] if mode_row else None
 
         # Materials catalog — master registry per client (NVL+BTP+TP+CCDC).
-        # LEFT JOIN bom_artifacts so a single pass yields category +
-        # has_bom + counts. The grouping uses materials.customs_code as
-        # the canonical key (matches BCCT.customs_code semantics).
+        # LEFT JOIN bom_artifacts (for n_artifacts/flatten_status) +
+        # v_material_roles (for atomic signals + observed_roles + conflict).
+        # Single pass yields everything resolver and consumers need.
         cur.execute(
             """
             select m.customs_code,
                    m.internal_code,
                    m.name,
                    coalesce(m.category_override, m.category) as category,
+                   m.btp_sourcing,
                    coalesce(b.n_artifacts, 0) as n_artifacts,
-                   coalesce(b.has_flattened, 0) as has_flattened
+                   coalesce(b.has_flattened, 0) as has_flattened,
+                   coalesce(vmr.has_imports, false) as has_imports,
+                   coalesce(vmr.has_exports, false) as has_exports,
+                   coalesce(vmr.is_consumed_in_bom, false) as is_consumed_in_bom,
+                   coalesce(vmr.has_own_bom, false) as has_own_bom,
+                   coalesce(vmr.observed_roles, '{}'::text[]) as observed_roles,
+                   coalesce(vmr.is_multi_role, false) as is_multi_role,
+                   coalesce(vmr.declared_observed_conflict, false) as declared_observed_conflict
             from hub.materials m
             left join (
                 select product_code,
@@ -105,22 +118,37 @@ class ResolverContext:
                 where client_id = %s and tombstoned_at is null
                 group by product_code
             ) b on b.product_code = m.customs_code
+            left join hub.v_material_roles vmr
+                   on vmr.client_id = m.client_id
+                  and vmr.customs_code = m.customs_code
             where m.client_id = %s
             """,
             (client_id, client_id),
         )
         material_catalog: dict[str, dict] = {}
-        for code, internal, name, category, n_art, has_flat in cur.fetchall():
+        for (code, internal, name, category, btp_sourcing,
+             n_art, has_flat,
+             has_imp, has_exp, consumed, has_own,
+             observed_roles, is_multi, conflict) in cur.fetchall():
             material_catalog[code] = {
                 "internal_code": internal,
                 "name": name,
                 "category": category,
+                "btp_sourcing": btp_sourcing,
                 "n_artifacts": int(n_art),
                 "has_bom": int(n_art) > 0,
                 "latest_flatten_status": (
                     "flattened" if has_flat else
                     ("non_flattened" if int(n_art) > 0 else None)
                 ),
+                # Catalog-roles refactor (mig 033) — atomic signals + derived.
+                "has_imports": bool(has_imp),
+                "has_exports": bool(has_exp),
+                "is_consumed_in_bom": bool(consumed),
+                "has_own_bom": bool(has_own),
+                "observed_roles": list(observed_roles or []),
+                "is_multi_role": bool(is_multi),
+                "declared_observed_conflict": bool(conflict),
             }
 
         # Code mappings keyed by both customs_code and internal_code so the
@@ -212,6 +240,33 @@ def _bom_alias(code: str | None, ctx: ResolverContext) -> str | None:
     return code if meta.get("has_bom") else None
 
 
+_TOPLEVEL_ROLE_KEYS = (
+    "has_imports", "has_exports", "is_consumed_in_bom", "has_own_bom",
+    "observed_roles", "is_multi_role", "btp_sourcing",
+    "declared_observed_conflict",
+)
+
+
+def _toplevel_role_fields(code: str | None, ctx: ResolverContext) -> dict:
+    """Pull atomic-signals + observed_roles + multi-role + sourcing + conflict
+    from the catalog meta. Returns shape-stable defaults when code is unknown
+    (caller-friendly: missing rows still get all keys present).
+    """
+    meta = ctx.material_catalog.get(code) if code else None
+    if not meta:
+        return {
+            "has_imports": False,
+            "has_exports": False,
+            "is_consumed_in_bom": False,
+            "has_own_bom": False,
+            "observed_roles": [],
+            "is_multi_role": False,
+            "btp_sourcing": None,
+            "declared_observed_conflict": False,
+        }
+    return {k: meta.get(k) for k in _TOPLEVEL_ROLE_KEYS}
+
+
 def _empty_result(row: dict, ctx: ResolverContext, *, status: str,
                   resolution_source: str, candidates: list[dict],
                   evidence: dict | None = None,
@@ -219,7 +274,7 @@ def _empty_result(row: dict, ctx: ResolverContext, *, status: str,
                   confidence: str | None = None,
                   review_status: str = "needs_review") -> dict:
     adapter = _adapter_for(ctx)
-    return {
+    out = {
         "resolution_status": status,
         "resolved_code": None,
         "bom_product_code": None,
@@ -237,6 +292,8 @@ def _empty_result(row: dict, ctx: ResolverContext, *, status: str,
         "evidence": evidence or {},
         "candidates": candidates[: ctx.candidate_limit],
     }
+    out.update(_toplevel_role_fields(None, ctx))
+    return out
 
 
 def _resolved(row: dict, ctx: ResolverContext, *, code: str,
@@ -244,7 +301,7 @@ def _resolved(row: dict, ctx: ResolverContext, *, code: str,
               confidence: str = "high",
               review_status: str = "system_resolved") -> dict:
     adapter = _adapter_for(ctx)
-    return {
+    out = {
         "resolution_status": "resolved",
         "resolved_code": code,
         "bom_product_code": _bom_alias(code, ctx),
@@ -262,10 +319,16 @@ def _resolved(row: dict, ctx: ResolverContext, *, code: str,
         "evidence": evidence,
         "candidates": candidates[: ctx.candidate_limit],
     }
+    out.update(_toplevel_role_fields(code, ctx))
+    return out
 
 
 def _make_candidate(code: str, source: str, *, confidence: str, reason: str,
                     ctx: ResolverContext) -> dict:
+    """Build a candidate dict per D6 — minimal field set:
+    product_code, source, confidence, reason, product_kind, observed_roles,
+    bom_artifact_count, latest_flatten_status. Atomic signals + conflict
+    + sourcing live at top-level only (NOT propagated to candidates)."""
     meta = ctx.material_catalog.get(code) or {}
     out = {
         "product_code": code,
@@ -273,6 +336,7 @@ def _make_candidate(code: str, source: str, *, confidence: str, reason: str,
         "confidence": confidence,
         "reason": reason,
         "product_kind": _kind_for(code, ctx),
+        "observed_roles": list(meta.get("observed_roles") or []),
     }
     if "n_artifacts" in meta:
         out["bom_artifact_count"] = meta["n_artifacts"]

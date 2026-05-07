@@ -485,6 +485,11 @@ def _query_materials(*, client_id: str, category: str | None,
     where, params = _catalog_where_clause(
         client_id=client_id, category=category, q=q, provenance=provenance,
     )
+    # Catalog roles refactor (mig 033): inline subqueries for has_imports/
+    # has_exports/has_own_bom + Python-side is_multi_role replaced with
+    # JOIN to hub.v_material_roles. is_dual_source kept as Python heuristic
+    # per D11 (auto-detection badge, distinct from operator-confirmed
+    # btp_sourcing dropdown).
     sql = f"""
         select m.customs_code, m.internal_code, m.name, m.category, m.category_override,
                m.status, m.unit, m.hs_code, m.updated_at, m.provenance,
@@ -492,26 +497,17 @@ def _query_materials(*, client_id: str, category: str | None,
                (m.provenance ? 'registered_with_hq') as is_registered,
                (m.provenance ? 'seen_in_bcct') as is_seen_in_bcct,
                (m.provenance ? 'user_added') as is_user_added,
-               exists (
-                 select 1 from hub.bcct_rows b
-                 where b.client_id = m.client_id
-                   and b.customs_code = m.customs_code
-                   and b.direction = 'import'
-               ) as has_imports,
-               exists (
-                 select 1 from hub.bcct_rows b
-                 where b.client_id = m.client_id
-                   and b.customs_code = m.customs_code
-                   and b.direction = 'export'
-               ) as has_exports,
-               exists (
-                 select 1 from hub.bom_artifacts v
-                 where v.client_id = m.client_id
-                   and v.product_code = m.customs_code
-                   and v.tombstoned_at is null
-                   and v.status = 'published'
-               ) as has_bom
+               coalesce(vmr.has_imports, false) as has_imports,
+               coalesce(vmr.has_exports, false) as has_exports,
+               coalesce(vmr.is_consumed_in_bom, false) as is_consumed_in_bom,
+               coalesce(vmr.has_own_bom, false) as has_own_bom,
+               coalesce(vmr.observed_roles, '{{}}'::text[]) as observed_roles,
+               coalesce(vmr.is_multi_role, false) as is_multi_role,
+               coalesce(vmr.declared_observed_conflict, false) as declared_observed_conflict
         from hub.materials m
+        left join hub.v_material_roles vmr
+               on vmr.client_id = m.client_id
+              and vmr.customs_code = m.customs_code
         {where}
         order by {order_by}
         limit %s offset %s
@@ -523,12 +519,13 @@ def _query_materials(*, client_id: str, category: str | None,
             cols = [d[0] for d in cur.description]
             rows = [dict(zip(cols, r)) for r in cur.fetchall()]
             for r in rows:
-                r["is_dual_source"] = bool(r.get("has_imports") and r.get("has_bom"))
-                # Multi-role: btp_sx that's also exported as a finished
-                # good (rework / cải chế per project_bom_code_multirole memory).
-                r["is_multi_role"] = bool(
-                    r.get("category") == "btp_sx" and r.get("has_exports")
-                )
+                if r.get("observed_roles") is None:
+                    r["observed_roles"] = []
+                # is_dual_source kept per D11: auto-detection heuristic for
+                # the "⇄ dual" UI badge. Distinct from btp_sourcing dropdown
+                # (operator-confirmed) — they form a detection→confirmation
+                # pipeline, not duplicates. Reuse view atomic signals as input.
+                r["is_dual_source"] = bool(r.get("has_imports") and r.get("has_own_bom"))
             return rows
 
 

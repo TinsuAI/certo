@@ -406,6 +406,25 @@ async def api_source_summary(client_id: str, authorization: str | None = Header(
     })
 
 
+_MATERIALS_SELECT_WITH_ROLES = """
+    select m.client_id, m.customs_code, m.internal_code, m.name,
+           m.category, m.category_override,
+           m.status, m.unit, m.hs_code, m.updated_at,
+           m.btp_sourcing,
+           coalesce(vmr.has_imports, false) as has_imports,
+           coalesce(vmr.has_exports, false) as has_exports,
+           coalesce(vmr.is_consumed_in_bom, false) as is_consumed_in_bom,
+           coalesce(vmr.has_own_bom, false) as has_own_bom,
+           coalesce(vmr.observed_roles, '{}'::text[]) as observed_roles,
+           coalesce(vmr.is_multi_role, false) as is_multi_role,
+           coalesce(vmr.declared_observed_conflict, false) as declared_observed_conflict
+    from hub.materials m
+    left join hub.v_material_roles vmr
+           on vmr.client_id = m.client_id
+          and vmr.customs_code = m.customs_code
+"""
+
+
 @router.get("/materials")
 async def api_list_materials(
     client_id: str,
@@ -415,30 +434,35 @@ async def api_list_materials(
     limit: int = 200,
     authorization: str | None = Header(None),
 ):
+    """List materials with observed-role signals joined from v_material_roles.
+
+    Brief: .ai/features/2026-05-07-catalog-roles-refactor/brief.md (rev 5).
+    """
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
     offset, safe_limit = _page_args(cursor, limit)
-    sql = """
-        select client_id, customs_code, internal_code, name, category, category_override,
-               status, unit, hs_code, updated_at
-        from hub.materials where client_id = %s
-    """
+    sql = _MATERIALS_SELECT_WITH_ROLES + " where m.client_id = %s"
     params: list = [client_id]
     if category:
-        sql += " and category = %s"
+        sql += " and m.category = %s"
         params.append(category)
     if status:
-        sql += " and status = %s"
+        sql += " and m.status = %s"
         params.append(status)
-    sql += " order by customs_code limit %s offset %s"
+    sql += " order by m.customs_code limit %s offset %s"
     params.extend([safe_limit + 1, offset])
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
             cols = [d[0] for d in cur.description]
             items = [dict(zip(cols, r)) for r in cur.fetchall()]
+    for it in items:
+        # Postgres text[] arrays come back as Python lists already, but
+        # normalize empty arrays to [] (psycopg may return None).
+        if it.get("observed_roles") is None:
+            it["observed_roles"] = []
     return _json(_paged(items, offset=offset, limit=safe_limit))
 
 
@@ -452,18 +476,17 @@ async def api_get_material(
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
-                select client_id, customs_code, internal_code, name, category, category_override,
-                       status, unit, hs_code, updated_at
-                from hub.materials where client_id = %s and customs_code = %s
-                """,
+                _MATERIALS_SELECT_WITH_ROLES + " where m.client_id = %s and m.customs_code = %s",
                 (client_id, customs_code),
             )
             row = cur.fetchone()
             if not row:
                 raise HTTPException(404, "material not found")
             cols = [d[0] for d in cur.description]
-            return _json(dict(zip(cols, row)))
+            item = dict(zip(cols, row))
+            if item.get("observed_roles") is None:
+                item["observed_roles"] = []
+            return _json(item)
 
 
 @router.get("/bcct")
