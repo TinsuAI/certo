@@ -8,6 +8,33 @@ For past architectural decisions, see `DECISIONS.md`.
 
 ---
 
+## Phase 3 review follow-ups (deferred 2026-05-07)
+
+Captured during /rev of commits `5fb814a..dadbd0f`. Four Minor
+findings deferred — low value individually, batch when convenient.
+
+1. **Catalog matching column ≠ classifier matching column.**
+   Catalog `is_dual_source` / `has_imports` / `has_exports` /
+   `is_multi_role` use `b.customs_code = m.customs_code`. Phase 3a
+   classifier (`scripts/detect_dual_source_btps.py`) uses
+   `b.internal_code = m.customs_code`. Both yield identical results
+   on Growatt + Johnson today; future client with split
+   customs↔internal can see false negatives in the catalog flags.
+   Fix: align catalog SELECT EXISTS to use `internal_code`.
+2. **`api_create_preset` body validation thin.** No name length
+   cap, no whitespace strip, no charset restriction. Add
+   `name = body["name"].strip()` + max length guard (e.g. 64).
+3. **PATCH preset has no `updated_at` audit.** Mig 030 schema only
+   has `created_at`; PATCH overwrites silently. Add
+   `updated_at timestamptz` column via fresh migration; auto-touch
+   in PATCH endpoint.
+4. **`derive_btp_shallows` count-before/count-after `created` flag.**
+   Fragile under concurrency. OK for single-threaded CLI.
+   Migrate to `RETURNING xmax = 0` (Postgres-native "was this an
+   insert?") if running multi-process becomes a thing.
+
+---
+
 ## Phase 3c follow-ups (deferred 2026-05-07)
 
 Phase 3c shipped the foundational pieces: `derive_btp_shallows.py`

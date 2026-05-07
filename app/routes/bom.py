@@ -896,7 +896,7 @@ async def presets_create(request: Request, client_id: str, product_code: str,
                          artifact_id: str = Form(...), name: str = Form(...),
                          notes: str | None = Form(None)):
     user = auth.require_user(request)
-    auth.require_can_view_client(user, client_id)
+    auth.require_can_edit_client(user, client_id)
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "select 1 from hub.bom_artifacts where artifact_id=%s "
@@ -931,7 +931,7 @@ async def presets_create(request: Request, client_id: str, product_code: str,
 async def presets_tombstone(request: Request, client_id: str, preset_id: str,
                             reason: str | None = Form(None)):
     user = auth.require_user(request)
-    auth.require_can_view_client(user, client_id)
+    auth.require_can_edit_client(user, client_id)
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "select product_code from hub.bom_presets "

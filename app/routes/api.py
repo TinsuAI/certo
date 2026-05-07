@@ -20,6 +20,7 @@ from decimal import Decimal
 from typing import Any
 
 import jwt as pyjwt
+from psycopg import errors as psycopg_errors
 from fastapi import APIRouter, Header, HTTPException, Request, status
 from fastapi.responses import JSONResponse, RedirectResponse
 
@@ -938,7 +939,7 @@ async def api_create_preset(
     for k in ("client_id", "product_code", "artifact_id", "name"):
         if not body.get(k):
             raise HTTPException(422, f"missing required field: {k}")
-    _require_can_view_client(claims, body["client_id"])
+    _require_can_edit_client(claims, body["client_id"])
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "select client_id, product_code from hub.bom_artifacts "
@@ -954,26 +955,24 @@ async def api_create_preset(
                 f"artifact_id belongs to ({art[0]!r}, {art[1]!r}), not "
                 f"({body['client_id']!r}, {body['product_code']!r})",
             )
-        cur.execute(
-            "select 1 from hub.bom_presets "
-            "where client_id=%s and product_code=%s and name=%s "
-            "and tombstoned_at is null",
-            (body["client_id"], body["product_code"], body["name"]),
-        )
-        if cur.fetchone():
-            raise HTTPException(409, f"preset name {body['name']!r} already exists")
-
+        # Name uniqueness is enforced by partial unique index
+        # uq_bom_presets_name (client, product, name) where tombstoned_at
+        # is null. Pre-check race-prone; rely on DB + translate violation
+        # to 409.
         preset_id = _new_preset_id()
         sourcing = json.dumps(body.get("sourcing_choices") or {})
-        cur.execute(
-            "insert into hub.bom_presets (preset_id, client_id, product_code, "
-            "artifact_id, name, sourcing_choices, notes, created_by) "
-            "values (%s, %s, %s, %s, %s, %s::jsonb, %s, %s) returning created_at",
-            (preset_id, body["client_id"], body["product_code"],
-             body["artifact_id"], body["name"], sourcing,
-             body.get("notes"),
-             (claims or {}).get("sub")),
-        )
+        try:
+            cur.execute(
+                "insert into hub.bom_presets (preset_id, client_id, product_code, "
+                "artifact_id, name, sourcing_choices, notes, created_by) "
+                "values (%s, %s, %s, %s, %s, %s::jsonb, %s, %s) returning created_at",
+                (preset_id, body["client_id"], body["product_code"],
+                 body["artifact_id"], body["name"], sourcing,
+                 body.get("notes"),
+                 (claims or {}).get("sub")),
+            )
+        except psycopg_errors.UniqueViolation:
+            raise HTTPException(409, f"preset name {body['name']!r} already exists")
         (created_at,) = cur.fetchone()
     return _json({
         "preset_id": preset_id,
@@ -1029,7 +1028,7 @@ async def api_patch_preset(
         row = cur.fetchone()
         if not row:
             raise HTTPException(404, f"preset_id={preset_id!r} not found")
-        _require_can_view_client(claims, row[0])
+        _require_can_edit_client(claims, row[0])
 
         sets, params = [], []
         if "name" in body:
@@ -1044,12 +1043,15 @@ async def api_patch_preset(
         if not sets:
             raise HTTPException(422, "no editable fields provided")
         params.append(preset_id)
-        cur.execute(
-            f"update hub.bom_presets set {', '.join(sets)} where preset_id=%s "
-            "returning preset_id, client_id, product_code, artifact_id, name, "
-            "sourcing_choices, notes, created_at",
-            params,
-        )
+        try:
+            cur.execute(
+                f"update hub.bom_presets set {', '.join(sets)} where preset_id=%s "
+                "returning preset_id, client_id, product_code, artifact_id, name, "
+                "sourcing_choices, notes, created_at",
+                params,
+            )
+        except psycopg_errors.UniqueViolation:
+            raise HTTPException(409, "preset name conflicts with an existing alive preset")
         cols = [d[0] for d in cur.description]
         out = dict(zip(cols, cur.fetchone()))
     if out.get("created_at"):
@@ -1076,7 +1078,7 @@ async def api_tombstone_preset(
         row = cur.fetchone()
         if not row:
             raise HTTPException(404, f"preset_id={preset_id!r} not found")
-        _require_can_view_client(claims, row[0])
+        _require_can_edit_client(claims, row[0])
         cur.execute(
             "update hub.bom_presets set tombstoned_at=now(), tombstone_reason=%s "
             "where preset_id=%s",

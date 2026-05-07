@@ -657,7 +657,7 @@ async def set_btp_sourcing(request: Request, client_id: str, customs_code: str,
     `btp_sourcing_overridden_at` flag so classifier reruns don't
     overwrite manual overrides (BACKLOG)."""
     user = auth.require_user(request)
-    auth.require_can_view_client(user, client_id)
+    auth.require_can_edit_client(user, client_id)
     if btp_sourcing not in _BTP_SOURCING_VALUES:
         raise HTTPException(400, f"invalid btp_sourcing: {btp_sourcing!r}")
     with connect() as conn, conn.cursor() as cur:

@@ -244,6 +244,23 @@ def test_shape_filter_no_match_raises():
     assert exc.value.code == "no_artifact_for_shape"
 
 
+def test_shape_filter_tie_breaks_when_multiple_variants():
+    """Two artifacts of the same shape but different variants — shape
+    filter narrows + tie-breaks to latest published; no 409."""
+    with connect() as conn, conn.cursor() as cur:
+        _add_artifact(cur, artifact_id="ba_var1",
+                       strategy="technical_exploded", variant="v1")
+        _add_artifact(cur, artifact_id="ba_var2",
+                       strategy="technical_exploded", variant="v2")
+        conn.commit()
+    out = resolve_bom_artifact(
+        client_id=CLIENT, product_code=PRODUCT, shape="full_flat",
+    )
+    assert out["shape"] == "full_flat"
+    assert out["artifact_id"] in {"ba_var1", "ba_var2"}
+    assert any("tie-break" in s for s in out["resolution_trail"])
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Provenance trail content — D2
 # ─────────────────────────────────────────────────────────────────────

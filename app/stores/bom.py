@@ -1439,7 +1439,7 @@ def resolve_bom_artifact(
             "resolution_trail": trail,
         }
 
-    # 3. shape filter (or default)
+    # 3. shape filter — tie-breaks ambiguity, doesn't propagate to default
     items = latest_flattened_versions(
         client_id=client_id, product_code=product_code,
     )
@@ -1453,11 +1453,18 @@ def resolve_bom_artifact(
                 "no_artifact_for_shape",
                 f"no published artifact with shape={shape!r}",
             )
-        trail.append(f"shape={shape} → artifact_id={items[0]['artifact_id']}")
-    else:
-        trail.append("default · latest published per (variant, strategy)")
+        # latest_flattened_versions orders by (published_at desc nulls
+        # last, artifact_no desc); items[0] is the natural tie-break.
+        pick = items[0]
+        tie = f" (tie-break: 1 of {len(items)} variants)" if len(items) > 1 else ""
+        trail.append(f"shape={shape} → artifact_id={pick['artifact_id']}{tie}")
+        return {
+            "artifact_id": pick["artifact_id"],
+            "shape": shape,
+            "resolution_trail": trail,
+        }
 
-    # 4. default / single-vs-multi
+    # 4. default — single-vs-multi without shape filter
     if not items:
         raise ResolverError("no_alive_artifacts",
                             "no published artifact for product")
@@ -1468,6 +1475,7 @@ def resolve_bom_artifact(
             variants=items,
         )
     pick = items[0]
+    trail.append("default · latest published per (variant, strategy)")
     return {
         "artifact_id": pick["artifact_id"],
         "shape": bom_shape(pick["flatten_status"], pick["flatten_strategy"]),
