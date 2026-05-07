@@ -127,7 +127,7 @@ def test_materials_list_pure_nvl_atomic_signals(cid_with_rework):
             "insert into hub.bcct_rows (client_id, transaction_key, line_no, "
             "declaration_no, declaration_type, direction, registration_date, "
             "customs_code, internal_code, goods_name, payload) "
-            "values (%s, 'TXNVL', '1', 'DECLNVL', 'A11', 'import', '2026-01-10', "
+            "values (%s, 'TXNVL', '1', 'DECLNVL', 'E11', 'import', '2026-01-10', "
             "'NVL_X', 'NVL_X', 'nvl import', '{}'::jsonb)",
             (cid,),
         )

@@ -127,7 +127,7 @@ def _seed_pure_nvl(cur, *, client_id, code="NVL_PE"):
         "insert into hub.bcct_rows (client_id, transaction_key, line_no, "
         "declaration_no, declaration_type, direction, registration_date, "
         "customs_code, internal_code, goods_name, payload) "
-        "values (%s, 'TX-nvl-imp', '1', 'DECL.IMP', 'A11', 'import', '2026-01-10', "
+        "values (%s, 'TX-nvl-imp', '1', 'DECL.IMP', 'E11', 'import', '2026-01-10', "
         "%s, %s, %s, '{}'::jsonb)",
         (client_id, code, code, f"{code} import"),
     )

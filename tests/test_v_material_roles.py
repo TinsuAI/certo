@@ -45,18 +45,28 @@ def _seed_material(cur, *, client_id, code, kind="nvl"):
     )
 
 
-def _seed_bcct(cur, *, client_id, code, direction, txkey=None, regdate="2026-01-15"):
-    """Insert a synthetic BCCT row."""
+def _seed_bcct(cur, *, client_id, code, direction, txkey=None,
+               regdate="2026-01-15", declaration_type=None):
+    """Insert a synthetic BCCT row.
+
+    Default declaration_type:
+      - export → E42 (canonical TP export for DNCX)
+      - import → E11 (canonical NVL import for DNCX, fires `nvl` role)
+
+    Override `declaration_type` to test non-NVL imports (e.g. A11 commercial)
+    or other export types.
+    """
     if txkey is None:
         txkey = f"TXKEY-{code}-{direction}"
+    if declaration_type is None:
+        declaration_type = "E42" if direction == "export" else "E11"
     cur.execute(
         "insert into hub.bcct_rows (client_id, transaction_key, line_no, "
         "declaration_no, declaration_type, direction, registration_date, "
         "customs_code, internal_code, goods_name, payload) "
         "values (%s, %s, '1', %s, %s, %s, %s, %s, %s, %s, '{}'::jsonb)",
         (client_id, txkey, txkey.split('-')[0],
-         "E42" if direction == "export" else "A11",
-         direction, regdate, code, code, f"{code} test"),
+         declaration_type, direction, regdate, code, code, f"{code} test"),
     )
 
 
@@ -202,22 +212,70 @@ def test_pure_nvl(cid):
     assert v["is_multi_role"] is False
 
 
-def test_imported_unused(cid):
-    """imp only (no consumed, no own_bom) → []"""
+def test_imported_unused_with_nvl_declaration_type(cid):
+    """imp only (E11 NVL declaration, no consumed, no own_bom) → ['nvl'].
+
+    Per mig 034: has_nvl_import alone is enough — strict consumption
+    requirement was relaxed."""
     with connect() as conn, conn.cursor() as cur:
         _seed_material(cur, client_id=cid, code="UNUSED", kind="nvl")
         _seed_bcct(cur, client_id=cid, code="UNUSED", direction="import")
     with connect() as conn, conn.cursor() as cur:
         v = _query_view(cur, client_id=cid, code="UNUSED")
-    assert v["observed_roles"] == []
+    assert v["observed_roles"] == ["nvl"]
     assert v["has_imports"] is True
     assert v["is_consumed_in_bom"] is False
-    # Orphan declared: no observation, so no conflict per D8 precondition.
     assert v["declared_observed_conflict"] is False
 
 
-def test_re_export_trader(cid):
-    """exp + imp (no consumed) → ['tp']"""
+def test_imported_only_non_nvl_declaration_type(cid):
+    """imp only with declaration_type='A11' (commercial, not NVL set) → [].
+
+    `has_imports=true` but `has_nvl_import=false` → 'nvl' rule does NOT fire."""
+    with connect() as conn, conn.cursor() as cur:
+        _seed_material(cur, client_id=cid, code="A11_ONLY", kind="nvl")
+        _seed_bcct(cur, client_id=cid, code="A11_ONLY", direction="import",
+                   declaration_type="A11")
+    with connect() as conn, conn.cursor() as cur:
+        v = _query_view(cur, client_id=cid, code="A11_ONLY")
+    assert v["has_imports"] is True
+    assert v["observed_roles"] == []  # not auto-classified
+
+
+def test_imported_with_e13_mixed_declaration_type(cid):
+    """imp only with declaration_type='E13' (mixed: NVL+máy móc) → [].
+
+    E13 is intentionally excluded from auto-NVL set per QĐ 1357
+    'Nhập hàng hóa khác vào DNCX' (mixed). Operator confirms via
+    declared category."""
+    with connect() as conn, conn.cursor() as cur:
+        _seed_material(cur, client_id=cid, code="E13_ONLY", kind="nvl")
+        _seed_bcct(cur, client_id=cid, code="E13_ONLY", direction="import",
+                   declaration_type="E13")
+    with connect() as conn, conn.cursor() as cur:
+        v = _query_view(cur, client_id=cid, code="E13_ONLY")
+    assert v["has_imports"] is True
+    assert v["observed_roles"] == []
+
+
+def test_e13_plus_e11_fires_nvl(cid):
+    """imp with mixed E13 AND E11 NVL → ['nvl'] (E11 alone enough)."""
+    with connect() as conn, conn.cursor() as cur:
+        _seed_material(cur, client_id=cid, code="MIXED", kind="nvl")
+        _seed_bcct(cur, client_id=cid, code="MIXED", direction="import",
+                   declaration_type="E13", txkey="TX-mixed-E13")
+        _seed_bcct(cur, client_id=cid, code="MIXED", direction="import",
+                   declaration_type="E11", txkey="TX-mixed-E11")
+    with connect() as conn, conn.cursor() as cur:
+        v = _query_view(cur, client_id=cid, code="MIXED")
+    assert v["observed_roles"] == ["nvl"]
+
+
+def test_re_export_trader_with_nvl_import(cid):
+    """exp + imp (E11 NVL, no consumed) → ['tp','nvl'] multi-role.
+
+    Per mig 034 relax: NVL import alone (no consume) fires 'nvl'.
+    Combined with 'tp' from export = trader pattern, multi-role flagged."""
     with connect() as conn, conn.cursor() as cur:
         _seed_material(cur, client_id=cid, code="TRADER", kind="tp")
         _seed_bcct(cur, client_id=cid, code="TRADER", direction="import",
@@ -226,8 +284,23 @@ def test_re_export_trader(cid):
                    txkey="TX-trader-exp")
     with connect() as conn, conn.cursor() as cur:
         v = _query_view(cur, client_id=cid, code="TRADER")
+    assert sorted(v["observed_roles"]) == ["nvl", "tp"]
+    assert v["is_multi_role"] is True
+
+
+def test_re_export_trader_with_a11_commercial_import(cid):
+    """exp + imp (A11 commercial, not NVL set) → ['tp'] only.
+
+    Imp doesn't qualify for NVL (commercial declaration_type)."""
+    with connect() as conn, conn.cursor() as cur:
+        _seed_material(cur, client_id=cid, code="TRADER2", kind="tp")
+        _seed_bcct(cur, client_id=cid, code="TRADER2", direction="import",
+                   txkey="TX-t2-imp", declaration_type="A11")
+        _seed_bcct(cur, client_id=cid, code="TRADER2", direction="export",
+                   txkey="TX-t2-exp")
+    with connect() as conn, conn.cursor() as cur:
+        v = _query_view(cur, client_id=cid, code="TRADER2")
     assert v["observed_roles"] == ["tp"]
-    assert v["is_multi_role"] is False
 
 
 def test_trader_also_consumer_multi_role(cid):
@@ -264,7 +337,10 @@ def test_orphan_tp_with_bom_only(cid):
 
 
 def test_tombstone_flips_is_consumed_in_bom(cid):
-    """Tombstoning the only consuming bom_artifact flips is_consumed_in_bom T→F."""
+    """Tombstoning the only consuming bom_artifact flips is_consumed_in_bom T→F.
+    Per mig 034 relax: NVL stays even after consume signal goes (NVL import
+    alone keeps it). To verify is_consumed_in_bom flips, watch the atomic
+    signal directly."""
     with connect() as conn, conn.cursor() as cur:
         _seed_material(cur, client_id=cid, code="LEAF", kind="nvl")
         _seed_material(cur, client_id=cid, code="PARENT", kind="tp")
@@ -275,7 +351,6 @@ def test_tombstone_flips_is_consumed_in_bom(cid):
         before = _query_view(cur, client_id=cid, code="LEAF")
         assert before["is_consumed_in_bom"] is True
         assert before["observed_roles"] == ["nvl"]
-        # Tombstone the parent artifact.
         cur.execute(
             "update hub.bom_artifacts set tombstoned_at = now(), "
             "tombstone_reason = 'test' where artifact_id = %s",
@@ -283,9 +358,10 @@ def test_tombstone_flips_is_consumed_in_bom(cid):
         )
     with connect() as conn, conn.cursor() as cur:
         after = _query_view(cur, client_id=cid, code="LEAF")
+    # Atomic signal flips: consumed → false.
     assert after["is_consumed_in_bom"] is False
-    # NVL rule needs consumed; without it, falls to []. Imported-unused state.
-    assert after["observed_roles"] == []
+    # NVL role stays because has_nvl_import alone is enough now.
+    assert after["observed_roles"] == ["nvl"]
 
 
 def test_tombstone_flips_has_own_bom(cid):
@@ -365,9 +441,9 @@ def test_no_conflict_orphan(cid):
     assert v["declared_observed_conflict"] is False
 
 
-def test_no_conflict_re_export_trader_declared_nvl(cid):
-    """declared='nvl', observed=['tp'] (re-export trader) → conflict True
-    because nvl NOT in ['tp']."""
+def test_re_export_trader_declared_nvl_no_conflict(cid):
+    """declared='nvl', observed=['tp','nvl'] (re-export trader, NVL import) →
+    no conflict because 'nvl' IS in observed_roles. Multi-role flagged."""
     with connect() as conn, conn.cursor() as cur:
         _seed_material(cur, client_id=cid, code="RT", kind="nvl")
         _seed_bcct(cur, client_id=cid, code="RT", direction="import",
@@ -376,10 +452,10 @@ def test_no_conflict_re_export_trader_declared_nvl(cid):
                    txkey="TX-rt-exp")
     with connect() as conn, conn.cursor() as cur:
         v = _query_view(cur, client_id=cid, code="RT")
-    # Per D4: not consumed → 'nvl' rule fails. Only 'tp' fires.
-    assert v["observed_roles"] == ["tp"]
-    # declared='nvl' NOT in ['tp'] → conflict True.
-    assert v["declared_observed_conflict"] is True
+    assert sorted(v["observed_roles"]) == ["nvl", "tp"]
+    assert v["is_multi_role"] is True
+    # declared='nvl' IS in ['tp','nvl'] → no conflict.
+    assert v["declared_observed_conflict"] is False
 
 
 # ─── Lossy state regressions ────────────────────────────────────────
