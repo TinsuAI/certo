@@ -84,26 +84,59 @@ Per D6, per-candidate gets MINIMAL field set (atomic signals NOT propagated):
 }
 ```
 
-## Derivation rules (D4 of the brief)
+## Derivation rules (D4 of the brief — rev 2 after mig 034)
+
+**Rules in production (current):**
 
 ```
 'tp'      ⟸ has_exports
 'btp_sx'  ⟸ is_consumed_in_bom AND has_own_bom
-'nvl'     ⟸ has_imports AND is_consumed_in_bom AND NOT has_own_bom
+'nvl'     ⟸ has_nvl_import AND NOT has_own_bom
 ```
 
-A code can hold multiple roles. Walk-through:
+**`has_nvl_import` is a new atomic signal** (mig 034) — true when at least one
+BCCT import row has `declaration_type` in the canonical NVL set per
+QĐ 1357/QĐ-TCHQ:
+
+| declaration_type | Name | Why NVL |
+|---|---|---|
+| E11 | Nhập NVL của DNCX từ nước ngoài | Pure NVL import for DNCX |
+| E15 | Nhập NVL của DNCX từ nội địa | Pure NVL import (domestic) |
+| E21 | Nhập NVL gia công cho NN | Material for processing-for-foreign |
+| E23 | Nhập NVL gia công từ HĐ khác | Material transferred from other processing |
+| E31 | Nhập NVL sản xuất xuất khẩu | NVL for SXXK |
+| E33 | Nhập NVL vào kho bảo thuế | NVL into bonded warehouse |
+
+**Excluded from auto-NVL** (require operator confirm via declared category):
+- E13: Nhập hàng hóa khác vào DNCX (mixed: NVL + máy móc + CCDC)
+- E41: Nhập SP thuê gia công NN (TP, not NVL)
+- A-series: commercial / domestic SX (could be anything)
+- G-series: tạm nhập (temporary)
+- H, C: special cases
+
+**Old rule (pre-mig-034) was too strict** — required `is_consumed_in_bom`
+in addition. That meant NVL imports waiting for BOM upload of the consuming
+TP would not yet be classified. Relaxed because BCCT import declaration
++ canonical declaration_type carries enough domain signal.
+
+The atomic signal `has_imports` (any direction='import') is also still
+exposed — broader than `has_nvl_import`. UI/consumer use `has_imports`
+for "↓ nhập" hint when a code has activity but doesn't fire any role
+(e.g. only A11 commercial imports).
+
+A code can hold multiple roles. Walk-through (post-mig-034):
 
 | Pattern | observed_roles |
 |---|---|
 | Pure TP (exp + own_bom) | `["tp"]` |
 | Rework TP (exp + consumed + own_bom, e.g. cải chế) | `["tp", "btp_sx"]` |
 | BTP self-produced (consumed + own_bom) | `["btp_sx"]` |
-| BTP purchased no-bom (imp + consumed) | `["nvl"]` ← collapses with Pure NVL |
-| Pure NVL (imp + consumed) | `["nvl"]` |
-| Imported-unused (imp only) | `[]` |
-| Re-export trader (exp + imp) | `["tp"]` |
-| Trader-also-consumer (exp + imp + consumed) | `["tp", "nvl"]` |
+| BTP purchased no-bom (NVL-type-imp + consumed) | `["nvl"]` ← collapses with Pure NVL |
+| Pure NVL (NVL-type-imp, with or without consume) | `["nvl"]` |
+| Imported-only (NVL-type-imp, no other signal) | `["nvl"]` ← post-mig-034 |
+| Imported-only (non-NVL-type, e.g. A11 commercial) | `[]` (operator confirms) |
+| Re-export trader (NVL-type-imp + exp) | `["tp", "nvl"]` ← post-mig-034 multi-role |
+| Trader-also-consumer (NVL-type-imp + exp + consumed) | `["tp", "nvl"]` |
 
 **Important — structural collapse:** BTP-purchased-without-own-BOM and
 Pure NVL look IDENTICAL in observed_roles (both `["nvl"]`). The
@@ -270,6 +303,21 @@ No removal of existing CO logic — `bom_product_code` alias works as before.
 - Materialized view promotion if catalog endpoint p95 > 500ms — backlog.
 - Lazy re-validation of persisted `resolved` rows on BOM tombstone —
   backlog (R2 of BCCT identity brief).
+- For non-DNCX clients (regular SX domestic / commercial trade), A12
+  may carry NVL semantics — current `has_nvl_import` filter is
+  DNCX/DNSXXK-tuned (E-series only). Per-client declaration_type
+  whitelist override → backlog.
+
+## Real-data resolution rate (post mig 034 + BOM-only fallback)
+
+Growatt (23,080 BCCT rows): 22,333 resolved (96.8%), 735 missing,
+10 unverified, 2 ambiguous.
+
+Counts vs the original commit-4 contract:
+- +133 resolved (BOM-only fallback restored 17 paren-extracted codes
+  like `PV01.0117500` that have BOMs but no materials registry entry).
+- +228 NVL observed (mig 034 relax: codes with E11/E15 imports are now
+  classified without waiting for BOM consumption signal).
 
 ## Contact
 

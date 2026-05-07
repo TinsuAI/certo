@@ -106,17 +106,47 @@ output. Removes goods_name regex copies from BCQT codebase.
 
 ## Resolution rates on real data
 
-After backfill (live dry-run 2026-05-07):
+After backfill (live dry-run 2026-05-07, post mig 034 + BOM-only fallback):
 
 | Client | Total rows | Resolved | Resolution rate |
 |---|---|---|---|
-| Growatt | 23,080 | 22,200 | 96% |
+| Growatt | 23,080 | 22,333 | 96.8% |
 | Johnson | 52,224 | 52,172 | 99.9% |
 
-Unresolved buckets (Growatt): 821 missing (BCCT references codes
-not in catalog — agency data quality), 57 unverified (parsed paren
-codes referencing materials we don't have), 2 ambiguous (multi-paren
-edge case).
+Unresolved buckets (Growatt): 735 missing (BCCT references codes
+not in any catalog/BOM — agency data quality), 10 unverified, 2 ambiguous.
+
+## BOM-only product fallback (resolver behavior)
+
+The resolver canonicalizes against `hub.materials` as the master registry.
+However, some BOM products exist in `hub.bom_artifacts.product_code` WITHOUT
+a corresponding `hub.materials` entry (data gap — 17 codes for Growatt as
+of 2026-05-07, including the spec golden case `PV01.0117500`).
+
+For these BOM-only codes, the resolver synthesizes a virtual catalog entry
+with `category='tp'`, `has_own_bom=True`, `observed_roles=['tp']` so that
+the goods-name embedded-code rule (Stage 2) still matches. The resolved
+output looks identical to a materials-registered code:
+
+```json
+{
+  "resolution_status": "resolved",
+  "resolved_code": "PV01.0117500",
+  "bom_product_code": "PV01.0117500",
+  "product_kind": "tp",
+  "observed_roles": ["tp"],
+  "has_own_bom": true
+}
+```
+
+CO consumer logic doesn't need to special-case this — the contract is
+the same. Per-row signals like `has_imports`/`has_exports` will be
+false for BOM-only codes (they don't have BCCT presence under their
+own customs_code), but `bom_product_code` is set as long as alive
+bom_artifacts exist.
+
+Backlog: bootstrap script to ensure all `bom_artifacts.product_code`
+have corresponding `hub.materials` entries (eliminates the data gap).
 
 ## Auth
 

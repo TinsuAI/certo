@@ -151,6 +151,57 @@ class ResolverContext:
                 "declared_observed_conflict": bool(conflict),
             }
 
+        # Backfill BOM-only products: codes that exist as bom_artifacts.product_code
+        # but have no entry in hub.materials (data gap — should be addressed by a
+        # bootstrap script eventually). Without this, the BCCT goods_name resolver
+        # misses paren codes that have BOMs but no registered material entry —
+        # exactly the spec golden case (BIENTAN.17 → PV01.0117500 where
+        # PV01.0117500 has BOMs but isn't in materials registry).
+        cur.execute(
+            """
+            select b.product_code,
+                   count(*) as n_artifacts,
+                   max(case when b.flatten_status = 'flattened'
+                            then 1 else 0 end) as has_flattened
+            from hub.bom_artifacts b
+            where b.client_id = %s
+              and b.tombstoned_at is null
+              and not exists (
+                select 1 from hub.materials m
+                where m.client_id = %s and m.customs_code = b.product_code
+              )
+            group by b.product_code
+            """,
+            (client_id, client_id),
+        )
+        for code, n_art, has_flat in cur.fetchall():
+            if code in material_catalog:
+                continue
+            material_catalog[code] = {
+                "internal_code": code,
+                "name": None,
+                # Default category for BOM-only products is 'tp' — matches
+                # app/stores/bom.py coalesce(m.category, 'tp') convention.
+                "category": "tp",
+                "btp_sourcing": None,
+                "n_artifacts": int(n_art),
+                "has_bom": True,
+                "latest_flatten_status": (
+                    "flattened" if has_flat else "non_flattened"
+                ),
+                # No v_material_roles row for these codes (view only includes
+                # materials catalog entries). Atomic signals default false;
+                # has_own_bom is true by definition. observed_roles synthesized
+                # to ['tp'] since BOM ownership = TP-like role.
+                "has_imports": False,
+                "has_exports": False,
+                "is_consumed_in_bom": False,
+                "has_own_bom": True,
+                "observed_roles": ["tp"],
+                "is_multi_role": False,
+                "declared_observed_conflict": False,
+            }
+
         # Code mappings keyed by both customs_code and internal_code so the
         # resolver can look up either side.
         cur.execute(

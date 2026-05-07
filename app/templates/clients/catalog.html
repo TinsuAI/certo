@@ -99,7 +99,9 @@
         {{ sort_th('customs_code', t('catalog.col.customs_code')) }}
         {{ sort_th('internal_code', t('catalog.col.internal_code')) }}
         {{ sort_th('name', t('catalog.col.name')) }}
-        {{ sort_th('category', t('catalog.col.category')) }}
+        {{ sort_th('category', 'Khai báo') }}
+        <th title="Đối với BTP: agency tự sản xuất hay mua ngoài? Quyết định cách BOM resolver expand BTP. Chỉ áp dụng cho BTP_SX, BTP_NM.">Nguồn cung BTP</th>
+        <th title="Vai trò hệ thống tự phát hiện từ dữ liệu BCCT + BOM. Khác với khai báo — đây là sự thật từ giao dịch.">Quan sát</th>
         <th>{{ t('catalog.col.source') }}</th>
         <th>{{ t('catalog.col.unit') }}</th>
         <th>{{ t('catalog.col.hs_code') }}</th>
@@ -112,40 +114,90 @@
         <td class="mono">{{ m.customs_code }}</td>
         <td class="mono">{{ m.internal_code or '' }}</td>
         <td>{{ m.name or '' }}</td>
-        <td>
+        {# ── Khai báo (declared category) ────────────────────────────── #}
+        <td class="cell-declared">
           <span class="badge badge-info">{{ m.category }}</span>
-          {% if m.observed_roles %}
-            {% for role in m.observed_roles %}
-              {% if role != m.category %}
-                <span class="badge badge-observed mono"
-                      title="Observed in data graph (BCCT direction patterns + BOM membership). Distinct from declared category."
-                      style="font-size:.75em;opacity:.85">+{{ role }}</span>
-              {% endif %}
-            {% endfor %}
-          {% endif %}
-          {% if m.is_dual_source %}
-            <span class="badge badge-dual" title="{{ t('catalog.dual_source_tooltip') }}">⇄ dual</span>
-          {% endif %}
-          {% if m.is_multi_role %}
-            <span class="badge badge-warning" title="Code plays multiple roles in data graph (e.g. exported AND consumed in another product's BOM — rework / cải chế, or imported AND exported AND consumed — trader-also-consumer).">⚠ multi-role</span>
-          {% endif %}
           {% if m.declared_observed_conflict %}
             <span class="badge badge-error"
-                  title="Declared category does not match observed pattern. Verify with operator.">⚠ conflict</span>
+                  title="Khai báo không khớp với dữ liệu quan sát. Xem cột Quan sát + cân nhắc sửa khai báo."
+                  style="display:block;margin-top:.25em;font-size:.75em">⚠ Xét lại</span>
           {% endif %}
-          {% if m.category == 'btp_sx' %}
-            <form method="post"
+        </td>
+
+        {# ── Nguồn cung BTP (sourcing — only BTP_SX/BTP_NM) ─────────── #}
+        <td class="cell-sourcing">
+          {% if m.category in ('btp_sx', 'btp_nm') %}
+            {%- set sourcing_label = (
+              'Tự sản xuất nội bộ' if m.btp_sourcing == 'self_produced_only'
+              else 'Mua từ nhà cung cấp ngoài' if m.btp_sourcing == 'purchased_only'
+              else 'Vừa mua vừa tự sản xuất' if m.btp_sourcing == 'dual_source'
+              else 'Chưa phân loại'
+            ) -%}
+            <span class="sourcing-display"
+                  data-row-id="src-{{ m.customs_code }}"
+                  onclick="dhToggleSourcing('src-{{ m.customs_code }}')"
+                  title="Click để sửa phân loại nguồn cung BTP."
+                  style="display:inline-block;cursor:pointer;font-size:.85em">
+              {% if m.btp_sourcing in (none, '', 'unknown') %}
+                <em style="color:#a16207">⚠ {{ sourcing_label }}</em>
+              {% else %}
+                {{ sourcing_label }}
+              {% endif %}
+              <span class="edit-icon{% if m.declared_observed_conflict %} edit-icon-warn{% endif %}"
+                    style="margin-left:.25em">✎</span>
+            </span>
+            <form id="src-{{ m.customs_code }}" class="sourcing-edit"
+                  method="post"
                   action="/clients/{{ client.client_id }}/catalog/{{ m.customs_code }}/btp_sourcing"
-                  style="display:inline;margin-left:.4em">
+                  style="display:none">
+              <label style="display:block;font-size:.7em;color:#666;margin-bottom:2px">
+                BTP này có nguồn từ đâu?
+              </label>
               <select name="btp_sourcing" onchange="this.form.submit()" class="mono"
-                      style="font-size:.8em;padding:1px 2px"
-                      title="BTP sourcing classification">
-                <option value="unknown"            {{ 'selected' if m.btp_sourcing in (none, '', 'unknown') else '' }}>?</option>
-                <option value="purchased_only"    {{ 'selected' if m.btp_sourcing == 'purchased_only' else '' }}>purchased</option>
-                <option value="self_produced_only"{{ 'selected' if m.btp_sourcing == 'self_produced_only' else '' }}>self-prod</option>
-                <option value="dual_source"      {{ 'selected' if m.btp_sourcing == 'dual_source' else '' }}>dual</option>
+                      style="font-size:.85em;padding:2px 4px;min-width:14em">
+                <option value="unknown"             {{ 'selected' if m.btp_sourcing in (none, '', 'unknown') else '' }}>— Chọn —</option>
+                <option value="self_produced_only" {{ 'selected' if m.btp_sourcing == 'self_produced_only' else '' }}>Tự sản xuất nội bộ (có BOM riêng)</option>
+                <option value="purchased_only"     {{ 'selected' if m.btp_sourcing == 'purchased_only' else '' }}>Mua từ nhà cung cấp ngoài</option>
+                <option value="dual_source"        {{ 'selected' if m.btp_sourcing == 'dual_source' else '' }}>Vừa mua vừa tự sản xuất</option>
               </select>
             </form>
+          {% else %}
+            <span class="meta" style="color:#bbb;font-size:.85em" title="Trường này chỉ áp dụng cho BTP_SX và BTP_NM">—</span>
+          {% endif %}
+        </td>
+
+        {# ── Quan sát (observed from data graph) ─────────────────────── #}
+        <td class="cell-observed">
+          {%- set has_any_signal = m.has_imports or m.has_exports
+                                   or m.is_consumed_in_bom or m.has_own_bom -%}
+          {% if m.observed_roles %}
+            {% for role in m.observed_roles %}
+              <span class="badge badge-observed mono"
+                    title="Vai trò {{ role }} phát hiện từ BCCT + BOM"
+                    style="font-size:.78em">{{ role }}</span>
+            {% endfor %}
+          {% elif has_any_signal %}
+            <span class="meta"
+                  title="Có dữ liệu BCCT/BOM nhưng chưa đủ pattern để xếp vai trò (vd: imported chưa thấy consume → chưa thoả định nghĩa NVL chặt)."
+                  style="color:#888;font-size:.78em">
+              {% if m.has_imports %}↓ nhập{% endif %}
+              {% if m.has_exports %}{% if m.has_imports %} · {% endif %}↑ xuất{% endif %}
+              {% if m.has_own_bom %}{% if m.has_imports or m.has_exports %} · {% endif %}📋 có BOM{% endif %}
+              {% if m.is_consumed_in_bom %}{% if m.has_imports or m.has_exports or m.has_own_bom %} · {% endif %}↻ trong BOM khác{% endif %}
+              <em style="color:#aaa">(chưa khớp role)</em>
+            </span>
+          {% else %}
+            <span class="meta" style="color:#bbb;font-size:.85em" title="Chưa có giao dịch BCCT hay BOM cho mã này">—</span>
+          {% endif %}
+          {% if m.is_dual_source %}
+            <span class="badge badge-dual"
+                  title="{{ t('catalog.dual_source_tooltip') }}"
+                  style="display:block;margin-top:.25em;font-size:.75em">⇄ Đa nguồn</span>
+          {% endif %}
+          {% if m.is_multi_role %}
+            <span class="badge badge-warning"
+                  title="Code đóng vai trò bổ sung ngoài khai báo (rework/cải chế hoặc trader-also-consumer)."
+                  style="display:block;margin-top:.25em;font-size:.75em">⚠ Đa vai trò</span>
           {% endif %}
         </td>
         <td>
@@ -181,4 +233,26 @@
   </div>
   {% endif %}
 </section>
+
+<style>
+.cell-declared, .cell-observed { vertical-align: top; }
+.edit-icon { color: #888; font-size: .85em; opacity: .6; }
+.sourcing-display:hover .edit-icon { opacity: 1; color: #2563eb; }
+.edit-icon-warn { color: #f59e0b !important; opacity: 1 !important; font-weight: bold; }
+.sourcing-display:hover .edit-icon-warn { color: #d97706 !important; }
+.badge-observed { background: #f3f4f6; color: #4b5563; border: 1px dashed #d1d5db; }
+.badge-error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+</style>
+
+<script>
+function dhToggleSourcing(formId) {
+  const form = document.getElementById(formId);
+  if (!form) return;
+  const display = document.querySelector(`[data-row-id="${formId}"]`);
+  if (display) display.style.display = 'none';
+  form.style.display = 'inline';
+  const sel = form.querySelector('select');
+  if (sel) sel.focus();
+}
+</script>
 {% endblock %}
