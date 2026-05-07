@@ -57,7 +57,7 @@ async def main() -> None:
             await shoot(page, f"01_{client_id}_bom_list")
 
             # Versions list for product (where variant/shape/source columns live)
-            url = f"{BASE}/clients/{client_id}/bom/{product_code}/versions"
+            url = f"{BASE}/clients/{client_id}/bom/{product_code}/artifacts"
             await page.goto(url)
             try:
                 await page.wait_for_load_state("networkidle", timeout=4000)
@@ -72,7 +72,7 @@ async def main() -> None:
                 findings.append(f"{slug} versions page: '{needle}' present={hit}")
 
             # Open first version detail link
-            link = await page.query_selector('a[href*="/bom/version/"]')
+            link = await page.query_selector('a[href*="/bom/artifact/"]')
             if not link:
                 findings.append(f"{slug}: NO version detail link found")
                 continue

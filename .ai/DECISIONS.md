@@ -24,6 +24,56 @@ That entry covers:
 - M9 umbrella milestone covering 3-app extraction + hybrid engine migration + deployment + SSO.
 - Naming caveat: "Data Hub" is provisional.
 
+## 2026-05-07 BOM vocab rename — version → artifact, profile → preset
+
+**Context:** GLOSSARY locked the canonical 4-tier ontology
+(phiên bản logical / bản lưu storage / preset / shape × strategy)
+on 2026-05-07. DB schema + 464 code refs across 52 files lagged the
+vocab — `bom_versions`, `version_id`, `bom_resolution_profiles`,
+`profile_id` everywhere. Phase 3 was about to land a resolver +
+preset CRUD on top of the impoverished names; cheaper to rename
+before, when sister apps are not yet wired.
+
+**Decision:** Atomic rename pass landed before Phase 3a, scoped per
+brief `.ai/features/2026-05-07-bom-vocab-rename/brief.md`.
+
+- Migration 031 renames 3 tables + 9 column-renames spanning 7
+  tables. PostgreSQL ALTER TABLE/COLUMN RENAME is metadata-only;
+  carries FK constraints + generated-column expressions over.
+- Code grep-replace pass on 44 .py + .html files. Function names
+  (`list_versions_for_product` → `list_artifacts_for_product`,
+  `get_lineage_for_version` → `get_lineage_for_artifact`, etc.)
+  + URL paths (`/bom/version/` → `/bom/artifact/`,
+  `/bom/.../versions` → `/bom/.../artifacts`) + template files
+  (`bom_versions.html` → `bom_artifacts.html`).
+- ID prefix forward-only: `bv_*` rows survive untouched, new rows
+  minted with `ba_*` prefix. CO's stored references to `bv_*` IDs
+  remain valid.
+- One-release alias grace: old URLs return `308 Permanent Redirect`
+  (preserves POST method) to new URLs. Removal milestone tracked in
+  BACKLOG.md "Drop BOM vocab v1 aliases".
+
+**Alternatives:**
+- Squash migrations 005-030 into a single "phase-2 baseline" using
+  new vocab from the start. Rejected — rewrites history, loses
+  schema-decision provenance for one-time mental-translation cost.
+- Backfill all `bv_*` IDs to `ba_*`. Rejected — breaks persisted
+  external references in CO + BCQT, no semantic gain.
+- Implicit "default preset" to mask alias removal. Rejected per
+  Phase 3 brief R1 — masks the explicit choice consumers must make.
+
+**Consequences:**
+- All future BOM/preset code uses canonical vocab. Phase 3a starts
+  with clean vocabulary in store, route, template, test layers.
+- Sister-app coordination: CO needs migration before alias removal
+  (see `~/workspace/client/barry-CO-main/.ai/sister-app-notes/2026-05-07-bom-rename.md`).
+  BCQT has 0 refs but note posted for awareness.
+- Past migrations 005-030 use old names — readers translate
+  mentally. Mig 031 header explains. New devs spinning up against
+  fresh DB get final renamed schema; mig replay is forward-correct.
+
+---
+
 ## 2026-04-30 Project scaffold
 
 **Context:** New product spun out from architectural decision in sister repo BCQT-System, made same day. Need a home for code + AI context before M9 discovery sprint.
@@ -53,7 +103,7 @@ This is **time-scoped, not permanent**. Phase 2 may revisit if a real driver app
 **Consequences:**
 - BCCT now has **one** canonical write path: agency Excel upload → Data Hub UI → `hub.bcct_rows`. Single writer for BCCT, no reconciliation question.
 - Decision #6 (write conflict / source-of-truth precedence) **for BCCT** evaporates from MVP scope.
-- M9 deliverable #5 (service-to-service auth) narrows but does not evaporate. **BOM remains CO-writable in MVP** — CO modifies BOM versions for origin-certificate dossiers (e.g., swapping NVL composition to meet RVC thresholds) and writes them back as `source=co_modified` immutable versions with `parent_version_id` lineage. Auth scopes needed: `hub:read:bcct`, `hub:read:materials`, `hub:read:bom` for BCQT and CO; plus `hub:write:bom` for CO. No `hub:write:bcct` for CO in MVP.
+- M9 deliverable #5 (service-to-service auth) narrows but does not evaporate. **BOM remains CO-writable in MVP** — CO modifies BOM versions for origin-certificate dossiers (e.g., swapping NVL composition to meet RVC thresholds) and writes them back as `source=co_modified` immutable versions with `parent_artifact_id` lineage. Auth scopes needed: `hub:read:bcct`, `hub:read:materials`, `hub:read:bom` for BCQT and CO; plus `hub:write:bom` for CO. No `hub:write:bcct` for CO in MVP.
 - CO migration becomes "add hub read-client (BCCT, Danh Mục, BOM) + add BOM write-client (modified-version submission)" — narrower than the original full write-API rewrite, but not pure read-only.
 - The `client_id` → `agency_id`/`dncx_id` semantic split still matters for Data Hub's internal multi-DNCX model **and** at the BOM write boundary (CO submitting a modified version must identify the DNCX correctly).
 - Cross-repo coordination: amendment block added to `~/workspace/client/BCQT-System/.ai/DECISIONS.md` "2026-04-30 PM" entry on 2026-05-01.
@@ -68,10 +118,10 @@ This is **time-scoped, not permanent**. Phase 2 may revisit if a real driver app
 
 **Decision:** **CO submits BOM modifications as proposals** (not direct writes). Data Hub gates every external BOM write through an auto-evaluator. MVP runs **auto-only**:
 
-- New endpoint: `POST /v1/hub/products/{product_code}/bom/proposals`. Synchronous response: `{status: approved, version_id, version_no}` or `{status: rejected, decision_reason, failed_conditions}`.
+- New endpoint: `POST /v1/hub/products/{product_code}/bom/proposals`. Synchronous response: `{status: approved, artifact_id, artifact_no}` or `{status: rejected, decision_reason, failed_conditions}`.
 - New schema table: `hub.bom_change_requests` — durable record of every proposal (approved or rejected), with full audit lineage.
 - **Auto-rule** (proposal approves only if all hold):
-  1. `parent_version_id` resolves to an existing version for same `(dncx_id, product_code)`.
+  1. `parent_artifact_id` resolves to an existing version for same `(dncx_id, product_code)`.
   2. `context.case_id` references an active CO case.
   3. Row-delta vs parent within tolerance (NVL substitutions only; per-row `qty_per_unit` change ≤ `bom_proposal_qty_tolerance_pct`, default 5.0).
   4. All material codes referenced exist in `hub.materials` for this DNCX with `status='active'`.
@@ -85,7 +135,7 @@ This is **time-scoped, not permanent**. Phase 2 may revisit if a real driver app
 - Hybrid mode: auto for trivial cases, flag non-trivial for manual review.
 
 **Alternatives considered:**
-- Direct write (CO has `hub:write:bom` token, posts straight to `bom_versions`): rejected — violates canonical-data ownership; no gating against malformed/malicious writes.
+- Direct write (CO has `hub:write:bom` token, posts straight to `bom_artifacts`): rejected — violates canonical-data ownership; no gating against malformed/malicious writes.
 - Reviewer-amends-in-place: rejected — breaks audit integrity (record of "what CO actually proposed" lost).
 - Hub-counter-proposal-supersedes: considered (preserves audit, no mutability creep) but rejected for MVP — adds workflow complexity that auto-only doesn't need.
 
@@ -94,9 +144,9 @@ This is **time-scoped, not permanent**. Phase 2 may revisit if a real driver app
 - M9 deliverable #5 (service-to-service auth): CO needs `hub:propose:bom` (not `hub:write:bom`). Phase 2 adds `hub:approve:bom` for manual reviewers. Direct-write internal flows use no public scope.
 - **Auto-rule criterion #2** ("context.case_id is an active CO case") forces a service-discovery dimension: Data Hub queries CO via API to validate. This couples Data Hub to CO at runtime — Data Hub can't process BOM proposals if CO is down. Defer hardening to service-discovery design pass.
 - **Schema additions** (folded into `.ai/features/2026-05-01-data-hub-read-api.md`):
-  - `hub.bom_versions`: `actor`, `intent`, `parent_version_id`, `context` jsonb, `tombstoned_at`, `tombstone_reason`, `normalized_hash` (replaces `composition_hash`).
+  - `hub.bom_artifacts`: `actor`, `intent`, `parent_artifact_id`, `context` jsonb, `tombstoned_at`, `tombstone_reason`, `normalized_hash` (replaces `composition_hash`).
   - `hub.bom_change_requests`: full proposal record table.
-  - `hub.bcct_rows.bom_version_id`: point-of-use binding (per round-3 critic) — BCQT settlement reads what was bound at transaction time, not "current."
+  - `hub.bcct_rows.artifact_id`: point-of-use binding (per round-3 critic) — BCQT settlement reads what was bound at transaction time, not "current."
 - **Provenance is two axes**, not a flat enum: `actor ∈ {agency_staff, co_system, erp_pipeline}` × `intent ∈ {asserted_technical, derived, modified_for_case, staff_edit}`. Channel (file/form/api) goes to `context`.
 - **"Latest BOM" is a query**, not stored state: `GET /v1/hub/products/{p}/bom/latest` returns most recent published version with `intent ∈ {asserted_technical, staff_edit, derived}` (excludes `modified_for_case`). No `is_current` column.
 - **Tracking-code mode is per-DNCX, immutable, set at onboarding** — affects URL grammar (mode-aware variants `/by-customs-code/{c}`, `/by-product-code/{c}`, `/by-key/{c}`). DNCX switching modes mid-life requires re-onboarding under new `dncx_id`.
@@ -140,9 +190,9 @@ This is **time-scoped, not permanent**. Phase 2 may revisit if a real driver app
 
 ## 2026-05-03 BOM flattening — flatten metadata as separate axis from actor/intent
 
-**Context:** CO repo posted an implementation prompt (`~/workspace/client/barry-CO-main/.ai/features/2026-05-02-data-hub-bom-flattening-instructions.md`) requiring Data Hub to land technical-BOM flattening before CO migrates to consume Data Hub BOM. Spec required new fields for source kind / flatten status / strategy / lineage. Existing `bom_versions.actor` (`agency_staff|co_system|erp_pipeline|system`) and `intent` (`asserted_technical|derived|modified_for_case|staff_edit`) were the obvious tempting overload — but those answer "who created this" and "why", not "what kind of artifact is it" or "is it calculation-ready". Overloading them would have made `intent='asserted_technical'` semantically split between "raw technical BOM" and "manually-written flat BOM", confusing every downstream consumer.
+**Context:** CO repo posted an implementation prompt (`~/workspace/client/barry-CO-main/.ai/features/2026-05-02-data-hub-bom-flattening-instructions.md`) requiring Data Hub to land technical-BOM flattening before CO migrates to consume Data Hub BOM. Spec required new fields for source kind / flatten status / strategy / lineage. Existing `bom_artifacts.actor` (`agency_staff|co_system|erp_pipeline|system`) and `intent` (`asserted_technical|derived|modified_for_case|staff_edit`) were the obvious tempting overload — but those answer "who created this" and "why", not "what kind of artifact is it" or "is it calculation-ready". Overloading them would have made `intent='asserted_technical'` semantically split between "raw technical BOM" and "manually-written flat BOM", confusing every downstream consumer.
 
-**Decision:** Add **separate** flatten-axis fields (`source_bom_kind`, `flatten_status`, `flatten_strategy`, `source_channel`, `lineage`) to `bom_versions`. Keep `actor` and `intent` semantically pure. Persist staff-confirmation gates as audit rows in `hub.bom_flatten_decisions` (linked to `bom_versions.materialized_version_id`); persist non_flattened evidence per node in `hub.bom_unresolved_nodes`. Stand up a dedicated UOM model (`uom_canonical` + `uom_aliases` + `client_uom_overrides`) — none existed in CO either.
+**Decision:** Add **separate** flatten-axis fields (`source_bom_kind`, `flatten_status`, `flatten_strategy`, `source_channel`, `lineage`) to `bom_artifacts`. Keep `actor` and `intent` semantically pure. Persist staff-confirmation gates as audit rows in `hub.bom_flatten_decisions` (linked to `bom_artifacts.materialized_artifact_id`); persist non_flattened evidence per node in `hub.bom_unresolved_nodes`. Stand up a dedicated UOM model (`uom_canonical` + `uom_aliases` + `client_uom_overrides`) — none existed in CO either.
 
 **Alternatives considered:**
 - **Overload `intent`** with new values like `intent='technical_flattened'`: rejected — splits "what artifact" semantics across one field, breaks existing `/v1/hub/proposals` filtering and CO/BCQT consumer code that already keys off `intent`.
@@ -150,9 +200,9 @@ This is **time-scoped, not permanent**. Phase 2 may revisit if a real driver app
 - **No staff-confirm at all, auto-publish like CO**: rejected — silent corruption is the spec's explicit primary risk. Staff gates for dual-source / non_flattened / non-alias UOM are non-negotiable.
 
 **Consequences:**
-- **Append-only versioning preserved.** Two dual-source variants are two distinct rows in `bom_versions` (different `flatten_strategy` + different `normalized_hash`) — no in-place mutation. The existing `uq_bom_idempotent` constraint extends to include `flatten_strategy` + `bom_variant_id` so dual variants don't collide.
+- **Append-only versioning preserved.** Two dual-source variants are two distinct rows in `bom_artifacts` (different `flatten_strategy` + different `normalized_hash`) — no in-place mutation. The existing `uq_bom_idempotent` constraint extends to include `flatten_strategy` + `bom_variant_id` so dual variants don't collide.
 - **`/v1/hub/products/{p}/bom/latest` is now flatten-aware.** Filters `flatten_status` and returns `409 dual_source_variants` when multiple flattened variants live for one product. Documented in `docs/API_CONTRACT.md`. Backward-compat: backfilled `manual_flat` versions get `flatten_status='not_applicable'` so legacy callers see `200`.
-- **`version_no` is variant-scoped.** Per spec §3A, two `bom_variant_id` values for the same product can both legitimately be at `version_no=1`. Consumers MUST compare on `version_id` or the structured tuple, not bare `version_no`.
+- **`artifact_no` is variant-scoped.** Per spec §3A, two `bom_variant_id` values for the same product can both legitimately be at `artifact_no=1`. Consumers MUST compare on `artifact_id` or the structured tuple, not bare `artifact_no`.
 - **`display_label` is denormalized cache.** Persisted for UI ergonomics but never used as a DB key; spec §3A. Tests assert structured fields, not labels.
 - **All stored values are stable English machine codes.** Vietnamese stays in UI/i18n — spec §3B, enforced by CHECK constraints + a typing-level enum-audit test.
 - **Cross-app coordination:** Sister-app note posted at `.ai/sister-app-notes/2026-05-03-bom-flatten-shipped.md`. CO migration sprint MUST handle the flatten contract before consuming `/v1/hub/products/{p}/bom/*`. BCQT settlement consumer also affected on its eventual migration.
@@ -267,13 +317,13 @@ audit, source-row traceability, and comparison against staff-converted
 workbooks such as Growatt `GOM BOM TP/BTP`.
 
 **Decision:** Store BOM in two physical row shapes under the existing
-`hub.bom_versions` table:
+`hub.bom_artifacts` table:
 
 - `hub.bom_edges` for `source_bom_kind='technical_raw'`,
   `flatten_status='non_flattened'`, `flatten_strategy='no_strategy'`.
   Each row is one direct `parent_code -> child_code` edge with
   `root_code`, `qty_per_parent`, level/path/source-row metadata.
-- `hub.bom_version_rows` remains the flat/manual row table for
+- `hub.bom_artifact_rows` remains the flat/manual row table for
   `manual_flat`, `technical_flattened`, `staff_edit`, and CO/staff
   modifications.
 

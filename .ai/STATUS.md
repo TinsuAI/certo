@@ -1,33 +1,37 @@
 # Project Status
 
-**Date:** 2026-05-06 — BOM version UI polish (parent label + Lineage panel)
+**Date:** 2026-05-07 — BOM vocab rename pass (artifact / preset)
 
 ## Current State
 
-Local code: BOM version pages now show **human-readable parent labels**
-(`v#·shape·variant`, click-through) and a **Lineage panel** in the
-detail view (ancestors → THIS → descendants, cycle-safe walker). All
-rendering moved off inline styles into `static/css/app.css` +
-`clients/_bom_macros.html` shared macros.
+Local code + DB: BOM canonical 4-tier ontology (phiên bản logical /
+bản lưu storage / preset / shape × strategy) is now the single
+vocabulary across schema, store, route, template, test, and docs.
+
+- Mig 031 renamed `bom_versions` → `bom_artifacts`,
+  `bom_resolution_profiles` → `bom_presets`, plus 9 column renames
+  spanning 7 tables. PG ALTER TABLE/COLUMN RENAME is metadata-only.
+- 44 .py + .html files updated via grep-replace + targeted edits.
+- ID prefix forward-only: existing `bv_*` rows kept; new artifact
+  rows mint `ba_*`.
+- 308 redirect aliases preserve old URLs for one-release grace
+  (`/bom/version/...`, `/bom/.../versions`, API endpoint).
+- 8 vocab-rename tests added; full suite **479 pass / 15 skip / 1
+  pre-existing fail** (test_co_columns real-data, untouched).
 
 - **Demo URL**: https://ttdatahub.tinsu.ai
 - **Login**: `admin@data-hub.local` / `sS3EZgj9lf5b741`
-- **Repo HEAD**: `2d9dbfb` on `main` — **NOT yet pushed** to origin
-  (CI/CD will not have run; demo schema/code still at last push
-  `8e77996`).
+- **Repo HEAD**: rename pass landed locally — to be committed +
+  pushed (rev pending). Demo currently at `27a7889` (latest pushed
+  before rename).
 - **Recent commits**:
+  - `27a7889` docs(glossary): canonical BOM vocabulary
+  - `bd551b1` docs: handoff for BOM lineage UI session
   - `2d9dbfb` feat(bom): human parent labels + lineage panel
-  - `8e77996` docs(backlog): UI BOM upload deferred to Phase 3
-  - `6784762` fix(bom): tp_roots + first_seen + demote guard
-  - `11409c3` fix(bom): BTP detection covers Johnson-shape
-  - `d2899f1` feat(bom): v3 3-shape model + supplier-batch ingest
-- **Tests**: 57 BOM tests pass (4.2s); full suite not re-run this
-  session — last full run from prior session was 471 pass / 1 fail
-  (real-data, deselected) / 15 skip.
 - **Local DB v3 state** (unchanged from 2026-05-05):
-  - Growatt: 451 materials, 23,080 BCCT, 606 alive `bom_versions` in
+  - Growatt: 451 materials, 23,080 BCCT, 606 alive `bom_artifacts` in
     6 variants.
-  - Johnson: 11,129 materials, 52,224 BCCT, 246 alive `bom_versions`.
+  - Johnson: 11,129 materials, 52,224 BCCT, 246 alive `bom_artifacts`.
   - DKE: 242 BQD only. Do Thanh, demo-precision: empty.
 - **Demo data still OLD** — schema+code on demo at `8e77996`; no data
   re-ingest performed remotely. This was deferred from 2026-05-05
@@ -35,71 +39,65 @@ rendering moved off inline styles into `static/css/app.css` +
 
 ## Recent Changes (this session)
 
-See `.ai/sessions/2026-05-06-bom-version-lineage-ui.md` for full
-narrative. One commit (`2d9dbfb`) + uncommitted doc/memory/backlog
-updates.
+Vocab rename pass — see brief
+`.ai/features/2026-05-07-bom-vocab-rename/brief.md` and feature folder
+for full plan. To-be-committed (rev pending):
 
-**Committed (`2d9dbfb`):**
+**Schema (mig 031, applied locally):**
+- `bom_versions` → `bom_artifacts`
+- `bom_version_rows` → `bom_artifact_rows`
+- `bom_resolution_profiles` → `bom_presets`
+- `version_id` → `artifact_id` (cross-table: bom_artifacts,
+  bom_artifact_rows, bom_audit_events, bom_unresolved_nodes,
+  bom_edges, bcct_rows)
+- `version_no` → `artifact_no`
+- `parent_version_id` → `parent_artifact_id`
+- `materialized_version_id` → `materialized_artifact_id`
+- `profile_id` → `preset_id`, `bom_version_id` → `artifact_id` in presets
+- 9 indexes renamed; 3 PK constraints renamed
+- Generated column `parent_norm` auto-updated by Postgres
 
-- `app/stores/bom.py` — `list_versions_for_product` self-joins parent;
-  new `get_lineage_for_version()` walker (cycle-safe via `seen` set
-  seeded with self, `max_depth=12` with `truncated` flag, surfaces
-  `missing_parent_id` when chain breaks at a deleted ancestor).
-- `app/routes/bom.py` — derives `version["bom_shape"]` once in route
-  via `bom_shape()` helper; passes lineage to detail template.
-- `app/templates/clients/bom_versions.html` — parent column renders
-  `[v#] [shape_badge] · variant` link; `(deleted)` marker if parent
-  row gone.
-- `app/templates/clients/bom_version_detail.html` — Lineage panel
-  with ancestors → THIS (highlighted) → descendants; "forked from"
-  header uses human label.
-- `app/templates/clients/_bom_macros.html` (new) — `shape_badge` +
-  `lineage_node` macros shared across both templates.
-- `app/static/css/app.css` — `.badge-shape-*`, `.lineage-panel`,
-  `.lineage-node`, `.lineage-node--current`, etc.
-- `.ai/features/2026-05-06-bom-v3-ui-smoke/` — playwright smoke
-  harness (`ui_smoke.py`) + 8 committed screenshots verifying
-  Growatt SD00.0010600 + Johnson MFW0502-571.
-- One round of `/rev` + 7 follow-up fixes (3 Important + 4 Minor)
-  done in same commit. See session log.
+**Code (44 files):**
+- Bulk regex replace across .py + .html (table/column refs).
+- Function renames: `list_versions_for_product` → `list_artifacts_for_product`,
+  `get_version_with_rows` → `get_artifact_with_rows`,
+  `get_lineage_for_version` → `get_lineage_for_artifact`.
+- URL paths: `/bom/version/` → `/bom/artifact/`, `/bom/.../versions`
+  → `/bom/.../artifacts`.
+- Template renames: `bom_versions.html` → `bom_artifacts.html`,
+  `bom_version_detail.html` → `bom_artifact_detail.html`.
+- ID prefix: `"bv_"` → `"ba_"` (2 sites in `app/stores/bom.py`).
 
-**Uncommitted (docs + memory + backlog only):**
+**Aliases (one-release grace, BACKLOG entry tracks removal):**
+- `_alias_artifact_detail`, `_alias_artifacts_list` in `app/routes/bom.py`.
+- `_alias_api_bom_versions` in `app/routes/api.py`.
+- All return `308 Permanent Redirect` with new URL.
 
-- `.ai/BACKLOG.md` — added "Modular BOM ingest adapters (per supplier
-  shape)" entry. Captures Growatt vs Johnson divergence as an
-  ingestion gap, not architectural. Includes `derive_btp_shallows.py`
-  spec + adapter registry plan. Bundle with Phase 3.
-- Memory `project_bom_3_shapes.md` (NEW) — canonical raw_graph /
-  shallow / full_flat definitions + worked example. AI repeatedly
-  mis-stated the shallow rule (claimed it never reaches NVL); rule
-  is depth-agnostic, stops at first leaf which can be NVL OR BTP.
-- Memory `feedback_bundle_rev_fixes.md` (REFINED) — corrected to
-  "present all findings including weak ones (labeled), don't self-
-  defer; user certifies, default is bundle-execute". User pushed
-  back on the original "punch list" framing.
-- `.ai/sessions/2026-05-06-bom-version-lineage-ui.md` — extended
-  with Post-Commit Discussion section.
+**Tests:**
+- `tests/test_bom_vocab_rename.py` (new, 8 tests) — 4 schema asserts,
+  3 alias 308 asserts, 1 ID-prefix assert.
+- Full suite: 479 pass / 15 skip / 1 pre-existing fail.
+
+**Docs:**
+- `docs/API_CONTRACT.md` + `docs/API_CHANGELOG.md` updated.
+- `.ai/STATUS.md`, `.ai/DECISIONS.md` (new entry), `.ai/BACKLOG.md`
+  (new "Drop BOM vocab v1 aliases" entry), `README.md`.
 
 ## Next Steps
 
-In priority order (item 1 carried forward from 2026-05-05; rest
-unchanged unless noted):
+In priority order:
 
-1. **Push `2d9dbfb` to origin** — quick win, lets CI/CD deploy the
-   UI polish to demo even before data parity. ~5 min.
-2. **Demo data parity** — demo has v3 schema but old data. Choose:
-   - (a) `pg_dump` local data_hub → scp to tinsu → restore. ~30 min.
-     Loses audit chain on tinsu (history triggers re-fire on insert).
-   - (b) scp source XLSX corpus to tinsu (~vài GB) → run scripts
-     there. ~2-4h. Reproduces audit chain locally on tinsu.
-   - Recommendation: (a) for pre-MVP demo; (b) when real customer
-     onboards.
-3. **Phase 3 — resolver + profiles + sourcing_choice intent**.
-   Estimate 25-35h per critic. Bundle UI BOM upload v3 wiring
-   (`.ai/BACKLOG.md` "UI BOM upload — wire up v3 concepts") AND
-   modular ingest adapters (`.ai/BACKLOG.md` "Modular BOM ingest
-   adapters"). Also chốt vào Phase 3: where `derive_btp_shallows.py`
-   lives — adapter post-ingest hook vs resolver on-demand.
+1. **`/rev` the rename pass** — diff is large (44 files + new mig +
+   new tests + docs); confirm no ambiguous-grep false-positives.
+2. **Commit + push** per D2: 2 commits — (1) mig + code + tests +
+   API contract; (2) docs + sister-app notes + memory. Push to
+   origin → CI/CD picks up.
+3. **Demo data parity** — demo has old schema (pre-rename); apply
+   mig 031 + code update via deploy. Then `pg_dump` local data_hub
+   → scp to tinsu → restore. ~30 min.
+4. **Phase 3a `/tdd`** — resolver + sourcing populator + catalog UI.
+   Codebase now uses canonical vocab from day 1. ~10h.
+5. **Phase 3b/3c** per Phase 3 brief.
 4. **`detect_dual_source_btps.py`** — small script to flag BTPs
    appearing in BCCT imports as `btp_sourcing='dual_source'`.
 5. **`docs/release-engineering.md`** updates — document mode-aware

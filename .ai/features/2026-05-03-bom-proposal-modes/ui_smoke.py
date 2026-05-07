@@ -50,7 +50,7 @@ async def _submit_pending_proposal(parent_version: str) -> str:
         "client_id": CID,
         "actor": "co_system",
         "intent": "modified_for_case",
-        "parent_version_id": parent_version,
+        "parent_artifact_id": parent_version,
         "context": {"case_id": "UI-SMOKE-1"},
         "rows": [
             {"material_code": "PE-001", "qty_per_unit": 0.46, "uom": "kg"},
@@ -74,7 +74,7 @@ async def _submit_pending_proposal(parent_version: str) -> str:
 
 
 async def _latest_published_version() -> str | None:
-    """Read the most recent published version_id for INV-3000 via the public API."""
+    """Read the most recent published artifact_id for INV-3000 via the public API."""
     async with httpx.AsyncClient() as client:
         r = await client.get(
             f"{BASE}/v1/hub/products/INV-3000/bom/versions",
@@ -84,7 +84,7 @@ async def _latest_published_version() -> str | None:
         items = r.json().get("items", [])
         for v in items:
             if v.get("status") == "published" and not v.get("tombstoned_at"):
-                return v["version_id"]
+                return v["artifact_id"]
     return None
 
 
@@ -93,7 +93,7 @@ async def main():
     if not parent_version:
         print("no parent version — abort", file=sys.stderr)
         sys.exit(1)
-    print(f"parent_version_id = {parent_version}")
+    print(f"parent_artifact_id = {parent_version}")
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)

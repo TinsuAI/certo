@@ -8,6 +8,35 @@ For past architectural decisions, see `DECISIONS.md`.
 
 ---
 
+## Drop BOM vocab v1 aliases
+
+**Captured 2026-05-07** as part of mig-031 rename pass (see
+`.ai/features/2026-05-07-bom-vocab-rename/brief.md`). The rename
+ships with a one-release grace period of 308 redirects from old URLs
+to new URLs:
+
+- `/clients/{c}/bom/version/{id}` → 308 → `/clients/{c}/bom/artifact/{id}`
+- `/clients/{c}/bom/{p}/versions` → 308 → `/clients/{c}/bom/{p}/artifacts`
+- `/v1/hub/products/{p}/bom/versions` → 308 → `/v1/hub/products/{p}/bom/artifacts`
+
+Aliases live as `_alias_*` route handlers in `app/routes/bom.py` +
+`app/routes/api.py`. Tests guarding the 308 behavior are in
+`tests/test_bom_vocab_rename.py` under "URL alias — 308 redirect".
+
+**Removal trigger:**
+1. CO and BCQT confirm migration to new URLs (CO has 28 refs to old
+   names per sister-app note; BCQT has 0 refs).
+2. Server logs show zero alias hits over a 24h window.
+3. Any external bookmarks confirmed migrated.
+
+**Removal procedure** (small commit):
+1. Delete `_alias_*` route handlers in routes/bom.py + routes/api.py.
+2. Delete URL alias tests in tests/test_bom_vocab_rename.py
+   (keep schema + ID-prefix tests forever).
+3. Update API_CONTRACT.md to remove alias section.
+
+---
+
 ## UI BOM upload — wire up v3 concepts
 
 **Captured 2026-05-05** after session shipped v3 schema (raw_graph /
@@ -27,7 +56,7 @@ as `bom_variant_id='default'` with no post-upload hooks.
    version-bump idempotency dedup.
 2. **Auto-materialize post-upload** — when `technical_raw` confirms,
    trigger `materialize_shallow_and_full_flat` for the new
-   `bom_versions` row inline (or async). Without this, shallow +
+   `bom_artifacts` row inline (or async). Without this, shallow +
    full_flat versions only exist after a manual script run, which
    leaves the freshly-uploaded raw_graph orphan from BCQT/CO consumer
    queries.
@@ -84,7 +113,7 @@ Estimated effort: 4-6h for items 1-5, +2-3h for tests + docs (item 7).
 
 | Table | History tracking | Gap |
 |---|---|---|
-| `bom_versions` + children | ✅ tombstone + parent_version_id lineage (mig 006/029) | Uses migration 027 cleanup pattern. Already conformant. |
+| `bom_artifacts` + children | ✅ tombstone + parent_artifact_id lineage (mig 006/029) | Uses migration 027 cleanup pattern. Already conformant. |
 | `bcct_rows` | ✅ `bcct_row_history` audit table + AFTER UPDATE/DELETE trigger (mig 013) | OK, but no UI for revert. |
 | `materials` | ⚠️ `provenance` jsonb merge-on-conflict only | No history table. UPDATE overwrites name/category/unit/etc. |
 | `code_mappings` | ❌ Plain table, UPDATE in place. | No history. |
@@ -188,7 +217,7 @@ parallel as bandwidth allows.
   consumers want the same data — currently the per-page badges from
   Sprint B cover MVP need.
 
-- **D9: `bcct_rows.bom_version_id` point-of-use binding.** Already
+- **D9: `bcct_rows.artifact_id` point-of-use binding.** Already
   designed in `.ai/features/2026-04-30-data-hub-mvp.md` (BCQT-side).
   Implement when BCQT migration sprint lands.
 
@@ -291,10 +320,10 @@ shipped so far:
 - **Growatt-shape** — agency provides one file per code (TP and BTP
   separately). Ingest yields per-code `raw_graph` directly. Result:
   144/147 BTP shallow leaves are decomposable from their own
-  `bom_versions` rows.
+  `bom_artifacts` rows.
 - **Johnson-shape** — agency provides one deep-tree file per TP.
   Ingest yields TP-level `raw_graph` only; intermediate BTPs have
-  edges (in `hub.bom_edges`) but no `bom_versions` row keyed to them.
+  edges (in `hub.bom_edges`) but no `bom_artifacts` row keyed to them.
   Result: 0/342 BTP shallow leaves decomposable until a derive step
   runs.
 
@@ -313,7 +342,7 @@ shape as a pluggable adapter / add-on.
 2. **`derive_btp_shallows.py`** — post-ingest hook for Johnson-shape
    adapter (and any future deep-tree shape). For each intermediate
    `parent_code` in `bom_edges` that is classified `btp_sx`,
-   materialize a `bom_versions` row keyed to that code with
+   materialize a `bom_artifacts` row keyed to that code with
    `flatten_status='flattened'`,
    `flatten_strategy='purchased_btp_as_leaf'`, walking from that node
    down to first BTP/NVL leaves. After this runs, Johnson reaches
