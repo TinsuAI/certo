@@ -2,8 +2,8 @@
 
 For each file under the configured supplier roots, parse via
 `parse_raw_edges_with_fallback` and compute the same `normalized_edges_hash`
-that `create_raw_version` would. Compare against existing
-`hub.bom_versions.normalized_hash` for the same `product_code` + a
+that `create_raw_artifact` would. Compare against existing
+`hub.bom_artifacts.normalized_hash` for the same `product_code` + a
 matching `context->>'source_batch'`.
 
 Output:
@@ -96,14 +96,14 @@ def discover_files() -> list[dict]:
 
 
 def fetch_db_baseline(conn, client_id: str) -> dict[tuple[str, str], dict]:
-    """Map (product_code, source_batch) → {version_id, normalized_hash, row_count}."""
+    """Map (product_code, source_batch) → {artifact_id, normalized_hash, row_count}."""
     out: dict[tuple[str, str], dict] = {}
     with conn.cursor() as cur:
         cur.execute(
             """
             select product_code, context->>'source_batch' as batch,
-                   version_id, normalized_hash, row_count
-            from hub.bom_versions
+                   artifact_id, normalized_hash, row_count
+            from hub.bom_artifacts
             where client_id = %s
               and source_bom_kind = 'technical_raw'
               and tombstoned_at is null
@@ -111,9 +111,9 @@ def fetch_db_baseline(conn, client_id: str) -> dict[tuple[str, str], dict]:
             """,
             (client_id,),
         )
-        for product_code, batch, version_id, h, rc in cur.fetchall():
+        for product_code, batch, artifact_id, h, rc in cur.fetchall():
             out[(product_code, batch)] = {
-                "version_id": version_id,
+                "artifact_id": artifact_id,
                 "normalized_hash": h,
                 "row_count": rc,
             }
@@ -206,7 +206,7 @@ def main() -> int:
             rec["matched_product"] = matched_product
             rec["db_hash"] = baseline["normalized_hash"]
             rec["db_row_count"] = baseline["row_count"]
-            rec["db_version_id"] = baseline["version_id"]
+            rec["db_artifact_id"] = baseline["artifact_id"]
             if baseline["normalized_hash"] == rec["fresh_hash"]:
                 rec["status"] = "match"
                 counters["match"] += 1

@@ -74,7 +74,7 @@ def setup_client_and_user():
                 (CLIENT,),
             )
             cur.execute(
-                "delete from hub.bom_versions where client_id = %s", (CLIENT,),
+                "delete from hub.bom_artifacts where client_id = %s", (CLIENT,),
             )
             cur.execute(
                 "delete from hub.file_uploads where uploader_user_id = %s",
@@ -203,7 +203,7 @@ def test_mapping_form_happy_path_then_confirm(http):
 
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            "select count(*) from hub.bom_versions where client_id=%s and product_code=%s",
+            "select count(*) from hub.bom_artifacts where client_id=%s and product_code=%s",
             (CLIENT, "P-FLEX-1"),
         )
         assert cur.fetchone()[0] >= 1

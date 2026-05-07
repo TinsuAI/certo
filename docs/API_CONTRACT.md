@@ -353,7 +353,7 @@ Response item fields include:
 - `destination_name`
 - `transport_mode`
 - `exchange_rate`
-- `bom_version_id`
+- `artifact_id`
 - `indexed_at`
 
 #### `GET /v1/hub/bcct/invoice-matches`
@@ -421,7 +421,7 @@ Query params:
 Latest logic — hardened 2026-05-03 with BOM flattening shipping:
 - Includes intent ∈ {`asserted_technical`, `staff_edit`, `derived`}, excludes `modified_for_case`.
 - Includes `flatten_status` ∈ {`flattened`, `not_applicable`}. **Excludes `non_flattened`** — calculation consumers must never silently consume a non-flattened BOM as if it were calculation-ready.
-- When dual-source variants are published for the same product (e.g. both `purchased_btp_as_leaf` and `self_produced_btp_exploded` are live), responds **`409 Conflict`** with the variant list. Caller must rebind to a specific `version_id` via `GET /v1/hub/products/{product_code}/bom?version_id=…`.
+- When dual-source variants are published for the same product (e.g. both `purchased_btp_as_leaf` and `self_produced_btp_exploded` are live), responds **`409 Conflict`** with the variant list. Caller must rebind to a specific `artifact_id` via `GET /v1/hub/products/{product_code}/bom?artifact_id=…`.
 
 `409` response shape:
 
@@ -431,8 +431,8 @@ Latest logic — hardened 2026-05-03 with BOM flattening shipping:
   "message": "Multiple flattened variants exist for this product; …",
   "variants": [
     {
-      "version_id": "bv_…",
-      "version_no": 4,
+      "artifact_id": "ba_…",
+      "artifact_no": 4,
       "flatten_strategy": "purchased_btp_as_leaf",
       "source_bom_kind": "technical_flattened",
       "flatten_status": "flattened",
@@ -441,7 +441,7 @@ Latest logic — hardened 2026-05-03 with BOM flattening shipping:
       "bom_code": null
     },
     {
-      "version_id": "bv_…",
+      "artifact_id": "ba_…",
       "flatten_strategy": "self_produced_btp_exploded",
       "...": "…"
     }
@@ -453,11 +453,11 @@ Latest logic — hardened 2026-05-03 with BOM flattening shipping:
 
 ```json
 {
-  "version": {
-    "version_id": "bv_…",
+  "artifact": {
+    "artifact_id": "ba_…",
     "client_id": "growatt-vn",
     "product_code": "TP-A",
-    "version_no": 3,
+    "artifact_no": 3,
     "actor": "agency_staff",
     "intent": "asserted_technical",
     "source_bom_kind": "technical_flattened",
@@ -466,7 +466,7 @@ Latest logic — hardened 2026-05-03 with BOM flattening shipping:
     "source_channel": "agency_upload",
     "bom_code": null,
     "bom_variant_id": "default",
-    "lineage": { "btp_versions_used": [{"material_code":"BTP-B","version_id":"bv_…"}] },
+    "lineage": { "btp_versions_used": [{"material_code":"BTP-B","artifact_id":"ba_…"}] },
     "display_label": "TP-A · default · v3 · technical_flattened · flattened · technical_exploded",
     "flatten_method": "dh_flatten_v1",
     "flatten_method_version": "0.1.0",
@@ -498,7 +498,7 @@ Fetch pinned or latest BOM.
 
 Query params:
 - `client_id`: required.
-- `version_id`: optional. If absent, route returns latest.
+- `artifact_id`: optional. If absent, route returns latest.
 
 ### BOM Proposals
 
@@ -513,7 +513,7 @@ Request:
   "client_id": "growatt-vn",
   "actor": "co_system",
   "intent": "modified_for_case",
-  "parent_version_id": "bv_...",
+  "parent_artifact_id": "ba_...",
   "context": {
     "case_id": "CO-2026-0001",
     "trigger": "origin_review"
@@ -532,11 +532,11 @@ Request:
 
 Contract rules:
 - `rows` is required and must be non-empty.
-- `actor=co_system` or `intent=modified_for_case` requires `parent_version_id`.
-- `parent_version_id` must belong to the same `(client_id, product_code)`.
+- `actor=co_system` or `intent=modified_for_case` requires `parent_artifact_id`.
+- `parent_artifact_id` must belong to the same `(client_id, product_code)`.
 - All `material_code` values must exist in active materials for the client.
 - Quantity delta checks apply against the parent version.
-- Idempotency key is `(client_id, product_code, actor, intent, parent_version_id, normalized_hash)`.
+- Idempotency key is `(client_id, product_code, actor, intent, parent_artifact_id, normalized_hash)`.
 
 Approved response:
 
@@ -544,7 +544,7 @@ Approved response:
 {
   "proposal_id": "prop_...",
   "status": "approved",
-  "version_id": "bv_...",
+  "artifact_id": "ba_...",
   "decision_reason": "auto-rule approved",
   "failed_conditions": []
 }
@@ -556,9 +556,9 @@ Rejected response:
 {
   "proposal_id": "prop_...",
   "status": "rejected",
-  "version_id": null,
+  "artifact_id": null,
   "decision_reason": "auto-rule rejected",
-  "failed_conditions": ["parent_version_id_invalid"]
+  "failed_conditions": ["parent_artifact_id_invalid"]
 }
 ```
 
@@ -587,14 +587,14 @@ CO:
 - Read shared source data through Data Hub endpoints.
 - Do not infer missing endpoint contracts from raw row payloads.
 - Submit BOM changes only through `/bom/proposals`.
-- Always include `parent_version_id` for `modified_for_case`.
+- Always include `parent_artifact_id` for `modified_for_case`.
 - Treat `co-config` declaration type arrays as unconfigured until Data Hub exposes real per-client CO config.
 
 BOM consumers (CO and BCQT) — flatten contract:
-- Calculation flows MUST NOT consume versions where `flatten_status='non_flattened'`. The `/bom/latest` endpoint already filters these out; if you fetch a specific `version_id`, check the field yourself.
-- When `/bom/latest` returns `409 dual_source_variants`, the consumer MUST pick a specific variant and rebind via `?version_id=…`. Picking a variant is a business decision that lives outside Data Hub — do not silently default to the first.
-- Persist the picked `version_id` against the consuming entity (BCQT settlement record / CO case) so re-runs are reproducible.
-- Never use `display_label` as a key — it is a denormalized cache. Compare on `(version_id)` or on the structured tuple `(product_code, bom_variant_id, flatten_strategy, version_no)`.
+- Calculation flows MUST NOT consume versions where `flatten_status='non_flattened'`. The `/bom/latest` endpoint already filters these out; if you fetch a specific `artifact_id`, check the field yourself.
+- When `/bom/latest` returns `409 dual_source_variants`, the consumer MUST pick a specific variant and rebind via `?artifact_id=…`. Picking a variant is a business decision that lives outside Data Hub — do not silently default to the first.
+- Persist the picked `artifact_id` against the consuming entity (BCQT settlement record / CO case) so re-runs are reproducible.
+- Never use `display_label` as a key — it is a denormalized cache. Compare on `(artifact_id)` or on the structured tuple `(product_code, bom_variant_id, flatten_strategy, artifact_no)`.
 
 ## Change Management
 

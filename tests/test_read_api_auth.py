@@ -542,7 +542,7 @@ def test_bom_proposal_api_rejects_legacy_bearer_in_default_mode(strict_mode_off)
                 cur.execute("delete from hub.clients where client_id = %s", (client_id,))
 
 
-def test_co_bom_proposal_requires_parent_version_id(strict_mode_on):
+def test_co_bom_proposal_requires_parent_artifact_id(strict_mode_on):
     client_id = "read-api-bom-parent-required"
     with connect() as conn:
         with conn.cursor() as cur:
@@ -578,22 +578,22 @@ def test_co_bom_proposal_requires_parent_version_id(strict_mode_on):
         )
 
         assert response.status_code == 400
-        assert "parent_version_id" in response.json()["detail"]
+        assert "parent_artifact_id" in response.json()["detail"]
     finally:
         with connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    delete from hub.bom_version_rows
-                    where version_id in (
-                        select version_id from hub.bom_versions where client_id = %s
+                    delete from hub.bom_artifact_rows
+                    where artifact_id in (
+                        select artifact_id from hub.bom_artifacts where client_id = %s
                     )
                     """,
                     (client_id,),
                 )
                 cur.execute("delete from hub.bom_audit_events where client_id = %s", (client_id,))
                 cur.execute("delete from hub.bom_change_requests where client_id = %s", (client_id,))
-                cur.execute("delete from hub.bom_versions where client_id = %s", (client_id,))
+                cur.execute("delete from hub.bom_artifacts where client_id = %s", (client_id,))
                 cur.execute("delete from hub.materials where client_id = %s", (client_id,))
                 cur.execute("delete from hub.clients where client_id = %s", (client_id,))
 

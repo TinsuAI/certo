@@ -1,34 +1,34 @@
 {% extends "base.html" %}
 {% from "clients/_bom_macros.html" import shape_badge, lineage_node %}
-{% block title %}BOM v{{ version.version_no }} · {{ version.product_code }}{% endblock %}
+{% block title %}BOM v{{ artifact.artifact_no }} · {{ artifact.product_code }}{% endblock %}
 {% block content %}
 {% include "_client_nav.html" %}
 
 <section class="zone">
   <div class="zone-head">
     <div>
-      <h2>{{ version.product_code }} <span class="badge badge-info">v{{ version.version_no }}</span></h2>
+      <h2>{{ artifact.product_code }} <span class="badge badge-info">v{{ artifact.artifact_no }}</span></h2>
       <p class="meta">
-        <span class="badge">{{ version.actor }}</span>
-        <span class="badge">{{ version.intent }}</span>
-        {% set ctx = version.context or {} %}
-        {{ shape_badge(version.bom_shape) }}
-        · hash <span class="mono">{{ version.normalized_hash[:16] }}</span>
+        <span class="badge">{{ artifact.actor }}</span>
+        <span class="badge">{{ artifact.intent }}</span>
+        {% set ctx = artifact.context or {} %}
+        {{ shape_badge(artifact.bom_shape) }}
+        · hash <span class="mono">{{ artifact.normalized_hash[:16] }}</span>
         {% set parent = (lineage.ancestors[-1] if lineage and lineage.ancestors else None) %}
         {% if parent %}
         · forked from
-        <a href="/clients/{{ client.client_id }}/bom/version/{{ parent.version_id }}"
-           title="{{ parent.version_id }}"
+        <a href="/clients/{{ client.client_id }}/bom/artifact/{{ parent.artifact_id }}"
+           title="{{ parent.artifact_id }}"
            style="text-decoration:none">
-          <span class="badge badge-info">v{{ parent.version_no }}</span>
+          <span class="badge badge-info">v{{ parent.artifact_no }}</span>
           {{ shape_badge(parent.bom_shape) }}<span class="mono" style="font-size:.85em;color:#666">· {{ parent.bom_variant_id or 'default' }}</span>
         </a>
-        {% elif version.parent_version_id %}
-        · forked from <span class="mono" style="color:#c00" title="{{ version.parent_version_id }}">(deleted)</span>
+        {% elif artifact.parent_artifact_id %}
+        · forked from <span class="mono" style="color:#c00" title="{{ artifact.parent_artifact_id }}">(deleted)</span>
         {% endif %}
       </p>
     </div>
-    <div><a class="btn-secondary" href="/clients/{{ client.client_id }}/bom/{{ version.product_code }}/versions">← versions</a></div>
+    <div><a class="btn-secondary" href="/clients/{{ client.client_id }}/bom/{{ artifact.product_code }}/artifacts">← artifacts</a></div>
   </div>
 
   <div style="background: var(--surface-alt, #f7f8fc); padding: 1rem; border-radius: 8px; margin: 1rem 0;">
@@ -36,13 +36,13 @@
     <table style="border: none;">
       <tbody>
         <tr><td style="padding: 4px 12px 4px 0; color: #666;">Variant</td>
-            <td class="mono">{{ version.bom_variant_id or 'default' }}</td></tr>
+            <td class="mono">{{ artifact.bom_variant_id or 'default' }}</td></tr>
         <tr><td style="padding: 4px 12px 4px 0; color: #666;">Shape</td>
-            <td><span class="mono">{{ version.bom_shape }}</span> <span style="color:#666;font-size:.85em">(flatten_status={{ version.flatten_status }} / flatten_strategy={{ version.flatten_strategy }})</span></td></tr>
+            <td><span class="mono">{{ artifact.bom_shape }}</span> <span style="color:#666;font-size:.85em">(flatten_status={{ artifact.flatten_status }} / flatten_strategy={{ artifact.flatten_strategy }})</span></td></tr>
         <tr><td style="padding: 4px 12px 4px 0; color: #666;">Source kind</td>
-            <td class="mono">{{ version.source_bom_kind }}</td></tr>
+            <td class="mono">{{ artifact.source_bom_kind }}</td></tr>
         <tr><td style="padding: 4px 12px 4px 0; color: #666;">Source channel</td>
-            <td class="mono">{{ version.source_channel }}</td></tr>
+            <td class="mono">{{ artifact.source_channel }}</td></tr>
         {% if ctx.get('source_filename') %}
         <tr><td style="padding: 4px 12px 4px 0; color: #666;">Source file</td>
             <td class="mono">{{ ctx.source_filename }}</td></tr>
@@ -60,12 +60,12 @@
             <td class="mono">{{ ctx.ingest_script }}</td></tr>
         {% endif %}
         <tr><td style="padding: 4px 12px 4px 0; color: #666;">Created at</td>
-            <td class="mono">{{ version.created_at.strftime('%Y-%m-%d %H:%M:%S %Z') if version.created_at else '—' }}</td></tr>
-        {% if version.tombstoned_at %}
+            <td class="mono">{{ artifact.created_at.strftime('%Y-%m-%d %H:%M:%S %Z') if artifact.created_at else '—' }}</td></tr>
+        {% if artifact.tombstoned_at %}
         <tr><td style="padding: 4px 12px 4px 0; color: #666;">Tombstoned at</td>
-            <td class="mono" style="color:#c00">{{ version.tombstoned_at.strftime('%Y-%m-%d %H:%M:%S %Z') }}</td></tr>
+            <td class="mono" style="color:#c00">{{ artifact.tombstoned_at.strftime('%Y-%m-%d %H:%M:%S %Z') }}</td></tr>
         <tr><td style="padding: 4px 12px 4px 0; color: #666;">Tombstone reason</td>
-            <td>{{ version.tombstone_reason or '—' }}</td></tr>
+            <td>{{ artifact.tombstone_reason or '—' }}</td></tr>
         {% endif %}
       </tbody>
     </table>
@@ -80,7 +80,7 @@
         <span class="lineage-arrow">↓</span>
       {% endif %}
       {% for a in lineage.ancestors %}
-        {{ lineage_node(a, version.version_id, client.client_id) }}
+        {{ lineage_node(a, artifact.artifact_id, client.client_id) }}
         <span class="lineage-arrow">↓</span>
       {% endfor %}
       {% if lineage.missing_parent_id %}
@@ -88,19 +88,19 @@
         <span class="lineage-arrow">↓</span>
       {% endif %}
       {{ lineage_node({
-            'version_id': version.version_id,
-            'version_no': version.version_no,
-            'bom_variant_id': version.bom_variant_id,
-            'bom_shape': version.bom_shape,
-            'intent': version.intent,
-            'actor': version.actor,
-            'tombstoned_at': version.tombstoned_at,
-         }, version.version_id, client.client_id) }}
+            'artifact_id': artifact.artifact_id,
+            'artifact_no': artifact.artifact_no,
+            'bom_variant_id': artifact.bom_variant_id,
+            'bom_shape': artifact.bom_shape,
+            'intent': artifact.intent,
+            'actor': artifact.actor,
+            'tombstoned_at': artifact.tombstoned_at,
+         }, artifact.artifact_id, client.client_id) }}
       {% if lineage.descendants %}
         <span class="lineage-arrow">↓ <span class="lineage-arrow-meta">({{ lineage.descendants|length }} forks)</span></span>
         <div class="lineage-descendants">
           {% for d in lineage.descendants %}
-            {{ lineage_node(d, version.version_id, client.client_id) }}
+            {{ lineage_node(d, artifact.artifact_id, client.client_id) }}
           {% endfor %}
         </div>
       {% endif %}
@@ -108,10 +108,10 @@
   </div>
   {% endif %}
 
-  {% if version.context %}
+  {% if artifact.context %}
   <details>
     <summary class="subsection-head" style="cursor: pointer;"><h3 style="display: inline; margin: 0;">{{ t('bom.context') }} (raw)</h3></summary>
-    <pre class="mono" style="background: var(--surface-alt, #f7f8fc); padding: .8rem; border-radius: 8px; overflow: auto; margin-top: .5rem;">{{ version.context | tojson(indent=2) }}</pre>
+    <pre class="mono" style="background: var(--surface-alt, #f7f8fc); padding: .8rem; border-radius: 8px; overflow: auto; margin-top: .5rem;">{{ artifact.context | tojson(indent=2) }}</pre>
   </details>
   {% endif %}
 

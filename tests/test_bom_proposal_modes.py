@@ -27,7 +27,7 @@ from app.stores import service_accounts as sa_store
 from app.stores.bom import (
     ProposalNotPending,
     approve_proposal,
-    create_version,
+    create_artifact,
     get_proposal,
     reject_proposal,
     submit_proposal,
@@ -71,27 +71,27 @@ def proposal_client():
                 """,
                 (cid, cid, cid),
             )
-    parent = create_version(
+    parent = create_artifact(
         client_id=cid, product_code="P-1",
         rows=[
             {"material_code": "M-A", "qty_per_unit": 1.0, "uom": "kg"},
             {"material_code": "M-B", "qty_per_unit": 2.0, "uom": "kg"},
         ],
         actor="agency_staff", intent="asserted_technical",
-        parent_version_id=None,
+        parent_artifact_id=None,
         context={"seed": True}, source_upload_id=None,
     )
-    yield {"client_id": cid, "parent_version_id": parent}
+    yield {"client_id": cid, "parent_artifact_id": parent}
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """delete from hub.bom_version_rows where version_id in
-                   (select version_id from hub.bom_versions where client_id = %s)""",
+                """delete from hub.bom_artifact_rows where artifact_id in
+                   (select artifact_id from hub.bom_artifacts where client_id = %s)""",
                 (cid,),
             )
             cur.execute("delete from hub.bom_audit_events where client_id = %s", (cid,))
             cur.execute("delete from hub.bom_change_requests where client_id = %s", (cid,))
-            cur.execute("delete from hub.bom_versions where client_id = %s", (cid,))
+            cur.execute("delete from hub.bom_artifacts where client_id = %s", (cid,))
             cur.execute("delete from hub.materials where client_id = %s", (cid,))
             cur.execute("delete from hub.clients where client_id = %s", (cid,))
 
@@ -137,11 +137,11 @@ def test_auto_mode_approves_synchronously(proposal_client):
     res = submit_proposal(
         client_id=proposal_client["client_id"], product_code="P-1",
         actor="co_system", intent="modified_for_case",
-        parent_version_id=proposal_client["parent_version_id"],
+        parent_artifact_id=proposal_client["parent_artifact_id"],
         context={"case_id": "C1"}, rows=_good_rows(),
     )
     assert res["status"] == "approved"
-    assert res["version_id"] is not None
+    assert res["artifact_id"] is not None
 
 
 def test_auto_mode_rejects_synchronously(proposal_client):
@@ -149,11 +149,11 @@ def test_auto_mode_rejects_synchronously(proposal_client):
     res = submit_proposal(
         client_id=proposal_client["client_id"], product_code="P-1",
         actor="co_system", intent="modified_for_case",
-        parent_version_id=proposal_client["parent_version_id"],
+        parent_artifact_id=proposal_client["parent_artifact_id"],
         context={"case_id": "C2"}, rows=_bad_rows(),
     )
     assert res["status"] == "rejected"
-    assert res["version_id"] is None
+    assert res["artifact_id"] is None
     assert res["failed_conditions"]
 
 
@@ -162,11 +162,11 @@ def test_manual_mode_lands_pending_even_for_clean_rows(proposal_client):
     res = submit_proposal(
         client_id=proposal_client["client_id"], product_code="P-1",
         actor="co_system", intent="modified_for_case",
-        parent_version_id=proposal_client["parent_version_id"],
+        parent_artifact_id=proposal_client["parent_artifact_id"],
         context={"case_id": "C3"}, rows=_good_rows(),
     )
     assert res["status"] == "pending"
-    assert res["version_id"] is None
+    assert res["artifact_id"] is None
     proposal = get_proposal(res["proposal_id"])
     assert proposal["decided_at"] is None
     assert proposal["decided_by"] is None
@@ -177,11 +177,11 @@ def test_hybrid_auto_approves_clean(proposal_client):
     res = submit_proposal(
         client_id=proposal_client["client_id"], product_code="P-1",
         actor="co_system", intent="modified_for_case",
-        parent_version_id=proposal_client["parent_version_id"],
+        parent_artifact_id=proposal_client["parent_artifact_id"],
         context={"case_id": "C4"}, rows=_good_rows(),
     )
     assert res["status"] == "approved"
-    assert res["version_id"] is not None
+    assert res["artifact_id"] is not None
 
 
 def test_hybrid_auto_reject_falls_through_to_pending(proposal_client):
@@ -189,11 +189,11 @@ def test_hybrid_auto_reject_falls_through_to_pending(proposal_client):
     res = submit_proposal(
         client_id=proposal_client["client_id"], product_code="P-1",
         actor="co_system", intent="modified_for_case",
-        parent_version_id=proposal_client["parent_version_id"],
+        parent_artifact_id=proposal_client["parent_artifact_id"],
         context={"case_id": "C5"}, rows=_bad_rows(),
     )
     assert res["status"] == "pending"
-    assert res["version_id"] is None
+    assert res["artifact_id"] is None
     # Reviewer needs the failed_conditions context to override knowingly.
     assert res["failed_conditions"]
 
@@ -206,7 +206,7 @@ def test_approve_pending_materializes_version(proposal_client):
     res = submit_proposal(
         client_id=proposal_client["client_id"], product_code="P-1",
         actor="co_system", intent="modified_for_case",
-        parent_version_id=proposal_client["parent_version_id"],
+        parent_artifact_id=proposal_client["parent_artifact_id"],
         context={"case_id": "C6"}, rows=_good_rows(),
     )
     out = approve_proposal(
@@ -214,11 +214,11 @@ def test_approve_pending_materializes_version(proposal_client):
         reason="looked good",
     )
     assert out["status"] == "approved"
-    assert out["version_id"]
+    assert out["artifact_id"]
     proposal = get_proposal(res["proposal_id"])
     assert proposal["decided_by"] == "u_reviewer"
     assert proposal["decision_reason"] == "looked good"
-    assert proposal["materialized_version_id"] == out["version_id"]
+    assert proposal["materialized_artifact_id"] == out["artifact_id"]
 
 
 def test_reject_pending_writes_reason(proposal_client):
@@ -226,7 +226,7 @@ def test_reject_pending_writes_reason(proposal_client):
     res = submit_proposal(
         client_id=proposal_client["client_id"], product_code="P-1",
         actor="co_system", intent="modified_for_case",
-        parent_version_id=proposal_client["parent_version_id"],
+        parent_artifact_id=proposal_client["parent_artifact_id"],
         context={"case_id": "C7"}, rows=_good_rows(),
     )
     reject_proposal(
@@ -236,7 +236,7 @@ def test_reject_pending_writes_reason(proposal_client):
     proposal = get_proposal(res["proposal_id"])
     assert proposal["status"] == "rejected"
     assert proposal["decision_reason"] == "wrong product line"
-    assert proposal["materialized_version_id"] is None
+    assert proposal["materialized_artifact_id"] is None
 
 
 def test_withdraw_pending(proposal_client):
@@ -244,7 +244,7 @@ def test_withdraw_pending(proposal_client):
     res = submit_proposal(
         client_id=proposal_client["client_id"], product_code="P-1",
         actor="co_system", intent="modified_for_case",
-        parent_version_id=proposal_client["parent_version_id"],
+        parent_artifact_id=proposal_client["parent_artifact_id"],
         context={"case_id": "C8"}, rows=_good_rows(),
     )
     withdraw_proposal(proposal_id=res["proposal_id"], by="svc:co")
@@ -259,7 +259,7 @@ def test_actions_on_already_decided_raise(proposal_client):
     res = submit_proposal(
         client_id=proposal_client["client_id"], product_code="P-1",
         actor="co_system", intent="modified_for_case",
-        parent_version_id=proposal_client["parent_version_id"],
+        parent_artifact_id=proposal_client["parent_artifact_id"],
         context={"case_id": "C9"}, rows=_good_rows(),
     )
     assert res["status"] == "approved"
@@ -284,13 +284,13 @@ def test_resubmit_while_pending_returns_existing(proposal_client):
     first = submit_proposal(
         client_id=proposal_client["client_id"], product_code="P-1",
         actor="co_system", intent="modified_for_case",
-        parent_version_id=proposal_client["parent_version_id"],
+        parent_artifact_id=proposal_client["parent_artifact_id"],
         context={"case_id": "C10"}, rows=rows,
     )
     second = submit_proposal(
         client_id=proposal_client["client_id"], product_code="P-1",
         actor="co_system", intent="modified_for_case",
-        parent_version_id=proposal_client["parent_version_id"],
+        parent_artifact_id=proposal_client["parent_artifact_id"],
         context={"case_id": "C10"}, rows=rows,
     )
     assert second["proposal_id"] == first["proposal_id"]
@@ -304,14 +304,14 @@ def test_resubmit_after_withdraw_creates_new_proposal(proposal_client):
     first = submit_proposal(
         client_id=proposal_client["client_id"], product_code="P-1",
         actor="co_system", intent="modified_for_case",
-        parent_version_id=proposal_client["parent_version_id"],
+        parent_artifact_id=proposal_client["parent_artifact_id"],
         context={"case_id": "C11"}, rows=rows,
     )
     withdraw_proposal(proposal_id=first["proposal_id"], by="svc:co")
     second = submit_proposal(
         client_id=proposal_client["client_id"], product_code="P-1",
         actor="co_system", intent="modified_for_case",
-        parent_version_id=proposal_client["parent_version_id"],
+        parent_artifact_id=proposal_client["parent_artifact_id"],
         context={"case_id": "C11"}, rows=rows,
     )
     assert second["proposal_id"] != first["proposal_id"]
@@ -452,7 +452,7 @@ def test_api_service_token_can_withdraw_own_pending(
         res = submit_proposal(
             client_id=proposal_client["client_id"], product_code="P-1",
             actor="co_system", intent="modified_for_case",
-            parent_version_id=proposal_client["parent_version_id"],
+            parent_artifact_id=proposal_client["parent_artifact_id"],
             context={"case_id": "C-API-1"}, rows=_good_rows(),
         )
         sa_store.create_account(
@@ -485,7 +485,7 @@ def test_api_withdraw_already_decided_returns_409(
         res = submit_proposal(
             client_id=proposal_client["client_id"], product_code="P-1",
             actor="co_system", intent="modified_for_case",
-            parent_version_id=proposal_client["parent_version_id"],
+            parent_artifact_id=proposal_client["parent_artifact_id"],
             context={"case_id": "C-API-2"}, rows=_good_rows(),
         )
         assert res["status"] == "approved"

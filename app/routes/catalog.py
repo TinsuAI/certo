@@ -498,7 +498,7 @@ def _query_materials(*, client_id: str, category: str | None,
                    and b.direction = 'import'
                ) as has_imports,
                exists (
-                 select 1 from hub.bom_versions v
+                 select 1 from hub.bom_artifacts v
                  where v.client_id = m.client_id
                    and v.product_code = m.customs_code
                    and v.tombstoned_at is null

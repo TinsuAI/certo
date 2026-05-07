@@ -27,7 +27,7 @@ def list_clients() -> list[dict]:
                        (select count(*) from hub.materials m where m.client_id = c.client_id) as n_materials,
                        (select count(*) from hub.code_mappings cm where cm.client_id = c.client_id) as n_mappings,
                        (select count(*) from hub.bcct_rows b where b.client_id = c.client_id) as n_bcct,
-                       (select count(*) from hub.bom_versions bv where bv.client_id = c.client_id and bv.tombstoned_at is null) as n_bom
+                       (select count(*) from hub.bom_artifacts bv where bv.client_id = c.client_id and bv.tombstoned_at is null) as n_bom
                 from hub.clients c
                 order by c.created_at desc
                 """
@@ -67,7 +67,7 @@ def stats_for_client(client_id: str) -> dict:
                   (select count(*) from hub.materials where client_id = %s),
                   (select count(*) from hub.code_mappings where client_id = %s),
                   (select count(*) from hub.bcct_rows where client_id = %s),
-                  (select count(*) from hub.bom_versions
+                  (select count(*) from hub.bom_artifacts
                      where client_id = %s and tombstoned_at is null),
                   (select count(*) from hub.bom_change_requests where client_id = %s)
                 """,

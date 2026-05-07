@@ -360,9 +360,9 @@ def _query_bom(*, client_id: str, product_code: str | None = None,
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    select version_id, product_code, source, status,
+                    select artifact_id, product_code, source, status,
                            created_at, row_count
-                    from hub.bom_versions
+                    from hub.bom_artifacts
                     where client_id = %s and product_code = %s
                       and tombstoned_at is null
                     order by created_at desc
@@ -387,7 +387,7 @@ def _query_bom(*, client_id: str, product_code: str | None = None,
                 """
                 select product_code, count(*) as version_count,
                        max(created_at) as latest_at
-                from hub.bom_versions
+                from hub.bom_artifacts
                 where client_id = %s and tombstoned_at is null
                 group by product_code order by latest_at desc nulls last
                 limit %s

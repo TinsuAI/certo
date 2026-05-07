@@ -56,7 +56,7 @@ async def main():
                 ("32_bcct_upload", f"/clients/{CLIENT_ID}/bcct/upload"),
                 ("40_bom", f"/clients/{CLIENT_ID}/bom"),
                 ("41_bom_upload", f"/clients/{CLIENT_ID}/bom/upload"),
-                ("42_bom_versions", f"/clients/{CLIENT_ID}/bom/INV-3000/versions"),
+                ("42_bom_artifacts", f"/clients/{CLIENT_ID}/bom/INV-3000/artifacts"),
                 ("50_proposals", f"/clients/{CLIENT_ID}/proposals"),
                 ("60_uploads", f"/clients/{CLIENT_ID}/uploads"),
             ]
@@ -68,12 +68,12 @@ async def main():
                 except Exception: pass
                 await capture(page, slug, theme)
 
-            # capture a BOM version detail too (need a real version_id)
+            # capture a BOM version detail too (need a real artifact_id)
             if theme == "light":
-                await page.goto(f"{BASE}/clients/{CLIENT_ID}/bom/INV-3000/versions")
+                await page.goto(f"{BASE}/clients/{CLIENT_ID}/bom/INV-3000/artifacts")
                 try: await page.wait_for_load_state("networkidle", timeout=3000)
                 except Exception: pass
-                ver_link = await page.query_selector('a[href*="/bom/version/"]')
+                ver_link = await page.query_selector('a[href*="/bom/artifact/"]')
                 if ver_link:
                     href = await ver_link.get_attribute("href")
                     await page.goto(f"{BASE}{href}")

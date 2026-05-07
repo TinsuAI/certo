@@ -6,8 +6,8 @@ Lifecycle:
      status to 'confirmed' or 'rejected'. Auto-decisions (`status='auto'`)
      bypass this step; they're inserted directly with status='auto' and never
      show up in the staff confirmation UI.
-  3. materialization: link_to_version(decision_id, version_id) sets
-     materialized_version_id once the corresponding version is committed.
+  3. materialization: link_to_version(decision_id, artifact_id) sets
+     materialized_artifact_id once the corresponding version is committed.
 """
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ def decisions_for_pending(pending_id: str) -> list[dict]:
                 """
                 select decision_id, decision_type, chosen_action, alternatives,
                        evidence, status, staff_confirmation_required,
-                       confirmed_by, confirmed_at, materialized_version_id,
+                       confirmed_by, confirmed_at, materialized_artifact_id,
                        product_code
                 from hub.bom_flatten_decisions
                 where pending_id = %s
@@ -95,15 +95,15 @@ def confirm_decision(*, decision_id: str, user_id: str | None,
             )
 
 
-def link_to_version(*, decision_id: str, version_id: str) -> None:
+def link_to_version(*, decision_id: str, artifact_id: str) -> None:
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 update hub.bom_flatten_decisions
-                set materialized_version_id = %s,
+                set materialized_artifact_id = %s,
                     pending_id = null
                 where decision_id = %s
                 """,
-                (version_id, decision_id),
+                (artifact_id, decision_id),
             )

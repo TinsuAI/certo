@@ -18,7 +18,7 @@ from app.flatten.types import (
 def test_display_label_includes_all_structured_fields():
     label = build_display_label(
         product_code="TP-A", bom_variant_id="default",
-        version_no=3, source_bom_kind="technical_flattened",
+        artifact_no=3, source_bom_kind="technical_flattened",
         flatten_status="flattened",
         flatten_strategy="self_produced_btp_exploded",
     )
@@ -28,7 +28,7 @@ def test_display_label_includes_all_structured_fields():
 def test_display_label_uses_default_when_variant_none():
     label = build_display_label(
         product_code="TP-A", bom_variant_id=None,
-        version_no=1, source_bom_kind="manual_flat",
+        artifact_no=1, source_bom_kind="manual_flat",
         flatten_status="not_applicable",
         flatten_strategy="manual_flat_as_provided",
     )
@@ -38,12 +38,12 @@ def test_display_label_uses_default_when_variant_none():
 def test_display_label_dual_source_variants_distinguishable():
     """The two dual-source variants must have visibly different labels."""
     purchased = build_display_label(
-        product_code="TP-A", bom_variant_id="default", version_no=4,
+        product_code="TP-A", bom_variant_id="default", artifact_no=4,
         source_bom_kind="technical_flattened", flatten_status="flattened",
         flatten_strategy="purchased_btp_as_leaf",
     )
     exploded = build_display_label(
-        product_code="TP-A", bom_variant_id="default", version_no=5,
+        product_code="TP-A", bom_variant_id="default", artifact_no=5,
         source_bom_kind="technical_flattened", flatten_status="flattened",
         flatten_strategy="self_produced_btp_exploded",
     )

@@ -300,7 +300,7 @@ def test_llm_mapping_path_runs_full_coercion_guards():
     assert rows[0]["transaction_key"] == "308449399330-133"
 
 
-def test_bom_create_version_rejects_qty_zero():
+def test_bom_create_artifact_rejects_qty_zero():
     """Belt-and-suspenders: even though the DB CHECK catches qty<=0,
     the store layer pre-validates so users get a row-pointed error
     instead of a generic Postgres constraint violation."""
@@ -308,7 +308,7 @@ def test_bom_create_version_rejects_qty_zero():
     import secrets
     from app.database import connect
     from app.parsers.bom_adapters import BomParseError
-    from app.stores.bom import create_version
+    from app.stores.bom import create_artifact
 
     cid = "qty-test-" + secrets.token_hex(4)
     with connect() as conn, conn.cursor() as cur:
@@ -327,33 +327,33 @@ def test_bom_create_version_rejects_qty_zero():
         )
     try:
         with pytest.raises(BomParseError, match="qty_per_unit"):
-            create_version(
+            create_artifact(
                 client_id=cid, product_code="P-1",
                 rows=[
                     {"material_code": "M-A", "qty_per_unit": 1.0, "uom": "kg"},
                     {"material_code": "M-B", "qty_per_unit": 0, "uom": "kg"},
                 ],
                 actor="agency_staff", intent="asserted_technical",
-                parent_version_id=None, context={}, source_upload_id=None,
+                parent_artifact_id=None, context={}, source_upload_id=None,
             )
         with pytest.raises(BomParseError, match="qty_per_unit"):
-            create_version(
+            create_artifact(
                 client_id=cid, product_code="P-1",
                 rows=[
                     {"material_code": "M-A", "qty_per_unit": None, "uom": "kg"},
                 ],
                 actor="agency_staff", intent="asserted_technical",
-                parent_version_id=None, context={}, source_upload_id=None,
+                parent_artifact_id=None, context={}, source_upload_id=None,
             )
     finally:
         with connect() as conn, conn.cursor() as cur:
             cur.execute(
-                "delete from hub.bom_version_rows where version_id in "
-                "(select version_id from hub.bom_versions where client_id=%s)",
+                "delete from hub.bom_artifact_rows where artifact_id in "
+                "(select artifact_id from hub.bom_artifacts where client_id=%s)",
                 (cid,),
             )
             cur.execute("delete from hub.bom_audit_events where client_id=%s", (cid,))
-            cur.execute("delete from hub.bom_versions where client_id=%s", (cid,))
+            cur.execute("delete from hub.bom_artifacts where client_id=%s", (cid,))
             cur.execute("delete from hub.materials where client_id=%s", (cid,))
             cur.execute("delete from hub.clients where client_id=%s", (cid,))
 

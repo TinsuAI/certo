@@ -25,7 +25,7 @@ _DATA_QUERIES: dict[str, str] = {
     """,
     # Active versions only — tombstoned ones don't represent live state.
     "bom": """
-        select max(created_at) from hub.bom_versions
+        select max(created_at) from hub.bom_artifacts
         where client_id = %s and tombstoned_at is null
     """,
 }

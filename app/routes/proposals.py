@@ -122,8 +122,8 @@ async def withdraw_view(request: Request, client_id: str, proposal_id: str):
 def _list_proposals(client_id: str, *, status_filter: str | None = None) -> list[dict]:
     sql = """
         select proposal_id, client_id, product_code, actor, intent,
-               parent_version_id, status, decided_at, decision_reason,
-               failed_conditions, materialized_version_id, created_at
+               parent_artifact_id, status, decided_at, decision_reason,
+               failed_conditions, materialized_artifact_id, created_at
         from hub.bom_change_requests where client_id = %s
     """
     params: list = [client_id]

@@ -1,6 +1,6 @@
-"""Bulk-ingest technical_raw BOM XLSX files into hub.bom_versions + hub.bom_edges.
+"""Bulk-ingest technical_raw BOM XLSX files into hub.bom_artifacts + hub.bom_edges.
 
-Wraps `parse_raw_edges_with_fallback` + `create_raw_version` over a directory
+Wraps `parse_raw_edges_with_fallback` + `create_raw_artifact` over a directory
 of supplier XLSX files. Bypasses the proposal flow so the auto-rule cannot
 silently reject re-ingest (per critic round 3 finding 2).
 
@@ -28,8 +28,8 @@ Output:
     /tmp/data_hub_pre_v3/ingest_logs/<source_batch>.json — structured log
     stdout — per-file progress + final summary
 
-Idempotency: create_raw_version uses normalized_edges_hash to dedup. Re-running
-the same batch on a populated DB is a no-op (returns the existing version_id).
+Idempotency: create_raw_artifact uses normalized_edges_hash to dedup. Re-running
+the same batch on a populated DB is a no-op (returns the existing artifact_id).
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ sys.path.insert(0, os.fspath(Path(__file__).resolve().parents[1]))
 from app.database import connect
 from app.parsers.bom_edges import parse_raw_edges_with_fallback
 from app.parsers.bom_adapters import BomParseError
-from app.stores.bom import create_raw_version, normalized_edges_hash
+from app.stores.bom import create_raw_artifact, normalized_edges_hash
 
 
 def discover_xlsx(src: Path) -> list[Path]:
@@ -83,18 +83,18 @@ def ingest_one(
     fresh_hash = normalized_edges_hash(edges)
     if dry_run:
         return {
-            "version_id": None,
+            "artifact_id": None,
             "fresh_hash": fresh_hash,
             "edge_count": len(edges),
             "dry_run": True,
         }
-    version_id = create_raw_version(
+    artifact_id = create_raw_artifact(
         client_id=client_id,
         product_code=product_code,
         edges=edges,
         actor=actor,
         intent="asserted_technical",
-        parent_version_id=None,
+        parent_artifact_id=None,
         context={
             "channel": "migration",
             "profile": "technical_raw",
@@ -108,7 +108,7 @@ def ingest_one(
         bom_variant_id=variant_id,
     )
     return {
-        "version_id": version_id,
+        "artifact_id": artifact_id,
         "fresh_hash": fresh_hash,
         "edge_count": len(edges),
         "dry_run": False,
@@ -125,7 +125,7 @@ def main() -> int:
     ap.add_argument("--source-batch", required=True,
                     help="batch name saved into context.source_batch (audit label)")
     ap.add_argument("--actor", default="erp_pipeline",
-                    help="actor for the bom_versions row (default: erp_pipeline)")
+                    help="actor for the bom_artifacts row (default: erp_pipeline)")
     ap.add_argument("--dry-run", action="store_true",
                     help="parse + report only, no DB writes")
     ap.add_argument("--resume-from", default=None,
@@ -236,20 +236,20 @@ def main() -> int:
 
         rec["fresh_hash"] = result["fresh_hash"]
         rec["edge_count"] = result["edge_count"]
-        rec["version_id"] = result.get("version_id")
+        rec["artifact_id"] = result.get("artifact_id")
         rec["elapsed_ms"] = int((time.time() - t0) * 1000)
         if result["dry_run"]:
             rec["status"] = "dry_run"
             counters["dry_run"] += 1
             label = "DRY_RUN"
-        elif result["version_id"]:
+        elif result["artifact_id"]:
             rec["status"] = "ingested"
             counters["ingested"] += 1
-            label = f"ingested {result['version_id']}"
+            label = f"ingested {result['artifact_id']}"
         else:
             rec["status"] = "dedup"
             counters["dedup"] += 1
-            label = "DEDUP (existing version_id)"
+            label = "DEDUP (existing artifact_id)"
         print(f"  [{idx:>3}/{len(files)}] {path.name:30s} "
               f"edges={rec['edge_count']:>5}  {rec['elapsed_ms']:>5}ms  {label}")
         records.append(rec)

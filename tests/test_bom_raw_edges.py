@@ -137,8 +137,8 @@ def test_johnson_sap_raw_parser_keeps_level_edges():
     assert edges[1]["node_path"] == "ASM-001 > BTP-B > NVL-C"
 
 
-def test_create_raw_version_persists_edges_without_flat_rows():
-    version_id = bom_store.create_raw_version(
+def test_create_raw_artifact_persists_edges_without_flat_rows():
+    artifact_id = bom_store.create_raw_artifact(
         client_id=CLIENT,
         product_code="TP-A",
         edges=[
@@ -163,15 +163,15 @@ def test_create_raw_version_persists_edges_without_flat_rows():
         ],
         actor="agency_staff",
         intent="asserted_technical",
-        parent_version_id=None,
+        parent_artifact_id=None,
         context={"profile": "technical_raw"},
         source_upload_id=None,
     )
 
-    data = bom_store.get_version_with_rows(version_id)
-    assert data["version"]["source_bom_kind"] == "technical_raw"
-    assert data["version"]["flatten_status"] == "non_flattened"
-    assert data["version"]["flatten_strategy"] == "no_strategy"
+    data = bom_store.get_artifact_with_rows(artifact_id)
+    assert data["artifact"]["source_bom_kind"] == "technical_raw"
+    assert data["artifact"]["flatten_status"] == "non_flattened"
+    assert data["artifact"]["flatten_strategy"] == "no_strategy"
     assert data["rows"] == []
     assert [(e["parent_code"], e["child_code"]) for e in data["edges"]] == [
         ("TP-A", "BTP-B"),
@@ -207,11 +207,11 @@ def test_technical_raw_upload_confirm_materializes_edges(auth_client):
             cur.execute(
                 """
                 select v.source_bom_kind, count(e.*), count(r.*)
-                from hub.bom_versions v
-                left join hub.bom_edges e on e.version_id = v.version_id
-                left join hub.bom_version_rows r on r.version_id = v.version_id
+                from hub.bom_artifacts v
+                left join hub.bom_edges e on e.artifact_id = v.artifact_id
+                left join hub.bom_artifact_rows r on r.artifact_id = v.artifact_id
                 where v.client_id = %s and v.product_code = 'RT_TP'
-                group by v.version_id, v.source_bom_kind
+                group by v.artifact_id, v.source_bom_kind
                 """,
                 (CLIENT,),
             )

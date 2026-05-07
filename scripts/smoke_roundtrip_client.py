@@ -28,7 +28,7 @@ CID = sys.argv[1] if len(sys.argv) > 1 else "growatt-vn"
 TABLES = (
     "clients", "client_config", "file_uploads", "parser_mappings",
     "code_mappings", "materials", "client_uom_overrides",
-    "bcct_rows", "bom_versions", "bom_change_requests",
+    "bcct_rows", "bom_artifacts", "bom_change_requests",
     "bom_flatten_decisions",
 )
 
@@ -41,16 +41,16 @@ def counts() -> dict[str, int]:
                 f"select count(*) from hub.{t} where client_id = %s", (CID,)
             )
             out[t] = cur.fetchone()[0]
-        # bom_version_rows: indirect via bom_versions
+        # bom_artifact_rows: indirect via bom_artifacts
         cur.execute(
             """
-            select count(*) from hub.bom_version_rows r
-            join hub.bom_versions v using (version_id)
+            select count(*) from hub.bom_artifact_rows r
+            join hub.bom_artifacts v using (artifact_id)
             where v.client_id = %s
             """,
             (CID,),
         )
-        out["bom_version_rows"] = cur.fetchone()[0]
+        out["bom_artifact_rows"] = cur.fetchone()[0]
     return out
 
 
@@ -65,7 +65,7 @@ def spot_check() -> dict:
         )
         out["bcct_aggregates"] = cur.fetchone()
         cur.execute(
-            "select max(version_id) from hub.bom_versions where client_id = %s",
+            "select max(artifact_id) from hub.bom_artifacts where client_id = %s",
             (CID,),
         )
         out["max_bom_version"] = cur.fetchone()[0]

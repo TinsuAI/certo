@@ -9,7 +9,7 @@
 
 Also exercises:
 - UOM lookup precedence (client-specific > client-wide > global > alias).
-- create_flattened_version_set materializing TPs + BTPs + unresolved nodes.
+- create_flattened_artifact_set materializing TPs + BTPs + unresolved nodes.
 """
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ def setup_client():
 
 # ── Item 8 + 22: BTP and TP both materialize with structured identity ──
 
-def test_create_flattened_version_set_emits_tp_and_btp_with_structured_identity():
+def test_create_flattened_artifact_set_emits_tp_and_btp_with_structured_identity():
     parsed: ParsedBom = {
         "FT_TP-A":  [{"material_code": "FT_BTP-B", "qty_per_unit": 2, "uom": "kg"}],
         "FT_BTP-B": [{"material_code": "FT_NVL-1", "qty_per_unit": 0.5, "uom": "kg"}],
@@ -72,7 +72,7 @@ def test_create_flattened_version_set_emits_tp_and_btp_with_structured_identity(
         explicit_context=lambda r: None,
     )
     result = flatten(parsed, ctx)
-    materialized = bom_store.create_flattened_version_set(
+    materialized = bom_store.create_flattened_artifact_set(
         client_id=CLIENT, source_upload_id=None, result=result,
     )
     assert any(k.startswith("FT_TP-A|") for k in materialized)
@@ -86,7 +86,7 @@ def test_create_flattened_version_set_emits_tp_and_btp_with_structured_identity(
                 select source_bom_kind, flatten_status, flatten_strategy,
                        source_channel, bom_variant_id, display_label,
                        lineage, flatten_method, flatten_method_version
-                from hub.bom_versions
+                from hub.bom_artifacts
                 where client_id = %s and product_code = 'FT_TP-A'
                 """,
                 (CLIENT,),
@@ -101,10 +101,10 @@ def test_create_flattened_version_set_emits_tp_and_btp_with_structured_identity(
     assert fm == "dh_flatten_v1"
     assert fmv == "0.1.0"
     assert "btp_versions_used" in lin
-    # The TP's lineage points to the BTP's version_id.
+    # The TP's lineage points to the BTP's artifact_id.
     used = lin["btp_versions_used"]
     assert used and used[0]["material_code"] == "FT_BTP-B"
-    assert used[0]["version_id"]
+    assert used[0]["artifact_id"]
 
 
 # ── Item 23: latest_flattened_versions excludes non_flattened ──
@@ -113,20 +113,20 @@ def test_latest_excludes_non_flattened():
     """Manual write of two versions: a flattened one and a non_flattened one
     for the same product. latest_flattened_versions returns only the flattened.
     """
-    bom_store.create_version(
+    bom_store.create_artifact(
         client_id=CLIENT, product_code="FT_TP-LATEST",
         rows=[{"material_code": "FT_X", "qty_per_unit": 1, "uom": "kg"}],
         actor="agency_staff", intent="asserted_technical",
-        parent_version_id=None, context={}, source_upload_id=None,
+        parent_artifact_id=None, context={}, source_upload_id=None,
         source_bom_kind="technical_flattened",
         flatten_status="flattened",
         flatten_strategy="technical_exploded",
     )
-    bom_store.create_version(
+    bom_store.create_artifact(
         client_id=CLIENT, product_code="FT_TP-LATEST",
         rows=[{"material_code": "FT_Y", "qty_per_unit": 2, "uom": "kg"}],
         actor="agency_staff", intent="asserted_technical",
-        parent_version_id=None, context={}, source_upload_id=None,
+        parent_artifact_id=None, context={}, source_upload_id=None,
         source_bom_kind="technical_non_flattened",
         flatten_status="non_flattened",
         flatten_strategy="no_strategy",
@@ -141,20 +141,20 @@ def test_latest_excludes_non_flattened():
 # ── Item 14 (store-side): dual-source variants both queryable as latest ──
 
 def test_latest_returns_two_when_dual_source_published():
-    bom_store.create_version(
+    bom_store.create_artifact(
         client_id=CLIENT, product_code="FT_TP-DUAL",
         rows=[{"material_code": "FT_BTP", "qty_per_unit": 1, "uom": "kg"}],
         actor="agency_staff", intent="asserted_technical",
-        parent_version_id=None, context={}, source_upload_id=None,
+        parent_artifact_id=None, context={}, source_upload_id=None,
         source_bom_kind="technical_flattened",
         flatten_status="flattened",
         flatten_strategy="purchased_btp_as_leaf",
     )
-    bom_store.create_version(
+    bom_store.create_artifact(
         client_id=CLIENT, product_code="FT_TP-DUAL",
         rows=[{"material_code": "FT_NVL", "qty_per_unit": 0.5, "uom": "kg"}],
         actor="agency_staff", intent="asserted_technical",
-        parent_version_id=None, context={}, source_upload_id=None,
+        parent_artifact_id=None, context={}, source_upload_id=None,
         source_bom_kind="technical_flattened",
         flatten_status="flattened",
         flatten_strategy="self_produced_btp_exploded",
@@ -169,7 +169,7 @@ def test_latest_returns_two_when_dual_source_published():
 # ── Item 24: every stored value uses stable English machine codes ──
 
 def test_stored_codes_are_english_only():
-    """Audit: all enum values written by create_version + flatten path
+    """Audit: all enum values written by create_artifact + flatten path
     come from the spec's English code set. CHECK constraints enforce this
     at the DB layer, but we double-check the seed data + spec coverage."""
     valid_status = {"flattened", "non_flattened", "not_applicable"}
@@ -181,11 +181,11 @@ def test_stored_codes_are_english_only():
     valid_channel = {"agency_upload", "staff_form", "co_proposal",
                      "migration", "seed"}
 
-    bom_store.create_version(
+    bom_store.create_artifact(
         client_id=CLIENT, product_code="FT_CODES",
         rows=[{"material_code": "FT_X", "qty_per_unit": 1, "uom": "kg"}],
         actor="agency_staff", intent="asserted_technical",
-        parent_version_id=None, context={}, source_upload_id=None,
+        parent_artifact_id=None, context={}, source_upload_id=None,
         source_bom_kind="technical_flattened",
         flatten_status="flattened",
         flatten_strategy="technical_exploded",
@@ -196,7 +196,7 @@ def test_stored_codes_are_english_only():
                 """
                 select source_bom_kind, flatten_status, flatten_strategy,
                        source_channel
-                from hub.bom_versions where client_id = %s
+                from hub.bom_artifacts where client_id = %s
                 """,
                 (CLIENT,),
             )
@@ -207,25 +207,25 @@ def test_stored_codes_are_english_only():
                 assert ch in valid_channel
 
 
-# ── Variant-scoped version_no (spec §3A) ──
+# ── Variant-scoped artifact_no (spec §3A) ──
 
-def test_version_no_is_scoped_to_variant():
-    """Two versions with different bom_variant_id share version_no=1."""
-    bom_store.create_version(
+def test_artifact_no_is_scoped_to_variant():
+    """Two versions with different bom_variant_id share artifact_no=1."""
+    bom_store.create_artifact(
         client_id=CLIENT, product_code="FT_VAR",
         rows=[{"material_code": "FT_A", "qty_per_unit": 1, "uom": "kg"}],
         actor="agency_staff", intent="asserted_technical",
-        parent_version_id=None, context={}, source_upload_id=None,
+        parent_artifact_id=None, context={}, source_upload_id=None,
         source_bom_kind="technical_flattened",
         flatten_status="flattened",
         flatten_strategy="technical_exploded",
         bom_variant_id="V1",
     )
-    bom_store.create_version(
+    bom_store.create_artifact(
         client_id=CLIENT, product_code="FT_VAR",
         rows=[{"material_code": "FT_B", "qty_per_unit": 1, "uom": "kg"}],
         actor="agency_staff", intent="asserted_technical",
-        parent_version_id=None, context={}, source_upload_id=None,
+        parent_artifact_id=None, context={}, source_upload_id=None,
         source_bom_kind="technical_flattened",
         flatten_status="flattened",
         flatten_strategy="technical_exploded",
@@ -235,7 +235,7 @@ def test_version_no_is_scoped_to_variant():
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select bom_variant_id, version_no from hub.bom_versions
+                select bom_variant_id, artifact_no from hub.bom_artifacts
                 where client_id = %s and product_code = 'FT_VAR'
                 order by bom_variant_id
                 """,
@@ -362,7 +362,7 @@ def test_non_flattened_version_persists_unresolved_nodes():
         explicit_context=lambda r: None,
     )
     result = flatten(parsed, ctx)
-    materialized = bom_store.create_flattened_version_set(
+    materialized = bom_store.create_flattened_artifact_set(
         client_id=CLIENT, source_upload_id=None, result=result,
     )
     [vid] = [v for k, v in materialized.items() if k.startswith("FT_TP_NF|")]

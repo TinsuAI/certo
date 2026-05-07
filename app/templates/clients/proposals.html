@@ -51,7 +51,7 @@
         <td class="mono">{{ p.product_code }}</td>
         <td><span class="badge">{{ p.actor }}</span></td>
         <td><span class="badge badge-info">{{ p.intent }}</span></td>
-        <td class="mono">{{ p.parent_version_id[:12] + '…' if p.parent_version_id else '—' }}</td>
+        <td class="mono">{{ p.parent_artifact_id[:12] + '…' if p.parent_artifact_id else '—' }}</td>
         <td>
           {% if p.status == 'pending' %}<span class="badge badge-warning">{{ t('proposals.status_pending') }}</span>
           {% elif p.status == 'approved' %}<span class="badge badge-success">{{ t('proposals.status_approved') }}</span>

@@ -21,7 +21,7 @@ from typing import Any
 
 import jwt as pyjwt
 from fastapi import APIRouter, Header, HTTPException, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from app import auth
 from app import jwt_issuer, markets, settings_store
@@ -32,8 +32,8 @@ from app.stores.bom import (
     ProposalNotFound,
     ProposalNotPending,
     get_proposal,
-    get_version_with_rows,
-    list_versions_for_product,
+    get_artifact_with_rows,
+    list_artifacts_for_product,
     list_products_with_bom,
     submit_proposal,
     validate_proposal_contract,
@@ -486,7 +486,7 @@ async def api_list_bcct(
                invoice_date, departure_date,
                destination_code, destination_name,
                transport_mode, exchange_rate,
-               bom_version_id, indexed_at
+               artifact_id, indexed_at
         from hub.bcct_rows where client_id = %s
     """
     params: list = [client_id]
@@ -651,7 +651,7 @@ async def api_get_bcct(
                        invoice_date, departure_date,
                        destination_code, destination_name,
                        transport_mode, exchange_rate,
-                       bom_version_id, indexed_at, payload
+                       artifact_id, indexed_at, payload
                 from hub.bcct_rows
                 where client_id = %s and transaction_key = %s
                 order by line_no
@@ -704,7 +704,7 @@ async def api_bom_latest(
     - When dual-source variants are published (purchased_btp_as_leaf AND
       self_produced_btp_exploded both live for the same product), responds
       409 with the variant list. Caller must re-call with explicit
-      version_id via /v1/hub/products/{p}/bom?version_id=… .
+      artifact_id via /v1/hub/products/{p}/bom?artifact_id=… .
     """
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
@@ -717,24 +717,34 @@ async def api_bom_latest(
         return JSONResponse(
             {"error": "dual_source_variants",
              "message": "Multiple flattened variants exist for this product; "
-                        "call /v1/hub/products/{product_code}/bom?version_id=… "
+                        "call /v1/hub/products/{product_code}/bom?artifact_id=… "
                         "to bind explicitly.",
              "variants": items},
             status_code=409,
         )
-    data = get_version_with_rows(items[0]["version_id"])
+    data = get_artifact_with_rows(items[0]["artifact_id"])
     return _json(data)
 
 
-@router.get("/products/{product_code}/bom/versions")
-async def api_bom_versions(
+@router.get("/products/{product_code}/bom/versions", include_in_schema=False)
+async def _alias_api_bom_versions(product_code: str, request: Request):
+    """Vocab rename alias (D9/D10, removable per BACKLOG)."""
+    qs = request.url.query
+    target = f"/v1/hub/products/{product_code}/bom/artifacts"
+    if qs:
+        target = f"{target}?{qs}"
+    return RedirectResponse(url=target, status_code=308)
+
+
+@router.get("/products/{product_code}/bom/artifacts")
+async def api_bom_artifacts(
     product_code: str, client_id: str,
     actor: str | None = None, intent: str | None = None,
     authorization: str | None = Header(None),
 ):
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
-    versions = list_versions_for_product(client_id=client_id, product_code=product_code)
+    versions = list_artifacts_for_product(client_id=client_id, product_code=product_code)
     if actor:
         versions = [v for v in versions if v["actor"] == actor]
     if intent:
@@ -744,16 +754,16 @@ async def api_bom_versions(
 
 @router.get("/products/{product_code}/bom")
 async def api_bom_pinned(
-    product_code: str, client_id: str, version_id: str | None = None,
+    product_code: str, client_id: str, artifact_id: str | None = None,
     authorization: str | None = Header(None),
 ):
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
-    if version_id:
-        data = get_version_with_rows(version_id)
-        if not data or data["version"]["client_id"] != client_id \
-                or data["version"]["product_code"] != product_code:
-            raise HTTPException(404, "version not found")
+    if artifact_id:
+        data = get_artifact_with_rows(artifact_id)
+        if not data or data["artifact"]["client_id"] != client_id \
+                or data["artifact"]["product_code"] != product_code:
+            raise HTTPException(404, "artifact not found")
         return _json(data)
     # No pin → equivalent to latest
     return await api_bom_latest(product_code, client_id, authorization)
@@ -790,7 +800,7 @@ async def api_submit_bom_proposal(
         validate_proposal_contract(
             actor=actor,
             intent=intent,
-            parent_version_id=body.get("parent_version_id"),
+            parent_artifact_id=body.get("parent_artifact_id"),
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -799,7 +809,7 @@ async def api_submit_bom_proposal(
         product_code=product_code,
         actor=actor,
         intent=intent,
-        parent_version_id=body.get("parent_version_id"),
+        parent_artifact_id=body.get("parent_artifact_id"),
         context=body.get("context", {}),
         rows=rows,
     ))
@@ -816,8 +826,8 @@ async def api_get_proposal(
             cur.execute(
                 """
                 select proposal_id, client_id, product_code, actor, intent,
-                       parent_version_id, context, status, decided_at, decided_by,
-                       decision_reason, failed_conditions, materialized_version_id,
+                       parent_artifact_id, context, status, decided_at, decided_by,
+                       decision_reason, failed_conditions, materialized_artifact_id,
                        normalized_hash, created_at
                 from hub.bom_change_requests where proposal_id = %s
                 """,

@@ -61,7 +61,7 @@ class TableSpec:
     `where_template` is a psycopg SQL template restricting rows to a
     single client. For tables that scope by `client_id` directly it's
     a simple `client_id = %s` clause. For child tables (e.g.
-    bom_version_rows) it joins through the parent's client_id.
+    bom_artifact_rows) it joins through the parent's client_id.
 
     `null_columns` lists columns whose values must NOT travel — typically
     FKs to per-deployment tables (e.g. hub.users) where the source's IDs
@@ -81,7 +81,7 @@ class TableSpec:
 
 # Parent-first order. on-delete-cascade from hub.clients takes care of
 # deletion on import; we still order INSERTs to satisfy non-cascade FKs
-# (e.g. bom_version_rows → bom_versions.version_id).
+# (e.g. bom_artifact_rows → bom_artifacts.artifact_id).
 TABLES: tuple[TableSpec, ...] = (
     TableSpec("clients",               sql.SQL("client_id = %s"),                                              order=10),
     TableSpec("client_config",         sql.SQL("client_id = %s"),                                              order=20, null_columns=("updated_by",)),
@@ -91,14 +91,14 @@ TABLES: tuple[TableSpec, ...] = (
     TableSpec("materials",             sql.SQL("client_id = %s"),                                              order=50),
     TableSpec("client_uom_overrides",  sql.SQL("client_id = %s"),                                              order=58),
     TableSpec("bcct_rows",             sql.SQL("client_id = %s"),                                              order=60),
-    TableSpec("bom_versions",          sql.SQL("client_id = %s"),                                              order=70),
+    TableSpec("bom_artifacts",          sql.SQL("client_id = %s"),                                              order=70),
     TableSpec(
-        "bom_version_rows",
-        sql.SQL("version_id in (select version_id from hub.bom_versions where client_id = %s)"),
+        "bom_artifact_rows",
+        sql.SQL("artifact_id in (select artifact_id from hub.bom_artifacts where client_id = %s)"),
         order=75,
     ),
     TableSpec("bom_flatten_decisions", sql.SQL("client_id = %s"),                                              order=78, null_columns=("confirmed_by",)),
-    TableSpec("bom_resolution_profiles", sql.SQL("client_id = %s"),                                            order=80, null_columns=("created_by",)),
+    TableSpec("bom_presets", sql.SQL("client_id = %s"),                                            order=80, null_columns=("created_by",)),
     TableSpec("bom_change_requests",   sql.SQL("client_id = %s"),                                              order=85),
 )
 

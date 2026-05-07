@@ -29,7 +29,7 @@ from app.parsers.materials import parse_materials_workbook
 from app.routes.bcct import _insert_bcct
 from app.routes.bqd import _insert_mappings
 from app.routes.catalog import _insert_materials
-from app.stores.bom import create_version
+from app.stores.bom import create_artifact
 
 
 REAL_DATA = Path(os.environ.get("DATA_HUB_REAL_DATA_DIR", "/tmp/dh_real_data"))
@@ -100,10 +100,10 @@ def ingest_manual_flat_bom(client_id: str, path: Path) -> int:
         if not rows:
             continue
         try:
-            create_version(
+            create_artifact(
                 client_id=client_id, product_code=product_code, rows=rows,
                 actor="agency_staff", intent="asserted_technical",
-                parent_version_id=None,
+                parent_artifact_id=None,
                 context={"channel": "agency_upload", "profile": "manual_flat",
                          "source_filename": path.name},
                 source_upload_id=upload_id,

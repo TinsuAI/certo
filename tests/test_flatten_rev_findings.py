@@ -79,11 +79,11 @@ def test_C3_engine_same_upload_does_not_treat_default_as_wildcard():
 def test_C3_db_btp_lookup_does_not_fall_back_when_variant_specified():
     """make_current_db_btp_lookup must return None when caller passes a
     specific variant that doesn't exist for the code."""
-    bom_store.create_version(
+    bom_store.create_artifact(
         client_id=CLIENT, product_code="C3_BTP",
         rows=[{"material_code": "C3_NVL", "qty_per_unit": 1, "uom": "kg"}],
         actor="agency_staff", intent="asserted_technical",
-        parent_version_id=None, context={}, source_upload_id=None,
+        parent_artifact_id=None, context={}, source_upload_id=None,
         source_bom_kind="manual_flat",
         flatten_status="not_applicable",
         flatten_strategy="manual_flat_as_provided",
@@ -202,7 +202,7 @@ def test_I3_nested_dual_source_emits_decision():
 def test_C1_materialize_rolls_back_on_failure():
     """If the materialization raises mid-way, NO versions or unresolved
     nodes for this run should be persisted. Verifies the single-tx
-    refactor: previously each create_version had its own connection +
+    refactor: previously each create_artifact had its own connection +
     commit, leaving partial state."""
     from app.flatten.types import (
         BomKey, FlattenedRow, FlattenedVersion, FlattenResult,
@@ -231,14 +231,14 @@ def test_C1_materialize_rolls_back_on_failure():
     fr = FlattenResult(versions=[v1, v2_bad], decisions=[])
 
     with pytest.raises(Exception):
-        bom_store.create_flattened_version_set(
+        bom_store.create_flattened_artifact_set(
             client_id=CLIENT, source_upload_id=None, result=fr,
         )
 
     # v1 must NOT have been committed (rollback).
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            "select count(*) from hub.bom_versions "
+            "select count(*) from hub.bom_artifacts "
             "where client_id = %s and product_code in ('C1_OK','C1_BAD')",
             (CLIENT,),
         )

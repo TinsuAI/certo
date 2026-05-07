@@ -67,7 +67,7 @@ GET  /v1/hub/code-mappings/resolutions?dncx_id=X
 GET  /v1/hub/products?dncx_id=X
 GET  /v1/hub/products/{product_code}/bom/latest?dncx_id=X
 GET  /v1/hub/products/{product_code}/bom/versions?dncx_id=X[&actor=][&intent=]
-GET  /v1/hub/products/{product_code}/bom?dncx_id=X[&version_id=]
+GET  /v1/hub/products/{product_code}/bom?dncx_id=X[&artifact_id=]
 GET  /v1/hub/proposals/{proposal_id}
 POST /api/v1/hub/products/{product_code}/bom/proposals
 ```

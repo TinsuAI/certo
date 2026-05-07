@@ -7,13 +7,13 @@ def build_display_label(
     *,
     product_code: str,
     bom_variant_id: str | None,
-    version_no: int,
+    artifact_no: int,
     source_bom_kind: str,
     flatten_status: str,
     flatten_strategy: str,
 ) -> str:
-    """`{product_code} · {bom_variant_id} · v{version_no} · {source_bom_kind} · {flatten_status} · {flatten_strategy}`"""
+    """`{product_code} · {bom_variant_id} · v{artifact_no} · {source_bom_kind} · {flatten_status} · {flatten_strategy}`"""
     return (
-        f"{product_code} · {bom_variant_id or 'default'} · v{version_no}"
+        f"{product_code} · {bom_variant_id or 'default'} · v{artifact_no}"
         f" · {source_bom_kind} · {flatten_status} · {flatten_strategy}"
     )

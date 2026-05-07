@@ -565,7 +565,7 @@ def summarize_db(client_id: str) -> dict[str, Any]:
                 """
                 select coalesce(m.category, 'unknown') as category,
                        bv.flatten_status, count(distinct bv.product_code), sum(bv.row_count)
-                from hub.bom_versions bv
+                from hub.bom_artifacts bv
                 left join hub.materials m
                   on m.client_id=bv.client_id and m.customs_code=bv.product_code
                 where bv.client_id=%s and bv.tombstoned_at is null
@@ -580,7 +580,7 @@ def summarize_db(client_id: str) -> dict[str, Any]:
             ]
             cur.execute(
                 """
-                select count(*) from hub.bom_versions
+                select count(*) from hub.bom_artifacts
                 where client_id=%s and flatten_status='non_flattened'
                   and tombstoned_at is null
                 """,
@@ -590,7 +590,7 @@ def summarize_db(client_id: str) -> dict[str, Any]:
             cur.execute(
                 """
                 select count(*) from hub.bom_unresolved_nodes u
-                join hub.bom_versions v on v.version_id=u.version_id
+                join hub.bom_artifacts v on v.artifact_id=u.artifact_id
                 where v.client_id=%s and v.tombstoned_at is null
                 """,
                 (client_id,),

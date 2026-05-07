@@ -8,7 +8,7 @@
   <div class="zone-head">
     <div>
       <h2>{{ t('bom.versions_title') }} <span class="mono">{{ product_code }}</span></h2>
-      <p class="meta">{{ versions|length }} · {{ t('bom.versions_immutable') }}</p>
+      <p class="meta">{{ artifacts|length }} · {{ t('bom.versions_immutable') }}</p>
     </div>
     <div><a class="btn-secondary" href="/clients/{{ client.client_id }}/bom">{{ t('bom.versions_back') }}</a></div>
   </div>
@@ -29,9 +29,9 @@
       <th></th>
     </tr></thead>
     <tbody>
-      {% for v in versions %}
+      {% for v in artifacts %}
       <tr {% if v.tombstoned_at %}style="opacity: .55;"{% endif %}>
-        <td><span class="badge badge-info">v{{ v.version_no }}</span></td>
+        <td><span class="badge badge-info">v{{ v.artifact_no }}</span></td>
         <td class="mono">{{ v.bom_variant_id or 'default' }}</td>
         <td>{{ shape_badge(v.bom_shape) }}</td>
         <td class="mono">{{ v.actor }}</td>
@@ -43,25 +43,25 @@
           {% if not ctx.get('source_filename') and not ctx.get('source_batch') %}{{ v.source_channel or '—' }}{% endif %}
         </td>
         <td>
-          {% if v.parent_version_id and v.parent_version_no %}
-            <a href="/clients/{{ client.client_id }}/bom/version/{{ v.parent_version_id }}"
-               title="{{ v.parent_version_id }}"
+          {% if v.parent_artifact_id and v.parent_artifact_no %}
+            <a href="/clients/{{ client.client_id }}/bom/artifact/{{ v.parent_artifact_id }}"
+               title="{{ v.parent_artifact_id }}"
                style="text-decoration:none">
-              <span class="badge badge-info">v{{ v.parent_version_no }}</span>
+              <span class="badge badge-info">v{{ v.parent_artifact_no }}</span>
               {{ shape_badge(v.parent_shape) }}
               {% if v.parent_variant_id and v.parent_variant_id != v.bom_variant_id %}
                 <br/><span class="mono" style="font-size:.8em;color:#666">{{ v.parent_variant_id }}</span>
               {% endif %}
             </a>
-          {% elif v.parent_version_id %}
-            <span class="mono" style="color:#c00;font-size:.85em" title="{{ v.parent_version_id }}">(deleted)</span>
+          {% elif v.parent_artifact_id %}
+            <span class="mono" style="color:#c00;font-size:.85em" title="{{ v.parent_artifact_id }}">(deleted)</span>
           {% else %}—{% endif %}
         </td>
         <td>{{ v.row_count }}</td>
         <td class="mono">{{ v.normalized_hash[:8] }}</td>
         <td>{{ v.status }}{% if v.tombstoned_at %} · tombstoned{% endif %}</td>
         <td class="mono">{{ v.published_at.strftime('%Y-%m-%d %H:%M') if v.published_at else '' }}</td>
-        <td><a href="/clients/{{ client.client_id }}/bom/version/{{ v.version_id }}">{{ t('common.detail') }} →</a></td>
+        <td><a href="/clients/{{ client.client_id }}/bom/artifact/{{ v.artifact_id }}">{{ t('common.detail') }} →</a></td>
       </tr>
       {% endfor %}
     </tbody>

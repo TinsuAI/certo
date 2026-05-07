@@ -9,11 +9,11 @@ For each alive technical_raw version (bom_shape='raw_graph'), derive:
     as parent_code in this raw_graph). Group by material_code.
     Flatten_strategy='technical_exploded' so bom_shape derives to 'full_flat'.
 
-Inserts new bom_versions via `create_version` with:
+Inserts new bom_artifacts via `create_artifact` with:
   - actor='erp_pipeline'
   - intent='derived'
   - source_channel='auto_derived'
-  - parent_version_id = the raw_graph version_id (lineage)
+  - parent_artifact_id = the raw_graph artifact_id (lineage)
   - context = batch + adapter info copied from raw
 
 Status policy: respects clients.auto_derive_shallow_from_raw
@@ -39,12 +39,12 @@ from pathlib import Path
 sys.path.insert(0, os.fspath(Path(__file__).resolve().parents[1]))
 
 from app.database import connect
-from app.stores.bom import create_version
+from app.stores.bom import create_artifact
 
 
 LIST_RAW_VERSIONS_SQL = """
-select version_id, product_code, bom_variant_id, context, normalized_hash
-from hub.bom_versions
+select artifact_id, product_code, bom_variant_id, context, normalized_hash
+from hub.bom_artifacts
 where client_id = %(client_id)s
   and source_bom_kind = 'technical_raw'
   and tombstoned_at is null
@@ -57,7 +57,7 @@ SHALLOW_WALK_SQL = """
 with recursive
   e as (
     select parent_code, child_code, qty_per_parent::numeric as q, uom
-    from hub.bom_edges where version_id = %(version_id)s
+    from hub.bom_edges where artifact_id = %(artifact_id)s
   ),
   stop_set as (
     select customs_code as code from hub.materials
@@ -87,7 +87,7 @@ FULL_FLAT_WALK_SQL = """
 with recursive
   e as (
     select parent_code, child_code, qty_per_parent::numeric as q, uom
-    from hub.bom_edges where version_id = %(version_id)s
+    from hub.bom_edges where artifact_id = %(artifact_id)s
   ),
   parents as (select distinct parent_code from e),
   walk as (
@@ -120,13 +120,13 @@ def fetch_client_policy(client_id: str) -> str:
     return r[0] if r else "draft_only"
 
 
-def derive(raw_version_id: str, product_code: str, client_id: str,
+def derive(raw_artifact_id: str, product_code: str, client_id: str,
            sql: str) -> list[dict]:
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, {
                 "client_id": client_id,
-                "version_id": raw_version_id,
+                "artifact_id": raw_artifact_id,
                 "product_code": product_code,
             })
             return [
@@ -186,17 +186,17 @@ def main() -> int:
             new_ctx.update({
                 "channel": "auto_derived",  # logical role (record in jsonb)
                 "profile": kind,
-                "derived_from_version_id": raw_id,
+                "derived_from_artifact_id": raw_id,
                 "derived_from_variant": raw_variant,
                 "ingest_script": "materialize_shallow_and_full_flat.py",
             })
-            existing = create_version(
+            existing = create_artifact(
                 client_id=args.client,
                 product_code=product_code,
                 rows=rows,
                 actor="erp_pipeline",
                 intent="derived",
-                parent_version_id=raw_id,
+                parent_artifact_id=raw_id,
                 context=new_ctx,
                 source_upload_id=None,
                 source_bom_kind="technical_flattened",
@@ -221,17 +221,17 @@ def main() -> int:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        update hub.bom_versions
+                        update hub.bom_artifacts
                         set status='draft'
                         where client_id=%s and product_code=%s
-                          and parent_version_id=%s
+                          and parent_artifact_id=%s
                           and source_channel='migration'
                           and context->>'channel'='auto_derived'
                           and status='published'
                           and created_at > now() - interval '60 seconds'
                           and not exists (
-                            select 1 from hub.bom_resolution_profiles p
-                            where p.bom_version_id = hub.bom_versions.version_id
+                            select 1 from hub.bom_presets p
+                            where p.artifact_id = hub.bom_artifacts.artifact_id
                               and p.tombstoned_at is null
                           )
                         """,

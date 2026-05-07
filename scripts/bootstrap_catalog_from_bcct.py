@@ -2,7 +2,7 @@
 
 For each client, scan hub.bcct_rows. Codes appearing as direction='import'
 that are not yet in hub.materials → insert as nvl (or btp_sx if a
-bom_versions row already exists for that code = code is a sub-assembly).
+bom_artifacts row already exists for that code = code is a sub-assembly).
 Codes appearing as direction='export' not in catalog → insert as tp.
 
 Existing materials rows are NEVER overwritten. Only the seen_in_bcct
@@ -41,7 +41,7 @@ with
   ),
   has_bom as (
     select distinct product_code
-    from hub.bom_versions
+    from hub.bom_artifacts
     where client_id = %(client_id)s and tombstoned_at is null
   ),
   in_catalog as (

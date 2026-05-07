@@ -105,8 +105,8 @@ def bom_unresolved_material_count(cur, *, client_id: str) -> int:
         """
         with bom_codes as (
           select distinct bvr.material_code
-          from hub.bom_version_rows bvr
-          join hub.bom_versions bv on bv.version_id = bvr.version_id
+          from hub.bom_artifact_rows bvr
+          join hub.bom_artifacts bv on bv.artifact_id = bvr.artifact_id
           where bv.client_id = %s and bv.tombstoned_at is null
         )
         select count(*) from bom_codes bc

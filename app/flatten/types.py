@@ -154,7 +154,7 @@ class Decision:
 @dataclass
 class FlattenedVersion:
     """A draft version about to be materialized. The stores layer assigns
-    version_id, version_no, parent_version_id, etc."""
+    artifact_id, artifact_no, parent_artifact_id, etc."""
     key: BomKey
     source_bom_kind: SourceBomKind
     flatten_status: FlattenStatus

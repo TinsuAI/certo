@@ -35,11 +35,11 @@ from app.database import connect
 
 PAIRS_SQL = """
 select v1.product_code,
-       v1.version_id as v1_id,
-       v2.version_id as v2_id
+       v1.artifact_id as v1_id,
+       v2.artifact_id as v2_id
 from (
-    select distinct on (product_code) product_code, version_id, created_at
-    from hub.bom_versions
+    select distinct on (product_code) product_code, artifact_id, created_at
+    from hub.bom_artifacts
     where client_id = %(client_id)s
       and tombstoned_at is null
       and status = 'published'
@@ -47,8 +47,8 @@ from (
     order by product_code, created_at desc
 ) v1
 join (
-    select distinct on (product_code) product_code, version_id, created_at
-    from hub.bom_versions
+    select distinct on (product_code) product_code, artifact_id, created_at
+    from hub.bom_artifacts
     where client_id = %(client_id)s
       and tombstoned_at is null
       and status = 'published'
@@ -63,7 +63,7 @@ VERIFY_SQL = """
 with recursive
   e as (
     select parent_code, child_code, qty_per_parent::numeric as q
-    from hub.bom_edges where version_id = %(v2_id)s
+    from hub.bom_edges where artifact_id = %(v2_id)s
   ),
   stop_set as (
     select customs_code as code
@@ -93,7 +93,7 @@ with recursive
   ),
   v1 as (
     select material_code, sum(qty_per_unit::numeric) as qty
-    from hub.bom_version_rows where version_id = %(v1_id)s
+    from hub.bom_artifact_rows where artifact_id = %(v1_id)s
     group by material_code
   ),
   joined as (

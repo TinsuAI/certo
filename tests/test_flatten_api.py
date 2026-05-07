@@ -57,11 +57,11 @@ def _client_http():
 
 def _make_version(product, *, status, strategy, kind="technical_flattened",
                   rows=None):
-    bom_store.create_version(
+    bom_store.create_artifact(
         client_id=CLIENT, product_code=product,
         rows=rows or [{"material_code": "FT_A_X", "qty_per_unit": 1, "uom": "kg"}],
         actor="agency_staff", intent="asserted_technical",
-        parent_version_id=None, context={}, source_upload_id=None,
+        parent_artifact_id=None, context={}, source_upload_id=None,
         source_bom_kind=kind,
         flatten_status=status,
         flatten_strategy=strategy,
@@ -89,10 +89,10 @@ def test_latest_returns_flattened():
     )
     assert r.status_code == 200
     body = r.json()
-    assert body["version"]["flatten_status"] == "flattened"
-    assert body["version"]["flatten_strategy"] == "technical_exploded"
-    assert body["version"]["source_bom_kind"] == "technical_flattened"
-    assert body["version"]["display_label"]
+    assert body["artifact"]["flatten_status"] == "flattened"
+    assert body["artifact"]["flatten_strategy"] == "technical_exploded"
+    assert body["artifact"]["source_bom_kind"] == "technical_flattened"
+    assert body["artifact"]["display_label"]
     assert "unresolved" in body
     assert "decisions" in body
 
@@ -107,7 +107,7 @@ def test_latest_returns_manual_flat_not_applicable():
         headers=_bearer(),
     )
     assert r.status_code == 200
-    assert r.json()["version"]["flatten_status"] == "not_applicable"
+    assert r.json()["artifact"]["flatten_status"] == "not_applicable"
 
 
 # ── Item 27 — dual-source returns 409 with variant list ──────────────
@@ -128,14 +128,14 @@ def test_latest_returns_409_for_dual_source():
     assert body["error"] == "dual_source_variants"
     strategies = sorted(v["flatten_strategy"] for v in body["variants"])
     assert strategies == ["purchased_btp_as_leaf", "self_produced_btp_exploded"]
-    # Each variant carries an explicit version_id the caller must rebind to.
+    # Each variant carries an explicit artifact_id the caller must rebind to.
     for v in body["variants"]:
-        assert v["version_id"]
+        assert v["artifact_id"]
         assert v["display_label"]
 
 
-def test_dual_source_pinned_via_version_id():
-    """Caller binds explicitly via /v1/hub/products/{p}/bom?version_id=… —
+def test_dual_source_pinned_via_artifact_id():
+    """Caller binds explicitly via /v1/hub/products/{p}/bom?artifact_id=… —
     that endpoint already exists and works. Verify it returns the picked
     variant unambiguously."""
     _make_version("FT_A_PIN", status="flattened",
@@ -150,9 +150,9 @@ def test_dual_source_pinned_via_version_id():
     )
     pick = r.json()["variants"][0]
     r2 = _client_http().get(
-        f"/v1/hub/products/FT_A_PIN/bom?client_id={CLIENT}&version_id={pick['version_id']}",
+        f"/v1/hub/products/FT_A_PIN/bom?client_id={CLIENT}&artifact_id={pick['artifact_id']}",
         headers=_bearer(),
     )
     assert r2.status_code == 200
-    assert r2.json()["version"]["version_id"] == pick["version_id"]
-    assert r2.json()["version"]["flatten_strategy"] == pick["flatten_strategy"]
+    assert r2.json()["artifact"]["artifact_id"] == pick["artifact_id"]
+    assert r2.json()["artifact"]["flatten_strategy"] == pick["flatten_strategy"]

@@ -115,7 +115,7 @@
         </td>
         <td>v{{ p.latest_version }}</td>
         <td class="mono">{{ p.last_published.strftime('%Y-%m-%d %H:%M') if p.last_published else '' }}</td>
-        <td><a href="/clients/{{ client.client_id }}/bom/{{ p.product_code }}/versions">{{ t('common.detail') }} →</a></td>
+        <td><a href="/clients/{{ client.client_id }}/bom/{{ p.product_code }}/artifacts">{{ t('common.detail') }} →</a></td>
       </tr>
       {% endfor %}
     </tbody>

@@ -251,11 +251,11 @@ async def main():
         await login(page)
 
         # Re-upload the exact same file. Engine produces same FlattenResult.
-        # On confirm, create_version's idempotency lookup returns the existing
-        # version_ids → 0 new rows in bom_versions.
+        # On confirm, create_artifact's idempotency lookup returns the existing
+        # artifact_ids → 0 new rows in bom_artifacts.
         with connect() as conn, conn.cursor() as cur:
             cur.execute(
-                "select count(*) from hub.bom_versions where client_id = %s",
+                "select count(*) from hub.bom_artifacts where client_id = %s",
                 (CLIENT,),
             )
             (n_before,) = cur.fetchone()
@@ -277,7 +277,7 @@ async def main():
 
         with connect() as conn, conn.cursor() as cur:
             cur.execute(
-                "select count(*) from hub.bom_versions where client_id = %s",
+                "select count(*) from hub.bom_artifacts where client_id = %s",
                 (CLIENT,),
             )
             (n_after,) = cur.fetchone()
@@ -326,9 +326,9 @@ async def main():
         cur.execute(
             """
             select product_code, source_bom_kind, flatten_status,
-                   flatten_strategy, version_no, display_label
-            from hub.bom_versions where client_id = %s
-            order by product_code, version_no
+                   flatten_strategy, artifact_no, display_label
+            from hub.bom_artifacts where client_id = %s
+            order by product_code, artifact_no
             """,
             (CLIENT,),
         )

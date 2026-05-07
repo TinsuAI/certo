@@ -11,7 +11,7 @@ from app.routes.clients import slug, upsert_client
 from app.routes.bcct import _insert_bcct
 from app.routes.bqd import _insert_mappings
 from app.routes.catalog import _insert_materials
-from app.stores.bom import create_version
+from app.stores.bom import create_artifact
 
 
 def auto_seed_demo_if_empty() -> str:
@@ -176,10 +176,10 @@ def _seed_growatt(client_id: str) -> None:
     buf = io.BytesIO(); wb.save(buf)
     products = parse_bom_workbook(buf.getvalue(), profile="manual_flat")
     for product_code, rows in products.items():
-        create_version(
+        create_artifact(
             client_id=client_id, product_code=product_code, rows=rows,
             actor="agency_staff", intent="asserted_technical",
-            parent_version_id=None,
+            parent_artifact_id=None,
             context={"channel": "agency_upload", "profile": "manual_flat", "seed": True},
             source_upload_id=None,
         )
@@ -190,7 +190,7 @@ def _seed_growatt(client_id: str) -> None:
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "select version_id from hub.bom_versions where client_id=%s and product_code='INV-3000' order by version_no desc limit 1",
+                "select artifact_id from hub.bom_artifacts where client_id=%s and product_code='INV-3000' order by artifact_no desc limit 1",
                 (client_id,),
             )
             row = cur.fetchone()
@@ -201,7 +201,7 @@ def _seed_growatt(client_id: str) -> None:
         submit_proposal(
             client_id=client_id, product_code="INV-3000",
             actor="co_system", intent="modified_for_case",
-            parent_version_id=parent_version,
+            parent_artifact_id=parent_version,
             context={"case_id": "CO-2025-DEMO-001", "trigger": "rvc_threshold_pass"},
             rows=[
                 {"material_code": "PE-001", "qty_per_unit": 0.46, "uom": "kg"},
@@ -215,7 +215,7 @@ def _seed_growatt(client_id: str) -> None:
         submit_proposal(
             client_id=client_id, product_code="INV-3000",
             actor="co_system", intent="modified_for_case",
-            parent_version_id=parent_version,
+            parent_artifact_id=parent_version,
             context={"case_id": "CO-2025-DEMO-002"},
             rows=[
                 {"material_code": "PE-001", "qty_per_unit": 0.80, "uom": "kg"},  # +77% — too big
@@ -292,10 +292,10 @@ def _seed_johnson(client_id: str) -> None:
     buf = io.BytesIO(); wb.save(buf)
     products = parse_bom_workbook(buf.getvalue(), profile="manual_flat")
     for product_code, rows in products.items():
-        create_version(
+        create_artifact(
             client_id=client_id, product_code=product_code, rows=rows,
             actor="agency_staff", intent="asserted_technical",
-            parent_version_id=None,
+            parent_artifact_id=None,
             context={"channel": "agency_upload", "profile": "manual_flat", "seed": True},
             source_upload_id=None,
         )

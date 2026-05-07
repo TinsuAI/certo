@@ -214,7 +214,7 @@ def _seed_bom_with_materials(client_id: str, materials: list[tuple[str, str]],
     """materials = [(customs_code, internal_code or None)],
     code_mappings = [(internal_code, customs_code)],
     bom_rows = [(product_code, material_code, qty)]"""
-    from app.stores.bom import create_version
+    from app.stores.bom import create_artifact
     with connect() as conn, conn.cursor() as cur:
         for cc, ic in materials:
             cur.execute(
@@ -238,10 +238,10 @@ def _seed_bom_with_materials(client_id: str, materials: list[tuple[str, str]],
             {"material_code": mat, "qty_per_unit": qty, "uom": "kg"},
         )
     for prod, rows in by_product.items():
-        create_version(
+        create_artifact(
             client_id=client_id, product_code=prod, rows=rows,
             actor="agency_staff", intent="asserted_technical",
-            parent_version_id=None, context={}, source_upload_id=None,
+            parent_artifact_id=None, context={}, source_upload_id=None,
         )
 
 

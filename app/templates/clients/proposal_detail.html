@@ -62,11 +62,11 @@
     <tr><th>{{ t('bom.col.actor') }}</th><td><span class="badge">{{ proposal.actor }}</span></td></tr>
     <tr><th>{{ t('bom.col.intent') }}</th><td><span class="badge badge-info">{{ proposal.intent }}</span></td></tr>
     <tr><th>{{ t('proposals.parent') }}</th><td class="mono">
-      {% if proposal.parent_version_id %}<a href="/clients/{{ client.client_id }}/bom/version/{{ proposal.parent_version_id }}">{{ proposal.parent_version_id }}</a>
+      {% if proposal.parent_artifact_id %}<a href="/clients/{{ client.client_id }}/bom/artifact/{{ proposal.parent_artifact_id }}">{{ proposal.parent_artifact_id }}</a>
       {% else %}—{% endif %}
     </td></tr>
     <tr><th>{{ t('proposals.materialized') }}</th><td class="mono">
-      {% if proposal.materialized_version_id %}<a href="/clients/{{ client.client_id }}/bom/version/{{ proposal.materialized_version_id }}">{{ proposal.materialized_version_id }}</a>
+      {% if proposal.materialized_artifact_id %}<a href="/clients/{{ client.client_id }}/bom/artifact/{{ proposal.materialized_artifact_id }}">{{ proposal.materialized_artifact_id }}</a>
       {% else %}—{% endif %}
     </td></tr>
     <tr><th>{{ t('proposals.decision_reason') }}</th><td>{{ proposal.decision_reason or '' }}</td></tr>

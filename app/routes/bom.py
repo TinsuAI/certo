@@ -41,14 +41,14 @@ from app.storage import save_upload, sha256_bytes
 from app.stores.staleness import freshness_for_template
 from app.stores.bom import (
     count_products_with_bom,
-    create_flattened_version_set,
-    create_raw_version,
-    create_version,
+    create_flattened_artifact_set,
+    create_raw_artifact,
+    create_artifact,
     list_products_with_bom,
-    list_versions_for_product,
+    list_artifacts_for_product,
     bom_shape,
-    get_lineage_for_version,
-    get_version_with_rows,
+    get_lineage_for_artifact,
+    get_artifact_with_rows,
     make_bcct_import_lookup,
     make_catalog_lookup,
     make_current_db_btp_lookup,
@@ -417,7 +417,7 @@ async def preview_confirm(request: Request, client_id: str, pending_id: str):
     """Apply stashed BOM upload as new versions.
 
     Order matters: load pending (no DELETE yet) → create all versions →
-    only then DELETE pending + flip parse_status. If create_version fails
+    only then DELETE pending + flip parse_status. If create_artifact fails
     mid-loop, pending stays so staff can re-trigger; the file_uploads row
     stays in 'pending_preview' status, signalling "not committed". Hash-
     dedup in stores.bom makes a successful retry idempotent on the
@@ -447,7 +447,7 @@ async def preview_confirm(request: Request, client_id: str, pending_id: str):
     products = parsed_rows.get("products", {}) if isinstance(parsed_rows, dict) else {}
     profile = (diff_summary or {}).get("profile", "manual_flat")
 
-    # Step 2: create versions outside the pending-row tx. Each create_version
+    # Step 2: create versions outside the pending-row tx. Each create_artifact
     # manages its own connection + canonicalization + dedup-by-hash. If any
     # version creation raises, propagate — the staff sees an error AND can
     # re-confirm later because we haven't deleted pending yet.
@@ -461,25 +461,25 @@ async def preview_confirm(request: Request, client_id: str, pending_id: str):
                 continue
             edges_by_root.setdefault(root, []).append(edge)
         for root_code, edges in edges_by_root.items():
-            version_id = create_raw_version(
+            artifact_id = create_raw_artifact(
                 client_id=client_id, product_code=root_code, edges=edges,
                 actor="agency_staff", intent="asserted_technical",
-                parent_version_id=None,
+                parent_artifact_id=None,
                 context={"channel": "agency_upload", "profile": profile},
                 source_upload_id=upload_id,
             )
-            if version_id:
+            if artifact_id:
                 n += 1
     else:
         for product_code, rows in products.items():
-            version_id = create_version(
+            artifact_id = create_artifact(
                 client_id=client_id, product_code=product_code, rows=rows,
                 actor="agency_staff", intent="asserted_technical",
-                parent_version_id=None,
+                parent_artifact_id=None,
                 context={"channel": "agency_upload", "profile": profile},
                 source_upload_id=upload_id,
             )
-            if version_id:
+            if artifact_id:
                 n += 1
 
     # Step 3: only on full success — delete pending + flip status.
@@ -796,42 +796,62 @@ def _raw_edges_to_preview_products(edges: list[dict]) -> dict[str, list[dict]]:
     return products
 
 
-@router.get("/clients/{client_id}/bom/{product_code:path}/versions", response_class=HTMLResponse)
-async def versions_view(request: Request, client_id: str, product_code: str):
+@router.get("/clients/{client_id}/bom/version/{artifact_id}",
+            include_in_schema=False)
+async def _alias_artifact_detail(client_id: str, artifact_id: str):
+    """Vocab rename alias (D9/D10, removable per BACKLOG)."""
+    return RedirectResponse(
+        url=f"/clients/{client_id}/bom/artifact/{artifact_id}",
+        status_code=308,
+    )
+
+
+@router.get("/clients/{client_id}/bom/{product_code:path}/versions",
+            include_in_schema=False)
+async def _alias_artifacts_list(client_id: str, product_code: str):
+    """Vocab rename alias (D9/D10, removable per BACKLOG)."""
+    return RedirectResponse(
+        url=f"/clients/{client_id}/bom/{product_code}/artifacts",
+        status_code=308,
+    )
+
+
+@router.get("/clients/{client_id}/bom/{product_code:path}/artifacts", response_class=HTMLResponse)
+async def artifacts_view(request: Request, client_id: str, product_code: str):
     user = auth.require_user(request)
     auth.require_can_view_client(user, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
-    versions = list_versions_for_product(client_id=client_id, product_code=product_code)
+    artifacts = list_artifacts_for_product(client_id=client_id, product_code=product_code)
     return request.app.state.templates.TemplateResponse(
-        request, "clients/bom_versions.html",
+        request, "clients/bom_artifacts.html",
         {"client": client, "stats": stats_for_client(client_id),
-         "product_code": product_code, "versions": versions,
+         "product_code": product_code, "artifacts": artifacts,
          "active_root": "clients", "active_tab": "bom"},
     )
 
 
-@router.get("/clients/{client_id}/bom/version/{version_id}", response_class=HTMLResponse)
-async def version_detail(request: Request, client_id: str, version_id: str):
+@router.get("/clients/{client_id}/bom/artifact/{artifact_id}", response_class=HTMLResponse)
+async def artifact_detail(request: Request, client_id: str, artifact_id: str):
     user = auth.require_user(request)
     auth.require_can_view_client(user, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
-    data = get_version_with_rows(version_id)
-    if not data or data["version"]["client_id"] != client_id:
-        raise HTTPException(404, "Version not found")
-    version = data["version"]
-    version["bom_shape"] = bom_shape(
-        version.get("flatten_status") or "",
-        version.get("flatten_strategy") or "",
+    data = get_artifact_with_rows(artifact_id)
+    if not data or data["artifact"]["client_id"] != client_id:
+        raise HTTPException(404, "Artifact not found")
+    artifact = data["artifact"]
+    artifact["bom_shape"] = bom_shape(
+        artifact.get("flatten_status") or "",
+        artifact.get("flatten_strategy") or "",
     )
-    lineage = get_lineage_for_version(version_id)
+    lineage = get_lineage_for_artifact(artifact_id)
     return request.app.state.templates.TemplateResponse(
-        request, "clients/bom_version_detail.html",
+        request, "clients/bom_artifact_detail.html",
         {"client": client, "stats": stats_for_client(client_id),
-         "version": version, "rows": data["rows"],
+         "artifact": artifact, "rows": data["rows"],
          "edges": data.get("edges") or [],
          "lineage": lineage,
          "active_root": "clients", "active_tab": "bom"},
@@ -848,20 +868,20 @@ async def submit_bom_proposal(request: Request, product_code: str):
     auth.require_can_edit_client(user, client_id)
     actor = body.get("actor", "co_system")
     intent = body.get("intent", "modified_for_case")
-    parent_version_id = body.get("parent_version_id")
+    parent_artifact_id = body.get("parent_artifact_id")
     context = body.get("context", {})
     rows = body.get("rows", [])
     if not isinstance(rows, list) or not rows:
         raise HTTPException(400, "rows required")
     try:
         validate_proposal_contract(
-            actor=actor, intent=intent, parent_version_id=parent_version_id,
+            actor=actor, intent=intent, parent_artifact_id=parent_artifact_id,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     result = submit_proposal(
         client_id=client_id, product_code=product_code, actor=actor, intent=intent,
-        parent_version_id=parent_version_id, context=context, rows=rows,
+        parent_artifact_id=parent_artifact_id, context=context, rows=rows,
     )
     return JSONResponse(result)
 
@@ -1230,7 +1250,7 @@ async def flatten_preview_confirm(request: Request,
     decision_id_map_str = flatten_payload.get("decision_id_map") or {}
     decision_id_map = {int(k): v for k, v in decision_id_map_str.items()}
 
-    materialized = create_flattened_version_set(
+    materialized = create_flattened_artifact_set(
         client_id=client_id,
         source_upload_id=upload_id,
         result=result,

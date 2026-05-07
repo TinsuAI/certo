@@ -6,7 +6,7 @@ Public surface:
 
 DB-side wrappers live in app/stores/uom.py + app/stores/bom.py +
 app/stores/flatten_decisions.py — they build the lookups that this
-module consumes and materialize the FlattenResult into bom_versions /
+module consumes and materialize the FlattenResult into bom_artifacts /
 bom_unresolved_nodes / bom_flatten_decisions.
 
 Method identity:

@@ -1,6 +1,6 @@
 """Bootstrap BTP roster in hub.materials from observed BOM data.
 
-Detection rule: a code is a BTP iff it owns a `hub.bom_versions` row
+Detection rule: a code is a BTP iff it owns a `hub.bom_artifacts` row
 (it has its own structure) AND appears as `child_code` in `hub.bom_edges`
 of any BOM in the same client (it is consumed by another product).
 Codes that own a BOM but are never consumed are TP roots; codes that
@@ -37,7 +37,7 @@ DETECT_BTPS_SQL = """
 -- A BTP is any code that participates as a parent in a BOM (so it has
 -- a structure beneath it) but is NOT a TP root. This handles two shapes:
 --
--- KNOWN LIMITATION (orphan BTPs): A code that owns its own bom_versions
+-- KNOWN LIMITATION (orphan BTPs): A code that owns its own bom_artifacts
 -- row AND is never consumed as a child by any other product in this
 -- client's data is classified as a TP root by this rule. For Growatt,
 -- 14 codes (033.*, 100.*, B700.*, B710.*) match this profile — they
@@ -49,31 +49,31 @@ DETECT_BTPS_SQL = """
 -- they identify the parent TPs.
 --
 --
--- (A) Growatt-shape: BTP has its own bom_versions row AND appears as
+-- (A) Growatt-shape: BTP has its own bom_artifacts row AND appears as
 --     child_code in some BOM. Example: B700.0192500 has its own factory
---     XLSX file producing a bom_versions row, and is consumed by SD/PV TPs.
+--     XLSX file producing a bom_artifacts row, and is consumed by SD/PV TPs.
 --
 -- (B) Johnson-shape: each TP's full multi-level tree is in ONE supplier
 --     file. Intermediate sub-assembly codes (level 2+) appear as
 --     parent_code inside the TP's bom_edges but DON'T have their own
---     bom_versions row. They're still BTPs by domain meaning.
+--     bom_artifacts row. They're still BTPs by domain meaning.
 --
 -- The union below catches both: any code that appears as parent_code
 -- in bom_edges (including intermediate parents at level 2+) MINUS the
--- TP roots (codes that have a bom_versions row representing a top-level
+-- TP roots (codes that have a bom_artifacts row representing a top-level
 -- product).
 with
   tp_roots as (
-    -- TP root = code that owns a bom_versions row AND is never consumed
+    -- TP root = code that owns a bom_artifacts row AND is never consumed
     -- as a child by ANY other product's BOM in this client. Codes that
-    -- own a bom_versions row but are also consumed elsewhere are BTPs
+    -- own a bom_artifacts row but are also consumed elsewhere are BTPs
     -- (Growatt B700.* family pattern: own supplier file + used in TPs).
     select bv.product_code as code
-    from hub.bom_versions bv
+    from hub.bom_artifacts bv
     where bv.client_id = %(client_id)s and bv.tombstoned_at is null
       and not exists (
         select 1 from hub.bom_edges e
-        join hub.bom_versions bv2 on bv2.version_id = e.version_id
+        join hub.bom_artifacts bv2 on bv2.artifact_id = e.artifact_id
         where bv2.client_id = %(client_id)s
           and bv2.tombstoned_at is null
           and e.child_code = bv.product_code
@@ -83,20 +83,20 @@ with
   parents as (
     select distinct e.parent_code as code, max(e.uom) as uom
     from hub.bom_edges e
-    join hub.bom_versions bv using (version_id)
+    join hub.bom_artifacts bv using (artifact_id)
     where bv.client_id = %(client_id)s and bv.tombstoned_at is null
     group by e.parent_code
   ),
   -- Plus codes that are explicitly consumed as child somewhere AND have
-  -- their own bom_versions (Growatt-shape sanity check; doesn't add new
+  -- their own bom_artifacts (Growatt-shape sanity check; doesn't add new
   -- BTPs in Johnson-shape but harmless).
   has_bom_and_consumed as (
     select bv.product_code as code, max(coalesce(e.uom, r.uom)) as uom
-    from hub.bom_versions bv
+    from hub.bom_artifacts bv
     left join hub.bom_edges e on e.child_code = bv.product_code
-    left join hub.bom_version_rows r on r.material_code = bv.product_code
+    left join hub.bom_artifact_rows r on r.material_code = bv.product_code
     where bv.client_id = %(client_id)s and bv.tombstoned_at is null
-      and (e.version_id is not null or r.version_id is not null)
+      and (e.artifact_id is not null or r.artifact_id is not null)
     group by bv.product_code
   ),
   candidates as (

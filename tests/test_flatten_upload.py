@@ -117,7 +117,7 @@ def test_technical_flatten_preview_then_confirm(auth_client):
             cur.execute(
                 """
                 select product_code, source_bom_kind, flatten_status, flatten_strategy
-                from hub.bom_versions
+                from hub.bom_artifacts
                 where client_id = %s
                   and product_code in ('FT_U_TP-A', 'FT_U_BTP-B')
                 order by product_code
@@ -162,7 +162,7 @@ def test_non_flattened_blocked_without_confirmation(auth_client):
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "select count(*) from hub.bom_versions "
+                "select count(*) from hub.bom_artifacts "
                 "where client_id = %s and product_code = 'FT_U_BLOCK'",
                 (CLIENT,),
             )
@@ -199,7 +199,7 @@ def test_non_flattened_published_when_confirmed(auth_client):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select flatten_status from hub.bom_versions
+                select flatten_status from hub.bom_artifacts
                 where client_id = %s and product_code = 'FT_U_REVIEW'
                 """,
                 (CLIENT,),
@@ -273,7 +273,7 @@ def test_dual_source_blocked_without_explicit_confirmation(auth_client):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select count(*) from hub.bom_versions
+                select count(*) from hub.bom_artifacts
                 where client_id = %s and product_code = 'FT_U_DTP'
                 """,
                 (CLIENT,),
@@ -338,7 +338,7 @@ def test_dual_source_publishes_chosen_variant_when_confirmed(auth_client):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select flatten_strategy from hub.bom_versions
+                select flatten_strategy from hub.bom_artifacts
                 where client_id = %s and product_code = 'FT_U_PTP'
                 """,
                 (CLIENT,),
@@ -351,7 +351,7 @@ def test_dual_source_publishes_chosen_variant_when_confirmed(auth_client):
 
 def test_duplicate_technical_flatten_upload_is_idempotent(auth_client):
     """Spec §"append-only versioning preserved" — same content uploaded
-    twice yields the same version_ids; create_version's idempotency
+    twice yields the same artifact_ids; create_artifact's idempotency
     lookup returns existing rows on the second pass.
     """
     blob = _xlsx([
@@ -386,7 +386,7 @@ def test_duplicate_technical_flatten_upload_is_idempotent(auth_client):
         assert resp.status_code == 303
         with connect() as conn, conn.cursor() as cur:
             cur.execute(
-                "select count(*) from hub.bom_versions "
+                "select count(*) from hub.bom_artifacts "
                 "where client_id = %s and product_code = 'FT_DUP_TP'",
                 (CLIENT,),
             )
@@ -439,7 +439,7 @@ def test_johnson_sap_fixture_flattens_via_sap_indented_walk(auth_client):
         cur.execute(
             """
             select product_code, source_bom_kind, flatten_status
-            from hub.bom_versions
+            from hub.bom_artifacts
             where client_id = %s
               and product_code = 'johnson_sap_english_headers'
             """,
