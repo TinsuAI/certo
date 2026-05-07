@@ -117,6 +117,9 @@
           {% if m.is_dual_source %}
             <span class="badge badge-dual" title="{{ t('catalog.dual_source_tooltip') }}">⇄ dual</span>
           {% endif %}
+          {% if m.is_multi_role %}
+            <span class="badge badge-warning" title="BTP also appears in BCCT export — likely rework / cải chế. Code plays multiple roles (BTP + TP).">⚠ multi-role</span>
+          {% endif %}
           {% if m.category == 'btp_sx' %}
             <form method="post"
                   action="/clients/{{ client.client_id }}/catalog/{{ m.customs_code }}/btp_sourcing"

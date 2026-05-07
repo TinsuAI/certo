@@ -87,11 +87,13 @@ for full plan. To-be-committed (rev pending):
 
 In priority order:
 
-1. **Phase 3b done — confirm + push** (`5fb814a` and follow-on
-   commit pending; 27 new tests; resolver core + preset CRUD +
-   `/bom` endpoint wiring + UI page + sister-app note).
-2. **Phase 3c** — modular ingest adapters + derive_btp_shallows
-   post-hook + UI BOM upload v3 wiring + Playwright E2E (~25h).
+1. **Phase 3 done — confirm + push** (3 commits pending: `5fb814a`
+   3a, `f5af5d2` 3b, plus 3c commit forthcoming). Push to origin
+   when user signals ready.
+2. **Phase 3c follow-ups** — UI upload v3 wiring + Playwright E2E
+   tracked in `.ai/BACKLOG.md` "Phase 3c follow-ups". Deferred as
+   lower-value polish; core 3c (`derive_btp_shallows` + adapter
+   hooks contract + multi-role warning) shipped.
 3. **Wipe + ingest fresh — Growatt and Johnson** *(pending — user
    noted 2026-05-07, three rounds of clarification)* — after all
    Phase 3 fixes ship, **delete every per-client data row**

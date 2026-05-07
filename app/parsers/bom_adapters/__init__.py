@@ -37,6 +37,15 @@ class BomAdapter(Protocol):
     description_key: str
     supports_mapping_override: bool
 
+    # Phase 3c. Identifier strings naming post-ingest hooks the
+    # runner should invoke after a raw artifact commits. Resolved
+    # via the module-level `HOOKS` map. Default: empty list (no
+    # hooks). Adapters that expose deep raw graphs whose
+    # intermediate parent_code values are real BTPs (sap_indented_walk,
+    # multi_sheet_per_root) declare ['derive_btp_shallows'] so that
+    # per-BTP own raw_graph artifacts get minted automatically.
+    post_ingest_hooks: list[str]
+
     # When False, the adapter treats the workbook as a single rooted
     # explosion tree — intermediate parent codes are computational
     # artifacts, not standalone BTP products. The parser pre-multiplies
@@ -160,3 +169,72 @@ register(MultiSheetPerRootAdapter())   # one rooted tree across sheets
 register(ManualFlatAdapter())          # generic per-product
 register(SheetPerProductAdapter())     # sheet title = product
 register(SapExplodedLevelsAdapter())   # explicit Level + product code
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Phase 3c — Post-ingest hooks
+# ─────────────────────────────────────────────────────────────────────
+# `HOOKS` maps hook identifier → callable. Each callable's signature
+# is (*, artifact_id: str, client_id: str, **kwargs) → list[dict].
+# Adapters declare which hooks run after their ingest via
+# `post_ingest_hooks`. The runner is `run_post_ingest_hooks()`.
+#
+# Wire-up into the upload-confirm flow is BACKLOG-tracked; this module
+# just provides the declarative + invocation surface.
+
+def _derive_btp_shallows_hook(*, artifact_id: str, client_id: str, **kwargs):
+    """Bridge to scripts/derive_btp_shallows.py (lazy import to avoid
+    circular dependency with app.stores.bom)."""
+    from scripts.derive_btp_shallows import (
+        _client_policy, derive_btp_shallows_for_artifact,
+    )
+    from app.database import connect
+    with connect() as conn, conn.cursor() as cur:
+        policy = _client_policy(cur, client_id)
+    status = {"disabled": "disabled", "draft_only": "draft",
+              "publish": "publish"}.get(policy, "draft")
+    return derive_btp_shallows_for_artifact(
+        artifact_id=artifact_id, client_id=client_id, status=status,
+    )
+
+
+HOOKS: dict[str, callable] = {
+    "derive_btp_shallows": _derive_btp_shallows_hook,
+}
+
+
+def run_post_ingest_hooks(
+    *, adapter_name: str, artifact_id: str, client_id: str, **kwargs,
+) -> list:
+    """Invoke each declared post-ingest hook for the named adapter.
+    Unknown adapters are a no-op (defensive). Each hook's return value
+    is appended to the aggregated result."""
+    adapter = resolve(adapter_name)
+    if adapter is None:
+        return []
+    out: list = []
+    for hook_name in (getattr(adapter, "post_ingest_hooks", None) or []):
+        fn = HOOKS.get(hook_name)
+        if fn is None:
+            continue
+        result = fn(artifact_id=artifact_id, client_id=client_id, **kwargs)
+        if result is not None:
+            out.extend(result)
+    return out
+
+
+# Patch existing adapters to declare empty hooks by default; deep-tree
+# adapters get derive_btp_shallows. We do this via attribute set so
+# adapter classes don't all need a duplicate definition.
+def _set_hooks(name: str, hooks: list[str]):
+    a = resolve(name)
+    if a is None:
+        return
+    setattr(a, "post_ingest_hooks", hooks)
+
+
+_set_hooks("manual_flat", [])
+_set_hooks("sheet_per_product", [])
+_set_hooks("sap_exploded_levels", [])
+_set_hooks("sap_indented_walk", ["derive_btp_shallows"])
+_set_hooks("multi_sheet_per_root", ["derive_btp_shallows"])

@@ -8,6 +8,43 @@ For past architectural decisions, see `DECISIONS.md`.
 
 ---
 
+## Phase 3c follow-ups (deferred 2026-05-07)
+
+Phase 3c shipped the foundational pieces: `derive_btp_shallows.py`
+(closes Johnson decomposability gap), `post_ingest_hooks` adapter
+contract, multi-role catalog warning. The brief's UI upload v3
+items remain open — high effort, lower value than 3a/3b core.
+
+1. **Auto-trigger `derive_btp_shallows` from upload confirm flow.**
+   Current state: hook registry + runner exist but nothing in
+   `app/routes/bom.py::_confirm_*` invokes them. Add a call after
+   raw artifact commit; respect `clients.auto_derive_shallow_from_raw`
+   policy. ~1-2h.
+2. **`bom_variant_id` form field on upload page.** Today every UI
+   upload collapses to `'default'`. Add an optional text input so
+   staff can label multi-supplier batches. Auto-derive default from
+   filename or upload date if blank. ~2h.
+3. **Auto-materialize raw → shallow + full_flat post-confirm.** Wire
+   `materialize_shallow_and_full_flat.py` as a second post-ingest
+   hook for raw_graph artifacts. Gate by `auto_derive_shallow_from_raw`
+   (already exists). ~2-3h.
+4. **Auto-bootstrap BTP roster.** Re-run `bootstrap_btp_roster.py`
+   logic on parent_codes after raw ingest so newly-introduced
+   intermediate codes land as `btp_sx`. ~1h.
+5. **Shape badge in upload preview.** Show `raw_graph` / `shallow` /
+   `full_flat` banner using `bom_shape()` helper. ~30min.
+6. **Multi-role warning at upload.** When confirming an upload that
+   would create btp_sx rows, check if any code already appears in
+   bcct_rows direction='export' — surface a confirmation dialog.
+   Catalog-page badge already lives (`is_multi_role`). ~1h.
+7. **Playwright E2E for upload → mapping → parse → preview → confirm.**
+   ~2-3h.
+
+Drop these into a feature brief when the user wants to schedule
+post-MVP polish work.
+
+---
+
 ## Drop BOM vocab v1 aliases
 
 **Captured 2026-05-07** as part of mig-031 rename pass (see

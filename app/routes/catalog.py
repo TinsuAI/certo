@@ -499,6 +499,12 @@ def _query_materials(*, client_id: str, category: str | None,
                    and b.direction = 'import'
                ) as has_imports,
                exists (
+                 select 1 from hub.bcct_rows b
+                 where b.client_id = m.client_id
+                   and b.customs_code = m.customs_code
+                   and b.direction = 'export'
+               ) as has_exports,
+               exists (
                  select 1 from hub.bom_artifacts v
                  where v.client_id = m.client_id
                    and v.product_code = m.customs_code
@@ -518,6 +524,11 @@ def _query_materials(*, client_id: str, category: str | None,
             rows = [dict(zip(cols, r)) for r in cur.fetchall()]
             for r in rows:
                 r["is_dual_source"] = bool(r.get("has_imports") and r.get("has_bom"))
+                # Multi-role: btp_sx that's also exported as a finished
+                # good (rework / cải chế per project_bom_code_multirole memory).
+                r["is_multi_role"] = bool(
+                    r.get("category") == "btp_sx" and r.get("has_exports")
+                )
             return rows
 
 
