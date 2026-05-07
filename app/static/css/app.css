@@ -2948,9 +2948,23 @@ small,
   background: var(--success-soft);
 }
 
+.callout-warning {
+  border-color: var(--warning);
+  background: var(--warning-soft);
+}
+
 .callout-error {
   border-color: var(--error);
   background: var(--error-soft);
+}
+
+.shipment-reference-warning {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.shipment-reference-warning p {
+  margin: 0.18rem 0 0;
 }
 
 .callout-icon {

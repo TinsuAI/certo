@@ -3184,6 +3184,57 @@ def test_co_case_create_accepts_export_declaration_without_invoice_ref():
     assert "không có invoice_ref" in page.text
 
 
+def test_invoice_preview_warns_when_invoice_and_export_declaration_disagree():
+    client_data = get_client("growatt")
+    process_bcct_upload(
+        client_data,
+        bcct_workbook([
+            {"direction": "export", "declaration_type": "E42", "declaration_no": "XK-RIGHT", "line_no": "1", "item_code": "TP-RIGHT", "quantity": "2", "unit": "PCS", "invoice_ref": "INV-RIGHT"},
+        ]),
+        "bcct.xlsx",
+    )
+
+    preview = TestClient(app).get(
+        "/clients/growatt/co-case/invoice-preview",
+        params={"invoice_no": "INV-WRONG", "export_declaration_nos": "XK-RIGHT"},
+    ).json()
+
+    assert preview["status"] == "found"
+    assert preview["match_count"] == 1
+    assert preview["reference_warnings"] == [
+        "Invoice nhập INV-WRONG không khớp invoice_ref INV-RIGHT trên tờ khai XK-RIGHT."
+    ]
+
+
+def test_co_case_shipment_page_surfaces_invoice_declaration_warning():
+    client_data = get_client("growatt")
+    process_bcct_upload(
+        client_data,
+        bcct_workbook([
+            {"direction": "export", "declaration_type": "E42", "declaration_no": "XK-RIGHT", "line_no": "1", "item_code": "TP-RIGHT", "quantity": "2", "unit": "PCS", "invoice_ref": "INV-RIGHT"},
+        ]),
+        "bcct.xlsx",
+    )
+    client = TestClient(app)
+
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={
+            "title": "Mismatch visible",
+            "case_code": "CO-MISMATCH-VISIBLE",
+            "destination_market": "Ấn Độ",
+            "invoice_no": "INV-WRONG",
+            "export_declaration_nos": "XK-RIGHT",
+        },
+        follow_redirects=False,
+    )
+    page = client.get(created.headers["location"])
+
+    assert created.status_code == 303
+    assert "Kiểm tra invoice / tờ khai xuất" in page.text
+    assert "Invoice nhập INV-WRONG không khớp invoice_ref INV-RIGHT trên tờ khai XK-RIGHT." in page.text
+
+
 def test_co_case_page_uses_lightweight_source_summary(monkeypatch):
     from app import portfolio as portfolio_module
     from app import source_store as source_store_module

@@ -17,7 +17,7 @@ CURRENT_DATA_HUB_TOKEN: ContextVar[str] = ContextVar("current_data_hub_token", d
 HUB_BOM_PATH = "/v1/hub/products/{product_code}/bom"
 HUB_BOM_LATEST_PATH = "/v1/hub/products/{product_code}/bom/latest"
 HUB_BOM_PROPOSALS_PATH = "/v1/hub/products/{product_code}/bom/proposals"
-HUB_BOM_VERSIONS_PATH = "/v1/hub/products/{product_code}/bom/versions"
+HUB_BOM_ARTIFACTS_PATH = "/v1/hub/products/{product_code}/bom/artifacts"
 HUB_PROPOSAL_PATH = "/v1/hub/proposals/{proposal_id}"
 
 
@@ -29,6 +29,7 @@ class DataHubBomVariantConflict(RuntimeError):
         self.variants = items(payload)
         if not self.variants and isinstance(payload.get("variants"), list):
             self.variants = payload["variants"]
+        self.variants = [normalize_bom_artifact(row) for row in self.variants]
 
 
 def set_current_data_hub_token(token: str) -> Token[str]:
@@ -84,24 +85,37 @@ class DataHubClient:
         return self._get_all("/v1/hub/products", {"client_id": client_id})
 
     def list_bom_versions(self, client_id: str, product_code: str, **query) -> list[dict]:
-        return self._get_all(
-            hub_bom_path(HUB_BOM_VERSIONS_PATH, product_code),
-            {"client_id": client_id, **query},
-        )
+        return [
+            normalize_bom_artifact(row)
+            for row in self._get_all(
+                hub_bom_path(HUB_BOM_ARTIFACTS_PATH, product_code),
+                {"client_id": client_id, **query},
+            )
+        ]
+
+    def list_bom_artifacts(self, client_id: str, product_code: str, **query) -> list[dict]:
+        return self.list_bom_versions(client_id, product_code, **query)
 
     def get_bom_latest(self, client_id: str, product_code: str) -> dict:
         try:
-            return self._get(hub_bom_path(HUB_BOM_LATEST_PATH, product_code), {"client_id": client_id})
+            return normalize_bom_payload(
+                self._get(hub_bom_path(HUB_BOM_LATEST_PATH, product_code), {"client_id": client_id})
+            )
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 409:
                 raise DataHubBomVariantConflict(product_code, exc.response.json()) from exc
             raise
 
     def get_bom_version(self, client_id: str, product_code: str, version_id: str) -> dict:
-        return self._get(
-            hub_bom_path(HUB_BOM_PATH, product_code),
-            {"client_id": client_id, "version_id": version_id},
+        return normalize_bom_payload(
+            self._get(
+                hub_bom_path(HUB_BOM_PATH, product_code),
+                {"client_id": client_id, "artifact_id": version_id},
+            )
         )
+
+    def get_bom_artifact(self, client_id: str, product_code: str, artifact_id: str) -> dict:
+        return self.get_bom_version(client_id, product_code, artifact_id)
 
     def submit_bom_proposal(
         self,
@@ -120,7 +134,7 @@ class DataHubClient:
                 "client_id": client_id,
                 "actor": actor,
                 "intent": intent,
-                "parent_version_id": parent_version_id,
+                "parent_artifact_id": parent_version_id,
                 "context": context or {},
                 "rows": rows,
             },
@@ -333,6 +347,27 @@ def next_cursor(payload: dict) -> str:
     if isinstance(pagination, dict) and pagination.get("next_cursor"):
         return str(pagination["next_cursor"])
     return ""
+
+
+def normalize_bom_artifact(row: dict) -> dict:
+    artifact_id = row.get("artifact_id") or row.get("version_id") or ""
+    artifact_no = row.get("artifact_no") or row.get("version_no") or 0
+    return {
+        **row,
+        "artifact_id": artifact_id,
+        "artifact_no": artifact_no,
+        "version_id": row.get("version_id") or artifact_id,
+        "version_no": row.get("version_no") or artifact_no,
+    }
+
+
+def normalize_bom_payload(payload: dict) -> dict:
+    output = dict(payload)
+    if isinstance(output.get("version"), dict):
+        output["version"] = normalize_bom_artifact(output["version"])
+    if isinstance(output.get("variants"), list):
+        output["variants"] = [normalize_bom_artifact(row) for row in output["variants"]]
+    return output
 
 
 def normalize_client(row: dict) -> dict:

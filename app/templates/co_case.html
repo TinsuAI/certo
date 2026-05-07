@@ -214,6 +214,19 @@
   </div>
 {%- endmacro %}
 
+{% macro shipment_reference_warning_box(warnings=[]) -%}
+  <div class="callout callout-warning shipment-reference-warning" data-reference-warning {% if not warnings %}hidden{% endif %}>
+    <div>
+      <strong>Kiểm tra invoice / tờ khai xuất</strong>
+      <div data-reference-warning-text>
+        {% for warning in warnings %}
+          <p>{{ warning }}</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{%- endmacro %}
+
 {% block content %}
 {% include "_client_nav.html" %}
 
@@ -243,8 +256,9 @@
       <form method="post" action="/clients/{{ client.id }}/co-case/create" class="co-create-form co-create-flow" hx-boost="false">
         {{ invoice_lookup("create-invoice-no", case.shipment.invoice_no, false) }}
         <label>Số tờ khai xuất
-          <input name="export_declaration_nos" placeholder="Có thể nhập nhiều số, cách nhau dấu phẩy" value="{{ case.shipment.export_declaration_nos|join(', ') }}">
+          <input name="export_declaration_nos" placeholder="Có thể nhập nhiều số, cách nhau dấu phẩy" value="{{ case.shipment.export_declaration_nos|join(', ') }}" data-export-declaration-input>
         </label>
+        {{ shipment_reference_warning_box() }}
         {{ market_picker("create-destination-market", "" if case.destination_market == "Chưa nhập" else case.destination_market) }}
         <input type="hidden" name="co_form_type" value="{{ recommended_form_lane.display_name if case.destination_market != 'Chưa nhập' else '' }}" data-selected-form>
         <input type="hidden" name="agreement" value="{{ recommended_form_lane.agreement if case.destination_market != 'Chưa nhập' else '' }}" data-selected-agreement>
@@ -469,8 +483,9 @@
       </label>
       {{ invoice_lookup("shipment-invoice-no", case.shipment.invoice_no, false, invoice_lookup_preview) }}
       <label>Số tờ khai xuất
-        <input name="export_declaration_nos" value="{{ case.shipment.export_declaration_nos|join(', ') }}">
+        <input name="export_declaration_nos" value="{{ case.shipment.export_declaration_nos|join(', ') }}" data-export-declaration-input>
       </label>
+      {{ shipment_reference_warning_box(shipment_reference_warnings) }}
       {{ market_picker("shipment-destination-market", "" if case.destination_market == "Chưa nhập" else case.destination_market) }}
       <input type="hidden" name="co_form_type" value="{{ recommended_form_lane.display_name if case.destination_market != 'Chưa nhập' else '' }}" data-selected-form>
       <input type="hidden" name="agreement" value="{{ recommended_form_lane.agreement if case.destination_market != 'Chưa nhập' else '' }}" data-selected-agreement>
@@ -1267,10 +1282,22 @@
       "'": "&#39;",
     }[char]));
 
+  const renderReferenceWarnings = (form, warnings) => {
+    const box = form?.querySelector("[data-reference-warning]");
+    if (!box) return;
+    const body = box.querySelector("[data-reference-warning-text]");
+    const items = (warnings || []).filter(Boolean);
+    box.hidden = items.length === 0;
+    if (body) {
+      body.innerHTML = items.map((warning) => `<p>${escapeHtml(warning)}</p>`).join("");
+    }
+  };
+
   const renderInvoicePreview = (lookup, payload) => {
     const optionsPanel = lookup.querySelector("[data-invoice-options]");
     const previewPanel = lookup.querySelector("[data-invoice-preview]");
     const input = lookup.querySelector("[data-invoice-input]");
+    renderReferenceWarnings(lookup.closest("form"), payload.reference_warnings || []);
     const options = payload.options || [];
     optionsPanel.innerHTML = options.map((option) => `
       <button type="button" data-invoice-option data-invoice-value="${escapeHtml(option.invoice_no)}">
@@ -1360,17 +1387,23 @@
   const fetchInvoicePreview = async (lookup, exact = false) => {
     const input = lookup.querySelector("[data-invoice-input]");
     const value = input.value.trim();
+    const declarationInput = lookup.closest("form")?.querySelector("[data-export-declaration-input]");
+    const declarationValue = declarationInput?.value.trim() || "";
     const optionsPanel = lookup.querySelector("[data-invoice-options]");
-    if (value.length < 2) {
+    if (value.length < 2 && declarationValue.length < 2) {
       optionsPanel.innerHTML = "";
       optionsPanel.classList.remove("is-open");
       lookup.querySelector("[data-invoice-preview]").innerHTML = "";
+      renderReferenceWarnings(lookup.closest("form"), []);
       input.setAttribute("aria-expanded", "false");
       return;
     }
     const url = new URL(lookup.dataset.previewUrl, window.location.origin);
-    url.searchParams.set("q", value);
-    if (exact) {
+    url.searchParams.set("q", value || declarationValue);
+    if (declarationValue) {
+      url.searchParams.set("export_declaration_nos", declarationValue);
+    }
+    if (exact && value) {
       url.searchParams.set("invoice_no", value);
     }
     const response = await fetch(url, {headers: {"Accept": "application/json"}});
@@ -1442,6 +1475,22 @@
     button?.addEventListener("click", () => fetchInvoicePreview(lookup, true).catch(() => {}));
     const previewPanel = lookup.querySelector("[data-invoice-preview]");
     if (input.value.trim().length >= 2 && !(previewPanel?.textContent || "").trim()) {
+      fetchInvoicePreview(lookup, true).catch(() => {});
+    }
+  });
+
+  document.querySelectorAll("[data-export-declaration-input]").forEach((input) => {
+    const form = input.closest("form");
+    const lookup = form?.querySelector("[data-invoice-lookup]");
+    if (!lookup) return;
+    let timer = null;
+    const scheduleFetch = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => fetchInvoicePreview(lookup, true).catch(() => {}), 280);
+    };
+    input.addEventListener("input", scheduleFetch);
+    input.addEventListener("blur", () => fetchInvoicePreview(lookup, true).catch(() => {}));
+    if (input.value.trim()) {
       fetchInvoicePreview(lookup, true).catch(() => {});
     }
   });

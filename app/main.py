@@ -903,6 +903,7 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
     source_context = co_case_source_context(client, case)
     source_summary = source_context["source_summary"]
     invoice_matches = source_context["invoice_matches"]
+    reference_warnings = shipment_reference_warnings(case.get("shipment", {}), invoice_matches)
     case_workspace = extra.pop("case_workspace")
     form_candidates = extra.pop("form_candidates")
     criteria_rows = extra.pop("criteria_rows")
@@ -976,6 +977,7 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
         "common_market_presets": COMMON_MARKET_PRESETS,
         "common_market_guidance": common_market_guidance(),
         "invoice_matches": invoice_matches,
+        "shipment_reference_warnings": reference_warnings,
         "invoice_criteria_rows": invoice_criteria_rows,
         "criteria_rows": criteria_rows,
         "origin_demo_active": origin_demo_active,
@@ -1017,14 +1019,16 @@ def co_case_bom_product_codes(case: dict, invoice_matches: list[dict]) -> list[s
     return codes
 
 
-def invoice_lookup_payload(client: dict, invoice_no: str, query: str = "") -> dict:
+def invoice_lookup_payload(client: dict, invoice_no: str, query: str = "", export_declaration_nos: str | list[str] = "") -> dict:
     invoice_no = str(invoice_no or "").strip()
-    query = str(query or invoice_no or "").strip()
+    declaration_nos = declaration_refs(export_declaration_nos)
+    query = str(query or invoice_no or (declaration_nos[0] if declaration_nos else "")).strip()
     options = invoice_search_options(client, query)
-    if not invoice_no:
+    if not invoice_no and not declaration_nos:
         return {
             "status": "empty",
             "invoice_no": "",
+            "reference_warnings": [],
             "options": options,
             "match_count": 0,
             "matches": [],
@@ -1032,7 +1036,7 @@ def invoice_lookup_payload(client: dict, invoice_no: str, query: str = "") -> di
             "market_inference": market_inference_view({"status": "missing", "destination_market": "", "hints": []}),
             "suggested_forms": [],
         }
-    resolved = resolve_shipment_reference(client, invoice_no)
+    resolved = resolve_shipment_reference(client, invoice_no, declaration_nos)
     lookup_invoice_no = resolved["invoice_no"]
     try:
         source_context = co_case_source_context(client, {"shipment": resolved["shipment"]})
@@ -1040,6 +1044,7 @@ def invoice_lookup_payload(client: dict, invoice_no: str, query: str = "") -> di
         return {
             "status": "error",
             "invoice_no": lookup_invoice_no,
+            "reference_warnings": [],
             "options": options,
             "match_count": 0,
             "matches": [],
@@ -1049,6 +1054,10 @@ def invoice_lookup_payload(client: dict, invoice_no: str, query: str = "") -> di
             "message": f"Không tra được invoice: {exc}",
         }
     payload = invoice_preview_from_matches(lookup_invoice_no, source_context.get("invoice_matches", []))
+    payload["reference_warnings"] = shipment_reference_warnings(
+        resolved["shipment"],
+        source_context.get("invoice_matches", []),
+    )
     payload["options"] = options
     if resolved.get("source_reference"):
         payload["source_reference"] = resolved["source_reference"]
@@ -1057,6 +1066,20 @@ def invoice_lookup_payload(client: dict, invoice_no: str, query: str = "") -> di
         if not payload.get("invoice_no"):
             payload["invoice_no"] = resolved["source_reference"]
     return payload
+
+
+def shipment_reference_warnings(shipment: dict, invoice_matches: list[dict]) -> list[str]:
+    warnings = [
+        str(row.get("reference_warning") or "").strip()
+        for row in invoice_matches
+        if str(row.get("reference_warning") or "").strip()
+    ]
+    declarations = declaration_refs(shipment.get("export_declaration_nos"))
+    if declarations and not invoice_matches:
+        warnings.append(
+            f"Chưa thấy dòng BCCT xuất khẩu đã duyệt cho tờ khai {', '.join(declarations)}."
+        )
+    return unique_texts(warnings)
 
 
 def resolve_shipment_reference(client: dict, reference: str, export_declaration_nos: str | list[str] = "") -> dict:
@@ -3323,9 +3346,9 @@ async def co_case(request: Request, client_id: str):
 
 
 @app.get("/clients/{client_id}/co-case/invoice-preview")
-async def co_case_invoice_preview(client_id: str, invoice_no: str = "", q: str = ""):
+async def co_case_invoice_preview(client_id: str, invoice_no: str = "", q: str = "", export_declaration_nos: str = ""):
     client = resolve_client(client_id)
-    return invoice_lookup_payload(client, invoice_no, q)
+    return invoice_lookup_payload(client, invoice_no, q, export_declaration_nos)
 
 
 @app.post("/clients/{client_id}/co-case/create")

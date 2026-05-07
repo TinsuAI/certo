@@ -734,14 +734,14 @@ def test_data_hub_client_fetches_bom_contract_and_conflicts():
         seen.append((request.method, request.url.path, dict(request.url.params)))
         if request.url.path == "/v1/hub/products":
             return httpx.Response(200, json={"items": [{"product_code": "TP-1", "n_versions": 2}]})
-        if request.url.path == "/v1/hub/products/TP-1/bom/versions":
-            return httpx.Response(200, json={"items": [{"version_id": "bv-1", "version_no": 1}]})
+        if request.url.path == "/v1/hub/products/TP-1/bom/artifacts":
+            return httpx.Response(200, json={"items": [{"artifact_id": "bv-1", "artifact_no": 1}]})
         if request.url.path == "/v1/hub/products/TP-1/bom/latest":
             return httpx.Response(
                 409,
                 json={
                     "error": "dual_source_variants",
-                    "variants": [{"version_id": "bv-a"}, {"version_id": "bv-b"}],
+                    "variants": [{"artifact_id": "bv-a"}, {"artifact_id": "bv-b"}],
                 },
             )
         if request.url.path == "/v1/hub/products/TP-1/bom":
@@ -749,9 +749,9 @@ def test_data_hub_client_fetches_bom_contract_and_conflicts():
                 200,
                 json={
                     "version": {
-                        "version_id": "bv-1",
+                        "artifact_id": "bv-1",
                         "product_code": "TP-1",
-                        "version_no": 1,
+                        "artifact_no": 1,
                         "flatten_status": "flattened",
                     },
                     "rows": [{"material_code": "NVL-1", "qty_per_unit": 2, "uom": "kg"}],
@@ -770,17 +770,22 @@ def test_data_hub_client_fetches_bom_contract_and_conflicts():
     )
 
     assert client.list_bom_products("growatt-vn") == [{"product_code": "TP-1", "n_versions": 2}]
-    assert client.list_bom_versions("growatt-vn", "TP-1") == [{"version_id": "bv-1", "version_no": 1}]
+    assert client.list_bom_versions("growatt-vn", "TP-1") == [
+        {"artifact_id": "bv-1", "artifact_no": 1, "version_id": "bv-1", "version_no": 1}
+    ]
     with pytest.raises(DataHubBomVariantConflict) as exc:
         client.get_bom_latest("growatt-vn", "TP-1")
-    assert exc.value.variants == [{"version_id": "bv-a"}, {"version_id": "bv-b"}]
+    assert exc.value.variants == [
+        {"artifact_id": "bv-a", "artifact_no": 0, "version_id": "bv-a", "version_no": 0},
+        {"artifact_id": "bv-b", "artifact_no": 0, "version_id": "bv-b", "version_no": 0},
+    ]
     assert client.get_bom_version("growatt-vn", "TP-1", "bv-1")["rows"][0]["material_code"] == "NVL-1"
     assert client.get_bom_proposal("prop-1")["status"] == "approved"
     assert seen == [
         ("GET", "/v1/hub/products", {"client_id": "growatt-vn", "limit": "1000"}),
-        ("GET", "/v1/hub/products/TP-1/bom/versions", {"client_id": "growatt-vn", "limit": "1000"}),
+        ("GET", "/v1/hub/products/TP-1/bom/artifacts", {"client_id": "growatt-vn", "limit": "1000"}),
         ("GET", "/v1/hub/products/TP-1/bom/latest", {"client_id": "growatt-vn"}),
-        ("GET", "/v1/hub/products/TP-1/bom", {"client_id": "growatt-vn", "version_id": "bv-1"}),
+        ("GET", "/v1/hub/products/TP-1/bom", {"client_id": "growatt-vn", "artifact_id": "bv-1"}),
         ("GET", "/v1/hub/proposals/prop-1", {}),
     ]
 
