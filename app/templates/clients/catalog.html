@@ -114,11 +114,24 @@
         <td>{{ m.name or '' }}</td>
         <td>
           <span class="badge badge-info">{{ m.category }}</span>
+          {% if m.observed_roles %}
+            {% for role in m.observed_roles %}
+              {% if role != m.category %}
+                <span class="badge badge-observed mono"
+                      title="Observed in data graph (BCCT direction patterns + BOM membership). Distinct from declared category."
+                      style="font-size:.75em;opacity:.85">+{{ role }}</span>
+              {% endif %}
+            {% endfor %}
+          {% endif %}
           {% if m.is_dual_source %}
             <span class="badge badge-dual" title="{{ t('catalog.dual_source_tooltip') }}">⇄ dual</span>
           {% endif %}
           {% if m.is_multi_role %}
-            <span class="badge badge-warning" title="BTP also appears in BCCT export — likely rework / cải chế. Code plays multiple roles (BTP + TP).">⚠ multi-role</span>
+            <span class="badge badge-warning" title="Code plays multiple roles in data graph (e.g. exported AND consumed in another product's BOM — rework / cải chế, or imported AND exported AND consumed — trader-also-consumer).">⚠ multi-role</span>
+          {% endif %}
+          {% if m.declared_observed_conflict %}
+            <span class="badge badge-error"
+                  title="Declared category does not match observed pattern. Verify with operator.">⚠ conflict</span>
           {% endif %}
           {% if m.category == 'btp_sx' %}
             <form method="post"
