@@ -91,6 +91,7 @@ TABLES: tuple[TableSpec, ...] = (
     TableSpec("materials",             sql.SQL("client_id = %s"),                                              order=50),
     TableSpec("client_uom_overrides",  sql.SQL("client_id = %s"),                                              order=58),
     TableSpec("bcct_rows",             sql.SQL("client_id = %s"),                                              order=60),
+    TableSpec("bcct_product_identity_review", sql.SQL("client_id = %s"),                                       order=65),
     TableSpec("bom_artifacts",          sql.SQL("client_id = %s"),                                              order=70),
     TableSpec(
         "bom_artifact_rows",
