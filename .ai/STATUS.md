@@ -87,19 +87,29 @@ for full plan. To-be-committed (rev pending):
 
 In priority order:
 
-1. **`/rev` the rename pass** — diff is large (44 files + new mig +
-   new tests + docs); confirm no ambiguous-grep false-positives.
-2. **Commit + push** per D2: 2 commits — (1) mig + code + tests +
-   API contract; (2) docs + sister-app notes + memory. Push to
-   origin → CI/CD picks up.
-3. **Demo data parity** — demo has old schema (pre-rename); apply
-   mig 031 + code update via deploy. Then `pg_dump` local data_hub
-   → scp to tinsu → restore. ~30 min.
-4. **Phase 3a `/tdd`** — resolver + sourcing populator + catalog UI.
-   Codebase now uses canonical vocab from day 1. ~10h.
-5. **Phase 3b/3c** per Phase 3 brief.
-4. **`detect_dual_source_btps.py`** — small script to flag BTPs
-   appearing in BCCT imports as `btp_sourcing='dual_source'`.
+1. **Phase 3b done — confirm + push** (`5fb814a` and follow-on
+   commit pending; 27 new tests; resolver core + preset CRUD +
+   `/bom` endpoint wiring + UI page + sister-app note).
+2. **Phase 3c** — modular ingest adapters + derive_btp_shallows
+   post-hook + UI BOM upload v3 wiring + Playwright E2E (~25h).
+3. **Wipe + ingest fresh — Growatt and Johnson** *(pending — user
+   noted 2026-05-07, three rounds of clarification)* — after all
+   Phase 3 fixes ship, **delete every per-client data row**
+   (BOM artifacts/edges/audit/proposals/unresolved/decisions/presets,
+   BCCT, materials, file_uploads) for both clients, then ingest
+   from source XLSX as if onboarding fresh. **Not a re-ingest, not
+   a backfill — a one-time pre-MVP reset.** Sister apps' stored
+   `bv_*` IDs (if any) break — acceptable pre-MVP. See memory
+   `project_reingest_pending.md` for full procedure (snapshot first,
+   truncate dependency order, restore proposal_mode auto, ingest
+   pipeline order).
+4. **Demo data parity** — apply mig 031 on tinsu + sync data
+   (deferred from earlier sessions; lower priority once re-ingest
+   plan above lands).
+5. **Push commits to origin** — `5fb814a` (Phase 3a) on local
+   `main`, not yet pushed.
+6. **`docs/release-engineering.md`** updates — document mode-aware
+   reference data + v3 ingest pipeline as standard ops procedures.
 5. **`docs/release-engineering.md`** updates — document mode-aware
    reference data + the v3 ingest pipeline as standard ops procedures.
 6. **Sister-repo standards adoption** (carry-over) — CO and BCQT

@@ -858,6 +858,101 @@ async def artifact_detail(request: Request, client_id: str, artifact_id: str):
     )
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Phase 3b — Preset UI (list + create + tombstone)
+# ─────────────────────────────────────────────────────────────────────
+
+
+@router.get("/clients/{client_id}/bom/{product_code:path}/presets",
+            response_class=HTMLResponse)
+async def presets_view(request: Request, client_id: str, product_code: str):
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    artifacts = list_artifacts_for_product(client_id=client_id, product_code=product_code)
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select preset_id, name, artifact_id, notes, created_at "
+            "from hub.bom_presets "
+            "where client_id=%s and product_code=%s and tombstoned_at is null "
+            "order by created_at desc",
+            (client_id, product_code),
+        )
+        cols = [d[0] for d in cur.description]
+        presets = [dict(zip(cols, r)) for r in cur.fetchall()]
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/bom_presets.html",
+        {"client": client, "stats": stats_for_client(client_id),
+         "product_code": product_code, "presets": presets,
+         "artifacts": artifacts,
+         "active_root": "clients", "active_tab": "bom"},
+    )
+
+
+@router.post("/clients/{client_id}/bom/{product_code:path}/presets")
+async def presets_create(request: Request, client_id: str, product_code: str,
+                         artifact_id: str = Form(...), name: str = Form(...),
+                         notes: str | None = Form(None)):
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select 1 from hub.bom_artifacts where artifact_id=%s "
+            "and client_id=%s and product_code=%s",
+            (artifact_id, client_id, product_code),
+        )
+        if not cur.fetchone():
+            raise HTTPException(404, "artifact not found in this product scope")
+        cur.execute(
+            "select 1 from hub.bom_presets "
+            "where client_id=%s and product_code=%s and name=%s "
+            "and tombstoned_at is null",
+            (client_id, product_code, name),
+        )
+        if cur.fetchone():
+            raise HTTPException(409, f"preset name {name!r} already exists")
+        preset_id = "bp_" + secrets.token_urlsafe(12)
+        cur.execute(
+            "insert into hub.bom_presets (preset_id, client_id, product_code, "
+            "artifact_id, name, sourcing_choices, notes, created_by) "
+            "values (%s, %s, %s, %s, %s, '{}'::jsonb, %s, %s)",
+            (preset_id, client_id, product_code, artifact_id, name,
+             notes, user["user_id"]),
+        )
+    return RedirectResponse(
+        url=f"/clients/{client_id}/bom/{product_code}/presets",
+        status_code=303,
+    )
+
+
+@router.post("/clients/{client_id}/bom/presets/{preset_id}/tombstone")
+async def presets_tombstone(request: Request, client_id: str, preset_id: str,
+                            reason: str | None = Form(None)):
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select product_code from hub.bom_presets "
+            "where preset_id=%s and client_id=%s",
+            (preset_id, client_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "preset not found")
+        cur.execute(
+            "update hub.bom_presets set tombstoned_at=now(), tombstone_reason=%s "
+            "where preset_id=%s",
+            (reason, preset_id),
+        )
+        product_code = row[0]
+    return RedirectResponse(
+        url=f"/clients/{client_id}/bom/{product_code}/presets",
+        status_code=303,
+    )
+
+
 @router.post("/api/v1/hub/products/{product_code:path}/bom/proposals")
 async def submit_bom_proposal(request: Request, product_code: str):
     user = auth.require_user(request)

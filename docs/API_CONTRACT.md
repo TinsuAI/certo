@@ -494,11 +494,59 @@ Query params:
 
 #### `GET /v1/hub/products/{product_code}/bom`
 
-Fetch pinned or latest BOM.
+Fetch pinned or latest BOM. Phase 3b adds resolver hints (preset / case / shape).
 
 Query params:
 - `client_id`: required.
-- `artifact_id`: optional. If absent, route returns latest.
+- `artifact_id`: optional raw pin. Highest precedence. No resolver
+  invoked; response omits `resolution_trail`.
+- `preset_id`: optional. Resolves via `hub.bom_presets`. Tombstoned
+  presets remain queryable (audit-reproduction); `resolution_trail`
+  carries warnings.
+- `case_id`: optional. Resolves to `bom_artifacts` row whose
+  `context->>'case_id'` matches, scoped to (client, product).
+- `shape`: optional. One of `raw_graph` / `shallow` / `full_flat`.
+  Restricts the latest set to artifacts of that shape; tie-break on
+  variant order.
+
+Precedence (highest first): artifact_id > preset_id > case_id > shape > default.
+
+Response (200): `{artifact, rows, edges, unresolved, decisions,
+resolution_trail?, shape?}`. `resolution_trail` is a list of strings
+explaining each pick step (D2). Absent when no resolver hint used.
+
+Errors:
+- 404 `preset_not_found` — preset_id does not exist.
+- 404 `case_not_found` — no alive artifact for that case_id.
+- 404 `no_artifact_for_shape` — no published artifact has that shape.
+- 404 `no_alive_artifacts` — product has no published artifacts.
+- 409 `preset_scope_mismatch` — preset belongs to a different (client, product).
+- 409 `dual_source_variants` — multiple published variants exist; caller must pin.
+
+### Presets
+
+Phase 3b. A preset = `(artifact_id, sourcing_choices, name)` binding for
+(client, product). CO/BCQT call BOM endpoints with `?preset_id=` instead
+of pinning raw `artifact_id`.
+
+#### `POST /v1/hub/presets`
+
+Body: `{client_id, product_code, artifact_id, name, sourcing_choices?, notes?}`.
+Returns 201 with the created row. ID prefix `bp_*`.
+
+#### `GET /v1/hub/clients/{client_id}/products/{product_code}/presets`
+
+List alive presets for the (client, product) pair. Tombstoned hidden.
+
+#### `PATCH /v1/hub/presets/{preset_id}`
+
+Partial update. Editable fields: `name`, `sourcing_choices`, `notes`.
+
+#### `POST /v1/hub/presets/{preset_id}/tombstone`
+
+Retract. Body: `{reason?}`. No DELETE per BOM-immutability principle.
+Tombstoned presets remain reachable when called via `?preset_id=` (audit
+reproduction); the response carries a warning in `resolution_trail`.
 
 ### BOM Proposals
 

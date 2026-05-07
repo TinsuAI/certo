@@ -31,10 +31,12 @@ from app.stores import client_config as client_config_store
 from app.stores.bom import (
     ProposalNotFound,
     ProposalNotPending,
+    ResolverError,
     get_proposal,
     get_artifact_with_rows,
     list_artifacts_for_product,
     list_products_with_bom,
+    resolve_bom_artifact,
     submit_proposal,
     validate_proposal_contract,
     withdraw_proposal,
@@ -754,9 +756,23 @@ async def api_bom_artifacts(
 
 @router.get("/products/{product_code}/bom")
 async def api_bom_pinned(
-    product_code: str, client_id: str, artifact_id: str | None = None,
+    product_code: str, client_id: str,
+    artifact_id: str | None = None,
+    preset_id: str | None = None,
+    case_id: str | None = None,
+    shape: str | None = None,
     authorization: str | None = Header(None),
 ):
+    """Single-artifact BOM read with Phase 3b resolver pinning.
+
+    Precedence: artifact_id (raw pin, no resolution_trail) > preset_id
+    > case_id > shape > default. The resolver maps shape errors to 4xx
+    via _resolver_error_to_http().
+
+    Response includes `resolution_trail` (list of strings) when any
+    resolver hint was used; absent when artifact_id pin or pure
+    `latest` fallthrough.
+    """
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
     if artifact_id:
@@ -765,8 +781,37 @@ async def api_bom_pinned(
                 or data["artifact"]["product_code"] != product_code:
             raise HTTPException(404, "artifact not found")
         return _json(data)
+    if preset_id or case_id or shape:
+        try:
+            resolved = resolve_bom_artifact(
+                client_id=client_id, product_code=product_code,
+                preset_id=preset_id, case_id=case_id, shape=shape,
+            )
+        except ResolverError as exc:
+            _raise_resolver_http(exc)
+        data = get_artifact_with_rows(resolved["artifact_id"])
+        if not data:
+            raise HTTPException(500, "resolver picked a missing artifact")
+        data["resolution_trail"] = resolved["resolution_trail"]
+        data["shape"] = resolved["shape"]
+        return _json(data)
     # No pin → equivalent to latest
     return await api_bom_latest(product_code, client_id, authorization)
+
+
+def _raise_resolver_http(exc):
+    """Map ResolverError.code → HTTP status."""
+    code_to_status = {
+        "preset_not_found": 404,
+        "preset_scope_mismatch": 409,
+        "case_not_found": 404,
+        "no_artifact_for_shape": 404,
+        "no_alive_artifacts": 404,
+        "dual_source_variants": 409,
+    }
+    status_code = code_to_status.get(exc.code, 422)
+    payload = {"error": exc.code, "message": exc.message, **(exc.extra or {})}
+    raise HTTPException(status_code, payload)
 
 
 @router.get("/products")
@@ -867,6 +912,177 @@ async def api_withdraw_proposal(
             409, f"Proposal not pending (current status: {exc})",
         )
     return _json(result)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Phase 3b — Preset CRUD
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _new_preset_id() -> str:
+    import secrets
+    return "bp_" + secrets.token_urlsafe(12)
+
+
+@router.post("/presets", status_code=201)
+async def api_create_preset(
+    request: Request, authorization: str | None = Header(None),
+):
+    """Create a BOM preset binding (client, product, artifact, name).
+
+    Body JSON: {client_id, product_code, artifact_id, name,
+                sourcing_choices?, notes?}
+    """
+    claims = _require_token(authorization)
+    body = await request.json()
+    for k in ("client_id", "product_code", "artifact_id", "name"):
+        if not body.get(k):
+            raise HTTPException(422, f"missing required field: {k}")
+    _require_can_view_client(claims, body["client_id"])
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select client_id, product_code from hub.bom_artifacts "
+            "where artifact_id = %s",
+            (body["artifact_id"],),
+        )
+        art = cur.fetchone()
+        if not art:
+            raise HTTPException(404, f"artifact_id={body['artifact_id']!r} not found")
+        if art[0] != body["client_id"] or art[1] != body["product_code"]:
+            raise HTTPException(
+                409,
+                f"artifact_id belongs to ({art[0]!r}, {art[1]!r}), not "
+                f"({body['client_id']!r}, {body['product_code']!r})",
+            )
+        cur.execute(
+            "select 1 from hub.bom_presets "
+            "where client_id=%s and product_code=%s and name=%s "
+            "and tombstoned_at is null",
+            (body["client_id"], body["product_code"], body["name"]),
+        )
+        if cur.fetchone():
+            raise HTTPException(409, f"preset name {body['name']!r} already exists")
+
+        preset_id = _new_preset_id()
+        sourcing = json.dumps(body.get("sourcing_choices") or {})
+        cur.execute(
+            "insert into hub.bom_presets (preset_id, client_id, product_code, "
+            "artifact_id, name, sourcing_choices, notes, created_by) "
+            "values (%s, %s, %s, %s, %s, %s::jsonb, %s, %s) returning created_at",
+            (preset_id, body["client_id"], body["product_code"],
+             body["artifact_id"], body["name"], sourcing,
+             body.get("notes"),
+             (claims or {}).get("sub")),
+        )
+        (created_at,) = cur.fetchone()
+    return _json({
+        "preset_id": preset_id,
+        "client_id": body["client_id"],
+        "product_code": body["product_code"],
+        "artifact_id": body["artifact_id"],
+        "name": body["name"],
+        "sourcing_choices": body.get("sourcing_choices") or {},
+        "notes": body.get("notes"),
+        "created_at": created_at.isoformat() if created_at else None,
+    }, status_code=201)
+
+
+@router.get("/clients/{client_id}/products/{product_code:path}/presets")
+async def api_list_presets(
+    client_id: str, product_code: str,
+    authorization: str | None = Header(None),
+):
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select preset_id, name, artifact_id, sourcing_choices, notes, "
+            "created_at, tombstoned_at "
+            "from hub.bom_presets "
+            "where client_id=%s and product_code=%s "
+            "and tombstoned_at is null "
+            "order by created_at desc",
+            (client_id, product_code),
+        )
+        cols = [d[0] for d in cur.description]
+        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+    for r in rows:
+        if r.get("created_at"):
+            r["created_at"] = r["created_at"].isoformat()
+        r.pop("tombstoned_at", None)
+    return _json({"items": rows})
+
+
+@router.patch("/presets/{preset_id}")
+async def api_patch_preset(
+    preset_id: str, request: Request,
+    authorization: str | None = Header(None),
+):
+    claims = _require_token(authorization)
+    body = await request.json()
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select client_id, product_code from hub.bom_presets "
+            "where preset_id=%s",
+            (preset_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, f"preset_id={preset_id!r} not found")
+        _require_can_view_client(claims, row[0])
+
+        sets, params = [], []
+        if "name" in body:
+            sets.append("name=%s")
+            params.append(body["name"])
+        if "sourcing_choices" in body:
+            sets.append("sourcing_choices=%s::jsonb")
+            params.append(json.dumps(body["sourcing_choices"] or {}))
+        if "notes" in body:
+            sets.append("notes=%s")
+            params.append(body["notes"])
+        if not sets:
+            raise HTTPException(422, "no editable fields provided")
+        params.append(preset_id)
+        cur.execute(
+            f"update hub.bom_presets set {', '.join(sets)} where preset_id=%s "
+            "returning preset_id, client_id, product_code, artifact_id, name, "
+            "sourcing_choices, notes, created_at",
+            params,
+        )
+        cols = [d[0] for d in cur.description]
+        out = dict(zip(cols, cur.fetchone()))
+    if out.get("created_at"):
+        out["created_at"] = out["created_at"].isoformat()
+    return _json(out)
+
+
+@router.post("/presets/{preset_id}/tombstone")
+async def api_tombstone_preset(
+    preset_id: str, request: Request,
+    authorization: str | None = Header(None),
+):
+    claims = _require_token(authorization)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    reason = (body or {}).get("reason")
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select client_id from hub.bom_presets where preset_id=%s",
+            (preset_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, f"preset_id={preset_id!r} not found")
+        _require_can_view_client(claims, row[0])
+        cur.execute(
+            "update hub.bom_presets set tombstoned_at=now(), tombstone_reason=%s "
+            "where preset_id=%s",
+            (reason, preset_id),
+        )
+    return _json({"preset_id": preset_id, "tombstoned": True, "reason": reason})
 
 
 @router.get("/healthz")

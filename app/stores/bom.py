@@ -1325,6 +1325,156 @@ def create_flattened_artifact_set(
     return materialized
 
 
+class ResolverError(Exception):
+    """Structured error from resolve_bom_artifact.
+
+    `code` is a machine-stable enum string. `extra` carries data the
+    HTTP layer surfaces in error responses (e.g. variants list for
+    `dual_source_variants`). Tests assert on `code`; HTTP routes map
+    `code` → status (404 / 409 / 422) at their own discretion.
+    """
+
+    def __init__(self, code: str, message: str, **extra):
+        self.code = code
+        self.message = message
+        self.extra = extra
+        super().__init__(message)
+
+
+def resolve_bom_artifact(
+    *,
+    client_id: str,
+    product_code: str,
+    preset_id: str | None = None,
+    case_id: str | None = None,
+    shape: BomShape | None = None,
+) -> dict:
+    """Phase 3b · single deterministic artifact resolver with provenance.
+
+    Precedence (most-specific first; once a step picks an artifact_id,
+    later steps are not consulted):
+
+      1. preset_id — pinned via `hub.bom_presets`. Tombstoned presets
+         remain queryable per D5; returns underlying artifact with a
+         warning in the trail. Tombstoned underlying artifacts are
+         also returned for audit reproduction.
+      2. case_id — `hub.bom_artifacts.context->>'case_id'` match,
+         scoped to (client_id, product_code).
+      3. shape — restrict `latest_flattened_versions` output to one
+         shape; tie-break on variant order (latest published first).
+      4. default — `latest_flattened_versions`. Single → 200, multi →
+         `dual_source_variants`, zero → `no_alive_artifacts`.
+
+    Returns: {artifact_id, shape, resolution_trail}.
+    Raises: `ResolverError` on any failed pick.
+    """
+    trail: list[str] = []
+
+    # 1. preset_id pin
+    if preset_id:
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select p.preset_id, p.artifact_id, p.tombstoned_at,
+                       p.client_id, p.product_code,
+                       a.flatten_status, a.flatten_strategy, a.tombstoned_at as art_tomb
+                from hub.bom_presets p
+                left join hub.bom_artifacts a on a.artifact_id = p.artifact_id
+                where p.preset_id = %s
+                """,
+                (preset_id,),
+            )
+            row = cur.fetchone()
+        if not row:
+            raise ResolverError("preset_not_found",
+                                f"preset_id={preset_id!r} not found")
+        (_, art_id, preset_tomb, p_client, p_prod,
+         a_status, a_strategy, art_tomb) = row
+        if p_client != client_id or p_prod != product_code:
+            raise ResolverError(
+                "preset_scope_mismatch",
+                f"preset {preset_id!r} belongs to "
+                f"({p_client!r}, {p_prod!r}), not "
+                f"({client_id!r}, {product_code!r})",
+            )
+        trail.append(f"preset={preset_id} pinned artifact_id={art_id}")
+        if preset_tomb is not None:
+            trail.append(f"warning: preset {preset_id} is tombstoned")
+        if art_tomb is not None:
+            trail.append(f"warning: artifact {art_id} is tombstoned")
+        resolved_shape = bom_shape(a_status or "", a_strategy or "")
+        return {
+            "artifact_id": art_id,
+            "shape": resolved_shape,
+            "resolution_trail": trail,
+        }
+
+    # 2. case_id pin
+    if case_id:
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select artifact_id, flatten_status, flatten_strategy
+                from hub.bom_artifacts
+                where client_id = %s
+                  and product_code = %s
+                  and context->>'case_id' = %s
+                  and tombstoned_at is null
+                order by published_at desc nulls last, artifact_no desc
+                limit 1
+                """,
+                (client_id, product_code, case_id),
+            )
+            row = cur.fetchone()
+        if not row:
+            raise ResolverError(
+                "case_not_found",
+                f"no alive artifact for case_id={case_id!r}",
+            )
+        art_id, a_status, a_strategy = row
+        trail.append(f"case_id={case_id} → artifact_id={art_id}")
+        return {
+            "artifact_id": art_id,
+            "shape": bom_shape(a_status, a_strategy),
+            "resolution_trail": trail,
+        }
+
+    # 3. shape filter (or default)
+    items = latest_flattened_versions(
+        client_id=client_id, product_code=product_code,
+    )
+    if shape:
+        items = [
+            it for it in items
+            if bom_shape(it["flatten_status"], it["flatten_strategy"]) == shape
+        ]
+        if not items:
+            raise ResolverError(
+                "no_artifact_for_shape",
+                f"no published artifact with shape={shape!r}",
+            )
+        trail.append(f"shape={shape} → artifact_id={items[0]['artifact_id']}")
+    else:
+        trail.append("default · latest published per (variant, strategy)")
+
+    # 4. default / single-vs-multi
+    if not items:
+        raise ResolverError("no_alive_artifacts",
+                            "no published artifact for product")
+    if len(items) > 1:
+        raise ResolverError(
+            "dual_source_variants",
+            "multiple flattened variants exist for this product",
+            variants=items,
+        )
+    pick = items[0]
+    return {
+        "artifact_id": pick["artifact_id"],
+        "shape": bom_shape(pick["flatten_status"], pick["flatten_strategy"]),
+        "resolution_trail": trail,
+    }
+
+
 def latest_flattened_versions(*, client_id: str, product_code: str) -> list[dict]:
     """Return the published, non-tombstoned flattened/not_applicable versions
     for a product. List length > 1 when dual-source variants are published —
