@@ -563,6 +563,7 @@ def case_from_form(form: dict[str, str]) -> dict:
         "mode_note": form.get("mode_note", DEMO_CASE["mode_note"]),
         "source_label": form.get("source_label", "Dữ liệu trên màn hình"),
         "origin_product_order": text_list(form.get("origin_product_order", "").replace(",", "|")),
+        "origin_sheet_states": {},
         "bom_version_id": form.get("bom_version_id", ""),
         "bom_product_version_overrides": {},
         "documents": [],
@@ -595,6 +596,7 @@ def case_from_form(form: dict[str, str]) -> dict:
         material_count = int(form.get(prefix + "material_count", "0") or "0")
         product = {
             "code": form.get(prefix + "code", ""),
+            "bom_product_code": form.get(prefix + "bom_product_code", ""),
             "allocation_sequence": form.get(prefix + "allocation_sequence", str(index + 1)),
             "name": form.get(prefix + "name", ""),
             "finished_hs": form.get(prefix + "finished_hs", ""),
@@ -628,8 +630,16 @@ def case_from_form(form: dict[str, str]) -> dict:
             "tariff_shift_note": form.get(prefix + "tariff_shift_note", ""),
             "materials": [],
         }
+        sheet_status = form.get(prefix + "origin_sheet_status", "")
+        if product["code"] and sheet_status:
+            case["origin_sheet_states"][product["code"]] = {
+                "status": sheet_status,
+                "status_label": form.get(prefix + "origin_sheet_status_label", ""),
+            }
         if product["code"] and product["bom_product_version_id"]:
             case["bom_product_version_overrides"][product["code"]] = product["bom_product_version_id"]
+        if product["bom_product_code"] and product["bom_product_version_id"]:
+            case["bom_product_version_overrides"][product["bom_product_code"]] = product["bom_product_version_id"]
         for material_index in range(material_count):
             material_prefix = f"{prefix}material_{material_index}_"
             material = {

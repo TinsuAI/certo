@@ -2669,84 +2669,35 @@ small,
   min-width: 0;
 }
 
-.origin-sequence-control {
-  display: grid;
-  gap: 0.45rem;
-  border: 1px solid var(--border);
-  border-bottom: 0;
-  padding: 0.55rem 0.65rem;
-  background: var(--surface-subtle);
-}
-
-.origin-sequence-control-head,
-.origin-sequence-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.origin-sequence-control-head {
-  justify-content: space-between;
-  color: var(--foreground-muted);
-  font-size: 0.76rem;
-}
-
-.origin-sequence-control-head strong {
-  color: var(--foreground);
-}
-
-.origin-sequence-control-head span {
+.origin-sequence-dirty {
+  flex: 0 0 auto;
   color: var(--warning);
   font-weight: 800;
 }
 
-.origin-sequence-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
+.origin-step-stale {
+  border-color: color-mix(in srgb, var(--warning) 62%, var(--border));
+  background: color-mix(in srgb, var(--warning) 9%, var(--card));
 }
 
-.origin-sequence-item {
-  min-width: min(100%, 18rem);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xs);
-  padding: 0.34rem;
-  background: var(--card);
+.origin-sheet-tab.origin-step-stale::after {
+  content: "";
+  position: absolute;
+  top: 0.38rem;
+  right: 0.45rem;
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: var(--warning);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning) 18%, transparent);
 }
 
-.origin-sequence-item strong {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.origin-sheet-tab.origin-step-stale small {
+  color: var(--warning);
 }
 
-.origin-sequence-item > span:not(.origin-sequence-step) {
-  color: var(--foreground-muted);
-  font-size: 0.72rem;
-  font-weight: 800;
-}
-
-.origin-sequence-step {
-  flex: 0 0 auto;
-  min-width: 3.7rem;
-  color: var(--foreground-muted);
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.origin-sequence-item button {
-  flex: 0 0 auto;
-  min-height: 1.55rem;
-  padding: 0.08rem 0.34rem;
-  font-size: 0.68rem;
-}
-
-.origin-sequence-item button:disabled {
-  opacity: 0.38;
-  cursor: not-allowed;
+.origin-sheet-panel.origin-step-stale {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warning) 48%, transparent);
 }
 
 .origin-sheet-tabs {
@@ -2763,15 +2714,16 @@ small,
 }
 
 .origin-sheet-tab {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.06rem 0.45rem;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.06rem;
   min-width: 9.5rem;
   max-width: 17rem;
   border: 1px solid var(--border);
   border-bottom: 0;
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  padding: 0.42rem 0.62rem;
+  padding: 0.42rem 0.62rem 0.42rem 2.7rem;
   background: var(--surface-subtle);
   color: var(--foreground-soft);
   text-align: left;
@@ -2780,6 +2732,41 @@ small,
 .origin-sheet-tab:hover {
   background: var(--surface-hover);
   color: var(--foreground);
+}
+
+.origin-tab-order-controls {
+  position: absolute;
+  top: 50%;
+  left: 0.34rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.12rem;
+  color: var(--foreground-muted);
+  transform: translateY(-50%);
+}
+
+.origin-tab-order-controls button {
+  min-height: 1.45rem;
+  width: 1rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  padding: 0;
+  background: transparent;
+  color: var(--foreground-muted);
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.origin-tab-order-controls button:hover:not(:disabled) {
+  border-color: var(--border);
+  background: var(--surface-hover);
+  color: var(--foreground);
+}
+
+.origin-tab-order-controls button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
 .origin-sheet-tab-active {
@@ -2808,12 +2795,11 @@ small,
 }
 
 .origin-sheet-tab strong {
-  grid-column: 1 / -1;
   font-size: 0.82rem;
 }
 
 .origin-sheet-tab small {
-  justify-self: end;
+  justify-self: start;
   color: var(--foreground-muted);
   font-size: 0.72rem;
   font-weight: 800;
@@ -2851,7 +2837,76 @@ small,
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 1rem;
+  margin-bottom: 0.55rem;
+}
+
+.origin-sheet-toolbar {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.75fr) minmax(15rem, 1.35fr) auto;
+  align-items: end;
+  gap: 0.6rem;
+  margin-bottom: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.48rem;
+  background: color-mix(in srgb, var(--surface-subtle) 72%, transparent);
+}
+
+.origin-sheet-state {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.origin-sheet-state span,
+.product-bom-picker {
+  color: var(--foreground-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.origin-sheet-state strong {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 2rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 0.32rem 0.58rem;
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 0.84rem;
+}
+
+.origin-sheet-state-calculated {
+  color: var(--success) !important;
+}
+
+.origin-sheet-state-locked {
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border)) !important;
+  color: var(--success) !important;
+}
+
+.origin-sheet-state-stale,
+.origin-sheet-state-calculating {
+  color: var(--warning) !important;
+}
+
+.origin-sheet-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  flex-wrap: nowrap;
+}
+
+.origin-sheet-actions button {
+  min-height: 2rem;
+  padding-block: 0.34rem;
+  white-space: nowrap;
 }
 
 .product-head > div {
@@ -2861,12 +2916,7 @@ small,
 .product-bom-picker {
   display: grid;
   gap: 0.28rem;
-  width: min(260px, 100%);
-  color: var(--foreground-muted);
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  min-width: 0;
 }
 
 .product-bom-picker select {
@@ -2875,6 +2925,17 @@ small,
   font-weight: 650;
   letter-spacing: 0;
   text-transform: none;
+}
+
+@media (max-width: 860px) {
+  .origin-sheet-toolbar {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .origin-sheet-actions {
+    justify-content: flex-start;
+  }
 }
 
 .product-result {
@@ -3621,6 +3682,11 @@ small,
 
   .origin-workbar-actions button {
     width: 100%;
+  }
+
+  .origin-sequence-note {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .origin-table-scroll {

@@ -269,6 +269,7 @@ class DataHubPortfolioService:
                 for row in self.data_hub.list_materials(client["id"])
                 if row.get("category") != "tp"
             ]
+        code_mappings = self.data_hub.list_code_mappings(client["id"]) if hasattr(self.data_hub, "list_code_mappings") else []
         bcct_rows = []
         if hasattr(self.data_hub, "list_bcct"):
             bcct_rows = [normalize_bcct_row(row) for row in self.data_hub.list_bcct(client["id"])]
@@ -286,6 +287,7 @@ class DataHubPortfolioService:
             "source_summary": source_summary,
             "invoice_matches": invoice_matches,
             "material_rows": material_rows,
+            "code_mappings": code_mappings,
             "stock_rows": co_stock_rows_from_bcct(bcct_rows, client_config),
         }
 
@@ -363,8 +365,12 @@ def normalize_bom_artifact(row: dict) -> dict:
 
 def normalize_bom_payload(payload: dict) -> dict:
     output = dict(payload)
+    if isinstance(output.get("artifact"), dict):
+        output["artifact"] = normalize_bom_artifact(output["artifact"])
+        output.setdefault("version", output["artifact"])
     if isinstance(output.get("version"), dict):
         output["version"] = normalize_bom_artifact(output["version"])
+        output.setdefault("artifact", output["version"])
     if isinstance(output.get("variants"), list):
         output["variants"] = [normalize_bom_artifact(row) for row in output["variants"]]
     return output

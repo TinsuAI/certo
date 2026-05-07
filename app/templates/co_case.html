@@ -796,8 +796,7 @@
       {% endfor %}
     </div>
     <div class="origin-workbar-actions">
-      <button type="submit" {% if origin_actions_blocked %}disabled title="Khách hàng đang có hồ sơ khác giữ phiên tính tồn"{% endif %}>Tính lại snapshot</button>
-      <button type="submit" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export" {% if origin_actions_blocked %}disabled title="Khách hàng đang có hồ sơ khác giữ phiên tính tồn"{% endif %}>Xuất dossier XLSX</button>
+      <button type="submit" data-origin-export-action formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export" {% if origin_actions_blocked %}disabled title="Khách hàng đang có hồ sơ khác giữ phiên tính tồn"{% endif %}>Xuất dossier XLSX</button>
       {% if origin_calculation_lock_owned %}
       <button type="submit" form="origin-lock-release" class="btn-secondary">Nhả phiên tính tồn</button>
       {% endif %}
@@ -813,44 +812,34 @@
         </div>
       </div>
 
-      <div class="product-stack origin-workbook" data-origin-workbook>
+      <div class="product-stack origin-workbook" data-origin-workbook data-origin-autosave-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/autosave">
         {% if case.products %}
         <div class="origin-sequence-note">
           <strong>Tính tuần tự theo tồn CO</strong>
-          <span>Không tính song song: mỗi bước trừ dòng tồn trong snapshot trước khi tính bước kế tiếp.</span>
-        </div>
-        <div class="origin-sequence-control" data-origin-sequence-control>
-          <div class="origin-sequence-control-head">
-            <strong>Thứ tự tính lại</strong>
-            <span data-origin-sequence-dirty hidden>Đã đổi thứ tự, bấm Tính lại snapshot để áp dụng.</span>
-          </div>
-          <div class="origin-sequence-list">
-            {% for product in case.products %}
-            <div class="origin-sequence-item" data-origin-sequence-item data-product-code="{{ product.code }}">
-              <span class="origin-sequence-step">Bước <span data-origin-sequence-label>{{ product.allocation_sequence or loop.index }}</span></span>
-              <strong class="mono">{{ product.code }}</strong>
-              <span>{{ product.materials|length }} NVL</span>
-              <button type="button" data-origin-sequence-move="up" title="Đưa TP này lên trước">Lên</button>
-              <button type="button" data-origin-sequence-move="down" title="Đưa TP này xuống sau">Xuống</button>
-            </div>
-            {% endfor %}
-          </div>
+          <span>Dùng mũi tên trên tab sheet để đổi thứ tự giữ tồn; mỗi bước trừ dòng tồn trước khi tính bước kế tiếp.</span>
+          <span class="origin-sequence-dirty" data-origin-sequence-dirty hidden>Thứ tự đã lưu, bảng kê bị ảnh hưởng cần tính lại.</span>
         </div>
         <div class="origin-sheet-tabs" role="tablist" aria-label="Sheet sản phẩm trong bảng kê">
           {% for product in case.products %}
-          <button
-            type="button"
+          <div
             class="origin-sheet-tab {{ 'origin-sheet-tab-active' if loop.first else '' }}"
             id="origin-sheet-tab-{{ loop.index0 }}"
             role="tab"
+            tabindex="{{ '0' if loop.first else '-1' }}"
             aria-controls="origin-sheet-{{ loop.index0 }}"
             aria-selected="{{ 'true' if loop.first else 'false' }}"
+            data-product-code="{{ product.code }}"
+            data-origin-sequence-index="{{ loop.index0 }}"
             data-origin-sheet-tab
             data-origin-sheet-target="origin-sheet-{{ loop.index0 }}">
-            <span>Bước {{ product.allocation_sequence or loop.index }}</span>
+            <span class="origin-tab-order-controls" aria-label="Đổi thứ tự {{ product.code }}">
+              <button type="button" data-origin-sequence-move="left" title="Đưa sheet này sang trái" aria-label="Đưa {{ product.code }} sang trái">‹</button>
+              <button type="button" data-origin-sequence-move="right" title="Đưa sheet này sang phải" aria-label="Đưa {{ product.code }} sang phải">›</button>
+            </span>
+            <span>Bước <span data-origin-sequence-label>{{ product.allocation_sequence or loop.index }}</span></span>
             <strong class="mono">{{ product.code }}</strong>
-            <small>{{ product.materials|length }} NVL · tồn sau bước trước</small>
-          </button>
+            <small>{{ product.origin_sheet_status_label or 'Chưa tính' }} · {{ product.materials|length }} NVL</small>
+          </div>
           {% endfor %}
         </div>
         {% endif %}
@@ -862,12 +851,14 @@
           id="origin-sheet-{{ product_index }}"
           role="tabpanel"
           aria-labelledby="origin-sheet-tab-{{ product_index }}"
+          data-product-code="{{ product.code }}"
           data-origin-sheet-panel
           {% if not loop.first %}hidden{% endif %}>
           <input type="hidden" name="product_{{ product_index }}_material_count" value="{{ product.materials|length }}">
           <input type="hidden" name="product_{{ product_index }}_non_origin_value" value="{{ product.non_origin_value }}">
           <input type="hidden" name="product_{{ product_index }}_allocation_sequence" value="{{ product.allocation_sequence or loop.index }}">
           <input type="hidden" name="product_{{ product_index }}_code" value="{{ product.code }}">
+          <input type="hidden" name="product_{{ product_index }}_bom_product_code" value="{{ product.bom_product_code or product.code }}">
           <input type="hidden" name="product_{{ product_index }}_name" value="{{ product.name }}">
           <input type="hidden" name="product_{{ product_index }}_finished_hs" value="{{ product.finished_hs }}">
           <input type="hidden" name="product_{{ product_index }}_quantity" value="{{ product.quantity }}">
@@ -891,6 +882,8 @@
           <input type="hidden" name="product_{{ product_index }}_origin_readiness_status" value="{{ product.origin_readiness_status }}">
           <input type="hidden" name="product_{{ product_index }}_origin_readiness_label" value="{{ product.origin_readiness_label }}">
           <input type="hidden" name="product_{{ product_index }}_origin_warnings" value="{{ product.origin_warnings_text }}">
+          <input type="hidden" name="product_{{ product_index }}_origin_sheet_status" value="{{ product.origin_sheet_status or 'draft' }}">
+          <input type="hidden" name="product_{{ product_index }}_origin_sheet_status_label" value="{{ product.origin_sheet_status_label or 'Chưa tính' }}">
           <input type="hidden" name="product_{{ product_index }}_tariff_shift_rule" value="{{ product.tariff_shift_rule }}">
           <input type="hidden" name="product_{{ product_index }}_tariff_shift_status" value="{{ product.tariff_shift_status }}">
           <input type="hidden" name="product_{{ product_index }}_tariff_shift_status_label" value="{{ product.tariff_shift_status_label }}">
@@ -902,18 +895,33 @@
               <h3>{{ product.code }}</h3>
               <p>{{ product.name }}</p>
             </div>
-            <span class="badge badge-{{ 'success' if product.origin_readiness_status == 'ready' else 'error' if product.origin_readiness_status == 'fail' else 'warning' }}">{{ product.origin_readiness_label }}</span>
-            {% set bom_options = bom_workspace.product_version_options_by_code.get(product.code, []) %}
+          </div>
+
+          {% set bom_lookup_code = product.bom_product_code or product.code %}
+          {% set bom_options = bom_workspace.product_version_options_by_code.get(bom_lookup_code, []) %}
+          <div class="origin-sheet-toolbar">
+            <div class="origin-sheet-state">
+              <span>Trạng thái</span>
+              <strong class="origin-sheet-state-{{ product.origin_sheet_status or 'draft' }}">{{ product.origin_sheet_status_label or 'Chưa tính' }}</strong>
+            </div>
             <label class="product-bom-picker">BOM TP
-              <select name="product_{{ product_index }}_bom_product_version_id" data-bom-version-select>
+              <select name="product_{{ product_index }}_bom_product_version_id" data-bom-version-select data-origin-step-input data-origin-step-index="{{ product_index }}">
                 {% for option in bom_options %}
-                <option value="{{ option.product_version_id }}" {% if option.product_version_id == product.bom_product_version_id %}selected{% endif %}>v{{ option.product_version_no }} · {{ option.row_count }} dòng · {{ option.status }}</option>
+                <option value="{{ option.product_version_id }}" {% if option.product_version_id == product.bom_product_version_id %}selected{% endif %}>{{ bom_lookup_code }} · v{{ option.product_version_no }} · {{ option.row_count }} dòng · {{ option.status }}</option>
                 {% endfor %}
                 {% if not bom_options %}
-                <option value="{{ product.bom_product_version_id }}">{{ product.bom_product_version_no or 'n/a' }}</option>
+                <option value="{{ product.bom_product_version_id }}">{{ bom_lookup_code }} · {{ product.bom_product_version_no or 'chưa có BOM' }}</option>
                 {% endif %}
               </select>
             </label>
+            <div class="origin-sheet-actions">
+              <button type="submit" data-origin-sheet-calculate formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/calculate" {% if origin_actions_blocked or product.origin_sheet_status == 'locked' %}disabled{% endif %}>Tính bảng kê</button>
+              {% if product.origin_sheet_status == 'locked' %}
+              <button type="submit" class="btn-secondary" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/reopen" {% if origin_actions_blocked %}disabled{% endif %}>Mở chốt</button>
+              {% else %}
+              <button type="submit" class="btn-secondary" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/lock" {% if origin_actions_blocked or product.origin_sheet_status not in ['calculated'] %}disabled{% endif %}>Chốt</button>
+              {% endif %}
+            </div>
           </div>
 
           {% set lvc_metric_class = 'warning' if product.lvc_quality_warning_text else 'blocked' if product.lvc_status in ['missing_value', 'missing_bom'] else product.lvc_status %}
@@ -1563,51 +1571,135 @@
     applyFilter();
   });
 
-  document.querySelectorAll("[data-origin-sequence-control]").forEach((control) => {
-    const form = control.closest("form");
+  document.querySelectorAll("[data-origin-workbook]").forEach((workbook) => {
+    const form = workbook.closest("form");
     const input = form?.querySelector("[data-origin-product-order]");
-    const list = control.querySelector(".origin-sequence-list");
-    const dirty = control.querySelector("[data-origin-sequence-dirty]");
-    if (!input || !list) return;
-    const syncSequence = (changed = false) => {
-      const items = Array.from(list.querySelectorAll("[data-origin-sequence-item]"));
-      input.value = items.map((item) => item.dataset.productCode || "").filter(Boolean).join("|");
-      items.forEach((item, index) => {
-        const label = item.querySelector("[data-origin-sequence-label]");
-        if (label) label.textContent = String(index + 1);
-        const up = item.querySelector('[data-origin-sequence-move="up"]');
-        const down = item.querySelector('[data-origin-sequence-move="down"]');
-        if (up) up.disabled = index === 0;
-        if (down) down.disabled = index === items.length - 1;
-      });
-      if (dirty && changed) dirty.hidden = false;
-    };
-    control.querySelectorAll("[data-origin-sequence-move]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const item = button.closest("[data-origin-sequence-item]");
-        if (!item) return;
-        if (button.dataset.originSequenceMove === "up" && item.previousElementSibling) {
-          list.insertBefore(item, item.previousElementSibling);
-          syncSequence(true);
+    const tabList = workbook.querySelector(".origin-sheet-tabs");
+    const dirty = workbook.querySelector("[data-origin-sequence-dirty]");
+    const panels = Array.from(workbook.querySelectorAll("[data-origin-sheet-panel]"));
+    const exportButton = form?.querySelector("[data-origin-export-action]");
+    if (!input || !tabList) return;
+
+    const autosave = async (fromIndex = 0) => {
+      const url = workbook.dataset.originAutosaveUrl || "";
+      if (!form || !url) return;
+      const payload = new FormData(form);
+      payload.set("stale_from_index", String(fromIndex));
+      try {
+        await fetch(url, {method: "POST", body: payload, headers: {"Accept": "application/json"}});
+      } catch (_error) {
+        if (dirty) {
+          dirty.textContent = "Chưa lưu được thay đổi thứ tự; thử lại hoặc tải lại trang.";
+          dirty.hidden = false;
         }
-        if (button.dataset.originSequenceMove === "down" && item.nextElementSibling) {
-          list.insertBefore(item.nextElementSibling, item);
-          syncSequence(true);
+      }
+    };
+
+    const markSnapshotDirty = (fromIndex = 0, message = "Thứ tự đã lưu, bảng kê bị ảnh hưởng cần tính lại.") => {
+      if (dirty) {
+        dirty.textContent = message;
+        dirty.hidden = false;
+      }
+      if (exportButton && !exportButton.dataset.originLockedDisabled) {
+        if (exportButton.disabled && !exportButton.dataset.originDirtyDisabled) {
+          exportButton.dataset.originLockedDisabled = "1";
+        } else if (!exportButton.disabled) {
+          exportButton.disabled = true;
+          exportButton.title = "Tính lại các bảng kê bị ảnh hưởng trước khi xuất dossier XLSX.";
+          exportButton.dataset.originDirtyDisabled = "1";
+        }
+      }
+      const tabs = Array.from(tabList.querySelectorAll("[data-origin-sheet-tab]"));
+      const impactedCodes = new Set(
+        tabs.slice(fromIndex).map((tab) => tab.dataset.productCode || "").filter(Boolean),
+      );
+      tabs.forEach((tab, index) => {
+        const impacted = index >= fromIndex;
+        tab.classList.toggle("origin-step-stale", impacted);
+        tab.title = impacted ? "Bước này cần tính lại snapshot trước khi export." : "";
+      });
+      panels.forEach((panel) => {
+        const impacted = impactedCodes.has(panel.dataset.productCode || "");
+        panel.classList.toggle("origin-step-stale", impacted);
+        if (impacted) {
+          const statusInput = panel.querySelector('input[name$="_origin_sheet_status"]');
+          const labelInput = panel.querySelector('input[name$="_origin_sheet_status_label"]');
+          if (statusInput) statusInput.value = "stale";
+          if (labelInput) labelInput.value = "Cần tính lại";
+        }
+      });
+    };
+
+    const syncSequence = (changed = false, fromIndex = 0) => {
+      const tabs = Array.from(tabList.querySelectorAll("[data-origin-sheet-tab]"));
+      input.value = tabs.map((tab) => tab.dataset.productCode || "").filter(Boolean).join("|");
+      tabs.forEach((tab, index) => {
+        tab.dataset.originSequenceIndex = String(index);
+        const label = tab.querySelector("[data-origin-sequence-label]");
+        if (label) label.textContent = String(index + 1);
+        const left = tab.querySelector('[data-origin-sequence-move="left"]');
+        const right = tab.querySelector('[data-origin-sequence-move="right"]');
+        if (left) left.disabled = index === 0;
+        if (right) right.disabled = index === tabs.length - 1;
+      });
+      if (changed) {
+        markSnapshotDirty(fromIndex, "Đã lưu thứ tự sheet; bảng kê bị ảnh hưởng cần tính lại.");
+        autosave(fromIndex);
+      }
+    };
+
+    tabList.querySelectorAll("[data-origin-sequence-move]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const tab = button.closest("[data-origin-sheet-tab]");
+        if (!tab) return;
+        const tabs = Array.from(tabList.querySelectorAll("[data-origin-sheet-tab]"));
+        const fromIndex = tabs.indexOf(tab);
+        if (button.dataset.originSequenceMove === "left" && tab.previousElementSibling) {
+          tabList.insertBefore(tab, tab.previousElementSibling);
+          syncSequence(true, Math.max(fromIndex - 1, 0));
+          tab.focus();
+        }
+        if (button.dataset.originSequenceMove === "right" && tab.nextElementSibling) {
+          tabList.insertBefore(tab.nextElementSibling, tab);
+          syncSequence(true, fromIndex);
+          tab.focus();
         }
       });
     });
-    syncSequence(false);
-  });
 
-  document.querySelectorAll("[data-origin-workbook]").forEach((workbook) => {
-    const tabs = Array.from(workbook.querySelectorAll("[data-origin-sheet-tab]"));
-    const panels = Array.from(workbook.querySelectorAll("[data-origin-sheet-panel]"));
+    form?.querySelectorAll("[data-origin-step-input]").forEach((field) => {
+      field.addEventListener("change", () => {
+        const fromIndex = Number(field.dataset.originStepIndex || "0");
+        markSnapshotDirty(fromIndex, `Đã sửa dữ liệu bước ${fromIndex + 1}; bước này và các bước sau cần tính lại.`);
+        autosave(fromIndex);
+      });
+      field.addEventListener("input", () => {
+        const fromIndex = Number(field.dataset.originStepIndex || "0");
+        markSnapshotDirty(fromIndex, `Đã sửa dữ liệu bước ${fromIndex + 1}; bước này và các bước sau cần tính lại.`);
+      });
+    });
+
+    form?.querySelectorAll("[data-origin-sheet-calculate]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const panel = button.closest("[data-origin-sheet-panel]");
+        const statusInput = panel?.querySelector('input[name$="_origin_sheet_status"]');
+        const labelInput = panel?.querySelector('input[name$="_origin_sheet_status_label"]');
+        if (statusInput) statusInput.value = "calculating";
+        if (labelInput) labelInput.value = "Đang tính";
+        button.textContent = "Đang tính...";
+      });
+    });
+
+    syncSequence(false);
     const activate = (tab) => {
       const targetId = tab.dataset.originSheetTarget || "";
-      tabs.forEach((item) => {
+      Array.from(tabList.querySelectorAll("[data-origin-sheet-tab]")).forEach((item) => {
         const active = item === tab;
         item.classList.toggle("origin-sheet-tab-active", active);
         item.setAttribute("aria-selected", active ? "true" : "false");
+        item.setAttribute("tabindex", active ? "0" : "-1");
       });
       panels.forEach((panel) => {
         const active = panel.id === targetId;
@@ -1615,11 +1707,12 @@
         panel.classList.toggle("origin-sheet-panel-active", active);
       });
     };
-    tabs.forEach((tab) => {
+    tabList.querySelectorAll("[data-origin-sheet-tab]").forEach((tab) => {
       tab.addEventListener("click", () => activate(tab));
       tab.addEventListener("keydown", (event) => {
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
         event.preventDefault();
+        const tabs = Array.from(tabList.querySelectorAll("[data-origin-sheet-tab]"));
         const currentIndex = tabs.indexOf(tab);
         const nextIndex = event.key === "Home"
           ? 0

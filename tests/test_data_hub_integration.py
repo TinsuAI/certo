@@ -748,7 +748,7 @@ def test_data_hub_client_fetches_bom_contract_and_conflicts():
             return httpx.Response(
                 200,
                 json={
-                    "version": {
+                    "artifact": {
                         "artifact_id": "bv-1",
                         "product_code": "TP-1",
                         "artifact_no": 1,
@@ -779,7 +779,10 @@ def test_data_hub_client_fetches_bom_contract_and_conflicts():
         {"artifact_id": "bv-a", "artifact_no": 0, "version_id": "bv-a", "version_no": 0},
         {"artifact_id": "bv-b", "artifact_no": 0, "version_id": "bv-b", "version_no": 0},
     ]
-    assert client.get_bom_version("growatt-vn", "TP-1", "bv-1")["rows"][0]["material_code"] == "NVL-1"
+    pinned_bom = client.get_bom_version("growatt-vn", "TP-1", "bv-1")
+    assert pinned_bom["version"]["version_id"] == "bv-1"
+    assert pinned_bom["artifact"]["artifact_id"] == "bv-1"
+    assert pinned_bom["rows"][0]["material_code"] == "NVL-1"
     assert client.get_bom_proposal("prop-1")["status"] == "approved"
     assert seen == [
         ("GET", "/v1/hub/products", {"client_id": "growatt-vn", "limit": "1000"}),
@@ -839,6 +842,44 @@ def test_data_hub_bom_service_adapts_workspace():
     assert workspace["latest_rows"][0]["product_code"] == "TP-1"
     assert workspace["latest_rows"][0]["qty_per"] == 2.5
     assert workspace["product_version_options_by_code"]["TP-1"][0]["product_version_id"] == "bv-1"
+
+
+def test_data_hub_bom_service_fetches_filtered_product_codes_directly():
+    from app.bom_service import DataHubBomService
+
+    class FakeDataHubClient:
+        def list_bom_products(self, _client_id: str):
+            raise AssertionError("filtered BOM workspaces should not depend on product listing pagination")
+
+        def list_bom_versions(self, client_id: str, product_code: str):
+            assert client_id == "growatt-vn"
+            assert product_code == "PV01.0117500"
+            return [
+                {"version_id": "bv-1", "version_no": 1, "row_count": 1, "status": "published"},
+                {"version_id": "bv-2", "version_no": 2, "row_count": 1, "status": "published"},
+            ]
+
+        def get_bom_version(self, client_id: str, product_code: str, version_id: str):
+            assert client_id == "growatt-vn"
+            assert product_code == "PV01.0117500"
+            return {
+                "version": {
+                    "version_id": version_id,
+                    "product_code": product_code,
+                    "version_no": 2 if version_id == "bv-2" else 1,
+                    "row_count": 1,
+                    "flatten_status": "flattened",
+                },
+                "rows": [{"material_code": "NVL-1", "qty_per_unit": 2, "uom": "PCS", "payload": {}}],
+            }
+
+    workspace = DataHubBomService(FakeDataHubClient()).workspace(
+        {"id": "growatt-vn"},
+        product_codes=["PV01.0117500"],
+    )
+
+    assert workspace["product_version_options_by_code"]["PV01.0117500"]
+    assert workspace["latest_rows"][0]["product_code"] == "PV01.0117500"
 
 
 def test_data_hub_bom_service_exposes_switchable_product_versions():

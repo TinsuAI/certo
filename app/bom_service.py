@@ -79,13 +79,11 @@ class DataHubBomService:
     def _build_workspace(self, client: dict, product_codes: list[str] | None = None) -> dict:
         client_id = client["id"]
         product_filter = normalized_product_code_filter(product_codes)
-        product_rows = self.data_hub.list_bom_products(client_id)
-        if product_filter:
-            product_rows = [
-                product
-                for product in product_rows
-                if product_code_from_row(product) in product_filter
-            ]
+        product_rows = (
+            [{"product_code": product_code} for product_code in sorted(product_filter)]
+            if product_filter
+            else self.data_hub.list_bom_products(client_id)
+        )
         product_versions: list[dict] = []
         latest_rows: list[dict] = []
         variant_conflicts: list[dict] = []

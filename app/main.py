@@ -103,6 +103,14 @@ ROOT = Path(__file__).resolve().parent
 THEME_COOKIE = "co_theme"
 SUPPORTED_THEMES = {"light", "dark"}
 
+ORIGIN_SHEET_STATUS_LABELS = {
+    "draft": "Chưa tính",
+    "calculating": "Đang tính",
+    "calculated": "Đã tính",
+    "locked": "Chốt",
+    "stale": "Cần tính lại",
+}
+
 
 def normalize_theme(value: str | None) -> str:
     return value if value in SUPPORTED_THEMES else "light"
@@ -908,7 +916,7 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
     form_candidates = extra.pop("form_candidates")
     criteria_rows = extra.pop("criteria_rows")
     if current_step == "origin":
-        bom_product_codes = co_case_bom_product_codes(case, invoice_matches)
+        bom_product_codes = co_case_bom_product_codes(case, invoice_matches, source_context.get("code_mappings", []))
         bom_workspace = (
             bom_service.workspace(client, product_codes=bom_product_codes)
             if bom_product_codes
@@ -934,17 +942,22 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
             selected_lane,
             material_rows,
             stock_rows,
+            code_mappings=source_context.get("code_mappings", []),
             preserve_existing=preserve_origin_products,
         )
         case = attach_case_bom_snapshot(case, bom_workspace)
+        case = attach_origin_bom_product_codes(case, bom_workspace, source_context.get("code_mappings", []))
         if case.get("products"):
             case = attach_origin_readiness(case)
             case = attach_results(case)
+            case = attach_origin_sheet_states(case)
             criteria_rows = build_case_criteria_rows(case, form_candidates)
     elif current_step == "origin" and case.get("products"):
         case = attach_case_bom_snapshot(case, bom_workspace)
+        case = attach_origin_bom_product_codes(case, bom_workspace, source_context.get("code_mappings", []))
         case = attach_origin_readiness(case)
         case = attach_results(case)
+        case = attach_origin_sheet_states(case)
         criteria_rows = build_case_criteria_rows(case, form_candidates)
     elif current_step == "origin":
         case = attach_case_bom_snapshot(case, bom_workspace)
@@ -952,6 +965,7 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
     if origin_demo_active:
         case = attach_origin_demo(case)
         case = attach_origin_readiness(case)
+        case = attach_origin_sheet_states(case)
         criteria_rows = build_case_criteria_rows(case, form_candidates)
     form_lanes = prioritized_form_lanes(case.get("destination_market", ""), co_case_hs_codes(case, invoice_matches))
     selected_form_lane = recommended_form_lane(form_lanes)
@@ -1002,21 +1016,49 @@ def co_case_source_context(client: dict, case: dict) -> dict:
     return portfolio_service.co_case_source_context(client, case)
 
 
-def co_case_bom_product_codes(case: dict, invoice_matches: list[dict]) -> list[str]:
+def co_case_bom_product_codes(case: dict, invoice_matches: list[dict], code_mappings: list[dict] | None = None) -> list[str]:
     codes = []
     for row in invoice_matches:
-        code = str(row.get("item_code") or row.get("product_code") or row.get("customs_code") or "").strip()
-        if code and code not in codes:
-            codes.append(code)
+        add_bom_code_candidates(
+            codes,
+            str(row.get("item_code") or row.get("product_code") or row.get("customs_code") or "").strip(),
+            code_mappings,
+        )
     for product in case.get("products", []):
-        code = str(product.get("code") or product.get("product_code") or "").strip()
-        if code and code not in codes:
-            codes.append(code)
+        add_bom_code_candidates(
+            codes,
+            str(product.get("bom_product_code") or product.get("code") or product.get("product_code") or "").strip(),
+            code_mappings,
+        )
+        add_bom_code_candidates(
+            codes,
+            str(product.get("code") or product.get("product_code") or "").strip(),
+            code_mappings,
+        )
     for code in case.get("bom_product_version_overrides", {}):
-        text = str(code or "").strip()
-        if text and text not in codes:
-            codes.append(text)
+        add_bom_code_candidates(codes, str(code or "").strip(), code_mappings)
     return codes
+
+
+def add_bom_code_candidates(codes: list[str], code: str, code_mappings: list[dict] | None = None) -> None:
+    for candidate in bom_code_candidates(code, code_mappings):
+        if candidate and candidate not in codes:
+            codes.append(candidate)
+
+
+def bom_code_candidates(code: str, code_mappings: list[dict] | None = None) -> list[str]:
+    code = str(code or "").strip()
+    if not code:
+        return []
+    candidates = [code]
+    for mapping in code_mappings or []:
+        customs_code = str(mapping.get("customs_code") or "").strip()
+        internal_code = str(mapping.get("internal_code") or "").strip()
+        if code == customs_code and internal_code and internal_code not in candidates:
+            candidates.append(internal_code)
+        if code == internal_code and customs_code and customs_code not in candidates:
+            candidates.append(customs_code)
+    return candidates
 
 
 def invoice_lookup_payload(client: dict, invoice_no: str, query: str = "", export_declaration_nos: str | list[str] = "") -> dict:
@@ -1384,13 +1426,19 @@ def prepare_case_origin_products(
     material_rows: list[dict],
     stock_rows: list[dict],
     *,
+    code_mappings: list[dict] | None = None,
     preserve_existing: bool = False,
 ) -> dict:
-    if not invoice_matches:
+    source_matches = (
+        invoice_matches
+        if invoice_matches
+        else [origin_match_from_existing_product(product) for product in case.get("products", [])]
+    )
+    if not source_matches:
         return case
 
-    ordered_invoice_matches = order_invoice_matches_for_origin(case, invoice_matches)
-    bom_rows_by_product = selected_bom_rows_by_product(case, bom_workspace)
+    ordered_invoice_matches = order_invoice_matches_for_origin(case, source_matches) if invoice_matches else source_matches
+    bom_rows_by_product = selected_bom_rows_by_product(case, bom_workspace, code_mappings)
     build_signature = origin_build_signature(ordered_invoice_matches, bom_rows_by_product, material_rows, stock_rows, form_lane)
     if (
         case.get("products")
@@ -1408,7 +1456,8 @@ def prepare_case_origin_products(
         product_code = str(match.get("item_code", "")).strip()
         if not product_code:
             continue
-        product_rows = bom_rows_by_product.get(product_code, [])
+        bom_product_code = resolve_bom_product_code(product_code, bom_workspace, code_mappings)
+        product_rows = bom_rows_by_product.get(product_code) or bom_rows_by_product.get(bom_product_code, [])
         products.append(origin_product_from_invoice_match(
             match,
             product_rows,
@@ -1416,6 +1465,7 @@ def prepare_case_origin_products(
             material_index,
             stock_pool,
             product_sequence=product_sequence,
+            bom_product_code=bom_product_code,
         ))
     if not products:
         return case
@@ -1465,6 +1515,69 @@ def origin_product_order(case: dict) -> list[str]:
         if code and code not in output:
             output.append(code)
     return output
+
+
+def attach_origin_sheet_states(case: dict) -> dict:
+    products = case.get("products", [])
+    existing = case.get("origin_sheet_states") if isinstance(case.get("origin_sheet_states"), dict) else {}
+    normalized = {}
+    has_snapshot = bool((case.get("origin_snapshot") or {}).get("build_signature"))
+    for product in products:
+        code = str(product.get("code") or "").strip()
+        if not code:
+            continue
+        raw_state = existing.get(code) if isinstance(existing.get(code), dict) else {}
+        default_status = "calculated" if has_snapshot else "draft"
+        status = str(raw_state.get("status") or default_status).strip()
+        if status not in ORIGIN_SHEET_STATUS_LABELS:
+            status = default_status
+        state = {
+            "status": status,
+            "status_label": ORIGIN_SHEET_STATUS_LABELS[status],
+        }
+        normalized[code] = state
+        product["origin_sheet_state"] = state
+        product["origin_sheet_status"] = state["status"]
+        product["origin_sheet_status_label"] = state["status_label"]
+    prepared = dict(case)
+    prepared["origin_sheet_states"] = normalized
+    return prepared
+
+
+def set_origin_sheet_status(case: dict, product_code: str, status: str) -> dict:
+    if status not in ORIGIN_SHEET_STATUS_LABELS:
+        status = "draft"
+    states = dict(case.get("origin_sheet_states") or {})
+    states[product_code] = {
+        "status": status,
+        "status_label": ORIGIN_SHEET_STATUS_LABELS[status],
+    }
+    prepared = dict(case)
+    prepared["origin_sheet_states"] = states
+    return attach_origin_sheet_states(prepared)
+
+
+def mark_origin_sheets_stale(case: dict, from_index: int) -> dict:
+    prepared = attach_origin_sheet_states(case)
+    states = dict(prepared.get("origin_sheet_states") or {})
+    for index, product in enumerate(prepared.get("products", [])):
+        code = str(product.get("code") or "").strip()
+        if code and index >= max(from_index, 0):
+            states[code] = {
+                "status": "stale",
+                "status_label": ORIGIN_SHEET_STATUS_LABELS["stale"],
+            }
+    prepared["origin_sheet_states"] = states
+    return attach_origin_sheet_states(prepared)
+
+
+def origin_sheet_export_blockers(case: dict) -> list[str]:
+    blockers = []
+    for product in attach_origin_sheet_states(case).get("products", []):
+        status = product.get("origin_sheet_status")
+        if status in {"draft", "stale", "calculating"}:
+            blockers.append(str(product.get("code") or "sheet"))
+    return blockers
 
 
 def origin_build_signature(
@@ -1557,7 +1670,11 @@ def compact_origin_signature_row(row: dict, fields: list[str]) -> dict:
     return {field: str(row.get(field, "")) for field in fields if row.get(field, "") not in (None, "")}
 
 
-def selected_bom_rows_by_product(case: dict, bom_workspace: dict) -> dict[str, list[dict]]:
+def selected_bom_rows_by_product(
+    case: dict,
+    bom_workspace: dict,
+    code_mappings: list[dict] | None = None,
+) -> dict[str, list[dict]]:
     selected_version_id = case.get("bom_version_id") or bom_workspace.get("latest_version", {}).get("version_id", "")
     aggregate = next(
         (version for version in bom_workspace.get("versions", []) if version.get("version_id") == selected_version_id),
@@ -1584,21 +1701,74 @@ def selected_bom_rows_by_product(case: dict, bom_workspace: dict) -> dict[str, l
     overrides = dict(case.get("bom_product_version_overrides", {}))
     for product in case.get("products", []):
         product_code = str(product.get("code", "")).strip()
+        bom_product_code = resolve_bom_product_code(
+            str(product.get("bom_product_code") or product_code),
+            bom_workspace,
+            code_mappings,
+        )
         selected_product_version_id = (
             product.get("bom_product_version_id")
             or overrides.get(product_code)
+            or overrides.get(bom_product_code)
+            or composition_by_product.get(bom_product_code, "")
             or composition_by_product.get(product_code, "")
         )
         selected_product_version = version_index.get(selected_product_version_id)
         if product_code and not usable_bom_product_version(selected_product_version):
-            fallback_version_id = composition_by_product.get(product_code, "")
+            fallback_version_id = composition_by_product.get(bom_product_code, "") or composition_by_product.get(product_code, "")
             selected_product_version = version_index.get(fallback_version_id) or latest_usable_product_version(
                 bom_workspace,
-                product_code,
+                bom_product_code or product_code,
             )
         if product_code and selected_product_version and selected_product_version.get("rows") is not None:
             output[product_code] = [dict(row) for row in selected_product_version.get("rows", [])]
     return output
+
+
+def attach_origin_bom_product_codes(
+    case: dict,
+    bom_workspace: dict,
+    code_mappings: list[dict] | None = None,
+) -> dict:
+    products = []
+    changed = False
+    for product in case.get("products", []):
+        display_code = str(product.get("code") or product.get("product_code") or "").strip()
+        bom_product_code = resolve_bom_product_code(
+            str(product.get("bom_product_code") or display_code),
+            bom_workspace,
+            code_mappings,
+        )
+        if bom_product_code and bom_product_code != product.get("bom_product_code"):
+            updated = dict(product)
+            updated["bom_product_code"] = bom_product_code
+            products.append(updated)
+            changed = True
+        else:
+            products.append(product)
+    if not changed:
+        return case
+    prepared = dict(case)
+    prepared["products"] = products
+    return prepared
+
+
+def resolve_bom_product_code(
+    code: str,
+    bom_workspace: dict,
+    code_mappings: list[dict] | None = None,
+) -> str:
+    options_by_code = bom_workspace.get("product_version_options_by_code", {})
+    latest_product_codes = {
+        str(row.get("product_code") or "").strip()
+        for row in bom_workspace.get("latest_rows", [])
+        if str(row.get("product_code") or "").strip()
+    }
+    for candidate in bom_code_candidates(code, code_mappings):
+        if candidate in options_by_code or candidate in latest_product_codes:
+            return candidate
+    candidates = bom_code_candidates(code, code_mappings)
+    return candidates[0] if candidates else ""
 
 
 def usable_bom_product_version(version: dict | None) -> bool:
@@ -1741,8 +1911,10 @@ def origin_product_from_invoice_match(
     stock_pool: dict[str, list[dict]],
     *,
     product_sequence: int | None = None,
+    bom_product_code: str = "",
 ) -> dict:
     product_code = str(match.get("item_code", "")).strip()
+    bom_product_code = str(bom_product_code or product_code).strip()
     finished_hs = str(match.get("hs_code", "")).strip()
     preview = criteria_preview_for_hs(form_lane.get("form_code", ""), finished_hs) if form_lane else {}
     criterion = preview.get("criteria") or "Cần tra cứu PSR theo HS"
@@ -1774,6 +1946,7 @@ def origin_product_from_invoice_match(
     lvc = calculate_lvc_result(fob, vnm, threshold, missing_material_values, missing_bom_materials=not materials)
     product = {
         "code": product_code,
+        "bom_product_code": bom_product_code,
         "allocation_sequence": str(product_sequence or ""),
         "name": match.get("description") or product_code,
         "finished_hs": finished_hs,
@@ -1799,6 +1972,22 @@ def origin_product_from_invoice_match(
         "materials": materials,
     }
     return enrich_origin_product(product)
+
+
+def origin_match_from_existing_product(product: dict) -> dict:
+    return {
+        "item_code": product.get("code", ""),
+        "description": product.get("name", ""),
+        "hs_code": product.get("finished_hs", ""),
+        "quantity": product.get("quantity", ""),
+        "unit": product.get("unit") or product.get("export_unit", ""),
+        "fob_value": product.get("fob", ""),
+        "fob_currency": product.get("currency", ""),
+        "currency": product.get("currency", ""),
+        "declaration_no": product.get("source_declaration_no", ""),
+        "line_no": product.get("source_line_no", ""),
+        "invoice_ref": product.get("invoice_ref", ""),
+    }
 
 
 def origin_product_value(match: dict) -> dict:
@@ -3500,6 +3689,18 @@ async def export_co_case_workbook(request: Request, client_id: str, case_id: str
         case=posted_case,
         origin_demo_allowed=False,
     )
+    blockers = origin_sheet_export_blockers(context["case"])
+    should_enforce_sheet_state = bool(posted_case)
+    if should_enforce_sheet_state and blockers:
+        return templates.TemplateResponse(
+            request=request,
+            name="co_case.html",
+            status_code=409,
+            context={
+                **context,
+                "error": f"Chưa thể export: bảng kê {', '.join(blockers[:5])} cần tính lại hoặc chốt trước.",
+            },
+        )
     if context["case"].get("persisted_case_id") and not context.get("origin_demo_active"):
         try:
             update_case_record(client, context["case"])
@@ -3524,6 +3725,107 @@ async def release_co_case_origin_lock(client_id: str, case_id: str, next_url: st
     release_origin_calculation_lock(resolve_client(client_id), case_id)
     redirect_url = next_url if next_url.startswith(f"/clients/{client_id}/co-case") else f"/clients/{client_id}/co-case/{case_id}/origin"
     return RedirectResponse(redirect_url, status_code=303)
+
+
+@app.post("/clients/{client_id}/co-case/{case_id}/origin/autosave")
+async def autosave_co_case_origin(request: Request, client_id: str, case_id: str):
+    form = await request.form()
+    case = update_products_from_form({key: str(value) for key, value in form.items()})
+    case["persisted_case_id"] = case.get("persisted_case_id") or case_id
+    try:
+        stale_from_index = int(str(form.get("stale_from_index", "0") or "0"))
+    except ValueError:
+        stale_from_index = 0
+    case = mark_origin_sheets_stale(case, stale_from_index)
+    try:
+        update_case_record(resolve_client(client_id), case)
+    except KeyError:
+        raise HTTPException(status_code=404) from None
+    return {"status": "ok", "stale_from_index": stale_from_index}
+
+
+@app.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/calculate", response_class=HTMLResponse)
+async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_id: str, product_code: str):
+    form = await request.form()
+    case = update_products_from_form({key: str(value) for key, value in form.items()})
+    case["persisted_case_id"] = case.get("persisted_case_id") or case_id
+    client = resolve_client(client_id)
+    try:
+        persisted = get_case_record(client, case_id)
+        if persisted.get("origin_sheet_states"):
+            case["origin_sheet_states"] = dict(persisted.get("origin_sheet_states") or {})
+    except KeyError:
+        pass
+    lock_result = acquire_origin_calculation_lock(client, case_id, origin_lock_actor(request))
+    if not lock_result["acquired"]:
+        return templates.TemplateResponse(
+            request=request,
+            name="co_case.html",
+            status_code=409,
+            context=co_case_context(
+                client_id,
+                case_id,
+                current_step="origin",
+                case=case,
+                error=f"Chưa thể tính bảng kê: hồ sơ {lock_result['lock'].get('case_code') or lock_result['lock'].get('case_id')} đang giữ phiên tính tồn cho khách hàng này.",
+                origin_calculation_blocked=True,
+                preserve_origin_products=True,
+            ),
+        )
+    context = co_case_context(
+        client_id,
+        case_id,
+        current_step="origin",
+        case=case,
+        message=f"Đã tính bảng kê {product_code}.",
+        preserve_origin_products=False,
+    )
+    context["case"] = set_origin_sheet_status(context["case"], product_code, "calculated")
+    if context["case"].get("persisted_case_id") and not context.get("origin_demo_active"):
+        update_case_record(client, context["case"])
+    return templates.TemplateResponse(request=request, name="co_case.html", context=context)
+
+
+@app.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/lock", response_class=HTMLResponse)
+async def lock_co_case_origin_sheet(request: Request, client_id: str, case_id: str, product_code: str):
+    form = await request.form()
+    case = update_products_from_form({key: str(value) for key, value in form.items()})
+    case["persisted_case_id"] = case.get("persisted_case_id") or case_id
+    case = set_origin_sheet_status(case, product_code, "locked")
+    update_case_record(resolve_client(client_id), case)
+    return templates.TemplateResponse(
+        request=request,
+        name="co_case.html",
+        context=co_case_context(
+            client_id,
+            case_id,
+            current_step="origin",
+            case=case,
+            message=f"Đã chốt bảng kê {product_code}.",
+            preserve_origin_products=True,
+        ),
+    )
+
+
+@app.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/reopen", response_class=HTMLResponse)
+async def reopen_co_case_origin_sheet(request: Request, client_id: str, case_id: str, product_code: str):
+    form = await request.form()
+    case = update_products_from_form({key: str(value) for key, value in form.items()})
+    case["persisted_case_id"] = case.get("persisted_case_id") or case_id
+    case = set_origin_sheet_status(case, product_code, "calculated")
+    update_case_record(resolve_client(client_id), case)
+    return templates.TemplateResponse(
+        request=request,
+        name="co_case.html",
+        context=co_case_context(
+            client_id,
+            case_id,
+            current_step="origin",
+            case=case,
+            message=f"Đã mở chốt bảng kê {product_code}.",
+            preserve_origin_products=True,
+        ),
+    )
 
 
 @app.post("/clients/{client_id}/evaluate", response_class=HTMLResponse)

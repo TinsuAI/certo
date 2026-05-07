@@ -1862,7 +1862,7 @@ def test_co_case_detail_is_split_into_workflow_step_views():
     assert "BCCT xuất khẩu theo tham chiếu hồ sơ" in exports.text
     assert "Form và thông tư" in guidance.text
     assert "Bảng kê LVC" in origin.text
-    assert "Tính lại snapshot" in origin.text
+    assert "Tính bảng kê" in origin.text
     assert 'role="tablist" aria-label="Sheet sản phẩm trong bảng kê"' in origin.text
     assert 'data-origin-sheet-tab' in origin.text
     assert 'data-origin-sheet-panel' in origin.text
@@ -2105,6 +2105,68 @@ def test_co_case_origin_switches_product_bom_version_from_dropdown():
     assert f'value="{v1["product_version_id"]}" selected' in switched.text
     assert switched_data["product_0_material_0_consumed_qty"] == "3"
     assert switched_data["product_0_material_0_material_value"] == "30"
+
+
+def test_co_case_origin_resolves_customs_product_code_to_bom_code():
+    from app.main import co_case_bom_product_codes, prepare_case_origin_products, selected_bom_rows_by_product
+
+    mappings = [{"customs_code": "BIENTAN.17", "internal_code": "PV01.0117500"}]
+    case = {"products": [{"code": "BIENTAN.17"}]}
+    workspace = {
+        "latest_version": {
+            "version_id": "agg-1",
+            "product_versions": [{"product_code": "PV01.0117500", "product_version_id": "bv-1"}],
+        },
+        "versions": [
+            {
+                "version_id": "agg-1",
+                "rows": [
+                    {
+                        "product_code": "PV01.0117500",
+                        "product_version_id": "bv-1",
+                        "product_version_no": 2,
+                        "material_code": "NVL-1",
+                        "qty_per": "2",
+                    }
+                ],
+                "product_versions": [{"product_code": "PV01.0117500", "product_version_id": "bv-1"}],
+            }
+        ],
+        "latest_rows": [],
+        "product_versions": [
+            {
+                "product_code": "PV01.0117500",
+                "product_version_id": "bv-1",
+                "product_version_no": 2,
+                "rows": [{"product_code": "PV01.0117500", "material_code": "NVL-1", "qty_per": "2"}],
+            }
+        ],
+        "product_version_options_by_code": {
+            "PV01.0117500": [
+                {
+                    "product_code": "PV01.0117500",
+                    "product_version_id": "bv-1",
+                    "product_version_no": 2,
+                    "rows": [{"product_code": "PV01.0117500", "material_code": "NVL-1", "qty_per": "2"}],
+                }
+            ]
+        },
+    }
+
+    assert co_case_bom_product_codes(case, [], mappings) == ["BIENTAN.17", "PV01.0117500"]
+    assert selected_bom_rows_by_product(case, workspace, mappings)["BIENTAN.17"][0]["material_code"] == "NVL-1"
+    prepared = prepare_case_origin_products(
+        {"products": [{"code": "BIENTAN.17", "quantity": "3", "fob": "100", "currency": "USD"}]},
+        [],
+        workspace,
+        {},
+        [],
+        [],
+        code_mappings=mappings,
+    )
+    assert prepared["products"][0]["bom_product_code"] == "PV01.0117500"
+    assert prepared["products"][0]["materials"][0]["material_code"] == "NVL-1"
+    assert prepared["products"][0]["materials"][0]["consumed_qty"] == Decimal("6")
 
 
 def test_co_case_origin_page_surfaces_method_readiness_and_evidence_gaps():
@@ -2690,9 +2752,20 @@ def test_co_case_origin_round_trips_multi_lot_allocation_to_export_workbook():
 
     assert origin.status_code == 200
     assert "Tính tuần tự theo tồn CO" in origin.text
-    assert "Thứ tự tính lại" in origin.text
+    assert "Dùng mũi tên trên tab sheet để đổi thứ tự giữ tồn" in origin.text
     assert 'data-origin-product-order' in origin.text
-    assert 'data-origin-sequence-move="up"' in origin.text
+    assert 'data-origin-sheet-tab' in origin.text
+    assert 'data-origin-sequence-move="left"' in origin.text
+    assert 'data-origin-sequence-move="right"' in origin.text
+    assert 'data-origin-tab-drag-handle' not in origin.text
+    assert 'draggable="true"' not in origin.text
+    assert 'data-origin-sequence-position' not in origin.text
+    assert 'data-origin-sequence-move="up"' not in origin.text
+    assert 'class="origin-sheet-toolbar"' in origin.text
+    assert 'class="origin-sheet-state"' in origin.text
+    assert 'data-origin-step-input' in origin.text
+    assert 'data-origin-sheet-calculate' in origin.text
+    assert 'data-origin-export-action' in origin.text
     assert "Bước 1" in origin.text
     assert form_data["product_0_material_0_allocation_line_count"] == "2"
     assert form_data["origin_product_order"] == "PV00.0048500"
@@ -2745,6 +2818,32 @@ def test_co_case_origin_round_trips_multi_lot_allocation_to_export_workbook():
     assert "allocation" in snapshot_values
     assert "NK-ALLOC-1 / line 1" in snapshot_values
     assert "NK-ALLOC-2 / line 2" in snapshot_values
+
+    autosaved = client.post(f"{created.headers['location']}/origin/autosave", data={**form_data, "stale_from_index": "0"})
+    stale_origin = client.get(f"{created.headers['location']}/origin")
+    stale_form_data = hidden_form_data(stale_origin.text)
+    blocked_export = client.post(f"{created.headers['location']}/export", data=stale_form_data)
+    calculated = client.post(
+        f"{created.headers['location']}/origin/sheet/PV00.0048500/calculate",
+        data=stale_form_data,
+    )
+    locked = client.post(
+        f"{created.headers['location']}/origin/sheet/PV00.0048500/lock",
+        data=hidden_form_data(calculated.text),
+    )
+
+    assert autosaved.status_code == 200
+    assert autosaved.json()["status"] == "ok"
+    assert "Cần tính lại" in stale_origin.text
+    assert stale_form_data["product_0_origin_sheet_status"] == "stale"
+    assert blocked_export.status_code == 409
+    assert "Chưa thể export" in blocked_export.text
+    assert calculated.status_code == 200
+    assert "Đã tính bảng kê PV00.0048500" in calculated.text
+    assert hidden_form_data(calculated.text)["product_0_origin_sheet_status"] == "calculated"
+    assert locked.status_code == 200
+    assert "Đã chốt bảng kê PV00.0048500" in locked.text
+    assert hidden_form_data(locked.text)["product_0_origin_sheet_status"] == "locked"
 
 
 def test_origin_calculation_lock_blocks_parallel_cases_for_same_client():
