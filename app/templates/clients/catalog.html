@@ -117,6 +117,20 @@
           {% if m.is_dual_source %}
             <span class="badge badge-dual" title="{{ t('catalog.dual_source_tooltip') }}">⇄ dual</span>
           {% endif %}
+          {% if m.category == 'btp_sx' %}
+            <form method="post"
+                  action="/clients/{{ client.client_id }}/catalog/{{ m.customs_code }}/btp_sourcing"
+                  style="display:inline;margin-left:.4em">
+              <select name="btp_sourcing" onchange="this.form.submit()" class="mono"
+                      style="font-size:.8em;padding:1px 2px"
+                      title="BTP sourcing classification">
+                <option value="unknown"            {{ 'selected' if m.btp_sourcing in (none, '', 'unknown') else '' }}>?</option>
+                <option value="purchased_only"    {{ 'selected' if m.btp_sourcing == 'purchased_only' else '' }}>purchased</option>
+                <option value="self_produced_only"{{ 'selected' if m.btp_sourcing == 'self_produced_only' else '' }}>self-prod</option>
+                <option value="dual_source"      {{ 'selected' if m.btp_sourcing == 'dual_source' else '' }}>dual</option>
+              </select>
+            </form>
+          {% endif %}
         </td>
         <td>
           {% if m.is_registered %}

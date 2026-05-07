@@ -488,6 +488,7 @@ def _query_materials(*, client_id: str, category: str | None,
     sql = f"""
         select m.customs_code, m.internal_code, m.name, m.category, m.category_override,
                m.status, m.unit, m.hs_code, m.updated_at, m.provenance,
+               m.btp_sourcing,
                (m.provenance ? 'registered_with_hq') as is_registered,
                (m.provenance ? 'seen_in_bcct') as is_seen_in_bcct,
                (m.provenance ? 'user_added') as is_user_added,
@@ -629,3 +630,42 @@ def _insert_materials(*, client_id: str, rows: list[dict]) -> int:
     with connect() as conn:
         with conn.cursor() as cur:
             return _insert_materials_with_cursor(cur, client_id=client_id, rows=rows)
+
+
+_BTP_SOURCING_VALUES = {
+    "purchased_only", "self_produced_only", "dual_source", "unknown",
+}
+
+
+@router.post("/clients/{client_id}/catalog/{customs_code:path}/btp_sourcing")
+async def set_btp_sourcing(request: Request, client_id: str, customs_code: str,
+                            btp_sourcing: str = Form(...)):
+    """Staff override of materials.btp_sourcing for one BTP material.
+
+    Phase 3a — last-write-wins. Future: respect a separate
+    `btp_sourcing_overridden_at` flag so classifier reruns don't
+    overwrite manual overrides (BACKLOG)."""
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
+    if btp_sourcing not in _BTP_SOURCING_VALUES:
+        raise HTTPException(400, f"invalid btp_sourcing: {btp_sourcing!r}")
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select category from hub.materials "
+            "where client_id=%s and customs_code=%s",
+            (client_id, customs_code),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "material not found")
+        if row[0] != "btp_sx":
+            raise HTTPException(400, "btp_sourcing only applies to btp_sx materials")
+        cur.execute(
+            "update hub.materials set btp_sourcing=%s "
+            "where client_id=%s and customs_code=%s",
+            (btp_sourcing, client_id, customs_code),
+        )
+    return RedirectResponse(
+        url=f"/clients/{client_id}/catalog?category=btp_sx",
+        status_code=303,
+    )

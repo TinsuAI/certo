@@ -59,9 +59,18 @@ with recursive
     select parent_code, child_code, qty_per_parent::numeric as q, uom
     from hub.bom_edges where artifact_id = %(artifact_id)s
   ),
+  -- Phase 3a: btp_sx with btp_sourcing='self_produced_only' is exploded
+  -- (treated like an inner node), every other btp_sx still stops the
+  -- shallow walk. btp_nm and tp always stop. NULL/unknown sourcing
+  -- defaults to stop (legacy behavior; staff classifies via catalog UI).
   stop_set as (
     select customs_code as code from hub.materials
-    where client_id = %(client_id)s and category in ('btp_sx','btp_nm','tp')
+    where client_id = %(client_id)s
+      and (
+        category in ('btp_nm','tp')
+        or (category = 'btp_sx'
+            and (btp_sourcing is null or btp_sourcing != 'self_produced_only'))
+      )
   ),
   walk as (
     select child_code, q as cum_qty, uom,
