@@ -134,6 +134,19 @@ async def list_view(request: Request, client_id: str,
         order_by=order_by,
         limit=page_params.page_size, offset=page_params.offset,
     )
+    # mig 038: material_identity is runtime-computed. Resolver context
+    # built once per page; resolution per row uses cached materials +
+    # rule engine. ~1-2 ms/row × page_size = negligible.
+    if items:
+        from app.parsers.derivations import compute_internal_code
+        from app.resolvers.bcct_material_identity import (
+            ResolverContext, resolve_material_identity,
+        )
+        with connect() as conn, conn.cursor() as cur:
+            ctx = ResolverContext.from_db(client_id, cur)
+        for it in items:
+            it["internal_code"] = compute_internal_code(it, client=client)
+            it["material_identity"] = resolve_material_identity(it, ctx=ctx)
     total = _count_bcct(client_id, year, direction, q)
     years = _years(client_id)
     upload_summary = None
@@ -953,7 +966,6 @@ def _list_bcct(client_id: str, year: int | None, direction: str | None,
                b.direction, b.registration_date, b.customs_code,
                b.goods_name, b.hs_code, b.quantity, b.unit, b.total_value,
                b.currency, b.origin,
-               b.material_identity,
                coalesce(h.event_count, 0) as history_count,
                h.last_changed_at
         from hub.bcct_rows b
@@ -1014,31 +1026,16 @@ def _insert_bcct_with_cursor(cur, *, client_id: str, rows: list[dict],
     """Insert/upsert BCCT rows on the given cursor. `year` is GENERATED
     ALWAYS AS STORED (from registration_date); not in the column list.
 
-    `internal_code` is no longer persisted (mig 035 dropped it).
-    Computed at runtime via `compute_internal_code(row, client=client)`
-    for resolver input + serializer output.
+    Both `internal_code` (mig 035) and `material_identity` (mig 038) are
+    runtime-derived and NOT persisted. Resolution happens at read time
+    via the resolver + rule engine.
     """
     import json
-    from app.resolvers.bcct_material_identity import (
-        ResolverContext, resolve_material_identity,
-    )
-    pid_ctx = ResolverContext.from_db(client_id, cur)
     n = 0
     for r in rows:
         customs_code = r.get("customs_code")
         goods_name = r.get("goods_name") or ""
-        internal_code = compute_internal_code(r, client=client)
         payload_json = json.dumps(r.get("payload") or {}, ensure_ascii=False)
-        pid_row = {
-            "transaction_key": r["transaction_key"],
-            "declaration_no": r.get("declaration_no"),
-            "line_no": r.get("line_no", "0"),
-            "customs_code": customs_code,
-            "internal_code": internal_code,
-            "goods_name": goods_name,
-        }
-        material_identity = resolve_material_identity(pid_row, ctx=pid_ctx)
-        material_identity_json = json.dumps(material_identity, ensure_ascii=False)
         cur.execute(
             """
             insert into hub.bcct_rows
@@ -1052,7 +1049,7 @@ def _insert_bcct_with_cursor(cur, *, client_id: str, rows: list[dict],
                invoice_date, departure_date,
                destination_code, destination_name,
                transport_mode, exchange_rate,
-               upload_id, payload, material_identity)
+               upload_id, payload)
             values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s,
@@ -1060,7 +1057,7 @@ def _insert_bcct_with_cursor(cur, *, client_id: str, rows: list[dict],
                     %s, %s,
                     %s, %s,
                     %s, %s,
-                    %s, %s::jsonb, %s::jsonb)
+                    %s, %s::jsonb)
             on conflict (client_id, year, transaction_key, line_no) do update set
               declaration_no = excluded.declaration_no,
               customs_code = excluded.customs_code,
@@ -1083,7 +1080,6 @@ def _insert_bcct_with_cursor(cur, *, client_id: str, rows: list[dict],
               exchange_rate = excluded.exchange_rate,
               payload = excluded.payload,
               upload_id = excluded.upload_id,
-              material_identity = excluded.material_identity,
               indexed_at = now()
             """,
             (client_id, r["transaction_key"], r.get("line_no", "0"),
@@ -1101,6 +1097,6 @@ def _insert_bcct_with_cursor(cur, *, client_id: str, rows: list[dict],
              r.get("invoice_date"), r.get("departure_date"),
              r.get("destination_code"), r.get("destination_name"),
              r.get("transport_mode"), r.get("exchange_rate"),
-             upload_id, payload_json, material_identity_json))
+             upload_id, payload_json))
         n += 1
     return n

@@ -30,20 +30,16 @@ def classify_btp_sourcing_for_client(cur, client_id: str) -> dict[str, str]:
 
     Pure function over (cur, client_id); does not write to DB.
     """
-    # mig 035 dropped bcct_rows.internal_code; pull from material_identity.
-    # declared_internal_code = parser-derived (e.g. paren-extracted PV01.x);
-    # display_code = canonical resolved. Either matching the catalog code is
-    # signal of "imported as this catalog item".
+    # mig 038: material_identity column dropped — use customs_code only.
+    # For Growatt imports where the agency NVL code lives in goods_name
+    # parens, this query under-counts. Full fix requires Python-side
+    # compute_internal_code() per row (rewrite tracked in BACKLOG).
     cur.execute(
         """
         select m.customs_code,
                (select count(*) from hub.bcct_rows b
                 where b.client_id = %s
-                  and coalesce(
-                        b.material_identity->>'declared_internal_code',
-                        b.material_identity->>'display_code',
-                        b.customs_code
-                      ) = m.customs_code
+                  and b.customs_code = m.customs_code
                   and b.direction = 'import') as import_count,
                (select count(*) from hub.bom_edges e
                 join hub.bom_artifacts a using (artifact_id)

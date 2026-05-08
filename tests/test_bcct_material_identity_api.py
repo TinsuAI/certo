@@ -240,18 +240,9 @@ def test_unknown_client_returns_404_with_pid_field(seeded):
 
 
 def test_lazy_fill_resolves_at_read_time(seeded):
-    """All seeded rows have material_identity=NULL in DB. Read endpoint
-    resolves on the fly when include_material_identity=true."""
-    # Sanity: rows are NULL in DB.
-    with connect() as conn, conn.cursor() as cur:
-        cur.execute(
-            "select count(*) from hub.bcct_rows "
-            "where client_id=%s and material_identity is null",
-            (seeded["client_id"],),
-        )
-        (n_null,) = cur.fetchone()
-    assert n_null > 0
-
+    """mig 038 dropped material_identity column entirely; every read
+    resolves at runtime. include_material_identity=true → response has
+    the field; =false → omitted."""
     r = _client().get(
         "/v1/hub/bcct",
         params={
@@ -260,8 +251,13 @@ def test_lazy_fill_resolves_at_read_time(seeded):
         },
     )
     items = r.json()["items"]
-    # All should have a material_identity now (computed at read time).
+    # All should have a material_identity (computed at read time).
+    assert items
     assert all("material_identity" in it for it in items)
+    # And declared via runtime resolver — at least one resolved row.
+    resolved = [it for it in items
+                if (it.get("material_identity") or {}).get("resolution_status") == "resolved"]
+    assert resolved, "expected at least one resolved row in seeded fixture"
     # Resolved ones have non-null bom_product_code.
     a = next(it for it in items if it["declaration_no"] == "DECLAA")
     assert a["material_identity"]["resolved_code"] == "PV01.0117500"

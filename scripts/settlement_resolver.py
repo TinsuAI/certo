@@ -69,20 +69,18 @@ def _load_bcct_aggregates(cur, client_id: str) -> dict[str, dict[str, float]]:
 
 
 def _load_bcct_universe(cur, client_id: str) -> set[str]:
-    # mig 035 dropped bcct_rows.internal_code; pull resolved code from
-    # material_identity (declared_internal_code = "what was filed",
-    # display_code = canonical resolved). Fall back to customs_code.
+    """BCQT-side BCCT universe — distinct identifiers per row.
+
+    mig 038 dropped the material_identity column; this query returns
+    customs_code only. For Growatt imports the meaningful agency code
+    lives in goods_name parens — settlement-side caller should re-run
+    via the Python helper compute_internal_code() if it needs the
+    parser-derived internal code. (BCQT consumer rewrite tracked in
+    BACKLOG.)
+    """
     cur.execute(
-        """
-        select distinct
-          coalesce(
-            material_identity->>'declared_internal_code',
-            material_identity->>'display_code',
-            customs_code
-          )
-        from hub.bcct_rows
-        where client_id = %s
-        """,
+        "select distinct customs_code from hub.bcct_rows "
+        "where client_id = %s and customs_code is not null",
         (client_id,),
     )
     return {nb for (nb,) in cur.fetchall() if nb}

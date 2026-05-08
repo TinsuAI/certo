@@ -518,7 +518,7 @@ async def api_list_bcct(
                invoice_date, departure_date,
                destination_code, destination_name,
                transport_mode, exchange_rate,
-               artifact_id, indexed_at, material_identity
+               artifact_id, indexed_at
         from hub.bcct_rows where client_id = %s
     """
     params: list = [client_id]
@@ -575,11 +575,9 @@ def _attach_material_identity(items: list[dict], *, client_id: str,
                               candidate_limit: int) -> None:
     """Attach `material_identity` to each item in-place.
 
-    Rows where the column is already populated (DB NOT NULL) keep that
-    value as-is (parser_version preserved per spec idempotency rule).
-    Rows where the column is NULL get lazily resolved against the
-    current resolver state. We do NOT write the lazy result back —
-    backfill runs separately (D9).
+    mig 038: column dropped — every row resolves at read time against
+    current materials catalog + parser rules. Single ResolverContext +
+    client lookup per request, reused across rows.
     """
     if not items:
         return
@@ -587,18 +585,6 @@ def _attach_material_identity(items: list[dict], *, client_id: str,
     from app.resolvers.bcct_material_identity import (
         ResolverContext, resolve_material_identity,
     )
-    needs_resolve = [it for it in items if it.get("material_identity") is None]
-    if not needs_resolve:
-        # Apply candidate_limit to pre-stored values too — we want the
-        # response to honor the caller's limit even when row is from cache.
-        for it in items:
-            pid = it.get("material_identity")
-            if pid and isinstance(pid.get("candidates"), list):
-                pid["candidates"] = pid["candidates"][:candidate_limit]
-        return
-    # Lazy-fill needs the client config to compute internal_code per row
-    # (rows from SELECT no longer carry the dropped column). One query
-    # for context + one for the client; both reused across rows.
     with connect() as conn, conn.cursor() as cur:
         ctx = ResolverContext.from_db(
             client_id, cur, candidate_limit=candidate_limit,
@@ -613,14 +599,8 @@ def _attach_material_identity(items: list[dict], *, client_id: str,
             "code_resolution_mode": row[0] if row else "simple_mapping",
         }
     for it in items:
-        if it.get("material_identity") is None:
-            # Inject computed internal_code so resolver populates
-            # declared_internal_code consistently with the ingest path.
-            it["internal_code"] = compute_internal_code(it, client=client)
-            it["material_identity"] = resolve_material_identity(it, ctx=ctx)
-        elif isinstance(it["material_identity"].get("candidates"), list):
-            it["material_identity"]["candidates"] = \
-                it["material_identity"]["candidates"][:candidate_limit]
+        it["internal_code"] = compute_internal_code(it, client=client)
+        it["material_identity"] = resolve_material_identity(it, ctx=ctx)
 
 
 def _parse_declaration_types(value: str) -> set[str]:
@@ -678,7 +658,6 @@ async def api_invoice_matches(
                invoice_date, departure_date, incoterms,
                consignee_name, exporter_name,
                destination_code, destination_name,
-               material_identity,
                nullif(payload->>'Địa điểm dỡ hàng', '') as unloading_location
         from hub.bcct_rows
         where client_id = %s and direction = 'export' and coalesce(invoice_ref, '') <> ''
@@ -707,17 +686,13 @@ async def api_invoice_matches(
         row_tokens = _invoice_tokens(row.get("invoice_ref") or "")
         if not invoice_tokens.issubset(row_tokens):
             continue
-        # mig 035 dropped bcct_rows.internal_code; item_code is the row's
-        # canonical identifier from material_identity (display_code) when
-        # resolved, else customs_code. Consumers wanting the parser-derived
-        # legacy value should read material_identity.declared_internal_code.
-        mid = row.get("material_identity") or {}
-        item_code = mid.get("display_code") or row.get("customs_code") or ""
+        # item_code starts as customs_code; re-set to material_identity
+        # display_code post-lazy-fill below.
         item: dict = {
             "declaration_no": row.get("declaration_no", ""),
             "line_no": row.get("line_no", ""),
             "declaration_type": row.get("declaration_type", ""),
-            "item_code": item_code,
+            "item_code": row.get("customs_code", ""),
             "customs_code": row.get("customs_code", ""),
             "description": row.get("goods_name", ""),
             "goods_name": row.get("goods_name", ""),
@@ -734,7 +709,6 @@ async def api_invoice_matches(
             "unloading_location": row.get("unloading_location"),
             "destination_location_code": row.get("destination_code"),
             "destination_location_name": row.get("destination_name"),
-            "material_identity": row.get("material_identity"),
         }
         if include_market_hint:
             hint = markets.unloading_location_to_market_hint(item["unloading_location"])
@@ -746,9 +720,12 @@ async def api_invoice_matches(
         _attach_material_identity(
             page, client_id=client_id, candidate_limit=cand_limit,
         )
-    else:
+        # item_code now reads from the just-resolved material_identity.
         for it in page:
-            it.pop("material_identity", None)
+            mid = it.get("material_identity") or {}
+            it["item_code"] = (
+                mid.get("display_code") or it.get("customs_code") or ""
+            )
     next_cursor = (
         str(offset + safe_limit) if offset + safe_limit < len(matches) else None
     )

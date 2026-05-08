@@ -268,10 +268,12 @@ def _query_bcct(*, client_id: str, year: int | None = None,
                 customs_code: str | None = None,
                 direction: str | None = None,
                 limit: int = 20) -> dict:
+    # mig 038: material_identity column dropped; agent surfaces
+    # customs_code only here. Caller wanting parser-derived internal
+    # code reads goods_name (raw text, agent can interpret).
     sql = (
         "select declaration_no, line_no, declaration_type, direction, "
         "       registration_date, customs_code, "
-        "       material_identity->>'declared_internal_code' as internal_code, "
         "       goods_name, quantity, unit, total_value, currency "
         "from hub.bcct_rows where client_id = %s"
     )
