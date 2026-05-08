@@ -1,7 +1,100 @@
 {% extends "base.html" %}
-{% block title %}Lịch sử dòng BCCT · {{ client.name }} · {{ t('app.brand') }}{% endblock %}
+{% block title %}Chi tiết dòng BCCT · {{ client.name }} · {{ t('app.brand') }}{% endblock %}
 {% block content %}
 {% include "_client_nav.html" %}
+
+{% if current_row %}
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Trạng thái hiện tại · {{ transaction_key }} · dòng {{ line_no }}</h2>
+      <p class="meta">
+        Field <em>Tên</em> = lưu trong DB.
+        Field nào có <small class="meta">ƒ</small> = tính tại runtime
+        (không lưu DB; tính từ row data + materials catalog +
+        <code>hub.client_parser_rules</code>).
+      </p>
+    </div>
+    <div>
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bcct">← Danh sách BCCT</a>
+    </div>
+  </div>
+
+  <table class="dh-table">
+    <tbody>
+      {% for k, v in current_row.items() %}
+      {% if v is not none and v != '' %}
+      <tr>
+        <td class="mono" style="width: 18ex; vertical-align: top;"><strong>{{ k }}</strong></td>
+        <td>
+          {% if k == 'payload' %}
+            <details><summary class="meta">jsonb · {{ v|length }} fields</summary>
+              <pre style="max-height: 320px; overflow: auto; background: var(--bg-soft, #f4f4f4); padding: 0.5em; border-radius: 4px;">{{ v|tojson(indent=2) }}</pre>
+            </details>
+          {% else %}
+            <code>{{ v }}</code>
+          {% endif %}
+        </td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+      <tr style="border-top: 2px solid var(--bg-soft, #ddd);">
+        <td class="mono" style="vertical-align: top;">
+          <strong>internal_code</strong>
+          <small class="meta">ƒ</small>
+        </td>
+        <td>
+          {% if internal_code %}<code style="font-style: italic;">{{ internal_code }}</code>
+          {% else %}<span class="meta">— (no rule matched)</span>{% endif %}
+        </td>
+      </tr>
+      <tr>
+        <td class="mono" style="vertical-align: top;">
+          <strong>material_identity</strong>
+          <small class="meta">ƒ</small>
+        </td>
+        <td>
+          {% if material_identity %}
+            <p>
+              <strong>Status:</strong>
+              <span class="badge badge-{{ 'success' if material_identity.resolution_status == 'resolved' else 'warning' }}">{{ material_identity.resolution_status }}</span>
+              · <strong>Source:</strong> <code>{{ material_identity.resolution_source }}</code>
+              · <strong>Confidence:</strong> {{ material_identity.confidence or '—' }}
+            </p>
+            <p>
+              <strong>resolved_code:</strong>
+              {% if material_identity.resolved_code %}<code style="font-style: italic;">{{ material_identity.resolved_code }}</code>
+              {% else %}<span class="meta">—</span>{% endif %}
+              · <strong>display_code:</strong>
+              <code style="font-style: italic;">{{ material_identity.display_code or '—' }}</code>
+              · <strong>product_kind:</strong>
+              <code>{{ material_identity.product_kind or '—' }}</code>
+              · <strong>bom_product_code:</strong>
+              {% if material_identity.bom_product_code %}<code style="font-style: italic;">{{ material_identity.bom_product_code }}</code>
+              {% else %}<span class="meta">—</span>{% endif %}
+            </p>
+            {% if material_identity.evidence %}
+            <details><summary class="meta">Evidence</summary>
+              <pre style="background: var(--bg-soft, #f4f4f4); padding: 0.5em; border-radius: 4px;">{{ material_identity.evidence|tojson(indent=2) }}</pre>
+            </details>
+            {% endif %}
+            {% if material_identity.candidates %}
+            <details><summary class="meta">Candidates ({{ material_identity.candidates|length }})</summary>
+              <pre style="background: var(--bg-soft, #f4f4f4); padding: 0.5em; border-radius: 4px; max-height: 240px; overflow: auto;">{{ material_identity.candidates|tojson(indent=2) }}</pre>
+            </details>
+            {% endif %}
+            <details><summary class="meta">Full material_identity jsonb</summary>
+              <pre style="background: var(--bg-soft, #f4f4f4); padding: 0.5em; border-radius: 4px; max-height: 320px; overflow: auto;">{{ material_identity|tojson(indent=2) }}</pre>
+            </details>
+          {% else %}
+            <span class="meta">—</span>
+          {% endif %}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+{% endif %}
 
 <section class="zone">
   <div class="zone-head">

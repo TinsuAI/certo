@@ -808,14 +808,48 @@ async def bcct_row_history(request: Request, client_id: str,
             events = [dict(zip(cols, r)) for r in cur.fetchall()]
             cur.execute(
                 """
-                select declaration_no, registration_date, customs_code,
-                       goods_name, quantity, unit, total_value
+                select declaration_no, declaration_type, direction,
+                       registration_date, customs_code,
+                       goods_name, hs_code, quantity, unit,
+                       quantity_2, unit_2, unit_price,
+                       total_value, currency, origin, invoice_ref,
+                       exporter_name, exporter_tax_code, consignee_name,
+                       incoterms, weight, weight_unit,
+                       package_count, package_unit,
+                       invoice_date, departure_date,
+                       destination_code, destination_name,
+                       transport_mode, exchange_rate,
+                       artifact_id, payload, indexed_at, year, upload_id
                 from hub.bcct_rows
                 where client_id = %s and transaction_key = %s and line_no = %s
                 """,
                 (client_id, transaction_key, line_no),
             )
-            current_row = cur.fetchone()
+            row_record = cur.fetchone()
+            current_cols = [d[0] for d in cur.description]
+            current_row = (
+                dict(zip(current_cols, row_record)) if row_record else None
+            )
+            # Runtime-derived: internal_code + material_identity (mig 035 +
+            # mig 038 dropped the persisted columns; computed at read time).
+            material_identity = None
+            internal_code = None
+            if current_row:
+                from app.parsers.derivations import compute_internal_code
+                from app.resolvers.bcct_material_identity import (
+                    ResolverContext, resolve_material_identity,
+                )
+                pid_row = {
+                    "transaction_key": transaction_key,
+                    "line_no": line_no,
+                    "declaration_no": current_row.get("declaration_no"),
+                    "customs_code": current_row.get("customs_code"),
+                    "goods_name": current_row.get("goods_name"),
+                }
+                internal_code = compute_internal_code(pid_row, client=client)
+                pid_row["internal_code"] = internal_code
+                ctx = ResolverContext.from_db(client_id, cur)
+                material_identity = resolve_material_identity(pid_row, ctx=ctx)
     # Compute changed fields per event for the template
     for ev in events:
         old_row = ev.get("old_row") or {}
@@ -834,6 +868,8 @@ async def bcct_row_history(request: Request, client_id: str,
             "transaction_key": transaction_key, "line_no": line_no,
             "events": events,
             "current_row": current_row,
+            "internal_code": internal_code,
+            "material_identity": material_identity,
             "active_root": "clients", "active_tab": "bcct",
         },
     )
