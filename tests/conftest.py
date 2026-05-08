@@ -19,7 +19,7 @@ import pytest
 
 from app import auth
 from app.database import apply_migrations, connect
-from app.seed import auto_seed_demo_if_empty
+from app.seed import auto_seed_demo_if_empty, seed_parser_rules_if_empty
 from app.seed_master_data import seed_master_data_if_empty
 
 
@@ -39,4 +39,5 @@ def _bootstrap_schema():
     # fresh CI database the lifespan hasn't run yet by the time those
     # fixtures open a cursor, so reproduce the seed here.
     auto_seed_demo_if_empty()
+    seed_parser_rules_if_empty()
     yield

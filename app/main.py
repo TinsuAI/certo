@@ -14,7 +14,7 @@ from app import auth, i18n, settings_store
 from app.database import apply_migrations, close_pool
 from app.seed_master_data import seed_master_data_if_empty
 from app.routes import admin, agent, api, auth_api, bcct, bom, bqd, catalog, client_config_ui, clients, master_data, notifications as notif_routes, proposals, uploads
-from app.seed import auto_seed_demo_if_empty
+from app.seed import auto_seed_demo_if_empty, seed_parser_rules_if_empty
 
 ROOT = Path(__file__).resolve().parent
 THEME_COOKIE = "data_hub_theme"
@@ -109,6 +109,8 @@ async def lifespan(app: FastAPI):
         seeded_demo = auto_seed_demo_if_empty()
         if seeded_demo:
             print(f"[seed] Demo data seeded: {seeded_demo}")
+    # Parser rules (mig 036/037 are no-ops on fresh DB; seed via app code).
+    seed_parser_rules_if_empty()
     yield
     # On shutdown: drain and close the pool so the process exits cleanly
     # without leaving Postgres connections in TIME_WAIT.

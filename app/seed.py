@@ -45,7 +45,69 @@ def auto_seed_demo_if_empty() -> str:
     _seed_growatt(growatt_id)
     _seed_johnson(johnson_id)
 
+    # Parser rules for Growatt (mig 036 + 037 are no-ops on fresh DB
+    # because clients didn't exist when migrations ran).
+    seed_parser_rules_if_empty()
+
     return f"2 clients ({growatt_id}, {johnson_id})"
+
+
+# Growatt parser rules — same content as migs 036 + 037. Called from
+# lifespan + conftest after demo seed so fresh-DB CI also gets rules.
+# Idempotent via NOT EXISTS guard; safe to call repeatedly.
+_GROWATT_INTERNAL_CODE_RULES = [
+    (10, "^\\.\\s*#&", "reject", "next_rule",
+     "Equipment marker: goods_name starts with `.#&` → no internal code."),
+    (20, "\\((\\d{3}\\.[\\w\\-]+)\\)", "capture", "next_rule",
+     "Paren-extracted NVL code (e.g. `(960.0062100)`)."),
+    (30, "\\(([A-Z]{2,}\\d{2}\\.[\\w\\-]+)\\)", "capture", "next_rule",
+     "Paren-extracted TP code (e.g. `(PV01.0117500)`, `(SD00.0010600)`)."),
+    (40, "\\(([A-Z]\\d{3}\\.[\\w\\-]+)\\)", "capture", "next_rule",
+     "Paren-extracted PCBA shape (e.g. `(B700.0242002)`)."),
+    (50, "\\((\\d{2}[A-Z]\\.[\\w\\-]+)\\)", "capture", "next_rule",
+     "Paren-extracted alpha-suffix shape (e.g. `(00G.0101600)`)."),
+]
+_GROWATT_MATERIAL_IDENTITY_RULE = (
+    10, "\\(([A-Z]{2,}\\d{2}\\.[A-Za-z0-9._\\-]+)\\)", "capture", "next_rule",
+    "parenthesized_product_code_exists_in_bom_products",
+)
+
+
+def seed_parser_rules_if_empty() -> None:
+    """Insert Growatt parser rules if missing. Idempotent. Skipped
+    when growatt-vn doesn't exist."""
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select 1 from hub.clients where client_id='growatt-vn'",
+        )
+        if not cur.fetchone():
+            return
+        for priority, pattern, m_action, nm_action, notes in _GROWATT_INTERNAL_CODE_RULES:
+            cur.execute(
+                "insert into hub.client_parser_rules "
+                "(client_id, output_field, priority, pattern, source_field, "
+                " match_group, match_action, no_match_action, notes, created_by) "
+                "select 'growatt-vn', 'internal_code', %s, %s, 'goods_name', 1, "
+                "       %s, %s, %s, 'system' "
+                "where not exists ("
+                "  select 1 from hub.client_parser_rules "
+                "  where client_id='growatt-vn' "
+                "    and output_field='internal_code' and priority=%s)",
+                (priority, pattern, m_action, nm_action, notes, priority),
+            )
+        priority, pattern, m_action, nm_action, notes = _GROWATT_MATERIAL_IDENTITY_RULE
+        cur.execute(
+            "insert into hub.client_parser_rules "
+            "(client_id, output_field, priority, pattern, source_field, "
+            " match_group, match_action, no_match_action, notes, created_by) "
+            "select 'growatt-vn', 'material_identity_candidates', %s, %s, "
+            "       'goods_name', 1, %s, %s, %s, 'system' "
+            "where not exists ("
+            "  select 1 from hub.client_parser_rules "
+            "  where client_id='growatt-vn' "
+            "    and output_field='material_identity_candidates' and priority=%s)",
+            (priority, pattern, m_action, nm_action, notes, priority),
+        )
 
 
 def _seed_growatt(client_id: str) -> None:
