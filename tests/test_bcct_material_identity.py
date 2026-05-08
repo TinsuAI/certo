@@ -164,22 +164,41 @@ def test_empty_result_display_code_falls_back_to_customs_code():
 # Stage 1: structured_field — customs_code IS the BOM product code
 # ─────────────────────────────────────────────────────────────────────
 
-def test_customs_code_in_bom_artifacts_resolves_via_structured_field():
-    """Some Growatt rows declare customs_code='SA00.0001402' which is
-    itself a BOM product. Resolver picks this before any goods_name parse."""
+def test_paren_extract_wins_over_customs_when_both_resolve():
+    """When BOTH the paren-extracted code AND customs_code exist in
+    materials catalog, the paren-extracted code wins (more specific —
+    explicitly written by agency in the goods description). This is
+    the swap-2026-05-08 behavior — was Stage-1-first, now
+    Stage-2-first per the architectural correction."""
     row = {
         **GROWATT_ROW,
         "customs_code": "SA00.0001402",
         "internal_code": "SA00.0001402",
         "goods_name": "SA00.0001402#&Hộp điều khiển ... (PV01.0117500)#&VN",
     }
-    # Both codes exist in materials. Stage 1 wins.
     ctx = _ctx(materials=[("SA00.0001402", "tp", 1), ("PV01.0117500", "tp", 1)])
     pid = resolve_material_identity(row, ctx=ctx)
 
     assert pid["resolution_status"] == "resolved"
+    assert pid["resolved_code"] == "PV01.0117500"  # paren-extract wins
+    assert pid["resolution_source"] == "goods_name_embedded_code"
+
+
+def test_customs_code_resolves_when_no_paren_match():
+    """Stage 2 (paren) falls through when no paren-code matches
+    materials; Stage 3 (was Stage 1) catches customs_code-in-materials.
+    Covers Johnson identity-mode + Growatt rows without parens."""
+    row = {
+        **GROWATT_ROW,
+        "customs_code": "SA00.0001402",
+        "internal_code": "SA00.0001402",
+        "goods_name": "SA00.0001402#&Plain description, no parens at all",
+    }
+    ctx = _ctx(materials=[("SA00.0001402", "tp", 1)])
+    pid = resolve_material_identity(row, ctx=ctx)
+
+    assert pid["resolution_status"] == "resolved"
     assert pid["resolved_code"] == "SA00.0001402"
-    assert pid["bom_product_code"] == "SA00.0001402"
     assert pid["resolution_source"] == "structured_field"
     assert pid["evidence"]["match_rule"] == "customs_code_exists_in_bom_products"
 

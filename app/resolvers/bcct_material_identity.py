@@ -421,27 +421,14 @@ def resolve_material_identity(row: dict, *, ctx: ResolverContext) -> dict:
     customs = (row.get("customs_code") or "").strip()
     catalog = ctx.material_catalog
 
-    # ── Stage 1: structured field ─────────────────────────────────
-    if customs and customs in catalog:
-        candidate = _make_candidate(
-            customs, "structured_field",
-            confidence="high",
-            reason="customs_code matches a BOM product directly.",
-            ctx=ctx,
-        )
-        return _resolved(
-            row, ctx, code=customs,
-            resolution_source="structured_field",
-            evidence={
-                "source_field": "customs_code",
-                "source_text": customs,
-                "matched_text": customs,
-                "match_rule": "customs_code_exists_in_bom_products",
-            },
-            candidates=[candidate],
-        )
-
-    # ── Stage 2: goods_name_embedded_code (client_parser_rules engine) ────
+    # ── Stage 1 (was Stage 2): goods_name_embedded_code ────────────
+    # Reordered 2026-05-08: paren-extracted codes from goods_name are
+    # more specific than customs_code-membership-in-materials. For
+    # Growatt-style rows where customs_code is the HQ-side TP code
+    # ('BIENTAN.20') and the agency BOM code is in goods_name parens
+    # ('(PV02.0228801)'), the paren code is the canonical resolution.
+    # Identity-mode clients (no rules seeded) yield empty extractions
+    # and fall through to the customs_code stage below.
     extractions = _stage2_candidates(ctx, row)
     paren_validated: list[tuple[dict, dict]] = []  # (extraction, candidate)
     for ext in extractions:
@@ -496,6 +483,30 @@ def resolve_material_identity(row: dict, *, ctx: ResolverContext) -> dict:
                 "match_rule": "multiple_paren_codes_found_in_bom_products",
             },
             selected_candidate_code=best_ext["product_code"],
+        )
+
+    # ── Stage 2 (was Stage 1): structured field ────────────────────
+    # Falls through here when goods_name had no paren-code that resolved.
+    # Catches Johnson-style identity-mode rows where customs_code IS
+    # the agency BOM code, plus Growatt rows whose goods_name lacks
+    # parens (equipment / consumables).
+    if customs and customs in catalog:
+        candidate = _make_candidate(
+            customs, "structured_field",
+            confidence="high",
+            reason="customs_code matches a BOM product directly.",
+            ctx=ctx,
+        )
+        return _resolved(
+            row, ctx, code=customs,
+            resolution_source="structured_field",
+            evidence={
+                "source_field": "customs_code",
+                "source_text": customs,
+                "matched_text": customs,
+                "match_rule": "customs_code_exists_in_bom_products",
+            },
+            candidates=[candidate],
         )
 
     # ── Stage 3: reviewed_line_mapping ────────────────────────────
