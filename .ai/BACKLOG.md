@@ -427,9 +427,18 @@ under-fitting, two is the sweet spot. Future shapes to expect: SAP
 multi-sheet exports, ERP-CSV row-keyed BOMs, WeChat-pasted CSVs,
 agency emails with mixed structure.
 
-**Estimate:** ~10-15h to formalize the registry + extract scripts +
-write `derive_btp_shallows.py` + tests. Bundle with Phase 3 resolver
-work since they share the "uniform in-DB model" assumption.
+**Note (2026-05-08):** the **BCCT-side configurable parsing rules**
+(originally captured here as item 5) are now in-flight as
+`.ai/features/2026-05-08-configurable-bcct-parsing/brief.md`. That
+brief introduces `hub.client_parser_rules` table + UI + test panel.
+The BOM-side adapter work (items 1-4 above) can reuse the same
+table shape with `output_field='bom_*'` once BCCT side ships,
+unifying both into a single per-client rule infra.
+
+**Estimate (BOM-side only):** ~10-15h to formalize the registry +
+extract scripts + write `derive_btp_shallows.py` + tests. Bundle
+with Phase 3 resolver work since they share the "uniform in-DB
+model" assumption.
 
 ---
 
