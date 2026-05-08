@@ -1,7 +1,9 @@
 # Session 2026-05-08 — BCCT identity + parser-rules + payload promotion bundle
 
-**Outcome:** end-to-end bundle shipped in 14 commits (`046601e..37b8046`).
-Suite: 626 pass / 15 skip / **0 fail**. 7 migrations applied (035-041).
+**Outcome:** end-to-end bundle shipped in 17 commits (`046601e..a971919`),
+pushed to origin/main, deployed to demo (https://ttdatahub.tinsu.ai
++ Tailscale 100.84.189.87:8754). Suite: 626 pass / 15 skip /
+**0 fail**. 7 migrations applied (035-041).
 
 ## What was done
 
@@ -209,24 +211,71 @@ Bug user reported now resolved: row 308382318920-1 has
 `currency_nt=USD`, `total_value_nt=2114.10` (FX), `total_value=57.4M`
 (VND). Domains explicit + consistent.
 
+## Phase 6 — CI fix + demo deploy
+
+After the docs-handoff push (commit `d491145`), CI run on origin's
+GH Actions runner failed. Investigation:
+
+```
+psycopg.errors.ForeignKeyViolation:
+  insert or update on table "client_parser_rules" violates
+  foreign key constraint "client_parser_rules_client_id_fkey"
+  DETAIL: Key (client_id)=(growatt-vn) is not present in table "clients".
+```
+
+Mig 036/037 INSERT'd parser rules with hardcoded
+`client_id='growatt-vn'`. Migrations run BEFORE app lifespan seeds
+clients (apply_migrations → seed_master → seed_admin → auto_seed_demo).
+On dev DB this happened to work because clients were already seeded
+from prior session; on fresh CI DB it fails.
+
+**Fix (commit `a971919`)**:
+1. Rewrote mig 036/037 as conditional INSERT...SELECT with
+   `where exists (clients) and not exists (rule)` guards. Idempotent
+   no-op on fresh DB; safe to re-run.
+2. New `seed_parser_rules_if_empty()` in `app/seed.py` replicates
+   the rule content with `where not exists` guard. Called from
+   lifespan AFTER `auto_seed_demo_if_empty()` (which creates
+   growatt-vn) + from conftest.
+3. Two-tier safety: migration handles "DB ever recreated post-seed"
+   case; app code handles "fresh CI DB never had clients" case.
+
+**Verified post-deploy on tinsu demo**:
+- HEAD `a971919` checked out.
+- `healthz` → 200.
+- `schema_migrations` shows 035..041 all applied.
+- `client_parser_rules` has 6 rows for growatt-vn (5 internal_code
+  + 1 material_identity_candidates) — seeded by lifespan post-deploy.
+- `bcct_rows` columns split correctly (`currency_nt`,
+  `total_value_nt`, `contract_no` exist; `material_identity`,
+  `internal_code`, `currency` dropped).
+
+CI workflow technically marked "failed" but only the best-effort
+LLM `/models` smoke (401 from upstream `codex-lb-demo.sgnai.dev`)
+— unrelated to code changes. App deploy + tests + dncxs API smoke
+all green.
+
 ## Open items (carry to next session)
 
-1. `git push origin main` — 22 commits ahead.
-2. **CO consumer migration session** — sister-app note has detailed
+1. **CO consumer migration session** — sister-app note has detailed
    migration steps for ALL changes (rename, drops, currency split).
    CO's `data_hub_client.py` reads at 6+ sites need updating;
    `payload->>'Tên doanh nghiệp'` etc. must switch to typed columns.
-3. Wipe + ingest fresh Growatt + Johnson (memory
+2. Wipe + ingest fresh Growatt + Johnson (memory
    `project_reingest_pending.md`). Now triple-unblocked: rule engine
    works, FX/VND domains split, payload pruned. Next ingest will
    produce clean rows from scratch.
-4. **BACKLOG** — 3 scripts that lost SQL `material_identity` access
+3. **BACKLOG** — 3 scripts that lost SQL `material_identity` access
    (settlement_resolver, detect_dual_source_btps, agent/tools).
    Need Python-side `compute_internal_code()` rewrites.
+4. Demo data parity — currently demo has post-mig schema but legacy
+   data shape. Re-ingest fresh from source XLSX → consistent state.
 5. Optional polish:
    - Playwright E2E for parser-rules UI.
    - Per-key cache invalidation in `client_parser_rules` engine.
    - preview_token belt-and-suspenders on rule writes.
+   - Fix CI workflow: make LLM smoke step soft-fail (currently bash
+     `-e` propagates curl exit 22).
 
 ## Memory updates needed
 

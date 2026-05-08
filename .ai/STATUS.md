@@ -31,11 +31,15 @@ resolver) both runtime-only. Custom parser rules live in
 `hub.client_parser_rules`, edited by staff via web UI at
 `/clients/<id>/parser-rules` (dev role).
 
-- **Repo HEAD**: `37b8046` on `main` — **NOT YET PUSHED**. 22 commits
-  ahead of origin/main (8 from prior session 2026-05-07 + 14 from
-  this session).
+- **Repo HEAD**: `a971919` on `main` — **PUSHED** + deployed to
+  demo. 26 commits this session (origin already up-to-date).
 - **Tests**: 626 pass / 15 skip / **0 fail**. The pre-existing
   `test_co_columns` failure addressed by mig 041 cleanup.
+- **Demo server (tinsu)**: HEAD = `a971919`, healthz=200,
+  schema_migrations 035-041 all applied, 6 parser_rules seeded for
+  growatt-vn. CI workflow technically marked "failed" but only the
+  best-effort LLM smoke step (401 from upstream service); deploy +
+  test + API smoke all green.
 - **Local DB v3 state**: schema at mig 041 applied; rules seeded for
   `growatt-vn` (5 internal_code + 1 material_identity_candidates).
   All payload promotions backfilled (75,304 rows). Identity-mode
@@ -63,6 +67,8 @@ resolver) both runtime-only. Custom parser rules live in
 | `932ea10` | Mig 039 — promote payload Tier 1 + currency-tag bug fix |
 | `db0f1ef` | Mig 040 — promote payload Tier 2 (contract + internal_mgmt + package_marks) |
 | `37b8046` | Mig 041 — prune typed-already keys from payload jsonb |
+| `d491145` | docs: handoff — sister-app note + STATUS + session summary |
+| `a971919` | fix(ci): mig 036/037 idempotent + safe on fresh DB |
 
 ### Sister-app notes posted
 
@@ -122,31 +128,40 @@ resolver) both runtime-only. Custom parser rules live in
 
 Priority order:
 
-1. **Push branch to origin** — 16 commits ahead, demo CI/CD waiting.
-   Run `git push origin main` when ready.
-2. **CO consumer migration** — open Claude Code in
-   `~/workspace/client/barry-CO-main`, point at the new sister-app
-   note `.ai/sister-app-notes/2026-05-08-material-identity-rename-and-internal-code-drop.md`.
-   CO updates 6 sites in `data_hub_client.py:415,426,438,538`,
-   `bom_service.py:266`, `main.py:1794`. CI gate: don't deploy Data
-   Hub mig 035-037 until CO consumer PR merges.
-3. **BCQT consumer prep** — no current consumer; sister-app note is
-   forward-looking. When BCQT adopts, same field-rename story.
-4. **Wipe + ingest fresh — Growatt and Johnson** *(still pending)*.
-   Memory `project_reingest_pending.md`. Now that the configurable
-   rules infra works, wipe-and-reingest will produce
-   correctly-resolved `internal_code` + `material_identity` from the
-   first ingest (no backfill needed).
-5. **Demo data parity** — after step 4, mirror to tinsu via
-   pg_dump → scp.exe → restore.
+1. **CO consumer migration** — sister-app note
+   `.ai/sister-app-notes/2026-05-08-material-identity-rename-and-internal-code-drop.md`
+   has full migration steps including all migs 035-041 changes.
+   CO updates needed:
+   - 6 read sites in `data_hub_client.py:415,426,438,538`,
+     `bom_service.py:266`, `main.py:1794` — swap `internal_code`
+     reads to `material_identity.declared_internal_code` /
+     `display_code`.
+   - SQL refs to `currency` column → `currency_nt`.
+   - SQL refs to `payload->>'X'` for promoted keys (Tên doanh
+     nghiệp etc.) → swap to typed columns (`exporter_name` etc.).
+   - Param renames `include_product_identity` → `include_material_identity`.
+2. **BCQT consumer prep** — no current consumer; sister-app note is
+   forward-looking. Same field-rename story when BCQT adopts.
+3. **Wipe + ingest fresh — Growatt and Johnson** (memory
+   `project_reingest_pending.md`). Triple-unblocked now: rule
+   engine works, FX/VND domains split, payload pruned. Re-ingest
+   produces clean rows from scratch — no backfill needed.
+4. **BACKLOG cleanup** — 3 scripts SQL-degraded after payload prune
+   need Python-side rewrites. See `.ai/BACKLOG.md` "Scripts that
+   lost SQL `material_identity` access" entry:
+   - `scripts/settlement_resolver.py::_load_bcct_universe`
+   - `scripts/detect_dual_source_btps.py`
+   - `app/agent/tools.py::_query_bcct`
+5. **Demo data parity** — after step 3 (wipe + ingest), mirror to
+   tinsu via pg_dump → scp.exe → restore. Dev DB and demo are
+   currently both at mig 041 schema, but data still has 2026-Q1
+   pre-mig data with old derivations cached.
 6. **Optional polish (not blocking)**:
    - Add Playwright E2E for parser-rules UI (memory
-     `feedback_feature_folder_with_screenshots.md` — UI features get
-     committed screenshots).
-   - Add `feedback_token` mechanism on rule create/update endpoints
-     (brief R2 belt-and-suspenders — defer until first real misconfig).
-   - Per-key cache invalidation instead of wholesale clear (current
-     impl drops all cached rules on any edit; benign at current scale).
+     `feedback_feature_folder_with_screenshots.md`).
+   - Per-key cache invalidation in `client_parser_rules` engine
+     (current impl drops wholesale; benign at current scale).
+   - preview_token belt-and-suspenders on rule writes.
 7. **BACKLOG cleanup** — review `.ai/BACKLOG.md` "Modular BOM ingest
    adapters" item 5 (now in-flight per this brief) — the BCCT-side
    work is done; BOM-side items 1-4 remain.
