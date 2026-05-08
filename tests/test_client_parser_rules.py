@@ -173,3 +173,164 @@ def test_compile_pattern_rejects_backreference():
 
     with pytest.raises(InvalidPatternError):
         compile_pattern(r"(\w+)\s+\1")  # \1 = backreference
+
+
+# ── DB load layer (Phase 3) ──────────────────────────────────────────
+
+
+def test_load_rules_returns_empty_for_client_without_rules():
+    """A client with no rows in client_parser_rules → empty list, not error."""
+    from app.parsers.client_parser_rules import load_rules
+
+    rules = load_rules(
+        client_id="zzz-no-such-client-ever", output_field="internal_code",
+    )
+    assert rules == []
+
+
+@pytest.fixture
+def _rules_test_client():
+    """Insert a temp client + cleanup. Uses random suffix to avoid clashes
+    with parallel tests / leftover rows from prior runs. Clears the
+    rules cache before + after to prevent cross-test leak."""
+    import secrets
+    from app.database import connect
+    from app.parsers.client_parser_rules import clear_rules_cache
+
+    clear_rules_cache()
+    cid = f"rules-test-{secrets.token_hex(4)}"
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "insert into hub.clients (client_id, name) values (%s, %s)",
+            (cid, f"rules test {cid}"),
+        )
+    yield cid
+    clear_rules_cache()
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("delete from hub.clients where client_id = %s", (cid,))
+
+
+def test_load_rules_returns_compiled_rules_in_priority_order(_rules_test_client):
+    from app.database import connect
+    from app.parsers.client_parser_rules import load_rules
+
+    cid = _rules_test_client
+    with connect() as conn, conn.cursor() as cur:
+        # Insert two rules out-of-order to verify priority sort.
+        cur.execute(
+            "insert into hub.client_parser_rules "
+            "(client_id, output_field, priority, pattern, created_by) "
+            "values (%s, 'internal_code', 20, %s, 'test')",
+            (cid, r"^([A-Z]+)"),
+        )
+        cur.execute(
+            "insert into hub.client_parser_rules "
+            "(client_id, output_field, priority, pattern, created_by) "
+            "values (%s, 'internal_code', 10, %s, 'test')",
+            (cid, r"\((\w+)\)"),
+        )
+
+    rules = load_rules(client_id=cid, output_field="internal_code")
+
+    assert len(rules) == 2
+    assert rules[0].priority == 10
+    assert rules[1].priority == 20
+    # Compiled patterns are usable by the engine.
+    match = rules[0].compiled.search("foo (BAR)")
+    assert match is not None and match.group(1) == "BAR"
+
+
+def test_compute_internal_code_evaluates_db_rules_for_non_identity_client(
+    _rules_test_client,
+):
+    """End-to-end: client with rules in DB → compute_internal_code returns
+    the captured group. Identity short-circuit is bypassed when mode is
+    non-identity."""
+    from app.database import connect
+    from app.parsers.derivations import compute_internal_code
+
+    cid = _rules_test_client
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "insert into hub.client_parser_rules "
+            "(client_id, output_field, priority, pattern, created_by) "
+            "values (%s, 'internal_code', 10, %s, 'test')",
+            (cid, r"\(([\w.]+)\)"),
+        )
+
+    out = compute_internal_code(
+        {"goods_name": "BIENTAN.17#&Hàng (PV01.0117500)#&VN",
+         "customs_code": "BIENTAN.17"},
+        client={"client_id": cid, "code_resolution_mode": "batch_aggregate_resolution"},
+    )
+    assert out == "PV01.0117500"
+
+
+def test_compute_internal_code_identity_mode_short_circuits_no_db_query(
+    _rules_test_client,
+):
+    """Identity-mode clients return customs_code without consulting rules.
+    Adding a rule that would match must be ignored."""
+    from app.database import connect
+    from app.parsers.derivations import compute_internal_code
+
+    cid = _rules_test_client
+    with connect() as conn, conn.cursor() as cur:
+        # This rule would match if engine ran — but identity must skip it.
+        cur.execute(
+            "insert into hub.client_parser_rules "
+            "(client_id, output_field, priority, pattern, created_by) "
+            "values (%s, 'internal_code', 10, %s, 'test')",
+            (cid, r"(.+)"),
+        )
+
+    out = compute_internal_code(
+        {"goods_name": "anything",
+         "customs_code": "CUSTOMS-X"},
+        client={"client_id": cid, "code_resolution_mode": "identity"},
+    )
+    assert out == "CUSTOMS-X"
+
+
+def test_load_rules_caches_across_calls(_rules_test_client):
+    """Second call returns cached object identity-equal to first call.
+    No DB query on the second call — verified via object identity."""
+    from app.database import connect
+    from app.parsers.client_parser_rules import load_rules
+
+    cid = _rules_test_client
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "insert into hub.client_parser_rules "
+            "(client_id, output_field, priority, pattern, created_by) "
+            "values (%s, 'internal_code', 10, %s, 'test')",
+            (cid, r"\((\w+)\)"),
+        )
+
+    first = load_rules(client_id=cid, output_field="internal_code")
+    second = load_rules(client_id=cid, output_field="internal_code")
+    # Cache returns the same list object — proves no DB requery.
+    assert first is second
+
+
+def test_clear_rules_cache_forces_reload(_rules_test_client):
+    """clear_rules_cache() drops cached entries; next load hits DB."""
+    from app.database import connect
+    from app.parsers.client_parser_rules import clear_rules_cache, load_rules
+
+    cid = _rules_test_client
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "insert into hub.client_parser_rules "
+            "(client_id, output_field, priority, pattern, created_by) "
+            "values (%s, 'internal_code', 10, %s, 'test')",
+            (cid, r"\((\w+)\)"),
+        )
+
+    first = load_rules(client_id=cid, output_field="internal_code")
+    clear_rules_cache()
+    second = load_rules(client_id=cid, output_field="internal_code")
+    # Different list objects — cache was invalidated, DB re-queried.
+    assert first is not second
+    # But same content (same rule still in DB).
+    assert len(first) == len(second) == 1

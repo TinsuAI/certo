@@ -17,10 +17,14 @@ def compute_internal_code(row: dict, *, client: dict) -> str | None:
 
     `client` is a dict with at least `code_resolution_mode` and
     `client_id`. For identity-mode clients, internal == customs.
-    Other clients fall through to configurable rules (Phase 3 wires
-    the load layer; until then, returns None).
+    Other clients evaluate `hub.client_parser_rules` for
+    output_field='internal_code'.
     """
     if client.get("code_resolution_mode") == "identity":
         return row.get("customs_code") or None
-    # Phase 3: load + evaluate hub.client_parser_rules for this client.
-    return None
+    from app.parsers.client_parser_rules import (
+        evaluate_compiled_rules,
+        load_rules,
+    )
+    rules = load_rules(client_id=client["client_id"], output_field="internal_code")
+    return evaluate_compiled_rules(rules, row=row)

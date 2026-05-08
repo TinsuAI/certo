@@ -58,3 +58,58 @@ def evaluate_compiled_rules(rules: list[CompiledRule], *, row: dict) -> str | No
         if rule.no_match_action == "return_null":
             return None
     return None
+
+
+# Module-level cache for loaded rules. Keyed by (client_id, output_field).
+# Invalidated wholesale via clear_rules_cache() — called from CRUD edit
+# endpoints + tests that mutate hub.client_parser_rules. Cache is server-
+# wide (single process); multi-worker deployments invalidate per-worker.
+_RULES_CACHE: dict[tuple[str, str], list[CompiledRule]] = {}
+
+
+def clear_rules_cache() -> None:
+    """Drop the entire rules cache. Call after rule INSERT/UPDATE/DELETE."""
+    _RULES_CACHE.clear()
+
+
+def _load_rules_uncached(*, client_id: str, output_field: str) -> list[CompiledRule]:
+    from app.database import connect
+
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            select rule_id, priority, pattern, source_field,
+                   match_group, match_action, no_match_action
+            from hub.client_parser_rules
+            where client_id = %s and output_field = %s and enabled
+            order by priority asc
+            """,
+            (client_id, output_field),
+        )
+        rows = cur.fetchall()
+    return [
+        CompiledRule(
+            rule_id=rule_id,
+            output_field=output_field,
+            priority=priority,
+            source_field=source_field,
+            match_group=match_group,
+            match_action=match_action,
+            no_match_action=no_match_action,
+            compiled=compile_pattern(pattern),
+        )
+        for (rule_id, priority, pattern, source_field, match_group,
+             match_action, no_match_action) in rows
+    ]
+
+
+def load_rules(*, client_id: str, output_field: str) -> list[CompiledRule]:
+    """Load enabled rules for (client_id, output_field), priority asc,
+    compiled and ready for evaluate_compiled_rules. Cached server-wide."""
+    key = (client_id, output_field)
+    cached = _RULES_CACHE.get(key)
+    if cached is not None:
+        return cached
+    rules = _load_rules_uncached(client_id=client_id, output_field=output_field)
+    _RULES_CACHE[key] = rules
+    return rules
