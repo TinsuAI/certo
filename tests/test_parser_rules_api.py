@@ -268,6 +268,78 @@ def test_test_endpoint_no_match_returns_null_output(cid):
 # ── UI page smoke (session-authed) ──────────────────────────────────
 
 
+def test_ui_edit_page_renders(cid):
+    """The edit page pre-fills with current rule values."""
+    c = _client()
+    c.post(
+        "/login",
+        data={"email": "admin@data-hub.local", "password": "admin123"},
+        follow_redirects=False,
+    )
+    r = c.post(
+        f"/v1/hub/clients/{cid}/parser-rules",
+        json={"output_field": "internal_code", "priority": 42,
+              "pattern": r"\((\w+)\)", "notes": "edit test"},
+        headers=_headers(_dev_token()),
+    )
+    rule_id = r.json()["rule_id"]
+    r = c.get(
+        f"/clients/{cid}/parser-rules/{rule_id}/edit",
+        follow_redirects=False,
+    )
+    assert r.status_code == 200, r.text
+    assert "Edit rule" in r.text
+    assert 'value="42"' in r.text  # priority pre-filled
+    assert "edit test" in r.text   # notes pre-filled
+
+
+def test_ui_test_panel_recent_mode_renders(cid):
+    """Recent-rows mode runs against last N BCCT rows for the client.
+    With no rows for this fresh client, returns empty list — page still
+    renders cleanly."""
+    c = _client()
+    c.post(
+        "/login",
+        data={"email": "admin@data-hub.local", "password": "admin123"},
+        follow_redirects=False,
+    )
+    c.post(
+        f"/v1/hub/clients/{cid}/parser-rules",
+        json={"output_field": "internal_code", "priority": 10,
+              "pattern": r"\((\w+)\)"},
+        headers=_headers(_dev_token()),
+    )
+    r = c.post(
+        f"/clients/{cid}/parser-rules/test",
+        data={"output_field": "internal_code", "mode": "recent"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 200, r.text
+    assert "Recent 50 rows" in r.text
+
+
+def test_ui_test_panel_coverage_mode_renders(cid):
+    c = _client()
+    c.post(
+        "/login",
+        data={"email": "admin@data-hub.local", "password": "admin123"},
+        follow_redirects=False,
+    )
+    c.post(
+        f"/v1/hub/clients/{cid}/parser-rules",
+        json={"output_field": "internal_code", "priority": 10,
+              "pattern": r"\((\w+)\)"},
+        headers=_headers(_dev_token()),
+    )
+    r = c.post(
+        f"/clients/{cid}/parser-rules/test",
+        data={"output_field": "internal_code", "mode": "coverage"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 200, r.text
+    assert "Coverage over last 1k rows" in r.text
+
+
 def test_ui_page_renders_for_dev(cid):
     """The /clients/<id>/parser-rules page lists rules and shows the
     add/test forms. Session-authed; uses the dev admin seed."""
@@ -287,6 +359,66 @@ def test_ui_page_renders_for_dev(cid):
     assert "Parser rules" in r.text
     assert "Add rule" in r.text
     assert "Test panel" in r.text
+
+
+# ── GET history endpoint ────────────────────────────────────────────
+
+
+def test_history_returns_audit_trail_for_rule(cid):
+    """Audit trigger logs every INSERT/UPDATE/DELETE on
+    client_parser_rules. The history endpoint exposes that timeline."""
+    c = _client()
+    r = c.post(
+        f"/v1/hub/clients/{cid}/parser-rules",
+        json={"output_field": "internal_code", "priority": 10,
+              "pattern": r"\((\w+)\)", "notes": "v1"},
+        headers=_headers(_dev_token()),
+    )
+    rule_id = r.json()["rule_id"]
+
+    c.patch(
+        f"/v1/hub/clients/{cid}/parser-rules/{rule_id}",
+        json={"priority": 99, "notes": "v2"},
+        headers=_headers(_dev_token()),
+    )
+    c.delete(
+        f"/v1/hub/clients/{cid}/parser-rules/{rule_id}",
+        headers=_headers(_dev_token()),
+    )
+
+    r = c.get(
+        f"/v1/hub/clients/{cid}/parser-rules/{rule_id}/history",
+        headers=_headers(_dev_token()),
+    )
+    assert r.status_code == 200, r.text
+    items = r.json()["items"]
+    # Three audit events recorded: insert (creation), update (patch),
+    # update (soft-disable). Newest first.
+    kinds = [it["change_kind"] for it in items]
+    assert kinds == ["update", "update", "insert"]
+    # The patch event: notes went v1 → v2, priority 10 → 99.
+    patch_event = next(
+        it for it in items
+        if it["change_kind"] == "update"
+        and it["new_state"].get("priority") == 99
+        and it["new_state"].get("enabled") is True
+    )
+    assert patch_event["prev_state"]["notes"] == "v1"
+    assert patch_event["new_state"]["notes"] == "v2"
+    # The soft-disable event flips enabled.
+    disable_event = next(
+        it for it in items
+        if it["change_kind"] == "update" and it["new_state"]["enabled"] is False
+    )
+    assert disable_event["prev_state"]["enabled"] is True
+
+
+def test_history_404_for_unknown_rule_id(cid):
+    r = _client().get(
+        f"/v1/hub/clients/{cid}/parser-rules/999999/history",
+        headers=_headers(_dev_token()),
+    )
+    assert r.status_code == 404
 
 
 def test_create_invalidates_rule_cache(cid):

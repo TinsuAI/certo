@@ -65,6 +65,10 @@
         </td>
         <td>
           {% if r.enabled %}
+          <a class="btn-secondary"
+             href="/clients/{{ client.client_id }}/parser-rules/{{ r.rule_id }}/edit">
+            Edit
+          </a>
           <form method="post"
                 action="/clients/{{ client.client_id }}/parser-rules/{{ r.rule_id }}/disable"
                 style="display:inline;">
@@ -137,8 +141,13 @@
 <section class="zone">
   <div class="zone-head">
     <h2>Test panel</h2>
-    <p class="meta">Paste a sample value, see which rule matches. Read-only.</p>
+    <p class="meta">Read-only — never persists. Three modes:
+      <strong>single sample</strong> (paste one value),
+      <strong>recent rows</strong> (last 50 BCCT rows for this client),
+      <strong>coverage</strong> (resolved/null counts over last 1k rows).
+    </p>
   </div>
+
   <form method="post" action="/clients/{{ client.client_id }}/parser-rules/test"
         class="settings-form">
     <div class="settings-grid">
@@ -149,19 +158,21 @@
       </label>
     </div>
     <label class="field">
-      <span class="field-label">sample_input</span>
+      <span class="field-label">sample_input (single-sample mode only)</span>
       <input type="text" name="sample_input" style="font-family: monospace;"
              value="{{ test_result.sample_input if test_result else '' }}"
              placeholder="BIENTAN.17#&Hàng (PV01.0117500)#&VN">
     </label>
     <div class="page-actions">
-      <button type="submit" class="btn-secondary">Run test</button>
+      <button type="submit" name="mode" value="single" class="btn-secondary">Run on sample</button>
+      <button type="submit" name="mode" value="recent" class="btn-secondary">Run on recent 50 rows</button>
+      <button type="submit" name="mode" value="coverage" class="btn-secondary">Coverage (last 1k)</button>
     </div>
   </form>
 
-  {% if test_result %}
+  {% if test_result and test_result.mode == 'single' %}
   <div class="zone-head" style="margin-top: 1.5rem;">
-    <h3>Result</h3>
+    <h3>Single-sample result</h3>
   </div>
   <p>
     <strong>Final output:</strong>
@@ -200,6 +211,61 @@
       {% endfor %}
     </tbody>
   </table>
+  {% endif %}
+
+  {% if test_result and test_result.mode == 'recent' %}
+  <div class="zone-head" style="margin-top: 1.5rem;">
+    <h3>Recent 50 rows · source field <code>{{ test_result.recent_source_field }}</code></h3>
+  </div>
+  {% if test_result.recent %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Decl / line</th>
+        <th>Customs</th>
+        <th>{{ test_result.recent_source_field }} (truncated)</th>
+        <th>Output</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in test_result.recent %}
+      <tr>
+        <td class="mono">{{ r.declaration_no or '' }} / {{ r.line_no }}</td>
+        <td class="mono">{{ r.customs_code or '' }}</td>
+        <td><code>{{ r.source_value }}</code></td>
+        <td>
+          {% if r.output is none %}
+          <span class="badge badge-warning">None</span>
+          {% else %}<code>{{ r.output }}</code>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta">No rows for this client yet.</p>
+  {% endif %}
+  {% endif %}
+
+  {% if test_result and test_result.mode == 'coverage' %}
+  <div class="zone-head" style="margin-top: 1.5rem;">
+    <h3>Coverage over last 1k rows · source field <code>{{ test_result.coverage.source_field }}</code></h3>
+  </div>
+  <p>
+    <strong>Total:</strong> {{ test_result.coverage.total }} rows ·
+    <strong>Resolved:</strong>
+    <span class="badge badge-success">{{ test_result.coverage.resolved }}</span> ·
+    <strong>Null:</strong>
+    <span class="badge badge-warning">{{ test_result.coverage.null }}</span>
+  </p>
+  {% if test_result.coverage.sample_resolved %}
+  <p class="meta">Sample of resolved outputs (first 10):</p>
+  <ul class="mono">
+    {% for s in test_result.coverage.sample_resolved %}
+    <li><code>{{ s }}</code></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
   {% endif %}
 </section>
 

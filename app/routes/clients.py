@@ -325,6 +325,76 @@ async def parser_rules_create(request: Request, client_id: str,
     )
 
 
+@router.get("/clients/{client_id}/parser-rules/{rule_id}/edit",
+            response_class=HTMLResponse)
+async def parser_rules_edit_view(request: Request, client_id: str, rule_id: int,
+                                 error: str = ""):
+    user = auth.require_user(request)
+    if not auth.can_edit_client_technical(user, client_id):
+        raise HTTPException(403, "forbidden")
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select rule_id, output_field, priority, pattern, source_field, "
+            "  match_group, match_action, no_match_action, enabled, notes "
+            "from hub.client_parser_rules where client_id=%s and rule_id=%s",
+            (client_id, rule_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "Rule not found")
+        cols = [d[0] for d in cur.description]
+        rule = dict(zip(cols, row))
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/parser_rule_edit.html",
+        {"client": client, "stats": stats_for_client(client_id),
+         "rule": rule, "error": error,
+         "active_root": "clients", "active_tab": "parser_rules"},
+    )
+
+
+@router.post("/clients/{client_id}/parser-rules/{rule_id}/edit")
+async def parser_rules_edit_post(request: Request, client_id: str, rule_id: int,
+                                 priority: int = Form(...),
+                                 pattern: str = Form(...),
+                                 source_field: str = Form("goods_name"),
+                                 match_action: str = Form("capture"),
+                                 no_match_action: str = Form("next_rule"),
+                                 match_group: int = Form(1),
+                                 notes: str = Form("")):
+    user = auth.require_user(request)
+    if not auth.can_edit_client_technical(user, client_id):
+        raise HTTPException(403, "forbidden")
+    from app.parsers.client_parser_rules import (
+        InvalidPatternError, clear_rules_cache, compile_pattern,
+    )
+    try:
+        compile_pattern(pattern)
+    except InvalidPatternError as e:
+        return RedirectResponse(
+            url=f"/clients/{client_id}/parser-rules/{rule_id}/edit?error={str(e)}",
+            status_code=303,
+        )
+    with connect(user_id=user.user_id) as conn, conn.cursor() as cur:
+        cur.execute(
+            "update hub.client_parser_rules "
+            "set priority=%s, pattern=%s, source_field=%s, "
+            "    match_group=%s, match_action=%s, no_match_action=%s, "
+            "    notes=%s "
+            "where client_id=%s and rule_id=%s",
+            (priority, pattern, source_field, match_group,
+             match_action, no_match_action, notes.strip() or None,
+             client_id, rule_id),
+        )
+    clear_rules_cache()
+    return RedirectResponse(
+        url=f"/clients/{client_id}/parser-rules?flash=Rule+{rule_id}+updated",
+        status_code=303,
+    )
+
+
 @router.post("/clients/{client_id}/parser-rules/{rule_id}/disable")
 async def parser_rules_disable(request: Request, client_id: str, rule_id: int):
     user = auth.require_user(request)
@@ -344,25 +414,14 @@ async def parser_rules_disable(request: Request, client_id: str, rule_id: int):
     )
 
 
-@router.post("/clients/{client_id}/parser-rules/test", response_class=HTMLResponse)
-async def parser_rules_test_view(request: Request, client_id: str,
-                                 output_field: str = Form("internal_code"),
-                                 sample_input: str = Form("")):
-    """Run sample_input through the client's rules and re-render the page
-    with a trace appended. Read-only; never persists."""
-    user = auth.require_user(request)
-    if not auth.can_edit_client_technical(user, client_id):
-        raise HTTPException(403, "forbidden")
-    client = get_client(client_id)
-    if not client:
-        raise HTTPException(404, "Client not found")
-    from app.parsers.client_parser_rules import load_rules
-    rules_eval = load_rules(client_id=client_id, output_field=output_field)
+def _evaluate_for_test_panel(rules_eval, source_value: str) -> tuple[str | None, list[dict]]:
+    """Run a single source_value through compiled rules. Returns
+    (final_output, trace) — same shape the JSON /test endpoint emits."""
     trace: list[dict] = []
     final: str | None = None
     final_set = False
     for r in rules_eval:
-        m = r.compiled.search(sample_input)
+        m = r.compiled.search(source_value)
         entry = {
             "rule_id": r.rule_id, "priority": r.priority,
             "matched": bool(m), "match_action": r.match_action,
@@ -380,6 +439,10 @@ async def parser_rules_test_view(request: Request, client_id: str,
             final = None
             final_set = True
         trace.append(entry)
+    return final, trace
+
+
+def _list_rules_for_template(client_id: str) -> list[dict]:
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "select rule_id, output_field, priority, pattern, source_field, "
@@ -389,13 +452,88 @@ async def parser_rules_test_view(request: Request, client_id: str,
             (client_id,),
         )
         cols = [d[0] for d in cur.description]
-        rules_list = [dict(zip(cols, r)) for r in cur.fetchall()]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+@router.post("/clients/{client_id}/parser-rules/test", response_class=HTMLResponse)
+async def parser_rules_test_view(request: Request, client_id: str,
+                                 output_field: str = Form("internal_code"),
+                                 sample_input: str = Form(""),
+                                 mode: str = Form("single")):
+    """Run sample_input (mode=single) OR last N BCCT rows (mode=recent)
+    OR aggregate counts over last 1k rows (mode=coverage) through the
+    client's rules. Read-only; never persists."""
+    user = auth.require_user(request)
+    if not auth.can_edit_client_technical(user, client_id):
+        raise HTTPException(403, "forbidden")
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    from app.parsers.client_parser_rules import load_rules
+    rules_eval = load_rules(client_id=client_id, output_field=output_field)
+    test_result: dict = {
+        "mode": mode, "output_field": output_field,
+        "sample_input": sample_input,
+    }
+    if mode == "recent":
+        # Last 50 rows; show source_value + computed output per row.
+        source = rules_eval[0].source_field if rules_eval else "goods_name"
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"select transaction_key, line_no, declaration_no, "
+                f"       customs_code, {source} as source_value "
+                f"from hub.bcct_rows where client_id = %s "
+                f"order by indexed_at desc limit 50",
+                (client_id,),
+            )
+            rows = cur.fetchall()
+        recent = []
+        for txkey, line, decl, customs, src_val in rows:
+            out, _ = _evaluate_for_test_panel(rules_eval, src_val or "")
+            recent.append({
+                "transaction_key": txkey, "line_no": line,
+                "declaration_no": decl, "customs_code": customs,
+                "source_value": (src_val or "")[:120],
+                "output": out,
+            })
+        test_result["recent"] = recent
+        test_result["recent_source_field"] = source
+    elif mode == "coverage":
+        source = rules_eval[0].source_field if rules_eval else "goods_name"
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"select {source} from hub.bcct_rows where client_id = %s "
+                f"order by indexed_at desc limit 1000",
+                (client_id,),
+            )
+            sources = [r[0] or "" for r in cur.fetchall()]
+        resolved = 0
+        null_count = 0
+        sample_resolved: list[str] = []
+        for src in sources:
+            out, _ = _evaluate_for_test_panel(rules_eval, src)
+            if out is None:
+                null_count += 1
+            else:
+                resolved += 1
+                if len(sample_resolved) < 10:
+                    sample_resolved.append(out)
+        test_result["coverage"] = {
+            "total": len(sources),
+            "resolved": resolved,
+            "null": null_count,
+            "sample_resolved": sample_resolved,
+            "source_field": source,
+        }
+    else:
+        # mode=single (default)
+        final, trace = _evaluate_for_test_panel(rules_eval, sample_input)
+        test_result["final_output"] = final
+        test_result["trace"] = trace
     return request.app.state.templates.TemplateResponse(
         request, "clients/parser_rules.html",
         {"client": client, "stats": stats_for_client(client_id),
-         "rules": rules_list, "test_result": {
-             "sample_input": sample_input, "output_field": output_field,
-             "final_output": final, "trace": trace,
-         },
+         "rules": _list_rules_for_template(client_id),
+         "test_result": test_result,
          "active_root": "clients", "active_tab": "parser_rules"},
     )

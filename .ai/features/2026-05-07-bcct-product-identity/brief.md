@@ -296,3 +296,106 @@ script + cross-repo notes 1h.
 
 After D1-D10 + Q1-Q5 confirmed: open `/tdd` with the resolver core as
 the first test target.
+
+---
+
+## Amendment 2026-05-08 — `material_identity` rename + drop `internal_code` + configurable parser rules
+
+Superseded by `.ai/features/2026-05-08-configurable-bcct-parsing/brief.md`
+(commits 046601e..ab09d83). Three changes shipped that retroactively
+correct or extend decisions in this brief:
+
+### Naming: `product_identity` → `material_identity`
+
+Per the in-brief amendment (above), resolver scope expanded from
+"BOM product code" to "canonical material/product (any kind: TP, BTP,
+NVL, CCDC)". The column + table + module + API param names did not
+catch up. Mig 035 renames:
+
+- `bcct_rows.product_identity` → `material_identity`
+- `bcct_product_identity_review` → `bcct_material_identity_review`
+- `app/resolvers/bcct_product_identity.py` → `bcct_material_identity.py`
+- `resolve_product_identity` → `resolve_material_identity`
+- API params: `include_product_identity` → `include_material_identity`,
+  `product_identity_candidate_limit` → `material_identity_candidate_limit`
+
+JSON field names INSIDE the jsonb (`bom_product_code`, `resolved_code`,
+`product_kind`, etc.) are unchanged — `bom_product_code` is the right
+name for the conditional alias when the resolved material has alive
+BOM (CO consumer relies on this exact semantic).
+
+### R4 correction (was: "internal_code semantic clash")
+
+The original R4 wording read:
+
+> Growatt's existing `bcct_rows.internal_code` column stores
+> `BIENTAN.17`-shape codes (agency ERP code), NOT BOM product codes.
+> Don't repurpose. New field `product_identity.bom_product_code` is
+> distinct. Keep both columns intact; CO consumes the new one.
+
+This was based on a misread of the data. `bcct_rows.internal_code`
+was a denormalized cache of a regex parse that happened to be **buggy**:
+
+- F1 anchor `\)\s*$` too strict — failed on Growatt export shape
+  `BIENTAN.17#&...(PV01.0117500)#&VN` because of the trailing `#&VN`
+  suffix. Result: 666/666 export rows fell through to F3 fallback.
+- F1 disjunction `\d{3}\.\w+|[A-Z]{2,}\d{2}\.\w+` too narrow — missed
+  `B700.x`, `00G.x` shapes (~14 import rows).
+- F3 fallback aggressively returned the leading prefix (= customs_code),
+  conflating "no resolved internal code" with "internal == customs"
+  for ~75 rows.
+
+The 666 export rows showing `internal_code = BIENTAN.17` were not
+"agency ERP codes". They were `customs_code` values mistakenly stored
+in `internal_code` because of the F3 fallback path. The real agency
+internal code lived in the `(PV01.xxxx)` parens, ignored by F1.
+
+Mig 035 drops `bcct_rows.internal_code` entirely. Runtime computation
+via `app/parsers/derivations.py::compute_internal_code(row, *, client)`:
+- Identity-mode clients: `internal_code = customs_code`.
+- All other clients: evaluate `hub.client_parser_rules` for
+  `output_field='internal_code'`. Mig 036 seeds 5 patterns for
+  `growatt-vn` that fix all three bugs above.
+
+### Configurable parser rules
+
+`app/parsers/goods_name.py` (regex hardcode) deleted. Replaced with
+`hub.client_parser_rules` table — staff edit per-client regex via UI
+at `/clients/<id>/parser-rules` (dev role only). ReDoS-safe via
+google-re2.
+
+`app/parsers/bcct_adapters/{growatt.py, identity.py}` also deleted —
+material_identity Stage 2 candidate extraction now uses the same
+rule engine via `extract_all_matches_from_compiled` against
+`output_field='material_identity_candidates'`. Mig 037 seeds the
+Growatt rule.
+
+`parser_adapter` field in response shape now reads
+`"client_parser_rules"` (constant) instead of per-adapter name.
+Per-rule semantic identifiers flow through `evidence.match_rule` via
+the rule's `notes` column.
+
+### `display_code` semantic correction
+
+The shipped resolver had:
+```python
+"display_code": row.get("internal_code") or row.get("customs_code") or "",
+```
+
+This conflated "best display" with "what was filed". After mig 035
+dropped `internal_code` from the row dict, lazy-fill paths produced
+`display_code = customs_code` instead of the resolved canonical.
+
+Corrected (commit `5e5cb66`):
+- `_resolved.display_code = code` (the resolved canonical).
+- `_empty_result.display_code = customs_code` only.
+- Lazy-fill in `_attach_material_identity` injects `compute_internal_code`
+  per row before resolver call so `declared_internal_code` matches
+  ingest-path output.
+
+### Backfill story
+
+The original D10 backfill script was retained, with two changes:
+- Module renamed to `scripts/resolve_bcct_material_identity.py`.
+- Reads `internal_code` via `compute_internal_code(row, client=client)`
+  per row (column gone).

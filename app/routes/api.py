@@ -1410,6 +1410,48 @@ async def api_delete_parser_rule(
     return _json({"rule_id": rule_id, "enabled": False})
 
 
+@router.get("/clients/{client_id}/parser-rules/{rule_id}/history")
+async def api_parser_rule_history(
+    client_id: str, rule_id: int,
+    limit: int = 100,
+    authorization: str | None = Header(None),
+):
+    """Audit timeline for a single rule. Newest first. Driven by the
+    AFTER INSERT/UPDATE/DELETE trigger on client_parser_rules."""
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
+    safe_limit = max(1, min(int(limit), 500))
+    with connect() as conn, conn.cursor() as cur:
+        # Confirm the rule belongs to this client (tenant isolation).
+        cur.execute(
+            "select 1 from hub.client_parser_rules "
+            "where client_id = %s and rule_id = %s",
+            (client_id, rule_id),
+        )
+        if not cur.fetchone():
+            raise HTTPException(404, "rule not found")
+        cur.execute(
+            "select history_id, change_kind, changed_by, changed_at, "
+            "       prev_state, new_state "
+            "from hub.client_parser_rules_history "
+            "where rule_id = %s "
+            "order by changed_at desc "
+            "limit %s",
+            (rule_id, safe_limit),
+        )
+        items = []
+        for hid, kind, by, at, prev, new in cur.fetchall():
+            items.append({
+                "history_id": hid,
+                "change_kind": kind,
+                "changed_by": by,
+                "changed_at": at.isoformat() if at else None,
+                "prev_state": prev,
+                "new_state": new,
+            })
+    return _json({"rule_id": rule_id, "items": items})
+
+
 @router.post("/clients/{client_id}/parser-rules/test")
 async def api_test_parser_rules(
     client_id: str, request: Request,
