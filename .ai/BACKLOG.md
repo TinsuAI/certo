@@ -8,6 +8,42 @@ For past architectural decisions, see `DECISIONS.md`.
 
 ---
 
+## Parser-rules infra polish (deferred 2026-05-08)
+
+Captured during the configurable-bcct-parsing bundle session
+(commits `046601e..9dbbbca`). Core CRUD + UI + 3 test panel modes
+shipped; below are nice-to-haves deferred:
+
+1. **Playwright E2E** for `/clients/<id>/parser-rules` flow:
+   create rule → test panel preview → disable → audit history.
+   Memory `feedback_feature_folder_with_screenshots.md` requires
+   committed screenshots for UI features.
+2. **Per-key cache invalidation** for `_RULES_CACHE` in
+   `app/parsers/client_parser_rules.py`. Currently any rule edit
+   calls `clear_rules_cache()` which drops all cached entries
+   process-wide. Benign at current scale (~5-10 clients × 1-2 output
+   fields), but per-key drop would scale better.
+3. **`preview_token` mechanism** on rule create/update endpoints
+   (brief R2 belt-and-suspenders). Save-time would require user to
+   have run preview within last N minutes against the same pattern.
+   Defer until first real-world misconfig surfaces.
+4. **CI workflow: soft-fail LLM `/models` smoke step**. Currently
+   `Smoke LLM /models (best effort)` uses `bash -e` which propagates
+   curl exit 22 (401 from upstream `codex-lb-demo.sgnai.dev`).
+   Fix in `.github/workflows/<workflow>.yml`: add
+   `continue-on-error: true` OR rewrite the step to gracefully
+   handle non-2xx without exit. Today the workflow shows red on
+   GitHub even when actual deploy + tests + API smoke pass.
+5. **Memory updates** — pending verification across sessions:
+   - `internal_code` + `material_identity` columns gone; live via
+     runtime helpers.
+     - Hardcoded growatt regex replaced by `hub.client_parser_rules`.
+   - BCCT field semantic split: FX (`*_nt`) vs VND domains.
+   - Resolver Stage 2 (paren-extract) wins over Stage 1 (customs).
+   - Payload jsonb sparse; typed columns are source of truth.
+
+---
+
 ## Scripts that lost SQL `material_identity` access (deferred 2026-05-08)
 
 Mig 038 dropped `bcct_rows.material_identity` jsonb column. Three
