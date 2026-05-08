@@ -96,7 +96,12 @@ def test_growatt_paren_code_resolves_when_bom_exists():
     assert pid["resolution_source"] == "goods_name_embedded_code"
     assert pid["confidence"] == "high"
     assert pid["review_status"] == "system_resolved"
-    assert pid["display_code"] == "BIENTAN.17"
+    # display_code is the canonical resolved form (post-2026-05-08 brief D8):
+    # for resolved rows it equals resolved_code; for empty/ambiguous rows it
+    # falls back to customs_code. Decoupled from the row's `internal_code`
+    # so lazy-fill on rows missing internal_code still produces the right
+    # value.
+    assert pid["display_code"] == "PV01.0117500"
     assert pid["declared_customs_code"] == "BIENTAN.17"
     assert pid["declared_internal_code"] == "BIENTAN.17"
     assert pid["line_key"] == {
@@ -114,6 +119,39 @@ def test_growatt_paren_code_resolves_when_bom_exists():
     # Candidates list contains the matched code with high confidence.
     assert any(c["product_code"] == "PV01.0117500"
                and c["confidence"] == "high" for c in pid["candidates"])
+
+
+def test_resolved_display_code_independent_of_row_internal_code():
+    """Regression for lazy-fill: a row missing `internal_code` (e.g. read
+    from a SELECT that no longer fetches the dropped column) still
+    produces the correct canonical display_code = resolved_code."""
+    row_without_internal_code = {
+        **GROWATT_ROW,
+    }
+    row_without_internal_code.pop("internal_code", None)
+    ctx = _ctx(materials=[("PV01.0117500", "tp", 1)])
+    pid = resolve_material_identity(row_without_internal_code, ctx=ctx)
+
+    assert pid["resolution_status"] == "resolved"
+    assert pid["resolved_code"] == "PV01.0117500"
+    assert pid["display_code"] == "PV01.0117500"  # not customs_code, not ""
+    assert pid["declared_customs_code"] == "BIENTAN.17"
+    assert pid["declared_internal_code"] == ""    # row had no internal_code
+
+
+def test_empty_result_display_code_falls_back_to_customs_code():
+    """When no rule resolves, display_code is the customs_code (best
+    fallback identifier) — never empty when customs_code is present."""
+    row = {
+        **GROWATT_ROW,
+        "goods_name": "no shape that resolver will recognize",
+    }
+    ctx = _ctx(materials=[])  # nothing matches
+    pid = resolve_material_identity(row, ctx=ctx)
+
+    assert pid["resolution_status"] != "resolved"
+    assert pid["resolved_code"] is None
+    assert pid["display_code"] == "BIENTAN.17"   # = customs_code
 
 
 # ─────────────────────────────────────────────────────────────────────

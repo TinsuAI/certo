@@ -325,13 +325,16 @@ def _empty_result(row: dict, ctx: ResolverContext, *, status: str,
                   confidence: str | None = None,
                   review_status: str = "needs_review") -> dict:
     adapter = _adapter_for(ctx)
+    # display_code: when no resolution, fall back to customs_code. The
+    # parser-derived internal_code is captured in declared_internal_code
+    # below (when present in row dict).
     out = {
         "resolution_status": status,
         "resolved_code": None,
         "bom_product_code": None,
         "product_kind": None,
         "selected_candidate_code": selected_candidate_code,
-        "display_code": row.get("internal_code") or row.get("customs_code") or "",
+        "display_code": row.get("customs_code") or "",
         "declared_customs_code": row.get("customs_code") or "",
         "declared_internal_code": row.get("internal_code") or "",
         "line_key": _line_key(row, ctx),
@@ -352,13 +355,18 @@ def _resolved(row: dict, ctx: ResolverContext, *, code: str,
               confidence: str = "high",
               review_status: str = "system_resolved") -> dict:
     adapter = _adapter_for(ctx)
+    # display_code is the canonical resolved form (= the resolved code),
+    # not the parser-derived internal_code. Decoupled per brief D8 so
+    # lazy-fill on rows missing `internal_code` still produces the right
+    # display value — consumer reads display_code as "best identifier
+    # for this row".
     out = {
         "resolution_status": "resolved",
         "resolved_code": code,
         "bom_product_code": _bom_alias(code, ctx),
         "product_kind": _kind_for(code, ctx),
         "selected_candidate_code": code,
-        "display_code": row.get("internal_code") or row.get("customs_code") or "",
+        "display_code": code,
         "declared_customs_code": row.get("customs_code") or "",
         "declared_internal_code": row.get("internal_code") or "",
         "line_key": _line_key(row, ctx),

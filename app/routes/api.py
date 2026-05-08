@@ -583,6 +583,7 @@ def _attach_material_identity(items: list[dict], *, client_id: str,
     """
     if not items:
         return
+    from app.parsers.derivations import compute_internal_code
     from app.resolvers.bcct_material_identity import (
         ResolverContext, resolve_material_identity,
     )
@@ -595,12 +596,27 @@ def _attach_material_identity(items: list[dict], *, client_id: str,
             if pid and isinstance(pid.get("candidates"), list):
                 pid["candidates"] = pid["candidates"][:candidate_limit]
         return
+    # Lazy-fill needs the client config to compute internal_code per row
+    # (rows from SELECT no longer carry the dropped column). One query
+    # for context + one for the client; both reused across rows.
     with connect() as conn, conn.cursor() as cur:
         ctx = ResolverContext.from_db(
             client_id, cur, candidate_limit=candidate_limit,
         )
+        cur.execute(
+            "select code_resolution_mode from hub.clients where client_id=%s",
+            (client_id,),
+        )
+        row = cur.fetchone()
+        client = {
+            "client_id": client_id,
+            "code_resolution_mode": row[0] if row else "simple_mapping",
+        }
     for it in items:
         if it.get("material_identity") is None:
+            # Inject computed internal_code so resolver populates
+            # declared_internal_code consistently with the ingest path.
+            it["internal_code"] = compute_internal_code(it, client=client)
             it["material_identity"] = resolve_material_identity(it, ctx=ctx)
         elif isinstance(it["material_identity"].get("candidates"), list):
             it["material_identity"]["candidates"] = \

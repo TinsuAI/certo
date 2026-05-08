@@ -953,6 +953,7 @@ def _list_bcct(client_id: str, year: int | None, direction: str | None,
                b.direction, b.registration_date, b.customs_code,
                b.goods_name, b.hs_code, b.quantity, b.unit, b.total_value,
                b.currency, b.origin,
+               b.material_identity,
                coalesce(h.event_count, 0) as history_count,
                h.last_changed_at
         from hub.bcct_rows b

@@ -72,7 +72,7 @@
         <th>{{ t('bcct.col.direction') }}</th>
         {{ sort_th('registration_date', t('bcct.col.date')) }}
         {{ sort_th('customs_code', t('bcct.col.customs_code')) }}
-        {{ sort_th('internal_code', t('bcct.col.internal_code')) }}
+        <th>{{ t('bcct.col.internal_code') }}</th>
         <th>{{ t('bcct.col.goods_name') }}</th>
         <th>{{ t('bcct.col.qty') }}</th>
         <th>{{ t('bcct.col.unit') }}</th>
@@ -94,7 +94,7 @@
         </td>
         <td class="mono">{{ r.registration_date.strftime('%Y-%m-%d') if r.registration_date else '' }}</td>
         <td class="mono">{{ r.customs_code or '' }}</td>
-        <td class="mono">{{ r.internal_code or '' }}</td>
+        <td class="mono">{{ (r.material_identity.display_code if r.material_identity else '') or '' }}</td>
         <td>{{ r.goods_name[:48] if r.goods_name else '' }}{% if r.goods_name and r.goods_name|length > 48 %}…{% endif %}</td>
         <td class="mono">{{ '%.2f'|format(r.quantity) if r.quantity else '' }}</td>
         <td class="mono">{{ r.unit or '' }}</td>
