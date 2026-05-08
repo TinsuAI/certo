@@ -1,7 +1,7 @@
-# Session 2026-05-08 — material_identity rename + drop internal_code + configurable parser rules
+# Session 2026-05-08 — BCCT identity + parser-rules + payload promotion bundle
 
-**Outcome:** end-to-end bundle shipped in 7 commits (`046601e..ae77a74`).
-Suite: 633 pass / 15 skip / 1 pre-existing fail.
+**Outcome:** end-to-end bundle shipped in 14 commits (`046601e..37b8046`).
+Suite: 626 pass / 15 skip / **0 fail**. 7 migrations applied (035-041).
 
 ## What was done
 
@@ -142,23 +142,98 @@ Fixed #3 in commit `ab09d83`:
 - Initial test fixture passed `internal_code="BIENTAN.17"` reflecting
   the buggy state. Updated to use computed value (PV01.0117500) post-fix.
 
+## Phase 5 — mid-session pivots driven by user feedback
+
+After the original brief was committed, user raised 4 architectural
+issues during verification:
+
+### Issue 1: row 308416454160-3 — Stage 1 too eager
+
+User clicked into a Growatt export row and saw display_code =
+BIENTAN.20 (the customs prefix), not PV02.0228801 (agency BOM code
+in goods_name parens). Investigation: both codes were in materials
+catalog but Stage 1 fired first, returning customs_code as resolved.
+
+**Fix (commit `a41f84e`)**: swap stage order in
+`resolve_material_identity`. Stage 2 (paren-extract) goes first;
+Stage 1 falls through. Identity-mode clients (no rules) naturally
+fall through to Stage 1.
+
+### Issue 2: per-row inspect view request
+
+User wanted a way to see all fields per row including computed ones
++ visual marker distinguishing computed from raw DB columns.
+
+**Fix (commit `6a31fc9`)**: extend `/clients/<id>/bcct/history/<txn>/<line>`
+into a full inspect page with two sections:
+- "Trạng thái hiện tại" — all 35 raw row columns + computed fields
+  (internal_code, full material_identity jsonb expandable).
+- "Lịch sử thay đổi" — original audit events table.
+
+UI markers: header gets `ƒ` (math-function symbol) with tooltip;
+cell gets italic + opacity + tooltip showing `resolution_source`.
+
+### Issue 3: row 308382318920-1 — currency=USD with VND amounts
+
+User caught a Johnson export with `currency=USD` and
+`total_value=57,456,231.43` — USD doesn't have those magnitudes.
+
+Root cause: parser ALIASES conflated FX-domain ("Đơn vị tiền tệ",
+"Trị giá NT", "Đơn giá") with VND-converted ("Đơn giá tính thuế",
+"Tổng trị giá") into single fields. Stored VND amounts but tagged
+with FX currency. ~70k rows affected.
+
+**Fix (mig 039 + 040 + 041, commits `932ea10` + `db0f1ef` +
+`37b8046`)**:
+- Phase 1 (Tier 1): rename `currency` → `currency_nt` (FX
+  semantic). Add `total_value_nt`, `unit_price_nt`, `total_tax`,
+  `unloading_location` typed columns. Backfill from payload jsonb.
+  Parser ALIASES split FX vs VND.
+- Phase 2 (Tier 2): add `contract_no`, `contract_date`,
+  `internal_mgmt_no`, `package_marks`. Same backfill pattern.
+- Phase 3 (prune): drop 38 typed-already keys from payload jsonb
+  (~2.86M jsonb entries removed across 75k rows). Parser
+  `payload` build now skips `typed_indices`.
+
+User's framing: "lôi hết đống trong payload ra bên ngoài thành các
+cột" — payload should only carry data NOT extractable to typed
+columns. Aligns with the same principle as mig 035/038 (no
+duplicate-cache).
+
+**Field semantic post-mig 039**:
+- FX-domain: `currency_nt`, `total_value_nt`, `unit_price_nt`.
+- VND-domain (taxable): `total_value`, `unit_price`, `total_tax`,
+  `exchange_rate`.
+
+Bug user reported now resolved: row 308382318920-1 has
+`currency_nt=USD`, `total_value_nt=2114.10` (FX), `total_value=57.4M`
+(VND). Domains explicit + consistent.
+
 ## Open items (carry to next session)
 
-1. `git push origin main` — 16 commits ahead.
-2. CO consumer migration session (sister-app note staged).
+1. `git push origin main` — 22 commits ahead.
+2. **CO consumer migration session** — sister-app note has detailed
+   migration steps for ALL changes (rename, drops, currency split).
+   CO's `data_hub_client.py` reads at 6+ sites need updating;
+   `payload->>'Tên doanh nghiệp'` etc. must switch to typed columns.
 3. Wipe + ingest fresh Growatt + Johnson (memory
-   `project_reingest_pending.md`). Now unblocked.
-4. Optional: Playwright E2E for parser-rules UI; per-key cache
-   invalidation; preview_token belt-and-suspenders.
+   `project_reingest_pending.md`). Now triple-unblocked: rule engine
+   works, FX/VND domains split, payload pruned. Next ingest will
+   produce clean rows from scratch.
+4. **BACKLOG** — 3 scripts that lost SQL `material_identity` access
+   (settlement_resolver, detect_dual_source_btps, agent/tools).
+   Need Python-side `compute_internal_code()` rewrites.
+5. Optional polish:
+   - Playwright E2E for parser-rules UI.
+   - Per-key cache invalidation in `client_parser_rules` engine.
+   - preview_token belt-and-suspenders on rule writes.
 
 ## Memory updates needed
 
-To save after verifying behavior on dev a few hours:
-- Update memory snippet that mentioned `internal_code` column —
-  it's gone; live value via `compute_internal_code` helper or
-  `material_identity.declared_internal_code`.
-- Update memory snippet about hardcoded growatt regex — now config
-  rules in `hub.client_parser_rules`.
-
-(Deferred per brief D12: write memory after PR merges + behavior
-verified on dev. Will do next session if no regressions surface.)
+Defer to next session per brief D12 — write memory after dev
+behavior verified across a few sessions. Candidates:
+- `internal_code` + `material_identity` columns gone; runtime-derived.
+- Hardcoded growatt regex replaced by `hub.client_parser_rules`.
+- BCCT field semantic split: FX (`*_nt`) vs VND domains.
+- Resolver Stage 2 (paren-extract) wins over Stage 1 (customs).
+- Payload jsonb now sparse; typed columns are source of truth.

@@ -1,26 +1,47 @@
 # Project Status
 
-**Date:** 2026-05-08 — material_identity rename + drop internal_code + configurable parser rules + drop material_identity (mig 038)
+**Date:** 2026-05-08 — full BCCT identity + parser-rules + payload-promotion bundle
 
 ## Current State
 
-End-to-end bundle shipped: `bcct_rows.product_identity` renamed to
-`material_identity` then **dropped entirely** (mig 038). Both
-`internal_code` and `material_identity` are now fully runtime-derived
-from `(row_data, materials_catalog, hub.client_parser_rules)`. No
-persisted derivations. Staff edit per-client regex rules via web UI
-under `/clients/<id>/parser-rules`. Hardcoded Growatt regex
-(`goods_name.py`) and `bcct_adapters/` registry deleted.
+End-to-end bundle of 7 migrations shipped this session, plus
+multiple architectural pivots driven by user feedback during the
+session:
 
-- **Repo HEAD**: `f75d681` on `main` — **NOT YET PUSHED**. 18 commits
-  ahead of origin/main (8 from prior session 2026-05-07 + 10 from this
-  session).
-- **Tests**: 624 pass / 15 skip / 1 pre-existing fail
-  (`test_co_columns` real-data, untouched).
-- **Local DB v3 state**: schema at mig 038 applied; rules seeded for
-  `growatt-vn` (5 internal_code rules + 1 material_identity_candidates
-  rule). Identity-mode clients (DKE, Johnson, Do Thanh, demo) need no
-  rules.
+1. mig 035 — material_identity rename + drop internal_code column.
+2. mig 036 — seed Growatt parser rules (internal_code).
+3. mig 037 — seed Growatt material_identity_candidates rule.
+4. mig 038 — drop material_identity column too (runtime-derived).
+5. mig 039 — promote payload Tier 1: rename `currency`→`currency_nt`
+   + add 4 typed columns (`total_value_nt`, `unit_price_nt`,
+   `total_tax`, `unloading_location`). Fixes currency-tag bug.
+6. mig 040 — promote payload Tier 2: 4 more typed columns
+   (`contract_no`, `contract_date`, `internal_mgmt_no`, `package_marks`).
+7. mig 041 — prune 38 typed-already keys from payload jsonb.
+
+Plus mid-session resolver tweaks:
+- Stage swap (Stage 2 paren-extract before Stage 1 customs_code).
+- display_code semantic = resolved_code (not internal_code).
+- Per-row inspect view at `/clients/<id>/bcct/history/<txn>/<line>`
+  showing all 40 typed columns + computed material_identity jsonb.
+
+Architectural principle: **pure-derivation values are not cached**.
+internal_code (regex over goods_name) and material_identity (5-stage
+resolver) both runtime-only. Custom parser rules live in
+`hub.client_parser_rules`, edited by staff via web UI at
+`/clients/<id>/parser-rules` (dev role).
+
+- **Repo HEAD**: `37b8046` on `main` — **NOT YET PUSHED**. 22 commits
+  ahead of origin/main (8 from prior session 2026-05-07 + 14 from
+  this session).
+- **Tests**: 626 pass / 15 skip / **0 fail**. The pre-existing
+  `test_co_columns` failure addressed by mig 041 cleanup.
+- **Local DB v3 state**: schema at mig 041 applied; rules seeded for
+  `growatt-vn` (5 internal_code + 1 material_identity_candidates).
+  All payload promotions backfilled (75,304 rows). Identity-mode
+  clients (DKE, Johnson, Do Thanh, demo) need no rules.
+- **`hub.bcct_rows`**: 40 typed columns (was 32). Payload jsonb
+  contains 13 keys (sparse tax-detail + Ghi chú + STT audit).
 - **Demo URL**: https://ttdatahub.tinsu.ai (CI/CD picks up after push).
 
 ### Bundle commits (this session)
@@ -36,6 +57,12 @@ under `/clients/<id>/parser-rules`. Hardcoded Growatt regex
 | `ae77a74` | Deferred polish — history endpoint + PATCH UI + recent/coverage modes + sister-app docs |
 | `f5eec19` | docs: STATUS.md + session summary |
 | `f75d681` | Mig 038 — drop material_identity column entirely; fully runtime-derived |
+| `e6acfa0` | docs: STATUS + sister-app note + brief amendment for mig 038 |
+| `a41f84e` | Resolver Stage 2 (paren-extract) wins over Stage 1 + UI marker for computed columns |
+| `6a31fc9` | Per-row inspect view (Trạng thái hiện tại) + UI markers for computed fields |
+| `932ea10` | Mig 039 — promote payload Tier 1 + currency-tag bug fix |
+| `db0f1ef` | Mig 040 — promote payload Tier 2 (contract + internal_mgmt + package_marks) |
+| `37b8046` | Mig 041 — prune typed-already keys from payload jsonb |
 
 ### Sister-app notes posted
 
@@ -68,6 +95,28 @@ under `/clients/<id>/parser-rules`. Hardcoded Growatt regex
    for cached read. Per-page reads (50 rows) ~50-100ms — negligible.
    parser_version stability across rule edits is intentionally not
    guaranteed.
+8. **(resolver swap, post-mig 038)** Stage 2 (paren-extract) now
+   evaluates BEFORE Stage 1 (customs_code in materials). For
+   Growatt-style exports where customs_code='BIENTAN.20' AND
+   goods_name contains '(PV02.0228801)', resolved_code now
+   = `PV02.0228801` (was: `BIENTAN.20`). Identity-mode clients
+   unaffected (no rules → fall through to Stage 1).
+9. **(mig 039)** `currency` field renamed → `currency_nt` (FX-domain
+   semantic). 4 new typed columns: `total_value_nt`, `unit_price_nt`,
+   `total_tax`, `unloading_location`. Fixes currency-tag mismatch
+   for ~70k rows where USD-tagged values were actually VND-magnitude.
+   FX-domain (transaction currency) and VND-domain (taxable) now
+   represented separately.
+10. **(mig 040)** 4 more typed columns added: `contract_no`,
+    `contract_date`, `internal_mgmt_no`, `package_marks`.
+11. **(mig 041)** payload jsonb pruned: 38 typed-already keys
+    removed. Payload now contains only Tier 3 (sparse tax detail,
+    free-text, audit fields). Consumers using
+    `payload->>'Tên doanh nghiệp'` etc. must switch to typed
+    columns (`exporter_name`, etc.).
+12. **(UI)** BCCT row history page now shows full "Trạng thái hiện
+    tại" section with all 40 typed columns + computed
+    material_identity expandable. Computed fields marked with `ƒ`.
 
 ## Next Steps
 

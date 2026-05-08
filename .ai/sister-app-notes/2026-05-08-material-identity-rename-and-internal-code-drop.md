@@ -174,6 +174,125 @@ data and same parser version returns same product identity result"
 — still holds, with "parser version" reinterpreted as "current rule
 set".
 
+## Update for migs 039/040/041 (later same day)
+
+### Resolver stage order swap (mig non-schema, in-app)
+
+Before: Stage 1 (customs_code in materials) → Stage 2 (paren-extract)
+→ Stage 3 (reviewed) → ...
+
+After: Stage 2 (paren-extract) → Stage 1 (customs_code in materials)
+→ Stage 3 (reviewed) → ...
+
+Rationale: paren-extracted code from goods_name is more specific
+signal than customs_code-membership in materials. For Growatt
+exports where customs_code is HQ-side (`BIENTAN.20`) and the
+agency BOM code lives in goods_name parens (`(PV02.0228801)`), the
+paren wins — material_identity now resolves to the BOM code.
+
+Identity-mode clients (Johnson, DKE, Demo) unaffected: no rules
+seeded for Stage 2 → empty extractions → falls through to Stage 1
+naturally.
+
+Behavior shift for some Growatt rows:
+- BEFORE: `display_code = BIENTAN.20`, `resolved_code = BIENTAN.20`,
+  `resolution_source = structured_field`.
+- AFTER: `display_code = PV02.0228801`, `resolved_code = PV02.0228801`,
+  `resolution_source = goods_name_embedded_code`.
+
+### Currency-tag bug fix + payload promotion (migs 039/040/041)
+
+User reported: Johnson row `308382318920-1` had `currency=USD` with
+VND-magnitude `total_value=57,456,231.43` — domain mismatch. Root
+cause: parser ALIASES conflated FX-domain ("Đơn vị tiền tệ", "Đơn
+giá", "Trị giá NT") with VND-converted ("Đơn giá tính thuế", "Tổng
+trị giá") into single `currency` / `total_value` / `unit_price` set.
+
+**Schema changes (BREAKING for SQL consumers)**:
+
+mig 039:
+- Rename `currency` → `currency_nt` (FX-domain semantic).
+- New columns:
+  - `total_value_nt numeric(20,6)` — FX-domain total ("Trị giá NT").
+  - `unit_price_nt numeric(20,6)` — FX-domain per-piece ("Đơn giá").
+  - `total_tax numeric(20,6)` — "Tổng tiền thuế" (VND).
+  - `unloading_location text` — "Địa điểm dỡ hàng" (was extracted
+    via jsonb in invoice-matches, now first-class).
+
+mig 040:
+- New columns:
+  - `contract_no text`, `contract_date date` — "Số hợp đồng",
+    "Ngày hợp đồng" (sparse, useful for CO origin cert).
+  - `internal_mgmt_no text` — "Số quản lý nội bộ".
+  - `package_marks text` — "Ký hiệu và số hiệu bao bì".
+
+mig 041:
+- Prune 38 typed-already keys from `payload` jsonb (after Tier 1+2
+  promotion). Saves ~2.86M jsonb entries across 75,304 rows.
+- Surviving payload keys: 13 (sparse tax-detail + Ghi chú + STT).
+
+**Field semantics post-mig 039**:
+
+| Field | Domain | Source | Example (USD deal) |
+|---|---|---|---|
+| `currency_nt` | FX (transaction currency) | "Đơn vị tiền tệ" | `USD` |
+| `total_value_nt` | FX (foreign currency total) | "Trị giá NT" | `2114.10` |
+| `unit_price_nt` | FX per-piece | "Đơn giá" | `352.35` |
+| `total_value` | VND (taxable, customs filing) | "Tổng trị giá" | `57,456,231.43` |
+| `unit_price` | VND per-piece | "Đơn giá tính thuế" | `9,576,038.57` |
+| `exchange_rate` | rate (VND per FX unit) | "Tỷ giá thanh toán" | `26,137` |
+| `total_tax` | VND (tax due) | "Tổng tiền thuế" | varies |
+
+For VND-only deals: `currency_nt='VND'`, `total_value_nt = total_value`
+(or NULL if source has only one column).
+
+**Consumer migration (CO + BCQT)**:
+
+Old `currency` field → `currency_nt`. SQL refs need swap:
+```sql
+-- Before:
+select customs_code, currency, total_value from hub.bcct_rows ...
+-- After:
+select customs_code, currency_nt, total_value_nt, total_value from hub.bcct_rows ...
+```
+
+For invoice-matches use case (CO origin cert): use FX-domain
+(`total_value_nt`, `unit_price_nt`, `currency_nt`) to match
+buyer's invoice in their currency.
+
+For settlement use case (BCQT): use VND-domain (`total_value`,
+`unit_price`) for tax aggregation.
+
+Payload jsonb access for promoted keys also breaks:
+```sql
+-- Before:
+select payload->>'Tên doanh nghiệp' as exporter ...
+-- After: typed column directly
+select exporter_name as exporter ...
+```
+
+The 38 promoted keys are listed in mig 041's SQL preamble. Surviving
+payload keys (13) are unchanged.
+
+### Final schema state
+
+`hub.bcct_rows` now has **40 typed columns** (was 32):
+- Identifiers: client_id, transaction_key, line_no, declaration_no,
+  declaration_type, direction, registration_date.
+- Material: customs_code, goods_name, hs_code.
+- Quantity: quantity, unit, quantity_2, unit_2.
+- Value/price (split FX vs VND): unit_price, unit_price_nt,
+  total_value, total_value_nt, currency_nt, total_tax,
+  exchange_rate.
+- Misc: origin, invoice_ref, unloading_location.
+- 12 CO-essential (mig 010): exporter_name, exporter_tax_code,
+  consignee_name, incoterms, weight, weight_unit, package_count,
+  package_unit, invoice_date, departure_date, destination_code,
+  destination_name, transport_mode.
+- Tier 2 (mig 040): contract_no, contract_date, internal_mgmt_no,
+  package_marks.
+- Bookkeeping: artifact_id, upload_id, payload, indexed_at, year.
+
 ## Bonus: configurable parser rules per client
 
 `hub.client_parser_rules` is now the only place agency-specific regex
