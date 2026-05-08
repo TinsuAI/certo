@@ -78,6 +78,14 @@ ALIASES = {
                        "mode of transport"],
     "exchange_rate": ["tỷ giá thanh toán", "ty gia thanh toan", "tỷ giá",
                       "exchange rate"],
+    # ── Tier 2 promotions (mig 040, 2026-05-08) ──
+    "contract_no":      ["số hợp đồng", "so hop dong", "contract no"],
+    "contract_date":    ["ngày hợp đồng", "ngay hop dong", "contract date"],
+    "internal_mgmt_no": ["số quản lý nội bộ", "so quan ly noi bo",
+                         "internal management no"],
+    "package_marks":    ["ký hiệu và số hiệu bao bì",
+                         "ky hieu va so hieu bao bi",
+                         "package marks"],
 }
 
 # Decision 1357/QĐ-TCHQ (2021) — Vietnam customs declaration type schedule.
@@ -141,6 +149,7 @@ LOGICAL_FIELDS = (
     "invoice_date", "departure_date",
     "destination_code", "destination_name",
     "transport_mode", "exchange_rate",
+    "contract_no", "contract_date", "internal_mgmt_no", "package_marks",
 )
 
 
@@ -278,6 +287,10 @@ def parse_bcct_workbook(
                 "destination_name": _cell_str(raw, cols.get("destination_name")),
                 "transport_mode": _cell_str(raw, cols.get("transport_mode")),
                 "exchange_rate": _cell_num(raw, cols.get("exchange_rate")),
+                "contract_no": _cell_str(raw, cols.get("contract_no")),
+                "contract_date": _cell_date(raw, cols.get("contract_date")),
+                "internal_mgmt_no": _cell_str(raw, cols.get("internal_mgmt_no")),
+                "package_marks": _cell_str(raw, cols.get("package_marks")),
                 "payload": payload,
             })
     if not rows and not any_sheet_had_required_cols:
