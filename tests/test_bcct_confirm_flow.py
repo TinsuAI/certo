@@ -39,7 +39,6 @@ def _seed_row(declaration_no: str, line_no: str, **overrides):
     defaults = {
         "registration_date": "2025-01-15",
         "customs_code": "PE-001",
-        "internal_code": "PE-001",
         "goods_name": "PE-001#&Polyethylene",
         "quantity": 100,
         "total_value": 250,
@@ -54,14 +53,14 @@ def _seed_row(declaration_no: str, line_no: str, **overrides):
                 insert into hub.bcct_rows
                   (client_id, transaction_key, line_no, declaration_no,
                    declaration_type, direction, registration_date, customs_code,
-                   internal_code, goods_name, quantity, total_value, payload)
-                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, '{}'::jsonb)
+                   goods_name, quantity, total_value, payload)
+                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, '{}'::jsonb)
                 on conflict (client_id, year, transaction_key, line_no) do nothing
                 """,
                 (CLIENT, txn_key, line_no, declaration_no,
                  defaults["declaration_type"], defaults["direction"],
                  defaults["registration_date"], defaults["customs_code"],
-                 defaults["internal_code"], defaults["goods_name"],
+                 defaults["goods_name"],
                  defaults["quantity"], defaults["total_value"]),
             )
     return txn_key
@@ -104,7 +103,8 @@ def test_classify_all_new_when_db_empty():
         "customs_code": "X",
         "goods_name": "Y",
     }]
-    summary = _classify_rows(client_id=CLIENT, parsed=parsed, parser=None)
+    summary = _classify_rows(client_id=CLIENT, parsed=parsed,
+                              client={"client_id": CLIENT, "code_resolution_mode": "identity"})
     assert summary["new"] == 1
     assert summary["noop"] == 0
     assert summary["diff"] == []
@@ -123,7 +123,8 @@ def test_classify_diff_when_value_changed():
         "total_value": 250,
         "declaration_type": "E11", "direction": "import",
     }]
-    summary = _classify_rows(client_id=CLIENT, parsed=parsed, parser=None)
+    summary = _classify_rows(client_id=CLIENT, parsed=parsed,
+                              client={"client_id": CLIENT, "code_resolution_mode": "identity"})
     assert summary["new"] == 0
     assert len(summary["diff"]) == 1
     d = summary["diff"][0]
@@ -143,7 +144,8 @@ def test_classify_noop_when_values_identical():
         "quantity": 100, "total_value": 250,
         "declaration_type": "E11", "direction": "import",
     }]
-    summary = _classify_rows(client_id=CLIENT, parsed=parsed, parser=None)
+    summary = _classify_rows(client_id=CLIENT, parsed=parsed,
+                              client={"client_id": CLIENT, "code_resolution_mode": "identity"})
     assert summary["new"] == 0
     assert summary["noop"] == 1
     assert summary["diff"] == []
@@ -162,7 +164,8 @@ def test_classify_orphan_when_db_has_extra_line():
         "quantity": 100, "total_value": 250,
         "declaration_type": "E11", "direction": "import",
     }]
-    summary = _classify_rows(client_id=CLIENT, parsed=parsed, parser=None)
+    summary = _classify_rows(client_id=CLIENT, parsed=parsed,
+                              client={"client_id": CLIENT, "code_resolution_mode": "identity"})
     assert summary["noop"] == 1
     assert len(summary["orphan"]) == 1
     assert summary["orphan"][0]["line_no"] == "2"
@@ -277,7 +280,6 @@ def test_confirm_orphans_only_does_not_delete_unconfirmed_diff_rows():
       only D is deleted.
     """
     from app.routes.bcct import _apply_bcct_rows
-    from app.parsers.goods_name import internal_code_parser_for
 
     # Use distinct decl_nos so each row has a unique txn_key (helper
     # constructs the key from decl_no alone).
@@ -329,10 +331,10 @@ def test_confirm_orphans_only_does_not_delete_unconfirmed_diff_rows():
             rows_to_apply.append(r)
     orphans_to_delete = diff_summary["orphan"] if confirm_orphans else []
 
-    parser = internal_code_parser_for(CLIENT, "batch_aggregate_resolution")
     _apply_bcct_rows(
         client_id=CLIENT, rows=rows_to_apply, upload_id=None,
-        parser=parser, orphans_to_delete=orphans_to_delete,
+        client={"client_id": CLIENT, "code_resolution_mode": "batch_aggregate_resolution"},
+        orphans_to_delete=orphans_to_delete,
         user_id="regress-test",
     )
 

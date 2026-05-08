@@ -1,4 +1,4 @@
-"""BCCT product_identity surfaces observed_roles + atomic signals + conflict.
+"""BCCT material_identity surfaces observed_roles + atomic signals + conflict.
 
 Brief: .ai/features/2026-05-07-catalog-roles-refactor/brief.md (rev 5)
 
@@ -12,8 +12,8 @@ import secrets
 import pytest
 
 from app.database import connect
-from app.resolvers.bcct_product_identity import (
-    ResolverContext, resolve_product_identity,
+from app.resolvers.bcct_material_identity import (
+    ResolverContext, resolve_material_identity,
 )
 
 
@@ -87,10 +87,10 @@ def _seed_rework_tp(cur, *, client_id, code="REWORK_TP"):
     cur.execute(
         "insert into hub.bcct_rows (client_id, transaction_key, line_no, "
         "declaration_no, declaration_type, direction, registration_date, "
-        "customs_code, internal_code, goods_name, payload) "
+        "customs_code, goods_name, payload) "
         "values (%s, 'TX-rework', '1', 'DECL.RW', 'E42', 'export', '2026-01-15', "
-        "%s, %s, %s, '{}'::jsonb)",
-        (client_id, code, code, f"{code} test"),
+        "%s, %s, '{}'::jsonb)",
+        (client_id, code, f"{code} test"),
     )
 
 
@@ -126,10 +126,10 @@ def _seed_pure_nvl(cur, *, client_id, code="NVL_PE"):
     cur.execute(
         "insert into hub.bcct_rows (client_id, transaction_key, line_no, "
         "declaration_no, declaration_type, direction, registration_date, "
-        "customs_code, internal_code, goods_name, payload) "
+        "customs_code, goods_name, payload) "
         "values (%s, 'TX-nvl-imp', '1', 'DECL.IMP', 'E11', 'import', '2026-01-10', "
-        "%s, %s, %s, '{}'::jsonb)",
-        (client_id, code, code, f"{code} import"),
+        "%s, %s, '{}'::jsonb)",
+        (client_id, code, f"{code} import"),
     )
 
 
@@ -137,7 +137,7 @@ def _seed_pure_nvl(cur, *, client_id, code="NVL_PE"):
 
 
 def test_resolved_rework_carries_observed_roles_and_multi_role(cid):
-    """A rework code in catalog → product_identity top-level has observed_roles=['tp','btp_sx'],
+    """A rework code in catalog → material_identity top-level has observed_roles=['tp','btp_sx'],
     is_multi_role=true, and atomic signals all true except imports."""
     with connect() as conn, conn.cursor() as cur:
         _seed_rework_tp(cur, client_id=cid)
@@ -151,7 +151,7 @@ def test_resolved_rework_carries_observed_roles_and_multi_role(cid):
     }
     with connect() as conn, conn.cursor() as cur:
         ctx = ResolverContext.from_db(cid, cur)
-    pid = resolve_product_identity(row, ctx=ctx)
+    pid = resolve_material_identity(row, ctx=ctx)
 
     assert pid["resolution_status"] == "resolved"
     assert pid["resolved_code"] == "REWORK_TP"
@@ -182,7 +182,7 @@ def test_resolved_pure_nvl_top_level_fields(cid):
     }
     with connect() as conn, conn.cursor() as cur:
         ctx = ResolverContext.from_db(cid, cur)
-    pid = resolve_product_identity(row, ctx=ctx)
+    pid = resolve_material_identity(row, ctx=ctx)
 
     assert pid["resolution_status"] == "resolved"
     assert pid["resolved_code"] == "NVL_PE"
@@ -209,7 +209,7 @@ def test_unresolved_missing_has_no_signals(cid):
         "internal_code": "NOT_IN_CATALOG",
         "goods_name": "stuff",
     }
-    pid = resolve_product_identity(row, ctx=ctx)
+    pid = resolve_material_identity(row, ctx=ctx)
 
     assert pid["resolution_status"] == "missing"
     assert pid["resolved_code"] is None
@@ -242,7 +242,7 @@ def test_per_candidate_carries_observed_roles_minimal_set(cid):
     }
     with connect() as conn, conn.cursor() as cur:
         ctx = ResolverContext.from_db(cid, cur)
-    pid = resolve_product_identity(row, ctx=ctx)
+    pid = resolve_material_identity(row, ctx=ctx)
 
     assert pid["candidates"], "expected at least one candidate"
     cand = pid["candidates"][0]
@@ -314,7 +314,7 @@ def test_conflict_surfaces_in_resolver(cid):
     }
     with connect() as conn, conn.cursor() as cur:
         ctx = ResolverContext.from_db(cid, cur)
-    pid = resolve_product_identity(row, ctx=ctx)
+    pid = resolve_material_identity(row, ctx=ctx)
     # observed=['btp_sx'] but declared='tp' → conflict.
     assert pid["observed_roles"] == ["btp_sx"]
     assert pid["product_kind"] == "tp"

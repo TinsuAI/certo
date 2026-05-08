@@ -54,9 +54,13 @@ def adapter_names() -> list[str]:
 
 
 def adapter_for_client(client_id: str, code_resolution_mode: str | None) -> BcctIdentityAdapter:
-    """Pick an adapter for a client. Mirrors the dispatch convention of
-    `internal_code_parser_for` (app/parsers/goods_name.py): mode
-    'identity' → identity adapter; everything else → Growatt adapter.
+    """Pick an adapter for a client.
+
+    NOTE (2026-05-08): Phase 3 will replace this entire registry with
+    DB-driven `client_parser_rules` for output_field='material_identity'.
+    Until that lands, this dispatch keeps Stage 2 of the material-identity
+    resolver alive: mode 'identity' → identity adapter (no extraction);
+    everything else → Growatt adapter (regex parens scan).
 
     Today the Growatt adapter is the only goods-name extractor we have.
     Real Growatt clients carry mode='batch_aggregate_resolution', not

@@ -63,10 +63,10 @@ def _seed_bcct(cur, *, client_id, code, direction, txkey=None,
     cur.execute(
         "insert into hub.bcct_rows (client_id, transaction_key, line_no, "
         "declaration_no, declaration_type, direction, registration_date, "
-        "customs_code, internal_code, goods_name, payload) "
-        "values (%s, %s, '1', %s, %s, %s, %s, %s, %s, %s, '{}'::jsonb)",
+        "customs_code, goods_name, payload) "
+        "values (%s, %s, '1', %s, %s, %s, %s, %s, %s, '{}'::jsonb)",
         (client_id, txkey, txkey.split('-')[0],
-         declaration_type, direction, regdate, code, code, f"{code} test"),
+         declaration_type, direction, regdate, code, f"{code} test"),
     )
 
 

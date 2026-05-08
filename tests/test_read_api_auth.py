@@ -350,11 +350,11 @@ def test_invoice_matches_endpoint_matches_export_invoice(strict_mode_on):
                 """
                 insert into hub.bcct_rows
                   (client_id, transaction_key, line_no, declaration_no, declaration_type,
-                   direction, registration_date, customs_code, internal_code, goods_name,
+                   direction, registration_date, customs_code, goods_name,
                    quantity, unit, invoice_ref, payload)
                 values
-                  (%s, 'INV_EXPORT_1', '1', 'X001', 'E42', 'export', '2025-01-02', 'P-001', 'TP-001', 'Product', 2, 'PCS', 'INV-001/2026', '{}'::jsonb),
-                  (%s, 'INV_EXPORT_2', '1', 'X002', 'E42', 'export', '2025-01-03', 'P-002', 'TP-002', 'Product 2', 1, 'PCS', 'OTHER', '{}'::jsonb)
+                  (%s, 'INV_EXPORT_1', '1', 'X001', 'E42', 'export', '2025-01-02', 'P-001', 'Product', 2, 'PCS', 'INV-001/2026', '{}'::jsonb),
+                  (%s, 'INV_EXPORT_2', '1', 'X002', 'E42', 'export', '2025-01-03', 'P-002', 'Product 2', 1, 'PCS', 'OTHER', '{}'::jsonb)
                 on conflict do nothing
                 """,
                 (client_id, client_id),
@@ -386,7 +386,7 @@ def test_invoice_matches_endpoint_matches_export_invoice(strict_mode_on):
             "declaration_no": "X001",
             "line_no": "1",
             "declaration_type": "E42",
-            "item_code": "TP-001",
+            "item_code": "P-001",
             "description": "Product",
             "hs_code": None,
             "quantity": 2.0,
@@ -416,10 +416,10 @@ def test_invoice_matches_filters_invoice_before_limit(strict_mode_on):
                 """
                 insert into hub.bcct_rows
                   (client_id, transaction_key, line_no, declaration_no, declaration_type,
-                   direction, registration_date, customs_code, internal_code, goods_name,
+                   direction, registration_date, customs_code, goods_name,
                    quantity, unit, invoice_ref, payload)
                 values
-                  (%s, 'INV_OLD_TARGET', '1', 'X-OLD', 'E42', 'export', '2025-01-01', 'P-OLD', 'TP-OLD', 'Old Product', 1, 'PCS', 'INV-OLD-001', '{}'::jsonb)
+                  (%s, 'INV_OLD_TARGET', '1', 'X-OLD', 'E42', 'export', '2025-01-01', 'P-OLD', 'Old Product', 1, 'PCS', 'INV-OLD-001', '{}'::jsonb)
                 on conflict do nothing
                 """,
                 (client_id,),
@@ -428,7 +428,7 @@ def test_invoice_matches_filters_invoice_before_limit(strict_mode_on):
                 """
                 insert into hub.bcct_rows
                   (client_id, transaction_key, line_no, declaration_no, declaration_type,
-                   direction, registration_date, customs_code, internal_code, goods_name,
+                   direction, registration_date, customs_code, goods_name,
                    quantity, unit, invoice_ref, payload)
                 select
                   %s,
@@ -439,7 +439,6 @@ def test_invoice_matches_filters_invoice_before_limit(strict_mode_on):
                   'export',
                   date '2026-01-01' + (g * interval '1 day'),
                   'P-FILLER',
-                  'TP-FILLER',
                   'Filler Product',
                   1,
                   'PCS',

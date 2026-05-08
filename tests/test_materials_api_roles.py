@@ -63,9 +63,9 @@ def cid_with_rework():
         cur.execute(
             "insert into hub.bcct_rows (client_id, transaction_key, line_no, "
             "declaration_no, declaration_type, direction, registration_date, "
-            "customs_code, internal_code, goods_name, payload) "
+            "customs_code, goods_name, payload) "
             "values (%s, 'TXR', '1', 'DECLR', 'E42', 'export', '2026-01-15', "
-            "'REWORK', 'REWORK', 'r test', '{}'::jsonb)",
+            "'REWORK', 'r test', '{}'::jsonb)",
             (cid,),
         )
     yield cid
@@ -126,9 +126,9 @@ def test_materials_list_pure_nvl_atomic_signals(cid_with_rework):
         cur.execute(
             "insert into hub.bcct_rows (client_id, transaction_key, line_no, "
             "declaration_no, declaration_type, direction, registration_date, "
-            "customs_code, internal_code, goods_name, payload) "
+            "customs_code, goods_name, payload) "
             "values (%s, 'TXNVL', '1', 'DECLNVL', 'E11', 'import', '2026-01-10', "
-            "'NVL_X', 'NVL_X', 'nvl import', '{}'::jsonb)",
+            "'NVL_X', 'nvl import', '{}'::jsonb)",
             (cid,),
         )
     r = _client().get("/v1/hub/materials", params={"client_id": cid})

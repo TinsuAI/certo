@@ -24,7 +24,6 @@ from app.database import connect
 from app.parsers.bcct import parse_bcct_workbook
 from app.parsers.bom import parse_bom_workbook
 from app.parsers.code_mappings import parse_code_mappings_workbook
-from app.parsers.goods_name import internal_code_parser_for
 from app.parsers.materials import parse_materials_workbook
 from app.routes.bcct import _insert_bcct
 from app.routes.bqd import _insert_mappings
@@ -82,9 +81,10 @@ def ingest_bcct(client_id: str, path: Path, code_resolution_mode: str) -> int:
         print(f"  bcct ← {path.name}: parser produced 0 rows, skipped")
         return 0
     upload_id = _stub_upload(client_id, "bcct", path.name)
-    parser = internal_code_parser_for(client_id, code_resolution_mode)
     n = _insert_bcct(client_id=client_id, rows=parsed,
-                    upload_id=upload_id, parser=parser)
+                    upload_id=upload_id,
+                    client={"client_id": client_id,
+                            "code_resolution_mode": code_resolution_mode})
     print(f"  bcct ← {path.name}: {n} rows (upload_id={upload_id})")
     return n
 

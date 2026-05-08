@@ -495,30 +495,30 @@ async def api_list_bcct(
     direction: str | None = None,
     declaration_no: str | None = None,
     cursor: str | None = None, limit: int = 200,
-    include_product_identity: bool = False,
-    product_identity_candidate_limit: str | None = None,
+    include_material_identity: bool = False,
+    material_identity_candidate_limit: str | None = None,
     authorization: str | None = Header(None),
 ):
-    """List BCCT rows with optional `product_identity` per CO API request
-    2026-05-07. Default `include_product_identity=false` for broad list
+    """List BCCT rows with optional `material_identity` per CO API request
+    2026-05-07. Default `include_material_identity=false` for broad list
     views (D7). Persisted column wins; lazy-fill at read for legacy rows."""
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
-    cand_limit = _validate_pid_candidate_limit(product_identity_candidate_limit)
+    cand_limit = _validate_pid_candidate_limit(material_identity_candidate_limit)
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
     offset, safe_limit = _page_args(cursor, limit)
     sql = """
         select client_id, year, transaction_key, line_no, declaration_no,
                declaration_type, direction, registration_date,
-               customs_code, internal_code, goods_name, hs_code,
+               customs_code, goods_name, hs_code,
                quantity, unit, total_value, currency, origin, invoice_ref,
                exporter_name, exporter_tax_code, consignee_name, incoterms,
                weight, weight_unit, package_count, package_unit,
                invoice_date, departure_date,
                destination_code, destination_name,
                transport_mode, exchange_rate,
-               artifact_id, indexed_at, product_identity
+               artifact_id, indexed_at, material_identity
         from hub.bcct_rows where client_id = %s
     """
     params: list = [client_id]
@@ -538,13 +538,13 @@ async def api_list_bcct(
             cur.execute(sql, params)
             cols = [d[0] for d in cur.description]
             items = [dict(zip(cols, r)) for r in cur.fetchall()]
-    if include_product_identity:
-        _attach_product_identity(
+    if include_material_identity:
+        _attach_material_identity(
             items, client_id=client_id, candidate_limit=cand_limit,
         )
     else:
         for it in items:
-            it.pop("product_identity", None)
+            it.pop("material_identity", None)
     return _json(_paged(items, offset=offset, limit=safe_limit))
 
 
@@ -555,7 +555,7 @@ _PID_CANDIDATE_LIMIT_DEFAULT = 5
 
 
 def _validate_pid_candidate_limit(value: str | None) -> int:
-    """Validate `product_identity_candidate_limit` per CO contract.
+    """Validate `material_identity_candidate_limit` per CO contract.
 
     Spec: default 5, max 20. Out-of-range or non-integer → 400.
     Param is `str | None` (not `int | None`) so non-integer input
@@ -565,15 +565,15 @@ def _validate_pid_candidate_limit(value: str | None) -> int:
     try:
         n = int(value)
     except (TypeError, ValueError):
-        raise HTTPException(400, "invalid_product_identity_candidate_limit")
+        raise HTTPException(400, "invalid_material_identity_candidate_limit")
     if n < 1 or n > _PID_CANDIDATE_LIMIT_MAX:
-        raise HTTPException(400, "invalid_product_identity_candidate_limit")
+        raise HTTPException(400, "invalid_material_identity_candidate_limit")
     return n
 
 
-def _attach_product_identity(items: list[dict], *, client_id: str,
+def _attach_material_identity(items: list[dict], *, client_id: str,
                               candidate_limit: int) -> None:
-    """Attach `product_identity` to each item in-place.
+    """Attach `material_identity` to each item in-place.
 
     Rows where the column is already populated (DB NOT NULL) keep that
     value as-is (parser_version preserved per spec idempotency rule).
@@ -583,15 +583,15 @@ def _attach_product_identity(items: list[dict], *, client_id: str,
     """
     if not items:
         return
-    from app.resolvers.bcct_product_identity import (
-        ResolverContext, resolve_product_identity,
+    from app.resolvers.bcct_material_identity import (
+        ResolverContext, resolve_material_identity,
     )
-    needs_resolve = [it for it in items if it.get("product_identity") is None]
+    needs_resolve = [it for it in items if it.get("material_identity") is None]
     if not needs_resolve:
         # Apply candidate_limit to pre-stored values too — we want the
         # response to honor the caller's limit even when row is from cache.
         for it in items:
-            pid = it.get("product_identity")
+            pid = it.get("material_identity")
             if pid and isinstance(pid.get("candidates"), list):
                 pid["candidates"] = pid["candidates"][:candidate_limit]
         return
@@ -600,11 +600,11 @@ def _attach_product_identity(items: list[dict], *, client_id: str,
             client_id, cur, candidate_limit=candidate_limit,
         )
     for it in items:
-        if it.get("product_identity") is None:
-            it["product_identity"] = resolve_product_identity(it, ctx=ctx)
-        elif isinstance(it["product_identity"].get("candidates"), list):
-            it["product_identity"]["candidates"] = \
-                it["product_identity"]["candidates"][:candidate_limit]
+        if it.get("material_identity") is None:
+            it["material_identity"] = resolve_material_identity(it, ctx=ctx)
+        elif isinstance(it["material_identity"].get("candidates"), list):
+            it["material_identity"]["candidates"] = \
+                it["material_identity"]["candidates"][:candidate_limit]
 
 
 def _parse_declaration_types(value: str) -> set[str]:
@@ -628,8 +628,8 @@ async def api_invoice_matches(
     limit: int = 100,
     cursor: str | None = None,
     include_market_hint: bool = True,
-    include_product_identity: bool = True,
-    product_identity_candidate_limit: str | None = None,
+    include_material_identity: bool = True,
+    material_identity_candidate_limit: str | None = None,
     authorization: str | None = Header(None),
 ):
     """Match BCCT export rows by invoice-token equivalence + return the
@@ -646,7 +646,7 @@ async def api_invoice_matches(
         raise HTTPException(400, "missing_invoice_no")
     if not get_client(client_id):
         raise HTTPException(404, "unknown_client")
-    cand_limit = _validate_pid_candidate_limit(product_identity_candidate_limit)
+    cand_limit = _validate_pid_candidate_limit(material_identity_candidate_limit)
     relevant_types = _parse_declaration_types(declaration_types)
     invoice_tokens = _invoice_tokens(invoice_no)
     if not invoice_tokens:
@@ -657,12 +657,12 @@ async def api_invoice_matches(
 
     sql = """
         select transaction_key, line_no, declaration_no, declaration_type,
-               registration_date, customs_code, internal_code,
+               registration_date, customs_code,
                goods_name, hs_code, quantity, unit, invoice_ref,
                invoice_date, departure_date, incoterms,
                consignee_name, exporter_name,
                destination_code, destination_name,
-               product_identity,
+               material_identity,
                nullif(payload->>'Địa điểm dỡ hàng', '') as unloading_location
         from hub.bcct_rows
         where client_id = %s and direction = 'export' and coalesce(invoice_ref, '') <> ''
@@ -691,16 +691,18 @@ async def api_invoice_matches(
         row_tokens = _invoice_tokens(row.get("invoice_ref") or "")
         if not invoice_tokens.issubset(row_tokens):
             continue
-        item_code = row.get("internal_code") or row.get("customs_code") or ""
-        # Existing fields keep None-on-NULL semantics so legacy consumers
-        # see the same shape; new additive fields likewise pass None through.
+        # mig 035 dropped bcct_rows.internal_code; item_code is the row's
+        # canonical identifier from material_identity (display_code) when
+        # resolved, else customs_code. Consumers wanting the parser-derived
+        # legacy value should read material_identity.declared_internal_code.
+        mid = row.get("material_identity") or {}
+        item_code = mid.get("display_code") or row.get("customs_code") or ""
         item: dict = {
             "declaration_no": row.get("declaration_no", ""),
             "line_no": row.get("line_no", ""),
             "declaration_type": row.get("declaration_type", ""),
             "item_code": item_code,
             "customs_code": row.get("customs_code", ""),
-            "internal_code": row.get("internal_code", ""),
             "description": row.get("goods_name", ""),
             "goods_name": row.get("goods_name", ""),
             "hs_code": row.get("hs_code", ""),
@@ -716,7 +718,7 @@ async def api_invoice_matches(
             "unloading_location": row.get("unloading_location"),
             "destination_location_code": row.get("destination_code"),
             "destination_location_name": row.get("destination_name"),
-            "product_identity": row.get("product_identity"),
+            "material_identity": row.get("material_identity"),
         }
         if include_market_hint:
             hint = markets.unloading_location_to_market_hint(item["unloading_location"])
@@ -724,13 +726,13 @@ async def api_invoice_matches(
         matches.append(item)
 
     page = matches[offset : offset + safe_limit]
-    if include_product_identity:
-        _attach_product_identity(
+    if include_material_identity:
+        _attach_material_identity(
             page, client_id=client_id, candidate_limit=cand_limit,
         )
     else:
         for it in page:
-            it.pop("product_identity", None)
+            it.pop("material_identity", None)
     next_cursor = (
         str(offset + safe_limit) if offset + safe_limit < len(matches) else None
     )
@@ -754,7 +756,7 @@ async def api_get_bcct(
                 """
                 select client_id, year, transaction_key, line_no, declaration_no,
                        declaration_type, direction, registration_date,
-                       customs_code, internal_code, goods_name, hs_code,
+                       customs_code, goods_name, hs_code,
                        quantity, unit, total_value, currency, origin, invoice_ref,
                        exporter_name, exporter_tax_code, consignee_name, incoterms,
                        weight, weight_unit, package_count, package_unit,

@@ -224,10 +224,10 @@ def test_dual_source_blocked_without_explicit_confirmation(auth_client):
                 insert into hub.bcct_rows
                   (client_id, transaction_key, line_no, registration_date,
                    declaration_no, declaration_type, direction,
-                   customs_code, internal_code, goods_name)
+                   customs_code, goods_name)
                 values (%s, 'FT_DUAL_TX', '1', '2026-01-01',
                         'FT_DUAL_DECL', 'E11', 'import',
-                        'FT_U_DBTP', 'FT_U_DBTP', 'imported BTP')
+                        'FT_U_DBTP', 'imported BTP')
                 """,
                 (CLIENT,),
             )
@@ -293,10 +293,10 @@ def test_dual_source_publishes_chosen_variant_when_confirmed(auth_client):
                 insert into hub.bcct_rows
                   (client_id, transaction_key, line_no, registration_date,
                    declaration_no, declaration_type, direction,
-                   customs_code, internal_code, goods_name)
+                   customs_code, goods_name)
                 values (%s, 'FT_DUAL2_TX', '1', '2026-01-01',
                         'FT_DUAL2_DECL', 'E11', 'import',
-                        'FT_U_PBTP', 'FT_U_PBTP', 'imported BTP 2')
+                        'FT_U_PBTP', 'imported BTP 2')
                 """,
                 (CLIENT,),
             )

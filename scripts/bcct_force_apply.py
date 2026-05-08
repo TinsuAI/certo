@@ -30,7 +30,6 @@ sys.path.insert(0, str(_REPO))
 
 from app.database import connect  # noqa: E402
 from app.parsers.bcct import parse_bcct_workbook  # noqa: E402
-from app.parsers.goods_name import internal_code_parser_for  # noqa: E402
 from app.routes.bcct import (  # noqa: E402
     _apply_bcct_rows,
     _classify_rows,
@@ -73,10 +72,8 @@ def main() -> int:
     rows_with_date = [r for r in rows if r.get("registration_date")]
     skipped = len(rows) - len(rows_with_date)
 
-    parser_fn = internal_code_parser_for(client_id, client["code_resolution_mode"])
-
     summary = _classify_rows(client_id=client_id, parsed=rows_with_date,
-                             parser=parser_fn)
+                             client=client)
 
     print(f"client_id  = {client_id}")
     print(f"file       = {file_path.name}  ({len(blob):,} bytes)")
@@ -92,7 +89,7 @@ def main() -> int:
 
     n = _apply_bcct_rows(
         client_id=client_id, rows=rows_with_date,
-        upload_id=None, parser=parser_fn,
+        upload_id=None, client=client,
         orphans_to_delete=summary["orphan"] if args.confirm_orphans else [],
         user_id=OPS_ACTOR_ID,
     )

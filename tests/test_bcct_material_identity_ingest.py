@@ -1,4 +1,4 @@
-"""Ingest-time integration: BCCT insert populates `product_identity` jsonb.
+"""Ingest-time integration: BCCT insert populates `material_identity` jsonb.
 
 The resolver runs as part of `_insert_bcct_with_cursor`. New rows ship
 with their identity already resolved; lazy-fill at read time is a
@@ -11,7 +11,7 @@ import json
 import pytest
 
 from app.database import connect
-from app.parsers.goods_name import internal_code_parser_for
+
 from app.routes.bcct import _insert_bcct_with_cursor
 
 
@@ -69,17 +69,17 @@ def _row(*, txkey="DECLA1-1", customs="BIENTAN.17",
     }
 
 
-def test_insert_populates_product_identity_resolved():
+def test_insert_populates_material_identity_resolved():
     """A Growatt-shaped row with embedded BOM code + matching artifact
-    populates product_identity at insert time."""
-    parser = internal_code_parser_for(CLIENT, "growatt")
+    populates material_identity at insert time."""
+    client_dict = {"client_id": CLIENT, "code_resolution_mode": "batch_aggregate_resolution"}
     with connect() as conn, conn.cursor() as cur:
         n = _insert_bcct_with_cursor(
-            cur, client_id=CLIENT, rows=[_row()], upload_id=None, parser=parser,
+            cur, client_id=CLIENT, rows=[_row()], upload_id=None, client=client_dict,
         )
         assert n == 1
         cur.execute(
-            "select product_identity from hub.bcct_rows "
+            "select material_identity from hub.bcct_rows "
             "where client_id=%s and transaction_key=%s",
             (CLIENT, "DECLA1-1"),
         )
@@ -94,10 +94,10 @@ def test_insert_populates_product_identity_resolved():
     assert pid["parser_adapter"] == "growatt_bcct"
 
 
-def test_insert_populates_product_identity_missing_when_no_bom():
+def test_insert_populates_material_identity_missing_when_no_bom():
     """Row whose customs_code + goods_name yield no BOM match still
-    persists product_identity with status=missing (not NULL)."""
-    parser = internal_code_parser_for(CLIENT, "growatt")
+    persists material_identity with status=missing (not NULL)."""
+    client_dict = {"client_id": CLIENT, "code_resolution_mode": "batch_aggregate_resolution"}
     row = _row(
         txkey="DECLNOM-1",
         customs="UNKNOWN.99",
@@ -105,10 +105,10 @@ def test_insert_populates_product_identity_missing_when_no_bom():
     )
     with connect() as conn, conn.cursor() as cur:
         _insert_bcct_with_cursor(
-            cur, client_id=CLIENT, rows=[row], upload_id=None, parser=parser,
+            cur, client_id=CLIENT, rows=[row], upload_id=None, client=client_dict,
         )
         cur.execute(
-            "select product_identity from hub.bcct_rows "
+            "select material_identity from hub.bcct_rows "
             "where client_id=%s and transaction_key=%s",
             (CLIENT, "DECLNOM-1"),
         )
@@ -122,7 +122,7 @@ def test_insert_populates_product_identity_missing_when_no_bom():
 def test_insert_resolves_via_structured_field_when_customs_is_bom_code():
     """Row whose customs_code IS a BOM product code (Stage 1) resolves
     even without a goods_name paren."""
-    parser = internal_code_parser_for(CLIENT, "growatt")
+    client_dict = {"client_id": CLIENT, "code_resolution_mode": "batch_aggregate_resolution"}
     row = _row(
         txkey="DECLST1-1",
         customs="PV01.0117500",
@@ -130,10 +130,10 @@ def test_insert_resolves_via_structured_field_when_customs_is_bom_code():
     )
     with connect() as conn, conn.cursor() as cur:
         _insert_bcct_with_cursor(
-            cur, client_id=CLIENT, rows=[row], upload_id=None, parser=parser,
+            cur, client_id=CLIENT, rows=[row], upload_id=None, client=client_dict,
         )
         cur.execute(
-            "select product_identity from hub.bcct_rows "
+            "select material_identity from hub.bcct_rows "
             "where client_id=%s and transaction_key=%s",
             (CLIENT, "DECLST1-1"),
         )
@@ -148,7 +148,7 @@ def test_insert_resolves_via_structured_field_when_customs_is_bom_code():
 def test_insert_resolves_nvl_import_via_materials_catalog():
     """Imports of raw materials (NVL) resolve against materials catalog
     even though there's no BOM for them — BCQT settlement uses this."""
-    parser = internal_code_parser_for(CLIENT, "batch_aggregate_resolution")
+    client_dict = {"client_id": CLIENT, "code_resolution_mode": "batch_aggregate_resolution"}
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "insert into hub.materials (client_id, customs_code, "
@@ -163,10 +163,10 @@ def test_insert_resolves_nvl_import_via_materials_catalog():
     )
     with connect() as conn, conn.cursor() as cur:
         _insert_bcct_with_cursor(
-            cur, client_id=CLIENT, rows=[row], upload_id=None, parser=parser,
+            cur, client_id=CLIENT, rows=[row], upload_id=None, client=client_dict,
         )
         cur.execute(
-            "select product_identity from hub.bcct_rows "
+            "select material_identity from hub.bcct_rows "
             "where client_id=%s and transaction_key=%s",
             (CLIENT, "DECLNVL-1"),
         )
@@ -182,17 +182,17 @@ def test_insert_batch_uses_one_resolver_context():
     """Multiple rows in a single insert call share one ResolverContext
     (Q5 — per-request memoization). Asserted indirectly: two rows
     inserted, both resolved."""
-    parser = internal_code_parser_for(CLIENT, "growatt")
+    client_dict = {"client_id": CLIENT, "code_resolution_mode": "batch_aggregate_resolution"}
     rows = [
         _row(txkey="DECLAA-1", goods="BIENTAN.17#&(PV01.0117500)#&VN"),
         _row(txkey="DECLBB-1", goods="BIENTAN.17#&Hàng (PV01.0117500)#&VN"),
     ]
     with connect() as conn, conn.cursor() as cur:
         _insert_bcct_with_cursor(
-            cur, client_id=CLIENT, rows=rows, upload_id=None, parser=parser,
+            cur, client_id=CLIENT, rows=rows, upload_id=None, client=client_dict,
         )
         cur.execute(
-            "select transaction_key, product_identity->>'resolution_status' "
+            "select transaction_key, material_identity->>'resolution_status' "
             "from hub.bcct_rows where client_id=%s order by transaction_key",
             (CLIENT,),
         )

@@ -270,7 +270,8 @@ def _query_bcct(*, client_id: str, year: int | None = None,
                 limit: int = 20) -> dict:
     sql = (
         "select declaration_no, line_no, declaration_type, direction, "
-        "       registration_date, customs_code, internal_code, "
+        "       registration_date, customs_code, "
+        "       material_identity->>'declared_internal_code' as internal_code, "
         "       goods_name, quantity, unit, total_value, currency "
         "from hub.bcct_rows where client_id = %s"
     )

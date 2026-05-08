@@ -69,14 +69,23 @@ def _load_bcct_aggregates(cur, client_id: str) -> dict[str, dict[str, float]]:
 
 
 def _load_bcct_universe(cur, client_id: str) -> set[str]:
+    # mig 035 dropped bcct_rows.internal_code; pull resolved code from
+    # material_identity (declared_internal_code = "what was filed",
+    # display_code = canonical resolved). Fall back to customs_code.
     cur.execute(
         """
-        select distinct internal_code from hub.bcct_rows
-        where client_id = %s and internal_code is not null
+        select distinct
+          coalesce(
+            material_identity->>'declared_internal_code',
+            material_identity->>'display_code',
+            customs_code
+          )
+        from hub.bcct_rows
+        where client_id = %s
         """,
         (client_id,),
     )
-    return {nb for (nb,) in cur.fetchall()}
+    return {nb for (nb,) in cur.fetchall() if nb}
 
 
 def resolve(client_id: str) -> list[dict]:

@@ -5,7 +5,6 @@ from app.database import connect
 from app.parsers.bcct import parse_bcct_workbook
 from app.parsers.bom import parse_bom_workbook
 from app.parsers.code_mappings import parse_code_mappings_workbook
-from app.parsers.goods_name import internal_code_parser_for
 from app.parsers.materials import parse_materials_workbook
 from app.routes.clients import slug, upsert_client
 from app.routes.bcct import _insert_bcct
@@ -141,9 +140,10 @@ def _seed_growatt(client_id: str) -> None:
                 """,
                 (client_id, client_id, len(bcct_rows)),
             )
-    parser = internal_code_parser_for(client_id, "batch_aggregate_resolution")
     _insert_bcct(client_id=client_id, rows=parsed,
-                 upload_id=f"seed-bcct-{client_id}", parser=parser)
+                 upload_id=f"seed-bcct-{client_id}",
+                 client={"client_id": client_id,
+                         "code_resolution_mode": "batch_aggregate_resolution"})
 
     # BOM — 3 finished products + 1 dual-source sub-assembly (HEATSINK-A: vừa import vừa tự sản xuất)
     wb = Workbook(); ws = wb.active; ws.title = "BOM"
@@ -275,10 +275,11 @@ def _seed_johnson(client_id: str) -> None:
                 """,
                 (client_id,),
             )
-    parser = internal_code_parser_for(client_id, "identity")
     _insert_bcct(client_id=client_id,
                  rows=parse_bcct_workbook(buf.getvalue()),
-                 upload_id="seed-johnson-bcct", parser=parser)
+                 upload_id="seed-johnson-bcct",
+                 client={"client_id": client_id,
+                         "code_resolution_mode": "identity"})
 
     # 1 BOM
     wb = Workbook(); ws = wb.active; ws.title = "BOM"

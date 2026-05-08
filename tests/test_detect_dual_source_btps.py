@@ -52,12 +52,16 @@ def _add_material(cur, code: str, *, category: str = "btp_sx"):
 
 
 def _add_bcct_import(cur, code: str, *, year: int = 2025, line: int = 1, dt: str = "E11"):
+    # mig 035: bcct_rows.internal_code dropped; the dual-source classifier
+    # script now reads material_identity->>'declared_internal_code' with
+    # customs_code as fallback. Seed material_identity to surface `code`.
     cur.execute(
         "insert into hub.bcct_rows (client_id, registration_date, transaction_key, line_no, "
-        "internal_code, customs_code, direction, declaration_type, declaration_no) "
-        "values (%s, %s, %s, %s, %s, %s, 'import', %s, %s)",
-        (CLIENT, f"{year}-01-15", f"tk_{code}_{line}", line, code, "X", dt,
-         f"DEC{year}{line}"),
+        "customs_code, direction, declaration_type, declaration_no, material_identity) "
+        "values (%s, %s, %s, %s, %s, 'import', %s, %s, %s::jsonb)",
+        (CLIENT, f"{year}-01-15", f"tk_{code}_{line}", line, "X", dt,
+         f"DEC{year}{line}",
+         f'{{"declared_internal_code": "{code}"}}'),
     )
 
 

@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import pytest
 
-from app.resolvers.bcct_product_identity import (
+from app.resolvers.bcct_material_identity import (
     ResolverContext,
-    resolve_product_identity,
+    resolve_material_identity,
 )
 
 
@@ -86,7 +86,7 @@ def test_growatt_paren_code_resolves_when_bom_exists():
     matching BOM artifact => resolved. bom_product_code alias populated
     because the resolved code has a BOM (kind=tp)."""
     ctx = _ctx(materials=[("PV01.0117500", "tp", 1)])
-    pid = resolve_product_identity(GROWATT_ROW, ctx=ctx)
+    pid = resolve_material_identity(GROWATT_ROW, ctx=ctx)
 
     assert pid["resolution_status"] == "resolved"
     assert pid["resolved_code"] == "PV01.0117500"
@@ -131,7 +131,7 @@ def test_customs_code_in_bom_artifacts_resolves_via_structured_field():
     }
     # Both codes exist in materials. Stage 1 wins.
     ctx = _ctx(materials=[("SA00.0001402", "tp", 1), ("PV01.0117500", "tp", 1)])
-    pid = resolve_product_identity(row, ctx=ctx)
+    pid = resolve_material_identity(row, ctx=ctx)
 
     assert pid["resolution_status"] == "resolved"
     assert pid["resolved_code"] == "SA00.0001402"
@@ -148,7 +148,7 @@ def test_parsed_code_without_catalog_entry_returns_unverified():
     """Negative test from spec: '(PV01.0117500)' parsed but not in
     materials catalog for this client → unverified, NOT resolved."""
     ctx = _ctx(materials=[])  # Empty catalog.
-    pid = resolve_product_identity(GROWATT_ROW, ctx=ctx)
+    pid = resolve_material_identity(GROWATT_ROW, ctx=ctx)
 
     assert pid["resolution_status"] == "unverified"
     assert pid["resolved_code"] is None
@@ -176,7 +176,7 @@ def test_model_paren_alone_does_not_resolve():
         ),
     }
     ctx = _ctx(materials=[("PV01.0117500", "tp", 1)])
-    pid = resolve_product_identity(row, ctx=ctx)
+    pid = resolve_material_identity(row, ctx=ctx)
 
     assert pid["resolution_status"] == "missing"
     assert pid["resolved_code"] is None
@@ -198,7 +198,7 @@ def test_multiple_paren_codes_both_in_catalog_returns_ambiguous():
         ("PV01.0117500", "tp", 1),
         ("PV02.0229000", "tp", 3),
     ])
-    pid = resolve_product_identity(row, ctx=ctx)
+    pid = resolve_material_identity(row, ctx=ctx)
 
     assert pid["resolution_status"] == "ambiguous"
     assert pid["resolved_code"] is None
@@ -230,7 +230,7 @@ def test_code_mappings_alone_never_resolves():
             ],
         },
     )
-    pid = resolve_product_identity(row, ctx=ctx)
+    pid = resolve_material_identity(row, ctx=ctx)
 
     assert pid["resolution_status"] == "ambiguous"
     assert pid["resolved_code"] is None
@@ -257,7 +257,7 @@ def test_single_code_mapping_returns_unverified_not_resolved():
             ],
         },
     )
-    pid = resolve_product_identity(row, ctx=ctx)
+    pid = resolve_material_identity(row, ctx=ctx)
 
     assert pid["resolution_status"] == "unverified"
     assert pid["bom_product_code"] is None
@@ -286,7 +286,7 @@ def test_reviewed_line_mapping_resolves_high_confidence():
             },
         },
     )
-    pid = resolve_product_identity(row, ctx=ctx)
+    pid = resolve_material_identity(row, ctx=ctx)
 
     assert pid["resolution_status"] == "resolved"
     assert pid["resolved_code"] == "PV01.0117500"
@@ -314,7 +314,7 @@ def test_reviewed_code_with_no_catalog_entry_returns_unverified():
             },
         },
     )
-    pid = resolve_product_identity(row, ctx=ctx)
+    pid = resolve_material_identity(row, ctx=ctx)
 
     assert pid["resolution_status"] == "unverified"
     assert pid["bom_product_code"] is None
@@ -342,7 +342,7 @@ def test_reviewed_code_now_classified_as_nvl_resolves_with_no_bom_alias():
             },
         },
     )
-    pid = resolve_product_identity(row, ctx=ctx)
+    pid = resolve_material_identity(row, ctx=ctx)
 
     assert pid["resolution_status"] == "resolved"
     assert pid["resolved_code"] == "NVL.001"
@@ -373,7 +373,7 @@ def test_rejected_review_blocks_other_evidence():
             },
         },
     )
-    pid = resolve_product_identity(row, ctx=ctx)
+    pid = resolve_material_identity(row, ctx=ctx)
 
     assert pid["resolution_status"] == "missing"
     assert pid["bom_product_code"] is None
@@ -391,7 +391,7 @@ def test_no_evidence_returns_missing():
         "goods_name": "BIENTAN.17#&Plain text no codes#&VN",
     }
     ctx = _ctx(materials=[("PV01.0117500", "tp", 1)])  # not relevant
-    pid = resolve_product_identity(row, ctx=ctx)
+    pid = resolve_material_identity(row, ctx=ctx)
 
     assert pid["resolution_status"] == "missing"
     assert pid["resolved_code"] is None
@@ -416,7 +416,7 @@ def test_nvl_import_customs_code_resolves_via_structured_field():
         "goods_name": "NVL.PE001#&Polyethylene resin#&CN",
     }
     ctx = _ctx(materials=[("NVL.PE001", "nvl", 0)])  # NVL: no BOM.
-    pid = resolve_product_identity(row, ctx=ctx)
+    pid = resolve_material_identity(row, ctx=ctx)
 
     assert pid["resolution_status"] == "resolved"
     assert pid["resolved_code"] == "NVL.PE001"
@@ -437,7 +437,7 @@ def test_btp_import_resolves_with_kind_btp_sx():
     }
     # BTP with own BOM artifact (Growatt-shape).
     ctx = _ctx(materials=[("BTP.MOTOR01", "btp_sx", 2)])
-    pid = resolve_product_identity(row, ctx=ctx)
+    pid = resolve_material_identity(row, ctx=ctx)
 
     assert pid["resolution_status"] == "resolved"
     assert pid["resolved_code"] == "BTP.MOTOR01"
@@ -453,7 +453,7 @@ def test_resolver_does_not_consider_other_clients():
     """Context is built per-client; cross-client codes aren't in
     `material_catalog`. With empty catalog, no resolve."""
     ctx = _ctx(materials=[])
-    pid = resolve_product_identity(GROWATT_ROW, ctx=ctx)
+    pid = resolve_material_identity(GROWATT_ROW, ctx=ctx)
     assert pid["resolution_status"] != "resolved"
 
 
@@ -543,7 +543,7 @@ def test_from_db_loads_catalog_mappings_reviewed():
             (client, "PV01.0117500", "BIENTAN.17"),
         )
         cur.execute(
-            "insert into hub.bcct_product_identity_review "
+            "insert into hub.bcct_material_identity_review "
             "(client_id, declaration_no, line_no, transaction_key, "
             " bom_product_code, status, reviewed_by) "
             "values (%s, %s, %s, %s, %s, %s, %s)",
@@ -578,7 +578,7 @@ def test_from_db_loads_catalog_mappings_reviewed():
     finally:
         with connect() as conn, conn.cursor() as cur:
             cur.execute(
-                "delete from hub.bcct_product_identity_review where client_id=%s",
+                "delete from hub.bcct_material_identity_review where client_id=%s",
                 (client,),
             )
             cur.execute("delete from hub.code_mappings where client_id=%s", (client,))
@@ -605,7 +605,7 @@ def test_candidate_limit_caps_returned_candidates():
     }
     ctx = _ctx(materials=[(f"PV01.000{i}000", "tp", 1) for i in range(1, 8)])
     ctx.candidate_limit = 3
-    pid = resolve_product_identity(row, ctx=ctx)
+    pid = resolve_material_identity(row, ctx=ctx)
 
     assert pid["resolution_status"] == "ambiguous"
     assert len(pid["candidates"]) == 3

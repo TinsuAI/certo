@@ -7,7 +7,7 @@ to serve BCQT NVL/import use cases too).
 Resolves which Data Hub canonical material/product (any kind: TP, BTP,
 NVL, CCDC) a given BCCT line refers to. Returns the contract shape
 consumed by CO via `/v1/hub/bcct` and `/v1/hub/bcct/invoice-matches`
-(additive `product_identity` field).
+(additive `material_identity` field).
 
 Output shape:
   - `resolved_code`     : canonical hub.materials.customs_code (new — any kind)
@@ -21,7 +21,7 @@ Output shape:
 Stages (D2):
   1. structured_field         — customs_code exists in hub.materials (master registry)
   2. goods_name_embedded_code — client adapter parses paren codes; validate vs materials
-  3. reviewed_line_mapping    — operator-reviewed mapping in bcct_product_identity_review
+  3. reviewed_line_mapping    — operator-reviewed mapping in bcct_material_identity_review
   4. code_mapping_candidate   — code_mappings rows produce CANDIDATES ONLY (never resolves)
   5. missing                  — no evidence
 
@@ -225,10 +225,10 @@ class ResolverContext:
             """
             select declaration_no, line_no, transaction_key,
                    bom_product_code, status, reviewed_by, reviewed_at
-            from hub.bcct_product_identity_review r1
+            from hub.bcct_material_identity_review r1
             where client_id = %s
               and reviewed_at = (
-                select max(reviewed_at) from hub.bcct_product_identity_review r2
+                select max(reviewed_at) from hub.bcct_material_identity_review r2
                 where r2.client_id = r1.client_id
                   and r2.transaction_key = r1.transaction_key
                   and r2.line_no = r1.line_no
@@ -396,10 +396,10 @@ def _make_candidate(code: str, source: str, *, confidence: str, reason: str,
     return out
 
 
-def resolve_product_identity(row: dict, *, ctx: ResolverContext) -> dict:
+def resolve_material_identity(row: dict, *, ctx: ResolverContext) -> dict:
     """Run the 5-stage resolver against a single BCCT row.
 
-    Returns a `product_identity` dict matching the CO contract shape.
+    Returns a `material_identity` dict matching the CO contract shape.
     Pure function given the context — no DB access here.
     """
     customs = (row.get("customs_code") or "").strip()
@@ -507,7 +507,7 @@ def resolve_product_identity(row: dict, *, ctx: ResolverContext) -> dict:
                 row, ctx, code=code,
                 resolution_source="reviewed_line_mapping",
                 evidence={
-                    "source_field": "bcct_product_identity_review",
+                    "source_field": "bcct_material_identity_review",
                     "source_text": code,
                     "matched_text": code,
                     "match_rule": "reviewed_line_mapping",
@@ -530,7 +530,7 @@ def resolve_product_identity(row: dict, *, ctx: ResolverContext) -> dict:
             resolution_source="reviewed_line_mapping",
             candidates=[stale_candidate],
             evidence={
-                "source_field": "bcct_product_identity_review",
+                "source_field": "bcct_material_identity_review",
                 "source_text": code,
                 "matched_text": code,
                 "match_rule": "reviewed_code_no_alive_bom",
@@ -552,7 +552,7 @@ def resolve_product_identity(row: dict, *, ctx: ResolverContext) -> dict:
             resolution_source="none",
             candidates=[],
             evidence={
-                "source_field": "bcct_product_identity_review",
+                "source_field": "bcct_material_identity_review",
                 "match_rule": "reviewed_rejected",
             },
         )

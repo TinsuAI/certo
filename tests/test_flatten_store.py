@@ -320,10 +320,10 @@ def test_bcct_import_lookup_excludes_export_only_codes():
                 insert into hub.bcct_rows
                   (client_id, transaction_key, line_no, registration_date,
                    declaration_no, declaration_type, direction,
-                   customs_code, internal_code, goods_name)
+                   customs_code, goods_name)
                 values (%s, 'FT_TX', '1', '2026-01-01',
                         'FT_DECL', 'A11', 'export',
-                        'FT_EXPONLY', 'FT_EXPONLY', 'export only goods')
+                        'FT_EXPONLY', 'export only goods')
                 """,
                 (CLIENT,),
             )
@@ -332,10 +332,10 @@ def test_bcct_import_lookup_excludes_export_only_codes():
                 insert into hub.bcct_rows
                   (client_id, transaction_key, line_no, registration_date,
                    declaration_no, declaration_type, direction,
-                   customs_code, internal_code, goods_name)
+                   customs_code, goods_name)
                 values (%s, 'FT_TX2', '1', '2026-01-01',
                         'FT_DECL2', 'E11', 'import',
-                        'FT_IMP', 'FT_IMP', 'imported goods')
+                        'FT_IMP', 'imported goods')
                 """,
                 (CLIENT,),
             )

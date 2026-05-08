@@ -1,4 +1,4 @@
-"""Tests for scripts/resolve_bcct_product_identity.py backfill."""
+"""Tests for scripts/resolve_bcct_material_identity.py backfill."""
 from __future__ import annotations
 
 import secrets
@@ -6,7 +6,7 @@ import secrets
 import pytest
 
 from app.database import connect
-from scripts.resolve_bcct_product_identity import resolve_for_client
+from scripts.resolve_bcct_material_identity import resolve_for_client
 
 
 @pytest.fixture
@@ -45,15 +45,15 @@ def client_with_null_pids():
                 "insert into hub.bcct_rows "
                 "(client_id, transaction_key, line_no, declaration_no, "
                 " declaration_type, direction, registration_date, "
-                " customs_code, internal_code, goods_name, payload) "
+                " customs_code, goods_name, payload) "
                 "values (%s, %s, '1', %s, 'E42', 'export', '2026-01-15', "
-                "%s, %s, %s, '{}'::jsonb)",
-                (cid, txkey, txkey.split("-")[0], customs, customs, gname),
+                "%s, %s, '{}'::jsonb)",
+                (cid, txkey, txkey.split("-")[0], customs, gname),
             )
-            # Force product_identity NULL (insert path normally fills it; this
+            # Force material_identity NULL (insert path normally fills it; this
             # simulates legacy rows that pre-date the resolver).
             cur.execute(
-                "update hub.bcct_rows set product_identity = null "
+                "update hub.bcct_rows set material_identity = null "
                 "where client_id=%s and transaction_key=%s",
                 (cid, txkey),
             )
@@ -77,7 +77,7 @@ def test_backfill_populates_null_rows(client_with_null_pids):
 
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            "select transaction_key, product_identity->>'resolution_status' "
+            "select transaction_key, material_identity->>'resolution_status' "
             "from hub.bcct_rows where client_id=%s order by transaction_key",
             (cid,),
         )
@@ -94,7 +94,7 @@ def test_dry_run_does_not_write(client_with_null_pids):
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "select count(*) from hub.bcct_rows "
-            "where client_id=%s and product_identity is null",
+            "where client_id=%s and material_identity is null",
             (cid,),
         )
         (n_null,) = cur.fetchone()

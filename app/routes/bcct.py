@@ -23,7 +23,7 @@ from app.parsers.bcct import (
     parse_bcct_workbook,
     BcctParseError,
 )
-from app.parsers.goods_name import internal_code_parser_for
+from app.parsers.derivations import compute_internal_code
 from app.routes._mapping_flow import (
     ModuleConfig,
     _load_unmapped,
@@ -432,12 +432,11 @@ def _ingest_rows(*, client_id: str, client: dict, rows: list[dict],
     confirm_diffs=False (default): UPDATE on existing rows is gated. NEW-only
     uploads still flow straight through.
     """
-    parser = internal_code_parser_for(client_id, client["code_resolution_mode"])
     rows_with_date = [r for r in rows if r.get("registration_date")]
     skipped = len(rows) - len(rows_with_date)
 
     diff_summary = _classify_rows(client_id=client_id, parsed=rows_with_date,
-                                  parser=parser)
+                                  client=client)
     # Carry the row-skipped-without-date count into the preview so staff
     # sees it alongside NEW/UPDATED/DELETED/NOOP counts.
     diff_summary["skipped_no_date"] = skipped
@@ -483,7 +482,7 @@ def _ingest_rows(*, client_id: str, client: dict, rows: list[dict],
     # Confirmed → apply.
     user_id = request.state.user.user_id if (request and hasattr(request.state, "user")) else None
     n = _apply_bcct_rows(client_id=client_id, rows=rows_with_date,
-                        upload_id=upload_id, parser=parser,
+                        upload_id=upload_id, client=client,
                         orphans_to_delete=diff_summary["orphan"] if confirm_orphans else [],
                         user_id=user_id)
     with connect() as conn:
@@ -515,7 +514,7 @@ def _ingest_rows(*, client_id: str, client: dict, rows: list[dict],
 # (year is GENERATED) and bookkeeping (upload_id, indexed_at).
 _DIFF_FIELDS = (
     "declaration_no", "declaration_type", "direction", "customs_code",
-    "internal_code", "goods_name", "hs_code", "quantity", "unit", "total_value",
+    "goods_name", "hs_code", "quantity", "unit", "total_value",
     "currency", "origin", "invoice_ref",
     "exporter_name", "exporter_tax_code", "consignee_name", "incoterms",
     "weight", "weight_unit", "package_count", "package_unit",
@@ -525,7 +524,7 @@ _DIFF_FIELDS = (
 )
 
 
-def _classify_rows(*, client_id: str, parsed: list[dict], parser) -> dict:
+def _classify_rows(*, client_id: str, parsed: list[dict], client: dict) -> dict:
     """Categorize parsed rows vs DB state. Returns:
         {new: int, noop: int, diff: list[{key, old, new, changed_fields}],
          orphan: list[{key, decl_no, line_no}], total: int}
@@ -550,7 +549,7 @@ def _classify_rows(*, client_id: str, parsed: list[dict], parser) -> dict:
         with conn.cursor() as cur:
             cur.execute(
                 "select transaction_key, line_no, declaration_no, "
-                "       declaration_type, direction, customs_code, internal_code, "
+                "       declaration_type, direction, customs_code, "
                 "       goods_name, hs_code, quantity, unit, total_value, currency, "
                 "       origin, invoice_ref, "
                 "       exporter_name, exporter_tax_code, consignee_name, incoterms, "
@@ -576,16 +575,11 @@ def _classify_rows(*, client_id: str, parsed: list[dict], parser) -> dict:
         if db_row is None:
             new_count += 1
             continue
-        # Compute internal_code the same way _apply_bcct_rows will so we
-        # don't false-flag identity-mode rows as DIFF.
-        if parser is None:
-            parsed_internal = parsed_row.get("customs_code")
-        else:
-            parsed_internal = parser(parsed_row.get("goods_name") or "")
-        # db_row layout: (txn, line, then _DIFF_FIELDS in order)
+        # db_row layout: (txn, line, then _DIFF_FIELDS in order). Note
+        # internal_code is no longer persisted; computed at runtime via
+        # client_parser_rules engine — not part of the diff anymore.
         db_dict = dict(zip(["transaction_key", "line_no"] + db_field_names, db_row))
         merged_parsed = dict(parsed_row)
-        merged_parsed["internal_code"] = parsed_internal
         changed: list[str] = []
         for f in _DIFF_FIELDS:
             old_v = db_dict.get(f)
@@ -669,7 +663,7 @@ def _stash_pending(*, client_id: str, upload_id: str, parsed: list[dict],
 
 
 def _apply_bcct_rows(*, client_id: str, rows: list[dict], upload_id: str | None,
-                    parser, orphans_to_delete: list[dict],
+                    client: dict, orphans_to_delete: list[dict],
                     user_id: str | None) -> int:
     """Insert/update parsed rows; delete confirmed orphans. SHARED CONNECTION
     so the whole apply runs in a single transaction — partial failure
@@ -694,7 +688,7 @@ def _apply_bcct_rows(*, client_id: str, rows: list[dict], upload_id: str | None,
                 unreg_before = unregistered_seen_count(cur, client_id=client_id)
             n = _insert_bcct_with_cursor(
                 cur, client_id=client_id, rows=rows,
-                upload_id=upload_id, parser=parser,
+                upload_id=upload_id, client=client,
             )
             for o in orphans_to_delete:
                 txn, line = o["key"]
@@ -802,7 +796,7 @@ async def bcct_row_history(request: Request, client_id: str,
             cur.execute(
                 """
                 select declaration_no, registration_date, customs_code,
-                       internal_code, goods_name, quantity, unit, total_value
+                       goods_name, quantity, unit, total_value
                 from hub.bcct_rows
                 where client_id = %s and transaction_key = %s and line_no = %s
                 """,
@@ -900,10 +894,9 @@ async def upload_preview_confirm(request: Request, client_id: str, pending_id: s
 
     orphans_to_delete = diff_summary.get("orphan", []) if confirm_orphans else []
 
-    parser = internal_code_parser_for(client_id, client["code_resolution_mode"])
     n = _apply_bcct_rows(
         client_id=client_id, rows=rows_to_apply, upload_id=upload_id,
-        parser=parser, orphans_to_delete=orphans_to_delete,
+        client=client, orphans_to_delete=orphans_to_delete,
         user_id=user.user_id,
     )
     with connect() as conn:
@@ -925,7 +918,6 @@ BCCT_SORT_WHITELIST = {
     "registration_date": "b.registration_date",
     "declaration_no": "b.declaration_no",
     "customs_code": "b.customs_code",
-    "internal_code": "b.internal_code",
 }
 BCCT_SORT_DEFAULT = ("registration_date", "desc")
 BCCT_SORT_TIEBREAKERS = ("b.declaration_no", "b.line_no")
@@ -946,9 +938,9 @@ def _bcct_where_clause(client_id: str, year: int | None,
         params.append(direction)
     if q:
         sql += (" and (b.declaration_no ilike %s or b.customs_code ilike %s "
-                "or b.internal_code ilike %s or b.goods_name ilike %s)")
+                "or b.goods_name ilike %s)")
         like = f"%{q}%"
-        params.extend([like, like, like, like])
+        params.extend([like, like, like])
     return sql, params
 
 
@@ -958,7 +950,7 @@ def _list_bcct(client_id: str, year: int | None, direction: str | None,
     where, params = _bcct_where_clause(client_id, year, direction, q)
     sql = f"""
         select b.transaction_key, b.line_no, b.declaration_no, b.declaration_type,
-               b.direction, b.registration_date, b.customs_code, b.internal_code,
+               b.direction, b.registration_date, b.customs_code,
                b.goods_name, b.hs_code, b.quantity, b.unit, b.total_value,
                b.currency, b.origin,
                coalesce(h.event_count, 0) as history_count,
@@ -1004,7 +996,7 @@ def _years(client_id: str) -> list[int]:
 
 
 def _insert_bcct(*, client_id: str, rows: list[dict],
-                 upload_id: str | None, parser, user_id: str | None = None) -> int:
+                 upload_id: str | None, client: dict, user_id: str | None = None) -> int:
     """Insert BCCT rows. Opens its own connection. For multi-step apply
     paths (e.g. confirm flow that also DELETEs orphans), call
     `_insert_bcct_with_cursor` directly to share the transaction."""
@@ -1012,41 +1004,30 @@ def _insert_bcct(*, client_id: str, rows: list[dict],
         with conn.cursor() as cur:
             return _insert_bcct_with_cursor(
                 cur, client_id=client_id, rows=rows,
-                upload_id=upload_id, parser=parser,
+                upload_id=upload_id, client=client,
             )
 
 
 def _insert_bcct_with_cursor(cur, *, client_id: str, rows: list[dict],
-                             upload_id: str | None, parser) -> int:
+                             upload_id: str | None, client: dict) -> int:
     """Insert/upsert BCCT rows on the given cursor. `year` is GENERATED
-    ALWAYS AS STORED (from registration_date); not in the column list."""
+    ALWAYS AS STORED (from registration_date); not in the column list.
+
+    `internal_code` is no longer persisted (mig 035 dropped it).
+    Computed at runtime via `compute_internal_code(row, client=client)`
+    for resolver input + serializer output.
+    """
     import json
-    from app.resolvers.bcct_product_identity import (
-        ResolverContext, resolve_product_identity,
+    from app.resolvers.bcct_material_identity import (
+        ResolverContext, resolve_material_identity,
     )
-    # Build resolver context once per insert call (Q5 memoization).
-    # Wire in the BCCT product-identity resolver per
-    # .ai/features/2026-05-07-bcct-product-identity/brief.md (D9).
     pid_ctx = ResolverContext.from_db(client_id, cur)
     n = 0
     for r in rows:
         customs_code = r.get("customs_code")
         goods_name = r.get("goods_name") or ""
-        # internal_code is the AGENCY's ERP/internal code, distinct from
-        # the HQ-assigned customs_code. BCCT files don't carry an
-        # internal-code column natively (if they do, staff added it
-        # post-export). Hub derives it from goods_name via per-client
-        # parser. NULL is the correct state when the parser can't
-        # extract — staff/BQD pairs it explicitly later. Don't conflate
-        # with customs_code unless the client opted into identity mode.
-        if parser is None:
-            # identity mode: client declares internal == customs
-            internal_code = customs_code
-        else:
-            internal_code = parser(goods_name)
+        internal_code = compute_internal_code(r, client=client)
         payload_json = json.dumps(r.get("payload") or {}, ensure_ascii=False)
-        # Compute product_identity using the shared resolver context.
-        # The resolver is pure given ctx; build a minimal row dict for it.
         pid_row = {
             "transaction_key": r["transaction_key"],
             "declaration_no": r.get("declaration_no"),
@@ -1055,14 +1036,14 @@ def _insert_bcct_with_cursor(cur, *, client_id: str, rows: list[dict],
             "internal_code": internal_code,
             "goods_name": goods_name,
         }
-        product_identity = resolve_product_identity(pid_row, ctx=pid_ctx)
-        product_identity_json = json.dumps(product_identity, ensure_ascii=False)
+        material_identity = resolve_material_identity(pid_row, ctx=pid_ctx)
+        material_identity_json = json.dumps(material_identity, ensure_ascii=False)
         cur.execute(
             """
             insert into hub.bcct_rows
               (client_id, transaction_key, line_no, declaration_no,
                declaration_type, direction, registration_date, customs_code,
-               internal_code, goods_name, hs_code, quantity, unit,
+               goods_name, hs_code, quantity, unit,
                quantity_2, unit_2, unit_price, total_value, currency, origin,
                invoice_ref,
                exporter_name, exporter_tax_code, consignee_name, incoterms,
@@ -1070,8 +1051,8 @@ def _insert_bcct_with_cursor(cur, *, client_id: str, rows: list[dict],
                invoice_date, departure_date,
                destination_code, destination_name,
                transport_mode, exchange_rate,
-               upload_id, payload, product_identity)
-            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+               upload_id, payload, material_identity)
+            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s,
                     %s, %s, %s, %s,
@@ -1082,7 +1063,6 @@ def _insert_bcct_with_cursor(cur, *, client_id: str, rows: list[dict],
             on conflict (client_id, year, transaction_key, line_no) do update set
               declaration_no = excluded.declaration_no,
               customs_code = excluded.customs_code,
-              internal_code = excluded.internal_code,
               goods_name = excluded.goods_name,
               quantity = excluded.quantity,
               total_value = excluded.total_value,
@@ -1102,13 +1082,13 @@ def _insert_bcct_with_cursor(cur, *, client_id: str, rows: list[dict],
               exchange_rate = excluded.exchange_rate,
               payload = excluded.payload,
               upload_id = excluded.upload_id,
-              product_identity = excluded.product_identity,
+              material_identity = excluded.material_identity,
               indexed_at = now()
             """,
             (client_id, r["transaction_key"], r.get("line_no", "0"),
              r.get("declaration_no"), r.get("declaration_type"),
              r.get("direction"), r.get("registration_date"),
-             customs_code, internal_code, goods_name, r.get("hs_code"),
+             customs_code, goods_name, r.get("hs_code"),
              r.get("quantity"), r.get("unit"),
              r.get("quantity_2"), r.get("unit_2"),
              r.get("unit_price"), r.get("total_value"),
@@ -1120,6 +1100,6 @@ def _insert_bcct_with_cursor(cur, *, client_id: str, rows: list[dict],
              r.get("invoice_date"), r.get("departure_date"),
              r.get("destination_code"), r.get("destination_name"),
              r.get("transport_mode"), r.get("exchange_rate"),
-             upload_id, payload_json, product_identity_json))
+             upload_id, payload_json, material_identity_json))
         n += 1
     return n
