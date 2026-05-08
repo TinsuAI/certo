@@ -140,9 +140,39 @@ release.
 035_material_identity_and_parser_rules.sql      — schema
 036_seed_growatt_parser_rules.sql               — seed: internal_code
 037_seed_growatt_material_identity_candidates_rule.sql  — seed: stage 2
+038_drop_material_identity_column.sql           — mat_id column dropped
 ```
 
 Forward-only (no `down.sql`). Pre-prod = OK.
+
+## Update for mig 038 (later same day)
+
+After mig 035 dropped `internal_code` column, the same architectural
+principle was applied to `material_identity`: it's a deterministic
+function over `(row_data, materials_catalog, parser_rules)` — same as
+`internal_code`. Persisting it adds drift + backfill burden.
+
+**Mig 038 drops `bcct_rows.material_identity` column entirely.**
+Every API read resolves at runtime. Behavior on the wire is unchanged
+(response shape includes `material_identity` per `include_material_identity`
+flag) — but:
+
+- **Bulk export performance**: pulling 23k rows now takes ~25-50s
+  (vs near-instant when cached). Per-page reads (50 rows) ~50-100ms.
+- **`parser_version` snapshot stability**: NOT guaranteed across rule
+  edits. If staff change a rule, next read returns the new resolution.
+  Previously the persisted value was a snapshot at ingest/backfill
+  time. If your code branches on `parser_version` for cache busting,
+  understand it's now "current rules version" not "version at row
+  ingest time".
+- **No column to query**: any SQL doing
+  `bcct_rows.material_identity->>...` will fail. Use the API
+  endpoint or compute via the resolver in Python.
+
+Idempotency promise (per CO spec): "same query against unchanged
+data and same parser version returns same product identity result"
+— still holds, with "parser version" reinterpreted as "current rule
+set".
 
 ## Bonus: configurable parser rules per client
 

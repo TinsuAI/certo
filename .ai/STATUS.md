@@ -1,22 +1,23 @@
 # Project Status
 
-**Date:** 2026-05-08 — material_identity rename + drop internal_code + configurable parser rules
+**Date:** 2026-05-08 — material_identity rename + drop internal_code + configurable parser rules + drop material_identity (mig 038)
 
 ## Current State
 
-End-to-end bundle shipped this session: `bcct_rows.product_identity`
-renamed to `material_identity`; `bcct_rows.internal_code` column dropped
-in favor of runtime computation via DB-driven `client_parser_rules`;
-hardcoded Growatt regex (`goods_name.py`) and `bcct_adapters/`
-registry deleted; staff can now author rules via web UI under
-`/clients/<id>/parser-rules`.
+End-to-end bundle shipped: `bcct_rows.product_identity` renamed to
+`material_identity` then **dropped entirely** (mig 038). Both
+`internal_code` and `material_identity` are now fully runtime-derived
+from `(row_data, materials_catalog, hub.client_parser_rules)`. No
+persisted derivations. Staff edit per-client regex rules via web UI
+under `/clients/<id>/parser-rules`. Hardcoded Growatt regex
+(`goods_name.py`) and `bcct_adapters/` registry deleted.
 
-- **Repo HEAD**: `ae77a74` on `main` — **NOT YET PUSHED**. 16 commits
-  ahead of origin/main (8 from prior session 2026-05-07 + 8 from this
+- **Repo HEAD**: `f75d681` on `main` — **NOT YET PUSHED**. 18 commits
+  ahead of origin/main (8 from prior session 2026-05-07 + 10 from this
   session).
-- **Tests**: 633 pass / 15 skip / 1 pre-existing fail
+- **Tests**: 624 pass / 15 skip / 1 pre-existing fail
   (`test_co_columns` real-data, untouched).
-- **Local DB v3 state**: schema at mig 037 applied; rules seeded for
+- **Local DB v3 state**: schema at mig 038 applied; rules seeded for
   `growatt-vn` (5 internal_code rules + 1 material_identity_candidates
   rule). Identity-mode clients (DKE, Johnson, Do Thanh, demo) need no
   rules.
@@ -33,6 +34,8 @@ registry deleted; staff can now author rules via web UI under
 | `f6ece41` | /rev fix #4 — replace bcct_adapters/ with rule engine (mig 037) |
 | `ab09d83` | /rev fix #3 — CRUD endpoints + UI page + test panel single-mode |
 | `ae77a74` | Deferred polish — history endpoint + PATCH UI + recent/coverage modes + sister-app docs |
+| `f5eec19` | docs: STATUS.md + session summary |
+| `f75d681` | Mig 038 — drop material_identity column entirely; fully runtime-derived |
 
 ### Sister-app notes posted
 
@@ -59,6 +62,12 @@ registry deleted; staff can now author rules via web UI under
 6. 666 Growatt export rows + 14 import bug-shape rows now resolve
    correctly. They previously fell through F1-anchor or F1-disjunction
    bugs in the deleted hardcoded regex.
+7. **(mig 038)** material_identity is no longer persisted — every read
+   resolves at runtime. Rule edits propagate to next read; no backfill.
+   Trade-off: bulk export (~23k rows) takes ~25-50s vs near-instant
+   for cached read. Per-page reads (50 rows) ~50-100ms — negligible.
+   parser_version stability across rule edits is intentionally not
+   guaranteed.
 
 ## Next Steps
 

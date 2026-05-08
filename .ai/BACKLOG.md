@@ -8,6 +8,38 @@ For past architectural decisions, see `DECISIONS.md`.
 
 ---
 
+## Scripts that lost SQL `material_identity` access (deferred 2026-05-08)
+
+Mig 038 dropped `bcct_rows.material_identity` jsonb column. Three
+scripts that did SQL-side `material_identity->>...` access now fall
+back to `customs_code` only — degraded for Growatt-style imports
+where the agency NVL code lives in goods_name parens.
+
+1. **`scripts/settlement_resolver.py::_load_bcct_universe`** — used to
+   collect distinct internal codes from BCCT rows for BCQT-side
+   settlement matching. Now returns customs_code only. Rewrite to
+   call `compute_internal_code(row, client=client)` per row in Python,
+   then dedup. ~30 min.
+2. **`scripts/detect_dual_source_btps.py`** — classifier for
+   "imported BTP that's also self-produced". Used `material_identity`
+   to match `b.<computed>=m.customs_code` for the import-count
+   subquery. Now uses `b.customs_code = m.customs_code` only —
+   under-counts Growatt imports because customs_code is the HQ-side
+   "DOV"/"TEM.IN" bucket, not the agency NVL code in parens.
+   Rewrite needs Python-side compute per row + GROUP BY in code.
+   ~1h.
+3. **`app/agent/tools.py::_query_bcct`** — agent tool that surfaced
+   `internal_code` to the LLM for natural-language BCCT lookup. Now
+   omits the field. Agent can still infer from goods_name. Lower
+   priority — rewrite when agent feature ramps up.
+
+All three are at the SAME architectural pinch-point: SQL-side
+aggregation over jsonb that's no longer there. Generalized fix:
+materialized view that re-derives material_identity for analytics
+queries. Defer until performance pain emerges.
+
+---
+
 ## Phase 3 review follow-ups (deferred 2026-05-07)
 
 Captured during /rev of commits `5fb814a..dadbd0f`. Four Minor

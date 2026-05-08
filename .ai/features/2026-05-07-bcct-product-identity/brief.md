@@ -395,7 +395,37 @@ Corrected (commit `5e5cb66`):
 
 ### Backfill story
 
-The original D10 backfill script was retained, with two changes:
-- Module renamed to `scripts/resolve_bcct_material_identity.py`.
-- Reads `internal_code` via `compute_internal_code(row, client=client)`
-  per row (column gone).
+Originally D10 prescribed a backfill script
+(`scripts/resolve_bcct_product_identity.py` → renamed to
+`resolve_bcct_material_identity.py`). After mig 038 (later same day)
+dropped the `material_identity` column entirely, the script was
+**deleted** — there's no column to backfill. Every API read resolves
+at runtime against current materials catalog + parser rules.
+
+### Mig 038 — drop `material_identity` column (architectural correction)
+
+Hours after mig 035, user pointed out the inconsistency: if
+`internal_code` is too pure-derivation to cache, so is
+`material_identity`. Same dependency shape:
+`(row_data, materials_catalog, parser_rules) → material_identity`.
+
+Mig 038 drops the column. Trade-offs:
+- **Pro**: no drift between persisted vs current-rules state. Rule
+  edits propagate to next read. No backfill burden ever.
+- **Con**: `parser_version` snapshot stability is gone — replays
+  against unchanged data + unchanged rules return same answer
+  (idempotency holds), but rule edits now affect historical reads.
+- **Perf**: per-page reads (50 rows) ~50-100ms; bulk export
+  (~23k rows) ~25-50s. Acceptable; not realtime path.
+
+Code paths updated:
+- `_insert_bcct_with_cursor`: stop persisting; just save raw row
+  fields.
+- `_attach_material_identity` (api.py): always lazy-resolve. Drop
+  conditional NULL filter.
+- `bcct.py` UI list handler: lazy-fill in route handler before
+  template render.
+- Scripts (`settlement_resolver`, `detect_dual_source_btps`,
+  `agent/tools`): SQL queries that did
+  `material_identity->>...` jsonb access fall back to `customs_code`
+  only. Rewrites tracked in BACKLOG.
