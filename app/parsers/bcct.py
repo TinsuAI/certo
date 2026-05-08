@@ -35,9 +35,22 @@ ALIASES = {
     "unit": ["đơn vị tính", "don vi tinh", "đvt", "dvt", "unit"],
     "quantity_2": ["tổng số lượng 2", "lượng 2", "qty 2", "số lượng 2"],
     "unit_2": ["đơn vị tính 2", "đvt 2", "unit 2"],
-    "unit_price": ["đơn giá tính thuế", "đơn giá", "don gia", "unit price"],
-    "total_value": ["tổng trị giá", "trị giá nt", "trị giá", "tri gia", "total value", "value", "customs value"],
-    "currency": ["đơn vị tiền tệ", "nguyên tệ", "currency"],
+    # Two parallel value/price domains (mig 039 split):
+    #   *_value / *_price = VND-converted (taxable, customs-filing
+    #   semantic). Always VND regardless of original transaction
+    #   currency.
+    #   *_value_nt / *_price_nt = "nguyên tệ" — the original
+    #   transaction currency amounts (FX-domain). Tagged by
+    #   `currency_nt` (e.g. 'USD', 'EUR').
+    "unit_price":    ["đơn giá tính thuế"],
+    "unit_price_nt": ["đơn giá", "don gia", "unit price"],
+    "total_value":   ["tổng trị giá", "trị giá", "tri gia",
+                      "total value", "value", "customs value"],
+    "total_value_nt": ["trị giá nt", "trị giá nguyên tệ"],
+    "currency_nt":   ["đơn vị tiền tệ", "nguyên tệ", "currency"],
+    "total_tax":     ["tổng tiền thuế", "tien thue", "total tax"],
+    "unloading_location": ["địa điểm dỡ hàng", "dia diem do hang",
+                            "unloading location"],
     "origin": ["xuất xứ", "xuat xu", "origin"],
     "invoice_ref": ["số hóa đơn", "so hoa don", "invoice", "invoice ref"],
     # ── 12 CO-essential columns (promoted from payload 2026-05-04) ──
@@ -119,7 +132,10 @@ LOGICAL_FIELDS = (
     "declaration_no", "line_no", "declaration_type", "direction",
     "registration_date", "customs_code", "goods_name", "hs_code",
     "quantity", "unit", "quantity_2", "unit_2",
-    "unit_price", "total_value", "currency", "origin", "invoice_ref",
+    "unit_price", "unit_price_nt",
+    "total_value", "total_value_nt",
+    "currency_nt", "total_tax", "unloading_location",
+    "origin", "invoice_ref",
     "exporter_name", "exporter_tax_code", "consignee_name", "incoterms",
     "weight", "weight_unit", "package_count", "package_unit",
     "invoice_date", "departure_date",
@@ -239,8 +255,12 @@ def parse_bcct_workbook(
                 "quantity_2": _cell_num(raw, cols.get("quantity_2")),
                 "unit_2": _cell_str(raw, cols.get("unit_2")),
                 "unit_price": _cell_num(raw, cols.get("unit_price")),
+                "unit_price_nt": _cell_num(raw, cols.get("unit_price_nt")),
                 "total_value": _cell_num(raw, cols.get("total_value")),
-                "currency": _cell_str(raw, cols.get("currency")),
+                "total_value_nt": _cell_num(raw, cols.get("total_value_nt")),
+                "currency_nt": _cell_str(raw, cols.get("currency_nt")),
+                "total_tax": _cell_num(raw, cols.get("total_tax")),
+                "unloading_location": _cell_str(raw, cols.get("unloading_location")),
                 "origin": _cell_str(raw, cols.get("origin")),
                 "invoice_ref": _cell_str(raw, cols.get("invoice_ref")),
                 # 12 CO-essential typed fields (promoted 2026-05-04).

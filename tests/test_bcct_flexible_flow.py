@@ -192,7 +192,7 @@ def test_mapping_happy_path_runs_typed_column_coercion(http):
             "col_6__field": "quantity",            "col_6__header": "Qty",
             "col_7__field": "unit",                "col_7__header": "U",
             "col_8__field": "total_value",         "col_8__header": "Value",
-            "col_9__field": "currency",            "col_9__header": "Cur",
+            "col_9__field": "currency_nt",         "col_9__header": "Cur",
         },
         follow_redirects=False,
     )
@@ -227,7 +227,7 @@ def test_second_upload_with_same_shape_is_cache_hit(http):
             "col_6__field": "quantity",             "col_6__header": "Tổng số lượng",
             "col_7__field": "unit",                 "col_7__header": "ĐVT",
             "col_8__field": "total_value",          "col_8__header": "Trị giá",
-            "col_9__field": "currency",             "col_9__header": "Nguyên tệ",
+            "col_9__field": "currency_nt",          "col_9__header": "Nguyên tệ",
         },
         follow_redirects=False,
     )

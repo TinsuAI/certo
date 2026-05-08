@@ -95,17 +95,19 @@ def seeded_export():
                         customs_code, goods_name,
                         invoice_ref, destination_code, destination_name,
                         consignee_name, exporter_name, incoterms,
-                        invoice_date, departure_date, payload)
+                        invoice_date, departure_date, unloading_location,
+                        payload)
                        values (%s, %s, %s, %s, %s, %s, %s,
                                %s, %s,
                                %s, %s, %s,
                                %s, %s, %s,
-                               %s, %s, %s::jsonb)""",
+                               %s, %s, %s,
+                               %s::jsonb)""",
                     (cid, f"{decl}-{line}", line, decl, dtype, direction,
                      regdate, code, gname,
                      invref, dest_code or None, dest_name or None,
                      consignee, "GROWATT VIET NAM", incoterms,
-                     regdate, regdate,
+                     regdate, regdate, ul,
                      __import__("json").dumps(payload, ensure_ascii=False)),
                 )
     yield {"client_id": cid, "invoice_no": inv, "india_invoice": "GIN-29981A"}

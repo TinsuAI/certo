@@ -274,7 +274,8 @@ def _query_bcct(*, client_id: str, year: int | None = None,
     sql = (
         "select declaration_no, line_no, declaration_type, direction, "
         "       registration_date, customs_code, "
-        "       goods_name, quantity, unit, total_value, currency "
+        "       goods_name, quantity, unit, "
+        "       total_value, total_value_nt, currency_nt "
         "from hub.bcct_rows where client_id = %s"
     )
     params: list = [client_id]

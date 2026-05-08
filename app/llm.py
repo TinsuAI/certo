@@ -115,7 +115,10 @@ _TARGET_FIELDS_BY_MODULE: dict[str, list[str]] = {
     "bcct": [
         "declaration_no", "line_no", "declaration_type", "registration_date",
         "customs_code", "goods_name", "hs_code", "quantity", "unit",
-        "total_value", "currency", "origin", "invoice_ref",
+        "total_value", "total_value_nt", "currency_nt",
+        "unit_price", "unit_price_nt",
+        "total_tax", "unloading_location",
+        "origin", "invoice_ref",
         "exporter_name", "exporter_tax_code", "consignee_name", "incoterms",
         "weight", "weight_unit", "package_count", "package_unit",
         "invoice_date", "departure_date",

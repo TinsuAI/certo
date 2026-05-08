@@ -102,7 +102,7 @@
         <td class="mono">{{ '%.2f'|format(r.quantity) if r.quantity else '' }}</td>
         <td class="mono">{{ r.unit or '' }}</td>
         <td class="mono">{{ '%.2f'|format(r.total_value) if r.total_value else '' }}</td>
-        <td class="mono">{{ r.currency or '' }}</td>
+        <td class="mono">{{ r.currency_nt or '' }}</td>
         <td>
           <a href="/clients/{{ client.client_id }}/bcct/history/{{ r.transaction_key }}/{{ r.line_no }}"
              title="Trạng thái đầy đủ{% if r.history_count and r.history_count > 0 %} · {{ r.history_count }} lần thay đổi · gần nhất {{ r.last_changed_at.strftime('%Y-%m-%d %H:%M') if r.last_changed_at else '' }}{% endif %}">

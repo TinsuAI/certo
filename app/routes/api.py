@@ -512,7 +512,11 @@ async def api_list_bcct(
         select client_id, year, transaction_key, line_no, declaration_no,
                declaration_type, direction, registration_date,
                customs_code, goods_name, hs_code,
-               quantity, unit, total_value, currency, origin, invoice_ref,
+               quantity, unit,
+               unit_price, unit_price_nt,
+               total_value, total_value_nt,
+               currency_nt, total_tax, unloading_location,
+               origin, invoice_ref,
                exporter_name, exporter_tax_code, consignee_name, incoterms,
                weight, weight_unit, package_count, package_unit,
                invoice_date, departure_date,
@@ -658,7 +662,10 @@ async def api_invoice_matches(
                invoice_date, departure_date, incoterms,
                consignee_name, exporter_name,
                destination_code, destination_name,
-               nullif(payload->>'Địa điểm dỡ hàng', '') as unloading_location
+               unloading_location,
+               unit_price, unit_price_nt,
+               total_value, total_value_nt,
+               currency_nt
         from hub.bcct_rows
         where client_id = %s and direction = 'export' and coalesce(invoice_ref, '') <> ''
     """
@@ -750,7 +757,11 @@ async def api_get_bcct(
                 select client_id, year, transaction_key, line_no, declaration_no,
                        declaration_type, direction, registration_date,
                        customs_code, goods_name, hs_code,
-                       quantity, unit, total_value, currency, origin, invoice_ref,
+                       quantity, unit,
+                       unit_price, unit_price_nt,
+                       total_value, total_value_nt,
+                       currency_nt, total_tax, unloading_location,
+                       origin, invoice_ref,
                        exporter_name, exporter_tax_code, consignee_name, incoterms,
                        weight, weight_unit, package_count, package_unit,
                        invoice_date, departure_date,

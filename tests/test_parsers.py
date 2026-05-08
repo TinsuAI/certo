@@ -131,7 +131,7 @@ def test_bcct_extracts_typed_columns_and_direction():
     assert rows[0]["direction"] == "import"
     assert rows[1]["direction"] == "export"
     assert rows[0]["quantity"] == 100.0
-    assert rows[0]["currency"] == "USD"
+    assert rows[0]["currency_nt"] == "USD"
 
 
 def test_bcct_raises_on_unknown_format():
