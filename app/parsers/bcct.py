@@ -230,12 +230,18 @@ def parse_bcct_workbook(
             transaction_key = f"{decl}-{line_no}" if decl else f"{customs}-{secrets.token_hex(4)}"
             decl_type = _cell_str(raw, cols.get("declaration_type"))
             direction = _direction_from(decl_type, _cell_str(raw, cols.get("direction")))
-            # Capture ALL source columns by original header name for payload jsonb.
-            # Includes both promoted (typed) columns AND any HQ-side fields we don't
-            # map to typed columns (importer name, weight, taxable value, etc.).
+            # Capture source columns NOT already extracted into typed fields
+            # for payload jsonb. Typed-already columns are stored in their
+            # respective `bcct_rows.<field>` and stripping from payload
+            # avoids duplication (mig 041 pruned existing rows likewise).
+            # Result: payload holds tax-detail (Thuế suất*, Tiền thuế*),
+            # free-text (Ghi chú), and audit-only fields (STT).
+            typed_indices = set(cols.values())
             payload = {}
             for i, header_name in enumerate(headers):
                 if not header_name or i >= len(raw):
+                    continue
+                if i in typed_indices:
                     continue
                 value = raw[i]
                 if value is None:
