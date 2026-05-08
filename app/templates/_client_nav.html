@@ -43,4 +43,8 @@
   {% endif %}
   <a class="tab-link {{ 'tab-link-active' if active_tab == 'config' else '' }}"
      href="/clients/{{ client.client_id }}/edit">{{ t('tabs.config') }}</a>
+  {% if can_edit_technical(client.client_id) %}
+  <a class="tab-link {{ 'tab-link-active' if active_tab == 'parser_rules' else '' }}"
+     href="/clients/{{ client.client_id }}/parser-rules">Parser rules</a>
+  {% endif %}
 </nav>

@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block title %}Parser rules · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="page-bar">
+  <div>
+    <h1>Parser rules</h1>
+    <span class="page-tagline">
+      Per-client regex rules editable here. Used at runtime to derive
+      <code>internal_code</code> + extract material_identity candidates
+      from BCCT row fields. ReDoS-safe via re2.
+    </span>
+  </div>
+</section>
+
+{% if error %}
+<div class="zone" style="border-color: var(--danger, #c33);">
+  <strong>Error:</strong> <code>{{ error }}</code>
+</div>
+{% endif %}
+{% if flash %}
+<div class="zone"><strong>{{ flash }}</strong></div>
+{% endif %}
+
+<section class="zone">
+  <div class="zone-head"><h2>Existing rules</h2></div>
+  {% if not rules %}
+  <p class="meta">No rules configured for this client yet. Identity-mode
+  clients don't need rules — `internal_code = customs_code` is the
+  short-circuit.</p>
+  {% else %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Output</th>
+        <th>Priority</th>
+        <th>Source</th>
+        <th>Pattern</th>
+        <th>Action</th>
+        <th>On no-match</th>
+        <th>Group</th>
+        <th>Notes</th>
+        <th>State</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rules %}
+      <tr {% if not r.enabled %}style="opacity: 0.45;"{% endif %}>
+        <td class="mono">{{ r.rule_id }}</td>
+        <td class="mono">{{ r.output_field }}</td>
+        <td class="mono">{{ r.priority }}</td>
+        <td class="mono">{{ r.source_field }}</td>
+        <td><code>{{ r.pattern }}</code></td>
+        <td class="mono">{{ r.match_action }}</td>
+        <td class="mono">{{ r.no_match_action }}</td>
+        <td class="mono">{{ r.match_group }}</td>
+        <td>{{ r.notes or '' }}</td>
+        <td>
+          {% if r.enabled %}<span class="badge badge-success">enabled</span>
+          {% else %}<span class="badge badge-warning">disabled</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if r.enabled %}
+          <form method="post"
+                action="/clients/{{ client.client_id }}/parser-rules/{{ r.rule_id }}/disable"
+                style="display:inline;">
+            <button type="submit" class="btn-secondary"
+                    onclick="return confirm('Disable rule {{ r.rule_id }}? (soft-disable; not deleted)');">
+              Disable
+            </button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section class="zone">
+  <div class="zone-head"><h2>Add rule</h2></div>
+  <form method="post" action="/clients/{{ client.client_id }}/parser-rules/create"
+        class="settings-form">
+    <div class="settings-grid">
+      <label class="field">
+        <span class="field-label">output_field <em class="field-required">required</em></span>
+        <input type="text" name="output_field" required value="internal_code"
+               placeholder="internal_code">
+      </label>
+      <label class="field">
+        <span class="field-label">priority <em class="field-required">required</em></span>
+        <input type="number" name="priority" required value="100" min="1">
+      </label>
+      <label class="field">
+        <span class="field-label">source_field</span>
+        <input type="text" name="source_field" value="goods_name">
+      </label>
+      <label class="field">
+        <span class="field-label">match_group</span>
+        <input type="number" name="match_group" value="1" min="0">
+      </label>
+      <label class="field">
+        <span class="field-label">match_action</span>
+        <select name="match_action">
+          <option value="capture">capture</option>
+          <option value="reject">reject</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="field-label">no_match_action</span>
+        <select name="no_match_action">
+          <option value="next_rule">next_rule</option>
+          <option value="return_null">return_null</option>
+        </select>
+      </label>
+    </div>
+    <label class="field">
+      <span class="field-label">pattern (re2 syntax) <em class="field-required">required</em></span>
+      <input type="text" name="pattern" required
+             placeholder="\(([\w.\-]+)\)" style="font-family: monospace;">
+    </label>
+    <label class="field">
+      <span class="field-label">notes</span>
+      <input type="text" name="notes" placeholder="Optional — used as evidence.match_rule label">
+    </label>
+    <div class="page-actions">
+      <button type="submit" class="btn-primary">Add rule</button>
+    </div>
+  </form>
+</section>
+
+<section class="zone">
+  <div class="zone-head">
+    <h2>Test panel</h2>
+    <p class="meta">Paste a sample value, see which rule matches. Read-only.</p>
+  </div>
+  <form method="post" action="/clients/{{ client.client_id }}/parser-rules/test"
+        class="settings-form">
+    <div class="settings-grid">
+      <label class="field">
+        <span class="field-label">output_field</span>
+        <input type="text" name="output_field"
+               value="{{ test_result.output_field if test_result else 'internal_code' }}">
+      </label>
+    </div>
+    <label class="field">
+      <span class="field-label">sample_input</span>
+      <input type="text" name="sample_input" style="font-family: monospace;"
+             value="{{ test_result.sample_input if test_result else '' }}"
+             placeholder="BIENTAN.17#&Hàng (PV01.0117500)#&VN">
+    </label>
+    <div class="page-actions">
+      <button type="submit" class="btn-secondary">Run test</button>
+    </div>
+  </form>
+
+  {% if test_result %}
+  <div class="zone-head" style="margin-top: 1.5rem;">
+    <h3>Result</h3>
+  </div>
+  <p>
+    <strong>Final output:</strong>
+    {% if test_result.final_output is none %}
+    <span class="badge badge-warning">None</span>
+    {% else %}
+    <code>{{ test_result.final_output }}</code>
+    {% endif %}
+  </p>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Rule</th>
+        <th>Priority</th>
+        <th>Matched?</th>
+        <th>Captured</th>
+        <th>Matched text</th>
+        <th>Action taken</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in test_result.trace %}
+      <tr>
+        <td class="mono">#{{ t.rule_id }}</td>
+        <td class="mono">{{ t.priority }}</td>
+        <td>
+          {% if t.matched %}<span class="badge badge-success">yes</span>
+          {% else %}<span class="badge">no</span>{% endif %}
+        </td>
+        <td>{% if t.captured is not none %}<code>{{ t.captured }}</code>{% endif %}</td>
+        <td>{% if t.matched_text %}<code>{{ t.matched_text }}</code>{% endif %}</td>
+        <td class="mono">
+          {% if t.matched %}{{ t.match_action }}{% else %}{{ t.no_match_action }}{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+{% endblock %}

@@ -243,3 +243,159 @@ async def edit_submit(
         status=status, notes=notes.strip() or None,
     )
     return RedirectResponse(url=f"/clients/{client_id}", status_code=303)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Per-client parser rules — UI page (dev only)
+# Backed by hub.client_parser_rules; the same data the JSON CRUD endpoints
+# under /v1/hub/clients/{id}/parser-rules manage.
+# ─────────────────────────────────────────────────────────────────────
+
+
+@router.get("/clients/{client_id}/parser-rules", response_class=HTMLResponse)
+async def parser_rules_view(request: Request, client_id: str,
+                            error: str = "", flash: str = ""):
+    user = auth.require_user(request)
+    if not auth.can_edit_client_technical(user, client_id):
+        raise HTTPException(403, "forbidden")
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select rule_id, output_field, priority, pattern, source_field, "
+            "  match_group, match_action, no_match_action, enabled, notes "
+            "from hub.client_parser_rules where client_id=%s "
+            "order by output_field, enabled desc, priority asc",
+            (client_id,),
+        )
+        cols = [d[0] for d in cur.description]
+        rules = [dict(zip(cols, r)) for r in cur.fetchall()]
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/parser_rules.html",
+        {"client": client, "stats": stats_for_client(client_id),
+         "rules": rules, "error": error, "flash": flash,
+         "active_root": "clients", "active_tab": "parser_rules"},
+    )
+
+
+@router.post("/clients/{client_id}/parser-rules/create")
+async def parser_rules_create(request: Request, client_id: str,
+                              output_field: str = Form(...),
+                              priority: int = Form(...),
+                              pattern: str = Form(...),
+                              source_field: str = Form("goods_name"),
+                              match_action: str = Form("capture"),
+                              no_match_action: str = Form("next_rule"),
+                              match_group: int = Form(1),
+                              notes: str = Form("")):
+    user = auth.require_user(request)
+    if not auth.can_edit_client_technical(user, client_id):
+        raise HTTPException(403, "forbidden")
+    from app.parsers.client_parser_rules import (
+        InvalidPatternError, clear_rules_cache, compile_pattern,
+    )
+    try:
+        compile_pattern(pattern)
+    except InvalidPatternError as e:
+        return RedirectResponse(
+            url=f"/clients/{client_id}/parser-rules?error={str(e)}",
+            status_code=303,
+        )
+    with connect(user_id=user.user_id) as conn, conn.cursor() as cur:
+        try:
+            cur.execute(
+                "insert into hub.client_parser_rules "
+                "(client_id, output_field, priority, pattern, source_field, "
+                " match_group, match_action, no_match_action, notes, created_by) "
+                "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (client_id, output_field, priority, pattern, source_field,
+                 match_group, match_action, no_match_action,
+                 notes.strip() or None, user.user_id),
+            )
+        except Exception as e:
+            return RedirectResponse(
+                url=f"/clients/{client_id}/parser-rules?error={type(e).__name__}: {str(e)[:120]}",
+                status_code=303,
+            )
+    clear_rules_cache()
+    return RedirectResponse(
+        url=f"/clients/{client_id}/parser-rules?flash=Rule+created",
+        status_code=303,
+    )
+
+
+@router.post("/clients/{client_id}/parser-rules/{rule_id}/disable")
+async def parser_rules_disable(request: Request, client_id: str, rule_id: int):
+    user = auth.require_user(request)
+    if not auth.can_edit_client_technical(user, client_id):
+        raise HTTPException(403, "forbidden")
+    from app.parsers.client_parser_rules import clear_rules_cache
+    with connect(user_id=user.user_id) as conn, conn.cursor() as cur:
+        cur.execute(
+            "update hub.client_parser_rules set enabled=false "
+            "where client_id=%s and rule_id=%s",
+            (client_id, rule_id),
+        )
+    clear_rules_cache()
+    return RedirectResponse(
+        url=f"/clients/{client_id}/parser-rules?flash=Rule+disabled",
+        status_code=303,
+    )
+
+
+@router.post("/clients/{client_id}/parser-rules/test", response_class=HTMLResponse)
+async def parser_rules_test_view(request: Request, client_id: str,
+                                 output_field: str = Form("internal_code"),
+                                 sample_input: str = Form("")):
+    """Run sample_input through the client's rules and re-render the page
+    with a trace appended. Read-only; never persists."""
+    user = auth.require_user(request)
+    if not auth.can_edit_client_technical(user, client_id):
+        raise HTTPException(403, "forbidden")
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    from app.parsers.client_parser_rules import load_rules
+    rules_eval = load_rules(client_id=client_id, output_field=output_field)
+    trace: list[dict] = []
+    final: str | None = None
+    final_set = False
+    for r in rules_eval:
+        m = r.compiled.search(sample_input)
+        entry = {
+            "rule_id": r.rule_id, "priority": r.priority,
+            "matched": bool(m), "match_action": r.match_action,
+            "no_match_action": r.no_match_action,
+            "captured": None, "matched_text": None,
+        }
+        if m:
+            captured = m.group(r.match_group) if r.match_action == "capture" else None
+            entry["captured"] = captured
+            entry["matched_text"] = m.group(0)
+            if not final_set:
+                final = None if r.match_action == "reject" else captured
+                final_set = True
+        elif not final_set and r.no_match_action == "return_null":
+            final = None
+            final_set = True
+        trace.append(entry)
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select rule_id, output_field, priority, pattern, source_field, "
+            "  match_group, match_action, no_match_action, enabled, notes "
+            "from hub.client_parser_rules where client_id=%s "
+            "order by output_field, enabled desc, priority asc",
+            (client_id,),
+        )
+        cols = [d[0] for d in cur.description]
+        rules_list = [dict(zip(cols, r)) for r in cur.fetchall()]
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/parser_rules.html",
+        {"client": client, "stats": stats_for_client(client_id),
+         "rules": rules_list, "test_result": {
+             "sample_input": sample_input, "output_field": output_field,
+             "final_output": final, "trace": trace,
+         },
+         "active_root": "clients", "active_tab": "parser_rules"},
+    )

@@ -70,6 +70,7 @@ def template_context(request: Request) -> dict:
         "t": lambda key: i18n.t(key, lang),
         "user": user,
         "can_manage_staff": lambda client_id: auth.can_assign_staff_to_client(user, client_id),
+        "can_edit_technical": lambda client_id: auth.can_edit_client_technical(user, client_id),
         "notif_unread_count": notif_unread,
         "notif_recent": notif_recent,
         "chat_agent_enabled": chat_agent_enabled,

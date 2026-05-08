@@ -1212,6 +1212,257 @@ async def api_tombstone_preset(
     return _json({"preset_id": preset_id, "tombstoned": True, "reason": reason})
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Parser rules CRUD (per .ai/features/2026-05-08-configurable-bcct-parsing)
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _require_can_edit_client_technical(claims: dict | None, client_id: str) -> None:
+    """Parser-rules edits are technical config — dev role only."""
+    if claims is None:
+        return
+    if _is_service_claims(claims):
+        # Service tokens have no role concept. Reject — humans only.
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "service tokens cannot edit parser rules",
+        )
+    if not auth.can_edit_client_technical(_user_from_claims(claims), client_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "forbidden")
+
+
+_RULE_FIELDS = (
+    "rule_id", "client_id", "output_field", "priority", "pattern",
+    "source_field", "match_group", "match_action", "no_match_action",
+    "enabled", "notes", "created_by", "created_at",
+)
+
+
+def _serialize_rule(row: tuple) -> dict:
+    out = dict(zip(_RULE_FIELDS, row))
+    if out.get("created_at"):
+        out["created_at"] = out["created_at"].isoformat()
+    return out
+
+
+def _validate_rule_body(body: dict, *, partial: bool = False) -> dict:
+    """Validate + normalize a rule body. Returns kwargs ready for SQL.
+    `partial=True` for PATCH (allows missing fields)."""
+    from app.parsers.client_parser_rules import compile_pattern, InvalidPatternError
+
+    fields = {}
+    if not partial:
+        for k in ("output_field", "priority", "pattern"):
+            if k not in body or body[k] in (None, ""):
+                raise HTTPException(422, f"missing required field: {k}")
+    if "pattern" in body:
+        try:
+            compile_pattern(body["pattern"])  # validate; discard compiled object
+        except InvalidPatternError as e:
+            raise HTTPException(400, str(e))
+        fields["pattern"] = body["pattern"]
+    if "output_field" in body:
+        fields["output_field"] = body["output_field"]
+    if "priority" in body:
+        fields["priority"] = int(body["priority"])
+    if "source_field" in body:
+        fields["source_field"] = body["source_field"] or "goods_name"
+    if "match_group" in body:
+        fields["match_group"] = int(body["match_group"])
+    if "match_action" in body:
+        if body["match_action"] not in ("capture", "reject"):
+            raise HTTPException(422, "match_action must be 'capture' or 'reject'")
+        fields["match_action"] = body["match_action"]
+    if "no_match_action" in body:
+        if body["no_match_action"] not in ("next_rule", "return_null"):
+            raise HTTPException(422, "no_match_action must be 'next_rule' or 'return_null'")
+        fields["no_match_action"] = body["no_match_action"]
+    if "notes" in body:
+        fields["notes"] = body["notes"]
+    if "enabled" in body:
+        fields["enabled"] = bool(body["enabled"])
+    return fields
+
+
+@router.get("/clients/{client_id}/parser-rules")
+async def api_list_parser_rules(
+    client_id: str,
+    output_field: str | None = None,
+    include_disabled: bool = False,
+    authorization: str | None = Header(None),
+):
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
+    sql = (
+        "select rule_id, client_id, output_field, priority, pattern, "
+        "source_field, match_group, match_action, no_match_action, "
+        "enabled, notes, created_by, created_at "
+        "from hub.client_parser_rules where client_id = %s"
+    )
+    params: list = [client_id]
+    if output_field:
+        sql += " and output_field = %s"
+        params.append(output_field)
+    if not include_disabled:
+        sql += " and enabled"
+    sql += " order by output_field, priority asc"
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        items = [_serialize_rule(r) for r in cur.fetchall()]
+    return _json({"items": items})
+
+
+@router.post("/clients/{client_id}/parser-rules", status_code=201)
+async def api_create_parser_rule(
+    client_id: str, request: Request,
+    authorization: str | None = Header(None),
+):
+    claims = _require_token(authorization)
+    _require_can_edit_client_technical(claims, client_id)
+    body = await request.json()
+    fields = _validate_rule_body(body, partial=False)
+    created_by = (claims or {}).get("sub") or "system"
+    with connect(user_id=created_by) as conn, conn.cursor() as cur:
+        try:
+            cur.execute(
+                "insert into hub.client_parser_rules "
+                "(client_id, output_field, priority, pattern, source_field, "
+                " match_group, match_action, no_match_action, notes, created_by) "
+                "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                "returning rule_id, client_id, output_field, priority, pattern, "
+                "  source_field, match_group, match_action, no_match_action, "
+                "  enabled, notes, created_by, created_at",
+                (client_id, fields["output_field"], fields["priority"],
+                 fields["pattern"], fields.get("source_field", "goods_name"),
+                 fields.get("match_group", 1),
+                 fields.get("match_action", "capture"),
+                 fields.get("no_match_action", "next_rule"),
+                 fields.get("notes"), created_by),
+            )
+        except psycopg_errors.UniqueViolation:
+            raise HTTPException(
+                409, f"rule already exists for output_field={fields['output_field']!r} "
+                f"priority={fields['priority']}",
+            )
+        row = cur.fetchone()
+    from app.parsers.client_parser_rules import clear_rules_cache
+    clear_rules_cache()
+    return _json(_serialize_rule(row), status_code=201)
+
+
+@router.patch("/clients/{client_id}/parser-rules/{rule_id}")
+async def api_patch_parser_rule(
+    client_id: str, rule_id: int, request: Request,
+    authorization: str | None = Header(None),
+):
+    claims = _require_token(authorization)
+    _require_can_edit_client_technical(claims, client_id)
+    body = await request.json()
+    fields = _validate_rule_body(body, partial=True)
+    if not fields:
+        raise HTTPException(422, "no editable fields in body")
+    set_clauses = ", ".join(f"{k} = %s" for k in fields)
+    values = list(fields.values()) + [client_id, rule_id]
+    user_id = (claims or {}).get("sub") or "system"
+    with connect(user_id=user_id) as conn, conn.cursor() as cur:
+        try:
+            cur.execute(
+                f"update hub.client_parser_rules set {set_clauses} "
+                "where client_id = %s and rule_id = %s "
+                "returning rule_id, client_id, output_field, priority, pattern, "
+                "  source_field, match_group, match_action, no_match_action, "
+                "  enabled, notes, created_by, created_at",
+                values,
+            )
+        except psycopg_errors.UniqueViolation:
+            raise HTTPException(
+                409, "priority conflicts with another enabled rule",
+            )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "rule not found")
+    from app.parsers.client_parser_rules import clear_rules_cache
+    clear_rules_cache()
+    return _json(_serialize_rule(row))
+
+
+@router.delete("/clients/{client_id}/parser-rules/{rule_id}")
+async def api_delete_parser_rule(
+    client_id: str, rule_id: int,
+    authorization: str | None = Header(None),
+):
+    """Soft-disable: set enabled=false. Never hard DELETE the row
+    (audit + history preserved per project_bom_immutable_principle.md)."""
+    claims = _require_token(authorization)
+    _require_can_edit_client_technical(claims, client_id)
+    user_id = (claims or {}).get("sub") or "system"
+    with connect(user_id=user_id) as conn, conn.cursor() as cur:
+        cur.execute(
+            "update hub.client_parser_rules set enabled = false "
+            "where client_id = %s and rule_id = %s and enabled "
+            "returning rule_id",
+            (client_id, rule_id),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "rule not found or already disabled")
+    from app.parsers.client_parser_rules import clear_rules_cache
+    clear_rules_cache()
+    return _json({"rule_id": rule_id, "enabled": False})
+
+
+@router.post("/clients/{client_id}/parser-rules/test")
+async def api_test_parser_rules(
+    client_id: str, request: Request,
+    authorization: str | None = Header(None),
+):
+    """Preview rule output for a sample input. Read-only — does not
+    persist. Returns per-rule trace + final output.
+
+    Body: {output_field: str, sample_input: str}
+    """
+    claims = _require_token(authorization)
+    _require_can_edit_client_technical(claims, client_id)
+    body = await request.json()
+    output_field = body.get("output_field") or "internal_code"
+    sample = body.get("sample_input") or ""
+    if not isinstance(sample, str):
+        raise HTTPException(422, "sample_input must be a string")
+    from app.parsers.client_parser_rules import load_rules
+
+    rules = load_rules(client_id=client_id, output_field=output_field)
+    trace: list[dict] = []
+    final: str | None = None
+    final_set = False
+    for rule in rules:
+        m = rule.compiled.search(sample)
+        entry: dict = {
+            "rule_id": rule.rule_id,
+            "priority": rule.priority,
+            "pattern": "<compiled>",  # don't echo back the pattern; staff sees in list
+            "source_field": rule.source_field,
+            "matched": bool(m),
+            "match_action": rule.match_action,
+            "no_match_action": rule.no_match_action,
+        }
+        if m:
+            captured = m.group(rule.match_group) if rule.match_action == "capture" else None
+            entry["captured"] = captured
+            entry["matched_text"] = m.group(0)
+            if not final_set:
+                if rule.match_action == "reject":
+                    final = None
+                else:
+                    final = captured
+                final_set = True
+        else:
+            entry["captured"] = None
+            if not final_set and rule.no_match_action == "return_null":
+                final = None
+                final_set = True
+        trace.append(entry)
+    return _json({"final_output": final, "trace": trace})
+
+
 @router.get("/healthz")
 async def api_healthz():
     return _json({"status": "ok"})
