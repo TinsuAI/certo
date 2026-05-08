@@ -48,11 +48,24 @@ def seeded():
          "BIENTAN.17#&Imported (PV01.0117500)#&VN",
          invoice),
     ]
+    from app.parsers.client_parser_rules import clear_rules_cache
+    clear_rules_cache()
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "insert into hub.clients (client_id, name, code_resolution_mode, "
             "bom_proposal_mode) values (%s, 'PID API Test', "
             "'batch_aggregate_resolution', 'auto')",
+            (cid,),
+        )
+        # Stage 2 candidate-extraction rule (was hardcoded growatt adapter).
+        cur.execute(
+            "insert into hub.client_parser_rules "
+            "(client_id, output_field, priority, pattern, source_field, "
+            " match_action, no_match_action, notes, created_by) "
+            "values (%s, 'material_identity_candidates', 10, "
+            r" '\(([A-Z]{2,}\d{2}\.[A-Za-z0-9._\-]+)\)', "
+            "'goods_name', 'capture', 'next_rule', "
+            "'parenthesized_product_code_exists_in_bom_products', 'test')",
             (cid,),
         )
         # Materials catalog must contain canonical codes — resolver
@@ -92,11 +105,13 @@ def seeded():
             )
             # NULL material_identity — exercises lazy-fill path on read.
     yield {"client_id": cid, "invoice_no": invoice}
+    clear_rules_cache()
     with connect() as conn, conn.cursor() as cur:
         cur.execute("delete from hub.bcct_rows where client_id = %s", (cid,))
         cur.execute("delete from hub.bcct_row_history where client_id = %s", (cid,))
         cur.execute("delete from hub.bom_artifacts where client_id = %s", (cid,))
         cur.execute("delete from hub.materials where client_id = %s", (cid,))
+        cur.execute("delete from hub.client_parser_rules where client_id = %s", (cid,))
         cur.execute("delete from hub.clients where client_id = %s", (cid,))
 
 

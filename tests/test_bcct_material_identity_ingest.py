@@ -20,11 +20,25 @@ CLIENT = "ingest_pid_test"
 
 @pytest.fixture(autouse=True)
 def setup_growatt_like_client():
+    from app.parsers.client_parser_rules import clear_rules_cache
+    clear_rules_cache()
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "insert into hub.clients (client_id, name, code_resolution_mode) "
             "values (%s, %s, %s) on conflict (client_id) do nothing",
             (CLIENT, "ingest pid test", "batch_aggregate_resolution"),
+        )
+        # Stage 2 candidate-extraction rule (was hardcoded in
+        # bcct_adapters/growatt.py; now config-driven).
+        cur.execute(
+            "insert into hub.client_parser_rules "
+            "(client_id, output_field, priority, pattern, source_field, "
+            " match_action, no_match_action, notes, created_by) "
+            "values (%s, 'material_identity_candidates', 10, "
+            r" '\(([A-Z]{2,}\d{2}\.[A-Za-z0-9._\-]+)\)', "
+            "'goods_name', 'capture', 'next_rule', "
+            "'parenthesized_product_code_exists_in_bom_products', 'test')",
+            (CLIENT,),
         )
         # Materials catalog: TP with BOM (PV01.0117500).
         cur.execute(
@@ -47,10 +61,12 @@ def setup_growatt_like_client():
             (CLIENT,),
         )
     yield
+    clear_rules_cache()
     with connect() as conn, conn.cursor() as cur:
         cur.execute("delete from hub.bcct_rows where client_id=%s", (CLIENT,))
         cur.execute("delete from hub.bom_artifacts where client_id=%s", (CLIENT,))
         cur.execute("delete from hub.materials where client_id=%s", (CLIENT,))
+        cur.execute("delete from hub.client_parser_rules where client_id=%s", (CLIENT,))
         cur.execute("delete from hub.clients where client_id=%s", (CLIENT,))
 
 
@@ -91,7 +107,7 @@ def test_insert_populates_material_identity_resolved():
     assert pid["bom_product_code"] == "PV01.0117500"  # TP with BOM
     assert pid["product_kind"] == "tp"
     assert pid["resolution_source"] == "goods_name_embedded_code"
-    assert pid["parser_adapter"] == "growatt_bcct"
+    assert pid["parser_adapter"] == "client_parser_rules"
 
 
 def test_insert_populates_material_identity_missing_when_no_bom():

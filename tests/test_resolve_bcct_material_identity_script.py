@@ -12,10 +12,22 @@ from scripts.resolve_bcct_material_identity import resolve_for_client
 @pytest.fixture
 def client_with_null_pids():
     cid = "backfill-" + secrets.token_hex(4)
+    from app.parsers.client_parser_rules import clear_rules_cache
+    clear_rules_cache()
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "insert into hub.clients (client_id, name, code_resolution_mode) "
             "values (%s, 'Backfill Test', 'batch_aggregate_resolution')",
+            (cid,),
+        )
+        cur.execute(
+            "insert into hub.client_parser_rules "
+            "(client_id, output_field, priority, pattern, source_field, "
+            " match_action, no_match_action, notes, created_by) "
+            "values (%s, 'material_identity_candidates', 10, "
+            r" '\(([A-Z]{2,}\d{2}\.[A-Za-z0-9._\-]+)\)', "
+            "'goods_name', 'capture', 'next_rule', "
+            "'parenthesized_product_code_exists_in_bom_products', 'test')",
             (cid,),
         )
         cur.execute(
@@ -63,7 +75,9 @@ def client_with_null_pids():
         cur.execute("delete from hub.bcct_row_history where client_id = %s", (cid,))
         cur.execute("delete from hub.bom_artifacts where client_id = %s", (cid,))
         cur.execute("delete from hub.materials where client_id = %s", (cid,))
+        cur.execute("delete from hub.client_parser_rules where client_id = %s", (cid,))
         cur.execute("delete from hub.clients where client_id = %s", (cid,))
+    clear_rules_cache()
 
 
 def test_backfill_populates_null_rows(client_with_null_pids):

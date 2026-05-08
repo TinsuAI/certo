@@ -334,3 +334,68 @@ def test_clear_rules_cache_forces_reload(_rules_test_client):
     assert first is not second
     # But same content (same rule still in DB).
     assert len(first) == len(second) == 1
+
+
+# ── Multi-match extraction (for resolver Stage 2 candidates) ────────
+
+
+def test_extract_all_matches_collects_every_match_in_priority_order():
+    """For multi-candidate use cases (e.g. material_identity Stage 2),
+    iterate every capture rule and collect ALL matches (finditer), not
+    just first-match-wins. Reject rules are honored (skip the source).
+    Returns dicts with product_code + source_field + matched_text +
+    match_rule (= rule notes or fallback id)."""
+    import re
+    from app.parsers.client_parser_rules import (
+        CompiledRule,
+        extract_all_matches_from_compiled,
+    )
+
+    rule_paren = CompiledRule(
+        rule_id=42, output_field="material_identity_candidates", priority=10,
+        source_field="goods_name", match_group=1,
+        match_action="capture", no_match_action="next_rule",
+        compiled=re.compile(r"\(([A-Z]{2,}\d{2}\.[\w.\-]+)\)"),
+    )
+    rule_paren_with_notes = CompiledRule(
+        rule_id=43, output_field="material_identity_candidates", priority=20,
+        source_field="goods_name", match_group=1,
+        match_action="capture", no_match_action="next_rule",
+        compiled=re.compile(r"\((\d{3}\.[\w.\-]+)\)"),
+    )
+    row = {"goods_name": "BIENTAN.17#&Hàng (Pro.E), (PV01.0117500), (940.0622900)#&VN"}
+
+    out = extract_all_matches_from_compiled(
+        [rule_paren, rule_paren_with_notes], row=row,
+    )
+
+    assert len(out) == 2
+    by_code = {m["product_code"]: m for m in out}
+    assert "PV01.0117500" in by_code
+    assert "940.0622900" in by_code
+    assert by_code["PV01.0117500"]["source_field"] == "goods_name"
+    assert by_code["PV01.0117500"]["matched_text"] == "(PV01.0117500)"
+    assert by_code["PV01.0117500"]["match_rule"] == "rule_42"
+    assert by_code["940.0622900"]["match_rule"] == "rule_43"
+
+
+def test_extract_all_matches_dedups_within_rule():
+    """Same code captured twice by the same rule → emitted once.
+    Different rules each emitting the same code → also dedup'd
+    (a code is what it is regardless of which rule found it)."""
+    import re
+    from app.parsers.client_parser_rules import (
+        CompiledRule,
+        extract_all_matches_from_compiled,
+    )
+
+    rule = CompiledRule(
+        rule_id=1, output_field="material_identity_candidates", priority=10,
+        source_field="goods_name", match_group=1,
+        match_action="capture", no_match_action="next_rule",
+        compiled=re.compile(r"\(([A-Z]{2,}\d{2}\.[\w.\-]+)\)"),
+    )
+    row = {"goods_name": "(PV01.0117500) ... (PV01.0117500) again"}
+    out = extract_all_matches_from_compiled([rule], row=row)
+    assert len(out) == 1
+    assert out[0]["product_code"] == "PV01.0117500"

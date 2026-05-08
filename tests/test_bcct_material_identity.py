@@ -62,17 +62,18 @@ def _make_catalog(specs):
     return out
 
 
-def _ctx(*, materials=None, code_mappings=None, reviewed=None,
-         adapter_name="growatt_bcct"):
+def _ctx(*, materials=None, code_mappings=None, reviewed=None):
     """Build a ResolverContext directly from in-memory fixtures (no DB).
 
-    `materials` is an iterable of catalog specs (see _make_catalog)."""
+    `materials` is an iterable of catalog specs (see _make_catalog).
+    Stage 2 candidate extraction loads `material_identity_candidates`
+    rules from `growatt-vn` (seeded by mig 037) — tests run against
+    the dev DB."""
     return ResolverContext(
         client_id="growatt-vn",
         material_catalog=_make_catalog(materials),
         code_mappings=code_mappings or {},
         reviewed=reviewed or {},
-        adapter_name=adapter_name,
         candidate_limit=5,
     )
 
@@ -111,10 +112,15 @@ def test_growatt_paren_code_resolves_when_bom_exists():
         "transaction_key": "307591379560-3",
     }
     assert pid["evidence"]["source_field"] == "goods_name"
-    assert pid["evidence"]["matched_text"] == "PV01.0117500"
+    # matched_text is the full regex match span (incl. parens) — more
+    # informative than the bare capture group (= product_code).
+    assert pid["evidence"]["matched_text"] == "(PV01.0117500)"
     assert pid["evidence"]["match_rule"] == \
         "parenthesized_product_code_exists_in_bom_products"
-    assert pid["parser_adapter"] == "growatt_bcct"
+    # parser_adapter post-2026-05-08: bcct_adapters/ registry deleted;
+    # client_parser_rules engine is the unified path. Per-client semantics
+    # captured via individual rule.notes propagated to evidence.match_rule.
+    assert pid["parser_adapter"] == "client_parser_rules"
     assert isinstance(pid["parser_version"], str) and pid["parser_version"]
     # Candidates list contains the matched code with high confidence.
     assert any(c["product_code"] == "PV01.0117500"
@@ -498,33 +504,6 @@ def test_resolver_does_not_consider_other_clients():
 # ─────────────────────────────────────────────────────────────────────
 # Candidate cap (D8)
 # ─────────────────────────────────────────────────────────────────────
-
-# ─────────────────────────────────────────────────────────────────────
-# Adapter dispatch — pin real-world client config values
-# ─────────────────────────────────────────────────────────────────────
-
-def test_adapter_dispatch_for_real_growatt_mode():
-    """Real Growatt clients have code_resolution_mode='batch_aggregate_resolution',
-    NOT 'growatt'. Dispatcher must route them to the Growatt adapter.
-    Regression test: an earlier dispatcher hardcoded 'growatt' and
-    silently returned identity for actual Growatt clients."""
-    from app.parsers.bcct_adapters import adapter_for_client
-    a = adapter_for_client("growatt-vn", "batch_aggregate_resolution")
-    assert a.name == "growatt_bcct"
-
-
-def test_adapter_dispatch_for_identity_mode():
-    from app.parsers.bcct_adapters import adapter_for_client
-    a = adapter_for_client("dke-vietnam-d0e3", "identity")
-    assert a.name == "identity"
-
-
-def test_adapter_dispatch_for_null_mode():
-    """Null mode falls through to Growatt (matches internal_code_parser_for)."""
-    from app.parsers.bcct_adapters import adapter_for_client
-    a = adapter_for_client("any-client", None)
-    assert a.name == "growatt_bcct"
-
 
 # ─────────────────────────────────────────────────────────────────────
 # DB-backed context factory (ResolverContext.from_db)

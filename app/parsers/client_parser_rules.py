@@ -22,6 +22,7 @@ class CompiledRule:
     match_action: str        # 'capture' | 'reject'
     no_match_action: str     # 'next_rule' | 'return_null'
     compiled: object         # re-compatible compiled pattern (re or re2)
+    notes: str | None = None  # used as match_rule label in multi-match output
 
 
 MAX_PATTERN_LENGTH = 500
@@ -60,6 +61,36 @@ def evaluate_compiled_rules(rules: list[CompiledRule], *, row: dict) -> str | No
     return None
 
 
+def extract_all_matches_from_compiled(
+    rules: list[CompiledRule], *, row: dict,
+) -> list[dict]:
+    """Run every capture rule against the row, collect ALL matches
+    (finditer, not just first). For multi-candidate consumers like the
+    material_identity resolver Stage 2 (paren-code extraction).
+
+    Reject rules are skipped (their semantic is single-output gating).
+    Within a single iteration, duplicates by product_code are dropped.
+    """
+    seen: set[str] = set()
+    out: list[dict] = []
+    for rule in rules:
+        if rule.match_action != "capture":
+            continue
+        source_value = row.get(rule.source_field, "") or ""
+        for match in rule.compiled.finditer(source_value):
+            code = match.group(rule.match_group)
+            if code in seen:
+                continue
+            seen.add(code)
+            out.append({
+                "product_code": code,
+                "source_field": rule.source_field,
+                "matched_text": match.group(0),
+                "match_rule": rule.notes or f"rule_{rule.rule_id}",
+            })
+    return out
+
+
 # Module-level cache for loaded rules. Keyed by (client_id, output_field).
 # Invalidated wholesale via clear_rules_cache() — called from CRUD edit
 # endpoints + tests that mutate hub.client_parser_rules. Cache is server-
@@ -79,7 +110,7 @@ def _load_rules_uncached(*, client_id: str, output_field: str) -> list[CompiledR
         cur.execute(
             """
             select rule_id, priority, pattern, source_field,
-                   match_group, match_action, no_match_action
+                   match_group, match_action, no_match_action, notes
             from hub.client_parser_rules
             where client_id = %s and output_field = %s and enabled
             order by priority asc
@@ -97,9 +128,10 @@ def _load_rules_uncached(*, client_id: str, output_field: str) -> list[CompiledR
             match_action=match_action,
             no_match_action=no_match_action,
             compiled=compile_pattern(pattern),
+            notes=notes,
         )
         for (rule_id, priority, pattern, source_field, match_group,
-             match_action, no_match_action) in rows
+             match_action, no_match_action, notes) in rows
     ]
 
 

@@ -35,7 +35,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.parsers.bcct_adapters import adapter_for_client, resolve as resolve_adapter
+from app.parsers.client_parser_rules import (
+    extract_all_matches_from_compiled,
+    load_rules,
+)
+
+
+# Identifier for the rule-engine path (replaces per-adapter parser_adapter
+# name from the deleted bcct_adapters/ registry). Bumped when rule
+# semantics change in a way consumers should see.
+_PARSER_ADAPTER_NAME = "client_parser_rules"
+_PARSER_ADAPTER_VERSION = "v1"
 
 
 # Material categories that a resolved BCCT line may map to. `unknown`
@@ -54,7 +64,6 @@ class ResolverContext:
     material_catalog: dict[str, dict] = field(default_factory=dict)
     code_mappings: dict[str, list[dict]] = field(default_factory=dict)
     reviewed: dict[tuple, dict] = field(default_factory=dict)
-    adapter_name: str | None = None
     candidate_limit: int = 5
 
     code_resolution_mode: str | None = None
@@ -66,7 +75,6 @@ class ResolverContext:
 
     @classmethod
     def from_db(cls, client_id: str, cur, *,
-                adapter_name: str | None = None,
                 candidate_limit: int = 5) -> "ResolverContext":
         """Build a context by querying Postgres once per request (Q5).
 
@@ -250,18 +258,20 @@ class ResolverContext:
             material_catalog=material_catalog,
             code_mappings=mappings,
             reviewed=reviewed,
-            adapter_name=adapter_name,
             candidate_limit=candidate_limit,
             code_resolution_mode=code_resolution_mode,
         )
 
 
-def _adapter_for(ctx: ResolverContext):
-    if ctx.adapter_name:
-        a = resolve_adapter(ctx.adapter_name)
-        if a is not None:
-            return a
-    return adapter_for_client(ctx.client_id, ctx.code_resolution_mode)
+def _stage2_candidates(ctx: ResolverContext, row: dict) -> list[dict]:
+    """Stage 2 paren-code extraction. Loads `material_identity_candidates`
+    rules for the client and runs every capture rule against the row.
+    Identity-mode clients (no rules seeded) yield empty list — Stage 2
+    contributes nothing and resolver moves on."""
+    rules = load_rules(
+        client_id=ctx.client_id, output_field="material_identity_candidates",
+    )
+    return extract_all_matches_from_compiled(rules, row=row)
 
 
 def _line_key(row: dict, ctx: ResolverContext) -> dict:
@@ -324,7 +334,6 @@ def _empty_result(row: dict, ctx: ResolverContext, *, status: str,
                   selected_candidate_code: str | None = None,
                   confidence: str | None = None,
                   review_status: str = "needs_review") -> dict:
-    adapter = _adapter_for(ctx)
     # display_code: when no resolution, fall back to customs_code. The
     # parser-derived internal_code is captured in declared_internal_code
     # below (when present in row dict).
@@ -341,8 +350,8 @@ def _empty_result(row: dict, ctx: ResolverContext, *, status: str,
         "resolution_source": resolution_source,
         "confidence": confidence,
         "review_status": review_status,
-        "parser_adapter": adapter.name,
-        "parser_version": adapter.parser_version,
+        "parser_adapter": _PARSER_ADAPTER_NAME,
+        "parser_version": _PARSER_ADAPTER_VERSION,
         "evidence": evidence or {},
         "candidates": candidates[: ctx.candidate_limit],
     }
@@ -354,7 +363,6 @@ def _resolved(row: dict, ctx: ResolverContext, *, code: str,
               resolution_source: str, evidence: dict, candidates: list[dict],
               confidence: str = "high",
               review_status: str = "system_resolved") -> dict:
-    adapter = _adapter_for(ctx)
     # display_code is the canonical resolved form (= the resolved code),
     # not the parser-derived internal_code. Decoupled per brief D8 so
     # lazy-fill on rows missing `internal_code` still produces the right
@@ -373,8 +381,8 @@ def _resolved(row: dict, ctx: ResolverContext, *, code: str,
         "resolution_source": resolution_source,
         "confidence": confidence,
         "review_status": review_status,
-        "parser_adapter": adapter.name,
-        "parser_version": adapter.parser_version,
+        "parser_adapter": _PARSER_ADAPTER_NAME,
+        "parser_version": _PARSER_ADAPTER_VERSION,
         "evidence": evidence,
         "candidates": candidates[: ctx.candidate_limit],
     }
@@ -433,9 +441,8 @@ def resolve_material_identity(row: dict, *, ctx: ResolverContext) -> dict:
             candidates=[candidate],
         )
 
-    # ── Stage 2: goods_name_embedded_code (client adapter) ────────
-    adapter = _adapter_for(ctx)
-    extractions = adapter.parse_candidates(row)
+    # ── Stage 2: goods_name_embedded_code (client_parser_rules engine) ────
+    extractions = _stage2_candidates(ctx, row)
     paren_validated: list[tuple[dict, dict]] = []  # (extraction, candidate)
     for ext in extractions:
         code = ext["product_code"]
