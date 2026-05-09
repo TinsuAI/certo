@@ -75,7 +75,7 @@
         {{ sort_th('product_code', t('bom.col.product')) }}
         <th></th>
         <th>{{ t('common.status') }}</th>
-        {{ sort_th('n_versions', t('bom.col.versions')) }}
+        {{ sort_th('n_logical_versions', t('bom.col.logical_versions')) }}
         <th>{{ t('bom.col.latest') }}</th>
         {{ sort_th('last_published', t('bom.col.last_published')) }}
         <th></th>
@@ -110,10 +110,11 @@
           {% endif %}
         </td>
         <td>
-          <span class="badge badge-info">{{ p.n_versions }}</span>
-          {% if has_nflat %}<span class="meta">({{ p.n_non_flattened }} non-flat)</span>{% endif %}
+          <span class="badge badge-info">{{ p.n_logical_versions }}</span>
+          <span class="meta">· {{ p.n_artifacts }} {{ t('bom.list.artifacts_unit') }}</span>
+          {% if has_nflat %}<span class="meta">· {{ p.n_non_flattened }} non-flat</span>{% endif %}
         </td>
-        <td>v{{ p.latest_version }}</td>
+        <td>#{{ p.latest_artifact_no }}</td>
         <td class="mono">{{ p.last_published.strftime('%Y-%m-%d %H:%M') if p.last_published else '' }}</td>
         <td><a href="/clients/{{ client.client_id }}/bom/{{ p.product_code }}/artifacts">{{ t('common.detail') }} →</a></td>
       </tr>

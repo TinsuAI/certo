@@ -436,18 +436,26 @@ def list_products_with_bom(client_id: str, *,
     """List BOM products plus flatten-aware metadata per product.
 
     Per-product fields:
-      n_versions:           total alive artifacts (any flatten_status).
+      n_artifacts:          total alive artifacts (any flatten_status).
+      n_logical_versions:   count of distinct lineage_root_id — each is
+                            one logical "phiên bản BOM" per glossary
+                            tuple (client, product, variant, root).
       n_flattened:          count where flatten_status in (flattened, not_applicable).
       n_non_flattened:      count where flatten_status = non_flattened.
       n_strategies:         count of distinct flatten_strategy values among
                             flattened artifacts — typical "1 phiên bản"
                             yields 2 (shallow + full_flat). >2 ⇒ supplier
                             dual-source materializations live.
-      latest_version:       max artifact_no.
+      latest_artifact_no:   max artifact_no across all artifacts.
       last_published:       most recent published_at.
-      latest_flatten_status: status of the most-recently-published version.
+      latest_flatten_status: status of the most-recently-published artifact.
       product_kind:         'btp' if hub.materials.category in (btp_sx,btp_nm),
                             else 'tp'. Falls back to 'tp' when no catalog entry.
+
+    Backwards-compatible aliases kept for callers that still read the
+    old keys: `n_versions` (= n_artifacts), `latest_version`
+    (= latest_artifact_no). Drop once consumers migrate.
+
     Used by bom.html for status badges + the All/Flattened/Non-flattened filter.
 
     `q` filters by product_code substring (ILIKE). `order_by`,
@@ -461,7 +469,7 @@ def list_products_with_bom(client_id: str, *,
     sql = f"""
         with v as (
             select product_code, artifact_no, published_at, flatten_status,
-                   flatten_strategy,
+                   flatten_strategy, lineage_root_id,
                    row_number() over (
                        partition by product_code
                        order by published_at desc nulls last, artifact_no desc
@@ -471,16 +479,18 @@ def list_products_with_bom(client_id: str, *,
         ),
         aggr as (
             select product_code,
-                   count(*) as n_versions,
+                   count(*) as n_artifacts,
+                   count(distinct lineage_root_id) as n_logical_versions,
                    count(*) filter (where flatten_status in ('flattened','not_applicable')) as n_flattened,
                    count(*) filter (where flatten_status = 'non_flattened') as n_non_flattened,
                    count(distinct flatten_strategy) filter (where flatten_status = 'flattened') as n_strategies,
-                   max(artifact_no) as latest_version,
+                   max(artifact_no) as latest_artifact_no,
                    max(published_at) as last_published
             from v group by product_code
         )
-        select a.product_code, a.n_versions, a.n_flattened, a.n_non_flattened,
-               a.n_strategies, a.latest_version, a.last_published,
+        select a.product_code, a.n_artifacts, a.n_logical_versions,
+               a.n_flattened, a.n_non_flattened, a.n_strategies,
+               a.latest_artifact_no, a.last_published,
                latest.flatten_status as latest_flatten_status,
                coalesce(m.category, 'tp') as raw_category
         from aggr a
@@ -500,6 +510,9 @@ def list_products_with_bom(client_id: str, *,
                 d = dict(zip(cols, r))
                 # Catalog says BTP iff category in btp_*; otherwise treat as TP.
                 d["product_kind"] = "btp" if d.pop("raw_category") in ("btp_sx", "btp_nm") else "tp"
+                # Compat aliases for templates not yet migrated.
+                d["n_versions"] = d["n_artifacts"]
+                d["latest_version"] = d["latest_artifact_no"]
                 out.append(d)
             return out
 

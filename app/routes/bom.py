@@ -85,7 +85,9 @@ BOM_SORT_WHITELIST = {
     # Default — non_flattened first, then last_published.
     "last_published": "a.last_published",
     "product_code": "a.product_code",
-    "n_versions": "a.n_versions",
+    "n_versions": "a.n_artifacts",
+    "n_artifacts": "a.n_artifacts",
+    "n_logical_versions": "a.n_logical_versions",
 }
 BOM_SORT_DEFAULT = ("last_published", "desc")
 
