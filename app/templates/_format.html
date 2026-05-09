@@ -1,0 +1,36 @@
+{# Shared formatting macros: numbers, money, dates.
+
+   Usage:
+     {% from "_format.html" import format_number, format_money, format_date %}
+     {{ format_number(row.quantity, decimals=2) }}
+     {{ format_money(row.total_value_nt, row.currency_nt) }}
+     {{ format_date(row.registration_date) }}
+
+   Locale: pass `lang='vi'` for `1.234.567,89` style, otherwise `1,234,567.89`.
+   Defaults to `lang` from template context (set in base.html). #}
+
+{% macro format_number(val, decimals=2, lang=None) -%}
+{%- if val is none or val == '' -%}
+{%- else -%}
+  {%- set _s = '{:,.{d}f}'.format(val|float, d=decimals) -%}
+  {%- if (lang or 'en') == 'vi' -%}
+    {{- _s | replace(',', '\x00') | replace('.', ',') | replace('\x00', '.') -}}
+  {%- else -%}
+    {{- _s -}}
+  {%- endif -%}
+{%- endif -%}
+{%- endmacro %}
+
+{% macro format_money(amount, currency, decimals=2, lang=None) -%}
+{%- if amount is none or amount == '' -%}
+{%- else -%}
+  <span class="mono">{{ format_number(amount, decimals=decimals, lang=lang) }}</span>
+  {%- if currency %} <span class="meta">{{ currency }}</span>{%- endif -%}
+{%- endif -%}
+{%- endmacro %}
+
+{% macro format_date(d, fmt='%Y-%m-%d') -%}
+{%- if d -%}{{ d.strftime(fmt) }}{%- endif -%}
+{%- endmacro %}
+
+{% macro format_int(val, lang=None) -%}{{ format_number(val, decimals=0, lang=lang) }}{%- endmacro %}
