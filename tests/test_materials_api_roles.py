@@ -29,14 +29,14 @@ def cid_with_rework():
         )
         # Rework code: declared btp_sx, exported, has own BOM, consumed in PARENT.
         cur.execute(
-            "insert into hub.materials (client_id, customs_code, internal_code, "
+            "insert into hub.materials (client_id, material_code, "
             "name, category, btp_sourcing) values "
-            "(%s, 'REWORK', 'REWORK', 'Rework code', 'btp_sx', 'self_produced_only')",
+            "(%s, 'REWORK', 'Rework code', 'btp_sx', 'self_produced_only')",
             (cid,),
         )
         cur.execute(
-            "insert into hub.materials (client_id, customs_code, internal_code, "
-            "name, category) values (%s, 'PARENT', 'PARENT', 'Parent', 'tp')",
+            "insert into hub.materials (client_id, material_code, "
+            "name, category) values (%s, 'PARENT', 'Parent', 'tp')",
             (cid,),
         )
         for art_id, prod in [
@@ -93,7 +93,7 @@ def test_materials_list_includes_role_fields(cid_with_rework):
     )
     assert r.status_code == 200, r.text
     items = r.json()["items"]
-    by_code = {it["customs_code"]: it for it in items}
+    by_code = {it["material_code"]: it for it in items}
     rew = by_code["REWORK"]
 
     # Atomic signals
@@ -113,8 +113,8 @@ def test_materials_list_pure_nvl_atomic_signals(cid_with_rework):
     cid = cid_with_rework
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            "insert into hub.materials (client_id, customs_code, internal_code, "
-            "name, category) values (%s, 'NVL_X', 'NVL_X', 'NVL_X', 'nvl')",
+            "insert into hub.materials (client_id, material_code, "
+            "name, category) values (%s, 'NVL_X', 'NVL_X', 'nvl')",
             (cid,),
         )
         cur.execute(
@@ -133,7 +133,7 @@ def test_materials_list_pure_nvl_atomic_signals(cid_with_rework):
         )
     r = _client().get("/v1/hub/materials", params={"client_id": cid})
     items = r.json()["items"]
-    nvl = next(it for it in items if it["customs_code"] == "NVL_X")
+    nvl = next(it for it in items if it["material_code"] == "NVL_X")
 
     assert nvl["has_imports"] is True
     assert nvl["is_consumed_in_bom"] is True
@@ -165,14 +165,14 @@ def test_materials_unrelated_client_does_not_see_signals(cid_with_rework):
             (other, "other"),
         )
         cur.execute(
-            "insert into hub.materials (client_id, customs_code, internal_code, "
-            "name, category) values (%s, 'REWORK', 'REWORK', 'Rework', 'btp_sx')",
+            "insert into hub.materials (client_id, material_code, "
+            "name, category) values (%s, 'REWORK', 'Rework', 'btp_sx')",
             (other,),
         )
     try:
         r = _client().get("/v1/hub/materials", params={"client_id": other})
         items = r.json()["items"]
-        rew = next(it for it in items if it["customs_code"] == "REWORK")
+        rew = next(it for it in items if it["material_code"] == "REWORK")
         # Same code name as cid_with_rework's, but no observation in `other`.
         assert rew["observed_roles"] == []
         assert rew["is_multi_role"] is False

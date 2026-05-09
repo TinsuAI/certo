@@ -36,15 +36,15 @@ def classify_btp_sourcing_for_client(cur, client_id: str) -> dict[str, str]:
     # compute_internal_code() per row (rewrite tracked in BACKLOG).
     cur.execute(
         """
-        select m.customs_code,
+        select m.material_code,
                (select count(*) from hub.bcct_rows b
                 where b.client_id = %s
-                  and b.customs_code = m.customs_code
+                  and b.customs_code = m.material_code
                   and b.direction = 'import') as import_count,
                (select count(*) from hub.bom_edges e
                 join hub.bom_artifacts a using (artifact_id)
                 where a.client_id = %s
-                  and e.parent_code = m.customs_code) as parent_count
+                  and e.parent_code = m.material_code) as parent_count
         from hub.materials m
         where m.client_id = %s and m.category = 'btp_sx'
         """,
@@ -74,7 +74,7 @@ def apply_classifications(cur, client_id: str,
             update hub.materials
                set btp_sourcing = %s
              where client_id = %s
-               and customs_code = %s
+               and material_code = %s
                and (btp_sourcing is distinct from %s)
             """,
             (value, client_id, code, value),

@@ -196,7 +196,7 @@ def test_mapping_parse_creates_pending_and_redirects_to_preview(http):
 
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            "select customs_code from hub.materials where client_id=%s order by customs_code",
+            "select material_code from hub.materials where client_id=%s order by material_code",
             (CLIENT,),
         )
         codes = [r[0] for r in cur.fetchall()]
@@ -287,7 +287,7 @@ def test_skipped_row_can_be_promoted_via_inline_edit(http):
 
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            "select customs_code, unit from hub.materials where client_id=%s order by customs_code",
+            "select material_code, unit from hub.materials where client_id=%s order by material_code",
             (CLIENT,),
         )
         rows = cur.fetchall()

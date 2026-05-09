@@ -39,9 +39,9 @@ def cid():
 
 def _seed_material(cur, *, client_id, code, kind="nvl"):
     cur.execute(
-        "insert into hub.materials (client_id, customs_code, internal_code, "
-        "name, category) values (%s, %s, %s, %s, %s)",
-        (client_id, code, code, code, kind),
+        "insert into hub.materials (client_id, material_code, "
+        "name, category) values (%s, %s, %s, %s)",
+        (client_id, code, code, kind),
     )
 
 
@@ -102,7 +102,7 @@ def _query_view(cur, *, client_id, code):
     cur.execute(
         "select declared_kind, has_imports, has_exports, is_consumed_in_bom, "
         "has_own_bom, observed_roles, is_multi_role, declared_observed_conflict "
-        "from hub.v_material_roles where client_id=%s and customs_code=%s",
+        "from hub.v_material_roles where client_id=%s and material_code=%s",
         (client_id, code),
     )
     row = cur.fetchone()
@@ -185,7 +185,13 @@ def test_btp_purchased_no_bom(cid):
 
 
 def test_btp_purchased_with_own_bom(cid):
-    """imp + consumed + own_bom → ['btp_sx'] (Growatt-derived shape)"""
+    """imp + consumed + own_bom → ['btp_sx', 'btp_nm'] = dual-source.
+
+    Mig 046: btp_nm role added to observed_roles when has_imports +
+    is_consumed_in_bom + has_own_bom — surfaces dual-source pattern
+    where same code is both self-produced (own BOM) and purchased
+    (imported). is_multi_role=true; UI surfaces "Đa nguồn (BTP)" badge.
+    """
     with connect() as conn, conn.cursor() as cur:
         _seed_material(cur, client_id=cid, code="BTPP_OWN", kind="btp_sx")
         _seed_material(cur, client_id=cid, code="PARENT", kind="tp")
@@ -195,7 +201,8 @@ def test_btp_purchased_with_own_bom(cid):
         _seed_bom_edge(cur, artifact_id=f"ba_{cid}_p", parent_code="PARENT", child_code="BTPP_OWN")
     with connect() as conn, conn.cursor() as cur:
         v = _query_view(cur, client_id=cid, code="BTPP_OWN")
-    assert v["observed_roles"] == ["btp_sx"]
+    assert sorted(v["observed_roles"]) == ["btp_nm", "btp_sx"]
+    assert v["is_multi_role"] is True
 
 
 def test_pure_nvl(cid):
@@ -537,7 +544,7 @@ def test_real_growatt_rework_pv01_0104300():
             "select observed_roles, is_multi_role, has_exports, "
             "is_consumed_in_bom, has_own_bom, has_imports "
             "from hub.v_material_roles "
-            "where client_id='growatt-vn' and customs_code='PV01.0104300'",
+            "where client_id='growatt-vn' and material_code='PV01.0104300'",
         )
         row = cur.fetchone()
     if row is None:

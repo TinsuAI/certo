@@ -484,7 +484,7 @@ def list_products_with_bom(client_id: str, *,
         from aggr a
         left join v latest on latest.product_code = a.product_code and latest.rn = 1
         left join hub.materials m
-               on m.client_id = %s and m.customs_code = a.product_code
+               on m.client_id = %s and m.material_code = a.product_code
         order by {order_by}
         limit %s offset %s
     """
@@ -1063,8 +1063,8 @@ def _auto_evaluate(*, client_id: str, product_code: str,
                 codes = list({r["material_code"] for r in rows})
                 cur.execute(
                     """
-                    select customs_code from hub.materials
-                    where client_id = %s and customs_code = any(%s) and status = 'active'
+                    select material_code from hub.materials
+                    where client_id = %s and material_code = any(%s) and status = 'active'
                     """,
                     (client_id, codes),
                 )
@@ -1108,7 +1108,7 @@ def make_catalog_lookup(client_id: str):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select customs_code, category, status, unit
+                select material_code as customs_code, category, status, unit
                 from hub.materials where client_id = %s
                 """,
                 (client_id,),

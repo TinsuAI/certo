@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% from "_format.html" import format_number, format_date %}
+{% from "_sort.html" import sort_th %}
 {% block title %}{{ t('catalog.title') }} · {{ client.name }}{% endblock %}
 {% block content %}
 {% include "_client_nav.html" %}
@@ -39,7 +41,8 @@
   </div>
   {% endif %}
 
-  {% macro sort_th(col, label) -%}
+  {# sort_th macro now imported from _sort.html #}
+  {% macro _local_sort_th_unused(col, label) -%}
     {% set is_active = sort.column == col %}
     <th class="sortable {% if is_active %}sort-active{% endif %}">
       <a href="{{ sort_link(col) }}" title="Sắp xếp theo {{ label }}">
@@ -82,145 +85,189 @@
     {% endif %}
   </div>
 
+  {# Mig 042 — status filter (under_review = staff queue for catalog-derive promotion). #}
+  <div class="chip-row" aria-label="Status filter" style="margin-top: 0.5rem;">
+    <span class="meta" style="align-self: center;">Trạng thái:</span>
+    {% set qstatus = request.query_params.get('status') %}
+    <a class="chip {{ 'chip-active' if not qstatus else '' }}"
+       href="/clients/{{ client.client_id }}/catalog">Tất cả</a>
+    <a class="chip {{ 'chip-active' if qstatus == 'active' else '' }}"
+       href="/clients/{{ client.client_id }}/catalog?status=active">Active</a>
+    <a class="chip {{ 'chip-active' if qstatus == 'under_review' else '' }}"
+       href="/clients/{{ client.client_id }}/catalog?status=under_review">Under review</a>
+    <a class="chip {{ 'chip-active' if qstatus == 'deprecated' else '' }}"
+       href="/clients/{{ client.client_id }}/catalog?status=deprecated">Deprecated</a>
+    <a class="meta" style="margin-left: auto;"
+       href="/clients/{{ client.client_id }}/catalog/derive">⚙ Cập nhật từ BCCT/BOM →</a>
+  </div>
+
   <form method="get" action="/clients/{{ client.client_id }}/catalog" class="stack-form" style="max-width: 600px; margin: 1rem 0;">
     {% if active_category %}<input type="hidden" name="category" value="{{ active_category }}">{% endif %}
     {% if active_provenance %}<input type="hidden" name="provenance" value="{{ active_provenance }}">{% endif %}
-    {% if sort.column != 'customs_code' or sort.direction != 'asc' %}
+    {% if request.query_params.get('status') %}<input type="hidden" name="status" value="{{ request.query_params.get('status') }}">{% endif %}
+    {% if sort.column != 'material_code' or sort.direction != 'asc' %}
       <input type="hidden" name="sort" value="{{ sort.column }}">
       <input type="hidden" name="dir" value="{{ sort.direction }}">
     {% endif %}
     <input type="search" name="q" value="{{ q }}" placeholder="{{ t('catalog.search_placeholder') }}">
   </form>
 
+  {# Mig 042: column registry — picker uses these keys; persists in localStorage. #}
+  {% set catalog_columns = [
+    {'key': 'material_code',  'label': 'Mã vật tư', 'default': true},
+    {'key': 'name',           'label': 'Tên', 'default': true},
+    {'key': 'category',       'label': 'Khai báo', 'default': true},
+    {'key': 'observed_roles', 'label': 'Vai trò quan sát', 'default': true},
+    {'key': 'source',         'label': 'Nguồn', 'default': true},
+    {'key': 'status',         'label': 'Trạng thái', 'default': true},
+    {'key': 'hq_registered',  'label': 'ĐK HQ', 'default': true},
+    {'key': 'observed',       'label': 'Quan sát BCCT', 'default': true},
+    {'key': 'btp_sourcing',   'label': 'Xác nhận nguồn cung', 'default': false},
+    {'key': 'unit',           'label': 'ĐVT', 'default': false},
+    {'key': 'hs_code',        'label': 'HS', 'default': false},
+    {'key': 'updated_at',     'label': 'Cập nhật', 'default': false},
+    {'key': 'detail',         'label': 'Chi tiết', 'default': true},
+  ] %}
+
   {% if items %}
-  <table class="dh-table">
+  <details class="col-picker" data-view-key="catalog_list" style="margin-bottom: .5rem;">
+    <summary class="btn-ghost" style="cursor: pointer; user-select: none;">⚙ Hiển thị cột</summary>
+    <div class="col-picker-panel" style="padding: .6rem; border: 1px solid var(--border); border-radius: 6px; margin-top: .25rem; display: flex; flex-wrap: wrap; gap: .35rem 1rem; max-width: 720px;">
+      {% for col in catalog_columns %}
+        <label style="font-size: .9rem; white-space: nowrap;">
+          <input type="checkbox" data-col-toggle="{{ col.key }}" {% if col.default %}checked{% endif %}>
+          {{ col.label }}
+        </label>
+      {% endfor %}
+      <button type="button" class="btn-ghost" data-col-reset style="margin-left: auto; font-size: .85rem;">Mặc định</button>
+    </div>
+  </details>
+
+  <table class="dh-table" data-col-table="catalog_list">
     <thead>
       <tr>
-        {{ sort_th('customs_code', t('catalog.col.customs_code')) }}
-        {{ sort_th('internal_code', t('catalog.col.internal_code')) }}
-        {{ sort_th('name', t('catalog.col.name')) }}
-        {{ sort_th('category', 'Khai báo') }}
-        <th title="Đối với BTP: agency tự sản xuất hay mua ngoài? Quyết định cách BOM resolver expand BTP. Chỉ áp dụng cho BTP_SX, BTP_NM.">Nguồn cung BTP</th>
-        <th title="Vai trò hệ thống tự phát hiện từ dữ liệu BCCT + BOM. Khác với khai báo — đây là sự thật từ giao dịch.">Quan sát</th>
-        <th>{{ t('catalog.col.source') }}</th>
-        <th>{{ t('catalog.col.unit') }}</th>
-        <th>{{ t('catalog.col.hs_code') }}</th>
-        {{ sort_th('updated_at', t('common.status')) }}
+        {{ sort_th('material_code', 'Mã vật tư', sort=sort, sort_link=sort_link, attrs='data-col="material_code"') }}
+        {{ sort_th('name', t('catalog.col.name'), sort=sort, sort_link=sort_link, attrs='data-col="name"') }}
+        {{ sort_th('category', 'Khai báo', sort=sort, sort_link=sort_link, attrs='data-col="category"') }}
+        <th data-col="observed_roles" title="Vai trò hệ thống tự phát hiện từ BCCT + BOM. Khác với khai báo — đây là sự thật từ giao dịch.">Vai trò quan sát</th>
+        <th data-col="source" title="Nguồn dữ liệu của row catalog: client_declared (agency upload), bcct_observed (auto từ BCCT), bom_observed (auto từ BOM), system">Nguồn</th>
+        <th data-col="status" title="Trạng thái lifecycle: active / under_review / deprecated / tombstoned">Trạng thái</th>
+        <th data-col="hq_registered" title="Đã đăng ký với cơ quan HQ?">ĐK HQ</th>
+        <th data-col="observed" title="Tần suất + thời gian observed trong BCCT (live từ v_material_roles view)">Quan sát BCCT</th>
+        <th data-col="btp_sourcing" title="Staff xác nhận nguồn cung BTP. Nếu khác observed_roles (vd: observed=dual nhưng staff confirm=self_produced_only) → cảnh báo conflict.">Xác nhận nguồn cung</th>
+        <th data-col="unit">{{ t('catalog.col.unit') }}</th>
+        <th data-col="hs_code">{{ t('catalog.col.hs_code') }}</th>
+        {{ sort_th('updated_at', 'Cập nhật', sort=sort, sort_link=sort_link, attrs='data-col="updated_at"') }}
+        <th data-col="detail" title="Click để xem chi tiết + lịch sử thay đổi">Chi tiết</th>
       </tr>
     </thead>
     <tbody>
       {% for m in items %}
       <tr>
-        <td class="mono">{{ m.customs_code }}</td>
-        <td class="mono">{{ m.internal_code or '' }}</td>
-        <td>{{ m.name or '' }}</td>
-        {# ── Khai báo (declared category) ────────────────────────────── #}
-        <td class="cell-declared">
+        <td class="mono" data-col="material_code">{{ m.material_code }}</td>
+        <td data-col="name">{{ m.name or '' }}</td>
+        <td class="cell-declared" data-col="category">
           <span class="badge badge-info">{{ m.category }}</span>
           {% if m.declared_observed_conflict %}
-            <span class="badge badge-error"
-                  title="Khai báo không khớp với dữ liệu quan sát. Xem cột Quan sát + cân nhắc sửa khai báo."
+            <span class="badge badge-error" title="Khai báo không khớp dữ liệu quan sát. Xem cột Vai trò quan sát."
                   style="display:block;margin-top:.25em;font-size:.75em">⚠ Xét lại</span>
           {% endif %}
         </td>
-
-        {# ── Nguồn cung BTP (sourcing — only BTP_SX/BTP_NM) ─────────── #}
-        <td class="cell-sourcing">
-          {% if m.category in ('btp_sx', 'btp_nm') %}
-            {%- set sourcing_label = (
-              'Tự sản xuất nội bộ' if m.btp_sourcing == 'self_produced_only'
-              else 'Mua từ nhà cung cấp ngoài' if m.btp_sourcing == 'purchased_only'
-              else 'Vừa mua vừa tự sản xuất' if m.btp_sourcing == 'dual_source'
-              else 'Chưa phân loại'
-            ) -%}
-            <span class="sourcing-display"
-                  data-row-id="src-{{ m.customs_code }}"
-                  onclick="dhToggleSourcing('src-{{ m.customs_code }}')"
-                  title="Click để sửa phân loại nguồn cung BTP."
-                  style="display:inline-block;cursor:pointer;font-size:.85em">
-              {% if m.btp_sourcing in (none, '', 'unknown') %}
-                <em style="color:#a16207">⚠ {{ sourcing_label }}</em>
-              {% else %}
-                {{ sourcing_label }}
-              {% endif %}
-              <span class="edit-icon{% if m.declared_observed_conflict %} edit-icon-warn{% endif %}"
-                    style="margin-left:.25em">✎</span>
-            </span>
-            <form id="src-{{ m.customs_code }}" class="sourcing-edit"
-                  method="post"
-                  action="/clients/{{ client.client_id }}/catalog/{{ m.customs_code }}/btp_sourcing"
-                  style="display:none">
-              <label style="display:block;font-size:.7em;color:#666;margin-bottom:2px">
-                BTP này có nguồn từ đâu?
-              </label>
-              <select name="btp_sourcing" onchange="this.form.submit()" class="mono"
-                      style="font-size:.85em;padding:2px 4px;min-width:14em">
-                <option value="unknown"             {{ 'selected' if m.btp_sourcing in (none, '', 'unknown') else '' }}>— Chọn —</option>
-                <option value="self_produced_only" {{ 'selected' if m.btp_sourcing == 'self_produced_only' else '' }}>Tự sản xuất nội bộ (có BOM riêng)</option>
-                <option value="purchased_only"     {{ 'selected' if m.btp_sourcing == 'purchased_only' else '' }}>Mua từ nhà cung cấp ngoài</option>
-                <option value="dual_source"        {{ 'selected' if m.btp_sourcing == 'dual_source' else '' }}>Vừa mua vừa tự sản xuất</option>
-              </select>
-            </form>
-          {% else %}
-            <span class="meta" style="color:#bbb;font-size:.85em" title="Trường này chỉ áp dụng cho BTP_SX và BTP_NM">—</span>
-          {% endif %}
-        </td>
-
-        {# ── Quan sát (observed from data graph) ─────────────────────── #}
-        <td class="cell-observed">
-          {%- set has_any_signal = m.has_imports or m.has_exports
-                                   or m.is_consumed_in_bom or m.has_own_bom -%}
+        <td class="cell-observed" data-col="observed_roles">
+          {%- set has_any_signal = m.has_imports or m.has_exports or m.is_consumed_in_bom or m.has_own_bom -%}
           {% if m.observed_roles %}
             {% for role in m.observed_roles %}
-              <span class="badge badge-observed mono"
-                    title="Vai trò {{ role }} phát hiện từ BCCT + BOM"
-                    style="font-size:.78em">{{ role }}</span>
+              <span class="badge badge-observed mono" title="Vai trò {{ role }} phát hiện từ BCCT + BOM" style="font-size:.78em">{{ role }}</span>
             {% endfor %}
           {% elif has_any_signal %}
-            <span class="meta"
-                  title="Có dữ liệu BCCT/BOM nhưng chưa đủ pattern để xếp vai trò (vd: imported chưa thấy consume → chưa thoả định nghĩa NVL chặt)."
-                  style="color:#888;font-size:.78em">
+            <span class="meta" style="color:#888;font-size:.78em">
               {% if m.has_imports %}↓ nhập{% endif %}
               {% if m.has_exports %}{% if m.has_imports %} · {% endif %}↑ xuất{% endif %}
               {% if m.has_own_bom %}{% if m.has_imports or m.has_exports %} · {% endif %}📋 có BOM{% endif %}
               {% if m.is_consumed_in_bom %}{% if m.has_imports or m.has_exports or m.has_own_bom %} · {% endif %}↻ trong BOM khác{% endif %}
-              <em style="color:#aaa">(chưa khớp role)</em>
             </span>
-          {% else %}
-            <span class="meta" style="color:#bbb;font-size:.85em" title="Chưa có giao dịch BCCT hay BOM cho mã này">—</span>
-          {% endif %}
-          {% if m.is_dual_source %}
-            <span class="badge badge-dual"
-                  title="{{ t('catalog.dual_source_tooltip') }}"
-                  style="display:block;margin-top:.25em;font-size:.75em">⇄ Đa nguồn</span>
-          {% endif %}
+          {% else %}<span class="meta" style="color:#bbb;font-size:.85em">—</span>{% endif %}
           {% if m.is_multi_role %}
-            <span class="badge badge-warning"
-                  title="Code đóng vai trò bổ sung ngoài khai báo (rework/cải chế hoặc trader-also-consumer)."
-                  style="display:block;margin-top:.25em;font-size:.75em">⚠ Đa vai trò</span>
+            {% if m.is_dual_source %}
+              <span class="badge badge-warning" title="BTP đa nguồn: cả btp_sx (có BOM riêng) + btp_nm (imported)" style="display:block;margin-top:.25em;font-size:.75em">⇄ Đa nguồn (BTP)</span>
+            {% else %}
+              <span class="badge badge-warning" title="≥2 vai trò khác nhau (vd: tp + nvl rework)" style="display:block;margin-top:.25em;font-size:.75em">⚠ Đa vai trò</span>
+            {% endif %}
           {% endif %}
         </td>
-        <td>
-          {% if m.is_registered %}
-            <span class="badge badge-success" title="{{ t('catalog.prov_registered_tip') }}">✓ {{ t('catalog.prov_registered') }}</span>
-          {% endif %}
-          {% if m.is_seen_in_bcct and not m.is_registered %}
-            <span class="badge badge-warn" title="{{ t('catalog.prov_unregistered_tip') }}">⚠ {{ t('catalog.prov_unregistered') }}</span>
-          {% elif m.is_seen_in_bcct %}
-            <span class="badge badge-info" title="{{ t('catalog.prov_seen_tip') }}">📋 BCCT</span>
-          {% endif %}
-          {% if m.is_user_added %}
-            <span class="badge">📥 {{ t('catalog.prov_user_added') }}</span>
+        <td data-col="source">
+          {% if m.source == 'client_declared' %}<span class="badge badge-success" title="Agency client đã upload">📥 client</span>
+          {% elif m.source == 'bcct_observed' %}<span class="badge badge-info" title="Auto-derive từ BCCT">📋 bcct</span>
+          {% elif m.source == 'bom_observed' %}<span class="badge badge-info" title="Auto-derive từ BOM">🔗 bom</span>
+          {% elif m.source == 'system' %}<span class="badge" title="System-seeded">⚙ system</span>
           {% endif %}
         </td>
-        <td class="mono">{{ m.unit or '' }}</td>
-        <td class="mono">{{ m.hs_code or '' }}</td>
-        <td><span class="badge badge-{{ 'success' if m.status == 'active' else 'warning' }}">{{ t('status.' + m.status) if m.status in ['active','discontinued'] else m.status }}</span></td>
+        <td data-col="status">
+          {% set st = m.status or 'active' %}
+          {% if st == 'active' %}<span class="badge badge-success">active</span>
+          {% elif st == 'under_review' %}<span class="badge badge-warn" title="Đang chờ staff review/promote">⚠ under review</span>
+          {% elif st == 'deprecated' %}<span class="badge" style="opacity:.6">deprecated</span>
+          {% elif st == 'tombstoned' %}<span class="badge" style="opacity:.4;text-decoration:line-through">tombstoned</span>
+          {% else %}<span class="badge">{{ st }}</span>{% endif %}
+        </td>
+        <td data-col="hq_registered" style="text-align: center;">
+          {% if m.hq_registered %}<span class="badge badge-success" title="Đã ĐK HQ">✓</span>
+          {% elif m.hq_registered == false %}<span class="meta" title="Chưa ĐK HQ">✗</span>
+          {% else %}<span class="meta" title="Chưa rõ">—</span>{% endif %}
+        </td>
+        <td data-col="observed" class="meta" style="font-size:.8em; white-space: nowrap;">
+          {% if m.observed_count and m.observed_count > 0 %}
+            <strong>{{ format_number(m.observed_count, decimals=0, lang=lang) }}</strong> tờ khai
+            {% if m.observed_first_at %}<br>{{ format_date(m.observed_first_at) }} → {{ format_date(m.observed_last_at) }}{% endif %}
+            {% if m.observed_directions %}<br><span class="mono">{{ m.observed_directions|join(', ') }}</span>{% endif %}
+          {% else %}<span style="color:#bbb">—</span>{% endif %}
+        </td>
+        <td class="cell-sourcing" data-col="btp_sourcing">
+          {% if m.category in ('btp_sx', 'btp_nm') or 'btp_sx' in (m.observed_roles or []) %}
+            {%- set sourcing_label = (
+              'Tự SX' if m.btp_sourcing == 'self_produced_only'
+              else 'Mua ngoài' if m.btp_sourcing == 'purchased_only'
+              else 'Đa nguồn' if m.btp_sourcing == 'dual_source'
+              else '— Chưa xác nhận'
+            ) -%}
+            <span class="sourcing-display" data-row-id="src-{{ m.material_code }}"
+                  onclick="dhToggleSourcing('src-{{ m.material_code }}')"
+                  style="cursor:pointer;font-size:.85em"
+                  title="{% if m.suggested_sourcing %}Observed gợi ý: {{ m.suggested_sourcing }}{% endif %}">
+              {{ sourcing_label }} <span class="edit-icon">✎</span>
+            </span>
+            {% if m.sourcing_conflict %}
+              <span class="badge badge-error" style="display:block;margin-top:.25em;font-size:.7em"
+                    title="Staff confirm '{{ m.btp_sourcing }}' nhưng observed gợi ý '{{ m.suggested_sourcing }}'">⚠ Conflict</span>
+            {% endif %}
+            <form id="src-{{ m.material_code }}" method="post"
+                  action="/clients/{{ client.client_id }}/catalog/{{ m.material_code }}/btp_sourcing" style="display:none">
+              <select name="btp_sourcing" onchange="this.form.submit()" class="mono" style="font-size:.85em;">
+                <option value="unknown" {{ 'selected' if m.btp_sourcing in (none, '', 'unknown') else '' }}>— Chọn —</option>
+                <option value="self_produced_only" {{ 'selected' if m.btp_sourcing == 'self_produced_only' else '' }}>Tự SX (chỉ có BOM riêng)</option>
+                <option value="purchased_only" {{ 'selected' if m.btp_sourcing == 'purchased_only' else '' }}>Mua ngoài (chỉ import)</option>
+                <option value="dual_source" {{ 'selected' if m.btp_sourcing == 'dual_source' else '' }}>Đa nguồn (cả 2)</option>
+              </select>
+            </form>
+          {% else %}<span class="meta" style="color:#bbb;font-size:.85em">—</span>{% endif %}
+        </td>
+        <td class="mono" data-col="unit">{{ m.unit or '' }}</td>
+        <td class="mono" data-col="hs_code">{{ m.hs_code or '' }}</td>
+        <td class="meta" data-col="updated_at" style="font-size:.85em;">{{ format_date(m.updated_at) if m.updated_at else '' }}</td>
+        <td data-col="detail">
+          <a href="/clients/{{ client.client_id }}/catalog/{{ m.material_code }}/detail" title="Xem chi tiết + lịch sử">🔍</a>
+          {% if m.status == 'under_review' %}
+            <form method="post" action="/clients/{{ client.client_id }}/catalog/{{ m.material_code }}/promote" style="display:inline">
+              <button type="submit" class="btn-ghost" style="font-size:.7em" title="Promote → client_declared/active">↑</button>
+            </form>
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
   {% include "clients/_pagination.html" %}
+  <script src="/static/js/col-picker.js" defer></script>
   {% else %}
   <div class="empty-state">
     {% if q or active_category or active_provenance %}

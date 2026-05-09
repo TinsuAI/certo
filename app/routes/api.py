@@ -407,7 +407,7 @@ async def api_source_summary(client_id: str, authorization: str | None = Header(
 
 
 _MATERIALS_SELECT_WITH_ROLES = """
-    select m.client_id, m.customs_code, m.internal_code, m.name,
+    select m.client_id, m.material_code, m.name,
            m.category, m.category_override,
            m.status, m.unit, m.hs_code, m.updated_at,
            m.btp_sourcing,
@@ -421,7 +421,7 @@ _MATERIALS_SELECT_WITH_ROLES = """
     from hub.materials m
     left join hub.v_material_roles vmr
            on vmr.client_id = m.client_id
-          and vmr.customs_code = m.customs_code
+          and vmr.material_code = m.material_code
 """
 
 
@@ -451,7 +451,7 @@ async def api_list_materials(
     if status:
         sql += " and m.status = %s"
         params.append(status)
-    sql += " order by m.customs_code limit %s offset %s"
+    sql += " order by m.material_code limit %s offset %s"
     params.extend([safe_limit + 1, offset])
     with connect() as conn:
         with conn.cursor() as cur:
@@ -466,9 +466,9 @@ async def api_list_materials(
     return _json(_paged(items, offset=offset, limit=safe_limit))
 
 
-@router.get("/materials/{customs_code}")
+@router.get("/materials/{material_code}")
 async def api_get_material(
-    customs_code: str, client_id: str,
+    material_code: str, client_id: str,
     authorization: str | None = Header(None),
 ):
     claims = _require_token(authorization)
@@ -476,8 +476,8 @@ async def api_get_material(
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                _MATERIALS_SELECT_WITH_ROLES + " where m.client_id = %s and m.customs_code = %s",
-                (client_id, customs_code),
+                _MATERIALS_SELECT_WITH_ROLES + " where m.client_id = %s and m.material_code = %s",
+                (client_id, material_code),
             )
             row = cur.fetchone()
             if not row:

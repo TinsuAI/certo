@@ -64,7 +64,7 @@ with recursive
   -- shallow walk. btp_nm and tp always stop. NULL/unknown sourcing
   -- defaults to stop (legacy behavior; staff classifies via catalog UI).
   stop_set as (
-    select customs_code as code from hub.materials
+    select material_code as code from hub.materials
     where client_id = %(client_id)s
       and (
         category in ('btp_nm','tp')

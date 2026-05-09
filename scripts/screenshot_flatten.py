@@ -84,7 +84,7 @@ def seed_db():
             ]:
                 cur.execute(
                     """
-                    insert into hub.materials (client_id, customs_code, category, unit, status)
+                    insert into hub.materials (client_id, material_code, category, unit, status)
                     values (%s, %s, %s, %s, 'active')
                     """,
                     (CLIENT, code, cat, unit),

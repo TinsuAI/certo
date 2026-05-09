@@ -106,6 +106,7 @@ async def list_view(
     request: Request, client_id: str,
     category: str | None = None, q: str | None = None,
     provenance: str | None = None,
+    status: str | None = None,
 ):
     user = auth.require_user(request)
     auth.require_can_view_client(user, client_id)
@@ -117,16 +118,17 @@ async def list_view(
         query_params=request.query_params,
         whitelist=CATALOG_SORT_WHITELIST, default=CATALOG_SORT_DEFAULT,
     )
-    order_by = sort.sql_clause(tiebreakers=("m.customs_code",)) \
-        if sort.column != "customs_code" else sort.sql_clause()
+    order_by = sort.sql_clause(tiebreakers=("m.material_code",)) \
+        if sort.column != "material_code" else sort.sql_clause()
     items = _query_materials(
         client_id=client_id, category=category, q=q,
-        provenance=provenance,
+        provenance=provenance, status=status,
         order_by=order_by,
         limit=page_params.page_size, offset=page_params.offset,
     )
     total = _count_materials(
-        client_id=client_id, category=category, q=q, provenance=provenance,
+        client_id=client_id, category=category, q=q,
+        provenance=provenance, status=status,
     )
     counts = _category_counts(client_id)
     prov_counts = _provenance_counts(client_id)
@@ -439,8 +441,8 @@ async def preview_reject(request: Request, client_id: str, pending_id: str):
 # ── Internals ────────────────────────────────────────────────────────────
 
 CATALOG_SORT_WHITELIST = {
-    "customs_code": "m.customs_code",
-    "internal_code": "m.internal_code",
+    "customs_code": "m.material_code",
+    "internal_code": "m.material_code",
     "name": "m.name",
     "category": "m.category",
     "updated_at": "m.updated_at",
@@ -449,31 +451,38 @@ CATALOG_SORT_DEFAULT = ("customs_code", "asc")
 
 
 def _catalog_where_clause(*, client_id: str, category: str | None,
-                          q: str | None, provenance: str | None
+                          q: str | None, provenance: str | None,
+                          status: str | None = None,
                           ) -> tuple[str, list]:
     sql = "where m.client_id = %s"
     params: list = [client_id]
     if category:
         sql += " and m.category = %s"
         params.append(category)
+    if status:
+        sql += " and m.status = %s"
+        params.append(status)
+    # Provenance filter — post-mig-042 maps to source enum + hq_registered.
+    # Legacy values (registered/unregistered/user_added) accepted for
+    # backward compat in URL params; translated to new schema.
     if provenance == "registered":
-        sql += " and (m.provenance ? 'registered_with_hq')"
+        sql += " and m.hq_registered = true"
     elif provenance == "unregistered":
-        sql += (" and (m.provenance ? 'seen_in_bcct')"
-                " and not (m.provenance ? 'registered_with_hq')")
+        sql += " and m.source = 'bcct_observed' and (m.hq_registered is null or m.hq_registered = false)"
     elif provenance == "user_added":
-        sql += " and (m.provenance ? 'user_added')"
+        sql += " and m.source = 'client_declared'"
     if q:
-        sql += (" and (m.customs_code ilike %s or m.internal_code ilike %s "
+        sql += (" and (m.material_code ilike %s "
                 "or m.name ilike %s or m.hs_code ilike %s)")
         like = f"%{q}%"
-        params.extend([like, like, like, like])
+        params.extend([like, like, like])
     return sql, params
 
 
 def _query_materials(*, client_id: str, category: str | None,
                      q: str | None, provenance: str | None = None,
-                     order_by: str = "m.customs_code asc",
+                     status: str | None = None,
+                     order_by: str = "m.material_code asc",
                      limit: int = 50, offset: int = 0) -> list[dict]:
     """Query catalog rows with provenance signals annotated.
 
@@ -484,6 +493,7 @@ def _query_materials(*, client_id: str, category: str | None,
     """
     where, params = _catalog_where_clause(
         client_id=client_id, category=category, q=q, provenance=provenance,
+        status=status,
     )
     # Catalog roles refactor (mig 033): inline subqueries for has_imports/
     # has_exports/has_own_bom + Python-side is_multi_role replaced with
@@ -491,23 +501,27 @@ def _query_materials(*, client_id: str, category: str | None,
     # per D11 (auto-detection badge, distinct from operator-confirmed
     # btp_sourcing dropdown).
     sql = f"""
-        select m.customs_code, m.internal_code, m.name, m.category, m.category_override,
+        select m.material_code, m.name, m.category, m.category_override,
                m.status, m.unit, m.hs_code, m.updated_at, m.provenance,
-               m.btp_sourcing,
-               (m.provenance ? 'registered_with_hq') as is_registered,
-               (m.provenance ? 'seen_in_bcct') as is_seen_in_bcct,
-               (m.provenance ? 'user_added') as is_user_added,
+               m.btp_sourcing, m.source, m.hq_registered,
+               m.promoted_to_declared_at, m.promoted_by,
+               (m.hq_registered = true) as is_registered,
+               (m.source = 'bcct_observed') as is_seen_in_bcct,
+               (m.source = 'client_declared') as is_user_added,
                coalesce(vmr.has_imports, false) as has_imports,
                coalesce(vmr.has_exports, false) as has_exports,
                coalesce(vmr.is_consumed_in_bom, false) as is_consumed_in_bom,
                coalesce(vmr.has_own_bom, false) as has_own_bom,
                coalesce(vmr.observed_roles, '{{}}'::text[]) as observed_roles,
                coalesce(vmr.is_multi_role, false) as is_multi_role,
-               coalesce(vmr.declared_observed_conflict, false) as declared_observed_conflict
+               coalesce(vmr.declared_observed_conflict, false) as declared_observed_conflict,
+               coalesce(vmr.observed_count, 0) as observed_count,
+               vmr.observed_first_at, vmr.observed_last_at,
+               coalesce(vmr.observed_directions, '{{}}'::text[]) as observed_directions
         from hub.materials m
         left join hub.v_material_roles vmr
                on vmr.client_id = m.client_id
-              and vmr.customs_code = m.customs_code
+              and vmr.material_code = m.material_code
         {where}
         order by {order_by}
         limit %s offset %s
@@ -521,18 +535,36 @@ def _query_materials(*, client_id: str, category: str | None,
             for r in rows:
                 if r.get("observed_roles") is None:
                     r["observed_roles"] = []
-                # is_dual_source kept per D11: auto-detection heuristic for
-                # the "⇄ dual" UI badge. Distinct from btp_sourcing dropdown
-                # (operator-confirmed) — they form a detection→confirmation
-                # pipeline, not duplicates. Reuse view atomic signals as input.
-                r["is_dual_source"] = bool(r.get("has_imports") and r.get("has_own_bom"))
+                # is_dual_source: derive from observed_roles having btp_nm.
+                # Mig 046 added btp_nm to observed_roles when has_imports +
+                # has_own_bom + is_consumed_in_bom = dual-source pattern.
+                # btp_sourcing dropdown is the staff confirmation; if
+                # confirmed value contradicts observed (e.g. observed dual
+                # but staff says self_produced_only) → sourcing_conflict.
+                roles = r.get("observed_roles") or []
+                r["is_dual_source"] = "btp_nm" in roles
+                # Sourcing-confirmation conflict (staff vs observed):
+                src = r.get("btp_sourcing") or "unknown"
+                if r["is_dual_source"]:
+                    suggested = "dual_source"
+                elif "btp_sx" in roles and "btp_nm" not in roles:
+                    suggested = "self_produced_only"
+                else:
+                    suggested = None
+                r["suggested_sourcing"] = suggested
+                r["sourcing_conflict"] = bool(
+                    suggested and src not in ("unknown", "", None)
+                    and src != suggested
+                )
             return rows
 
 
 def _count_materials(*, client_id: str, category: str | None,
-                     q: str | None, provenance: str | None) -> int:
+                     q: str | None, provenance: str | None,
+                     status: str | None = None) -> int:
     where, params = _catalog_where_clause(
         client_id=client_id, category=category, q=q, provenance=provenance,
+        status=status,
     )
     with connect() as conn:
         with conn.cursor() as cur:
@@ -603,31 +635,37 @@ def _insert_materials_with_cursor(cur, *, client_id: str, rows: list[dict],
     else:
         raise ValueError(f"unknown provenance_kind: {provenance_kind}")
 
+    # Mig 042: dropped materials.internal_code; renamed customs_code → material_code.
+    # provenance jsonb still used for audit detail (registered_with_hq, btp_inferred);
+    # primary signals moved to source/hq_registered columns.
     sql = f"""
         insert into hub.materials
-          (client_id, customs_code, internal_code, name, category, status,
-           unit, hs_code, provenance)
-        values (%s, %s, %s, %s, %s, %s, %s, %s, {prov_sql})
-        on conflict (client_id, customs_code) do update set
-          internal_code = excluded.internal_code,
+          (client_id, material_code, name, category, status,
+           unit, hs_code, provenance, source)
+        values (%s, %s, %s, %s, %s, %s, %s, {prov_sql}, %s)
+        on conflict (client_id, material_code) do update set
           name = excluded.name,
           category = excluded.category,
           status = excluded.status,
           unit = excluded.unit,
           hs_code = excluded.hs_code,
-          -- Merge: only the chosen key overwrites; other keys
-          -- (seen_in_bcct, the other of registered_with_hq/user_added)
-          -- are preserved.
           provenance = hub.materials.provenance || excluded.provenance,
           updated_at = now()
     """
+    # New rows from agency Excel upload → source='client_declared'.
+    # Existing rows keep their existing source on conflict (above).
+    source_value = "client_declared"
     n = 0
     for r in rows:
+        # legacy r["customs_code"] / r["internal_code"] supported (uploads
+        # parse from Excel using legacy header names); use customs_code as
+        # the material_code, ignore internal_code.
+        material_code = r.get("material_code") or r["customs_code"]
         cur.execute(
             sql,
-            (client_id, r["customs_code"], r.get("internal_code"), r.get("name"),
+            (client_id, material_code, r.get("name"),
              r["category"], r.get("status", "active"), r.get("unit"), r.get("hs_code"),
-             upload_id),
+             upload_id, source_value),
         )
         n += 1
     return n
@@ -645,8 +683,156 @@ _BTP_SOURCING_VALUES = {
 }
 
 
-@router.post("/clients/{client_id}/catalog/{customs_code:path}/btp_sourcing")
-async def set_btp_sourcing(request: Request, client_id: str, customs_code: str,
+@router.post("/clients/{client_id}/catalog/{material_code:path}/promote")
+async def promote_material(request: Request, client_id: str, material_code: str):
+    """Mig 042: promote a `bcct_observed` / `under_review` material to
+    `client_declared` / `active`. Sets promoted_to_declared_at + promoted_by
+    audit trail."""
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    with connect(user_id=user.user_id) as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            update hub.materials
+               set source = 'client_declared',
+                   status = 'active',
+                   promoted_to_declared_at = now(),
+                   promoted_by = %s,
+                   updated_at = now()
+             where client_id = %s and material_code = %s
+               and status = 'under_review'
+            """,
+            (user.email, client_id, material_code),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(404, "material not under_review or not found")
+    return RedirectResponse(
+        url=f"/clients/{client_id}/catalog?status=under_review",
+        status_code=303,
+    )
+
+
+@router.get("/clients/{client_id}/catalog/{material_code:path}/detail",
+            response_class=HTMLResponse)
+async def catalog_detail(request: Request, client_id: str, material_code: str):
+    """Detail page for a single material — full state + observation stats from
+    v_material_roles + audit history from material_audit_events."""
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            select m.*,
+                   coalesce(vmr.has_imports, false) as has_imports,
+                   coalesce(vmr.has_exports, false) as has_exports,
+                   coalesce(vmr.has_nvl_import, false) as has_nvl_import,
+                   coalesce(vmr.is_consumed_in_bom, false) as is_consumed_in_bom,
+                   coalesce(vmr.has_own_bom, false) as has_own_bom,
+                   coalesce(vmr.observed_roles, '{}'::text[]) as observed_roles,
+                   coalesce(vmr.is_multi_role, false) as is_multi_role,
+                   coalesce(vmr.declared_observed_conflict, false) as declared_observed_conflict,
+                   coalesce(vmr.observed_count, 0) as observed_count,
+                   vmr.observed_first_at, vmr.observed_last_at,
+                   coalesce(vmr.observed_directions, '{}'::text[]) as observed_directions
+            from hub.materials m
+            left join hub.v_material_roles vmr
+                   on vmr.client_id = m.client_id and vmr.material_code = m.material_code
+            where m.client_id = %s and m.material_code = %s
+            """,
+            (client_id, material_code),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "material not found")
+        cols = [d[0] for d in cur.description]
+        material = dict(zip(cols, row))
+
+        # Audit history (mig 045 will populate via trigger; for now empty
+        # is OK — table exists, no rows yet for non-trigger-tracked materials).
+        cur.execute(
+            """
+            select event_type, actor, payload, occurred_at
+            from hub.material_audit_events
+            where client_id = %s and material_code = %s
+            order by occurred_at desc
+            limit 100
+            """,
+            (client_id, material_code),
+        )
+        audit_cols = [d[0] for d in cur.description]
+        audit_events = [dict(zip(audit_cols, r)) for r in cur.fetchall()]
+
+        # BCCT references (sample 20 most recent rows where this code appears
+        # as customs_code OR is parsed-extractable from goods_name)
+        cur.execute(
+            """
+            select transaction_key, line_no, declaration_no, registration_date,
+                   direction, declaration_type, customs_code, goods_name,
+                   total_value_nt, currency_nt
+            from hub.bcct_rows
+            where client_id = %s
+              and (customs_code = %s
+                   or goods_name like %s)
+            order by registration_date desc nulls last
+            limit 20
+            """,
+            (client_id, material_code, f"%({material_code})%"),
+        )
+        bcct_cols = [d[0] for d in cur.description]
+        bcct_rows = [dict(zip(bcct_cols, r)) for r in cur.fetchall()]
+
+        # BOM artifacts where this code appears (as product or as edge member)
+        cur.execute(
+            """
+            select distinct a.artifact_id, a.product_code, a.artifact_no,
+                   a.flatten_status, a.flatten_strategy, a.created_at
+            from hub.bom_artifacts a
+            where a.client_id = %s
+              and (a.product_code = %s
+                   or exists (
+                     select 1 from hub.bom_edges e
+                     where e.artifact_id = a.artifact_id
+                       and (e.parent_code = %s or e.child_code = %s)
+                   ))
+              and a.tombstoned_at is null
+            order by a.created_at desc
+            limit 20
+            """,
+            (client_id, material_code, material_code, material_code),
+        )
+        bom_cols = [d[0] for d in cur.description]
+        bom_artifacts = [dict(zip(bom_cols, r)) for r in cur.fetchall()]
+
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/catalog_detail.html",
+        {"client": client, "material": material,
+         "audit_events": audit_events, "bcct_rows": bcct_rows,
+         "bom_artifacts": bom_artifacts,
+         "active_root": "clients", "active_tab": "catalog"},
+    )
+
+
+@router.post("/clients/{client_id}/catalog/{material_code:path}/tombstone")
+async def tombstone_material(request: Request, client_id: str, material_code: str):
+    """Mig 042: tombstone a material (lifecycle, never DELETE)."""
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    with connect(user_id=user.user_id) as conn, conn.cursor() as cur:
+        cur.execute(
+            "update hub.materials set status='tombstoned', updated_at=now() "
+            "where client_id=%s and material_code=%s",
+            (client_id, material_code),
+        )
+    return RedirectResponse(
+        url=f"/clients/{client_id}/catalog", status_code=303,
+    )
+
+
+@router.post("/clients/{client_id}/catalog/{material_code:path}/btp_sourcing")
+async def set_btp_sourcing(request: Request, client_id: str, material_code: str,
                             btp_sourcing: str = Form(...)):
     """Staff override of materials.btp_sourcing for one BTP material.
 
@@ -660,8 +846,8 @@ async def set_btp_sourcing(request: Request, client_id: str, customs_code: str,
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "select category from hub.materials "
-            "where client_id=%s and customs_code=%s",
-            (client_id, customs_code),
+            "where client_id=%s and material_code=%s",
+            (client_id, material_code),
         )
         row = cur.fetchone()
         if not row:
@@ -670,8 +856,8 @@ async def set_btp_sourcing(request: Request, client_id: str, customs_code: str,
             raise HTTPException(400, "btp_sourcing only applies to btp_sx materials")
         cur.execute(
             "update hub.materials set btp_sourcing=%s "
-            "where client_id=%s and customs_code=%s",
-            (btp_sourcing, client_id, customs_code),
+            "where client_id=%s and material_code=%s",
+            (btp_sourcing, client_id, material_code),
         )
     return RedirectResponse(
         url=f"/clients/{client_id}/catalog?category=btp_sx",

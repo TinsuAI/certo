@@ -40,8 +40,8 @@ def setup():
             (CLIENT, "btp override test"),
         )
         cur.execute(
-            "insert into hub.materials (client_id, customs_code, internal_code, "
-            "name, category) values (%s, 'BTP_OV', 'BTP_OV', 'override target', 'btp_sx') "
+            "insert into hub.materials (client_id, material_code, "
+            "name, category) values (%s, 'BTP_OV', 'override target', 'btp_sx') "
             "on conflict do nothing",
             (CLIENT,),
         )
@@ -75,7 +75,7 @@ def test_override_sets_btp_sourcing():
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "select btp_sourcing from hub.materials "
-            "where client_id=%s and customs_code='BTP_OV'",
+            "where client_id=%s and material_code='BTP_OV'",
             (CLIENT,),
         )
         assert cur.fetchone()[0] == "self_produced_only"
@@ -105,8 +105,8 @@ def test_override_rejects_non_btp_category():
     """Only btp_sx materials carry btp_sourcing; reject for other categories."""
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            "insert into hub.materials (client_id, customs_code, internal_code, "
-            "name, category) values (%s, 'NVL_OV', 'NVL_OV', 'nvl', 'nvl') "
+            "insert into hub.materials (client_id, material_code, "
+            "name, category) values (%s, 'NVL_OV', 'nvl', 'nvl') "
             "on conflict do nothing",
             (CLIENT,),
         )

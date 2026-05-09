@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% from "_format.html" import format_number, format_money, format_date %}
+{% block title %}{{ material.material_code }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2><span class="mono">{{ material.material_code }}</span></h2>
+      <p class="meta">{{ material.name or '(chưa có tên)' }}</p>
+    </div>
+    <div class="page-actions">
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/catalog">← Danh Mục</a>
+      {% if material.status == 'under_review' %}
+      <form method="post" action="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/promote" style="display:inline">
+        <button type="submit" class="btn-primary">↑ Promote → active/client_declared</button>
+      </form>
+      {% endif %}
+      {% if material.status not in ('tombstoned',) %}
+      <form method="post" action="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/tombstone" style="display:inline"
+            onsubmit="return confirm('Tombstone material này (lifecycle marker, không xóa)?')">
+        <button type="submit" class="btn-ghost">⌫ Tombstone</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <h3>Trạng thái hiện tại</h3>
+  <table class="dh-table">
+    <tbody>
+      <tr><td class="mono"><strong>material_code</strong></td><td><code>{{ material.material_code }}</code></td></tr>
+      <tr><td class="mono"><strong>name</strong></td><td>{{ material.name or '—' }}</td></tr>
+      <tr><td class="mono"><strong>category</strong></td>
+          <td><span class="badge badge-info">{{ material.category }}</span>
+              {% if material.category_override %} (override: <code>{{ material.category_override }}</code>){% endif %}
+          </td></tr>
+      <tr><td class="mono"><strong>source</strong></td><td>
+          {% set src = material.source %}
+          {% if src == 'client_declared' %}<span class="badge badge-success">📥 client_declared</span>
+          {% elif src == 'bcct_observed' %}<span class="badge badge-info">📋 bcct_observed</span>
+          {% elif src == 'bom_observed' %}<span class="badge badge-info">🔗 bom_observed</span>
+          {% elif src == 'system' %}<span class="badge">⚙ system</span>
+          {% endif %}
+      </td></tr>
+      <tr><td class="mono"><strong>status</strong></td><td>
+          {% set st = material.status %}
+          {% if st == 'active' %}<span class="badge badge-success">active</span>
+          {% elif st == 'under_review' %}<span class="badge badge-warn">⚠ under_review</span>
+          {% elif st == 'deprecated' %}<span class="badge" style="opacity:.6">deprecated</span>
+          {% elif st == 'tombstoned' %}<span class="badge" style="opacity:.4;text-decoration:line-through">tombstoned</span>
+          {% else %}<span class="badge">{{ st }}</span>{% endif %}
+      </td></tr>
+      <tr><td class="mono"><strong>hq_registered</strong></td><td>
+          {% if material.hq_registered %}<span class="badge badge-success">✓ Đã ĐK HQ</span>
+          {% elif material.hq_registered == false %}<span class="meta">✗ Chưa ĐK HQ</span>
+          {% else %}<span class="meta">— (chưa rõ)</span>{% endif %}
+      </td></tr>
+      {% if material.promoted_to_declared_at %}
+      <tr><td class="mono"><strong>promoted</strong></td><td>{{ material.promoted_to_declared_at }} bởi <code>{{ material.promoted_by or '?' }}</code></td></tr>
+      {% endif %}
+      <tr><td class="mono"><strong>btp_sourcing</strong></td><td><code>{{ material.btp_sourcing or '—' }}</code></td></tr>
+      <tr><td class="mono"><strong>unit</strong></td><td>{{ material.unit or '—' }}</td></tr>
+      <tr><td class="mono"><strong>hs_code</strong></td><td>{{ material.hs_code or '—' }}</td></tr>
+      <tr><td class="mono"><strong>updated_at</strong></td><td>{{ material.updated_at }}</td></tr>
+      {% if material.provenance and material.provenance != {} %}
+      <tr><td class="mono"><strong>provenance</strong> <small class="meta">jsonb</small></td>
+          <td><pre style="font-size:.85em;background:#f4f4f4;padding:.5em;border-radius:4px;max-width:60ch;overflow:auto">{{ material.provenance|tojson(indent=2) }}</pre></td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  <h3 style="margin-top: 1.5rem;">Vai trò quan sát <small class="meta">ƒ live từ <code>v_material_roles</code> view</small></h3>
+  <table class="dh-table">
+    <tbody>
+      <tr><td class="mono"><strong>observed_roles</strong></td><td>
+          {% if material.observed_roles %}
+            {% for r in material.observed_roles %}<span class="badge badge-info mono" style="font-size:.85em">{{ r }}</span>{% endfor %}
+          {% else %}<span class="meta">—</span>{% endif %}
+      </td></tr>
+      <tr><td class="mono"><strong>is_multi_role</strong></td>
+          <td>{% if material.is_multi_role %}
+              <span class="badge badge-warning">⚠ true</span>
+              {% set roles = material.observed_roles or [] %}
+              {% if 'btp_sx' in roles and 'btp_nm' in roles %}<span class="meta">⇄ Đa nguồn (BTP) — cả btp_sx + btp_nm trong observed_roles</span>{% else %}<span class="meta">≥2 vai trò observed</span>{% endif %}
+              {% else %}false{% endif %}
+          </td></tr>
+      <tr><td class="mono"><strong>declared_observed_conflict</strong></td><td>{{ '⚠ true (khai báo không khớp quan sát)' if material.declared_observed_conflict else 'false' }}</td></tr>
+      <tr><td class="mono"><strong>has_imports</strong></td><td>{{ material.has_imports }}</td></tr>
+      <tr><td class="mono"><strong>has_exports</strong></td><td>{{ material.has_exports }}</td></tr>
+      <tr><td class="mono"><strong>has_nvl_import</strong></td><td>{{ material.has_nvl_import }}</td></tr>
+      <tr><td class="mono"><strong>is_consumed_in_bom</strong></td><td>{{ material.is_consumed_in_bom }}</td></tr>
+      <tr><td class="mono"><strong>has_own_bom</strong></td><td>{{ material.has_own_bom }}</td></tr>
+      <tr><td class="mono"><strong>observed_count</strong></td><td>{{ format_number(material.observed_count, decimals=0, lang=lang) }} tờ khai</td></tr>
+      {% if material.observed_first_at %}
+      <tr><td class="mono"><strong>observed_first_at</strong></td><td>{{ format_date(material.observed_first_at) }}</td></tr>
+      <tr><td class="mono"><strong>observed_last_at</strong></td><td>{{ format_date(material.observed_last_at) }}</td></tr>
+      <tr><td class="mono"><strong>observed_directions</strong></td><td><code>{{ material.observed_directions|join(', ') }}</code></td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  <h3 style="margin-top: 1.5rem;">Lịch sử thay đổi
+    <small class="meta">audit từ <code>material_audit_events</code></small></h3>
+  {% if audit_events %}
+  <table class="dh-table">
+    <thead><tr><th>Khi</th><th>Sự kiện</th><th>Actor</th><th>Payload</th></tr></thead>
+    <tbody>
+      {% for ev in audit_events %}
+      <tr>
+        <td class="mono" style="font-size:.85em;white-space:nowrap;">{{ ev.occurred_at }}</td>
+        <td><span class="badge">{{ ev.event_type }}</span></td>
+        <td class="meta">{{ ev.actor or '—' }}</td>
+        <td><pre style="font-size:.78em;background:#f4f4f4;padding:.3em;border-radius:3px;max-width:60ch;overflow:auto">{{ ev.payload|tojson(indent=2) }}</pre></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta">Chưa có sự kiện audit nào. Trigger sẽ ghi changes ở migration kế tiếp (045).</p>
+  {% endif %}
+
+  <h3 style="margin-top: 1.5rem;">BCCT references <small class="meta">(20 dòng gần nhất)</small></h3>
+  {% if bcct_rows %}
+  <table class="dh-table">
+    <thead>
+      <tr><th>Số TK</th><th>Dòng</th><th>Loại</th><th>Hướng</th><th>Ngày</th>
+          <th>customs_code</th><th>goods_name</th><th>Giá trị NT</th></tr>
+    </thead>
+    <tbody>
+      {% for r in bcct_rows %}
+      <tr>
+        <td class="mono"><a href="/clients/{{ client.client_id }}/bcct/history/{{ r.transaction_key }}/{{ r.line_no }}">{{ r.declaration_no }}</a></td>
+        <td>{{ r.line_no }}</td>
+        <td class="mono">{{ r.declaration_type or '' }}</td>
+        <td>{{ r.direction }}</td>
+        <td class="mono">{{ format_date(r.registration_date) }}</td>
+        <td class="mono">{{ r.customs_code or '' }}</td>
+        <td>{{ (r.goods_name or '')[:60] }}{% if r.goods_name and r.goods_name|length > 60 %}…{% endif %}</td>
+        <td>{{ format_money(r.total_value_nt, r.currency_nt, decimals=2, lang=lang) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta">Không có BCCT row nào reference mã này.</p>
+  {% endif %}
+
+  <h3 style="margin-top: 1.5rem;">BOM references <small class="meta">(20 artifacts gần nhất)</small></h3>
+  {% if bom_artifacts %}
+  <table class="dh-table">
+    <thead>
+      <tr><th>Artifact</th><th>Product</th><th>Vers</th><th>Status</th><th>Strategy</th><th>Tạo</th></tr>
+    </thead>
+    <tbody>
+      {% for a in bom_artifacts %}
+      <tr>
+        <td class="mono"><a href="/clients/{{ client.client_id }}/bom/artifact/{{ a.artifact_id }}">{{ a.artifact_id[:16] }}…</a></td>
+        <td class="mono">{{ a.product_code }}</td>
+        <td>v{{ a.artifact_no }}</td>
+        <td><span class="badge">{{ a.flatten_status }}</span></td>
+        <td class="mono">{{ a.flatten_strategy }}</td>
+        <td class="mono">{{ format_date(a.created_at) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta">Không có BOM artifact nào reference mã này.</p>
+  {% endif %}
+</section>
+{% endblock %}

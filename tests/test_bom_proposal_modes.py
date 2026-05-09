@@ -64,7 +64,7 @@ def proposal_client():
             cur.execute(
                 """
                 insert into hub.materials
-                  (client_id, customs_code, name, category, status)
+                  (client_id, material_code, name, category, status)
                 values (%s, 'M-A', 'Mat A', 'nvl', 'active'),
                        (%s, 'M-B', 'Mat B', 'nvl', 'active'),
                        (%s, 'M-NEW', 'Mat New', 'nvl', 'active')

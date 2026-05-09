@@ -34,6 +34,12 @@ GROWATT_ROW = {
 }
 
 
+def _display(pid):
+    """Mig 042: display_code dropped from struct. Consumer composes 3-tier fallback."""
+    return pid.get("resolved_code") or pid.get("internal_code") or pid.get("customs_code") or ""
+
+
+
 def _make_catalog(specs):
     """Build a material_catalog dict from terse fixtures.
 
@@ -102,9 +108,9 @@ def test_growatt_paren_code_resolves_when_bom_exists():
     # falls back to customs_code. Decoupled from the row's `internal_code`
     # so lazy-fill on rows missing internal_code still produces the right
     # value.
-    assert pid["display_code"] == "PV01.0117500"
-    assert pid["declared_customs_code"] == "BIENTAN.17"
-    assert pid["declared_internal_code"] == "BIENTAN.17"
+    assert _display(pid) == "PV01.0117500"
+    assert pid["customs_code"] == "BIENTAN.17"
+    assert pid["internal_code"] == "BIENTAN.17"
     assert pid["line_key"] == {
         "client_id": "growatt-vn",
         "declaration_no": "307591379560",
@@ -140,9 +146,9 @@ def test_resolved_display_code_independent_of_row_internal_code():
 
     assert pid["resolution_status"] == "resolved"
     assert pid["resolved_code"] == "PV01.0117500"
-    assert pid["display_code"] == "PV01.0117500"  # not customs_code, not ""
-    assert pid["declared_customs_code"] == "BIENTAN.17"
-    assert pid["declared_internal_code"] == ""    # row had no internal_code
+    assert _display(pid) == "PV01.0117500"  # not customs_code, not ""
+    assert pid["customs_code"] == "BIENTAN.17"
+    assert pid["internal_code"] == ""    # row had no internal_code
 
 
 def test_empty_result_display_code_falls_back_to_customs_code():
@@ -157,7 +163,7 @@ def test_empty_result_display_code_falls_back_to_customs_code():
 
     assert pid["resolution_status"] != "resolved"
     assert pid["resolved_code"] is None
-    assert pid["display_code"] == "BIENTAN.17"   # = customs_code
+    assert _display(pid) == "BIENTAN.17"   # = customs_code
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -550,10 +556,10 @@ def test_from_db_loads_catalog_mappings_reviewed():
             (other,  "PV99.9999999", "tp"),
         ]:
             cur.execute(
-                "insert into hub.materials (client_id, customs_code, "
-                "internal_code, name, category) values (%s, %s, %s, %s, %s) "
+                "insert into hub.materials (client_id, material_code, "
+                "name, category) values (%s, %s, %s, %s) "
                 "on conflict do nothing",
-                (cid, code, code, code, kind),
+                (cid, code, code, kind),
             )
         # BOM artifacts only for the two TPs in `client` (and the other).
         for cid, code, art_id in [

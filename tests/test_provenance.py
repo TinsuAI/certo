@@ -40,7 +40,7 @@ def test_client():
             cur.execute("delete from hub.clients where client_id = %s", (cid,))
 
 
-def _seed_bcct(client_id: str, decl_no: str, line_no: str, customs_code: str,
+def _seed_bcct(client_id: str, decl_no: str, line_no: str, material_code: str,
                registration_date: str = "2025-01-15", goods_name: str = "Test"):
     with connect() as conn:
         with conn.cursor() as cur:
@@ -54,7 +54,7 @@ def _seed_bcct(client_id: str, decl_no: str, line_no: str, customs_code: str,
                 on conflict (client_id, year, transaction_key, line_no) do nothing
                 """,
                 (client_id, f"PROV_{decl_no}", line_no, decl_no,
-                 registration_date, customs_code, goods_name),
+                 registration_date, material_code, goods_name),
             )
 
 
@@ -69,7 +69,7 @@ def _seed_material(client_id: str, customs_code: str, *, registered: bool = True
             cur.execute(
                 """
                 insert into hub.materials
-                  (client_id, customs_code, name, category, status, provenance)
+                  (client_id, material_code, name, category, status, provenance)
                 values (%s, %s, 'Existing', 'nvl', 'active', %s::jsonb)
                 """,
                 (client_id, customs_code, provenance),
@@ -77,15 +77,41 @@ def _seed_material(client_id: str, customs_code: str, *, registered: bool = True
 
 
 def _read_provenance(client_id: str, customs_code: str) -> dict:
+    """Mig 042: provenance jsonb `seen_in_bcct` key dropped — replaced by
+    source enum + v_material_roles view stats. This helper synthesizes the
+    legacy jsonb shape from new schema so existing tests assert the same
+    semantic without rewrite."""
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "select provenance from hub.materials "
-                "where client_id = %s and customs_code = %s",
+                """
+                select m.provenance, m.source, m.hq_registered,
+                       vmr.observed_count, vmr.observed_first_at, vmr.observed_last_at
+                from hub.materials m
+                left join hub.v_material_roles vmr
+                       on vmr.client_id=m.client_id and vmr.material_code=m.material_code
+                where m.client_id=%s and m.material_code=%s
+                """,
                 (client_id, customs_code),
             )
             row = cur.fetchone()
-            return row[0] if row else None
+            if not row:
+                return None
+            prov, source, hq_reg, obs_count, obs_first, obs_last = row
+            prov = dict(prov or {})
+            # Re-synthesize seen_in_bcct from view stats. Any material with
+            # observed_count > 0 (i.e., appears in BCCT) gets the legacy signal,
+            # regardless of source enum value (which tracks initial provenance,
+            # not whether the row has BCCT activity).
+            if obs_count and obs_count > 0:
+                prov["seen_in_bcct"] = {
+                    "decl_count": obs_count,
+                    "first_seen": obs_first.strftime("%Y-%m-%d") if obs_first else None,
+                    "last_seen": obs_last.strftime("%Y-%m-%d") if obs_last else None,
+                }
+            if hq_reg and "registered_with_hq" not in prov:
+                prov["registered_with_hq"] = {"first_seen": "synthetic"}
+            return prov
 
 
 # ─── auto-derive from BCCT ─────────────────────────────────────────────
@@ -216,13 +242,15 @@ def _seed_bom_with_materials(client_id: str, materials: list[tuple[str, str]],
     bom_rows = [(product_code, material_code, qty)]"""
     from app.stores.bom import create_artifact
     with connect() as conn, conn.cursor() as cur:
-        for cc, ic in materials:
+        for cc, _ic in materials:
+            # Mig 042: dropped materials.internal_code; legacy `ic` arg ignored
+            # (values were redundant since 100% = customs_code).
             cur.execute(
                 """insert into hub.materials
-                   (client_id, customs_code, internal_code, name, category, status)
-                   values (%s, %s, %s, 'X', 'nvl', 'active')
+                   (client_id, material_code, name, category, status)
+                   values (%s, %s, 'X', 'nvl', 'active')
                    on conflict do nothing""",
-                (client_id, cc, ic),
+                (client_id, cc),
             )
         for ic, cc in code_mappings:
             cur.execute(

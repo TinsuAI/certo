@@ -43,10 +43,10 @@ def setup():
             ("NVL_Z",         "nvl",    None),
         ]:
             cur.execute(
-                "insert into hub.materials (client_id, customs_code, "
-                "internal_code, name, category, btp_sourcing) "
-                "values (%s, %s, %s, %s, %s, %s) on conflict do nothing",
-                (CLIENT, code, code, code, cat, sourcing),
+                "insert into hub.materials (client_id, material_code, "
+                "name, category, btp_sourcing) "
+                "values (%s, %s, %s, %s, %s) on conflict do nothing",
+                (CLIENT, code, code, cat, sourcing),
             )
         cur.execute(
             "insert into hub.bom_artifacts (artifact_id, client_id, product_code, "

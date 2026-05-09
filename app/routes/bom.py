@@ -1143,8 +1143,8 @@ def _summarize_flatten(payload: dict, *, products: dict | None = None,
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    select customs_code from hub.materials
-                    where client_id = %s and customs_code = any(%s)
+                    select material_code from hub.materials
+                    where client_id = %s and material_code = any(%s)
                       and category in ('btp_sx', 'btp_nm')
                     """,
                     (client_id, list(product_codes)),

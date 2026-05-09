@@ -39,8 +39,8 @@ def client_with_data():
             (cid,),
         )
         cur.execute(
-            "insert into hub.materials (client_id, customs_code, internal_code, "
-            "name, category, status) values (%s, 'CUST-1', 'INT-1', 'Widget', 'nvl', 'active')",
+            "insert into hub.materials (client_id, material_code, "
+            "name, category, status) values (%s, 'CUST-1', 'Widget', 'nvl', 'active')",
             (cid,),
         )
     yield cid
@@ -53,8 +53,8 @@ def _client_summary(cid: str) -> dict:
         cur.execute("select name from hub.clients where client_id = %s", (cid,))
         client_row = cur.fetchone()
         cur.execute(
-            "select customs_code, internal_code, name, category "
-            "from hub.materials where client_id = %s order by customs_code",
+            "select material_code, name, category "
+            "from hub.materials where client_id = %s order by material_code",
             (cid,),
         )
         materials = cur.fetchall()
@@ -84,8 +84,8 @@ def test_replace_mode_wipes_existing_client_rows(client_with_data, tmp_path):
     # Mutate target before import — replace mode must drop the local change.
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            "insert into hub.materials (client_id, customs_code, internal_code, "
-            "name, category, status) values (%s, 'EXTRA', 'EXTRA-INT', 'Stale', 'nvl', 'active')",
+            "insert into hub.materials (client_id, material_code, "
+            "name, category, status) values (%s, 'EXTRA', 'Stale', 'nvl', 'active')",
             (client_with_data,),
         )
         cur.execute(
@@ -114,8 +114,8 @@ def test_other_client_untouched(client_with_data, tmp_path):
             (bystander,),
         )
         cur.execute(
-            "insert into hub.materials (client_id, customs_code, internal_code, "
-            "name, category, status) values (%s, 'BY-1', 'BY-INT', 'Bystander Mat', 'nvl', 'active')",
+            "insert into hub.materials (client_id, material_code, "
+            "name, category, status) values (%s, 'BY-1', 'Bystander Mat', 'nvl', 'active')",
             (bystander,),
         )
     try:

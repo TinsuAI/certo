@@ -44,13 +44,13 @@ def _seed_rework_tp(cur, *, client_id, code="REWORK_TP"):
     """Seed a rework code: declared btp_sx + own BOM + consumed in another BOM + exported.
     Result: observed_roles=['tp','btp_sx'], multi_role=true."""
     cur.execute(
-        "insert into hub.materials (client_id, customs_code, internal_code, "
-        "name, category, btp_sourcing) values (%s, %s, %s, %s, 'btp_sx', 'self_produced_only')",
-        (client_id, code, code, code),
+        "insert into hub.materials (client_id, material_code, "
+        "name, category, btp_sourcing) values (%s, %s, %s, 'btp_sx', 'self_produced_only')",
+        (client_id, code, code),
     )
     cur.execute(
-        "insert into hub.materials (client_id, customs_code, internal_code, "
-        "name, category) values (%s, 'PARENT', 'PARENT', 'PARENT', 'tp')",
+        "insert into hub.materials (client_id, material_code, "
+        "name, category) values (%s, 'PARENT', 'PARENT', 'tp')",
         (client_id,),
     )
     # Own BOM artifact for the rework code.
@@ -97,13 +97,13 @@ def _seed_rework_tp(cur, *, client_id, code="REWORK_TP"):
 def _seed_pure_nvl(cur, *, client_id, code="NVL_PE"):
     """Seed pure NVL: imported, consumed in BOM, no own BOM."""
     cur.execute(
-        "insert into hub.materials (client_id, customs_code, internal_code, "
-        "name, category) values (%s, %s, %s, %s, 'nvl')",
-        (client_id, code, code, code),
+        "insert into hub.materials (client_id, material_code, "
+        "name, category) values (%s, %s, %s, 'nvl')",
+        (client_id, code, code),
     )
     cur.execute(
-        "insert into hub.materials (client_id, customs_code, internal_code, "
-        "name, category) values (%s, 'PRODUCT', 'PRODUCT', 'PRODUCT', 'tp')",
+        "insert into hub.materials (client_id, material_code, "
+        "name, category) values (%s, 'PRODUCT', 'PRODUCT', 'tp')",
         (client_id,),
     )
     par_id = f"ba_{client_id}_prod"
@@ -267,13 +267,13 @@ def test_conflict_surfaces_in_resolver(cid):
     code = "MISDECL"
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            "insert into hub.materials (client_id, customs_code, internal_code, "
-            "name, category) values (%s, %s, %s, %s, 'tp')",
-            (cid, code, code, code),
+            "insert into hub.materials (client_id, material_code, "
+            "name, category) values (%s, %s, %s, 'tp')",
+            (cid, code, code),
         )
         cur.execute(
-            "insert into hub.materials (client_id, customs_code, internal_code, "
-            "name, category) values (%s, 'PARENT', 'PARENT', 'PARENT', 'tp')",
+            "insert into hub.materials (client_id, material_code, "
+            "name, category) values (%s, 'PARENT', 'PARENT', 'tp')",
             (cid,),
         )
         own_id = f"ba_{cid}_md"

@@ -45,15 +45,15 @@ def setup():
 
 def _add_material(cur, code: str, *, category: str = "btp_sx"):
     cur.execute(
-        "insert into hub.materials (client_id, customs_code, internal_code, "
-        "name, category) values (%s, %s, %s, %s, %s)",
-        (CLIENT, code, code, f"mat {code}", category),
+        "insert into hub.materials (client_id, material_code, "
+        "name, category) values (%s, %s, %s, %s)",
+        (CLIENT, code, f"mat {code}", category),
     )
 
 
 def _add_bcct_import(cur, code: str, *, year: int = 2025, line: int = 1, dt: str = "E11"):
     # mig 038: material_identity column dropped — classifier now uses
-    # customs_code only. So seed customs_code = code (the agency code
+    # material_code only. So seed customs_code = code (the agency code
     # we want flagged as imported).
     cur.execute(
         "insert into hub.bcct_rows (client_id, registration_date, transaction_key, line_no, "
@@ -152,7 +152,7 @@ def test_apply_writes_classification_to_db():
         assert n == 1
         cur.execute(
             "select btp_sourcing from hub.materials "
-            "where client_id=%s and customs_code=%s",
+            "where client_id=%s and material_code=%s",
             (CLIENT, "BTP_WRITE"),
         )
         assert cur.fetchone()[0] == "dual_source"

@@ -44,10 +44,10 @@ def setup():
             ("NVL_C3",       "nvl",    None),
         ]:
             cur.execute(
-                "insert into hub.materials (client_id, customs_code, internal_code, "
-                "name, category, btp_sourcing) values (%s, %s, %s, %s, %s, %s) "
+                "insert into hub.materials (client_id, material_code, "
+                "name, category, btp_sourcing) values (%s, %s, %s, %s, %s) "
                 "on conflict do nothing",
-                (CLIENT, code, code, code, cat, sourcing),
+                (CLIENT, code, code, cat, sourcing),
             )
         # Artifacts: the parent BOM (TP_MAT) and a child BOM for BTP_INTERNAL
         # (so explode has somewhere to recurse into via shared edges).

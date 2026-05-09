@@ -8,6 +8,110 @@ For past architectural decisions, see `DECISIONS.md`.
 
 ---
 
+## Mã chờ duyệt — passive candidate feed (deferred 2026-05-09)
+
+**Captured 2026-05-09** during catalog multi-source session. User
+pivoted from initial `catalog_derive` rule-form design (commits
+mig 042/043 + `catalog_derive.py` + `catalog_derive.html` shipped)
+to a passive candidate feed:
+
+> "Phần catalog candidate này sẽ theo dõi BOM và BCCT, recommend các
+> candidate để user quyết định có cho vào Catalog hay không. Rules đã
+> có sẵn trong config của từng khách hàng rồi, đâu cần enter thêm rule
+> ở catalog?"
+
+**Architecture:**
+- DROP `catalog_derive_configs` table + `app/routes/catalog_derive.py` + template
+- NEW `app/routes/catalog_candidates.py` — page `/clients/<id>/catalog/candidates`
+- NEW table `hub.catalog_candidate_rejections` (client_id, source, code, rejected_at, rejected_by, reason)
+- Source data: 2 streams merged
+  - **BCCT stream**: chạy existing `client_parser_rules` (output_field='internal_code')
+    over BCCT rows → extract codes → anti-join materials + rejections
+  - **BOM stream**: distinct codes từ `bom_edges.parent_code/child_code`
+    → anti-join materials + rejections
+- **Reject persistence**: separate table per user decision 2026-05-09 (not ghost rows)
+- **Suggested category** (per user-confirmed logic):
+  - import in BCCT + matching parser rule → `nvl`
+  - export in BCCT → `tp`
+  - parent_code in BOM (TP root) → `tp`
+  - child_code in BOM → `nvl` (default; staff edit if btp)
+  - Default fallback → `nvl`
+- VN page name: "Mã chờ duyệt"
+- UI: feed-style — code + source (BCCT/BOM) + observed_count + sample_text
+  + suggested category + [Accept] [Reject] per row. No regex form for staff.
+
+**Phase 2 (after candidate feed ships):**
+- Conflict detection page `/clients/<id>/catalog/conflicts` using
+  existing `v_material_roles.declared_observed_conflict` boolean +
+  the sourcing-conflict logic (mig 046 + Python in catalog.py).
+  Surface "catalog says X is NVL but BCCT shows X is exported as TP" cases.
+
+**Effort estimate**: ~1-1.5 days (single mig, single route module,
+single template, replaces existing catalog_derive). Includes test
+coverage + screenshots.
+
+**State of `catalog_derive_configs` + UI**: shipped in mig 043 +
+catalog_derive.html as a wizard form, but user explicitly redesigned
+post-shipping. Either drop in mig 047 OR repurpose. Brief should
+explicitly cover the migration path (existing rows in
+catalog_derive_configs are throwaway test data, no production).
+
+---
+
+## Phase 2 catalog — multi-role roles[] + manual fields (deferred 2026-05-09)
+
+**Captured 2026-05-09**. After mig 042-046 shipped Phase 1 (provenance
++ state + audit + dual-source via observed_roles), Phase 2 is the
+remaining schema enrichment:
+
+1. **`materials.roles[] text[]`** — multi-role first-class.
+   Memory `project_bom_code_multirole.md` ("a code can be TP+BTP+NVL
+   simultaneously"). Currently `category` is single-value;
+   `category_override` patches one case but doesn't scale.
+   Plan:
+   - Add `roles[]` column with check constraint `roles <@
+     array['nvl','tp','btp_sx','btp_nm','ccdc']`
+   - Backfill `roles = array[category]` for existing rows.
+   - Update consumer queries: `m.category = 'X'` → `'X' = ANY(m.roles)`.
+   - Drop `category` AFTER all consumers migrate.
+   - Drop `category_override` (becomes redundant).
+2. **Manual fields**: `production_source` (nk/sx/mixed/unknown),
+   `hq_registration_no` text, `hq_registration_date` date,
+   `supplier_hint` text, `name_source` enum, `uom` text (separate
+   from `client_uom_overrides`).
+3. **Cross-cut refactor**: ~30-50 file touches expected. Critic
+   round 2 flagged dual-source-of-truth trap if `category` + `roles[]`
+   coexist long-term — commit to drop `category` in same release OR
+   defer `roles[]` until ready to drop.
+
+**Effort**: ~2-3 days (schema mig + cross-cut refactor + sister-app
+note for CO/BCQT).
+
+**Status** of related work shipped: dual-source pattern via
+observed_roles[btp_sx + btp_nm] (mig 046) + sourcing-confirmation
+conflict (Python in catalog.py route + UI badge in catalog.html).
+Multi-role array on materials still pending.
+
+---
+
+## Catalog conflicts page (deferred 2026-05-09)
+
+**Captured 2026-05-09** (originally Phase 3 of catalog multi-source).
+Surface mismatches between catalog declarations and observed data
+graph:
+
+- `v_material_roles.declared_observed_conflict` already computed
+  (boolean per row). Drives "⚠ Xét lại" badge in catalog list.
+- Missing: dedicated page listing all conflict rows for staff review.
+- Page `/clients/<id>/catalog/conflicts`: table of conflicts +
+  details + actions (update declared_kind, override, suppress).
+- Sourcing-confirmation conflict (mig 046 logic): catalog list has
+  inline badge but no dedicated review queue. Same page can host both.
+
+**Effort**: ~0.5-1 day (read-only view + actions reuse existing endpoints).
+
+---
+
 ## Parser-rules infra polish (deferred 2026-05-08)
 
 Captured during the configurable-bcct-parsing bundle session

@@ -45,7 +45,7 @@ def _eligible_btp_parents(cur, *, artifact_id: str, client_id: str) -> list[str]
         select distinct e.parent_code
         from hub.bom_edges e
         join hub.materials m
-          on m.client_id = %s and m.customs_code = e.parent_code
+          on m.client_id = %s and m.material_code = e.parent_code
         join hub.bom_artifacts a
           on a.artifact_id = e.artifact_id
         where e.artifact_id = %s

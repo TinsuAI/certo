@@ -168,7 +168,7 @@ def test_materials_endpoint_returns_next_cursor(strict_mode_on):
             )
             cur.execute(
                 """
-                insert into hub.materials (client_id, customs_code, name, category, status)
+                insert into hub.materials (client_id, material_code, name, category, status)
                 values (%s, 'M-001', 'M1', 'nvl', 'active'), (%s, 'M-002', 'M2', 'nvl', 'active')
                 on conflict do nothing
                 """,
@@ -191,9 +191,9 @@ def test_materials_endpoint_returns_next_cursor(strict_mode_on):
             headers={"authorization": f"Bearer {token}"},
         )
 
-        assert [row["customs_code"] for row in first.json()["items"]] == ["M-001"]
+        assert [row["material_code"] for row in first.json()["items"]] == ["M-001"]
         assert first.json()["next_cursor"] == "1"
-        assert [row["customs_code"] for row in second.json()["items"]] == ["M-002"]
+        assert [row["material_code"] for row in second.json()["items"]] == ["M-002"]
         assert second.json()["next_cursor"] is None
     finally:
         with connect() as conn:
@@ -213,7 +213,7 @@ def test_client_config_and_source_summary_endpoints(strict_mode_on):
             )
             cur.execute(
                 """
-                insert into hub.materials (client_id, customs_code, name, category, status)
+                insert into hub.materials (client_id, material_code, name, category, status)
                 values (%s, 'M-SUM-1', 'Material', 'nvl', 'active'), (%s, 'P-SUM-1', 'Product', 'tp', 'active')
                 on conflict do nothing
                 """,
@@ -551,7 +551,7 @@ def test_co_bom_proposal_requires_parent_artifact_id(strict_mode_on):
             )
             cur.execute(
                 """
-                insert into hub.materials (client_id, customs_code, name, category, status)
+                insert into hub.materials (client_id, material_code, name, category, status)
                 values (%s, 'M-PARENT-REQ', 'Parent Material', 'nvl', 'active')
                 on conflict do nothing
                 """,

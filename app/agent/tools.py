@@ -311,38 +311,43 @@ def _query_bcct(*, client_id: str, year: int | None = None,
     }
 
 
-def _query_catalog(*, client_id: str, customs_code: str | None = None,
-                   internal_code: str | None = None,
+def _query_catalog(*, client_id: str, material_code: str | None = None,
                    name_query: str | None = None,
                    category: str | None = None,
                    provenance: str | None = None,
-                   limit: int = 20) -> dict:
+                   limit: int = 20,
+                   # Legacy param accepted for backward compat in tool args
+                   customs_code: str | None = None,
+                   internal_code: str | None = None) -> dict:
+    # Mig 042: customs_code (legacy) + internal_code (dropped column) → material_code.
+    # Accept legacy args from agent tool calls for grace period; map to material_code.
+    if material_code is None and customs_code is not None:
+        material_code = customs_code
+    if material_code is None and internal_code is not None:
+        material_code = internal_code
     sql = (
-        "select customs_code, internal_code, name, category, status, unit, "
-        "       hs_code, provenance "
+        "select material_code, name, category, status, unit, "
+        "       hs_code, source, hq_registered, provenance "
         "from hub.materials where client_id = %s"
     )
     params: list = [client_id]
-    if customs_code:
-        sql += " and customs_code = %s"
-        params.append(customs_code)
-    if internal_code:
-        sql += " and internal_code = %s"
-        params.append(internal_code)
+    if material_code:
+        sql += " and material_code = %s"
+        params.append(material_code)
     if name_query:
         sql += " and name ilike %s"
         params.append(f"%{name_query}%")
     if category:
         sql += " and category = %s"
         params.append(category)
+    # Provenance filter mapped to source/hq_registered post-mig-042
     if provenance == "registered":
-        sql += " and provenance ? 'registered_with_hq'"
+        sql += " and hq_registered = true"
     elif provenance == "unregistered":
-        sql += (" and provenance ? 'seen_in_bcct' "
-                "and not provenance ? 'registered_with_hq'")
+        sql += " and source = 'bcct_observed' and (hq_registered is null or hq_registered = false)"
     elif provenance == "user_added":
-        sql += " and provenance ? 'user_added'"
-    sql += " order by customs_code limit %s"
+        sql += " and source = 'client_declared'"
+    sql += " order by material_code limit %s"
     params.append(min(max(int(limit or 20), 1), 50))
 
     with connect() as conn:
@@ -411,16 +416,26 @@ def _query_bom(*, client_id: str, product_code: str | None = None,
 
 
 def _query_provenance_alarms(*, client_id: str, limit: int = 50) -> dict:
+    # Post-mig-042: source/hq_registered columns replaced provenance jsonb keys
+    # for query filtering. Observation stats now derive from v_material_roles view.
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select customs_code, name, category, provenance->'seen_in_bcct'
-                from hub.materials
-                where client_id = %s
-                  and provenance ? 'seen_in_bcct'
-                  and not provenance ? 'registered_with_hq'
-                order by customs_code
+                select m.material_code, m.name, m.category,
+                       jsonb_build_object(
+                         'observed_count', vmr.observed_count,
+                         'observed_first_at', vmr.observed_first_at,
+                         'observed_last_at', vmr.observed_last_at,
+                         'observed_directions', vmr.observed_directions
+                       ) as observation
+                from hub.materials m
+                left join hub.v_material_roles vmr
+                       on vmr.client_id = m.client_id and vmr.material_code = m.material_code
+                where m.client_id = %s
+                  and m.source = 'bcct_observed'
+                  and (m.hq_registered is null or m.hq_registered = false)
+                order by m.material_code
                 limit %s
                 """,
                 (client_id, min(max(int(limit or 50), 1), 100)),

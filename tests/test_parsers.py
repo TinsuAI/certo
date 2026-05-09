@@ -320,7 +320,7 @@ def test_bom_create_artifact_rejects_qty_zero():
         )
         cur.execute(
             """insert into hub.materials
-               (client_id, customs_code, name, category, status)
+               (client_id, material_code, name, category, status)
                values (%s, 'M-A', 'A', 'nvl', 'active'),
                       (%s, 'M-B', 'B', 'nvl', 'active')""",
             (cid, cid),

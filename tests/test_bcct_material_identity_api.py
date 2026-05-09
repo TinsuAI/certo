@@ -71,9 +71,9 @@ def seeded():
         # Materials catalog must contain canonical codes — resolver
         # validates against materials, not bom_artifacts directly.
         cur.execute(
-            "insert into hub.materials (client_id, customs_code, "
-            "internal_code, name, category) values "
-            "(%s, 'PV01.0117500', 'PV01.0117500', 'Test TP', 'tp') "
+            "insert into hub.materials (client_id, material_code, "
+            "name, category) values "
+            "(%s, 'PV01.0117500', 'Test TP', 'tp') "
             "on conflict do nothing",
             (cid,),
         )

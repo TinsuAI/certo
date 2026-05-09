@@ -567,7 +567,7 @@ def summarize_db(client_id: str) -> dict[str, Any]:
                        bv.flatten_status, count(distinct bv.product_code), sum(bv.row_count)
                 from hub.bom_artifacts bv
                 left join hub.materials m
-                  on m.client_id=bv.client_id and m.customs_code=bv.product_code
+                  on m.client_id=bv.client_id and m.material_code=bv.product_code
                 where bv.client_id=%s and bv.tombstoned_at is null
                 group by coalesce(m.category, 'unknown'), bv.flatten_status
                 order by 1,2

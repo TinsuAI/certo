@@ -102,11 +102,12 @@ class ResolverContext:
         # Single pass yields everything resolver and consumers need.
         cur.execute(
             """
-            select m.customs_code,
-                   m.internal_code,
+            select m.material_code,
                    m.name,
                    coalesce(m.category_override, m.category) as category,
                    m.btp_sourcing,
+                   m.source,
+                   m.status,
                    coalesce(b.n_artifacts, 0) as n_artifacts,
                    coalesce(b.has_flattened, 0) as has_flattened,
                    coalesce(vmr.has_imports, false) as has_imports,
@@ -125,22 +126,23 @@ class ResolverContext:
                 from hub.bom_artifacts
                 where client_id = %s and tombstoned_at is null
                 group by product_code
-            ) b on b.product_code = m.customs_code
+            ) b on b.product_code = m.material_code
             left join hub.v_material_roles vmr
                    on vmr.client_id = m.client_id
-                  and vmr.customs_code = m.customs_code
+                  and vmr.material_code = m.material_code
             where m.client_id = %s
             """,
             (client_id, client_id),
         )
         material_catalog: dict[str, dict] = {}
-        for (code, internal, name, category, btp_sourcing,
+        for (code, name, category, btp_sourcing, source, status,
              n_art, has_flat,
              has_imp, has_exp, consumed, has_own,
              observed_roles, is_multi, conflict) in cur.fetchall():
             material_catalog[code] = {
-                "internal_code": internal,
                 "name": name,
+                "source": source,
+                "status": status,
                 "category": category,
                 "btp_sourcing": btp_sourcing,
                 "n_artifacts": int(n_art),
@@ -176,7 +178,7 @@ class ResolverContext:
               and b.tombstoned_at is null
               and not exists (
                 select 1 from hub.materials m
-                where m.client_id = %s and m.customs_code = b.product_code
+                where m.client_id = %s and m.material_code = b.product_code
               )
             group by b.product_code
             """,
@@ -186,8 +188,9 @@ class ResolverContext:
             if code in material_catalog:
                 continue
             material_catalog[code] = {
-                "internal_code": code,
                 "name": None,
+                "source": "system",
+                "status": "active",
                 # Default category for BOM-only products is 'tp' — matches
                 # app/stores/bom.py coalesce(m.category, 'tp') convention.
                 "category": "tp",
@@ -334,18 +337,22 @@ def _empty_result(row: dict, ctx: ResolverContext, *, status: str,
                   selected_candidate_code: str | None = None,
                   confidence: str | None = None,
                   review_status: str = "needs_review") -> dict:
-    # display_code: when no resolution, fall back to customs_code. The
-    # parser-derived internal_code is captured in declared_internal_code
-    # below (when present in row dict).
+    # Mig 042 changes:
+    # - Dropped `display_code` (conflated semantic per user). Consumer composes
+    #   3-tier `resolved_code or internal_code or customs_code`.
+    # - Renamed `declared_customs_code → customs_code`,
+    #   `declared_internal_code → internal_code` (drop misleading prefix —
+    #   internal_code is parsed annotation from goods_name, NOT declared to HQ).
+    # - Kept `bom_product_code` (clear: alias when has BOM) and
+    #   `selected_candidate_code` (clear: best candidate even when ambiguous).
     out = {
         "resolution_status": status,
         "resolved_code": None,
         "bom_product_code": None,
         "product_kind": None,
         "selected_candidate_code": selected_candidate_code,
-        "display_code": row.get("customs_code") or "",
-        "declared_customs_code": row.get("customs_code") or "",
-        "declared_internal_code": row.get("internal_code") or "",
+        "customs_code": row.get("customs_code") or "",
+        "internal_code": row.get("internal_code") or "",
         "line_key": _line_key(row, ctx),
         "resolution_source": resolution_source,
         "confidence": confidence,
@@ -362,21 +369,18 @@ def _empty_result(row: dict, ctx: ResolverContext, *, status: str,
 def _resolved(row: dict, ctx: ResolverContext, *, code: str,
               resolution_source: str, evidence: dict, candidates: list[dict],
               confidence: str = "high",
-              review_status: str = "system_resolved") -> dict:
-    # display_code is the canonical resolved form (= the resolved code),
-    # not the parser-derived internal_code. Decoupled per brief D8 so
-    # lazy-fill on rows missing `internal_code` still produces the right
-    # display value — consumer reads display_code as "best identifier
-    # for this row".
+              review_status: str = "system_resolved",
+              status: str = "resolved") -> dict:
+    # Mig 042: status param added to support 'resolved_pending_review' for
+    # bcct_observed/under_review materials. Default 'resolved' for legacy paths.
     out = {
-        "resolution_status": "resolved",
+        "resolution_status": status,
         "resolved_code": code,
         "bom_product_code": _bom_alias(code, ctx),
         "product_kind": _kind_for(code, ctx),
         "selected_candidate_code": code,
-        "display_code": code,
-        "declared_customs_code": row.get("customs_code") or "",
-        "declared_internal_code": row.get("internal_code") or "",
+        "customs_code": row.get("customs_code") or "",
+        "internal_code": row.get("internal_code") or "",
         "line_key": _line_key(row, ctx),
         "resolution_source": resolution_source,
         "confidence": confidence,
@@ -446,6 +450,14 @@ def resolve_material_identity(row: dict, *, ctx: ResolverContext) -> dict:
 
     if len(paren_validated) == 1:
         ext, cand = paren_validated[0]
+        # Mig 042: catalog rows in `under_review` status (typically bcct_observed
+        # auto-derives awaiting staff promote) resolve as `resolved_pending_review`
+        # so consumers can branch (UI shows badge, write-side may require sign-off).
+        meta = catalog.get(ext["product_code"]) or {}
+        res_status = (
+            "resolved_pending_review" if meta.get("status") == "under_review"
+            else "resolved"
+        )
         return _resolved(
             row, ctx, code=ext["product_code"],
             resolution_source="goods_name_embedded_code",
@@ -456,6 +468,7 @@ def resolve_material_identity(row: dict, *, ctx: ResolverContext) -> dict:
                 "match_rule": ext["match_rule"],
             },
             candidates=[cand],
+            status=res_status,
         )
 
     if len(paren_validated) > 1:
@@ -497,6 +510,11 @@ def resolve_material_identity(row: dict, *, ctx: ResolverContext) -> dict:
             reason="customs_code matches a BOM product directly.",
             ctx=ctx,
         )
+        meta = catalog.get(customs) or {}
+        res_status = (
+            "resolved_pending_review" if meta.get("status") == "under_review"
+            else "resolved"
+        )
         return _resolved(
             row, ctx, code=customs,
             resolution_source="structured_field",
@@ -507,6 +525,7 @@ def resolve_material_identity(row: dict, *, ctx: ResolverContext) -> dict:
                 "match_rule": "customs_code_exists_in_bom_products",
             },
             candidates=[candidate],
+            status=res_status,
         )
 
     # ── Stage 3: reviewed_line_mapping ────────────────────────────

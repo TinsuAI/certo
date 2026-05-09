@@ -1,224 +1,169 @@
 # Project Status
 
-**Date:** 2026-05-08 — full BCCT identity + parser-rules + payload-promotion bundle
+**Date:** 2026-05-09 — BCCT view format + catalog multi-source (mig 042-046) + dual-source roles + Mã chờ duyệt deferred to next session
 
 ## Current State
 
-End-to-end bundle of 7 migrations shipped this session, plus
-multiple architectural pivots driven by user feedback during the
-session:
+**Two streams shipped this session, uncommitted in working tree:**
 
-1. mig 035 — material_identity rename + drop internal_code column.
-2. mig 036 — seed Growatt parser rules (internal_code).
-3. mig 037 — seed Growatt material_identity_candidates rule.
-4. mig 038 — drop material_identity column too (runtime-derived).
-5. mig 039 — promote payload Tier 1: rename `currency`→`currency_nt`
-   + add 4 typed columns (`total_value_nt`, `unit_price_nt`,
-   `total_tax`, `unloading_location`). Fixes currency-tag bug.
-6. mig 040 — promote payload Tier 2: 4 more typed columns
-   (`contract_no`, `contract_date`, `internal_mgmt_no`, `package_marks`).
-7. mig 041 — prune 38 typed-already keys from payload jsonb.
+### Stream A — BCCT view format (READY)
 
-Plus mid-session resolver tweaks:
-- Stage swap (Stage 2 paren-extract before Stage 1 customs_code).
-- display_code semantic = resolved_code (not internal_code).
-- Per-row inspect view at `/clients/<id>/bcct/history/<txn>/<line>`
-  showing all 40 typed columns + computed material_identity jsonb.
+User asks (currency bug, format, column picker) all addressed:
+- Format helpers: `_format.html` macros (`format_number`, `format_money`, `format_date`, `format_int`) — locale-aware (vi `1.234.567,89`)
+- `_sort.html` macro extracted from inline duplication
+- BCCT main list: 2 cột giá trị tách bạch — "Giá trị NT" (FX `total_value_nt + currency_nt`) + "Giá trị VND" (`total_value` + literal "VND"). Bug 12B-VND-cạnh-USD đã fix.
+- Column picker (`col-picker.js`) — vanilla JS, localStorage-backed, Ấn/hiện cột bất kỳ với persistence.
+- 12 new tests (format macros), all pass.
+- 4 screenshots committed at `.ai/features/2026-05-08-bcct-view-format/screenshots/`.
 
-Architectural principle: **pure-derivation values are not cached**.
-internal_code (regex over goods_name) and material_identity (5-stage
-resolver) both runtime-only. Custom parser rules live in
-`hub.client_parser_rules`, edited by staff via web UI at
-`/clients/<id>/parser-rules` (dev role).
+### Stream B — Catalog multi-source (Phase 1 SHIPPED)
 
-- **Repo HEAD**: `a971919` on `main` — **PUSHED** + deployed to
-  demo. 26 commits this session (origin already up-to-date).
-- **Tests**: 626 pass / 15 skip / **0 fail**. The pre-existing
-  `test_co_columns` failure addressed by mig 041 cleanup.
-- **Demo server (tinsu)**: HEAD = `a971919`, healthz=200,
-  schema_migrations 035-041 all applied, 6 parser_rules seeded for
-  growatt-vn. CI workflow technically marked "failed" but only the
-  best-effort LLM smoke step (401 from upstream service); deploy +
-  test + API smoke all green.
-- **Local DB v3 state**: schema at mig 041 applied; rules seeded for
-  `growatt-vn` (5 internal_code + 1 material_identity_candidates).
-  All payload promotions backfilled (75,304 rows). Identity-mode
-  clients (DKE, Johnson, Do Thanh, demo) need no rules.
-- **`hub.bcct_rows`**: 40 typed columns (was 32). Payload jsonb
-  contains 13 keys (sparse tax-detail + Ghi chú + STT audit).
-- **Demo URL**: https://ttdatahub.tinsu.ai (CI/CD picks up after push).
+7 migrations + cross-cut refactor + new derive tool + adoption guide.
 
-### Bundle commits (this session)
+**Schema:**
+- Mig 042 — RENAMED `materials.customs_code → material_code` (mode-agnostic primary code), DROPPED vestigial `internal_code`, added 5 cols (`source/status/hq_registered/promoted_to_declared_at/promoted_by`), backfilled source from old `provenance->'seen_in_bcct'` jsonb (9000 rows for Growatt+Johnson).
+- Mig 043 — `catalog_derive_configs` table (+ wizard form UI).
+- Mig 045 — audit trigger on `hub.materials` writing to `material_audit_events` on UPDATE/DELETE (mirrors mig 013 BCCT pattern).
+- Mig 046 — `v_material_roles` extended: 4-role observed_roles (added `btp_nm` for dual-source case where has_imports + has_own_bom + is_consumed_in_bom). Dual-source emerges naturally as `btp_sx + btp_nm` both fire → `is_multi_role=true` → UI badge "Đa nguồn (BTP)".
 
-| Commit | Description |
-|---|---|
-| `046601e` | Phase 1 — engine core + ReDoS-safe pattern compiler (9 TDD tests) |
-| `92581fe` | Phase 2 — mig 035 + material_identity rename + drop internal_code |
-| `119927b` | Phase 3 — wire compute_internal_code helper + mig 036 seed Growatt |
-| `5e5cb66` | /rev fix #1+#2 — bcct.html template + resolver display_code semantic |
-| `f6ece41` | /rev fix #4 — replace bcct_adapters/ with rule engine (mig 037) |
-| `ab09d83` | /rev fix #3 — CRUD endpoints + UI page + test panel single-mode |
-| `ae77a74` | Deferred polish — history endpoint + PATCH UI + recent/coverage modes + sister-app docs |
-| `f5eec19` | docs: STATUS.md + session summary |
-| `f75d681` | Mig 038 — drop material_identity column entirely; fully runtime-derived |
-| `e6acfa0` | docs: STATUS + sister-app note + brief amendment for mig 038 |
-| `a41f84e` | Resolver Stage 2 (paren-extract) wins over Stage 1 + UI marker for computed columns |
-| `6a31fc9` | Per-row inspect view (Trạng thái hiện tại) + UI markers for computed fields |
-| `932ea10` | Mig 039 — promote payload Tier 1 + currency-tag bug fix |
-| `db0f1ef` | Mig 040 — promote payload Tier 2 (contract + internal_mgmt + package_marks) |
-| `37b8046` | Mig 041 — prune typed-already keys from payload jsonb |
-| `d491145` | docs: handoff — sister-app note + STATUS + session summary |
-| `a971919` | fix(ci): mig 036/037 idempotent + safe on fresh DB |
+**App refactor:**
+- `material_identity` struct: dropped `display_code`, renamed `declared_customs_code → customs_code`, `declared_internal_code → internal_code`. Added `resolution_status='resolved_pending_review'` for `bcct_observed/under_review` materials.
+- 11 app/script files refactored for `customs_code → material_code` rename (~50 SQL touch sites).
+- Resolver, agent tools, provenance store, BOM, scripts all updated.
 
-### Sister-app notes posted
+**UI:**
+- Catalog list (`/clients/<id>/catalog`) — full redesign with column picker pattern from BCCT view. Drop dead "Mã NB" column (`internal_code` gone). New columns: source pill, status pill, ĐK HQ, observation stats (count + first_at + last_at + directions live from view), Chi tiết link, Promote/Tombstone actions. Status filter chip. Sourcing-confirmation conflict badge (Python derive: staff `btp_sourcing` vs observed pattern in `observed_roles[]`).
+- New detail page (`/clients/<id>/catalog/<material_code>/detail`): 5 sections — current state (incl. provenance jsonb), live observed signals, audit history (from material_audit_events), BCCT references (recent 20), BOM artifacts (recent 20).
+- Catalog-derive wizard (`/clients/<id>/catalog/derive`) — shipped but **deferred for redesign next session** (user pivoted to passive candidate feed).
 
-- `~/workspace/client/data-hub/.ai/sister-app-notes/2026-05-08-material-identity-rename-and-internal-code-drop.md`
-  — for CO + BCQT. Hard-cut API breaking changes, 6-site CO consumer
-  audit, before/after diffs, CI gate.
-- Predecessor brief `2026-05-07-bcct-product-identity/brief.md` has an
-  Amendment 2026-05-08 section appended with R4 correction.
+**Tests:** 644 pass / 15 skip / 0 fail. From 638 baseline + 6 new (`test_format_macros.py`) + 6 new (`test_catalog_derive.py`) − 6 obsolete tests refactored.
 
-### Behavior changes that consumers will notice
+**Adoption guide:** `.ai/sister-app-notes/2026-05-09-catalog-multi-source-and-vocab.md` covers all schema/struct/vocab changes for CO + BCQT to adopt at their pace (CO is paused; no live coordination required).
 
-1. API param renames (hard cut, no alias): `include_product_identity`
-   → `include_material_identity`. Old name returns 400.
-2. Response field `internal_code` removed at every level. Read
-   `material_identity.declared_internal_code` for the legacy view OR
-   `material_identity.display_code` for the canonical resolved form.
-3. `display_code` semantic: was `row.internal_code or customs_code`;
-   now `resolved_code` (when resolved) or `customs_code` (fallback).
-   For Growatt exports: was `BIENTAN.17`, now `PV01.0117500`.
-4. `parser_adapter` field is now constant `"client_parser_rules"`
-   (was `"growatt_bcct"` / `"identity"`). `parser_version` is `"v1"`.
-5. `evidence.matched_text` now includes parens (full match span); was
-   bare capture group.
-6. 666 Growatt export rows + 14 import bug-shape rows now resolve
-   correctly. They previously fell through F1-anchor or F1-disjunction
-   bugs in the deleted hardcoded regex.
-7. **(mig 038)** material_identity is no longer persisted — every read
-   resolves at runtime. Rule edits propagate to next read; no backfill.
-   Trade-off: bulk export (~23k rows) takes ~25-50s vs near-instant
-   for cached read. Per-page reads (50 rows) ~50-100ms — negligible.
-   parser_version stability across rule edits is intentionally not
-   guaranteed.
-8. **(resolver swap, post-mig 038)** Stage 2 (paren-extract) now
-   evaluates BEFORE Stage 1 (customs_code in materials). For
-   Growatt-style exports where customs_code='BIENTAN.20' AND
-   goods_name contains '(PV02.0228801)', resolved_code now
-   = `PV02.0228801` (was: `BIENTAN.20`). Identity-mode clients
-   unaffected (no rules → fall through to Stage 1).
-9. **(mig 039)** `currency` field renamed → `currency_nt` (FX-domain
-   semantic). 4 new typed columns: `total_value_nt`, `unit_price_nt`,
-   `total_tax`, `unloading_location`. Fixes currency-tag mismatch
-   for ~70k rows where USD-tagged values were actually VND-magnitude.
-   FX-domain (transaction currency) and VND-domain (taxable) now
-   represented separately.
-10. **(mig 040)** 4 more typed columns added: `contract_no`,
-    `contract_date`, `internal_mgmt_no`, `package_marks`.
-11. **(mig 041)** payload jsonb pruned: 38 typed-already keys
-    removed. Payload now contains only Tier 3 (sparse tax detail,
-    free-text, audit fields). Consumers using
-    `payload->>'Tên doanh nghiệp'` etc. must switch to typed
-    columns (`exporter_name`, etc.).
-12. **(UI)** BCCT row history page now shows full "Trạng thái hiện
-    tại" section with all 40 typed columns + computed
-    material_identity expandable. Computed fields marked with `ƒ`.
+## Recent Changes — files
+
+```
+NEW (uncommitted):
+  db/migrations/042_catalog_material_code_rename_and_provenance.sql
+  db/migrations/043_catalog_derive_configs.sql
+  db/migrations/045_materials_audit_trigger.sql
+  db/migrations/046_v_material_roles_dual_source_btp.sql
+  app/routes/catalog_derive.py
+  app/templates/clients/catalog_derive.html
+  app/templates/clients/catalog_detail.html
+  app/templates/_format.html
+  app/templates/_sort.html
+  app/static/js/col-picker.js
+  tests/test_format_macros.py
+  tests/test_catalog_derive.py
+  .ai/features/2026-05-08-bcct-view-format/   (brief + ui_smoke + 4 screenshots)
+  .ai/features/2026-05-08-catalog-multi-source/   (brief rev 4 + ui_smoke + 3 screenshots)
+  .ai/sister-app-notes/2026-05-09-catalog-multi-source-and-vocab.md
+
+MODIFIED (uncommitted):
+  app/routes/{api,bom,catalog}.py
+  app/agent/tools.py
+  app/resolvers/bcct_material_identity.py
+  app/stores/{bom,provenance}.py
+  app/templates/clients/{bcct,catalog}.html
+  app/main.py
+  scripts/{bootstrap_btp_roster, bootstrap_catalog_from_bcct, derive_btp_shallows,
+           detect_dual_source_btps, feed_demo_company, materialize_shallow_and_full_flat,
+           screenshot_flatten}.py
+  tests/test_*.py (15 files)
+  .ai/{STATUS,BACKLOG}.md
+```
+
+Total: ~50 file diff, ~891 insertions / ~390 deletions.
 
 ## Next Steps
 
-Priority order:
+Per `BACKLOG.md` priority order:
 
-1. **CO consumer migration** — sister-app note
-   `.ai/sister-app-notes/2026-05-08-material-identity-rename-and-internal-code-drop.md`
-   has full migration steps including all migs 035-041 changes.
-   CO updates needed:
-   - 6 read sites in `data_hub_client.py:415,426,438,538`,
-     `bom_service.py:266`, `main.py:1794` — swap `internal_code`
-     reads to `material_identity.declared_internal_code` /
-     `display_code`.
-   - SQL refs to `currency` column → `currency_nt`.
-   - SQL refs to `payload->>'X'` for promoted keys (Tên doanh
-     nghiệp etc.) → swap to typed columns (`exporter_name` etc.).
-   - Param renames `include_product_identity` → `include_material_identity`.
-2. **BCQT consumer prep** — no current consumer; sister-app note is
-   forward-looking. Same field-rename story when BCQT adopts.
-3. **Wipe + ingest fresh — Growatt and Johnson** (memory
-   `project_reingest_pending.md`). Triple-unblocked now: rule
-   engine works, FX/VND domains split, payload pruned. Re-ingest
-   produces clean rows from scratch — no backfill needed.
-4. **BACKLOG cleanup** — 3 scripts SQL-degraded after payload prune
-   need Python-side rewrites. See `.ai/BACKLOG.md` "Scripts that
-   lost SQL `material_identity` access" entry:
-   - `scripts/settlement_resolver.py::_load_bcct_universe`
-   - `scripts/detect_dual_source_btps.py`
-   - `app/agent/tools.py::_query_bcct`
-5. **Demo data parity** — after step 3 (wipe + ingest), mirror to
-   tinsu via pg_dump → scp.exe → restore. Dev DB and demo are
-   currently both at mig 041 schema, but data still has 2026-Q1
-   pre-mig data with old derivations cached.
-6. **Optional polish (not blocking)**:
-   - Add Playwright E2E for parser-rules UI (memory
-     `feedback_feature_folder_with_screenshots.md`).
-   - Per-key cache invalidation in `client_parser_rules` engine
-     (current impl drops wholesale; benign at current scale).
-   - preview_token belt-and-suspenders on rule writes.
-7. **BACKLOG cleanup** — review `.ai/BACKLOG.md` "Modular BOM ingest
-   adapters" item 5 (now in-flight per this brief) — the BCCT-side
-   work is done; BOM-side items 1-4 remain.
+1. **Mã chờ duyệt — passive candidate feed** (~1-1.5 days) — replaces
+   the wizard form `catalog_derive` shipped this session. User
+   redesign decision 2026-05-09: drop wizard, build passive feed
+   that watches BCCT + BOM continuously and surfaces candidates from
+   existing `client_parser_rules`. Drop `catalog_derive_configs` +
+   wizard. Add `catalog_candidate_rejections` table. Page name "Mã
+   chờ duyệt". Logic finalized in BACKLOG entry.
+
+2. **Catalog conflicts page** (~0.5-1 day) — surface
+   `declared_observed_conflict` rows + sourcing-confirmation conflict
+   rows in dedicated review queue. Page
+   `/clients/<id>/catalog/conflicts`. Reuses existing endpoints.
+
+3. **Phase 2 catalog — multi-role roles[] + manual fields** (~2-3
+   days) — `materials.roles[] text[]`, drop `category` + `category_override`,
+   add manual fields (`production_source`, `hq_registration_no/date`,
+   `supplier_hint`, `name_source`, `uom`). Cross-cut refactor 30-50
+   files. Critic round 2 already flagged dual-source-of-truth trap;
+   commit to drop `category` same release window.
+
+4. **Wipe + ingest fresh — Growatt + Johnson** (memory
+   `project_reingest_pending.md`) — pre-MVP one-shot reset. Triple
+   unblocked now: rule engine works, FX/VND domains split, payload
+   pruned, catalog architecture finalized.
+
+5. **CO + BCQT consumer migration** — adoption guide written
+   (`.ai/sister-app-notes/2026-05-09-catalog-multi-source-and-vocab.md`).
+   Coordinate when CO unpause from current pause.
 
 ## Blockers
 
-None hard. Soft (carry-over from prior session):
+None hard. Soft (carry-over):
 - 14 orphan BTPs Growatt (data quality — staff classify when TP context arrives).
 - T1-T2/2026 BCCT for Growatt missing (agency hasn't supplied file).
 
 ## Notes for Next AI Session
 
-**Read first** (in order): this STATUS, then session log
-`.ai/sessions/2026-05-08-material-identity-and-parser-rules.md` (next),
-then the brief at `.ai/features/2026-05-08-configurable-bcct-parsing/brief.md`.
-The predecessor brief at `2026-05-07-bcct-product-identity/brief.md`
-ends with an Amendment 2026-05-08 section explaining the supersession.
+**Read first** (in order):
+1. This STATUS
+2. `.ai/sessions/2026-05-09-catalog-multi-source-and-bcct-view-format.md` (this session's full log)
+3. `.ai/features/2026-05-08-catalog-multi-source/brief.md` (rev 4 — the design that drove migs 042-046; note `catalog_derive` part is now superseded per BACKLOG)
+4. `.ai/features/2026-05-08-bcct-view-format/brief.md`
+5. `BACKLOG.md` "Mã chờ duyệt" entry — has the design contract for next session
 
-**Key memory** (load before reasoning about parser rules / resolver):
-- `project_bom_immutable_principle.md` — never DELETE aggregate data;
-  parser rules use soft-disable.
-- `feedback_bom_vocab.md` — chronological brief amendments, never
-  retro-edit.
-- `project_bom_code_multirole.md` — multi-role canonical (PV01.0104300).
-- `feedback_review_depth.md` — cap review at 2 passes.
-- `feedback_drive_ops_dont_handoff.md` — execute via ssh.exe/scp.exe.
+**Key memory** (load when reasoning about catalog/multi-role):
+- `project_bom_code_multirole.md` — "code can be TP+BTP+NVL simultaneously"
+- `feedback_no_derived_in_source.md` — derived values via view/runtime, never store as column
+- `feedback_naming_discipline.md` — names encode role, not implementation context
+- `reference_terminology_client.md` — `client` = DNCX manufacturer (not Tinsu/agency)
+- `feedback_macros_over_view_engine.md` — read divergent templates before abstracting
+- `feedback_review_depth.md` — cap review at 2 passes
+- `feedback_drive_ops_dont_handoff.md` — execute via ssh.exe/scp.exe/gh
 
 **Architecture / contracts that are LOCKED, don't relitigate**:
-- 3-app split (Data Hub + BCQT + CO).
-- `hub.client_parser_rules` is the single source of truth for
-  client-specific regex. No more hardcoded adapters.
-- ReDoS protection: `google-re2` library; backreferences rejected
-  at save time.
-- `material_identity.display_code = resolved_code` when resolved,
-  `customs_code` otherwise.
-- Identity-mode clients (DKE, Johnson, Do Thanh, demo) short-circuit:
-  `internal_code = customs_code`. No rules needed for them.
-- Auth: parser-rules edits gated by `can_edit_client_technical`
-  (dev role only — admin not enough).
+- `materials.material_code` is the PK (renamed from customs_code mig 042). Mode-agnostic.
+- `bcct_rows.customs_code` and `code_mappings.customs_code/internal_code` UNCHANGED (semantically accurate in those contexts).
+- `material_identity` struct fields: `customs_code`, `internal_code`, `resolved_code` (no `declared_` prefix). `display_code` DROPPED — consumer composes `resolved_code or internal_code or customs_code` 3-tier fallback.
+- `source` enum: `client_declared / bcct_observed / bom_observed / system`. NOT "agency_declared" — DNCX terminology per memory.
+- `status` enum: `active / under_review / deprecated / tombstoned` (+ legacy `inactive` accepted).
+- `v_material_roles` view computes observation stats live (NEVER cache `observed_count` on materials per `feedback_no_derived_in_source.md`).
+- Dual-source = `'btp_sx' AND 'btp_nm'` both in observed_roles. NO separate `is_dual_source` column on view (Python derives from observed_roles content).
+- `resolution_status='resolved_pending_review'` when resolver hits `bcct_observed/under_review` material.
+
+**Working-tree state**: ALL uncommitted. After /handoff, user will commit.
+
+**Migration state**:
+- DB: at mig 046 applied locally. Schema_migrations recorded.
+- mig 044 reserved (planned drop catalog_derive_configs in next session if user wants Mã chờ duyệt redesign).
+- Mig file order: 042 (catalog rename + provenance) → 043 (catalog_derive_configs) → 044 (RESERVED) → 045 (audit trigger) → 046 (v_material_roles dual-source).
 
 **Environment quirks**:
 - Native Postgres on `/var/run/postgresql` socket, owner `vp`.
 - WSL2: Windows OpenSSH (`/mnt/c/Windows/System32/OpenSSH/{ssh,scp}.exe`).
-- Port 8754 pinned for dev. Server may be running from this session —
-  check `ss -ltn | grep 8754`. Login: `admin@data-hub.local` / `admin123`.
-- New dep: `google-re2==1.1.20251105` (pyproject.toml + uv.lock).
+- Port 8754 pinned for dev. Server may still be running from this session.
+- Login: `admin@data-hub.local` / `admin123`.
 
-**Critical user feedback this session** (also in memory):
-- "Pre-production, break để làm cho hợp logic" — chose hard-cut API
-  break over grace-period aliases. CO consumer coordinated, not
-  deferred.
-- "Per-client regex phải config được trên web UI" — drove the
-  configurable rules architecture vs another hardcoded patch.
-- "Bundle option α (full)" — committed to one big PR vs splitting
-  into mini-features.
+**Critical user feedback this session** (also in memory + BACKLOG):
+- Numbers + currency labels must reflect real domain (FX vs VND).
+- Catalog view must reflect schema mới — no dead "Mã NB" columns.
+- `material_code` rename "đã bàn rồi" — semantic correctness > touch-site convenience.
+- Derived values stay in view, never stored as cached columns.
+- `is_dual_source` separate flag was confusing; collapsed into `observed_roles` containing both `btp_sx + btp_nm`. `btp_sourcing` becomes "Xác nhận nguồn cung" — staff confirmation; conflict warning when staff confirm differs from observed.
+- Catalog-derive wizard form UX = confusing; pivot to passive candidate feed (Mã chờ duyệt) next session.
 
 **Sister-app coordination state**:
-- CO `barry-CO-main`: 6-site audit done, sister-app note written,
-  awaiting next CO session.
-- BCQT `BCQT-System`: forward-looking note only; no consumer yet.
+- CO `barry-CO-main`: paused awaiting Data Hub stabilize. Adoption guide written + complete.
+- BCQT `BCQT-System`: forward-looking only.

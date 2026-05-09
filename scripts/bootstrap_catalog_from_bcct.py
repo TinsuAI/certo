@@ -45,7 +45,7 @@ with
     where client_id = %(client_id)s and tombstoned_at is null
   ),
   in_catalog as (
-    select customs_code, category from hub.materials where client_id = %(client_id)s
+    select material_code, category from hub.materials where client_id = %(client_id)s
   )
 select b.customs_code, b.direction, b.goods_name, b.unit, b.hs_code, b.decl_count,
        (b.customs_code in (select product_code from has_bom)) as has_bom,

@@ -115,7 +115,7 @@ order by c.code
 CHECK_EXISTING_SQL = """
 select customs_code, category
 from hub.materials
-where client_id = %(client_id)s and customs_code = any(%(codes)s)
+where client_id = %(client_id)s and material_code = any(%(codes)s)
 """
 
 
