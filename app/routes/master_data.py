@@ -195,3 +195,79 @@ async def presets_delete(request: Request, preset_key: str):
     return RedirectResponse(
         url="/admin/client-type-presets?saved=1", status_code=303,
     )
+
+
+# ── UoM standards (canonical + aliases) ────────────────────────────────
+
+@router.get("/admin/uom", response_class=HTMLResponse)
+async def uom_view(request: Request, error: str | None = None,
+                   saved: bool = False):
+    user = auth.require_user(request)
+    if not auth.can_manage_users(user):
+        raise HTTPException(403, "forbidden")
+    from app.stores import uom_standards
+    canonicals = uom_standards.list_canonicals_with_alias_count()
+    aliases = uom_standards.list_aliases()
+    return request.app.state.templates.TemplateResponse(
+        request, "admin/uom.html",
+        {"canonicals": canonicals, "aliases": aliases,
+         "valid_families": sorted(uom_standards.VALID_FAMILIES),
+         "error": error, "saved": saved,
+         "active_root": "admin"},
+    )
+
+
+@router.post("/admin/uom/canonical/new")
+async def uom_canonical_new(
+    request: Request,
+    uom_code: str = Form(...),
+    family: str = Form(...),
+    base_factor: str = Form("1"),
+):
+    user = auth.require_user(request)
+    if not auth.can_manage_users(user):
+        raise HTTPException(403, "forbidden")
+    from app.stores import uom_standards
+    try:
+        uom_standards.create_canonical(
+            uom_code=uom_code, family=family, base_factor=base_factor,
+        )
+    except uom_standards.UomStandardsError as exc:
+        return RedirectResponse(
+            url=f"/admin/uom?error={exc}", status_code=303,
+        )
+    return RedirectResponse(url="/admin/uom?saved=1", status_code=303)
+
+
+@router.post("/admin/uom/aliases/new")
+async def uom_alias_new(
+    request: Request,
+    alias_norm: str = Form(...),
+    uom_code: str = Form(...),
+):
+    user = auth.require_user(request)
+    if not auth.can_manage_users(user):
+        raise HTTPException(403, "forbidden")
+    from app.stores import uom_standards
+    try:
+        uom_standards.create_alias(alias_norm=alias_norm, uom_code=uom_code)
+    except uom_standards.UomStandardsError as exc:
+        return RedirectResponse(
+            url=f"/admin/uom?error={exc}", status_code=303,
+        )
+    return RedirectResponse(url="/admin/uom?saved=1", status_code=303)
+
+
+@router.post("/admin/uom/aliases/{alias_norm}/delete")
+async def uom_alias_delete(request: Request, alias_norm: str):
+    user = auth.require_user(request)
+    if not auth.can_manage_users(user):
+        raise HTTPException(403, "forbidden")
+    from app.stores import uom_standards
+    try:
+        uom_standards.delete_alias(alias_norm)
+    except uom_standards.UomStandardsError as exc:
+        return RedirectResponse(
+            url=f"/admin/uom?error={exc}", status_code=303,
+        )
+    return RedirectResponse(url="/admin/uom?saved=1", status_code=303)

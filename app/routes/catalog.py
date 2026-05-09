@@ -503,7 +503,7 @@ def _query_materials(*, client_id: str, category: str | None,
     sql = f"""
         select m.material_code, m.name, m.category, m.category_override,
                m.status, m.unit, m.hs_code, m.updated_at, m.provenance,
-               m.btp_sourcing, m.source, m.hq_registered,
+               m.btp_sourcing, m.source, m.hq_registered, m.code_kind,
                m.promoted_to_declared_at, m.promoted_by,
                (m.hq_registered = true) as is_registered,
                (m.source = 'bcct_observed') as is_seen_in_bcct,
@@ -683,6 +683,84 @@ _BTP_SOURCING_VALUES = {
 }
 
 
+@router.get("/clients/{client_id}/catalog/{material_code:path}/edit",
+            response_class=HTMLResponse)
+async def edit_material_form(request: Request, client_id: str, material_code: str):
+    """Form to edit a single material row. Permission via can_edit_client
+    (already configurable per-role: dev/admin always; manager if managed;
+    staff iff scope='edit')."""
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select material_code, name, category, status, code_kind, "
+            "       uom, production_source, supplier_hint, hq_registered, "
+            "       source "
+            "from hub.materials where client_id=%s and material_code=%s",
+            (client_id, material_code),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(404, "material not found")
+        cols = [d[0] for d in cur.description]
+        material = dict(zip(cols, row))
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/catalog_material_edit.html",
+        {
+            "client": client, "material": material,
+            "categories": CATEGORIES,
+            "production_sources": ["nk", "sx", "mixed", "unknown"],
+            "active_root": "clients", "active_tab": "catalog",
+        },
+    )
+
+
+@router.post("/clients/{client_id}/catalog/{material_code:path}/edit")
+async def edit_material_submit(
+    request: Request, client_id: str, material_code: str,
+    name: str = Form(...),
+    category: str = Form(...),
+    status: str = Form(...),
+    uom: str = Form(""),
+    production_source: str = Form(""),
+    supplier_hint: str = Form(""),
+    hq_registered: str = Form(""),
+):
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    if category not in CATEGORIES:
+        raise HTTPException(400, f"invalid category: {category!r}")
+    if status not in {"active", "under_review", "deprecated", "tombstoned"}:
+        raise HTTPException(400, f"invalid status: {status!r}")
+    if production_source and production_source not in {"nk", "sx", "mixed", "unknown"}:
+        raise HTTPException(400, f"invalid production_source: {production_source!r}")
+    with connect(user_id=user.user_id) as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            update hub.materials
+               set name = %s, category = %s, status = %s,
+                   uom = %s, production_source = %s, supplier_hint = %s,
+                   hq_registered = %s, updated_at = now()
+             where client_id = %s and material_code = %s
+            """,
+            (name.strip(), category, status,
+             uom.strip() or None,
+             production_source.strip() or None,
+             supplier_hint.strip() or None,
+             hq_registered == "on",
+             client_id, material_code),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(404, "material not found")
+    return RedirectResponse(
+        url=f"/clients/{client_id}/catalog/{material_code}/detail?edited=1",
+        status_code=303,
+    )
+
+
 @router.post("/clients/{client_id}/catalog/{material_code:path}/promote")
 async def promote_material(request: Request, client_id: str, material_code: str):
     """Mig 042: promote a `bcct_observed` / `under_review` material to
@@ -806,11 +884,66 @@ async def catalog_detail(request: Request, client_id: str, material_code: str):
         bom_cols = [d[0] for d in cur.description]
         bom_artifacts = [dict(zip(bom_cols, r)) for r in cur.fetchall()]
 
+    from app.stores.catalog_warnings import compute_warnings
+    from app.stores.catalog_audit import audit_diff
+    warnings = compute_warnings(client_id, material_code)
+    for ev in audit_events:
+        ev["diff"] = audit_diff(ev["event_type"], ev["payload"])
+
+    # Supplement v_material_roles when it returns 0 observations but BCCT
+    # actually references this material via paren-extract (Growatt-shape).
+    # Generic fix via per-client parser_rules — see material_observations.py.
+    if material.get("observed_count", 0) == 0:
+        from app.stores.material_observations import compute_observations
+        obs = compute_observations(client_id, material_code)
+        if obs.observed_count > 0:
+            material["has_imports"] = obs.has_imports
+            material["has_exports"] = obs.has_exports
+            material["observed_count"] = obs.observed_count
+            material["observed_first_at"] = obs.observed_first_at
+            material["observed_last_at"] = obs.observed_last_at
+            material["observed_directions"] = obs.observed_directions
+
+    # code_mappings panel: full NB↔HQ relationships for this material.
+    with connect() as conn, conn.cursor() as cur:
+        # Cases: this material as NB → which HQ codes; as HQ → which NB codes.
+        # When this material's code appears as `internal_code` → it plays the
+        # NB role; the paired `customs_code` is the HQ counterpart. Tag 'as_nb'.
+        # When it appears as `customs_code` → it plays the HQ role; paired
+        # `internal_code` is the NB counterpart. Tag 'as_hq'.
+        cur.execute(
+            "select customs_code as paired_code, 'as_nb' as direction "
+            "from hub.code_mappings "
+            "where client_id=%s and internal_code=%s "
+            "union all "
+            "select internal_code as paired_code, 'as_hq' as direction "
+            "from hub.code_mappings "
+            "where client_id=%s and customs_code=%s "
+            "order by direction, paired_code",
+            (client_id, material_code, client_id, material_code),
+        )
+        mappings = [{"paired_code": p, "direction": d}
+                    for p, d in cur.fetchall()]
+    # Group by direction for the template.
+    mapping_panel = {
+        "as_nb": [m for m in mappings if m["direction"] == "as_nb"],
+        "as_hq": [m for m in mappings if m["direction"] == "as_hq"],
+    }
+    # Strip dups (same string appearing both sides = self-loop).
+    self_loop_count = sum(
+        1 for m in mappings if m["paired_code"] == material_code
+    )
+
     return request.app.state.templates.TemplateResponse(
         request, "clients/catalog_detail.html",
         {"client": client, "material": material,
          "audit_events": audit_events, "bcct_rows": bcct_rows,
          "bom_artifacts": bom_artifacts,
+         "warnings": warnings,
+         "mapping_panel": mapping_panel,
+         "self_loop_mapping": self_loop_count > 0,
+         "categories": CATEGORIES,
+         "production_sources": ["nk", "sx", "mixed", "unknown"],
          "active_root": "clients", "active_tab": "catalog"},
     )
 

@@ -12,6 +12,12 @@
     </div>
     <div class="page-actions">
       <a class="btn-secondary" href="/clients/{{ client.client_id }}/catalog">← Danh Mục</a>
+      {% if can_edit_technical(client.client_id) or user.role in ('dev', 'admin', 'manager') %}
+      <a class="btn-secondary"
+         href="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/edit">
+         ✎ Sửa
+      </a>
+      {% endif %}
       {% if material.status == 'under_review' %}
       <form method="post" action="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/promote" style="display:inline">
         <button type="submit" class="btn-primary">↑ Promote → active/client_declared</button>
@@ -26,10 +32,38 @@
     </div>
   </div>
 
+  {% if warnings %}
+  <div class="warning-panel" style="margin-bottom: 1rem; padding: 0.75rem 1rem; border-left: 4px solid #f59e0b; background: #fff8e1;">
+    <h4 style="margin: 0 0 0.5rem 0;">⚠ Cảnh báo bất nhất giữa các nguồn ({{ warnings|length }})</h4>
+    <ul style="margin: 0; padding-left: 1.25rem;">
+      {% for w in warnings %}
+        <li style="margin-bottom: 0.5rem;">
+          <strong class="badge badge-{{ w.severity }}">{{ w.kind }}</strong>
+          {{ w.message }}
+          <details style="display: inline-block; margin-left: 0.5rem;">
+            <summary class="meta" style="cursor: pointer;">Chi tiết</summary>
+            <ul style="margin: 0.25rem 0 0 1.25rem;">
+              {% for ev in w.evidence %}
+                <li class="meta"><code>{{ ev.value }}</code> ({{ ev.n }} lần)</li>
+              {% endfor %}
+            </ul>
+          </details>
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
   <h3>Trạng thái hiện tại</h3>
   <table class="dh-table">
     <tbody>
       <tr><td class="mono"><strong>material_code</strong></td><td><code>{{ material.material_code }}</code></td></tr>
+      <tr><td class="mono"><strong>loại mã</strong></td><td>
+          {% if material.code_kind == 'nb' %}<span class="badge badge-nb" title="Nội bộ — mã ERP của agency, cần code_mappings để khai HQ">NB</span>
+          {% elif material.code_kind == 'hq' %}<span class="badge badge-hq" title="Hải Quan — bucket gom nhiều mã NB">HQ</span>
+          {% elif material.code_kind == 'unified' %}<span class="badge badge-unified" title="Thống nhất — NB ≡ HQ cùng 1 mã">TN</span>
+          {% else %}<span class="meta">— (chưa rõ)</span>{% endif %}
+      </td></tr>
       <tr><td class="mono"><strong>name</strong></td><td>{{ material.name or '—' }}</td></tr>
       <tr><td class="mono"><strong>category</strong></td>
           <td><span class="badge badge-info">{{ material.category }}</span>
@@ -70,6 +104,63 @@
     </tbody>
   </table>
 
+  {% if can_edit_technical(client.client_id) or user.role in ('dev', 'admin', 'manager') %}
+  <details class="inline-edit" style="margin-top: 1rem;">
+    <summary class="btn-secondary btn-sm" style="cursor: pointer; display: inline-block;">
+      ✎ Sửa inline
+    </summary>
+    <form method="post"
+          action="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/edit"
+          class="form-stack" style="margin-top: 0.75rem; max-width: 720px;">
+      <div style="display: grid; grid-template-columns: 1fr; gap: 0.5rem;">
+        <label>Tên hàng
+          <input type="text" name="name" required value="{{ material.name or '' }}"
+                 style="width: 100%;">
+        </label>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+          <label>Phân loại
+            <select name="category" required style="width: 100%;">
+              {% for cat in categories %}
+                <option value="{{ cat }}" {% if cat == material.category %}selected{% endif %}>{{ cat }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>Trạng thái
+            <select name="status" required style="width: 100%;">
+              {% for s in ['active', 'under_review', 'deprecated', 'tombstoned'] %}
+                <option value="{{ s }}" {% if s == material.status %}selected{% endif %}>{{ s }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+          <label>UoM
+            <input type="text" name="uom" value="{{ material.uom or '' }}" style="width: 100%;">
+          </label>
+          <label>Production source
+            <select name="production_source" style="width: 100%;">
+              <option value="">—</option>
+              {% for ps in production_sources %}
+                <option value="{{ ps }}" {% if ps == material.production_source %}selected{% endif %}>{{ ps }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <label>Supplier hint
+          <input type="text" name="supplier_hint" value="{{ material.supplier_hint or '' }}" style="width: 100%;">
+        </label>
+        <label>
+          <input type="checkbox" name="hq_registered" {% if material.hq_registered %}checked{% endif %}>
+          Đã đăng ký với HQ
+        </label>
+        <div style="display: flex; gap: 0.5rem;">
+          <button type="submit" class="btn-primary btn-sm">Lưu</button>
+        </div>
+      </div>
+    </form>
+  </details>
+  {% endif %}
+
   <h3 style="margin-top: 1.5rem;">Vai trò quan sát <small class="meta">ƒ live từ <code>v_material_roles</code> view</small></h3>
   <table class="dh-table">
     <tbody>
@@ -103,21 +194,98 @@
   <h3 style="margin-top: 1.5rem;">Lịch sử thay đổi
     <small class="meta">audit từ <code>material_audit_events</code></small></h3>
   {% if audit_events %}
-  <table class="dh-table">
-    <thead><tr><th>Khi</th><th>Sự kiện</th><th>Actor</th><th>Payload</th></tr></thead>
-    <tbody>
-      {% for ev in audit_events %}
-      <tr>
-        <td class="mono" style="font-size:.85em;white-space:nowrap;">{{ ev.occurred_at }}</td>
-        <td><span class="badge">{{ ev.event_type }}</span></td>
-        <td class="meta">{{ ev.actor or '—' }}</td>
-        <td><pre style="font-size:.78em;background:#f4f4f4;padding:.3em;border-radius:3px;max-width:60ch;overflow:auto">{{ ev.payload|tojson(indent=2) }}</pre></td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <ol class="audit-feed" style="list-style: none; padding: 0; margin: 0;">
+    {% for ev in audit_events %}
+    <li style="border-left: 3px solid #d1d5db; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem; background: #fafafa;">
+      <div style="display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap;">
+        <span class="badge badge-{{ ev.event_type }}">{{ ev.event_type }}</span>
+        <span class="meta">{{ ev.actor or 'system' }}</span>
+        <span class="meta mono" style="font-size: 0.85em;">{{ ev.occurred_at }}</span>
+      </div>
+      {% if ev.diff %}
+        {% if ev.event_type == 'update' %}
+          <ul style="margin: 0.25rem 0 0 0; padding-left: 1rem;">
+            {% for d in ev.diff %}
+              <li style="font-family: monospace; font-size: 0.85em;">
+                <strong>{{ d.field }}</strong>:
+                <span style="color: #b91c1c; text-decoration: line-through;">{{ d.old|default('null', true) }}</span>
+                →
+                <span style="color: #15803d;">{{ d.new|default('null', true) }}</span>
+              </li>
+            {% endfor %}
+          </ul>
+        {% elif ev.event_type == 'delete' %}
+          <details style="margin-top: 0.25rem;">
+            <summary class="meta" style="cursor: pointer;">{{ ev.diff|length }} field(s) removed</summary>
+            <ul style="margin: 0.25rem 0 0 1rem; font-family: monospace; font-size: 0.85em;">
+              {% for d in ev.diff %}
+                <li><strong>{{ d.field }}</strong>: {{ d.old }}</li>
+              {% endfor %}
+            </ul>
+          </details>
+        {% endif %}
+      {% else %}
+        <span class="meta">(no field-level changes)</span>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
   {% else %}
-  <p class="meta">Chưa có sự kiện audit nào. Trigger sẽ ghi changes ở migration kế tiếp (045).</p>
+  <p class="meta">Chưa có sự kiện audit nào.</p>
+  {% endif %}
+
+  {# ── Mapping panel: narrative + visual diagram ── #}
+  {% set as_nb_others = mapping_panel.as_nb | rejectattr('paired_code', 'equalto', material.material_code) | list %}
+  {% set as_hq_others = mapping_panel.as_hq | rejectattr('paired_code', 'equalto', material.material_code) | list %}
+  {% if mapping_panel.as_nb or mapping_panel.as_hq %}
+  <h3 style="margin-top: 1.5rem;">Liên kết NB ↔ HQ</h3>
+
+  {% if self_loop_mapping %}
+    <div class="toast" style="margin-bottom: 0.75rem; background: #ecfeff; border-left: 4px solid #0891b2;">
+      <strong>✓ Mã thống nhất ở cả hai phía</strong> —
+      Khi khai báo HQ, agency dùng đúng mã <code>{{ material.material_code }}</code>
+      (không cần quy đổi qua mã khác).
+    </div>
+  {% endif %}
+
+  {% if as_nb_others %}
+    <div style="margin-bottom: 0.75rem; padding: 0.75rem; background: #f9fafb; border-radius: 4px;">
+      <p style="margin: 0 0 0.5rem 0;">
+        <strong>Khi khai HQ, mã <code>{{ material.material_code }}</code> được khai dưới
+        {{ as_nb_others|length }} mã HQ:</strong>
+      </p>
+      <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+        <span class="badge badge-nb">{{ material.material_code }}</span>
+        <span class="meta">→</span>
+        {% for m in as_nb_others %}
+          <a href="/clients/{{ client.client_id }}/catalog/{{ m.paired_code }}/detail"
+             class="badge badge-hq" style="text-decoration: none;">
+            {{ m.paired_code }}
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  {% if as_hq_others %}
+    <div style="margin-bottom: 0.75rem; padding: 0.75rem; background: #f9fafb; border-radius: 4px;">
+      <p style="margin: 0 0 0.5rem 0;">
+        <strong>Mã HQ <code>{{ material.material_code }}</code> bao gồm
+        {{ as_hq_others|length }} mã nội bộ:</strong>
+        {% if as_hq_others|length > 50 %}<span class="meta">(hiển thị 50 đầu)</span>{% endif %}
+      </p>
+      <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; max-height: 12rem; overflow-y: auto;">
+        <span class="badge badge-hq">{{ material.material_code }}</span>
+        <span class="meta">←</span>
+        {% for m in as_hq_others[:50] %}
+          <a href="/clients/{{ client.client_id }}/catalog/{{ m.paired_code }}/detail"
+             class="badge badge-nb" style="text-decoration: none;">
+            {{ m.paired_code }}
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
   {% endif %}
 
   <h3 style="margin-top: 1.5rem;">BCCT references <small class="meta">(20 dòng gần nhất)</small></h3>

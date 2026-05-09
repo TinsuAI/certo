@@ -138,6 +138,14 @@ EXCLUDED_CLIENT_SCOPED_TABLES = frozenset({
     "bcct_row_history",        # trigger-driven audit on bcct_rows
     "material_audit_events",   # audit log
     "bom_audit_events",        # audit log
+    # Per-deployment review queue. Re-derives from BCCT/BOM/code_mappings
+    # on the destination via refresh_candidates() — no need to ship rows.
+    "catalog_candidates",
+    # Per-deployment parser rules + computed view (not a real table). The
+    # rules are mig-seeded and tuned per-deployment; v_material_roles is
+    # a view, picked up automatically by schema replay.
+    "client_parser_rules",
+    "v_material_roles",
 })
 
 

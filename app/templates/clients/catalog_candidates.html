@@ -1,0 +1,304 @@
+{% extends "base.html" %}
+{% from "_format.html" import format_number, format_int, format_date %}
+{% block title %}Mã chờ duyệt · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Mã chờ duyệt</h2>
+      <p class="meta">
+        Phát hiện mã mới từ BCCT + BOM + BQD. Duyệt thì cho vào catalog;
+        không thì từ chối (ẩn khỏi feed). Re-derive mỗi lần render.
+      </p>
+    </div>
+    <div class="page-actions">
+      <a class="btn-secondary"
+         href="/clients/{{ client.client_id }}/catalog">← {{ t('catalog.title') }}</a>
+    </div>
+  </div>
+
+  {% set toast_code = request.query_params.get('code') %}
+  {% if request.query_params.get('accepted') %}
+    <div class="toast" style="margin-bottom: 1rem;">
+      ✓ Đã thêm <code>{{ toast_code or '?' }}</code> vào catalog.
+      {% if toast_code %}
+        <a href="/clients/{{ client.client_id }}/catalog/{{ toast_code }}/detail">
+          Xem trong catalog →
+        </a>
+      {% endif %}
+    </div>
+  {% elif request.query_params.get('rejected') %}
+    <div class="toast" style="margin-bottom: 1rem;">
+      ✓ Đã từ chối <code>{{ toast_code or '?' }}</code>.
+      {% if toast_code %}
+        <a href="/clients/{{ client.client_id }}/catalog/candidates/{{ request.query_params.get('rejected') }}">
+          Xem chi tiết →
+        </a>
+      {% endif %}
+    </div>
+  {% elif request.query_params.get('unrejected') %}
+    <div class="toast" style="margin-bottom: 1rem;">
+      ↻ Đã khôi phục <code>{{ toast_code or '?' }}</code> về pending.
+    </div>
+  {% endif %}
+
+  <form method="get" class="search-bar" style="margin-bottom: 0.75rem;">
+    {% if active_kind %}<input type="hidden" name="kind" value="{{ active_kind }}">{% endif %}
+    {% if active_source %}<input type="hidden" name="source" value="{{ active_source }}">{% endif %}
+    <input type="search" name="q" value="{{ active_q }}"
+           placeholder="Tìm code hoặc sample text…"
+           style="width: 320px; padding: 0.4rem 0.6rem;">
+    <button type="submit" class="btn-secondary btn-sm">Tìm</button>
+    {% if active_q %}
+      <a class="btn-ghost btn-sm"
+         href="/clients/{{ client.client_id }}/catalog/candidates{% if active_kind %}?kind={{ active_kind }}{% endif %}">
+        ✗ Xóa
+      </a>
+      <span class="meta">— "{{ active_q }}" — {{ pending_total }} kết quả</span>
+    {% endif %}
+  </form>
+
+  <div class="filter-bar" style="margin-bottom: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+    <a class="chip {{ 'chip-active' if not active_kind else '' }}"
+       href="/clients/{{ client.client_id }}/catalog/candidates{% if active_q %}?q={{ active_q }}{% endif %}">
+      Tất cả ({{ pending_total }})
+    </a>
+    {% for k in ['nb', 'hq', 'unified'] %}
+      {% set n = kind_counts.get(k, 0) %}
+      {% if n > 0 %}
+      <a class="chip {{ 'chip-active' if active_kind == k else '' }}"
+         href="/clients/{{ client.client_id }}/catalog/candidates?kind={{ k }}{% if active_q %}&q={{ active_q }}{% endif %}">
+        {{ k|upper }} ({{ n }})
+      </a>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  {% if not pending %}
+    <div class="empty-state" style="padding: 2rem; text-align: center;">
+      <p class="meta">Không có candidate nào đang chờ duyệt.
+      {% if active_kind %}Lọc theo kind={{ active_kind }} không có kết quả.{% endif %}
+      </p>
+    </div>
+  {% else %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Mã</th>
+          <th>Loại</th>
+          <th>Nguồn</th>
+          <th>Đề xuất</th>
+          <th>Tín hiệu</th>
+          <th>Quan sát</th>
+          <th>Tham chiếu</th>
+          <th>Lần cuối</th>
+          <th>Hành động</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for c in pending %}
+        <tr data-kind="{{ c.code_kind }}" data-candidate-id="{{ c.candidate_id }}">
+          <td>
+            <a href="/clients/{{ client.client_id }}/catalog/candidates/{{ c.candidate_id }}"
+               title="Xem chi tiết">
+              <code>{{ c.code }}</code>
+            </a>
+          </td>
+          <td>
+            {% if c.code_kind == 'nb' %}<span class="badge badge-nb" title="Nội bộ — mã ERP của agency">NB</span>
+            {% elif c.code_kind == 'hq' %}<span class="badge badge-hq" title="Hải Quan — bucket gom nhiều mã NB">HQ</span>
+            {% else %}<span class="badge badge-unified" title="Thống nhất — NB ≡ HQ">TN</span>{% endif %}
+          </td>
+          <td>
+            {% for s in c.sources %}
+              <span class="badge badge-source">{{ s|upper }}</span>
+            {% endfor %}
+          </td>
+          <td>
+            {% if c.suggested_category %}
+              <span class="badge badge-category">{{ c.suggested_category }}</span>
+            {% endif %}
+            {% if c.multi_direction %}
+              <span class="badge badge-warn"
+                    title="BCCT cả nhập và xuất — xét đa nguồn (multi-role)">⚠ đa hướng</span>
+            {% endif %}
+            {% if c.bom_role == 'tp_root' %}
+              <span class="badge badge-info" title="Là root code của artifact BOM">TP root</span>
+            {% elif c.bom_role == 'btp_sx' %}
+              <span class="badge badge-info" title="Parent giữa cây BOM">BTP_SX</span>
+            {% elif c.bom_role == 'nvl_leaf' %}
+              <span class="badge badge-info" title="Lá cuối trong BOM">leaf</span>
+            {% endif %}
+          </td>
+          <td class="meta">
+            {% if c.import_count or c.export_count %}
+              <span title="BCCT direction breakdown">
+                {% if c.import_count %}↓ {{ format_int(c.import_count) }}{% endif %}
+                {% if c.import_count and c.export_count %} · {% endif %}
+                {% if c.export_count %}↑ {{ format_int(c.export_count) }}{% endif %}
+              </span>
+            {% endif %}
+            {% if c.code_kind == 'hq' and c.co_occurrence_count > 0 %}
+              <div class="meta" style="font-size: 0.85em;"
+                   title="Số NB cặp với HQ này trong BCCT">
+                ↔ {{ c.co_occurrence_count }} NB
+              </div>
+            {% elif c.code_kind == 'nb' and c.co_occurrence_count > 0 %}
+              <div class="meta" style="font-size: 0.85em;"
+                   title="Số HQ cặp với NB này trong BCCT">
+                ↔ {{ c.co_occurrence_count }} HQ
+              </div>
+            {% endif %}
+          </td>
+          <td class="num" title="Total observations across all sources">
+            {{ format_int(c.observed_count) }}
+            {% if c.decl_count %}
+              <div class="meta" style="font-size: 0.85em;"
+                   title="Distinct BCCT declarations">
+                {{ c.decl_count }} decl
+              </div>
+            {% endif %}
+          </td>
+          <td class="meta" style="max-width: 280px;">
+            {% if c.sample_text %}
+              <div title="{{ c.sample_text }}">
+                {{ c.sample_text[:80] }}{% if c.sample_text|length > 80 %}…{% endif %}
+              </div>
+            {% endif %}
+            {% if c.bom_sample %}
+              <div class="meta" style="font-size: 0.85em;">
+                BOM: {{ c.bom_sample }}
+              </div>
+            {% endif %}
+            {% if c.hs_code or c.uom or c.origin %}
+              <div class="meta" style="font-size: 0.85em; margin-top: 0.25rem;">
+                {% if c.hs_code %}
+                  <span class="badge badge-info"
+                        title="Mã HS {% if c.hs_alternates_count > 1 %}({{ c.hs_alternates_count }} mã khác nhau){% endif %}">
+                    HS: {{ c.hs_code }}{% if c.hs_alternates_count > 1 %} ⚠{% endif %}
+                  </span>
+                {% endif %}
+                {% if c.uom %}
+                  <span class="badge badge-info">{{ c.uom }}</span>
+                {% endif %}
+                {% if c.origin %}
+                  <span class="badge badge-info">{{ c.origin }}</span>
+                {% endif %}
+                {% if c.inferred_production_source %}
+                  <span class="badge badge-info"
+                        title="Production source inferred from direction">
+                    {{ c.inferred_production_source }}
+                  </span>
+                {% endif %}
+              </div>
+            {% endif %}
+            {% if not c.sample_text and not c.bom_sample and not c.hs_code %}—{% endif %}
+          </td>
+          <td class="meta">
+            {% if c.last_seen %}
+              {{ format_date(c.last_seen) }}
+              {% if c.first_seen and c.first_seen != c.last_seen %}
+                <div class="meta" style="font-size: 0.85em;">
+                  từ {{ format_date(c.first_seen) }}
+                </div>
+              {% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            <details class="action-details">
+              <summary class="btn-primary btn-sm">Duyệt</summary>
+              <form method="post"
+                    action="/clients/{{ client.client_id }}/catalog/candidates/{{ c.candidate_id }}/accept"
+                    class="accept-form" style="margin-top: 0.5rem;">
+                <input type="text" name="name" placeholder="Tên hàng"
+                       value="{{ c.sample_text[:120] if c.sample_text else '' }}" required
+                       style="width: 100%; margin-bottom: 0.25rem;">
+                <select name="category" required style="width: 100%; margin-bottom: 0.25rem;">
+                  {% for cat in categories %}
+                    <option value="{{ cat }}" {% if cat == c.suggested_category %}selected{% endif %}>{{ cat }}</option>
+                  {% endfor %}
+                </select>
+                <select name="status" style="width: 100%; margin-bottom: 0.25rem;">
+                  <option value="under_review">Chờ duyệt</option>
+                  <option value="active">Hoạt động</option>
+                </select>
+                <input type="text" name="uom" placeholder="UoM"
+                       value="{{ c.uom or '' }}"
+                       style="width: 100%; margin-bottom: 0.25rem;">
+                <select name="production_source" style="width: 100%; margin-bottom: 0.25rem;">
+                  <option value="">— production_source —</option>
+                  {% for ps in production_sources %}
+                    <option value="{{ ps }}"
+                            {% if ps == c.inferred_production_source %}selected{% endif %}>{{ ps }}</option>
+                  {% endfor %}
+                </select>
+                <input type="text" name="supplier_hint" placeholder="Supplier (tùy chọn)"
+                       style="width: 100%; margin-bottom: 0.25rem;">
+                <button type="submit" class="btn-primary btn-sm">Lưu vào catalog</button>
+              </form>
+            </details>
+            <form method="post"
+                  action="/clients/{{ client.client_id }}/catalog/candidates/{{ c.candidate_id }}/reject"
+                  style="display: inline-block; margin-left: 0.25rem;">
+              <input type="hidden" name="reason" value="">
+              <button type="submit" class="btn-secondary btn-sm"
+                      onclick="return confirm('Từ chối {{ c.code }}?')">Từ chối</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+
+    {% include "clients/_pagination.html" %}
+  {% endif %}
+
+  {% if rejected %}
+  <details style="margin-top: 2rem;">
+    <summary class="btn-secondary btn-sm">
+      Đã từ chối ({{ rejected|length }})
+    </summary>
+    <table class="data-table" style="margin-top: 0.5rem;">
+      <thead>
+        <tr>
+          <th>Code</th>
+          <th>Kind</th>
+          <th>Lý do</th>
+          <th>Bởi</th>
+          <th>Khi nào</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for c in rejected %}
+        <tr>
+          <td>
+            <a href="/clients/{{ client.client_id }}/catalog/candidates/{{ c.candidate_id }}"
+               title="Xem chi tiết"><code>{{ c.code }}</code></a>
+          </td>
+          <td>
+            {% if c.code_kind == 'nb' %}<span class="badge badge-nb" title="Nội bộ">NB</span>
+            {% elif c.code_kind == 'hq' %}<span class="badge badge-hq" title="Hải Quan">HQ</span>
+            {% else %}<span class="badge badge-unified" title="Thống nhất">TN</span>{% endif %}
+          </td>
+          <td class="meta">{{ c.decision_reason or '—' }}</td>
+          <td class="meta">{{ c.decided_by or '—' }}</td>
+          <td class="meta">{{ format_date(c.decided_at) if c.decided_at else '—' }}</td>
+          <td>
+            <form method="post"
+                  action="/clients/{{ client.client_id }}/catalog/candidates/{{ c.candidate_id }}/unreject"
+                  style="display: inline-block;">
+              <button type="submit" class="btn-secondary btn-sm">↻ Khôi phục</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </details>
+  {% endif %}
+
+</section>
+{% endblock %}

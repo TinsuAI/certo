@@ -8,6 +8,196 @@ For past architectural decisions, see `DECISIONS.md`.
 
 ---
 
+## v_material_roles paren-aware (replace material_observations workaround)
+
+**Captured 2026-05-09** (Mã chờ duyệt v3 review). Issue surfaced when
+Growatt's NB material `001.0001100` showed `observed_count=0` on detail
+page despite 68 BCCT references via paren-extract.
+
+**Root cause**: `hub.v_material_roles` view JOINs by
+`bcct_rows.customs_code` only. NB codes that live inside `goods_name`
+parens (Growatt-shape) are invisible to the view. Affected fields:
+`has_imports`, `has_exports`, `observed_count`, `observed_first_at`,
+`observed_last_at`, `observed_directions`, `is_multi_role`,
+`declared_observed_conflict`.
+
+**Current workaround** (ships now, MUST be replaced):
+- `app/stores/material_observations.py::compute_observations` —
+  per-client (rules-driven, generic), recomputes signals from BCCT at
+  request time using parser rules paren-extract.
+- Wired into `/catalog/<code>/detail` only. **Not** wired into list
+  page (`/catalog`), so the table still shows 0 for affected rows.
+- 5 tests (`tests/test_material_observations.py`) cover the helper.
+- Per-row Python work — fine for 1 detail page, NOT scalable to list
+  view with hundreds of rows.
+
+**Proper fix — 3 options:**
+
+1. **Rebuild view as materialized view with re2-aware resolution.**
+   Refresh on BCCT confirm + on parser_rules edit. Pros: fast reads,
+   matches existing API. Cons: needs Postgres plpython3u extension OR
+   external Python refresher script + materialized view.
+
+2. **Generated/cached column on `bcct_rows`.** Add
+   `bcct_rows.internal_code` (was dropped in mig 038), populated by a
+   trigger on insert/update that runs the parser rules. View JOINs
+   `b.customs_code = m.material_code OR b.internal_code = m.material_code`.
+   Pros: SQL-only, no plpython. Cons: reintroduces dropped column;
+   trigger must fire whenever rules change (re-derive existing rows).
+
+3. **Replace view entirely with Python-computed materialization.**
+   Cron job + a real `hub.material_observations` table refreshed on
+   every BCCT/BOM change (post-ingest hook). Pros: fully decouple from
+   SQL constraints. Cons: another batch job to maintain.
+
+**Recommendation**: option 2 (generated column). Most surgical, no new
+infrastructure, and aligns with the "data graph is truth" principle —
+internal_code becomes part of the row's identity once parser rules
+stabilize per client.
+
+**Removal trigger** for the workaround:
+- View returns correct signals on `001.0001100` directly (no Python
+  override needed).
+- `material_observations.py` deleted; route handler skips supplement.
+- List page `/catalog` "Quan sát BCCT" column shows correct counts
+  for paren-extract NB materials.
+
+**Effort**: 1-1.5 days for option 2 (mig + trigger + view rebuild +
+cross-cut tests + delete workaround). Reapply trigger on every
+existing BCCT row at mig time (one-time backfill).
+
+---
+
+## UoM standardization table (equivalents + conversions) — SHIPPED 2026-05-10
+
+**Captured 2026-05-09** (Mã chờ duyệt v3 review). User: *"Xây dựng bảng tiêu
+chuẩn để quy đổi đơn vị tính, có lựa chọn thêm vào từ agency."*
+
+**Shipped 2026-05-10** via mig 051 + `app/stores/uom_standards.py`:
+- Reused existing `hub.uom_canonical (uom_code, family, base_factor)` +
+  `hub.uom_aliases (alias_norm, uom_code)` (mig 021).
+- Mig 051 extends with 10 new canonicals (roll/pair/box/sheet/bottle/bag/
+  cay/thanh/vien/thung) + ~50 aliases covering real BCCT data (PIECES,
+  SETS, METRES, KILO-GRAMMES, ROLL, PAIR, METRIC-TONS, etc).
+- `resolve_canonical(alias)` / `dimension_of(uom)` / `convert(value, from, to)`
+  / `are_equivalent(a, b)` helpers with in-process cache.
+- Wired into `_uom_drift` warning: only fires when distinct canonical
+  codes (real semantic conflict). Synonyms (PCS/PIECE/ST) no longer
+  trigger noise.
+- Wired into candidate refresh: most-common UoM picked on canonical
+  buckets, not raw alias counts. Real Growatt data: 2432 candidates
+  with canonical `pcs` (was scattered across PIECES/PCS/ST aliases).
+- 17 helper tests + 2 warning de-noise tests + 2 candidate-refresh
+  normalization tests.
+
+**Per-agency override (`client_uom_aliases`)**: NOT shipped — deferred.
+Only needed when an agency uses an alias that conflicts with another
+client's canonical mapping.
+
+**Admin UI polish — DEFERRED 2026-05-10** (user: "chưa hài lòng lắm,
+sẽ quay lại sau"). Current `/admin/uom` view (2 tables + 2 add forms)
+ships bare-minimum CRUD. Pending improvements:
+- Edit canonical (family / base_factor) inline.
+- Delete canonical with FK protection (refuse if aliases still point).
+- Conversion factor explorer: input value + from + to → instant result.
+- Group aliases under their canonical visually (collapsible per family).
+- Per-client `client_uom_aliases` override table + UI.
+- Better empty-state when canonical has 0 aliases (encourage adding).
+- Tooltip / docs explaining `base_factor` model with example.
+
+---
+
+## Candidate richness — match catalog row fields
+
+**Captured 2026-05-09** (Mã chờ duyệt v2 review). User: *"Mỗi candidate phải có
+các trường thông tin gần như 1 row trong catalog. Nếu quá thiếu thông tin thì
+cho vào catalog chỉ làm noise."*
+
+Candidate hiện có: code, kind, sources, observed_count, dates, sample_text,
+suggested_category, multi_direction, import/export counts, decl_count,
+bom_role, co_occurrence_count.
+
+Materials có thêm (currently blank when Accept):
+- **HS code** — query BCCT rows for distinct hs_code values. Surface most-common +
+  inconsistency warning if multiple.
+- **UoM** — query BCCT.unit / bom_edges.uom. Surface most-common.
+- **production_source** inference: import-only BCCT → `nk`; BOM parent + no import
+  → `sx`; both → `mixed`.
+- **Origin** (xuất xứ) — most-common BCCT.origin per code.
+- **Customs hs_classified** signal — multiple HS codes for same code = warning.
+
+Render these in feed row (tooltip / extra column) AND prefill into Accept form
+so staff Accept doesn't drop a sparse material into catalog.
+
+**Effort**: ~3-4h (refresh logic enrichment + Accept form + UI tooltip).
+
+---
+
+## Catalog edit permission (per-role configurable)
+
+**Captured 2026-05-09**. User: *"cho user quyền edit (configurable trong giao
+diện phân quyền)"*.
+
+Today catalog UI has Accept/Promote/Tombstone but no general "edit row" form
+for an existing material. Add:
+
+- `/clients/<id>/catalog/<material_code>/edit` — form to edit name, category,
+  uom, production_source, supplier_hint, hq_registration_*.
+- Permission gate via existing role system. New permission key
+  `catalog:edit_material` exposed in role-management UI.
+- Audit captures every edit (mig 045 trigger already in place).
+- "no DELETE" rule — edits stay versioned in audit table.
+
+**Effort**: ~1 day (form + permission UI + tests + screenshots).
+
+---
+
+## Catalog material detail page — cross-source inconsistency warnings
+
+**Captured 2026-05-09**. User: *"Trong view của mỗi mã vật tư, cần query chéo
+các thông tin ở các nơi, cảnh báo bất nhất nếu có. Ví dụ các dòng trong BCCT
+dùng mã đó nhưng lại khác mã HScode, etc."*
+
+Existing detail page (`/clients/<id>/catalog/<material_code>/detail`) currently
+shows: provenance, observed signals (from v_material_roles), audit history,
+recent BCCT refs, recent BOM artifacts.
+
+Add **cross-source inconsistency panel**:
+
+- **HS code drift**: same material_code declared with multiple `hs_code` values
+  in BCCT → warn "Mã HQ này đã khai 3 mã HS khác nhau: X (47 lần), Y (3 lần),
+  Z (1 lần)".
+- **UoM drift**: BCCT.unit vs BOM.uom vs materials.uom mismatch.
+- **Origin drift**: BCCT.origin variation across declarations for same code.
+- **Direction drift**: code declared as both import + export (multi-role hint).
+- **Sourcing drift** (mig 046 sourcing_confirmation_conflict): catalog says
+  btp_nm but BCCT shows is_consumed_in_bom + is_in_own_bom_root → inconsistent.
+- **Code mappings drift**: 1 NB code mapped to multiple HQ buckets, vice versa.
+
+Each warning has: severity, evidence count, link to drilldown.
+
+**Effort**: ~1 day (detail-page section + 5-6 warning queries + tests).
+
+---
+
+## BOM parser — extract "Object description" column
+
+**Captured 2026-05-09** during Mã chờ duyệt v2 review. Johnson BOM xlsx files
+have "Object description" column (item names) but `sap_indented_walk.py` parser
+discards it — only structural info (parent/child/qty/uom) survives into
+`bom_edges`. Result: BOM-only candidates (3711+ codes for Johnson) show blank
+sample_text in catalog candidate feed; staff must fill name manually on Accept.
+
+**Fix:** enhance `sap_indented_walk.py` to capture description column into
+`bom_edges.payload->>'description'` (or add `description text` column via mig).
+Update `app/stores/catalog_candidates.py::refresh_candidates` to pull
+description as `sample_text` for BOM-only candidates.
+
+**Effort**: ~2-3h (parser change + payload migration helper + refresh update +
+tests). Then re-ingest Johnson BOM to backfill descriptions for existing rows.
+
+---
+
 ## Mã chờ duyệt — passive candidate feed (deferred 2026-05-09)
 
 **Captured 2026-05-09** during catalog multi-source session. User
@@ -186,13 +376,8 @@ Captured during /rev of commits `5fb814a..dadbd0f`. Four Minor
 findings deferred — low value individually, batch when convenient.
 
 1. **Catalog matching column ≠ classifier matching column.**
-   Catalog `is_dual_source` / `has_imports` / `has_exports` /
-   `is_multi_role` use `b.customs_code = m.customs_code`. Phase 3a
-   classifier (`scripts/detect_dual_source_btps.py`) uses
-   `b.internal_code = m.customs_code`. Both yield identical results
-   on Growatt + Johnson today; future client with split
-   customs↔internal can see false negatives in the catalog flags.
-   Fix: align catalog SELECT EXISTS to use `internal_code`.
+   *Superseded 2026-05-09 by "v_material_roles paren-aware" entry
+   above — same root cause, more concrete plan + workaround link.*
 2. **`api_create_preset` body validation thin.** No name length
    cap, no whitespace strip, no charset restriction. Add
    `name = body["name"].strip()` + max length guard (e.g. 64).

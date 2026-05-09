@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% from "_format.html" import format_int, format_date %}
+{% block title %}Candidate {{ candidate.code }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>
+        <code>{{ candidate.code }}</code>
+        {% if candidate.code_kind == 'nb' %}<span class="badge badge-nb" title="Nội bộ">NB</span>
+        {% elif candidate.code_kind == 'hq' %}<span class="badge badge-hq" title="Hải Quan">HQ</span>
+        {% else %}<span class="badge badge-unified" title="Thống nhất">TN</span>{% endif %}
+        <span class="badge badge-{{ candidate.status }}">{{ candidate.status }}</span>
+      </h2>
+      <p class="meta">
+        Candidate from
+        {% for s in candidate.sources %}<span class="badge badge-source">{{ s|upper }}</span>{% endfor %}
+      </p>
+    </div>
+    <div class="page-actions">
+      <a class="btn-secondary"
+         href="/clients/{{ client.client_id }}/catalog/candidates">
+         ← Mã chờ duyệt
+      </a>
+    </div>
+  </div>
+
+  {# ── Accept / Reject inline (when pending) ── #}
+  {% if candidate.status == 'pending' %}
+  <div style="display: flex; gap: 0.75rem; margin-bottom: 1rem;">
+    <details style="flex: 1;">
+      <summary class="btn-primary">Duyệt vào catalog</summary>
+      <form method="post"
+            action="/clients/{{ client.client_id }}/catalog/candidates/{{ candidate.candidate_id }}/accept"
+            class="form-stack" style="margin-top: 0.5rem; padding: 0.75rem; background: #fafafa; border-radius: 4px;">
+        <input type="text" name="name" placeholder="Tên hàng" required
+               value="{{ candidate.sample_text[:200] if candidate.sample_text else '' }}"
+               style="width: 100%; margin-bottom: 0.25rem;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+          <select name="category" required>
+            {% for cat in categories %}
+              <option value="{{ cat }}" {% if cat == candidate.suggested_category %}selected{% endif %}>{{ cat }}</option>
+            {% endfor %}
+          </select>
+          <select name="status">
+            <option value="under_review">Chờ duyệt</option>
+            <option value="active">Hoạt động</option>
+          </select>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.25rem;">
+          <input type="text" name="uom" placeholder="UoM"
+                 value="{{ candidate.uom or '' }}">
+          <select name="production_source">
+            <option value="">— production_source —</option>
+            {% for ps in production_sources %}
+              <option value="{{ ps }}" {% if ps == candidate.inferred_production_source %}selected{% endif %}>{{ ps }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <input type="text" name="supplier_hint" placeholder="Supplier (optional)"
+               style="width: 100%; margin-top: 0.25rem;">
+        <button type="submit" class="btn-primary btn-sm" style="margin-top: 0.5rem;">Lưu vào catalog</button>
+      </form>
+    </details>
+    <form method="post"
+          action="/clients/{{ client.client_id }}/catalog/candidates/{{ candidate.candidate_id }}/reject">
+      <input type="text" name="reason" placeholder="Lý do (tùy chọn)" style="width: 220px;">
+      <button type="submit" class="btn-secondary btn-sm"
+              onclick="return confirm('Từ chối {{ candidate.code }}?')">Từ chối</button>
+    </form>
+  </div>
+  {% elif candidate.status == 'rejected' %}
+  <div class="toast" style="margin-bottom: 1rem;">
+    Đã từ chối bởi {{ candidate.decided_by or '—' }}
+    {% if candidate.decision_reason %}— "{{ candidate.decision_reason }}"{% endif %}
+    <form method="post" style="display: inline; margin-left: 0.5rem;"
+          action="/clients/{{ client.client_id }}/catalog/candidates/{{ candidate.candidate_id }}/unreject">
+      <button type="submit" class="btn-secondary btn-sm">↻ Khôi phục</button>
+    </form>
+  </div>
+  {% elif candidate.status == 'accepted' %}
+  <div class="toast" style="margin-bottom: 1rem;">
+    ✓ Đã duyệt bởi {{ candidate.decided_by or '—' }} —
+    <a href="/clients/{{ client.client_id }}/catalog/{{ candidate.code }}/detail">
+      Xem trong catalog →
+    </a>
+  </div>
+  {% endif %}
+
+  <h3>Tín hiệu quan sát</h3>
+  <table class="dh-table">
+    <tbody>
+      <tr><td class="mono"><strong>observed_count</strong></td>
+          <td>{{ format_int(candidate.observed_count) }}</td></tr>
+      <tr><td class="mono"><strong>direction breakdown</strong></td>
+          <td>↓ Nhập {{ format_int(candidate.import_count) }} ·
+              ↑ Xuất {{ format_int(candidate.export_count) }}
+              {% if candidate.multi_direction %}<span class="badge badge-warn">⚠ đa hướng</span>{% endif %}
+          </td></tr>
+      <tr><td class="mono"><strong>decl_count</strong></td>
+          <td>{{ format_int(candidate.decl_count) }} declarations</td></tr>
+      {% if candidate.first_seen %}
+      <tr><td class="mono"><strong>first_seen</strong></td><td>{{ format_date(candidate.first_seen) }}</td></tr>
+      <tr><td class="mono"><strong>last_seen</strong></td><td>{{ format_date(candidate.last_seen) }}</td></tr>
+      {% endif %}
+      {% if candidate.bom_role %}
+      <tr><td class="mono"><strong>bom_role</strong></td>
+          <td><span class="badge badge-info">{{ candidate.bom_role }}</span>
+              {% if candidate.bom_sample %}<span class="meta">— {{ candidate.bom_sample }}</span>{% endif %}
+          </td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  <h3 style="margin-top: 1.5rem;">Đề xuất (inferred)</h3>
+  <table class="dh-table">
+    <tbody>
+      <tr><td class="mono"><strong>category</strong></td>
+          <td>{% if candidate.suggested_category %}<span class="badge badge-info">{{ candidate.suggested_category }}</span>{% else %}—{% endif %}</td></tr>
+      <tr><td class="mono"><strong>hs_code</strong></td>
+          <td>{% if candidate.hs_code %}<code>{{ candidate.hs_code }}</code>
+              {% if candidate.hs_alternates_count > 1 %}<span class="badge badge-warn" title="{{ candidate.hs_alternates_count }} mã HS khác nhau quan sát được">⚠ {{ candidate.hs_alternates_count }} alts</span>{% endif %}
+              {% else %}—{% endif %}</td></tr>
+      <tr><td class="mono"><strong>uom</strong></td><td>{{ candidate.uom or '—' }}</td></tr>
+      <tr><td class="mono"><strong>origin</strong></td><td>{{ candidate.origin or '—' }}</td></tr>
+      <tr><td class="mono"><strong>production_source</strong></td>
+          <td>{{ candidate.inferred_production_source or '—' }}</td></tr>
+      <tr><td class="mono"><strong>sample_text</strong></td>
+          <td><span class="meta">{{ candidate.sample_text or '—' }}</span></td></tr>
+    </tbody>
+  </table>
+
+  {% if co_occurrences %}
+  <h3 style="margin-top: 1.5rem;">Cặp chéo (co-occurrences)
+    <small class="meta">{% if candidate.code_kind == 'hq' %}Mã NB cặp với HQ này{% elif candidate.code_kind == 'nb' %}Mã HQ cặp với NB này{% endif %}</small>
+  </h3>
+  <table class="dh-table">
+    <thead><tr><th>Mã</th><th>Số lần cặp</th><th></th></tr></thead>
+    <tbody>
+    {% for c in co_occurrences[:25] %}
+      <tr>
+        <td>
+          <a href="/clients/{{ client.client_id }}/catalog/{{ c.code }}/detail"
+             title="Xem trong catalog (nếu đã accept) hoặc 404"><code>{{ c.code }}</code></a>
+        </td>
+        <td>{{ format_int(c.n) }}</td>
+        <td class="meta">
+          <a href="/clients/{{ client.client_id }}/catalog/candidates?q={{ c.code }}">tìm trong feed →</a>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if co_occurrences|length > 25 %}
+    <p class="meta">… và {{ co_occurrences|length - 25 }} cặp khác.</p>
+  {% endif %}
+  {% endif %}
+
+  {% if bcct_samples %}
+  <h3 style="margin-top: 1.5rem;">Dòng BCCT ({{ bcct_samples|length }})</h3>
+  <table class="dh-table">
+    <thead><tr><th>TK</th><th>Ngày</th><th>Direction</th><th>HS</th><th>UoM</th><th>Origin</th><th>Goods name</th></tr></thead>
+    <tbody>
+    {% for r in bcct_samples %}
+      <tr>
+        <td class="mono">
+          <a href="/clients/{{ client.client_id }}/bcct/history/{{ r.transaction_key }}/{{ r.line_no }}"
+             title="Xem chi tiết dòng BCCT">{{ r.declaration_no }}</a>
+        </td>
+        <td class="meta">{{ format_date(r.registration_date) if r.registration_date else '—' }}</td>
+        <td>{% if r.direction == 'import' %}↓ nhập{% elif r.direction == 'export' %}↑ xuất{% else %}—{% endif %}</td>
+        <td class="mono">{{ r.hs_code or '—' }}</td>
+        <td>{{ r.unit or '—' }}</td>
+        <td>{{ r.origin or '—' }}</td>
+        <td class="meta" style="max-width: 400px;">
+          <span title="{{ r.goods_name }}">{{ r.goods_name[:80] if r.goods_name else '' }}{% if r.goods_name and r.goods_name|length > 80 %}…{% endif %}</span>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if bom_artifacts %}
+  <h3 style="margin-top: 1.5rem;">BOM artifacts ({{ bom_artifacts|length }})</h3>
+  <ul>
+  {% for a in bom_artifacts %}
+    <li>
+      <a href="/clients/{{ client.client_id }}/catalog/{{ a.product_code }}/detail"
+         title="Xem catalog detail của TP này"><code>{{ a.product_code }}</code></a>
+      {% if a.is_root %}<span class="badge badge-info">TP root</span>{% else %}<span class="meta">(chứa)</span>{% endif %}
+      — artifact_no={{ a.artifact_no }}, status={{ a.flatten_status }}
+      <a href="/clients/{{ client.client_id }}/bom/artifact/{{ a.artifact_id }}">→ BOM detail</a>
+    </li>
+  {% endfor %}
+  </ul>
+  {% endif %}
+
+</section>
+{% endblock %}

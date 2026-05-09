@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}UoM standards · {{ t('app.brand') }}{% endblock %}
+{% block content %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>UoM standards</h2>
+      <p class="meta">
+        Đơn vị tính chuẩn (canonical) + aliases. <code>resolve_canonical(alias)</code> →
+        <code>uom_code</code>. Conversion qua <code>base_factor</code> (cùng family).
+      </p>
+    </div>
+    <div class="page-actions">
+      <a class="btn-secondary" href="/admin">← Admin</a>
+    </div>
+  </div>
+
+  {% if saved %}
+    <div class="toast" style="margin-bottom: 1rem;">✓ Đã lưu.</div>
+  {% endif %}
+  {% if error %}
+    <div class="toast toast-error" style="margin-bottom: 1rem;">⚠ {{ error }}</div>
+  {% endif %}
+
+  {# ── Canonicals table ── #}
+  <h3 style="margin-top: 1rem;">Đơn vị canonical ({{ canonicals|length }})</h3>
+  <table class="dh-table">
+    <thead>
+      <tr>
+        <th>Code</th>
+        <th>Family</th>
+        <th>Base factor</th>
+        <th>#Aliases</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for c in canonicals %}
+      <tr>
+        <td><code>{{ c.uom_code }}</code></td>
+        <td><span class="badge badge-info">{{ c.family }}</span></td>
+        <td class="mono" style="text-align: right;">{{ c.base_factor }}</td>
+        <td class="num">{{ c.n_aliases }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <details style="margin-top: 1rem;">
+    <summary class="btn-secondary btn-sm">+ Thêm canonical mới</summary>
+    <form method="post" action="/admin/uom/canonical/new"
+          style="margin-top: .5rem; padding: .75rem; background: #fafafa; border-radius: 4px; max-width: 600px;">
+      <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .5rem;">
+        <label>UoM code
+          <input type="text" name="uom_code" required
+                 placeholder="e.g. 'pallet'" style="width: 100%;">
+        </label>
+        <label>Family
+          <select name="family" required style="width: 100%;">
+            {% for f in valid_families %}
+              <option value="{{ f }}">{{ f }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Base factor
+          <input type="number" name="base_factor" value="1" step="any"
+                 required style="width: 100%;">
+        </label>
+      </div>
+      <p class="meta" style="font-size: .85em; margin-top: .25rem;">
+        Base factor: hệ số quy đổi về unit gốc của family (kg=1, g=0.001, t=1000).
+        Nếu là canonical đầu tiên của family hoặc không có conversion → để 1.
+      </p>
+      <button type="submit" class="btn-primary btn-sm" style="margin-top: .5rem;">Lưu</button>
+    </form>
+  </details>
+
+  {# ── Aliases table ── #}
+  <h3 style="margin-top: 1.5rem;">Aliases ({{ aliases|length }})</h3>
+  <table class="dh-table">
+    <thead>
+      <tr>
+        <th>Alias (normalized: lowercase + strip)</th>
+        <th>→ Canonical</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for a in aliases %}
+      <tr>
+        <td><code>{{ a.alias_norm }}</code></td>
+        <td><span class="badge badge-info">{{ a.uom_code }}</span></td>
+        <td>
+          {% if a.alias_norm != a.uom_code %}
+          <form method="post" action="/admin/uom/aliases/{{ a.alias_norm }}/delete"
+                style="display: inline;"
+                onsubmit="return confirm('Xóa alias {{ a.alias_norm }}?')">
+            <button type="submit" class="btn-ghost btn-sm" title="Xóa alias">✗</button>
+          </form>
+          {% else %}
+            <span class="meta" title="Self-alias (canonical → itself)">—</span>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <details style="margin-top: 1rem;">
+    <summary class="btn-secondary btn-sm">+ Thêm alias mới</summary>
+    <form method="post" action="/admin/uom/aliases/new"
+          style="margin-top: .5rem; padding: .75rem; background: #fafafa; border-radius: 4px; max-width: 600px;">
+      <div style="display: grid; grid-template-columns: 2fr 1fr; gap: .5rem;">
+        <label>Alias
+          <input type="text" name="alias_norm" required
+                 placeholder="e.g. 'kilo-grammes' (sẽ lowercase)"
+                 style="width: 100%;">
+        </label>
+        <label>→ Canonical
+          <select name="uom_code" required style="width: 100%;">
+            {% for c in canonicals %}
+              <option value="{{ c.uom_code }}">{{ c.uom_code }} ({{ c.family }})</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <p class="meta" style="font-size: .85em; margin-top: .25rem;">
+        Alias tự động normalize: lowercase + trim. Nếu alias đã tồn tại, sẽ
+        update mapping.
+      </p>
+      <button type="submit" class="btn-primary btn-sm" style="margin-top: .5rem;">Lưu</button>
+    </form>
+  </details>
+
+</section>
+{% endblock %}
