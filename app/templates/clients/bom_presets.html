@@ -65,7 +65,7 @@
       <select name="artifact_id" required>
         <option value="">— pick a published artifact —</option>
         {% for a in artifacts %}
-        <option value="{{ a.artifact_id }}">v{{ a.artifact_no }} · {{ a.flatten_strategy }} · {{ a.bom_variant_id or 'default' }} · {{ a.artifact_id[:16] }}…</option>
+        <option value="{{ a.artifact_id }}">#{{ a.artifact_no }} · {{ a.flatten_strategy }}{% if a.bom_variant_id and a.bom_variant_id != 'default' %} · {{ a.bom_variant_id }}{% endif %} · {{ a.artifact_id[:16] }}…</option>
         {% endfor %}
       </select>
     </label>

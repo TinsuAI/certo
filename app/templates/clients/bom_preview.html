@@ -16,6 +16,10 @@
 {% block module_sample %}
 <div class="zone mini-panel" style="margin-bottom: 1rem;">
   <strong>Mẫu {{ sample|length }} sản phẩm đầu tiên (xem cấu trúc mã SP × NPL):</strong>
+  {% set ns_pv = namespace(any_variant=false) %}
+  {% for s in sample %}{% for r in s.rows %}
+    {% if r.bom_variant_id and r.bom_variant_id != 'default' %}{% set ns_pv.any_variant = true %}{% endif %}
+  {% endfor %}{% endfor %}
   {% for s in sample %}
   <div style="margin-top: 1rem;">
     <p style="margin: 0 0 0.3rem 0;">
@@ -29,7 +33,7 @@
           <th>Định mức</th>
           <th>ĐVT</th>
           <th>BOM code</th>
-          <th>Variant</th>
+          {% if ns_pv.any_variant %}<th>{{ t('bom.col.variant') }}</th>{% endif %}
         </tr>
       </thead>
       <tbody>
@@ -39,7 +43,7 @@
           <td>{{ r.qty_per_unit }}</td>
           <td>{{ r.uom or "—" }}</td>
           <td class="meta">{{ r.bom_code or "" }}</td>
-          <td class="meta">{{ r.bom_variant_id or "" }}</td>
+          {% if ns_pv.any_variant %}<td class="meta">{% if r.bom_variant_id and r.bom_variant_id != 'default' %}{{ r.bom_variant_id }}{% endif %}</td>{% endif %}
         </tr>
         {% endfor %}
       </tbody>

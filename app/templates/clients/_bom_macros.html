@@ -10,20 +10,21 @@
 {% macro lineage_node(n, current_id, client_id) -%}
 {%- set is_current = (n.artifact_id == current_id) -%}
 {%- set classes = 'lineage-node' + (' lineage-node--current' if is_current else '') + (' lineage-node--tombstoned' if n.tombstoned_at else '') -%}
+{%- set show_variant = n.bom_variant_id and n.bom_variant_id != 'default' -%}
 {%- if is_current -%}
 <div class="{{ classes }}">
   <span class="lineage-node-current-marker">▸ </span>
-  <span class="badge badge-info">v{{ n.artifact_no }}</span>
+  <span class="badge badge-info">#{{ n.artifact_no }}</span>
   {{ shape_badge(n.bom_shape) }}
-  <span class="mono lineage-node-variant">{{ n.bom_variant_id or 'default' }}</span>
+  {% if show_variant %}<span class="mono lineage-node-variant">{{ n.bom_variant_id }}</span>{% endif %}
   <span class="lineage-node-meta">· {{ n.intent }} · {{ n.actor }}</span>
   {% if n.tombstoned_at %}<span class="lineage-deleted">· tombstoned</span>{% endif %}
 </div>
 {%- else -%}
 <a href="/clients/{{ client_id }}/bom/artifact/{{ n.artifact_id }}" class="{{ classes }}">
-  <span class="badge badge-info">v{{ n.artifact_no }}</span>
+  <span class="badge badge-info">#{{ n.artifact_no }}</span>
   {{ shape_badge(n.bom_shape) }}
-  <span class="mono lineage-node-variant">{{ n.bom_variant_id or 'default' }}</span>
+  {% if show_variant %}<span class="mono lineage-node-variant">{{ n.bom_variant_id }}</span>{% endif %}
   <span class="lineage-node-meta">· {{ n.intent }} · {{ n.actor }}</span>
   {% if n.tombstoned_at %}<span class="lineage-deleted">· tombstoned</span>{% endif %}
 </a>

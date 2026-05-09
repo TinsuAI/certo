@@ -436,11 +436,13 @@ def list_products_with_bom(client_id: str, *,
     """List BOM products plus flatten-aware metadata per product.
 
     Per-product fields:
-      n_versions:           total alive versions (any flatten_status).
+      n_versions:           total alive artifacts (any flatten_status).
       n_flattened:          count where flatten_status in (flattened, not_applicable).
       n_non_flattened:      count where flatten_status = non_flattened.
-      n_dual_variants:      count of distinct flatten_strategies among
-                            flattened versions — >1 ⇒ dual-source variants live.
+      n_strategies:         count of distinct flatten_strategy values among
+                            flattened artifacts — typical "1 phiên bản"
+                            yields 2 (shallow + full_flat). >2 ⇒ supplier
+                            dual-source materializations live.
       latest_version:       max artifact_no.
       last_published:       most recent published_at.
       latest_flatten_status: status of the most-recently-published version.
@@ -498,7 +500,6 @@ def list_products_with_bom(client_id: str, *,
                 d = dict(zip(cols, r))
                 # Catalog says BTP iff category in btp_*; otherwise treat as TP.
                 d["product_kind"] = "btp" if d.pop("raw_category") in ("btp_sx", "btp_nm") else "tp"
-                d["n_dual_variants"] = d.pop("n_strategies")
                 out.append(d)
             return out
 

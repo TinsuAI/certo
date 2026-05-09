@@ -8,6 +8,88 @@ For past architectural decisions, see `DECISIONS.md`.
 
 ---
 
+## BOM dependency staleness / invalidation
+
+**Captured 2026-05-10** trong session BOM vocab + 3-shape audit
+(`.ai/features/2026-05-10-bom-vocab-3shape-uom-gate/brief.md`,
+Track D). Splits-off vì scope >> tracks A+B+C tổng cộng.
+
+**Vấn đề:** BOM artifact (shallow + full_flat materialized) chứa derived
+fields phụ thuộc external state. Khi external thay đổi, artifact stale
+silently. 0 centralized tracking.
+
+**8 chiều staleness đã xác định:**
+
+1. Catalog category change (nvl → btp_sx → walking stop set khác)
+2. BTP BOM xuất hiện sau (was-leaf BTP → decomposable)
+3. Catalog Accept (mã chờ duyệt → previously-unknown classified)
+4. Code mappings update (NB↔HQ resolution shift)
+5. Parser rules edit (`client_parser_rules` → derived internal_code shift)
+6. UoM standards/aliases mở rộng (alias mới resolve canonical)
+7. `materials.uom` edit (flatten convert factor change)
+8. `btp_sourcing` decision flip (preset sourcing override change)
+
+**Current state — partial mitigation:**
+
+- `scripts/materialize_shallow_and_full_flat.py` — manual.
+- `derive_btp_shallows.py` (BACKLOG "Phase 3c follow-ups") — manual.
+- `post_ingest_hooks` adapter contract scaffolded, chưa wire vào
+  confirm flow.
+- `material_observations.py` — request-time recompute (workaround
+  per BACKLOG "v_material_roles paren-aware").
+- `catalog_candidates` refresh — manual button click.
+
+**Design options (chưa pick — discovery cần thêm 1-2d):**
+
+1. Staleness flag + manual refresh button (`is_stale` + `stale_reason`
+   columns + triggers + UI badge). Pros: simple, transparent. Cons:
+   noisy với churn cao; mỗi dependency cần trigger.
+2. Eager invalidation cascade (write tới catalog/mappings/parser_rules
+   trigger materialize() async). Pros: artifact luôn fresh. Cons:
+   complex job infra; thrash; opaque.
+3. Lazy compute on read (bỏ materialized, on-demand). Pros: simple
+   correctness. Cons: latency BCQT/CO consumer reads (Johnson 246 TP
+   × 3 shape × ~10s = 2h batch).
+4. Event-sourced staleness ledger (`hub.dependency_invalidations`
+   table; triggers append; refresh = job dequeue). Pros: full audit
+   trail, aligns "aggregate-data git-history" principle. Cons: thêm
+   table + job runner; design overhead lớn.
+
+**Preliminary recommendation:** Option 1 MVP-mode → option 4 khi
+bandwidth có. Option 2 quá tham; option 3 quá chậm.
+
+**Why deferred:**
+- Scope >> tracks vocab+group+UoM-gate combined. Riêng discovery
+  ~1-2d.
+- Cần audit dependency edges trước khi pick option.
+- Phụ thuộc track B (lineage_root_id) nếu invalidate group-wise.
+- Không block MVP demo — current manual re-run + view-time recompute
+  đủ cho pre-customer.
+
+**Cross-links** (overlap dimension):
+- "Modular BOM ingest adapters (per supplier shape)" — `post_ingest_hooks`
+  contract sẽ là vehicle cho option 1/2.
+- "Aggregate-data git-history" — option 4 là implementation cụ thể của
+  principle này cho BOM dimension.
+- "v_material_roles paren-aware" — view-time recompute pattern, kéo
+  dài hoài là dấu hiệu cần option 4.
+- "Phase 3c follow-ups" → "Auto-trigger derive_btp_shallows from upload
+  confirm flow" là 1 fragment của option 1.
+
+**Bring back when:**
+- A+B+C ship.
+- User signal "có customer thật, cần fresh artifacts khi churn".
+- Hoặc khi 1 incident xảy ra (catalog edit không trigger materialize,
+  consumer read stale data → khiếu nại).
+
+**Effort khi scope:**
+- 1-2d discovery + design.
+- 2-4d implement option 1 (flag + 8 triggers + UI badge + refresh
+  route).
+- 1-2 week implement option 4.
+
+---
+
 ## v_material_roles paren-aware (replace material_observations workaround)
 
 **Captured 2026-05-09** (Mã chờ duyệt v3 review). Issue surfaced when

@@ -105,8 +105,8 @@
           {% else %}
             <span class="badge badge-success">✓ {{ t('bom.list.status.flattened') }}</span>
           {% endif %}
-          {% if p.n_dual_variants and p.n_dual_variants > 1 %}
-            <span class="badge badge-info" title="dual-source variants">×{{ p.n_dual_variants }} variants</span>
+          {% if p.n_strategies and p.n_strategies > 2 %}
+            <span class="badge badge-info" title="dual-source materializations">×{{ p.n_strategies }} {{ t('bom.list.materializations') }}</span>
           {% endif %}
         </td>
         <td>
