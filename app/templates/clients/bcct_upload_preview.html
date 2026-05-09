@@ -48,7 +48,8 @@
     </ul>
   </div>
 
-  <form method="post" action="/clients/{{ client.client_id }}/bcct/upload/preview/{{ pending_id }}/confirm">
+  <form id="confirm-form" method="post" action="/clients/{{ client.client_id }}/bcct/upload/preview/{{ pending_id }}/confirm">
+    {% include "clients/_uom_drift_banner.html" ignore missing %}
     {% if summary.diff %}
     <h3 style="margin-top: 1.5rem;">Thay đổi giá trị ({{ summary.diff|length }} dòng)</h3>
     <table class="dh-table">

@@ -104,6 +104,8 @@ Per-module wrapper templates `{% extends %}` this and override:
 
   {% block diff_view %}{% endblock %}
 
+  {% include "clients/_uom_drift_banner.html" ignore missing %}
+
   <form id="confirm-form" method="post"
         style="display: flex; gap: 0.6rem; align-items: center;">
     <input type="hidden" name="skipped_count" value="{{ skipped_count }}">

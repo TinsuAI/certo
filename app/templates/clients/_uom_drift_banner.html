@@ -1,0 +1,92 @@
+{# Reusable UoM drift banner for upload-preview pages.
+
+   Inputs (template context):
+     - uom_drifts: list of dicts from app.stores.uom_drift.compute_uom_drifts.
+     - uom_drift_blocks_confirm: bool — true when any severity is
+       'warn_cross_family'.
+
+   Renders nothing if `uom_drifts` is empty. When non-empty, groups by
+   severity and renders one row per drift with badge + Vietnamese
+   message. If `uom_drift_blocks_confirm`, includes a checkbox tied to
+   form#confirm-form whose `name="ack_uom_drift"` must be checked
+   before the confirm button on the host form is enabled.
+
+   Severity-to-CSS mapping:
+     warn_cross_family → badge-warn
+     info_family       → badge-info
+     info_unknown      → badge-neutral
+     info_alias        → badge-neutral
+#}
+{% if uom_drifts %}
+<div class="zone mini-panel uom-drift-panel" style="margin-bottom: 1rem;
+            {% if uom_drift_blocks_confirm %}border-left: 3px solid var(--warn, #c80);{% endif %}">
+  <strong>
+    {% if uom_drift_blocks_confirm %}
+      ⚠ {{ t('uom_drift.banner_warn_title') }}
+    {% else %}
+      {{ t('uom_drift.banner_info_title') }}
+    {% endif %}
+    <span class="badge badge-neutral">{{ uom_drifts|length }}</span>
+  </strong>
+  <p class="meta" style="margin: .3rem 0 .6rem 0;">
+    {{ t('uom_drift.banner_intro') }}
+  </p>
+  <table class="data-table" style="margin: 0;">
+    <thead>
+      <tr>
+        <th>{{ t('uom_drift.col_severity') }}</th>
+        <th>{{ t('uom_drift.col_material') }}</th>
+        <th>{{ t('uom_drift.col_message') }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in uom_drifts %}
+      <tr>
+        <td>
+          {% if d.severity == 'warn_cross_family' %}
+            <span class="badge badge-warn">{{ t('uom_drift.sev_cross_family') }}</span>
+          {% elif d.severity == 'info_family' %}
+            <span class="badge badge-info">{{ t('uom_drift.sev_family') }}</span>
+          {% elif d.severity == 'info_unknown' %}
+            <span class="badge badge-neutral">{{ t('uom_drift.sev_unknown') }}</span>
+          {% else %}
+            <span class="badge badge-neutral">{{ t('uom_drift.sev_alias') }}</span>
+          {% endif %}
+        </td>
+        <td><code>{{ d.material_code }}</code></td>
+        <td>{{ d.message }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if uom_drift_blocks_confirm %}
+  <p style="margin: .6rem 0 0 0;">
+    <label>
+      <input type="checkbox" name="ack_uom_drift" value="1"
+             form="confirm-form"
+             onchange="(function(cb){
+                var form = document.getElementById('confirm-form');
+                if (!form) return;
+                form.querySelectorAll('button[type=submit]').forEach(function(btn){
+                  if (btn.classList.contains('btn-primary')) {
+                    btn.disabled = !cb.checked;
+                  }
+                });
+              })(this)">
+      <strong>{{ t('uom_drift.ack_label') }}</strong>
+    </label>
+  </p>
+  {% endif %}
+</div>
+{% if uom_drift_blocks_confirm %}
+<script>
+  (function(){
+    var form = document.getElementById('confirm-form');
+    if (!form) return;
+    form.querySelectorAll('button[type=submit].btn-primary').forEach(function(btn){
+      btn.disabled = true;
+    });
+  })();
+</script>
+{% endif %}
+{% endif %}

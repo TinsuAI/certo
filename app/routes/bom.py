@@ -393,6 +393,13 @@ async def preview_view(request: Request, client_id: str, pending_id: str):
     # Shared-template adapter: provide `summary.total` for shared chrome.
     summary_for_chrome = dict(summary)
     summary_for_chrome["total"] = summary["n_rows"]
+    # UoM drift gate (Track C): flatten parsed rows → drift list +
+    # blocking flag.
+    from app.stores.uom_drift import compute_uom_drifts, has_blocking_drift
+    flat_rows: list[dict] = []
+    for prod_rows in (products.values() if isinstance(products, dict) else []):
+        flat_rows.extend(prod_rows)
+    uom_drifts = compute_uom_drifts(client_id, flat_rows)
     return request.app.state.templates.TemplateResponse(
         request, "clients/bom_preview.html",
         {
@@ -410,6 +417,8 @@ async def preview_view(request: Request, client_id: str, pending_id: str):
             "list_url": f"/clients/{client_id}/bom",
             "expires_at": expires_at, "created_at": created_at,
             "active_root": "clients", "active_tab": "bom",
+            "uom_drifts": uom_drifts,
+            "uom_drift_blocks_confirm": has_blocking_drift(uom_drifts),
         },
     )
 

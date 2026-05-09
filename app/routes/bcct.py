@@ -758,7 +758,7 @@ async def upload_preview_view(request: Request, client_id: str, pending_id: str)
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select diff_summary, expires_at, created_at
+                select diff_summary, expires_at, created_at, parsed_rows
                 from hub.upload_pending
                 where pending_id = %s and client_id = %s and module = 'bcct'
                 """,
@@ -767,7 +767,16 @@ async def upload_preview_view(request: Request, client_id: str, pending_id: str)
             row = cur.fetchone()
     if not row:
         raise HTTPException(404, "Pending upload not found or expired")
-    diff_summary, expires_at, created_at = row
+    diff_summary, expires_at, created_at, parsed_rows = row
+    # UoM drift gate (Track C): map BCCT shape (customs_code/unit) →
+    # helper expected shape (material_code/uom).
+    from app.stores.uom_drift import compute_uom_drifts, has_blocking_drift
+    drift_input = [
+        {"material_code": r.get("customs_code"), "uom": r.get("unit")}
+        for r in (parsed_rows or [])
+        if isinstance(r, dict)
+    ]
+    uom_drifts = compute_uom_drifts(client_id, drift_input)
     return request.app.state.templates.TemplateResponse(
         request, "clients/bcct_upload_preview.html",
         {
@@ -776,6 +785,8 @@ async def upload_preview_view(request: Request, client_id: str, pending_id: str)
             "summary": diff_summary,
             "expires_at": expires_at, "created_at": created_at,
             "active_root": "clients", "active_tab": "bcct",
+            "uom_drifts": uom_drifts,
+            "uom_drift_blocks_confirm": has_blocking_drift(uom_drifts),
         },
     )
 
