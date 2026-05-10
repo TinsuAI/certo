@@ -641,16 +641,28 @@ async def refresh_artifact_route(
 ):
     """Track D — clear stale flag + re-derive shape (best-effort).
 
-    Spec: `.ai/features/2026-05-11-bom-staleness-track-d/brief.md`.
+    Phase 3 G adds optional form fields:
+    - `skip=1`: skip refresh + log refresh.skipped event.
+    - `confirm=1`: explicit confirmation (no behaviour change vs absent).
+    - `inline_factor_<i>_material_code|from_uom|to_uom|factor`:
+      upsert one or more factor rows into client_uom_overrides BEFORE
+      the refresh re-plans.
+
+    Spec: `.ai/features/2026-05-11-bom-staleness-track-d/brief.md`,
+    `.ai/features/2026-05-13-bom-refresh-preview/brief.md` scope item 3.
     """
     user = auth.require_user(request)
     auth.require_can_edit_client(user, client_id)
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
-    from app.stores.bom_staleness import refresh_artifact
+    form = await request.form()
+    skip = form.get("skip") == "1"
+    edits = _parse_inline_factor_edits(form)
+    from app.stores.bom_staleness import commit_refresh
     try:
-        result = refresh_artifact(client_id, artifact_id,
-                                    triggered_by_user_id=user.user_id)
+        result = commit_refresh(client_id, artifact_id,
+                                 edits=edits, skip=skip,
+                                 triggered_by_user_id=user.user_id)
     except LookupError:
         raise HTTPException(404, "Artifact not found in this client")
     # If refresh tombstoned this artifact (hash diff supersede), redirect
@@ -663,6 +675,39 @@ async def refresh_artifact_route(
         url=f"/clients/{client_id}/bom/artifact/{target}",
         status_code=303,
     )
+
+
+def _parse_inline_factor_edits(form) -> list[dict] | None:
+    """Read indexed form fields `inline_factor_<i>_<key>` into a list
+    of edit dicts. Returns None when no inline edits were submitted —
+    keeps `commit_refresh(edits=None)` semantics ("don't touch overrides").
+    """
+    bucket: dict[str, dict] = {}
+    for k, v in form.multi_items() if hasattr(form, "multi_items") else form.items():
+        if not k.startswith("inline_factor_"):
+            continue
+        rest = k[len("inline_factor_"):]
+        if "_" not in rest:
+            continue
+        idx_str, field = rest.split("_", 1)
+        if not idx_str.isdigit():
+            continue
+        bucket.setdefault(idx_str, {})[field] = v
+    if not bucket:
+        return None
+    edits: list[dict] = []
+    for _, e in sorted(bucket.items(), key=lambda kv: int(kv[0])):
+        if not (e.get("material_code") and e.get("from_uom")
+                and e.get("to_uom") and e.get("factor")):
+            continue
+        edits.append({
+            "material_code": e["material_code"],
+            "from_uom": e["from_uom"],
+            "to_uom": e["to_uom"],
+            "factor": float(e["factor"]),
+            "source": e.get("source") or "staff_form",
+        })
+    return edits or None
 
 
 @router.get("/clients/{client_id}/bom/stale", response_class=HTMLResponse)
