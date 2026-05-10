@@ -1493,6 +1493,49 @@ async def api_test_parser_rules(
     return _json({"final_output": final, "trace": trace})
 
 
+@router.get("/clients/{client_id}/materials/{material_code:path}/substitutes")
+async def api_list_substitutes_v1(
+    client_id: str, material_code: str,
+    min_score: float = 0.5, include_rejected: bool = False,
+    limit: int = 20,
+    authorization: str | None = Header(None),
+):
+    """Sister-app entry for material substitutes lookup. Bearer auth
+    (user JWT or service token with hub:read scope). Mirrors the
+    cookie-auth UI route at /api/v1/clients/{c}/materials/{m}/substitutes
+    (kept for the in-app catalog detail page).
+    """
+    from app.stores.material_substitutes import list_for_material
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
+    cands = list_for_material(
+        client_id=client_id, material_code=material_code,
+        min_score=min_score, include_rejected=include_rejected,
+        limit=min(limit, 100),
+    )
+    return _json({
+        "client_id": client_id,
+        "material_a_code": material_code,
+        "count": len(cands),
+        "items": [
+            {
+                "material_b_code": c.material_b_code,
+                "name": c.name,
+                "category": c.category,
+                "hs_code": c.hs_code,
+                "sources": c.sources,
+                "raw_scores": c.raw_scores,
+                "combined_score": round(c.combined_score, 4),
+                "confirmed": c.confirmed,
+                "confirmed_at": (
+                    c.confirmed_at.isoformat() if c.confirmed_at else None
+                ),
+            }
+            for c in cands
+        ],
+    })
+
+
 @router.get("/healthz")
 async def api_healthz():
     return _json({"status": "ok"})

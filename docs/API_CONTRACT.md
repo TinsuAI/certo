@@ -614,6 +614,46 @@ Rejected response:
 
 Fetch a proposal record. Caller must have view access to the proposal's client.
 
+### Substitutes
+
+#### `GET /v1/hub/clients/{client_id}/materials/{material_code}/substitutes`
+
+Ranked substitute candidates for a material (Feature 4 hybrid: same-HS,
+trigram, embedding, manual confirmations). Sister-app entry; cookie-auth
+mirror at `/api/v1/clients/{c}/materials/{m}/substitutes` exists for the
+in-app UI.
+
+Query params:
+- `min_score` (float, default `0.5`): drop pairs below this combined score.
+- `include_rejected` (bool, default `false`).
+- `limit` (int, default `20`, capped at `100`).
+
+Response:
+
+```json
+{
+  "client_id": "johnson-vn",
+  "material_a_code": "MFW0502-39",
+  "count": 15,
+  "items": [
+    {
+      "material_b_code": "MFW0502-02",
+      "name": "...",
+      "category": "tp",
+      "hs_code": "95069100",
+      "sources": ["embedding", "trigram"],
+      "raw_scores": {"embedding": 0.96, "trigram": 0.62},
+      "combined_score": 0.97,
+      "confirmed": false,
+      "confirmed_at": null
+    }
+  ]
+}
+```
+
+Service token requires `hub:read` scope. Whitelisted `client_ids`
+honored normally.
+
 ### Health
 
 #### `GET /v1/hub/healthz`
