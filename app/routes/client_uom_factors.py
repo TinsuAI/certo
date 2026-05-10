@@ -19,7 +19,10 @@ router = APIRouter()
 @router.get("/clients/{client_id}/uom-factors", response_class=HTMLResponse)
 async def list_view(request: Request, client_id: str,
                      error: str | None = None,
-                     saved: str | None = None):
+                     saved: str | None = None,
+                     prefill_material_code: str | None = None,
+                     prefill_from_uom: str | None = None,
+                     prefill_to_uom: str | None = None):
     user = auth.require_user(request)
     auth.require_can_view_client(user, client_id)
     client = get_client(client_id)
@@ -34,6 +37,9 @@ async def list_view(request: Request, client_id: str,
          "factors": rows, "summary": summary,
          "valid_sources": factors.VALID_SOURCES,
          "error": error, "saved": saved,
+         "prefill_material_code": prefill_material_code or "",
+         "prefill_from_uom": prefill_from_uom or "",
+         "prefill_to_uom": prefill_to_uom or "",
          "can_edit": can_edit,
          "active_root": "clients", "active_tab": "uom-factors"},
     )

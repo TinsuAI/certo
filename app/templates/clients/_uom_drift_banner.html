@@ -75,11 +75,15 @@
           {%- endif %}
         </td>
         <td>
-          {%- if d.conversion and (d.conversion.would_block or d.conversion.source == 'unconfirmed_default') %}
+          {%- set show_add = d.severity in ('warn_cross_family', 'info_unknown')
+                              or (d.conversion and d.conversion.source == 'unconfirmed_default') -%}
+          {%- if show_add -%}
+            {%- set tgt = (d.conversion.target_uom if d.conversion else None)
+                            or d.catalog_uom or (d.bcct_uoms[0] if d.bcct_uoms else '') -%}
             <a class="btn-ghost"
-               href="/clients/{{ client.client_id }}/uom-factors?error=Th%C3%AAm%20h%E1%BB%87%20s%E1%BB%91%20cho%20{{ d.material_code }}%3A%20{{ d.source_uom }}%20%E2%86%92%20{{ d.conversion.target_uom }}"
+               href="/clients/{{ client.client_id }}/uom-factors?prefill_material_code={{ d.material_code|urlencode }}&prefill_from_uom={{ d.source_uom|urlencode }}&prefill_to_uom={{ tgt|urlencode }}#add-factor-form"
                target="_blank"
-               title="Mở admin UI để thêm hệ số">+ hệ số</a>
+               title="Mở admin UI và prefill form thêm hệ số">+ hệ số</a>
           {%- endif %}
         </td>
       </tr>
@@ -107,13 +111,16 @@
 </div>
 {% if uom_drift_blocks_confirm %}
 <script>
-  (function(){
+  // Wait for confirm-form to exist in DOM (banner renders BEFORE the
+  // form). DOMContentLoaded fires after full parse so getElementById
+  // works.
+  document.addEventListener('DOMContentLoaded', function(){
     var form = document.getElementById('confirm-form');
     if (!form) return;
     form.querySelectorAll('button[type=submit].btn-primary').forEach(function(btn){
       btn.disabled = true;
     });
-  })();
+  });
 </script>
 {% endif %}
 {% endif %}

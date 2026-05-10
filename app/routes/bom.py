@@ -495,9 +495,23 @@ async def preview_confirm(request: Request, client_id: str, pending_id: str):
                 n += 1
                 created_artifact_ids.append(artifact_id)
     else:
+        # Phase 2: convert UoM at ingest for manual_flat / staff-flat
+        # uploads. Source artifact rows store catalog UoM (with audit
+        # columns capturing source_uom + applied_uom_factor). Drift
+        # signals (factor_missing / catalog_uom_missing /
+        # unconfirmed_default_1to1) propagate to has_uom_drift on the
+        # new artifact via mig 057's bom_mark_uom_drift helper.
+        from app.stores.bom_staleness import (
+            _convert_rows_to_catalog_uom, _apply_drift_to_artifact,
+        )
+        from app.database import connect as _connect
         for product_code, rows in products.items():
+            converted_rows, drifts = _convert_rows_to_catalog_uom(
+                client_id, list(rows),
+            )
             artifact_id = create_artifact(
-                client_id=client_id, product_code=product_code, rows=rows,
+                client_id=client_id, product_code=product_code,
+                rows=converted_rows,
                 actor="agency_staff", intent="asserted_technical",
                 parent_artifact_id=None,
                 context={"channel": "agency_upload", "profile": profile},
@@ -506,6 +520,12 @@ async def preview_confirm(request: Request, client_id: str, pending_id: str):
             if artifact_id:
                 n += 1
                 created_artifact_ids.append(artifact_id)
+                if drifts:
+                    with _connect(user_id=user.user_id) as conn:
+                        with conn.cursor() as cur:
+                            _apply_drift_to_artifact(
+                                cur, artifact_id, drifts,
+                            )
 
     # Step 2b: post-ingest hooks (Track D, Phase B). Adapters declaring
     # post_ingest_hooks (e.g. derive_btp_shallows for sap_indented_walk +

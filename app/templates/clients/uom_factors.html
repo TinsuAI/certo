@@ -109,25 +109,34 @@
 </section>
 
 {% if can_edit %}
-<section class="card">
-  <h2>Thêm hệ số</h2>
+{% set has_prefill = prefill_material_code or prefill_from_uom or prefill_to_uom %}
+<section class="card" id="add-factor-form"
+         {% if has_prefill %}style="border:2px solid var(--accent, #3c50dc);background:#f4f7ff"{% endif %}>
+  <h2>
+    Thêm hệ số
+    {% if has_prefill %}<small style="color:var(--accent, #3c50dc)"> · prefill từ preview</small>{% endif %}
+  </h2>
   <form method="post" action="/clients/{{ client.client_id }}/uom-factors/new"
         style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
     <label>
       Mã NPL/SP <small>(để trống = áp cho mọi mã)</small><br>
-      <input type="text" name="material_code" placeholder="VD: M_X" style="width:160px">
+      <input type="text" name="material_code" placeholder="VD: M_X" style="width:160px"
+             value="{{ prefill_material_code }}">
     </label>
     <label>
       Từ UoM<br>
-      <input type="text" name="from_uom" required placeholder="EA" style="width:80px">
+      <input type="text" name="from_uom" required placeholder="EA" style="width:80px"
+             value="{{ prefill_from_uom }}">
     </label>
     <label>
       Sang UoM<br>
-      <input type="text" name="to_uom" required placeholder="KG" style="width:80px">
+      <input type="text" name="to_uom" required placeholder="KG" style="width:80px"
+             value="{{ prefill_to_uom }}">
     </label>
     <label>
       Hệ số<br>
-      <input type="text" name="factor" required placeholder="0.5" style="width:90px">
+      <input type="text" name="factor" id="prefill-factor-input"
+             required placeholder="0.5" style="width:90px">
     </label>
     <label>
       Nguồn<br>
@@ -141,9 +150,19 @@
       Ghi chú<br>
       <input type="text" name="notes" style="width:100%">
     </label>
-    <button type="submit">Thêm</button>
+    <button type="submit" class="btn-primary">Thêm</button>
   </form>
 </section>
+{% if has_prefill %}
+<script>
+  document.addEventListener('DOMContentLoaded', function(){
+    var anchor = document.getElementById('add-factor-form');
+    if (anchor) anchor.scrollIntoView({behavior:'smooth', block:'center'});
+    var inp = document.getElementById('prefill-factor-input');
+    if (inp) inp.focus();
+  });
+</script>
+{% endif %}
 
 <section class="card">
   <h2>Import từ file</h2>

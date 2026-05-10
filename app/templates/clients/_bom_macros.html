@@ -1,9 +1,15 @@
 {# Shared BOM rendering macros: shape badge + lineage node. #}
 
-{% macro shape_badge(shape) -%}
-{%- if shape == 'raw_graph' -%}<span class="badge badge-shape-raw-graph">raw_graph</span>
-{%- elif shape == 'shallow' -%}<span class="badge badge-shape-shallow">shallow</span>
-{%- elif shape == 'full_flat' -%}<span class="badge badge-shape-full-flat">full_flat</span>
+{% macro shape_badge(shape, strategy=None) -%}
+{%- if shape == 'raw_graph' -%}
+<span class="badge badge-shape-raw-graph"
+      title="Raw graph: lưu nguyên parent→child edges, chưa decompose">raw_graph</span>
+{%- elif shape == 'shallow' -%}
+<span class="badge badge-shape-shallow"
+      title="Shallow: dừng ở leaf đầu tiên (BTP hoặc NVL).{% if strategy == 'manual_flat_as_provided' %} Manual_flat = agency cung cấp BOM phẳng sẵn (rows chính là leaves), không decompose thêm.{% endif %}">shallow{% if strategy == 'manual_flat_as_provided' %} <small>(manual_flat)</small>{% endif %}</span>
+{%- elif shape == 'full_flat' -%}
+<span class="badge badge-shape-full-flat"
+      title="Full flat: walked đến NVL leaf chân cùng, không có BTP intermediate">full_flat</span>
 {%- else -%}<span class="badge">{{ shape }}</span>{%- endif -%}
 {%- endmacro %}
 

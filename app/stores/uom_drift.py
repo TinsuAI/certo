@@ -187,10 +187,12 @@ def compute_uom_drifts(client_id: str, rows: list[dict]) -> list[dict]:
         # is "no path to convert" — the path now exists, so no warn.
         # Tier-A `unconfirmed_default` keeps severity warn (1:1 default
         # is a guess, not a confirmation).
-        if (severity == "warn_cross_family"
-                and conversion is not None
-                and conversion.get("source") in (
-                    "client_specific", "client_wide", "global", "alias")):
+        resolved_by_override = (
+            severity == "warn_cross_family"
+            and conversion is not None
+            and conversion.get("source") in (
+                "client_specific", "client_wide", "global", "alias"))
+        if resolved_by_override:
             severity = "info_family"
 
         out.append({
@@ -204,7 +206,9 @@ def compute_uom_drifts(client_id: str, rows: list[dict]) -> list[dict]:
             "bcct_uoms": bcct_uoms,
             "severity": severity,
             "message": _format_message(severity, code, src_uom,
-                                       comparator, details),
+                                       comparator, details,
+                                       resolved_by_override=resolved_by_override,
+                                       conversion=conversion),
             "conversion": conversion,
         })
 
@@ -214,13 +218,22 @@ def compute_uom_drifts(client_id: str, rows: list[dict]) -> list[dict]:
 
 
 def _format_message(severity: str, code: str, src_uom: str,
-                    comparator: str, details: dict) -> str:
+                    comparator: str, details: dict, *,
+                    resolved_by_override: bool = False,
+                    conversion: dict | None = None) -> str:
     """Short Vietnamese phrasing per severity."""
     if severity == "warn_cross_family":
         return (f"Mã {code}: file ghi '{src_uom}' ({details['source_dim']}) "
-                f"khác chiều với '{comparator}' ({details['target_dim']}) — "
+                f"khác họ với '{comparator}' ({details['target_dim']}) — "
                 f"không thể quy đổi tự động")
     if severity == "info_family":
+        if resolved_by_override and conversion:
+            # Cross-family bridged by an explicit override row — surface
+            # that the families DIFFER but a factor was supplied.
+            factor = conversion.get("factor", "?")
+            return (f"Mã {code}: file ghi '{src_uom}' ({details['source_dim']}) "
+                    f"khác họ với '{comparator}' ({details['target_dim']}); "
+                    f"đã có hệ số {factor} ({conversion.get('source')})")
         return (f"Mã {code}: file ghi '{src_uom}', "
                 f"tiêu chuẩn '{comparator}' (cùng họ "
                 f"{details['source_dim']}); flatten sẽ tự quy đổi")

@@ -202,24 +202,42 @@ def _convert_rows_to_catalog_uom(
 def _apply_drift_to_artifact(
     cur, artifact_id: str, drifts: list[dict],
 ) -> None:
-    """Append drift signals to a newly-minted artifact's stale_reasons.
+    """Append drift signals to a newly-minted artifact.
 
-    Uses bom_mark_stale (mig 054 dedup) per dim+material_code so the
-    same drift across two refresh runs doesn't duplicate. We collapse
-    drifts by (dim, material_code) at call time then loop the helper."""
+    Auto-routes between is_stale (derived artifacts) and has_uom_drift
+    (source artifacts: manual_flat / raw_graph) per the artifact's own
+    flatten_strategy. Mig-054 + mig-057 helpers handle dedup via @>
+    JSONB containment so re-application doesn't duplicate."""
     if not drifts:
         return
+    cur.execute(
+        "select flatten_strategy from hub.bom_artifacts "
+        "where artifact_id=%s",
+        (artifact_id,),
+    )
+    row = cur.fetchone()
+    strategy = row[0] if row else None
+    is_source = strategy in ("manual_flat_as_provided", "no_strategy")
+
     seen: set[tuple[str, str]] = set()
     for d in drifts:
         sig = (d["dim"], d.get("material_code") or "")
         if sig in seen:
             continue
         seen.add(sig)
-        cur.execute(
-            "select hub.bom_mark_stale(%s::text[], %s, %s, %s)",
-            ([artifact_id], d["dim"], "hub.client_uom_overrides",
-             d.get("material_code") or ""),
-        )
+        if is_source:
+            cur.execute(
+                "select hub.bom_mark_uom_drift(%s::text[], %s, %s, %s, %s)",
+                ([artifact_id], d["dim"], "hub.client_uom_overrides",
+                 d.get("material_code") or "",
+                 d.get("material_code")),
+            )
+        else:
+            cur.execute(
+                "select hub.bom_mark_stale(%s::text[], %s, %s, %s)",
+                ([artifact_id], d["dim"], "hub.client_uom_overrides",
+                 d.get("material_code") or ""),
+            )
 
 
 def _rederive_shape(client_id: str, raw_artifact_id: str,

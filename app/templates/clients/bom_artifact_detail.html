@@ -31,7 +31,7 @@
         <span class="badge">{{ artifact.actor }}</span>
         <span class="badge">{{ artifact.intent }}</span>
         {% set ctx = artifact.context or {} %}
-        {{ shape_badge(artifact.bom_shape) }}
+        {{ shape_badge(artifact.bom_shape, artifact.flatten_strategy) }}
         · hash <span class="mono">{{ artifact.normalized_hash[:16] }}</span>
         {% set parent = (lineage.ancestors[-1] if lineage and lineage.ancestors else None) %}
         {% if parent %}
