@@ -76,6 +76,14 @@ _LEGACY_ALIASES: dict[str, str] = {
     # selections + dev-DB pending uploads continue resolving.
     "growatt_multi_workbook": "sheet_per_product",
     "johnson_sap_exploded":   "sap_exploded_levels",
+    # Raw-edge parsers in `app/parsers/bom_edges.py` use their own
+    # adapter names (parse_raw_edges_with_fallback). For
+    # `run_post_ingest_hooks` to find the right hooks, alias them
+    # to the closest registered adapter so the same SAP / Growatt
+    # post-ingest behaviour applies whether the upload route went
+    # through the flat-rows path or the raw-edges path.
+    "sap_indented_raw":          "sap_indented_walk",
+    "growatt_factory_technical": "multi_sheet_per_root",
 }
 
 
