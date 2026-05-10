@@ -89,3 +89,41 @@ def test_tier_b_with_override_would_not_block():
     assert float(conv["factor"]) == pytest.approx(0.5)
     assert conv["source"] == "client_specific"
     assert conv["would_block"] is False
+    # Severity now drops from warn_cross_family to info_family because
+    # the override row resolves the conversion. (Phase 2 2026-05-12 fix.)
+    assert drifts[0]["severity"] == "info_family"
+
+
+def test_tier_a_severity_stays_warn_when_unconfirmed_default():
+    """Tier-A 1:1 default is a guess, not a confirmation. Severity must
+    stay warn_cross_family until staff inserts an explicit override."""
+    rows = [{"material_code": "M_TIER_A", "uom": "EA"}]
+    drifts = compute_uom_drifts(CLIENT, rows)
+    assert len(drifts) == 1
+    assert drifts[0]["severity"] == "warn_cross_family"
+    assert drifts[0]["conversion"]["source"] == "unconfirmed_default"
+
+
+def test_has_blocking_drift_respects_conversion_path():
+    """has_blocking_drift only blocks when there's no conversion path.
+    Tier-B without override → blocks. Tier-A default → allows. Override
+    row → allows."""
+    from app.stores.uom_drift import has_blocking_drift
+    # Tier-B without override.
+    drifts_b = compute_uom_drifts(
+        CLIENT, [{"material_code": "M_TIER_B", "uom": "EA"}])
+    assert has_blocking_drift(drifts_b) is True
+    # Tier-A: default 1:1 path exists, doesn't block (but stays warn).
+    drifts_a = compute_uom_drifts(
+        CLIENT, [{"material_code": "M_TIER_A", "uom": "EA"}])
+    assert has_blocking_drift(drifts_a) is False
+    # Override row added → tier-B no longer blocks.
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "insert into hub.client_uom_overrides "
+            "(client_id, material_code, from_uom, to_uom, factor, source) "
+            "values (%s, 'M_TIER_B', 'EA', 'KG', 0.5, 'supplier_data')",
+            (CLIENT,))
+    drifts_b2 = compute_uom_drifts(
+        CLIENT, [{"material_code": "M_TIER_B", "uom": "EA"}])
+    assert has_blocking_drift(drifts_b2) is False

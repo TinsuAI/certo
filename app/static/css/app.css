@@ -2180,6 +2180,18 @@ table.dh-table .mono { font-family: 'IBM Plex Mono', monospace; font-size: .85re
   transform: translateY(1px);
 }
 
+/* Disabled buttons must be visually distinct so staff knows the
+   action is blocked. Used by upload preview when uom_drift gates
+   confirm. */
+button:disabled, button[disabled],
+.btn-primary:disabled, .btn-primary[disabled],
+.btn-secondary:disabled, .btn-secondary[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.4);
+  pointer-events: none;
+}
+
 a.btn-secondary, .btn-secondary {
   text-decoration: none;
 }

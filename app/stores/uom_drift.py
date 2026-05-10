@@ -181,6 +181,18 @@ def compute_uom_drifts(client_id: str, rows: list[dict]) -> list[dict]:
                     "would_block": False,
                 }
 
+        # Phase 2 (2026-05-12): drop severity from cross-family WARN to
+        # info_family when an explicit override row resolves the
+        # conversion. Family difference is invariant; "warn" semantics
+        # is "no path to convert" — the path now exists, so no warn.
+        # Tier-A `unconfirmed_default` keeps severity warn (1:1 default
+        # is a guess, not a confirmation).
+        if (severity == "warn_cross_family"
+                and conversion is not None
+                and conversion.get("source") in (
+                    "client_specific", "client_wide", "global", "alias")):
+            severity = "info_family"
+
         out.append({
             "material_code": code,
             "source_uom": src_uom,
@@ -222,6 +234,19 @@ def _format_message(severity: str, code: str, src_uom: str,
 
 
 def has_blocking_drift(drifts: list[dict]) -> bool:
-    """True if any drift requires staff acknowledgement before
-    confirm. Used by upload preview to gate the confirm button."""
-    return any(d["severity"] == "warn_cross_family" for d in drifts)
+    """True if any drift requires staff acknowledgement before confirm.
+    Phase 2 (2026-05-12): blocks only when conversion has no path
+    (would_block=True OR no conversion plan computed at all).
+    Same-family / alias / unconfirmed_default / client-override paths
+    don't block — they convert (or default 1:1 with warning badge)."""
+    for d in drifts:
+        conv = d.get("conversion")
+        if conv is None:
+            # No conversion path computed (catalog UoM null OR alias
+            # missing) AND severity is cross-family → genuine block.
+            if d.get("severity") == "warn_cross_family":
+                return True
+            continue
+        if conv.get("would_block"):
+            return True
+    return False

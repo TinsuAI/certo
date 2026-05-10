@@ -111,7 +111,10 @@ Per-module wrapper templates `{% extends %}` this and override:
     <input type="hidden" name="skipped_count" value="{{ skipped_count }}">
     <button type="submit"
             formaction="{{ list_url }}/preview/{{ pending_id }}/confirm"
-            class="btn-primary">
+            class="btn-primary"
+            {% if uom_drift_blocks_confirm %}
+              title="Có drift khác họ chưa có hệ số quy đổi — tick checkbox bên dưới hoặc thêm hệ số trước khi lưu"
+            {% endif %}>
       Lưu {{ summary.total }} dòng
     </button>
     <button type="submit"
