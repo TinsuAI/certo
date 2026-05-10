@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Xem trước Refresh · {{ artifact.product_code }} #{{ artifact.artifact_no }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Xem trước Refresh
+        <span class="badge badge-info">{{ artifact.product_code }} #{{ artifact.artifact_no }}</span>
+      </h2>
+      <p class="meta">
+        Hệ thống sẽ chạy lại derive với UoM hiện tại của catalog +
+        các hệ số trong <a href="/clients/{{ client.client_id }}/uom-factors">/uom-factors</a>.
+        Kế hoạch dưới đây <strong>chưa</strong> ghi DB — bấm
+        <strong>Xác nhận Refresh</strong> để commit.
+      </p>
+      <p class="meta">
+        Strategy: <span class="mono">{{ plan.flatten_strategy }}</span>
+        · {{ plan.rows|length }} dòng
+        {% if plan.has_blocking %}
+          · <span class="badge badge-warn">có dòng blocked</span>
+        {% endif %}
+        {% if is_no_op %}
+          · <span class="badge badge-neutral">Refresh sẽ không thay đổi gì (same hash)</span>
+        {% endif %}
+      </p>
+    </div>
+    <div>
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}">Hủy</a>
+    </div>
+  </div>
+
+  {% if plan.skipped_reason %}
+  <div class="zone mini-panel" style="border-left:3px solid #888;">
+    <strong>Không có gì để refresh</strong> — lý do:
+    <span class="mono">{{ plan.skipped_reason }}</span>
+  </div>
+  {% else %}
+
+  <form method="post" action="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/refresh"
+        id="refresh-confirm-form" style="margin-top:1rem;">
+    <input type="hidden" name="confirm" value="1">
+
+    <table class="data-table" style="width:100%;">
+      <thead>
+        <tr>
+          <th>Dòng</th>
+          <th>Mã NVL</th>
+          <th>Qty (raw)</th>
+          <th>UoM (raw)</th>
+          <th></th>
+          <th>UoM (đích)</th>
+          <th>Hệ số</th>
+          <th>Nguồn</th>
+          <th>Trạng thái</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in plan.rows %}
+        <tr data-plan-row-status="{{ r.status }}">
+          <td>{{ r.row_index }}</td>
+          <td><span class="mono">{{ r.material_code or '—' }}</span></td>
+          <td>{{ r.source_qty }}</td>
+          <td><span class="mono">{{ r.source_uom or '—' }}</span></td>
+          <td>→</td>
+          <td><span class="mono">{{ r.target_uom or '—' }}</span></td>
+          <td>{{ r.factor or '—' }}</td>
+          <td>{{ r.factor_source or '—' }}</td>
+          <td>
+            {% if r.status == 'ready' %}
+              <span class="badge badge-success">sẵn sàng</span>
+            {% elif r.status == 'unconfirmed_default' %}
+              <span class="badge badge-warn" title="Tier A 1:1 default — agency cần xác nhận">mặc định 1:1</span>
+            {% elif r.status == 'blocked_no_factor' %}
+              <span class="badge badge-error">thiếu hệ số</span>
+            {% elif r.status == 'blocked_catalog_missing' %}
+              <span class="badge badge-error">thiếu catalog UoM</span>
+            {% else %}
+              <span class="badge">{{ r.status }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.status == 'blocked_no_factor' and r.material_code %}
+            <a class="btn-ghost" style="font-size:.85em;"
+               href="/clients/{{ client.client_id }}/uom-factors?prefill_material_code={{ r.material_code|urlencode }}#add-factor-form"
+               target="_blank">+ hệ số</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if has_unconfirmed %}
+    <div style="margin-top:.8em; padding:.6em .8em; background:#fff8e1; border-left:3px solid #f4a000;">
+      <label>
+        <input type="checkbox" name="ack_unconfirmed" value="1" required>
+        <strong>Tôi đã xem các dòng <em>mặc định 1:1</em></strong> — chấp nhận factor=1.0 cho các cặp UoM count↔assembly chưa được agency xác nhận.
+      </label>
+    </div>
+    {% endif %}
+
+    <div style="margin-top:1em; display:flex; gap:.6em;">
+      {% if is_no_op %}
+      <button type="submit" class="btn-primary">Xác nhận đã xem</button>
+      {% else %}
+      <button type="submit" class="btn-primary"
+              {% if plan.has_blocking %}disabled title="Còn dòng blocked — thêm hệ số trước"{% endif %}>
+        Xác nhận Refresh
+      </button>
+      {% endif %}
+      <button type="submit" class="btn-secondary" name="skip" value="1"
+              formnovalidate>
+        Bỏ qua (không refresh)
+      </button>
+    </div>
+  </form>
+
+  {% endif %}
+</section>
+
+{% endblock %}

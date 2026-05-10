@@ -595,6 +595,46 @@ async def preview_confirm(request: Request, client_id: str, pending_id: str):
     )
 
 
+@router.get("/clients/{client_id}/bom/artifact/{artifact_id}/refresh/preview",
+            response_class=HTMLResponse)
+async def refresh_preview(
+    request: Request, client_id: str, artifact_id: str,
+):
+    """Phase 3 G — show conversion plan before refresh commits.
+
+    Renders per-row plan (source UoM, target UoM, factor, factor source,
+    status) so staff can edit factors / skip / confirm. Pure GET; the
+    plan recomputes on every load (state may change between refreshes).
+
+    Spec: `.ai/features/2026-05-13-bom-refresh-preview/brief.md`.
+    """
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    from app.stores.bom_staleness import plan_refresh
+    try:
+        plan = plan_refresh(client_id, artifact_id)
+    except LookupError:
+        raise HTTPException(404, "Artifact not found in this client")
+    data = get_artifact_with_rows(artifact_id)
+    if not data:
+        raise HTTPException(404, "Artifact not found in this client")
+    artifact = data["artifact"]
+    is_no_op = (plan["would_be_hash"] is not None
+                and plan["would_be_hash"] == artifact["normalized_hash"])
+    has_unconfirmed = any(
+        r["status"] == "unconfirmed_default" for r in plan["rows"]
+    )
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/bom_refresh_preview.html",
+        {"client": client, "artifact": artifact, "plan": plan,
+         "is_no_op": is_no_op, "has_unconfirmed": has_unconfirmed,
+         "active_root": "clients", "active_tab": "bom"},
+    )
+
+
 @router.post("/clients/{client_id}/bom/artifact/{artifact_id}/refresh")
 async def refresh_artifact_route(
     request: Request, client_id: str, artifact_id: str,
