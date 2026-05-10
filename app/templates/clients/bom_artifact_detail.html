@@ -21,10 +21,8 @@
           <li><span class="mono">{{ r.dim }}</span> · {{ r.source_pk }} · {{ r.observed_at }}</li>
           {% endfor %}
         </ul>
-        <form method="post" action="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/refresh"
-              style="display:inline-block; margin-top:6px;">
-          <button type="submit" class="btn-secondary">{{ t('bom.stale.refresh') }}</button>
-        </form>
+        <a href="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/refresh/preview"
+           class="btn-secondary" style="display:inline-block; margin-top:6px;">{{ t('bom.stale.refresh') }}</a>
       </div>
       {% endif %}
 
@@ -79,10 +77,8 @@
           Đã phát sinh: {{ artifact.uom_drift_first_at.strftime('%Y-%m-%d %H:%M') if artifact.uom_drift_first_at else '—' }}
         </p>
         {% if artifact.flatten_strategy == 'manual_flat_as_provided' %}
-        <form method="post" action="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/refresh"
-              style="display:inline-block; margin-top:6px;">
-          <button type="submit" class="btn-secondary">Refresh (re-convert UoM)</button>
-        </form>
+        <a href="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/refresh/preview"
+           class="btn-secondary" style="display:inline-block; margin-top:6px;">Refresh (re-convert UoM)</a>
         {% endif %}
       </div>
       {% endif %}
