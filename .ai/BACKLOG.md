@@ -805,73 +805,41 @@ shipped; below are nice-to-haves deferred:
 Programmatic data-ops scripts driven by client onboarding + clean-up
 needs.
 
-## F.1 Johnson programmatic bulk re-ingest plan
+## F.1 Growatt programmatic bulk re-ingest
 
-**Captured 2026-05-11**. Memory `project_reingest_pending.md` ghi
-"Wipe + ingest fresh queued — pre-MVP reset" cho Growatt + Johnson.
-User request lên kế hoạch concrete cho Johnson (programmatic, không
-click UI hàng trăm sản phẩm).
+**Captured 2026-05-13** (carry-over from Johnson F.1, now shipped —
+see "Shipped" section below). Memory `project_reingest_pending.md`
+still lists Growatt as pending.
 
-**Mục tiêu:** sau khi Phase 2 UoM conversion + Phase 3 follow-ups
-ship (DONE 2026-05-12 + 2026-05-13), wipe Johnson hoàn toàn rồi
-re-ingest từ source XLSX qua script tự động. Lý do wipe: 246 TP × 3
-shape × tích lũy stale flag + legacy edits → cleaner restart.
-
-**Scope script `scripts/bulk_reingest_johnson.py`:**
-
-1. **Wipe phase** (transactional, dry-run by default):
-   - Identify all `bom_artifacts` + `bom_edges` + `bom_artifact_rows`
-     + `bom_audit_events` + `bom_presets` for `client_id='johnson-vn'`.
-   - Optional: keep `materials` + `code_mappings` + `client_parser_rules`
-     (HQ-data tier, manually curated).
-   - Print counts before delete (`--commit` to actually run).
-   - Tombstone-delete vs hard-delete: hard-delete nếu pre-MVP, tombstone
-     nếu đã có customer expecting history.
-
-2. **Ingest phase** (idempotent, retry-safe):
-   - Walk source directory (e.g. `~/data/johnson/bom_xlsx/`).
-   - Per file: detect adapter (likely `multi_sheet_per_root` cho
-     Johnson 246 TP), parse, ingest qua programmatic call (bypass
-     upload UI, dùng store directly hoặc internal API endpoint).
-   - Run post_ingest_hooks (derive_btp_shallows) ngay sau mỗi raw
-     ingest.
-   - Materialize shallow + full_flat per product (qua flatten engine
-     post-Phase 2 — KHÔNG dùng raw SQL bypass).
-   - Apply UoM conversion với confirmed factors từ
-     `client_uom_overrides` table (đã setup pre-bulk).
-   - Log mỗi product: ingested artifact_id, factors used, drift
-     warnings, conversion events.
-
-3. **Verification phase**:
-   - Compare `n_artifacts` per product trước/sau (expect 3 per phiên
-     bản: raw + shallow + full_flat).
-   - Compare lineage_root_id distinct count.
-   - Run smoke queries (e.g. random product → expect bom_artifact_rows
-     non-empty với UoM = catalog UoM).
-   - Generate diff report: pre-wipe vs post-ingest qty totals
-     (should match within UoM-conversion tolerance).
+**Plan:** apply the same pattern Johnson followed (commits `11ea9bd`
++ `dcc6216` + `cac2bcb` + `e7578bf`) — wipe + re-ingest BCCT + BOM
+from source XLSX via existing scripts, then run post-ingest hooks.
 
 **Pre-requisites:**
-- Phase 2 UoM conversion engine đã ship ✓ (script call flatten engine).
-- `client_uom_overrides` populated với factor cho cross-family cases
-  (cần data từ Johnson supplier sheet — agency Q&A pending).
-- Source XLSX inventory complete (xác định bao nhiêu file, structure).
-- Backup hiện tại trước khi wipe (pg_dump + bom_edges export).
+- ✓ Phase 2 UoM conversion shipped.
+- ✓ Adapter post-ingest hooks (derive_btp_shallows + materialize_shapes)
+  registered for `multi_sheet_per_root` + `sap_indented_walk`.
+- Growatt source XLSX inventory complete (already on disk per Phase 0
+  Johnson playbook; verify path).
+- `client_uom_overrides` factors for Growatt (if any cross-family cases).
+- pg_dump backup before wipe.
 
-**Cross-impact:**
-- BCQT projects pointing to Johnson — check no in-flight settlement
-  references soon-to-be-wiped artifact_ids.
-- CO certificates referencing Johnson BOMs — same.
+**Procedure (mirror Johnson):**
+1. `scripts/setup_clients_for_reingest.py --client growatt-vn` —
+   cascade DELETE.
+2. BCCT ingest via `scripts/ingest_*.py` equivalent (or write a
+   `ingest_growatt_real.py` parallel to `ingest_johnson_real.py`).
+3. BOM ingest via `scripts/ingest_technical_raw_batch.py`.
+4. Post-BOM catalog fixup if needed (similar to
+   `fixup_johnson_btp_sx_after_bom.py`).
+5. Verify Growatt v1 ≡ v2 lvl-1 rollup invariant (memory
+   `project_growatt_bom_v1_v2_equivalence.md`).
 
-**Effort estimate:**
-- Script: 2-3d (wipe + ingest + verify).
-- Source XLSX inventory + factor data prep: 1-2d (manual).
-- Pre-wipe coordination với BCQT/CO consumers: 0.5d.
-- Run + verify: 0.5d (1 dry-run + 1 commit).
-- **Total: ~1 week** (Phase 2 done; Johnson factor population pending).
+**Effort:** ~0.5-1 day (most infra already exists; adapt Johnson
+scripts).
 
-**Pattern reusable:** sau Johnson, apply same script template cho
-Growatt + future clients. Generalize qua `--client` argument.
+**Generalize:** after Growatt, fold both into a single
+`scripts/bulk_reingest.py --client <id>` with `--client` arg.
 
 ---
 
@@ -972,6 +940,42 @@ extended to 4 values. Memory `project_bom_3_shapes.md` updated.
 UI/template/i18n only — code/DB/API stay `tombstone`. Mapping:
 catalog material → "đã loại"; BOM artifact lineage / replace → "đã
 thay thế"; preset retract → "thu hồi". 9 files edited.
+
+## Johnson programmatic bulk re-ingest — SHIPPED 2026-05-11
+
+Originally captured here as F.1 (programmatic plan, ~1 week). Shipped
+in session 2026-05-11 via 4 existing scripts rather than a single
+`bulk_reingest_johnson.py` tool. Commits `11ea9bd` + `dcc6216` +
+`cac2bcb` + `e7578bf`. Session log:
+`.ai/sessions/2026-05-11-johnson-onboarding-ship.md`.
+
+**What landed:**
+- Wipe: `scripts/setup_clients_for_reingest.py` — cascade DELETE from
+  `hub.clients`, recreated client row.
+- BCCT ingest: `scripts/ingest_johnson_real.py` →
+  NK 60,173 + XK 5,673 = 65,846 rows / 37s.
+- BOM ingest: `scripts/ingest_technical_raw_batch.py` — 106
+  SAP-exploded XLSX → 27,848 raw edges across 106 TP raw_graphs.
+- Post-BOM catalog fixup:
+  `scripts/fixup_johnson_btp_sx_after_bom.py` — inserted 2,615
+  missing BTP_SX (`source='bom_observed'`) + reclassified 416
+  `nvl→btp_sx`.
+- Post-ingest hooks (`derive_btp_shallows` + `materialize_shapes`)
+  ran via adapter registry.
+
+**Bugs caught + fixed during verification:**
+- BTP artifact bloat (8,837 → 3,337, 2.6× reduction): BTP slice
+  edges preserved TP-context fields (`level`, `node_path`,
+  `source_row_no`, `sheet_name`) so identical slices under different
+  parents produced different `normalized_edges_hash` → no dedup. Fix
+  in `derive_btp_shallows._subtree_edges`. Also passed
+  `parent_artifact_id=None` to bypass per-TP dedup fragmentation.
+- UI hook resolution gap: `parse_raw_edges_with_fallback` returned
+  adapter names (`sap_indented_raw`, `growatt_factory_technical`)
+  not registered in `bom_adapters._REGISTRY`. Fixed via
+  `_LEGACY_ALIASES` mapping → silent no-op hooks now fire.
+
+**Growatt remains pending** — see F.1 in open backlog.
 
 ---
 
