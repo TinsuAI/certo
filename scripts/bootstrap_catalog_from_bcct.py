@@ -51,22 +51,22 @@ select b.customs_code, b.direction, b.goods_name, b.unit, b.hs_code, b.decl_coun
        (b.customs_code in (select product_code from has_bom)) as has_bom,
        coalesce(c.category, '<none>') as existing_category
 from bcct_codes b
-left join in_catalog c on c.customs_code = b.customs_code
+left join in_catalog c on c.material_code = b.customs_code
 order by b.direction, b.customs_code
 """
 
 
 INSERT_SQL = """
 insert into hub.materials
-  (client_id, customs_code, internal_code, name, category, status, unit, hs_code,
-   provenance)
-values (%(client_id)s, %(code)s, %(code)s, %(name)s, %(category)s, 'active',
-        %(unit)s, %(hs_code)s,
+  (client_id, material_code, name, category, status, unit, hs_code,
+   source, provenance)
+values (%(client_id)s, %(code)s, %(name)s, %(category)s, 'active',
+        %(unit)s, %(hs_code)s, 'bcct_observed',
         jsonb_build_object('seen_in_bcct',
           jsonb_build_object('first_seen', to_char(now(),'YYYY-MM-DD'),
                               'decl_count', %(decl_count)s::int,
                               'directions', %(directions)s::jsonb)))
-on conflict (client_id, customs_code) do update set
+on conflict (client_id, material_code) do update set
   provenance = hub.materials.provenance ||
     jsonb_build_object('seen_in_bcct',
       jsonb_build_object(
