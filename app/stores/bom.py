@@ -16,23 +16,28 @@ from app.flatten.types import CatalogEntry, ParsedBom, ParsedRow
 from app.stores import flatten_decisions as decisions_store
 
 
-BomShape = Literal["raw_graph", "shallow", "full_flat"]
+BomShape = Literal["raw_graph", "manual_flat", "shallow", "full_flat"]
 
 
 def bom_shape(flatten_status: str, flatten_strategy: str) -> BomShape:
-    """Derive the v3 3-shape concept from existing flatten_status + flatten_strategy.
+    """Derive the v3 4-shape concept from flatten_status + flatten_strategy.
 
     - raw_graph: edges-only graph stored in hub.bom_edges (non_flattened).
-    - shallow: flat rows where leaves may be NVL or BTP (BTP-boundary).
-    - full_flat: flat rows where every leaf is NVL (BTPs fully exploded).
+    - manual_flat: agency uploaded a flat BOM directly; rows ARE leaves,
+      no walker involved (source artifact, not derived).
+    - shallow: derived — walker stopped at first leaf (BTP or NVL).
+    - full_flat: derived — walker exploded every BTP until every leaf
+      is NVL.
 
     Lives as a derivation, not a stored column, to avoid schema redundancy
     with flatten_status + flatten_strategy. Use this helper anywhere the
-    semantic 3-shape framing is clearer than the underlying columns.
+    semantic 4-shape framing is clearer than the underlying columns.
     """
     if flatten_status == "non_flattened":
         return "raw_graph"
-    if flatten_strategy in ("manual_flat_as_provided", "purchased_btp_as_leaf"):
+    if flatten_strategy == "manual_flat_as_provided":
+        return "manual_flat"
+    if flatten_strategy == "purchased_btp_as_leaf":
         return "shallow"
     if flatten_strategy in ("technical_exploded", "self_produced_btp_exploded"):
         return "full_flat"

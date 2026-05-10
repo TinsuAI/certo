@@ -41,7 +41,12 @@ upload friction.
 
 ---
 
-## Re-evaluate "shallow" shape for manual_flat artifacts
+## Re-evaluate "shallow" shape for manual_flat artifacts — SHIPPED 2026-05-13
+
+Implemented Option 1 (4-shape model). `bom_shape()` now returns
+`manual_flat` distinct from `shallow` for `manual_flat_as_provided`
+strategy. Macro + memory + tests updated. Original capture preserved
+below for context.
 
 **Captured 2026-05-12** during Phase 2 testing. User: "phải review lại
 cái shape của manual_flat, để là 'shallow' dễ gây hiểu nhầm."

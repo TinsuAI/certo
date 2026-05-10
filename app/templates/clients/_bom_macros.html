@@ -4,9 +4,12 @@
 {%- if shape == 'raw_graph' -%}
 <span class="badge badge-shape-raw-graph"
       title="Raw graph: lưu nguyên parent→child edges, chưa decompose">raw_graph</span>
+{%- elif shape == 'manual_flat' -%}
+<span class="badge badge-shape-manual-flat"
+      title="Manual flat: agency cung cấp BOM phẳng sẵn (source artifact, rows chính là leaves, không decompose thêm). Khác với shallow — đây là source, không phải derived.">manual_flat</span>
 {%- elif shape == 'shallow' -%}
 <span class="badge badge-shape-shallow"
-      title="Shallow: dừng ở leaf đầu tiên (BTP hoặc NVL).{% if strategy == 'manual_flat_as_provided' %} Manual_flat = agency cung cấp BOM phẳng sẵn (rows chính là leaves), không decompose thêm.{% endif %}">shallow{% if strategy == 'manual_flat_as_provided' %} <small>(manual_flat)</small>{% endif %}</span>
+      title="Shallow: derived artifact — walker dừng ở leaf đầu tiên (BTP hoặc NVL).">shallow</span>
 {%- elif shape == 'full_flat' -%}
 <span class="badge badge-shape-full-flat"
       title="Full flat: walked đến NVL leaf chân cùng, không có BTP intermediate">full_flat</span>
