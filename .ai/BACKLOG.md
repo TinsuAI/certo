@@ -8,7 +8,49 @@ For past architectural decisions, see `DECISIONS.md`.
 
 ---
 
-## BOM dependency staleness / invalidation
+## UI rename "tombstone" → friendly Vietnamese terms (UI-only)
+
+**Captured 2026-05-12** trong session Phase 2 UoM step 2. User
+feedback: "tombstone" trong UI khó hiểu cho staff agency (customs
+broker), tiếng Anh chuyên ngành kỹ thuật.
+
+**Scope: UI/template/i18n rename only.** KHÔNG đổi DB columns, code
+identifiers, hoặc API contracts.
+
+**Lý do giữ code-level "tombstone":**
+- Semantic distinction với `materials.status='inactive'` (tạm ngưng,
+  reversible) vs `'tombstoned'` (vĩnh viễn, immutable principle) —
+  rename thành "deactivate" sẽ conflate 2 state khác nhau.
+- Sister apps (BCQT, CO) coordinate qua API field names — code-level
+  rename = breaking change cross-repo.
+- Industry term cho soft-delete-with-audit-history. Memory
+  `project_bom_immutable_principle.md` đã encode principle theo
+  "tombstone" terminology.
+
+**UI mapping đề xuất (Vietnamese):**
+
+| Code state | UI label (VN) | Context |
+|---|---|---|
+| Button action | "⌫ Loại khỏi danh mục" / "⌫ Thay thế" | Action button (catalog, preset) |
+| Status badge | "đã loại" / "đã thay thế" | List page badge |
+| Lineage marker | "đã thay thế bởi v.X" | BOM lineage view |
+| Confirm dialog | "Loại mã khỏi danh mục? (Lưu lịch sử, không xóa thật.)" | onsubmit confirm |
+| Detail field label | "Thời điểm loại" / "Lý do loại" | bom_artifact_detail |
+
+**File touchpoints (~12 files):**
+- `app/templates/clients/bom_presets.html` (button + confirm)
+- `app/templates/clients/catalog_material_edit.html` (status select)
+- `app/templates/clients/catalog_detail.html` (button + badge + status select)
+- `app/templates/clients/catalog.html` (badge + tooltip)
+- `app/templates/clients/bom_artifact_detail.html` (field labels)
+- `app/templates/clients/_bom_macros.html` (lineage marker)
+- `app/i18n.py` — add new keys `bom.lifecycle.removed`,
+  `catalog.action.tombstone_button`, etc.
+
+**Effort**: ~4-6h UI text edit + i18n keys + screenshot regen.
+
+**Bring back when:** ai có bandwidth UI polish, hoặc khi customer
+agency feedback về terminology.
 
 **Captured 2026-05-10** trong session BOM vocab + 3-shape audit
 (`.ai/features/2026-05-10-bom-vocab-3shape-uom-gate/brief.md`,
