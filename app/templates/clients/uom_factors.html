@@ -39,56 +39,65 @@
         <th>Khác họ?</th>
         <th>Nguồn</th>
         <th>Ghi chú</th>
-        {% if can_edit %}<th>Thao tác</th>{% endif %}
+        {% if can_edit %}<th></th>{% endif %}
       </tr>
     </thead>
     <tbody>
       {% for f in factors %}
       <tr>
-        <td class="mono">{{ f.material_code or '— (client-wide)' }}</td>
-        <td>{{ f.material_name or '' }}</td>
-        <td class="mono">{{ f.from_uom }}</td>
-        <td class="mono">{{ f.to_uom }}</td>
-        <td class="mono">{{ f.factor }}</td>
-        <td>
-          {% if f.is_cross_family %}
-            <span class="badge badge-warning">khác họ</span>
-          {% else %}
-            <span class="badge">cùng họ</span>
-          {% endif %}
-        </td>
-        <td><span class="badge">{{ f.source }}</span></td>
-        <td>{{ f.notes or '' }}</td>
         {% if can_edit %}
-        <td>
-          <details class="inline-details">
-            <summary>sửa</summary>
-            <form method="post"
-                  action="/clients/{{ client.client_id }}/uom-factors/update"
-                  style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
-              <input type="hidden" name="material_code" value="{{ f.material_code or '' }}">
-              <input type="hidden" name="from_uom" value="{{ f.from_uom }}">
-              <input type="hidden" name="to_uom" value="{{ f.to_uom }}">
-              <input type="text" name="factor" value="{{ f.factor }}" required style="width:90px">
-              <select name="source">
-                {% for s in valid_sources %}
-                <option value="{{ s }}" {% if s == f.source %}selected{% endif %}>{{ s }}</option>
-                {% endfor %}
-              </select>
-              <input type="text" name="notes" value="{{ f.notes or '' }}" placeholder="ghi chú">
-              <button type="submit">Lưu</button>
-            </form>
-          </details>
-          <form method="post"
-                action="/clients/{{ client.client_id }}/uom-factors/delete"
-                style="display:inline"
-                onsubmit="return confirm('Xóa hệ số này?')">
-            <input type="hidden" name="material_code" value="{{ f.material_code or '' }}">
-            <input type="hidden" name="from_uom" value="{{ f.from_uom }}">
-            <input type="hidden" name="to_uom" value="{{ f.to_uom }}">
-            <button type="submit" class="btn-ghost">⌫</button>
-          </form>
-        </td>
+        <form method="post" action="/clients/{{ client.client_id }}/uom-factors/update" style="display:contents">
+          <input type="hidden" name="material_code" value="{{ f.material_code or '' }}">
+          <input type="hidden" name="from_uom" value="{{ f.from_uom }}">
+          <input type="hidden" name="to_uom" value="{{ f.to_uom }}">
+          <td class="mono">{{ f.material_code or '— (client-wide)' }}</td>
+          <td>{{ f.material_name or '' }}</td>
+          <td class="mono">{{ f.from_uom }}</td>
+          <td class="mono">{{ f.to_uom }}</td>
+          <td><input type="text" name="factor" value="{{ f.factor }}" required style="width:110px;font-family:monospace"></td>
+          <td>
+            {% if f.is_cross_family %}
+              <span class="badge badge-warning">khác họ</span>
+            {% else %}
+              <span class="badge">cùng họ</span>
+            {% endif %}
+          </td>
+          <td>
+            <select name="source" style="max-width:140px">
+              {% for s in valid_sources %}
+              <option value="{{ s }}" {% if s == f.source %}selected{% endif %}>{{ s }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td><input type="text" name="notes" value="{{ f.notes or '' }}" style="width:100%;min-width:140px"></td>
+          <td style="white-space:nowrap">
+            <button type="submit" class="btn-primary" title="Lưu thay đổi dòng này">💾</button>
+        </form>
+        <form method="post"
+              action="/clients/{{ client.client_id }}/uom-factors/delete"
+              style="display:inline"
+              onsubmit="return confirm('Xóa hệ số này?')">
+          <input type="hidden" name="material_code" value="{{ f.material_code or '' }}">
+          <input type="hidden" name="from_uom" value="{{ f.from_uom }}">
+          <input type="hidden" name="to_uom" value="{{ f.to_uom }}">
+          <button type="submit" class="btn-ghost" title="Xóa">⌫</button>
+        </form>
+          </td>
+        {% else %}
+          <td class="mono">{{ f.material_code or '— (client-wide)' }}</td>
+          <td>{{ f.material_name or '' }}</td>
+          <td class="mono">{{ f.from_uom }}</td>
+          <td class="mono">{{ f.to_uom }}</td>
+          <td class="mono">{{ f.factor }}</td>
+          <td>
+            {% if f.is_cross_family %}
+              <span class="badge badge-warning">khác họ</span>
+            {% else %}
+              <span class="badge">cùng họ</span>
+            {% endif %}
+          </td>
+          <td><span class="badge">{{ f.source }}</span></td>
+          <td>{{ f.notes or '' }}</td>
         {% endif %}
       </tr>
       {% endfor %}
@@ -137,19 +146,29 @@
 </section>
 
 <section class="card">
-  <h2>Import CSV</h2>
+  <h2>Import từ file</h2>
   <p class="muted">
-    Header bắt buộc: <code>material_code,from_uom,to_uom,factor</code>
-    (cộng tùy chọn <code>notes</code>). Để trống <code>material_code</code> = client-wide override.
-    Encoding UTF-8.
+    Hỗ trợ <strong>CSV (UTF-8)</strong> và <strong>Excel (.xlsx / .xlsm)</strong>.
+    Cột bắt buộc: <code>material_code</code>, <code>from_uom</code>, <code>to_uom</code>, <code>factor</code>
+    (tùy chọn <code>notes</code>). Để trống <code>material_code</code> = client-wide override.
+  </p>
+  <p>
+    <a class="btn-secondary"
+       href="/clients/{{ client.client_id }}/uom-factors/template.xlsx"
+       download>
+      ⬇ Tải template XLSX
+    </a>
+    <span class="muted" style="margin-left:8px;font-size:0.85em">
+      Template có 2 sheet (dữ liệu + Hướng dẫn).
+    </span>
   </p>
   <form method="post"
-        action="/clients/{{ client.client_id }}/uom-factors/import-csv"
+        action="/clients/{{ client.client_id }}/uom-factors/import"
         enctype="multipart/form-data"
         style="display:flex;gap:8px;align-items:end">
     <label>
-      File CSV<br>
-      <input type="file" name="csv_file" accept=".csv,text/csv" required>
+      File CSV/Excel<br>
+      <input type="file" name="upload" accept=".csv,.xlsx,.xlsm,text/csv" required>
     </label>
     <label>
       Nguồn (áp cho cả file)<br>

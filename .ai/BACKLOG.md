@@ -8,6 +8,83 @@ For past architectural decisions, see `DECISIONS.md`.
 
 ---
 
+## Unified import UX across all data-import surfaces
+
+**Captured 2026-05-12** during Phase 2 step 7 admin UI rollout. User
+feedback: import flow của UoM-factors cần consistent với mọi surface
+import dữ liệu khác (BCCT, BOM, Catalog, parser rules, code mappings,
+declaration types, client-type-presets, ...). Hiện tại mỗi feature
+implement import riêng → UX divergent.
+
+**Common pattern phải có** ở mọi import surface:
+
+1. **Download template button** (XLSX or CSV). Template generated
+   on-the-fly từ store helper, có sample rows + sheet "Hướng dẫn".
+   Giúp staff biết schema chính xác.
+2. **Multi-format upload** (CSV + XLSX/.xlsm). Auto-detect by
+   filename suffix. Both encode same column contract.
+3. **Validation feedback**: row-level errors with row number + reason,
+   capped to 20 displayed errors. "X inserted, Y failed — row N: ...".
+4. **Idempotent semantic**: same source data, re-upload = no-op
+   (upsert on PK).
+5. **Source enum tagging**: each imported row gets tagged with
+   `source='imported'` (or feature-specific) so audit trail
+   distinguishes manual vs bulk.
+6. **Confirm-before-write** pattern (matches BOM/BCCT preview-confirm
+   flow): show "X rows will be added/updated, Y skipped" preview before
+   committing. Currently UoM-factors imports immediately — this is OK
+   for low-risk reference data but must change for higher-stakes
+   imports.
+7. **Audit trail per import**: who, when, file name + size, summary
+   counts. Persisted to existing audit table.
+
+**Inventory of import surfaces today** (audit needed):
+
+| Feature | Status | Format | Template | Audit |
+|---|---|---|---|---|
+| BCCT upload | ✓ via parser | xlsx | — | upload_pending |
+| BOM upload | ✓ via parser | xlsx | — | upload_pending |
+| Catalog (DS DK HQ) | ✓ via parser | xlsx | — | upload_pending |
+| `client_uom_overrides` | ✓ Phase 2 step 7 | csv + xlsx | ✓ | factor source enum |
+| `client_parser_rules` | ? | — | — | — |
+| `code_mappings` | ? | — | — | — |
+| `declaration_types` | ? | — | — | — |
+| `materials.uom` aliases | ? | — | — | — |
+
+**Effort:** ~1 week. Sub-tasks:
+
+1. **Audit + document existing import surfaces** (~0.5d). Walk each
+   route + identify gaps vs the 7-point pattern.
+2. **Design unified `ImportFlow` helper** at
+   `app/stores/import_flow.py` (~2d). Generic CSV/XLSX parser with
+   pluggable validation + commit functions. Each feature plugs in
+   schema declarations.
+3. **Refactor existing imports** to use the helper (~2d). Order:
+   easiest wins first.
+4. **Template generation convention**: each feature exposes
+   `render_template_xlsx() -> bytes` returning an in-memory XLSX with
+   header + sample rows + Hướng dẫn sheet. Endpoint at
+   `/clients/{id}/<feature>/template.xlsx` or
+   `/admin/<feature>/template.xlsx`.
+5. **Unified UX template snippet** (`_import_form.html`) — Jinja2
+   include rendering Download Template + File Upload + Source select +
+   Submit, parametrized. Each feature uses it.
+
+**Why deferred:**
+- Phase 2 step 7 shipped a working CSV+XLSX import for one feature.
+- The unified pattern requires understanding all current imports
+  first — premature without that audit.
+- Other features may have specific quirks (BCCT preview-confirm flow,
+  parser-rules diff editor) that don't fit the simple-import pattern.
+
+**Bring back when:**
+- Ai polish bandwidth.
+- Or when adding a new import surface (do it right from start).
+- Or after first customer ramps and import-flow inconsistency causes
+  staff confusion.
+
+---
+
 ## UI rename "tombstone" → friendly Vietnamese terms (UI-only)
 
 **Captured 2026-05-12** trong session Phase 2 UoM step 2. User

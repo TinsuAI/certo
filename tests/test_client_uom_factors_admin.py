@@ -261,13 +261,79 @@ def test_csv_import_via_http(http):
                   b"M_CSV1,EA,KG,0.5,first\n"
                   b"M_CSV2,EA,SETS,4,second\n")
     r = http.post(
-        f"/clients/{CLIENT}/uom-factors/import-csv",
-        files={"csv_file": ("test.csv", io.BytesIO(csv_bytes), "text/csv")},
+        f"/clients/{CLIENT}/uom-factors/import",
+        files={"upload": ("test.csv", io.BytesIO(csv_bytes), "text/csv")},
         data={"source": "imported"})
     assert r.status_code == 303
-    # URL-encoded location query string
     loc = r.headers["location"]
     assert "import%20ok" in loc or "import ok" in loc
     assert "2%20inserted" in loc or "2 inserted" in loc
     rows = factors.list_factors(CLIENT)
     assert {r["material_code"] for r in rows} == {"M_CSV1", "M_CSV2"}
+
+
+def test_xlsx_import_via_http(http):
+    """Phase 2 step 2 follow-up: XLSX import alongside CSV."""
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["material_code", "from_uom", "to_uom", "factor", "notes"])
+    ws.append(["M_XLSX1", "EA", "KG", 0.5, "from xlsx 1"])
+    ws.append(["M_XLSX2", "EA", "SETS", 4, "from xlsx 2"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    r = http.post(
+        f"/clients/{CLIENT}/uom-factors/import",
+        files={"upload": ("test.xlsx", buf,
+                          "application/vnd.openxmlformats-officedocument."
+                          "spreadsheetml.sheet")},
+        data={"source": "imported"})
+    assert r.status_code == 303
+    rows = factors.list_factors(CLIENT)
+    assert {r["material_code"] for r in rows} == {"M_XLSX1", "M_XLSX2"}
+
+
+def test_template_download(http):
+    r = http.get(f"/clients/{CLIENT}/uom-factors/template.xlsx")
+    assert r.status_code == 200
+    assert "spreadsheetml.sheet" in r.headers["content-type"]
+    assert "uom-factors-template" in r.headers["content-disposition"]
+    # Verify the bytes are a valid xlsx
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(r.content), read_only=True)
+    assert "uom-factors" in wb.sheetnames
+    # Header in first sheet row 1.
+    ws = wb["uom-factors"]
+    headers = [c.value for c in next(ws.iter_rows(max_row=1))]
+    assert "material_code" in headers
+    assert "from_uom" in headers
+    assert "factor" in headers
+    wb.close()
+
+
+def test_xlsx_import_helper_directly():
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["material_code", "from_uom", "to_uom", "factor"])
+    ws.append(["M_HELPER", "EA", "KG", 0.7])
+    buf = io.BytesIO()
+    wb.save(buf)
+    result = factors.import_xlsx(
+        client_id=CLIENT, xlsx_bytes=buf.getvalue(), source="imported")
+    assert result["inserted"] == 1
+    assert result["failed"] == 0
+
+
+def test_xlsx_import_rejects_missing_columns():
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["material_code", "from_uom"])  # missing to_uom + factor
+    ws.append(["M1", "EA"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    with pytest.raises(factors.FactorError) as exc_info:
+        factors.import_xlsx(client_id=CLIENT, xlsx_bytes=buf.getvalue())
+    assert "missing required columns" in str(exc_info.value)

@@ -11,6 +11,12 @@
       <p class="meta">{{ t('bom.subtitle') }}</p>
     </div>
     <div class="page-actions">
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom/stale">
+        ⚠ Cần xử lý
+      </a>
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/uom-factors">
+        Hệ số quy đổi
+      </a>
       <a class="btn-primary" href="/clients/{{ client.client_id }}/bom/upload">{{ t('bom.upload_btn') }}</a>
     </div>
   </div>

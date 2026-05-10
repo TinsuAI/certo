@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}BOM cần refresh · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="page-bar">
+  <h1>BOM cần xử lý ({{ rows|length }})</h1>
+  <span class="page-tagline">
+    Tất cả BOM artifacts đang stale (cần Refresh) hoặc có UoM drift (cần
+    re-upload). Sắp xếp theo thời điểm phát sinh stale/drift mới nhất.
+  </span>
+  <div class="page-actions">
+    <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom">← BOM list</a>
+  </div>
+</section>
+
+{% if not rows %}
+<div class="zone mini-panel">
+  <p>Không có BOM artifact nào đang stale hoặc drift. 🎉</p>
+</div>
+{% else %}
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>Mã sản phẩm</th>
+      <th>Loại</th>
+      <th>Strategy</th>
+      <th>Stale</th>
+      <th>UoM drift</th>
+      <th>Phát sinh</th>
+      <th>Thao tác</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td>
+        <a href="/clients/{{ client.client_id }}/bom/{{ r.product_code }}/artifacts">
+          <code>{{ r.product_code }}</code>
+        </a>
+      </td>
+      <td>
+        {% if r.is_source %}
+          <span class="badge">nguồn</span>
+        {% else %}
+          <span class="badge badge-info">derived</span>
+        {% endif %}
+        <small style="color:#666">{{ r.source_bom_kind }}</small>
+      </td>
+      <td><small>{{ r.flatten_strategy }}</small></td>
+      <td>
+        {% if r.is_stale %}
+          <span class="badge badge-warning">stale</span>
+          <small style="color:#666">{{ r.stale_dims | join(', ') }}</small>
+        {% endif %}
+      </td>
+      <td>
+        {% if r.has_uom_drift %}
+          <span class="badge badge-warning" style="background:#fde">drift</span>
+          <small style="color:#666">{{ r.drift_dims | join(', ') }}</small>
+        {% endif %}
+      </td>
+      <td>
+        <small>
+          {%- if r.stale_first_at -%}
+            stale @ {{ r.stale_first_at.strftime('%Y-%m-%d %H:%M') }}<br>
+          {%- endif -%}
+          {%- if r.uom_drift_first_at -%}
+            drift @ {{ r.uom_drift_first_at.strftime('%Y-%m-%d %H:%M') }}
+          {%- endif -%}
+        </small>
+      </td>
+      <td>
+        <a class="btn-ghost"
+           href="/clients/{{ client.client_id }}/bom/artifact/{{ r.artifact_id }}">
+          Xem
+        </a>
+        {% if can_edit %}
+          {% if r.is_source %}
+            <small style="color:#999">(re-upload)</small>
+          {% else %}
+            <form method="post"
+                  action="/clients/{{ client.client_id }}/bom/artifact/{{ r.artifact_id }}/refresh"
+                  style="display:inline">
+              <button type="submit" class="btn-primary">Refresh</button>
+            </form>
+          {% endif %}
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if can_edit %}
+<p class="muted" style="margin-top:1em">
+  • <strong>Stale derived</strong> (technical_exploded / purchased_btp_as_leaf):
+  click <em>Refresh</em> để re-derive từ raw + catalog UoM hiện tại.<br>
+  • <strong>UoM drift trên source</strong> (manual_flat / raw_graph): cần re-upload
+  BOM hoặc edit catalog UoM cho khớp với raw — không refresh được.
+</p>
+{% endif %}
+{% endif %}
+
+{% endblock %}

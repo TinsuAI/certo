@@ -599,6 +599,67 @@ async def refresh_artifact_route(
     )
 
 
+@router.get("/clients/{client_id}/bom/stale", response_class=HTMLResponse)
+async def list_stale(request: Request, client_id: str):
+    """List all stale BOM artifacts for this client.
+
+    Phase 2 step 5 follow-up: dedicated view so staff can find what
+    needs refresh without scrolling per-product. Surfaces is_stale +
+    has_uom_drift signals across artifacts. Filter: tombstoned
+    excluded; published only.
+    """
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    can_edit = auth.can_edit_client(user, client_id)
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            select artifact_id, product_code, flatten_strategy,
+                   source_bom_kind, is_stale, stale_reasons,
+                   stale_first_at, has_uom_drift, uom_drift_reasons,
+                   uom_drift_first_at, published_at
+            from hub.bom_artifacts
+            where client_id=%s
+              and tombstoned_at is null
+              and status='published'
+              and (is_stale = true or has_uom_drift = true)
+            order by coalesce(stale_first_at, uom_drift_first_at) desc,
+                     product_code, artifact_id
+            """,
+            (client_id,),
+        )
+        rows = []
+        for r in cur.fetchall():
+            (aid, pc, strat, kind, is_stale, sreas, sat,
+             has_drift, dreas, dat, pub_at) = r
+            stale_dims = sorted({x.get("dim") for x in (sreas or [])
+                                  if x and x.get("dim")})
+            drift_dims = sorted({x.get("dim") for x in (dreas or [])
+                                  if x and x.get("dim")})
+            rows.append({
+                "artifact_id": aid, "product_code": pc,
+                "flatten_strategy": strat, "source_bom_kind": kind,
+                "is_stale": is_stale,
+                "stale_dims": stale_dims,
+                "stale_first_at": sat,
+                "has_uom_drift": has_drift,
+                "drift_dims": drift_dims,
+                "uom_drift_first_at": dat,
+                "published_at": pub_at,
+                "is_source": strat in (
+                    "manual_flat_as_provided", "no_strategy"),
+            })
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/bom_stale.html",
+        {"client": client, "stats": stats_for_client(client_id),
+         "rows": rows, "can_edit": can_edit,
+         "active_root": "clients", "active_tab": "bom"},
+    )
+
+
 @router.post("/clients/{client_id}/bom/{product_code:path}/refresh")
 async def refresh_product_route(
     request: Request, client_id: str, product_code: str,
