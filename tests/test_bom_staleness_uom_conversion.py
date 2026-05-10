@@ -315,9 +315,10 @@ def test_refresh_catalog_uom_null_emits_catalog_uom_missing():
 # ── Original artifact always cleared, new stays stale per drift ─────────
 
 
-def test_refresh_clears_original_keeps_new_stale_when_drift():
-    """User clicked refresh on A. New artifact B has tier-A drift.
-    A's flag must clear (action taken). B stays stale (warning)."""
+def test_refresh_supersedes_original_on_hash_diff_and_keeps_new_stale_when_drift():
+    """User clicked refresh on A. Different-hash B minted with tier-A drift.
+    A is now tombstoned (BOM immutable) with link to B.
+    B stays stale (warning, until override row added)."""
     raw_id = "ba_raw_clear_orig"
     derived_id = "ba_der_clear_orig"
     with connect() as conn, conn.cursor() as cur:
@@ -334,23 +335,26 @@ def test_refresh_clears_original_keeps_new_stale_when_drift():
 
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            "select is_stale from hub.bom_artifacts where artifact_id=%s",
-            (derived_id,))
-        original_stale = cur.fetchone()[0]
+            "select tombstoned_at, tombstone_reason from hub.bom_artifacts "
+            "where artifact_id=%s", (derived_id,))
+        ts_at, ts_reason = cur.fetchone()
         cur.execute(
-            "select is_stale from hub.bom_artifacts where artifact_id=%s",
-            (new_id,))
-        new_stale = cur.fetchone()[0]
+            "select is_stale, tombstoned_at from hub.bom_artifacts "
+            "where artifact_id=%s", (new_id,))
+        new_stale, new_ts = cur.fetchone()
 
-    assert original_stale is False, "original artifact: refresh action taken → flag cleared"
-    assert new_stale is True, "new artifact: tier-A default warning → stays stale"
+    assert ts_at is not None, "original artifact tombstoned on hash diff"
+    assert ts_reason == f"superseded_by_refresh:{new_id}"
+    assert new_ts is None, "new artifact stays alive"
+    assert new_stale is True, "new artifact: tier-A default warning"
 
 
 # ── No drift → both original and new clear ──────────────────────────────
 
 
-def test_refresh_clean_path_clears_both():
-    """Same-family conversion (no drift) → both original A and new B clear."""
+def test_refresh_clean_path_supersedes_original():
+    """Same-family conversion (no drift) → original tombstoned (hash
+    diff because qty 500g converts to 0.5kg), new artifact alive + clean."""
     raw_id = "ba_raw_clean"
     derived_id = "ba_der_clean"
     with connect() as conn, conn.cursor() as cur:
@@ -366,7 +370,68 @@ def test_refresh_clean_path_clears_both():
 
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            "select is_stale from hub.bom_artifacts where artifact_id=%s",
-            (new_id,))
-        new_stale = cur.fetchone()[0]
+            "select is_stale, tombstoned_at, tombstone_reason "
+            "from hub.bom_artifacts where artifact_id=%s", (new_id,))
+        new_stale, new_ts, _ = cur.fetchone()
+        cur.execute(
+            "select tombstoned_at, tombstone_reason from hub.bom_artifacts "
+            "where artifact_id=%s", (derived_id,))
+        orig_ts, orig_reason = cur.fetchone()
+
     assert new_stale is False
+    assert new_ts is None
+    assert orig_ts is not None, "original superseded on hash diff"
+    assert orig_reason == f"superseded_by_refresh:{new_id}"
+
+
+def test_refresh_same_hash_no_supersede():
+    """Refresh produces same content (same hash) → return existing
+    artifact id, no tombstone, just clear flag on original."""
+    raw_id = "ba_raw_same_hash"
+    with connect() as conn, conn.cursor() as cur:
+        _seed_material(cur, "TP_SH", category="tp", uom="kg")
+        _seed_material(cur, "M_SH", category="nvl", uom="kg")
+        # Raw row uom matches catalog → no conversion needed.
+        _insert_raw_artifact(cur, raw_id, "TP_SH",
+                              edges=[("TP_SH", "M_SH", 2.0, "kg")])
+    # Outer with-block committed; raw artifact now visible to other conns.
+    # Pre-create the matching derived artifact with the SAME content
+    # the refresh would produce, so create_artifact returns its id.
+    from app.stores.bom import create_artifact
+    existing_id = create_artifact(
+        client_id=CLIENT, product_code="TP_SH",
+        rows=[{"material_code": "M_SH", "qty_per_unit": 2.0, "uom": "kg"}],
+        actor="agency_staff", intent="derived",
+        parent_artifact_id=raw_id,
+        context={"channel": "auto_derived", "profile": "technical_exploded"},
+        source_upload_id=None,
+        source_bom_kind="technical_flattened",
+        flatten_status="flattened",
+        flatten_strategy="technical_exploded",
+        source_channel="migration",
+        flatten_method="recursive_sql_with_uom_conversion",
+        flatten_method_version="2",
+    )
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "update hub.bom_artifacts set is_stale=true, "
+            "stale_reasons=%s::jsonb, stale_first_at=now() "
+            "where artifact_id=%s",
+            (json.dumps([{"dim": "catalog_category",
+                          "source_table": "hub.materials",
+                          "source_pk": f"{CLIENT}/M_SH",
+                          "observed_at": "2026-05-12T00:00:00Z"}]),
+             existing_id),
+        )
+
+    result = refresh_artifact(CLIENT, existing_id)
+    assert result["new_artifact_ids"] == [existing_id], \
+        "same-hash should return existing id"
+
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select is_stale, tombstoned_at from hub.bom_artifacts "
+            "where artifact_id=%s", (existing_id,))
+        is_stale, ts = cur.fetchone()
+    assert ts is None, "no tombstone when same hash"
+    assert is_stale is False, "flag cleared on same-hash refresh"

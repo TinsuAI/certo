@@ -287,6 +287,7 @@ def refresh_artifact(client_id: str, artifact_id: str,
     new_ids: list[str] = []
     skipped: str | None = None
     drifts: list[dict] = []
+    superseded = False
     with connect(user_id=triggered_by_user_id) as conn, conn.cursor() as cur:
         a = _load_artifact(cur, artifact_id)
         if a is None:
@@ -315,19 +316,38 @@ def refresh_artifact(client_id: str, artifact_id: str,
                     # artifact via stale_reasons. Helper deduplicates
                     # by (dim, material_code) via mig 054 @> check.
                     _apply_drift_to_artifact(cur, new_id, drifts)
+                    # Phase 2 step 3: hash-diff supersede semantic.
+                    # If create_artifact returned a different id than
+                    # the originally-targeted one, content has changed
+                    # → original is now wrong. Tombstone it (BOM
+                    # immutable principle) with link to new id.
+                    if new_id != artifact_id:
+                        cur.execute(
+                            "update hub.bom_artifacts "
+                            "set tombstoned_at=now(), "
+                            "    tombstone_reason=%s "
+                            "where artifact_id=%s "
+                            "  and tombstoned_at is null",
+                            (f"superseded_by_refresh:{new_id}", artifact_id),
+                        )
+                        superseded = True
                 else:
                     skipped = "derive_empty"
         else:
             skipped = "source_artifact"
 
-        # Always clear the originally-targeted artifact (refresh action
-        # taken). Clear newly-minted artifact only if no drift signals
-        # — drift means the new artifact ships warning, must stay stale
-        # until staff populates client_uom_overrides.
-        clearables = [artifact_id]
+        # Tombstoned artifacts don't get their stale flag cleared —
+        # they're dead, the flag is irrelevant. For same-hash refresh
+        # OR non-derive paths, clear flag on original. Clear newly-
+        # minted artifact only if no drift signals — drift means the
+        # new artifact ships warning, must stay stale until staff
+        # populates client_uom_overrides.
+        clearables: list[str] = []
+        if not superseded:
+            clearables.append(artifact_id)
         if new_ids and not drifts:
-            clearables.extend(new_ids)
-        cleared_n = _clear_stale(cur, clearables)
+            clearables.extend(aid for aid in new_ids if aid != artifact_id)
+        cleared_n = _clear_stale(cur, clearables) if clearables else 0
 
     return {
         "artifact_id": artifact_id,
