@@ -129,6 +129,58 @@ Each warning has: severity, evidence count, link to drilldown.
 
 **Effort**: ~1 day (detail-page section + 5-6 warning queries + tests).
 
+**Status 2026-05-10**: ✅ initial implementation shipped (Feature 3 in
+`.ai/features/2026-05-10-johnson-onboarding/brief.md`):
+`app/stores/catalog_bcct_analysis.py` + panel in
+`app/templates/clients/catalog_detail.html`. Covers unit (CRITICAL),
+hs_code (WARN), goods_name (INFO), origin (INFO). Common-prefix/suffix
+diff highlight surfaces divergent characters per-value.
+
+## A.4.2 Substitute XLSX bulk upload (P1 client_confirmed)
+
+**Captured 2026-05-10** during Feature 4 MVP. Manual-add UI covers
+single-pair entry; bulk-import path deferred.
+
+**Scope:** XLSX with columns `material_a_code`, `material_b_code`,
+optional `notes`. Upload route under `/clients/{cid}/substitutes/upload`,
+inserts rows with `source='client_confirmed'` and current user as
+`confirmed_by`. Conflict policy: existing auto rows (`trigram`,
+`same_hs`) coexist as separate sources for the same pair (UNIQUE on
+client+a+b+source). Rejected pairs silently skipped (caller intent
+unclear); surface count in toast.
+
+**Effort:** ~0.5 day (parser + route + UI button on catalog list).
+
+## A.4.3 Smarter goods_name similarity (insignificant-diff folding)
+
+**Captured 2026-05-10** during Feature 3 review. User: *"Cần thuật toán
+thông minh hơn, tên hàng sai khác nhau không đáng kể"*.
+
+Current INFO drift on `goods_name` flags any string-distinct value as
+drift. Many cases are noise:
+- whitespace / punctuation variants (`"M10x1.5P;G10;OIL"` vs `"M10x1.5P mm"`).
+- different unit annotation in description (when `unit` itself doesn't drift).
+- minor ordering of attributes.
+- typos / abbreviation variants.
+
+Need a similarity threshold or normalization pass that folds
+near-duplicate descriptions into one bucket and only flags when the
+difference is semantic (different product). Candidates:
+- **Normalize then bucket**: lowercase + strip punctuation/whitespace +
+  collapse digits to placeholder; identical normalized form = same bucket.
+- **Token Jaccard ≥ threshold**: split on `[,.;\s]+`, intersection/union
+  ≥ 0.85 = same bucket.
+- **Trigram similarity ≥ 0.85** via pg_trgm (already enabled by Feature 4).
+
+Output: bucket count + per-bucket representative + outlier list
+("3 dòng có mô tả khác đáng kể"). Folds noise into a single chip with
+`×N variants` annotation; surfaces only the truly different ones.
+
+Wait until Feature 4 ships pg_trgm, then build on top of it. Keep current
+naive implementation as fallback for clients without pg_trgm.
+
+**Effort**: ~0.5-1 day after pg_trgm available.
+
 ## A.5 v_material_roles paren-aware (replace material_observations workaround)
 
 **Captured 2026-05-09** (Mã chờ duyệt v3 review). Issue surfaced when
