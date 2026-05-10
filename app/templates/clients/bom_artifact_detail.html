@@ -27,6 +27,45 @@
         </form>
       </div>
       {% endif %}
+
+      {% if artifact.has_uom_drift %}
+      <div style="background:#fde6e2; border-left:3px solid #e6553f; padding:8px 12px; margin-top:8px; border-radius:4px;">
+        <strong>⚠ Có UoM drift trên artifact này</strong>
+        <p style="margin:.3em 0; font-size:.9em; color:#555;">
+          Source artifact (manual_flat / raw_graph) không refresh được — cần
+          <strong>re-upload BOM</strong> hoặc <strong>edit catalog UoM</strong> để khớp với raw.
+        </p>
+        <ul style="margin:4px 0 0 1.2em; font-size:.9em; color:#555;">
+          {% for r in (artifact.uom_drift_reasons or []) %}
+          <li>
+            {% if r.dim == 'factor_missing' %}
+              <strong>thiếu hệ số</strong> — mã <span class="mono">{{ r.material_code }}</span>:
+              cross-family chưa có override row trong client_uom_overrides
+            {% elif r.dim == 'unconfirmed_default_1to1' %}
+              <strong>mặc định 1:1</strong> — mã <span class="mono">{{ r.material_code }}</span>:
+              tier-A default, chờ agency xác nhận hệ số
+            {% elif r.dim == 'catalog_uom_missing' %}
+              <strong>catalog uom NULL</strong> — mã <span class="mono">{{ r.material_code }}</span>:
+              cần điền uom trong danh mục
+            {% elif r.dim == 'materials_uom' %}
+              <strong>catalog uom thay đổi</strong> — mã <span class="mono">{{ r.material_code or r.source_pk }}</span>
+            {% else %}
+              <span class="mono">{{ r.dim }}</span> · {{ r.material_code or r.source_pk }}
+            {% endif %}
+            <span style="color:#888">· {{ r.observed_at }}</span>
+            {% if r.material_code %}
+              <a class="btn-ghost" style="margin-left:6px;font-size:.85em"
+                 href="/clients/{{ client.client_id }}/uom-factors?prefill_material_code={{ r.material_code|urlencode }}#add-factor-form"
+                 target="_blank">+ hệ số</a>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+        <p style="margin:6px 0 0 0; font-size:.85em; color:#888">
+          Đã phát sinh: {{ artifact.uom_drift_first_at.strftime('%Y-%m-%d %H:%M') if artifact.uom_drift_first_at else '—' }}
+        </p>
+      </div>
+      {% endif %}
       <p class="meta">
         <span class="badge">{{ artifact.actor }}</span>
         <span class="badge">{{ artifact.intent }}</span>

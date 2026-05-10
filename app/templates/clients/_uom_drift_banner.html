@@ -46,7 +46,13 @@
       <tr>
         <td>
           {% if d.severity == 'warn_cross_family' %}
-            <span class="badge badge-warn">{{ t('uom_drift.sev_cross_family') }}</span>
+            {% if d.resolved_by_override %}
+              <span class="badge badge-info" title="Khác họ nhưng đã có hệ số quy đổi — không block confirm">
+                khác họ ✓
+              </span>
+            {% else %}
+              <span class="badge badge-warn">{{ t('uom_drift.sev_cross_family') }}</span>
+            {% endif %}
           {% elif d.severity == 'info_family' %}
             <span class="badge badge-info">{{ t('uom_drift.sev_family') }}</span>
           {% elif d.severity == 'info_unknown' %}

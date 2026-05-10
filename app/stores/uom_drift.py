@@ -181,19 +181,16 @@ def compute_uom_drifts(client_id: str, rows: list[dict]) -> list[dict]:
                     "would_block": False,
                 }
 
-        # Phase 2 (2026-05-12): drop severity from cross-family WARN to
-        # info_family when an explicit override row resolves the
-        # conversion. Family difference is invariant; "warn" semantics
-        # is "no path to convert" — the path now exists, so no warn.
-        # Tier-A `unconfirmed_default` keeps severity warn (1:1 default
-        # is a guess, not a confirmation).
+        # Phase 2 (2026-05-12 round 2): severity reflects FAMILY
+        # relationship (invariant). Override row provides a conversion
+        # PATH, but doesn't make families equal. Surface this via a
+        # separate `resolved_by_override` flag so UI can show "khác họ
+        # + đã có hệ số" instead of misleading "cùng họ".
         resolved_by_override = (
             severity == "warn_cross_family"
             and conversion is not None
             and conversion.get("source") in (
                 "client_specific", "client_wide", "global", "alias"))
-        if resolved_by_override:
-            severity = "info_family"
 
         out.append({
             "material_code": code,
@@ -205,6 +202,7 @@ def compute_uom_drifts(client_id: str, rows: list[dict]) -> list[dict]:
             "catalog_dim": dimension_of(cat_uom),
             "bcct_uoms": bcct_uoms,
             "severity": severity,
+            "resolved_by_override": resolved_by_override,
             "message": _format_message(severity, code, src_uom,
                                        comparator, details,
                                        resolved_by_override=resolved_by_override,
@@ -223,17 +221,19 @@ def _format_message(severity: str, code: str, src_uom: str,
                     conversion: dict | None = None) -> str:
     """Short Vietnamese phrasing per severity."""
     if severity == "warn_cross_family":
+        if resolved_by_override and conversion:
+            # Cross-family bridged by an explicit override row — surface
+            # that the families STILL DIFFER but a factor was supplied
+            # so conversion is possible.
+            factor = conversion.get("factor", "?")
+            return (f"Mã {code}: file ghi '{src_uom}' ({details['source_dim']}) "
+                    f"khác họ với '{comparator}' ({details['target_dim']}); "
+                    f"đã có hệ số {factor} ({conversion.get('source')}) "
+                    f"— quy đổi được")
         return (f"Mã {code}: file ghi '{src_uom}' ({details['source_dim']}) "
                 f"khác họ với '{comparator}' ({details['target_dim']}) — "
                 f"không thể quy đổi tự động")
     if severity == "info_family":
-        if resolved_by_override and conversion:
-            # Cross-family bridged by an explicit override row — surface
-            # that the families DIFFER but a factor was supplied.
-            factor = conversion.get("factor", "?")
-            return (f"Mã {code}: file ghi '{src_uom}' ({details['source_dim']}) "
-                    f"khác họ với '{comparator}' ({details['target_dim']}); "
-                    f"đã có hệ số {factor} ({conversion.get('source')})")
         return (f"Mã {code}: file ghi '{src_uom}', "
                 f"tiêu chuẩn '{comparator}' (cùng họ "
                 f"{details['source_dim']}); flatten sẽ tự quy đổi")

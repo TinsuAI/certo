@@ -601,7 +601,9 @@ def get_artifact_with_rows(artifact_id: str) -> dict | None:
                        source_bom_kind, flatten_status, flatten_strategy,
                        source_channel, bom_code, bom_variant_id, lineage,
                        display_label, flatten_method, flatten_method_version,
-                       is_stale, stale_reasons, stale_first_at, stale_resolved_at
+                       is_stale, stale_reasons, stale_first_at, stale_resolved_at,
+                       has_uom_drift, uom_drift_reasons,
+                       uom_drift_first_at, uom_drift_resolved_at
                 from hub.bom_artifacts where artifact_id = %s
                 """,
                 (artifact_id,),

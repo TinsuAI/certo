@@ -89,9 +89,11 @@ def test_tier_b_with_override_would_not_block():
     assert float(conv["factor"]) == pytest.approx(0.5)
     assert conv["source"] == "client_specific"
     assert conv["would_block"] is False
-    # Severity now drops from warn_cross_family to info_family because
-    # the override row resolves the conversion. (Phase 2 2026-05-12 fix.)
-    assert drifts[0]["severity"] == "info_family"
+    # Severity stays warn_cross_family — families ARE different.
+    # `resolved_by_override` flag indicates that the difference is
+    # bridged by an explicit factor (UI shows green check, no block).
+    assert drifts[0]["severity"] == "warn_cross_family"
+    assert drifts[0]["resolved_by_override"] is True
 
 
 def test_tier_a_severity_stays_warn_when_unconfirmed_default():

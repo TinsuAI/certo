@@ -8,6 +8,80 @@ For past architectural decisions, see `DECISIONS.md`.
 
 ---
 
+## BOM upload — auto-detect adapter (drop manual parser pick)
+
+**Captured 2026-05-12** during Phase 2 testing. User: "phải lựa chọn
+parser khi upload — hệ thống tự động chọn parser, hoặc thông báo
+không có parser phù hợp."
+
+Hiện tại upload flow yêu cầu staff chọn manually adapter (`manual_flat`
+/ `sheet_per_product` / `sap_indented_walk` / `sap_exploded_levels` /
+`multi_sheet_per_root`). Nhưng `parse_with_fallback` đã có sẵn —
+walk-through registry, return first non-empty parse.
+
+Cần làm:
+
+1. **Auto-detect on upload**: gọi `parse_with_fallback(blob, root_code=
+   filename_stem)` ngay sau khi nhận file. Nếu non-empty → skip mapping
+   page, đi thẳng preview với adapter info hiển thị.
+2. **No-parser case**: nếu mọi adapter trả về empty hoặc raise — show
+   error page "Không có parser phù hợp. File có thể có format ngoài 5
+   shape Data Hub hỗ trợ. Liên hệ Tinsu AI để thêm adapter mới."
+3. **Manual override option**: vẫn cho staff override pick adapter +
+   re-parse khi auto-detect chọn sai. Nhưng default = auto.
+4. **Adapter score/confidence**: nếu nhiều adapter cùng parse được,
+   ưu tiên adapter có nhiều rows hơn HOẶC mapping confidence cao hơn.
+
+**Effort**: ~1 day. Wire `parse_with_fallback` vào upload route, modify
+mapping flow to skip when auto-detect succeeds, add no-match error
+template.
+
+**Bring back when:** UI polish bandwidth, hoặc khi staff complain về
+upload friction.
+
+---
+
+## Re-evaluate "shallow" shape for manual_flat artifacts
+
+**Captured 2026-05-12** during Phase 2 testing. User: "phải review lại
+cái shape của manual_flat, để là 'shallow' dễ gây hiểu nhầm."
+
+`bom_shape()` hiện tại map `manual_flat_as_provided` → `shallow`. Theo
+3-shape model (`project_bom_3_shapes.md`): shallow = stops at first
+leaf (BTP or NVL), depth-agnostic. Manual_flat đúng là "stops at
+provided level, no decomposition" → shallow about correct semantically.
+
+Nhưng staff nhầm vì:
+- Manual_flat có thể chứa NVL leaves only (giống full_flat semantically).
+- Hoặc chứa BTP leaves (true shallow).
+- "shallow" gợi ý "incomplete / cần decompose thêm" trong khi manual_flat
+  về bản chất là "agency cung cấp sẵn, không cần decompose thêm".
+
+Options:
+
+1. **Distinct "manual_flat" shape** (4-shape model): `raw_graph`,
+   `manual_flat`, `shallow`, `full_flat`. Breaks 3-shape but more
+   accurate. Update memory `project_bom_3_shapes.md`.
+2. **Compute shape from row content**: walk artifact rows, check
+   catalog category. All NVL → `full_flat`. Mixed → `shallow`. All
+   BTP → `shallow`. Heavyweight (catalog lookup at view time).
+3. **Keep "shallow" + better tooltip + rename badge text**: badge
+   shows "shallow (nguồn: cung cấp sẵn)" hoặc "manual flat"; tooltip
+   explains. Already partially done 2026-05-12 round 1 fix.
+
+**Recommendation**: Option 1 (distinct shape). The 3-shape model was
+designed for derived artifacts; manual_flat is semantically different
+(source vs derived). Adding a 4th shape preserves the cleanness of the
+derived shapes without overloading "shallow".
+
+**Effort**: ~0.5d. Update `bom_shape()` helper, shape_badge macro,
+i18n keys, memory doc, tests. No DB migration (it's a pure function
+of flatten_status + flatten_strategy).
+
+**Bring back when:** UI polish bandwidth.
+
+---
+
 ## Unified import UX across all data-import surfaces
 
 **Captured 2026-05-12** during Phase 2 step 7 admin UI rollout. User
