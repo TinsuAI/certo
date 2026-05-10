@@ -255,22 +255,24 @@ Each step its own commit pair (tests + impl):
 
 ## Done criteria
 
-- [ ] Mig 055-057 applied; tests green (current baseline 849 → +50~70).
-- [ ] Order-independence permutation tests pass.
-- [ ] Johnson `0000082212` test case passes end-to-end with conversion.
-- [ ] `_rederive_shape` calls flatten engine; raw SQL bypass deleted.
-- [ ] Refresh hash-change tombstones old with reason link.
-- [ ] BOM + BCCT preview show conversion plan + 4 staff actions.
-- [ ] Admin UI for `client_uom_overrides` browse/add/edit/delete.
-- [ ] `has_uom_drift` signal + UI badge for manual_flat.
-- [ ] D9 catalog-insert trigger drives BOM re-materialisation.
+- [x] Mig 055-058 applied; tests green (baseline 849 → 952+, +103).
+- [x] Order-independence permutation tests pass.
+- [x] Johnson `0000082212` test case passes end-to-end with conversion.
+- [x] `_rederive_shape` converts UoM (revised: thin convert-after-walk
+      layer instead of full flatten engine wire — see step 2).
+- [x] Refresh hash-change tombstones old with reason link.
+- [x] BOM + BCCT preview show conversion plan + 4 staff actions.
+- [x] Admin UI for `client_uom_overrides` browse/add/edit/delete.
+- [x] `has_uom_drift` signal + UI badge for manual_flat.
+- [x] D9 catalog-insert trigger drives BOM re-materialisation.
 - [ ] Factor table populated for 220 Johnson cross-family pairs.
-- [ ] Staging reset + re-ingest dry run clean.
-- [ ] Sister-app notes published.
-- [ ] Screenshots committed in this feature folder.
-- [ ] BACKLOG entry "BOM UoM conversion engine" struck through; F + E
-      marked SHIPPED. New BACKLOG entry "Order-independence harness"
-      cross-linked.
+      (step 9 — agency-blocked on Johnson Q&A response)
+- [ ] Staging reset + re-ingest dry run clean. (step 10 — manual)
+- [x] Sister-app notes published.
+- [x] Screenshots committed in this feature folder.
+- [x] BACKLOG entry "BOM UoM conversion engine" struck through; F + E
+      marked SHIPPED (2026-05-12 follow-up). G narrowed to refresh-time
+      preview gap only.
 
 ## Cross-links
 

@@ -283,7 +283,16 @@ bandwidth có. Option 2 quá tham; option 3 quá chậm.
 
 ---
 
-## BOM UoM conversion engine (ingest-time + refresh-time)
+## BOM UoM conversion engine (ingest-time + refresh-time) — SHIPPED 2026-05-12
+
+Brief: `.ai/features/2026-05-12-bom-uom-conversion-phase-2/brief.md`.
+Migrations 055-058. 18 commits on `main`. +103 tests. Sub-tasks A
+(ingest preview), B (refresh wires UoM), C (`client_uom_overrides`
+admin UI), D (audit trail) all delivered. Phase 3 follow-ups E + F
+also folded into this ship; only G refresh-time preview + housekeeping
+remain (see "Phase 3 follow-ups" below).
+
+Original capture preserved for context:
 
 **Captured 2026-05-11** trong session test Track D Phase 1 trên
 real Johnson data (`0000082212` PIECES → KG → PIECES). Phát hiện
@@ -426,74 +435,65 @@ D. **Conversion audit trail**
 - D (audit trail): 1d.
 - **Total: 1.5-2 weeks** + 1-2d discovery.
 
-### Phase 3 follow-ups (sau khi Phase 2 UoM conversion ship)
+### Phase 3 follow-ups
 
-Captured 2026-05-11 user feedback. Phase 3 unblocks chỉ sau khi
-Phase 2 (UoM conversion engine) đã ship — vì 2 cái đầu rely on
-"refresh = thực sự re-derive với conversion".
+Captured 2026-05-11; reconciled 2026-05-12 against shipped Phase 2.
 
-**E. Manual_flat artifacts cũng cần signal UoM mâu thuẫn**
+**E. Manual_flat artifacts signal UoM mâu thuẫn — SHIPPED 2026-05-12**
 
-Track D Phase 1 cố ý exclude `manual_flat_as_provided` khỏi
-trigger filter (lý do: source artifact, immutable, không re-derive
-được). Nhưng manual_flat vẫn có thể **mâu thuẫn semantic** với
-catalog: file ghi 5 kg, catalog ghi PIECES → BCQT consumer đọc 5
-kg mà mong đợi PIECES → settlement sai.
+Folded into Phase 2 scope (brief item 6). Mig 057 added
+`has_uom_drift`, `uom_drift_reasons`, `uom_drift_first_at`,
+`uom_drift_resolved_at` distinct from `is_stale`. D7 trigger extended
+to mark source artifacts (manual_flat + raw_graph). UI badge wired in
+`bom_artifact_detail.html` + stale list view. Round 3 reversed the
+"Re-upload BOM" UX — manual_flat artifacts now refresh-able via audit
+columns (`source_uom` + `applied_uom_factor`), so the action is the
+same Refresh button as derived. API single-artifact reads expose all 4
+columns via `get_artifact_with_rows`. List endpoint
+`/v1/hub/products/{p}/bom/artifacts` exposes `has_uom_drift` +
+`uom_drift_reasons` (mig-057 fields added 2026-05-12 follow-up).
 
-Cần signal riêng cho manual_flat (không dùng `is_stale` vì semantic
-khác — không re-derive được, chỉ "có drift cần staff giải quyết").
-Options:
-- Cột mới `has_uom_drift boolean` riêng cho source artifacts.
-- Trigger D7 (materials_uom) extend sang manual_flat strategy với
-  dim mới `manual_flat_uom_drift`.
-- UI badge khác badge "lỗi thời" — màu khác, action "Re-upload BOM"
-  thay vì "Refresh".
-- API expose `has_uom_drift` cho consumer (BCQT/CO) tự decide
-  reject hay convert.
+**F. Refresh = mint new artifact + supersede old — SHIPPED 2026-05-12**
 
-Effort: ~1d (extend trigger + badge + API).
+Folded into Phase 2 scope (brief item 2 + decisions 2-3). Different-hash
+refresh now mints a new artifact and tombstones the original with
+`tombstone_reason='superseded_by_refresh:<new_id>'`. Lineage chain
+preserved via `parent_artifact_id`. Same-hash dedup still clears flag
+without tombstone churn. Commit `2677cc4`. Refresh route redirects to
+the new live artifact (`0a63c07`).
 
-**F. Refresh = mint new artifact + supersede old, không mutate**
+**G. Refresh-time conversion preview — STILL OPEN (~1-2d)**
 
-Hiện tại refresh:
-- Re-derive shape → call `create_artifact` (idempotent qua hash).
-- Same hash → return existing artifact_id, clear `is_stale` trên
-  artifact GỐC.
-- Different hash → create new artifact, **OLD artifact stays alive,
-  is_stale cleared trên cả 2**.
+Ingest-time conversion preview SHIPPED in Phase 2 (brief item 5,
+commit `c57c627`): preview shows per-row source UoM, target UoM,
+factor, factor source, with 4 staff actions
+(confirm / edit factor inline / save factor to table / skip).
+Admin UI for `client_uom_overrides` shipped (commit `29c1a25`).
 
-Mâu thuẫn với BOM immutable principle: stale artifact = "data đã
-sai do dependency thay đổi", clearing flag mà không tombstone =
-"giả vờ data vẫn đúng".
+Gap remaining: **refresh-time** has no preview. POST
+`/clients/{cid}/bom/artifact/{aid}/refresh` calls `refresh_artifact()`
+directly → 3-tier policy applies → tombstones old → redirects to new.
+Staff cannot inspect the conversion plan (which factor, which source,
+which rows hit Tier A unconfirmed default vs Tier B blocked) before
+the commit; they only see the resulting artifact post-fact.
 
-Đúng phải là: stale artifact giữ stale flag (hoặc thay bằng
-`superseded_by_artifact_id`); new artifact mint với fresh data;
-old tombstoned với `tombstone_reason='superseded_by_refresh:<new_id>'`.
-Lineage chain stays cho audit (downstream BCQT/CO biết "đây là
-phiên bản đã thay thế").
+Backlog G original spec: "Tương tự tại refresh-time: hiển thị
+conversion plan, cho staff edit factor trước khi commit re-derive."
 
-Phụ thuộc Phase 2 vì hiện tại same-hash dedup là majority case.
-Sau Phase 2 (refresh thực sự convert), different-hash sẽ phổ biến.
+Implementation sketch:
+- New GET `/clients/{cid}/bom/artifact/{aid}/refresh/preview` → renders
+  the would-be conversion plan (re-walk SQL + run `make_uom_lookup`
+  + `convert_qty` without persisting), 4 actions matching ingest UI.
+- `refresh_artifact()` factored into `_compute_refresh_plan()` (pure)
+  + `_commit_refresh()` (persists). Preview calls plan-only.
+- POST stays as confirm/skip/edit-factor; preview optional but the
+  default UX path moves through GET preview first.
 
-Effort: ~1-2d (refresh logic rewrite + tombstone trigger update +
-lineage UI).
+Open question: should refresh-time skip-convert tombstone old with
+explicit reason `staff_skipped_convert` (vs auto-clear)? Suggest yes —
+captures intent for audit.
 
-**G. Transparency tại ingest + refresh — staff confirm action**
-
-User reinforce: cả 2 flow phải show UI "system sẽ convert những
-gì + dùng factor nào + nguồn factor". Staff actions:
-- Confirm as-shown.
-- Edit factor inline (per-row, persist vào `material_uom_factors`).
-- Edit conversion table (admin route).
-- Skip convert (giữ raw, mark drift flag).
-
-Đã capture trong scope A của Phase 2 nhưng cần emphasize: **không
-auto-apply silent**. Staff phải approve mỗi conversion event.
-Tránh case "system converted PIECES → KG sai factor, staff không
-biết, settlement Mẫu 15a sai số".
-
-Effort: bao gồm trong scope A (3-4d ingest UI). Refresh-time
-transparency: ~1-2d UI extension.
+Effort: 1-2d. UX-heavy → warrants `/discover` brief.
 
 ---
 
