@@ -240,6 +240,105 @@ def _apply_drift_to_artifact(
             )
 
 
+def _reconstruct_originals_from_artifact(
+    cur, artifact_id: str,
+) -> list[dict]:
+    """Phase 2 round 3 — manual_flat refresh path.
+
+    Read back the as-uploaded rows (pre-conversion) from a manual_flat
+    artifact's audit columns:
+    - source_uom holds the original raw UoM.
+    - applied_uom_factor + applied_uom_source describe what was applied
+      at last ingest/refresh.
+
+    Reconstruction rule:
+    - factor and factor>0 and source != 'alias' → original_qty = qty / factor
+    - else (factor missing OR alias-only) → original_qty = qty
+    - original_uom = source_uom (always; falls back to current uom only
+      when source_uom is null e.g. pre-Phase-2 rows).
+
+    This is the inverse of _convert_rows_to_catalog_uom.
+    """
+    from decimal import Decimal
+    cur.execute(
+        "select material_code, bom_code, bom_variant_id, "
+        "       qty_per_unit::text, uom, "
+        "       source_uom, applied_uom_factor::text, applied_uom_source "
+        "from hub.bom_artifact_rows where artifact_id=%s "
+        "order by row_index",
+        (artifact_id,),
+    )
+    out: list[dict] = []
+    for r in cur.fetchall():
+        (mc, bc, bvid, qty_s, uom, src_uom, factor_s, source) = r
+        qty = Decimal(qty_s)
+        if (factor_s and Decimal(factor_s) > 0
+                and source not in (None, "alias")):
+            orig_qty = qty / Decimal(factor_s)
+        else:
+            orig_qty = qty
+        orig_uom = src_uom if src_uom else uom
+        out.append({
+            "material_code": mc,
+            "bom_code": bc,
+            "bom_variant_id": bvid,
+            "qty_per_unit": float(orig_qty),
+            "uom": orig_uom,
+        })
+    return out
+
+
+def _rederive_manual_flat(
+    client_id: str, artifact_id: str, product_code: str,
+    *, actor: str = "agency_staff",
+    triggered_by_user_id: str | None = None,
+) -> tuple[str | None, list[dict]]:
+    """Re-apply UoM conversion to a manual_flat artifact's rows.
+
+    Reconstructs originals from audit columns, runs convert with current
+    catalog + client_uom_overrides state, mints a new manual_flat
+    artifact via create_artifact (idempotent on hash). Returns the
+    new artifact id (or existing on hash dedup) + drift list.
+    """
+    from app.stores.bom import create_artifact
+
+    with connect() as conn, conn.cursor() as cur:
+        original_rows = _reconstruct_originals_from_artifact(cur, artifact_id)
+    if not original_rows:
+        return None, []
+
+    converted_rows, drifts = _convert_rows_to_catalog_uom(
+        client_id, original_rows,
+    )
+
+    ctx = {"channel": "agency_upload", "profile": "manual_flat",
+           "derived_from_artifact_id": artifact_id,
+           "ingest_script": "bom_staleness.refresh_manual_flat"}
+    if triggered_by_user_id:
+        ctx["triggered_by_user_id"] = triggered_by_user_id
+
+    # parent_artifact_id stays None for manual_flat refresh: same-hash
+    # idempotency dedups against the original (which also had
+    # parent=None). Lineage is preserved via tombstone_reason link
+    # (`superseded_by_refresh:<new_id>`) set by refresh_artifact when
+    # the hash diff produces a new artifact.
+    new_id = create_artifact(
+        client_id=client_id, product_code=product_code,
+        rows=converted_rows,
+        actor=actor, intent="asserted_technical",
+        parent_artifact_id=None,
+        context=ctx,
+        source_upload_id=None,
+        source_bom_kind="technical_flattened",
+        flatten_status="not_applicable",
+        flatten_strategy="manual_flat_as_provided",
+        source_channel="migration",
+        flatten_method="manual_flat_with_uom_conversion",
+        flatten_method_version="2",
+    )
+    return new_id, drifts
+
+
 def _rederive_shape(client_id: str, raw_artifact_id: str,
                     product_code: str, strategy: str,
                     *, actor: str = "agency_staff",
@@ -297,11 +396,19 @@ def _rederive_shape(client_id: str, raw_artifact_id: str,
 
 
 def _clear_stale(cur, artifact_ids: list[str]) -> int:
+    """Clear both is_stale (mig 053) and has_uom_drift (mig 057)
+    flags + reasons + set resolved_at on these artifact_ids. Idempotent
+    on already-clean artifacts."""
     if not artifact_ids:
         return 0
     cur.execute(
-        "update hub.bom_artifacts set is_stale=false, "
-        "stale_reasons='[]'::jsonb, stale_resolved_at=now() "
+        "update hub.bom_artifacts set "
+        "  is_stale=false, "
+        "  stale_reasons='[]'::jsonb, "
+        "  stale_resolved_at=now(), "
+        "  has_uom_drift=false, "
+        "  uom_drift_reasons='[]'::jsonb, "
+        "  uom_drift_resolved_at=now() "
         "where artifact_id = any(%s) returning artifact_id",
         (artifact_ids,),
     )
@@ -349,15 +456,7 @@ def refresh_artifact(client_id: str, artifact_id: str,
                 )
                 if new_id:
                     new_ids.append(new_id)
-                    # Phase 2 step 2b: surface UoM drift on the new
-                    # artifact via stale_reasons. Helper deduplicates
-                    # by (dim, material_code) via mig 054 @> check.
                     _apply_drift_to_artifact(cur, new_id, drifts)
-                    # Phase 2 step 3: hash-diff supersede semantic.
-                    # If create_artifact returned a different id than
-                    # the originally-targeted one, content has changed
-                    # → original is now wrong. Tombstone it (BOM
-                    # immutable principle) with link to new id.
                     if new_id != artifact_id:
                         cur.execute(
                             "update hub.bom_artifacts "
@@ -370,20 +469,47 @@ def refresh_artifact(client_id: str, artifact_id: str,
                         superseded = True
                 else:
                     skipped = "derive_empty"
+        elif a["flatten_strategy"] == "manual_flat_as_provided":
+            # Phase 2 round 3: manual_flat refresh re-applies conversion
+            # to existing rows using current catalog + override state.
+            # Reconstructs originals from source_uom audit columns.
+            new_id, drifts = _rederive_manual_flat(
+                client_id, artifact_id, a["product_code"],
+                triggered_by_user_id=triggered_by_user_id,
+            )
+            if new_id:
+                new_ids.append(new_id)
+                _apply_drift_to_artifact(cur, new_id, drifts)
+                if new_id != artifact_id:
+                    cur.execute(
+                        "update hub.bom_artifacts "
+                        "set tombstoned_at=now(), "
+                        "    tombstone_reason=%s "
+                        "where artifact_id=%s "
+                        "  and tombstoned_at is null",
+                        (f"superseded_by_refresh:{new_id}", artifact_id),
+                    )
+                    superseded = True
+            else:
+                skipped = "reconstruct_empty"
         else:
             skipped = "source_artifact"
 
-        # Tombstoned artifacts don't get their stale flag cleared —
-        # they're dead, the flag is irrelevant. For same-hash refresh
-        # OR non-derive paths, clear flag on original. Clear newly-
-        # minted artifact only if no drift signals — drift means the
-        # new artifact ships warning, must stay stale until staff
-        # populates client_uom_overrides.
+        # Clear flag rules (Phase 2 round 3, refined for manual_flat
+        # same-hash case):
+        # - Tombstoned (superseded) artifacts: skip clear, they're dead.
+        # - Artifacts that just received drift via _apply_drift_to_artifact:
+        #   skip clear, keep their warning.
+        # - Otherwise (refresh action taken, no remaining drift): clear.
+        ids_just_got_drift: set[str] = set()
+        if drifts:
+            ids_just_got_drift.update(new_ids)
         clearables: list[str] = []
-        if not superseded:
+        if not superseded and artifact_id not in ids_just_got_drift:
             clearables.append(artifact_id)
-        if new_ids and not drifts:
-            clearables.extend(aid for aid in new_ids if aid != artifact_id)
+        for nid in new_ids:
+            if nid != artifact_id and nid not in ids_just_got_drift:
+                clearables.append(nid)
         cleared_n = _clear_stale(cur, clearables) if clearables else 0
 
     return {

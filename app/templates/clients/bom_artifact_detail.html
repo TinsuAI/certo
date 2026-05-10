@@ -31,10 +31,24 @@
       {% if artifact.has_uom_drift %}
       <div style="background:#fde6e2; border-left:3px solid #e6553f; padding:8px 12px; margin-top:8px; border-radius:4px;">
         <strong>⚠ Có UoM drift trên artifact này</strong>
+        {% if artifact.flatten_strategy == 'manual_flat_as_provided' %}
         <p style="margin:.3em 0; font-size:.9em; color:#555;">
-          Source artifact (manual_flat / raw_graph) không refresh được — cần
-          <strong>re-upload BOM</strong> hoặc <strong>edit catalog UoM</strong> để khớp với raw.
+          Manual_flat artifact: thêm hệ số trong
+          <a href="/clients/{{ client.client_id }}/uom-factors">/uom-factors</a>
+          rồi click <strong>Refresh</strong> bên dưới — hệ thống re-convert
+          rows từ <span class="mono">source_uom</span> đã lưu, không cần re-upload.
         </p>
+        {% elif artifact.source_bom_kind == 'technical_raw' %}
+        <p style="margin:.3em 0; font-size:.9em; color:#555;">
+          Raw_graph artifact: edges lưu nguyên UoM file, không convert được
+          (raw = immutable). Refresh các derived artifacts (shallow / full_flat)
+          để áp factor mới.
+        </p>
+        {% else %}
+        <p style="margin:.3em 0; font-size:.9em; color:#555;">
+          Cần re-upload BOM hoặc edit catalog UoM để khớp với raw.
+        </p>
+        {% endif %}
         <ul style="margin:4px 0 0 1.2em; font-size:.9em; color:#555;">
           {% for r in (artifact.uom_drift_reasons or []) %}
           <li>
@@ -64,6 +78,12 @@
         <p style="margin:6px 0 0 0; font-size:.85em; color:#888">
           Đã phát sinh: {{ artifact.uom_drift_first_at.strftime('%Y-%m-%d %H:%M') if artifact.uom_drift_first_at else '—' }}
         </p>
+        {% if artifact.flatten_strategy == 'manual_flat_as_provided' %}
+        <form method="post" action="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/refresh"
+              style="display:inline-block; margin-top:6px;">
+          <button type="submit" class="btn-secondary">Refresh (re-convert UoM)</button>
+        </form>
+        {% endif %}
       </div>
       {% endif %}
       <p class="meta">
