@@ -194,11 +194,17 @@ Each step its own commit pair (tests + impl):
 1. **Mig 055: extend `client_uom_overrides`** — `is_cross_family`,
    `notes`, source enum extension. Backfill `is_cross_family` on
    existing rows. **~0.5d.**
-2. **Flatten engine wiring** — `_rederive_shape` calls
-   `flatten_engine.flatten()` instead of raw SQL. Tests assert old
-   SQL output equals engine output for same-UoM artifacts (no
-   regression) AND different output for cross-UoM artifacts
-   (conversion happening). **~1.5d.**
+2. **UoM conversion in refresh path** — initially scoped as "wire
+   flatten engine" but revised 2026-05-12: thin convert-after-walk
+   layer keeps SQL walker (predictable shape semantics) and adds
+   UoM conversion via `make_uom_lookup` + `convert_qty`. Lower
+   risk than full engine integration (engine has dual-source / BTP
+   lookup semantics that don't match re-derive-from-raw use case).
+   **~0.5d** (revised down from 1.5d). Sub-steps:
+   - 2a: tier-A 3-tier policy in `make_uom_lookup`. **DONE.**
+   - 2b: `_rederive_shape` walks SQL → converts each row to
+     catalog UoM via `convert_qty` → marks artifact `has_uom_drift`
+     when factor missing (tier-B) or default applied (tier-A).
 3. **Refresh-as-new-artifact** — different-hash mints + tombstones
    old. Update `bom_staleness.refresh_artifact` + tests. **~1d.**
 4. **Mig 056: `bom_artifact_rows` audit columns** — `source_uom` +
