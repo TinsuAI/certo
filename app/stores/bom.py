@@ -560,6 +560,7 @@ def list_artifacts_for_product(*, client_id: str, product_code: str) -> list[dic
                        v.bom_variant_id, v.source_bom_kind, v.source_channel,
                        v.flatten_status, v.flatten_strategy,
                        v.is_stale, v.stale_reasons,
+                       v.has_uom_drift, v.uom_drift_reasons,
                        p.artifact_no       as parent_artifact_no,
                        p.bom_variant_id   as parent_variant_id,
                        p.flatten_status   as parent_flatten_status,

@@ -136,6 +136,42 @@ def test_api_artifact_endpoint_is_stale_false_when_fresh(http):
     assert artifact["stale_reasons"] == []
 
 
+def test_api_list_artifacts_includes_uom_drift_fields(http):
+    aid_drift = "ba_list_uom_drift"
+    aid_clean = "ba_list_uom_clean"
+    _insert_stale(aid_drift, is_stale=False, product_code="P_LIST_UOM")
+    _insert_stale(aid_clean, is_stale=False, product_code="P_LIST_UOM")
+    drift_reason = [{"dim": "materials_uom",
+                     "source_table": "hub.materials",
+                     "source_pk": f"{CLIENT}/M-X",
+                     "material_code": "M-X",
+                     "observed_at": "2026-05-12T00:00:00Z"}]
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "update hub.bom_artifacts set has_uom_drift=true, "
+            "uom_drift_reasons=%s::jsonb, uom_drift_first_at=now() "
+            "where artifact_id=%s",
+            (json.dumps(drift_reason), aid_drift),
+        )
+        conn.commit()
+    token = _bearer_token()
+
+    r = http.get(
+        f"/v1/hub/products/P_LIST_UOM/bom/artifacts?client_id={CLIENT}",
+        headers={"authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200, r.text
+    items = {it["artifact_id"]: it for it in r.json()["items"]}
+    assert aid_drift in items and aid_clean in items
+    assert items[aid_drift]["has_uom_drift"] is True, (
+        "List endpoint must expose has_uom_drift; "
+        f"keys={list(items[aid_drift].keys())}"
+    )
+    assert items[aid_drift]["uom_drift_reasons"][0]["dim"] == "materials_uom"
+    assert items[aid_clean]["has_uom_drift"] is False
+    assert items[aid_clean]["uom_drift_reasons"] == []
+
+
 # ────────────────────────────────────────────────────────────────────
 # UI: stale badge appears in bom_artifact_detail page.
 # ────────────────────────────────────────────────────────────────────
