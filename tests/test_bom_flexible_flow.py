@@ -276,3 +276,34 @@ def test_technical_flatten_routes_to_flatten_preview(http):
     assert r.status_code == 303
     assert "/bom/flatten-preview/" in r.headers["location"]
     assert "/bom/upload/mapping/" not in r.headers["location"]
+
+
+# ── auto-detect profile (BACKLOG: BOM upload — auto-detect adapter) ──────
+
+
+def test_auto_profile_routes_layout_driven_to_preview(http):
+    """profile=auto on a sheet_per_product workbook → parse_with_fallback
+    picks the layout adapter, lands directly on /preview/ (no mapping)."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "P-AUTO-1"
+    ws.append(("Mã NVL", "Định mức", "ĐVT"))
+    ws.append(("M-A", 1, "kg"))
+    buf = io.BytesIO()
+    wb.save(buf)
+    blob = buf.getvalue()
+
+    r = _upload(http, blob, profile="auto")
+    assert r.status_code == 303, r.text
+    loc = r.headers["location"]
+    assert "/bom/preview/" in loc, loc
+    assert "/bom/upload/mapping/" not in loc, loc
+
+
+def test_auto_profile_400_when_no_adapter_matches(http):
+    """profile=auto on garbage bytes → 400, error message mentions
+    no suitable parser."""
+    blob = b"not even an xlsx file"
+    r = _upload(http, blob, profile="auto")
+    assert r.status_code == 400
+    assert "parser" in r.text.lower() or "adapter" in r.text.lower()

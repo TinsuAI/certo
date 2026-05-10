@@ -16,10 +16,15 @@
     <label class="field">
       <span class="field-label">{{ t('bom.upload_profile') }}</span>
       <select name="profile">
+        <option value="auto" selected>Tự động phát hiện (recommended)</option>
         {% for p in profiles %}
         <option value="{{ p }}">{{ t('bom.adapter.' ~ p ~ '.label') }} ({{ p }})</option>
         {% endfor %}
       </select>
+      <p class="meta" style="font-size:.85em; color:#888; margin-top:.3em;">
+        Mặc định <strong>Tự động</strong> — hệ thống thử lần lượt 5 parser
+        và chọn cái phù hợp. Chọn parser cụ thể nếu auto chọn sai.
+      </p>
     </label>
     <div class="upload-zone">
       <input type="file" name="file" accept=".xlsx,.xls" required>

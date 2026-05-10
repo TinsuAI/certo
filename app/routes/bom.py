@@ -166,7 +166,8 @@ async def upload_submit(request: Request, client_id: str,
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
-    if profile not in BOM_PROFILES and profile not in BOM_LEGACY_PROFILES:
+    if (profile not in BOM_PROFILES and profile not in BOM_LEGACY_PROFILES
+            and profile != "auto"):
         raise HTTPException(400, "Invalid profile")
     # technical_flatten is a flatten-stage marker, not a parse-stage profile.
     # Parse with manual_flat shape primarily; the route tries the other
@@ -182,6 +183,42 @@ async def upload_submit(request: Request, client_id: str,
         stored_path=stored.path, content_sha256=sha, size_bytes=len(blob),
         mime_type=file.content_type, uploader_user_id=user.user_id,
     )
+
+    if profile == "auto":
+        # Auto-detect adapter: walk parse_with_fallback, accept the first
+        # adapter that yields a non-empty parse. No mapping page; staff can
+        # still re-upload with an explicit profile to override.
+        from pathlib import Path as _Path
+        root_hint = _Path(file.filename or "").stem if file.filename else None
+        result = bom_adapters.parse_with_fallback(blob, root_code=root_hint)
+        if result is None:
+            with connect() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "update hub.file_uploads set parse_status='error', "
+                    "parse_error=%s, parsed_at=now() where upload_id=%s",
+                    ("Không có parser phù hợp với file này", upload_id))
+            raise HTTPException(
+                400,
+                "Không có parser phù hợp. File có thể có format ngoài "
+                "5 shape Data Hub hỗ trợ. Liên hệ Tinsu AI để thêm "
+                "adapter mới, hoặc chọn parser thủ công ở dropdown.",
+            )
+        products, used_adapter = result
+        pending_id = _stash_pending(
+            client_id=client_id, upload_id=upload_id, products=products,
+            profile=used_adapter, created_by=user.user_id,
+            proposed_by=f"parser_auto:{used_adapter}",
+        )
+        total_rows = sum(len(rows) for rows in products.values())
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "update hub.file_uploads set parse_status='pending_preview', "
+                "row_count=%s, parsed_at=now() where upload_id=%s",
+                (total_rows, upload_id))
+        return RedirectResponse(
+            url=f"/clients/{client_id}/bom/preview/{pending_id}",
+            status_code=303,
+        )
 
     if profile == "technical_raw":
         from pathlib import Path as _Path
