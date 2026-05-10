@@ -70,10 +70,17 @@ def _find_raw_ancestor_for_product(cur, client_id: str,
 
 
 def _rederive_shape(client_id: str, raw_artifact_id: str,
-                    product_code: str, strategy: str) -> str | None:
+                    product_code: str, strategy: str,
+                    *, actor: str = "agency_staff",
+                    triggered_by_user_id: str | None = None) -> str | None:
     """Re-run the materializer for one shape; return the resulting
     artifact_id (existing on dedup, new on hash-change). None if the
-    derive produced zero rows."""
+    derive produced zero rows.
+
+    `actor` defaults to 'agency_staff' (refresh is staff action, not a
+    migration script). `triggered_by_user_id` goes into context jsonb
+    for forensics — answers "which staff clicked refresh".
+    """
     from scripts.materialize_shallow_and_full_flat import (
         SHALLOW_WALK_SQL, FULL_FLAT_WALK_SQL, derive,
     )
@@ -88,13 +95,16 @@ def _rederive_shape(client_id: str, raw_artifact_id: str,
     rows = derive(raw_artifact_id, product_code, client_id, sql)
     if not rows:
         return None
+    ctx = {"channel": "auto_derived", "profile": strategy,
+           "derived_from_artifact_id": raw_artifact_id,
+           "ingest_script": "bom_staleness.refresh"}
+    if triggered_by_user_id:
+        ctx["triggered_by_user_id"] = triggered_by_user_id
     return create_artifact(
         client_id=client_id, product_code=product_code, rows=rows,
-        actor="erp_pipeline", intent="derived",
+        actor=actor, intent="derived",
         parent_artifact_id=raw_artifact_id,
-        context={"channel": "auto_derived", "profile": strategy,
-                 "derived_from_artifact_id": raw_artifact_id,
-                 "ingest_script": "bom_staleness.refresh"},
+        context=ctx,
         source_upload_id=None,
         source_bom_kind="technical_flattened",
         flatten_status="flattened",
@@ -117,17 +127,22 @@ def _clear_stale(cur, artifact_ids: list[str]) -> int:
     return len(cur.fetchall())
 
 
-def refresh_artifact(client_id: str, artifact_id: str) -> RefreshResult:
+def refresh_artifact(client_id: str, artifact_id: str,
+                     *, triggered_by_user_id: str | None = None) -> RefreshResult:
     """Refresh one artifact.
     For derived artifacts, attempts to re-derive its shape from the raw
     ancestor (best-effort; skips if no raw is available — e.g. test
     fixtures or manual_flat-only products).
     Always clears the stale flag if the artifact belongs to client_id.
     Raises LookupError if not found.
+
+    `triggered_by_user_id` propagates staff identity into the
+    re-derived artifact's context jsonb + connection's app.user_id
+    (for any future audit triggers on hub.bom_artifacts).
     """
     new_ids: list[str] = []
     skipped: str | None = None
-    with connect() as conn, conn.cursor() as cur:
+    with connect(user_id=triggered_by_user_id) as conn, conn.cursor() as cur:
         a = _load_artifact(cur, artifact_id)
         if a is None:
             raise LookupError(f"artifact {artifact_id!r} not found")
@@ -147,6 +162,7 @@ def refresh_artifact(client_id: str, artifact_id: str) -> RefreshResult:
                 new_id = _rederive_shape(
                     client_id, raw_id, a["product_code"],
                     a["flatten_strategy"],
+                    triggered_by_user_id=triggered_by_user_id,
                 )
                 if new_id:
                     new_ids.append(new_id)
@@ -165,9 +181,11 @@ def refresh_artifact(client_id: str, artifact_id: str) -> RefreshResult:
     }
 
 
-def refresh_product(client_id: str, product_code: str) -> list[RefreshResult]:
+def refresh_product(client_id: str, product_code: str,
+                    *, triggered_by_user_id: str | None = None
+                    ) -> list[RefreshResult]:
     """Refresh every derived artifact for a product (latest phiên bản)."""
-    with connect() as conn, conn.cursor() as cur:
+    with connect(user_id=triggered_by_user_id) as conn, conn.cursor() as cur:
         cur.execute(
             "select artifact_id from hub.bom_artifacts "
             "where client_id=%s and product_code=%s "
@@ -176,4 +194,8 @@ def refresh_product(client_id: str, product_code: str) -> list[RefreshResult]:
             (client_id, product_code, list(_DERIVED_STRATEGIES)),
         )
         artifact_ids = [r[0] for r in cur.fetchall()]
-    return [refresh_artifact(client_id, aid) for aid in artifact_ids]
+    return [
+        refresh_artifact(client_id, aid,
+                         triggered_by_user_id=triggered_by_user_id)
+        for aid in artifact_ids
+    ]

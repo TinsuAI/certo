@@ -380,6 +380,44 @@ def test_d8_btp_sourcing_update_marks_dependent_artifact_stale():
 # ────────────────────────────────────────────────────────────────────
 
 
+def test_stale_reasons_dedup_same_dim_and_source_pk():
+    """Mig 054: repeated edits of the same (dim, source_pk) should not
+    bloat stale_reasons. Helper uses `@>` containment check."""
+    _insert_material(CLIENT, "M_DEDUP", uom="pcs")
+    _insert_artifact(
+        CLIENT, "P_DEDUP", "ba_dedup", 1,
+        flatten_strategy="technical_exploded",
+        rows=[("M_DEDUP", 1.0, "pcs")],
+    )
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "update hub.materials set uom='kg' "
+            "where client_id=%s and material_code='M_DEDUP'",
+            (CLIENT,),
+        )
+        cur.execute(
+            "update hub.materials set uom='pcs' "
+            "where client_id=%s and material_code='M_DEDUP'",
+            (CLIENT,),
+        )
+        cur.execute(
+            "update hub.materials set uom='kg' "
+            "where client_id=%s and material_code='M_DEDUP'",
+            (CLIENT,),
+        )
+        conn.commit()
+
+    s = _stale_state("ba_dedup")
+    assert s["is_stale"] is True
+    # All three updates target same (dim='materials_uom', source_pk).
+    # Helper must dedup → exactly 1 entry.
+    assert len(s["stale_reasons"]) == 1, (
+        f"Repeated same-dim updates must dedup; got "
+        f"{len(s['stale_reasons'])} entries: {s['stale_reasons']}"
+    )
+    assert s["stale_reasons"][0]["dim"] == "materials_uom"
+
+
 def test_stale_reasons_accumulate_across_dimensions():
     _insert_material(CLIENT, "M_MULTI", category="nvl", uom="pcs")
     _insert_artifact(

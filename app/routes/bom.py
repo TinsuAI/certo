@@ -589,7 +589,8 @@ async def refresh_artifact_route(
         raise HTTPException(404, "Client not found")
     from app.stores.bom_staleness import refresh_artifact
     try:
-        refresh_artifact(client_id, artifact_id)
+        refresh_artifact(client_id, artifact_id,
+                         triggered_by_user_id=user.user_id)
     except LookupError:
         raise HTTPException(404, "Artifact not found in this client")
     return RedirectResponse(
@@ -608,7 +609,8 @@ async def refresh_product_route(
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
     from app.stores.bom_staleness import refresh_product
-    refresh_product(client_id, product_code)
+    refresh_product(client_id, product_code,
+                    triggered_by_user_id=user.user_id)
     return RedirectResponse(
         url=f"/clients/{client_id}/bom", status_code=303,
     )
