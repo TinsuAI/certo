@@ -137,6 +137,56 @@ def test_johnson_sap_raw_parser_keeps_level_edges():
     assert edges[1]["node_path"] == "ASM-001 > BTP-B > NVL-C"
 
 
+def test_johnson_sap_raw_parser_extracts_object_description():
+    blob = _xlsx({
+        "Sheet1": [
+            ("Level", "Component number", "Comp. Qty (CUn)",
+             "Component unit", "Object description"),
+            (1, "BTP-B", 2, "EA", "Sub-assembly bracket"),
+            (2, "NVL-C", 3, "KG", "Steel plate 5mm"),
+        ],
+    })
+
+    edges, adapter = parse_raw_edges_with_fallback(blob, root_code="ASM-001")
+
+    assert adapter == "sap_indented_raw"
+    desc_by_child = {e["child_code"]: e["payload"].get("description") for e in edges}
+    assert desc_by_child == {
+        "BTP-B": "Sub-assembly bracket",
+        "NVL-C": "Steel plate 5mm",
+    }
+
+
+def test_johnson_sap_raw_parser_works_without_description_column():
+    blob = _xlsx({
+        "Sheet1": [
+            ("Level", "Component number", "Comp. Qty (CUn)", "Component unit"),
+            (1, "X", 1, "EA"),
+        ],
+    })
+
+    edges, adapter = parse_raw_edges_with_fallback(blob, root_code="ASM-X")
+    assert adapter == "sap_indented_raw"
+    assert "description" not in edges[0]["payload"]
+
+
+def test_sap_indented_walk_adapter_propagates_description_to_leaf():
+    from app.parsers.bom_adapters.sap_indented_walk import SapIndentedWalkAdapter
+    blob = _xlsx({
+        "Sheet1": [
+            ("Level", "Component number", "Comp. Qty (CUn)",
+             "Component unit", "Object description"),
+            (1, "BTP-B", 2, "EA", "Sub-assembly"),
+            (2, "NVL-C", 3, "KG", "Steel plate"),
+        ],
+    })
+    by_root = SapIndentedWalkAdapter().parse(blob, root_code="ASM-001")
+    leaves = by_root["ASM-001"]
+    by_code = {r["material_code"]: r.get("description") for r in leaves}
+    # BTP-B is intermediate (has child NVL-C), so only NVL-C is a leaf.
+    assert by_code == {"NVL-C": "Steel plate"}
+
+
 def test_create_raw_artifact_persists_edges_without_flat_rows():
     artifact_id = bom_store.create_raw_artifact(
         client_id=CLIENT,

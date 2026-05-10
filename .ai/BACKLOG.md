@@ -270,24 +270,6 @@ materialized view that re-derives material_identity for analytics
 queries. Defer until performance pain emerges. Tightly coupled with
 A.5 (same root cause).
 
-## A.7 BOM parser — extract "Object description" column
-
-**Captured 2026-05-09** during Mã chờ duyệt v2 review. Johnson BOM xlsx
-files have "Object description" column (item names) but
-`sap_indented_walk.py` parser discards it — only structural info
-(parent/child/qty/uom) survives into `bom_edges`. Result: BOM-only
-candidates (3711+ codes for Johnson) show blank sample_text in catalog
-candidate feed; staff must fill name manually on Accept.
-
-**Fix:** enhance `sap_indented_walk.py` to capture description column
-into `bom_edges.payload->>'description'` (or add `description text`
-column via mig). Update `app/stores/catalog_candidates.py::refresh_candidates`
-to pull description as `sample_text` for BOM-only candidates.
-
-**Effort**: ~2-3h (parser change + payload migration helper + refresh
-update + tests). Then re-ingest Johnson BOM to backfill descriptions
-for existing rows.
-
 ---
 
 # B. BOM upload & adapter infrastructure
@@ -940,6 +922,19 @@ extended to 4 values. Memory `project_bom_3_shapes.md` updated.
 UI/template/i18n only — code/DB/API stay `tombstone`. Mapping:
 catalog material → "đã loại"; BOM artifact lineage / replace → "đã
 thay thế"; preset retract → "thu hồi". 9 files edited.
+
+## A.7 BOM parser — extract "Object description" — SHIPPED 2026-05-13
+
+`_DESCRIPTION_ALIASES` constant added in `sap_indented_walk.py` covering
+EN ("Object description", "Description", "Material description"), VI
+("tên hàng", "mô tả"), and ZH ("物料描述", "物料名称"). Both the leaf-emit
+adapter (`SapIndentedWalkAdapter.parse`) and the raw-edge parser
+(`parse_sap_indented_raw_edges` in `bom_edges.py`) capture description.
+Raw path stores into `bom_edges.payload->>'description'` (jsonb,
+no schema mig). `catalog_candidates._backfill_sample_from_bom` added
+as fallback after `_backfill_sample_from_bcct`: picks most-recent alive
+artifact's description for BOM-only candidates. +5 tests. Re-ingest
+Johnson BOM still pending to backfill descriptions for existing rows.
 
 ## Johnson programmatic bulk re-ingest — SHIPPED 2026-05-11
 

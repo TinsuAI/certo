@@ -227,6 +227,84 @@ def test_refresh_bom_emits_nb_candidates():
             assert c["code_kind"] == "nb"
 
 
+def test_refresh_bom_only_candidate_picks_sample_from_edge_description():
+    """BOM-only candidate (no BCCT row) should fall back to
+    bom_edges.payload->>'description' for sample_text — A.7."""
+    from app.stores.catalog_candidates import refresh_candidates
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "insert into hub.bom_artifacts (artifact_id, client_id, product_code, "
+            " artifact_no, status, actor, intent, normalized_hash, "
+            " source_bom_kind, flatten_status, flatten_strategy, source_channel, "
+            " flatten_method, flatten_method_version, published_at) "
+            "values ('ba_a7_desc', %s, 'TP1', 1, 'published', 'system', "
+            " 'asserted_technical', 'h_a7_desc', 'technical_raw', "
+            " 'non_flattened', 'no_strategy', 'agency_upload', "
+            " 'none', 0, now()) "
+            "on conflict do nothing",
+            (CLIENT_DUAL,),
+        )
+        cur.execute(
+            "insert into hub.bom_edges (artifact_id, row_index, root_code, "
+            " parent_code, child_code, qty_per_parent, payload) values "
+            " ('ba_a7_desc', 1, 'TP1', 'TP1', 'BTP1', 1, "
+            "  '{\"adapter\":\"sap_indented_raw\",\"description\":\"Bracket assembly\"}'::jsonb), "
+            " ('ba_a7_desc', 2, 'TP1', 'BTP1', 'NVL1', 2, "
+            "  '{\"adapter\":\"sap_indented_raw\",\"description\":\"Steel plate 5mm\"}'::jsonb)",
+        )
+    refresh_candidates(CLIENT_DUAL)
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select code, sample_text from hub.catalog_candidates "
+            "where client_id=%s and code in ('TP1','BTP1','NVL1') "
+            "order by code",
+            (CLIENT_DUAL,),
+        )
+        rows = dict(cur.fetchall())
+    assert rows["BTP1"] == "Bracket assembly"
+    assert rows["NVL1"] == "Steel plate 5mm"
+
+
+def test_refresh_bcct_sample_takes_precedence_over_bom_description():
+    """BCCT goods_name beats BOM description (BCCT backfill runs first)."""
+    from app.stores.catalog_candidates import refresh_candidates
+    _seed_bcct(CLIENT_DUAL, [
+        ("D1", "1", "BTP1", "BTP1#&Goods name from BCCT (NB1)",
+         "import", dt.date(2026, 4, 1)),
+    ])
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "insert into hub.bom_artifacts (artifact_id, client_id, product_code, "
+            " artifact_no, status, actor, intent, normalized_hash, "
+            " source_bom_kind, flatten_status, flatten_strategy, source_channel, "
+            " flatten_method, flatten_method_version, published_at) "
+            "values ('ba_a7_pref', %s, 'TPX', 1, 'published', 'system', "
+            " 'asserted_technical', 'h_a7_pref', 'technical_raw', "
+            " 'non_flattened', 'no_strategy', 'agency_upload', "
+            " 'none', 0, now()) "
+            "on conflict do nothing",
+            (CLIENT_DUAL,),
+        )
+        cur.execute(
+            "insert into hub.bom_edges (artifact_id, row_index, root_code, "
+            " parent_code, child_code, qty_per_parent, payload) values "
+            " ('ba_a7_pref', 1, 'TPX', 'TPX', 'BTP1', 1, "
+            "  '{\"description\":\"BOM description (loses)\"}'::jsonb)",
+        )
+    refresh_candidates(CLIENT_DUAL)
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select code_kind, sample_text from hub.catalog_candidates "
+            "where client_id=%s and code='BTP1' "
+            "order by code_kind",
+            (CLIENT_DUAL,),
+        )
+        rows = dict(cur.fetchall())
+    # BTP1 is a HQ kind from BCCT (paren-extract gives NB1 → 'nb');
+    # 'hq' BTP1 picks BCCT goods_name as sample_text.
+    assert rows["hq"].startswith("BTP1#&Goods name from BCCT")
+
+
 # ── Refresh: code_mappings (BQD) source ───────────────────────────────────
 
 

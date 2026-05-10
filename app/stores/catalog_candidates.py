@@ -327,6 +327,11 @@ def refresh_candidates(client_id: str) -> int:
     # ── Cross-ref: pull sample_text from BCCT for codes with empty sample ──
     _backfill_sample_from_bcct(client_id, agg)
 
+    # BOM-only candidates won't have a BCCT goods_name. Fall back to
+    # bom_edges.payload->>'description' (parser-extracted from the source
+    # XLSX; e.g. SAP "Object description" for Johnson).
+    _backfill_sample_from_bom(client_id, agg)
+
     # ── UPSERT ──
     with connect() as conn, conn.cursor() as cur:
         for (code, kind), stat in agg.items():
@@ -489,6 +494,55 @@ def _backfill_sample_from_bcct(
             (client_id, needs_sample),
         )
         lookup = {cc: gn for cc, gn in cur.fetchall()}
+    for (code, kind), stat in agg.items():
+        if not stat.sample_text and code in lookup:
+            stat.sample_text = (lookup[code] or "")[:300]
+
+
+def _backfill_sample_from_bom(
+    client_id: str, agg: dict[tuple[str, str], _Stat],
+) -> None:
+    """For candidates with empty sample_text, fall back to
+    bom_edges.payload->>'description' where the candidate code matches
+    child_code or parent_code in any alive artifact. Picks the most
+    recently-published artifact's description for that code.
+    """
+    needs_sample = list({
+        code for (code, kind), stat in agg.items() if not stat.sample_text
+    })
+    if not needs_sample:
+        return
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            with hits as (
+              select e.child_code as code,
+                     e.payload->>'description' as description,
+                     a.published_at
+                from hub.bom_edges e
+                join hub.bom_artifacts a on a.artifact_id = e.artifact_id
+               where a.client_id = %s
+                 and a.tombstoned_at is null
+                 and e.child_code = any(%s)
+                 and coalesce(e.payload->>'description', '') <> ''
+              union all
+              select e.parent_code as code,
+                     e.payload->>'description' as description,
+                     a.published_at
+                from hub.bom_edges e
+                join hub.bom_artifacts a on a.artifact_id = e.artifact_id
+               where a.client_id = %s
+                 and a.tombstoned_at is null
+                 and e.parent_code = any(%s)
+                 and coalesce(e.payload->>'description', '') <> ''
+            )
+            select distinct on (code) code, description
+              from hits
+             order by code, published_at desc nulls last
+            """,
+            (client_id, needs_sample, client_id, needs_sample),
+        )
+        lookup = {code: desc for code, desc in cur.fetchall()}
     for (code, kind), stat in agg.items():
         if not stat.sample_text and code in lookup:
             stat.sample_text = (lookup[code] or "")[:300]

@@ -39,6 +39,11 @@ _QTY_ALIASES = [
     "component quantity", "required quantity", "qty",
 ]
 _UNIT_ALIASES = ["component unit", "uom", "unit", "comp. unit", "base unit of measure"]
+_DESCRIPTION_ALIASES = [
+    "object description", "description", "material description",
+    "component description", "tên hàng", "ten hang", "mô tả", "mo ta",
+    "物料描述", "物料名称",
+]
 # If any of these alias-as-product-code matches, this is NOT a Johnson-style
 # indented file — defer to a different adapter.
 _PRODUCT_CODE_ALIASES = ["成品物料", "product code", "mã sp", "ma sp",
@@ -97,6 +102,7 @@ class SapIndentedWalkAdapter:
         c_comp = _col_index(header, _COMPONENT_ALIASES)
         c_qty = _col_index(header, _QTY_ALIASES)
         c_unit = _col_index(header, _UNIT_ALIASES)
+        c_desc = _col_index(header, _DESCRIPTION_ALIASES)
         if c_level is None or c_comp is None or c_qty is None:
             raise BomParseError("Missing Level / Component / Qty columns")
 
@@ -138,6 +144,8 @@ class SapIndentedWalkAdapter:
             qty = self._to_decimal(r[c_qty])
             unit = (str(r[c_unit]).strip() if c_unit is not None
                     and c_unit < len(r) and r[c_unit] else None)
+            desc = (str(r[c_desc]).strip() if c_desc is not None
+                    and c_desc < len(r) and r[c_desc] else None)
 
             # Pop ancestors deeper than this row's level.
             while len(parent_stack) > level:
@@ -152,6 +160,7 @@ class SapIndentedWalkAdapter:
                 "qty_per_unit_raw": qty,
                 "qty_cumulative": cumulative_qty,
                 "uom": unit,
+                "description": desc,
                 "parent_code": parent_code,
                 "ancestor_chain": [pc for pc, _ in parent_stack],
             })
@@ -183,6 +192,7 @@ class SapIndentedWalkAdapter:
                 # Pre-multiplied through ancestor chain.
                 "qty_per_unit": float(row["qty_cumulative"]),
                 "uom": row["uom"],
+                "description": row["description"],
                 "bom_code": None,
                 "bom_variant_id": None,
                 # Tells the engine "do not recurse, this IS a leaf".

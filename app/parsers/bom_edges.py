@@ -16,8 +16,8 @@ from app.parsers.bom_adapters._common import (
     COMMON_ALIASES, cell_num, cell_str,
 )
 from app.parsers.bom_adapters.sap_indented_walk import (
-    _COMPONENT_ALIASES, _LEVEL_ALIASES, _PRODUCT_CODE_ALIASES,
-    _QTY_ALIASES, _UNIT_ALIASES, _col_index,
+    _COMPONENT_ALIASES, _DESCRIPTION_ALIASES, _LEVEL_ALIASES,
+    _PRODUCT_CODE_ALIASES, _QTY_ALIASES, _UNIT_ALIASES, _col_index,
 )
 
 
@@ -125,6 +125,7 @@ def parse_sap_indented_raw_edges(
     c_comp = _col_index(header, _COMPONENT_ALIASES)
     c_qty = _col_index(header, _QTY_ALIASES)
     c_unit = _col_index(header, _UNIT_ALIASES)
+    c_desc = _col_index(header, _DESCRIPTION_ALIASES)
     if c_level is None or c_comp is None or c_qty is None:
         raise BomParseError("Missing Level / Component / Qty columns")
 
@@ -148,11 +149,19 @@ def parse_sap_indented_raw_edges(
             if c_unit is not None and c_unit < len(row) and row[c_unit]
             else None
         )
+        desc = (
+            str(row[c_desc]).strip()
+            if c_desc is not None and c_desc < len(row) and row[c_desc]
+            else None
+        )
 
         while len(parent_stack) > level:
             parent_stack.pop()
         parent = parent_stack[-1]
         node_path = " > ".join([*parent_stack, child])
+        payload: dict = {"adapter": "sap_indented_raw"}
+        if desc:
+            payload["description"] = desc
         edges.append({
             "row_index": len(edges),
             "root_code": root,
@@ -164,7 +173,7 @@ def parse_sap_indented_raw_edges(
             "node_path": node_path,
             "sheet_name": ws.title,
             "source_row_no": source_row_no,
-            "payload": {"adapter": "sap_indented_raw"},
+            "payload": payload,
         })
         if len(parent_stack) == level:
             parent_stack.append(child)
