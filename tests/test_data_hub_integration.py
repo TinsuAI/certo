@@ -966,6 +966,7 @@ def test_data_hub_bom_service_prefers_latest_usable_version_over_non_flattened()
     workspace = DataHubBomService(FakeDataHubClient()).workspace({"id": "growatt-vn"})
 
     assert [row["product_version_id"] for row in workspace["product_versions"] if row["status"] == "current"] == ["bv-1"]
+    assert [row["product_version_id"] for row in workspace["product_version_options_by_code"]["TP-1"]] == ["bv-1"]
     assert workspace["latest_version"]["product_versions"][0]["product_version_id"] == "bv-1"
     assert workspace["latest_rows"][0]["material_code"] == "NVL-1"
 

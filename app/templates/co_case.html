@@ -813,7 +813,13 @@
         </div>
       </div>
 
-      <div class="product-stack origin-workbook" data-origin-workbook data-origin-autosave-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/autosave">
+      <div
+        class="product-stack origin-workbook"
+        data-origin-workbook
+        data-origin-autosave-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/autosave"
+        data-origin-save-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/save"
+        data-origin-payload-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/calculation-payload"
+        data-origin-revision="{{ origin_case_revision(case) if cached_case_context else '' }}">
         {% if case.products %}
         <div class="origin-sequence-note">
           <strong>Tính tuần tự theo tồn CO</strong>
@@ -1309,6 +1315,64 @@
     return {body: encoded, headers};
   };
 
+  const compactOriginPayload = (form, submitter = null, extras = {}) => {
+    const workbook = form?.querySelector("[data-origin-workbook]");
+    const orderInput = form?.querySelector("[data-origin-product-order]");
+    const productOrder = (orderInput?.value || "")
+      .split("|")
+      .map((code) => code.trim())
+      .filter(Boolean);
+    const products = Array.from(form?.querySelectorAll("[data-origin-sheet-panel]") || []).map((panel) => {
+      const code = panel.dataset.productCode || "";
+      const bomSelect = panel.querySelector("[data-bom-version-select]");
+      const bomProductCode = panel.querySelector('input[name$="_bom_product_code"]')?.value || code;
+      const sheetStatus = panel.querySelector('input[name$="_origin_sheet_status"]')?.value || "";
+      const sheetStatusLabel = panel.querySelector('input[name$="_origin_sheet_status_label"]')?.value || "";
+      return {
+        code,
+        bom_product_code: bomProductCode,
+        bom_product_artifact_id: bomSelect?.value || "",
+        bom_product_version_id: bomSelect?.value || "",
+        name: panel.querySelector('input[name$="_name"]')?.value || "",
+        finished_hs: panel.querySelector('input[name$="_finished_hs"]')?.value || "",
+        quantity: panel.querySelector('input[name$="_quantity"]')?.value || "",
+        unit: panel.querySelector('input[name$="_unit"]')?.value || "",
+        currency: panel.querySelector('input[name$="_currency"]')?.value || "",
+        source_declaration_no: panel.querySelector('input[name$="_source_declaration_no"]')?.value || "",
+        source_line_no: panel.querySelector('input[name$="_source_line_no"]')?.value || "",
+        invoice_ref: panel.querySelector('input[name$="_invoice_ref"]')?.value || "",
+        fob: panel.querySelector('input[name$="_fob"]')?.value || "0",
+        non_origin_value: panel.querySelector('input[name$="_non_origin_value"]')?.value || "",
+        rvc_threshold: panel.querySelector('input[name$="_rvc_threshold"]')?.value || "35",
+        lvc_threshold: panel.querySelector('input[name$="_lvc_threshold"]')?.value || "",
+        origin_sheet_status: sheetStatus,
+        origin_sheet_status_label: sheetStatusLabel,
+      };
+    }).filter((product) => product.code);
+    const overrides = {};
+    products.forEach((product) => {
+      if (!product.bom_product_artifact_id) return;
+      overrides[product.code] = product.bom_product_artifact_id;
+      if (product.bom_product_code) overrides[product.bom_product_code] = product.bom_product_artifact_id;
+    });
+    return {
+      origin_product_order: productOrder,
+      bom_artifact_id: form?.querySelector('select[name="bom_artifact_id"]')?.value || "",
+      bom_product_artifact_overrides: overrides,
+      products,
+      expected_revision: workbook?.dataset.originRevision || "",
+      ...extras,
+    };
+  };
+
+  const compactOriginRequest = (form, submitter = null, accept = "text/html", extras = {}) => ({
+    body: JSON.stringify(compactOriginPayload(form, submitter, extras)),
+    headers: {
+      "Accept": accept,
+      "Content-Type": "application/json",
+    },
+  });
+
   document.addEventListener("click", (event) => {
     const submitter = event.target.closest?.("[data-co-case-shell] button[type='submit'], [data-co-case-shell] input[type='submit']");
     if (!submitter?.form) return;
@@ -1337,7 +1401,12 @@
     if (!action || /\/export$|\/delete$|supporting-files\/[^/]+$/.test(action)) return;
     event.preventDefault();
     const method = (submitter?.getAttribute("formmethod") || form.dataset.ajaxSubmitMethod || form.getAttribute("method") || "GET").toUpperCase();
-    const payload = method === "GET" ? {body: null, headers: {"Accept": "text/html"}} : ajaxFormPayload(form, submitter, "text/html");
+    const isOriginSheetAction = /\/origin\/sheet\/[^/]+\/(calculate|lock|reopen)$/.test(action);
+    const payload = method === "GET"
+      ? {body: null, headers: {"Accept": "text/html"}}
+      : isOriginSheetAction
+        ? compactOriginRequest(form, submitter, "text/html", {mark_stale: false})
+        : ajaxFormPayload(form, submitter, "text/html");
     submitter?.setAttribute("disabled", "disabled");
     try {
       const response = await fetch(action, {
@@ -1887,17 +1956,18 @@
     if (!input || !tabList) return;
 
     const autosave = async (fromIndex = 0) => {
-      const url = workbook.dataset.originAutosaveUrl || "";
+      const url = workbook.dataset.originSaveUrl || workbook.dataset.originAutosaveUrl || "";
       if (!form || !url) return;
-      const marker = document.createElement("input");
-      marker.type = "hidden";
-      marker.name = "stale_from_index";
-      marker.value = String(fromIndex);
-      form.appendChild(marker);
-      const payload = ajaxFormPayload(form, null, "application/json");
-      marker.remove();
+      const payload = compactOriginRequest(form, null, "application/json", {
+        stale_from_index: fromIndex,
+        mark_stale: true,
+      });
       try {
-        await fetch(url, {method: "POST", body: payload.body, headers: payload.headers});
+        const response = await fetch(url, {method: "POST", body: payload.body, headers: payload.headers});
+        if (response.ok) {
+          const saved = await response.json();
+          if (saved.revision) workbook.dataset.originRevision = saved.revision;
+        }
       } catch (_error) {
         if (dirty) {
           dirty.textContent = "Chưa lưu được thay đổi thứ tự; thử lại hoặc tải lại trang.";

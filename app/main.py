@@ -169,6 +169,134 @@ async def large_request_form(request: Request):
         return await request.form()
 
 
+def origin_case_revision(case: dict) -> str:
+    payload = json_safe(
+        {
+            "source_snapshot": case.get("source_snapshot", {}),
+            "bom_snapshot": case.get("bom_snapshot", {}),
+            "origin_snapshot": case.get("origin_snapshot", {}),
+            "origin_product_order": origin_product_order(case),
+            "origin_sheet_states": case.get("origin_sheet_states", {}),
+            "bom_product_artifact_overrides": case.get("bom_product_artifact_overrides", {}),
+        }
+    )
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+
+
+def persisted_origin_case(client: dict, case_id: str) -> dict:
+    record = get_case_record(client, case_id)
+    case = case_from_record(default_client_case(client), client, record)
+    case["persisted_case_id"] = case.get("persisted_case_id") or case_id
+    return case
+
+
+def merge_origin_action_payload(case: dict, payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        return case
+    prepared = dict(case)
+    order = payload.get("origin_product_order")
+    if isinstance(order, str):
+        prepared["origin_product_order"] = origin_product_order({"origin_product_order": order})
+    elif isinstance(order, list):
+        prepared["origin_product_order"] = [str(code).strip() for code in order if str(code).strip()]
+    bom_artifact_id = str(payload.get("bom_artifact_id") or payload.get("bom_version_id") or "").strip()
+    if bom_artifact_id:
+        prepared["bom_artifact_id"] = bom_artifact_id
+        prepared["bom_version_id"] = bom_artifact_id
+    overrides = dict(prepared.get("bom_product_artifact_overrides") or {})
+    legacy_overrides = dict(prepared.get("bom_product_version_overrides") or {})
+    incoming_overrides = payload.get("bom_product_artifact_overrides")
+    if isinstance(incoming_overrides, dict):
+        for code, artifact_id in incoming_overrides.items():
+            code = str(code or "").strip()
+            artifact_id = str(artifact_id or "").strip()
+            if code and artifact_id:
+                overrides[code] = artifact_id
+                legacy_overrides[code] = artifact_id
+    products_by_code = {
+        str(product.get("code") or "").strip(): dict(product)
+        for product in prepared.get("products", [])
+        if str(product.get("code") or "").strip()
+    }
+    for incoming in payload.get("products") or []:
+        if not isinstance(incoming, dict):
+            continue
+        code = str(incoming.get("code") or incoming.get("product_code") or "").strip()
+        if not code:
+            continue
+        product = products_by_code.get(code, {"code": code})
+        for key in [
+            "name",
+            "finished_hs",
+            "quantity",
+            "unit",
+            "currency",
+            "source_declaration_no",
+            "source_line_no",
+            "invoice_ref",
+            "fob",
+            "non_origin_value",
+            "rvc_threshold",
+            "lvc_threshold",
+            "bom_product_code",
+            "bom_product_artifact_id",
+            "bom_product_artifact_no",
+            "bom_product_version_id",
+            "bom_product_version_no",
+            "origin_sheet_status",
+            "origin_sheet_status_label",
+        ]:
+            if key in incoming:
+                product[key] = incoming.get(key)
+        if isinstance(incoming.get("materials"), list):
+            product["materials"] = incoming["materials"]
+        artifact_id = str(
+            product.get("bom_product_artifact_id") or product.get("bom_product_version_id") or ""
+        ).strip()
+        bom_product_code = str(product.get("bom_product_code") or code).strip()
+        if artifact_id:
+            overrides[code] = artifact_id
+            legacy_overrides[code] = artifact_id
+            if bom_product_code:
+                overrides[bom_product_code] = artifact_id
+                legacy_overrides[bom_product_code] = artifact_id
+        products_by_code[code] = product
+    if products_by_code:
+        ordered = origin_product_order(prepared)
+        remainder = [code for code in products_by_code if code not in ordered]
+        prepared["products"] = [products_by_code[code] for code in ordered + remainder if code in products_by_code]
+    sheet_states = payload.get("origin_sheet_states")
+    if isinstance(sheet_states, dict):
+        prepared["origin_sheet_states"] = {
+            str(code): dict(state)
+            for code, state in sheet_states.items()
+            if isinstance(state, dict)
+        }
+    prepared["bom_product_artifact_overrides"] = overrides
+    prepared["bom_product_version_overrides"] = legacy_overrides
+    return prepared
+
+
+async def origin_case_from_request(request: Request, client: dict, case_id: str) -> tuple[dict, dict]:
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        case = persisted_origin_case(client, case_id)
+        expected_revision = str(payload.get("expected_revision") or "").strip()
+        if expected_revision and expected_revision != origin_case_revision(case):
+            raise HTTPException(status_code=409, detail="Origin case state changed; reload before saving.")
+        return merge_origin_action_payload(case, payload), payload
+    form = await large_request_form(request)
+    case = update_products_from_form({key: str(value) for key, value in form.items()})
+    case["persisted_case_id"] = case.get("persisted_case_id") or case_id
+    return case, {key: str(value) for key, value in form.items()}
+
+
 def format_number_display(value, max_decimals: int = 2) -> str:
     text = "" if value is None else str(value).strip()
     if not text:
@@ -944,15 +1072,14 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
     form_candidates = extra.pop("form_candidates")
     criteria_rows = extra.pop("criteria_rows")
     if current_step == "origin":
-        if use_cached_context and case.get("products"):
+        bom_product_codes = co_case_bom_product_codes(case, invoice_matches)
+        bom_workspace = (
+            bom_service.workspace(client, product_codes=bom_product_codes)
+            if bom_product_codes
+            else minimal_bom_workspace()
+        )
+        if use_cached_context and case.get("products") and not bom_workspace.get("product_versions"):
             bom_workspace = bom_workspace_from_case_snapshot(case)
-        else:
-            bom_product_codes = co_case_bom_product_codes(case, invoice_matches)
-            bom_workspace = (
-                bom_service.workspace(client, product_codes=bom_product_codes)
-                if bom_product_codes
-                else minimal_bom_workspace()
-            )
     else:
         bom_workspace = minimal_bom_workspace()
     origin_demo_allowed = extra.pop("origin_demo_allowed", True)
@@ -1030,6 +1157,7 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
         "criteria_rows": criteria_rows,
         "origin_demo_active": origin_demo_active,
         "origin_demo_material_count": origin_material_count(case) if origin_demo_active else 0,
+        "origin_case_revision": origin_case_revision,
         "source_notes": SOURCE_NOTES,
         "source_backend": source_context["source_backend"],
         **extra,
@@ -3968,6 +4096,37 @@ async def co_case_step(request: Request, client_id: str, case_id: str, step: str
     )
 
 
+@app.get("/clients/{client_id}/co-case/{case_id}/origin/calculation-payload")
+async def co_case_origin_calculation_payload(client_id: str, case_id: str):
+    context = co_case_context(
+        client_id,
+        case_id,
+        current_step="origin",
+        origin_demo_allowed=False,
+    )
+    case = context["case"]
+    source_context = context.get("origin_source_context", {})
+    return {
+        "case_id": case.get("persisted_case_id") or case_id,
+        "case_code": case.get("case_code", ""),
+        "revision": origin_case_revision(case),
+        "source_snapshot": json_safe(case.get("source_snapshot", {})),
+        "bom_snapshot": json_safe(case.get("bom_snapshot", {})),
+        "origin_snapshot": json_safe(case.get("origin_snapshot", {})),
+        "origin_product_order": origin_product_order(case),
+        "origin_sheet_states": json_safe(case.get("origin_sheet_states", {})),
+        "products": json_safe(case.get("products", [])),
+        "form_lane": json_safe(context.get("recommended_form_lane", {})),
+        "source": {
+            "backend": source_context.get("source_backend", ""),
+            "summary": json_safe(source_context.get("source_summary", {})),
+            "invoice_matches": json_safe(source_context.get("invoice_matches", [])),
+            "material_rows": json_safe(source_context.get("material_rows", [])),
+            "stock_rows": json_safe(source_context.get("stock_rows", [])),
+        },
+    }
+
+
 @app.post("/clients/{client_id}/co-case/{case_id}/supporting-files")
 async def upload_co_case_supporting_file(
     request: Request,
@@ -4092,18 +4251,42 @@ async def release_co_case_origin_lock(client_id: str, case_id: str, next_url: st
     return RedirectResponse(redirect_url, status_code=303)
 
 
+@app.post("/clients/{client_id}/co-case/{case_id}/origin/save")
+async def save_co_case_origin(request: Request, client_id: str, case_id: str):
+    client = resolve_client(client_id)
+    case, payload = await origin_case_from_request(request, client, case_id)
+    try:
+        stale_from_index = int(str(payload.get("stale_from_index", "0") or "0"))
+    except ValueError:
+        stale_from_index = 0
+    if payload.get("mark_stale", True):
+        case = mark_origin_sheets_stale(case, stale_from_index)
+    else:
+        case = attach_origin_sheet_states(case)
+    try:
+        update_case_record(client, case)
+    except KeyError:
+        raise HTTPException(status_code=404) from None
+    return {
+        "status": "ok",
+        "revision": origin_case_revision(case),
+        "stale_from_index": stale_from_index,
+        "origin_product_order": origin_product_order(case),
+        "origin_sheet_states": json_safe(case.get("origin_sheet_states", {})),
+    }
+
+
 @app.post("/clients/{client_id}/co-case/{case_id}/origin/autosave")
 async def autosave_co_case_origin(request: Request, client_id: str, case_id: str):
-    form = await large_request_form(request)
-    case = update_products_from_form({key: str(value) for key, value in form.items()})
-    case["persisted_case_id"] = case.get("persisted_case_id") or case_id
+    client = resolve_client(client_id)
+    case, payload = await origin_case_from_request(request, client, case_id)
     try:
-        stale_from_index = int(str(form.get("stale_from_index", "0") or "0"))
+        stale_from_index = int(str(payload.get("stale_from_index", "0") or "0"))
     except ValueError:
         stale_from_index = 0
     case = mark_origin_sheets_stale(case, stale_from_index)
     try:
-        update_case_record(resolve_client(client_id), case)
+        update_case_record(client, case)
     except KeyError:
         raise HTTPException(status_code=404) from None
     return {"status": "ok", "stale_from_index": stale_from_index}
@@ -4111,10 +4294,8 @@ async def autosave_co_case_origin(request: Request, client_id: str, case_id: str
 
 @app.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/calculate", response_class=HTMLResponse)
 async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_id: str, product_code: str):
-    form = await large_request_form(request)
-    case = update_products_from_form({key: str(value) for key, value in form.items()})
-    case["persisted_case_id"] = case.get("persisted_case_id") or case_id
     client = resolve_client(client_id)
+    case, _payload = await origin_case_from_request(request, client, case_id)
     try:
         persisted = get_case_record(client, case_id)
         if persisted.get("origin_sheet_states"):
@@ -4200,9 +4381,8 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
 
 @app.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/lock", response_class=HTMLResponse)
 async def lock_co_case_origin_sheet(request: Request, client_id: str, case_id: str, product_code: str):
-    form = await large_request_form(request)
-    case = update_products_from_form({key: str(value) for key, value in form.items()})
-    case["persisted_case_id"] = case.get("persisted_case_id") or case_id
+    client = resolve_client(client_id)
+    case, _payload = await origin_case_from_request(request, client, case_id)
     action_error = origin_sheet_action_error(case, product_code, "lock")
     if action_error:
         return templates.TemplateResponse(
@@ -4220,7 +4400,7 @@ async def lock_co_case_origin_sheet(request: Request, client_id: str, case_id: s
             ),
         )
     case = set_origin_sheet_status(case, product_code, "locked")
-    update_case_record(resolve_client(client_id), case)
+    update_case_record(client, case)
     return templates.TemplateResponse(
         request=request,
         name="co_case.html",
@@ -4238,9 +4418,8 @@ async def lock_co_case_origin_sheet(request: Request, client_id: str, case_id: s
 
 @app.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/reopen", response_class=HTMLResponse)
 async def reopen_co_case_origin_sheet(request: Request, client_id: str, case_id: str, product_code: str):
-    form = await large_request_form(request)
-    case = update_products_from_form({key: str(value) for key, value in form.items()})
-    case["persisted_case_id"] = case.get("persisted_case_id") or case_id
+    client = resolve_client(client_id)
+    case, _payload = await origin_case_from_request(request, client, case_id)
     action_error = origin_sheet_action_error(case, product_code, "reopen")
     if action_error:
         return templates.TemplateResponse(
@@ -4258,7 +4437,7 @@ async def reopen_co_case_origin_sheet(request: Request, client_id: str, case_id:
             ),
         )
     case = set_origin_sheet_status(case, product_code, "calculated")
-    update_case_record(resolve_client(client_id), case)
+    update_case_record(client, case)
     return templates.TemplateResponse(
         request=request,
         name="co_case.html",

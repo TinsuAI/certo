@@ -384,5 +384,7 @@ def product_version_options_by_code(product_versions: list[dict]) -> dict[str, l
     for version in product_versions:
         if version.get("status") == "variant_conflict":
             continue
+        if version.get("flatten_status") == "non_flattened":
+            continue
         output.setdefault(version["product_code"], []).append(version)
     return output

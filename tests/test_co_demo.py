@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from openpyxl import Workbook, load_workbook
 
 from app.bom_store import get_bom_workspace
-from app.co_case_store import MAX_SUPPORTING_FILE_BYTES, match_case_bcct_exports, update_case_record
+from app.co_case_store import MAX_SUPPORTING_FILE_BYTES, get_case_record, match_case_bcct_exports, update_case_record
 from app.client_config_store import (
     get_client_config,
     resolve_allocation_code,
@@ -2130,6 +2130,111 @@ def test_co_case_origin_switches_product_bom_version_from_dropdown():
     assert switched_data["product_0_material_0_material_value"] == "30"
 
 
+def test_cached_origin_context_loads_live_bom_artifact_options(monkeypatch):
+    from app import main as main_module
+
+    class FakeBomService:
+        def workspace(self, client, product_codes=None):
+            assert client["id"] == "growatt"
+            assert product_codes == ["TP-BOM"]
+            versions = [
+                {
+                    "product_code": "TP-BOM",
+                    "product_artifact_id": "bom-artifact-1",
+                    "product_version_id": "bom-artifact-1",
+                    "product_artifact_no": 1,
+                    "product_version_no": 1,
+                    "row_count": 122,
+                    "status": "published",
+                    "flatten_status": "flattened",
+                    "rows": [],
+                },
+                {
+                    "product_code": "TP-BOM",
+                    "product_artifact_id": "bom-artifact-2",
+                    "product_version_id": "bom-artifact-2",
+                    "product_artifact_no": 2,
+                    "product_version_no": 2,
+                    "row_count": 368,
+                    "status": "current",
+                    "flatten_status": "flattened",
+                    "rows": [],
+                },
+            ]
+            return {
+                "versions": [],
+                "product_versions": versions,
+                "product_version_options_by_code": {"TP-BOM": versions},
+                "latest_version": {},
+                "latest_rows": [],
+            }
+
+    monkeypatch.setattr(main_module, "bom_service", FakeBomService())
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Cached BOM options", "case_code": "CO-CACHED-BOM", "destination_market": "Ấn Độ", "invoice_no": "INV-CACHED-BOM"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-CACHED-BOM",
+            "title": "Cached BOM options",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-CACHED-BOM", "bill_of_lading_no": ""},
+            "products": [
+                {
+                    "code": "TP-CACHED",
+                    "bom_product_code": "TP-BOM",
+                    "bom_product_artifact_id": "bom-artifact-2",
+                    "bom_product_artifact_no": 2,
+                    "name": "Cached product",
+                    "quantity": "1",
+                    "unit": "PCS",
+                    "fob": "100",
+                    "currency": "VND",
+                    "materials": [],
+                }
+            ],
+            "origin_product_order": ["TP-CACHED"],
+            "origin_sheet_states": {"TP-CACHED": {"status": "calculated", "status_label": "Đã tính"}},
+            "origin_snapshot": {"source": "invoice_bcct_bom", "readiness_label": "Sẵn sàng"},
+            "bom_snapshot": {
+                "aggregate_artifact_id": "bom-composition",
+                "aggregate_artifact_no": 1,
+                "composition": [
+                    {
+                        "product_code": "TP-BOM",
+                        "product_artifact_id": "bom-artifact-2",
+                        "product_artifact_no": 2,
+                        "row_count": 368,
+                    }
+                ],
+            },
+            "source_snapshot": {"client_config_hash": "snapshot"},
+            "source_invoice_matches": [
+                {
+                    "item_code": "TP-CACHED",
+                    "quantity": "1",
+                    "customs_value": "100",
+                    "currency": "VND",
+                    "material_identity": {"resolution_status": "resolved", "bom_product_code": "TP-BOM"},
+                }
+            ],
+        },
+    )
+
+    origin = client.get(f"{created.headers['location']}/origin")
+
+    assert origin.status_code == 200
+    assert 'value="bom-artifact-2" selected' in origin.text
+    assert "TP-BOM · #1 · 122 dòng · published" in origin.text
+    assert "TP-BOM · #2 · 368 dòng · current" in origin.text
+
+
 def test_co_case_origin_uses_data_hub_material_identity_for_bom_code():
     from app.main import co_case_bom_product_codes, prepare_case_origin_products, selected_bom_rows_by_product
 
@@ -2748,6 +2853,228 @@ def test_origin_sheet_actions_accept_large_ajax_forms():
     assert response.status_code == 200
     assert "Đã chốt bảng kê TP-LARGE" in response.text
     assert legacy_multipart_response.status_code == 200
+
+
+def test_origin_calculation_payload_returns_case_json():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Origin payload", "case_code": "CO-PAYLOAD", "destination_market": "Ấn Độ", "invoice_no": "INV-PAYLOAD"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-PAYLOAD",
+            "title": "Origin payload",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-PAYLOAD", "bill_of_lading_no": ""},
+            "products": [
+                {
+                    "code": "TP-PAYLOAD",
+                    "name": "Payload product",
+                    "quantity": "1",
+                    "unit": "PCS",
+                    "fob": "100",
+                    "currency": "VND",
+                    "materials": [{"material_code": "MAT-PAYLOAD", "consumed_qty": "1"}],
+                }
+            ],
+            "origin_product_order": ["TP-PAYLOAD"],
+            "origin_sheet_states": {"TP-PAYLOAD": {"status": "calculated", "status_label": "Đã tính"}},
+            "origin_snapshot": {"source": "invoice_bcct_bom", "readiness_label": "Sẵn sàng"},
+            "bom_snapshot": {"aggregate_artifact_id": "bom-payload", "aggregate_artifact_no": 1, "composition": []},
+            "source_snapshot": {"client_config_hash": "snapshot"},
+            "source_invoice_matches": [{"item_code": "TP-PAYLOAD", "quantity": "1"}],
+        },
+    )
+
+    response = client.get(f"/clients/growatt/co-case/{case_id}/origin/calculation-payload")
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["case_id"] == case_id
+    assert payload["revision"]
+    assert payload["origin_product_order"] == ["TP-PAYLOAD"]
+    assert payload["origin_sheet_states"]["TP-PAYLOAD"]["status"] == "calculated"
+    assert payload["products"][0]["materials"][0]["material_code"] == "MAT-PAYLOAD"
+    assert payload["source"]["invoice_matches"][0]["item_code"] == "TP-PAYLOAD"
+
+
+def test_origin_save_accepts_compact_json_and_marks_stale():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Origin save", "case_code": "CO-SAVE", "destination_market": "Ấn Độ", "invoice_no": "INV-SAVE"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-SAVE",
+            "title": "Origin save",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-SAVE", "bill_of_lading_no": ""},
+            "products": [{"code": "TP-A", "materials": []}, {"code": "TP-B", "materials": []}],
+            "origin_product_order": ["TP-A", "TP-B"],
+            "origin_sheet_states": {
+                "TP-A": {"status": "locked", "status_label": "Chốt"},
+                "TP-B": {"status": "calculated", "status_label": "Đã tính"},
+            },
+            "origin_snapshot": {"source": "invoice_bcct_bom", "readiness_label": "Sẵn sàng"},
+            "bom_snapshot": {"aggregate_artifact_id": "bom-save", "aggregate_artifact_no": 1, "composition": []},
+            "source_snapshot": {"client_config_hash": "snapshot"},
+        },
+    )
+
+    response = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/save",
+        json={"origin_product_order": ["TP-B", "TP-A"], "stale_from_index": 0},
+    )
+    record = get_case_record(get_client("growatt"), case_id)
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert record["origin_product_order"] == ["TP-B", "TP-A"]
+    assert record["origin_sheet_states"]["TP-B"]["status"] == "stale"
+    assert record["origin_sheet_states"]["TP-A"]["status"] == "stale"
+
+
+def test_origin_sheet_lock_accepts_compact_json_without_source_refresh(monkeypatch):
+    from app import main as main_module
+
+    def fail_source_refresh(_client, _case):
+        raise AssertionError("compact state-only origin actions must not refresh source context")
+
+    monkeypatch.setattr(main_module, "co_case_source_context", fail_source_refresh)
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Compact lock", "case_code": "CO-COMPACT-LOCK", "destination_market": "Ấn Độ", "invoice_no": "INV-COMPACT"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-COMPACT-LOCK",
+            "title": "Compact lock",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-COMPACT", "bill_of_lading_no": ""},
+            "products": [
+                {
+                    "code": "TP-COMPACT",
+                    "name": "Compact product",
+                    "quantity": "1",
+                    "unit": "PCS",
+                    "fob": "100",
+                    "currency": "VND",
+                    "lvc_status": "pass",
+                    "lvc_status_label": "Đạt LVC",
+                    "materials": [],
+                }
+            ],
+            "origin_product_order": ["TP-COMPACT"],
+            "origin_sheet_states": {"TP-COMPACT": {"status": "calculated", "status_label": "Đã tính"}},
+            "origin_snapshot": {"source": "invoice_bcct_bom", "readiness_label": "Sẵn sàng"},
+            "bom_snapshot": {"aggregate_artifact_id": "bom-compact", "aggregate_artifact_no": 1, "composition": []},
+            "source_snapshot": {"client_config_hash": "snapshot"},
+        },
+    )
+
+    response = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-COMPACT/lock",
+        json={"origin_product_order": ["TP-COMPACT"], "mark_stale": False},
+    )
+
+    assert response.status_code == 200
+    assert "Đã chốt bảng kê TP-COMPACT" in response.text
+    assert hidden_form_data(response.text)["product_0_origin_sheet_status"] == "locked"
+
+
+def test_origin_sheet_calculate_accepts_compact_json_from_fresh_origin_page():
+    client = TestClient(app)
+    client.post(
+        "/clients/growatt/bcct/upload",
+        files={
+            "file": (
+                "bcct.xlsx",
+                bcct_workbook([
+                    {
+                        "direction": "import",
+                        "declaration_type": "E11",
+                        "declaration_no": "NK-COMPACT-CALC",
+                        "line_no": "1",
+                        "item_code": "DEMO-NPL-001",
+                        "description": "Main control board",
+                        "hs_code": "8542.39",
+                        "quantity": "10",
+                        "unit": "PCE",
+                        "customs_value": "100",
+                        "currency": "VND",
+                    },
+                    {
+                        "direction": "export",
+                        "declaration_type": "E42",
+                        "declaration_no": "XK-COMPACT-CALC",
+                        "line_no": "1",
+                        "item_code": "PV00.0048500",
+                        "description": "Growatt inverter",
+                        "hs_code": "850440",
+                        "quantity": "1",
+                        "unit": "PCS",
+                        "customs_value": "1000",
+                        "currency": "VND",
+                        "invoice_ref": "INV-COMPACT-CALC",
+                    },
+                ]),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Compact calculate", "case_code": "CO-COMPACT-CALC", "destination_market": "Ấn Độ", "invoice_no": "INV-COMPACT-CALC"},
+        follow_redirects=False,
+    )
+    origin = client.get(f"{created.headers['location']}/origin")
+    form_data = hidden_form_data(origin.text)
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+
+    response = client.post(
+        f"{created.headers['location']}/origin/sheet/PV00.0048500/calculate",
+        json={
+            "origin_product_order": ["PV00.0048500"],
+            "products": [
+                {
+                    "code": "PV00.0048500",
+                    "bom_product_code": form_data["product_0_bom_product_code"],
+                    "bom_product_artifact_id": form_data.get("product_0_bom_product_artifact_id", ""),
+                    "name": form_data["product_0_name"],
+                    "finished_hs": form_data["product_0_finished_hs"],
+                    "quantity": form_data["product_0_quantity"],
+                    "unit": form_data["product_0_unit"],
+                    "currency": form_data["product_0_currency"],
+                    "fob": form_data["product_0_fob"],
+                    "rvc_threshold": form_data["product_0_rvc_threshold"],
+                    "origin_sheet_status": form_data["product_0_origin_sheet_status"],
+                    "origin_sheet_status_label": form_data["product_0_origin_sheet_status_label"],
+                }
+            ],
+            "mark_stale": False,
+        },
+    )
+    record = get_case_record(get_client("growatt"), case_id)
+
+    assert response.status_code == 200
+    assert "Đã tính bảng kê PV00.0048500" in response.text
+    assert record["products"][0]["materials"]
+    assert record["origin_sheet_states"]["PV00.0048500"]["status"] == "calculated"
 
 
 def test_origin_sheet_actions_follow_sequential_locking_rules():
