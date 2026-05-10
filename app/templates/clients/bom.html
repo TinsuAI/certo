@@ -108,6 +108,10 @@
           {% if p.n_strategies and p.n_strategies > 2 %}
             <span class="badge badge-info" title="dual-source materializations">×{{ p.n_strategies }} {{ t('bom.list.materializations') }}</span>
           {% endif %}
+          {% if p.n_stale and p.n_stale > 0 %}
+            <span class="badge badge-warn" data-stale-badge="1"
+                  title="{{ t('bom.stale.tooltip') }}">⚠ {{ t('bom.stale.badge') }} ({{ p.n_stale }})</span>
+          {% endif %}
         </td>
         <td>
           <span class="badge badge-info">{{ p.n_logical_versions }}</span>

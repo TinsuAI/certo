@@ -469,7 +469,7 @@ def list_products_with_bom(client_id: str, *,
     sql = f"""
         with v as (
             select product_code, artifact_no, published_at, flatten_status,
-                   flatten_strategy, lineage_root_id,
+                   flatten_strategy, lineage_root_id, is_stale,
                    row_number() over (
                        partition by product_code
                        order by published_at desc nulls last, artifact_no desc
@@ -484,12 +484,13 @@ def list_products_with_bom(client_id: str, *,
                    count(*) filter (where flatten_status in ('flattened','not_applicable')) as n_flattened,
                    count(*) filter (where flatten_status = 'non_flattened') as n_non_flattened,
                    count(distinct flatten_strategy) filter (where flatten_status = 'flattened') as n_strategies,
+                   count(*) filter (where is_stale) as n_stale,
                    max(artifact_no) as latest_artifact_no,
                    max(published_at) as last_published
             from v group by product_code
         )
         select a.product_code, a.n_artifacts, a.n_logical_versions,
-               a.n_flattened, a.n_non_flattened, a.n_strategies,
+               a.n_flattened, a.n_non_flattened, a.n_strategies, a.n_stale,
                a.latest_artifact_no, a.last_published,
                latest.flatten_status as latest_flatten_status,
                coalesce(m.category, 'tp') as raw_category
@@ -547,6 +548,7 @@ def list_artifacts_for_product(*, client_id: str, product_code: str) -> list[dic
                        v.created_at, v.published_at, v.context,
                        v.bom_variant_id, v.source_bom_kind, v.source_channel,
                        v.flatten_status, v.flatten_strategy,
+                       v.is_stale, v.stale_reasons,
                        p.artifact_no       as parent_artifact_no,
                        p.bom_variant_id   as parent_variant_id,
                        p.flatten_status   as parent_flatten_status,
@@ -587,7 +589,8 @@ def get_artifact_with_rows(artifact_id: str) -> dict | None:
                        status, tombstoned_at, tombstone_reason, created_at, published_at,
                        source_bom_kind, flatten_status, flatten_strategy,
                        source_channel, bom_code, bom_variant_id, lineage,
-                       display_label, flatten_method, flatten_method_version
+                       display_label, flatten_method, flatten_method_version,
+                       is_stale, stale_reasons, stale_first_at, stale_resolved_at
                 from hub.bom_artifacts where artifact_id = %s
                 """,
                 (artifact_id,),

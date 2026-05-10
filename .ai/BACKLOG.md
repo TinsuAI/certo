@@ -90,6 +90,290 @@ bandwidth có. Option 2 quá tham; option 3 quá chậm.
 
 ---
 
+## BOM UoM conversion engine (ingest-time + refresh-time)
+
+**Captured 2026-05-11** trong session test Track D Phase 1 trên
+real Johnson data (`0000082212` PIECES → KG → PIECES). Phát hiện
+gap fundamental: stale flag đánh dấu đúng nhưng Refresh KHÔNG
+convert UoM thực sự — chỉ re-derive với raw SQL bypass flatten
+engine.
+
+**Vấn đề gốc:**
+
+Hiện tại 3 layer xử lý UoM khác nhau, **không nhất quán**:
+
+1. **`bom_edges` raw layer** — fidelity tuyệt đối, lưu nguyên UoM
+   user upload. Không bao giờ convert. Đúng theo principle
+   immutable.
+2. **`bom_artifact_rows` derived layer (shallow + full_flat)** —
+   `materialize_shallow_and_full_flat.py` SQL chỉ multiply qty qua
+   chain, copy `e.uom` từ raw edges. **Không consult `materials.uom`,
+   không gọi `uom_conversions`.** Output luôn cùng UoM với raw —
+   ngay cả khi catalog có UoM khác.
+3. **Flatten engine `app/flatten/uom.py`** — DOES handle UoM
+   conversion qua `uom_conversions` (same-family) + emits
+   unresolved decision (cross-family). Nhưng chỉ dùng trong flatten
+   preview flow, KHÔNG dùng trong materialize_shallow_and_full_flat.
+
+→ Catalog UoM = "UoM canonical mà downstream nên dùng" về mặt
+intent, nhưng derived layer hiện tại không respect catalog UoM.
+
+**Insight key từ user (2026-05-11):**
+
+> "Convert phải làm từ lúc ingest, không phải chỉ refresh."
+
+Ingest preview phải:
+- Detect drift giữa file UoM và catalog UoM.
+- **Hiển thị rõ** rows nào sẽ convert, factor được dùng (từ
+  `uom_conversions` hay `material_uom_factors` — xem dưới), nguồn
+  factor (auto / staff manual / supplier data).
+- Staff actions:
+  - Confirm convert as-shown → ingest với UoM = catalog.
+  - Edit factor inline (one-shot cho upload này).
+  - Edit conversion table (admin route, persist).
+  - Skip convert (giữ UoM file, mark stale flag để track).
+
+Tương tự tại refresh-time: hiển thị conversion plan, cho staff
+edit factor trước khi commit re-derive.
+
+**Cross-family case có business demand thật** (per user feedback):
+
+Ví dụ: BOM ghi 1000 PIECES, catalog ghi KG. Không có universal
+factor — phụ thuộc vật chất. Cần `hub.material_uom_factors` table
++ UI prompt khi factor missing.
+
+```sql
+create table hub.material_uom_factors (
+  factor_id text primary key,
+  client_id text not null,
+  material_code text not null,
+  from_uom text not null,        -- canonical
+  to_uom text not null,          -- canonical
+  factor numeric not null check (factor > 0),
+  source text not null check (source in (
+    'staff_manual', 'supplier_data', 'packaging_spec',
+    'derived_average', 'imported'
+  )),
+  set_by text not null,
+  set_at timestamptz default now(),
+  notes text,
+  unique (client_id, material_code, from_uom, to_uom)
+);
+```
+
+**Scope Phase 2 (estimated discovery 1-2d, implement 1-2 weeks):**
+
+A. **Ingest-time conversion preview**
+   - Enhance `compute_uom_drifts` → emit conversion plan per row.
+   - BOM upload preview UI: table show "row X: file=1000 gam,
+     catalog=kg, factor=0.001 (uom_conversions), result=1 kg
+     [confirm | edit factor | edit table]".
+   - BCCT upload preview: tương tự.
+   - Cross-family + factor missing → block confirm hoặc require
+     ack + flag.
+
+B. **Refresh-time conversion (rewire)**
+   - `_rederive_shape` thay raw SQL bằng `flatten_engine.flatten()`.
+   - Engine tự lookup `uom_conversions` (same-family) +
+     `material_uom_factors` (cross-family) + `client_uom_overrides`.
+   - Output rows với target UoM = catalog UoM.
+   - Same hash → dedup → no change. Different hash → mint new
+     artifact, tombstone old.
+
+C. **`material_uom_factors` table + admin UI**
+   - Mig 054+ adds table.
+   - Catalog detail page: section "Conversion factors to other
+     UoMs" + add/edit/delete buttons.
+   - When staff edit catalog UoM cross-family → dialog prompt
+     "factor để convert PIECES → KG?" → save vào table → refresh.
+   - Bulk import factors từ supplier sheet (nice-to-have).
+
+D. **Conversion audit trail**
+   - Every materialize/refresh logs which factors were used.
+   - `bom_artifact_rows` stores `source_uom` + `applied_factor_id`
+     nullable cho derived rows (forensics).
+
+**Cross-app impact:**
+- BCQT consumer reads BOM expecting catalog UoM. Currently gets
+  raw UoM → wrong settlement calculations. Phase 2 fix this.
+- CO consumer similar.
+- Sister apps cần update khi behavior thay đổi (artifact rows UoM
+  switches từ raw to catalog).
+
+**Why Phase 2 (defer not skip):**
+- Phase 1 ship được vì stale flag đã đúng semantic ("cảnh báo
+  staff", "manual review").
+- Conversion logic phức tạp, đặc biệt UI staff-facing cho factor
+  management.
+- Cross-family case cần per-material data thực tế từ customer —
+  blind defaults sai.
+- Cross-app coordination cần (BCQT/CO consumer behavior expects
+  current shape).
+
+**Bring back when:**
+- Có customer thật ingest BOM với UoM khác catalog quy định.
+- Hoặc khi 1 incident xảy ra (settlement Mẫu 15a output sai vì
+  UoM lệch).
+- Hoặc khi cross-family factor data có sẵn từ supplier.
+
+**Cross-links:**
+- "BOM dependency staleness" (above) — Phase 1 staleness flag đã
+  ship; Phase 2 conversion là partner natural.
+- "UoM standardization table" (below, SHIPPED) — `uom_conversions`
+  + `uom_aliases` đã có same-family logic; chỉ cần wire vào
+  refresh + preview.
+- Track C (UoM ingest gate, shipped 2026-05-10) — mới surface
+  drift, không mutate. Phase 2 promote thành mutate-with-confirm.
+
+**Effort khi scope (rough):**
+- A (ingest-time): 3-4d. Enhance compute_uom_drifts + 2 preview
+  UIs + tests.
+- B (refresh wire flatten engine): 1-1.5d.
+- C (factor table + admin UI + edit dialog): 3-4d.
+- D (audit trail): 1d.
+- **Total: 1.5-2 weeks** + 1-2d discovery.
+
+### Phase 3 follow-ups (sau khi Phase 2 UoM conversion ship)
+
+Captured 2026-05-11 user feedback. Phase 3 unblocks chỉ sau khi
+Phase 2 (UoM conversion engine) đã ship — vì 2 cái đầu rely on
+"refresh = thực sự re-derive với conversion".
+
+**E. Manual_flat artifacts cũng cần signal UoM mâu thuẫn**
+
+Track D Phase 1 cố ý exclude `manual_flat_as_provided` khỏi
+trigger filter (lý do: source artifact, immutable, không re-derive
+được). Nhưng manual_flat vẫn có thể **mâu thuẫn semantic** với
+catalog: file ghi 5 kg, catalog ghi PIECES → BCQT consumer đọc 5
+kg mà mong đợi PIECES → settlement sai.
+
+Cần signal riêng cho manual_flat (không dùng `is_stale` vì semantic
+khác — không re-derive được, chỉ "có drift cần staff giải quyết").
+Options:
+- Cột mới `has_uom_drift boolean` riêng cho source artifacts.
+- Trigger D7 (materials_uom) extend sang manual_flat strategy với
+  dim mới `manual_flat_uom_drift`.
+- UI badge khác badge "lỗi thời" — màu khác, action "Re-upload BOM"
+  thay vì "Refresh".
+- API expose `has_uom_drift` cho consumer (BCQT/CO) tự decide
+  reject hay convert.
+
+Effort: ~1d (extend trigger + badge + API).
+
+**F. Refresh = mint new artifact + supersede old, không mutate**
+
+Hiện tại refresh:
+- Re-derive shape → call `create_artifact` (idempotent qua hash).
+- Same hash → return existing artifact_id, clear `is_stale` trên
+  artifact GỐC.
+- Different hash → create new artifact, **OLD artifact stays alive,
+  is_stale cleared trên cả 2**.
+
+Mâu thuẫn với BOM immutable principle: stale artifact = "data đã
+sai do dependency thay đổi", clearing flag mà không tombstone =
+"giả vờ data vẫn đúng".
+
+Đúng phải là: stale artifact giữ stale flag (hoặc thay bằng
+`superseded_by_artifact_id`); new artifact mint với fresh data;
+old tombstoned với `tombstone_reason='superseded_by_refresh:<new_id>'`.
+Lineage chain stays cho audit (downstream BCQT/CO biết "đây là
+phiên bản đã thay thế").
+
+Phụ thuộc Phase 2 vì hiện tại same-hash dedup là majority case.
+Sau Phase 2 (refresh thực sự convert), different-hash sẽ phổ biến.
+
+Effort: ~1-2d (refresh logic rewrite + tombstone trigger update +
+lineage UI).
+
+**G. Transparency tại ingest + refresh — staff confirm action**
+
+User reinforce: cả 2 flow phải show UI "system sẽ convert những
+gì + dùng factor nào + nguồn factor". Staff actions:
+- Confirm as-shown.
+- Edit factor inline (per-row, persist vào `material_uom_factors`).
+- Edit conversion table (admin route).
+- Skip convert (giữ raw, mark drift flag).
+
+Đã capture trong scope A của Phase 2 nhưng cần emphasize: **không
+auto-apply silent**. Staff phải approve mỗi conversion event.
+Tránh case "system converted PIECES → KG sai factor, staff không
+biết, settlement Mẫu 15a sai số".
+
+Effort: bao gồm trong scope A (3-4d ingest UI). Refresh-time
+transparency: ~1-2d UI extension.
+
+---
+
+## Johnson programmatic bulk re-ingest plan
+
+**Captured 2026-05-11**. Memory `project_reingest_pending.md` ghi
+"Wipe + ingest fresh queued — pre-MVP reset" cho Growatt + Johnson.
+User request lên kế hoạch concrete cho Johnson (programmatic, không
+click UI hàng trăm sản phẩm).
+
+**Mục tiêu:** sau khi Phase 2 UoM conversion + Phase 3 follow-ups
+ship, wipe Johnson hoàn toàn rồi re-ingest từ source XLSX qua
+script tự động. Lý do wipe: 246 TP × 3 shape × tích lũy stale flag
++ legacy edits → cleaner restart.
+
+**Scope script `scripts/bulk_reingest_johnson.py`:**
+
+1. **Wipe phase** (transactional, dry-run by default):
+   - Identify all `bom_artifacts` + `bom_edges` + `bom_artifact_rows`
+     + `bom_audit_events` + `bom_presets` for `client_id='johnson-vn'`.
+   - Optional: keep `materials` + `code_mappings` + `client_parser_rules`
+     (HQ-data tier, manually curated).
+   - Print counts before delete (`--commit` to actually run).
+   - Tombstone-delete vs hard-delete: hard-delete nếu pre-MVP, tombstone
+     nếu đã có customer expecting history.
+
+2. **Ingest phase** (idempotent, retry-safe):
+   - Walk source directory (e.g. `~/data/johnson/bom_xlsx/`).
+   - Per file: detect adapter (likely `multi_sheet_per_root` cho
+     Johnson 246 TP), parse, ingest qua programmatic call (bypass
+     upload UI, dùng store directly hoặc internal API endpoint).
+   - Run post_ingest_hooks (derive_btp_shallows) ngay sau mỗi raw
+     ingest.
+   - Materialize shallow + full_flat per product (qua flatten engine
+     post-Phase 2 — KHÔNG dùng raw SQL bypass).
+   - Apply UoM conversion với confirmed factors từ
+     `material_uom_factors` table (đã setup pre-bulk).
+   - Log mỗi product: ingested artifact_id, factors used, drift
+     warnings, conversion events.
+
+3. **Verification phase**:
+   - Compare `n_artifacts` per product trước/sau (expect 3 per phiên
+     bản: raw + shallow + full_flat).
+   - Compare lineage_root_id distinct count.
+   - Run smoke queries (e.g. random product → expect bom_artifact_rows
+     non-empty với UoM = catalog UoM).
+   - Generate diff report: pre-wipe vs post-ingest qty totals
+     (should match within UoM-conversion tolerance).
+
+**Pre-requisites:**
+- Phase 2 UoM conversion engine đã ship (script call flatten engine).
+- `material_uom_factors` table populated với factor cho cross-family
+  cases (cần data từ Johnson supplier sheet).
+- Source XLSX inventory complete (xác định bao nhiêu file, structure).
+- Backup hiện tại trước khi wipe (pg_dump + bom_edges export).
+
+**Cross-impact:**
+- BCQT projects pointing to Johnson — check no in-flight settlement
+  references soon-to-be-wiped artifact_ids.
+- CO certificates referencing Johnson BOMs — same.
+
+**Effort estimate:**
+- Script: 2-3d (wipe + ingest + verify).
+- Source XLSX inventory + factor data prep: 1-2d (manual).
+- Pre-wipe coordination với BCQT/CO consumers: 0.5d.
+- Run + verify: 0.5d (1 dry-run + 1 commit).
+- **Total: ~1 week** (heavily dependent on Phase 2 done first).
+
+**Pattern reusable:** sau Johnson, apply same script template cho
+Growatt + future clients. Generalize qua `--client` argument.
+
+---
+
 ## v_material_roles paren-aware (replace material_observations workaround)
 
 **Captured 2026-05-09** (Mã chờ duyệt v3 review). Issue surfaced when

@@ -40,8 +40,15 @@
     </tr></thead>
     <tbody>
       {% for v in artifacts %}
-      <tr {% if v.tombstoned_at %}style="opacity: .55;"{% endif %}>
-        <td><span class="badge badge-info">#{{ v.artifact_no }}</span></td>
+      <tr {% if v.tombstoned_at %}style="opacity: .55;"{% endif %}
+          {% if v.is_stale %}data-stale-row="{{ v.artifact_id }}"{% endif %}>
+        <td>
+          <span class="badge badge-info">#{{ v.artifact_no }}</span>
+          {% if v.is_stale %}
+          <span class="badge badge-warn" title="{{ t('bom.stale.tooltip') }}"
+                data-stale-badge="1">⚠ {{ t('bom.stale.badge') }}</span>
+          {% endif %}
+        </td>
         {% if ns_var.any_non_default %}
           <td class="mono">{% if v.bom_variant_id and v.bom_variant_id != 'default' %}{{ v.bom_variant_id }}{% endif %}</td>
         {% endif %}

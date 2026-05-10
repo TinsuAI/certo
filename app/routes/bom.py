@@ -462,7 +462,19 @@ async def preview_confirm(request: Request, client_id: str, pending_id: str):
     # manages its own connection + canonicalization + dedup-by-hash. If any
     # version creation raises, propagate — the staff sees an error AND can
     # re-confirm later because we haven't deleted pending yet.
+    #
+    # Adapter resolution for post-ingest hooks:
+    # - non-technical_raw: profile IS the adapter name.
+    # - technical_raw: actual adapter recorded in diff_summary.proposed_by
+    #   as 'parser_fallback:<adapter>' (set by upload route).
+    adapter_for_hooks = profile
+    if profile == "technical_raw":
+        proposed_by = (diff_summary or {}).get("proposed_by", "")
+        if isinstance(proposed_by, str) and proposed_by.startswith("parser_fallback:"):
+            adapter_for_hooks = proposed_by.split(":", 1)[1]
+
     n = 0
+    created_artifact_ids: list[str] = []
     if profile == "technical_raw":
         raw_edges = parsed_rows.get("raw_edges", []) if isinstance(parsed_rows, dict) else []
         edges_by_root: dict[str, list[dict]] = {}
@@ -481,6 +493,7 @@ async def preview_confirm(request: Request, client_id: str, pending_id: str):
             )
             if artifact_id:
                 n += 1
+                created_artifact_ids.append(artifact_id)
     else:
         for product_code, rows in products.items():
             artifact_id = create_artifact(
@@ -492,6 +505,42 @@ async def preview_confirm(request: Request, client_id: str, pending_id: str):
             )
             if artifact_id:
                 n += 1
+                created_artifact_ids.append(artifact_id)
+
+    # Step 2b: post-ingest hooks (Track D, Phase B). Adapters declaring
+    # post_ingest_hooks (e.g. derive_btp_shallows for sap_indented_walk +
+    # multi_sheet_per_root) auto-mint per-BTP raw_graph artifacts so the
+    # staleness window for D2 (BTP BOM appears later) is closed when the
+    # parent BOM ingests. Hook failure logs + marks the new artifact stale
+    # with dim=derive_hook_failed; never bubbles to user.
+    for new_aid in created_artifact_ids:
+        try:
+            bom_adapters.run_post_ingest_hooks(
+                adapter_name=adapter_for_hooks,
+                artifact_id=new_aid, client_id=client_id,
+            )
+        except Exception as hook_err:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).exception(
+                "post_ingest_hook failed for artifact %s (adapter=%s): %s",
+                new_aid, adapter_for_hooks, hook_err,
+            )
+            with connect() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "update hub.bom_artifacts set is_stale=true, "
+                    "stale_reasons = stale_reasons || jsonb_build_array("
+                    "  jsonb_build_object("
+                    "    'dim','derive_hook_failed',"
+                    "    'source_table','app.parsers.bom_adapters',"
+                    "    'source_pk',%s::text,"
+                    "    'observed_at',to_char(now() at time zone 'utc',"
+                    "      'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')"
+                    "  )"
+                    "), stale_first_at=coalesce(stale_first_at, now()), "
+                    "stale_resolved_at=null "
+                    "where artifact_id=%s",
+                    (adapter_for_hooks, new_aid),
+                )
 
     # Step 3: only on full success — delete pending + flip status.
     with connect(user_id=user.user_id) as conn:
@@ -523,6 +572,45 @@ async def preview_confirm(request: Request, client_id: str, pending_id: str):
             )
     return RedirectResponse(
         url=f"/clients/{client_id}/bom?ingested={n}", status_code=303,
+    )
+
+
+@router.post("/clients/{client_id}/bom/artifact/{artifact_id}/refresh")
+async def refresh_artifact_route(
+    request: Request, client_id: str, artifact_id: str,
+):
+    """Track D — clear stale flag + re-derive shape (best-effort).
+
+    Spec: `.ai/features/2026-05-11-bom-staleness-track-d/brief.md`.
+    """
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+    from app.stores.bom_staleness import refresh_artifact
+    try:
+        refresh_artifact(client_id, artifact_id)
+    except LookupError:
+        raise HTTPException(404, "Artifact not found in this client")
+    return RedirectResponse(
+        url=f"/clients/{client_id}/bom/artifact/{artifact_id}",
+        status_code=303,
+    )
+
+
+@router.post("/clients/{client_id}/bom/{product_code:path}/refresh")
+async def refresh_product_route(
+    request: Request, client_id: str, product_code: str,
+):
+    """Track D — clear stale flag for all derived artifacts of product."""
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+    from app.stores.bom_staleness import refresh_product
+    refresh_product(client_id, product_code)
+    return RedirectResponse(
+        url=f"/clients/{client_id}/bom", status_code=303,
     )
 
 
