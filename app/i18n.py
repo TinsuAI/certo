@@ -318,7 +318,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "bom.stale.dim.materials_uom": "ĐVT material đổi",
         "bom.stale.dim.btp_sourcing": "Sourcing BTP đổi",
         "bom.stale.dim.btp_bom_added": "BTP có BOM mới",
-        "bom.stale.dim.btp_bom_tombstoned": "BTP BOM bị tombstone",
+        "bom.stale.dim.btp_bom_tombstoned": "BTP BOM bị thay thế",
         "bom.stale.dim.derive_hook_failed": "Hook derive thất bại",
         "bom.col.latest": "Mới nhất",
         "bom.col.last_published": "Lần published",
@@ -396,7 +396,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "status.discontinued": "Ngừng dùng",
         "status.published": "Đã publish",
         "status.draft": "Bản nháp",
-        "status.tombstoned": "Đã thu hồi",
+        "status.tombstoned": "Đã loại",
         # admin / RBAC
         "nav.admin": "Quản trị",
         "admin.title": "Quản trị người dùng & phân quyền",

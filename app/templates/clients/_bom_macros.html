@@ -27,7 +27,7 @@
   {{ shape_badge(n.bom_shape) }}
   {% if show_variant %}<span class="mono lineage-node-variant">{{ n.bom_variant_id }}</span>{% endif %}
   <span class="lineage-node-meta">· {{ n.intent }} · {{ n.actor }}</span>
-  {% if n.tombstoned_at %}<span class="lineage-deleted">· tombstoned</span>{% endif %}
+  {% if n.tombstoned_at %}<span class="lineage-deleted">· đã thay thế</span>{% endif %}
 </div>
 {%- else -%}
 <a href="/clients/{{ client_id }}/bom/artifact/{{ n.artifact_id }}" class="{{ classes }}">
@@ -35,7 +35,7 @@
   {{ shape_badge(n.bom_shape) }}
   {% if show_variant %}<span class="mono lineage-node-variant">{{ n.bom_variant_id }}</span>{% endif %}
   <span class="lineage-node-meta">· {{ n.intent }} · {{ n.actor }}</span>
-  {% if n.tombstoned_at %}<span class="lineage-deleted">· tombstoned</span>{% endif %}
+  {% if n.tombstoned_at %}<span class="lineage-deleted">· đã thay thế</span>{% endif %}
 </a>
 {%- endif -%}
 {%- endmacro %}

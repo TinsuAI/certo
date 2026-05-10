@@ -164,7 +164,18 @@ implement import riêng → UX divergent.
 
 ---
 
-## UI rename "tombstone" → friendly Vietnamese terms (UI-only)
+## UI rename "tombstone" → friendly Vietnamese terms (UI-only) — SHIPPED 2026-05-13
+
+UI/template/i18n rename only. Code/DB/API stay 'tombstone'. Files
+edited: bom_artifacts.html (badge), bom_presets.html (button +
+confirm), catalog_material_edit.html + catalog_detail.html (status
+select labels via lookup map), bom_artifact_detail.html (field
+labels: "Thời điểm thay thế" / "Lý do thay thế"), _bom_macros.html
+(lineage marker), catalog.html (badge + tooltip), i18n.py (VN values
+for `status.tombstoned` and `bom.stale.dim.btp_bom_tombstoned`).
+Mapping: catalog status → "đã loại"; BOM lineage/replace event →
+"đã thay thế"; preset retract → "thu hồi". Original capture
+preserved below.
 
 **Captured 2026-05-12** trong session Phase 2 UoM step 2. User
 feedback: "tombstone" trong UI khó hiểu cho staff agency (customs

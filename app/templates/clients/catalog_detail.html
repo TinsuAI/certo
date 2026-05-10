@@ -25,8 +25,8 @@
       {% endif %}
       {% if material.status not in ('tombstoned',) %}
       <form method="post" action="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/tombstone" style="display:inline"
-            onsubmit="return confirm('Tombstone material này (lifecycle marker, không xóa)?')">
-        <button type="submit" class="btn-ghost">⌫ Tombstone</button>
+            onsubmit="return confirm('Loại mã này khỏi danh mục? (Lưu lịch sử, không xóa thật.)')">
+        <button type="submit" class="btn-ghost">⌫ Loại khỏi danh mục</button>
       </form>
       {% endif %}
     </div>
@@ -82,7 +82,7 @@
           {% if st == 'active' %}<span class="badge badge-success">active</span>
           {% elif st == 'under_review' %}<span class="badge badge-warn">⚠ under_review</span>
           {% elif st == 'deprecated' %}<span class="badge" style="opacity:.6">deprecated</span>
-          {% elif st == 'tombstoned' %}<span class="badge" style="opacity:.4;text-decoration:line-through">tombstoned</span>
+          {% elif st == 'tombstoned' %}<span class="badge" style="opacity:.4;text-decoration:line-through" title="đã loại — lifecycle marker, dữ liệu lưu lịch sử không xóa">đã loại</span>
           {% else %}<span class="badge">{{ st }}</span>{% endif %}
       </td></tr>
       <tr><td class="mono"><strong>hq_registered</strong></td><td>
@@ -127,8 +127,10 @@
           </label>
           <label>Trạng thái
             <select name="status" required style="width: 100%;">
+              {% set status_labels = {'active': 'active', 'under_review': 'under_review',
+                                       'deprecated': 'deprecated', 'tombstoned': 'đã loại'} %}
               {% for s in ['active', 'under_review', 'deprecated', 'tombstoned'] %}
-                <option value="{{ s }}" {% if s == material.status %}selected{% endif %}>{{ s }}</option>
+                <option value="{{ s }}" {% if s == material.status %}selected{% endif %}>{{ status_labels[s] }}</option>
               {% endfor %}
             </select>
           </label>

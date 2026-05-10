@@ -37,11 +37,11 @@
         <td>
           <form method="post"
                 action="/clients/{{ client.client_id }}/bom/presets/{{ p.preset_id }}/tombstone"
-                onsubmit="return confirm('Retract preset {{ p.name }}? (Tombstone, not delete — historical references stay queryable.)')"
+                onsubmit="return confirm('Thu hồi preset {{ p.name }}? (Lưu lịch sử, không xóa — tham chiếu cũ vẫn truy vấn được.)')"
                 style="display:inline">
-            <input type="text" name="reason" placeholder="reason (optional)"
+            <input type="text" name="reason" placeholder="lý do (tuỳ chọn)"
                    style="font-size:.8em;width:120px">
-            <button type="submit" class="btn-danger" style="font-size:.8em">retract</button>
+            <button type="submit" class="btn-danger" style="font-size:.8em">thu hồi</button>
           </form>
         </td>
       </tr>

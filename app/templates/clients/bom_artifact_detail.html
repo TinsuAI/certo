@@ -138,9 +138,9 @@
         <tr><td style="padding: 4px 12px 4px 0; color: #666;">Created at</td>
             <td class="mono">{{ artifact.created_at.strftime('%Y-%m-%d %H:%M:%S %Z') if artifact.created_at else '—' }}</td></tr>
         {% if artifact.tombstoned_at %}
-        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Tombstoned at</td>
+        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Thời điểm thay thế</td>
             <td class="mono" style="color:#c00">{{ artifact.tombstoned_at.strftime('%Y-%m-%d %H:%M:%S %Z') }}</td></tr>
-        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Tombstone reason</td>
+        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Lý do thay thế</td>
             <td>{{ artifact.tombstone_reason or '—' }}</td></tr>
         {% endif %}
       </tbody>

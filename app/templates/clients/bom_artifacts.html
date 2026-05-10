@@ -78,7 +78,7 @@
         </td>
         <td>{{ v.row_count }}</td>
         <td class="mono">{{ v.normalized_hash[:8] }}</td>
-        <td>{{ v.status }}{% if v.tombstoned_at %} · tombstoned{% endif %}</td>
+        <td>{{ v.status }}{% if v.tombstoned_at %} · đã thay thế{% endif %}</td>
         <td class="mono">{{ v.published_at.strftime('%Y-%m-%d %H:%M') if v.published_at else '' }}</td>
         <td><a href="/clients/{{ client.client_id }}/bom/artifact/{{ v.artifact_id }}">{{ t('common.detail') }} →</a></td>
       </tr>
