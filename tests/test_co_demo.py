@@ -3,6 +3,7 @@ import html
 import json
 import os
 import re
+from copy import deepcopy
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
@@ -2457,6 +2458,285 @@ def test_origin_products_calculate_sequentially_against_case_stock_pool():
     assert material_b["allocation_lines"][0]["product_sequence"] == "2"
     assert "Bước 1 TP-A dùng 4 PCS" in material_b["allocation_shortage_trace"]
     assert any("đã dùng ở bước trước" in warning for warning in material_b["material_warnings"])
+
+
+def test_origin_sheet_calculate_updates_only_target_sheet():
+    from app.main import prepare_case_origin_products, prepare_case_origin_sheet
+
+    invoice_matches = [
+        {
+            "item_code": "TP-A",
+            "description": "Finished product A",
+            "hs_code": "850440",
+            "quantity": "4",
+            "unit": "PCS",
+            "customs_value": "1000",
+            "value_currency": "VND",
+            "invoice_ref": "INV-SEQ",
+        },
+        {
+            "item_code": "TP-B",
+            "description": "Finished product B",
+            "hs_code": "850440",
+            "quantity": "3",
+            "unit": "PCS",
+            "customs_value": "1000",
+            "value_currency": "VND",
+            "invoice_ref": "INV-SEQ",
+        },
+    ]
+    bom_workspace = {
+        "latest_version": {
+            "version_id": "bom-seq",
+            "rows": [
+                {"product_code": "TP-A", "material_code": "MAT-SHARED", "qty_per": "1", "uom": "PCS"},
+                {"product_code": "TP-B", "material_code": "MAT-SHARED", "qty_per": "1", "uom": "PCS"},
+            ],
+        },
+        "versions": [],
+        "product_versions": [],
+    }
+    material_rows = [{"customs_code": "MAT-SHARED", "origin_default": "Không xuất xứ"}]
+    stock_rows = [
+        {
+            "source_row": "SEQ-STOCK-1",
+            "import_declaration_no": "NK-SEQ",
+            "line_no": "1",
+            "material_code": "MAT-SHARED",
+            "remaining_qty": "5",
+            "unit_value": "10",
+            "currency": "VND",
+            "value_currency": "VND",
+            "eligibility_status": "active",
+            "allocation_code_status": "resolved",
+        }
+    ]
+    case = prepare_case_origin_products(
+        {"shipment": {"invoice_no": "INV-SEQ"}},
+        invoice_matches,
+        bom_workspace,
+        {"form_code": "B", "display_name": "C/O form B"},
+        material_rows,
+        stock_rows,
+    )
+    original_product_a = deepcopy(case["products"][0])
+
+    recalculated = prepare_case_origin_sheet(
+        case,
+        "TP-B",
+        invoice_matches,
+        bom_workspace,
+        {"form_code": "B", "display_name": "C/O form B"},
+        material_rows,
+        [{**stock_rows[0], "remaining_qty": "10"}],
+    )
+
+    product_a, product_b = recalculated["products"]
+    material_b = product_b["materials"][0]
+
+    assert product_a == original_product_a
+    assert material_b["allocation_status"] == "covered"
+    assert material_b["allocation_lines"][0]["opening_qty"] == "6"
+    assert material_b["allocation_lines"][0]["allocated_qty"] == "3"
+    assert material_b["allocation_lines"][0]["product_sequence"] == "2"
+
+
+def test_origin_sheet_lock_uses_cached_case_context(monkeypatch):
+    from app import main as main_module
+
+    def fail_source_refresh(_client, _case):
+        raise AssertionError("state-only origin actions must not refresh source context")
+
+    monkeypatch.setattr(main_module, "co_case_source_context", fail_source_refresh)
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Fast lock", "case_code": "CO-FAST-LOCK", "destination_market": "Ấn Độ", "invoice_no": "INV-FAST"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-FAST-LOCK",
+            "title": "Fast lock",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-FAST", "bill_of_lading_no": ""},
+            "products": [
+                {
+                    "code": "TP-FAST",
+                    "name": "Fast product",
+                    "quantity": "1",
+                    "unit": "PCS",
+                    "fob": "100",
+                    "currency": "VND",
+                    "lvc_status": "pass",
+                    "lvc_status_label": "Đạt LVC",
+                    "materials": [],
+                }
+            ],
+            "origin_sheet_states": {"TP-FAST": {"status": "calculated", "status_label": "Đã tính"}},
+            "origin_snapshot": {"source": "invoice_bcct_bom", "readiness_label": "Sẵn sàng"},
+            "bom_snapshot": {"aggregate_version_id": "bom-fast", "aggregate_version_no": 1, "composition": []},
+            "source_snapshot": {"client_config_hash": "snapshot"},
+        },
+    )
+    response = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-FAST/lock",
+        data={
+            "case_id": case_id,
+            "persisted_case_id": case_id,
+            "customer": "Growatt",
+            "case_code": "CO-FAST-LOCK",
+            "title": "Fast lock",
+            "destination_market": "Ấn Độ",
+            "agreement": "",
+            "co_form_type": "",
+            "rule": "",
+            "invoice_no": "INV-FAST",
+            "bill_of_lading_no": "",
+            "mode": "Invoice + BCCT + BOM snapshot",
+            "mode_note": "",
+            "source_label": "",
+            "document_count": "0",
+            "product_count": "1",
+            "origin_product_order": "TP-FAST",
+            "product_0_code": "TP-FAST",
+            "product_0_name": "Fast product",
+            "product_0_quantity": "1",
+            "product_0_unit": "PCS",
+            "product_0_currency": "VND",
+            "product_0_fob": "100",
+            "product_0_lvc_status": "pass",
+            "product_0_lvc_status_label": "Đạt LVC",
+            "product_0_origin_sheet_status": "calculated",
+            "product_0_origin_sheet_status_label": "Đã tính",
+            "product_0_material_count": "0",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Đã chốt bảng kê TP-FAST" in response.text
+    assert hidden_form_data(response.text)["product_0_origin_sheet_status"] == "locked"
+
+
+def test_origin_sheet_actions_accept_large_ajax_forms():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Large origin form", "case_code": "CO-LARGE-FORM", "destination_market": "Ấn Độ", "invoice_no": "INV-LARGE"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-LARGE-FORM",
+            "title": "Large origin form",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-LARGE", "bill_of_lading_no": ""},
+            "products": [
+                {
+                    "code": "TP-LARGE",
+                    "name": "Large product",
+                    "quantity": "1",
+                    "unit": "PCS",
+                    "fob": "100",
+                    "currency": "VND",
+                    "lvc_status": "pass",
+                    "lvc_status_label": "Đạt LVC",
+                    "materials": [],
+                }
+            ],
+            "origin_sheet_states": {"TP-LARGE": {"status": "calculated", "status_label": "Đã tính"}},
+            "origin_snapshot": {"source": "invoice_bcct_bom", "readiness_label": "Sẵn sàng"},
+            "bom_snapshot": {"aggregate_version_id": "bom-large", "aggregate_version_no": 1, "composition": []},
+            "source_snapshot": {"client_config_hash": "snapshot"},
+        },
+    )
+    data = {
+        "case_id": case_id,
+        "persisted_case_id": case_id,
+        "customer": "Growatt",
+        "case_code": "CO-LARGE-FORM",
+        "title": "Large origin form",
+        "destination_market": "Ấn Độ",
+        "agreement": "",
+        "co_form_type": "",
+        "rule": "",
+        "invoice_no": "INV-LARGE",
+        "bill_of_lading_no": "",
+        "mode": "Invoice + BCCT + BOM snapshot",
+        "mode_note": "",
+        "source_label": "",
+        "document_count": "0",
+        "product_count": "1",
+        "origin_product_order": "TP-LARGE",
+        "product_0_code": "TP-LARGE",
+        "product_0_name": "Large product",
+        "product_0_quantity": "1",
+        "product_0_unit": "PCS",
+        "product_0_currency": "VND",
+        "product_0_fob": "100",
+        "product_0_lvc_status": "pass",
+        "product_0_lvc_status_label": "Đạt LVC",
+        "product_0_origin_sheet_status": "calculated",
+        "product_0_origin_sheet_status_label": "Đã tính",
+        "product_0_material_count": "0",
+        **{f"extra_field_{index}": str(index) for index in range(21000)},
+    }
+
+    response = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-LARGE/lock",
+        data=data,
+    )
+    legacy_multipart_response = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-LARGE/lock",
+        data=data,
+        files={"_multipart_marker": ("marker.txt", b"x", "text/plain")},
+    )
+
+    assert response.status_code == 200
+    assert "Đã chốt bảng kê TP-LARGE" in response.text
+    assert legacy_multipart_response.status_code == 200
+
+
+def test_origin_sheet_actions_follow_sequential_locking_rules():
+    from app.main import (
+        attach_origin_sheet_states,
+        mark_origin_sheets_stale,
+        origin_sheet_action_error,
+        set_origin_sheet_status,
+    )
+
+    case = {
+        "products": [{"code": "TP-1"}, {"code": "TP-2"}, {"code": "TP-3"}, {"code": "TP-4"}],
+        "origin_sheet_states": {
+            "TP-1": {"status": "locked"},
+            "TP-2": {"status": "calculated"},
+            "TP-3": {"status": "draft"},
+            "TP-4": {"status": "draft"},
+        },
+    }
+    guarded = attach_origin_sheet_states(case)
+
+    assert guarded["products"][2]["origin_can_calculate"] is False
+    assert "TP-2" in origin_sheet_action_error(guarded, "TP-3", "calculate")
+
+    guarded = set_origin_sheet_status(guarded, "TP-2", "locked")
+    guarded = set_origin_sheet_status(guarded, "TP-3", "locked")
+    guarded = set_origin_sheet_status(guarded, "TP-4", "calculated")
+
+    assert origin_sheet_action_error(guarded, "TP-4", "lock") == ""
+    guarded = set_origin_sheet_status(guarded, "TP-4", "locked")
+    assert guarded["products"][2]["origin_can_reopen"] is False
+    assert "TP-4" in origin_sheet_action_error(guarded, "TP-3", "reopen")
+    assert origin_sheet_action_error(guarded, "TP-4", "reopen") == ""
+
+    released = mark_origin_sheets_stale(guarded, 0)
+    assert [product["origin_sheet_status"] for product in released["products"]] == ["stale", "stale", "stale", "stale"]
 
 
 def test_origin_product_order_override_changes_sequential_allocation():

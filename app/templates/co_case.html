@@ -424,6 +424,7 @@
 {% endif %}
 
 {% else %}
+<div data-co-case-shell>
 <section class="zone co-case-header">
   <div class="zone-head">
     <div>
@@ -796,7 +797,7 @@
       {% endfor %}
     </div>
     <div class="origin-workbar-actions">
-      <button type="submit" data-origin-export-action formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export" {% if origin_actions_blocked %}disabled title="Khách hàng đang có hồ sơ khác giữ phiên tính tồn"{% endif %}>Xuất dossier XLSX</button>
+      <button type="submit" data-origin-export-action formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export" formmethod="post" {% if origin_actions_blocked %}disabled title="Khách hàng đang có hồ sơ khác giữ phiên tính tồn"{% endif %}>Xuất dossier XLSX</button>
       {% if origin_calculation_lock_owned %}
       <button type="submit" form="origin-lock-release" class="btn-secondary">Nhả phiên tính tồn</button>
       {% endif %}
@@ -915,11 +916,11 @@
               </select>
             </label>
             <div class="origin-sheet-actions">
-              <button type="submit" data-origin-sheet-calculate formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/calculate" {% if origin_actions_blocked or product.origin_sheet_status == 'locked' %}disabled{% endif %}>Tính bảng kê</button>
+              <button type="submit" data-origin-sheet-calculate formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/calculate" formmethod="post" {% if origin_actions_blocked or not product.origin_can_calculate %}disabled title="{{ 'Khách hàng đang có hồ sơ khác giữ phiên tính tồn' if origin_actions_blocked else product.origin_calculate_block_reason }}"{% endif %}>Tính bảng kê</button>
               {% if product.origin_sheet_status == 'locked' %}
-              <button type="submit" class="btn-secondary" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/reopen" {% if origin_actions_blocked %}disabled{% endif %}>Mở chốt</button>
+              <button type="submit" class="btn-secondary" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/reopen" formmethod="post" {% if origin_actions_blocked or not product.origin_can_reopen %}disabled title="{{ 'Khách hàng đang có hồ sơ khác giữ phiên tính tồn' if origin_actions_blocked else product.origin_reopen_block_reason }}"{% endif %}>Mở chốt</button>
               {% else %}
-              <button type="submit" class="btn-secondary" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/lock" {% if origin_actions_blocked or product.origin_sheet_status not in ['calculated'] %}disabled{% endif %}>Chốt</button>
+              <button type="submit" class="btn-secondary" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/lock" formmethod="post" {% if origin_actions_blocked or not product.origin_can_lock %}disabled title="{{ 'Khách hàng đang có hồ sơ khác giữ phiên tính tồn' if origin_actions_blocked else product.origin_lock_block_reason }}"{% endif %}>Chốt</button>
               {% endif %}
             </div>
           </div>
@@ -1214,9 +1215,241 @@
   </section>
 </section>
 {% endif %}
+</div>
 {% endif %}
 <script>
 (() => {
+  const toast = (message, kind = "success") => {
+    if (!message) return;
+    let stack = document.querySelector("[data-ui-toast-stack]");
+    if (!stack) {
+      stack = document.createElement("div");
+      stack.className = "ui-toast-stack";
+      stack.dataset.uiToastStack = "1";
+      document.body.appendChild(stack);
+    }
+    const item = document.createElement("div");
+    item.className = `ui-toast ${kind === "error" ? "ui-toast-error" : ""}`;
+    item.textContent = message;
+    stack.appendChild(item);
+    window.setTimeout(() => {
+      item.classList.add("ui-toast-hide");
+      window.setTimeout(() => item.remove(), 220);
+    }, 2600);
+  };
+
+  const flashMessageFromDocument = (doc) => {
+    const error = doc.querySelector(".toast-error, [data-error-message]");
+    if (error?.textContent?.trim()) {
+      return {message: error.textContent.trim(), kind: "error"};
+    }
+    const message = doc.querySelector(".toast, [data-message]");
+    return {message: message?.textContent?.trim() || "", kind: "success"};
+  };
+
+  const replaceCaseShellFromResponse = async (response, fallbackMessage = "") => {
+    const text = await response.text();
+    const doc = new DOMParser().parseFromString(text, "text/html");
+    const nextShell = doc.querySelector("[data-co-case-shell]");
+    const currentShell = document.querySelector("[data-co-case-shell]");
+    if (!nextShell || !currentShell) {
+      if (!response.ok) {
+        let detail = "";
+        try {
+          const payload = JSON.parse(text);
+          detail = payload.detail || "";
+        } catch (_error) {
+          detail = text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 220);
+        }
+        toast(detail || "Không xử lý được thao tác.", "error");
+        return;
+      }
+      window.location.assign(response.url || window.location.href);
+      return;
+    }
+    currentShell.replaceWith(document.importNode(nextShell, true));
+    const flash = flashMessageFromDocument(doc);
+    toast(flash.message || fallbackMessage, response.ok && flash.kind !== "error" ? "success" : "error");
+    if (response.url) {
+      window.history.replaceState({}, "", response.url);
+    }
+  };
+
+  const actionToast = (submitter, form) => {
+    const text = (submitter?.textContent || "").trim();
+    const action = submitter?.getAttribute("formaction") || form?.getAttribute("action") || "";
+    if (/lock$/.test(action)) return text.includes("Mở") ? "Đã mở chốt." : "Đã chốt.";
+    if (/reopen$/.test(action)) return "Đã mở chốt.";
+    if (/calculate$/.test(action)) return "Đã tính bảng kê.";
+    if (/shipment$/.test(action)) return "Đã lưu shipment.";
+    if (/supporting-files$/.test(action)) return "Đã tải chứng từ.";
+    if (/origin-lock\/release$/.test(action)) return "Đã nhả phiên giữ tồn; các bảng kê cần tính lại.";
+    return text ? `Đã ${text.toLowerCase()}.` : "Đã lưu.";
+  };
+
+  const ajaxFormPayload = (form, submitter = null, accept = "text/html") => {
+    const data = new FormData(form);
+    if (submitter?.name) {
+      data.set(submitter.name, submitter.value || "");
+    }
+    const headers = {"Accept": accept};
+    const hasFileInput = Boolean(form.querySelector('input[type="file"]'));
+    if ((form.enctype || "").toLowerCase() === "multipart/form-data" || hasFileInput) {
+      return {body: data, headers};
+    }
+    const encoded = new URLSearchParams();
+    data.forEach((value, key) => {
+      encoded.append(key, value instanceof File ? value.name : String(value));
+    });
+    headers["Content-Type"] = "application/x-www-form-urlencoded;charset=UTF-8";
+    return {body: encoded, headers};
+  };
+
+  document.addEventListener("click", (event) => {
+    const submitter = event.target.closest?.("[data-co-case-shell] button[type='submit'], [data-co-case-shell] input[type='submit']");
+    if (!submitter?.form) return;
+    submitter.form.dataset.ajaxSubmitAction = submitter.getAttribute("formaction") || submitter.form.getAttribute("action") || "";
+    submitter.form.dataset.ajaxSubmitMethod = submitter.getAttribute("formmethod") || submitter.form.getAttribute("method") || "GET";
+    submitter.form.dataset.ajaxSubmitLabel = (submitter.textContent || submitter.value || "").trim();
+  }, true);
+
+  document.addEventListener("click", async (event) => {
+    const link = event.target.closest?.("[data-co-case-shell] .workflow-step");
+    if (!link || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    try {
+      const response = await fetch(link.href, {headers: {"Accept": "text/html"}});
+      await replaceCaseShellFromResponse(response);
+    } catch (_error) {
+      toast("Không tải được bước hồ sơ; thử lại hoặc tải lại trang.", "error");
+    }
+  });
+
+  document.addEventListener("submit", async (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement) || !form.closest("[data-co-case-shell]")) return;
+    const submitter = event.submitter;
+    const action = submitter?.getAttribute("formaction") || form.dataset.ajaxSubmitAction || form.getAttribute("action") || "";
+    if (!action || /\/export$|\/delete$|supporting-files\/[^/]+$/.test(action)) return;
+    event.preventDefault();
+    const method = (submitter?.getAttribute("formmethod") || form.dataset.ajaxSubmitMethod || form.getAttribute("method") || "GET").toUpperCase();
+    const payload = method === "GET" ? {body: null, headers: {"Accept": "text/html"}} : ajaxFormPayload(form, submitter, "text/html");
+    submitter?.setAttribute("disabled", "disabled");
+    try {
+      const response = await fetch(action, {
+        method,
+        body: payload.body,
+        headers: payload.headers,
+      });
+      await replaceCaseShellFromResponse(response, actionToast(submitter, form) || form.dataset.ajaxSubmitLabel);
+    } catch (_error) {
+      toast("Không lưu được thao tác; thử lại hoặc tải lại trang.", "error");
+    } finally {
+      submitter?.removeAttribute("disabled");
+    }
+  });
+
+  const originWorkbookFor = (node) => node?.closest?.("[data-origin-workbook]");
+  const syncOriginSequence = (workbook) => {
+    const form = workbook?.closest("form");
+    const input = form?.querySelector("[data-origin-product-order]");
+    const tabs = Array.from(workbook?.querySelectorAll("[data-origin-sheet-tab]") || []);
+    if (!input) return;
+    input.value = tabs.map((tab) => tab.dataset.productCode || "").filter(Boolean).join("|");
+    tabs.forEach((tab, index) => {
+      tab.dataset.originSequenceIndex = String(index);
+      const label = tab.querySelector("[data-origin-sequence-label]");
+      if (label) label.textContent = String(index + 1);
+      const left = tab.querySelector('[data-origin-sequence-move="left"]');
+      const right = tab.querySelector('[data-origin-sequence-move="right"]');
+      if (left) left.disabled = index === 0;
+      if (right) right.disabled = index === tabs.length - 1;
+    });
+  };
+  const activateOriginTab = (tab) => {
+    const workbook = originWorkbookFor(tab);
+    const targetId = tab?.dataset.originSheetTarget || "";
+    if (!workbook || !targetId) return;
+    workbook.querySelectorAll("[data-origin-sheet-tab]").forEach((item) => {
+      const active = item === tab;
+      item.classList.toggle("origin-sheet-tab-active", active);
+      item.setAttribute("aria-selected", active ? "true" : "false");
+      item.setAttribute("tabindex", active ? "0" : "-1");
+    });
+    workbook.querySelectorAll("[data-origin-sheet-panel]").forEach((panel) => {
+      const active = panel.id === targetId;
+      panel.hidden = !active;
+      panel.classList.toggle("origin-sheet-panel-active", active);
+    });
+  };
+  document.addEventListener("click", (event) => {
+    const move = event.target.closest?.("[data-origin-sequence-move]");
+    if (move) {
+      event.preventDefault();
+      event.stopPropagation();
+      const tab = move.closest("[data-origin-sheet-tab]");
+      const workbook = originWorkbookFor(tab);
+      if (!tab || !workbook) return;
+      const tabs = Array.from(workbook.querySelectorAll("[data-origin-sheet-tab]"));
+      const fromIndex = tabs.indexOf(tab);
+      if (move.dataset.originSequenceMove === "left" && tab.previousElementSibling) {
+        tab.parentElement.insertBefore(tab, tab.previousElementSibling);
+      } else if (move.dataset.originSequenceMove === "right" && tab.nextElementSibling) {
+        tab.parentElement.insertBefore(tab.nextElementSibling, tab);
+      } else {
+        return;
+      }
+      syncOriginSequence(workbook);
+      const dirty = workbook.querySelector("[data-origin-sequence-dirty]");
+      if (dirty) {
+        dirty.textContent = "Đã đổi thứ tự sheet; bảng kê bị ảnh hưởng cần tính lại.";
+        dirty.hidden = false;
+      }
+      const form = workbook.closest("form");
+      const url = workbook.dataset.originAutosaveUrl || "";
+      if (form && url) {
+        const marker = document.createElement("input");
+        marker.type = "hidden";
+        marker.name = "stale_from_index";
+        marker.value = String(Math.max(fromIndex - 1, 0));
+        form.appendChild(marker);
+        const payload = ajaxFormPayload(form, null, "application/json");
+        marker.remove();
+        fetch(url, {method: "POST", body: payload.body, headers: payload.headers}).catch(() => {
+          toast("Chưa lưu được thứ tự sheet.", "error");
+        });
+      }
+      tab.focus();
+      return;
+    }
+    const tab = event.target.closest?.("[data-origin-sheet-tab]");
+    if (tab) activateOriginTab(tab);
+  });
+  document.addEventListener("keydown", (event) => {
+    const tab = event.target.closest?.("[data-origin-sheet-tab]");
+    if (!tab || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    const workbook = originWorkbookFor(tab);
+    const tabs = Array.from(workbook?.querySelectorAll("[data-origin-sheet-tab]") || []);
+    const currentIndex = tabs.indexOf(tab);
+    if (currentIndex < 0) return;
+    event.preventDefault();
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+      ? tabs.length - 1
+      : event.key === "ArrowRight"
+      ? (currentIndex + 1) % tabs.length
+      : (currentIndex - 1 + tabs.length) % tabs.length;
+    tabs[nextIndex]?.focus();
+    tabs[nextIndex] && activateOriginTab(tabs[nextIndex]);
+  });
+  document.addEventListener("change", (event) => {
+    const select = event.target.closest?.("[data-bom-version-select]");
+    if (select?.form) {
+      select.form.requestSubmit ? select.form.requestSubmit() : select.form.submit();
+    }
+  });
+
   const deleteModal = document.querySelector("[data-delete-case-modal]");
   if (deleteModal) {
     const detail = deleteModal.querySelector("[data-delete-case-detail]");
@@ -1503,6 +1736,63 @@
     }
   });
 
+  const invoiceTimers = new WeakMap();
+  const scheduleInvoiceLookupFetch = (lookup, exact = false) => {
+    window.clearTimeout(invoiceTimers.get(lookup));
+    invoiceTimers.set(lookup, window.setTimeout(() => fetchInvoicePreview(lookup, exact).catch(() => {}), 280));
+  };
+  document.addEventListener("input", (event) => {
+    const invoiceInput = event.target.closest?.("[data-invoice-input]");
+    if (invoiceInput) {
+      const lookup = invoiceInput.closest("[data-invoice-lookup]");
+      if (lookup) scheduleInvoiceLookupFetch(lookup);
+      return;
+    }
+    const declarationInput = event.target.closest?.("[data-export-declaration-input]");
+    if (declarationInput) {
+      const lookup = declarationInput.closest("form")?.querySelector("[data-invoice-lookup]");
+      if (lookup) scheduleInvoiceLookupFetch(lookup, true);
+    }
+  });
+  document.addEventListener("focusin", (event) => {
+    const invoiceInput = event.target.closest?.("[data-invoice-input]");
+    if (!invoiceInput) return;
+    const lookup = invoiceInput.closest("[data-invoice-lookup]");
+    if (lookup) fetchInvoicePreview(lookup).catch(() => {});
+  });
+  document.addEventListener("click", (event) => {
+    const search = event.target.closest?.("[data-invoice-search]");
+    if (!search) return;
+    const lookup = search.closest("[data-invoice-lookup]");
+    if (lookup) fetchInvoicePreview(lookup, true).catch(() => {});
+  });
+  const filterMarketBox = (box) => {
+    const input = box?.querySelector("[data-market-input]");
+    const options = Array.from(box?.querySelectorAll("[data-market-option]") || []);
+    if (!input) return;
+    const key = normalize(input.value);
+    const selected = key
+      ? options.find((option) => normalize(option.dataset.marketValue) === key)
+        || options.find((option) => normalize(option.dataset.search).includes(key))
+      : null;
+    options.forEach((option) => {
+      option.hidden = Boolean(key) && !normalize(option.dataset.search).includes(key);
+    });
+    updatePreview(input, selected);
+  };
+  document.addEventListener("focusin", (event) => {
+    const input = event.target.closest?.("[data-market-input]");
+    if (!input) return;
+    const box = input.closest("[data-market-combobox]");
+    box?.querySelector("[data-market-options]")?.classList.add("is-open");
+    input.setAttribute("aria-expanded", "true");
+    filterMarketBox(box);
+  });
+  document.addEventListener("input", (event) => {
+    const input = event.target.closest?.("[data-market-input]");
+    if (input) filterMarketBox(input.closest("[data-market-combobox]"));
+  });
+
   document.addEventListener("click", (event) => {
     const invoiceOption = event.target.closest("[data-invoice-option]");
     if (invoiceOption) {
@@ -1518,6 +1808,18 @@
     const marketSuggestion = event.target.closest("[data-market-suggestion]");
     if (marketSuggestion) {
       applySuggestedMarket(marketSuggestion);
+      return;
+    }
+    const marketOption = event.target.closest("[data-market-option]");
+    if (marketOption) {
+      const box = marketOption.closest("[data-market-combobox]");
+      const input = box?.querySelector("[data-market-input]");
+      if (input) {
+        input.value = marketOption.dataset.marketValue || "";
+        box.querySelector("[data-market-options]")?.classList.remove("is-open");
+        input.setAttribute("aria-expanded", "false");
+        updatePreview(input, marketOption);
+      }
     }
   });
 
@@ -1583,10 +1885,15 @@
     const autosave = async (fromIndex = 0) => {
       const url = workbook.dataset.originAutosaveUrl || "";
       if (!form || !url) return;
-      const payload = new FormData(form);
-      payload.set("stale_from_index", String(fromIndex));
+      const marker = document.createElement("input");
+      marker.type = "hidden";
+      marker.name = "stale_from_index";
+      marker.value = String(fromIndex);
+      form.appendChild(marker);
+      const payload = ajaxFormPayload(form, null, "application/json");
+      marker.remove();
       try {
-        await fetch(url, {method: "POST", body: payload, headers: {"Accept": "application/json"}});
+        await fetch(url, {method: "POST", body: payload.body, headers: payload.headers});
       } catch (_error) {
         if (dirty) {
           dirty.textContent = "Chưa lưu được thay đổi thứ tự; thử lại hoặc tải lại trang.";
@@ -1858,17 +2165,6 @@
     setExpanded(button.getAttribute("aria-expanded") === "true");
   });
 
-  document.querySelectorAll("[data-bom-version-select]").forEach((select) => {
-    select.addEventListener("change", () => {
-      const form = select.form;
-      if (!form) return;
-      if (form.requestSubmit) {
-        form.requestSubmit();
-        return;
-      }
-      form.submit();
-    });
-  });
 })();
 </script>
 {% endblock %}

@@ -33,6 +33,7 @@ from app.co_case_store import (
     get_case_workspace,
     get_supporting_file,
     invoice_keys,
+    json_safe,
     safe_filename,
     save_supporting_file,
     release_origin_calculation_lock,
@@ -154,6 +155,13 @@ app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 app.mount("/portfolio", portfolio_app, name="portfolio")
 
 templates = Jinja2Templates(directory=ROOT / "templates", context_processors=[theme_context])
+
+
+async def large_request_form(request: Request):
+    try:
+        return await request.form(max_fields=100000, max_files=2000)
+    except TypeError:
+        return await request.form()
 
 
 def format_number_display(value, max_decimals: int = 2) -> str:
@@ -908,7 +916,15 @@ def source_workspace_for_client(client: dict) -> tuple[dict, str]:
 
 def co_case_light_context(client_id: str, case: dict, current_step: str, **extra) -> dict:
     client = resolve_client(client_id)
-    source_context = co_case_source_context(client, case)
+    fast_origin_context = bool(extra.pop("fast_origin_context", False))
+    cached_case_context = fast_origin_context or bool(extra.pop("cached_case_context", False))
+    force_source_refresh = bool(extra.pop("force_source_refresh", False))
+    use_cached_context = cached_case_context and not force_source_refresh and bool(case.get("source_snapshot"))
+    source_context = (
+        cached_origin_source_context(client, case)
+        if use_cached_context
+        else co_case_source_context(client, case)
+    )
     source_summary = source_context["source_summary"]
     invoice_matches = source_context["invoice_matches"]
     reference_warnings = shipment_reference_warnings(case.get("shipment", {}), invoice_matches)
@@ -916,12 +932,15 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
     form_candidates = extra.pop("form_candidates")
     criteria_rows = extra.pop("criteria_rows")
     if current_step == "origin":
-        bom_product_codes = co_case_bom_product_codes(case, invoice_matches, source_context.get("code_mappings", []))
-        bom_workspace = (
-            bom_service.workspace(client, product_codes=bom_product_codes)
-            if bom_product_codes
-            else minimal_bom_workspace()
-        )
+        if use_cached_context and case.get("products"):
+            bom_workspace = bom_workspace_from_case_snapshot(case)
+        else:
+            bom_product_codes = co_case_bom_product_codes(case, invoice_matches, source_context.get("code_mappings", []))
+            bom_workspace = (
+                bom_service.workspace(client, product_codes=bom_product_codes)
+                if bom_product_codes
+                else minimal_bom_workspace()
+            )
     else:
         bom_workspace = minimal_bom_workspace()
     origin_demo_allowed = extra.pop("origin_demo_allowed", True)
@@ -929,7 +948,9 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
     origin_calculation_blocked = bool(extra.get("origin_calculation_blocked", False))
     client = enrich_client_with_source_summary(client, source_summary)
     case = attach_case_source_summary_snapshot(case, source_summary)
-    if current_step == "origin" and not origin_calculation_blocked:
+    if not use_cached_context:
+        case["source_invoice_matches"] = json_safe(invoice_matches)
+    if current_step == "origin" and not origin_calculation_blocked and not use_cached_context:
         selected_lane = recommended_form_lane(
             prioritized_form_lanes(case.get("destination_market", ""), co_case_hs_codes(case, invoice_matches))
         )
@@ -953,8 +974,9 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
             case = attach_origin_sheet_states(case)
             criteria_rows = build_case_criteria_rows(case, form_candidates)
     elif current_step == "origin" and case.get("products"):
-        case = attach_case_bom_snapshot(case, bom_workspace)
-        case = attach_origin_bom_product_codes(case, bom_workspace, source_context.get("code_mappings", []))
+        if not use_cached_context:
+            case = attach_case_bom_snapshot(case, bom_workspace)
+            case = attach_origin_bom_product_codes(case, bom_workspace, source_context.get("code_mappings", []))
         case = attach_origin_readiness(case)
         case = attach_results(case)
         case = attach_origin_sheet_states(case)
@@ -991,6 +1013,7 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
         "common_market_presets": COMMON_MARKET_PRESETS,
         "common_market_guidance": common_market_guidance(),
         "invoice_matches": invoice_matches,
+        "origin_source_context": source_context,
         "shipment_reference_warnings": reference_warnings,
         "invoice_criteria_rows": invoice_criteria_rows,
         "criteria_rows": criteria_rows,
@@ -1014,6 +1037,131 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
 
 def co_case_source_context(client: dict, case: dict) -> dict:
     return portfolio_service.co_case_source_context(client, case)
+
+
+def preload_co_case_origin_context(client_id: str, case_id: str) -> None:
+    client = resolve_client(client_id)
+    try:
+        record = get_case_record(client, case_id)
+    except KeyError:
+        return
+    if record.get("source_snapshot") and record.get("products"):
+        return
+    context = co_case_context(
+        client_id,
+        case_id,
+        current_step="origin",
+        origin_demo_allowed=False,
+        force_source_refresh=True,
+    )
+    if context.get("origin_demo_active"):
+        return
+    try:
+        update_case_record(client, context["case"])
+    except KeyError:
+        return
+
+
+def cached_origin_source_context(client: dict, case: dict) -> dict:
+    cached_matches = case.get("source_invoice_matches") if isinstance(case.get("source_invoice_matches"), list) else []
+    return {
+        "source_backend": "case-snapshot",
+        "source_summary": source_summary_from_case_snapshot(client, case),
+        "invoice_matches": cached_matches or [origin_match_from_existing_product(product) for product in case.get("products", [])],
+        "material_rows": [],
+        "stock_rows": [],
+        "code_mappings": [],
+    }
+
+
+def source_summary_from_case_snapshot(client: dict, case: dict) -> dict:
+    snapshot = case.get("source_snapshot") if isinstance(case.get("source_snapshot"), dict) else {}
+    counts = client.get("counts") if isinstance(client.get("counts"), dict) else {}
+    return {
+        "client_config": {
+            "config_version": snapshot.get("client_config_version", ""),
+            "config_hash": snapshot.get("client_config_hash", ""),
+        },
+        "material_catalog": {
+            "published_row_count": int(counts.get("materials") or 0),
+            "latest_version": {
+                "version_id": snapshot.get("material_catalog_version_id", ""),
+                "version_no": snapshot.get("material_catalog_version_no", ""),
+            },
+        },
+        "product_catalog": {
+            "published_row_count": int(counts.get("products") or 0),
+            "latest_version": {
+                "version_id": snapshot.get("product_catalog_version_id", ""),
+                "version_no": snapshot.get("product_catalog_version_no", ""),
+            },
+        },
+        "bcct": {
+            "published_row_count": int(counts.get("bcct") or snapshot.get("bcct_reviewed_row_count") or 0),
+            "reviewed_row_count": int(snapshot.get("bcct_reviewed_row_count") or 0),
+            "correction_candidate_count": int(snapshot.get("correction_candidate_count") or 0),
+            "latest_version": {
+                "version_id": snapshot.get("bcct_version_id", ""),
+                "version_no": snapshot.get("bcct_version_no", ""),
+            },
+        },
+        "co_stock_row_count": int(counts.get("co_stock") or 0),
+    }
+
+
+def bom_workspace_from_case_snapshot(case: dict) -> dict:
+    snapshot = case.get("bom_snapshot") if isinstance(case.get("bom_snapshot"), dict) else {}
+    composition = [dict(row) for row in snapshot.get("composition", []) if isinstance(row, dict)]
+    product_versions = []
+    seen = set()
+    for row in composition:
+        product_code = str(row.get("product_code") or "").strip()
+        version_id = str(row.get("product_version_id") or row.get("version_id") or "").strip()
+        if not product_code or not version_id or version_id in seen:
+            continue
+        seen.add(version_id)
+        product_versions.append({
+            "product_code": product_code,
+            "product_version_id": version_id,
+            "version_id": version_id,
+            "product_version_no": row.get("product_version_no") or row.get("version_no") or "",
+            "version_no": row.get("product_version_no") or row.get("version_no") or "",
+            "row_count": row.get("row_count", 0),
+            "status": row.get("status") or "snapshot",
+            "rows": None,
+        })
+    for product in case.get("products", []):
+        product_code = str(product.get("bom_product_code") or product.get("code") or "").strip()
+        version_id = str(product.get("bom_product_version_id") or "").strip()
+        if not product_code or not version_id or version_id in seen:
+            continue
+        seen.add(version_id)
+        product_versions.append({
+            "product_code": product_code,
+            "product_version_id": version_id,
+            "version_id": version_id,
+            "product_version_no": product.get("bom_product_version_no", ""),
+            "version_no": product.get("bom_product_version_no", ""),
+            "row_count": len(product.get("materials", []) or []),
+            "status": "snapshot",
+            "rows": None,
+        })
+    options_by_code: dict[str, list[dict]] = {}
+    for version in product_versions:
+        options_by_code.setdefault(version["product_code"], []).append(version)
+    aggregate = {
+        "version_id": snapshot.get("aggregate_version_id", ""),
+        "version_no": snapshot.get("aggregate_version_no", ""),
+        "product_versions": composition,
+        "rows": [],
+    }
+    return {
+        "versions": [aggregate] if aggregate["version_id"] else [],
+        "product_versions": product_versions,
+        "product_version_options_by_code": options_by_code,
+        "latest_version": aggregate,
+        "latest_rows": [],
+    }
 
 
 def co_case_bom_product_codes(case: dict, invoice_matches: list[dict], code_mappings: list[dict] | None = None) -> list[str]:
@@ -1487,6 +1635,122 @@ def prepare_case_origin_products(
     return prepared
 
 
+def prepare_case_origin_sheet(
+    case: dict,
+    product_code: str,
+    invoice_matches: list[dict],
+    bom_workspace: dict,
+    form_lane: dict,
+    material_rows: list[dict],
+    stock_rows: list[dict],
+    *,
+    code_mappings: list[dict] | None = None,
+) -> dict:
+    target_code = str(product_code or "").strip()
+    if not target_code:
+        return case
+    source_matches = (
+        invoice_matches
+        if invoice_matches
+        else [origin_match_from_existing_product(product) for product in case.get("products", [])]
+    )
+    ordered_invoice_matches = order_invoice_matches_for_origin(case, source_matches) if invoice_matches else source_matches
+    target_match = None
+    target_sequence = 0
+    products_by_code = {str(product.get("code") or product.get("product_code") or "").strip(): product for product in case.get("products", [])}
+    stock_pool = co_stock_allocation_pool(stock_rows)
+    for sequence, match in enumerate(ordered_invoice_matches, start=1):
+        match_code = str(match.get("item_code") or match.get("product_code") or "").strip()
+        if match_code == target_code:
+            target_match = match
+            target_sequence = sequence
+            break
+        existing_product = products_by_code.get(match_code)
+        if existing_product:
+            apply_existing_origin_product_consumption(existing_product, stock_pool)
+    if not target_match:
+        return case
+
+    bom_rows_by_product = selected_bom_rows_by_product(case, bom_workspace, code_mappings)
+    material_index = material_catalog_index(material_rows)
+    bom_product_code = resolve_bom_product_code(target_code, bom_workspace, code_mappings)
+    product_rows = bom_rows_by_product.get(target_code) or bom_rows_by_product.get(bom_product_code, [])
+    recalculated_product = origin_product_from_invoice_match(
+        target_match,
+        product_rows,
+        form_lane,
+        material_index,
+        stock_pool,
+        product_sequence=target_sequence,
+        bom_product_code=bom_product_code,
+    )
+    products = []
+    changed = False
+    for product in case.get("products", []):
+        code = str(product.get("code") or product.get("product_code") or "").strip()
+        if code == target_code and not changed:
+            products.append(recalculated_product)
+            changed = True
+        else:
+            products.append(product)
+    if not changed:
+        products.append(recalculated_product)
+    prepared = dict(case)
+    prepared["products"] = products
+    return prepared
+
+
+def apply_existing_origin_product_consumption(product: dict, stock_pool: dict[str, list[dict]]) -> None:
+    for material in product.get("materials", []) or []:
+        material_code = str(material.get("material_code") or material.get("internal_material_code") or "").strip()
+        if not material_code:
+            continue
+        for line in material.get("allocation_lines", []) or []:
+            allocated_qty = decimal_value(line.get("allocated_qty"))
+            if allocated_qty <= 0:
+                continue
+            stock = stock_for_existing_allocation_line(stock_pool, material_code, line)
+            if not stock:
+                continue
+            remaining_qty = stock_allocation_remaining_qty(stock)
+            stock["_allocation_remaining_qty"] = remaining_qty - allocated_qty
+            allocation_context = {
+                "product_sequence": line.get("product_sequence") or product.get("allocation_sequence", ""),
+                "product_code": line.get("product_code") or product.get("code", ""),
+                "product_name": product.get("name", ""),
+                "material_sequence": line.get("material_sequence") or material.get("material_sequence", ""),
+                "material_code": material_code,
+                "material_uom": material.get("uom", ""),
+            }
+            stock.setdefault("_allocation_consumptions", []).append(stock_allocation_consumption(line, allocation_context))
+
+
+def stock_for_existing_allocation_line(stock_pool: dict[str, list[dict]], material_code: str, line: dict) -> dict:
+    candidates = stock_candidates_for_material(stock_pool, material_code)
+    for stock in candidates:
+        if allocation_line_matches_stock(line, stock):
+            return stock
+    return {}
+
+
+def allocation_line_matches_stock(line: dict, stock: dict) -> bool:
+    checks = [
+        ("source_row", "source_row"),
+        ("import_declaration_no", "import_declaration_no"),
+        ("import_line_no", "line_no"),
+        ("allocation_code", "allocation_code"),
+    ]
+    matched = False
+    for line_key, stock_key in checks:
+        line_value = str(line.get(line_key) or "").strip()
+        stock_value = str(stock.get(stock_key) or "").strip()
+        if line_value and stock_value:
+            if line_value != stock_value:
+                return False
+            matched = True
+    return matched
+
+
 def order_invoice_matches_for_origin(case: dict, invoice_matches: list[dict]) -> list[dict]:
     order = origin_product_order(case)
     if not order:
@@ -1539,6 +1803,38 @@ def attach_origin_sheet_states(case: dict) -> dict:
         product["origin_sheet_state"] = state
         product["origin_sheet_status"] = state["status"]
         product["origin_sheet_status_label"] = state["status_label"]
+    for index, product in enumerate(products):
+        code = str(product.get("code") or "").strip()
+        status = product.get("origin_sheet_status")
+        previous_unlocked = [
+            str(previous.get("code") or "")
+            for previous in products[:index]
+            if previous.get("origin_sheet_status") != "locked"
+        ]
+        later_locked = [
+            str(later.get("code") or "")
+            for later in products[index + 1:]
+            if later.get("origin_sheet_status") == "locked"
+        ]
+        sequence_reason = ""
+        if previous_unlocked:
+            sequence_reason = f"Cần chốt các bước trước: {', '.join(previous_unlocked[:5])}."
+        elif later_locked:
+            sequence_reason = f"Cần mở chốt các bước sau trước: {', '.join(later_locked[:5])}."
+        product["origin_can_calculate"] = bool(code and status != "locked" and not sequence_reason)
+        product["origin_calculate_block_reason"] = (
+            f"Bảng kê {code} đã chốt; cần mở chốt trước khi tính lại."
+            if status == "locked"
+            else sequence_reason
+        )
+        product["origin_can_lock"] = bool(code and status == "calculated" and not sequence_reason)
+        product["origin_lock_block_reason"] = (
+            "" if product["origin_can_lock"] else sequence_reason or f"Chỉ chốt được bảng kê {code} sau khi đã tính."
+        )
+        product["origin_can_reopen"] = bool(code and status == "locked" and not later_locked)
+        product["origin_reopen_block_reason"] = (
+            "" if product["origin_can_reopen"] else f"Chỉ được mở chốt từ bước cuối cùng; cần mở chốt {', '.join(later_locked[:5])} trước." if later_locked else ""
+        )
     prepared = dict(case)
     prepared["origin_sheet_states"] = normalized
     return prepared
@@ -1578,6 +1874,43 @@ def origin_sheet_export_blockers(case: dict) -> list[str]:
         if status in {"draft", "stale", "calculating"}:
             blockers.append(str(product.get("code") or "sheet"))
     return blockers
+
+
+def origin_sheet_action_error(case: dict, product_code: str, action: str) -> str:
+    prepared = attach_origin_sheet_states(case)
+    products = prepared.get("products", [])
+    target_index = next(
+        (index for index, product in enumerate(products) if str(product.get("code") or "").strip() == product_code),
+        None,
+    )
+    if target_index is None:
+        return f"Không tìm thấy bảng kê {product_code}."
+    target = products[target_index]
+    status = target.get("origin_sheet_status")
+    previous_unlocked = [
+        str(product.get("code") or "")
+        for product in products[:target_index]
+        if product.get("origin_sheet_status") != "locked"
+    ]
+    later_locked = [
+        str(product.get("code") or "")
+        for product in products[target_index + 1:]
+        if product.get("origin_sheet_status") == "locked"
+    ]
+    if action in {"calculate", "lock"} and previous_unlocked:
+        return f"Cần chốt các bước trước trước khi xử lý {product_code}: {', '.join(previous_unlocked[:5])}."
+    if action in {"calculate", "lock"} and later_locked:
+        return f"Cần mở chốt các bước sau trước khi xử lý lại {product_code}: {', '.join(later_locked[:5])}."
+    if action == "calculate" and status == "locked":
+        return f"Bảng kê {product_code} đã chốt; cần mở chốt trước khi tính lại."
+    if action == "lock" and status != "calculated":
+        return f"Chỉ chốt được bảng kê {product_code} sau khi đã tính."
+    if action == "reopen":
+        if status != "locked":
+            return f"Bảng kê {product_code} chưa chốt."
+        if later_locked:
+            return f"Chỉ được mở chốt từ bước cuối cùng; cần mở chốt {', '.join(later_locked[:5])} trước."
+    return ""
 
 
 def origin_build_signature(
@@ -3051,6 +3384,9 @@ def co_case_context(client_id: str, case_id: str = "", current_step: str = "inde
     elif record:
         case.setdefault("persisted_case_id", record["case_id"])
         case["supporting_files"] = [dict(file_row) for file_row in record.get("supporting_files", [])]
+        for key in ["bom_snapshot", "origin_snapshot", "source_snapshot", "source_invoice_matches"]:
+            if key in record and key not in case:
+                case[key] = json_safe(record.get(key))
     case.setdefault("persisted_case_id", "")
     case.setdefault("shipment", {"invoice_no": "", "bill_of_lading_no": ""})
     case["shipment"].setdefault("invoice_no", "")
@@ -3062,6 +3398,10 @@ def co_case_context(client_id: str, case_id: str = "", current_step: str = "inde
         case = attach_results(case)
     if case_was_supplied and current_step == "origin":
         extra.setdefault("preserve_origin_products", True)
+    force_source_refresh = bool(extra.pop("force_source_refresh", False))
+    if not force_source_refresh and case.get("source_snapshot"):
+        extra.setdefault("cached_case_context", True)
+    extra["force_source_refresh"] = force_source_refresh
     origin_lock = active_origin_calculation_lock(client)
     for dossier in workspace["cases"]:
         dossier["delete_block_reason"] = co_case_delete_block_reason(dossier, origin_lock)
@@ -3593,6 +3933,7 @@ async def update_co_case_shipment(request: Request, client_id: str, case_id: str
 
 @app.get("/clients/{client_id}/co-case/{case_id}", response_class=HTMLResponse)
 async def co_case_detail(request: Request, client_id: str, case_id: str):
+    preload_co_case_origin_context(client_id, case_id)
     return templates.TemplateResponse(
         request=request,
         name="co_case.html",
@@ -3661,7 +4002,7 @@ async def export_co_case_workbook(request: Request, client_id: str, case_id: str
     content_type = request.headers.get("content-type", "")
     posted_case = None
     if "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
-        form = await request.form()
+        form = await large_request_form(request)
         if form:
             posted_case = update_products_from_form({key: str(value) for key, value in form.items()})
             posted_case["persisted_case_id"] = posted_case.get("persisted_case_id") or case_id
@@ -3722,14 +4063,22 @@ async def export_co_case_workbook(request: Request, client_id: str, case_id: str
 
 @app.post("/clients/{client_id}/co-case/{case_id}/origin-lock/release")
 async def release_co_case_origin_lock(client_id: str, case_id: str, next_url: str = Form("")):
-    release_origin_calculation_lock(resolve_client(client_id), case_id)
+    client = resolve_client(client_id)
+    try:
+        record = get_case_record(client, case_id)
+        case = case_from_record(default_client_case(client), client, record)
+        case = mark_origin_sheets_stale(case, 0)
+        update_case_record(client, case)
+    except KeyError:
+        pass
+    release_origin_calculation_lock(client, case_id)
     redirect_url = next_url if next_url.startswith(f"/clients/{client_id}/co-case") else f"/clients/{client_id}/co-case/{case_id}/origin"
     return RedirectResponse(redirect_url, status_code=303)
 
 
 @app.post("/clients/{client_id}/co-case/{case_id}/origin/autosave")
 async def autosave_co_case_origin(request: Request, client_id: str, case_id: str):
-    form = await request.form()
+    form = await large_request_form(request)
     case = update_products_from_form({key: str(value) for key, value in form.items()})
     case["persisted_case_id"] = case.get("persisted_case_id") or case_id
     try:
@@ -3746,7 +4095,7 @@ async def autosave_co_case_origin(request: Request, client_id: str, case_id: str
 
 @app.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/calculate", response_class=HTMLResponse)
 async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_id: str, product_code: str):
-    form = await request.form()
+    form = await large_request_form(request)
     case = update_products_from_form({key: str(value) for key, value in form.items()})
     case["persisted_case_id"] = case.get("persisted_case_id") or case_id
     client = resolve_client(client_id)
@@ -3756,6 +4105,22 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
             case["origin_sheet_states"] = dict(persisted.get("origin_sheet_states") or {})
     except KeyError:
         pass
+    action_error = origin_sheet_action_error(case, product_code, "calculate")
+    if action_error:
+        return templates.TemplateResponse(
+            request=request,
+            name="co_case.html",
+            status_code=409,
+            context=co_case_context(
+                client_id,
+                case_id,
+                current_step="origin",
+                case=case,
+                error=action_error,
+                preserve_origin_products=True,
+                fast_origin_context=True,
+            ),
+        )
     lock_result = acquire_origin_calculation_lock(client, case_id, origin_lock_actor(request))
     if not lock_result["acquired"]:
         return templates.TemplateResponse(
@@ -3778,9 +4143,42 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
         current_step="origin",
         case=case,
         message=f"Đã tính bảng kê {product_code}.",
-        preserve_origin_products=False,
+        preserve_origin_products=True,
+        force_source_refresh=True,
     )
+    source_context = context.get("origin_source_context", {})
+    context["case"] = prepare_case_origin_sheet(
+        context["case"],
+        product_code,
+        source_context.get("invoice_matches", []),
+        context.get("bom_workspace", minimal_bom_workspace()),
+        context.get("recommended_form_lane", {}),
+        source_context.get("material_rows", []),
+        source_context.get("stock_rows", []),
+        code_mappings=source_context.get("code_mappings", []),
+    )
+    context["case"] = attach_case_bom_snapshot(context["case"], context.get("bom_workspace", minimal_bom_workspace()))
+    context["case"] = attach_origin_bom_product_codes(
+        context["case"],
+        context.get("bom_workspace", minimal_bom_workspace()),
+        source_context.get("code_mappings", []),
+    )
+    context["case"] = attach_origin_readiness(context["case"])
+    context["case"] = attach_results(context["case"])
+    context["case"] = attach_origin_sheet_states(context["case"])
     context["case"] = set_origin_sheet_status(context["case"], product_code, "calculated")
+    target_index = next(
+        (
+            index
+            for index, product in enumerate(context["case"].get("products", []))
+            if str(product.get("code") or "").strip() == product_code
+        ),
+        -1,
+    )
+    if target_index >= 0:
+        context["case"] = mark_origin_sheets_stale(context["case"], target_index + 1)
+        context["case"] = set_origin_sheet_status(context["case"], product_code, "calculated")
+    context["criteria_rows"] = build_case_criteria_rows(context["case"], context.get("form_candidates", []))
     if context["case"].get("persisted_case_id") and not context.get("origin_demo_active"):
         update_case_record(client, context["case"])
     return templates.TemplateResponse(request=request, name="co_case.html", context=context)
@@ -3788,9 +4186,25 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
 
 @app.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/lock", response_class=HTMLResponse)
 async def lock_co_case_origin_sheet(request: Request, client_id: str, case_id: str, product_code: str):
-    form = await request.form()
+    form = await large_request_form(request)
     case = update_products_from_form({key: str(value) for key, value in form.items()})
     case["persisted_case_id"] = case.get("persisted_case_id") or case_id
+    action_error = origin_sheet_action_error(case, product_code, "lock")
+    if action_error:
+        return templates.TemplateResponse(
+            request=request,
+            name="co_case.html",
+            status_code=409,
+            context=co_case_context(
+                client_id,
+                case_id,
+                current_step="origin",
+                case=case,
+                error=action_error,
+                preserve_origin_products=True,
+                fast_origin_context=True,
+            ),
+        )
     case = set_origin_sheet_status(case, product_code, "locked")
     update_case_record(resolve_client(client_id), case)
     return templates.TemplateResponse(
@@ -3803,15 +4217,32 @@ async def lock_co_case_origin_sheet(request: Request, client_id: str, case_id: s
             case=case,
             message=f"Đã chốt bảng kê {product_code}.",
             preserve_origin_products=True,
+            fast_origin_context=True,
         ),
     )
 
 
 @app.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/reopen", response_class=HTMLResponse)
 async def reopen_co_case_origin_sheet(request: Request, client_id: str, case_id: str, product_code: str):
-    form = await request.form()
+    form = await large_request_form(request)
     case = update_products_from_form({key: str(value) for key, value in form.items()})
     case["persisted_case_id"] = case.get("persisted_case_id") or case_id
+    action_error = origin_sheet_action_error(case, product_code, "reopen")
+    if action_error:
+        return templates.TemplateResponse(
+            request=request,
+            name="co_case.html",
+            status_code=409,
+            context=co_case_context(
+                client_id,
+                case_id,
+                current_step="origin",
+                case=case,
+                error=action_error,
+                preserve_origin_products=True,
+                fast_origin_context=True,
+            ),
+        )
     case = set_origin_sheet_status(case, product_code, "calculated")
     update_case_record(resolve_client(client_id), case)
     return templates.TemplateResponse(
@@ -3824,13 +4255,14 @@ async def reopen_co_case_origin_sheet(request: Request, client_id: str, case_id:
             case=case,
             message=f"Đã mở chốt bảng kê {product_code}.",
             preserve_origin_products=True,
+            fast_origin_context=True,
         ),
     )
 
 
 @app.post("/clients/{client_id}/evaluate", response_class=HTMLResponse)
 async def evaluate(request: Request, client_id: str):
-    form = await request.form()
+    form = await large_request_form(request)
     case = update_products_from_form({key: str(value) for key, value in form.items()})
     case_id = case.get("persisted_case_id", "")
     if case_id:
@@ -3906,7 +4338,7 @@ async def download_demo_input(client_id: str):
 @app.post("/clients/{client_id}/export")
 async def export_evidence(request: Request, client_id: str):
     resolve_client(client_id)
-    form = await request.form()
+    form = await large_request_form(request)
     case = update_products_from_form({key: str(value) for key, value in form.items()})
     content = create_evidence_workbook(case)
     filename = f"{case['case_code'] or 'co-case'}-evidence.xlsx"

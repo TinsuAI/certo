@@ -235,23 +235,39 @@ Edge cases:
 - One customs/display code maps to several internal codes in `code-mappings`.
 
 ## CO Consumer Plan
+Status as of 2026-05-07: Data Hub implementation was reported complete by the user and validated locally from CO against `http://127.0.0.1:8754`.
+
+Live validation evidence:
+
+- `GET /v1/hub/bcct?client_id=growatt-vn&include_product_identity=true` returns `product_identity` for Growatt `BIENTAN.17` export rows.
+- Example validated rows include declarations `307992922000` line `11`, `307591379560` line `3`, and `307577130030` line `2`.
+- Each validated `BIENTAN.17` row returned `resolution_status == "resolved"`, `bom_product_code == "PV01.0117500"`, and `resolution_source == "goods_name_embedded_code"`.
+- `GET /v1/hub/bcct/invoice-matches` also returns item-level `product_identity`; invoice `GINGNEKFHW25110400072511130010` returned 18 export rows with resolved BOM product identities.
+- Current CO declaration-driven context does not yet request `include_product_identity=true` on `list_bcct()`, so declaration-authoritative matching drops the field until the CO consumer change is implemented.
+- Current CO still calls `code-mappings`; the live Data Hub call returned `401` in one context, so removing the temporary bridge is now part of the CO-side migration.
+- Resolved product identity does not imply a single BOM artifact. `PV01.0117500` currently has multiple flattened variants; CO must keep case-level BOM artifact/version binding through the BOM workspace flow.
+
 Adapter method to add in `app/data_hub_client.py`:
 
-- Extend `DataHubClient.invoice_matches()` and `DataHubClient.list_bcct()` normalization to preserve `product_identity`.
-- Add a small adapter helper, for example `bom_product_code_from_product_identity(row)`, after approval.
+- Extend `DataHubClient.invoice_matches()` to request `include_product_identity=true` explicitly, even though Data Hub currently defaults it on.
+- Extend declaration-driven `DataHubClient.list_bcct()` call sites to request `include_product_identity=true` when CO is preparing case origin data.
+- Preserve `product_identity` through `normalize_bcct_row()` and invoice enrichment; existing spread-copy normalization already keeps unknown fields, but tests should lock this behavior.
+- Add a small adapter helper, for example `bom_product_code_from_product_identity(row)`, returning a code only when `resolution_status == "resolved"` and `bom_product_code` is non-empty.
 
 Call sites that will consume the adapter:
 
 - `DataHubPortfolioService.co_case_source_context()` to pass product identity through invoice matches.
 - `co_case_bom_product_codes()` to request BOM workspaces by `row.product_identity.bom_product_code` when `resolution_status == "resolved"`.
 - `prepare_case_origin_products()` to bind each origin sheet to the resolved BOM product code.
-- `app/templates/co_case.html` to show `ambiguous`, `missing`, or `unverified` states and allow a case-level manual BOM TP selection.
+- `app/templates/co_case.html` should continue to show the existing BOM TP picker for unresolved states and case-local overrides. No Data Hub mutation is added.
+- Existing BOM artifact/version picker behavior remains necessary because Data Hub may return multiple usable BOM artifacts for one resolved product code.
 
 Consumer tests:
 
 - Data Hub mode uses `product_identity.bom_product_code` for `BIENTAN.17 -> PV01.0117500` and loads BOM rows without parsing `goods_name` in CO.
 - Rows with `ambiguous` identity do not auto-calculate; CO shows the BOM picker and blocks export until the sheet is calculated with an explicit selection.
 - Rows with `missing` identity show a BOM missing state rather than falling back to `code-mappings`.
+- Declaration-authoritative matching preserves `product_identity` from `list_bcct(include_product_identity=true)`.
 - Existing local/non-Data-Hub mode remains unchanged.
 - Raw `/v1/hub/*` literals remain confined to `app/data_hub_client.py`.
 
@@ -271,4 +287,4 @@ Pending.
 
 Data Hub commit:
 
-Pending.
+Pending; not provided to CO in this session.
