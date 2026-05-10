@@ -36,6 +36,27 @@ class RefreshResult(TypedDict):
     skipped_reason: str | None
 
 
+class PlanRow(TypedDict):
+    row_index: int
+    material_code: str | None
+    source_qty: float | None
+    source_uom: str | None
+    target_uom: str | None
+    factor: str | None
+    factor_source: str | None
+    status: str  # ready | unconfirmed_default | blocked_no_factor | blocked_catalog_missing
+
+
+class RefreshPlan(TypedDict):
+    artifact_id: str
+    flatten_strategy: str
+    rows: list[PlanRow]
+    drifts: list[dict]
+    would_be_hash: str | None
+    has_blocking: bool
+    skipped_reason: str | None
+
+
 _DERIVED_STRATEGIES = (
     "technical_exploded",
     "purchased_btp_as_leaf",
@@ -415,19 +436,196 @@ def _clear_stale(cur, artifact_ids: list[str]) -> int:
     return len(cur.fetchall())
 
 
-def refresh_artifact(client_id: str, artifact_id: str,
-                     *, triggered_by_user_id: str | None = None) -> RefreshResult:
-    """Refresh one artifact.
-    For derived artifacts, attempts to re-derive its shape from the raw
-    ancestor (best-effort; skips if no raw is available — e.g. test
-    fixtures or manual_flat-only products).
-    Always clears the stale flag if the artifact belongs to client_id.
-    Raises LookupError if not found.
+def plan_refresh(client_id: str, artifact_id: str) -> RefreshPlan:
+    """Pure refresh planner. Returns what `commit_refresh` would write,
+    but writes nothing.
 
-    `triggered_by_user_id` propagates staff identity into the
-    re-derived artifact's context jsonb + connection's app.user_id
-    (for any future audit triggers on hub.bom_artifacts).
+    Used by GET /clients/{cid}/bom/artifact/{aid}/refresh/preview to
+    render the conversion plan before staff confirms (Phase 3 G).
+
+    Empty `rows` + non-null `skipped_reason` means refresh would no-op
+    (tombstoned, no_raw_ancestor, source_artifact, derive_empty,
+    reconstruct_empty).
     """
+
+    def _empty(strategy: str, reason: str) -> RefreshPlan:
+        return {
+            "artifact_id": artifact_id,
+            "flatten_strategy": strategy,
+            "rows": [],
+            "drifts": [],
+            "would_be_hash": None,
+            "has_blocking": False,
+            "skipped_reason": reason,
+        }
+
+    raw_rows: list[dict]
+    with connect() as conn, conn.cursor() as cur:
+        a = _load_artifact(cur, artifact_id)
+        if a is None:
+            raise LookupError(f"artifact {artifact_id!r} not found")
+        if a["client_id"] != client_id:
+            raise LookupError(
+                f"artifact {artifact_id!r} not in client {client_id!r}"
+            )
+        strategy = a["flatten_strategy"]
+        if a["tombstoned_at"] is not None:
+            return _empty(strategy, "tombstoned")
+        if strategy in _DERIVED_STRATEGIES:
+            raw_id = _find_raw_ancestor_for_product(
+                cur, client_id, a["product_code"],
+            )
+            if raw_id is None:
+                return _empty(strategy, "no_raw_ancestor")
+            from scripts.materialize_shallow_and_full_flat import (
+                SHALLOW_WALK_SQL, FULL_FLAT_WALK_SQL, derive,
+            )
+            if strategy == "purchased_btp_as_leaf":
+                sql = SHALLOW_WALK_SQL
+            elif strategy == "technical_exploded":
+                sql = FULL_FLAT_WALK_SQL
+            else:
+                return _empty(strategy, "unsupported_strategy")
+            raw_rows = derive(raw_id, a["product_code"], client_id, sql)
+            if not raw_rows:
+                return _empty(strategy, "derive_empty")
+        elif strategy == "manual_flat_as_provided":
+            raw_rows = _reconstruct_originals_from_artifact(cur, artifact_id)
+            if not raw_rows:
+                return _empty(strategy, "reconstruct_empty")
+        else:
+            return _empty(strategy, "source_artifact")
+
+    converted_rows, drifts = _convert_rows_to_catalog_uom(client_id, raw_rows)
+
+    plan_rows: list[PlanRow] = []
+    for idx, (raw, conv) in enumerate(zip(raw_rows, converted_rows)):
+        code = conv.get("material_code")
+        src_uom = conv.get("source_uom")
+        post_uom = conv.get("uom")
+        factor = conv.get("applied_uom_factor")
+        source = conv.get("applied_uom_source")
+        # Determine target_uom: when conversion happened, post_uom is
+        # the catalog UoM. When it didn't, look at the matching drift
+        # for catalog_uom_missing vs factor_missing distinction.
+        target_uom: str | None
+        if post_uom != src_uom:
+            target_uom = post_uom
+        else:
+            drift_for_code = next(
+                (d for d in drifts if d.get("material_code") == code),
+                None,
+            )
+            if drift_for_code and drift_for_code.get("dim") == "catalog_uom_missing":
+                target_uom = None
+            elif drift_for_code:
+                target_uom = drift_for_code.get("to_uom")
+            else:
+                target_uom = post_uom  # alias / silent same-uom case
+        # Status mapping.
+        if source == "unconfirmed_default":
+            status = "unconfirmed_default"
+        elif factor is not None or source == "alias":
+            status = "ready"
+        elif target_uom is None:
+            status = "blocked_catalog_missing"
+        else:
+            status = "blocked_no_factor"
+        plan_rows.append({
+            "row_index": idx,
+            "material_code": code,
+            "source_qty": raw.get("qty_per_unit"),
+            "source_uom": src_uom,
+            "target_uom": target_uom,
+            "factor": str(factor) if factor is not None else None,
+            "factor_source": source,
+            "status": status,
+        })
+
+    from app.stores.bom import normalized_hash
+    would_be_hash = normalized_hash(converted_rows) if converted_rows else None
+    has_blocking = any(
+        r["status"] in ("blocked_no_factor", "blocked_catalog_missing")
+        for r in plan_rows
+    )
+
+    return {
+        "artifact_id": artifact_id,
+        "flatten_strategy": strategy,
+        "rows": plan_rows,
+        "drifts": drifts,
+        "would_be_hash": would_be_hash,
+        "has_blocking": has_blocking,
+        "skipped_reason": None,
+    }
+
+
+def commit_refresh(client_id: str, artifact_id: str,
+                   *, edits: list[dict] | None = None,
+                   skip: bool = False,
+                   triggered_by_user_id: str | None = None) -> RefreshResult:
+    """Commit path for refresh — re-plans internally to defeat TOCTOU
+    between preview render and POST commit.
+
+    Phase 3 G additions:
+    - `skip=True`: log a `refresh.skipped` event in `hub.bom_audit_events`
+      and return without state change. Artifact stays stale; no new
+      artifact minted; no flag cleared.
+    - `edits=[{material_code, from_uom, to_uom, factor, source?}]`:
+      upsert these factor rows into `hub.client_uom_overrides` BEFORE
+      computing the refresh, so a previously-blocking row may become
+      ready in the same round-trip.
+    - `triggered_by_user_id`: propagates staff identity into context.
+
+    `refresh_artifact()` keeps its current public signature and
+    delegates here.
+    """
+    if skip:
+        try:
+            sk_plan = plan_refresh(client_id, artifact_id)
+        except LookupError:
+            raise
+        with connect(user_id=triggered_by_user_id) as conn, conn.cursor() as cur:
+            cur.execute(
+                "insert into hub.bom_audit_events "
+                "(client_id, product_code, artifact_id, event_type, actor, details) "
+                "select client_id, product_code, artifact_id, "
+                "       'refresh.skipped', %s, %s::jsonb "
+                "from hub.bom_artifacts where artifact_id=%s",
+                (
+                    triggered_by_user_id or "agency_staff",
+                    json.dumps({
+                        "blocking_count": sum(
+                            1 for r in sk_plan["rows"]
+                            if r["status"].startswith("blocked")
+                        ),
+                        "row_count": len(sk_plan["rows"]),
+                        "skipped_reason_from_plan": sk_plan["skipped_reason"],
+                    }),
+                    artifact_id,
+                ),
+            )
+        return {
+            "artifact_id": artifact_id,
+            "cleared": False,
+            "new_artifact_ids": [],
+            "skipped_reason": "staff_skip",
+        }
+
+    if edits:
+        with connect(user_id=triggered_by_user_id) as conn, conn.cursor() as cur:
+            for e in edits:
+                cur.execute(
+                    "insert into hub.client_uom_overrides "
+                    "(client_id, material_code, from_uom, to_uom, factor, source) "
+                    "values (%s, %s, %s, %s, %s, %s) "
+                    "on conflict (client_id, material_code_key, from_uom, to_uom) "
+                    "do update set factor=excluded.factor, "
+                    "              source=excluded.source",
+                    (client_id, e["material_code"], e["from_uom"], e["to_uom"],
+                     e["factor"], e.get("source") or "staff_form"),
+                )
+
     new_ids: list[str] = []
     skipped: str | None = None
     drifts: list[dict] = []
@@ -518,6 +716,22 @@ def refresh_artifact(client_id: str, artifact_id: str,
         "new_artifact_ids": new_ids,
         "skipped_reason": skipped,
     }
+
+
+def refresh_artifact(client_id: str, artifact_id: str,
+                     *, triggered_by_user_id: str | None = None) -> RefreshResult:
+    """Public refresh API. Thin wrapper around `commit_refresh`.
+
+    Existing callers (programmatic refresh, refresh_product loop, the
+    direct POST route) get the same behaviour as before: re-derive the
+    artifact, mint a new artifact when hash differs, tombstone the old,
+    clear flag if no remaining drift.
+
+    The new preview-aware paths (`skip`, `edits`) are exposed on
+    `commit_refresh` directly.
+    """
+    return commit_refresh(client_id, artifact_id,
+                          triggered_by_user_id=triggered_by_user_id)
 
 
 def refresh_product(client_id: str, product_code: str,
