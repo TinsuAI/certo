@@ -36,13 +36,15 @@ def test_deep_tree_adapters_declare_derive_btp_shallows():
         assert "derive_btp_shallows" in adapter.post_ingest_hooks, name
 
 
-def test_shallow_adapters_have_empty_hooks_by_default():
-    """manual_flat / sheet_per_product / sap_exploded_levels don't
-    need the BTP-shallow derivation since they emit one artifact per
-    product already."""
+def test_shallow_adapters_skip_btp_derivation():
+    """manual_flat / sheet_per_product don't need BTP-shallow derivation
+    since they emit one artifact per product already. They DO get
+    `materialize_shapes` so the upload-confirm flow gives users
+    shallow + full_flat without a manual CLI run."""
     for name in ("manual_flat", "sheet_per_product"):
         adapter = resolve(name)
-        assert adapter.post_ingest_hooks == [], name
+        assert "derive_btp_shallows" not in adapter.post_ingest_hooks, name
+        assert "materialize_shapes" in adapter.post_ingest_hooks, name
 
 
 def test_hook_registry_maps_identifier_to_callable():

@@ -144,6 +144,98 @@ def derive(raw_artifact_id: str, product_code: str, client_id: str,
             ]
 
 
+def list_raw_artifacts_missing_shapes(client_id: str) -> list[tuple]:
+    """Published technical_raw artifacts for `client_id` that don't yet
+    have any derived flattened artifact (shallow / full_flat) attached.
+    Used by the post-ingest hook to catch up the per-artifact
+    materialization without walking everything."""
+    sql = """
+    select raw.artifact_id, raw.product_code, raw.bom_variant_id,
+           raw.context, raw.normalized_hash
+      from hub.bom_artifacts raw
+     where raw.client_id = %s
+       and raw.source_bom_kind = 'technical_raw'
+       and raw.tombstoned_at is null
+       and raw.status = 'published'
+       and not exists (
+         select 1 from hub.bom_artifacts d
+          where d.client_id = raw.client_id
+            and d.product_code = raw.product_code
+            and d.parent_artifact_id = raw.artifact_id
+            and d.source_bom_kind = 'technical_flattened'
+            and d.tombstoned_at is null
+       )
+    """
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(sql, (client_id,))
+        return cur.fetchall()
+
+
+def materialize_one(
+    raw_id: str, product_code: str, raw_variant: str | None,
+    raw_ctx: dict | None, *, client_id: str, publish: bool = True,
+) -> dict:
+    """Materialize shallow + full_flat for one raw_graph artifact.
+    Returns counters dict. Idempotent via create_artifact's hash dedup."""
+    counters = {"shallow_inserted": 0, "shallow_dedup": 0,
+                "full_flat_inserted": 0, "full_flat_dedup": 0,
+                "shallow_empty": 0, "full_flat_empty": 0}
+    for kind, sql, strategy in [
+        ("shallow", SHALLOW_WALK_SQL, "purchased_btp_as_leaf"),
+        ("full_flat", FULL_FLAT_WALK_SQL, "technical_exploded"),
+    ]:
+        rows = derive(raw_id, product_code, client_id, sql)
+        if not rows:
+            counters[f"{kind}_empty"] += 1
+            continue
+        new_ctx = dict(raw_ctx or {})
+        new_ctx.update({
+            "channel": "auto_derived",
+            "profile": kind,
+            "derived_from_artifact_id": raw_id,
+            "derived_from_variant": raw_variant,
+            "ingest_script": "materialize_shallow_and_full_flat.py",
+        })
+        existing = create_artifact(
+            client_id=client_id, product_code=product_code, rows=rows,
+            actor="erp_pipeline", intent="derived",
+            parent_artifact_id=raw_id, context=new_ctx,
+            source_upload_id=None,
+            source_bom_kind="technical_flattened",
+            flatten_status="flattened",
+            flatten_strategy=strategy,
+            source_channel="migration",
+            bom_variant_id=raw_variant,
+            flatten_method="recursive_sql",
+            flatten_method_version="1",
+        )
+        if existing:
+            counters[f"{kind}_inserted"] += 1
+        else:
+            counters[f"{kind}_dedup"] += 1
+    if not publish:
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                update hub.bom_artifacts
+                   set status='draft'
+                 where client_id=%s and product_code=%s
+                   and parent_artifact_id=%s
+                   and source_channel='migration'
+                   and context->>'channel'='auto_derived'
+                   and status='published'
+                   and created_at > now() - interval '60 seconds'
+                   and not exists (
+                     select 1 from hub.bom_presets p
+                      where p.artifact_id = hub.bom_artifacts.artifact_id
+                        and p.tombstoned_at is null
+                   )
+                """,
+                (client_id, product_code, raw_id),
+            )
+    return counters
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
     ap.add_argument("--client", required=True)

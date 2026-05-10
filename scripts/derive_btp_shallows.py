@@ -62,27 +62,39 @@ def _eligible_btp_parents(cur, *, artifact_id: str, client_id: str) -> list[str]
 def _subtree_edges(cur, *, artifact_id: str, root_code: str) -> list[dict]:
     """All edges reachable from `root_code` within `artifact_id`,
     walking parent → child until leaves. Returns a fresh edge list
-    with `root_code` rebound to the new subtree root."""
+    with `root_code` rebound to the new subtree root.
+
+    Re-roots context fields so identical BTP slices dedup via
+    `normalized_edges_hash`. The same BTP appearing under multiple
+    parent TPs would otherwise produce different artifacts due to:
+      - `level`: depth in original TP tree (varies)
+      - `node_path`: path from TP root (varies)
+      - `source_row_no` / `sheet_name`: TP XLSX metadata (varies)
+
+    These are set to `None` on the sliced edges. Relative depth +
+    path-from-BTP can be re-derived from the parent_code → child_code
+    chain on display. `payload` is preserved as-is — if it carries
+    context-specific data, separate artifacts are legit; if identical
+    across parents, edges dedup naturally.
+    """
     cur.execute(
         """
         with recursive edges as (
-            select parent_code, child_code, qty_per_parent, uom, level,
-                   node_path, sheet_name, source_row_no, payload
+            select parent_code, child_code, qty_per_parent, uom, payload
             from hub.bom_edges where artifact_id = %s
         ),
         walk as (
-            select e.*, array[e.parent_code, e.child_code] as path
+            select e.parent_code, e.child_code, e.qty_per_parent, e.uom, e.payload,
+                   array[e.parent_code, e.child_code] as path
             from edges e where e.parent_code = %s
             union all
-            select e.parent_code, e.child_code, e.qty_per_parent, e.uom, e.level,
-                   e.node_path, e.sheet_name, e.source_row_no, e.payload,
+            select e.parent_code, e.child_code, e.qty_per_parent, e.uom, e.payload,
                    w.path || e.child_code
             from walk w
             join edges e on e.parent_code = w.child_code
             where not (e.child_code = any(w.path))
         )
-        select parent_code, child_code, qty_per_parent, uom, level,
-               node_path, sheet_name, source_row_no, payload
+        select parent_code, child_code, qty_per_parent, uom, payload
         from walk
         """,
         (artifact_id, root_code),
@@ -90,8 +102,10 @@ def _subtree_edges(cur, *, artifact_id: str, root_code: str) -> list[dict]:
     return [
         {
             "parent_code": r[0], "child_code": r[1], "qty_per_parent": r[2],
-            "uom": r[3], "level": r[4], "node_path": r[5],
-            "sheet_name": r[6], "source_row_no": r[7], "payload": r[8] or {},
+            "uom": r[3],
+            "level": None, "node_path": None,
+            "sheet_name": None, "source_row_no": None,
+            "payload": r[4] or {},
             "root_code": root_code,
         }
         for r in cur.fetchall()
@@ -139,15 +153,21 @@ def derive_btp_shallows_for_artifact(*, artifact_id: str, client_id: str,
                 (client_id,),
             )
             before = cur.fetchone()[0]
+            # parent_artifact_id=None on derived BTP slices: same BTP
+            # appearing under multiple parent TPs is the same data —
+            # dedups via (product_code, normalized_edges_hash) without
+            # parent_norm fragmenting the lookup. "Which TPs use this
+            # BTP" is computable on-demand from bom_edges (memory rule
+            # `feedback_no_derived_in_source`).
             new_id = create_raw_artifact(
                 client_id=client_id, product_code=btp_code, edges=edges,
                 actor="system", intent="derived",
-                parent_artifact_id=artifact_id,
-                context={"derived_from_btp": btp_code},
+                parent_artifact_id=None,
+                context={"derived_from_btp": btp_code,
+                         "first_seen_via": artifact_id},
                 source_upload_id=None,
                 source_channel="agency_upload",
-                lineage={"derived_from_artifact_id": artifact_id,
-                         "derivation": "btp_shallow_post_ingest"},
+                lineage={"derivation": "btp_shallow_post_ingest"},
                 cursor=cur,
             )
             cur.execute(

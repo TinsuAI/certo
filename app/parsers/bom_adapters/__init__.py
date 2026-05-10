@@ -179,8 +179,10 @@ register(SapExplodedLevelsAdapter())   # explicit Level + product code
 # Adapters declare which hooks run after their ingest via
 # `post_ingest_hooks`. The runner is `run_post_ingest_hooks()`.
 #
-# Wire-up into the upload-confirm flow is BACKLOG-tracked; this module
-# just provides the declarative + invocation surface.
+# Wired into the upload-confirm flow at app/routes/bom.py: after each
+# artifact is created, run_post_ingest_hooks() fires for the active
+# adapter. Hook failures get logged + mark the artifact stale with
+# dim='derive_hook_failed'; never bubble to the user.
 
 def _derive_btp_shallows_hook(*, artifact_id: str, client_id: str, **kwargs):
     """Bridge to scripts/derive_btp_shallows.py (lazy import to avoid
@@ -198,8 +200,35 @@ def _derive_btp_shallows_hook(*, artifact_id: str, client_id: str, **kwargs):
     )
 
 
+def _materialize_shapes_hook(*, artifact_id: str, client_id: str, **kwargs):
+    """Materialize shallow + full_flat for any published raw_graph in
+    this client that doesn't yet have shapes attached. Catches up the
+    just-uploaded TP and any BTP raw_graphs minted by the prior
+    derive_btp_shallows hook in the same chain. Idempotent."""
+    from scripts.materialize_shallow_and_full_flat import (
+        list_raw_artifacts_missing_shapes, materialize_one,
+        fetch_client_policy,
+    )
+    policy = fetch_client_policy(client_id)
+    if policy == "disabled":
+        return []
+    publish = policy == "publish"
+    out = []
+    for raw_id, product_code, variant, ctx, _hash in (
+        list_raw_artifacts_missing_shapes(client_id)
+    ):
+        counters = materialize_one(
+            raw_id, product_code, variant, ctx,
+            client_id=client_id, publish=publish,
+        )
+        out.append({"raw_artifact_id": raw_id, "product_code": product_code,
+                    **counters})
+    return out
+
+
 HOOKS: dict[str, callable] = {
     "derive_btp_shallows": _derive_btp_shallows_hook,
+    "materialize_shapes":  _materialize_shapes_hook,
 }
 
 
@@ -233,8 +262,8 @@ def _set_hooks(name: str, hooks: list[str]):
     setattr(a, "post_ingest_hooks", hooks)
 
 
-_set_hooks("manual_flat", [])
-_set_hooks("sheet_per_product", [])
-_set_hooks("sap_exploded_levels", [])
-_set_hooks("sap_indented_walk", ["derive_btp_shallows"])
-_set_hooks("multi_sheet_per_root", ["derive_btp_shallows"])
+_set_hooks("manual_flat",          ["materialize_shapes"])
+_set_hooks("sheet_per_product",    ["materialize_shapes"])
+_set_hooks("sap_exploded_levels",  ["derive_btp_shallows", "materialize_shapes"])
+_set_hooks("sap_indented_walk",    ["derive_btp_shallows", "materialize_shapes"])
+_set_hooks("multi_sheet_per_root", ["derive_btp_shallows", "materialize_shapes"])

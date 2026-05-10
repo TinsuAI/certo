@@ -136,19 +136,27 @@ def test_derived_artifact_has_only_subtree_edges():
     assert pairs == {("BTP_INNER1", "NVL_X")}
 
 
-def test_derived_artifact_lineage_points_to_source():
+def test_derived_artifact_lineage_marks_derivation_no_parent_link():
+    """Same BTP appearing under multiple parent TPs is the same data —
+    we dedup via (product_code, normalized_edges_hash) without
+    parent_norm fragmenting. So `parent_artifact_id` is intentionally
+    NULL on derived BTP slices; the source TP is recorded informally
+    in `context.first_seen_via` for traceability + can be re-derived
+    on demand by walking bom_edges. Lineage carries the derivation
+    label only."""
     minted = derive_btp_shallows_for_artifact(
         artifact_id=ROOT_ARTIFACT, client_id=CLIENT, status="draft",
     )
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            "select parent_artifact_id, lineage from hub.bom_artifacts "
-            "where artifact_id=%s",
+            "select parent_artifact_id, lineage, context "
+            "  from hub.bom_artifacts where artifact_id=%s",
             (minted[0]["artifact_id"],),
         )
-        parent, lineage = cur.fetchone()
-    assert parent == ROOT_ARTIFACT
-    assert lineage.get("derived_from_artifact_id") == ROOT_ARTIFACT
+        parent, lineage, context = cur.fetchone()
+    assert parent is None
+    assert lineage.get("derivation") == "btp_shallow_post_ingest"
+    assert context.get("first_seen_via") == ROOT_ARTIFACT
 
 
 def test_derived_artifact_status_respects_policy():
