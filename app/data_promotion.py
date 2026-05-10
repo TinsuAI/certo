@@ -101,6 +101,8 @@ TABLES: tuple[TableSpec, ...] = (
     TableSpec("bom_flatten_decisions", sql.SQL("client_id = %s"),                                              order=78, null_columns=("confirmed_by",)),
     TableSpec("bom_presets", sql.SQL("client_id = %s"),                                            order=80, null_columns=("created_by",)),
     TableSpec("bom_change_requests",   sql.SQL("client_id = %s"),                                              order=85),
+    TableSpec("customs_declaration_files", sql.SQL("client_id = %s"),                                          order=90),
+    TableSpec("material_substitutes",  sql.SQL("client_id = %s"),                                              order=95),
 )
 
 
@@ -130,6 +132,7 @@ EXCLUDED_CLIENT_SCOPED_TABLES = frozenset({
     "llm_usage",               # per-deployment metrics
     "notifications",           # per-deployment user-facing
     "upload_pending",          # transient staging state
+    "background_jobs",         # per-deployment job log; not business data
     # Audit tables — no FK to clients, survive cascade by design. The
     # cascade-DELETE on bcct_rows fires `trg_bcct_row_history` and
     # produces fresh per-deployment history entries on import. Trying

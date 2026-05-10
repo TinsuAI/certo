@@ -178,6 +178,99 @@ async def settings_technical_submit(
     )
 
 
+# ── Embedding settings (Feature 4 P5b) ────────────────────────────
+
+
+@router.get("/admin/settings/embedding", response_class=HTMLResponse)
+async def settings_embedding_view(
+    request: Request, saved: bool = False, test_result: str | None = None,
+    test_error: str | None = None,
+):
+    from app import embedding
+    user = auth.require_user(request)
+    if user.role != "dev":
+        raise HTTPException(403, "dev only")
+    cfg = embedding.get_global_config()
+    return request.app.state.templates.TemplateResponse(
+        request, "admin/settings_embedding.html",
+        {
+            "cfg": cfg,
+            "api_key_set": bool(cfg.api_key),
+            "saved": saved,
+            "test_result": test_result,
+            "test_error": test_error,
+            "active_root": "admin",
+        },
+    )
+
+
+@router.post("/admin/settings/embedding")
+async def settings_embedding_submit(
+    request: Request,
+    openrouter_api_key: str = Form(""),
+    base_url: str = Form(""),
+    model: str = Form(""),
+    text_template: str = Form(""),
+    batch_size: str = Form("100"),
+    score_threshold: str = Form("0.7"),
+    timeout_seconds: str = Form("30"),
+    dim: str = Form("1536"),
+):
+    from app import embedding
+    user = auth.require_user(request)
+    if user.role != "dev":
+        raise HTTPException(403, "dev only")
+    values: dict[str, str] = {
+        "embedding.openrouter_base_url": base_url.strip()
+            or "https://openrouter.ai/api/v1",
+        "embedding.model": model.strip() or "openai/text-embedding-3-small",
+        "embedding.dim": dim.strip() or "1536",
+        "embedding.text_template": text_template
+            or "{name}. HS={hs_code}. UoM={unit}. Origin={country_origin}.",
+        "embedding.batch_size": batch_size.strip() or "100",
+        "embedding.score_threshold": score_threshold.strip() or "0.7",
+        "embedding.timeout_seconds": timeout_seconds.strip() or "30",
+    }
+    if openrouter_api_key.strip():
+        values["embedding.openrouter_api_key"] = openrouter_api_key.strip()
+    embedding.save_global_config(values, updated_by=user.user_id)
+    return RedirectResponse(
+        url="/admin/settings/embedding?saved=1", status_code=303,
+    )
+
+
+@router.post("/admin/settings/embedding/test")
+async def settings_embedding_test(request: Request):
+    """Test the OpenRouter connection by embedding one short string."""
+    from app import embedding
+    user = auth.require_user(request)
+    if user.role != "dev":
+        raise HTTPException(403, "dev only")
+    cfg = embedding.get_global_config()
+    if not cfg.is_live:
+        return RedirectResponse(
+            url=("/admin/settings/embedding?test_error="
+                 "Chưa có API key — lưu key trước khi test."),
+            status_code=303,
+        )
+    try:
+        client = embedding.OpenRouterClient(cfg)
+        vectors = client.embed(["data-hub embedding probe"])
+        ok = (
+            f"OK · model={cfg.model} · dim={len(vectors[0])} "
+            f"· first 3 components={[round(v, 4) for v in vectors[0][:3]]}"
+        )
+        return RedirectResponse(
+            url=f"/admin/settings/embedding?test_result={ok}",
+            status_code=303,
+        )
+    except embedding.EmbeddingError as exc:
+        return RedirectResponse(
+            url=f"/admin/settings/embedding?test_error={str(exc)[:300]}",
+            status_code=303,
+        )
+
+
 @router.get("/admin/users", response_class=HTMLResponse)
 async def users_view(request: Request, error: str | None = None):
     user = auth.require_user(request)

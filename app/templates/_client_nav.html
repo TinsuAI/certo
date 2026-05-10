@@ -27,6 +27,8 @@
      href="/clients/{{ client.client_id }}/bqd">{{ t('tabs.bqd') }}</a>
   <a class="tab-link {{ 'tab-link-active' if active_tab == 'bcct' else '' }}"
      href="/clients/{{ client.client_id }}/bcct">{{ t('tabs.bcct') }}</a>
+  <a class="tab-link {{ 'tab-link-active' if active_tab == 'declarations' else '' }}"
+     href="/clients/{{ client.client_id }}/declarations">Tờ khai</a>
   <a class="tab-link {{ 'tab-link-active' if active_tab == 'bom' else '' }}"
      href="/clients/{{ client.client_id }}/bom">{{ t('tabs.bom') }}</a>
   <a class="tab-link {{ 'tab-link-active' if active_tab == 'proposals' else '' }}"

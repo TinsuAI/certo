@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}{{ job.label }} · Việc nền{% endblock %}
+{% block head_extra %}
+{# Auto-refresh trang khi job chưa kết thúc — đỡ phải bấm reload thủ công. #}
+{% if not job.is_terminal %}
+<meta http-equiv="refresh" content="5">
+{% endif %}
+{% endblock %}
+{% block content %}
+{% if client %}
+{% include "_client_nav.html" %}
+{% endif %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>{{ job.label }}</h2>
+      <p class="meta">
+        Việc số <span class="mono">#{{ job.id }}</span>
+        {% if client %}
+          · {{ client.name }} (<span class="mono">{{ client.client_id }}</span>)
+        {% endif %}
+        {% if job.started_by %} · Khởi động bởi <code>{{ job.started_by }}</code>{% endif %}
+      </p>
+    </div>
+    <div class="page-actions">
+      {% if client %}
+      <a class="btn-ghost" href="/clients/{{ client.client_id }}/catalog">
+        ← Danh mục
+      </a>
+      <a class="btn-ghost" href="/clients/{{ client.client_id }}/jobs">
+        Tất cả việc nền
+      </a>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="job-status-card status-{{ job.status }}">
+    <div class="job-status-line">
+      <span class="job-status-label">Trạng thái</span>
+      {% if job.status == 'pending' %}
+        <span class="badge badge-info">Đang chờ chạy…</span>
+      {% elif job.status == 'running' %}
+        <span class="badge badge-info">Đang chạy</span>
+        <small class="meta">Trang sẽ tự refresh mỗi 5 giây.</small>
+      {% elif job.status == 'done' %}
+        <span class="badge badge-success">✓ Đã xong</span>
+      {% elif job.status == 'error' %}
+        <span class="badge badge-error">✗ Có lỗi</span>
+      {% elif job.status == 'cancelled' %}
+        <span class="badge">Đã hủy</span>
+      {% endif %}
+    </div>
+
+    <div class="job-status-line">
+      <span class="job-status-label">Bắt đầu</span>
+      <span class="mono">{{ job.started_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+    </div>
+
+    {% if job.running_at %}
+    <div class="job-status-line">
+      <span class="job-status-label">Đã chạy</span>
+      <span class="mono">{{ job.running_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+    </div>
+    {% endif %}
+
+    {% if job.finished_at %}
+    <div class="job-status-line">
+      <span class="job-status-label">Kết thúc</span>
+      <span class="mono">{{ job.finished_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+      {% set total = (job.finished_at - job.started_at).total_seconds() %}
+      <small class="meta">(tổng {{ '%.0f' % total }}s)</small>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if job.summary and job.status == 'done' %}
+  <h3 style="margin-top: 1.5rem;">Tóm tắt kết quả</h3>
+  <pre class="job-log">{{ job.summary }}</pre>
+  {% endif %}
+
+  {% if job.error_message %}
+  <h3 style="margin-top: 1.5rem; color: var(--danger);">Chi tiết lỗi</h3>
+  <pre class="job-log job-log-error">{{ job.error_message }}</pre>
+  {% endif %}
+
+  {% if log_tail %}
+  <h3 style="margin-top: 1.5rem;">
+    Nhật ký (80 dòng cuối)
+    <small class="meta mono">{{ job.log_path }}</small>
+  </h3>
+  <pre class="job-log">{{ log_tail }}</pre>
+  {% endif %}
+</section>
+
+<style>
+.job-status-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  background: #fafbfd;
+  max-width: 720px;
+}
+.job-status-card.status-done    { border-left: 4px solid #0f9d58; }
+.job-status-card.status-error   { border-left: 4px solid #c62828; background: #fdecea; }
+.job-status-card.status-running { border-left: 4px solid #1565c0; }
+.job-status-card.status-pending { border-left: 4px solid #9aa0a6; }
+.job-status-line {
+  display: flex;
+  align-items: baseline;
+  gap: .75rem;
+  margin: .35rem 0;
+}
+.job-status-label {
+  display: inline-block;
+  min-width: 8ch;
+  font-weight: 500;
+  color: #555;
+}
+.job-log {
+  background: #1e1e1e;
+  color: #e0e0e0;
+  padding: .8rem 1rem;
+  border-radius: 6px;
+  font-family: ui-monospace, "JetBrains Mono", monospace;
+  font-size: .85em;
+  max-height: 480px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.job-log-error { background: #2a1e1e; color: #ffd6cf; }
+</style>
+{% endblock %}

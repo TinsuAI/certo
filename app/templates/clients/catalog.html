@@ -6,6 +6,121 @@
 {% include "_client_nav.html" %}
 {% include "clients/_staleness_bar.html" %}
 
+{% if ai_panel %}
+<section class="zone ai-panel">
+  <div class="zone-head">
+    <div>
+      <h2>Phân tích AI vật tư</h2>
+      <p class="meta">
+        Hệ thống đọc tên + mã HS + đơn vị + xuất xứ của từng vật tư,
+        chuyển thành "dấu vân tay" để tự tìm các vật tư gần giống nhau —
+        làm gợi ý thay thế khi cần điều chỉnh tờ khai C/O hoặc cân đối
+        BCQT. Cập nhật khi vật tư đổi tên, đổi đơn vị, hoặc khi nhập
+        thêm vật tư mới.
+      </p>
+    </div>
+    <div class="page-actions">
+      <a class="btn-ghost" href="/clients/{{ client.client_id }}/jobs">
+        Lịch sử chạy
+      </a>
+    </div>
+  </div>
+
+  <div class="ai-panel-stats">
+    <div class="ai-stat">
+      <span class="ai-stat-num mono">{{ '{:,}'.format(ai_panel.materials_total) }}</span>
+      <span class="ai-stat-label">Tổng vật tư</span>
+    </div>
+    <div class="ai-stat">
+      <span class="ai-stat-num mono">{{ '{:,}'.format(ai_panel.materials_analyzed) }}</span>
+      <span class="ai-stat-label">Đã phân tích</span>
+    </div>
+    {% if ai_panel.materials_dirty > 0 %}
+    <div class="ai-stat ai-stat-warn">
+      <span class="ai-stat-num mono">{{ '{:,}'.format(ai_panel.materials_dirty) }}</span>
+      <span class="ai-stat-label">Cần phân tích lại</span>
+    </div>
+    {% endif %}
+    <div class="ai-stat">
+      <span class="ai-stat-num mono">{{ '{:,}'.format(ai_panel.substitute_pairs) }}</span>
+      <span class="ai-stat-label">Số gợi ý vật tư</span>
+    </div>
+    <div class="ai-stat">
+      <span class="ai-stat-num">
+        {% if ai_panel.last_analysis_at %}
+          {{ ai_panel.last_analysis_at.strftime('%Y-%m-%d') }}
+        {% else %}
+          —
+        {% endif %}
+      </span>
+      <span class="ai-stat-label">Lần phân tích gần nhất</span>
+    </div>
+  </div>
+
+  {% if not ai_panel.embedding_configured %}
+  <div class="toast toast-warn" style="margin-top: 1rem;">
+    ⚠ Chưa cấu hình API key cho phân tích AI.
+    {% if user.role == 'dev' %}
+      <a href="/admin/settings/embedding">Mở trang cài đặt →</a>
+    {% else %}
+      Liên hệ admin để cấu hình.
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="ai-panel-actions">
+    {% if ai_panel.active_embedding_job_id %}
+      <a class="btn-primary" href="/jobs/{{ ai_panel.active_embedding_job_id }}">
+        ⏳ Đang phân tích AI… (xem tiến độ)
+      </a>
+    {% else %}
+      <form method="post" style="display: inline;"
+            action="/clients/{{ client.client_id }}/jobs/start"
+            onsubmit="return confirm('Cập nhật phân tích AI cho {{ ai_panel.materials_dirty }} vật tư cần phân tích lại? {{ ai_panel.eta_dirty_embed }}.')">
+        <input type="hidden" name="kind" value="embedding_refresh">
+        <button type="submit" class="btn-primary"
+                {% if not ai_panel.embedding_configured or ai_panel.materials_total == 0 %}disabled{% endif %}
+                title="Phân tích những vật tư mới hoặc đổi thông tin. An toàn — không đụng vật tư đã phân tích đúng.">
+          ↻ Cập nhật phân tích AI
+          {% if ai_panel.materials_dirty > 0 %}
+            <span class="btn-counter">({{ ai_panel.materials_dirty }})</span>
+          {% endif %}
+        </button>
+      </form>
+      <form method="post" style="display: inline;"
+            action="/clients/{{ client.client_id }}/jobs/start"
+            onsubmit="return confirm('Phân tích lại từ đầu TOÀN BỘ {{ ai_panel.materials_total }} vật tư? Tốn API call hơn — chỉ làm khi nghi dữ liệu cũ sai. {{ ai_panel.eta_full_embed }}.')">
+        <input type="hidden" name="kind" value="embedding_refresh">
+        <input type="hidden" name="force" value="true">
+        <button type="submit" class="btn-ghost"
+                {% if not ai_panel.embedding_configured or ai_panel.materials_total == 0 %}disabled{% endif %}
+                title="Xóa hết kết quả phân tích cũ + làm lại từ đầu.">
+          Làm lại từ đầu
+        </button>
+      </form>
+    {% endif %}
+
+    {% if ai_panel.active_substitute_job_id %}
+      <a class="btn-secondary" href="/jobs/{{ ai_panel.active_substitute_job_id }}"
+         style="margin-left: 1rem;">
+        ⏳ Đang tìm gợi ý vật tư… (xem tiến độ)
+      </a>
+    {% else %}
+      <form method="post" style="display: inline; margin-left: 1rem;"
+            action="/clients/{{ client.client_id }}/jobs/start"
+            onsubmit="return confirm('Tìm lại gợi ý vật tư thay thế cho toàn bộ {{ ai_panel.materials_total }} vật tư? {{ ai_panel.eta_substitute_refresh }}.')">
+        <input type="hidden" name="kind" value="substitute_refresh">
+        <button type="submit" class="btn-secondary"
+                {% if ai_panel.materials_total == 0 %}disabled{% endif %}
+                title="So sánh các vật tư với nhau (theo tên + mã HS + dấu vân tay AI), tạo danh sách gợi ý thay thế cho từng vật tư.">
+          ↻ Tìm lại gợi ý vật tư
+        </button>
+      </form>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
 <section class="zone">
   <div class="zone-head">
     <div>

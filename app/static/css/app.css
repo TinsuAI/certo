@@ -2704,3 +2704,93 @@ input[type="submit"].btn-primary { padding: 0.5rem 0.95rem; }
 .lineage-node-current-marker { font-weight: 600; color: #0d47a1; }
 .lineage-node-meta { font-size: 0.8em; color: #666; }
 .lineage-node-variant { font-size: 0.85em; color: #444; }
+
+/* Catalog detail — BCCT analysis drift table (Feature 3) */
+.drift-row.drift-critical { border-left: 3px solid var(--danger, #c62828); }
+.drift-row.drift-warn     { border-left: 3px solid var(--warn, #ef6c00); }
+.drift-row.drift-info     { border-left: 3px solid var(--muted, #9aa0a6); }
+.value-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.5rem;
+  margin: 0.1rem 0.25rem 0.1rem 0;
+  background: #f4f5f7;
+  border: 1px solid #e1e4e8;
+  border-radius: 12px;
+  font-size: 0.85em;
+}
+.drift-critical .value-chip { border-color: #f8c1bb; background: #fdecea; }
+.drift-warn     .value-chip { border-color: #fde0a3; background: #fff8e1; }
+
+/* Catalog drift table — full-value display with diff highlight */
+.drift-values { max-width: 720px; }
+.drift-affix-hint {
+  margin: 0 0 .35rem 0;
+  font-size: .8em;
+}
+.drift-values .value-chip {
+  display: block;
+  margin: .2rem 0;
+  padding: .25rem .55rem;
+  border-radius: 6px;
+  border: 1px solid #e1e4e8;
+  background: #f4f5f7;
+  word-break: break-word;
+}
+.value-chip-text { font-size: .9em; }
+.value-affix { color: #888; }
+.value-diff {
+  background: #fff3cd;
+  padding: 0 .15rem;
+  border-radius: 2px;
+}
+.drift-critical .value-chip { border-color: #f8c1bb; background: #fdecea; }
+.drift-warn     .value-chip { border-color: #fde0a3; background: #fff8e1; }
+
+/* AI panel on catalog page (Feature 4 — phân tích AI vật tư) */
+.ai-panel {
+  background: linear-gradient(180deg, #f5fbff 0%, #fafbfd 100%);
+  border-color: #c2d8ee;
+}
+.ai-panel-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem 2rem;
+  margin: 1rem 0;
+  padding: .8rem 1rem;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.ai-stat {
+  display: flex;
+  flex-direction: column;
+  gap: .15rem;
+  min-width: 100px;
+}
+.ai-stat-num {
+  font-size: 1.4em;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.ai-stat-label {
+  font-size: .85em;
+  color: #666;
+}
+.ai-stat-warn .ai-stat-num { color: #d97706; }
+.ai-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  align-items: center;
+  margin-top: 1rem;
+}
+.btn-counter {
+  display: inline-block;
+  background: rgba(255,255,255,.2);
+  padding: 0 .4rem;
+  border-radius: 10px;
+  margin-left: .25rem;
+  font-size: .85em;
+}

@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 from app import auth, i18n, settings_store
 from app.database import apply_migrations, close_pool
 from app.seed_master_data import seed_master_data_if_empty
-from app.routes import admin, agent, api, auth_api, bcct, bom, bqd, catalog, catalog_candidates, client_config_ui, client_uom_factors, clients, master_data, notifications as notif_routes, proposals, uploads
+from app.routes import admin, agent, api, auth_api, bcct, bom, bqd, catalog, catalog_candidates, client_config_ui, client_uom_factors, clients, declarations, jobs as job_routes, master_data, notifications as notif_routes, proposals, substitutes, uploads
 from app.seed import auto_seed_demo_if_empty, seed_parser_rules_if_empty
 
 ROOT = Path(__file__).resolve().parent
@@ -155,6 +155,9 @@ app.include_router(catalog.router)
 app.include_router(catalog_candidates.router)
 app.include_router(bqd.router)
 app.include_router(bcct.router)
+app.include_router(declarations.router)
+app.include_router(substitutes.router)
+app.include_router(job_routes.router)
 app.include_router(bom.router)
 app.include_router(proposals.router)
 app.include_router(uploads.router)

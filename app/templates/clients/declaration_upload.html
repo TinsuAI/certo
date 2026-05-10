@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Tải lên tờ khai · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Tải lên file tờ khai</h2>
+      <p class="meta">
+        File XLS gốc hoặc PDF scan. Nếu để trống "Số TK", hệ thống tự
+        đọc từ tên file (ví dụ <code class="mono">00000001_<strong>107185157440</strong>.xls</code>).
+      </p>
+    </div>
+    <div class="page-actions">
+      <a class="btn-ghost"
+         href="/clients/{{ client.client_id }}/declarations">
+        ← Danh sách tờ khai
+      </a>
+    </div>
+  </div>
+
+  {% if error %}
+  <div class="toast toast-error" style="margin-bottom: 1rem;">
+    ⚠ {{ error }}
+  </div>
+  {% endif %}
+
+  <form method="post" enctype="multipart/form-data"
+        action="/clients/{{ client.client_id }}/declarations/upload"
+        class="stack-form" style="max-width: 720px;">
+    <label>
+      File
+      <input type="file" name="file" required
+             accept=".xls,.xlsx,.pdf">
+      <span class="meta">
+        Chấp nhận: <code>.xls</code>, <code>.xlsx</code>, <code>.pdf</code>.
+      </span>
+    </label>
+
+    <label>
+      Hướng
+      <select name="direction" required>
+        <option value="">— Chọn —</option>
+        <option value="import">Nhập khẩu (TKN)</option>
+        <option value="export">Xuất khẩu (TKX)</option>
+      </select>
+    </label>
+
+    <label>
+      Số tờ khai <span class="meta">(tuỳ chọn)</span>
+      <input type="text" name="declaration_no" class="mono"
+             placeholder="để trống = tự đọc từ tên file"
+             pattern="\d{10,14}"
+             title="10-14 chữ số. Để trống nếu muốn auto-detect.">
+      <span class="meta">
+        Bỏ trống nếu tên file đã chứa số TK
+        (<code>&lt;prefix&gt;_&lt;số TK&gt;.xls</code>). Nhập tay khi
+        tên file không theo mẫu, hoặc khi muốn ghi đè.
+      </span>
+    </label>
+
+    <div style="margin-top: 1rem;">
+      <button type="submit" class="btn-primary">Tải lên</button>
+      <a class="btn-ghost"
+         href="/clients/{{ client.client_id }}/declarations">Hủy</a>
+    </div>
+  </form>
+
+  <details style="margin-top: 2rem;">
+    <summary class="btn-ghost" style="cursor: pointer; user-select: none;">
+      ⓘ Quy tắc kiểm tra
+    </summary>
+    <div class="meta" style="padding: .5rem 0; max-width: 720px;">
+      <ul style="margin: .5rem 0; padding-left: 1.2rem;">
+        <li>
+          <strong>Tên file</strong>: nếu khớp mẫu
+          <code>&lt;prefix&gt;_&lt;số TK&gt;.&lt;ext&gt;</code>, số TK
+          được trích từ phần đuôi (vd
+          <code>00000001_107185157440.xls</code> → <code>107185157440</code>).
+        </li>
+        <li>
+          <strong>XLS/XLSX</strong>: hệ thống đọc nội dung và đối chiếu
+          với số TK trích từ tên file (hoặc số TK nhập tay). Sai khớp →
+          reject. Bỏ qua đối chiếu khi đã nhập tay số TK và tên file
+          không khớp.
+        </li>
+        <li>
+          <strong>PDF</strong>: chỉ tin tên file (MVP — OCR sau này).
+        </li>
+        <li>
+          <strong>Trùng lặp</strong>: cùng client + số TK + hướng +
+          sha256 → no-op (không tải lên lại).
+        </li>
+      </ul>
+    </div>
+  </details>
+</section>
+{% endblock %}

@@ -143,6 +143,70 @@ async def list_view(
         request=request, page_params=page_params, total=total,
     )
 
+    # AI panel stats: how many materials embedded vs need re-analysis,
+    # how many substitute pairs the catalog already has, latest job.
+    from app import jobs as job_store
+    from app.embedding import get_global_config as _emb_cfg
+    with _connect() as _conn, _conn.cursor() as _cur:
+        _cur.execute(
+            """
+            select
+                count(*) filter (where status='active') as total,
+                count(*) filter
+                  (where status='active' and description_embedding is not null) as analyzed,
+                count(*) filter
+                  (where status='active' and (embedding_text_hash is null
+                                              or embedding_model is null)) as needs_analysis,
+                max(embedding_at) as last_at
+              from hub.materials where client_id=%s
+            """, (client_id,),
+        )
+        _stats_row = _cur.fetchone()
+        _cur.execute(
+            "select count(*) from hub.material_substitutes "
+            "where client_id=%s and rejected_at is null",
+            (client_id,),
+        )
+        _sub_count = _cur.fetchone()[0]
+    _emb_active = job_store.latest(client_id, "embedding_refresh") \
+        if job_store.has_active(client_id, "embedding_refresh") else None
+    _sub_active = job_store.latest(client_id, "substitute_refresh") \
+        if job_store.has_active(client_id, "substitute_refresh") else None
+    _total = _stats_row[0] or 0
+    _dirty = _stats_row[2] or 0
+
+    def _eta(count: int, items_per_sec: float) -> str:
+        """Friendly Vietnamese duration estimate. Calibrated from
+        Johnson runs: embed ≈ 33/s end-to-end, substitute refresh
+        scales with N² roughly but ~75/s effective for 12K."""
+        if count <= 0:
+            return "vài giây"
+        seconds = count / items_per_sec
+        if seconds < 5:
+            return "vài giây"
+        if seconds < 90:
+            return f"khoảng {int(seconds)} giây"
+        minutes = seconds / 60
+        if minutes < 2:
+            return "khoảng 1-2 phút"
+        if minutes < 10:
+            return f"khoảng {int(round(minutes))} phút"
+        return f"khoảng {int(round(minutes))} phút (lâu — đề xuất chạy ngoài giờ)"
+
+    ai_panel = {
+        "materials_total": _total,
+        "materials_analyzed": _stats_row[1] or 0,
+        "materials_dirty": _dirty,
+        "last_analysis_at": _stats_row[3],
+        "substitute_pairs": _sub_count,
+        "active_embedding_job_id": _emb_active.id if _emb_active else None,
+        "active_substitute_job_id": _sub_active.id if _sub_active else None,
+        "embedding_configured": _emb_cfg().is_live,
+        "eta_dirty_embed": _eta(_dirty, 33),
+        "eta_full_embed": _eta(_total, 33),
+        "eta_substitute_refresh": _eta(_total, 75),
+    }
+
     def _sort_link(col: str) -> str:
         return sort_link(request=request, column=col, current_sort=sort)
     return request.app.state.templates.TemplateResponse(
@@ -155,6 +219,7 @@ async def list_view(
             "prov_counts": prov_counts,
             "unregistered_bcct": unregistered_bcct,
             "unresolved_bom": unresolved_bom,
+            "ai_panel": ai_panel,
             "paging": paging_ctx, "sort": sort, "sort_link": _sort_link,
             "freshness": freshness_for_template(request, client_id, "catalog"),
             "active_root": "clients", "active_tab": "catalog",
@@ -934,10 +999,35 @@ async def catalog_detail(request: Request, client_id: str, material_code: str):
         1 for m in mappings if m["paired_code"] == material_code
     )
 
+    from app.stores.catalog_bcct_analysis import analyze_material_bcct
+    bcct_analysis = analyze_material_bcct(
+        client_id=client_id, material_code=material_code,
+    )
+
+    from app.stores.material_substitutes import list_for_material as list_subs
+    substitutes_active = list_subs(
+        client_id=client_id, material_code=material_code,
+        min_score=0.0, include_rejected=False, limit=20,
+    )
+    substitutes_rejected = list_subs(
+        client_id=client_id, material_code=material_code,
+        min_score=0.0, include_rejected=True, limit=50,
+    )
+    # Filter to ONLY rejected (since include_rejected returns both)
+    rejected_codes = {
+        c.material_b_code for c in substitutes_rejected
+    } - {c.material_b_code for c in substitutes_active}
+    substitutes_rejected = [
+        c for c in substitutes_rejected if c.material_b_code in rejected_codes
+    ]
+
     return request.app.state.templates.TemplateResponse(
         request, "clients/catalog_detail.html",
         {"client": client, "material": material,
          "audit_events": audit_events, "bcct_rows": bcct_rows,
+         "bcct_analysis": bcct_analysis,
+         "substitutes_active": substitutes_active,
+         "substitutes_rejected": substitutes_rejected,
          "bom_artifacts": bom_artifacts,
          "warnings": warnings,
          "mapping_panel": mapping_panel,

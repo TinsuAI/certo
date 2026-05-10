@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Việc nền · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Việc nền</h2>
+      <p class="meta">
+        Lịch sử các tác vụ chạy nền (phân tích AI, tìm gợi ý vật tư).
+        Bấm vào dòng để xem trạng thái + nhật ký.
+      </p>
+    </div>
+    <div class="page-actions">
+      <a class="btn-ghost" href="/clients/{{ client.client_id }}/catalog">
+        ← Danh mục
+      </a>
+    </div>
+  </div>
+
+  {% if jobs %}
+  <table class="dh-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Việc</th>
+        <th>Trạng thái</th>
+        <th>Bắt đầu</th>
+        <th>Kết thúc</th>
+        <th>Thời gian</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for j in jobs %}
+      <tr>
+        <td class="mono">
+          <a href="/jobs/{{ j.id }}">{{ j.id }}</a>
+        </td>
+        <td>
+          <a href="/jobs/{{ j.id }}">{{ j.label }}</a>
+        </td>
+        <td>
+          {% if j.status == 'pending' %}
+            <span class="badge badge-info">Đang chờ</span>
+          {% elif j.status == 'running' %}
+            <span class="badge badge-info">Đang chạy</span>
+          {% elif j.status == 'done' %}
+            <span class="badge badge-success">✓ Xong</span>
+          {% elif j.status == 'error' %}
+            <span class="badge badge-error">✗ Lỗi</span>
+          {% else %}
+            <span class="badge">{{ j.status }}</span>
+          {% endif %}
+        </td>
+        <td class="mono">{{ j.started_at.strftime('%m-%d %H:%M:%S') }}</td>
+        <td class="mono">
+          {% if j.finished_at %}
+            {{ j.finished_at.strftime('%m-%d %H:%M:%S') }}
+          {% else %}
+            <span class="meta">—</span>
+          {% endif %}
+        </td>
+        <td class="mono">
+          {% if j.finished_at %}
+            {{ '%.0f' % (j.finished_at - j.started_at).total_seconds() }}s
+          {% elif j.running_at %}
+            <small class="meta">đang chạy…</small>
+          {% else %}
+            <span class="meta">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <p>Chưa có việc nền nào cho khách hàng này.</p>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}
