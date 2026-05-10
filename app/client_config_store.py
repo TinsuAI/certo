@@ -119,6 +119,11 @@ def validate_config(config: dict) -> None:
 
 
 def resolve_allocation_code(row: dict, config: dict) -> dict:
+    identity = row.get("material_identity") if isinstance(row.get("material_identity"), dict) else {}
+    identity_internal_code = cell_text(identity.get("internal_code"))
+    if identity_internal_code:
+        return resolved_code(identity_internal_code, "material_identity.internal_code", "high")
+
     allocation = config["allocation_code"]
     item_code = cell_text(row.get("item_code"))
     strategy = allocation.get("strategy")

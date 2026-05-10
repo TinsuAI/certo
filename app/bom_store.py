@@ -300,7 +300,7 @@ def _process_bom_upload(
         save_state(client["id"], state)
         return {
             "status": "no_change",
-            "message": "File đã parse thành công. Không có thay đổi BOM nên không tạo version mới.",
+            "message": "File đã parse thành công. Không có thay đổi BOM nên không tạo artifact mới.",
             "upload": upload_record,
             "diff": {"summary": upload_record["diff_summary"], "has_material_change": False},
             "product_results": product_results,
@@ -361,7 +361,7 @@ def _process_bom_upload(
     )
     return {
         "status": "new_version",
-        "message": f"Đã tạo BOM tổng hợp v{next_version_no}. TP đổi version: {product_version_text}.",
+        "message": f"Đã tạo BOM composition #{next_version_no}. TP đổi artifact: {product_version_text}.",
         "upload": upload_record,
         "version": new_version,
         "diff": aggregate_diff,
@@ -800,10 +800,10 @@ def requires_review_before_publish(rows: list[dict], upload_mode: str, profile: 
 
 def product_result_text(result: dict) -> str:
     if result["status"] == "retired":
-        return f"{result['product_code']} v{result['previous_version_no']} -> retired"
+        return f"{result['product_code']} #{result['previous_version_no']} -> retired"
     if result["status"] == "reinstated":
-        return f"{result['product_code']} reinstated v{result['new_version_no']}"
-    return f"{result['product_code']} v{result['previous_version_no']} -> v{result['new_version_no']}"
+        return f"{result['product_code']} reinstated #{result['new_version_no']}"
+    return f"{result['product_code']} #{result['previous_version_no']} -> #{result['new_version_no']}"
 
 
 def diff_rows(previous_rows: list[dict], new_rows: list[dict]) -> dict:
@@ -932,46 +932,72 @@ def product_version_options_by_code(product_versions: list[dict]) -> dict[str, l
 def attach_case_bom_snapshot(case: dict, bom_workspace: dict) -> dict:
     versions = bom_workspace.get("versions", [])
     latest = bom_workspace.get("latest_version", {})
-    selected_version_id = case.get("bom_version_id") or latest.get("version_id", "")
-    aggregate = next((version for version in versions if version.get("version_id") == selected_version_id), latest)
-    selected_version_id = aggregate.get("version_id", selected_version_id)
+    selected_version_id = case.get("bom_artifact_id") or case.get("bom_version_id") or latest.get("artifact_id") or latest.get("version_id", "")
+    aggregate = next(
+        (
+            version
+            for version in versions
+            if (version.get("artifact_id") or version.get("version_id")) == selected_version_id
+        ),
+        latest,
+    )
+    selected_version_id = aggregate.get("artifact_id") or aggregate.get("version_id", selected_version_id)
 
-    version_index = {
-        version["product_version_id"]: version
-        for version in bom_workspace.get("product_versions", [])
-    }
+    version_index = {}
+    for version in bom_workspace.get("product_versions", []):
+        for artifact_key in (version.get("product_artifact_id"), version.get("product_version_id"), version.get("artifact_id"), version.get("version_id")):
+            if artifact_key:
+                version_index[str(artifact_key)] = version
     composition_by_product = {
         row["product_code"]: dict(row)
         for row in aggregate.get("product_versions", [])
     }
-    overrides = dict(case.get("bom_product_version_overrides", {}))
+    overrides = {
+        **dict(case.get("bom_product_version_overrides", {})),
+        **dict(case.get("bom_product_artifact_overrides", {})),
+    }
     snapshot_composition = []
     seen_product_versions = set()
 
     for product in case.get("products", []):
         product_code = product.get("code", "")
-        selected_product_version_id = product.get("bom_product_version_id") or overrides.get(product_code)
+        selected_product_version_id = product.get("bom_product_artifact_id") or product.get("bom_product_version_id") or overrides.get(product_code)
         if not selected_product_version_id:
-            selected_product_version_id = composition_by_product.get(product_code, {}).get("product_version_id", "")
+            selected_product_version_id = (
+                composition_by_product.get(product_code, {}).get("product_artifact_id")
+                or composition_by_product.get(product_code, {}).get("product_version_id", "")
+            )
         selected_product_version = version_index.get(selected_product_version_id)
         if not usable_product_version(selected_product_version):
-            fallback_version_id = composition_by_product.get(product_code, {}).get("product_version_id", "")
+            fallback_version_id = (
+                composition_by_product.get(product_code, {}).get("product_artifact_id")
+                or composition_by_product.get(product_code, {}).get("product_version_id", "")
+            )
             selected_product_version = version_index.get(fallback_version_id) or latest_usable_product_version(
                 bom_workspace,
                 product_code,
             )
         if selected_product_version:
-            product["bom_product_version_id"] = selected_product_version["product_version_id"]
-            product["bom_product_version_no"] = selected_product_version["product_version_no"]
-            if selected_product_version["product_version_id"] not in seen_product_versions:
+            product_artifact_id = selected_product_version.get("product_artifact_id") or selected_product_version.get("product_version_id", "")
+            product_artifact_no = selected_product_version.get("product_artifact_no") or selected_product_version.get("product_version_no", "")
+            product["bom_product_artifact_id"] = product_artifact_id
+            product["bom_product_artifact_no"] = product_artifact_no
+            product["bom_product_version_id"] = product_artifact_id
+            product["bom_product_version_no"] = product_artifact_no
+            if product_artifact_id not in seen_product_versions:
                 snapshot_composition.append(composition_entry(selected_product_version))
-                seen_product_versions.add(selected_product_version["product_version_id"])
+                seen_product_versions.add(product_artifact_id)
         else:
+            product["bom_product_artifact_id"] = ""
+            product["bom_product_artifact_no"] = ""
             product["bom_product_version_id"] = ""
             product["bom_product_version_no"] = ""
 
+    case["bom_artifact_id"] = selected_version_id
     case["bom_version_id"] = selected_version_id
     case["bom_snapshot"] = {
+        "aggregate_artifact_id": selected_version_id,
+        "aggregate_artifact_no": aggregate.get("artifact_no") or aggregate.get("version_no", 0),
         "aggregate_version_id": selected_version_id,
         "aggregate_version_no": aggregate.get("version_no", 0),
         "composition": sorted(snapshot_composition, key=lambda row: row["product_code"]),
@@ -1011,10 +1037,14 @@ def latest_composition_map(state: dict) -> dict[str, dict]:
 
 
 def composition_entry(product_version: dict) -> dict:
+    product_artifact_id = product_version.get("product_artifact_id") or product_version["product_version_id"]
+    product_artifact_no = product_version.get("product_artifact_no") or product_version["product_version_no"]
     return {
         "product_code": product_version["product_code"],
-        "product_version_id": product_version["product_version_id"],
-        "product_version_no": product_version["product_version_no"],
+        "product_artifact_id": product_artifact_id,
+        "product_artifact_no": product_artifact_no,
+        "product_version_id": product_artifact_id,
+        "product_version_no": product_artifact_no,
         "version_hash": product_version["version_hash"],
         "row_count": product_version["row_count"],
         "status": product_version.get("status", "current"),
@@ -1022,7 +1052,7 @@ def composition_entry(product_version: dict) -> dict:
 
 
 def refresh_product_version_statuses(state: dict, composition: list[dict]) -> None:
-    current_ids = {row["product_version_id"] for row in composition}
+    current_ids = {row.get("product_artifact_id") or row["product_version_id"] for row in composition}
     for versions in state.get("product_versions", {}).values():
         for version in versions:
             version["status"] = "current" if version["product_version_id"] in current_ids else "historical"

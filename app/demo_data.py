@@ -564,7 +564,9 @@ def case_from_form(form: dict[str, str]) -> dict:
         "source_label": form.get("source_label", "Dữ liệu trên màn hình"),
         "origin_product_order": text_list(form.get("origin_product_order", "").replace(",", "|")),
         "origin_sheet_states": {},
-        "bom_version_id": form.get("bom_version_id", ""),
+        "bom_artifact_id": form.get("bom_artifact_id", form.get("bom_version_id", "")),
+        "bom_version_id": form.get("bom_artifact_id", form.get("bom_version_id", "")),
+        "bom_product_artifact_overrides": {},
         "bom_product_version_overrides": {},
         "documents": [],
         "workflow": [dict(step) for step in DEMO_CASE["workflow"]],
@@ -615,7 +617,10 @@ def case_from_form(form: dict[str, str]) -> dict:
             "lvc_status_label": form.get(prefix + "lvc_status_label", ""),
             "lvc_threshold": form.get(prefix + "lvc_threshold", ""),
             "vnm_value": form.get(prefix + "vnm_value", ""),
-            "bom_product_version_id": form.get(prefix + "bom_product_version_id", ""),
+            "bom_product_artifact_id": form.get(prefix + "bom_product_artifact_id", form.get(prefix + "bom_product_version_id", "")),
+            "bom_product_artifact_no": form.get(prefix + "bom_product_artifact_no", form.get(prefix + "bom_product_version_no", "")),
+            "bom_product_version_id": form.get(prefix + "bom_product_artifact_id", form.get(prefix + "bom_product_version_id", "")),
+            "bom_product_version_no": form.get(prefix + "bom_product_artifact_no", form.get(prefix + "bom_product_version_no", "")),
             "origin_method": form.get(prefix + "origin_method", ""),
             "origin_method_label": form.get(prefix + "origin_method_label", ""),
             "origin_formula": form.get(prefix + "origin_formula", ""),
@@ -636,10 +641,12 @@ def case_from_form(form: dict[str, str]) -> dict:
                 "status": sheet_status,
                 "status_label": form.get(prefix + "origin_sheet_status_label", ""),
             }
-        if product["code"] and product["bom_product_version_id"]:
-            case["bom_product_version_overrides"][product["code"]] = product["bom_product_version_id"]
-        if product["bom_product_code"] and product["bom_product_version_id"]:
-            case["bom_product_version_overrides"][product["bom_product_code"]] = product["bom_product_version_id"]
+        if product["code"] and product["bom_product_artifact_id"]:
+            case["bom_product_artifact_overrides"][product["code"]] = product["bom_product_artifact_id"]
+            case["bom_product_version_overrides"][product["code"]] = product["bom_product_artifact_id"]
+        if product["bom_product_code"] and product["bom_product_artifact_id"]:
+            case["bom_product_artifact_overrides"][product["bom_product_code"]] = product["bom_product_artifact_id"]
+            case["bom_product_version_overrides"][product["bom_product_code"]] = product["bom_product_artifact_id"]
         for material_index in range(material_count):
             material_prefix = f"{prefix}material_{material_index}_"
             material = {

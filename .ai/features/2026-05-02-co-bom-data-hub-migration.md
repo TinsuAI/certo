@@ -32,7 +32,7 @@ Out of scope:
 
 ## Migration Plan
 1. Add CO contract coverage for Data Hub BOM.
-   - Extend `app/data_hub_client.py` with `list_products`, `list_bom_versions`, `get_bom_latest`, `get_bom_version`, and `submit_bom_proposal`.
+   - Extend `app/data_hub_client.py` with Data Hub BOM product/artifact reads and proposal submission.
    - Keep all `/v1/hub/*` literals inside `app/data_hub_client.py`.
    - Add CO tests with an `httpx.MockTransport` provider fake.
 
@@ -51,8 +51,8 @@ Out of scope:
    - Store a compact immutable snapshot of rows used for calculation/export, not the whole canonical BOM store.
 
 5. Add proposal flow for case-specific BOM changes.
-   - From the C/O origin step, submit `modified_for_case` proposals with `parent_version_id`, `case_id`, and rows.
-   - On approval, bind the returned `version_id` to the case/product.
+   - From the C/O origin step, submit `modified_for_case` proposals with `parent_artifact_id`, `case_id`, and rows.
+   - On approval, bind the returned `artifact_id` to the case/product.
    - On rejection, show `decision_reason` and `failed_conditions`; do not mutate local BOM state.
 
 6. Migrate existing CO BOM state into Data Hub or archive it.

@@ -9,12 +9,11 @@ DATA_HUB_ADAPTER = Path("app/data_hub_client.py")
 APPROVED_DATA_HUB_ENDPOINTS = {
     "/v1/hub/dncxs",
     "/v1/hub/dncxs/{client_id}",
-    "/v1/hub/dncxs/{client_id}/co-config",
+    "/v1/hub/dncxs/{client_id}/client-config",
     "/v1/hub/dncxs/{client_id}/source-summary",
     "/v1/hub/materials",
     "/v1/hub/bcct",
     "/v1/hub/bcct/invoice-matches",
-    "/v1/hub/code-mappings",
     "/v1/hub/products",
     "/v1/hub/products/{product_code}/bom",
     "/v1/hub/products/{product_code}/bom/latest",

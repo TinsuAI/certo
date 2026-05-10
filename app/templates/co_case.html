@@ -779,19 +779,19 @@
 
   <section class="zone origin-workbar" aria-label="Điều khiển snapshot xuất xứ">
     {% set origin_actions_blocked = origin_calculation_lock_blocked %}
-    <label>BOM tổng hợp
-      <select name="bom_version_id" {% if origin_actions_blocked %}disabled{% endif %}>
+    <label>BOM composition
+      <select name="bom_artifact_id" {% if origin_actions_blocked %}disabled{% endif %}>
         {% for version in bom_workspace.versions %}
-        <option value="{{ version.version_id }}" {% if version.version_id == case.bom_snapshot.aggregate_version_id %}selected{% endif %}>BOM tổng hợp v{{ version.version_no }} · {{ version.product_versions|length }} TP</option>
+        <option value="{{ version.artifact_id or version.version_id }}" {% if (version.artifact_id or version.version_id) == (case.bom_snapshot.aggregate_artifact_id or case.bom_snapshot.aggregate_version_id) %}selected{% endif %}>Composition #{{ version.artifact_no or version.version_no }} · {{ version.product_versions|length }} TP artifact</option>
         {% endfor %}
         {% if not bom_workspace.versions %}
-        <option value="">Chọn theo BOM TP</option>
+        <option value="">Chọn theo TP artifact</option>
         {% endif %}
       </select>
     </label>
     <div class="origin-bom-chips">
       {% for product_version in case.bom_snapshot.composition %}
-      <span class="origin-bom-chip"><strong>{{ product_version.product_code }}</strong> v{{ product_version.product_version_no }} · {{ product_version.row_count }} dòng</span>
+      <span class="origin-bom-chip"><strong>{{ product_version.product_code }}</strong> #{{ product_version.product_artifact_no or product_version.product_version_no }} · {{ product_version.row_count }} dòng</span>
       {% else %}
       <span class="origin-bom-chip origin-bom-chip-warning">Chưa có BOM snapshot có dòng NVL</span>
       {% endfor %}
@@ -900,18 +900,19 @@
 
           {% set bom_lookup_code = product.bom_product_code or product.code %}
           {% set bom_options = bom_workspace.product_version_options_by_code.get(bom_lookup_code, []) %}
+          {% set selected_bom_artifact_id = product.bom_product_artifact_id or product.bom_product_version_id %}
           <div class="origin-sheet-toolbar">
             <div class="origin-sheet-state">
               <span>Trạng thái</span>
               <strong class="origin-sheet-state-{{ product.origin_sheet_status or 'draft' }}">{{ product.origin_sheet_status_label or 'Chưa tính' }}</strong>
             </div>
-            <label class="product-bom-picker">BOM TP
-              <select name="product_{{ product_index }}_bom_product_version_id" data-bom-version-select data-origin-step-input data-origin-step-index="{{ product_index }}">
+            <label class="product-bom-picker">TP artifact
+              <select name="product_{{ product_index }}_bom_product_artifact_id" data-bom-version-select data-origin-step-input data-origin-step-index="{{ product_index }}">
                 {% for option in bom_options %}
-                <option value="{{ option.product_version_id }}" {% if option.product_version_id == product.bom_product_version_id %}selected{% endif %}>{{ bom_lookup_code }} · v{{ option.product_version_no }} · {{ option.row_count }} dòng · {{ option.status }}</option>
+                <option value="{{ option.product_artifact_id or option.product_version_id }}" {% if (option.product_artifact_id or option.product_version_id) == selected_bom_artifact_id %}selected{% endif %}>{{ bom_lookup_code }} · #{{ option.product_artifact_no or option.product_version_no }} · {{ option.row_count }} dòng · {{ option.status }}</option>
                 {% endfor %}
                 {% if not bom_options %}
-                <option value="{{ product.bom_product_version_id }}">{{ bom_lookup_code }} · {{ product.bom_product_version_no or 'chưa có BOM' }}</option>
+                <option value="{{ selected_bom_artifact_id }}">{{ bom_lookup_code }} · {{ product.bom_product_artifact_no or product.bom_product_version_no or 'chưa có BOM' }}</option>
                 {% endif %}
               </select>
             </label>
@@ -1247,6 +1248,8 @@
     return {message: message?.textContent?.trim() || "", kind: "success"};
   };
 
+  let refreshCaseShellInteractions = () => {};
+
   const replaceCaseShellFromResponse = async (response, fallbackMessage = "") => {
     const text = await response.text();
     const doc = new DOMParser().parseFromString(text, "text/html");
@@ -1268,6 +1271,7 @@
       return;
     }
     currentShell.replaceWith(document.importNode(nextShell, true));
+    refreshCaseShellInteractions();
     const flash = flashMessageFromDocument(doc);
     toast(flash.message || fallbackMessage, response.ok && flash.kind !== "error" ? "success" : "error");
     if (response.url) {
@@ -2034,98 +2038,106 @@
     });
   });
 
-  document.querySelectorAll("[data-origin-warning-summary]").forEach((summary) => {
-    const panel = summary.closest("[data-origin-sheet-panel]");
-    if (!panel) return;
-    const buttons = Array.from(summary.querySelectorAll("[data-origin-warning-filter]"));
-    const clear = summary.querySelector("[data-origin-warning-clear]");
-    const empty = panel.querySelector("[data-origin-warning-empty]");
-    const materialRows = Array.from(panel.querySelectorAll("[data-origin-material-row]"));
-    const allocationRows = Array.from(panel.querySelectorAll("[data-origin-allocation-row]"));
-    let activeKind = "";
-    const applyWarningFilter = () => {
-      let visibleMaterials = 0;
-      materialRows.forEach((row) => {
-        const kinds = new Set((row.dataset.originWarningKinds || "").trim().split(/\s+/).filter(Boolean));
-        const visible = !activeKind || kinds.has(activeKind);
-        row.classList.toggle("origin-row-filtered", !visible);
-        if (visible) visibleMaterials += 1;
-        const group = row.dataset.allocationGroup || "";
-        allocationRows
-          .filter((allocationRow) => allocationRow.dataset.allocationGroup === group)
-          .forEach((allocationRow) => {
-            allocationRow.classList.toggle("origin-row-filtered", !visible);
-          });
-      });
+  const initOriginWarningSummaries = (root = document) => {
+    root.querySelectorAll("[data-origin-warning-summary]").forEach((summary) => {
+      if (summary.dataset.originWarningInitialized === "1") return;
+      summary.dataset.originWarningInitialized = "1";
+      const panel = summary.closest("[data-origin-sheet-panel]");
+      if (!panel) return;
+      const buttons = Array.from(summary.querySelectorAll("[data-origin-warning-filter]"));
+      const clear = summary.querySelector("[data-origin-warning-clear]");
+      const empty = panel.querySelector("[data-origin-warning-empty]");
+      let activeKind = "";
+      const applyWarningFilter = () => {
+        const materialRows = Array.from(panel.querySelectorAll("[data-origin-material-row]"));
+        const allocationRows = Array.from(panel.querySelectorAll("[data-origin-allocation-row]"));
+        let visibleMaterials = 0;
+        materialRows.forEach((row) => {
+          const kinds = new Set((row.dataset.originWarningKinds || "").trim().split(/\s+/).filter(Boolean));
+          const visible = !activeKind || kinds.has(activeKind);
+          row.classList.toggle("origin-row-filtered", !visible);
+          if (visible) visibleMaterials += 1;
+          const group = row.dataset.allocationGroup || "";
+          allocationRows
+            .filter((allocationRow) => allocationRow.dataset.allocationGroup === group)
+            .forEach((allocationRow) => {
+              allocationRow.classList.toggle("origin-row-filtered", !visible);
+            });
+        });
+        buttons.forEach((button) => {
+          button.setAttribute("aria-pressed", button.dataset.originWarningFilter === activeKind ? "true" : "false");
+        });
+        if (clear) clear.hidden = !activeKind;
+        if (empty) empty.hidden = !activeKind || visibleMaterials > 0;
+      };
       buttons.forEach((button) => {
-        button.setAttribute("aria-pressed", button.dataset.originWarningFilter === activeKind ? "true" : "false");
+        button.addEventListener("click", () => {
+          const nextKind = button.dataset.originWarningFilter || "";
+          activeKind = activeKind === nextKind ? "" : nextKind;
+          applyWarningFilter();
+        });
       });
-      if (clear) clear.hidden = !activeKind;
-      if (empty) empty.hidden = !activeKind || visibleMaterials > 0;
-    };
-    buttons.forEach((button) => {
-      button.addEventListener("click", () => {
-        const nextKind = button.dataset.originWarningFilter || "";
-        activeKind = activeKind === nextKind ? "" : nextKind;
+      clear?.addEventListener("click", () => {
+        activeKind = "";
         applyWarningFilter();
       });
-    });
-    clear?.addEventListener("click", () => {
-      activeKind = "";
       applyWarningFilter();
     });
-    applyWarningFilter();
-  });
+  };
 
-  const columnControls = document.querySelectorAll("[data-origin-column-controls]");
-  if (columnControls.length) {
-    const storageKey = "barryCo.origin.hiddenColumns";
-    const columnWidths = {
-      row: 3.1,
-      code: 7.2,
-      name: 22,
-      hs: 6,
-      bom: 6.6,
-      consumed: 6.6,
-      "unit-value": 6.6,
-      "material-value": 6.6,
-      origin: 7.7,
-      "non-origin": 6.6,
-      source: 11,
-    };
-    const optionalColumns = ["hs", "bom", "consumed", "unit-value", "material-value", "origin", "non-origin", "source"];
-    const readHiddenColumns = () => {
-      try {
-        const saved = JSON.parse(window.localStorage.getItem(storageKey) || "[]");
-        return new Set(Array.isArray(saved) ? saved.filter((key) => optionalColumns.includes(key)) : []);
-      } catch (_error) {
-        return new Set();
-      }
-    };
-    const hiddenColumns = readHiddenColumns();
-    const persistHiddenColumns = () => {
-      try {
-        window.localStorage.setItem(storageKey, JSON.stringify(Array.from(hiddenColumns)));
-      } catch (_error) {
-      }
-    };
-    const applyColumnState = () => {
-      optionalColumns.forEach((key) => {
-        document.documentElement.classList.toggle(`origin-hide-col-${key}`, hiddenColumns.has(key));
-      });
-      document.querySelectorAll("[data-origin-column-toggle]").forEach((button) => {
-        const key = button.dataset.originColumnToggle || "";
-        const visible = !hiddenColumns.has(key);
-        const label = button.dataset.originColumnLabel || button.textContent.trim();
-        button.setAttribute("aria-pressed", visible ? "true" : "false");
-        button.title = `${visible ? "Ẩn" : "Hiện"} cột ${label}`;
-      });
-      const visibleWidth = Object.entries(columnWidths).reduce((total, [key, width]) => {
-        return hiddenColumns.has(key) ? total : total + width;
-      }, 4);
-      document.documentElement.style.setProperty("--origin-table-min-width", `${Math.max(visibleWidth, 35).toFixed(1)}rem`);
-    };
+  const storageKey = "barryCo.origin.hiddenColumns";
+  const columnWidths = {
+    row: 3.1,
+    code: 7.2,
+    name: 22,
+    hs: 6,
+    bom: 6.6,
+    consumed: 6.6,
+    "unit-value": 6.6,
+    "material-value": 6.6,
+    origin: 7.7,
+    "non-origin": 6.6,
+    source: 11,
+  };
+  const optionalColumns = ["hs", "bom", "consumed", "unit-value", "material-value", "origin", "non-origin", "source"];
+  const readHiddenColumns = () => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(storageKey) || "[]");
+      return new Set(Array.isArray(saved) ? saved.filter((key) => optionalColumns.includes(key)) : []);
+    } catch (_error) {
+      return new Set();
+    }
+  };
+  let hiddenColumns = readHiddenColumns();
+  const persistHiddenColumns = () => {
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(Array.from(hiddenColumns)));
+    } catch (_error) {
+    }
+  };
+  const applyColumnState = () => {
+    optionalColumns.forEach((key) => {
+      document.documentElement.classList.toggle(`origin-hide-col-${key}`, hiddenColumns.has(key));
+    });
     document.querySelectorAll("[data-origin-column-toggle]").forEach((button) => {
+      const key = button.dataset.originColumnToggle || "";
+      const visible = !hiddenColumns.has(key);
+      const label = button.dataset.originColumnLabel || button.textContent.trim();
+      button.setAttribute("aria-pressed", visible ? "true" : "false");
+      button.title = `${visible ? "Ẩn" : "Hiện"} cột ${label}`;
+    });
+    const visibleWidth = Object.entries(columnWidths).reduce((total, [key, width]) => {
+      return hiddenColumns.has(key) ? total : total + width;
+    }, 4);
+    document.documentElement.style.setProperty("--origin-table-min-width", `${Math.max(visibleWidth, 35).toFixed(1)}rem`);
+  };
+  const initOriginColumnControls = (root = document) => {
+    const columnControls = root.querySelectorAll("[data-origin-column-controls]");
+    if (!columnControls.length) return;
+    hiddenColumns = readHiddenColumns();
+    root.querySelectorAll("[data-origin-column-toggle]").forEach((button) => {
+      if (button.dataset.originColumnInitialized === "1") return;
+      button.dataset.originColumnInitialized = "1";
       button.addEventListener("click", () => {
         const key = button.dataset.originColumnToggle || "";
         if (!optionalColumns.includes(key)) return;
@@ -2138,7 +2150,9 @@
         applyColumnState();
       });
     });
-    document.querySelectorAll("[data-origin-column-reset]").forEach((button) => {
+    root.querySelectorAll("[data-origin-column-reset]").forEach((button) => {
+      if (button.dataset.originColumnInitialized === "1") return;
+      button.dataset.originColumnInitialized = "1";
       button.addEventListener("click", () => {
         hiddenColumns.clear();
         persistHiddenColumns();
@@ -2146,7 +2160,12 @@
       });
     });
     applyColumnState();
-  }
+  };
+  refreshCaseShellInteractions = (root = document) => {
+    initOriginWarningSummaries(root);
+    initOriginColumnControls(root);
+  };
+  refreshCaseShellInteractions();
 
   document.querySelectorAll("[data-allocation-toggle]").forEach((button) => {
     const group = button.dataset.allocationGroup || "";

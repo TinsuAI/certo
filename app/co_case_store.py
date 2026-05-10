@@ -102,9 +102,13 @@ def update_case_record(client: dict, case: dict) -> dict:
         record["shipment"]["bill_of_lading_no"] = clean_text(shipment.get("bill_of_lading_no"))
         if "products" in case:
             record["products"] = persisted_products(case.get("products", []))
-        for key in ["origin_product_order", "origin_sheet_states", "bom_version_id", "bom_product_version_overrides", "bom_snapshot", "origin_snapshot", "source_snapshot", "source_invoice_matches"]:
+        for key in ["origin_product_order", "origin_sheet_states", "bom_artifact_id", "bom_version_id", "bom_product_artifact_overrides", "bom_product_version_overrides", "bom_snapshot", "origin_snapshot", "source_snapshot", "source_invoice_matches"]:
             if key in case:
                 record[key] = json_safe(case.get(key))
+        if "bom_artifact_id" in case and "bom_version_id" not in case:
+            record["bom_version_id"] = json_safe(case.get("bom_artifact_id"))
+        if "bom_product_artifact_overrides" in case and "bom_product_version_overrides" not in case:
+            record["bom_product_version_overrides"] = json_safe(case.get("bom_product_artifact_overrides"))
         record["updated_at"] = now_iso()
         save_state(client["id"], state)
         return dict(record)
@@ -219,9 +223,13 @@ def case_from_record(base_case: dict, client: dict, record: dict) -> dict:
     case["supporting_files"] = [dict(file_row) for file_row in record.get("supporting_files", [])]
     if "products" in record:
         case["products"] = restored_products(record.get("products", []))
-    for key in ["origin_product_order", "origin_sheet_states", "bom_version_id", "bom_product_version_overrides", "bom_snapshot", "origin_snapshot", "source_snapshot", "source_invoice_matches"]:
+    for key in ["origin_product_order", "origin_sheet_states", "bom_artifact_id", "bom_version_id", "bom_product_artifact_overrides", "bom_product_version_overrides", "bom_snapshot", "origin_snapshot", "source_snapshot", "source_invoice_matches"]:
         if key in record:
             case[key] = json_safe(record.get(key))
+    if "bom_artifact_id" not in case and "bom_version_id" in case:
+        case["bom_artifact_id"] = json_safe(case.get("bom_version_id"))
+    if "bom_product_artifact_overrides" not in case and "bom_product_version_overrides" in case:
+        case["bom_product_artifact_overrides"] = json_safe(case.get("bom_product_version_overrides"))
     return case
 
 
@@ -373,6 +381,7 @@ def match_case_bcct_exports(case: dict, source_workspace: dict, client_config: d
             "currency": row.get("currency", ""),
             "invoice_ref": row.get("invoice_ref", ""),
             "transaction_key": row.get("transaction_key", ""),
+            "material_identity": row.get("material_identity", {}),
             "match_source": match_source,
             "invoice_mismatch": invoice_mismatch,
             "reference_warning": warning,
@@ -612,8 +621,8 @@ def create_case_workbook(case: dict, form_candidates: list[dict], invoice_matche
                     product.get("lvc_threshold") or product.get("rvc_threshold", ""),
                     product.get("lvc_status_label", ""),
                     product.get("documented_result", ""),
-                    case.get("bom_snapshot", {}).get("aggregate_version_id", ""),
-                    product.get("bom_product_version_id", ""),
+                    case.get("bom_snapshot", {}).get("aggregate_artifact_id") or case.get("bom_snapshot", {}).get("aggregate_version_id", ""),
+                    product.get("bom_product_artifact_id") or product.get("bom_product_version_id", ""),
                     material.get("material_code") or material.get("internal_material_code", ""),
                     material.get("material_sequence", ""),
                     material.get("material_description", ""),
@@ -699,6 +708,14 @@ def restored_products(products: list[dict]) -> list[dict]:
     restored = []
     for product in products:
         item = dict(product)
+        if "bom_product_artifact_id" not in item and item.get("bom_product_version_id"):
+            item["bom_product_artifact_id"] = item.get("bom_product_version_id")
+        if "bom_product_artifact_no" not in item and item.get("bom_product_version_no"):
+            item["bom_product_artifact_no"] = item.get("bom_product_version_no")
+        if "bom_product_version_id" not in item and item.get("bom_product_artifact_id"):
+            item["bom_product_version_id"] = item.get("bom_product_artifact_id")
+        if "bom_product_version_no" not in item and item.get("bom_product_artifact_no"):
+            item["bom_product_version_no"] = item.get("bom_product_artifact_no")
         item["materials"] = []
         for material in product.get("materials", []):
             row = dict(material)

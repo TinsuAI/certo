@@ -42,9 +42,9 @@
       <p class="meta">{{ "CO chỉ đọc BOM đã publish để bind vào hồ sơ; upload, flatten và cấu hình canonical nằm ở Data Hub." if bom_workspace.read_only else "Mỗi công ty chọn profile parse riêng. Upload BOM mới sẽ so sánh theo từng mã TP, rồi publish BOM tổng hợp nếu composition đổi." }}</p>
     </div>
     <div class="chip-row">
-      <span class="chip chip-active">BOM tổng hợp v{{ latest.version_no }}</span>
+      <span class="chip chip-active">Composition #{{ latest.artifact_no or latest.version_no }}</span>
       <span class="chip">{{ latest.row_count }} dòng</span>
-      <span class="chip">{{ bom_workspace.product_composition|length }} TP version</span>
+      <span class="chip">{{ bom_workspace.product_composition|length }} TP artifact</span>
       <span class="chip">{{ bom_workspace.config.code_system_mode }}</span>
     </div>
   </div>
@@ -54,7 +54,7 @@
     <div class="callout-icon">i</div>
     <div>
       <div class="callout-title">BOM đang lấy từ Data Hub.</div>
-      <p>Upload, flatten và cấu hình BOM canonical được xử lý trong Data Hub; CO chỉ đọc version đã publish để bind vào hồ sơ.</p>
+      <p>Upload, flatten và cấu hình BOM canonical được xử lý trong Data Hub; C/O chỉ đọc artifact đã publish để bind vào hồ sơ.</p>
     </div>
   </div>
   {% if bom_workspace.variant_conflicts %}
@@ -67,7 +67,7 @@
         <div class="rowitem">
           <div>
             <strong>{{ conflict.product_code }}</strong>
-            <div class="meta">{{ conflict.variants|length }} variant Data Hub đang publish; hồ sơ C/O phải bind bằng version_id cụ thể.</div>
+            <div class="meta">{{ conflict.variants|length }} variant Data Hub đang publish; hồ sơ C/O phải bind bằng artifact_id cụ thể.</div>
           </div>
         </div>
         {% endfor %}
@@ -104,7 +104,7 @@
     </form>
 
     <form method="post" action="/clients/{{ client.id }}/bom/upload" enctype="multipart/form-data" class="module-tile stack-form" hx-boost="false">
-      <h3>Upload và versioning</h3>
+      <h3>Upload và artifact</h3>
       <label>Kiểu file upload
         <select name="upload_mode">
           {% for option in bom_workspace.upload_mode_options %}
@@ -155,7 +155,7 @@
         <div class="rowitem">
           <div>
             <strong>{{ product_result.product_code }}</strong>
-            <div class="meta">TP v{{ product_result.previous_version_no }} -> v{{ product_result.new_version_no }} · +{{ product_result.diff_summary.added }} / -{{ product_result.diff_summary.removed }} / Δ{{ product_result.diff_summary.changed }}</div>
+        <div class="meta">TP #{{ product_result.previous_artifact_no or product_result.previous_version_no }} -> #{{ product_result.new_artifact_no or product_result.new_version_no }} · +{{ product_result.diff_summary.added }} / -{{ product_result.diff_summary.removed }} / Δ{{ product_result.diff_summary.changed }}</div>
           </div>
           <span class="badge badge-{{ 'success' if product_result.status == 'new_version' else 'neutral' }}">{{ product_result.status }}</span>
         </div>
@@ -190,7 +190,7 @@
       <h2>BOM của TP đang xem</h2>
       <p class="meta">
         {% if selected_bom_product %}
-        TP <span class="mono">{{ selected_bom_product }}</span> · version {{ selected_bom_product_summary.product_version_no or 'n/a' }} · {{ selected_bom_product_summary.row_count or 0 }} dòng.
+        TP <span class="mono">{{ selected_bom_product }}</span> · artifact {{ selected_bom_product_summary.product_artifact_no or selected_bom_product_summary.product_version_no or 'n/a' }} · {{ selected_bom_product_summary.row_count or 0 }} dòng.
         {% else %}
         Chọn một thành phẩm ở bảng trên để xem dòng BOM.
         {% endif %}
@@ -200,7 +200,7 @@
       {% if selected_bom_product %}
       <span class="chip chip-active mono">{{ selected_bom_product }}</span>
       {% endif %}
-      <span class="chip">BOM tổng hợp v{{ latest.version_no }}</span>
+      <span class="chip">Composition #{{ latest.artifact_no or latest.version_no }}</span>
       <span class="chip">{{ bom_line_table.filtered_count }} dòng sau lọc</span>
     </div>
   </div>
@@ -212,20 +212,20 @@
 <section class="zone bom-trace-zone">
   <div class="zone-head">
     <div>
-      <h2>Version và truy vết</h2>
-      <p class="meta">BOM tổng hợp là composition của các version TP. Tất cả version TP được giữ lại để hồ sơ C/O có thể chọn lại khi cần.</p>
+      <h2>Artifact và truy vết</h2>
+      <p class="meta">BOM tổng hợp là composition của các artifact TP. Tất cả artifact TP được giữ lại để hồ sơ C/O có thể chọn lại khi cần.</p>
     </div>
   </div>
   <div class="split-balanced">
     <div>
-      <h3>Lịch sử BOM tổng hợp</h3>
+      <h3>Lịch sử composition BOM</h3>
       <div class="table-scroll">
         <table class="table">
           <thead>
             <tr>
-              <th>BOM tổng hợp</th>
+              <th>Composition</th>
               <th>Trạng thái</th>
-              <th>TP version</th>
+              <th>TP artifact</th>
               <th>Dòng</th>
               <th>Diff</th>
               <th>Hash</th>
@@ -235,7 +235,7 @@
           <tbody>
             {% for version in bom_workspace.versions %}
             <tr>
-              <td class="mono">v{{ version.version_no }}</td>
+              <td class="mono">#{{ version.artifact_no or version.version_no }}</td>
               <td><span class="badge badge-{{ 'success' if version.status == 'published' else 'neutral' }}">{{ version.status }}</span></td>
               <td class="num">{{ version.product_versions|length }}</td>
               <td class="num">{{ version.row_count }}</td>
@@ -244,7 +244,7 @@
               <td>{{ version.published_at }}</td>
             </tr>
             {% else %}
-            <tr><td colspan="7" class="empty-cell">Chưa có version BOM.</td></tr>
+            <tr><td colspan="7" class="empty-cell">Chưa có artifact BOM.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -257,7 +257,7 @@
           <thead>
             <tr>
               <th>Mã TP</th>
-              <th>TP version</th>
+              <th>TP artifact</th>
               <th>Dòng</th>
               <th>Hash</th>
             </tr>
@@ -266,7 +266,7 @@
             {% for product_version in bom_workspace.product_composition %}
             <tr>
               <td class="mono">{{ product_version.product_code }}</td>
-              <td class="mono">v{{ product_version.product_version_no }}</td>
+              <td class="mono">#{{ product_version.product_artifact_no or product_version.product_version_no }}</td>
               <td class="num">{{ product_version.row_count }}</td>
               <td class="mono">{{ product_version.version_hash[:10] }}</td>
             </tr>
@@ -279,13 +279,13 @@
     </div>
   </div>
 
-  <h3>Lịch sử version TP</h3>
+  <h3>Lịch sử artifact TP</h3>
   <div class="table-scroll">
     <table class="table">
       <thead>
         <tr>
           <th>Mã TP</th>
-          <th>TP version</th>
+          <th>TP artifact</th>
           <th>Trạng thái</th>
           <th>Dòng</th>
           <th>Diff</th>
@@ -297,7 +297,7 @@
         {% for product_version in bom_workspace.product_versions %}
         <tr>
           <td class="mono">{{ product_version.product_code }}</td>
-          <td class="mono">v{{ product_version.product_version_no }}</td>
+          <td class="mono">#{{ product_version.product_artifact_no or product_version.product_version_no }}</td>
           <td><span class="badge badge-{{ 'success' if product_version.status == 'current' else 'neutral' }}">{{ product_version.status }}</span></td>
           <td class="num">{{ product_version.row_count }}</td>
           <td class="mono">+{{ product_version.diff_summary.added|default(0) }} / -{{ product_version.diff_summary.removed|default(0) }} / Δ{{ product_version.diff_summary.changed|default(0) }}</td>
@@ -305,7 +305,7 @@
           <td class="mono">{{ product_version.version_hash[:10] }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="empty-cell">Chưa có version TP.</td></tr>
+        <tr><td colspan="7" class="empty-cell">Chưa có artifact TP.</td></tr>
         {% endfor %}
       </tbody>
     </table>

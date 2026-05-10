@@ -8,7 +8,7 @@
   <div class="zone-head">
     <div>
       <h2>Cấu hình công ty</h2>
-      <p class="meta">Thiết lập cách lọc BCCT, tạo tồn C/O và resolve mã phân bổ để match BOM.</p>
+      <p class="meta">C/O runtime config. Declaration master config được quản lý trong Data Hub.</p>
     </div>
     <div class="chip-row">
       <span class="chip">v{{ client_config.config_version }}</span>
@@ -19,16 +19,22 @@
   <form method="post" action="/clients/{{ client.id }}/config" class="config-grid">
     <section class="zone mini-panel">
       <div class="subsection-head">
-        <h3>BCCT</h3>
-        <p class="meta">Loại hình nào được dùng cho tồn C/O và đối chiếu xuất khẩu.</p>
+        <h3>Data Hub master config</h3>
+        <p class="meta">Loại hình tờ khai là master data từ Data Hub, C/O chỉ đọc để tính tồn và đối chiếu hồ sơ.</p>
       </div>
-      <div class="stack-form">
-        <label>Loại hình nhập tính tồn C/O
-          <input name="eligible_import_declaration_types" value="{{ client_config.bcct.eligible_import_declaration_types|join(', ') }}">
-        </label>
-        <label>Loại hình xuất quan tâm
-          <input name="relevant_export_declaration_types" value="{{ client_config.bcct.relevant_export_declaration_types|join(', ') }}">
-        </label>
+      <div class="rowlist">
+        <div class="rowitem">
+          <div class="rowitem-main">
+            <strong>Loại hình nhập tính tồn C/O</strong>
+            <div class="meta">{{ client_config.bcct.eligible_import_declaration_types|join(', ') or 'chưa cấu hình' }}</div>
+          </div>
+        </div>
+        <div class="rowitem">
+          <div class="rowitem-main">
+            <strong>Loại hình xuất quan tâm</strong>
+            <div class="meta">{{ client_config.bcct.relevant_export_declaration_types|join(', ') or 'chưa cấu hình' }}</div>
+          </div>
+        </div>
       </div>
     </section>
 

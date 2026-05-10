@@ -5,7 +5,7 @@ Move CO toward the 3-app architecture where Data Hub owns shared HQ data and ide
 
 This change should:
 - use Data Hub as the identity issuer for CO users
-- make CO read clients, catalog/materials, BCCT, BQD/code mappings, and BOM from Data Hub APIs
+- make CO read clients, catalog/materials, BCCT, BQD mapping evidence, and BOM from Data Hub APIs
 - stop treating CO's catalog/BCCT/BOM upload routes and Postgres source tables as the long-term source of truth
 - keep CO cases, shipment fields, origin calculations, exports, and supporting-file workflow state inside the CO app
 
@@ -27,7 +27,7 @@ Data Hub:
   - `GET /v1/auth/validate`
 - JWTs are Ed25519 and include `iss`, `sub`, `iat`, `exp`, `email`, `role`, and `name`.
 - `/v1/hub/*` read API verifies bearer JWTs, but permissive fallback still accepts any non-empty bearer unless `api_auth_strict=true`.
-- Data APIs exist for DNCXs/clients, materials, BCCT, code mappings, BOM products/versions, and proposal lookup.
+- Data APIs exist for DNCXs/clients, materials, BCCT, mapping evidence, BOM products/artifacts, and proposal lookup.
 
 ## Decisions
 1. **Use Data Hub as identity provider; CO is a JWT consumer.**
@@ -55,7 +55,7 @@ Add CO config:
 - `DATA_HUB_BASE_URL`
 - `DATA_HUB_ISSUER_URL`
 - `DATA_HUB_JWKS_URL`
-- `DATA_HUB_API_TOKEN` or a service-token flow for backend reads
+- `DATA_HUB_SERVICE_TOKEN` for backend reads
 - `CO_AUTH_REQUIRED=true|false` for local demo fallback during migration
 
 Add CO auth module:
@@ -69,7 +69,7 @@ Add Data Hub adapter:
 - `clients()` -> `GET /v1/hub/dncxs`
 - `client(client_id)` -> `GET /v1/hub/dncxs/{client_id}`
 - `source_summary(client)` -> either a new Data Hub summary endpoint or aggregate counts from materials/BCCT/products
-- `source_workspace(client)` -> material catalog, product catalog, BCCT rows, code mappings, BOM metadata, and derived C/O stock in CO-compatible shape
+- `source_workspace(client)` -> material catalog, product catalog, BCCT rows, BOM metadata, and derived C/O stock in CO-compatible shape
 - `co_case_source_context(client, case)` -> source summary plus invoice-matched export BCCT rows
 - `get_client_config()` -> Data Hub client config or a new endpoint if CO-specific config remains separate
 

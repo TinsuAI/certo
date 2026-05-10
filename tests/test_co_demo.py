@@ -731,8 +731,8 @@ def test_bom_changed_upload_creates_next_version():
     )
 
     assert response.status_code == 200
-    assert "Đã tạo BOM tổng hợp v2" in response.text
-    assert "BOM tổng hợp v2" in response.text
+    assert "Đã tạo BOM composition #2" in response.text
+    assert "Composition #2" in response.text
     assert "Đổi <strong>1</strong>" in response.text
     workspace = get_bom_workspace(get_client("growatt"))
     composition = {row["product_code"]: row["product_version_no"] for row in workspace["product_composition"]}
@@ -761,7 +761,7 @@ def test_direct_bom_full_aggregate_retires_missing_products():
     )
 
     assert response.status_code == 200
-    assert "PV01.0117600 v1 -&gt; retired" in response.text
+    assert "PV01.0117600 #1 -&gt; retired" in response.text
     workspace = get_bom_workspace(get_client("growatt"))
     composition = {row["product_code"]: row["product_version_no"] for row in workspace["product_composition"]}
     assert composition == {"PV00.0048500": 2}
@@ -838,7 +838,7 @@ def test_reupload_historical_bom_can_create_new_product_version_against_current(
     )
 
     assert response.status_code == 200
-    assert "PV00.0048500 v2 -&gt; v3" in response.text
+    assert "PV00.0048500 #2 -&gt; #3" in response.text
     workspace = get_bom_workspace(get_client("growatt"))
     composition = {row["product_code"]: row["product_version_no"] for row in workspace["product_composition"]}
     assert workspace["latest_version"]["version_no"] == 3
@@ -904,7 +904,7 @@ def test_growatt_technical_bom_upload_can_be_accepted_as_flat_for_demo():
     )
 
     assert response.status_code == 200
-    assert "Đã tạo BOM tổng hợp v2" in response.text
+    assert "Đã tạo BOM composition #2" in response.text
     assert "GW-NVL-001" in response.text
     assert "needs_graph_flatten_review" in response.text
     workspace = get_bom_workspace(get_client("growatt"))
@@ -983,7 +983,7 @@ def test_co_case_can_select_aggregate_bom_version_snapshot():
     get_response = client.get(f"{created.headers['location']}/origin")
     assert get_response.status_code == 200
     assert "BOM snapshot" in get_response.text
-    assert "BOM tổng hợp v2" in get_response.text
+    assert "Composition #2" in get_response.text
 
     post_response = client.post(
         "/clients/growatt/evaluate",
@@ -993,7 +993,7 @@ def test_co_case_can_select_aggregate_bom_version_snapshot():
             "case_code": "TEST",
             "document_count": "0",
             "product_count": "1",
-            "bom_version_id": v1["version_id"],
+            "bom_artifact_id": v1["version_id"],
             "product_0_code": "PV00.0048500",
             "product_0_name": "Model inverter PV00.0048500",
             "product_0_finished_hs": "8504.40",
@@ -1007,7 +1007,7 @@ def test_co_case_can_select_aggregate_bom_version_snapshot():
 
     assert post_response.status_code == 200
     assert f'value="{v1["version_id"]}" selected' in post_response.text
-    assert "v1 · 2 dòng" in post_response.text
+    assert "#1 · 2 dòng" in post_response.text
 
 
 def test_johnson_technical_bom_upload_keeps_sap_leaf_rows_only():
@@ -1029,7 +1029,7 @@ def test_johnson_technical_bom_upload_keeps_sap_leaf_rows_only():
     )
 
     assert response.status_code == 200
-    assert "Đã tạo BOM tổng hợp v2" in response.text
+    assert "Đã tạo BOM composition #2" in response.text
     assert "004426-00" in response.text
     assert "1000461274" in response.text
     assert "ASM-001" not in response.text
@@ -1338,6 +1338,28 @@ def test_allocation_code_resolver_handles_regex_fallback_and_ambiguity():
     assert ambiguous["allocation_code"] == ""
     assert ambiguous["status"] == "requires_review"
     assert ambiguous["reason"] == "multiple_regex_matches"
+
+
+def test_allocation_code_resolver_prefers_data_hub_material_identity_internal_code():
+    config = get_client_config(get_client("do-thanh"))
+
+    resolved = resolve_allocation_code(
+        {
+            "item_code": "DAYTINHIEU",
+            "description": "DAYTINHIEU#&Điện trở nhiệt NTSA3153/15Kohm.Hàng mới 100% (012.0002700)",
+            "material_identity": {
+                "resolution_status": "resolved",
+                "resolved_code": "DAYTINHIEU",
+                "customs_code": "DAYTINHIEU",
+                "internal_code": "012.0002700",
+            },
+        },
+        config,
+    )
+
+    assert resolved["allocation_code"] == "012.0002700"
+    assert resolved["source"] == "material_identity.internal_code"
+    assert resolved["status"] == "resolved"
 
 
 def test_client_config_rejects_invalid_regex():
@@ -2034,7 +2056,7 @@ def test_co_case_origin_builds_and_persists_invoice_bom_snapshot():
     assert form_data["product_0_lvc_percentage"] == "86.50"
     assert "1,000" in origin.text
     assert "VND" in origin.text
-    assert 'name="product_0_bom_product_version_id"' in origin.text
+    assert 'name="product_0_bom_product_artifact_id"' in origin.text
     assert "86.50%" in origin.text
     assert "Đạt LVC" in origin.text
     assert "<th>Tờ khai nhập</th>" not in origin.text
@@ -2052,7 +2074,7 @@ def test_co_case_origin_builds_and_persists_invoice_bom_snapshot():
     assert recalculated.status_code == 200
     assert "Đã tính lại theo dữ liệu đang sửa." in recalculated.text
     assert "DEMO-NPL-001" in persisted.text
-    assert "v1 · 2 dòng" in persisted.text
+    assert "#1 · 2 dòng" in persisted.text
 
 
 def test_co_case_origin_switches_product_bom_version_from_dropdown():
@@ -2094,11 +2116,11 @@ def test_co_case_origin_switches_product_bom_version_from_dropdown():
 
     assert origin.status_code == 200
     assert f'value="{v2["product_version_id"]}" selected' in origin.text
-    assert "v1 · 2 dòng" in origin.text
-    assert "v2 · 2 dòng" in origin.text
+    assert "#1 · 2 dòng" in origin.text
+    assert "#2 · 2 dòng" in origin.text
 
     form_data = hidden_form_data(origin.text)
-    form_data["product_0_bom_product_version_id"] = v1["product_version_id"]
+    form_data["product_0_bom_product_artifact_id"] = v1["product_version_id"]
     switched = client.post("/clients/growatt/evaluate", data=form_data)
     switched_data = hidden_form_data(switched.text)
 
@@ -2108,11 +2130,21 @@ def test_co_case_origin_switches_product_bom_version_from_dropdown():
     assert switched_data["product_0_material_0_material_value"] == "30"
 
 
-def test_co_case_origin_resolves_customs_product_code_to_bom_code():
+def test_co_case_origin_uses_data_hub_material_identity_for_bom_code():
     from app.main import co_case_bom_product_codes, prepare_case_origin_products, selected_bom_rows_by_product
 
-    mappings = [{"customs_code": "BIENTAN.17", "internal_code": "PV01.0117500"}]
-    case = {"products": [{"code": "BIENTAN.17"}]}
+    match = {
+        "item_code": "BIENTAN.17",
+        "quantity": "3",
+        "customs_value": "100",
+        "currency": "USD",
+        "material_identity": {
+            "resolution_status": "resolved",
+            "product_kind": "tp",
+            "bom_product_code": "PV01.0117500",
+        },
+    }
+    case = {"products": [{"code": "BIENTAN.17", "bom_product_code": "PV01.0117500"}]}
     workspace = {
         "latest_version": {
             "version_id": "agg-1",
@@ -2154,20 +2186,35 @@ def test_co_case_origin_resolves_customs_product_code_to_bom_code():
         },
     }
 
-    assert co_case_bom_product_codes(case, [], mappings) == ["BIENTAN.17", "PV01.0117500"]
-    assert selected_bom_rows_by_product(case, workspace, mappings)["BIENTAN.17"][0]["material_code"] == "NVL-1"
+    assert co_case_bom_product_codes({}, [match]) == ["PV01.0117500"]
+    assert selected_bom_rows_by_product(case, workspace)["BIENTAN.17"][0]["material_code"] == "NVL-1"
     prepared = prepare_case_origin_products(
-        {"products": [{"code": "BIENTAN.17", "quantity": "3", "fob": "100", "currency": "USD"}]},
-        [],
+        {},
+        [match],
         workspace,
         {},
         [],
         [],
-        code_mappings=mappings,
     )
     assert prepared["products"][0]["bom_product_code"] == "PV01.0117500"
     assert prepared["products"][0]["materials"][0]["material_code"] == "NVL-1"
     assert prepared["products"][0]["materials"][0]["consumed_qty"] == Decimal("6")
+
+
+def test_co_case_origin_does_not_auto_select_unresolved_material_identity():
+    from app.main import co_case_bom_product_codes
+
+    assert co_case_bom_product_codes({}, [
+        {
+            "item_code": "BIENTAN.17",
+            "material_identity": {
+                "resolution_status": "ambiguous",
+                "product_kind": "tp",
+                "bom_product_code": "",
+                "selected_candidate_code": "PV01.0117500",
+            },
+        }
+    ]) == ["BIENTAN.17"]
 
 
 def test_co_case_origin_page_surfaces_method_readiness_and_evidence_gaps():

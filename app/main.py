@@ -60,7 +60,12 @@ from app.client_registry import get_client as registry_get_client
 from app.client_registry import get_client_case
 from app.customs_fx_store import CUSTOMS_FX_CLIENT_ID, get_customs_fx_store, refresh_customs_exchange_rates
 from app.database import apply_migrations, database_url
-from app.data_hub_client import DataHubClient, reset_current_data_hub_token, set_current_data_hub_token
+from app.data_hub_client import (
+    DataHubClient,
+    bom_product_code_from_material_identity,
+    reset_current_data_hub_token,
+    set_current_data_hub_token,
+)
 from app.data_hub_settings import (
     DATA_HUB_LINK_ENV_KEYS,
     DataHubLinkSettings,
@@ -345,7 +350,7 @@ CUSTOMS_FX_COLUMNS = [
 
 BOM_PRODUCT_COLUMNS = [
     {"key": "product_code", "label": "Mã TP", "class": "mono", "link_key": "view_href"},
-    {"key": "product_version_no", "label": "TP version", "class": "mono"},
+    {"key": "product_artifact_no", "label": "TP artifact", "class": "mono"},
     {"key": "row_count", "label": "Dòng BOM", "class": "num"},
     {"key": "status", "label": "Trạng thái"},
     {"key": "version_hash_short", "label": "Hash", "class": "mono"},
@@ -391,7 +396,13 @@ def data_hub_settings_context(request: Request, *, saved: bool = False, error: s
     settings = data_hub_link_settings()
     overrides = load_data_hub_overrides()
     env_values = os.environ
-    token_source = "environment" if env_values.get("DATA_HUB_API_TOKEN") else "local override" if "DATA_HUB_API_TOKEN" in overrides else "missing"
+    token_source = (
+        "environment"
+        if env_values.get("DATA_HUB_SERVICE_TOKEN")
+        else "local override"
+        if overrides.get("DATA_HUB_SERVICE_TOKEN")
+        else "missing"
+    )
     rows = [
         {"key": "DATA_HUB_ENABLED", "label": "Dùng Data Hub cho source/master data", "value": "1" if settings.source_enabled else "0", "type": "checkbox"},
         {"key": "CO_AUTH_REQUIRED", "label": "Bắt buộc Data Hub SSO cho CO", "value": "1" if settings.auth_required else "0", "type": "checkbox"},
@@ -417,7 +428,7 @@ def data_hub_settings_context(request: Request, *, saved: bool = False, error: s
             "configured": bool(settings.api_token),
             "masked": mask_secret(settings.api_token),
             "source": token_source,
-            "has_local_override": "DATA_HUB_API_TOKEN" in overrides,
+            "has_local_override": "DATA_HUB_SERVICE_TOKEN" in overrides,
         },
         "config_path": str(data_hub_config_path()),
         "test_result": test_result,
@@ -431,14 +442,15 @@ def data_hub_override_payload(form, current_overrides: dict[str, str]) -> dict[s
         "CO_FORCE_HTTPS_COOKIE": "1" if form.get("CO_FORCE_HTTPS_COOKIE") == "1" else "0",
     }
     for key in DATA_HUB_LINK_ENV_KEYS:
-        if key in payload or key in {"DATA_HUB_API_TOKEN", "CO_FORCE_HTTPS_COOKIE"}:
+        if key in payload or key in {"DATA_HUB_SERVICE_TOKEN", "CO_FORCE_HTTPS_COOKIE"}:
             continue
         payload[key] = str(form.get(key, "")).strip()
-    token = str(form.get("DATA_HUB_API_TOKEN", "")).strip()
+    token = str(form.get("DATA_HUB_SERVICE_TOKEN", "")).strip()
     if token:
-        payload["DATA_HUB_API_TOKEN"] = token
-    elif form.get("CLEAR_DATA_HUB_API_TOKEN") != "1" and current_overrides.get("DATA_HUB_API_TOKEN"):
-        payload["DATA_HUB_API_TOKEN"] = current_overrides["DATA_HUB_API_TOKEN"]
+        payload["DATA_HUB_SERVICE_TOKEN"] = token
+    elif form.get("CLEAR_DATA_HUB_SERVICE_TOKEN") != "1":
+        if current_overrides.get("DATA_HUB_SERVICE_TOKEN"):
+            payload["DATA_HUB_SERVICE_TOKEN"] = current_overrides["DATA_HUB_SERVICE_TOKEN"]
     return payload
 
 
@@ -935,7 +947,7 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
         if use_cached_context and case.get("products"):
             bom_workspace = bom_workspace_from_case_snapshot(case)
         else:
-            bom_product_codes = co_case_bom_product_codes(case, invoice_matches, source_context.get("code_mappings", []))
+            bom_product_codes = co_case_bom_product_codes(case, invoice_matches)
             bom_workspace = (
                 bom_service.workspace(client, product_codes=bom_product_codes)
                 if bom_product_codes
@@ -963,11 +975,10 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
             selected_lane,
             material_rows,
             stock_rows,
-            code_mappings=source_context.get("code_mappings", []),
             preserve_existing=preserve_origin_products,
         )
         case = attach_case_bom_snapshot(case, bom_workspace)
-        case = attach_origin_bom_product_codes(case, bom_workspace, source_context.get("code_mappings", []))
+        case = attach_origin_bom_product_codes(case, bom_workspace)
         if case.get("products"):
             case = attach_origin_readiness(case)
             case = attach_results(case)
@@ -976,7 +987,7 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
     elif current_step == "origin" and case.get("products"):
         if not use_cached_context:
             case = attach_case_bom_snapshot(case, bom_workspace)
-            case = attach_origin_bom_product_codes(case, bom_workspace, source_context.get("code_mappings", []))
+            case = attach_origin_bom_product_codes(case, bom_workspace)
         case = attach_origin_readiness(case)
         case = attach_results(case)
         case = attach_origin_sheet_states(case)
@@ -1070,7 +1081,6 @@ def cached_origin_source_context(client: dict, case: dict) -> dict:
         "invoice_matches": cached_matches or [origin_match_from_existing_product(product) for product in case.get("products", [])],
         "material_rows": [],
         "stock_rows": [],
-        "code_mappings": [],
     }
 
 
@@ -1116,14 +1126,16 @@ def bom_workspace_from_case_snapshot(case: dict) -> dict:
     seen = set()
     for row in composition:
         product_code = str(row.get("product_code") or "").strip()
-        version_id = str(row.get("product_version_id") or row.get("version_id") or "").strip()
+        version_id = str(row.get("product_artifact_id") or row.get("product_version_id") or row.get("artifact_id") or row.get("version_id") or "").strip()
         if not product_code or not version_id or version_id in seen:
             continue
         seen.add(version_id)
         product_versions.append({
             "product_code": product_code,
+            "product_artifact_id": version_id,
             "product_version_id": version_id,
             "version_id": version_id,
+            "product_artifact_no": row.get("product_artifact_no") or row.get("product_version_no") or row.get("artifact_no") or row.get("version_no") or "",
             "product_version_no": row.get("product_version_no") or row.get("version_no") or "",
             "version_no": row.get("product_version_no") or row.get("version_no") or "",
             "row_count": row.get("row_count", 0),
@@ -1132,14 +1144,16 @@ def bom_workspace_from_case_snapshot(case: dict) -> dict:
         })
     for product in case.get("products", []):
         product_code = str(product.get("bom_product_code") or product.get("code") or "").strip()
-        version_id = str(product.get("bom_product_version_id") or "").strip()
+        version_id = str(product.get("bom_product_artifact_id") or product.get("bom_product_version_id") or "").strip()
         if not product_code or not version_id or version_id in seen:
             continue
         seen.add(version_id)
         product_versions.append({
             "product_code": product_code,
+            "product_artifact_id": version_id,
             "product_version_id": version_id,
             "version_id": version_id,
+            "product_artifact_no": product.get("bom_product_artifact_no") or product.get("bom_product_version_no", ""),
             "product_version_no": product.get("bom_product_version_no", ""),
             "version_no": product.get("bom_product_version_no", ""),
             "row_count": len(product.get("materials", []) or []),
@@ -1150,8 +1164,10 @@ def bom_workspace_from_case_snapshot(case: dict) -> dict:
     for version in product_versions:
         options_by_code.setdefault(version["product_code"], []).append(version)
     aggregate = {
-        "version_id": snapshot.get("aggregate_version_id", ""),
-        "version_no": snapshot.get("aggregate_version_no", ""),
+        "artifact_id": snapshot.get("aggregate_artifact_id") or snapshot.get("aggregate_version_id", ""),
+        "artifact_no": snapshot.get("aggregate_artifact_no") or snapshot.get("aggregate_version_no", ""),
+        "version_id": snapshot.get("aggregate_artifact_id") or snapshot.get("aggregate_version_id", ""),
+        "version_no": snapshot.get("aggregate_artifact_no") or snapshot.get("aggregate_version_no", ""),
         "product_versions": composition,
         "rows": [],
     }
@@ -1164,49 +1180,38 @@ def bom_workspace_from_case_snapshot(case: dict) -> dict:
     }
 
 
-def co_case_bom_product_codes(case: dict, invoice_matches: list[dict], code_mappings: list[dict] | None = None) -> list[str]:
+def co_case_bom_product_codes(case: dict, invoice_matches: list[dict]) -> list[str]:
     codes = []
     for row in invoice_matches:
-        add_bom_code_candidates(
+        bom_product_code = bom_product_code_from_material_identity(row) or str(row.get("bom_product_code") or "").strip()
+        add_bom_code(
             codes,
-            str(row.get("item_code") or row.get("product_code") or row.get("customs_code") or "").strip(),
-            code_mappings,
+            bom_product_code or str(row.get("item_code") or row.get("product_code") or row.get("customs_code") or "").strip(),
         )
     for product in case.get("products", []):
-        add_bom_code_candidates(
+        add_bom_code(
             codes,
             str(product.get("bom_product_code") or product.get("code") or product.get("product_code") or "").strip(),
-            code_mappings,
         )
-        add_bom_code_candidates(
-            codes,
-            str(product.get("code") or product.get("product_code") or "").strip(),
-            code_mappings,
-        )
-    for code in case.get("bom_product_version_overrides", {}):
-        add_bom_code_candidates(codes, str(code or "").strip(), code_mappings)
+    override_codes = {
+        **(case.get("bom_product_version_overrides", {}) or {}),
+        **(case.get("bom_product_artifact_overrides", {}) or {}),
+    }
+    for code in override_codes:
+        add_bom_code(codes, str(code or "").strip())
     return codes
 
 
-def add_bom_code_candidates(codes: list[str], code: str, code_mappings: list[dict] | None = None) -> None:
-    for candidate in bom_code_candidates(code, code_mappings):
-        if candidate and candidate not in codes:
-            codes.append(candidate)
+def add_bom_code(codes: list[str], code: str) -> None:
+    code = str(code or "").strip()
+    if code and code not in codes:
+        codes.append(code)
 
-
-def bom_code_candidates(code: str, code_mappings: list[dict] | None = None) -> list[str]:
+def bom_code_candidates(code: str) -> list[str]:
     code = str(code or "").strip()
     if not code:
         return []
-    candidates = [code]
-    for mapping in code_mappings or []:
-        customs_code = str(mapping.get("customs_code") or "").strip()
-        internal_code = str(mapping.get("internal_code") or "").strip()
-        if code == customs_code and internal_code and internal_code not in candidates:
-            candidates.append(internal_code)
-        if code == internal_code and customs_code and customs_code not in candidates:
-            candidates.append(customs_code)
-    return candidates
+    return [code]
 
 
 def invoice_lookup_payload(client: dict, invoice_no: str, query: str = "", export_declaration_nos: str | list[str] = "") -> dict:
@@ -1574,7 +1579,6 @@ def prepare_case_origin_products(
     material_rows: list[dict],
     stock_rows: list[dict],
     *,
-    code_mappings: list[dict] | None = None,
     preserve_existing: bool = False,
 ) -> dict:
     source_matches = (
@@ -1586,7 +1590,7 @@ def prepare_case_origin_products(
         return case
 
     ordered_invoice_matches = order_invoice_matches_for_origin(case, source_matches) if invoice_matches else source_matches
-    bom_rows_by_product = selected_bom_rows_by_product(case, bom_workspace, code_mappings)
+    bom_rows_by_product = selected_bom_rows_by_product(case, bom_workspace)
     build_signature = origin_build_signature(ordered_invoice_matches, bom_rows_by_product, material_rows, stock_rows, form_lane)
     if (
         case.get("products")
@@ -1604,7 +1608,10 @@ def prepare_case_origin_products(
         product_code = str(match.get("item_code", "")).strip()
         if not product_code:
             continue
-        bom_product_code = resolve_bom_product_code(product_code, bom_workspace, code_mappings)
+        bom_product_code = bom_product_code_from_material_identity(match) or resolve_bom_product_code(
+            product_code,
+            bom_workspace,
+        )
         product_rows = bom_rows_by_product.get(product_code) or bom_rows_by_product.get(bom_product_code, [])
         products.append(origin_product_from_invoice_match(
             match,
@@ -1643,8 +1650,6 @@ def prepare_case_origin_sheet(
     form_lane: dict,
     material_rows: list[dict],
     stock_rows: list[dict],
-    *,
-    code_mappings: list[dict] | None = None,
 ) -> dict:
     target_code = str(product_code or "").strip()
     if not target_code:
@@ -1671,9 +1676,12 @@ def prepare_case_origin_sheet(
     if not target_match:
         return case
 
-    bom_rows_by_product = selected_bom_rows_by_product(case, bom_workspace, code_mappings)
+    bom_rows_by_product = selected_bom_rows_by_product(case, bom_workspace)
     material_index = material_catalog_index(material_rows)
-    bom_product_code = resolve_bom_product_code(target_code, bom_workspace, code_mappings)
+    bom_product_code = bom_product_code_from_material_identity(target_match) or resolve_bom_product_code(
+        target_code,
+        bom_workspace,
+    )
     product_rows = bom_rows_by_product.get(target_code) or bom_rows_by_product.get(bom_product_code, [])
     recalculated_product = origin_product_from_invoice_match(
         target_match,
@@ -1967,7 +1975,7 @@ def origin_build_signature(
         "materials": [
             compact_origin_signature_row(
                 row,
-                ["customs_code", "internal_code", "origin_default", "origin_status", "unit_price", "taxable_unit_price"],
+                ["material_code", "customs_code", "internal_code", "origin_default", "origin_status", "unit_price", "taxable_unit_price"],
             )
             for row in material_rows
         ],
@@ -2006,11 +2014,19 @@ def compact_origin_signature_row(row: dict, fields: list[str]) -> dict:
 def selected_bom_rows_by_product(
     case: dict,
     bom_workspace: dict,
-    code_mappings: list[dict] | None = None,
 ) -> dict[str, list[dict]]:
-    selected_version_id = case.get("bom_version_id") or bom_workspace.get("latest_version", {}).get("version_id", "")
+    selected_version_id = (
+        case.get("bom_artifact_id")
+        or case.get("bom_version_id")
+        or bom_workspace.get("latest_version", {}).get("artifact_id")
+        or bom_workspace.get("latest_version", {}).get("version_id", "")
+    )
     aggregate = next(
-        (version for version in bom_workspace.get("versions", []) if version.get("version_id") == selected_version_id),
+        (
+            version
+            for version in bom_workspace.get("versions", [])
+            if (version.get("artifact_id") or version.get("version_id")) == selected_version_id
+        ),
         bom_workspace.get("latest_version", {}),
     )
     rows = aggregate.get("rows")
@@ -2022,25 +2038,28 @@ def selected_bom_rows_by_product(
         if product_code:
             output.setdefault(product_code, []).append(dict(row))
 
-    version_index = {
-        version.get("product_version_id", ""): version
-        for version in bom_workspace.get("product_versions", [])
-        if version.get("product_version_id")
-    }
+    version_index = {}
+    for version in bom_workspace.get("product_versions", []):
+        for artifact_key in (version.get("product_artifact_id"), version.get("product_version_id"), version.get("artifact_id"), version.get("version_id")):
+            if artifact_key:
+                version_index[str(artifact_key)] = version
     composition_by_product = {
-        row.get("product_code", ""): row.get("product_version_id", "")
+        row.get("product_code", ""): row.get("product_artifact_id") or row.get("product_version_id", "")
         for row in aggregate.get("product_versions", [])
     }
-    overrides = dict(case.get("bom_product_version_overrides", {}))
+    overrides = {
+        **dict(case.get("bom_product_version_overrides", {})),
+        **dict(case.get("bom_product_artifact_overrides", {})),
+    }
     for product in case.get("products", []):
         product_code = str(product.get("code", "")).strip()
         bom_product_code = resolve_bom_product_code(
             str(product.get("bom_product_code") or product_code),
             bom_workspace,
-            code_mappings,
         )
         selected_product_version_id = (
-            product.get("bom_product_version_id")
+            product.get("bom_product_artifact_id")
+            or product.get("bom_product_version_id")
             or overrides.get(product_code)
             or overrides.get(bom_product_code)
             or composition_by_product.get(bom_product_code, "")
@@ -2061,7 +2080,6 @@ def selected_bom_rows_by_product(
 def attach_origin_bom_product_codes(
     case: dict,
     bom_workspace: dict,
-    code_mappings: list[dict] | None = None,
 ) -> dict:
     products = []
     changed = False
@@ -2070,7 +2088,6 @@ def attach_origin_bom_product_codes(
         bom_product_code = resolve_bom_product_code(
             str(product.get("bom_product_code") or display_code),
             bom_workspace,
-            code_mappings,
         )
         if bom_product_code and bom_product_code != product.get("bom_product_code"):
             updated = dict(product)
@@ -2089,7 +2106,6 @@ def attach_origin_bom_product_codes(
 def resolve_bom_product_code(
     code: str,
     bom_workspace: dict,
-    code_mappings: list[dict] | None = None,
 ) -> str:
     options_by_code = bom_workspace.get("product_version_options_by_code", {})
     latest_product_codes = {
@@ -2097,10 +2113,10 @@ def resolve_bom_product_code(
         for row in bom_workspace.get("latest_rows", [])
         if str(row.get("product_code") or "").strip()
     }
-    for candidate in bom_code_candidates(code, code_mappings):
+    for candidate in bom_code_candidates(code):
         if candidate in options_by_code or candidate in latest_product_codes:
             return candidate
-    candidates = bom_code_candidates(code, code_mappings)
+    candidates = bom_code_candidates(code)
     return candidates[0] if candidates else ""
 
 
@@ -2124,7 +2140,7 @@ def latest_usable_product_version(bom_workspace: dict, product_code: str) -> dic
 def material_catalog_index(material_rows: list[dict]) -> dict[str, dict]:
     output = {}
     for row in material_rows:
-        for key in [row.get("customs_code", ""), row.get("internal_code", "")]:
+        for key in [row.get("material_code", ""), row.get("customs_code", ""), row.get("internal_code", "")]:
             if str(key).strip():
                 output[str(key).strip()] = row
     return output
@@ -2300,8 +2316,10 @@ def origin_product_from_invoice_match(
         "lvc_status_label": lvc["status_label"],
         "lvc_threshold": decimal_text(threshold) if threshold is not None else "",
         "vnm_value": decimal_text(vnm) if materials else "",
-        "bom_product_version_id": first_non_empty(row.get("product_version_id", "") for row in bom_rows),
-        "bom_product_version_no": first_non_empty(row.get("product_version_no", "") for row in bom_rows),
+        "bom_product_artifact_id": first_non_empty(row.get("product_artifact_id") or row.get("product_version_id", "") for row in bom_rows),
+        "bom_product_artifact_no": first_non_empty(row.get("product_artifact_no") or row.get("product_version_no", "") for row in bom_rows),
+        "bom_product_version_id": first_non_empty(row.get("product_artifact_id") or row.get("product_version_id", "") for row in bom_rows),
+        "bom_product_version_no": first_non_empty(row.get("product_artifact_no") or row.get("product_version_no", "") for row in bom_rows),
         "materials": materials,
     }
     return enrich_origin_product(product)
@@ -3686,8 +3704,6 @@ async def save_client_config_route(request: Request, client_id: str):
     client = resolve_client(client_id)
     form = await request.form()
     config = portfolio_service.get_client_config(client)
-    config["bcct"]["eligible_import_declaration_types"] = str(form.get("eligible_import_declaration_types", ""))
-    config["bcct"]["relevant_export_declaration_types"] = str(form.get("relevant_export_declaration_types", ""))
     config["co_stock"]["lot_policy"] = str(form.get("co_stock_lot_policy", "line_level"))
     config["allocation_code"]["strategy"] = str(form.get("allocation_code_strategy", "same_as_customs_code"))
     config["allocation_code"]["description_regex"] = str(form.get("description_regex", ""))
@@ -4155,13 +4171,11 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
         context.get("recommended_form_lane", {}),
         source_context.get("material_rows", []),
         source_context.get("stock_rows", []),
-        code_mappings=source_context.get("code_mappings", []),
     )
     context["case"] = attach_case_bom_snapshot(context["case"], context.get("bom_workspace", minimal_bom_workspace()))
     context["case"] = attach_origin_bom_product_codes(
         context["case"],
         context.get("bom_workspace", minimal_bom_workspace()),
-        source_context.get("code_mappings", []),
     )
     context["case"] = attach_origin_readiness(context["case"])
     context["case"] = attach_results(context["case"])

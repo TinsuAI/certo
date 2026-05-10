@@ -29,7 +29,7 @@ DATA_HUB_LINK_ENV_KEYS = (
     "DATA_HUB_API_BASE_URL",
     "DATA_HUB_ISSUER_URL",
     "DATA_HUB_JWKS_URL",
-    "DATA_HUB_API_TOKEN",
+    "DATA_HUB_SERVICE_TOKEN",
     "CO_PUBLIC_BASE_URL",
     "CO_FORCE_HTTPS_COOKIE",
     "DATA_HUB_REQUEST_TIMEOUT_SECONDS",
@@ -37,7 +37,7 @@ DATA_HUB_LINK_ENV_KEYS = (
     "DATA_HUB_ADMIN_ROLES",
     "CO_CASE_DELETE_ROLES",
 )
-SECRET_ENV_KEYS = {"DATA_HUB_API_TOKEN"}
+SECRET_ENV_KEYS = {"DATA_HUB_SERVICE_TOKEN"}
 
 
 @dataclass(frozen=True)
@@ -70,7 +70,7 @@ class DataHubLinkSettings:
             data_hub_api_base_url=data_hub_api_base_url,
             issuer_url=issuer_url,
             jwks_url=jwks_url,
-            api_token=values.get("DATA_HUB_API_TOKEN", "").strip(),
+            api_token=values.get("DATA_HUB_SERVICE_TOKEN", "").strip(),
             co_public_base_url=clean_url(values.get("CO_PUBLIC_BASE_URL"), ""),
             force_https_cookie=env_flag(values.get("CO_FORCE_HTTPS_COOKIE")),
             request_timeout_seconds=positive_float_env(

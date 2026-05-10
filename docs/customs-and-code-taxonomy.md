@@ -69,7 +69,7 @@ This is necessary because some codes can be:
 
 ## Design Implications
 
-- BOM import should preserve both raw codes and normalized code mappings.
+- BOM import should preserve both raw codes and normalized mapping evidence.
 - Reconciliation logic should allow `customs_code`, `internal_code`, and `description-derived hints` to coexist.
 - Validation should distinguish between:
   - registered and matched

@@ -117,7 +117,7 @@ Required identity fields/concepts:
 - `flatten_strategy`: for example `manual_flat_as_provided`, `technical_exploded`, `purchased_btp_as_leaf`, `self_produced_btp_exploded`, `mixed_confirmed`.
 - `source_channel`: for example `agency_upload`, `staff_form`, `co_proposal`, `migration`, `seed`.
 - `source_upload_id` or source proposal/migration ID.
-- `parent_version_id` when derived from another version.
+- `parent_artifact_id` when derived from another artifact.
 - `lineage`: parent chain / child BOM versions used.
 - `display_label`: human-readable label for UI, derived from fields above.
 

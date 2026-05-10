@@ -24,7 +24,7 @@ Local Data Hub currently issues JWTs with `iss=http://localhost:8754`. CO accept
 
 ## Auth and Client Mapping
 
-- `DATA_HUB_API_TOKEN` is the fallback service token for Data Hub reads and is required when `DATA_HUB_ENABLED=1`.
+- `DATA_HUB_SERVICE_TOKEN` is the fallback service token for Data Hub reads and is required when `DATA_HUB_ENABLED=1`.
 - CO prefers the current Data Hub user JWT over the fallback service token so Data Hub can enforce per-user ACLs.
 - `DATA_HUB_CLIENT_CLAIM_KEYS` configures which JWT claims contain visible client IDs. The default keys are `client_ids,clients,allowed_clients,visible_clients,dncx_ids,client_id,dncx_id`.
 - `DATA_HUB_ADMIN_ROLES` configures roles that can see all clients. The default roles are `dev,admin`.
@@ -40,7 +40,7 @@ Use `config/co-data-hub.env.example` as the local checklist. Do not commit real 
 ## UI Settings
 
 - Open `/settings`, then `Technical Settings`, to view and edit the local CO -> Data Hub link override.
-- The UI masks `DATA_HUB_API_TOKEN`; leaving the token field blank keeps the existing token.
+- The UI masks `DATA_HUB_SERVICE_TOKEN`; leaving the token field blank keeps the existing token.
 - `Test connection` checks JWKS and, when source mode is enabled, calls the approved clients endpoint through `app/data_hub_client.py`.
 - When `CO_AUTH_REQUIRED=1`, Technical Settings requires a Data Hub user with role `dev`.
 - Production deployments should prefer env/secret-store config over browser-edited local overrides. Env values take precedence when both are present.
@@ -49,12 +49,12 @@ Use `config/co-data-hub.env.example` as the local checklist. Do not commit real 
 
 CO must not add raw Data Hub endpoint calls outside `app/data_hub_client.py`. If CO needs new Data Hub behavior, create `.ai/api-requests/YYYY-MM-DD-<slug>.md` from `.ai/templates/data-hub-api-request.md` and wait for Data Hub-side approval/provider tests.
 
-## Product Identity Contract
+## Material Identity Contract
 
-Data Hub owns BCCT-to-BOM product identity resolution. For C/O origin calculation, CO should consume item-level `product_identity` from approved Data Hub BCCT and invoice-match responses.
+Data Hub owns BCCT-to-BOM material identity resolution. For C/O origin calculation, CO should consume item-level `material_identity` from approved Data Hub BCCT and invoice-match responses.
 
-- Use `product_identity.bom_product_code` only when `product_identity.resolution_status == "resolved"`.
+- Use `material_identity.bom_product_code` only when `material_identity.resolution_status` is `resolved` or `resolved_pending_review`.
 - Treat `ambiguous`, `missing`, and `unverified` as unresolved in CO and require case-local operator selection or show the missing-BOM state.
 - Do not parse client-specific `goods_name` text in CO.
-- Do not use Data Hub `code-mappings` as authoritative BOM identity; mappings are candidate evidence only.
+- Do not call Data Hub code-mapping endpoints for BOM identity; mappings are candidate evidence only and are not a C/O source of truth.
 - Do not write case-local BOM TP selections back to Data Hub without a separate approved mutating contract.

@@ -46,8 +46,8 @@ Data Hub now has enough BOM API for a CO read port:
   Submits a CO case-specific proposal. Requires valid JWT. Service tokens need
   `bom:propose`. Body shape:
   `{client_id, actor: "co_system", intent: "modified_for_case",
-  parent_version_id, context, rows}`. Response shape:
-  `{proposal_id, status, version_id, decision_reason, failed_conditions}`.
+  parent_artifact_id, context, rows}`. Response shape:
+  `{proposal_id, status, artifact_id, decision_reason, failed_conditions}`.
 
 - `GET /v1/hub/proposals/{proposal_id}`
   Fetches proposal audit data when the caller can view the client.
@@ -65,7 +65,7 @@ Live local Data Hub smoke showed:
 - Preserve CO's current template shape behind an adapter first. Data Hub lacks
   CO's aggregate BOM version model, so CO should synthesize a compatibility
   workspace before attempting a wider UI redesign.
-- Use `version_id` as the binding key. Do not use `version_no` as an identity
+- Use `artifact_id` as the binding key. Do not use `artifact_no` as an identity
   because Data Hub scopes it by product and BOM variant.
 - In Data Hub mode, canonical BOM upload/config/template routes should stop
   writing local BOM state and instead point staff to Data Hub.
@@ -84,7 +84,7 @@ Live local Data Hub smoke showed:
 - Data Hub serializes decimal values as JSON numbers in current responses.
   If RVC needs exact decimal transport, request a string-decimal contract.
 - Approved CO proposals currently appear to materialize through the default
-  `create_version()` path unless Data Hub overrides provenance in a later fix.
+  artifact creation path unless Data Hub overrides provenance in a later fix.
   Before CO relies on proposal provenance, verify that approved proposals get
   `source_bom_kind='co_modified'` or equivalent and `source_channel='co_proposal'`.
 - Proposal validation does not yet validate that `context.case_id` exists in CO.
@@ -94,10 +94,9 @@ Live local Data Hub smoke showed:
 ## Port Plan
 1. Add Data Hub BOM adapter methods and tests.
    - `list_bom_products(client_id)`
-   - `list_bom_versions(client_id, product_code, actor=None, intent=None)`
-   - `get_bom_latest(client_id, product_code)`
-   - `get_bom_version(client_id, product_code, version_id)`
-   - `submit_bom_proposal(client_id, product_code, parent_version_id, rows, context)`
+   - `list_bom_artifacts(client_id, product_code)`
+   - `get_bom_artifact(client_id, product_code, artifact_id)`
+   - `submit_bom_proposal(client_id, product_code, parent_artifact_id, rows, context)`
 
 2. Add a CO BOM service boundary.
    - Local mode delegates to `app.bom_store`.

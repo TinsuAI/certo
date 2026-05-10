@@ -131,7 +131,7 @@ Initial contracts should be written before implementation:
   - Catalog and BOM are usually client-level with versions.
   - BCCT is transaction/period evidence and may be uploaded in arbitrary overlapping batches.
   - BCQT NXT/ERP remains project/year-specific for now.
-- How should code mappings and unit conversions be shared?
+- How should mapping evidence and unit conversions be shared?
   - They are clearly reusable between years and BCQT projects.
   - C/O may need allocation-code mapping but not the full BCQT unit-conversion model in v1.
 - Should portfolio own a generic findings/annotations subsystem, or should each consumer keep its own findings and only attach notes to portfolio rows?

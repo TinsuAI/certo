@@ -92,20 +92,20 @@ class DataHubBomService:
             product_code = product_code_from_row(product)
             if not product_code:
                 continue
-            version_payloads = self.product_version_payloads(client_id, product_code)
-            if version_payloads:
+            artifact_payloads = self.product_artifact_payloads(client_id, product_code)
+            if artifact_payloads:
                 current_payload = next(
                     (
                         payload
-                        for payload in version_payloads
-                        if (payload.get("version") or {}).get("flatten_status") != "non_flattened"
+                        for payload in artifact_payloads
+                        if (payload.get("artifact") or {}).get("flatten_status") != "non_flattened"
                         and payload.get("rows")
                     ),
-                    version_payloads[0],
+                    artifact_payloads[0],
                 )
-                current_version_id = current_payload["version"].get("version_id", "")
-                for payload in version_payloads:
-                    version = normalize_hub_version(payload.get("version") or {}, product_code)
+                current_artifact_id = current_payload["artifact"].get("artifact_id", "")
+                for payload in artifact_payloads:
+                    version = normalize_hub_artifact(payload.get("artifact") or {}, product_code)
                     rows = [
                         normalize_hub_row(row, version)
                         for row in payload.get("rows", [])
@@ -113,7 +113,7 @@ class DataHubBomService:
                     ]
                     version["status"] = (
                         "current"
-                        if version.get("product_version_id") == current_version_id and version.get("flatten_status") != "non_flattened"
+                        if version.get("product_artifact_id") == current_artifact_id and version.get("flatten_status") != "non_flattened"
                         else "non_flattened"
                         if version.get("flatten_status") == "non_flattened"
                         else "published"
@@ -130,14 +130,14 @@ class DataHubBomService:
                 payload = self.data_hub.get_bom_latest(client_id, product_code)
             except DataHubBomVariantConflict as exc:
                 variant_conflicts.append({"product_code": product_code, "variants": exc.variants})
-                product_versions.extend(version_from_variant(product_code, variant) for variant in exc.variants)
+                product_versions.extend(artifact_from_variant(product_code, variant) for variant in exc.variants)
                 continue
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code == 404:
                     continue
                 raise
 
-            version = normalize_hub_version(payload.get("version") or {}, product_code)
+            version = normalize_hub_artifact(payload.get("artifact") or {}, product_code)
             rows = [
                 normalize_hub_row(row, version)
                 for row in payload.get("rows", [])
@@ -179,11 +179,11 @@ class DataHubBomService:
             "variant_conflicts": variant_conflicts,
         }
 
-    def product_version_payloads(self, client_id: str, product_code: str) -> list[dict]:
-        if not hasattr(self.data_hub, "list_bom_versions") or not hasattr(self.data_hub, "get_bom_version"):
+    def product_artifact_payloads(self, client_id: str, product_code: str) -> list[dict]:
+        if not hasattr(self.data_hub, "list_bom_artifacts") or not hasattr(self.data_hub, "get_bom_artifact"):
             return []
         try:
-            summaries = self.data_hub.list_bom_versions(client_id, product_code)
+            summaries = self.data_hub.list_bom_artifacts(client_id, product_code)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 404:
                 return []
@@ -191,22 +191,22 @@ class DataHubBomService:
         if len(summaries) <= 1:
             return []
         payloads = []
-        for summary in sorted(summaries, key=lambda row: int(row.get("version_no") or 0), reverse=True):
-            version_id = summary.get("version_id", "")
-            if not version_id:
+        for summary in sorted(summaries, key=lambda row: int(row.get("artifact_no") or 0), reverse=True):
+            artifact_id = summary.get("artifact_id", "")
+            if not artifact_id:
                 continue
             try:
-                payload = self.data_hub.get_bom_version(client_id, product_code, version_id)
+                payload = self.data_hub.get_bom_artifact(client_id, product_code, artifact_id)
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code == 404:
                     continue
                 raise
             payloads.append({
                 **payload,
-                "version": {
+                "artifact": {
                     **summary,
-                    **(payload.get("version") or {}),
-                    "version_id": version_id,
+                    **(payload.get("artifact") or {}),
+                    "artifact_id": artifact_id,
                     "product_code": product_code,
                 },
             })
@@ -263,31 +263,41 @@ def clear_data_hub_bom_workspace_cache() -> None:
 
 
 def product_code_from_row(row: dict) -> str:
-    return str(row.get("product_code") or row.get("customs_code") or row.get("internal_code") or "").strip()
+    return str(
+        row.get("product_code")
+        or row.get("material_code")
+        or row.get("customs_code")
+        or row.get("internal_code")
+        or ""
+    ).strip()
 
 
-def normalize_hub_version(version: dict, product_code: str) -> dict:
-    version_id = str(version.get("version_id", ""))
-    version_no = int(version.get("version_no") or 0)
+def normalize_hub_artifact(artifact: dict, product_code: str) -> dict:
+    artifact_id = str(artifact.get("artifact_id", ""))
+    artifact_no = int(artifact.get("artifact_no") or 0)
     return {
-        **version,
-        "product_code": version.get("product_code") or product_code,
-        "product_version_id": version_id,
-        "product_version_no": version_no,
-        "version_hash": version.get("normalized_hash", ""),
-        "row_count": int(version.get("row_count") or 0),
-        "status": "current" if version.get("flatten_status") != "non_flattened" else "non_flattened",
+        **artifact,
+        "product_code": artifact.get("product_code") or product_code,
+        "product_artifact_id": artifact_id,
+        "product_artifact_no": artifact_no,
+        "product_version_id": artifact_id,
+        "product_version_no": artifact_no,
+        "version_hash": artifact.get("normalized_hash", ""),
+        "row_count": int(artifact.get("row_count") or 0),
+        "status": "current" if artifact.get("flatten_status") != "non_flattened" else "non_flattened",
         "diff_summary": {},
-        "source_upload_id": version.get("source_upload_id") or version.get("source_channel", "data-hub"),
+        "source_upload_id": artifact.get("source_upload_id") or artifact.get("source_channel", "data-hub"),
     }
 
 
-def version_from_variant(product_code: str, variant: dict) -> dict:
+def artifact_from_variant(product_code: str, variant: dict) -> dict:
     return {
         **variant,
         "product_code": product_code,
-        "product_version_id": variant.get("version_id", ""),
-        "product_version_no": int(variant.get("version_no") or 0),
+        "product_artifact_id": variant.get("artifact_id", ""),
+        "product_artifact_no": int(variant.get("artifact_no") or 0),
+        "product_version_id": variant.get("artifact_id", ""),
+        "product_version_no": int(variant.get("artifact_no") or 0),
         "version_hash": "",
         "row_count": int(variant.get("row_count") or 0),
         "status": "variant_conflict",
@@ -297,32 +307,36 @@ def version_from_variant(product_code: str, variant: dict) -> dict:
     }
 
 
-def normalize_hub_row(row: dict, version: dict) -> dict:
+def normalize_hub_row(row: dict, artifact: dict) -> dict:
     payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
-    product_code = version.get("product_code", "")
+    product_code = artifact.get("product_code", "")
     qty = row.get("qty_per_unit", row.get("qty_per", ""))
     return {
         **row,
         "product_code": product_code,
-        "bom_code": row.get("bom_code") or version.get("bom_code") or product_code,
-        "bom_variant_id": row.get("bom_variant_id") or version.get("bom_variant_id") or "default",
+        "bom_code": row.get("bom_code") or artifact.get("bom_code") or product_code,
+        "bom_variant_id": row.get("bom_variant_id") or artifact.get("bom_variant_id") or "default",
         "material_code": row.get("material_code", ""),
         "material_name": payload.get("material_name") or payload.get("description") or "",
         "hs_code": row.get("hs_code") or payload.get("hs_code") or payload.get("material_hs_code") or "",
         "qty_per": qty,
         "uom": row.get("uom", ""),
         "scrap_rate": payload.get("scrap_rate", ""),
-        "source": version.get("source_bom_kind", "data_hub"),
-        "row_class": version.get("flatten_status", "published"),
-        "product_version_id": version.get("product_version_id", ""),
-        "product_version_no": version.get("product_version_no", 0),
-        "flatten_strategy": version.get("flatten_strategy", ""),
+        "source": artifact.get("source_bom_kind", "data_hub"),
+        "row_class": artifact.get("flatten_status", "published"),
+        "product_artifact_id": artifact.get("product_artifact_id", ""),
+        "product_artifact_no": artifact.get("product_artifact_no", 0),
+        "product_version_id": artifact.get("product_artifact_id", ""),
+        "product_version_no": artifact.get("product_artifact_no", 0),
+        "flatten_strategy": artifact.get("flatten_strategy", ""),
     }
 
 
 def composition_entry(product_version: dict) -> dict:
     return {
         "product_code": product_version["product_code"],
+        "product_artifact_id": product_version["product_artifact_id"],
+        "product_artifact_no": product_version["product_artifact_no"],
         "product_version_id": product_version["product_version_id"],
         "product_version_no": product_version["product_version_no"],
         "version_hash": product_version.get("version_hash", ""),
@@ -343,6 +357,8 @@ def aggregate_version(composition: list[dict], rows: list[dict]) -> dict:
     payload = [
         {
             "product_code": row["product_code"],
+            "product_artifact_id": row["product_artifact_id"],
+            "product_artifact_no": row["product_artifact_no"],
             "product_version_id": row["product_version_id"],
             "product_version_no": row["product_version_no"],
             "version_hash": row.get("version_hash", ""),

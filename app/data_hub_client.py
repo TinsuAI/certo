@@ -75,16 +75,13 @@ class DataHubClient:
     def list_bcct(self, client_id: str, **query) -> list[dict]:
         return self._get_all("/v1/hub/bcct", {"client_id": client_id, **query})
 
-    def list_code_mappings(self, client_id: str) -> list[dict]:
-        return self._get_all("/v1/hub/code-mappings", {"client_id": client_id})
-
     def list_products(self, client_id: str) -> list[dict]:
         return self._get_all("/v1/hub/products", {"client_id": client_id})
 
     def list_bom_products(self, client_id: str) -> list[dict]:
         return self._get_all("/v1/hub/products", {"client_id": client_id})
 
-    def list_bom_versions(self, client_id: str, product_code: str, **query) -> list[dict]:
+    def list_bom_artifacts(self, client_id: str, product_code: str, **query) -> list[dict]:
         return [
             normalize_bom_artifact(row)
             for row in self._get_all(
@@ -92,9 +89,6 @@ class DataHubClient:
                 {"client_id": client_id, **query},
             )
         ]
-
-    def list_bom_artifacts(self, client_id: str, product_code: str, **query) -> list[dict]:
-        return self.list_bom_versions(client_id, product_code, **query)
 
     def get_bom_latest(self, client_id: str, product_code: str) -> dict:
         try:
@@ -106,23 +100,20 @@ class DataHubClient:
                 raise DataHubBomVariantConflict(product_code, exc.response.json()) from exc
             raise
 
-    def get_bom_version(self, client_id: str, product_code: str, version_id: str) -> dict:
+    def get_bom_artifact(self, client_id: str, product_code: str, artifact_id: str) -> dict:
         return normalize_bom_payload(
             self._get(
                 hub_bom_path(HUB_BOM_PATH, product_code),
-                {"client_id": client_id, "artifact_id": version_id},
+                {"client_id": client_id, "artifact_id": artifact_id},
             )
         )
-
-    def get_bom_artifact(self, client_id: str, product_code: str, artifact_id: str) -> dict:
-        return self.get_bom_version(client_id, product_code, artifact_id)
 
     def submit_bom_proposal(
         self,
         client_id: str,
         product_code: str,
         *,
-        parent_version_id: str,
+        parent_artifact_id: str,
         rows: list[dict],
         context: dict | None = None,
         actor: str = "co_system",
@@ -134,7 +125,7 @@ class DataHubClient:
                 "client_id": client_id,
                 "actor": actor,
                 "intent": intent,
-                "parent_artifact_id": parent_version_id,
+                "parent_artifact_id": parent_artifact_id,
                 "context": context or {},
                 "rows": rows,
             },
@@ -143,8 +134,8 @@ class DataHubClient:
     def get_bom_proposal(self, proposal_id: str) -> dict:
         return self._get(HUB_PROPOSAL_PATH.format(proposal_id=hub_path_part(proposal_id)))
 
-    def get_co_config(self, client_id: str) -> dict:
-        return self._get(f"/v1/hub/dncxs/{client_id}/co-config")
+    def get_client_config(self, client_id: str) -> dict:
+        return self._get(f"/v1/hub/dncxs/{client_id}/client-config")
 
     def source_summary(self, client_id: str) -> dict:
         return self._get(f"/v1/hub/dncxs/{client_id}/source-summary")
@@ -159,6 +150,7 @@ class DataHubClient:
                 "invoice_no": invoice_no,
                 "declaration_types": ",".join(declaration_types),
                 "include_market_hint": "true",
+                "include_material_identity": "true",
             },
         ))
 
@@ -230,7 +222,7 @@ class DataHubPortfolioService:
         }
 
     def get_client_config(self, client: dict) -> dict:
-        config = self.data_hub.get_co_config(client["id"])
+        config = self.data_hub.get_client_config(client["id"])
         return migrate_config({**default_config(client), **config}, client)
 
     def save_client_config(self, client: dict, config: dict) -> dict:
@@ -242,7 +234,14 @@ class DataHubPortfolioService:
     def source_summary(self, client: dict) -> tuple[dict, str]:
         summary = self.data_hub.source_summary(client["id"])
         summary["client_config"] = normalize_data_hub_client_config(summary.get("client_config") or {}, client)
-        summary["co_stock_row_count"] = int(summary.get("co_stock_row_count") or 0)
+        if "co_stock_row_count" not in summary:
+            import_rows = [
+                normalize_bcct_row(row)
+                for row in self.data_hub.list_bcct(client["id"], direction="import")
+            ] if hasattr(self.data_hub, "list_bcct") else []
+            summary["co_stock_row_count"] = len(co_stock_rows_from_bcct(import_rows, summary["client_config"]))
+        else:
+            summary["co_stock_row_count"] = int(summary.get("co_stock_row_count") or 0)
         return summary, "data-hub"
 
     def source_workspace(self, client: dict) -> tuple[dict, str]:
@@ -269,10 +268,12 @@ class DataHubPortfolioService:
                 for row in self.data_hub.list_materials(client["id"])
                 if row.get("category") != "tp"
             ]
-        code_mappings = self.data_hub.list_code_mappings(client["id"]) if hasattr(self.data_hub, "list_code_mappings") else []
         bcct_rows = []
         if hasattr(self.data_hub, "list_bcct"):
-            bcct_rows = [normalize_bcct_row(row) for row in self.data_hub.list_bcct(client["id"])]
+            bcct_rows = [
+                normalize_bcct_row(row)
+                for row in self.data_hub.list_bcct(client["id"], include_material_identity="true")
+            ]
         if export_declaration_nos:
             invoice_matches = match_case_bcct_exports(
                 case,
@@ -287,7 +288,6 @@ class DataHubPortfolioService:
             "source_summary": source_summary,
             "invoice_matches": invoice_matches,
             "material_rows": material_rows,
-            "code_mappings": code_mappings,
             "stock_rows": co_stock_rows_from_bcct(bcct_rows, client_config),
         }
 
@@ -352,14 +352,12 @@ def next_cursor(payload: dict) -> str:
 
 
 def normalize_bom_artifact(row: dict) -> dict:
-    artifact_id = row.get("artifact_id") or row.get("version_id") or ""
-    artifact_no = row.get("artifact_no") or row.get("version_no") or 0
+    artifact_id = row.get("artifact_id") or ""
+    artifact_no = row.get("artifact_no") or 0
     return {
         **row,
         "artifact_id": artifact_id,
         "artifact_no": artifact_no,
-        "version_id": row.get("version_id") or artifact_id,
-        "version_no": row.get("version_no") or artifact_no,
     }
 
 
@@ -367,13 +365,37 @@ def normalize_bom_payload(payload: dict) -> dict:
     output = dict(payload)
     if isinstance(output.get("artifact"), dict):
         output["artifact"] = normalize_bom_artifact(output["artifact"])
-        output.setdefault("version", output["artifact"])
-    if isinstance(output.get("version"), dict):
-        output["version"] = normalize_bom_artifact(output["version"])
-        output.setdefault("artifact", output["version"])
     if isinstance(output.get("variants"), list):
         output["variants"] = [normalize_bom_artifact(row) for row in output["variants"]]
     return output
+
+
+def material_identity(row: dict) -> dict:
+    identity = row.get("material_identity")
+    if not isinstance(identity, dict):
+        return {}
+    return identity
+
+
+def material_identity_display_code(row: dict) -> str:
+    identity = material_identity(row)
+    return str(
+        identity.get("resolved_code")
+        or identity.get("internal_code")
+        or identity.get("customs_code")
+        or ""
+    ).strip()
+
+
+def bom_product_code_from_material_identity(row: dict) -> str:
+    identity = material_identity(row)
+    if not identity:
+        return ""
+    if identity.get("resolution_status") not in ("resolved", "resolved_pending_review"):
+        return ""
+    if identity.get("product_kind") not in ("", None, "tp"):
+        return ""
+    return str(identity.get("bom_product_code") or "").strip()
 
 
 def normalize_client(row: dict) -> dict:
@@ -410,9 +432,12 @@ def normalize_data_hub_client_config(payload: dict, client: dict) -> dict:
 
 
 def normalize_material_row(row: dict) -> dict:
+    code = row.get("material_code") or row.get("customs_code", "")
     return {
-        "customs_code": row.get("customs_code", ""),
-        "internal_code": row.get("internal_code", ""),
+        **row,
+        "customs_code": code,
+        "internal_code": row.get("internal_code") or code,
+        "material_code": code,
         "name": row.get("name", ""),
         "category": row.get("category", ""),
         "unit": row.get("unit", ""),
@@ -423,10 +448,11 @@ def normalize_material_row(row: dict) -> dict:
 
 
 def normalize_product_row(row: dict) -> dict:
-    code = row.get("product_code") or row.get("customs_code") or row.get("internal_code", "")
+    code = row.get("product_code") or row.get("material_code") or row.get("customs_code") or row.get("internal_code", "")
     return {
+        **row,
         "product_code": code,
-        "customs_code": row.get("customs_code", code),
+        "customs_code": row.get("customs_code") or row.get("material_code") or code,
         "name": row.get("name", code),
         "unit": row.get("unit", ""),
         "hs_code": row.get("hs_code", ""),
@@ -435,7 +461,7 @@ def normalize_product_row(row: dict) -> dict:
 
 
 def normalize_bcct_row(row: dict) -> dict:
-    item_code = row.get("item_code") or row.get("internal_code") or row.get("customs_code", "")
+    item_code = material_identity_display_code(row) or row.get("item_code") or row.get("internal_code") or row.get("customs_code", "")
     payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
     transaction_key = row.get("transaction_key") or "||".join([
         row.get("direction", ""),
@@ -462,10 +488,11 @@ def normalize_bcct_row(row: dict) -> dict:
     )
     foreign_currency_value = first_value(
         row.get("foreign_currency_value"),
+        row.get("total_value_nt"),
         payload.get("foreign_currency_value"),
         payload.get("tri_gia_nt"),
     )
-    currency = first_value(row.get("currency"), payload.get("currency"), payload.get("don_vi_tien_te"))
+    currency = first_value(row.get("currency"), row.get("currency_nt"), payload.get("currency"), payload.get("don_vi_tien_te"))
     return {
         **row,
         "transaction_key": transaction_key,
@@ -506,6 +533,7 @@ def enrich_invoice_matches_with_bcct(invoice_matches: list[dict], bcct_rows: lis
         source = by_transaction.get(str(match.get("transaction_key", ""))) or by_line.get(bcct_line_key(match)) or {}
         output.append({
             **match,
+            "material_identity": match.get("material_identity") if isinstance(match.get("material_identity"), dict) else source.get("material_identity", {}),
             "customs_value": first_value(match.get("customs_value"), source.get("customs_value")),
             "total_value": first_value(match.get("total_value"), source.get("total_value")),
             "foreign_currency_value": first_value(match.get("foreign_currency_value"), source.get("foreign_currency_value")),

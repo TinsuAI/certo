@@ -83,12 +83,12 @@
           <p class="meta">{{ token.masked }} · {{ token.source }}</p>
         </div>
         <div class="stack-form">
-          <label>DATA_HUB_API_TOKEN
-            <input type="password" name="DATA_HUB_API_TOKEN" autocomplete="new-password" placeholder="Để trống để giữ nguyên">
+          <label>DATA_HUB_SERVICE_TOKEN
+            <input type="password" name="DATA_HUB_SERVICE_TOKEN" autocomplete="new-password" placeholder="Để trống để giữ nguyên">
           </label>
           {% if token.has_local_override %}
           <label class="inline-check">
-            <input type="checkbox" name="CLEAR_DATA_HUB_API_TOKEN" value="1">
+            <input type="checkbox" name="CLEAR_DATA_HUB_SERVICE_TOKEN" value="1">
             <span>Xóa token local override</span>
           </label>
           {% endif %}

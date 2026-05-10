@@ -22,7 +22,7 @@ def test_data_hub_link_settings_derives_urls_and_claim_mapping():
         "DATA_HUB_BASE_URL": "https://hub.example.test/",
         "DATA_HUB_API_BASE_URL": "http://hub-api.internal:8754/",
         "DATA_HUB_ISSUER_URL": "https://issuer.example.test/",
-        "DATA_HUB_API_TOKEN": " service-token ",
+        "DATA_HUB_SERVICE_TOKEN": " service-token ",
         "CO_PUBLIC_BASE_URL": "https://co.example.test/",
         "CO_FORCE_HTTPS_COOKIE": "on",
         "DATA_HUB_REQUEST_TIMEOUT_SECONDS": "3.5",
@@ -348,7 +348,7 @@ def test_data_hub_settings_page_renders_config_and_masks_token(monkeypatch, tmp_
     monkeypatch.setenv("DATA_HUB_CONFIG_PATH", str(tmp_path / "data-hub-link.json"))
     monkeypatch.setenv("DATA_HUB_BASE_URL", "https://hub.example.test")
     monkeypatch.setenv("DATA_HUB_API_BASE_URL", "http://hub-api.internal:8754")
-    monkeypatch.setenv("DATA_HUB_API_TOKEN", "super-secret-token")
+    monkeypatch.setenv("DATA_HUB_SERVICE_TOKEN", "super-secret-token")
 
     response = TestClient(app).get("/settings/technical")
 
@@ -363,9 +363,9 @@ def test_data_hub_settings_page_renders_config_and_masks_token(monkeypatch, tmp_
 
 def test_data_hub_settings_page_shows_env_token_source_when_env_overrides_local(monkeypatch, tmp_path):
     config_path = tmp_path / "data-hub-link.json"
-    config_path.write_text(json.dumps({"DATA_HUB_API_TOKEN": "local-secret-token"}), encoding="utf-8")
+    config_path.write_text(json.dumps({"DATA_HUB_SERVICE_TOKEN": "local-secret-token"}), encoding="utf-8")
     monkeypatch.setenv("DATA_HUB_CONFIG_PATH", str(config_path))
-    monkeypatch.setenv("DATA_HUB_API_TOKEN", "env-secret-token")
+    monkeypatch.setenv("DATA_HUB_SERVICE_TOKEN", "env-secret-token")
 
     response = TestClient(app).get("/settings/technical")
 
@@ -395,7 +395,7 @@ def test_data_hub_settings_page_saves_local_override(monkeypatch, tmp_path):
             "DATA_HUB_CLIENT_CLAIM_KEYS": "tenant_ids,dncx_ids",
             "DATA_HUB_ADMIN_ROLES": "owner,support",
             "CO_CASE_DELETE_ROLES": "ops,manager",
-            "DATA_HUB_API_TOKEN": "local-service-token",
+            "DATA_HUB_SERVICE_TOKEN": "local-service-token",
         },
         follow_redirects=False,
     )
@@ -403,7 +403,7 @@ def test_data_hub_settings_page_saves_local_override(monkeypatch, tmp_path):
     assert response.status_code == 303
     assert response.headers["location"] == "/settings/technical?saved=1"
     payload = json.loads(config_path.read_text(encoding="utf-8"))
-    assert payload["DATA_HUB_API_TOKEN"] == "local-service-token"
+    assert payload["DATA_HUB_SERVICE_TOKEN"] == "local-service-token"
     assert payload["DATA_HUB_API_BASE_URL"] == "http://hub-api.internal:8754"
     settings = data_hub_link_settings()
     assert settings.source_enabled is True
@@ -488,7 +488,7 @@ def test_data_hub_settings_connection_check_uses_existing_adapter(monkeypatch, t
     monkeypatch.setenv("DATA_HUB_CONFIG_PATH", str(tmp_path / "data-hub-link.json"))
     monkeypatch.setenv("DATA_HUB_ENABLED", "1")
     monkeypatch.setenv("DATA_HUB_API_BASE_URL", "http://hub-api.internal:8754")
-    monkeypatch.setenv("DATA_HUB_API_TOKEN", "service-token")
+    monkeypatch.setenv("DATA_HUB_SERVICE_TOKEN", "service-token")
     monkeypatch.setenv("DATA_HUB_REQUEST_TIMEOUT_SECONDS", "5")
     monkeypatch.setattr(co_auth, "fetch_data_hub_jwks", lambda _url: {"keys": [{"kid": "k-test"}]})
     monkeypatch.setattr(main_module, "DataHubClient", FakeDataHubClient)
@@ -648,7 +648,7 @@ def test_data_hub_client_from_env_uses_configured_api_base_url(monkeypatch):
     monkeypatch.setenv("DATA_HUB_ENABLED", "1")
     monkeypatch.setenv("DATA_HUB_BASE_URL", "https://hub.example.test")
     monkeypatch.setenv("DATA_HUB_API_BASE_URL", "http://hub-api.internal:8754")
-    monkeypatch.setenv("DATA_HUB_API_TOKEN", "service-token")
+    monkeypatch.setenv("DATA_HUB_SERVICE_TOKEN", "service-token")
     monkeypatch.setenv("DATA_HUB_REQUEST_TIMEOUT_SECONDS", "7")
 
     client = data_hub_client_from_env()
@@ -664,7 +664,7 @@ def test_data_hub_client_from_env_allows_empty_token_for_auth_disabled_demo(monk
 
     monkeypatch.setenv("DATA_HUB_ENABLED", "1")
     monkeypatch.setenv("DATA_HUB_API_BASE_URL", "http://hub-api.internal:8754")
-    monkeypatch.delenv("DATA_HUB_API_TOKEN", raising=False)
+    monkeypatch.delenv("DATA_HUB_SERVICE_TOKEN", raising=False)
 
     client = data_hub_client_from_env()
 
@@ -720,6 +720,7 @@ def test_data_hub_client_invoice_matches_requests_market_hint():
                 "invoice_no": "INV-001",
                 "declaration_types": "E42",
                 "include_market_hint": "true",
+                "include_material_identity": "true",
             },
         )
     ]
@@ -770,17 +771,16 @@ def test_data_hub_client_fetches_bom_contract_and_conflicts():
     )
 
     assert client.list_bom_products("growatt-vn") == [{"product_code": "TP-1", "n_versions": 2}]
-    assert client.list_bom_versions("growatt-vn", "TP-1") == [
-        {"artifact_id": "bv-1", "artifact_no": 1, "version_id": "bv-1", "version_no": 1}
+    assert client.list_bom_artifacts("growatt-vn", "TP-1") == [
+        {"artifact_id": "bv-1", "artifact_no": 1}
     ]
     with pytest.raises(DataHubBomVariantConflict) as exc:
         client.get_bom_latest("growatt-vn", "TP-1")
     assert exc.value.variants == [
-        {"artifact_id": "bv-a", "artifact_no": 0, "version_id": "bv-a", "version_no": 0},
-        {"artifact_id": "bv-b", "artifact_no": 0, "version_id": "bv-b", "version_no": 0},
+        {"artifact_id": "bv-a", "artifact_no": 0},
+        {"artifact_id": "bv-b", "artifact_no": 0},
     ]
-    pinned_bom = client.get_bom_version("growatt-vn", "TP-1", "bv-1")
-    assert pinned_bom["version"]["version_id"] == "bv-1"
+    pinned_bom = client.get_bom_artifact("growatt-vn", "TP-1", "bv-1")
     assert pinned_bom["artifact"]["artifact_id"] == "bv-1"
     assert pinned_bom["rows"][0]["material_code"] == "NVL-1"
     assert client.get_bom_proposal("prop-1")["status"] == "approved"
@@ -805,11 +805,11 @@ def test_data_hub_bom_service_adapts_workspace():
             assert client_id == "growatt-vn"
             assert product_code == "TP-1"
             return {
-                "version": {
-                    "version_id": "bv-1",
+                "artifact": {
+                    "artifact_id": "bv-1",
                     "client_id": "growatt-vn",
                     "product_code": "TP-1",
-                    "version_no": 3,
+                    "artifact_no": 3,
                     "normalized_hash": "hash-1",
                     "row_count": 1,
                     "status": "published",
@@ -851,22 +851,22 @@ def test_data_hub_bom_service_fetches_filtered_product_codes_directly():
         def list_bom_products(self, _client_id: str):
             raise AssertionError("filtered BOM workspaces should not depend on product listing pagination")
 
-        def list_bom_versions(self, client_id: str, product_code: str):
+        def list_bom_artifacts(self, client_id: str, product_code: str):
             assert client_id == "growatt-vn"
             assert product_code == "PV01.0117500"
             return [
-                {"version_id": "bv-1", "version_no": 1, "row_count": 1, "status": "published"},
-                {"version_id": "bv-2", "version_no": 2, "row_count": 1, "status": "published"},
+                {"artifact_id": "bv-1", "artifact_no": 1, "row_count": 1, "status": "published"},
+                {"artifact_id": "bv-2", "artifact_no": 2, "row_count": 1, "status": "published"},
             ]
 
-        def get_bom_version(self, client_id: str, product_code: str, version_id: str):
+        def get_bom_artifact(self, client_id: str, product_code: str, artifact_id: str):
             assert client_id == "growatt-vn"
             assert product_code == "PV01.0117500"
             return {
-                "version": {
-                    "version_id": version_id,
+                "artifact": {
+                    "artifact_id": artifact_id,
                     "product_code": product_code,
-                    "version_no": 2 if version_id == "bv-2" else 1,
+                    "artifact_no": 2 if artifact_id == "bv-2" else 1,
                     "row_count": 1,
                     "flatten_status": "flattened",
                 },
@@ -890,24 +890,24 @@ def test_data_hub_bom_service_exposes_switchable_product_versions():
             assert client_id == "growatt-vn"
             return [{"product_code": "TP-1", "n_versions": 2}]
 
-        def list_bom_versions(self, client_id: str, product_code: str):
+        def list_bom_artifacts(self, client_id: str, product_code: str):
             assert client_id == "growatt-vn"
             assert product_code == "TP-1"
             return [
-                {"version_id": "bv-1", "version_no": 1, "row_count": 1, "status": "published"},
-                {"version_id": "bv-2", "version_no": 2, "row_count": 1, "status": "published"},
+                {"artifact_id": "bv-1", "artifact_no": 1, "row_count": 1, "status": "published"},
+                {"artifact_id": "bv-2", "artifact_no": 2, "row_count": 1, "status": "published"},
             ]
 
-        def get_bom_version(self, client_id: str, product_code: str, version_id: str):
+        def get_bom_artifact(self, client_id: str, product_code: str, artifact_id: str):
             assert client_id == "growatt-vn"
             assert product_code == "TP-1"
-            qty = 2 if version_id == "bv-2" else 1
+            qty = 2 if artifact_id == "bv-2" else 1
             return {
-                "version": {
-                    "version_id": version_id,
+                "artifact": {
+                    "artifact_id": artifact_id,
                     "product_code": "TP-1",
-                    "version_no": 2 if version_id == "bv-2" else 1,
-                    "normalized_hash": version_id,
+                    "artifact_no": 2 if artifact_id == "bv-2" else 1,
+                    "normalized_hash": artifact_id,
                     "row_count": 1,
                     "flatten_status": "flattened",
                 },
@@ -930,33 +930,33 @@ def test_data_hub_bom_service_prefers_latest_usable_version_over_non_flattened()
             assert client_id == "growatt-vn"
             return [{"product_code": "TP-1", "n_versions": 2}]
 
-        def list_bom_versions(self, client_id: str, product_code: str):
+        def list_bom_artifacts(self, client_id: str, product_code: str):
             assert client_id == "growatt-vn"
             assert product_code == "TP-1"
             return [
-                {"version_id": "bv-1", "version_no": 1, "row_count": 1, "status": "published"},
-                {"version_id": "bv-2", "version_no": 2, "row_count": 4, "status": "published"},
+                {"artifact_id": "bv-1", "artifact_no": 1, "row_count": 1, "status": "published"},
+                {"artifact_id": "bv-2", "artifact_no": 2, "row_count": 4, "status": "published"},
             ]
 
-        def get_bom_version(self, client_id: str, product_code: str, version_id: str):
+        def get_bom_artifact(self, client_id: str, product_code: str, artifact_id: str):
             assert client_id == "growatt-vn"
             assert product_code == "TP-1"
-            if version_id == "bv-2":
+            if artifact_id == "bv-2":
                 return {
-                    "version": {
-                        "version_id": "bv-2",
+                    "artifact": {
+                        "artifact_id": "bv-2",
                         "product_code": "TP-1",
-                        "version_no": 2,
+                        "artifact_no": 2,
                         "row_count": 4,
                         "flatten_status": "non_flattened",
                     },
                     "rows": [],
                 }
             return {
-                "version": {
-                    "version_id": "bv-1",
+                "artifact": {
+                    "artifact_id": "bv-1",
                     "product_code": "TP-1",
-                    "version_no": 1,
+                    "artifact_no": 1,
                     "row_count": 1,
                     "flatten_status": "not_applicable",
                 },
@@ -1036,8 +1036,11 @@ def test_data_hub_portfolio_service_uses_invoice_lookup_api():
                 }
             ]
 
-        def list_bcct(self, client_id: str):
+        def list_bcct(self, client_id: str, **query):
             assert client_id == "growatt-vn"
+            assert query in ({"include_material_identity": "true"}, {"direction": "import"})
+            if query == {"direction": "import"}:
+                return []
             return [
                 {
                     "direction": "export",
@@ -1050,6 +1053,11 @@ def test_data_hub_portfolio_service_uses_invoice_lookup_api():
                     "currency": "USD",
                     "invoice_ref": "INV-001",
                     "transaction_key": "XK1-1",
+                    "material_identity": {
+                        "resolution_status": "resolved",
+                        "product_kind": "tp",
+                        "bom_product_code": "TP-001",
+                    },
                 },
                 {
                     "direction": "import",
@@ -1075,6 +1083,7 @@ def test_data_hub_portfolio_service_uses_invoice_lookup_api():
     assert context["invoice_matches"][0]["value_currency"] == "VND"
     assert context["invoice_matches"][0]["unloading_location"] == "USLAX - LOS ANGELES - CA"
     assert context["invoice_matches"][0]["market_hint"]["country_code"] == "US"
+    assert context["invoice_matches"][0]["material_identity"]["bom_product_code"] == "TP-001"
     assert context["stock_rows"][0]["customs_item_code"] == "MAT-001"
     assert context["stock_rows"][0]["material_description"] == "Imported material name"
     assert context["stock_rows"][0]["hs_code"] == "853690"
@@ -1110,6 +1119,61 @@ def test_data_hub_portfolio_service_skips_invoice_lookup_without_invoice_no():
 
     assert context["source_backend"] == "data-hub"
     assert context["invoice_matches"] == []
+
+
+def test_data_hub_portfolio_service_preserves_material_identity_for_declaration_matches():
+    from app.data_hub_client import DataHubPortfolioService
+
+    class FakeDataHubClient:
+        def source_summary(self, _client_id: str):
+            return {
+                "client_config": {
+                    "config_version": 1,
+                    "config_hash": "hub-cfg",
+                    "co_stock": {"lot_policy": "line_level"},
+                    "bcct": {"eligible_import_declaration_types": [], "relevant_export_declaration_types": ["E42"]},
+                    "allocation_code": {"strategy": "same_as_customs_code"},
+                },
+                "material_catalog": {"published_row_count": 0, "latest_version": {}},
+                "product_catalog": {"published_row_count": 0, "latest_version": {}},
+                "bcct": {"published_row_count": 1, "reviewed_row_count": 1, "latest_version": {}},
+                "co_stock_row_count": 0,
+            }
+
+        def invoice_matches(self, *_args, **_kwargs):
+            raise AssertionError("declaration matches should use list_bcct rows")
+
+        def list_bcct(self, client_id: str, **query):
+            assert client_id == "growatt-vn"
+            assert query in ({"include_material_identity": "true"}, {"direction": "import"})
+            if query == {"direction": "import"}:
+                return []
+            return [
+                {
+                    "direction": "export",
+                    "declaration_type": "E42",
+                    "declaration_no": "XK1",
+                    "line_no": "1",
+                    "item_code": "BIENTAN.17",
+                    "invoice_ref": "INV-001",
+                    "review_status": "reviewed",
+                    "material_identity": {
+                        "resolution_status": "resolved",
+                        "product_kind": "tp",
+                        "bom_product_code": "PV01.0117500",
+                    },
+                }
+            ]
+
+    service = DataHubPortfolioService(FakeDataHubClient())
+
+    context = service.co_case_source_context(
+        {"id": "growatt-vn"},
+        {"shipment": {"invoice_no": "INV-001", "export_declaration_nos": ["XK1"]}},
+    )
+
+    assert context["invoice_matches"][0]["item_code"] == "BIENTAN.17"
+    assert context["invoice_matches"][0]["material_identity"]["bom_product_code"] == "PV01.0117500"
 
 
 def test_clients_page_uses_portfolio_service_boundary(monkeypatch):
