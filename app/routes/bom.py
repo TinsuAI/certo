@@ -609,12 +609,18 @@ async def refresh_artifact_route(
         raise HTTPException(404, "Client not found")
     from app.stores.bom_staleness import refresh_artifact
     try:
-        refresh_artifact(client_id, artifact_id,
-                         triggered_by_user_id=user.user_id)
+        result = refresh_artifact(client_id, artifact_id,
+                                    triggered_by_user_id=user.user_id)
     except LookupError:
         raise HTTPException(404, "Artifact not found in this client")
+    # If refresh tombstoned this artifact (hash diff supersede), redirect
+    # to the new live artifact so staff doesn't see the dead one.
+    new_ids = result.get("new_artifact_ids") or []
+    target = artifact_id
+    if new_ids and new_ids[0] != artifact_id:
+        target = new_ids[0]
     return RedirectResponse(
-        url=f"/clients/{client_id}/bom/artifact/{artifact_id}",
+        url=f"/clients/{client_id}/bom/artifact/{target}",
         status_code=303,
     )
 

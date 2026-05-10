@@ -76,8 +76,8 @@
           Xem
         </a>
         {% if can_edit %}
-          {% if r.is_source %}
-            <small style="color:#999">(re-upload)</small>
+          {% if r.flatten_strategy == 'no_strategy' %}
+            <small style="color:#999">(raw_graph: cần re-upload)</small>
           {% else %}
             <form method="post"
                   action="/clients/{{ client.client_id }}/bom/artifact/{{ r.artifact_id }}/refresh"
@@ -94,10 +94,13 @@
 
 {% if can_edit %}
 <p class="muted" style="margin-top:1em">
-  • <strong>Stale derived</strong> (technical_exploded / purchased_btp_as_leaf):
+  • <strong>Derived</strong> (technical_exploded / purchased_btp_as_leaf):
   click <em>Refresh</em> để re-derive từ raw + catalog UoM hiện tại.<br>
-  • <strong>UoM drift trên source</strong> (manual_flat / raw_graph): cần re-upload
-  BOM hoặc edit catalog UoM cho khớp với raw — không refresh được.
+  • <strong>Manual_flat</strong> (Phase 2): click <em>Refresh</em> để
+  re-convert UoM từ <span class="mono">source_uom</span> đã lưu —
+  không cần re-upload.<br>
+  • <strong>Raw_graph</strong>: edges immutable; refresh các derived
+  artifacts thay vì refresh raw.
 </p>
 {% endif %}
 {% endif %}
