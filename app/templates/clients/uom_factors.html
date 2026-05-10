@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Hệ số quy đổi UoM · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="page-bar">
+  <h1>Hệ số quy đổi đơn vị tính</h1>
+  <span class="page-tagline">
+    Phase 2 · per-client. Bảng <span class="mono">hub.client_uom_overrides</span>.
+    Cross-family rows (count↔mass etc) bắt buộc có factor; same-family auto qua
+    <span class="mono">uom_canonical</span>.
+  </span>
+  <div class="page-actions">
+    <span class="badge badge-info">{{ summary.total }} hệ số</span>
+    {% if summary.cross_family %}
+    <span class="badge badge-warning">{{ summary.cross_family }} khác họ</span>
+    {% endif %}
+  </div>
+</section>
+
+{% if saved %}
+<div class="toast toast-success">{{ saved }}</div>
+{% endif %}
+{% if error %}
+<div class="toast toast-error">{{ error }}</div>
+{% endif %}
+
+<section class="card">
+  <h2>Danh sách</h2>
+  {% if factors %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Mã</th>
+        <th>Tên</th>
+        <th>Từ UoM</th>
+        <th>Sang UoM</th>
+        <th>Hệ số</th>
+        <th>Khác họ?</th>
+        <th>Nguồn</th>
+        <th>Ghi chú</th>
+        {% if can_edit %}<th>Thao tác</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for f in factors %}
+      <tr>
+        <td class="mono">{{ f.material_code or '— (client-wide)' }}</td>
+        <td>{{ f.material_name or '' }}</td>
+        <td class="mono">{{ f.from_uom }}</td>
+        <td class="mono">{{ f.to_uom }}</td>
+        <td class="mono">{{ f.factor }}</td>
+        <td>
+          {% if f.is_cross_family %}
+            <span class="badge badge-warning">khác họ</span>
+          {% else %}
+            <span class="badge">cùng họ</span>
+          {% endif %}
+        </td>
+        <td><span class="badge">{{ f.source }}</span></td>
+        <td>{{ f.notes or '' }}</td>
+        {% if can_edit %}
+        <td>
+          <details class="inline-details">
+            <summary>sửa</summary>
+            <form method="post"
+                  action="/clients/{{ client.client_id }}/uom-factors/update"
+                  style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+              <input type="hidden" name="material_code" value="{{ f.material_code or '' }}">
+              <input type="hidden" name="from_uom" value="{{ f.from_uom }}">
+              <input type="hidden" name="to_uom" value="{{ f.to_uom }}">
+              <input type="text" name="factor" value="{{ f.factor }}" required style="width:90px">
+              <select name="source">
+                {% for s in valid_sources %}
+                <option value="{{ s }}" {% if s == f.source %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+              </select>
+              <input type="text" name="notes" value="{{ f.notes or '' }}" placeholder="ghi chú">
+              <button type="submit">Lưu</button>
+            </form>
+          </details>
+          <form method="post"
+                action="/clients/{{ client.client_id }}/uom-factors/delete"
+                style="display:inline"
+                onsubmit="return confirm('Xóa hệ số này?')">
+            <input type="hidden" name="material_code" value="{{ f.material_code or '' }}">
+            <input type="hidden" name="from_uom" value="{{ f.from_uom }}">
+            <input type="hidden" name="to_uom" value="{{ f.to_uom }}">
+            <button type="submit" class="btn-ghost">⌫</button>
+          </form>
+        </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">Chưa có hệ số nào. Thêm dòng đầu tiên hoặc import CSV bên dưới.</p>
+  {% endif %}
+</section>
+
+{% if can_edit %}
+<section class="card">
+  <h2>Thêm hệ số</h2>
+  <form method="post" action="/clients/{{ client.client_id }}/uom-factors/new"
+        style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+    <label>
+      Mã NPL/SP <small>(để trống = áp cho mọi mã)</small><br>
+      <input type="text" name="material_code" placeholder="VD: M_X" style="width:160px">
+    </label>
+    <label>
+      Từ UoM<br>
+      <input type="text" name="from_uom" required placeholder="EA" style="width:80px">
+    </label>
+    <label>
+      Sang UoM<br>
+      <input type="text" name="to_uom" required placeholder="KG" style="width:80px">
+    </label>
+    <label>
+      Hệ số<br>
+      <input type="text" name="factor" required placeholder="0.5" style="width:90px">
+    </label>
+    <label>
+      Nguồn<br>
+      <select name="source">
+        {% for s in valid_sources %}
+        <option value="{{ s }}" {% if s == 'staff_form' %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label style="flex:1;min-width:200px">
+      Ghi chú<br>
+      <input type="text" name="notes" style="width:100%">
+    </label>
+    <button type="submit">Thêm</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Import CSV</h2>
+  <p class="muted">
+    Header bắt buộc: <code>material_code,from_uom,to_uom,factor</code>
+    (cộng tùy chọn <code>notes</code>). Để trống <code>material_code</code> = client-wide override.
+    Encoding UTF-8.
+  </p>
+  <form method="post"
+        action="/clients/{{ client.client_id }}/uom-factors/import-csv"
+        enctype="multipart/form-data"
+        style="display:flex;gap:8px;align-items:end">
+    <label>
+      File CSV<br>
+      <input type="file" name="csv_file" accept=".csv,text/csv" required>
+    </label>
+    <label>
+      Nguồn (áp cho cả file)<br>
+      <select name="source">
+        {% for s in valid_sources %}
+        <option value="{{ s }}" {% if s == 'imported' %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Import</button>
+  </form>
+</section>
+{% endif %}
+
+{% endblock %}
