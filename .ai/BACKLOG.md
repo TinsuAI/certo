@@ -462,38 +462,27 @@ preserved via `parent_artifact_id`. Same-hash dedup still clears flag
 without tombstone churn. Commit `2677cc4`. Refresh route redirects to
 the new live artifact (`0a63c07`).
 
-**G. Refresh-time conversion preview — STILL OPEN (~1-2d)**
+**G. Refresh-time conversion preview — SHIPPED 2026-05-13**
 
-Ingest-time conversion preview SHIPPED in Phase 2 (brief item 5,
-commit `c57c627`): preview shows per-row source UoM, target UoM,
-factor, factor source, with 4 staff actions
-(confirm / edit factor inline / save factor to table / skip).
-Admin UI for `client_uom_overrides` shipped (commit `29c1a25`).
-
-Gap remaining: **refresh-time** has no preview. POST
-`/clients/{cid}/bom/artifact/{aid}/refresh` calls `refresh_artifact()`
-directly → 3-tier policy applies → tombstones old → redirects to new.
-Staff cannot inspect the conversion plan (which factor, which source,
-which rows hit Tier A unconfirmed default vs Tier B blocked) before
-the commit; they only see the resulting artifact post-fact.
-
-Backlog G original spec: "Tương tự tại refresh-time: hiển thị
-conversion plan, cho staff edit factor trước khi commit re-derive."
-
-Implementation sketch:
-- New GET `/clients/{cid}/bom/artifact/{aid}/refresh/preview` → renders
-  the would-be conversion plan (re-walk SQL + run `make_uom_lookup`
-  + `convert_qty` without persisting), 4 actions matching ingest UI.
-- `refresh_artifact()` factored into `_compute_refresh_plan()` (pure)
-  + `_commit_refresh()` (persists). Preview calls plan-only.
-- POST stays as confirm/skip/edit-factor; preview optional but the
-  default UX path moves through GET preview first.
-
-Open question: should refresh-time skip-convert tombstone old with
-explicit reason `staff_skipped_convert` (vs auto-clear)? Suggest yes —
-captures intent for audit.
-
-Effort: 1-2d. UX-heavy → warrants `/discover` brief.
+Brief: `.ai/features/2026-05-13-bom-refresh-preview/brief.md`.
+Implementation:
+- `plan_refresh()` pure planner returns per-row plan (source/target
+  UoM, factor, source, status) + would_be_hash + has_blocking.
+- `commit_refresh()` re-plans at commit time (TOCTOU mitigation),
+  supports `skip=True` (logs `event_type='refresh.skipped'` into
+  existing `hub.bom_audit_events` — no new audit table) and
+  `edits=[…]` (inline factor upserts to `client_uom_overrides` before
+  commit). `refresh_artifact()` is now a thin wrapper.
+- GET `/clients/{cid}/bom/artifact/{aid}/refresh/preview` renders
+  per-row plan with status badges (sẵn sàng / mặc định 1:1 / thiếu
+  hệ số / thiếu catalog UoM), ack checkbox when Tier A present,
+  same-hash detection swaps CTA to "Xác nhận đã xem".
+- POST `/refresh` extended with `skip=1` + `inline_factor_<i>_<key>`
+  form fields. Direct POST without these stays back-compat.
+- Stale + drift block in `bom_artifact_detail.html` now link to GET
+  preview by default.
+- 18 new tests added. No new migration. Skip-convert decision: no
+  state change; only audit row (decision 4 of brief).
 
 ---
 
