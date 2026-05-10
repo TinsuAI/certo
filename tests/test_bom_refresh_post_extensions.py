@@ -184,6 +184,64 @@ def test_post_inline_factor_persists_then_refreshes(http):
         assert float(row[0]) == pytest.approx(0.25)
 
 
+def test_post_confirm_on_same_hash_clears_flag_without_minting(http):
+    """No-op refresh: same hash → clear is_stale, no new artifact, no
+    tombstone. Matches the 'Xác nhận đã xem' UX path."""
+    from app.stores.bom import create_artifact
+
+    raw_id = "ba_post_noop_raw"
+    with connect() as conn, conn.cursor() as cur:
+        _seed_material(cur, "TP_NN", category="tp", uom="kg")
+        _seed_material(cur, "M_NN", category="nvl", uom="kg")
+        _insert_raw(cur, raw_id, "TP_NN",
+                     edges=[("TP_NN", "M_NN", 2.0, "kg")])
+
+    converted_rows = [{
+        "material_code": "M_NN", "qty_per_unit": 2.0, "uom": "kg",
+        "source_uom": "kg", "applied_uom_factor": 1.0,
+        "applied_uom_source": "alias",
+    }]
+    derived_id = create_artifact(
+        client_id=CLIENT, product_code="TP_NN", rows=converted_rows,
+        actor="agency_staff", intent="derived",
+        parent_artifact_id=raw_id, context={"channel": "test"},
+        source_upload_id=None, source_bom_kind="technical_flattened",
+        flatten_status="flattened", flatten_strategy="technical_exploded",
+        source_channel="migration",
+        flatten_method="recursive_sql_with_uom_conversion",
+        flatten_method_version="2",
+    )
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "update hub.bom_artifacts set is_stale=true, "
+            "stale_reasons='[{\"dim\":\"catalog_category\"}]'::jsonb "
+            "where artifact_id=%s",
+            (derived_id,))
+        cur.execute("select count(*) from hub.bom_artifacts "
+                    "where client_id=%s", (CLIENT,))
+        artifacts_before = cur.fetchone()[0]
+
+    r = http.post(
+        f"/clients/{CLIENT}/bom/artifact/{derived_id}/refresh",
+        data={"confirm": "1"},
+    )
+    assert r.status_code in (303, 302)
+
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select is_stale, tombstoned_at from hub.bom_artifacts "
+            "where artifact_id=%s", (derived_id,))
+        is_stale, tombstoned_at = cur.fetchone()
+        assert is_stale is False, "same-hash refresh must clear is_stale"
+        assert tombstoned_at is None, "same-hash refresh must NOT tombstone"
+        cur.execute("select count(*) from hub.bom_artifacts "
+                    "where client_id=%s", (CLIENT,))
+        artifacts_after = cur.fetchone()[0]
+        assert artifacts_after == artifacts_before, (
+            "same-hash refresh must not mint a new artifact"
+        )
+
+
 def test_post_no_extra_params_still_works(http):
     """Existing direct-POST contract preserved (no preview)."""
     raw_id = "ba_post_back_raw"

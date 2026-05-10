@@ -153,6 +153,52 @@ def test_preview_route_404_unknown_artifact(http):
     assert r.status_code == 404
 
 
+def test_preview_route_no_op_renders_xac_nhan_da_xem(http):
+    """When plan.would_be_hash == artifact.normalized_hash, preview
+    swaps the primary CTA from 'Xác nhận Refresh' to 'Xác nhận đã xem'."""
+    from app.stores.bom import create_artifact
+
+    raw_id = "ba_route_noop_raw"
+    with connect() as conn, conn.cursor() as cur:
+        _seed_material(cur, "TP_NO", category="tp", uom="kg")
+        _seed_material(cur, "M_NO", category="nvl", uom="kg")
+        _insert_raw_artifact(cur, raw_id, "TP_NO",
+                              edges=[("TP_NO", "M_NO", 2.0, "kg")])
+
+    converted_rows = [{
+        "material_code": "M_NO", "qty_per_unit": 2.0, "uom": "kg",
+        "source_uom": "kg", "applied_uom_factor": 1.0,
+        "applied_uom_source": "alias",
+    }]
+    derived_id = create_artifact(
+        client_id=CLIENT, product_code="TP_NO", rows=converted_rows,
+        actor="agency_staff", intent="derived",
+        parent_artifact_id=raw_id, context={"channel": "test"},
+        source_upload_id=None, source_bom_kind="technical_flattened",
+        flatten_status="flattened", flatten_strategy="technical_exploded",
+        source_channel="migration",
+        flatten_method="recursive_sql_with_uom_conversion",
+        flatten_method_version="2",
+    )
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "update hub.bom_artifacts set is_stale=true, "
+            "stale_reasons='[{\"dim\":\"catalog_category\"}]'::jsonb "
+            "where artifact_id=%s",
+            (derived_id,))
+
+    r = http.get(
+        f"/clients/{CLIENT}/bom/artifact/{derived_id}/refresh/preview")
+    assert r.status_code == 200, r.text
+    body = r.text
+    assert "Xác nhận đã xem" in body, (
+        "no-op preview must offer 'Xác nhận đã xem' button label"
+    )
+    assert "same hash" in body or "không thay đổi" in body, (
+        "no-op preview must announce same-hash status"
+    )
+
+
 def test_preview_route_404_cross_tenant(http):
     raw_id = "ba_route_xtenant_raw"
     derived_id = "ba_route_xtenant_der"
