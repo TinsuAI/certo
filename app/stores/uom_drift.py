@@ -81,7 +81,15 @@ def compute_uom_drifts(client_id: str, rows: list[dict]) -> list[dict]:
     Returns severity-sorted list (worst first) of:
         {material_code, source_uom, source_canonical, source_dim,
          catalog_uom, catalog_canonical, catalog_dim,
-         bcct_uoms: list[str], severity, message}
+         bcct_uoms: list[str], severity, message,
+         # Phase 2 conversion plan (added 2026-05-12):
+         conversion: {factor: str|None, source: str|None,
+                       target_uom: str|None, would_block: bool} | None}
+
+    Phase 2: when catalog has a UoM, consult `make_uom_lookup` to
+    produce a `conversion` block per drift entry. Tier-B (no factor
+    + cross-family non-tier-A) sets `would_block=True` so preview can
+    surface "thiếu hệ số, chưa thể quy đổi" UI prompt.
     """
     # Dedupe parsed rows by (material_code, uom).
     seen_keys: set[tuple[str, str]] = set()
@@ -120,6 +128,12 @@ def compute_uom_drifts(client_id: str, rows: list[dict]) -> list[dict]:
         for code, unit in cur.fetchall():
             bcct_by_code.setdefault(code, []).append(unit)
 
+    # Phase 2: build a uom_lookup once for this client to compute the
+    # conversion plan per drift entry. Lazy import to avoid pulling
+    # the store layer at module import time.
+    from app.stores.uom import make_uom_lookup
+    uom_lookup = make_uom_lookup(client_id)
+
     out: list[dict] = []
     for code, src_uom in parsed:
         if code not in catalog and code not in bcct_by_code:
@@ -143,6 +157,30 @@ def compute_uom_drifts(client_id: str, rows: list[dict]) -> list[dict]:
         if severity == "none":
             continue
 
+        # Phase 2 conversion plan: only when catalog has a UoM (the
+        # convertible target). BCCT-side comparator is informational
+        # only; flatten engine converts toward catalog at materialize
+        # time.
+        conversion: dict | None = None
+        if cat_uom:
+            match = uom_lookup(code, src_uom, cat_uom)
+            if match is None:
+                # Tier-B without override row → would block conversion.
+                # OR unknown alias on either side.
+                conversion = {
+                    "factor": None,
+                    "source": None,
+                    "target_uom": cat_uom,
+                    "would_block": True,
+                }
+            else:
+                conversion = {
+                    "factor": str(match.factor),
+                    "source": match.source,
+                    "target_uom": cat_uom,
+                    "would_block": False,
+                }
+
         out.append({
             "material_code": code,
             "source_uom": src_uom,
@@ -155,6 +193,7 @@ def compute_uom_drifts(client_id: str, rows: list[dict]) -> list[dict]:
             "severity": severity,
             "message": _format_message(severity, code, src_uom,
                                        comparator, details),
+            "conversion": conversion,
         })
 
     out.sort(key=lambda d: (_SEVERITY_RANK.get(d["severity"], 99),

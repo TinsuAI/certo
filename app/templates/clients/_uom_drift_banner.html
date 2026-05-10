@@ -37,6 +37,8 @@
         <th>{{ t('uom_drift.col_severity') }}</th>
         <th>{{ t('uom_drift.col_material') }}</th>
         <th>{{ t('uom_drift.col_message') }}</th>
+        <th>Hệ số quy đổi</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
@@ -55,6 +57,31 @@
         </td>
         <td><code>{{ d.material_code }}</code></td>
         <td>{{ d.message }}</td>
+        <td>
+          {%- if d.conversion %}
+            {%- if d.conversion.would_block %}
+              <span class="badge badge-warn">thiếu hệ số</span>
+            {%- elif d.conversion.source == 'unconfirmed_default' %}
+              <span class="badge badge-warn" title="Mặc định 1:1, chờ agency xác nhận">
+                {{ d.conversion.factor }} (mặc định)
+              </span>
+            {%- elif d.conversion.source == 'alias' %}
+              <span class="badge badge-info" title="Alias">{{ d.conversion.factor }}</span>
+            {%- elif d.conversion.source == 'global' %}
+              <span class="badge badge-info" title="uom_canonical">{{ d.conversion.factor }}</span>
+            {%- else %}
+              <span class="badge" title="{{ d.conversion.source }}">{{ d.conversion.factor }}</span>
+            {%- endif %}
+          {%- endif %}
+        </td>
+        <td>
+          {%- if d.conversion and (d.conversion.would_block or d.conversion.source == 'unconfirmed_default') %}
+            <a class="btn-ghost"
+               href="/clients/{{ client.client_id }}/uom-factors?error=Th%C3%AAm%20h%E1%BB%87%20s%E1%BB%91%20cho%20{{ d.material_code }}%3A%20{{ d.source_uom }}%20%E2%86%92%20{{ d.conversion.target_uom }}"
+               target="_blank"
+               title="Mở admin UI để thêm hệ số">+ hệ số</a>
+          {%- endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>
