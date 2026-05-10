@@ -131,7 +131,10 @@ def _convert_rows_to_catalog_uom(
 
         if not target_uom:
             # Catalog has no canonical UoM — defer (order-independence).
-            converted.append({**r, "qty_per_unit": raw_qty, "uom": raw_uom})
+            converted.append({**r, "qty_per_unit": raw_qty, "uom": raw_uom,
+                              "source_uom": raw_uom,
+                              "applied_uom_factor": None,
+                              "applied_uom_source": None})
             drifts.append({
                 "material_code": code, "dim": "catalog_uom_missing",
                 "from_uom": raw_uom, "to_uom": None, "source": None,
@@ -148,7 +151,10 @@ def _convert_rows_to_catalog_uom(
             # Tier B (cross-family, no override) — keep raw, flag
             # factor_missing. Refresh will fail with stale flag retained
             # until staff populates client_uom_overrides.
-            converted.append({**r, "qty_per_unit": raw_qty, "uom": raw_uom})
+            converted.append({**r, "qty_per_unit": raw_qty, "uom": raw_uom,
+                              "source_uom": raw_uom,
+                              "applied_uom_factor": None,
+                              "applied_uom_source": None})
             drifts.append({
                 "material_code": code, "dim": "factor_missing",
                 "from_uom": raw_uom, "to_uom": target_uom, "source": None,
@@ -158,7 +164,10 @@ def _convert_rows_to_catalog_uom(
         if conv_err == "canonical_uom_missing":
             # convert_qty signals this when target_uom is empty/None,
             # but we already gated above. Defensive fall-through.
-            converted.append({**r, "qty_per_unit": raw_qty, "uom": raw_uom})
+            converted.append({**r, "qty_per_unit": raw_qty, "uom": raw_uom,
+                              "source_uom": raw_uom,
+                              "applied_uom_factor": None,
+                              "applied_uom_source": None})
             drifts.append({
                 "material_code": code, "dim": "catalog_uom_missing",
                 "from_uom": raw_uom, "to_uom": target_uom, "source": None,
@@ -166,9 +175,19 @@ def _convert_rows_to_catalog_uom(
             continue
 
         # Successful conversion (alias, global, client_specific,
-        # client_wide, or unconfirmed_default).
+        # client_wide, or unconfirmed_default). Capture audit fields
+        # for forensics (mig 056).
         out_qty = float(new_qty) if new_qty is not None else raw_qty
-        converted.append({**r, "qty_per_unit": out_qty, "uom": target_uom})
+        converted.append({
+            **r,
+            "qty_per_unit": out_qty,
+            "uom": target_uom,
+            "source_uom": raw_uom,
+            "applied_uom_factor": (float(conv_match.factor)
+                                   if conv_match else None),
+            "applied_uom_source": (conv_match.source
+                                   if conv_match else None),
+        })
 
         if conv_match and conv_match.source == "unconfirmed_default":
             drifts.append({

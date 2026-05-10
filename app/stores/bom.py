@@ -377,19 +377,30 @@ def _create_artifact_inner(cur, *, client_id, product_code, rows, actor, intent,
             f"Fix the source workbook or remove these rows. First few: {sample}",
         )
 
+    typed_keys = {
+        "material_code", "bom_code", "bom_variant_id",
+        "qty_per_unit", "uom",
+        # Phase 2 mig 056 — UoM audit columns:
+        "source_uom", "applied_uom_factor", "applied_uom_source",
+    }
     for i, r in enumerate(rows):
         cur.execute(
             """
             insert into hub.bom_artifact_rows
               (artifact_id, row_index, material_code, bom_code, bom_variant_id,
-               qty_per_unit, uom, payload)
-            values (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+               qty_per_unit, uom,
+               source_uom, applied_uom_factor, applied_uom_source,
+               payload)
+            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
             """,
             (artifact_id, i, r["material_code"],
              r.get("bom_code"), r.get("bom_variant_id"),
              r["qty_per_unit"], r.get("uom"),
+             r.get("source_uom"),
+             r.get("applied_uom_factor"),
+             r.get("applied_uom_source"),
              json.dumps({k: v for k, v in r.items()
-                         if k not in {"material_code","bom_code","bom_variant_id","qty_per_unit","uom"}},
+                         if k not in typed_keys},
                         default=str)),
         )
     cur.execute(
