@@ -117,8 +117,13 @@ Will likely match CO's existing choices to minimize friction:
 ## Build & Run
 
 ```bash
-uv run uvicorn app.main:app --port 8754 --host 127.0.0.1 --reload
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8754 --workers 4
 # Login admin@data-hub.local / admin123 (role=dev)
+#
+# Dev server runs 4 workers (concurrency for sister-app paginated
+# calls). `--workers N` is mutually exclusive with `--reload`, so no
+# auto-reload — manual restart after code changes. Drop to
+# `--workers 1` when stepping through a debugger.
 
 uv run pytest -q                                          # 219 passed, 15 skipped
 DATA_HUB_REAL_DATA_DIR=/tmp/dh_real_data uv run pytest -q # +real-data smoke (env-gated)
