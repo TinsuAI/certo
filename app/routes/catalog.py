@@ -567,7 +567,7 @@ def _query_materials(*, client_id: str, category: str | None,
     # btp_sourcing dropdown).
     sql = f"""
         select m.material_code, m.name, m.category, m.category_override,
-               m.status, m.unit, m.hs_code, m.updated_at, m.provenance,
+               m.status, m.uom, m.uom as unit, m.hs_code, m.updated_at, m.provenance,
                m.btp_sourcing, m.source, m.hq_registered, m.code_kind,
                m.promoted_to_declared_at, m.promoted_by,
                (m.hq_registered = true) as is_registered,
@@ -706,13 +706,13 @@ def _insert_materials_with_cursor(cur, *, client_id: str, rows: list[dict],
     sql = f"""
         insert into hub.materials
           (client_id, material_code, name, category, status,
-           unit, hs_code, provenance, source)
+           uom, hs_code, provenance, source)
         values (%s, %s, %s, %s, %s, %s, %s, {prov_sql}, %s)
         on conflict (client_id, material_code) do update set
           name = excluded.name,
           category = excluded.category,
           status = excluded.status,
-          unit = excluded.unit,
+          uom = coalesce(hub.materials.uom, excluded.uom),
           hs_code = excluded.hs_code,
           provenance = hub.materials.provenance || excluded.provenance,
           updated_at = now()

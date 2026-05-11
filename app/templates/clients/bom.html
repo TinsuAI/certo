@@ -49,9 +49,19 @@
       <input type="hidden" name="sort" value="{{ sort.column }}">
       <input type="hidden" name="dir" value="{{ sort.direction }}">
     {% endif %}
+    {% if kind %}<input type="hidden" name="kind" value="{{ kind }}">{% endif %}
     <input type="search" name="q" value="{{ q }}"
            placeholder="Tìm theo mã sản phẩm…">
   </form>
+
+  <div class="flatten-version-filters" style="margin-bottom: 0.8rem;">
+    <a class="filter-chip {% if not kind %}is-active{% endif %}"
+       href="{{ kind_link(None) }}">Tất cả</a>
+    <a class="filter-chip {% if kind == 'tp' %}is-active{% endif %}"
+       href="{{ kind_link('tp') }}">TP (thành phẩm)</a>
+    <a class="filter-chip {% if kind == 'btp' %}is-active{% endif %}"
+       href="{{ kind_link('btp') }}">BTP (bán thành phẩm)</a>
+  </div>
 
   {% if products %}
   {# Counts for filter chips — applied to current page only.
@@ -154,8 +164,8 @@
   {% include "clients/_pagination.html" %}
   {% else %}
   <div class="empty-state">
-    {% if q %}
-    <p>Không có sản phẩm khớp "{{ q }}".</p>
+    {% if q or kind %}
+    <p>Không có sản phẩm khớp bộ lọc hiện tại.</p>
     <a class="btn-ghost" href="/clients/{{ client.client_id }}/bom">Xóa bộ lọc</a>
     {% else %}
     <p>{{ t('bom.empty') }}</p>

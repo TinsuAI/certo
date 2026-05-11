@@ -295,7 +295,8 @@ Response item fields:
 - `category`
 - `category_override`
 - `status`
-- `unit`
+- `uom` — canonical unit of measure (post-mig-063, replaces `unit`)
+- `unit` — **deprecated alias of `uom`**, grace window through **2026-05-25**, then removed. New consumers must read `uom`.
 - `hs_code`
 - `updated_at`
 

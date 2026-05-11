@@ -121,9 +121,9 @@ where client_id = %(client_id)s and material_code = any(%(codes)s)
 
 INSERT_BTP_SQL = """
 insert into hub.materials
-  (client_id, customs_code, internal_code, name, category, status, unit, provenance)
+  (client_id, material_code, name, category, status, uom, provenance)
 values
-  (%(client_id)s, %(code)s, %(code)s, null, 'btp_sx', 'active', %(unit)s,
+  (%(client_id)s, %(code)s, null, 'btp_sx', 'active', %(unit)s,
    jsonb_build_object(
      'btp_inferred', jsonb_build_object(
        'first_seen', to_char(now(), 'YYYY-MM-DD'),
@@ -131,7 +131,9 @@ values
        'rule', 'has_own_bom_and_consumed_as_child'
      )
    ))
-on conflict (client_id, customs_code) do nothing
+on conflict (client_id, material_code) do update set
+  uom = coalesce(hub.materials.uom, excluded.uom),
+  updated_at = now()
 """
 
 

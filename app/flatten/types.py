@@ -70,7 +70,7 @@ class CatalogEntry:
     material_code: str
     category: str | None      # 'nvl'|'btp_sx'|'btp_nm'|'tp'|'ccdc'
     status: str | None        # 'active'|'discontinued'
-    unit: str | None          # canonical UOM per material
+    uom: str | None           # canonical UOM per material (post-mig-063)
 
 
 @dataclass(frozen=True)

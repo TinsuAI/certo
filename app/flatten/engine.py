@@ -269,7 +269,7 @@ def _resolve_version(
             row_qty = _qty_decimal(row.get("qty_per_unit"))
             row_uom = row.get("uom")
             cat = ctx.catalog(material_code)
-            canon_uom = cat.unit if cat and cat.unit else row_uom
+            canon_uom = cat.uom if cat and cat.uom else row_uom
             converted, conv_match, conv_err = convert_qty(
                 row_qty, row_uom, canon_uom,
                 material_code=material_code, lookup=ctx.uom,
@@ -536,7 +536,7 @@ def _explode(
 
         if cls.action == "leaf" or (cls.dual_source and cls.action == "leaf"):
             cat = ctx.catalog(gc_mat)
-            canon_uom = cat.unit if cat and cat.unit else gc_uom
+            canon_uom = cat.uom if cat and cat.uom else gc_uom
             converted, conv_match, conv_err = convert_qty(
                 gc_qty, gc_uom, canon_uom,
                 material_code=gc_mat, lookup=ctx.uom,

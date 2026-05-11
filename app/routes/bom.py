@@ -94,12 +94,15 @@ BOM_SORT_DEFAULT = ("last_published", "desc")
 
 @router.get("/clients/{client_id}/bom", response_class=HTMLResponse)
 async def list_view(request: Request, client_id: str,
-                    q: str | None = None):
+                    q: str | None = None, kind: str | None = None):
     user = auth.require_user(request)
     auth.require_can_view_client(user, client_id)
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
+    if kind not in (None, "", "tp", "btp"):
+        kind = None
+    kind = kind or None
     page_params = parse_page_params(query_params=request.query_params)
     sort = SortSpec.from_params(
         query_params=request.query_params,
@@ -114,22 +117,39 @@ async def list_view(request: Request, client_id: str,
         order_by = sort.sql_clause(tiebreakers=("a.product_code",)) \
             if sort.column != "product_code" else sort.sql_clause()
     products = list_products_with_bom(
-        client_id, q=q,
+        client_id, q=q, kind=kind,
         order_by=order_by,
         limit=page_params.page_size, offset=page_params.offset,
     )
-    total = count_products_with_bom(client_id, q=q)
+    total = count_products_with_bom(client_id, q=q, kind=kind)
     paging_ctx = pagination_context(
         request=request, page_params=page_params, total=total,
     )
 
     def _sort_link(col: str) -> str:
         return sort_link(request=request, column=col, current_sort=sort)
+
+    def _kind_link(target: str | None) -> str:
+        params = []
+        if q:
+            params.append(("q", q))
+        if sort.column != "last_published" or sort.direction != "desc":
+            params.append(("sort", sort.column))
+            params.append(("dir", sort.direction))
+        if target:
+            params.append(("kind", target))
+        from urllib.parse import urlencode
+        qs = urlencode(params)
+        return (
+            f"/clients/{client_id}/bom" + (f"?{qs}" if qs else "")
+        )
+
     return request.app.state.templates.TemplateResponse(
         request, "clients/bom.html",
         {"client": client, "stats": stats_for_client(client_id),
-         "products": products, "q": q or "",
+         "products": products, "q": q or "", "kind": kind or "",
          "paging": paging_ctx, "sort": sort, "sort_link": _sort_link,
+         "kind_link": _kind_link,
          "freshness": freshness_for_template(request, client_id, "bom"),
          "active_root": "clients", "active_tab": "bom"},
     )

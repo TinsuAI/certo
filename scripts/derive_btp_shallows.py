@@ -64,18 +64,17 @@ def _subtree_edges(cur, *, artifact_id: str, root_code: str) -> list[dict]:
     walking parent → child until leaves. Returns a fresh edge list
     with `root_code` rebound to the new subtree root.
 
-    Re-roots context fields so identical BTP slices dedup via
-    `normalized_edges_hash`. The same BTP appearing under multiple
-    parent TPs would otherwise produce different artifacts due to:
-      - `level`: depth in original TP tree (varies)
-      - `node_path`: path from TP root (varies)
-      - `source_row_no` / `sheet_name`: TP XLSX metadata (varies)
-
-    These are set to `None` on the sliced edges. Relative depth +
-    path-from-BTP can be re-derived from the parent_code → child_code
-    chain on display. `payload` is preserved as-is — if it carries
-    context-specific data, separate artifacts are legit; if identical
-    across parents, edges dedup naturally.
+    Re-roots topology so identical BTP slices dedup via
+    `normalized_edges_hash`:
+      - `node_path` rebuilt from BTP root (drops TP prefix above BTP,
+        keeps path from BTP down to each child).
+      - `level` recomputed as depth from BTP root (root itself = 0,
+        direct children = 1, etc.).
+      - `sheet_name` / `source_row_no` dropped — they identify the
+        parent TP's XLSX origin; carrying them would re-fragment dedup
+        across parent TPs.
+    `payload` is preserved as-is; identical payloads dedup naturally,
+    context-specific payloads keep slices separate (legitimate).
     """
     cur.execute(
         """
@@ -94,22 +93,39 @@ def _subtree_edges(cur, *, artifact_id: str, root_code: str) -> list[dict]:
             join edges e on e.parent_code = w.child_code
             where not (e.child_code = any(w.path))
         )
-        select parent_code, child_code, qty_per_parent, uom, payload
+        select parent_code, child_code, qty_per_parent, uom, payload, path
         from walk
         """,
         (artifact_id, root_code),
     )
-    return [
-        {
+    out = []
+    for r in cur.fetchall():
+        path_arr = r[5] or []
+        node_path = " > ".join(str(x) for x in path_arr) if path_arr else None
+        level = max(len(path_arr) - 1, 0) if path_arr else None
+        out.append({
             "parent_code": r[0], "child_code": r[1], "qty_per_parent": r[2],
             "uom": r[3],
-            "level": None, "node_path": None,
-            "sheet_name": None, "source_row_no": None,
+            "level": level,
+            "node_path": node_path,
+            "sheet_name": None,
+            "source_row_no": None,
             "payload": r[4] or {},
             "root_code": root_code,
-        }
-        for r in cur.fetchall()
-    ]
+        })
+    # Canonical order: edges with the same (parent, child, qty, uom) multi-
+    # set must produce the same `normalized_edges_hash`. The hash function
+    # uses Python's stable sort and breaks ties by row_index (defaulting to
+    # 0), so two BTP slices with identical content but different walk-arrival
+    # order would otherwise hash differently and fail to dedup. Sorting here
+    # by (parent, child, qty, uom) makes arrival order irrelevant.
+    out.sort(key=lambda e: (
+        str(e["parent_code"] or ""),
+        str(e["child_code"] or ""),
+        float(e["qty_per_parent"] or 0),
+        str(e.get("uom") or ""),
+    ))
+    return out
 
 
 def derive_btp_shallows_for_artifact(*, artifact_id: str, client_id: str,

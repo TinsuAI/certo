@@ -326,7 +326,7 @@ def _query_catalog(*, client_id: str, material_code: str | None = None,
     if material_code is None and internal_code is not None:
         material_code = internal_code
     sql = (
-        "select material_code, name, category, status, unit, "
+        "select material_code, name, category, status, uom as unit, "
         "       hs_code, source, hq_registered, provenance "
         "from hub.materials where client_id = %s"
     )

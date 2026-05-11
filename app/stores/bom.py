@@ -447,6 +447,7 @@ _BOM_PRODUCTS_ORDER_DEFAULT = (
 
 def list_products_with_bom(client_id: str, *,
                            q: str | None = None,
+                           kind: str | None = None,
                            order_by: str = _BOM_PRODUCTS_ORDER_DEFAULT,
                            limit: int = 50, offset: int = 0) -> list[dict]:
     """List BOM products plus flatten-aware metadata per product.
@@ -482,16 +483,26 @@ def list_products_with_bom(client_id: str, *,
     if q:
         where_q = " and product_code ilike %s"
         params_q = [f"%{q}%"]
+    if kind == "tp":
+        where_kind = (
+            " and (m_kind.category is null or m_kind.category not in ('btp_sx','btp_nm'))"
+        )
+    elif kind == "btp":
+        where_kind = " and m_kind.category in ('btp_sx','btp_nm')"
+    else:
+        where_kind = ""
     sql = f"""
         with v as (
-            select product_code, artifact_no, published_at, flatten_status,
-                   flatten_strategy, lineage_root_id, is_stale,
+            select ba.product_code, ba.artifact_no, ba.published_at, ba.flatten_status,
+                   ba.flatten_strategy, ba.lineage_root_id, ba.is_stale,
                    row_number() over (
-                       partition by product_code
-                       order by published_at desc nulls last, artifact_no desc
+                       partition by ba.product_code
+                       order by ba.published_at desc nulls last, ba.artifact_no desc
                    ) as rn
-            from hub.bom_artifacts
-            where client_id = %s and tombstoned_at is null{where_q}
+            from hub.bom_artifacts ba
+            left join hub.materials m_kind
+                   on m_kind.client_id = %s and m_kind.material_code = ba.product_code
+            where ba.client_id = %s and ba.tombstoned_at is null{where_q}{where_kind}
         ),
         aggr as (
             select product_code,
@@ -517,7 +528,7 @@ def list_products_with_bom(client_id: str, *,
         order by {order_by}
         limit %s offset %s
     """
-    params = [client_id, *params_q, client_id, limit, offset]
+    params = [client_id, client_id, *params_q, client_id, limit, offset]
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
@@ -534,18 +545,29 @@ def list_products_with_bom(client_id: str, *,
             return out
 
 
-def count_products_with_bom(client_id: str, *, q: str | None = None) -> int:
+def count_products_with_bom(client_id: str, *, q: str | None = None,
+                            kind: str | None = None) -> int:
     """Count distinct BOM products matching the same filter shape as
     `list_products_with_bom`."""
     where_q = ""
-    params: list = [client_id]
+    params: list = [client_id, client_id]
     if q:
-        where_q = " and product_code ilike %s"
+        where_q = " and ba.product_code ilike %s"
         params.append(f"%{q}%")
+    if kind == "tp":
+        where_kind = (
+            " and (m_kind.category is null or m_kind.category not in ('btp_sx','btp_nm'))"
+        )
+    elif kind == "btp":
+        where_kind = " and m_kind.category in ('btp_sx','btp_nm')"
+    else:
+        where_kind = ""
     sql = f"""
-        select count(distinct product_code)
-        from hub.bom_artifacts
-        where client_id = %s and tombstoned_at is null{where_q}
+        select count(distinct ba.product_code)
+        from hub.bom_artifacts ba
+        left join hub.materials m_kind
+               on m_kind.client_id = %s and m_kind.material_code = ba.product_code
+        where ba.client_id = %s and ba.tombstoned_at is null{where_q}{where_kind}
     """
     with connect() as conn:
         with conn.cursor() as cur:
@@ -1139,18 +1161,22 @@ def make_bcct_import_lookup(client_id: str):
 
 def make_catalog_lookup(client_id: str):
     """Return a callable `(material_code) -> CatalogEntry | None` from
-    hub.materials. Preloaded so per-row lookups are O(1)."""
+    hub.materials. Preloaded so per-row lookups are O(1).
+
+    Post-mig-063: reads `materials.uom` (canonical column). The legacy
+    `unit` column was consolidated into `uom` in mig 063.
+    """
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select material_code as customs_code, category, status, unit
+                select material_code, category, status, uom
                 from hub.materials where client_id = %s
                 """,
                 (client_id,),
             )
             entries = {r[0]: CatalogEntry(
-                material_code=r[0], category=r[1], status=r[2], unit=r[3],
+                material_code=r[0], category=r[1], status=r[2], uom=r[3],
             ) for r in cur.fetchall()}
     return lambda code: entries.get(code)
 

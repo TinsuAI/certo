@@ -176,7 +176,18 @@ def materialize_one(
     raw_ctx: dict | None, *, client_id: str, publish: bool = True,
 ) -> dict:
     """Materialize shallow + full_flat for one raw_graph artifact.
+
+    Per Phase 2 (mig 055-058): convert each derived row's qty/uom to
+    the material's catalog canonical UoM before persisting, and apply
+    drift signals to the resulting artifact. Mirrors
+    `bom_staleness._rederive_shape` so initial-ingest and refresh paths
+    yield aligned UoMs.
+
     Returns counters dict. Idempotent via create_artifact's hash dedup."""
+    from app.stores.bom_staleness import (
+        _convert_rows_to_catalog_uom, _apply_drift_to_artifact,
+    )
+
     counters = {"shallow_inserted": 0, "shallow_dedup": 0,
                 "full_flat_inserted": 0, "full_flat_dedup": 0,
                 "shallow_empty": 0, "full_flat_empty": 0}
@@ -188,6 +199,7 @@ def materialize_one(
         if not rows:
             counters[f"{kind}_empty"] += 1
             continue
+        converted_rows, drifts = _convert_rows_to_catalog_uom(client_id, rows)
         new_ctx = dict(raw_ctx or {})
         new_ctx.update({
             "channel": "auto_derived",
@@ -196,8 +208,9 @@ def materialize_one(
             "derived_from_variant": raw_variant,
             "ingest_script": "materialize_shallow_and_full_flat.py",
         })
-        existing = create_artifact(
-            client_id=client_id, product_code=product_code, rows=rows,
+        artifact_id = create_artifact(
+            client_id=client_id, product_code=product_code,
+            rows=converted_rows,
             actor="erp_pipeline", intent="derived",
             parent_artifact_id=raw_id, context=new_ctx,
             source_upload_id=None,
@@ -206,11 +219,14 @@ def materialize_one(
             flatten_strategy=strategy,
             source_channel="migration",
             bom_variant_id=raw_variant,
-            flatten_method="recursive_sql",
-            flatten_method_version="1",
+            flatten_method="recursive_sql_with_uom_conversion",
+            flatten_method_version="2",
         )
-        if existing:
+        if artifact_id:
             counters[f"{kind}_inserted"] += 1
+            if drifts:
+                with connect() as conn, conn.cursor() as cur:
+                    _apply_drift_to_artifact(cur, artifact_id, drifts)
         else:
             counters[f"{kind}_dedup"] += 1
     if not publish:

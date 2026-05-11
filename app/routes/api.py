@@ -409,7 +409,15 @@ async def api_source_summary(client_id: str, authorization: str | None = Header(
 _MATERIALS_SELECT_WITH_ROLES = """
     select m.client_id, m.material_code, m.name,
            m.category, m.category_override,
-           m.status, m.unit, m.hs_code, m.updated_at,
+           m.status,
+           -- Post-mig-063: `materials.unit` was consolidated into `uom`.
+           -- Emit BOTH keys in JSON for the sister-app grace window: `uom`
+           -- is the new canonical, `unit` is the deprecated alias kept so
+           -- existing CO consumers (data_hub_client.normalize_material_row
+           -- / normalize_product_row) keep working. Sunset date for the
+           -- `unit` alias: see docs/API_CONTRACT.md.
+           m.uom, m.uom as unit,
+           m.hs_code, m.updated_at,
            m.btp_sourcing,
            coalesce(vmr.has_imports, false) as has_imports,
            coalesce(vmr.has_exports, false) as has_exports,

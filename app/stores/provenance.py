@@ -21,23 +21,47 @@ from typing import Iterable
 
 
 _DERIVE_FROM_BCCT_SQL = """
+    -- Auto-derive catalog rows from BCCT observations. UoM picked per code
+    -- via mode (most-frequent BCCT.unit token across rows). Stored verbatim
+    -- into materials.uom — alias normalization (`KILO-GRAMMES → kg`) happens
+    -- at read time in `app/stores/uom.py::make_uom_lookup`, not here. This
+    -- preserves raw source semantics in the catalog and lets staff override
+    -- the canonical via the edit-material form when needed.
+    with mode_uom as (
+      select customs_code,
+             (array_agg(unit order by count desc))[1] as mode_unit
+        from (
+          select customs_code, unit, count(*) as count
+            from hub.bcct_rows
+           where client_id = %s
+             and customs_code is not null and customs_code <> ''
+             and customs_code = any(%s)
+             and unit is not null and trim(unit) <> ''
+           group by customs_code, unit
+        ) s
+       group by customs_code
+    )
     insert into hub.materials
-      (client_id, material_code, name, category, status, source, provenance)
-    select %s, customs_code,
-           max(goods_name),
+      (client_id, material_code, name, category, status, source, uom, provenance)
+    select %s, b.customs_code,
+           max(b.goods_name),
            'nvl',
            'active',
            'bcct_observed',
+           mu.mode_unit,
            '{}'::jsonb
-    from hub.bcct_rows
-    where client_id = %s
-      and customs_code is not null and customs_code <> ''
-      and customs_code = any(%s)
-    group by customs_code
+    from hub.bcct_rows b
+    left join mode_uom mu on mu.customs_code = b.customs_code
+    where b.client_id = %s
+      and b.customs_code is not null and b.customs_code <> ''
+      and b.customs_code = any(%s)
+    group by b.customs_code, mu.mode_unit
     on conflict (client_id, material_code) do update set
       -- Re-running derive on already-existing rows: keep their source/status.
       -- Observation stats (count, first_seen, last_seen) come from v_material_roles
       -- view live; no jsonb merge needed anymore.
+      -- Fill uom if previously NULL (post-mig-063 backfill path for legacy rows).
+      uom = coalesce(hub.materials.uom, excluded.uom),
       updated_at = now()
 """
 
@@ -57,7 +81,7 @@ def derive_from_bcct(cur, *, client_id: str, customs_codes: Iterable[str]) -> in
     codes = [c.strip() for c in customs_codes if c and isinstance(c, str) and c.strip()]
     if not codes:
         return 0
-    cur.execute(_DERIVE_FROM_BCCT_SQL, (client_id, client_id, codes))
+    cur.execute(_DERIVE_FROM_BCCT_SQL, (client_id, codes, client_id, client_id, codes))
     return len(set(codes))
 
 

@@ -58,7 +58,7 @@ order by b.direction, b.customs_code
 
 INSERT_SQL = """
 insert into hub.materials
-  (client_id, material_code, name, category, status, unit, hs_code,
+  (client_id, material_code, name, category, status, uom, hs_code,
    source, provenance)
 values (%(client_id)s, %(code)s, %(name)s, %(category)s, 'active',
         %(unit)s, %(hs_code)s, 'bcct_observed',
@@ -67,6 +67,8 @@ values (%(client_id)s, %(code)s, %(name)s, %(category)s, 'active',
                               'decl_count', %(decl_count)s::int,
                               'directions', %(directions)s::jsonb)))
 on conflict (client_id, material_code) do update set
+  -- Backfill uom if missing (legacy rows from before mig 063 had unit-only).
+  uom = coalesce(hub.materials.uom, excluded.uom),
   provenance = hub.materials.provenance ||
     jsonb_build_object('seen_in_bcct',
       jsonb_build_object(
