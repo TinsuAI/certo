@@ -223,10 +223,36 @@ parens (Growatt-shape) are invisible to the view. Affected fields:
    every BCCT/BOM change (post-ingest hook). Pros: fully decouple from
    SQL constraints. Cons: another batch job to maintain.
 
-**Recommendation**: option 2 (generated column). Most surgical, no new
-infrastructure, and aligns with the "data graph is truth" principle —
-internal_code becomes part of the row's identity once parser rules
-stabilize per client.
+**Original recommendation**: option 2 (generated column). Most
+surgical, no new infrastructure.
+
+**Design re-examined 2026-05-13** (user deferred A.5 with "chưa rõ
+lắm"). Original recommendation conflicts with memory
+`feedback_no_derived_in_source`: source tables hold only manual input,
+not derived/cached values — that principle drove mig 038 dropping
+`material_identity` in the first place. Three options surveyed this
+session:
+
+- **B (original) — stored column + trigger.** Reintroduces
+  `bcct_rows.internal_code`. Trigger has to run re2 parser rules on
+  every insert + re-derive all rows whenever `client_parser_rules`
+  change. pgsql has no re2; would need plpython3u OR an external
+  Python refresher. Violates `no_derived_in_source`.
+- **C — separate derived table.** New
+  `hub.bcct_internal_codes (client_id, declaration_no, line_no, internal_code)`
+  populated by Python (post-ingest hook + rules-change hook). View
+  JOINs both `customs_code` and the derived table. Aligns principle:
+  bcct_rows stays pure manual; derived data sits in its own table.
+  Cost ~1-1.5d.
+- **D — runtime Python supplement.** Wire existing `compute_observations`
+  into the list page in batch mode (one BCCT query for ~100 codes per
+  page render). ~2-4h. Solves the user-visible symptom (list page
+  count) but keeps the workaround code and the view as-is. Only 1 of
+  3 removal triggers met.
+
+**Status:** deferred. Re-engage when bandwidth + clarity converge. If
+shipped, prefer C over B; D is a tactical bridge if user wants the
+list page fixed sooner.
 
 **Removal trigger** for the workaround:
 - View returns correct signals on `001.0001100` directly (no Python
@@ -235,9 +261,7 @@ stabilize per client.
 - List page `/catalog` "Quan sát BCCT" column shows correct counts
   for paren-extract NB materials.
 
-**Effort**: 1-1.5 days for option 2 (mig + trigger + view rebuild +
-cross-cut tests + delete workaround). Reapply trigger on every
-existing BCCT row at mig time (one-time backfill).
+**Effort**: 1-1.5 days for option B or C; ~2-4h for option D (partial).
 
 ## A.6 Scripts that lost SQL `material_identity` access (deferred 2026-05-08)
 
@@ -519,6 +543,13 @@ apps still call with permissive bearer / user JWT. To adopt:
 Full instructions:
 `.ai/sister-app-notes/2026-05-02-service-account-jwts-available.md`.
 Design rationale: `.ai/features/2026-05-02-service-account-jwts.md`.
+
+**Partial progress 2026-05-13**: substitute lookup mirrored at
+`/v1/hub/clients/{c}/materials/{m}/substitutes` (Bearer-aware) after
+CO reported 401 on the cookie-only `/api/v1/...` route. Note:
+`.ai/sister-app-notes/2026-05-13-substitute-api-bearer-available.md`.
+Other CO endpoints may have the same shape — audit if more 401s
+surface.
 
 **Pull this out of backlog when:** ready to coordinate the sister-repo
 PRs, or when about to flip `api_auth_strict=true` (then it becomes
@@ -922,6 +953,23 @@ extended to 4 values. Memory `project_bom_3_shapes.md` updated.
 UI/template/i18n only — code/DB/API stay `tombstone`. Mapping:
 catalog material → "đã loại"; BOM artifact lineage / replace → "đã
 thay thế"; preset retract → "thu hồi". 9 files edited.
+
+## Bearer-aware substitute API mirror — SHIPPED 2026-05-13
+
+Triggered by CO blocker report: `GET /api/v1/clients/{c}/materials/{m}/substitutes`
+returned 401 for any Bearer token. That route used cookie-only
+`auth.require_user`; sister-app server-to-server can't carry the cookie.
+
+New mirror at `/v1/hub/clients/{c}/materials/{m}/substitutes`
+(`app/routes/api.py`). Uses existing `_require_token` +
+`_require_can_view_client` (user JWT or service token with `hub:read`,
+`client_ids` whitelist honored). Same response shape. Cookie route
+preserved for in-app catalog detail page. 7 tests. Sister-app note:
+`.ai/sister-app-notes/2026-05-13-substitute-api-bearer-available.md`.
+Commit `ae3373b`.
+
+Partial unblock of C.1 (sister-app cutover) — other cookie-only routes
+under `/api/v1/...` may need the same mirroring as CO usage expands.
 
 ## A.7 BOM parser — extract "Object description" — SHIPPED 2026-05-13
 
