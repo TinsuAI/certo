@@ -14,6 +14,49 @@ Only `Breaking:` headings trigger notifications to `dev`/`admin` users (CO + BCQ
 
 ## Entries
 
+## 2026-05-13 — Additive: `GET /v1/hub/clients/{c}/bcct/by-codes`
+
+**Endpoint added:** `GET /v1/hub/clients/{client_id}/bcct/by-codes?codes=A,B,C`.
+
+**Why:**
+CO derives "tồn CO" by paginating the full client BCCT (`direction=import`)
+and applying CO-side `allocation_code` + `lot_policy` rules. For Johnson with
+65k+ BCCT rows the substitute modal needed ~30s per fetch, even though it
+only consumes stock for ~20 candidate codes returned by the substitute
+lookup. This endpoint returns the same BCCT row shape filtered to a specific
+code set, so the substitute-stock derivation stays bounded.
+
+**Contract:**
+- `codes` (required, comma-separated, max 100; case-insensitive exact match
+  against `customs_code`).
+- `direction` optional (typically `import`).
+- `include_material_identity` optional, default `false`, same semantics as
+  `/v1/hub/bcct`.
+- `cursor` + `limit` (default 200, max 1000) — standard pagination.
+- Auth: same as the rest of `/v1/hub/*` (user JWT or service token with
+  `hub:read` scope, client_ids whitelist enforced).
+- Row shape: identical to `/v1/hub/bcct`. Pagination shape: identical
+  (`items`, `next_cursor`, `total_estimate`).
+
+**Errors:**
+- `400 missing codes` — empty / whitespace-only `codes` param.
+- `400 too many codes` — more than 100 codes per request.
+- `404 Client not found` — unknown `client_id`.
+- Unknown codes → `200` with empty `items` (not `404`).
+
+**Why not `/v1/hub/co-stock`:**
+Splits "Data Hub returns BCCT slice" vs "CO applies its own
+`allocation_code` / `lot_policy` rules". Data Hub doesn't own CO runtime
+config (locked 2026-05-02 with the `/co-config → /client-config` rename), so
+the stock derivation stays in CO.
+
+**Provider tests:** `tests/test_bcct_by_codes_api.py` (19 tests; codes
+filter single/multi/mixed-case/URL-decoded, direction combine,
+include_material_identity attach, pagination, all 400/403/404 paths,
+service-token scope + whitelist enforcement).
+
+**Spec:** `barry-CO-main/.ai/api-requests/2026-05-13-bcct-by-codes-lookup.md`.
+
 ## 2026-05-02 — Breaking: rename /co-config → /client-config; drop CO-runtime fields
 
 **Endpoints touched:**

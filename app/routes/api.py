@@ -783,6 +783,100 @@ async def api_get_bcct(
     return _json({"transaction_key": transaction_key, "lines": rows})
 
 
+_BY_CODES_MAX = 100
+
+
+def _parse_codes_param(value: str) -> list[str]:
+    """Split + dedupe + uppercase the comma-separated `codes` param.
+
+    Order preserved (callers paginate per-request and have no contract
+    on ordering, but stable order helps logs). Empty → 400; >100 → 400.
+    """
+    if value is None:
+        raise HTTPException(400, "missing codes")
+    tokens: list[str] = []
+    seen: set[str] = set()
+    for raw in value.split(","):
+        token = raw.strip().upper()
+        if not token:
+            continue
+        if token in seen:
+            continue
+        seen.add(token)
+        tokens.append(token)
+    if not tokens:
+        raise HTTPException(400, "missing codes")
+    if len(tokens) > _BY_CODES_MAX:
+        raise HTTPException(400, "too many codes")
+    return tokens
+
+
+@router.get("/clients/{client_id}/bcct/by-codes")
+async def api_list_bcct_by_codes(
+    client_id: str,
+    codes: str = "",
+    direction: str | None = None,
+    include_material_identity: bool = False,
+    material_identity_candidate_limit: str | None = None,
+    cursor: str | None = None,
+    limit: int = 200,
+    authorization: str | None = Header(None),
+):
+    """BCCT slice filtered by customs_code IN (codes). Sister-app entry
+    for CO's substitute-stock derivation which only needs ~20 candidate
+    codes' worth of rows, not the full 65k Johnson catalog.
+
+    Contract spec:
+    `barry-CO-main/.ai/api-requests/2026-05-13-bcct-by-codes-lookup.md`.
+    Row shape mirrors `/v1/hub/bcct`. `codes` is case-insensitive exact
+    match against `customs_code`; max 100 per request. Unknown codes →
+    200 with empty items (not 404)."""
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
+    cand_limit = _validate_pid_candidate_limit(material_identity_candidate_limit)
+    code_list = _parse_codes_param(codes)
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+    offset, safe_limit = _page_args(cursor, limit)
+    sql = """
+        select client_id, year, transaction_key, line_no, declaration_no,
+               declaration_type, direction, registration_date,
+               customs_code, goods_name, hs_code,
+               quantity, unit,
+               unit_price, unit_price_nt,
+               total_value, total_value_nt,
+               currency_nt, total_tax, unloading_location,
+               origin, invoice_ref,
+               exporter_name, exporter_tax_code, consignee_name, incoterms,
+               weight, weight_unit, package_count, package_unit,
+               invoice_date, departure_date,
+               destination_code, destination_name,
+               transport_mode, exchange_rate,
+               artifact_id, indexed_at
+        from hub.bcct_rows
+        where client_id = %s and upper(customs_code) = any(%s)
+    """
+    params: list = [client_id, code_list]
+    if direction:
+        sql += " and direction = %s"
+        params.append(direction)
+    sql += " order by registration_date desc nulls last, declaration_no, line_no limit %s offset %s"
+    params.extend([safe_limit + 1, offset])
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            cols = [d[0] for d in cur.description]
+            items = [dict(zip(cols, r)) for r in cur.fetchall()]
+    if include_material_identity:
+        _attach_material_identity(
+            items, client_id=client_id, candidate_limit=cand_limit,
+        )
+    else:
+        for it in items:
+            it.pop("material_identity", None)
+    return _json(_paged(items, offset=offset, limit=safe_limit))
+
+
 @router.get("/code-mappings")
 async def api_list_code_mappings(
     client_id: str,

@@ -555,6 +555,46 @@ surface.
 PRs, or when about to flip `api_auth_strict=true` (then it becomes
 ship-blocking).
 
+## C.1.a BCCT by-codes — soak test under real CO load
+
+**Captured 2026-05-13** (this session). `GET /v1/hub/clients/{c}/bcct/by-codes`
+shipped per CO API request
+`barry-CO-main/.ai/api-requests/2026-05-13-bcct-by-codes-lookup.md`.
+19 provider tests cover the contract (codes filter, case-insensitive,
+URL-decoded, direction combine, pagination, all 4xx error paths,
+service-token scope + whitelist enforcement). Live smoke against
+Johnson confirmed correct rows + sub-100ms latency on small code lists.
+
+**Not yet exercised:**
+
+- **Real-load behaviour from CO**: only smoked with 2-3 codes against
+  Johnson. CO's substitute modal calls with up to ~20 candidate codes
+  + paginates if the resulting BCCT slice exceeds `limit`. Need to
+  confirm latency stays low when CO is the actual caller (HTTP client,
+  service token, real concurrent requests), not curl.
+- **Pagination at boundary**: tests assert cursor round-trip on a
+  2-row fixture. No test for a code with very long import history
+  (e.g. a Johnson NVL with hundreds of TKN lines spanning multiple
+  pages). Verify ordering stays stable across cursors.
+- **`include_material_identity=true` with many rows**: tests cover
+  attach correctness on 1 row. No assertion of per-row cost when the
+  resolver runs across, say, 100 rows. Could surface a hot loop in
+  `_attach_material_identity`.
+- **DB plan**: SQL uses `where client_id = %s and upper(customs_code)
+  = any(%s)`. Need to confirm Postgres uses the existing
+  `(client_id, customs_code)` index (if any) or whether the `upper(...)`
+  forces a seq scan on `bcct_rows`. EXPLAIN ANALYZE on Johnson once CO
+  is hitting prod-shaped load.
+- **CO consumer**: not yet shipped on CO side. CO `CLAUDE.md` requires
+  Data Hub provider tests + changelog bump first (both done in this
+  session). Awaiting CO ping-back via sister-app-notes when consumer
+  ships.
+
+**Pull this out of backlog when:** CO's consumer ships and we've
+observed the endpoint under real substitute-modal load for at least a
+day on the demo box. If latency or correctness issues appear, fold a
+fix into this item; otherwise close out.
+
 ## C.2 API auth — flip dev-permissive reads to strict by default
 
 **Captured 2026-05-02.** **Unblocked 2026-05-02 PM** — service-account
@@ -953,6 +993,30 @@ extended to 4 values. Memory `project_bom_3_shapes.md` updated.
 UI/template/i18n only — code/DB/API stay `tombstone`. Mapping:
 catalog material → "đã loại"; BOM artifact lineage / replace → "đã
 thay thế"; preset retract → "thu hồi". 9 files edited.
+
+## BCCT by-codes lookup — SHIPPED 2026-05-13 (soak test pending → C.1.a)
+
+`GET /v1/hub/clients/{client_id}/bcct/by-codes?codes=A,B,C` per CO API
+request `barry-CO-main/.ai/api-requests/2026-05-13-bcct-by-codes-lookup.md`.
+Row shape mirrors `/v1/hub/bcct`; case-insensitive exact match against
+`customs_code`; max 100 codes/request; same auth model + `hub:read` scope.
+
+Motivation: CO's substitute-stock derivation needed to paginate the
+full 65k Johnson BCCT (~30s) just to derive stock for ~20 candidate
+codes. Splitting "Data Hub returns BCCT slice" + "CO applies its own
+`allocation_code`/`lot_policy` rules" keeps CO config out of Data Hub
+(consistent with the 2026-05-02 `/co-config → /client-config` rename).
+
+`app/routes/api.py` (+ `_parse_codes_param` helper). 19 provider tests
+in `tests/test_bcct_by_codes_api.py`. `docs/API_CONTRACT.md` +
+`docs/API_CHANGELOG.md` updated.
+
+**Soak test pending — see C.1.a.** Provider tests cover the contract,
+but real-load behaviour from CO (concurrent requests, long-history
+codes, `include_material_identity` on large slices, EXPLAIN ANALYZE
+under prod-shaped data) has not been validated. CO consumer not yet
+shipped — awaiting their consumer PR per their CLAUDE.md rule (Data
+Hub provider tests + changelog must land first; both done).
 
 ## Bearer-aware substitute API mirror — SHIPPED 2026-05-13
 

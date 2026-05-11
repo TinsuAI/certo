@@ -370,6 +370,34 @@ Matching rules:
 - All tokens from `invoice_no` must appear in `invoice_ref`.
 - Filtering happens in SQL before the 500-row cap.
 
+#### `GET /v1/hub/clients/{client_id}/bcct/by-codes`
+
+BCCT slice filtered by `customs_code IN (codes)`. Sister-app entry for CO's
+substitute-stock derivation: avoids paginating the full client BCCT when only
+~20 candidate codes' worth of rows are needed.
+
+Query params:
+- `codes`: required, comma-separated customs codes (max 100). Case-insensitive
+  exact match against `customs_code`. Whitespace + duplicates trimmed.
+- `direction`: optional, usually `import`.
+- `include_material_identity`: optional, default `false`. Same semantics as
+  `/v1/hub/bcct`.
+- `material_identity_candidate_limit`: optional, integer 1-20 (default 5).
+- `cursor`, `limit`: optional, same pagination contract as `/v1/hub/bcct`.
+
+Row shape: identical to `/v1/hub/bcct`. Pagination shape: identical
+(`items`, `next_cursor`, `total_estimate`).
+
+Errors:
+- `400 missing codes` — empty / whitespace-only `codes` param.
+- `400 too many codes` — more than 100 codes in one request.
+- `400 invalid_material_identity_candidate_limit` — same as `/v1/hub/bcct`.
+- `404 Client not found` — unknown `client_id`.
+
+Unknown codes → `200` with empty `items`, not `404`.
+
+Contract spec: `barry-CO-main/.ai/api-requests/2026-05-13-bcct-by-codes-lookup.md`.
+
 #### `GET /v1/hub/bcct/{transaction_key}`
 
 Fetch BCCT rows for a transaction key.
