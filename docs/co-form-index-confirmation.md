@@ -56,7 +56,16 @@ Nguồn online chính:
 - CIL/NUS legal-text index: <https://cil.nus.edu.sg/databasecil/2009-agreement-on-trade-in-goods-under-the-framework-agreement-on-comprehensive-economic-cooperation-between-the-association-of-southeast-asian-nations-and-the-republic-of-india/>
 - Enterprise Singapore AIFTA guidance: <https://www.enterprisesg.gov.sg/grow-your-business/go-global/international-agreements/free-trade-agreements/find-an-fta/aifta>
 
-Bảng dưới là các anchor quan trọng cho nhóm hàng Growatt, không phải toàn bộ danh sách:
+Bảng `04_HS kiểm trước` trong file Excel đã được rà lại từ BCCT file local/sibling project ngày 2026-05-04, không dùng Data Hub làm nguồn chọn HS ưu tiên.
+
+| Doanh nghiệp | File BCCT rà lại | HS xuất khẩu ưu tiên | Ghi chú |
+| --- | --- | --- | --- |
+| Growatt | `data/local/source-modules/clients/growatt/bcct/.../BaoCaoHangChiTiet 01.01.2025 - 31.12.2025 08.01 or.xlsx` | `85044090`, `85076039`, `85371099`, `90328931` | Lọc dòng `E42`; lần lượt 389, 86, 36, 18 dòng theo HS. |
+| Johnson | `Johnson/output/CLEAN_BCCT.csv`, từ `BaoCaoHangChiTiet năm 2025.xls` | `95069100` | `E42` có 2.893 dòng HS `95069100` trong 2.938 dòng xuất khẩu; các HS còn lại chủ yếu phế liệu/không phải nhóm C/O ưu tiên. |
+| DKE | `BCQT-DKE/input/28.03 XU LY DINH MUC/BaoCaoHangChiTiet 2025 Official.xls` | `85249900`, `85285910` | Lọc dòng `E42`; lần lượt 112 và 4 dòng. |
+| Đô Thành | `bcqt-dothanh/data/extracted/BCQT SXXK 2025/BaoCaoHangChiTietE62.xls` | `85419000`, `76042190`, `76169990`, `76109099` | Lọc dòng `E62`; lần lượt 204, 43, 14, 4 dòng. |
+
+Bảng dưới là các anchor quan trọng cho nhóm HS ưu tiên, không phải toàn bộ danh sách:
 
 | Form | HS scope | Tiêu chí seed | Nguồn / ghi chú xác nhận |
 | --- | --- | --- | --- |

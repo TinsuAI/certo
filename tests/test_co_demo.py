@@ -1880,12 +1880,19 @@ def test_co_case_detail_is_split_into_workflow_step_views():
     assert origin.status_code == 200
     assert review.status_code == 200
     assert "Thông tin lô hàng" in shipment.text
-    assert "Supporting files" not in shipment.text
-    assert "Supporting files" in documents.text
+    assert "Chứng từ hồ sơ" not in shipment.text
+    assert "Chứng từ hồ sơ" in documents.text
+    assert "Bắt buộc" in documents.text
+    assert "Bổ sung" in documents.text
     assert "BCCT xuất khẩu theo tham chiếu hồ sơ" in exports.text
+    assert "TKX / TKN" in exports.text
+    assert "Tờ khai xuất (TKX)" in exports.text
+    assert "Tờ khai nhập (TKN)" in exports.text
     assert "Form và thông tư" in guidance.text
-    assert "Bảng kê LVC" in origin.text
-    assert "Tính bảng kê" in origin.text
+    assert "W.I.P" in guidance.text
+    assert "Load BOM vào Bảng Kê" in origin.text
+    assert "Cấu hình bảng kê" in origin.text
+    assert "Mode tối ưu" in origin.text
     assert 'role="tablist" aria-label="Sheet sản phẩm trong bảng kê"' in origin.text
     assert 'data-origin-sheet-tab' in origin.text
     assert 'data-origin-sheet-panel' in origin.text
@@ -1896,6 +1903,46 @@ def test_co_case_detail_is_split_into_workflow_step_views():
     assert "Xuất dossier XLSX" in review.text
     assert f"{case_url}/documents" in shipment.text
     assert f"{case_url}/origin" in shipment.text
+
+
+def test_co_case_origin_step_renders_without_origin_snapshot():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={
+            "title": "No snapshot",
+            "case_code": "CO-NO-SNAPSHOT",
+            "destination_market": "Ấn Độ",
+            "invoice_no": "INV-NO-SNAPSHOT",
+        },
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-NO-SNAPSHOT",
+            "title": "No snapshot",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-NO-SNAPSHOT"},
+            "products": [{
+                "code": "TP-NO-SNAPSHOT",
+                "name": "No snapshot product",
+                "quantity": "1",
+                "unit": "PCS",
+                "fob": "100",
+                "currency": "USD",
+                "materials": [],
+            }],
+            "origin_product_order": ["TP-NO-SNAPSHOT"],
+        },
+    )
+
+    origin = client.get(f"/clients/growatt/co-case/{case_id}/origin")
+
+    assert origin.status_code == 200
+    assert "Chưa tính" in origin.text
 
 
 def test_co_case_shipment_step_updates_metadata_without_dropping_origin_view():
@@ -2773,6 +2820,820 @@ def test_origin_sheet_lock_uses_cached_case_context(monkeypatch):
     assert hidden_form_data(response.text)["product_0_origin_sheet_status"] == "locked"
 
 
+def test_origin_sheet_recommendation_override_persists_per_sheet():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={
+            "title": "Override test",
+            "case_code": "CO-OVERRIDE",
+            "destination_market": "Ấn Độ",
+            "invoice_no": "INV-OVERRIDE",
+        },
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-OVERRIDE",
+            "title": "Override test",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-OVERRIDE", "bill_of_lading_no": ""},
+            "products": [
+                {
+                    "code": "TP-OVR",
+                    "name": "Override product",
+                    "finished_hs": "850440",
+                    "quantity": "1",
+                    "unit": "PCS",
+                    "fob": "100",
+                    "currency": "VND",
+                    "materials": [],
+                }
+            ],
+        },
+    )
+
+    initial = client.get(f"/clients/growatt/co-case/{case_id}/origin")
+    assert initial.status_code == 200
+    assert "Cấu hình bảng kê" in initial.text
+
+    response = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-OVR/recommendation-override",
+        json={"form_override": "CPTPP", "criteria_override": "RVC 40% override"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["state"]["form_override"] == "CPTPP"
+    assert payload["state"]["criteria_override"] == "RVC 40% override"
+    assert payload["state"]["effective_form_code"] == "CPTPP"
+
+    saved = get_case_record(get_client("growatt"), case_id)
+    assert saved["origin_sheet_states"]["TP-OVR"]["form_override"] == "CPTPP"
+    assert saved["origin_sheet_states"]["TP-OVR"]["criteria_override"] == "RVC 40% override"
+
+    rendered = client.get(f"/clients/growatt/co-case/{case_id}/origin")
+    assert rendered.status_code == 200
+    assert "RVC 40% override" in rendered.text
+
+    rejected = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-OVR/recommendation-override",
+        json={"form_override": "BOGUS", "criteria_override": ""},
+    )
+    assert rejected.status_code == 400
+
+
+def test_origin_sheet_substitute_candidates_endpoint_returns_search_and_recommended():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={
+            "title": "Substitute test",
+            "case_code": "CO-SUB",
+            "destination_market": "Ấn Độ",
+            "invoice_no": "INV-SUB",
+        },
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-SUB",
+            "title": "Substitute test",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-SUB", "bill_of_lading_no": ""},
+            "products": [
+                {
+                    "code": "TP-SUB",
+                    "name": "Substitute product",
+                    "finished_hs": "850440",
+                    "quantity": "1",
+                    "unit": "PCS",
+                    "fob": "100",
+                    "currency": "USD",
+                    "materials": [
+                        {"material_code": "M-1", "material_description": "Material 1", "uom": "PCS", "bom_qty_per": "1"},
+                        {"material_code": "M-2", "material_description": "Material 2", "uom": "PCS", "bom_qty_per": "2"},
+                    ],
+                }
+            ],
+        },
+    )
+
+    response = client.get(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-SUB/substitute-candidates",
+        params={"material_code": "M-1", "row_index": "0", "search": "M-2"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["product_code"] == "TP-SUB"
+    assert payload["material_code"] == "M-1"
+    assert payload["optimization_mode"] == "max_lvc"
+    assert isinstance(payload["candidates"], list)
+    assert isinstance(payload["search_results"], list)
+
+
+def test_origin_sheet_substitute_search_falls_back_to_case_materials_when_catalog_fails(monkeypatch):
+    from app import main as main_module
+
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={
+            "title": "Substitute search fallback",
+            "case_code": "CO-SUB-SEARCH",
+            "destination_market": "Ấn Độ",
+            "invoice_no": "INV-SUB-SEARCH",
+        },
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-SUB-SEARCH",
+            "title": "Substitute search fallback",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-SUB-SEARCH", "bill_of_lading_no": ""},
+            "products": [
+                {
+                    "code": "TP-SUB-SEARCH",
+                    "name": "Substitute search product",
+                    "finished_hs": "850440",
+                    "quantity": "1",
+                    "unit": "PCS",
+                    "fob": "100",
+                    "currency": "USD",
+                    "materials": [
+                        {
+                            "material_code": "MAT-FALLBACK-1",
+                            "material_description": "Fallback material one",
+                            "hs_code": "850490",
+                            "uom": "PCS",
+                            "bom_qty_per": "1",
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    def broken_search(*_args, **_kwargs):
+        raise RuntimeError("material catalog unavailable")
+
+    monkeypatch.setattr(main_module.portfolio_service, "search_materials", broken_search, raising=False)
+
+    response = client.get(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-SUB-SEARCH/substitute-candidates",
+        params={"search": "MAT-FALLBACK", "row_index": "0"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["search_results"][0]["material_code"] == "MAT-FALLBACK-1"
+    assert payload["search_results"][0]["name"] == "Fallback material one"
+    assert "this dossier" in payload["error"]
+
+
+def test_origin_sheet_substitute_row_persists_override_and_marks_stale():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={
+            "title": "Substitute apply",
+            "case_code": "CO-SUB-APPLY",
+            "destination_market": "Ấn Độ",
+            "invoice_no": "INV-APPLY",
+        },
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-SUB-APPLY",
+            "title": "Substitute apply",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-APPLY"},
+            "products": [
+                {
+                    "code": "TP-APPLY",
+                    "name": "Apply product",
+                    "finished_hs": "850440",
+                    "quantity": "1",
+                    "unit": "PCS",
+                    "fob": "100",
+                    "currency": "USD",
+                    "materials": [
+                        {"material_code": "M-OLD", "material_description": "Old material", "uom": "PCS", "bom_qty_per": "1"},
+                    ],
+                }
+            ],
+            "origin_sheet_states": {"TP-APPLY": {"status": "calculated", "status_label": "Đã tính"}},
+        },
+    )
+
+    response = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-APPLY/substitute-row",
+        json={
+            "row_index": 0,
+            "new_material_code": "M-NEW",
+            "new_norm_per_unit": "1.5",
+            "new_name": "New material",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["sheet_status"] == "stale"
+    assert body["applied_override"]["material_code"] == "M-NEW"
+
+    saved = get_case_record(get_client("growatt"), case_id)
+    state = saved["origin_sheet_states"]["TP-APPLY"]
+    assert state["status"] == "stale"
+    assert state["material_overrides"]["0"]["material_code"] == "M-NEW"
+    assert state["material_overrides"]["0"]["norm_per_unit"] == "1.5"
+
+    deleted = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-APPLY/substitute-row",
+        json={"row_index": 0, "delete": True},
+    )
+    assert deleted.status_code == 200
+    assert deleted.json()["applied_override"] == {"deleted": True}
+
+    rejected = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-APPLY/substitute-row",
+        json={"row_index": 0},
+    )
+    assert rejected.status_code == 400
+
+
+def test_export_dossier_zip_bundles_chung_tu_tkx_tkn_and_hq_bang_ke():
+    import io
+    import zipfile
+    from openpyxl import load_workbook
+
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Zip dossier", "case_code": "CO-ZIP", "destination_market": "Ấn Độ", "invoice_no": "INV-ZIP"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-ZIP",
+            "title": "Zip dossier",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-ZIP"},
+            "products": [
+                {
+                    "code": "TP-ZIP",
+                    "name": "Zip product",
+                    "finished_hs": "850440",
+                    "quantity": "1",
+                    "unit": "PCS",
+                    "fob": "100",
+                    "currency": "USD",
+                    "documented_result": "LVC 30%",
+                    "lvc_threshold": "30",
+                    "materials": [
+                        {"material_code": "M-Z", "material_description": "Zip mat", "uom": "PCS",
+                         "bom_qty_per": "1", "unit_value": "10", "material_value": "10",
+                         "origin_status": "non_origin", "consumed_qty": "1"},
+                    ],
+                }
+            ],
+            "origin_sheet_states": {"TP-ZIP": {"status": "locked", "status_label": "Chốt"}},
+        },
+    )
+
+    response = client.post(f"/clients/growatt/co-case/{case_id}/export-dossier-zip")
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/zip"
+
+    archive = zipfile.ZipFile(io.BytesIO(response.content))
+    names = archive.namelist()
+    assert "README.txt" in names
+    assert "bang-ke-co-hq.xlsx" in names
+    assert "tkx-tkn.json" in names
+
+    workbook_bytes = archive.read("bang-ke-co-hq.xlsx")
+    wb = load_workbook(io.BytesIO(workbook_bytes))
+    # Template-based path renames each sheet to `<seq><product_code>`, e.g. "1TP-ZIP".
+    # Shell-fallback path keeps the criterion sheet name (LVC). Accept either.
+    template_named = any(name.endswith("TP-ZIP") for name in wb.sheetnames)
+    shell_named = "LVC" in wb.sheetnames
+    assert template_named or shell_named
+    target_name = next((n for n in wb.sheetnames if n.endswith("TP-ZIP")), None) or "LVC"
+    sheet = wb[target_name]
+    # Per docs/legacy-workbook-output-sheet-structure.md, body starts at row 16.
+    assert sheet.cell(row=16, column=1).value == 1
+    assert sheet.cell(row=16, column=2).value == "Zip mat"
+    assert sheet["P7"].value == "TP-ZIP"
+    assert isinstance(sheet["A3"].value, str) and "BẢNG KÊ" in sheet["A3"].value.upper()
+
+
+def test_export_dossier_zip_blocks_when_sheet_stale_or_draft():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Block zip", "case_code": "CO-BLOCK", "destination_market": "Ấn Độ", "invoice_no": "INV-BLOCK"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-BLOCK",
+            "title": "Block zip",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-BLOCK"},
+            "products": [
+                {"code": "TP-DRAFT", "name": "Draft", "quantity": "1", "unit": "PCS", "fob": "100", "currency": "USD", "materials": []},
+            ],
+            "origin_sheet_states": {"TP-DRAFT": {"status": "stale", "status_label": "Cần tính lại"}},
+        },
+    )
+    response = client.post(f"/clients/growatt/co-case/{case_id}/export-dossier-zip")
+    assert response.status_code == 409
+    assert "TP-DRAFT" in response.json()["detail"]
+
+
+def test_origin_sheet_lock_records_cross_case_stock_ledger_claims():
+    from app import co_stock_ledger
+    from app.database import database_url
+
+    if not database_url():
+        pytest.skip("co_stock_ledger requires BARRY_DATABASE_URL — run with Postgres for ledger coverage")
+    # Reset ledger for a clean test scope (ledger is global per client_id).
+    try:
+        with co_stock_ledger._connect() as conn, conn.cursor() as cur:
+            cur.execute("delete from co_stock_claims where client_id = %s", ("growatt",))
+    except Exception:  # noqa: BLE001
+        pytest.skip("co_stock_claims table missing — apply migrations first")
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Lock ledger", "case_code": "CO-LEDGER", "destination_market": "Ấn Độ", "invoice_no": "INV-LEDGER"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-LEDGER",
+            "title": "Lock ledger",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-LEDGER"},
+            "products": [
+                {
+                    "code": "TP-LEDGER",
+                    "name": "Lock product",
+                    "quantity": "1",
+                    "unit": "PCS",
+                    "fob": "100",
+                    "currency": "VND",
+                    "lvc_status": "pass",
+                    "lvc_status_label": "Đạt LVC",
+                    "lvc_percentage": "70.00",
+                    "materials": [
+                        {
+                            "material_code": "M-A",
+                            "uom": "PCS",
+                            "bom_qty_per": "1",
+                            "allocation_lines": [
+                                {"source_row": "ROW-A1", "allocated_qty": "5"},
+                                {"source_row": "ROW-A2", "allocated_qty": "3"},
+                            ],
+                        },
+                        {
+                            "material_code": "M-B",
+                            "uom": "PCS",
+                            "bom_qty_per": "1",
+                            "allocation_lines": [
+                                {"source_row": "ROW-B1", "allocated_qty": "10"},
+                            ],
+                        },
+                    ],
+                }
+            ],
+            "origin_sheet_states": {"TP-LEDGER": {"status": "calculated", "status_label": "Đã tính"}},
+        },
+    )
+
+    lock_response = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-LEDGER/lock",
+        data={
+            "case_id": case_id,
+            "persisted_case_id": case_id,
+            "case_code": "CO-LEDGER",
+            "title": "Lock ledger",
+            "destination_market": "Ấn Độ",
+            "invoice_no": "INV-LEDGER",
+            "product_count": "1",
+            "origin_product_order": "TP-LEDGER",
+            "product_0_code": "TP-LEDGER",
+            "product_0_name": "Lock product",
+            "product_0_quantity": "1",
+            "product_0_unit": "PCS",
+            "product_0_fob": "100",
+            "product_0_currency": "VND",
+            "product_0_lvc_status": "pass",
+            "product_0_lvc_status_label": "Đạt LVC",
+            "product_0_lvc_percentage": "70.00",
+            "product_0_origin_sheet_status": "calculated",
+            "product_0_material_count": "0",
+        },
+    )
+    assert lock_response.status_code == 200, lock_response.text
+
+    from decimal import Decimal
+    used = co_stock_ledger.used_qty_by_lot("growatt")
+    assert used.get("ROW-A1") == Decimal("5")
+    assert used.get("ROW-A2") == Decimal("3")
+    assert used.get("ROW-B1") == Decimal("10")
+
+    release_response = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-LEDGER/reopen",
+        data={
+            "case_id": case_id,
+            "persisted_case_id": case_id,
+            "case_code": "CO-LEDGER",
+            "title": "Lock ledger",
+            "destination_market": "Ấn Độ",
+            "invoice_no": "INV-LEDGER",
+            "product_count": "1",
+            "origin_product_order": "TP-LEDGER",
+            "product_0_code": "TP-LEDGER",
+            "product_0_name": "Lock product",
+            "product_0_quantity": "1",
+            "product_0_unit": "PCS",
+            "product_0_fob": "100",
+            "product_0_currency": "VND",
+            "product_0_lvc_status": "pass",
+            "product_0_origin_sheet_status": "locked",
+            "product_0_material_count": "0",
+        },
+    )
+    assert release_response.status_code == 200, release_response.text
+    used_after = co_stock_ledger.used_qty_by_lot("growatt")
+    assert used_after == {}, f"expected ledger to release all locks, got {used_after}"
+
+
+def test_origin_sheet_propose_bom_requires_lock_and_overrides(monkeypatch):
+    from app import main as main_module
+
+    captured = {}
+
+    def fake_submit(client_id, product_code, **kwargs):
+        captured["client_id"] = client_id
+        captured["product_code"] = product_code
+        captured["rows"] = kwargs["rows"]
+        captured["context"] = kwargs["context"]
+        captured["parent_artifact_id"] = kwargs["parent_artifact_id"]
+        return {"proposal_id": "prop-1", "artifact_id": "bv_NEW", "status": "submitted"}
+
+    monkeypatch.setattr(main_module.portfolio_service, "submit_bom_proposal", fake_submit, raising=False)
+
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Propose", "case_code": "CO-PROP", "destination_market": "Ấn Độ", "invoice_no": "INV-PROP"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-PROP",
+            "title": "Propose",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-PROP"},
+            "products": [
+                {
+                    "code": "TP-PROP",
+                    "name": "Propose product",
+                    "quantity": "1",
+                    "unit": "PCS",
+                    "fob": "100",
+                    "currency": "USD",
+                    "bom_product_code": "TP-PROP",
+                    "bom_product_artifact_id": "bv_OLD",
+                    "materials": [
+                        {"material_code": "M-A", "uom": "PCS", "bom_qty_per": "1", "material_description": "Mat A"},
+                        {"material_code": "M-B", "uom": "PCS", "bom_qty_per": "1", "material_description": "Mat B"},
+                    ],
+                }
+            ],
+        },
+    )
+
+    # Without lock should 409
+    not_locked = client.post(f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-PROP/propose-bom", json={})
+    assert not_locked.status_code == 409
+
+    # Mark locked but no overrides → 409
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "origin_sheet_states": {"TP-PROP": {"status": "locked", "status_label": "Chốt"}},
+        },
+    )
+    no_overrides = client.post(f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-PROP/propose-bom", json={})
+    assert no_overrides.status_code == 409
+
+    # Add override + lock → success
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "origin_sheet_states": {
+                "TP-PROP": {
+                    "status": "locked", "status_label": "Chốt",
+                    "material_overrides": {"0": {"material_code": "M-NEW", "norm_per_unit": "2"}},
+                }
+            },
+        },
+    )
+    success = client.post(f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-PROP/propose-bom", json={})
+    assert success.status_code == 200, success.text
+    assert success.json()["proposal"]["artifact_id"] == "bv_NEW"
+    assert captured["parent_artifact_id"] == "bv_OLD"
+    assert captured["product_code"] == "TP-PROP"
+    assert any(row["material_code"] == "M-NEW" for row in captured["rows"])
+    assert captured["context"]["case_id"] == case_id
+
+    saved = get_case_record(get_client("growatt"), case_id)
+    assert saved["origin_sheet_states"]["TP-PROP"]["proposed_artifact_id"] == "bv_NEW"
+
+
+def test_origin_sheet_edit_row_persists_norm_only_override():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Edit row", "case_code": "CO-EDIT", "destination_market": "Ấn Độ", "invoice_no": "INV-EDIT"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-EDIT",
+            "title": "Edit row",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-EDIT"},
+            "products": [
+                {"code": "TP-EDIT", "name": "Edit prod", "quantity": "1", "unit": "PCS", "fob": "100", "currency": "USD",
+                 "materials": [{"material_code": "M-1", "uom": "PCS", "bom_qty_per": "1"}]},
+            ],
+            "origin_sheet_states": {"TP-EDIT": {"status": "calculated", "status_label": "Đã tính"}},
+        },
+    )
+
+    response = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-EDIT/edit-row",
+        json={"row_index": 0, "new_norm_per_unit": "2.5"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["applied_override"]["norm_per_unit"] == "2.5"
+    assert body["applied_override"]["norm_edit_only"] is True
+    assert body["sheet_status"] == "stale"
+
+    saved = get_case_record(get_client("growatt"), case_id)
+    assert saved["origin_sheet_states"]["TP-EDIT"]["material_overrides"]["0"]["norm_per_unit"] == "2.5"
+
+    bad = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-EDIT/edit-row",
+        json={"row_index": 0, "new_norm_per_unit": "abc"},
+    )
+    assert bad.status_code == 400
+
+
+def test_origin_sheet_add_row_appends_added_override():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Add row", "case_code": "CO-ADD", "destination_market": "Ấn Độ", "invoice_no": "INV-ADD"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-ADD",
+            "title": "Add row",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-ADD"},
+            "products": [{"code": "TP-ADD", "name": "Add prod", "quantity": "1", "unit": "PCS", "fob": "100", "currency": "USD", "materials": []}],
+        },
+    )
+
+    first = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-ADD/add-row",
+        json={"new_material_code": "M-NEW", "new_norm_per_unit": "1.25", "new_name": "New mat", "new_uom": "PCS", "new_hs_code": "850440"},
+    )
+    assert first.status_code == 200
+    second = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-ADD/add-row",
+        json={"new_material_code": "M-NEW2", "new_norm_per_unit": "0.5"},
+    )
+    assert second.status_code == 200
+    assert first.json()["added_key"].startswith("added_")
+    assert first.json()["added_key"] != second.json()["added_key"]
+
+    saved = get_case_record(get_client("growatt"), case_id)
+    overrides = saved["origin_sheet_states"]["TP-ADD"]["material_overrides"]
+    assert len(overrides) == 2
+    assert all(v.get("added") for v in overrides.values())
+
+    rejected = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-ADD/add-row",
+        json={"new_norm_per_unit": "0.1"},
+    )
+    assert rejected.status_code == 400
+
+
+def test_origin_sheet_save_batches_replaces_adds_deletes_and_norm_edits():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Save batch", "case_code": "CO-SAVE", "destination_market": "Ấn Độ", "invoice_no": "INV-SAVE"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-SAVE",
+            "title": "Save batch",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-SAVE"},
+            "products": [{
+                "code": "TP-SAVE",
+                "name": "Save prod",
+                "quantity": "1",
+                "unit": "PCS",
+                "fob": "100",
+                "currency": "USD",
+                "materials": [],
+            }],
+        },
+    )
+
+    response = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-SAVE/save",
+        json={
+            "replaces": {"0": {"new_material_code": "M-SWAP", "new_norm_per_unit": "1.5", "new_name": "Swap"}},
+            "norm_edits": {"1": "2.25"},
+            "deletes": {"2": True},
+            "adds": [
+                {"new_material_code": "M-ADD", "new_norm_per_unit": "0.5", "new_name": "Added"},
+                {"new_material_code": "M-ADD2", "new_norm_per_unit": "0.1"},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["operations"] == {"replaces": 1, "adds": 2, "deletes": 1, "norm_edits": 1}
+    assert body["sheet_status"] == "stale"
+
+    saved = get_case_record(get_client("growatt"), case_id)
+    overrides = saved["origin_sheet_states"]["TP-SAVE"]["material_overrides"]
+    assert overrides["0"]["material_code"] == "M-SWAP"
+    assert overrides["0"]["norm_per_unit"] == "1.5"
+    assert overrides["1"]["norm_per_unit"] == "2.25"
+    assert overrides["1"]["norm_edit_only"] is True
+    assert overrides["2"]["deleted"] is True
+    added = [k for k in overrides if k.startswith("added_")]
+    assert len(added) == 2
+    assert {overrides[k]["material_code"] for k in added} == {"M-ADD", "M-ADD2"}
+
+
+def test_origin_sheet_save_rejects_empty_payload_and_invalid_norm():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Save invalid", "case_code": "CO-SAVEX", "destination_market": "Ấn Độ", "invoice_no": "INV-SAVEX"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-SAVEX",
+            "title": "Save invalid",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-SAVEX"},
+            "products": [{"code": "TP-SAVEX", "name": "X", "quantity": "1", "unit": "PCS", "fob": "100", "currency": "USD", "materials": []}],
+        },
+    )
+    empty = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-SAVEX/save",
+        json={},
+    )
+    assert empty.status_code == 400
+
+    bad_norm = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-SAVEX/save",
+        json={"norm_edits": {"0": "not-a-number"}},
+    )
+    assert bad_norm.status_code == 400
+
+
+def test_origin_sheet_threshold_currency_optimization_overrides_persist():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={
+            "title": "Threshold test",
+            "case_code": "CO-THRESHOLD",
+            "destination_market": "Ấn Độ",
+            "invoice_no": "INV-THRESHOLD",
+        },
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-THRESHOLD",
+            "title": "Threshold test",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-THRESHOLD", "bill_of_lading_no": ""},
+            "products": [
+                {
+                    "code": "TP-THR",
+                    "name": "Threshold product",
+                    "finished_hs": "850440",
+                    "quantity": "1",
+                    "unit": "PCS",
+                    "fob": "100",
+                    "currency": "USD",
+                    "lvc_threshold": "30",
+                    "materials": [],
+                }
+            ],
+        },
+    )
+
+    response = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-THR/recommendation-override",
+        json={
+            "lvc_threshold_override": "45",
+            "rvc_threshold_override": "55",
+            "currency_mode": "vnd",
+            "optimization_mode": "min_lvc",
+        },
+    )
+    assert response.status_code == 200
+    state = response.json()["state"]
+    assert state["lvc_threshold_override"] == "45"
+    assert state["rvc_threshold_override"] == "55"
+    assert state["currency_mode"] == "vnd"
+    assert state["optimization_mode"] == "min_lvc"
+    assert state["effective_lvc_threshold"] == "45"
+
+    saved = get_case_record(get_client("growatt"), case_id)
+    assert saved["origin_sheet_states"]["TP-THR"]["lvc_threshold_override"] == "45"
+    assert saved["origin_sheet_states"]["TP-THR"]["currency_mode"] == "vnd"
+
+    # invalid threshold should be rejected as empty (out of range)
+    bad_threshold = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-THR/recommendation-override",
+        json={"lvc_threshold_override": "150"},
+    )
+    assert bad_threshold.status_code == 200
+    assert bad_threshold.json()["state"]["lvc_threshold_override"] == ""
+
+    bad_currency = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-THR/recommendation-override",
+        json={"currency_mode": "btc"},
+    )
+    assert bad_currency.status_code == 400
+
+
 def test_origin_sheet_actions_accept_large_ajax_forms():
     client = TestClient(app)
     created = client.post(
@@ -3072,7 +3933,7 @@ def test_origin_sheet_calculate_accepts_compact_json_from_fresh_origin_page():
     record = get_case_record(get_client("growatt"), case_id)
 
     assert response.status_code == 200
-    assert "Đã tính bảng kê PV00.0048500" in response.text
+    assert "Đã load BOM vào bảng kê PV00.0048500" in response.text
     assert record["products"][0]["materials"]
     assert record["origin_sheet_states"]["PV00.0048500"]["status"] == "calculated"
 
@@ -3282,6 +4143,16 @@ def test_co_case_export_workbook_contains_bom_snapshot_rows_from_origin_form():
     )
     origin = client.get(f"{created.headers['location']}/origin")
 
+    # Sheets default to "Chưa tính"; calling /calculate flips them to "Đã tính"
+    # which is required for export. Mirrors the manual UI gate (staff clicks
+    # "Tính bảng kê").
+    form_data = hidden_form_data(origin.text)
+    client.post(
+        f"{created.headers['location']}/origin/sheet/PV00.0048500/calculate",
+        data=form_data,
+    )
+
+    origin = client.get(f"{created.headers['location']}/origin")
     response = client.post(f"{created.headers['location']}/export", data=hidden_form_data(origin.text))
 
     assert response.status_code == 200
@@ -3316,6 +4187,14 @@ def test_co_case_export_workbook_contains_origin_snapshot_metadata_from_web():
     )
     origin = client.get(f"{created.headers['location']}/origin")
 
+    # Mark each sheet calculated (mirrors UI "Tính bảng kê" gate).
+    form_data = hidden_form_data(origin.text)
+    for product_code in ("PV00.0048500", "DEMO-NPL-002"):
+        client.post(
+            f"{created.headers['location']}/origin/sheet/{product_code}/calculate",
+            data=form_data,
+        )
+    origin = client.get(f"{created.headers['location']}/origin")
     response = client.post(f"{created.headers['location']}/export", data=hidden_form_data(origin.text))
 
     assert response.status_code == 200
@@ -3400,6 +4279,14 @@ def test_co_case_origin_round_trips_multi_lot_allocation_to_export_workbook():
         follow_redirects=False,
     )
 
+    origin = client.get(f"{created.headers['location']}/origin")
+    form_data = hidden_form_data(origin.text)
+    # Mark each sheet calculated (mirrors UI "Tính bảng kê" gate).
+    for product_code in ("PV00.0048500", "DEMO-NPL-001"):
+        client.post(
+            f"{created.headers['location']}/origin/sheet/{product_code}/calculate",
+            data=form_data,
+        )
     origin = client.get(f"{created.headers['location']}/origin")
     form_data = hidden_form_data(origin.text)
     response = client.post(f"{created.headers['location']}/export", data=form_data)
@@ -3493,7 +4380,7 @@ def test_co_case_origin_round_trips_multi_lot_allocation_to_export_workbook():
     assert blocked_export.status_code == 409
     assert "Chưa thể export" in blocked_export.text
     assert calculated.status_code == 200
-    assert "Đã tính bảng kê PV00.0048500" in calculated.text
+    assert "Đã load BOM vào bảng kê PV00.0048500" in calculated.text
     assert hidden_form_data(calculated.text)["product_0_origin_sheet_status"] == "calculated"
     assert locked.status_code == 200
     assert "Đã chốt bảng kê PV00.0048500" in locked.text

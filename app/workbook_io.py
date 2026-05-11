@@ -317,3 +317,305 @@ def create_evidence_workbook(case: dict) -> bytes:
 def write_seed_workbook(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(create_input_workbook(get_demo_case()))
+
+
+# HQ "Bảng kê C/O" exporter — mirrors structure of legacy
+# `tru lui CO final ...xlsm` workbook documented in
+# docs/legacy-workbook-output-sheet-structure.md.
+
+HQ_SHEET_DEFS = [
+    {"sheet": "LVC", "title": 'BẢNG KÊ KHAI HÀNG HÓA XUẤT KHẨU ĐẠT TIÊU CHÍ "LVC"', "default_threshold": "30"},
+    {"sheet": "RVC", "title": 'BẢNG KÊ KHAI HÀNG HÓA XUẤT KHẨU ĐẠT TIÊU CHÍ "RVC"', "default_threshold": "40"},
+    {"sheet": "CTH", "title": 'BẢNG KÊ KHAI HÀNG HÓA XUẤT KHẨU ĐẠT TIÊU CHÍ "CTC" (CTH)', "default_threshold": ""},
+    {"sheet": "CTSH", "title": 'BẢNG KÊ KHAI HÀNG HÓA XUẤT KHẨU ĐẠT TIÊU CHÍ "CTC" (CTSH)', "default_threshold": ""},
+    {"sheet": "EUR1", "title": 'BẢNG KÊ KHAI HÀNG HÓA XUẤT KHẨU ĐẠT TIÊU CHÍ "PSR" (EUR.1)', "default_threshold": ""},
+]
+HQ_LEGAL_NOTE = "Ban hành kèm theo Thông tư 05/2018/TT-BCT (sửa đổi 44/2023/TT-BCT, 23/2025/TT-BCT)."
+HQ_HEADERS = [
+    "STT", "Tên nguyên phụ liệu", "HS", "ĐVT", "Định mức/SP", "SL cần cho lô",
+    "Đơn giá CIF", "Trị giá xuất xứ", "Trị giá KXX", "Nước xuất xứ",
+    "Tờ khai NK / VAT", "Ngày", "C/O / khai báo", "Ngày",
+]
+HQ_BODY_START = 16
+HQ_BODY_END = 1585
+
+
+def hq_sheet_codes_for_product(product: dict) -> set[str]:
+    """Pick the ONE HQ template sheet this TP should use.
+
+    Per legacy macro flow and user requirement: 1 sheet per TP per dossier.
+    Priority: LVC > RVC > CTSH > CTH > EUR1, narrowed by the TP's effective
+    criteria text. Returns a set of size 1 (set type kept for caller convenience).
+    """
+    form = str(product.get("origin_sheet_effective_form_code") or "").upper()
+    criteria_sources = [
+        product.get("origin_sheet_effective_criteria_text") or "",
+        product.get("documented_result") or "",
+        product.get("origin_criterion_mode") or "",
+    ]
+    criteria = " ".join(str(c) for c in criteria_sources).upper()
+    if form == "EUR.1" or "EUR.1" in form or "PSR" in criteria:
+        return {"EUR1"}
+    if "LVC" in criteria:
+        return {"LVC"}
+    if "RVC" in criteria or "MAXNOM" in criteria:
+        return {"RVC"}
+    if "CTSH" in criteria:
+        return {"CTSH"}
+    if "CTH" in criteria:
+        return {"CTH"}
+    return {"LVC"}
+
+
+def write_hq_sheet_header(ws, product: dict, sheet_def: dict, case: dict, threshold: str) -> None:
+    ws["E2"] = "Phụ lục VII"
+    ws["A3"] = sheet_def["title"]
+    ws["A4"] = HQ_LEGAL_NOTE
+    ws["B6"] = case.get("customer", "") or case.get("client_id", "")
+    ws["K6"] = product.get("origin_sheet_effective_criteria_text") or product.get("documented_result", "")
+    ws["K7"] = product.get("name", "")
+    ws["P7"] = product.get("code", "")
+    ws["K8"] = product.get("finished_hs", "")
+    ws["O8"] = product.get("incoterm", "FOB")
+    ws["P8"] = product.get("fob", "") or "0"
+    ws["K9"] = product.get("quantity", "") or "0"
+    ws["L9"] = product.get("uom") or product.get("unit") or product.get("export_unit", "")
+    ws["P9"] = product.get("quantity", "") or "0"
+    ws["Q9"] = (case.get("shipment", {}).get("export_declaration_nos") or [""])[0]
+    ws["K10"] = product.get("fob", "") or "0"
+    ws["K11"] = product.get("fob", "") or "0"
+    for col_index, label in enumerate(HQ_HEADERS, start=1):
+        ws.cell(row=12, column=col_index, value=label)
+    ws["O5"] = "Ngưỡng (%)"
+    ws["P5"] = threshold
+
+
+def write_hq_sheet_materials(ws, product: dict, start_row: int) -> int:
+    materials = product.get("materials") or []
+    overrides = product.get("origin_sheet_material_overrides") or {}
+    row_index = start_row
+    counter = 1
+    sum_origin = Decimal("0")
+    sum_non_origin = Decimal("0")
+    for index, material in enumerate(materials):
+        override = overrides.get(str(index)) if isinstance(overrides.get(str(index)), dict) else {}
+        if override.get("deleted"):
+            continue
+        material_code = override.get("material_code") or material.get("material_code", "")
+        material_name = override.get("name") or material.get("material_description", "")
+        norm = override.get("norm_per_unit") or material.get("bom_qty_per", "0")
+        required_qty = decimal_value(material.get("consumed_qty") or norm)
+        unit_price = decimal_value(material.get("unit_value") or "0")
+        material_value = decimal_value(material.get("material_value") or "0")
+        origin_status = str(material.get("origin_status") or "non_origin")
+        origin_value = material_value if origin_status == "origin" else Decimal("0")
+        non_origin_value = material_value if origin_status != "origin" else Decimal("0")
+        sum_origin += origin_value
+        sum_non_origin += non_origin_value
+        ws.cell(row=row_index, column=1, value=counter)
+        ws.cell(row=row_index, column=2, value=material_name)
+        ws.cell(row=row_index, column=3, value=material.get("hs_code", ""))
+        ws.cell(row=row_index, column=4, value=material.get("uom", ""))
+        ws.cell(row=row_index, column=5, value=str(norm))
+        ws.cell(row=row_index, column=6, value=str(required_qty))
+        ws.cell(row=row_index, column=7, value=str(unit_price))
+        ws.cell(row=row_index, column=8, value=str(origin_value))
+        ws.cell(row=row_index, column=9, value=str(non_origin_value))
+        ws.cell(row=row_index, column=10, value=material.get("origin_country", ""))
+        ws.cell(row=row_index, column=11, value=material.get("import_declaration_no", ""))
+        ws.cell(row=row_index, column=12, value=material.get("import_declaration_date", ""))
+        ws.cell(row=row_index, column=13, value=material.get("source_document_ref", ""))
+        ws.cell(row=row_index, column=14, value=material.get("source_document_date", ""))
+        # Helper columns (preserved per legacy macro layout, hidden in print).
+        ws.cell(row=row_index, column=16, value=material_code)  # P
+        ws.cell(row=row_index, column=23, value=product.get("code", ""))  # W
+        row_index += 1
+        counter += 1
+    # Add added-rows from overrides at the end.
+    for key, value in overrides.items():
+        if not key.startswith("added_") or not isinstance(value, dict):
+            continue
+        ws.cell(row=row_index, column=1, value=counter)
+        ws.cell(row=row_index, column=2, value=value.get("name", ""))
+        ws.cell(row=row_index, column=3, value=value.get("hs_code", ""))
+        ws.cell(row=row_index, column=4, value=value.get("uom", ""))
+        ws.cell(row=row_index, column=5, value=str(value.get("norm_per_unit", "0")))
+        ws.cell(row=row_index, column=16, value=value.get("material_code", ""))
+        ws.cell(row=row_index, column=23, value=product.get("code", ""))
+        row_index += 1
+        counter += 1
+    # Footer totals at fixed positions per docs/legacy-workbook-output-sheet-structure.md
+    ws["C1586"] = str(sum_origin)
+    ws["C1587"] = str(sum_non_origin)
+    ws["H1588"] = str(sum_origin)
+    ws["I1588"] = str(sum_non_origin)
+    fob = decimal_value(product.get("fob") or "0")
+    if fob > 0:
+        lvc = ((fob - sum_non_origin) / fob * Decimal("100")).quantize(Decimal("0.01"))
+        ws["K1606"] = str(sum_non_origin)
+        ws["J1606"] = str(fob)
+        ws["I1604"] = str(fob)
+        ws["M1607"] = f"{lvc} %"
+        ws["B1611"] = f"{lvc} %"
+    return row_index
+
+
+HQ_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "data" / "local" / "hq-templates" / "tru-lui-co-template.xlsm"
+
+
+def hq_template_path() -> Path | None:
+    """Locate the legacy `tru lui CO` workbook used as styling template."""
+    if HQ_TEMPLATE_PATH.exists():
+        return HQ_TEMPLATE_PATH
+    return None
+
+
+def create_hq_bang_ke_workbook(case: dict) -> bytes:
+    """Build the HQ-style bảng kê workbook by cloning the legacy template per product.
+
+    Follows the macro flow documented in
+    docs/legacy-workbook-output-sheet-structure.md:
+      - For each product, copy the relevant criterion sheet (LVC/RVC/CTH/CTSH/EUR1)
+      - Fill header cells (A3 title preserved, K7/P7/P8/P9/Q9 etc.)
+      - Write material rows starting at row 16
+      - Footer totals at rows 1586-1607
+      - Name the copied tab as `<sequence><product_code>` (per macro: `so & P7`)
+
+    If the template file is not present, falls back to the structured shell builder
+    from before (no styling parity).
+    """
+    template_path = hq_template_path()
+    if template_path is None:
+        return _create_hq_bang_ke_workbook_shell(case)
+    wb = load_workbook(template_path, keep_vba=False)
+    products = case.get("products") or []
+    sheets_used: set[str] = set()
+    created_sheet_titles: list[str] = []
+    sequence = 0
+    for product in products:
+        codes = hq_sheet_codes_for_product(product)
+        for sheet_def in HQ_SHEET_DEFS:
+            if sheet_def["sheet"] not in codes:
+                continue
+            if sheet_def["sheet"] not in wb.sheetnames:
+                continue
+            template_ws = wb[sheet_def["sheet"]]
+            sequence += 1
+            new_title = _safe_sheet_title(f"{sequence}{product.get('code', '')}", wb)
+            ws_copy = wb.copy_worksheet(template_ws)
+            ws_copy.title = new_title
+            created_sheet_titles.append(new_title)
+            sheets_used.add(sheet_def["sheet"])
+            threshold = product.get("origin_sheet_effective_lvc_threshold") or sheet_def["default_threshold"]
+            _clear_template_body(ws_copy)
+            write_hq_sheet_header(ws_copy, product, sheet_def, case, threshold)
+            write_hq_sheet_materials(ws_copy, product, HQ_BODY_START)
+    # Drop every sheet that wasn't created for this dossier — including all
+    # template/source sheets which still hold the legacy workbook's example data.
+    keep = set(created_sheet_titles)
+    for name in list(wb.sheetnames):
+        if name not in keep:
+            del wb[name]
+    if not wb.sheetnames:
+        ws = wb.create_sheet("README")
+        ws["A1"] = "Hồ sơ chưa có TP nào sẵn sàng để xuất bảng kê HQ."
+    stream = BytesIO()
+    wb.save(stream)
+    return stream.getvalue()
+
+
+def _safe_sheet_title(name: str, wb: Workbook) -> str:
+    cleaned = "".join(c for c in name if c not in "[]:*?/\\")[:31] or "Sheet"
+    if cleaned not in wb.sheetnames:
+        return cleaned
+    suffix = 1
+    while f"{cleaned[:28]}_{suffix}" in wb.sheetnames:
+        suffix += 1
+    return f"{cleaned[:28]}_{suffix}"
+
+
+def _clear_template_body(ws) -> None:
+    """Wipe the example body rows from the template so we can re-fill cleanly."""
+    for row in ws.iter_rows(min_row=HQ_BODY_START, max_row=HQ_BODY_END, max_col=27):
+        for cell in row:
+            cell.value = None
+
+
+def _create_hq_bang_ke_workbook_shell(case: dict) -> bytes:
+    """Fallback builder when the legacy template isn't present."""
+    wb = Workbook()
+    wb.remove(wb.active)
+    products = case.get("products") or []
+    for sheet_def in HQ_SHEET_DEFS:
+        ws = wb.create_sheet(sheet_def["sheet"])
+        ws.page_setup.orientation = "landscape"
+        ws.print_options.horizontalCentered = True
+        ws.print_area = "A1:N1623"
+        relevant = [p for p in products if sheet_def["sheet"] in hq_sheet_codes_for_product(p)]
+        row = HQ_BODY_START
+        for product in relevant:
+            threshold = product.get("origin_sheet_effective_lvc_threshold") or sheet_def["default_threshold"]
+            write_hq_sheet_header(ws, product, sheet_def, case, threshold)
+            row = write_hq_sheet_materials(ws, product, row)
+            row += 1
+            if row >= HQ_BODY_END:
+                break
+        if not relevant:
+            ws["A3"] = sheet_def["title"]
+            ws["A6"] = "Không có TP nào áp dụng tiêu chí này."
+    stream = BytesIO()
+    wb.save(stream)
+    return stream.getvalue()
+
+
+def create_dossier_zip(case: dict, supporting_files: list[dict], tkx_tkn_summary: dict) -> bytes:
+    """Bundle uploaded supporting files + TKX/TKN summary + HQ bảng kê into one .zip."""
+    import json
+    import zipfile
+    stream = BytesIO()
+    with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("README.txt", build_dossier_readme(case))
+        zf.writestr("bang-ke-co-hq.xlsx", create_hq_bang_ke_workbook(case))
+        zf.writestr("tkx-tkn.json", json.dumps(_serialise_tkx_tkn(tkx_tkn_summary), ensure_ascii=False, indent=2))
+        for file in supporting_files or []:
+            content = file.get("content")
+            if not isinstance(content, (bytes, bytearray)):
+                continue
+            slot = str(file.get("slot") or "other").strip() or "other"
+            filename = str(file.get("filename") or "supporting.bin").strip() or "supporting.bin"
+            zf.writestr(f"chung-tu/{slot}/{filename}", bytes(content))
+    return stream.getvalue()
+
+
+def _serialise_tkx_tkn(summary: dict) -> dict:
+    """Convert sets to lists so the TKX/TKN summary survives JSON round-trip."""
+    cleaned: dict = {}
+    for key, value in (summary or {}).items():
+        if isinstance(value, list):
+            cleaned[key] = [
+                {**entry, "products": sorted(entry["products"]) if isinstance(entry.get("products"), set) else entry.get("products", [])}
+                for entry in value
+            ]
+        else:
+            cleaned[key] = value
+    return cleaned
+
+
+def build_dossier_readme(case: dict) -> str:
+    lines = [
+        f"Hồ sơ C/O: {case.get('case_code', '')}",
+        f"Khách hàng: {case.get('customer', '') or case.get('client_id', '')}",
+        f"Thị trường: {case.get('destination_market', '')}",
+        f"Số TP: {len(case.get('products') or [])}",
+        "",
+        "Cấu trúc thư mục:",
+        "  bang-ke-co-hq.xlsx — Bảng kê C/O theo template HQ (LVC/RVC/CTH/CTSH/EUR1)",
+        "  tkx-tkn.json       — Danh sách TKX và TKN tham chiếu trong hồ sơ",
+        "  chung-tu/<slot>/   — Các chứng từ đã upload theo tab Chứng từ",
+        "",
+        "Lưu ý: bảng kê HQ được build từ template tham chiếu trong",
+        "docs/legacy-workbook-output-sheet-structure.md. Khi file .xlsm",
+        "gốc 'tru lui CO final ...' được nạp vào repo, builder cần đọc",
+        "template đó trực tiếp để giữ đúng styling/format gốc.",
+    ]
+    return "\n".join(lines)

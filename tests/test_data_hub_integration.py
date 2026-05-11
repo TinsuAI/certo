@@ -694,6 +694,56 @@ def test_data_hub_client_follows_cursor_pagination():
     assert client.list_materials("growatt-vn") == [{"customs_code": "NVL-1"}, {"customs_code": "NVL-2"}]
 
 
+def test_data_hub_material_product_rows_consume_canonical_uom_only():
+    from app.data_hub_client import DataHubPortfolioService, normalize_material_row, normalize_product_row
+
+    material = normalize_material_row({
+        "material_code": "MAT-UOM",
+        "name": "Material UOM",
+        "category": "nvl",
+        "uom": "kg",
+    })
+    product = normalize_product_row({
+        "product_code": "TP-UOM",
+        "name": "Product UOM",
+        "category": "tp",
+        "uom": "pcs",
+    })
+
+    assert material["uom"] == "kg"
+    assert product["uom"] == "pcs"
+    assert "unit" not in material
+    assert "unit" not in product
+
+    class FakeDataHubClient:
+        def get_client_config(self, _client_id: str):
+            return {
+                "client_id": "growatt-vn",
+                "eligible_import_declaration_types": ["E11"],
+                "relevant_export_declaration_types": ["E42"],
+            }
+
+        def list_materials(self, _client_id: str):
+            return [
+                {"material_code": "MAT-UOM", "category": "nvl", "name": "Material UOM", "uom": "kg"},
+                {"material_code": "TP-UOM", "category": "tp", "name": "Product UOM", "uom": "pcs"},
+            ]
+
+        def list_bcct(self, _client_id: str):
+            return []
+
+    service = DataHubPortfolioService(FakeDataHubClient())
+    workspace, backend = service.source_workspace({"id": "growatt-vn"})
+
+    assert backend == "data-hub"
+    assert workspace["material_catalog"]["published_rows"][0]["uom"] == "kg"
+    assert workspace["product_catalog"]["published_rows"][0]["uom"] == "pcs"
+    assert "unit" not in workspace["material_catalog"]["published_rows"][0]
+    assert "unit" not in workspace["product_catalog"]["published_rows"][0]
+    assert service.search_materials("growatt-vn", "MAT-UOM")[0]["uom"] == "kg"
+    assert "unit" not in service.search_materials("growatt-vn", "MAT-UOM")[0]
+
+
 def test_data_hub_client_invoice_matches_requests_market_hint():
     from app.data_hub_client import DataHubClient
 
@@ -1175,6 +1225,51 @@ def test_data_hub_portfolio_service_preserves_material_identity_for_declaration_
 
     assert context["invoice_matches"][0]["item_code"] == "BIENTAN.17"
     assert context["invoice_matches"][0]["material_identity"]["bom_product_code"] == "PV01.0117500"
+
+
+def test_data_hub_portfolio_service_list_bcct_by_codes_normalizes_rows():
+    from app.data_hub_client import DataHubPortfolioService
+
+    captured: dict = {}
+
+    class FakeDataHubClient:
+        def list_bcct_by_codes(self, client_id, codes, *, direction):
+            captured["client_id"] = client_id
+            captured["codes"] = codes
+            captured["direction"] = direction
+            return [
+                {
+                    "direction": "import",
+                    "declaration_no": "NK7",
+                    "line_no": "2",
+                    "customs_code": "MAT-A",
+                    "item_code": "MAT-A",
+                    "hs_code": "73182990",
+                    "quantity": "50",
+                    "unit": "PCS",
+                    "unit_price": "12.34",
+                    "total_value": "617",
+                }
+            ]
+
+    service = DataHubPortfolioService(FakeDataHubClient())
+    rows = service.list_bcct_by_codes("johnson-vn", ["MAT-A", "MAT-B"], direction="import")
+    assert captured == {"client_id": "johnson-vn", "codes": ["MAT-A", "MAT-B"], "direction": "import"}
+    assert len(rows) == 1
+    assert rows[0]["item_code"] == "MAT-A"
+    assert rows[0]["taxable_unit_price"] == "12.34"
+    assert rows[0]["direction"] == "import"
+
+
+def test_data_hub_portfolio_service_list_bcct_by_codes_empty_codes_short_circuits():
+    from app.data_hub_client import DataHubPortfolioService
+
+    class FakeDataHubClient:
+        def list_bcct_by_codes(self, *_args, **_kwargs):
+            raise AssertionError("should not call Data Hub for empty codes list")
+
+    service = DataHubPortfolioService(FakeDataHubClient())
+    assert service.list_bcct_by_codes("johnson-vn", []) == []
 
 
 def test_clients_page_uses_portfolio_service_boundary(monkeypatch):

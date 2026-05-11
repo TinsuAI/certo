@@ -425,6 +425,16 @@
 
 {% else %}
 <div data-co-case-shell>
+{% if request.cookies.get("co_case_just_created") == case.persisted_case_id %}
+<section class="callout callout-success" data-case-created-banner>
+  <span class="callout-icon">✓</span>
+  <div>
+    <div class="callout-title">Đã tạo hồ sơ <strong>{{ case.case_code }}</strong></div>
+    <small>Bắt đầu từ tab <strong>Lô hàng</strong> bên dưới (đã active). Bạn có thể chuyển sang tab <strong>Bảng kê C/O</strong> để load BOM và tính khi sẵn sàng.</small>
+  </div>
+  <button type="button" class="btn-secondary" data-case-created-dismiss aria-label="Đóng">×</button>
+</section>
+{% endif %}
 <section class="zone co-case-header">
   <div class="zone-head">
     <div>
@@ -434,15 +444,17 @@
     </div>
     <a class="btn-secondary" href="/clients/{{ client.id }}/co-case">Đổi hồ sơ</a>
   </div>
-  <nav class="workflow-stepper" aria-label="Các bước làm C/O">
+  <nav class="workflow-stepper" aria-label="Các bước làm C/O" data-case-tab-nav>
     {% for step in co_case_steps %}
-    <a class="workflow-step {{ 'workflow-step-active' if step.active else '' }} workflow-step-{{ step.status }}" href="{{ step.href }}">
+    <a class="workflow-step {{ 'workflow-step-active' if step.active else '' }} workflow-step-{{ step.status }} {{ 'workflow-step-wip' if step.wip else '' }}" href="{{ step.href }}" title="{{ step.description or '' }}" data-case-tab-link>
       <span>{{ step.short_label }}</span>
-      <strong>{{ step.label }}</strong>
+      <strong>{{ step.label }}{% if step.wip %} <em class="workflow-step-wip-badge">W.I.P</em>{% endif %}</strong>
       <em>{{ step.status_label }}</em>
+      <span class="workflow-step-spinner" aria-hidden="true"></span>
     </a>
     {% endfor %}
   </nav>
+  <div class="case-tab-progress" data-case-tab-progress aria-hidden="true"></div>
 </section>
 
 {% if origin_calculation_lock %}
@@ -509,74 +521,179 @@
 <section class="zone source-panel">
   <div class="zone-head">
     <div>
-      <h2>Supporting files</h2>
-      <p class="meta">File được lưu theo hồ sơ. Số invoice dùng để tra BCCT xuất khẩu; PDF chưa được OCR trong sprint này.</p>
+      <h2>Chứng từ hồ sơ</h2>
+      <p class="meta">Chia 2 nhóm: <strong>Bắt buộc</strong> (BL, Invoice/Packing) và <strong>Bổ sung</strong> (chứng từ khác). Bảng TKX không upload ở đây — sẽ được query từ Data Hub sau khi chốt bảng kê (xem tab "TKX/TKN").</p>
     </div>
   </div>
-  <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/supporting-files" enctype="multipart/form-data" class="upload-form" hx-boost="false">
-    <select name="document_slot">
-      <option value="invoice">Invoice</option>
-      <option value="bill_of_lading">Bill of lading</option>
-      <option value="packing_list">Packing list</option>
-      <option value="export_declaration">Tờ khai xuất</option>
-      <option value="other">Khác</option>
-    </select>
-    <input name="invoice_no" placeholder="Số invoice" value="{{ case.shipment.invoice_no }}">
-    <input name="bill_of_lading_no" placeholder="Số B/L" value="{{ case.shipment.bill_of_lading_no }}">
-    <input type="file" name="file" required>
-    <button type="submit">Upload supporting</button>
-  </form>
-  <div class="rowlist audit-trail">
-    {% for file in case.supporting_files %}
-    <div class="rowitem">
-      <div>
-        <strong>
-          {% if file.upload_id %}
-          <a href="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/supporting-files/{{ file.upload_id }}">{{ file.filename }}</a>
-          {% else %}
-          {{ file.filename }}
-          {% endif %}
-        </strong>
-        <div class="meta">{{ file.slot }} · invoice {{ file.invoice_no or 'n/a' }} · B/L {{ file.bill_of_lading_no or 'n/a' }}</div>
+  {% set required_slots = [
+    {"slot": "bill_of_lading", "label": "Vận đơn (B/L)", "required": True},
+    {"slot": "invoice", "label": "Invoice", "required": True},
+    {"slot": "packing_list", "label": "Packing list", "required": True}
+  ] %}
+  {% set optional_slots = [
+    {"slot": "contract", "label": "Hợp đồng"},
+    {"slot": "supplier_declaration", "label": "Cam kết NCC / NSX trong nước"},
+    {"slot": "manufacturing_process", "label": "Quy trình sản xuất"},
+    {"slot": "other", "label": "Khác"}
+  ] %}
+  {% set slot_files = {} %}
+  {% for f in case.supporting_files %}
+    {% set _ = slot_files.setdefault(f.slot, []).append(f) %}
+  {% endfor %}
+
+  <div class="document-checklist document-checklist-required">
+    <h3>Bắt buộc</h3>
+    {% for slot in required_slots %}
+    {% set files = slot_files.get(slot.slot, []) %}
+    <div class="document-slot {{ 'document-slot-ready' if files else 'document-slot-missing' }}">
+      <div class="document-slot-head">
+        <strong>{{ slot.label }}</strong>
+        <span class="document-slot-status">{{ files|length ~ ' file' if files else 'Chưa upload' }}</span>
       </div>
+      <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/supporting-files" enctype="multipart/form-data" class="upload-form upload-form-inline" hx-boost="false">
+        <input type="hidden" name="document_slot" value="{{ slot.slot }}">
+        <input name="invoice_no" value="{{ case.shipment.invoice_no }}" placeholder="Số invoice (tùy chọn)">
+        <input name="bill_of_lading_no" value="{{ case.shipment.bill_of_lading_no }}" placeholder="Số B/L (tùy chọn)">
+        <input type="file" name="file" required>
+        <button type="submit">Upload</button>
+      </form>
+      {% if files %}
+      <ul class="document-slot-files">
+        {% for f in files %}
+        <li>
+          {% if f.upload_id %}
+          <a href="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/supporting-files/{{ f.upload_id }}">{{ f.filename }}</a>
+          {% else %}{{ f.filename }}{% endif %}
+          <span class="meta">invoice {{ f.invoice_no or 'n/a' }} · B/L {{ f.bill_of_lading_no or 'n/a' }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
     </div>
-    {% else %}
-    <p class="empty-cell">Chưa upload supporting file cho hồ sơ này.</p>
     {% endfor %}
+  </div>
+
+  <div class="document-checklist document-checklist-optional">
+    <h3>Bổ sung</h3>
+    {% for slot in optional_slots %}
+    {% set files = slot_files.get(slot.slot, []) %}
+    <div class="document-slot document-slot-optional">
+      <div class="document-slot-head">
+        <strong>{{ slot.label }}</strong>
+        <span class="document-slot-status">{{ files|length ~ ' file' if files else 'Tùy chọn' }}</span>
+      </div>
+      <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/supporting-files" enctype="multipart/form-data" class="upload-form upload-form-inline" hx-boost="false">
+        <input type="hidden" name="document_slot" value="{{ slot.slot }}">
+        <input type="file" name="file" required>
+        <button type="submit">Upload</button>
+      </form>
+      {% if files %}
+      <ul class="document-slot-files">
+        {% for f in files %}
+        <li>
+          {% if f.upload_id %}
+          <a href="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/supporting-files/{{ f.upload_id }}">{{ f.filename }}</a>
+          {% else %}{{ f.filename }}{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="callout callout-info">
+    <span class="callout-icon">i</span>
+    <div>
+      <div class="callout-title">Bảng tờ khai xuất (TKX)</div>
+      Sẽ được query từ Data Hub sau khi chốt các bảng kê C/O — không upload ở tab này. Mở tab <strong>TKX/TKN</strong> sau khi hoàn tất tab <strong>Bảng kê C/O</strong>.
+    </div>
+  </div>
+</section>
+{% endif %}
+
+{% if co_case_active_step == "exports" %}
+{% set _tkx = tkx_tkn_summary.tkx %}
+{% set _tkn = tkx_tkn_summary.tkn %}
+{% set _missing_tkx = tkx_tkn_summary.missing_tkx %}
+{% set _missing_tkn = tkx_tkn_summary.missing_tkn %}
+<section class="callout {{ 'callout-warning' if _missing_tkx or _missing_tkn else 'callout-info' }}">
+  <span class="callout-icon">{% if _missing_tkx or _missing_tkn %}!{% else %}i{% endif %}</span>
+  <div>
+    <div class="callout-title">TKX / TKN — đối chiếu với Data Hub</div>
+    {% if _missing_tkx or _missing_tkn %}
+    Còn <strong>{{ _missing_tkx|length }}</strong> TKX và <strong>{{ _missing_tkn|length }}</strong> TKN chưa có trong Data Hub.
+    Bổ sung tại <a href="{{ data_hub_base_url }}/clients/{{ client.id }}/bcct" target="_blank" rel="noopener">Data Hub → BCCT</a> trước khi xuất dossier.
+    {% else %}
+    Tất cả TKX/TKN tham chiếu trong hồ sơ đã có trong Data Hub. Sẵn sàng cho bước Review &amp; Xuất.
+    {% endif %}
   </div>
 </section>
 
 <section class="zone">
   <div class="zone-head">
     <div>
-      <h2>Checklist chứng từ</h2>
-      <p class="meta">Slot chứng từ của case đang mở, tách khỏi dữ liệu nền của công ty.</p>
+      <h2>Tờ khai xuất (TKX)</h2>
+      <p class="meta">TKX được lấy từ BCCT xuất khẩu khớp invoice/tờ khai trong hồ sơ.</p>
+    </div>
+    <div class="chip-row">
+      <span class="chip">{{ _tkx|length }} TKX</span>
+      <span class="chip {{ 'chip-warning' if _missing_tkx else '' }}">{{ _missing_tkx|length }} thiếu trong Data Hub</span>
     </div>
   </div>
   <div class="table-scroll">
     <table class="table">
       <thead>
-        <tr>
-          <th>Nhóm chứng từ</th>
-          <th>Nguồn / file</th>
-          <th>Trạng thái</th>
-        </tr>
+        <tr><th>Tờ khai</th><th>Loại hình</th><th>Số dòng</th><th>Trạng thái Data Hub</th></tr>
       </thead>
       <tbody>
-        {% for doc in case.documents %}
+        {% for entry in _tkx %}
         <tr>
-          <td>{{ doc.label }}</td>
-          <td>{{ doc.reference }}</td>
-          <td>{{ "Đã có" if doc.status == "ready" else "Chờ xử lý" }}</td>
+          <td class="mono">{{ entry.declaration_no }}</td>
+          <td class="mono">{{ entry.declaration_type or '—' }}</td>
+          <td class="num">{{ entry.lines|length }}</td>
+          <td>{% if entry.in_data_hub %}<span class="origin-bom-diff-added">Đã có</span>{% else %}<span class="origin-bom-diff-removed">Cần bổ sung sang Data Hub</span>{% endif %}</td>
         </tr>
+        {% else %}
+        <tr><td colspan="4" class="empty-cell">Chưa có TKX nào tham chiếu trong hồ sơ.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </section>
-{% endif %}
 
-{% if co_case_active_step == "exports" %}
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Tờ khai nhập (TKN)</h2>
+      <p class="meta">TKN được lấy từ allocation_lines của các sheet đã chốt — đây là các tờ khai nhập mà bảng kê đã claim.</p>
+    </div>
+    <div class="chip-row">
+      <span class="chip">{{ _tkn|length }} TKN</span>
+      <span class="chip {{ 'chip-warning' if _missing_tkn else '' }}">{{ _missing_tkn|length }} thiếu trong Data Hub</span>
+    </div>
+  </div>
+  <div class="table-scroll">
+    <table class="table">
+      <thead>
+        <tr><th>Tờ khai nhập</th><th>TP liên quan</th><th>Số dòng claim</th><th>Trạng thái Data Hub</th></tr>
+      </thead>
+      <tbody>
+        {% for entry in _tkn %}
+        <tr>
+          <td class="mono">{{ entry.declaration_no }}</td>
+          <td>{{ entry.products|join(', ') }}</td>
+          <td class="num">{{ entry.lines|length }}</td>
+          <td>{% if entry.in_data_hub %}<span class="origin-bom-diff-added">Đã có</span>{% else %}<span class="origin-bom-diff-removed">Cần bổ sung sang Data Hub</span>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="empty-cell">Chưa có TKN nào — sheet phải được "Chốt" để TKN xuất hiện ở đây.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
 <section class="zone" id="invoice-matches">
   <div class="zone-head">
     <div>
@@ -620,6 +737,13 @@
 {% endif %}
 
 {% if co_case_active_step == "guidance" %}
+<section class="callout callout-warning">
+  <span class="callout-icon">!</span>
+  <div>
+    <div class="callout-title">Form &amp; PSR — W.I.P</div>
+    Tab này đang trong giai đoạn xây dựng. Mục tiêu: confirm pháp lý (form nào, sản phẩm nào dùng tiêu chí gì). Khuyến nghị form/tiêu chí từ engine cấu hình trong <a href="/clients/{{ client.id }}/co-form-settings">Settings → CO Form Index</a>; user có thể override per-bảng-kê trong tab <strong>Bảng kê C/O</strong>.
+  </div>
+</section>
 <section class="zone">
   <div class="zone-head">
     <div>
@@ -828,8 +952,9 @@
         </div>
         <div class="origin-sheet-tabs" role="tablist" aria-label="Sheet sản phẩm trong bảng kê">
           {% for product in case.products %}
+          {% set tab_has_bom = (product.materials|length > 0) or (product.bom_product_artifact_id or product.bom_product_version_id) %}
           <div
-            class="origin-sheet-tab {{ 'origin-sheet-tab-active' if loop.first else '' }}"
+            class="origin-sheet-tab {{ 'origin-sheet-tab-active' if loop.first else '' }} {{ 'origin-sheet-tab-no-bom' if not tab_has_bom else '' }}"
             id="origin-sheet-tab-{{ loop.index0 }}"
             role="tab"
             tabindex="{{ '0' if loop.first else '-1' }}"
@@ -838,13 +963,14 @@
             data-product-code="{{ product.code }}"
             data-origin-sequence-index="{{ loop.index0 }}"
             data-origin-sheet-tab
-            data-origin-sheet-target="origin-sheet-{{ loop.index0 }}">
+            data-origin-sheet-target="origin-sheet-{{ loop.index0 }}"
+            title="{% if not tab_has_bom %}TP {{ product.code }} chưa có BOM trên Data Hub{% endif %}">
             <span class="origin-tab-order-controls" aria-label="Đổi thứ tự {{ product.code }}">
               <button type="button" data-origin-sequence-move="left" title="Đưa sheet này sang trái" aria-label="Đưa {{ product.code }} sang trái">‹</button>
               <button type="button" data-origin-sequence-move="right" title="Đưa sheet này sang phải" aria-label="Đưa {{ product.code }} sang phải">›</button>
             </span>
             <span>Bước <span data-origin-sequence-label>{{ product.allocation_sequence or loop.index }}</span></span>
-            <strong class="mono">{{ product.code }}</strong>
+            <strong class="mono">{{ product.code }} {% if not tab_has_bom %}<em class="origin-sheet-tab-no-bom-mark">⚠ no BOM</em>{% endif %}</strong>
             <small>{{ product.origin_sheet_status_label or 'Chưa tính' }} · {{ product.materials|length }} NVL</small>
           </div>
           {% endfor %}
@@ -860,6 +986,12 @@
           aria-labelledby="origin-sheet-tab-{{ product_index }}"
           data-product-code="{{ product.code }}"
           data-origin-sheet-panel
+          data-product-fob="{{ product.fob or '0' }}"
+          data-product-quantity="{{ product.quantity or '0' }}"
+          data-product-currency="{{ product.currency or '' }}"
+          data-product-vnm-baseline="{{ product.vnm_value or product.non_origin_value or '0' }}"
+          data-product-lvc-baseline="{{ product.lvc_percentage or '0' }}"
+          data-product-lvc-threshold="{{ product.origin_sheet_effective_lvc_threshold or product.lvc_threshold or '0' }}"
           {% if not loop.first %}hidden{% endif %}>
           <input type="hidden" name="product_{{ product_index }}_material_count" value="{{ product.materials|length }}">
           <input type="hidden" name="product_{{ product_index }}_non_origin_value" value="{{ product.non_origin_value }}">
@@ -912,39 +1044,156 @@
               <span>Trạng thái</span>
               <strong class="origin-sheet-state-{{ product.origin_sheet_status or 'draft' }}">{{ product.origin_sheet_status_label or 'Chưa tính' }}</strong>
             </div>
-            <label class="product-bom-picker">TP artifact
+            {% if product.origin_sheet_material_diff_total %}
+            <div class="origin-bom-diff" title="So với BOM artifact gốc">
+              <span class="origin-bom-diff-eyebrow">BOM artifact đã sửa</span>
+              <span>
+                {% if product.origin_sheet_material_diff_added %}<span class="origin-bom-diff-added">+{{ product.origin_sheet_material_diff_added }} thêm</span>{% endif %}
+                {% if product.origin_sheet_material_diff_removed %}<span class="origin-bom-diff-removed">−{{ product.origin_sheet_material_diff_removed }} xoá</span>{% endif %}
+                {% if product.origin_sheet_material_diff_replaced %}<span class="origin-bom-diff-replaced">↔{{ product.origin_sheet_material_diff_replaced }} thay</span>{% endif %}
+                {% if product.origin_sheet_material_diff_norm_only %}<span class="origin-bom-diff-norm">Δ{{ product.origin_sheet_material_diff_norm_only }} ĐM</span>{% endif %}
+              </span>
+            </div>
+            {% endif %}
+            <label class="product-bom-picker {% if not bom_options %}product-bom-picker-missing{% endif %}">TP artifact
               <select name="product_{{ product_index }}_bom_product_artifact_id" data-bom-version-select data-origin-step-input data-origin-step-index="{{ product_index }}">
                 {% for option in bom_options %}
                 <option value="{{ option.product_artifact_id or option.product_version_id }}" {% if (option.product_artifact_id or option.product_version_id) == selected_bom_artifact_id %}selected{% endif %}>{{ bom_lookup_code }} · #{{ option.product_artifact_no or option.product_version_no }} · {{ option.row_count }} dòng · {{ option.status }}</option>
                 {% endfor %}
                 {% if not bom_options %}
-                <option value="{{ selected_bom_artifact_id }}">{{ bom_lookup_code }} · {{ product.bom_product_artifact_no or product.bom_product_version_no or 'chưa có BOM' }}</option>
+                <option value="{{ selected_bom_artifact_id }}">{{ bom_lookup_code }} · {% if product.bom_product_artifact_no or product.bom_product_version_no %}#{{ product.bom_product_artifact_no or product.bom_product_version_no }}{% else %}❗ Chưa có BOM trên Data Hub{% endif %}</option>
                 {% endif %}
               </select>
             </label>
             <div class="origin-sheet-actions">
-              <button type="submit" data-origin-sheet-calculate formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/calculate" formmethod="post" {% if origin_actions_blocked or not product.origin_can_calculate %}disabled title="{{ 'Khách hàng đang có hồ sơ khác giữ phiên tính tồn' if origin_actions_blocked else product.origin_calculate_block_reason }}"{% endif %}>Tính bảng kê</button>
+              <button type="submit" data-origin-sheet-calculate formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/calculate" formmethod="post" {% if origin_actions_blocked or not product.origin_can_calculate %}disabled title="{{ 'Khách hàng đang có hồ sơ khác giữ phiên tính tồn' if origin_actions_blocked else product.origin_calculate_block_reason }}"{% else %}title="Nạp BOM artifact đang chọn vào bảng kê (ghi đè chỉnh sửa client-side chưa lưu)"{% endif %}>Load BOM vào Bảng Kê</button>
               {% if product.origin_sheet_status == 'locked' %}
               <button type="submit" class="btn-secondary" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/reopen" formmethod="post" {% if origin_actions_blocked or not product.origin_can_reopen %}disabled title="{{ 'Khách hàng đang có hồ sơ khác giữ phiên tính tồn' if origin_actions_blocked else product.origin_reopen_block_reason }}"{% endif %}>Mở chốt</button>
+              {% if product.origin_sheet_material_diff_total %}
+              <button type="button" class="btn-primary"
+                      data-origin-propose-bom
+                      data-product-code="{{ product.code }}"
+                      data-propose-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/propose-bom"
+                      title="Lưu BOM artifact mới về Data Hub">
+                {% if product.origin_sheet_proposed_artifact_id %}Đã propose ✓{% else %}Lưu BOM artifact mới{% endif %}
+              </button>
+              {% endif %}
               {% else %}
               <button type="submit" class="btn-secondary" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/lock" formmethod="post" {% if origin_actions_blocked or not product.origin_can_lock %}disabled title="{{ 'Khách hàng đang có hồ sơ khác giữ phiên tính tồn' if origin_actions_blocked else product.origin_lock_block_reason }}"{% endif %}>Chốt</button>
               {% endif %}
             </div>
           </div>
+          {% if not bom_options and not product.materials %}
+          <div class="callout callout-warning origin-bom-missing">
+            <span class="callout-icon">!</span>
+            <div>
+              <div class="callout-title">TP {{ product.code }} chưa có BOM artifact trên Data Hub</div>
+              Cần tạo/upload BOM cho TP này trên Data Hub trước khi load BOM vào bảng kê C/O.
+              <a href="{{ data_hub_base_url }}/clients/{{ client.id }}/products/{{ product.code|urlencode }}" target="_blank" rel="noopener">Mở Data Hub product page →</a>
+            </div>
+          </div>
+          {% endif %}
+
+          {% if product.origin_sheet_status == 'locked' and product.origin_sheet_material_diff_total %}
+          <div class="origin-locked-bom-note callout callout-info">
+            <span class="callout-icon">i</span>
+            <div>
+              <div class="callout-title">Bảng kê này ứng với 1 BOM artifact mới cho TP {{ product.code }}</div>
+              <small>
+                Diff: {{ product.origin_sheet_material_diff_added }} thêm · {{ product.origin_sheet_material_diff_removed }} xoá · {{ product.origin_sheet_material_diff_replaced }} thay · {{ product.origin_sheet_material_diff_norm_only }} đổi ĐM.
+                {% if product.origin_sheet_proposed_artifact_id %}
+                Đã propose: <strong>{{ product.origin_sheet_proposed_artifact_id }}</strong> · trạng thái <strong>{{ product.origin_sheet_proposed_status or 'submitted' }}</strong>.
+                {% else %}
+                Bấm "Lưu BOM artifact mới" để gửi đề xuất sang Data Hub khi đóng hồ sơ.
+                {% endif %}
+              </small>
+            </div>
+          </div>
+          {% endif %}
+
+          {% set rec_form = product.origin_sheet_recommended_form_code %}
+          {% set rec_form_label = product.origin_sheet_recommended_form_label %}
+          {% set rec_criteria = product.origin_sheet_recommended_criteria_text %}
+          {% set form_override = product.origin_sheet_form_override %}
+          {% set criteria_override = product.origin_sheet_criteria_override %}
+          {% set lvc_threshold_override = product.origin_sheet_lvc_threshold_override %}
+          {% set rvc_threshold_override = product.origin_sheet_rvc_threshold_override %}
+          {% set currency_mode = product.origin_sheet_currency_mode or 'native' %}
+          {% set optimization_mode = product.origin_sheet_optimization_mode or 'max_lvc' %}
+          {% set effective_form = product.origin_sheet_effective_form_code %}
+          {% set effective_criteria = product.origin_sheet_effective_criteria_text %}
+          {% set effective_lvc_threshold = product.origin_sheet_effective_lvc_threshold %}
+          {% set effective_rvc_threshold = product.origin_sheet_effective_rvc_threshold %}
+          <div class="origin-recommendation"
+               data-origin-recommendation
+               data-product-code="{{ product.code }}"
+               data-product-currency="{{ product.currency }}"
+               data-override-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/recommendation-override">
+            <div class="origin-recommendation-summary">
+              <span class="origin-recommendation-eyebrow">Cấu hình bảng kê (form / tiêu chí / ngưỡng / tiền tệ)</span>
+              <strong>
+                {% if rec_form %}{{ rec_form_label or rec_form }}{% else %}<em class="meta">Chưa có thị trường để khuyến nghị</em>{% endif %}
+                {% if form_override and form_override != rec_form %}<span class="origin-recommendation-overridden">→ override: {{ form_override }}</span>{% endif %}
+              </strong>
+              <small>{{ rec_criteria or 'Chưa có tiêu chí khuyến nghị' }}{% if criteria_override %} <span class="origin-recommendation-overridden">→ override: {{ criteria_override }}</span>{% endif %}</small>
+            </div>
+            <div class="origin-recommendation-controls">
+              <label>Form
+                <select data-origin-recommendation-form>
+                  <option value="">— theo khuyến nghị ({{ rec_form or 'n/a' }}) —</option>
+                  {% for form in co_form_options %}
+                  <option value="{{ form.form_code }}" {% if form_override == form.form_code %}selected{% endif %}>{{ form.display_name or form.form_code }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              <label>Tiêu chí (override)
+                <input type="text" data-origin-recommendation-criteria value="{{ criteria_override }}" placeholder="VD: LVC 30% hoặc CTH">
+              </label>
+              <label>Ngưỡng LVC (%)
+                <input type="number" min="0" max="100" step="0.01" data-origin-recommendation-lvc value="{{ lvc_threshold_override }}" placeholder="VD: 30">
+              </label>
+              <label>Ngưỡng RVC (%)
+                <input type="number" min="0" max="100" step="0.01" data-origin-recommendation-rvc value="{{ rvc_threshold_override }}" placeholder="VD: 40">
+              </label>
+              <label>Hiển thị
+                <select data-origin-recommendation-currency>
+                  <option value="native" {% if currency_mode == 'native' %}selected{% endif %}>Nguyên tệ ({{ product.currency or 'NT' }})</option>
+                  <option value="vnd" {% if currency_mode == 'vnd' %}selected{% endif %}>VND</option>
+                </select>
+              </label>
+              <label>Mode tối ưu
+                <select data-origin-recommendation-optimization>
+                  <option value="max_lvc" {% if optimization_mode == 'max_lvc' %}selected{% endif %}>Tăng LVC/RVC</option>
+                  <option value="min_lvc" {% if optimization_mode == 'min_lvc' %}selected{% endif %}>Giảm LVC/RVC</option>
+                </select>
+              </label>
+              <button type="button" data-origin-recommendation-save>Lưu cấu hình</button>
+              <span class="origin-recommendation-status" data-origin-recommendation-status hidden></span>
+            </div>
+            <div class="origin-recommendation-effective" hidden data-origin-effective-summary>
+              <small>
+                Hiệu lực: form <strong>{{ effective_form or 'n/a' }}</strong> ·
+                tiêu chí <strong>{{ effective_criteria or 'n/a' }}</strong> ·
+                ngưỡng LVC <strong>{{ effective_lvc_threshold or 'n/a' }}%</strong> ·
+                ngưỡng RVC <strong>{{ effective_rvc_threshold or 'n/a' }}%</strong>
+              </small>
+            </div>
+          </div>
 
           {% set lvc_metric_class = 'warning' if product.lvc_quality_warning_text else 'blocked' if product.lvc_status in ['missing_value', 'missing_bom'] else product.lvc_status %}
-          <div class="origin-product-strip">
+          <div class="origin-product-strip" data-origin-strip>
             <div><span>Thứ tự tính</span><strong>Bước {{ product.allocation_sequence or loop.index }}</strong></div>
             <div><span>HS TP</span><strong class="mono">{{ product.finished_hs }}</strong></div>
             <div><span>Số lượng invoice</span><strong>{{ product.quantity|number(6) }} {{ product.unit or product.export_unit }}</strong></div>
-            <div><span>FOB/trị giá TP</span><strong class="num">{{ product.fob|number if product.fob else 'Thiếu' }} <em>{{ product.currency }}</em></strong></div>
-            <div><span>VNM</span><strong class="num">{{ (product.vnm_value or product.non_origin_value or '0')|number }} <em>{{ product.currency }}</em></strong></div>
-            <div class="origin-metric-{{ lvc_metric_class }}" title="{{ product.lvc_quality_warning_text or product.lvc_status_label or 'LVC' }}">
-              <span>LVC</span>
-              <strong class="num">{{ product.lvc_percentage ~ '%' if product.lvc_percentage else product.lvc_status_label or 'Thiếu trị giá' }}</strong>
+            <div><span>FOB/trị giá TP</span><strong class="num" data-origin-fob>{{ product.fob|number if product.fob else 'Thiếu' }} <em>{{ product.currency }}</em></strong></div>
+            <div><span>VNM</span><strong class="num" data-origin-vnm>{{ (product.vnm_value or product.non_origin_value or '0')|number }} <em>{{ product.currency }}</em></strong></div>
+            <div class="origin-metric-{{ lvc_metric_class }}" data-origin-lvc-cell title="{{ product.lvc_quality_warning_text or product.lvc_status_label or 'LVC' }}">
+              <span>LVC <em data-origin-live-flag hidden>(live)</em></span>
+              <strong class="num" data-origin-lvc>{{ product.lvc_percentage ~ '%' if product.lvc_percentage else product.lvc_status_label or 'Thiếu trị giá' }}</strong>
               {% if product.lvc_quality_warning_text %}<small>{{ product.lvc_status_label }}</small>{% endif %}
             </div>
-            <div class="origin-metric-{{ 'blocked' if not (product.lvc_threshold or product.rvc_threshold) or product.lvc_status in ['missing_value', 'missing_bom'] else 'ready' }}"><span>Ngưỡng</span><strong>{{ (product.lvc_threshold or product.rvc_threshold) ~ '%' if (product.lvc_threshold or product.rvc_threshold) else 'Thiếu ngưỡng' }}</strong></div>
+            {% set displayed_threshold = effective_lvc_threshold or effective_rvc_threshold %}
+            <div class="origin-metric-{{ 'blocked' if not displayed_threshold or product.lvc_status in ['missing_value', 'missing_bom'] else 'ready' }}" title="{% if lvc_threshold_override or rvc_threshold_override %}Override per-sheet đang áp dụng.{% else %}Ngưỡng đến từ tiêu chí khuyến nghị.{% endif %}"><span>Ngưỡng</span><strong>{{ displayed_threshold ~ '%' if displayed_threshold else 'Thiếu ngưỡng' }}{% if lvc_threshold_override or rvc_threshold_override %} <em class="origin-recommendation-overridden">(override)</em>{% endif %}</strong></div>
             <div><span>Trạng thái</span><strong>{{ product.lvc_status_label or 'Chưa tính' }}</strong></div>
           </div>
 
@@ -1018,7 +1267,14 @@
                 {% set render_allocation_details = allocation_count > 0 %}
                 {% set allocation_default_expanded = allocation_has_issue %}
                 {% set allocation_group = 'allocation-' ~ product_index ~ '-' ~ material_index %}
-                <tr class="{{ 'origin-row-warning' if material.material_warnings else '' }}" data-origin-material-row data-allocation-group="{{ allocation_group }}" data-origin-warning-kinds="{% if material.valuation_status == 'missing_unit_value' %} missing_unit_value{% endif %}{% if material.allocation_status == 'shortage' %} allocation_shortage{% endif %}{% if material.origin_status_source == 'default_conservative' %} default_conservative{% endif %}{% if material.material_name_missing %} missing_material_name{% endif %}">
+                {% set _row_non_origin_base = material.non_origin_cif_value or (material.material_value if material.origin_status != 'origin' else '0') or '0' %}
+                <tr class="{{ 'origin-row-warning' if material.material_warnings else '' }}"
+                    data-origin-material-row
+                    data-allocation-group="{{ allocation_group }}"
+                    data-row-original-norm="{{ material.bom_qty_per or '0' }}"
+                    data-row-non-origin-base="{{ _row_non_origin_base }}"
+                    data-row-origin-status="{{ material.origin_status or 'non_origin' }}"
+                    data-origin-warning-kinds="{% if material.valuation_status == 'missing_unit_value' %} missing_unit_value{% endif %}{% if material.allocation_status == 'shortage' %} allocation_shortage{% endif %}{% if material.origin_status_source == 'default_conservative' %} default_conservative{% endif %}{% if material.material_name_missing %} missing_material_name{% endif %}">
                   <td data-origin-column="row">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_source_row" value="{{ material.source_row }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_import_declaration_no" value="{{ material.import_declaration_no }}">
@@ -1072,7 +1328,23 @@
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_bom_scrap_rate" value="{{ material.bom_scrap_rate }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_bom_source" value="{{ material.bom_source }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_bom_row_class" value="{{ material.bom_row_class }}">
-                    <span class="mono">{{ material.internal_material_code or material.material_code or 'n/a' }}</span>
+                    {% set substitute_label = material.internal_material_code or material.material_code or 'n/a' %}
+                    {% set row_override = product.origin_sheet_material_overrides.get(material_index|string) if product.origin_sheet_material_overrides else none %}
+                    <button type="button"
+                            class="origin-material-code-btn {% if row_override %}origin-material-code-overridden{% endif %}"
+                            data-origin-substitute-trigger
+                            data-product-code="{{ product.code }}"
+                            data-row-index="{{ material_index }}"
+                            data-material-code="{{ material.material_code }}"
+                            data-internal-code="{{ material.internal_material_code }}"
+                            data-current-norm="{{ material.bom_qty_per or '0' }}"
+                            data-current-uom="{{ material.uom }}"
+                            data-current-hs="{{ material.hs_code }}"
+                            title="{% if row_override %}Đã thay sang {{ row_override.material_code }}{% else %}Click để thay NVL{% endif %}">
+                      <span class="mono">{{ substitute_label }}</span>
+                      {% if row_override and row_override.material_code %}<small class="origin-material-code-override-mark">→ {{ row_override.material_code }}</small>{% endif %}
+                      {% if row_override and row_override.deleted %}<small class="origin-material-code-override-mark">(đã xoá)</small>{% endif %}
+                    </button>
                   </td>
                   <td data-origin-column="name" class="{{ 'origin-cell-warning' if material.material_name_missing else '' }}" title="{{ material.material_warnings_text if material.material_name_missing else material.material_description }}">
                     <span class="origin-material-name">{{ material.material_description or 'Chưa có tên NVL' }}</span>
@@ -1081,20 +1353,36 @@
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_hs_code" value="{{ material.hs_code }}">
                     <span class="mono">{{ material.hs_code }}</span>
                   </td>
-                  <td data-origin-column="bom" class="num">{{ (material.bom_qty_per or '0')|number(6) }} <small>{{ material.uom }}</small></td>
+                  <td data-origin-column="bom" class="num">
+                    {% set norm_override = product.origin_sheet_material_overrides.get(material_index|string) if product.origin_sheet_material_overrides else none %}
+                    {% set effective_norm = (norm_override.norm_per_unit if norm_override and norm_override.norm_per_unit) or material.bom_qty_per %}
+                    <input type="number" min="0" step="0.000001"
+                           class="origin-norm-edit {% if norm_override and norm_override.norm_per_unit %}origin-norm-edit-overridden{% endif %}"
+                           data-origin-norm-edit
+                           data-product-code="{{ product.code }}"
+                           data-row-index="{{ material_index }}"
+                           data-original-value="{{ material.bom_qty_per or '0' }}"
+                           value="{{ effective_norm or '0' }}"
+                           aria-label="Định mức cho {{ material.material_code }}">
+                    <small>{{ material.uom }}</small>
+                  </td>
                   <td data-origin-column="consumed" class="num">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_available_qty" value="{{ material.available_qty }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_consumed_qty" value="{{ material.consumed_qty }}">
-                    {{ material.consumed_qty|number(6) }}
+                    <span data-origin-cell-consumed
+                          data-base-consumed="{{ material.consumed_qty or '0' }}">{{ material.consumed_qty|number(6) }}</span>
                   </td>
                   <td data-origin-column="unit-value" class="num">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_unit_value" value="{{ material.unit_value }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_currency" value="{{ material.currency }}">
-                    {{ material.unit_value|number(6) if material.unit_value else 'Thiếu' }} <small>{{ material.currency or product.currency or 'n/a' }}</small>
+                    <span data-origin-cell-unit-value
+                          data-base-unit-value="{{ material.unit_value or '0' }}">{{ material.unit_value|number(6) if material.unit_value else 'Thiếu' }}</span>
+                    <small>{{ material.currency or product.currency or 'n/a' }}</small>
                   </td>
                   <td data-origin-column="material-value" class="num">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_material_value" value="{{ material.material_value }}">
-                    {{ material.material_value|number if material.material_value else 'Thiếu' }}
+                    <span data-origin-cell-material-value
+                          data-base-material-value="{{ material.material_value or '0' }}">{{ material.material_value|number if material.material_value else 'Thiếu' }}</span>
                   </td>
                   <td data-origin-column="origin">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_origin_status" value="{{ material.origin_status }}">
@@ -1105,7 +1393,8 @@
                   </td>
                   <td data-origin-column="non-origin" class="num">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_non_origin_cif_value" value="{{ material.non_origin_cif_value }}">
-                    {{ material.non_origin_cif_value|number }}
+                    <span data-origin-cell-non-origin
+                          data-base-non-origin="{{ material.non_origin_cif_value or '0' }}">{{ material.non_origin_cif_value|number }}</span>
                   </td>
                   <td data-origin-column="source" title="{{ material.material_warnings_text }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_valuation_source" value="{{ material.valuation_source }}">
@@ -1157,6 +1446,12 @@
               </tbody>
             </table>
           </div>
+          <div class="origin-table-actions">
+            <button type="button" class="btn-secondary"
+                    data-origin-add-row-trigger
+                    data-product-code="{{ product.code }}">+ Thêm dòng NVL</button>
+            <small class="meta">Dòng thêm/xoá/thay sẽ ghi vào BOM artifact mới khi chốt sheet.</small>
+          </div>
         </article>
         {% else %}
         <p class="empty-cell">Chưa có sản phẩm trong case C/O này.</p>
@@ -1182,9 +1477,51 @@
       </div>
     </section>
     <section class="zone action-panel">
-      <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export" hx-boost="false">
-        <button type="submit">Xuất dossier XLSX</button>
+      <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export-dossier-zip" hx-boost="false">
+        <button type="submit" class="btn-primary">Xuất dossier .zip (chứng từ + TKX/TKN + bảng kê HQ)</button>
+        <small class="meta">Yêu cầu: tất cả bảng kê đã chốt hoặc tính. Bảng kê HQ build theo template <code>tru lui CO final</code>.</small>
       </form>
+      <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export" hx-boost="false">
+        <button type="submit" class="btn-secondary">Xuất dossier XLSX (legacy)</button>
+      </form>
+    </section>
+    <section class="zone">
+      <div class="zone-head">
+        <div>
+          <h2>Review tổng hợp</h2>
+          <p class="meta">Kiểm tra trước khi xuất dossier .zip.</p>
+        </div>
+      </div>
+      <ul class="review-checklist">
+        <li>
+          <strong>Chứng từ bắt buộc</strong>
+          <span>{{ case.supporting_files|length }} file đã upload — kiểm tra ở tab <a href="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/documents">Chứng từ</a>.</span>
+        </li>
+        <li>
+          <strong>Bảng kê C/O</strong>
+          <span>
+            {% set locked = case.products|selectattr('origin_sheet_status', 'equalto', 'locked')|list|length %}
+            {{ locked }}/{{ case.products|length }} sheet đã chốt.
+            {% set diffs = case.products|selectattr('origin_sheet_material_diff_total')|list|length %}
+            {% if diffs %}{{ diffs }} sheet có BOM artifact mới (cần propose Data Hub).{% endif %}
+          </span>
+        </li>
+        <li>
+          <strong>TKX / TKN</strong>
+          <span>
+            {{ tkx_tkn_summary.tkx|length }} TKX · {{ tkx_tkn_summary.tkn|length }} TKN.
+            {% if tkx_tkn_summary.missing_tkx or tkx_tkn_summary.missing_tkn %}
+            <span class="origin-bom-diff-removed">Còn thiếu trong Data Hub: {{ tkx_tkn_summary.missing_tkx|length }} TKX, {{ tkx_tkn_summary.missing_tkn|length }} TKN.</span>
+            {% else %}
+            Đầy đủ trong Data Hub.
+            {% endif %}
+          </span>
+        </li>
+        <li>
+          <strong>Form &amp; PSR</strong>
+          <span>{{ recommended_form_lane.display_name or 'n/a' }} · {{ recommended_form_lane.instrument or 'Chưa chọn thị trường' }}</span>
+        </li>
+      </ul>
     </section>
   </aside>
   <section class="workspace-main">
@@ -1224,6 +1561,60 @@
 {% endif %}
 </div>
 {% endif %}
+
+<div class="origin-substitute-modal" data-origin-substitute-modal hidden role="dialog" aria-modal="true" aria-labelledby="origin-substitute-modal-title">
+  <div class="origin-substitute-modal-backdrop" data-origin-substitute-modal-close></div>
+  <div class="origin-substitute-modal-card">
+    <header class="origin-substitute-modal-head">
+      <div>
+        <span class="eyebrow">Thay NVL</span>
+        <h2 id="origin-substitute-modal-title">Tìm NVL thay thế</h2>
+        <p class="meta" data-origin-substitute-modal-target>—</p>
+        <div class="origin-substitute-current" data-origin-substitute-current hidden>
+          <div><span>Mã</span><strong class="mono" data-current-field="code">—</strong></div>
+          <div><span>Tên</span><strong data-current-field="name">—</strong></div>
+          <div><span>ĐM</span><strong class="num" data-current-field="norm">—</strong> <em data-current-field="uom"></em></div>
+          <div><span>Lượng dùng</span><strong class="num" data-current-field="consumed">—</strong></div>
+          <div><span>Đơn giá</span><strong class="num" data-current-field="unit_value">—</strong> <em data-current-field="currency"></em></div>
+          <div><span>Trị giá NVL</span><strong class="num" data-current-field="material_value">—</strong></div>
+        </div>
+      </div>
+      <button type="button" class="btn-secondary" data-origin-substitute-modal-close aria-label="Đóng modal">×</button>
+    </header>
+    <div class="origin-substitute-modal-toolbar">
+      <label class="origin-substitute-norm-label">ĐM áp dụng
+        <input type="number" min="0" step="0.000001" data-origin-substitute-shared-norm placeholder="auto">
+      </label>
+      <span class="origin-substitute-mode" data-origin-substitute-mode>Mode tối ưu: —</span>
+      <button type="button" class="btn-secondary" data-origin-substitute-refresh>Tải lại</button>
+      <button type="button" class="btn-secondary origin-substitute-delete-row" data-origin-substitute-delete-row>Xoá dòng này</button>
+    </div>
+    <div class="origin-substitute-tabs" role="tablist" aria-label="Chế độ tìm NVL thay thế">
+      <button type="button" class="origin-substitute-tab is-active" role="tab" aria-selected="true" data-origin-substitute-tab-trigger="recommended">Khuyến nghị</button>
+      <button type="button" class="origin-substitute-tab" role="tab" aria-selected="false" data-origin-substitute-tab-trigger="search">Tìm kiếm</button>
+    </div>
+    <div class="origin-substitute-modal-body">
+      <section class="origin-substitute-section" data-origin-substitute-tab-panel="recommended">
+        <ul class="origin-substitute-list" data-origin-substitute-list="recommended"></ul>
+        <p class="empty-cell" data-origin-substitute-empty="recommended" hidden>Chưa có khuyến nghị từ Data Hub.</p>
+      </section>
+      <section class="origin-substitute-section" data-origin-substitute-tab-panel="search" hidden>
+        <div class="origin-substitute-search-panel">
+          <label class="origin-substitute-search">Tìm NVL khác
+            <input type="search" data-origin-substitute-search placeholder="Mã, tên, hoặc HS — Enter để tìm">
+          </label>
+          <button type="button" class="btn-primary" data-origin-substitute-search-button>Tìm</button>
+        </div>
+        <ul class="origin-substitute-list" data-origin-substitute-list="search"></ul>
+        <p class="empty-cell" data-origin-substitute-empty="search">Nhập từ khóa để tìm.</p>
+      </section>
+    </div>
+    <footer class="origin-substitute-modal-foot">
+      <small>Thay/thêm/xoá NVL được tính trực tiếp client-side và cập nhật LVC/RVC ngay; bấm <strong>Lưu bảng kê</strong> để ghi vào server.</small>
+    </footer>
+  </div>
+</div>
+
 <script>
 (() => {
   const toast = (message, kind = "success") => {
@@ -1290,7 +1681,7 @@
     const action = submitter?.getAttribute("formaction") || form?.getAttribute("action") || "";
     if (/lock$/.test(action)) return text.includes("Mở") ? "Đã mở chốt." : "Đã chốt.";
     if (/reopen$/.test(action)) return "Đã mở chốt.";
-    if (/calculate$/.test(action)) return "Đã tính bảng kê.";
+    if (/calculate$/.test(action)) return "Đã load BOM vào bảng kê.";
     if (/shipment$/.test(action)) return "Đã lưu shipment.";
     if (/supporting-files$/.test(action)) return "Đã tải chứng từ.";
     if (/origin-lock\/release$/.test(action)) return "Đã nhả phiên giữ tồn; các bảng kê cần tính lại.";
@@ -2231,9 +2622,1186 @@
     });
     applyColumnState();
   };
+  const applyCurrencyMode = (panel, mode) => {
+    const sheetPanel = panel.closest("[data-origin-sheet-panel]") || panel;
+    sheetPanel.dataset.originCurrencyMode = mode || "native";
+  };
+
+  const initOriginRecommendationOverrides = (root = document) => {
+    root.querySelectorAll("[data-origin-recommendation]").forEach((panel) => {
+      if (panel.dataset.originRecommendationInitialized === "1") return;
+      panel.dataset.originRecommendationInitialized = "1";
+      const url = panel.dataset.overrideUrl || "";
+      const formSel = panel.querySelector("[data-origin-recommendation-form]");
+      const criteriaInp = panel.querySelector("[data-origin-recommendation-criteria]");
+      const lvcInp = panel.querySelector("[data-origin-recommendation-lvc]");
+      const rvcInp = panel.querySelector("[data-origin-recommendation-rvc]");
+      const currencySel = panel.querySelector("[data-origin-recommendation-currency]");
+      const optimizationSel = panel.querySelector("[data-origin-recommendation-optimization]");
+      const saveBtn = panel.querySelector("[data-origin-recommendation-save]");
+      const status = panel.querySelector("[data-origin-recommendation-status]");
+      if (!saveBtn || !url) return;
+      // Apply persisted currency mode immediately so the UI reflects it before save.
+      applyCurrencyMode(panel, currencySel?.value || "native");
+      currencySel?.addEventListener("change", () => applyCurrencyMode(panel, currencySel.value));
+      const setStatus = (text, kind = "info") => {
+        if (!status) return;
+        status.hidden = !text;
+        status.textContent = text || "";
+        status.dataset.kind = kind;
+      };
+      saveBtn.addEventListener("click", async () => {
+        saveBtn.disabled = true;
+        setStatus("Đang lưu…", "info");
+        try {
+          const response = await fetch(url, {
+            method: "POST",
+            headers: {"Content-Type": "application/json", "Accept": "application/json"},
+            body: JSON.stringify({
+              form_override: formSel?.value || "",
+              criteria_override: criteriaInp?.value || "",
+              lvc_threshold_override: lvcInp?.value || "",
+              rvc_threshold_override: rvcInp?.value || "",
+              currency_mode: currencySel?.value || "native",
+              optimization_mode: optimizationSel?.value || "max_lvc",
+            }),
+          });
+          if (!response.ok) {
+            const text = await response.text();
+            let detail = "";
+            try { detail = JSON.parse(text).detail || ""; } catch (_e) { detail = text.slice(0, 160); }
+            setStatus(detail || `Lỗi ${response.status}`, "error");
+            toast(detail || "Không lưu được override.", "error");
+          } else {
+            setStatus("Đã lưu cấu hình.", "success");
+            toast("Đã lưu cấu hình bảng kê.", "success");
+            window.setTimeout(() => setStatus("", "info"), 1800);
+          }
+        } catch (err) {
+          setStatus(String(err), "error");
+          toast("Lỗi mạng khi lưu cấu hình.", "error");
+        } finally {
+          saveBtn.disabled = false;
+        }
+      });
+    });
+  };
+  const initOriginSubstituteModal = () => {
+    const modal = document.querySelector("[data-origin-substitute-modal]");
+    if (!modal || modal.dataset.substituteInitialized === "1") return;
+    modal.dataset.substituteInitialized = "1";
+    const targetLabel = modal.querySelector("[data-origin-substitute-modal-target]");
+    const currentStrip = modal.querySelector("[data-origin-substitute-current]");
+    const currentField = (key) => currentStrip?.querySelector(`[data-current-field="${key}"]`);
+    const modeLabel = modal.querySelector("[data-origin-substitute-mode]");
+    const searchInput = modal.querySelector("[data-origin-substitute-search]");
+    const sharedNormInput = modal.querySelector("[data-origin-substitute-shared-norm]");
+    const refreshBtn = modal.querySelector("[data-origin-substitute-refresh]");
+    const deleteBtn = modal.querySelector("[data-origin-substitute-delete-row]");
+    const searchBtn = modal.querySelector("[data-origin-substitute-search-button]");
+    const tabTriggers = modal.querySelectorAll("[data-origin-substitute-tab-trigger]");
+    const tabPanels = modal.querySelectorAll("[data-origin-substitute-tab-panel]");
+    const recommendedList = modal.querySelector('[data-origin-substitute-list="recommended"]');
+    const searchList = modal.querySelector('[data-origin-substitute-list="search"]');
+    const recommendedEmpty = modal.querySelector('[data-origin-substitute-empty="recommended"]');
+    const searchEmpty = modal.querySelector('[data-origin-substitute-empty="search"]');
+    let activeTab = "recommended";
+
+    const activateTab = (name) => {
+      activeTab = name === "search" ? "search" : "recommended";
+      tabTriggers.forEach((button) => {
+        const active = button.dataset.originSubstituteTabTrigger === activeTab;
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-selected", active ? "true" : "false");
+      });
+      tabPanels.forEach((panel) => {
+        panel.hidden = panel.dataset.originSubstituteTabPanel !== activeTab;
+      });
+      if (activeTab === "search") searchInput?.focus();
+    };
+
+    tabTriggers.forEach((button) => {
+      button.addEventListener("click", () => activateTab(button.dataset.originSubstituteTabTrigger || "recommended"));
+    });
+
+    const populateCurrentStrip = (row) => {
+      if (!currentStrip) return;
+      if (!row) {
+        currentStrip.hidden = true;
+        return;
+      }
+      currentStrip.hidden = false;
+      const nameSpan = row.querySelector(".origin-material-name");
+      const consumedCell = row.querySelector("[data-origin-cell-consumed]");
+      const unitValueCell = row.querySelector("[data-origin-cell-unit-value]");
+      const materialValueCell = row.querySelector("[data-origin-cell-material-value]");
+      const currencySmall = row.querySelector("[data-origin-column='unit-value'] small");
+      const uomSmall = row.querySelector("[data-origin-column='bom'] small");
+      const normInput = row.querySelector("[data-origin-norm-edit]");
+      const fields = {
+        code: state.materialLabel || state.materialCode || "—",
+        name: (nameSpan?.textContent || "").trim() || "—",
+        norm: (normInput?.value || state.currentNorm || "0"),
+        uom: uomSmall?.textContent?.trim() || "",
+        consumed: (consumedCell?.textContent || "—").trim(),
+        unit_value: (unitValueCell?.textContent || "—").trim(),
+        currency: (currencySmall?.textContent || "").trim(),
+        material_value: (materialValueCell?.textContent || "—").trim(),
+      };
+      Object.entries(fields).forEach(([key, value]) => {
+        const el = currentField(key);
+        if (el) el.textContent = value;
+      });
+    };
+
+    const state = {
+      productCode: "",
+      rowIndex: -1,
+      materialCode: "",
+      materialLabel: "",
+      currentNorm: "",
+      mode: "replace",
+      optimizationMode: "max_lvc",
+    };
+
+    const close = () => {
+      modal.hidden = true;
+      document.body.classList.remove("origin-substitute-modal-open");
+    };
+
+    modal.querySelectorAll("[data-origin-substitute-modal-close]").forEach((node) => {
+      node.addEventListener("click", close);
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !modal.hidden) close();
+    });
+
+    const fmtPrice = (value) => {
+      if (value === "" || value === null || value === undefined) return "—";
+      const num = Number(value);
+      if (!Number.isFinite(num)) return value;
+      return num.toLocaleString("vi-VN", {maximumFractionDigits: 4});
+    };
+
+    const sortLots = (lots) => {
+      const reverse = state.optimizationMode === "min_lvc";
+      return [...lots].sort((a, b) => {
+        const pa = Number(a.unit_value || 0);
+        const pb = Number(b.unit_value || 0);
+        if (!Number.isFinite(pa) && !Number.isFinite(pb)) return 0;
+        if (!Number.isFinite(pa)) return 1;
+        if (!Number.isFinite(pb)) return -1;
+        return reverse ? pb - pa : pa - pb;
+      });
+    };
+
+    const sheetPanelOfState = () => {
+      if (state.row) return state.row.closest("[data-origin-sheet-panel]");
+      return document.querySelector(`[data-origin-sheet-panel][data-product-code="${state.productCode}"]`);
+    };
+
+    const currentRowContext = () => {
+      const panel = sheetPanelOfState();
+      if (!panel) return null;
+      const productQuantity = parseFloat(panel.dataset.productQuantity || "0") || 0;
+      const ctx = {
+        panel,
+        fob: parseFloat(panel.dataset.productFob || "0") || 0,
+        threshold: parseFloat(panel.dataset.productLvcThreshold || "0") || 0,
+        productQuantity,
+        rowMaterialValue: 0,
+        rowNonOrigin: 0,
+        rowOriginStatus: "non_origin",
+        rowCurrency: panel.dataset.productCurrency || "",
+      };
+      if (state.row) {
+        const row = state.row;
+        const status = row.dataset.rowOriginStatus || "non_origin";
+        const baseNonOrigin = parseFloat(row.dataset.rowNonOriginBase || "0") || 0;
+        const baseMat = parseFloat(row.querySelector("[data-origin-cell-material-value]")?.dataset.baseMaterialValue || "0") || 0;
+        const originalNorm = parseFloat(row.dataset.rowOriginalNorm || "0") || 0;
+        const normInput = row.querySelector("[data-origin-norm-edit]");
+        const currentNorm = parseFloat(normInput?.value || String(originalNorm)) || originalNorm;
+        const ratio = originalNorm > 0 ? (currentNorm / originalNorm) : 1;
+        const matValue = baseMat * ratio;
+        const nonOrigin = (status === "origin") ? 0 : (baseNonOrigin > 0 ? baseNonOrigin * ratio : matValue);
+        ctx.rowMaterialValue = matValue;
+        ctx.rowNonOrigin = nonOrigin;
+        ctx.rowOriginStatus = status;
+        // If productQuantity was missing on the panel, derive from row.
+        if (!(ctx.productQuantity > 0)) {
+          const baseConsumed = parseFloat(row.querySelector("[data-origin-cell-consumed]")?.dataset.baseConsumed || "0") || 0;
+          if (baseConsumed > 0 && originalNorm > 0) ctx.productQuantity = baseConsumed / originalNorm;
+        }
+      }
+      return ctx;
+    };
+
+    const sheetVnmTotal = (panel) => {
+      if (!panel) return 0;
+      let vnm = 0;
+      panel.querySelectorAll("[data-origin-material-row]").forEach((r) => {
+        if (r.classList.contains("origin-row-deleted")) return;
+        const status = r.dataset.rowOriginStatus || "non_origin";
+        const baseNonOrigin = parseFloat(r.dataset.rowNonOriginBase || "0") || 0;
+        const baseMat = parseFloat(r.querySelector("[data-origin-cell-material-value]")?.dataset.baseMaterialValue || "0") || 0;
+        const originalNorm = parseFloat(r.dataset.rowOriginalNorm || "0") || 0;
+        const normInput = r.querySelector("[data-origin-norm-edit]");
+        const currentNorm = parseFloat(normInput?.value || String(originalNorm)) || originalNorm;
+        const ratio = originalNorm > 0 ? (currentNorm / originalNorm) : 1;
+        const matValue = baseMat * ratio;
+        const nonOrigin = (status === "origin") ? 0 : (baseNonOrigin > 0 ? baseNonOrigin * ratio : matValue);
+        vnm += nonOrigin;
+      });
+      return vnm;
+    };
+
+    const allocateCandidate = (candidate, consumedQty) => {
+      const lots = sortLots(candidate.stock?.lots || []);
+      let remaining = consumedQty;
+      let totalValue = 0;
+      const taken = [];
+      for (const lot of lots) {
+        if (remaining <= 1e-9) break;
+        const available = Number(lot.remaining_qty || 0);
+        if (!Number.isFinite(available) || available <= 0) continue;
+        const take = Math.min(remaining, available);
+        const unitValue = Number(lot.unit_value || 0);
+        const unitValueOk = Number.isFinite(unitValue) && unitValue > 0;
+        if (unitValueOk) totalValue += take * unitValue;
+        taken.push({lot, take, unit_value: unitValueOk ? unitValue : 0});
+        remaining -= take;
+      }
+      const shortage = remaining > 1e-9;
+      const missingPrice = taken.some((entry) => entry.unit_value <= 0);
+      return {taken, totalValue, shortage, shortageQty: Math.max(0, remaining), missingPrice};
+    };
+
+    const computeFeasibility = (candidate) => {
+      const ctx = currentRowContext();
+      if (!ctx) return null;
+      const normRaw = (sharedNormInput?.value || state.currentNorm || "").trim();
+      const norm = parseFloat(normRaw) || 0;
+      const consumedNew = norm * ctx.productQuantity;
+      if (state.mode !== "add" && !(ctx.productQuantity > 0)) {
+        return {ok: false, reason: "no-product-qty"};
+      }
+      if (consumedNew <= 0) {
+        return {ok: false, reason: "no-norm", consumedNew: 0, alloc: null};
+      }
+      const alloc = allocateCandidate(candidate, consumedNew);
+      const materialValueNew = alloc.totalValue;
+      const rowOldMaterial = ctx.rowMaterialValue;
+      const rowOldNonOrigin = ctx.rowNonOrigin;
+      // Assume substitute has same origin_status as the original row.
+      // Conservative when current is origin: keep non-origin contribution = 0.
+      const rowNewNonOrigin = (ctx.rowOriginStatus === "origin") ? 0 : materialValueNew;
+      const vnmCurrent = sheetVnmTotal(ctx.panel);
+      const vnmNew = vnmCurrent - rowOldNonOrigin + rowNewNonOrigin;
+      const lvcCurrent = ctx.fob > 0 ? ((ctx.fob - vnmCurrent) / ctx.fob) * 100 : null;
+      const lvcNew = ctx.fob > 0 ? ((ctx.fob - vnmNew) / ctx.fob) * 100 : null;
+      return {
+        ok: !alloc.shortage,
+        consumedNew,
+        alloc,
+        deltaMaterialValue: materialValueNew - rowOldMaterial,
+        materialValueNew,
+        materialValueOld: rowOldMaterial,
+        vnmCurrent,
+        vnmNew,
+        lvcCurrent,
+        lvcNew,
+        deltaLvc: (lvcNew !== null && lvcCurrent !== null) ? (lvcNew - lvcCurrent) : null,
+        missingPrice: alloc.missingPrice,
+        shortageQty: alloc.shortageQty,
+      };
+    };
+
+    const renderFeasibilityCell = (li, feasibility, candidate) => {
+      const wrap = li.querySelector("[data-feasibility]");
+      if (!wrap) return;
+      const status = wrap.querySelector("[data-feasibility-status]");
+      const valueCell = wrap.querySelector("[data-feasibility-value]");
+      const lvcCell = wrap.querySelector("[data-feasibility-lvc]");
+      const applyBtn = li.querySelector("[data-apply]");
+      if (!feasibility) {
+        status.textContent = "—";
+        valueCell.textContent = "—";
+        lvcCell.textContent = "—";
+        return;
+      }
+      if (feasibility.reason === "no-norm") {
+        wrap.className = "origin-substitute-item-feasibility origin-feasibility-pending";
+        status.textContent = "Cần nhập ĐM";
+        valueCell.textContent = "—";
+        lvcCell.textContent = "—";
+        if (applyBtn) { applyBtn.disabled = true; applyBtn.title = "Nhập ĐM trước"; }
+        return;
+      }
+      if (feasibility.reason === "no-product-qty") {
+        wrap.className = "origin-substitute-item-feasibility origin-feasibility-pending";
+        status.textContent = "Thiếu SL invoice — không tính được Δ";
+        valueCell.textContent = "—";
+        lvcCell.textContent = "—";
+        if (applyBtn) { applyBtn.disabled = false; applyBtn.title = ""; }
+        return;
+      }
+      const alloc = feasibility.alloc;
+      const sufficient = !alloc.shortage;
+      wrap.className = "origin-substitute-item-feasibility " + (sufficient
+        ? (feasibility.missingPrice ? "origin-feasibility-warn" : "origin-feasibility-ok")
+        : "origin-feasibility-fail");
+      status.textContent = sufficient
+        ? (feasibility.missingPrice ? `Đủ tồn (thiếu đơn giá ${alloc.taken.length}/${alloc.taken.length} dòng)` : `Đủ tồn · ${alloc.taken.length} lô`)
+        : `Thiếu ${fmtNumber(alloc.shortageQty, 4)}`;
+      const deltaSign = feasibility.deltaMaterialValue > 0 ? "+" : (feasibility.deltaMaterialValue < 0 ? "−" : "±");
+      valueCell.textContent = `${deltaSign}${fmtNumber(Math.abs(feasibility.deltaMaterialValue), 2)}`;
+      if (feasibility.deltaLvc === null) {
+        lvcCell.textContent = "n/a";
+      } else {
+        const sign = feasibility.deltaLvc > 0 ? "+" : (feasibility.deltaLvc < 0 ? "" : "±");
+        lvcCell.textContent = `${sign}${feasibility.deltaLvc.toFixed(2)}% (→ ${feasibility.lvcNew.toFixed(2)}%)`;
+      }
+      if (applyBtn) {
+        applyBtn.disabled = !sufficient;
+        applyBtn.title = sufficient ? "" : `Tổng tồn không đủ ${fmtNumber(feasibility.consumedNew, 4)}`;
+      }
+      li.__candidateFeasibility = feasibility;
+    };
+
+    const refreshAllFeasibility = () => {
+      modal.querySelectorAll("li.origin-substitute-item").forEach((li) => {
+        const code = li.dataset.materialCode;
+        const candidate = (latestCandidatesByCode && latestCandidatesByCode.get(code)) || null;
+        if (!candidate) return;
+        renderFeasibilityCell(li, computeFeasibility(candidate), candidate);
+      });
+    };
+
+    let latestCandidatesByCode = new Map();
+
+    const buildItem = (item, kind) => {
+      const li = document.createElement("li");
+      li.className = "origin-substitute-item";
+      li.dataset.materialCode = item.material_code;
+      const stock = item.stock || {};
+      const score = kind === "recommended" ? (item.score?.toFixed?.(3) || item.score || "") : "";
+      const priceHint = state.optimizationMode === "min_lvc" ? stock.unit_price_max : stock.unit_price_min;
+      li.innerHTML = `
+        <button type="button" class="origin-substitute-item-head" data-toggle>
+          <span class="origin-substitute-item-code mono">${item.material_code}</span>
+          <span class="origin-substitute-item-name">${item.name || ""}</span>
+          <span class="origin-substitute-item-meta">
+            <span class="mono">${item.hs_code || ""}</span>
+            ${score ? `<span class="origin-substitute-score">score ${score}</span>` : ""}
+            <span class="origin-substitute-stock-summary">${stock.total_remaining_qty || "0"} tồn</span>
+            <span class="origin-substitute-price">${fmtPrice(priceHint)}</span>
+          </span>
+          <span class="origin-substitute-chevron">▾</span>
+        </button>
+        <div class="origin-substitute-item-feasibility origin-feasibility-pending" data-feasibility>
+          <span data-feasibility-status>Đang chờ tồn…</span>
+          <span class="origin-feasibility-delta"><em>ΔTrị giá</em><strong data-feasibility-value>—</strong></span>
+          <span class="origin-feasibility-delta"><em>ΔLVC</em><strong data-feasibility-lvc>—</strong></span>
+        </div>
+        <div class="origin-substitute-item-body" hidden>
+          <div class="origin-substitute-lots-empty" hidden>Không có dòng tồn nào trong CO stock cho mã này.</div>
+          <table class="origin-substitute-lots">
+            <thead><tr>
+              <th>Dòng tồn</th><th>Tờ khai</th><th>STT</th><th class="num">Còn lại</th><th class="num">Đơn giá</th><th>NT</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+          <div class="origin-substitute-apply-row">
+            <button type="button" class="btn-primary" data-apply>Chọn thay (ĐM auto)</button>
+            <small>ĐM lấy từ ô "ĐM áp dụng" trên thanh công cụ. Mặc định = ĐM hiện tại của dòng đang thay.</small>
+          </div>
+        </div>
+      `;
+      const head = li.querySelector("[data-toggle]");
+      const body = li.querySelector(".origin-substitute-item-body");
+      const lotsTbody = li.querySelector(".origin-substitute-lots tbody");
+      const lotsEmpty = li.querySelector(".origin-substitute-lots-empty");
+      const lotsTable = li.querySelector(".origin-substitute-lots");
+      const sorted = sortLots(stock.lots || []);
+      sorted.forEach((lot, idx) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${idx + 1}</td>
+          <td class="mono">${lot.import_declaration_no || ""}</td>
+          <td class="mono">${lot.line_no || ""}</td>
+          <td class="num">${lot.remaining_qty || "0"}</td>
+          <td class="num">${fmtPrice(lot.unit_value)}</td>
+          <td>${lot.currency || ""}</td>
+        `;
+        lotsTbody.appendChild(tr);
+      });
+      if (sorted.length === 0) {
+        lotsEmpty.hidden = false;
+        lotsTable.hidden = true;
+      }
+      head.addEventListener("click", () => {
+        body.hidden = !body.hidden;
+        li.classList.toggle("origin-substitute-item-open", !body.hidden);
+      });
+      body.querySelector("[data-apply]")?.addEventListener("click", () => apply(item));
+      latestCandidatesByCode.set(item.material_code, item);
+      renderFeasibilityCell(li, computeFeasibility(item), item);
+      return li;
+    };
+
+    const applyReplaceLocally = (item, feasibility, norm) => {
+      if (!state.row) return;
+      const row = state.row;
+      const panel = row.closest("[data-origin-sheet-panel]");
+      const consumedNew = feasibility?.consumedNew || 0;
+      const materialValueNew = feasibility?.materialValueNew || 0;
+      const unitValueAvg = consumedNew > 0 ? (materialValueNew / consumedNew) : 0;
+      const originStatus = row.dataset.rowOriginStatus || "non_origin";
+      const nonOriginNew = (originStatus === "origin") ? 0 : materialValueNew;
+      const codeBtn = row.querySelector("[data-origin-substitute-trigger]");
+      if (codeBtn) {
+        codeBtn.dataset.materialCode = item.material_code;
+        codeBtn.dataset.internalCode = item.material_code;
+        codeBtn.dataset.currentNorm = String(norm);
+        codeBtn.dataset.currentHs = item.hs_code || "";
+        const labelSpan = codeBtn.querySelector(".mono");
+        if (labelSpan) labelSpan.textContent = item.material_code;
+        codeBtn.classList.remove("origin-material-code-overridden");
+        codeBtn.classList.add("origin-material-code-edited");
+        codeBtn.querySelectorAll(".origin-material-code-override-mark").forEach((n) => n.remove());
+      }
+      const nameSpan = row.querySelector(".origin-material-name");
+      if (nameSpan) nameSpan.textContent = item.name || "—";
+      const hsMono = row.querySelector("[data-origin-column='hs'] .mono");
+      if (hsMono) hsMono.textContent = item.hs_code || "";
+      const normInput = row.querySelector("[data-origin-norm-edit]");
+      if (normInput) {
+        normInput.value = String(norm);
+        normInput.dataset.originalValue = String(norm);
+      }
+      row.dataset.rowOriginalNorm = String(norm);
+      row.dataset.rowNonOriginBase = String(nonOriginNew);
+      const consumedCell = row.querySelector("[data-origin-cell-consumed]");
+      if (consumedCell) {
+        consumedCell.dataset.baseConsumed = String(consumedNew);
+        consumedCell.textContent = fmtNumber(consumedNew, 6);
+      }
+      const unitValueCell = row.querySelector("[data-origin-cell-unit-value]");
+      if (unitValueCell) {
+        unitValueCell.dataset.baseUnitValue = String(unitValueAvg);
+        unitValueCell.textContent = unitValueAvg > 0 ? fmtNumber(unitValueAvg, 6) : "—";
+      }
+      const matValueCell = row.querySelector("[data-origin-cell-material-value]");
+      if (matValueCell) {
+        matValueCell.dataset.baseMaterialValue = String(materialValueNew);
+        matValueCell.textContent = fmtNumber(materialValueNew, 2);
+      }
+      const nonOriginCell = row.querySelector("[data-origin-cell-non-origin]");
+      if (nonOriginCell) {
+        nonOriginCell.dataset.baseNonOrigin = String(nonOriginNew);
+        nonOriginCell.textContent = fmtNumber(nonOriginNew, 2);
+      }
+      row.classList.remove("origin-row-deleted");
+      row.classList.add("origin-row-edited");
+      const ops = ensurePendingOps(panel);
+      delete ops.deletes[String(state.rowIndex)];
+      ops.replaces[String(state.rowIndex)] = {
+        new_material_code: item.material_code,
+        new_norm_per_unit: String(norm),
+        new_name: item.name || "",
+        new_hs_code: item.hs_code || "",
+      };
+      markSheetDirty(panel);
+      recomputeSheetTotals(panel);
+    };
+
+    const buildAddedRow = (item, feasibility, norm, key) => {
+      const consumedNew = feasibility?.consumedNew || 0;
+      const materialValueNew = feasibility?.materialValueNew || 0;
+      const unitValueAvg = consumedNew > 0 ? (materialValueNew / consumedNew) : 0;
+      const originStatus = "non_origin";
+      const nonOriginNew = materialValueNew;
+      const tr = document.createElement("tr");
+      tr.setAttribute("data-origin-material-row", "");
+      tr.dataset.rowOriginalNorm = String(norm);
+      tr.dataset.rowNonOriginBase = String(nonOriginNew);
+      tr.dataset.rowOriginStatus = originStatus;
+      tr.dataset.pendingAddedKey = key;
+      tr.classList.add("origin-row-added");
+      tr.innerHTML = `
+        <td data-origin-column="row"><span class="mono">+</span></td>
+        <td data-origin-column="code">
+          <button type="button"
+                  class="origin-material-code-btn origin-material-code-edited"
+                  data-origin-substitute-trigger
+                  data-product-code="${state.productCode}"
+                  data-row-index="${key}"
+                  data-material-code="${item.material_code}"
+                  data-current-norm="${norm}"
+                  data-current-hs="${item.hs_code || ""}">
+            <span class="mono">${item.material_code}</span>
+          </button>
+        </td>
+        <td data-origin-column="name"><span class="origin-material-name">${item.name || ""}</span></td>
+        <td data-origin-column="hs"><span class="mono">${item.hs_code || ""}</span></td>
+        <td data-origin-column="bom" class="num">
+          <input type="number" min="0" step="0.000001"
+                 class="origin-norm-edit"
+                 data-origin-norm-edit
+                 data-product-code="${state.productCode}"
+                 data-row-index="${key}"
+                 data-original-value="${norm}"
+                 value="${norm}">
+          <small></small>
+        </td>
+        <td data-origin-column="consumed" class="num">
+          <span data-origin-cell-consumed data-base-consumed="${consumedNew}">${fmtNumber(consumedNew, 6)}</span>
+        </td>
+        <td data-origin-column="unit-value" class="num">
+          <span data-origin-cell-unit-value data-base-unit-value="${unitValueAvg}">${unitValueAvg > 0 ? fmtNumber(unitValueAvg, 6) : "—"}</span>
+          <small></small>
+        </td>
+        <td data-origin-column="material-value" class="num">
+          <span data-origin-cell-material-value data-base-material-value="${materialValueNew}">${fmtNumber(materialValueNew, 2)}</span>
+        </td>
+        <td data-origin-column="origin">
+          <span class="badge badge-neutral">Không xuất xứ</span>
+        </td>
+        <td data-origin-column="non-origin" class="num">
+          <span data-origin-cell-non-origin data-base-non-origin="${nonOriginNew}">${fmtNumber(nonOriginNew, 2)}</span>
+        </td>
+        <td data-origin-column="source">
+          <span class="badge badge-warning">Dòng mới — chưa lưu</span>
+        </td>
+      `;
+      return tr;
+    };
+
+    const applyAddLocally = (item, feasibility, norm) => {
+      const panel = sheetPanelOfState();
+      if (!panel) return;
+      const tbody = panel.querySelector("table.origin-material-table tbody");
+      if (!tbody) return;
+      const ops = ensurePendingOps(panel);
+      const key = `added_${ops.adds.length + tbody.querySelectorAll("[data-pending-added-key]").length}`;
+      const tr = buildAddedRow(item, feasibility, norm, key);
+      tbody.appendChild(tr);
+      ops.adds.push({
+        key,
+        new_material_code: item.material_code,
+        new_norm_per_unit: String(norm),
+        new_name: item.name || "",
+        new_uom: "",
+        new_hs_code: item.hs_code || "",
+      });
+      markSheetDirty(panel);
+      recomputeSheetTotals(panel);
+    };
+
+    const apply = (item) => {
+      const norm = parseFloat(sharedNormInput?.value || state.currentNorm || "0") || 0;
+      const feasibility = computeFeasibility(item);
+      if (!feasibility || feasibility.reason === "no-norm" || norm <= 0) {
+        toast("Cần nhập ĐM trước khi áp dụng.", "error");
+        return;
+      }
+      if (feasibility.alloc?.shortage) {
+        toast(`Tổng tồn không đủ (thiếu ${fmtNumber(feasibility.alloc.shortageQty, 4)}).`, "error");
+        return;
+      }
+      if (state.mode === "replace") {
+        applyReplaceLocally(item, feasibility, norm);
+        toast(`Đã thay sang ${item.material_code} (client-side). Bấm "Lưu bảng kê" để ghi vào server.`, "success");
+      } else {
+        applyAddLocally(item, feasibility, norm);
+        toast(`Đã thêm dòng ${item.material_code} (client-side). Bấm "Lưu bảng kê" để ghi vào server.`, "success");
+      }
+      close();
+    };
+
+    const removeRow = () => {
+      if (!state.row) return;
+      if (!confirm(`Xoá dòng NVL ${state.materialLabel || state.materialCode}?`)) return;
+      const panel = state.row.closest("[data-origin-sheet-panel]");
+      state.row.classList.add("origin-row-deleted");
+      const group = state.row.dataset.allocationGroup;
+      if (group) {
+        panel.querySelectorAll(`[data-origin-allocation-row][data-allocation-group="${group}"]`).forEach((r) => r.classList.add("origin-row-deleted"));
+      }
+      const ops = ensurePendingOps(panel);
+      delete ops.replaces[String(state.rowIndex)];
+      // Track delete for non-added rows; added rows just get removed entirely.
+      const addedKey = state.row.dataset.pendingAddedKey;
+      if (addedKey) {
+        ops.adds = ops.adds.filter((entry) => entry.key !== addedKey);
+        state.row.remove();
+      } else {
+        ops.deletes[String(state.rowIndex)] = true;
+      }
+      markSheetDirty(panel);
+      recomputeSheetTotals(panel);
+      toast("Đã đánh dấu xoá (client-side). Bấm \"Lưu bảng kê\" để ghi.", "success");
+      close();
+    };
+    deleteBtn?.addEventListener("click", removeRow);
+
+    const renderLoading = (target, label) => {
+      if (!target) return;
+      target.innerHTML = `<li class="origin-substitute-loading"><span class="origin-substitute-spinner" aria-hidden="true"></span><span>${label}</span></li>`;
+    };
+
+    const mergeLazyStock = (data, items) => {
+      if (!data.stock_pending || !data.stock_url) return;
+      const allCodes = (items || []).map((c) => c.material_code).filter(Boolean);
+      if (allCodes.length === 0) return;
+      fetch(`${data.stock_url}?codes=${encodeURIComponent(allCodes.join(","))}`, {
+        headers: {"Accept": "application/json"},
+      })
+        .then((r) => r.ok ? r.json() : null)
+        .then((stockData) => {
+          if (!stockData?.stock) return;
+          Object.entries(stockData.stock).forEach(([code, stock]) => {
+            modal.querySelectorAll(`li.origin-substitute-item[data-material-code="${code}"]`).forEach((li) => {
+              const stockChip = li.querySelector(".origin-substitute-stock-summary");
+              if (stockChip) stockChip.textContent = `${stock.total_remaining_qty || "0"} tồn`;
+              const priceChip = li.querySelector(".origin-substitute-price");
+              if (priceChip) {
+                const optMode = stockData.optimization_mode || "max_lvc";
+                const priceHint = optMode === "min_lvc" ? stock.unit_price_max : stock.unit_price_min;
+                priceChip.textContent = priceHint && Number.isFinite(Number(priceHint)) ? Number(priceHint).toLocaleString("vi-VN", {maximumFractionDigits: 4}) : "—";
+              }
+              const lotsTbody = li.querySelector(".origin-substitute-lots tbody");
+              const lotsTable = li.querySelector(".origin-substitute-lots");
+              const lotsEmpty = li.querySelector(".origin-substitute-lots-empty");
+              if (lotsTbody && stock.lots) {
+                lotsTbody.innerHTML = "";
+                stock.lots.forEach((lot, idx) => {
+                  const tr = document.createElement("tr");
+                  tr.innerHTML = `
+                    <td>${idx + 1}</td>
+                    <td class="mono">${lot.import_declaration_no || ""}</td>
+                    <td class="mono">${lot.line_no || ""}</td>
+                    <td class="num">${lot.remaining_qty || "0"}</td>
+                    <td class="num">${lot.unit_value && Number.isFinite(Number(lot.unit_value)) ? Number(lot.unit_value).toLocaleString("vi-VN", {maximumFractionDigits: 4}) : "—"}</td>
+                    <td>${lot.currency || ""}</td>
+                  `;
+                  lotsTbody.appendChild(tr);
+                });
+                if (stock.lots.length > 0) {
+                  if (lotsEmpty) lotsEmpty.hidden = true;
+                  if (lotsTable) lotsTable.hidden = false;
+                }
+              }
+              const candidate = latestCandidatesByCode.get(code);
+              if (candidate) {
+                candidate.stock = stock;
+                renderFeasibilityCell(li, computeFeasibility(candidate), candidate);
+              }
+            });
+          });
+        })
+        .catch(() => {});
+    };
+
+    const fetchRecommendations = async () => {
+      if (!recommendedList) return;
+      latestCandidatesByCode.clear();
+      renderLoading(recommendedList, state.materialCode ? `Đang lấy khuyến nghị cho ${state.materialCode}…` : "Đang tải…");
+      if (recommendedEmpty) recommendedEmpty.hidden = true;
+      const params = new URLSearchParams();
+      if (state.materialCode) params.set("material_code", state.materialCode);
+      if (state.currentHs) params.set("seed_hs", state.currentHs);
+      params.set("row_index", String(state.rowIndex));
+      const url = `/clients/${encodeURIComponent(currentClientId())}/co-case/${encodeURIComponent(currentCaseId())}/origin/sheet/${encodeURIComponent(state.productCode)}/substitute-candidates?${params.toString()}`;
+      try {
+        const response = await fetch(url, {headers: {"Accept": "application/json"}});
+        recommendedList.innerHTML = "";
+        if (!response.ok) {
+          recommendedEmpty.hidden = false;
+          recommendedEmpty.textContent = "Không lấy được khuyến nghị.";
+          return;
+        }
+        const data = await response.json();
+        const optMode = data.optimization_mode || "max_lvc";
+        state.optimizationMode = optMode;
+        modeLabel.textContent = `Mode tối ưu: ${optMode === "min_lvc" ? "Giảm LVC/RVC (ưu tiên đơn giá cao)" : "Tăng LVC/RVC (ưu tiên đơn giá thấp)"}`;
+        (data.candidates || []).forEach((item) => {
+          recommendedList.appendChild(buildItem(item, "recommended"));
+        });
+        recommendedEmpty.hidden = (data.candidates || []).length > 0;
+        mergeLazyStock(data, data.candidates || []);
+        if (data.candidates_source === "co_heuristic" && (data.candidates || []).length > 0) {
+          // Insert a banner above the list so user knows this is fallback.
+          const banner = document.createElement("li");
+          banner.className = "origin-substitute-heuristic-banner";
+          banner.innerHTML = `<strong>HS-prefix heuristic</strong><span>${data.error || "Đang fallback vì Data Hub không có substitute precomputed cho mã này."}</span>`;
+          recommendedList.prepend(banner);
+        } else if (recommendedEmpty.hidden === false) {
+          recommendedEmpty.textContent = data.error
+            ? data.error
+            : "Chưa có khuyến nghị từ Data Hub và heuristic cũng trống — thử tab Tìm kiếm.";
+        }
+      } catch (err) {
+        recommendedList.innerHTML = "";
+        recommendedEmpty.hidden = false;
+        recommendedEmpty.textContent = `Lỗi mạng: ${err}`;
+        toast(`Lỗi tải khuyến nghị: ${err}`, "error");
+      }
+    };
+
+    const fetchSearch = async () => {
+      if (!searchList) return;
+      const search = (searchInput?.value || "").trim();
+      activateTab("search");
+      if (!search) {
+        searchList.innerHTML = "";
+        if (searchEmpty) {
+          searchEmpty.hidden = false;
+          searchEmpty.textContent = "Nhập mã, tên, hoặc HS để tìm.";
+        }
+        return;
+      }
+      renderLoading(searchList, `Đang tìm "${search}"…`);
+      if (searchEmpty) searchEmpty.hidden = true;
+      const params = new URLSearchParams();
+      params.set("search", search);
+      params.set("row_index", String(state.rowIndex));
+      if (state.currentHs) params.set("seed_hs", state.currentHs);
+      const url = `/clients/${encodeURIComponent(currentClientId())}/co-case/${encodeURIComponent(currentCaseId())}/origin/sheet/${encodeURIComponent(state.productCode)}/substitute-candidates?${params.toString()}`;
+      try {
+        const response = await fetch(url, {headers: {"Accept": "application/json"}});
+        searchList.innerHTML = "";
+        if (!response.ok) {
+          if (searchEmpty) {
+            searchEmpty.hidden = false;
+            searchEmpty.textContent = "Không tìm được NVL.";
+          }
+          return;
+        }
+        const data = await response.json();
+        const optMode = data.optimization_mode || "max_lvc";
+        state.optimizationMode = optMode;
+        modeLabel.textContent = `Mode tối ưu: ${optMode === "min_lvc" ? "Giảm LVC/RVC (ưu tiên đơn giá cao)" : "Tăng LVC/RVC (ưu tiên đơn giá thấp)"}`;
+        (data.search_results || []).forEach((item) => {
+          searchList.appendChild(buildItem(item, "search"));
+        });
+        const resultCount = (data.search_results || []).length;
+        if (searchEmpty) {
+          searchEmpty.hidden = resultCount > 0;
+          searchEmpty.textContent = data.error || `Không có NVL khớp "${search}".`;
+        }
+        mergeLazyStock(data, data.search_results || []);
+      } catch (err) {
+        searchList.innerHTML = "";
+        if (searchEmpty) {
+          searchEmpty.hidden = false;
+          searchEmpty.textContent = `Lỗi mạng: ${err}`;
+        }
+        toast(`Lỗi tìm NVL: ${err}`, "error");
+      }
+    };
+
+    refreshBtn?.addEventListener("click", () => {
+      if (activeTab === "search") fetchSearch();
+      else fetchRecommendations();
+    });
+    searchBtn?.addEventListener("click", fetchSearch);
+    searchInput?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        fetchSearch();
+      }
+    });
+    sharedNormInput?.addEventListener("input", () => refreshAllFeasibility());
+
+    document.body.addEventListener("click", (event) => {
+      const trigger = event.target.closest?.("[data-origin-substitute-trigger]");
+      if (trigger) {
+        event.preventDefault();
+        state.productCode = trigger.dataset.productCode || "";
+        state.rowIndex = parseInt(trigger.dataset.rowIndex || "-1", 10);
+        state.materialCode = trigger.dataset.materialCode || trigger.dataset.internalCode || "";
+        state.materialLabel = trigger.querySelector(".mono")?.textContent || state.materialCode;
+        state.currentNorm = trigger.dataset.currentNorm || "";
+        state.currentHs = trigger.dataset.currentHs || "";
+        state.mode = "replace";
+        state.row = trigger.closest("[data-origin-material-row]");
+        if (deleteBtn) deleteBtn.hidden = false;
+        if (sharedNormInput) sharedNormInput.value = state.currentNorm;
+        targetLabel.textContent = `Sheet ${state.productCode} · dòng ${state.rowIndex + 1}`;
+        populateCurrentStrip(state.row);
+        modal.hidden = false;
+        document.body.classList.add("origin-substitute-modal-open");
+        if (searchInput) searchInput.value = "";
+        if (searchList) searchList.innerHTML = "";
+        if (searchEmpty) {
+          searchEmpty.hidden = false;
+          searchEmpty.textContent = "Nhập từ khóa để tìm.";
+        }
+        activateTab("recommended");
+        fetchRecommendations();
+        return;
+      }
+      const addTrigger = event.target.closest?.("[data-origin-add-row-trigger]");
+      if (addTrigger) {
+        event.preventDefault();
+        state.productCode = addTrigger.dataset.productCode || "";
+        state.rowIndex = -1;
+        state.materialCode = "";
+        state.materialLabel = "(dòng mới)";
+        state.currentNorm = "";
+        state.mode = "add";
+        state.row = null;
+        if (deleteBtn) deleteBtn.hidden = true;
+        if (sharedNormInput) sharedNormInput.value = "";
+        targetLabel.textContent = `Sheet ${state.productCode} · thêm dòng NVL mới`;
+        populateCurrentStrip(null);
+        modal.hidden = false;
+        document.body.classList.add("origin-substitute-modal-open");
+        if (searchInput) {
+          searchInput.value = "";
+        }
+        if (recommendedList) recommendedList.innerHTML = "";
+        if (recommendedEmpty) {
+          recommendedEmpty.hidden = false;
+          recommendedEmpty.textContent = "Dòng mới — dùng tab Tìm kiếm để chọn NVL.";
+        }
+        if (searchList) searchList.innerHTML = "";
+        if (searchEmpty) {
+          searchEmpty.hidden = false;
+          searchEmpty.textContent = "Nhập mã, tên, hoặc HS để tìm.";
+        }
+        activateTab("search");
+      }
+    });
+
+  };
+
+  const currentClientId = () => {
+    const path = window.location.pathname.split("/");
+    const idx = path.indexOf("clients");
+    return idx >= 0 ? path[idx + 1] : "";
+  };
+  const currentCaseId = () => {
+    const path = window.location.pathname.split("/");
+    const idx = path.indexOf("co-case");
+    return idx >= 0 ? path[idx + 1] : "";
+  };
+
+  const fmtNumber = (value, fractionDigits = 2) => {
+    if (!Number.isFinite(value)) return "—";
+    return value.toLocaleString("vi-VN", {maximumFractionDigits: fractionDigits});
+  };
+
+  const recomputeSheetTotals = (panel) => {
+    if (!panel) return;
+    const fobAttr = panel.dataset.productFob || "0";
+    const fob = parseFloat(fobAttr) || 0;
+    let vnm = 0;
+    let originValue = 0;
+    const rows = panel.querySelectorAll("[data-origin-material-row]");
+    rows.forEach((row) => {
+      if (row.classList.contains("origin-row-deleted")) return;
+      const status = row.dataset.rowOriginStatus || "non_origin";
+      const baseNonOrigin = parseFloat(row.dataset.rowNonOriginBase || "0") || 0;
+      const baseConsumed = parseFloat(row.querySelector("[data-origin-cell-consumed]")?.dataset.baseConsumed || "0") || 0;
+      const baseUnitValue = parseFloat(row.querySelector("[data-origin-cell-unit-value]")?.dataset.baseUnitValue || "0") || 0;
+      const baseMaterialValue = parseFloat(row.querySelector("[data-origin-cell-material-value]")?.dataset.baseMaterialValue || "0") || 0;
+      const originalNorm = parseFloat(row.dataset.rowOriginalNorm || "0") || 0;
+      const normInput = row.querySelector("[data-origin-norm-edit]");
+      const currentNorm = parseFloat(normInput?.value || originalNorm.toString()) || originalNorm;
+      const ratio = originalNorm > 0 ? (currentNorm / originalNorm) : 1;
+
+      // Per-row cell updates (Excel-like formulas).
+      const consumedCell = row.querySelector("[data-origin-cell-consumed]");
+      if (consumedCell) consumedCell.textContent = fmtNumber(baseConsumed * ratio, 6);
+      const unitValueCell = row.querySelector("[data-origin-cell-unit-value]");
+      // Unit price never depends on ĐM — kept as-is, but redraw to refresh formatting.
+      if (unitValueCell && baseUnitValue > 0) unitValueCell.textContent = fmtNumber(baseUnitValue, 6);
+      const materialValueCell = row.querySelector("[data-origin-cell-material-value]");
+      const newMaterialValue = baseMaterialValue * ratio;
+      if (materialValueCell) materialValueCell.textContent = fmtNumber(newMaterialValue, 2);
+      const nonOriginCell = row.querySelector("[data-origin-cell-non-origin]");
+      const newNonOrigin = (status === "origin") ? 0 : (baseNonOrigin > 0 ? baseNonOrigin * ratio : newMaterialValue);
+      if (nonOriginCell) nonOriginCell.textContent = fmtNumber(newNonOrigin, 2);
+
+      vnm += newNonOrigin;
+      if (status === "origin") originValue += newMaterialValue;
+
+      // Mark row as live-recomputed
+      if (Math.abs(ratio - 1) > 1e-9) row.classList.add("origin-row-live-edited");
+      else row.classList.remove("origin-row-live-edited");
+    });
+    const vnmCell = panel.querySelector("[data-origin-vnm]");
+    if (vnmCell) {
+      const currency = (vnmCell.querySelector("em")?.textContent || "").trim();
+      vnmCell.innerHTML = `${fmtNumber(vnm, 2)} <em>${currency}</em>`;
+    }
+    if (fob <= 0) return;
+    const lvc = ((fob - vnm) / fob) * 100;
+    const lvcCell = panel.querySelector("[data-origin-lvc]");
+    const liveFlag = panel.querySelector("[data-origin-live-flag]");
+    if (lvcCell) lvcCell.textContent = `${lvc.toFixed(2)}%`;
+    const threshold = parseFloat(panel.dataset.productLvcThreshold || "0") || 0;
+    const lvcMetric = panel.querySelector("[data-origin-lvc-cell]");
+    if (lvcMetric && threshold > 0) {
+      lvcMetric.classList.remove("origin-metric-pass", "origin-metric-fail", "origin-metric-warning");
+      lvcMetric.classList.add(lvc >= threshold ? "origin-metric-pass" : "origin-metric-fail");
+      lvcMetric.title = lvc >= threshold ? `LVC ${lvc.toFixed(2)}% ≥ ngưỡng ${threshold}% — Đạt` : `LVC ${lvc.toFixed(2)}% < ngưỡng ${threshold}% — Chưa đạt`;
+    }
+    if (liveFlag) liveFlag.hidden = false;
+  };
+
+  const ensurePendingOps = (panel) => {
+    if (!panel) return {replaces: {}, adds: [], deletes: {}, normEdits: {}};
+    if (!panel.__pendingOps) panel.__pendingOps = {replaces: {}, adds: [], deletes: {}, normEdits: {}};
+    return panel.__pendingOps;
+  };
+
+  const pendingOpsCount = (ops) => (
+    Object.keys(ops?.replaces || {}).length
+    + Object.keys(ops?.deletes || {}).length
+    + Object.keys(ops?.normEdits || {}).length
+    + (ops?.adds || []).length
+  );
+
+  const markSheetDirty = (panel, label) => {
+    if (!panel) return;
+    panel.classList.add("origin-sheet-panel-dirty");
+    let banner = panel.querySelector("[data-origin-dirty-banner]");
+    if (!banner) {
+      banner = document.createElement("div");
+      banner.dataset.originDirtyBanner = "1";
+      banner.className = "origin-dirty-banner";
+      banner.innerHTML = `
+        <span data-origin-dirty-msg>Bảng kê đã thay đổi (chưa lưu)</span>
+        <button type="button" class="btn-primary" data-origin-save-now>Lưu bảng kê</button>
+        <button type="button" class="btn-secondary" data-origin-discard>Bỏ thay đổi</button>
+      `;
+      const strip = panel.querySelector("[data-origin-strip]");
+      strip?.parentNode?.insertBefore(banner, strip.nextSibling);
+      banner.querySelector("[data-origin-save-now]")?.addEventListener("click", () => triggerSave(panel));
+      banner.querySelector("[data-origin-discard]")?.addEventListener("click", () => {
+        if (!confirm("Bỏ tất cả thay đổi chưa lưu trên sheet này?")) return;
+        window.location.reload();
+      });
+    }
+    const ops = panel.__pendingOps;
+    const msg = banner.querySelector("[data-origin-dirty-msg]");
+    if (msg) {
+      const count = pendingOpsCount(ops);
+      msg.textContent = label || `Bảng kê đã thay đổi · ${count} thao tác chưa lưu`;
+    }
+  };
+
+  const clearSheetDirty = (panel) => {
+    if (!panel) return;
+    panel.classList.remove("origin-sheet-panel-dirty");
+    panel.__pendingOps = {replaces: {}, adds: [], deletes: {}, normEdits: {}};
+    const banner = panel.querySelector("[data-origin-dirty-banner]");
+    if (banner) banner.remove();
+  };
+
+  const triggerSave = async (panel) => {
+    if (!panel) return;
+    const ops = ensurePendingOps(panel);
+    // Sweep ĐM input edits — anything that diverged from originalValue counts.
+    panel.querySelectorAll("[data-origin-norm-edit]").forEach((input) => {
+      const current = (input.value || "").trim();
+      const original = (input.dataset.originalValue || "").trim();
+      const rowIndex = input.dataset.rowIndex || "";
+      if (!rowIndex) return;
+      const row = input.closest("[data-origin-material-row]");
+      // Added rows: sync the latest ĐM into the corresponding add op.
+      if (row && row.dataset.pendingAddedKey) {
+        const op = ops.adds.find((entry) => entry.key === row.dataset.pendingAddedKey);
+        if (op) op.new_norm_per_unit = current;
+        return;
+      }
+      if (current === original) return;
+      // Replace ops carry their own norm; don't double-record.
+      if (ops.replaces[rowIndex]) {
+        ops.replaces[rowIndex].new_norm_per_unit = current;
+        return;
+      }
+      ops.normEdits[rowIndex] = current;
+    });
+    if (pendingOpsCount(ops) === 0) {
+      toast("Không có thay đổi nào để lưu.", "info");
+      return;
+    }
+    const productCode = panel.dataset.productCode || "";
+    const url = `/clients/${encodeURIComponent(currentClientId())}/co-case/${encodeURIComponent(currentCaseId())}/origin/sheet/${encodeURIComponent(productCode)}/save`;
+    const banner = panel.querySelector("[data-origin-dirty-banner]");
+    const saveBtn = banner?.querySelector("[data-origin-save-now]");
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = "Đang lưu…"; }
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {"Content-Type": "application/json", "Accept": "application/json"},
+        body: JSON.stringify({
+          replaces: ops.replaces,
+          adds: ops.adds,
+          deletes: ops.deletes,
+          norm_edits: ops.normEdits,
+        }),
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        let detail = "";
+        try { detail = JSON.parse(text).detail || ""; } catch (_e) { detail = text.slice(0, 200); }
+        toast(detail || `Lưu thất bại (HTTP ${response.status}).`, "error");
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = "Lưu bảng kê"; }
+        return;
+      }
+      toast("Đã lưu bảng kê. Đang tải lại…", "success");
+      clearSheetDirty(panel);
+      window.location.reload();
+    } catch (err) {
+      toast(`Lỗi mạng: ${err}`, "error");
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = "Lưu bảng kê"; }
+    }
+  };
+
+  const initOriginLiveRecompute = (root = document) => {
+    if (root.__originLiveRecomputeBound === true) return;
+    root.__originLiveRecomputeBound = true;
+    document.body.addEventListener("input", (event) => {
+      const input = event.target?.closest?.("[data-origin-norm-edit]");
+      if (!input) return;
+      const panel = input.closest("[data-origin-sheet-panel]");
+      recomputeSheetTotals(panel);
+      markSheetDirty(panel);
+    });
+  };
+
+  const initOriginProposeBom = (root = document) => {
+    root.querySelectorAll("[data-origin-propose-bom]").forEach((btn) => {
+      if (btn.dataset.originProposeInitialized === "1") return;
+      btn.dataset.originProposeInitialized = "1";
+      btn.addEventListener("click", async () => {
+        const url = btn.dataset.proposeUrl || "";
+        if (!url) return;
+        if (!confirm("Gửi đề xuất BOM artifact mới sang Data Hub cho TP " + (btn.dataset.productCode || "") + "?")) {
+          return;
+        }
+        btn.disabled = true;
+        try {
+          const response = await fetch(url, {
+            method: "POST",
+            headers: {"Content-Type": "application/json", "Accept": "application/json"},
+            body: JSON.stringify({}),
+          });
+          if (!response.ok) {
+            const text = await response.text();
+            let detail = "";
+            try { detail = JSON.parse(text).detail || ""; } catch (_e) { detail = text.slice(0, 200); }
+            toast(detail || `Lỗi ${response.status}`, "error");
+            return;
+          }
+          const data = await response.json();
+          toast(`Đã propose BOM mới (artifact ${data.proposal?.artifact_id || data.proposal?.proposal_id || "—"}).`, "success");
+          window.location.reload();
+        } catch (err) {
+          toast(`Lỗi mạng: ${err}`, "error");
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    });
+  };
+
+  // Async progress: small top progress bar runs while ANY fetch is in flight.
+  // Per-button busy spinner is set on the specific control the user clicked
+  // (so they see which action is processing) — but the rest of the page stays
+  // fully interactive.
+  let asyncCounter = 0;
+  const setProgressActive = (active) => {
+    const progress = document.querySelector("[data-case-tab-progress]");
+    if (progress) progress.classList.toggle("case-tab-progress-active", active);
+  };
+  const beginAsync = () => {
+    asyncCounter += 1;
+    if (asyncCounter === 1) setProgressActive(true);
+  };
+  const endAsync = () => {
+    asyncCounter = Math.max(0, asyncCounter - 1);
+    if (asyncCounter === 0) setProgressActive(false);
+  };
+
+  // Patch fetch globally so every JSON / shell call drives the progress bar
+  // and ALWAYS releases on completion (success, error, or thrown).
+  if (!window.__caseAsyncPatched) {
+    window.__caseAsyncPatched = true;
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = (input, init = {}) => {
+      beginAsync();
+      try {
+        return originalFetch(input, init).finally(() => endAsync());
+      } catch (err) {
+        endAsync();
+        throw err;
+      }
+    };
+  }
+
+  // Per-button busy marker — set on click, cleared on next pageshow / shell
+  // refresh. Pure visual cue so user knows which button they hit.
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest?.("button[type='submit'], input[type='submit'], button[data-async-trigger]");
+    if (!button || button.disabled) return;
+    if (!button.closest("[data-co-case-shell]") && !button.closest("form")) return;
+    button.dataset.asyncBusy = "1";
+    // Auto-clear after 8s safety net so a stuck button doesn't trap the user.
+    window.setTimeout(() => { delete button.dataset.asyncBusy; }, 8000);
+  }, true);
+
+  // Always clear progress + per-button busy on pageshow (full nav or bfcache restore).
+  window.addEventListener("pageshow", () => {
+    asyncCounter = 0;
+    setProgressActive(false);
+    document.querySelectorAll("[data-async-busy='1']").forEach((node) => delete node.dataset.asyncBusy);
+  });
+
+  const initCaseTabLoading = (root = document) => {
+    const nav = root.querySelector("[data-case-tab-nav]");
+    if (!nav || nav.dataset.caseTabLoadingBound === "1") return;
+    nav.dataset.caseTabLoadingBound = "1";
+    nav.querySelectorAll("[data-case-tab-link]").forEach((link) => {
+      link.addEventListener("click", (event) => {
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+        if (link.classList.contains("workflow-step-active")) return;
+        nav.querySelectorAll(".workflow-step-loading").forEach((step) => step.classList.remove("workflow-step-loading"));
+        link.classList.add("workflow-step-loading");
+        // Auto-clear so a long fetch doesn't stick the spinner indefinitely.
+        window.setTimeout(() => link.classList.remove("workflow-step-loading"), 8000);
+      });
+    });
+  };
+
+  const initCaseCreatedBanner = (root = document) => {
+    const banner = root.querySelector("[data-case-created-banner]");
+    if (!banner || banner.dataset.banneInitialized === "1") return;
+    banner.dataset.banneInitialized = "1";
+    const dismiss = () => {
+      banner.remove();
+      // Clear the one-shot cookie so re-opening the page doesn't re-trigger.
+      document.cookie = `co_case_just_created=; Max-Age=0; Path=${window.location.pathname}`;
+    };
+    banner.querySelector("[data-case-created-dismiss]")?.addEventListener("click", dismiss);
+    window.setTimeout(dismiss, 8000);
+  };
+
   refreshCaseShellInteractions = (root = document) => {
     initOriginWarningSummaries(root);
     initOriginColumnControls(root);
+    initOriginRecommendationOverrides(root);
+    initOriginSubstituteModal();
+    initOriginProposeBom(root);
+    initOriginLiveRecompute(root);
+    initCaseTabLoading(root);
+    initCaseCreatedBanner(root);
   };
   refreshCaseShellInteractions();
 

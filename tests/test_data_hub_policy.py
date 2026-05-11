@@ -20,6 +20,9 @@ APPROVED_DATA_HUB_ENDPOINTS = {
     "/v1/hub/products/{product_code}/bom/proposals",
     "/v1/hub/products/{product_code}/bom/artifacts",
     "/v1/hub/proposals/{proposal_id}",
+    "/v1/hub/materials/{hub_path_part(material_code)}",
+    "/v1/hub/clients/{hub_path_part(client_id)}/materials/{hub_path_part(material_code)}/substitutes",
+    "/v1/hub/clients/{hub_path_part(client_id)}/bcct/by-codes",
 }
 
 

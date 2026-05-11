@@ -1,40 +1,42 @@
 # Project Status
 
 ## Current State
-- Active branch: `main`; do not push unless user asks.
-- CO dev server is running at `http://127.0.0.1:8001`; `/healthz` returns `{"status":"ok"}`.
-- Local Data Hub is running at `http://127.0.0.1:8754`; CO is in Data Hub consumer mode with auth enabled.
-- Origin workflow remains server-rendered with AJAX shell replacement, but high-frequency Origin actions no longer serialize the full hidden origin form:
-  - `GET /clients/{client_id}/co-case/{case_id}/origin/calculation-payload` returns scoped JSON for future client-side calculation work.
-  - `POST /clients/{client_id}/co-case/{case_id}/origin/save` accepts compact JSON for sheet order/BOM override state.
-  - Origin autosave and sheet calculate/lock/reopen now send compact JSON from the UI; legacy large-form handling remains as fallback for old tabs/export flows.
-- Cached Origin pages still reuse source snapshots for speed, but live BOM artifact options are fetched from Data Hub by `bom_product_code`; snapshot-only BOM workspace is now only a fallback when live options are unavailable.
-- Origin BOM artifact dropdown options from Data Hub are filtered to flattened artifacts only; `non_flattened` artifacts remain in service history/debug data but are not selectable.
-- CO still matches current Data Hub vocabulary: `material_identity`, `/client-config`, `DATA_HUB_SERVICE_TOKEN`, and BOM artifact naming.
+- Active branch: `main`. A focused handoff/implementation commit was requested after the substitute-modal search fix.
+- CO dev server is running at `http://127.0.0.1:8001`; latest health check returned `200`.
+- Local Data Hub is expected at `http://127.0.0.1:8754`. During this session, Data Hub still returned `500` for `GET /v1/hub/materials?client_id=growatt-vn`, while products, BCCT, and source-summary endpoints returned `200`.
+- Postgres `barry_co` remains the intended local database via Unix socket (`postgresql:///barry_co?host=/var/run/postgresql`) for stock ledger work.
+- Case workflow tabs remain: Lô hàng / Chứng từ / Form&PSR (W.I.P) / Bảng kê C/O / TKX-TKN / Review-Xuất.
+- Untracked screenshot directories and `.ai/sister-app-prompts/` are local artifacts and were intentionally not part of the requested commit unless the user explicitly asks to preserve them in git.
 
 ## Recent Changes
-- Added compact Origin JSON payload helpers and revision checks in `app/main.py`.
-- Added Origin calculation payload and save endpoints.
-- Updated Origin frontend JS to submit compact JSON for autosave and per-sheet calculate/lock/reopen instead of serializing thousands of hidden material/allocation fields.
-- Fixed cached Origin context so BOM dropdown options use live Data Hub artifact options even when source data is cached.
-- Filtered Data Hub BOM dropdown options to flattened artifacts only.
-- Added regression coverage for compact JSON Origin actions, cached live BOM options, and non-flattened artifact filtering.
-- Verification run: `uv run pytest` passed with `195 passed`.
+- Fixed the NVL substitute modal `Tìm kiếm` tab when Data Hub material catalog search fails or returns empty:
+  - `substitute-candidates` now falls back to matching materials already present in the current CO dossier.
+  - duplicate material codes are de-duped between catalog results and dossier fallback.
+  - frontend search empty-state now says no match or shows the backend fallback message, instead of leaving the stale "Nhập từ khóa" prompt after a completed search.
+  - lazy `/substitute-stock` now returns empty stock summaries instead of `500` if the stock fallback path hits the broken Data Hub materials endpoint.
+- Added regression coverage for fallback search when `portfolio_service.search_materials()` raises.
+- Verification:
+  - `uv run pytest tests/test_co_demo.py::test_origin_sheet_substitute_candidates_endpoint_returns_search_and_recommended tests/test_co_demo.py::test_origin_sheet_substitute_search_falls_back_to_case_materials_when_catalog_fails` passed.
+  - Full `uv run pytest` passed: `211 passed, 1 skipped, 7 warnings in 77.63s`.
+  - Browser smoke on auth-disabled `http://127.0.0.1:8002` confirmed searching `012.0002700` rendered one result and `/substitute-stock` returned `200`.
+  - `git diff --check -- app/main.py app/templates/co_case.html tests/test_co_demo.py` passed.
 
 ## Next Steps
-1. Continue the client-side Origin calculation migration: render/calculation from `calculation-payload`, add explicit save semantics, and remove most hidden material/allocation fields after parity tests are in place.
-2. Decide how Data Hub should provide NVL origin classification for C/O; Growatt still has conservative origin warnings when material catalog lacks classification evidence.
-3. Decide whether duplicate finished-product codes can occur in one dossier. If yes, replace product-code keyed sheet state with a stable line identity.
-4. Consider cleaning or archiving smoke case `co-case-e44fe2065b62` if it should not remain in local data.
+1. Fix Data Hub-side `/v1/hub/materials` and `/v1/hub/materials/{code}` 500s for `growatt-vn`/`johnson-vn`; CO's fallback keeps the modal usable but full cross-catalog search depends on Data Hub.
+2. Browser-test cross-case stock ledger end-to-end: lock sheet in case A, confirm case B substitute modal shows reduced `remaining_qty`, reopen and confirm restoration, test concurrent locks and overclaim flag.
+3. Verify Data Hub `/v1/hub/clients/{c}/bcct/by-codes` availability before relying on narrow substitute-stock lookup for Johnson-scale clients.
+4. Decide whether `/sheet/{code}/lock` should read persisted sheet state instead of trusting form-rebuilt state, because form submits can strip `materials[*].allocation_lines`.
+5. Continue backlog item #9: NVL origin classification config / Data Hub evidence source.
 
 ## Blockers
-- Growatt origin classification data remains incomplete; CO can allocate stock/value evidence but still defaults unclassified NVL to conservative non-origin.
-- `npm test` has previously had unrelated legal lookup failures around `raw-binary` source links; Python CO tests pass.
+- Data Hub material catalog endpoints returning `500` block complete manual search across the full catalog. CO currently falls back only to dossier materials.
+- Substitute-stock first open on very large clients can still be slow until the Data Hub `bcct/by-codes` provider endpoint is available and verified.
+- `Form&PSR` remains W.I.P.; rule/evidence engine is not implemented beyond current form/criteria guidance.
 
 ## Notes for Next AI Session
 - User writes Vietnamese casually; respond in fully accented Vietnamese.
-- User is sensitive to slow UX and dislikes hidden reloads. Keep case interactions shell/AJAX-based and avoid large hidden-form payloads.
-- CO is a Data Hub consumer. Do not add raw `/v1/hub/*` calls outside `app/data_hub_client.py`, and do not invent Data Hub endpoints from CO.
-- Data Hub BOM artifact options for Origin should come from live Data Hub workspace by BOM product code, not only from saved case snapshots.
-- For `growatt-vn / SD00.0010600`, CO currently sees 4 flattened selectable artifact options after filtering, while 2 non-flattened artifacts remain excluded from the dropdown.
-- Known unrelated dirty/untracked files before this handoff remain outside the focused commit: `docs/co-form-index-confirmation.*`, `.ai/screenshots/co-case-origin-ux/`, `.ai/screenshots/co-case-overview-lock/`, `.ai/screenshots/co-origin-sequence-lock/`, `.ai/screenshots/data-hub-e2e/`, `.ai/sister-app-notes/2026-05-07-bom-presets-3b.md`, and `.ai/sister-app-prompts/`.
+- User is sensitive to slow UX and loading without progress. Page must stay interactive during async; only the clicked control should show a busy spinner, with a global top progress bar as signal.
+- User explicitly said production uses Postgres; do not add JSON fallback for new persistence. Ledger may no-op when `BARRY_DATABASE_URL` is unset for tests, but do not write ledger state to JSON.
+- Default `uv run pytest` intentionally runs without `BARRY_DATABASE_URL`; one ledger test is skipped in that mode. Running with DB env can expose pre-existing JSON-store assumptions in unrelated tests.
+- Data Hub `uom` migration reference: commits `6a1b47a`, `42decc7`, `f64b500` in the Data Hub repo. Hub still emits deprecated `unit` alias for a grace window, but CO should not depend on it for material/product rows.
+- For Johnson substitute modal smoke data, use invoice `VNG26050001` or `VNG25120047`. Material `018.0645001` returns no Data Hub substitutes because it is not in Johnson catalog; CO heuristic fallback should kick in.

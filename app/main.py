@@ -11,7 +11,7 @@ from urllib.parse import quote
 
 from fastapi import File, Form, HTTPException, Request, UploadFile
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -34,6 +34,7 @@ from app.co_case_store import (
     get_supporting_file,
     invoice_keys,
     json_safe,
+    match_case_bcct_exports,
     safe_filename,
     save_supporting_file,
     release_origin_calculation_lock,
@@ -55,6 +56,7 @@ from app.co_form_config_store import (
     save_co_form_config,
     unique_text_list,
 )
+from app import co_stock_ledger
 from app.co_market_hints import infer_market_from_invoice_matches
 from app.client_registry import get_client as registry_get_client
 from app.client_registry import get_client_case
@@ -85,12 +87,15 @@ from app.origin import evaluate_tariff_shift
 from app.portfolio import portfolio_app, portfolio_service
 from app.source_store import (
     attach_case_source_snapshot,
+    co_stock_rows_from_bcct,
     enrich_client_with_source_workspace,
 )
 from app.table_view import build_table_view
 from app.workbook_io import (
     WorkbookParseError,
+    create_dossier_zip,
     create_evidence_workbook,
+    create_hq_bang_ke_workbook,
     create_input_workbook,
     parse_input_workbook,
 )
@@ -267,11 +272,14 @@ def merge_origin_action_payload(case: dict, payload: dict) -> dict:
         prepared["products"] = [products_by_code[code] for code in ordered + remainder if code in products_by_code]
     sheet_states = payload.get("origin_sheet_states")
     if isinstance(sheet_states, dict):
-        prepared["origin_sheet_states"] = {
-            str(code): dict(state)
-            for code, state in sheet_states.items()
-            if isinstance(state, dict)
-        }
+        merged_states: dict[str, dict] = {}
+        existing_states = prepared.get("origin_sheet_states") if isinstance(prepared.get("origin_sheet_states"), dict) else {}
+        for code, state in sheet_states.items():
+            if not isinstance(state, dict):
+                continue
+            previous = existing_states.get(str(code)) if isinstance(existing_states.get(str(code)), dict) else {}
+            merged_states[str(code)] = {**previous, **state}
+        prepared["origin_sheet_states"] = merged_states
     prepared["bom_product_artifact_overrides"] = overrides
     prepared["bom_product_version_overrides"] = legacy_overrides
     return prepared
@@ -418,31 +426,32 @@ CO_CASE_WORKFLOW_STEPS = [
         "key": "documents",
         "label": "Chứng từ",
         "short_label": "2",
-        "description": "Upload invoice, vận đơn, packing list và bằng chứng kèm theo.",
-    },
-    {
-        "key": "exports",
-        "label": "Tờ khai xuất",
-        "short_label": "3",
-        "description": "Đối chiếu tờ khai xuất đã review theo invoice.",
+        "description": "Upload BL, Invoice/Packing và các chứng từ bổ sung. TKX query sau khi chốt bảng kê.",
     },
     {
         "key": "guidance",
         "label": "Form & PSR",
-        "short_label": "4",
-        "description": "Gợi ý form, thông tư và trạng thái tra cứu quy tắc.",
+        "short_label": "3",
+        "description": "Confirm pháp lý: form/SP/tiêu chí. (W.I.P)",
+        "wip": True,
     },
     {
         "key": "origin",
-        "label": "Xuất xứ",
+        "label": "Bảng kê C/O",
+        "short_label": "4",
+        "description": "Tính tuần tự từng sheet, override tiêu chí/ngưỡng, thay NVL, chốt và sinh BOM artifact mới.",
+    },
+    {
+        "key": "exports",
+        "label": "TKX / TKN",
         "short_label": "5",
-        "description": "Lập bảng kê LVC từ invoice, BCCT và BOM snapshot.",
+        "description": "Sau khi chốt bảng kê: query TKX/TKN từ Data Hub, bổ sung phần thiếu.",
     },
     {
         "key": "review",
-        "label": "Review & xuất",
+        "label": "Review & Xuất",
         "short_label": "6",
-        "description": "Kiểm tra dossier và xuất workbook.",
+        "description": "Kiểm tra dossier và xuất .zip tổng hợp (chứng từ + TKX/TKN + bảng kê HQ).",
     },
 ]
 CO_CASE_WORKFLOW_STEP_KEYS = {step["key"] for step in CO_CASE_WORKFLOW_STEPS}
@@ -1041,6 +1050,11 @@ def client_context(client_id: str, active: str, **extra):
         ),
         "common_market_presets": COMMON_MARKET_PRESETS,
         "common_market_guidance": common_market_guidance(),
+        "co_form_options": [
+            {"form_code": row["form_code"], "display_name": row.get("display_name") or row["form_code"]}
+            for row in load_co_form_config().get("forms", [])
+            if row.get("enabled")
+        ],
         "invoice_matches": extra.pop("invoice_matches", []),
         "invoice_criteria_rows": extra.pop("invoice_criteria_rows", []),
         "criteria_rows": extra.pop("criteria_rows", []),
@@ -1060,11 +1074,24 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
     cached_case_context = fast_origin_context or bool(extra.pop("cached_case_context", False))
     force_source_refresh = bool(extra.pop("force_source_refresh", False))
     use_cached_context = cached_case_context and not force_source_refresh and bool(case.get("source_snapshot"))
-    source_context = (
-        cached_origin_source_context(client, case)
-        if use_cached_context
-        else co_case_source_context(client, case)
-    )
+    if use_cached_context:
+        source_context = cached_origin_source_context(client, case)
+    else:
+        source_context = co_case_source_context(client, case)
+        # Warm the TTL cache so the next substitute-modal open in this session
+        # reuses the same Data Hub fetch (avoids 30s re-pagination for Johnson).
+        if source_context.get("material_rows") or source_context.get("stock_rows"):
+            import time
+            persisted = case.get("persisted_case_id") or case.get("id") or ""
+            shipment = case.get("shipment") or {}
+            fingerprint = (
+                client.get("id", ""),
+                str(persisted),
+                str(shipment.get("invoice_no") or ""),
+                ",".join(sorted(shipment.get("export_declaration_nos") or [])),
+                str(len(case.get("products") or [])),
+            )
+            _CO_CASE_SOURCE_CACHE[fingerprint] = (time.time(), source_context)
     source_summary = source_context["source_summary"]
     invoice_matches = source_context["invoice_matches"]
     reference_warnings = shipment_reference_warnings(case.get("shipment", {}), invoice_matches)
@@ -1150,6 +1177,13 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
         "invoice_lookup_preview": invoice_lookup_preview,
         "common_market_presets": COMMON_MARKET_PRESETS,
         "common_market_guidance": common_market_guidance(),
+        "co_form_options": [
+            {"form_code": row["form_code"], "display_name": row.get("display_name") or row["form_code"]}
+            for row in load_co_form_config().get("forms", [])
+            if row.get("enabled")
+        ],
+        "tkx_tkn_summary": case_tkx_tkn_summary(case, invoice_matches, source_context.get("stock_rows") or []),
+        "data_hub_base_url": data_hub_link_settings().data_hub_base_url,
         "invoice_matches": invoice_matches,
         "origin_source_context": source_context,
         "shipment_reference_warnings": reference_warnings,
@@ -1174,8 +1208,239 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
     return context
 
 
+_CO_CASE_SOURCE_CACHE: dict[tuple[str, str], tuple[float, dict]] = {}
+_CO_CASE_SOURCE_CACHE_TTL_SECONDS = 90.0
+
+
 def co_case_source_context(client: dict, case: dict) -> dict:
     return portfolio_service.co_case_source_context(client, case)
+
+
+def co_case_source_context_cached(client: dict, case: dict) -> dict:
+    """TTL-cached source_context for high-frequency endpoints (substitute modal,
+    typeahead) where the underlying Data Hub catalog rarely changes within a
+    session. Cache key includes case_id + shipment fingerprint so different
+    cases / mutated shipments don't collide.
+
+    For Johnson the underlying call paginates 11k materials + 65k BCCT rows
+    (multi-second). Without this cache, every modal open re-paginated.
+
+    Stock rows returned by this function ALWAYS reflect the current ledger
+    state (used_qty / remaining_qty net of locked claims across all cases).
+    """
+    import time
+
+    persisted = case.get("persisted_case_id") or case.get("id") or ""
+    shipment = case.get("shipment") or {}
+    fingerprint = (
+        client.get("id", ""),
+        str(persisted),
+        str(shipment.get("invoice_no") or ""),
+        ",".join(sorted(shipment.get("export_declaration_nos") or [])),
+        str(len(case.get("products") or [])),
+    )
+    now = time.time()
+    cached = _CO_CASE_SOURCE_CACHE.get(fingerprint)
+    if cached and now - cached[0] < _CO_CASE_SOURCE_CACHE_TTL_SECONDS:
+        context = cached[1]
+    else:
+        context = co_case_source_context(client, case)
+        _CO_CASE_SOURCE_CACHE[fingerprint] = (now, context)
+        if len(_CO_CASE_SOURCE_CACHE) > 32:
+            oldest = sorted(_CO_CASE_SOURCE_CACHE.items(), key=lambda kv: kv[1][0])[0][0]
+            _CO_CASE_SOURCE_CACHE.pop(oldest, None)
+    # Always re-apply the ledger — claim state changes outside the cache window
+    # (sheet lock/unlock invalidates entry, but be defensive in case caller bypasses).
+    used_by_lot = co_stock_ledger.used_qty_by_lot(client.get("id", ""))
+    if used_by_lot and context.get("stock_rows"):
+        # Don't mutate the cached list in place if someone else holds a reference;
+        # snapshot a new list with applied ledger values.
+        context = {**context, "stock_rows": co_stock_ledger.apply_used_qty(
+            [dict(row) for row in context["stock_rows"]], used_by_lot
+        )}
+    return context
+
+
+def record_sheet_lock_claims(client_id: str, case_id: str, product_code: str, case: dict) -> int:
+    """Persist allocation lines from a locked sheet to the cross-case stock ledger.
+
+    Reads the sheet's products[*].materials[*].allocation_lines and writes one
+    claim per (source_row, material_code) so other cases see remaining_qty drop.
+    Idempotent: re-locking the same sheet replaces prior claims for it.
+
+    `case` may be the form-rebuilt case (which strips allocation_lines), so
+    fall back to the persisted case from disk to get the canonical allocations.
+    """
+    target = _sheet_with_allocations(client_id, case_id, product_code, case)
+    if not target:
+        return 0
+    allocations: list[dict] = []
+    for material_index, material in enumerate(target.get("materials", []) or []):
+        material_code = str(material.get("material_code") or material.get("internal_material_code") or "").strip()
+        for line in material.get("allocation_lines", []) or []:
+            allocations.append({
+                "source_row": line.get("source_row", ""),
+                "material_code": material_code,
+                "material_index": material_index,
+                "claimed_qty": line.get("allocated_qty", "0"),
+            })
+    return co_stock_ledger.record_sheet_lock(client_id, case_id, product_code, allocations)
+
+
+def _sheet_with_allocations(client_id: str, case_id: str, product_code: str, case: dict) -> dict | None:
+    """Pick the product entry, preferring the in-memory case but falling back to
+    the persisted record on disk if its materials lack allocation_lines."""
+
+    def _find(case_obj: dict | None) -> dict | None:
+        if not case_obj:
+            return None
+        return next(
+            (p for p in case_obj.get("products", []) if str(p.get("code") or "").strip() == product_code),
+            None,
+        )
+
+    target = _find(case)
+    if target and any(material.get("allocation_lines") for material in target.get("materials", []) or []):
+        return target
+    try:
+        client = resolve_client(client_id)
+        persisted = persisted_origin_case(client, case_id)
+    except Exception:  # noqa: BLE001
+        return target
+    persisted_target = _find(persisted)
+    return persisted_target or target
+
+
+def invalidate_co_case_source_cache(client_id: str = "", case_id: str = "") -> None:
+    """Clear cache entries — call when case mutates (lock, override, etc.)."""
+    if not client_id and not case_id:
+        _CO_CASE_SOURCE_CACHE.clear()
+        return
+    keys_to_drop = [
+        key for key in _CO_CASE_SOURCE_CACHE
+        if (not client_id or key[0] == client_id) and (not case_id or key[1] == case_id)
+    ]
+    for key in keys_to_drop:
+        _CO_CASE_SOURCE_CACHE.pop(key, None)
+
+
+def invoice_matches_only(client: dict, shipment: dict) -> list[dict]:
+    """Lightweight invoice-match lookup for invoice-preview / search dropdown.
+
+    File-store mode: falls through to match_case_bcct_exports (in-memory,
+    surfaces invoice/declaration mismatch warnings).
+    Data Hub mode: calls invoice_matches adapter directly (~300-500ms),
+    avoiding the full materials + BCCT pagination that co_case_source_context
+    would otherwise trigger on every keystroke for big clients.
+    """
+    invoice_no = str(shipment.get("invoice_no") or "").strip()
+    declaration_nos = declaration_refs(shipment.get("export_declaration_nos"))
+    data_hub = getattr(portfolio_service, "data_hub", None)
+    if data_hub is None or not hasattr(data_hub, "invoice_matches"):
+        # File-store / test mode: defer to the existing co_case_source_context
+        # (in-memory or fake), which surfaces market_hint + reference_warning
+        # via the canonical match path.
+        try:
+            source_context = co_case_source_context(client, {"shipment": shipment})
+        except Exception:  # noqa: BLE001
+            source_context = {}
+        return source_context.get("invoice_matches") or []
+    # Data Hub mode: exact-invoice lookup is indexed.
+    try:
+        client_config = portfolio_service.get_client_config(client) if hasattr(portfolio_service, "get_client_config") else {}
+    except Exception:  # noqa: BLE001
+        client_config = {}
+    relevant_types = list(client_config.get("bcct", {}).get("relevant_export_declaration_types", []))
+    matches: list[dict] = []
+    if invoice_no:
+        try:
+            matches = data_hub.invoice_matches(client["id"], invoice_no, relevant_types)
+        except Exception:  # noqa: BLE001
+            matches = []
+    if declaration_nos and not matches:
+        for declaration in declaration_nos:
+            matches.extend(declaration_invoice_matches(client, declaration, exact=True, include_invoice=False))
+    elif declaration_nos and matches:
+        wanted = {re.sub(r"[^A-Z0-9]", "", str(decl).upper()) for decl in declaration_nos}
+        matches = [
+            row for row in matches
+            if re.sub(r"[^A-Z0-9]", "", str(row.get("declaration_no") or "").upper()) in wanted
+        ] or matches
+    return matches
+
+
+def case_tkx_tkn_summary(case: dict, invoice_matches: list[dict], stock_rows: list[dict]) -> dict:
+    """Aggregate TKX (export) and TKN (import) declarations referenced by the case.
+
+    TKX is built from invoice_matches (BCCT export rows that matched the dossier).
+    TKN is built from allocation_lines on locked sheets — those are the import declarations
+    that the dossier actually claimed against.
+    """
+    invoice_matches = invoice_matches or []
+    stock_rows = stock_rows or []
+    bcct_export_keys = {str(row.get("declaration_no") or "").strip() for row in invoice_matches}
+    bcct_import_keys = {str(row.get("import_declaration_no") or "").strip() for row in stock_rows}
+    tkx: dict[str, dict] = {}
+    for row in invoice_matches:
+        key = str(row.get("declaration_no") or "").strip()
+        if not key:
+            continue
+        entry = tkx.setdefault(key, {
+            "declaration_no": key,
+            "in_data_hub": True,  # came from BCCT, by definition present
+            "lines": [],
+            "declaration_type": str(row.get("declaration_type") or ""),
+        })
+        entry["lines"].append({
+            "line_no": row.get("line_no", ""),
+            "item_code": row.get("item_code", ""),
+            "hs_code": row.get("hs_code", ""),
+            "quantity": row.get("quantity", ""),
+            "invoice_ref": row.get("invoice_ref", ""),
+        })
+    # Declared TKX from shipment that did NOT come back from BCCT → "missing in Data Hub"
+    for declared in case.get("shipment", {}).get("export_declaration_nos", []) or []:
+        declared_key = str(declared or "").strip()
+        if not declared_key or declared_key in tkx:
+            continue
+        tkx[declared_key] = {
+            "declaration_no": declared_key,
+            "in_data_hub": declared_key in bcct_export_keys,
+            "lines": [],
+            "declaration_type": "",
+        }
+
+    tkn: dict[str, dict] = {}
+    for product in case.get("products", []) or []:
+        if str(product.get("origin_sheet_status") or "").strip() != "locked":
+            continue
+        product_code = str(product.get("code") or "").strip()
+        for material in product.get("materials", []) or []:
+            for line in material.get("allocation_lines", []) or []:
+                key = str(line.get("import_declaration_no") or "").strip()
+                if not key:
+                    continue
+                entry = tkn.setdefault(key, {
+                    "declaration_no": key,
+                    "in_data_hub": key in bcct_import_keys,
+                    "lines": [],
+                    "products": set(),
+                })
+                entry["products"].add(product_code)
+                entry["lines"].append({
+                    "product_code": product_code,
+                    "material_code": material.get("material_code", ""),
+                    "line_no": line.get("import_line_no", ""),
+                    "allocated_qty": line.get("allocated_qty", ""),
+                })
+    for entry in tkn.values():
+        entry["products"] = sorted(entry["products"])
+    return {
+        "tkx": sorted(tkx.values(), key=lambda e: e["declaration_no"]),
+        "tkn": sorted(tkn.values(), key=lambda e: e["declaration_no"]),
+        "missing_tkx": [e for e in tkx.values() if not e["in_data_hub"]],
+        "missing_tkn": [e for e in tkn.values() if not e["in_data_hub"]],
+    }
 
 
 def preload_co_case_origin_context(client_id: str, case_id: str) -> None:
@@ -1362,7 +1627,10 @@ def invoice_lookup_payload(client: dict, invoice_no: str, query: str = "", expor
     resolved = resolve_shipment_reference(client, invoice_no, declaration_nos)
     lookup_invoice_no = resolved["invoice_no"]
     try:
-        source_context = co_case_source_context(client, {"shipment": resolved["shipment"]})
+        # Lightweight match path — invoice-preview only needs invoice_matches.
+        # Calling co_case_source_context here would full-paginate materials + BCCT
+        # from Data Hub on every keystroke (seconds per request for large clients).
+        invoice_matches = invoice_matches_only(client, resolved["shipment"])
     except Exception as exc:
         return {
             "status": "error",
@@ -1376,10 +1644,10 @@ def invoice_lookup_payload(client: dict, invoice_no: str, query: str = "", expor
             "suggested_forms": [],
             "message": f"Không tra được invoice: {exc}",
         }
-    payload = invoice_preview_from_matches(lookup_invoice_no, source_context.get("invoice_matches", []))
+    payload = invoice_preview_from_matches(lookup_invoice_no, invoice_matches)
     payload["reference_warnings"] = shipment_reference_warnings(
         resolved["shipment"],
-        source_context.get("invoice_matches", []),
+        invoice_matches,
     )
     payload["options"] = options
     if resolved.get("source_reference"):
@@ -1499,7 +1767,28 @@ def invoice_search_options(client: dict, query: str, limit: int = 10) -> list[di
     query = str(query or "").strip()
     if len(query) < 2:
         return []
-    rows = declaration_invoice_matches(client, query, exact=False)
+    # Use Data Hub invoice-matches adapter when available — it's an indexed
+    # query (~300-500ms typical) instead of pulling the full BCCT pagination
+    # for every keystroke. Falls back to local indexed lookup only when the
+    # Data Hub adapter is not present (file-store mode).
+    data_hub = getattr(portfolio_service, "data_hub", None)
+    if data_hub is not None and hasattr(data_hub, "invoice_matches"):
+        try:
+            rows = data_hub.invoice_matches(client["id"], query, [])
+        except Exception:  # noqa: BLE001
+            rows = []
+        if not rows and hasattr(data_hub, "list_bcct"):
+            # Try declaration-number lookup (declaration_no exact prefix).
+            compact = re.sub(r"[^A-Z0-9]", "", query.upper())
+            try:
+                bcct_rows = data_hub.list_bcct(client["id"], declaration_no=compact, direction="export")
+            except TypeError:
+                bcct_rows = []
+            except Exception:  # noqa: BLE001
+                bcct_rows = []
+            rows = [row for row in bcct_rows if row.get("review_status") in ("", "reviewed")]
+    else:
+        rows = declaration_invoice_matches(client, query, exact=False)
     groups: dict[str, dict] = {}
     for row in rows:
         invoice_ref = row.get("invoice_ref", "")
@@ -1538,6 +1827,36 @@ def declaration_invoice_matches(client: dict, query: str, exact: bool, include_i
     query = str(query or "").strip()
     if len(query) < 2:
         return []
+    # Fast path for Data Hub mode: indexed invoice/declaration lookup, no
+    # full-catalog pagination. Falls back to in-memory workspace for file-store
+    # / test mode.
+    data_hub = getattr(portfolio_service, "data_hub", None)
+    if data_hub is not None and hasattr(data_hub, "invoice_matches"):
+        try:
+            client_config = portfolio_service.get_client_config(client) if hasattr(portfolio_service, "get_client_config") else {}
+        except Exception:  # noqa: BLE001
+            client_config = {}
+        relevant_types_list = list(client_config.get("bcct", {}).get("relevant_export_declaration_types", []))
+        rows: list[dict] = []
+        if include_invoice:
+            try:
+                rows = list(data_hub.invoice_matches(client["id"], query, relevant_types_list))
+            except Exception:  # noqa: BLE001
+                rows = []
+        # Declaration lookup — list_bcct accepts declaration_no kwarg on Data Hub.
+        if hasattr(data_hub, "list_bcct"):
+            compact = re.sub(r"[^A-Z0-9]", "", query.upper())
+            try:
+                decl_rows = list(data_hub.list_bcct(client["id"], declaration_no=compact, direction="export"))
+            except Exception:  # noqa: BLE001
+                decl_rows = []
+            seen = {(row.get("declaration_no"), row.get("line_no"), row.get("transaction_key")) for row in rows}
+            for row in decl_rows:
+                key = (row.get("declaration_no"), row.get("line_no"), row.get("transaction_key"))
+                if key not in seen:
+                    rows.append(row)
+                    seen.add(key)
+        return rows
     try:
         source_workspace, _source_backend = source_workspace_for_client(client)
     except Exception:
@@ -1921,24 +2240,104 @@ def attach_origin_sheet_states(case: dict) -> dict:
     products = case.get("products", [])
     existing = case.get("origin_sheet_states") if isinstance(case.get("origin_sheet_states"), dict) else {}
     normalized = {}
-    has_snapshot = bool((case.get("origin_snapshot") or {}).get("build_signature"))
+    market = case.get("destination_market", "")
     for product in products:
         code = str(product.get("code") or "").strip()
         if not code:
             continue
         raw_state = existing.get(code) if isinstance(existing.get(code), dict) else {}
-        default_status = "calculated" if has_snapshot else "draft"
+        # Default = "draft" (Chưa tính). A sheet only becomes "calculated"
+        # after staff explicitly clicks "Tính bảng kê" (which sets it via
+        # set_origin_sheet_status). Never auto-mark calculated even when the
+        # underlying snapshot has data — staff has to confirm intent.
+        default_status = "draft"
         status = str(raw_state.get("status") or default_status).strip()
         if status not in ORIGIN_SHEET_STATUS_LABELS:
             status = default_status
+        recommendation = sheet_form_recommendation(market, product.get("finished_hs", ""))
+        form_override = str(raw_state.get("form_override") or "").strip()
+        criteria_override = str(raw_state.get("criteria_override") or "").strip()
+        lvc_threshold_override = normalize_threshold(raw_state.get("lvc_threshold_override"))
+        rvc_threshold_override = normalize_threshold(raw_state.get("rvc_threshold_override"))
+        currency_mode = str(raw_state.get("currency_mode") or "").strip().lower()
+        if currency_mode not in SHEET_CURRENCY_MODES:
+            currency_mode = "native"
+        optimization_mode = str(raw_state.get("optimization_mode") or "").strip().lower()
+        if optimization_mode not in SHEET_OPTIMIZATION_MODES:
+            optimization_mode = "max_lvc"
+        effective_form = form_override or recommendation.get("form_code", "")
+        effective_criteria = criteria_override or recommendation.get("criteria_text", "")
+        effective_lvc_threshold = lvc_threshold_override or str(product.get("lvc_threshold") or "").strip()
+        effective_rvc_threshold = rvc_threshold_override or str(product.get("rvc_threshold") or "").strip()
         state = {
             "status": status,
             "status_label": ORIGIN_SHEET_STATUS_LABELS[status],
+            "form_override": form_override,
+            "criteria_override": criteria_override,
+            "lvc_threshold_override": lvc_threshold_override,
+            "rvc_threshold_override": rvc_threshold_override,
+            "currency_mode": currency_mode,
+            "optimization_mode": optimization_mode,
+            "recommended_form_code": recommendation.get("form_code", ""),
+            "recommended_form_label": recommendation.get("form_label", ""),
+            "recommended_criteria_text": recommendation.get("criteria_text", ""),
+            "recommendation_source": recommendation.get("source", ""),
+            "effective_form_code": effective_form,
+            "effective_criteria_text": effective_criteria,
+            "effective_lvc_threshold": effective_lvc_threshold,
+            "effective_rvc_threshold": effective_rvc_threshold,
         }
         normalized[code] = state
         product["origin_sheet_state"] = state
         product["origin_sheet_status"] = state["status"]
         product["origin_sheet_status_label"] = state["status_label"]
+        product["origin_sheet_form_override"] = form_override
+        product["origin_sheet_criteria_override"] = criteria_override
+        product["origin_sheet_lvc_threshold_override"] = lvc_threshold_override
+        product["origin_sheet_rvc_threshold_override"] = rvc_threshold_override
+        product["origin_sheet_currency_mode"] = currency_mode
+        product["origin_sheet_optimization_mode"] = optimization_mode
+        product["origin_sheet_recommended_form_code"] = state["recommended_form_code"]
+        product["origin_sheet_recommended_form_label"] = state["recommended_form_label"]
+        product["origin_sheet_recommended_criteria_text"] = state["recommended_criteria_text"]
+        product["origin_sheet_effective_form_code"] = effective_form
+        product["origin_sheet_effective_criteria_text"] = effective_criteria
+        product["origin_sheet_effective_lvc_threshold"] = effective_lvc_threshold
+        product["origin_sheet_effective_rvc_threshold"] = effective_rvc_threshold
+        material_overrides = raw_state.get("material_overrides") if isinstance(raw_state.get("material_overrides"), dict) else {}
+        # Carry overrides on the sheet state so they round-trip through save/calculate.
+        state["material_overrides"] = {str(k): dict(v) for k, v in material_overrides.items() if isinstance(v, dict)}
+        diff_added = sum(1 for v in state["material_overrides"].values() if v.get("added"))
+        diff_removed = sum(1 for v in state["material_overrides"].values() if v.get("deleted"))
+        diff_replaced = sum(
+            1 for v in state["material_overrides"].values()
+            if not v.get("added") and not v.get("deleted") and v.get("material_code") and not v.get("norm_edit_only")
+        )
+        diff_norm_only = sum(
+            1 for v in state["material_overrides"].values()
+            if v.get("norm_edit_only") and not v.get("added") and not v.get("deleted")
+        )
+        state["material_diff_added"] = diff_added
+        state["material_diff_removed"] = diff_removed
+        state["material_diff_replaced"] = diff_replaced
+        state["material_diff_norm_only"] = diff_norm_only
+        state["material_diff_total"] = diff_added + diff_removed + diff_replaced + diff_norm_only
+        product["origin_sheet_material_overrides"] = state["material_overrides"]
+        product["origin_sheet_has_material_overrides"] = state["material_diff_total"] > 0
+        product["origin_sheet_material_diff_added"] = diff_added
+        product["origin_sheet_material_diff_removed"] = diff_removed
+        product["origin_sheet_material_diff_replaced"] = diff_replaced
+        product["origin_sheet_material_diff_norm_only"] = diff_norm_only
+        product["origin_sheet_material_diff_total"] = state["material_diff_total"]
+        proposed_artifact_id = str(raw_state.get("proposed_artifact_id") or "").strip()
+        proposed_proposal_id = str(raw_state.get("proposed_proposal_id") or "").strip()
+        proposed_status = str(raw_state.get("proposed_status") or "").strip()
+        state["proposed_artifact_id"] = proposed_artifact_id
+        state["proposed_proposal_id"] = proposed_proposal_id
+        state["proposed_status"] = proposed_status
+        product["origin_sheet_proposed_artifact_id"] = proposed_artifact_id
+        product["origin_sheet_proposed_proposal_id"] = proposed_proposal_id
+        product["origin_sheet_proposed_status"] = proposed_status
     for index, product in enumerate(products):
         code = str(product.get("code") or "").strip()
         status = product.get("origin_sheet_status")
@@ -1980,7 +2379,9 @@ def set_origin_sheet_status(case: dict, product_code: str, status: str) -> dict:
     if status not in ORIGIN_SHEET_STATUS_LABELS:
         status = "draft"
     states = dict(case.get("origin_sheet_states") or {})
+    previous = states.get(product_code) if isinstance(states.get(product_code), dict) else {}
     states[product_code] = {
+        **previous,
         "status": status,
         "status_label": ORIGIN_SHEET_STATUS_LABELS[status],
     }
@@ -1995,12 +2396,79 @@ def mark_origin_sheets_stale(case: dict, from_index: int) -> dict:
     for index, product in enumerate(prepared.get("products", [])):
         code = str(product.get("code") or "").strip()
         if code and index >= max(from_index, 0):
+            previous = states.get(code) if isinstance(states.get(code), dict) else {}
             states[code] = {
+                **previous,
                 "status": "stale",
                 "status_label": ORIGIN_SHEET_STATUS_LABELS["stale"],
             }
     prepared["origin_sheet_states"] = states
     return attach_origin_sheet_states(prepared)
+
+
+SHEET_CURRENCY_MODES = {"native", "vnd"}
+SHEET_OPTIMIZATION_MODES = {"max_lvc", "min_lvc"}
+
+
+def set_origin_sheet_config_override(
+    case: dict, product_code: str, overrides: dict
+) -> dict:
+    states = dict(case.get("origin_sheet_states") or {})
+    previous = states.get(product_code) if isinstance(states.get(product_code), dict) else {}
+    sanitized = {**previous}
+    if "form_override" in overrides:
+        sanitized["form_override"] = str(overrides.get("form_override") or "").strip()
+    if "criteria_override" in overrides:
+        sanitized["criteria_override"] = str(overrides.get("criteria_override") or "").strip()
+    if "lvc_threshold_override" in overrides:
+        sanitized["lvc_threshold_override"] = normalize_threshold(overrides.get("lvc_threshold_override"))
+    if "rvc_threshold_override" in overrides:
+        sanitized["rvc_threshold_override"] = normalize_threshold(overrides.get("rvc_threshold_override"))
+    if "currency_mode" in overrides:
+        mode = str(overrides.get("currency_mode") or "").strip().lower()
+        sanitized["currency_mode"] = mode if mode in SHEET_CURRENCY_MODES else "native"
+    if "optimization_mode" in overrides:
+        mode = str(overrides.get("optimization_mode") or "").strip().lower()
+        sanitized["optimization_mode"] = mode if mode in SHEET_OPTIMIZATION_MODES else "max_lvc"
+    states[product_code] = sanitized
+    prepared = dict(case)
+    prepared["origin_sheet_states"] = states
+    return attach_origin_sheet_states(prepared)
+
+
+def normalize_threshold(value) -> str:
+    text = str(value or "").strip().rstrip("%").strip()
+    if not text:
+        return ""
+    try:
+        decimal_value = Decimal(text)
+    except (InvalidOperation, ValueError):
+        return ""
+    if decimal_value < 0 or decimal_value > 100:
+        return ""
+    return str(decimal_value.quantize(Decimal("0.01")).normalize())
+
+
+def sheet_form_recommendation(market: str, finished_hs: str) -> dict:
+    market = str(market or "").strip()
+    finished_hs = str(finished_hs or "").strip()
+    if not market or market.lower() == "chưa nhập":
+        return {"form_code": "", "form_label": "", "criteria_text": "", "source": "missing_market"}
+    lanes = prioritized_form_lanes(market, [finished_hs] if finished_hs else [])
+    selected = recommended_form_lane(lanes)
+    if not selected:
+        return {"form_code": "", "form_label": "", "criteria_text": "", "source": "no_lane"}
+    criteria_rows = selected.get("criteria_preview") or []
+    criteria_text = ""
+    if criteria_rows:
+        first = criteria_rows[0]
+        criteria_text = str(first.get("criteria") or "").strip()
+    return {
+        "form_code": str(selected.get("form_code") or "").strip(),
+        "form_label": str(selected.get("display_name") or "").strip(),
+        "criteria_text": criteria_text,
+        "source": "engine",
+    }
 
 
 def origin_sheet_export_blockers(case: dict) -> list[str]:
@@ -3303,6 +3771,22 @@ def catalog_table_context(request: Request, client_id: str, view_name: str, **ex
     view = CATALOG_VIEWS[view_name]
     context = client_context(client_id, "catalog", **extra)
     rows = context["source_workspace"][view["module"]]["published_rows"]
+    if context["source_backend"] == "data-hub":
+        view = {
+            **view,
+            "columns": [
+                {**column, "key": "uom"} if column.get("key") == "unit" else column
+                for column in view["columns"]
+            ],
+            "filters": [
+                {**filter_row, "field": "uom"} if filter_row.get("field") == "unit" else filter_row
+                for filter_row in view["filters"]
+            ],
+            "summary_fields": [
+                {**summary_row, "field": "uom"} if summary_row.get("field") == "unit" else summary_row
+                for summary_row in view["summary_fields"]
+            ],
+        }
     context["catalog_view"] = {**view, "name": view_name}
     context["source_table"] = build_table_view(
         rows,
@@ -3539,6 +4023,11 @@ def co_case_context(client_id: str, case_id: str = "", current_step: str = "inde
     case["shipment"]["export_declaration_nos"] = declaration_refs(case["shipment"].get("export_declaration_nos"))
     case["shipment"].setdefault("bill_of_lading_no", "")
     case["shipment_reference_label"] = primary_shipment_reference(case["shipment"])
+    if not isinstance(case.get("origin_snapshot"), dict):
+        case["origin_snapshot"] = {}
+    if not isinstance(case.get("bom_snapshot"), dict):
+        case["bom_snapshot"] = {"composition": []}
+    case["bom_snapshot"].setdefault("composition", [])
     case.setdefault("supporting_files", [])
     if case.get("products") and current_step != "origin":
         case = attach_results(case)
@@ -3705,11 +4194,37 @@ async def clients(request: Request):
 
 @app.get("/clients/{client_id}", response_class=HTMLResponse)
 async def workspace(request: Request, client_id: str):
+    # Workspace overview only renders client.counts tiles. Avoid the full
+    # source_workspace + bom_service.workspace pagination here — those would
+    # paginate every BCCT/material/BOM row from Data Hub on each render.
     return templates.TemplateResponse(
         request=request,
         name="workspace.html",
-        context=client_context(client_id, "overview"),
+        context=client_overview_context(client_id),
     )
+
+
+def client_overview_context(client_id: str) -> dict:
+    client = resolve_client(client_id)
+    try:
+        source_summary, source_backend = portfolio_service.source_summary(client)
+    except Exception:  # noqa: BLE001
+        source_summary, source_backend = {
+            "material_catalog": {"published_row_count": 0},
+            "product_catalog": {"published_row_count": 0},
+            "bcct": {"published_row_count": 0},
+            "co_stock_row_count": 0,
+        }, "n/a"
+    client = enrich_client_with_source_summary(client, source_summary)
+    # Workspace template references client.counts.bom_lines too; surface a
+    # zero so the tile renders rather than crashes.
+    client["counts"]["bom_lines"] = client["counts"].get("bom_lines", 0)
+    return {
+        "client": client,
+        "case": client_case(client),
+        "active": "overview",
+        "source_backend": source_backend,
+    }
 
 
 @app.get("/clients/{client_id}/catalog", response_class=HTMLResponse)
@@ -4032,7 +4547,22 @@ async def create_co_case(request: Request, client_id: str):
     form["invoice_no"] = resolved["invoice_no"]
     form["export_declaration_nos"] = ", ".join(resolved["export_declaration_nos"])
     record = create_case_record(client, form)
-    return RedirectResponse(f"/clients/{client_id}/co-case/{record['case_id']}", status_code=303)
+    # Set a short-lived cookie so the case detail page can surface a one-time
+    # toast confirming the dossier was created (without changing the redirect
+    # URL — many tests + back-references rely on the canonical path).
+    response = RedirectResponse(
+        f"/clients/{client_id}/co-case/{record['case_id']}",
+        status_code=303,
+    )
+    response.set_cookie(
+        "co_case_just_created",
+        record["case_id"],
+        max_age=60,
+        path=f"/clients/{client_id}/co-case/{record['case_id']}",
+        httponly=False,
+        samesite="lax",
+    )
+    return response
 
 
 @app.post("/clients/{client_id}/co-case/{case_id}/delete", response_class=HTMLResponse)
@@ -4236,6 +4766,44 @@ async def export_co_case_workbook(request: Request, client_id: str, case_id: str
     )
 
 
+@app.post("/clients/{client_id}/co-case/{case_id}/export-dossier-zip")
+async def export_co_case_dossier_zip(client_id: str, case_id: str):
+    client = resolve_client(client_id)
+    case = persisted_origin_case(client, case_id)
+    case = attach_origin_sheet_states(case)
+    blockers = origin_sheet_export_blockers(case)
+    if blockers:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Chưa thể xuất dossier: bảng kê {', '.join(blockers[:5])} cần tính lại hoặc chốt trước.",
+        )
+    source_context = co_case_source_context(client, case)
+    invoice_matches = source_context.get("invoice_matches") or []
+    stock_rows = source_context.get("stock_rows") or []
+    summary = case_tkx_tkn_summary(case, invoice_matches, stock_rows)
+    supporting_files: list[dict] = []
+    for file_row in case.get("supporting_files", []):
+        upload_id = file_row.get("upload_id") or ""
+        if not upload_id:
+            continue
+        try:
+            row, path = get_supporting_file(client, case_id, upload_id)
+        except (KeyError, FileNotFoundError):
+            continue
+        supporting_files.append({
+            "slot": row.get("slot", "other"),
+            "filename": row.get("filename", "supporting.bin"),
+            "content": path.read_bytes(),
+        })
+    content = create_dossier_zip(case, supporting_files, summary)
+    filename = safe_filename(f"{case.get('case_code') or 'co-case'}-dossier.zip")
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.post("/clients/{client_id}/co-case/{case_id}/origin-lock/release")
 async def release_co_case_origin_lock(client_id: str, case_id: str, next_url: str = Form("")):
     client = resolve_client(client_id)
@@ -4329,7 +4897,7 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
                 case_id,
                 current_step="origin",
                 case=case,
-                error=f"Chưa thể tính bảng kê: hồ sơ {lock_result['lock'].get('case_code') or lock_result['lock'].get('case_id')} đang giữ phiên tính tồn cho khách hàng này.",
+                error=f"Chưa thể load BOM vào bảng kê: hồ sơ {lock_result['lock'].get('case_code') or lock_result['lock'].get('case_id')} đang giữ phiên tính tồn cho khách hàng này.",
                 origin_calculation_blocked=True,
                 preserve_origin_products=True,
             ),
@@ -4339,7 +4907,7 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
         case_id,
         current_step="origin",
         case=case,
-        message=f"Đã tính bảng kê {product_code}.",
+        message=f"Đã load BOM vào bảng kê {product_code}.",
         preserve_origin_products=True,
         force_source_refresh=True,
     )
@@ -4399,8 +4967,13 @@ async def lock_co_case_origin_sheet(request: Request, client_id: str, case_id: s
                 fast_origin_context=True,
             ),
         )
+    # Capture allocations from the PERSISTED case BEFORE update_case_record
+    # rewrites the disk record. The form-rebuilt `case` may have stripped
+    # materials/allocation_lines if the AJAX submitter only sent metadata.
+    record_sheet_lock_claims(client_id, case_id, product_code, case)
     case = set_origin_sheet_status(case, product_code, "locked")
     update_case_record(client, case)
+    invalidate_co_case_source_cache(client_id, case_id)
     return templates.TemplateResponse(
         request=request,
         name="co_case.html",
@@ -4414,6 +4987,792 @@ async def lock_co_case_origin_sheet(request: Request, client_id: str, case_id: s
             fast_origin_context=True,
         ),
     )
+
+
+@app.get("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/substitute-candidates")
+async def co_case_origin_sheet_substitute_candidates(
+    client_id: str,
+    case_id: str,
+    product_code: str,
+    material_code: str = "",
+    row_index: int = -1,
+    search: str = "",
+    seed_hs: str = "",
+    limit: int = 20,
+):
+    if not material_code and not search:
+        raise HTTPException(status_code=400, detail="material_code or search query required")
+    client = resolve_client(client_id)
+    case = persisted_origin_case(client, case_id)
+    target = next((p for p in case.get("products", []) if str(p.get("code") or "").strip() == product_code), None)
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"Sheet {product_code} not found in case")
+    sheet_state = (case.get("origin_sheet_states") or {}).get(product_code, {}) or {}
+    optimization_mode = sheet_state.get("optimization_mode") or "max_lvc"
+
+    # Empty stock summary placeholder. Stock data is fetched lazily by a
+    # separate /substitute-stock endpoint so the recommendation list can
+    # render in ~300ms (one Data Hub call) instead of waiting for full
+    # BCCT pagination (~30s for Johnson). JS merges stock async.
+    def empty_stock_summary() -> dict:
+        return {
+            "lot_count": 0,
+            "usable_lot_count": 0,
+            "total_remaining_qty": "0",
+            "unit_price_min": "",
+            "unit_price_max": "",
+            "lots": [],
+            "pending": True,
+        }
+
+    candidates: list[dict] = []
+    error_detail = ""
+    candidates_source = "data_hub"
+    if material_code:
+        try:
+            raw, source = portfolio_service.list_material_substitutes(
+                client_id, material_code, min_score=0.5, limit=min(limit, 50)
+            )
+        except Exception as exc:  # noqa: BLE001
+            raw, source = [], "error"
+            error_detail = str(exc)
+        candidates_source = source
+        for row in raw:
+            code = str(row.get("material_b_code") or row.get("material_code") or "").strip()
+            if not code:
+                continue
+            candidates.append({
+                "material_code": code,
+                "name": row.get("name", ""),
+                "category": row.get("category", ""),
+                "hs_code": row.get("hs_code", ""),
+                "score": float(row.get("combined_score") or row.get("score") or 0.0),
+                "raw_scores": row.get("raw_scores") or {},
+                "sources": row.get("sources") or [],
+                "confirmed": bool(row.get("confirmed")),
+                "stock": empty_stock_summary(),
+                "kind": "recommended",
+            })
+        # Heuristic fallback ONLY when Data Hub had nothing: this still needs
+        # the materials catalog (one Data Hub list_materials pagination, but
+        # cached). Caller can opt out via ?skip_heuristic=1 to keep first call
+        # fast even on substitutes-empty.
+        if not candidates:
+            try:
+                cached_ctx = co_case_source_context_cached(client, case)
+                material_rows = cached_ctx.get("material_rows") or []
+            except Exception:  # noqa: BLE001
+                material_rows = []
+            heuristic, hs_seed = compute_substitute_heuristic_candidates(
+                client_id, material_code, material_rows, lambda _code: empty_stock_summary(),
+                fallback_hs=seed_hs,
+            )
+            candidates_source = "co_heuristic"
+            if source == "data_hub_unauthorized":
+                error_detail = (
+                    "Data Hub trả 401/403 (token thiếu scope hub:read?) — fallback HS-prefix "
+                    f"heuristic từ {len(material_rows)} NVL trong catalog."
+                )
+            else:
+                error_detail = (
+                    f"Data Hub không có substitute precomputed cho {material_code or '(no code)'}. "
+                    f"Fallback heuristic theo HS={hs_seed or 'n/a'} — {len(heuristic)} ứng viên."
+                )
+            candidates = heuristic
+            candidates.sort(key=lambda item: -item.get("score", 0.0))
+
+    search_results: list[dict] = []
+    if search:
+        raw_search: list[dict] = []
+        search_error = ""
+        try:
+            raw_search = portfolio_service.search_materials(client_id, search, limit=min(limit, 50))
+        except Exception as exc:  # noqa: BLE001
+            search_error = str(exc)
+        fallback_rows = search_case_material_rows(case, search, limit=min(limit, 50))
+        seen_search_codes: set[str] = set()
+        for row in [*raw_search, *fallback_rows]:
+            code = str(row.get("material_code") or row.get("internal_code") or "").strip()
+            if not code or code in seen_search_codes:
+                continue
+            seen_search_codes.add(code)
+            search_results.append({
+                "material_code": code,
+                "name": row.get("name") or row.get("material_description") or "",
+                "category": row.get("category", ""),
+                "hs_code": row.get("hs_code", ""),
+                "score": 0.0,
+                "stock": empty_stock_summary(),
+                "kind": "search",
+            })
+            if len(search_results) >= max(1, min(limit, 50)):
+                break
+        if not raw_search and fallback_rows and not error_detail:
+            error_detail = (
+                "Data Hub material catalog search unavailable or empty; showing matching NVL "
+                "already present in this dossier."
+            )
+        elif search_error and not error_detail:
+            error_detail = search_error
+
+    # Initial sort by score only — re-sorted client-side once stock arrives.
+    candidates.sort(key=lambda item: -item.get("score", 0.0))
+    return JSONResponse({
+        "ok": True,
+        "product_code": product_code,
+        "material_code": material_code,
+        "row_index": row_index,
+        "optimization_mode": optimization_mode,
+        "candidates": candidates,
+        "candidates_source": candidates_source,
+        "search_results": search_results,
+        "stock_pending": True,
+        "stock_url": (
+            f"/clients/{client_id}/co-case/{case_id}/origin/sheet/{quote(product_code, safe='')}/substitute-stock"
+        ),
+        "error": error_detail,
+    })
+
+
+def search_case_material_rows(case: dict, query: str, limit: int = 20) -> list[dict]:
+    text_query = (query or "").strip().lower()
+    if not text_query:
+        return []
+    rows: list[dict] = []
+    seen: set[str] = set()
+    max_rows = max(1, min(limit, 100))
+    for product in case.get("products", []) or []:
+        for material in product.get("materials", []) or []:
+            code = str(
+                material.get("material_code")
+                or material.get("internal_material_code")
+                or material.get("internal_code")
+                or ""
+            ).strip()
+            if not code or code in seen:
+                continue
+            haystack = " ".join([
+                code,
+                str(material.get("internal_code") or ""),
+                str(material.get("internal_material_code") or ""),
+                str(material.get("material_description") or ""),
+                str(material.get("name") or ""),
+                str(material.get("hs_code") or material.get("import_hs") or ""),
+            ]).lower()
+            if text_query not in haystack:
+                continue
+            seen.add(code)
+            rows.append({
+                "material_code": code,
+                "internal_code": material.get("internal_code") or material.get("internal_material_code") or code,
+                "name": material.get("name") or material.get("material_description") or "",
+                "material_description": material.get("material_description") or material.get("name") or "",
+                "category": material.get("category", ""),
+                "hs_code": material.get("hs_code") or material.get("import_hs") or "",
+            })
+            if len(rows) >= max_rows:
+                return rows
+    return rows
+
+
+@app.get("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/substitute-stock")
+async def co_case_origin_sheet_substitute_stock(
+    client_id: str,
+    case_id: str,
+    product_code: str,
+    codes: str = "",
+):
+    """Lazy stock-summary endpoint. Returns stock pool entries for the given
+    comma-separated material codes. Prefers Data Hub `bcct/by-codes` for a
+    narrow lookup (~500ms); falls back to TTL-cached source_context for the
+    file-based service.
+    """
+    requested = [code.strip() for code in (codes or "").split(",") if code.strip()]
+    if not requested:
+        return JSONResponse({"ok": True, "stock": {}})
+    client = resolve_client(client_id)
+    case = persisted_origin_case(client, case_id)
+    sheet_state = (case.get("origin_sheet_states") or {}).get(product_code, {}) or {}
+    optimization_mode = sheet_state.get("optimization_mode") or "max_lvc"
+    stock_pool: dict[str, list[dict]] = {}
+    try:
+        narrow_rows = portfolio_service.list_bcct_by_codes(client_id, requested, direction="import")
+    except Exception:  # noqa: BLE001
+        narrow_rows = []
+    if narrow_rows:
+        client_config = portfolio_service.get_client_config(client) if hasattr(portfolio_service, "get_client_config") else {}
+        if client_config:
+            narrow_stock_rows = co_stock_rows_from_bcct(narrow_rows, client_config)
+            stock_pool = co_stock_allocation_pool(narrow_stock_rows)
+    if not stock_pool:
+        try:
+            source_context = co_case_source_context_cached(client, case)
+            stock_pool = co_stock_allocation_pool(source_context.get("stock_rows") or [])
+        except Exception:  # noqa: BLE001
+            stock_pool = {}
+    out: dict[str, dict] = {}
+    for code in requested:
+        lots = stock_pool.get(code, [])
+        usable = [lot for lot in lots if co_stock_is_usable(lot)]
+        total_remaining = sum(decimal_value(lot.get("remaining_qty") or lot.get("available_qty") or "0") for lot in lots)
+        prices = []
+        for lot in lots:
+            price = decimal_value(lot.get("unit_value") or lot.get("unit_price") or "0")
+            if price > 0:
+                prices.append(price)
+        unit_price_min = min(prices) if prices else None
+        unit_price_max = max(prices) if prices else None
+        out[code] = {
+            "lot_count": len(lots),
+            "usable_lot_count": len(usable),
+            "total_remaining_qty": str(total_remaining),
+            "unit_price_min": str(unit_price_min) if unit_price_min is not None else "",
+            "unit_price_max": str(unit_price_max) if unit_price_max is not None else "",
+            "lots": [
+                {
+                    "source_row": lot.get("source_row", ""),
+                    "import_declaration_no": lot.get("import_declaration_no", ""),
+                    "line_no": lot.get("line_no", ""),
+                    "remaining_qty": str(lot.get("remaining_qty") or lot.get("available_qty") or "0"),
+                    "unit_value": str(lot.get("unit_value") or lot.get("unit_price") or ""),
+                    "currency": lot.get("currency", ""),
+                }
+                for lot in lots[:50]
+            ],
+        }
+    return JSONResponse({"ok": True, "optimization_mode": optimization_mode, "stock": out})
+
+
+def compute_substitute_heuristic_candidates(
+    client_id: str,
+    seed_material_code: str,
+    material_rows: list[dict],
+    stock_summary,
+    *,
+    fallback_hs: str = "",
+) -> tuple[list[dict], str]:
+    """HS-prefix heuristic fallback when Data Hub substitutes endpoint returns nothing.
+
+    Score = 0.5 base for sharing the 4-digit HS prefix, +0.2 for sharing 6-digit,
+    +0.2 if the candidate has any usable CO stock lot. Tagged with source="co_heuristic"
+    so the UI shows the explanation banner.
+
+    `fallback_hs` is used when the seed material is not in Data Hub catalog (common
+    when BOM uses an internal code that hasn't been catalog-resolved). Pass the
+    BOM row's HS code so heuristic still has a search seed.
+    """
+    seed = next(
+        (row for row in material_rows if str(row.get("material_code") or "").strip() == seed_material_code),
+        None,
+    )
+    if not seed:
+        try:
+            seed = portfolio_service.get_material(client_id, seed_material_code)
+        except Exception:  # noqa: BLE001
+            seed = {}
+    seed_hs = re.sub(r"\D+", "", str(seed.get("hs_code") or fallback_hs or ""))[:6]
+    if not seed_hs:
+        return [], ""
+    seed_category = str(seed.get("category") or "").strip().lower()
+    output: list[dict] = []
+    for row in material_rows:
+        code = str(row.get("material_code") or "").strip()
+        if not code or code == seed_material_code:
+            continue
+        candidate_hs = re.sub(r"\D+", "", str(row.get("hs_code") or ""))[:6]
+        if not candidate_hs or candidate_hs[:4] != seed_hs[:4]:
+            continue
+        if seed_category and str(row.get("category") or "").strip().lower() not in {seed_category, ""}:
+            continue
+        score = 0.5
+        if candidate_hs[:6] == seed_hs[:6]:
+            score = 0.7
+        stock = stock_summary(code)
+        if stock.get("usable_lot_count", 0) > 0:
+            score += 0.2
+        output.append({
+            "material_code": code,
+            "name": row.get("name", ""),
+            "category": row.get("category", ""),
+            "hs_code": row.get("hs_code", ""),
+            "score": round(score, 4),
+            "raw_scores": {"hs_prefix": score},
+            "sources": ["co_heuristic_hs_prefix"],
+            "confirmed": False,
+            "stock": stock,
+            "kind": "heuristic",
+        })
+    return output[:30], seed_hs
+
+
+@app.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/substitute-row")
+async def co_case_origin_sheet_substitute_row(
+    request: Request, client_id: str, case_id: str, product_code: str
+):
+    payload: dict = {}
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+    else:
+        form = await large_request_form(request)
+        payload = {key: str(value) for key, value in form.items()}
+    row_index = payload.get("row_index")
+    new_material_code = str(payload.get("new_material_code") or "").strip()
+    new_norm = str(payload.get("new_norm_per_unit") or "").strip()
+    new_name = str(payload.get("new_name") or "").strip()
+    delete = bool(payload.get("delete"))
+    if row_index is None or str(row_index).strip() == "":
+        raise HTTPException(status_code=400, detail="row_index required")
+    try:
+        row_index_int = int(row_index)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="row_index must be integer") from exc
+    if not delete and not new_material_code:
+        raise HTTPException(status_code=400, detail="new_material_code required when not deleting")
+    client = resolve_client(client_id)
+    case = persisted_origin_case(client, case_id)
+    products = case.get("products", [])
+    target_index = next(
+        (i for i, p in enumerate(products) if str(p.get("code") or "").strip() == product_code),
+        None,
+    )
+    if target_index is None:
+        raise HTTPException(status_code=404, detail=f"Sheet {product_code} not found in case")
+    states = dict(case.get("origin_sheet_states") or {})
+    previous = states.get(product_code) if isinstance(states.get(product_code), dict) else {}
+    overrides = dict(previous.get("material_overrides") or {})
+    key = str(row_index_int)
+    if delete:
+        overrides[key] = {"deleted": True}
+    else:
+        overrides[key] = {
+            "material_code": new_material_code,
+            "norm_per_unit": new_norm,
+            "name": new_name,
+        }
+    states[product_code] = {**previous, "material_overrides": overrides, "status": "stale", "status_label": ORIGIN_SHEET_STATUS_LABELS["stale"]}
+    case["origin_sheet_states"] = states
+    case = mark_origin_sheets_stale(case, target_index)
+    update_case_record(client, case)
+    return JSONResponse({
+        "ok": True,
+        "product_code": product_code,
+        "row_index": row_index_int,
+        "applied_override": overrides[key],
+        "sheet_status": "stale",
+    })
+
+
+@app.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/propose-bom")
+async def co_case_origin_sheet_propose_bom(
+    request: Request, client_id: str, case_id: str, product_code: str
+):
+    payload = await read_json_or_form(request)
+    actor = str(payload.get("actor") or "co_system").strip() or "co_system"
+    client = resolve_client(client_id)
+    case = persisted_origin_case(client, case_id)
+    target = next((p for p in case.get("products", []) if str(p.get("code") or "").strip() == product_code), None)
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"Sheet {product_code} not found in case")
+    state = (case.get("origin_sheet_states") or {}).get(product_code, {}) or {}
+    if state.get("status") != "locked":
+        raise HTTPException(status_code=409, detail="Chỉ propose được BOM mới sau khi đã chốt sheet.")
+    overrides = state.get("material_overrides") or {}
+    if not overrides:
+        raise HTTPException(status_code=409, detail="Không có thay đổi BOM so với artifact gốc; không cần propose.")
+    parent_artifact_id = str(target.get("bom_product_artifact_id") or target.get("bom_product_version_id") or "").strip()
+    if not parent_artifact_id:
+        raise HTTPException(status_code=409, detail="Sheet chưa gắn BOM artifact gốc; không thể propose BOM mới.")
+    bom_product_code = str(target.get("bom_product_code") or target.get("code") or "").strip()
+    rows = build_bom_proposal_rows(target, overrides)
+    if not rows:
+        raise HTTPException(status_code=409, detail="Không có dòng NVL nào để propose.")
+    try:
+        result = portfolio_service.submit_bom_proposal(
+            client_id,
+            bom_product_code,
+            parent_artifact_id=parent_artifact_id,
+            rows=rows,
+            context={
+                "case_id": case_id,
+                "case_code": case.get("case_code", ""),
+                "sheet_product_code": product_code,
+                "diff_summary": {
+                    "added": state.get("material_diff_added", 0),
+                    "removed": state.get("material_diff_removed", 0),
+                    "replaced": state.get("material_diff_replaced", 0),
+                    "norm_only": state.get("material_diff_norm_only", 0),
+                },
+            },
+            actor=actor,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Data Hub propose failed: {exc}") from exc
+    states = dict(case.get("origin_sheet_states") or {})
+    previous = states.get(product_code) if isinstance(states.get(product_code), dict) else {}
+    states[product_code] = {
+        **previous,
+        "proposed_artifact_id": str(result.get("artifact_id") or result.get("proposal_id") or ""),
+        "proposed_proposal_id": str(result.get("proposal_id") or ""),
+        "proposed_status": str(result.get("status") or "submitted"),
+    }
+    case["origin_sheet_states"] = states
+    update_case_record(client, case)
+    return JSONResponse({
+        "ok": True, "product_code": product_code,
+        "proposal": {
+            "artifact_id": result.get("artifact_id"),
+            "proposal_id": result.get("proposal_id"),
+            "status": result.get("status"),
+        },
+    })
+
+
+def build_bom_proposal_rows(product: dict, overrides: dict) -> list[dict]:
+    materials = product.get("materials") or []
+    output: list[dict] = []
+    for index, material in enumerate(materials):
+        override = overrides.get(str(index)) if isinstance(overrides.get(str(index)), dict) else {}
+        if override.get("deleted"):
+            continue
+        material_code = override.get("material_code") or material.get("material_code") or material.get("internal_material_code")
+        norm = override.get("norm_per_unit") or material.get("bom_qty_per") or "0"
+        output.append({
+            "material_code": str(material_code or "").strip(),
+            "norm_per_unit": str(norm),
+            "scrap_rate": str(material.get("bom_scrap_rate") or "0"),
+            "uom": str(material.get("uom") or override.get("uom") or ""),
+            "name": str(override.get("name") or material.get("material_description") or ""),
+            "hs_code": str(material.get("hs_code") or override.get("hs_code") or ""),
+            "source_row_index": index,
+        })
+    for key, value in overrides.items():
+        if not key.startswith("added_") or not isinstance(value, dict):
+            continue
+        output.append({
+            "material_code": str(value.get("material_code") or "").strip(),
+            "norm_per_unit": str(value.get("norm_per_unit") or "0"),
+            "scrap_rate": "0",
+            "uom": str(value.get("uom") or ""),
+            "name": str(value.get("name") or ""),
+            "hs_code": str(value.get("hs_code") or ""),
+            "source_row_index": None,
+            "added": True,
+        })
+    return [row for row in output if row["material_code"]]
+
+
+@app.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/edit-row")
+async def co_case_origin_sheet_edit_row(
+    request: Request, client_id: str, case_id: str, product_code: str
+):
+    payload = await read_json_or_form(request)
+    row_index = payload.get("row_index")
+    new_norm = str(payload.get("new_norm_per_unit") or "").strip()
+    if row_index is None or str(row_index).strip() == "" or not new_norm:
+        raise HTTPException(status_code=400, detail="row_index and new_norm_per_unit required")
+    try:
+        row_index_int = int(row_index)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="row_index must be integer") from exc
+    try:
+        Decimal(new_norm)
+    except (InvalidOperation, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="new_norm_per_unit must be numeric") from exc
+    client = resolve_client(client_id)
+    case = persisted_origin_case(client, case_id)
+    target_index = next(
+        (i for i, p in enumerate(case.get("products", [])) if str(p.get("code") or "").strip() == product_code),
+        None,
+    )
+    if target_index is None:
+        raise HTTPException(status_code=404, detail=f"Sheet {product_code} not found in case")
+    states = dict(case.get("origin_sheet_states") or {})
+    previous = states.get(product_code) if isinstance(states.get(product_code), dict) else {}
+    overrides = dict(previous.get("material_overrides") or {})
+    key = str(row_index_int)
+    existing = overrides.get(key) if isinstance(overrides.get(key), dict) else {}
+    overrides[key] = {**existing, "norm_per_unit": new_norm, "norm_edit_only": not existing.get("material_code")}
+    states[product_code] = {**previous, "material_overrides": overrides, "status": "stale", "status_label": ORIGIN_SHEET_STATUS_LABELS["stale"]}
+    case["origin_sheet_states"] = states
+    case = mark_origin_sheets_stale(case, target_index)
+    update_case_record(client, case)
+    return JSONResponse({
+        "ok": True, "product_code": product_code,
+        "row_index": row_index_int, "applied_override": overrides[key], "sheet_status": "stale",
+    })
+
+
+@app.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/add-row")
+async def co_case_origin_sheet_add_row(
+    request: Request, client_id: str, case_id: str, product_code: str
+):
+    payload = await read_json_or_form(request)
+    new_material_code = str(payload.get("new_material_code") or "").strip()
+    new_norm = str(payload.get("new_norm_per_unit") or "").strip()
+    new_name = str(payload.get("new_name") or "").strip()
+    new_uom = str(payload.get("new_uom") or "").strip()
+    new_hs = str(payload.get("new_hs_code") or "").strip()
+    if not new_material_code:
+        raise HTTPException(status_code=400, detail="new_material_code required")
+    if new_norm:
+        try:
+            Decimal(new_norm)
+        except (InvalidOperation, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="new_norm_per_unit must be numeric") from exc
+    client = resolve_client(client_id)
+    case = persisted_origin_case(client, case_id)
+    target_index = next(
+        (i for i, p in enumerate(case.get("products", [])) if str(p.get("code") or "").strip() == product_code),
+        None,
+    )
+    if target_index is None:
+        raise HTTPException(status_code=404, detail=f"Sheet {product_code} not found in case")
+    states = dict(case.get("origin_sheet_states") or {})
+    previous = states.get(product_code) if isinstance(states.get(product_code), dict) else {}
+    overrides = dict(previous.get("material_overrides") or {})
+    next_added = 1 + max(
+        [int(k.split("_", 1)[1]) for k in overrides if k.startswith("added_") and k.split("_", 1)[1].isdigit()] + [-1]
+    )
+    key = f"added_{next_added}"
+    overrides[key] = {
+        "added": True,
+        "material_code": new_material_code,
+        "norm_per_unit": new_norm,
+        "name": new_name,
+        "uom": new_uom,
+        "hs_code": new_hs,
+    }
+    states[product_code] = {**previous, "material_overrides": overrides, "status": "stale", "status_label": ORIGIN_SHEET_STATUS_LABELS["stale"]}
+    case["origin_sheet_states"] = states
+    case = mark_origin_sheets_stale(case, target_index)
+    update_case_record(client, case)
+    return JSONResponse({
+        "ok": True, "product_code": product_code, "added_key": key,
+        "applied_override": overrides[key], "sheet_status": "stale",
+    })
+
+
+@app.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/save")
+async def co_case_origin_sheet_save(
+    request: Request, client_id: str, case_id: str, product_code: str
+):
+    """Batched persistence of client-side bảng kê edits.
+
+    Accepts a JSON payload with four lists/maps:
+      replaces: {row_index: {new_material_code, new_norm_per_unit, new_name, new_hs_code}}
+      adds: [{key, new_material_code, new_norm_per_unit, new_name, new_uom, new_hs_code}]
+      deletes: {row_index: true}
+      norm_edits: {row_index: new_norm}
+
+    Each maps to material_overrides entries the existing render path already
+    consumes; the sheet is flipped to "stale" so the next /calculate (now
+    "Load BOM vào Bảng Kê") re-runs allocation with these overrides.
+    """
+    payload = await read_json_or_form(request)
+    replaces = payload.get("replaces") or {}
+    adds = payload.get("adds") or []
+    deletes = payload.get("deletes") or {}
+    norm_edits = payload.get("norm_edits") or {}
+    if not (replaces or adds or deletes or norm_edits):
+        raise HTTPException(status_code=400, detail="empty payload")
+    client = resolve_client(client_id)
+    case = persisted_origin_case(client, case_id)
+    target_index = next(
+        (i for i, p in enumerate(case.get("products", [])) if str(p.get("code") or "").strip() == product_code),
+        None,
+    )
+    if target_index is None:
+        raise HTTPException(status_code=404, detail=f"Sheet {product_code} not found in case")
+    states = dict(case.get("origin_sheet_states") or {})
+    previous = states.get(product_code) if isinstance(states.get(product_code), dict) else {}
+    overrides = dict(previous.get("material_overrides") or {})
+
+    def _parse_row_index(value) -> int | None:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    counts = {"replaces": 0, "adds": 0, "deletes": 0, "norm_edits": 0}
+
+    if isinstance(replaces, dict):
+        for raw_index, info in replaces.items():
+            row_index = _parse_row_index(raw_index)
+            if row_index is None or not isinstance(info, dict):
+                continue
+            new_material_code = str(info.get("new_material_code") or "").strip()
+            if not new_material_code:
+                continue
+            norm = str(info.get("new_norm_per_unit") or "").strip()
+            if norm:
+                try:
+                    Decimal(norm)
+                except (InvalidOperation, ValueError):
+                    raise HTTPException(status_code=400, detail=f"replaces[{row_index}].new_norm_per_unit must be numeric")
+            overrides[str(row_index)] = {
+                "material_code": new_material_code,
+                "norm_per_unit": norm,
+                "name": str(info.get("new_name") or "").strip(),
+            }
+            counts["replaces"] += 1
+
+    if isinstance(norm_edits, dict):
+        for raw_index, raw_norm in norm_edits.items():
+            row_index = _parse_row_index(raw_index)
+            if row_index is None:
+                continue
+            norm = str(raw_norm or "").strip()
+            if not norm:
+                continue
+            try:
+                Decimal(norm)
+            except (InvalidOperation, ValueError):
+                raise HTTPException(status_code=400, detail=f"norm_edits[{row_index}] must be numeric")
+            key = str(row_index)
+            existing = overrides.get(key) if isinstance(overrides.get(key), dict) else {}
+            overrides[key] = {**existing, "norm_per_unit": norm, "norm_edit_only": not existing.get("material_code")}
+            counts["norm_edits"] += 1
+
+    if isinstance(deletes, dict):
+        for raw_index, flag in deletes.items():
+            if not flag:
+                continue
+            row_index = _parse_row_index(raw_index)
+            if row_index is None:
+                continue
+            overrides[str(row_index)] = {"deleted": True}
+            counts["deletes"] += 1
+
+    used_added_ids = [
+        int(k.split("_", 1)[1])
+        for k in overrides
+        if k.startswith("added_") and k.split("_", 1)[1].isdigit()
+    ]
+    next_added = (max(used_added_ids) + 1) if used_added_ids else 0
+    if isinstance(adds, list):
+        for entry in adds:
+            if not isinstance(entry, dict):
+                continue
+            new_material_code = str(entry.get("new_material_code") or "").strip()
+            if not new_material_code:
+                continue
+            norm = str(entry.get("new_norm_per_unit") or "").strip()
+            if norm:
+                try:
+                    Decimal(norm)
+                except (InvalidOperation, ValueError):
+                    raise HTTPException(status_code=400, detail=f"adds[{new_material_code}].new_norm_per_unit must be numeric")
+            key = f"added_{next_added}"
+            next_added += 1
+            overrides[key] = {
+                "added": True,
+                "material_code": new_material_code,
+                "norm_per_unit": norm,
+                "name": str(entry.get("new_name") or "").strip(),
+                "uom": str(entry.get("new_uom") or "").strip(),
+                "hs_code": str(entry.get("new_hs_code") or "").strip(),
+            }
+            counts["adds"] += 1
+
+    states[product_code] = {
+        **previous,
+        "material_overrides": overrides,
+        "status": "stale",
+        "status_label": ORIGIN_SHEET_STATUS_LABELS["stale"],
+    }
+    case["origin_sheet_states"] = states
+    case = mark_origin_sheets_stale(case, target_index)
+    update_case_record(client, case)
+    return JSONResponse({
+        "ok": True,
+        "product_code": product_code,
+        "operations": counts,
+        "override_count": len(overrides),
+        "sheet_status": "stale",
+    })
+
+
+async def read_json_or_form(request: Request) -> dict:
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError:
+            payload = {}
+        return payload if isinstance(payload, dict) else {}
+    form = await large_request_form(request)
+    return {key: str(value) for key, value in form.items()}
+
+
+@app.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/recommendation-override")
+async def co_case_origin_sheet_recommendation_override(
+    request: Request, client_id: str, case_id: str, product_code: str
+):
+    payload: dict = {}
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+    else:
+        form = await large_request_form(request)
+        payload = {key: str(value) for key, value in form.items()}
+    overrides: dict = {}
+    if "form_override" in payload:
+        form_override = str(payload.get("form_override") or "").strip()
+        if form_override and form_override not in {row["form_code"] for row in load_co_form_config().get("forms", [])}:
+            raise HTTPException(status_code=400, detail=f"Unknown form_code {form_override}")
+        overrides["form_override"] = form_override
+    if "criteria_override" in payload:
+        overrides["criteria_override"] = str(payload.get("criteria_override") or "").strip()
+    if "lvc_threshold_override" in payload:
+        overrides["lvc_threshold_override"] = payload.get("lvc_threshold_override")
+    if "rvc_threshold_override" in payload:
+        overrides["rvc_threshold_override"] = payload.get("rvc_threshold_override")
+    if "currency_mode" in payload:
+        mode = str(payload.get("currency_mode") or "").strip().lower()
+        if mode and mode not in SHEET_CURRENCY_MODES:
+            raise HTTPException(status_code=400, detail=f"Unknown currency_mode {mode}")
+        overrides["currency_mode"] = mode or "native"
+    if "optimization_mode" in payload:
+        mode = str(payload.get("optimization_mode") or "").strip().lower()
+        if mode and mode not in SHEET_OPTIMIZATION_MODES:
+            raise HTTPException(status_code=400, detail=f"Unknown optimization_mode {mode}")
+        overrides["optimization_mode"] = mode or "max_lvc"
+    client = resolve_client(client_id)
+    case = persisted_origin_case(client, case_id)
+    if not any(str(p.get("code") or "").strip() == product_code for p in case.get("products", [])):
+        raise HTTPException(status_code=404, detail=f"Sheet {product_code} not found in case")
+    case = set_origin_sheet_config_override(case, product_code, overrides)
+    update_case_record(client, case)
+    state = (case.get("origin_sheet_states") or {}).get(product_code, {})
+    return JSONResponse({
+        "ok": True,
+        "product_code": product_code,
+        "state": {
+            "form_override": state.get("form_override", ""),
+            "criteria_override": state.get("criteria_override", ""),
+            "lvc_threshold_override": state.get("lvc_threshold_override", ""),
+            "rvc_threshold_override": state.get("rvc_threshold_override", ""),
+            "currency_mode": state.get("currency_mode", "native"),
+            "optimization_mode": state.get("optimization_mode", "max_lvc"),
+            "effective_form_code": state.get("effective_form_code", ""),
+            "effective_criteria_text": state.get("effective_criteria_text", ""),
+            "effective_lvc_threshold": state.get("effective_lvc_threshold", ""),
+            "effective_rvc_threshold": state.get("effective_rvc_threshold", ""),
+        },
+    })
 
 
 @app.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/reopen", response_class=HTMLResponse)
@@ -4438,6 +5797,9 @@ async def reopen_co_case_origin_sheet(request: Request, client_id: str, case_id:
         )
     case = set_origin_sheet_status(case, product_code, "calculated")
     update_case_record(client, case)
+    # Release the lot claims so other cases see remaining_qty restored.
+    co_stock_ledger.record_sheet_release(client_id, case_id, product_code)
+    invalidate_co_case_source_cache(client_id, case_id)
     return templates.TemplateResponse(
         request=request,
         name="co_case.html",

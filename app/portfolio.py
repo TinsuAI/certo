@@ -166,6 +166,44 @@ class PortfolioService:
             return store.process_bcct_upload(client, content, filename, self.get_client_config(client))
         return process_bcct_upload(client, content, filename)
 
+    def list_material_substitutes(self, client_id: str, material_code: str, **_query) -> tuple[list[dict], str]:
+        return [], "no_data_hub"
+
+    def list_bcct_by_codes(self, client_id: str, codes: list[str], **_query) -> list[dict]:
+        return []
+
+    def get_material(self, client_id: str, material_code: str) -> dict:
+        return {}
+
+    def submit_bom_proposal(self, client_id: str, product_code: str, **_kwargs) -> dict:
+        raise HTTPException(
+            status_code=503,
+            detail="BOM proposals require Data Hub. Enable Data Hub to propose modified BOM artifacts.",
+        )
+
+    def search_materials(self, client_id: str, query: str, limit: int = 20) -> list[dict]:
+        try:
+            client = self.client(client_id)
+        except HTTPException:
+            return []
+        rows = client.get("material_catalog", {}).get("published_rows") or client.get("material_catalog", {}).get("rows") or []
+        if not rows and isinstance(client.get("material_catalog"), list):
+            rows = client["material_catalog"]
+        text_query = (query or "").lower().strip()
+        matches: list[dict] = []
+        for row in rows:
+            haystack = " ".join([
+                str(row.get("material_code") or ""),
+                str(row.get("internal_code") or ""),
+                str(row.get("name") or ""),
+                str(row.get("hs_code") or ""),
+            ]).lower()
+            if not text_query or text_query in haystack:
+                matches.append(row)
+                if len(matches) >= max(1, min(limit, 100)):
+                    break
+        return matches
+
     def material_catalog_template(self, client: dict) -> bytes:
         return create_material_catalog_template_workbook(client)
 

@@ -75,6 +75,25 @@ class DataHubClient:
     def list_bcct(self, client_id: str, **query) -> list[dict]:
         return self._get_all("/v1/hub/bcct", {"client_id": client_id, **query})
 
+    def list_bcct_by_codes(
+        self,
+        client_id: str,
+        codes: list[str],
+        *,
+        direction: str = "import",
+        include_material_identity: bool = False,
+    ) -> list[dict]:
+        if not codes:
+            return []
+        return self._get_all(
+            f"/v1/hub/clients/{hub_path_part(client_id)}/bcct/by-codes",
+            {
+                "codes": ",".join(codes[:100]),
+                "direction": direction,
+                "include_material_identity": "true" if include_material_identity else "false",
+            },
+        )
+
     def list_products(self, client_id: str) -> list[dict]:
         return self._get_all("/v1/hub/products", {"client_id": client_id})
 
@@ -139,6 +158,47 @@ class DataHubClient:
 
     def source_summary(self, client_id: str) -> dict:
         return self._get(f"/v1/hub/dncxs/{client_id}/source-summary")
+
+    def list_material_substitutes(
+        self,
+        client_id: str,
+        material_code: str,
+        *,
+        min_score: float = 0.5,
+        limit: int = 20,
+        include_rejected: bool = False,
+    ) -> tuple[list[dict], str]:
+        # Bearer-aware mirror per Data Hub sister-app note 2026-05-13.
+        # Same response shape as the legacy cookie-only /api/v1 route, but
+        # this one accepts service-token Bearer (scope hub:read).
+        path = f"/v1/hub/clients/{hub_path_part(client_id)}/materials/{hub_path_part(material_code)}/substitutes"
+        params = {
+            "min_score": min_score,
+            "limit": min(max(int(limit), 1), 100),
+            "include_rejected": "true" if include_rejected else "false",
+        }
+        try:
+            payload = self._get(path, params)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return [], "data_hub"
+            # 401/403 surface as unauthorized so the UI can render a useful
+            # banner (token missing scope or expired). The HS-prefix heuristic
+            # in main.py kicks in as a soft fallback so operators are not blocked.
+            if exc.response.status_code in (401, 403):
+                return [], "data_hub_unauthorized"
+            raise
+        return list(payload.get("items") or []), "data_hub"
+
+    def get_material(self, client_id: str, material_code: str) -> dict:
+        try:
+            return normalize_material_row(
+                self._get(f"/v1/hub/materials/{hub_path_part(material_code)}", {"client_id": client_id})
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return {}
+            raise
 
     def invoice_matches(self, client_id: str, invoice_no: str, declaration_types: list[str]) -> list[dict]:
         if not invoice_no.strip():
@@ -234,14 +294,11 @@ class DataHubPortfolioService:
     def source_summary(self, client: dict) -> tuple[dict, str]:
         summary = self.data_hub.source_summary(client["id"])
         summary["client_config"] = normalize_data_hub_client_config(summary.get("client_config") or {}, client)
-        if "co_stock_row_count" not in summary:
-            import_rows = [
-                normalize_bcct_row(row)
-                for row in self.data_hub.list_bcct(client["id"], direction="import")
-            ] if hasattr(self.data_hub, "list_bcct") else []
-            summary["co_stock_row_count"] = len(co_stock_rows_from_bcct(import_rows, summary["client_config"]))
-        else:
-            summary["co_stock_row_count"] = int(summary.get("co_stock_row_count") or 0)
+        # Never paginate the full import-direction BCCT just to compute co_stock_row_count.
+        # On big clients (Johnson: 65k+ rows) that's the difference between a snappy
+        # /clients home and a 30-60s page load. If Data Hub didn't include the count
+        # in source-summary, surface 0 — the dashboard tile is informational.
+        summary["co_stock_row_count"] = int(summary.get("co_stock_row_count") or 0)
         return summary, "data-hub"
 
     def source_workspace(self, client: dict) -> tuple[dict, str]:
@@ -254,12 +311,104 @@ class DataHubPortfolioService:
             "co_stock_rows": co_stock_rows_from_bcct(states["bcct"]["published_rows"], client_config),
         }, "data-hub"
 
+    def submit_bom_proposal(
+        self,
+        client_id: str,
+        product_code: str,
+        *,
+        parent_artifact_id: str,
+        rows: list[dict],
+        context: dict | None = None,
+        actor: str = "co_system",
+        intent: str = "modified_for_case",
+    ) -> dict:
+        if not hasattr(self.data_hub, "submit_bom_proposal"):
+            raise RuntimeError("Data Hub backend does not expose submit_bom_proposal")
+        return self.data_hub.submit_bom_proposal(
+            client_id,
+            product_code,
+            parent_artifact_id=parent_artifact_id,
+            rows=rows,
+            context=context,
+            actor=actor,
+            intent=intent,
+        )
+
+    def list_material_substitutes(
+        self,
+        client_id: str,
+        material_code: str,
+        *,
+        min_score: float = 0.5,
+        limit: int = 20,
+        include_rejected: bool = False,
+    ) -> tuple[list[dict], str]:
+        if not hasattr(self.data_hub, "list_material_substitutes"):
+            return [], "no_data_hub"
+        result = self.data_hub.list_material_substitutes(
+            client_id,
+            material_code,
+            min_score=min_score,
+            limit=limit,
+            include_rejected=include_rejected,
+        )
+        if isinstance(result, tuple):
+            return result
+        return list(result), "data_hub"
+
+    def get_material(self, client_id: str, material_code: str) -> dict:
+        if not hasattr(self.data_hub, "get_material"):
+            return {}
+        return self.data_hub.get_material(client_id, material_code)
+
+    def list_bcct_by_codes(
+        self,
+        client_id: str,
+        codes: list[str],
+        *,
+        direction: str = "import",
+    ) -> list[dict]:
+        if not codes or not hasattr(self.data_hub, "list_bcct_by_codes"):
+            return []
+        rows = self.data_hub.list_bcct_by_codes(client_id, codes, direction=direction)
+        return [normalize_bcct_row(row) for row in rows]
+
+    def search_materials(self, client_id: str, query: str, limit: int = 20) -> list[dict]:
+        if not hasattr(self.data_hub, "list_materials"):
+            return []
+        rows = []
+        for row in self.data_hub.list_materials(client_id):
+            normalized = normalize_material_row(row)
+            haystack = " ".join([
+                str(normalized.get("material_code") or ""),
+                str(normalized.get("internal_code") or ""),
+                str(normalized.get("name") or ""),
+                str(normalized.get("hs_code") or ""),
+            ]).lower()
+            if not query or query.lower() in haystack:
+                rows.append(normalized)
+                if len(rows) >= max(1, min(limit, 100)):
+                    break
+        return rows
+
     def co_case_source_context(self, client: dict, case: dict) -> dict:
         source_summary, source_backend = self.source_summary(client)
         client_config = source_summary["client_config"]
         shipment = case.get("shipment", {})
-        invoice_no = shipment.get("invoice_no", "")
-        export_declaration_nos = shipment.get("export_declaration_nos", [])
+        invoice_no = str(shipment.get("invoice_no", "") or "").strip()
+        export_declaration_nos = shipment.get("export_declaration_nos", []) or []
+        has_products = bool(case.get("products"))
+        # Short-circuit: empty case (no shipment, no products) only needs source_summary.
+        # Without this, opening the /co-case index page paginates the full materials +
+        # BCCT catalogs from Data Hub on every render — seconds-to-minutes for big clients.
+        if not invoice_no and not export_declaration_nos and not has_products:
+            return {
+                "source_backend": source_backend,
+                "source_summary": source_summary,
+                "invoice_matches": [],
+                "material_rows": [],
+                "stock_rows": [],
+            }
         relevant_types = client_config.get("bcct", {}).get("relevant_export_declaration_types", [])
         material_rows = []
         if hasattr(self.data_hub, "list_materials"):
@@ -433,14 +582,15 @@ def normalize_data_hub_client_config(payload: dict, client: dict) -> dict:
 
 def normalize_material_row(row: dict) -> dict:
     code = row.get("material_code") or row.get("customs_code", "")
+    normalized = {key: value for key, value in row.items() if key != "unit"}
     return {
-        **row,
+        **normalized,
         "customs_code": code,
         "internal_code": row.get("internal_code") or code,
         "material_code": code,
         "name": row.get("name", ""),
         "category": row.get("category", ""),
-        "unit": row.get("unit", ""),
+        "uom": row.get("uom") or row.get("unit", ""),
         "hs_code": row.get("hs_code", ""),
         "unit_price": row.get("unit_price") or row.get("taxable_unit_price") or "",
         "status": row.get("status", "active"),
@@ -449,12 +599,13 @@ def normalize_material_row(row: dict) -> dict:
 
 def normalize_product_row(row: dict) -> dict:
     code = row.get("product_code") or row.get("material_code") or row.get("customs_code") or row.get("internal_code", "")
+    normalized = {key: value for key, value in row.items() if key != "unit"}
     return {
-        **row,
+        **normalized,
         "product_code": code,
         "customs_code": row.get("customs_code") or row.get("material_code") or code,
         "name": row.get("name", code),
-        "unit": row.get("unit", ""),
+        "uom": row.get("uom") or row.get("unit", ""),
         "hs_code": row.get("hs_code", ""),
         "status": row.get("status", "active"),
     }
