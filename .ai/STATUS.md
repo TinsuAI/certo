@@ -1,92 +1,140 @@
 # Project Status
 
-**Date:** 2026-05-11 — Shipped `GET /v1/hub/clients/{c}/bcct/by-codes`
-per CO API request 2026-05-13. Provider tests + contract docs landed.
-CO consumer not yet shipped; awaiting their PR.
+**Date:** 2026-05-13 — Shipped mig 063 + canonical-UoM pipeline (3 commits
+ahead of `c98527f`). Catalog UoM coverage on Johnson now 13,132 / 13,132
+(100%) vs ~24% before. Two known follow-ups queued: SAP parser qty-column
+fix + CO consumer migration. Test suite green.
 
-1 commit pending (not yet pushed). Test suite green: 1072 passed, 15 skipped.
+3 commits pending push. Test suite: 1070 passed, 15 skipped.
 
 ## Current State
 
-**Branch:** `main`. Working tree has the BCCT by-codes commit ready.
-**Tests:** 1072 passed, 15 skipped (was 1052/15 before this session — net
-+20: 19 new in `test_bcct_by_codes_api.py` + 1 previously-flaky
-`test_technical_raw_upload_confirm_materializes_edges` now passing in
-full-suite runs; intermittent on this box).
-**Migrations:** at mig 062 (unchanged — no schema work this session).
-**Dev server:** running on `:8754` with 4 workers (no `--reload`), bg
-task `bwbuquhaf`. Restart required after code edits.
-**Memory updates:** none this session.
+**Branch:** `main`. Working tree clean for code (only untracked are
+`docs/training/` + `scripts/generate_training_input_scenarios.py`,
+unrelated to this session).
 
-**New endpoint live state:**
-- `GET /v1/hub/clients/{client_id}/bcct/by-codes?codes=A,B,C` —
-  Bearer-aware (`hub:read` scope), filters BCCT by `customs_code` IN
-  (codes) case-insensitive, max 100 codes/request, row shape mirrors
-  `/v1/hub/bcct`.
-- Smoke against Johnson: `005365-00,005048-AB` returned 5 rows in
-  ~30ms (vs ~30s to paginate full 65k for the same answer).
+**Tests:** 1070 passed, 15 skipped. Pre-existing failure in
+`tests/test_bom_raw_edges.py::test_technical_raw_upload_confirm_materializes_edges`
+is unrelated to this session's work (post_ingest_hooks make the old
+"1 raw, 0 rows, 2 edges" expectation stale).
+
+**Migrations:** at mig 063 (added this session).
+
+**Dev server:** running on `:8754` with 4 workers, PID 1506476, log
+`/tmp/dh_dev.log`. Restart required after code edits.
+
+**Backups:**
+- `/tmp/dh_backups/data_hub_pre_johnson_btp_rederive_20260511_1414.dump`
+  (243M, pre BTP re-derive)
+- `/tmp/dh_backups/data_hub_pre_uom_consolidate_2244.dump` (314M, pre
+  mig 063 wipe + re-ingest)
+
+**Johnson catalog state (post-pipeline-fix):**
+- TP: 650 / 650 with `uom` (100%)
+- BTP: 3,031 / 3,031 (100%)
+- NVL: 9,451 / 9,451 (100%)
+- All 13,132 codes in `bcct_rows` ∪ `bom_edges` have `materials.uom`
+  populated. Pipeline self-heals on re-ingest.
 
 ## Recent Changes — this session
 
-Single pending commit (not yet pushed):
+**Three commits added** (in order):
 
-```
-feat(api): bcct/by-codes endpoint for CO substitute-stock derivation
-```
+1. `6a1b47a feat(catalog): mig 063 consolidate materials.unit → uom`
+   — drops legacy `unit` column after one-shot `uom = unit` backfill.
 
-**Files:**
-- `app/routes/api.py` — `api_list_bcct_by_codes` + `_parse_codes_param`
-  helper. Validation order: token → can_view_client → candidate_limit →
-  codes shape → client exists → page args.
-- `tests/test_bcct_by_codes_api.py` (new) — 19 provider tests.
-- `docs/API_CONTRACT.md` — endpoint entry under BCCT section.
-- `docs/API_CHANGELOG.md` — additive entry dated 2026-05-13.
-- `.ai/BACKLOG.md` — C.1.a opened (soak test pending) +
-  "Shipped — kept for context" entry added.
+2. `42decc7 feat(catalog): pipeline writes canonical uom at ingest +
+   BOM filter/re-root` — every INSERT site writes `uom`; BOM list page
+   gets TP/BTP server-side filter; `derive_btp_shallows._subtree_edges`
+   re-roots node_path/level + canonical sort fix;
+   `materialize_shallow_and_full_flat.materialize_one` now calls
+   `_convert_rows_to_catalog_uom` (was refresh-only).
+
+3. `f64b500 test(catalog): invariant tests + uom rename across fixtures`
+   — 7 new tests covering UoM capture invariants + rename across 9
+   test fixture files.
+
+**Memory entries added (5 total):**
+- `project_sap_parser_qty_bug.md` — parser picks `Comp. Qty (CUn)`
+  (cumulative) instead of `Component quantity` (per-parent). Fix queued.
+- `project_bom_component_unit_canonical.md` — empirical proof
+  Component unit is canonical; Base UoM is SAP-internal only.
+- `reference_sap_uom_german_defaults.md` — `ST/KAR/ROL/PAA` are SAP
+  T006 defaults (Stück/Karton/Rolle/Paar).
+- `project_materials_unit_uom_consolidation.md` — mig 063 + grace
+  window + sunset date.
+- `feedback_check_feature_folder_first.md` — process feedback: grep
+  `.ai/features/` before doing audit work (lesson from this session).
 
 ## Next Steps
 
-1. **Push the commit** to `origin/main` when ready (not auto-pushed).
-2. **Wait for CO consumer PR** — they'll consume the new endpoint in
-   `co_case_origin_sheet_substitute_stock` and remove the `/origin`
-   warm-up cache path. Ping-back expected in
-   `.ai/sister-app-notes/2026-05-XX-co-bcct-by-codes-consumer-shipped.md`.
-3. **Soak test once CO is live** — see backlog C.1.a:
-   - Real-load latency under concurrent CO requests.
-   - Pagination with codes that have long import history.
-   - `include_material_identity=true` cost on ~100-row slices.
-   - `EXPLAIN ANALYZE` on Johnson to confirm index usage with
-     `upper(customs_code) = any(...)`.
-4. **Existing carryover items from prior STATUS.md** (unchanged):
-   refresh-substitutes pipeline for Johnson newly-accepted NVL; A.1
-   roles[] + manual fields (2-3d); A.5 design still deferred; F.1
-   Growatt re-ingest (~0.5-1d); audit remaining cookie-only
-   `/api/v1/...` routes for CO Bearer compatibility.
+Priority order:
+
+1. **SAP parser qty-column fix** (queued, next session). See memory
+   `project_sap_parser_qty_bug.md`. Swap `_QTY_ALIASES` order in
+   `app/parsers/bom_adapters/sap_indented_walk.py:37` so
+   `"component quantity"` (MENGE = per-parent) wins over
+   `"comp. qty (cun)"` (MNGKO = cumulative). Then wipe Johnson BOM +
+   re-ingest via `scripts/ingest_technical_raw_batch.py`. Expected:
+   BTP `1000534541` collapses from 21 artifacts to ~3 (1 raw + 2 flat).
+
+2. **CO consumer migration** (sister-app, no grace window per user
+   decision). Prompt prepared and given to user. CO must update
+   `data_hub_client.normalize_material_row` + `normalize_product_row`
+   to read `uom` (not `unit`). After CO ships, drop the `m.uom AS unit`
+   alias in `app/routes/api.py` + `app/routes/catalog.py` +
+   `app/agent/tools.py` (1-liner each). Sunset 2026-05-25 in
+   API_CONTRACT is a placeholder; can be sooner once CO ships.
+
+3. **Growatt wipe + re-ingest** (project_reingest_pending.md). Mirror
+   Johnson pattern. Now unblocked by Phase 2 UoM convert wiring
+   landing in this session.
+
+4. **Vietnamese customs multi-meaning tokens** (Phase 2 follow-up):
+   `client_parser_rules` for `Chai/Lọ/Tuýp`, `SOI`, `Thanh/Mảnh/Miếng`,
+   `Viên/Hạt`, `Kiện/Hộp/Bao/Gói`. ~0.5d. Inventoried in
+   `.ai/features/2026-05-12-bom-uom-conversion-phase-2/factor_inventory.md`.
+
+5. **Push the 3 commits** to `origin/main` when ready. Plus the 1 commit
+   pending from prior session (`c98527f` — bcct/by-codes).
+
+## Blockers
+
+- **220-code factor file from Johnson agency.** Already sent
+  (`.ai/features/2026-05-12-bom-uom-conversion-phase-2/agency_qa_johnson.xlsx`
+  + email draft). Cross-family conversion (EA↔SETS/CAY/KG/MT) blocks
+  on agency response. Not a dev blocker per se.
 
 ## Notes for Next AI Session
 
-- **Endpoint not yet validated under real-load.** Provider tests cover
-  the contract; CO consumer not shipped. Treat as "shipped pending
-  soak test" — see C.1.a in BACKLOG. If latency or correctness
-  issues appear once CO lands, fold the fix into that backlog entry.
-- **Validation ordering:** for `/v1/hub/clients/.../bcct/by-codes`,
-  codes-shape 400 fires before client-not-found 404. Intentional —
-  saves a DB lookup on malformed requests. Mirror this when adding
-  similar code-filter endpoints.
-- **Test pollution caveat:** my new test fixture inserts a
-  `hub.bom_artifacts` row with `product_code='PV01.0117500'` and
-  cleans up via `client_id`. One full-suite run earlier failed
-  `test_technical_raw_upload_confirm_materializes_edges` with a
-  state-leak symptom; a re-run was green. If the failure recurs,
-  inspect the resolver cache / `bom_artifacts` interactions before
-  blaming the by-codes fixture.
-- **Live verify pattern for new endpoints (unchanged from prior
-  session):** mint service token via
-  `app.jwt_issuer.make_service_token` + curl with `Authorization:
-  Bearer ...`. For dev with `api_auth_strict=false` (default), any
-  non-empty bearer string is accepted.
-- **CO contract dates run forward of calendar date.** Today is
-  2026-05-11 per `date(1)` but CO API artifacts (and now our
-  changelog entry) use 2026-05-13. Match the contract date in
-  API_CHANGELOG / API_CONTRACT; use real today's date for session
-  log filenames.
+- **Read `.ai/features/` FIRST.** This session wasted ~3-4 turns
+  re-auditing Johnson UoM cross-source mismatches that
+  `.ai/features/2026-05-12-bom-uom-conversion-phase-2/factor_inventory.md`
+  had already covered. Memory `feedback_check_feature_folder_first.md`
+  documents the lesson. Default: at session start, `ls .ai/features/`
+  and grep for the topic before launching audit work.
+
+- **User prefers direct breaking changes over grace windows for
+  sister-app migrations.** When asking to coordinate with CO,
+  default to "fix CO directly" rather than "ship Hub with backcompat
+  alias + grace period." Grace alias only kept this time because user
+  pivoted mid-discussion; future sister-app schema changes should be
+  coordinated releases instead.
+
+- **Dev server is running**, healthz returns 200. PID 1506476. If you
+  edit code, restart manually (no --reload because --workers 4
+  precludes --reload).
+
+- **Parser bug pending fix.** Earlier in this session BTP fragmentation
+  on Johnson (`1000534541` had 24 artifacts) was traced to
+  `bom_edges.qty_per_parent` carrying cumulative MNGKO values.
+  Re-root + canonical sort in `derive_btp_shallows` reduced to 21;
+  remaining fragmentation collapses only after parser fix.
+
+- **Materialize_shallow_and_full_flat:** pre-existing bug where
+  `create_artifact` always returns artifact_id (so `_inserted` counters
+  never decrement) was NOT fixed this session. Cosmetic; doesn't
+  affect correctness.
+
+- **CalVer caveat:** today's date is 2026-05-13 per system but some
+  prior STATUS.md was dated 2026-05-11; both correct per session-time.
