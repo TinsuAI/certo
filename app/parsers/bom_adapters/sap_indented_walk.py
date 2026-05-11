@@ -35,8 +35,10 @@ from app.parsers.bom_adapters._common import COMMON_ALIASES
 _LEVEL_ALIASES = ["level", "lvl", "cấp", "explosion level"]
 _COMPONENT_ALIASES = ["component number", "componentnumber", "component code", "mã nvl"]
 _QTY_ALIASES = [
-    "comp. qty (cun)", "comp qty (cun)", "comp.qty(cun)", "comp qty cun",
+    # MENGE/XMENG = per-immediate-parent. MUST win over MNGKO
+    # ("Comp. Qty (CUn)") which is cumulative through ancestors.
     "component quantity", "required quantity", "qty",
+    "comp. qty (cun)", "comp qty (cun)", "comp.qty(cun)", "comp qty cun",
 ]
 _UNIT_ALIASES = ["component unit", "uom", "unit", "comp. unit", "base unit of measure"]
 _DESCRIPTION_ALIASES = [

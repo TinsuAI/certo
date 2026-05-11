@@ -187,6 +187,53 @@ def test_sap_indented_walk_adapter_propagates_description_to_leaf():
     assert by_code == {"NVL-C": "Steel plate"}
 
 
+def test_sap_indented_raw_parser_picks_per_parent_qty_over_cumulative():
+    # SAP exports carry two qty columns: 'Component quantity' (MENGE) is
+    # per-immediate-parent; 'Comp. Qty (CUn)' (MNGKO) is cumulative through
+    # ancestors. qty_per_parent must reflect MENGE.
+    blob = _xlsx({
+        "Sheet1": [
+            ("Level", "Component number",
+             "Component quantity", "Comp. Qty (CUn)", "Component unit"),
+            (1, "BTP-B", 2, 2, "EA"),
+            # MENGE=5 per BTP-B; MNGKO=10 (2×5) cumulative from root.
+            (2, "NVL-C", 5, 10, "KG"),
+        ],
+    })
+
+    edges, adapter = parse_raw_edges_with_fallback(blob, root_code="ASM-001")
+
+    assert adapter == "sap_indented_raw"
+    by_child = {e["child_code"]: e for e in edges}
+    assert by_child["BTP-B"]["qty_per_parent"] == 2.0
+    assert by_child["NVL-C"]["qty_per_parent"] == 5.0, (
+        "Parser must pick 'Component quantity' (MENGE) — got the cumulative "
+        "MNGKO value, which inflates qty_per_parent and fragments BTP "
+        "slices across parent-TP contexts."
+    )
+
+
+def test_sap_indented_walk_adapter_picks_per_parent_qty_over_cumulative():
+    # Same invariant as the raw-edges parser, exercised on the legacy
+    # walk adapter used by the WebUI upload route.
+    from app.parsers.bom_adapters.sap_indented_walk import SapIndentedWalkAdapter
+    blob = _xlsx({
+        "Sheet1": [
+            ("Level", "Component number",
+             "Component quantity", "Comp. Qty (CUn)", "Component unit"),
+            (1, "BTP-B", 2, 2, "EA"),
+            (2, "NVL-C", 5, 10, "KG"),
+        ],
+    })
+    by_root = SapIndentedWalkAdapter().parse(blob, root_code="ASM-001")
+    nvl = next(r for r in by_root["ASM-001"] if r["material_code"] == "NVL-C")
+    # _qty_raw is the per-immediate-parent cell value before multiplication.
+    assert nvl["_qty_raw"] == "5"
+    # qty_per_unit = MENGE walked through ancestors = 1 × 2 × 5 = 10.
+    # Picking MNGKO double-cumulates: 1 × 2 × 10 = 20.
+    assert nvl["qty_per_unit"] == 10.0
+
+
 def test_create_raw_artifact_persists_edges_without_flat_rows():
     artifact_id = bom_store.create_raw_artifact(
         client_id=CLIENT,
