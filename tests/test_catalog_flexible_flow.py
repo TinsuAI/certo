@@ -287,7 +287,7 @@ def test_skipped_row_can_be_promoted_via_inline_edit(http):
 
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            "select material_code, unit from hub.materials where client_id=%s order by material_code",
+            "select material_code, uom from hub.materials where client_id=%s order by material_code",
             (CLIENT,),
         )
         rows = cur.fetchall()

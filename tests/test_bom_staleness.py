@@ -77,9 +77,9 @@ def _insert_material(
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "insert into hub.materials (client_id, material_code, name, "
-            "category, uom, unit, btp_sourcing, status, source) "
-            "values (%s, %s, %s, %s, %s, %s, %s, 'active', 'client_declared')",
-            (client_id, material_code, name, category, uom, uom, btp_sourcing),
+            "category, uom, btp_sourcing, status, source) "
+            "values (%s, %s, %s, %s, %s, %s, 'active', 'client_declared')",
+            (client_id, material_code, name, category, uom, btp_sourcing),
         )
         conn.commit()
 

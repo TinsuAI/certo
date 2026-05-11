@@ -31,7 +31,7 @@ def _ctx(*, catalog=None, bcct=None, same=None, db=None, uom=None,
 
 def _kg_catalog(mats: set[str]):
     return lambda m: CatalogEntry(
-        material_code=m, category="nvl", status="active", unit="kg"
+        material_code=m, category="nvl", status="active", uom="kg"
     ) if m in mats else None
 
 
@@ -125,7 +125,7 @@ def test_same_code_as_tp_and_input_keeps_distinct_versions():
         "TP-A":  [{"material_code": "X", "qty_per_unit": 2, "uom": "kg"}],
     }
     cat_lookup = lambda m: CatalogEntry(
-        material_code=m, category="nvl", status="active", unit="kg"
+        material_code=m, category="nvl", status="active", uom="kg"
     ) if m in {"X", "NVL-1"} else None
     result = flatten(parsed, _ctx(catalog=cat_lookup))
     keys = {v.key.product_code for v in result.versions}

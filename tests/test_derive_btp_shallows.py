@@ -213,3 +213,31 @@ def test_status_disabled_raises_or_skips():
         artifact_id=ROOT_ARTIFACT, client_id=CLIENT, status="disabled",
     )
     assert minted == []
+
+
+def test_subtree_edges_rerooted_path_and_level():
+    """Edges in the minted BTP slice carry node_path starting at the BTP
+    (parent TP context above the BTP stripped); level is recomputed as
+    depth from the BTP root (direct children = 1)."""
+    minted = derive_btp_shallows_for_artifact(
+        artifact_id=ROOT_ARTIFACT, client_id=CLIENT, status="draft",
+    )
+    inner2 = next(m for m in minted if m["product_code"] == "BTP_INNER2")
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select parent_code, child_code, level, node_path "
+            "from hub.bom_edges where artifact_id=%s order by row_index",
+            (inner2["artifact_id"],),
+        )
+        rows = cur.fetchall()
+    assert rows  # at least one edge
+    for parent, child, level, node_path in rows:
+        # No edge above the BTP root is included → parent must descend
+        # from BTP_INNER2 (in this fixture, parent is BTP_INNER2 itself).
+        assert parent == "BTP_INNER2"
+        # node_path begins at the BTP, not at ROOT_PRODUCT.
+        assert node_path is not None
+        assert node_path.startswith("BTP_INNER2")
+        assert ROOT_PRODUCT not in node_path
+        # Direct children of the BTP root are at level 1.
+        assert level == 1

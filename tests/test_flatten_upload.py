@@ -75,7 +75,7 @@ def test_technical_flatten_preview_then_confirm(auth_client):
                                     ("FT_U_TP-A",  "tp",     "kg")]:
                 cur.execute(
                     """
-                    insert into hub.materials (client_id, material_code, category, unit, status)
+                    insert into hub.materials (client_id, material_code, category, uom, status)
                     values (%s, %s, %s, %s, 'active')
                     on conflict do nothing
                     """,
@@ -235,7 +235,7 @@ def test_dual_source_blocked_without_explicit_confirmation(auth_client):
                                     ("FT_U_DBTP", "btp_sx", "kg")]:
                 cur.execute(
                     """
-                    insert into hub.materials (client_id, material_code, category, unit, status)
+                    insert into hub.materials (client_id, material_code, category, uom, status)
                     values (%s, %s, %s, %s, 'active')
                     on conflict do nothing
                     """,
@@ -304,7 +304,7 @@ def test_dual_source_publishes_chosen_variant_when_confirmed(auth_client):
                                     ("FT_U_PBTP", "btp_sx", "kg")]:
                 cur.execute(
                     """
-                    insert into hub.materials (client_id, material_code, category, unit, status)
+                    insert into hub.materials (client_id, material_code, category, uom, status)
                     values (%s, %s, %s, %s, 'active')
                     on conflict do nothing
                     """,
@@ -363,7 +363,7 @@ def test_duplicate_technical_flatten_upload_is_idempotent(auth_client):
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            insert into hub.materials (client_id, material_code, category, unit, status)
+            insert into hub.materials (client_id, material_code, category, uom, status)
             values (%s, 'FT_DUP_NVL', 'nvl', 'kg', 'active')
             on conflict do nothing
             """,

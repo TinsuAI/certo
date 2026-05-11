@@ -122,7 +122,7 @@ def test_client_specific_uom_overrides_global():
         return None
 
     catalog = lambda m: CatalogEntry(material_code=m, category="nvl",
-                                     status="active", unit="pcs") if m == "X" else None
+                                     status="active", uom="pcs") if m == "X" else None
     parsed: ParsedBom = {
         "TP-A": [{"material_code": "X", "qty_per_unit": 2, "uom": "box"}],
     }
@@ -148,7 +148,7 @@ def test_global_uom_emits_decision_for_staff_confirm():
             )
         return None
     catalog = lambda m: CatalogEntry(material_code=m, category="nvl",
-                                     status="active", unit="kg") if m == "X" else None
+                                     status="active", uom="kg") if m == "X" else None
     parsed: ParsedBom = {"TP-A": [{"material_code": "X", "qty_per_unit": 500, "uom": "g"}]}
     result = flatten(parsed, _ctx(uom_lookup=uom_lookup, catalog=catalog))
     types = {d.decision_type for d in result.decisions}
@@ -161,7 +161,7 @@ def test_global_uom_emits_decision_for_staff_confirm():
 def test_alias_only_normalization_no_decision():
     """Item 21 — alias-equivalence path emits no special decision."""
     catalog = lambda m: CatalogEntry(material_code=m, category="nvl",
-                                     status="active", unit="kg") if m == "X" else None
+                                     status="active", uom="kg") if m == "X" else None
     parsed: ParsedBom = {"TP-A": [{"material_code": "X", "qty_per_unit": 1, "uom": "KG"}]}
     result = flatten(parsed, _ctx(uom_lookup=lambda *a: None, catalog=catalog))
     types = {d.decision_type for d in result.decisions}
@@ -177,7 +177,7 @@ def test_uom_missing_yields_non_flattened_with_reason():
     """Item 6 again, end-to-end: missing conversion → non_flattened
     version with one UnresolvedNode(reason='uom_conversion_missing')."""
     catalog = lambda m: CatalogEntry(material_code=m, category="nvl",
-                                     status="active", unit="kg") if m == "X" else None
+                                     status="active", uom="kg") if m == "X" else None
     parsed: ParsedBom = {"TP-A": [{"material_code": "X", "qty_per_unit": 1, "uom": "ml"}]}
     result = flatten(parsed, _ctx(uom_lookup=lambda *a: None, catalog=catalog))
     [v] = result.versions
@@ -189,7 +189,7 @@ def test_non_flattened_emits_publish_decision():
     """Item 19 prerequisite — non_flattened versions emit a
     `non_flattened_publish` decision, default block_publish."""
     catalog = lambda m: CatalogEntry(material_code=m, category="nvl",
-                                     status="active", unit="kg") if m == "X" else None
+                                     status="active", uom="kg") if m == "X" else None
     parsed: ParsedBom = {"TP-A": [{"material_code": "X", "qty_per_unit": 1, "uom": "ml"}]}
     result = flatten(parsed, _ctx(uom_lookup=lambda *a: None, catalog=catalog))
     types = {d.decision_type for d in result.decisions}

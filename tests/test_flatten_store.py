@@ -60,7 +60,7 @@ def test_create_flattened_artifact_set_emits_tp_and_btp_with_structured_identity
         "FT_BTP-B": [{"material_code": "FT_NVL-1", "qty_per_unit": 0.5, "uom": "kg"}],
     }
     cat = lambda m: CatalogEntry(
-        material_code=m, category="nvl", status="active", unit="kg"
+        material_code=m, category="nvl", status="active", uom="kg"
     ) if m == "FT_NVL-1" else None
     ctx = FlattenContext(
         client_id=CLIENT,

@@ -41,7 +41,8 @@ def test_client():
 
 
 def _seed_bcct(client_id: str, decl_no: str, line_no: str, material_code: str,
-               registration_date: str = "2025-01-15", goods_name: str = "Test"):
+               registration_date: str = "2025-01-15", goods_name: str = "Test",
+               unit: str | None = None):
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -49,12 +50,12 @@ def _seed_bcct(client_id: str, decl_no: str, line_no: str, material_code: str,
                 insert into hub.bcct_rows
                   (client_id, transaction_key, line_no, declaration_no,
                    declaration_type, direction, registration_date, customs_code,
-                   goods_name, payload)
-                values (%s, %s, %s, %s, 'E11', 'import', %s, %s, %s, '{}'::jsonb)
+                   goods_name, unit, payload)
+                values (%s, %s, %s, %s, 'E11', 'import', %s, %s, %s, %s, '{}'::jsonb)
                 on conflict (client_id, year, transaction_key, line_no) do nothing
                 """,
                 (client_id, f"PROV_{decl_no}", line_no, decl_no,
-                 registration_date, material_code, goods_name),
+                 registration_date, material_code, goods_name, unit),
             )
 
 
@@ -344,3 +345,75 @@ def test_catalog_upload_preserves_seen_in_bcct_on_existing_row(test_client):
     assert "seen_in_bcct" in prov, "seen_in_bcct was clobbered by catalog upload!"
     assert "registered_with_hq" in prov
     assert prov["registered_with_hq"]["source_upload_id"] == "test-upload-001"
+
+
+# ─── mig 063: derive_from_bcct must populate uom from BCCT.unit mode ───
+
+
+def _read_material_uom(client_id: str, material_code: str) -> str | None:
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select uom from hub.materials "
+                "where client_id=%s and material_code=%s",
+                (client_id, material_code),
+            )
+            row = cur.fetchone()
+    return row[0] if row else None
+
+
+def test_derive_captures_uom_from_bcct_mode(test_client):
+    """Mig 063 invariant: new catalog row gets uom from the mode of
+    BCCT.unit observations for that customs_code. Without this, engine
+    would drift on `catalog_uom_missing` despite source data being
+    available (the bug fixed by mig 063 + pipeline rework)."""
+    _seed_bcct(test_client, "D-UOM-1", "1", "UOM-NEW",
+               unit="KILO-GRAMMES")
+    _seed_bcct(test_client, "D-UOM-2", "1", "UOM-NEW",
+               unit="KILO-GRAMMES")
+    _seed_bcct(test_client, "D-UOM-3", "1", "UOM-NEW",
+               unit="METRIC-TONS")  # minority — should lose to mode
+    with connect() as conn, conn.cursor() as cur:
+        derive_from_bcct(cur, client_id=test_client,
+                         customs_codes=["UOM-NEW"])
+    # uom = mode = KILO-GRAMMES (raw from BCCT; alias normalization
+    # happens at engine read time via uom_lookup).
+    assert _read_material_uom(test_client, "UOM-NEW") == "KILO-GRAMMES"
+
+
+def test_derive_backfills_uom_when_existing_row_missing_it(test_client):
+    """On-conflict path: if material exists but uom IS NULL (legacy
+    pre-mig-063 rows or rows seeded via other paths), re-running
+    derive_from_bcct must populate uom from BCCT.unit mode."""
+    # Pre-seed material without uom (simulates a legacy row).
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "insert into hub.materials (client_id, material_code, category, "
+            "status, source) values (%s, %s, 'nvl', 'active', 'bcct_observed')",
+            (test_client, "UOM-LEGACY"),
+        )
+    assert _read_material_uom(test_client, "UOM-LEGACY") is None
+    _seed_bcct(test_client, "D-UOM-BF", "1", "UOM-LEGACY", unit="SETS")
+    with connect() as conn, conn.cursor() as cur:
+        derive_from_bcct(cur, client_id=test_client,
+                         customs_codes=["UOM-LEGACY"])
+    assert _read_material_uom(test_client, "UOM-LEGACY") == "SETS"
+
+
+def test_derive_keeps_existing_uom_when_already_set(test_client):
+    """On-conflict path: if material already has a uom (staff-declared
+    canonical via Mã chờ duyệt or edit form), derive_from_bcct must NOT
+    clobber it. Staff override wins over BCCT mode."""
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "insert into hub.materials (client_id, material_code, category, "
+            "status, source, uom) "
+            "values (%s, %s, 'nvl', 'active', 'client_declared', 'pcs')",
+            (test_client, "UOM-STAFF"),
+        )
+    _seed_bcct(test_client, "D-UOM-ST", "1", "UOM-STAFF", unit="KILO-GRAMMES")
+    with connect() as conn, conn.cursor() as cur:
+        derive_from_bcct(cur, client_id=test_client,
+                         customs_codes=["UOM-STAFF"])
+    # Staff-declared uom='pcs' survives; BCCT mode 'KILO-GRAMMES' is ignored.
+    assert _read_material_uom(test_client, "UOM-STAFF") == "pcs"

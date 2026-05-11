@@ -103,7 +103,7 @@ def test_catalog_active_imported_nvl_leaf():
     row = {"material_code": "M", "qty_per_unit": 1, "uom": "kg"}
     ctx = _ctx(
         catalog=lambda m: CatalogEntry(
-            material_code=m, category="nvl", status="active", unit="kg"
+            material_code=m, category="nvl", status="active", uom="kg"
         ),
     )
     cls = classify_component(row, parent_key=BomKey("TP-A"),

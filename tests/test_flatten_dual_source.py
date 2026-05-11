@@ -37,7 +37,7 @@ def test_dual_source_emits_two_variants():
         "BTP-B": [{"material_code": "NVL-1", "qty_per_unit": 0.5, "uom": "kg"}],
     }
     cat = lambda m: CatalogEntry(
-        material_code=m, category="nvl", status="active", unit="kg",
+        material_code=m, category="nvl", status="active", uom="kg",
     ) if m in {"NVL-1", "BTP-B"} else None
     bcct = lambda m: m == "BTP-B"
 
@@ -71,7 +71,7 @@ def test_dual_source_emits_required_decisions():
         "BTP-B": [{"material_code": "NVL-1", "qty_per_unit": 1, "uom": "kg"}],
     }
     cat = lambda m: CatalogEntry(
-        material_code=m, category="nvl", status="active", unit="kg",
+        material_code=m, category="nvl", status="active", uom="kg",
     ) if m in {"NVL-1", "BTP-B"} else None
     bcct = lambda m: m == "BTP-B"
     result = flatten(parsed, _ctx(catalog=cat, bcct=bcct))
@@ -92,7 +92,7 @@ def test_dual_source_btp_version_still_emitted():
         "BTP-B": [{"material_code": "NVL-1", "qty_per_unit": 1, "uom": "kg"}],
     }
     cat = lambda m: CatalogEntry(
-        material_code=m, category="nvl", status="active", unit="kg",
+        material_code=m, category="nvl", status="active", uom="kg",
     ) if m in {"NVL-1", "BTP-B"} else None
     bcct = lambda m: m == "BTP-B"
     result = flatten(parsed, _ctx(catalog=cat, bcct=bcct))
