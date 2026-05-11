@@ -98,12 +98,22 @@ def _subtree_edges(cur, *, artifact_id: str, root_code: str) -> list[dict]:
         """,
         (artifact_id, root_code),
     )
-    out = []
+    # Dedup multi-position occurrences. When the same BTP appears at N
+    # positions in the parent TP's tree, the recursive CTE emits the same
+    # (parent, child, qty, uom) tuple N times. The BTP slice is a per-
+    # unit-of-BTP definition — multi-position usage scales the parent_TP →
+    # BTP edge, not the BTP-internal sub-tree. Without dedup, slices with
+    # identical content but different occurrence counts hash differently
+    # and fail to dedup across parent TPs.
+    seen: dict[tuple, dict] = {}
     for r in cur.fetchall():
         path_arr = r[5] or []
         node_path = " > ".join(str(x) for x in path_arr) if path_arr else None
         level = max(len(path_arr) - 1, 0) if path_arr else None
-        out.append({
+        key = (r[0], r[1], r[2], r[3], level, node_path)
+        if key in seen:
+            continue
+        seen[key] = {
             "parent_code": r[0], "child_code": r[1], "qty_per_parent": r[2],
             "uom": r[3],
             "level": level,
@@ -112,7 +122,8 @@ def _subtree_edges(cur, *, artifact_id: str, root_code: str) -> list[dict]:
             "source_row_no": None,
             "payload": r[4] or {},
             "root_code": root_code,
-        })
+        }
+    out = list(seen.values())
     # Canonical order: edges with the same (parent, child, qty, uom) multi-
     # set must produce the same `normalized_edges_hash`. The hash function
     # uses Python's stable sort and breaks ties by row_index (defaulting to

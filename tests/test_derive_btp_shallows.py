@@ -215,6 +215,51 @@ def test_status_disabled_raises_or_skips():
     assert minted == []
 
 
+def test_subtree_edges_dedups_multi_position_occurrences():
+    """When a BTP appears at multiple positions in the parent TP's
+    indented tree (each occurrence with identical children), the
+    BTP-rooted slice must emit each unique (parent, child, qty, uom)
+    once — not once per source occurrence.
+
+    Rationale: the BTP slice is a per-unit-of-BTP definition. Multi-
+    position usage in the parent TP scales the parent → BTP edge
+    quantity, not the BTP-internal sub-tree. Without dedup, slices
+    with the same logical content but different occurrence counts
+    produce different normalized_edges_hash and fail to dedup across
+    parent TPs (BTP 1000534541 fragmentation, 2026-05-12 incident).
+    """
+    from scripts.derive_btp_shallows import _subtree_edges
+
+    # Insert 2 EXTRA rows so BTP_INNER2 has its children duplicated:
+    # simulates BTP_INNER2 appearing at a second position in the
+    # parent tree (in addition to the existing position from the
+    # autouse fixture).
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "insert into hub.bom_edges (artifact_id, row_index, root_code, "
+            "parent_code, child_code, qty_per_parent) values "
+            "(%s, 7, %s, 'BTP_INNER2', 'NVL_Y', 7), "
+            "(%s, 8, %s, 'BTP_INNER2', 'NVL_Z', 9)",
+            (ROOT_ARTIFACT, ROOT_PRODUCT, ROOT_ARTIFACT, ROOT_PRODUCT),
+        )
+        conn.commit()
+        edges = _subtree_edges(
+            cur, artifact_id=ROOT_ARTIFACT, root_code="BTP_INNER2",
+        )
+
+    unique_keys = {(e["parent_code"], e["child_code"],
+                    float(e["qty_per_parent"]), e["uom"]) for e in edges}
+    assert len(edges) == len(unique_keys), (
+        f"_subtree_edges emitted {len(edges)} rows but only "
+        f"{len(unique_keys)} unique (parent, child, qty, uom) tuples — "
+        f"multi-position usage should dedup."
+    )
+    assert unique_keys == {
+        ("BTP_INNER2", "NVL_Y", 7.0, None),
+        ("BTP_INNER2", "NVL_Z", 9.0, None),
+    }
+
+
 def test_subtree_edges_rerooted_path_and_level():
     """Edges in the minted BTP slice carry node_path starting at the BTP
     (parent TP context above the BTP stripped); level is recomputed as
