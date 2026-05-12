@@ -308,6 +308,7 @@ def test_technical_raw_upload_confirm_materializes_edges(auth_client):
                 left join hub.bom_edges e on e.artifact_id = v.artifact_id
                 left join hub.bom_artifact_rows r on r.artifact_id = v.artifact_id
                 where v.client_id = %s and v.product_code = 'RT_TP'
+                  and v.source_bom_kind = 'technical_raw'
                 group by v.artifact_id, v.source_bom_kind
                 """,
                 (CLIENT,),
