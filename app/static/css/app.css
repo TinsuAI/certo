@@ -425,7 +425,6 @@ small,
 
 .shell {
   position: relative;
-  z-index: 1;
   width: min(1480px, calc(100vw - 32px));
   min-width: 0;
   margin: 0 auto;
@@ -3847,6 +3846,48 @@ small,
   display: inline-block;
   animation: origin-spin 0.7s linear infinite;
   margin-left: 0.3rem;
+}
+
+.origin-sheet-panel {
+  position: relative;
+}
+
+.origin-sheet-panel-loading {
+  cursor: progress;
+}
+
+.origin-sheet-loading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin: 0.75rem 0;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  box-shadow: 0 8px 20px rgba(30, 64, 175, 0.08);
+}
+
+.origin-sheet-loading strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.origin-sheet-loading span:last-child {
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.origin-sheet-loading-spinner {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #bfdbfe;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: origin-spin 0.7s linear infinite;
 }
 
 /* No-BOM sheet tab + picker indicators */

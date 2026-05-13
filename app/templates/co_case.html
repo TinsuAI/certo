@@ -1267,11 +1267,13 @@
                 {% set render_allocation_details = allocation_count > 0 %}
                 {% set allocation_default_expanded = allocation_has_issue %}
                 {% set allocation_group = 'allocation-' ~ product_index ~ '-' ~ material_index %}
+                {% set norm_override = product.origin_sheet_material_overrides.get(material_index|string) if product.origin_sheet_material_overrides else none %}
+                {% set effective_norm = (norm_override.norm_per_unit if norm_override and norm_override.norm_per_unit) or material.bom_qty_per %}
                 {% set _row_non_origin_base = material.non_origin_cif_value or (material.material_value if material.origin_status != 'origin' else '0') or '0' %}
                 <tr class="{{ 'origin-row-warning' if material.material_warnings else '' }}"
                     data-origin-material-row
                     data-allocation-group="{{ allocation_group }}"
-                    data-row-original-norm="{{ material.bom_qty_per or '0' }}"
+                    data-row-original-norm="{{ effective_norm or '0' }}"
                     data-row-non-origin-base="{{ _row_non_origin_base }}"
                     data-row-origin-status="{{ material.origin_status or 'non_origin' }}"
                     data-origin-warning-kinds="{% if material.valuation_status == 'missing_unit_value' %} missing_unit_value{% endif %}{% if material.allocation_status == 'shortage' %} allocation_shortage{% endif %}{% if material.origin_status_source == 'default_conservative' %} default_conservative{% endif %}{% if material.material_name_missing %} missing_material_name{% endif %}">
@@ -1337,12 +1339,12 @@
                             data-row-index="{{ material_index }}"
                             data-material-code="{{ material.material_code }}"
                             data-internal-code="{{ material.internal_material_code }}"
-                            data-current-norm="{{ material.bom_qty_per or '0' }}"
+                            data-current-norm="{{ effective_norm or '0' }}"
                             data-current-uom="{{ material.uom }}"
                             data-current-hs="{{ material.hs_code }}"
                             title="{% if row_override %}Đã thay sang {{ row_override.material_code }}{% else %}Click để thay NVL{% endif %}">
                       <span class="mono">{{ substitute_label }}</span>
-                      {% if row_override and row_override.material_code %}<small class="origin-material-code-override-mark">→ {{ row_override.material_code }}</small>{% endif %}
+                      {% if row_override and row_override.material_code and row_override.material_code != substitute_label %}<small class="origin-material-code-override-mark">→ {{ row_override.material_code }}</small>{% endif %}
                       {% if row_override and row_override.deleted %}<small class="origin-material-code-override-mark">(đã xoá)</small>{% endif %}
                     </button>
                   </td>
@@ -1354,14 +1356,12 @@
                     <span class="mono">{{ material.hs_code }}</span>
                   </td>
                   <td data-origin-column="bom" class="num">
-                    {% set norm_override = product.origin_sheet_material_overrides.get(material_index|string) if product.origin_sheet_material_overrides else none %}
-                    {% set effective_norm = (norm_override.norm_per_unit if norm_override and norm_override.norm_per_unit) or material.bom_qty_per %}
                     <input type="number" min="0" step="0.000001"
                            class="origin-norm-edit {% if norm_override and norm_override.norm_per_unit %}origin-norm-edit-overridden{% endif %}"
                            data-origin-norm-edit
                            data-product-code="{{ product.code }}"
                            data-row-index="{{ material_index }}"
-                           data-original-value="{{ material.bom_qty_per or '0' }}"
+                           data-original-value="{{ effective_norm or '0' }}"
                            value="{{ effective_norm or '0' }}"
                            aria-label="Định mức cho {{ material.material_code }}">
                     <small>{{ material.uom }}</small>
@@ -1647,7 +1647,43 @@
 
   let refreshCaseShellInteractions = () => {};
 
-  const replaceCaseShellFromResponse = async (response, fallbackMessage = "") => {
+  const nextPaint = () => new Promise((resolve) => {
+    window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
+  });
+
+  const setOriginSheetLoading = (button, active) => {
+    const panel = button?.closest?.("[data-origin-sheet-panel]");
+    if (!panel) return;
+    if (!active) {
+      panel.classList.remove("origin-sheet-panel-loading");
+      panel.removeAttribute("aria-busy");
+      panel.querySelector("[data-origin-sheet-loading]")?.remove();
+      return;
+    }
+    panel.classList.add("origin-sheet-panel-loading");
+    panel.setAttribute("aria-busy", "true");
+    const productCode = panel.dataset.productCode || "";
+    let notice = panel.querySelector("[data-origin-sheet-loading]");
+    if (!notice) {
+      notice = document.createElement("div");
+      notice.className = "origin-sheet-loading";
+      notice.dataset.originSheetLoading = "1";
+      notice.setAttribute("role", "status");
+      notice.setAttribute("aria-live", "polite");
+      notice.appendChild(document.createElement("span")).className = "origin-sheet-loading-spinner";
+      notice.lastElementChild.setAttribute("aria-hidden", "true");
+      notice.appendChild(document.createElement("strong"));
+      notice.appendChild(document.createElement("span"));
+      const toolbar = panel.querySelector(".origin-sheet-toolbar");
+      toolbar?.insertAdjacentElement("afterend", notice);
+    }
+    const title = notice.querySelector("strong");
+    const detail = notice.querySelector("span:last-child");
+    if (title) title.textContent = `Đang load BOM vào bảng kê${productCode ? ` ${productCode}` : ""}`;
+    if (detail) detail.textContent = "Đang tính lại tồn CO và cập nhật sheet, vui lòng giữ trang này mở.";
+  };
+
+  const replaceCaseShellFromResponse = async (response, fallbackMessage = "", options = {}) => {
     const text = await response.text();
     const doc = new DOMParser().parseFromString(text, "text/html");
     const nextShell = doc.querySelector("[data-co-case-shell]");
@@ -1671,7 +1707,7 @@
     refreshCaseShellInteractions();
     const flash = flashMessageFromDocument(doc);
     toast(flash.message || fallbackMessage, response.ok && flash.kind !== "error" ? "success" : "error");
-    if (response.url) {
+    if (options.replaceHistory !== false && response.url) {
       window.history.replaceState({}, "", response.url);
     }
   };
@@ -1740,6 +1776,22 @@
         origin_sheet_status_label: sheetStatusLabel,
       };
     }).filter((product) => product.code);
+    const sheetStates = {};
+    products.forEach((product) => {
+      const panel = Array.from(form?.querySelectorAll("[data-origin-sheet-panel]") || [])
+        .find((item) => item.dataset.productCode === product.code);
+      const recommendation = panel?.querySelector("[data-origin-recommendation]");
+      sheetStates[product.code] = {
+        status: product.origin_sheet_status || "draft",
+        status_label: product.origin_sheet_status_label || "",
+        form_override: recommendation?.querySelector("[data-origin-recommendation-form]")?.value || "",
+        criteria_override: recommendation?.querySelector("[data-origin-recommendation-criteria]")?.value || "",
+        lvc_threshold_override: recommendation?.querySelector("[data-origin-recommendation-lvc]")?.value || "",
+        rvc_threshold_override: recommendation?.querySelector("[data-origin-recommendation-rvc]")?.value || "",
+        currency_mode: recommendation?.querySelector("[data-origin-recommendation-currency]")?.value || "native",
+        optimization_mode: recommendation?.querySelector("[data-origin-recommendation-optimization]")?.value || "max_lvc",
+      };
+    });
     const overrides = {};
     products.forEach((product) => {
       if (!product.bom_product_artifact_id) return;
@@ -1751,6 +1803,7 @@
       bom_artifact_id: form?.querySelector('select[name="bom_artifact_id"]')?.value || "",
       bom_product_artifact_overrides: overrides,
       products,
+      origin_sheet_states: sheetStates,
       expected_revision: workbook?.dataset.originRevision || "",
       ...extras,
     };
@@ -1793,22 +1846,30 @@
     event.preventDefault();
     const method = (submitter?.getAttribute("formmethod") || form.dataset.ajaxSubmitMethod || form.getAttribute("method") || "GET").toUpperCase();
     const isOriginSheetAction = /\/origin\/sheet\/[^/]+\/(calculate|lock|reopen)$/.test(action);
+    const isOriginSheetCalculate = /\/origin\/sheet\/[^/]+\/calculate$/.test(action);
     const payload = method === "GET"
       ? {body: null, headers: {"Accept": "text/html"}}
       : isOriginSheetAction
         ? compactOriginRequest(form, submitter, "text/html", {mark_stale: false})
         : ajaxFormPayload(form, submitter, "text/html");
     submitter?.setAttribute("disabled", "disabled");
+    if (isOriginSheetCalculate) setOriginSheetLoading(submitter, true);
+    beginAsync();
     try {
+      if (isOriginSheetCalculate) await nextPaint();
       const response = await fetch(action, {
         method,
         body: payload.body,
         headers: payload.headers,
       });
-      await replaceCaseShellFromResponse(response, actionToast(submitter, form) || form.dataset.ajaxSubmitLabel);
+      await replaceCaseShellFromResponse(response, actionToast(submitter, form) || form.dataset.ajaxSubmitLabel, {
+        replaceHistory: method === "GET",
+      });
     } catch (_error) {
       toast("Không lưu được thao tác; thử lại hoặc tải lại trang.", "error");
     } finally {
+      endAsync();
+      if (isOriginSheetCalculate) setOriginSheetLoading(submitter, false);
       submitter?.removeAttribute("disabled");
     }
   });
@@ -1872,13 +1933,10 @@
       const form = workbook.closest("form");
       const url = workbook.dataset.originAutosaveUrl || "";
       if (form && url) {
-        const marker = document.createElement("input");
-        marker.type = "hidden";
-        marker.name = "stale_from_index";
-        marker.value = String(Math.max(fromIndex - 1, 0));
-        form.appendChild(marker);
-        const payload = ajaxFormPayload(form, null, "application/json");
-        marker.remove();
+        const payload = compactOriginRequest(form, null, "application/json", {
+          stale_from_index: Math.max(fromIndex - 1, 0),
+          mark_stale: true,
+        });
         fetch(url, {method: "POST", body: payload.body, headers: payload.headers}).catch(() => {
           toast("Chưa lưu được thứ tự sheet.", "error");
         });
@@ -2653,11 +2711,14 @@
       saveBtn.addEventListener("click", async () => {
         saveBtn.disabled = true;
         setStatus("Đang lưu…", "info");
+        const form = panel.closest("form");
+        const payload = form ? compactOriginPayload(form) : {};
         try {
           const response = await fetch(url, {
             method: "POST",
             headers: {"Content-Type": "application/json", "Accept": "application/json"},
             body: JSON.stringify({
+              ...payload,
               form_override: formSel?.value || "",
               criteria_override: criteriaInp?.value || "",
               lvc_threshold_override: lvcInp?.value || "",
@@ -2772,6 +2833,12 @@
     modal.querySelectorAll("[data-origin-substitute-modal-close]").forEach((node) => {
       node.addEventListener("click", close);
     });
+    document.addEventListener("click", (event) => {
+      const closeTrigger = event.target.closest?.("[data-origin-substitute-modal-close]");
+      if (!closeTrigger || !closeTrigger.closest("[data-origin-substitute-modal]")) return;
+      event.preventDefault();
+      close();
+    }, true);
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && !modal.hidden) close();
     });
@@ -3050,10 +3117,77 @@
       return li;
     };
 
+    const buildReplacementAllocationRows = (row, item, feasibility, norm) => {
+      const group = row.dataset.allocationGroup || "";
+      const panel = row.closest("[data-origin-sheet-panel]");
+      if (!group || !panel) return [];
+      const productSequence = panel.querySelector('input[name$="_allocation_sequence"]')?.value || "";
+      const rows = [];
+      (feasibility?.alloc?.taken || []).forEach((entry, index) => {
+        const lot = entry.lot || {};
+        const take = Number(entry.take || 0);
+        const unitValue = Number(entry.unit_value || lot.unit_value || 0);
+        const value = take * unitValue;
+        const remaining = Math.max(0, Number(lot.remaining_qty || lot.available_qty || 0) - take);
+        const tr = document.createElement("tr");
+        tr.className = "origin-allocation-row origin-row-edited";
+        tr.setAttribute("data-origin-allocation-row", "");
+        tr.setAttribute("data-allocation-detail", "");
+        tr.dataset.allocationGroup = group;
+        tr.innerHTML = `
+          <td data-origin-column="row"></td>
+          <td data-origin-column="code"><span class="allocation-indent">Dòng tồn ${index + 1}</span></td>
+          <td data-origin-column="name">${lot.material_description || item.name || ""}</td>
+          <td data-origin-column="hs"><span class="mono">${lot.hs_code || item.hs_code || ""}</span></td>
+          <td data-origin-column="bom"></td>
+          <td data-origin-column="consumed" class="num">${fmtNumber(take, 6)} <small>${lot.uom || item.uom || ""}</small></td>
+          <td data-origin-column="unit-value" class="num">${unitValue > 0 ? fmtNumber(unitValue, 6) : "Thiếu"} <small>${lot.currency || ""}</small></td>
+          <td data-origin-column="material-value" class="num">${value > 0 ? fmtNumber(value, 2) : "Thiếu"}</td>
+          <td data-origin-column="origin"></td>
+          <td data-origin-column="non-origin" class="num">${value > 0 ? fmtNumber(value, 2) : "0"}</td>
+          <td data-origin-column="source">
+            <strong>${lot.import_declaration_no || ""} / line ${lot.line_no || lot.import_line_no || ""}</strong>
+            <small>Bước ${productSequence || "?"} · tồn trước ${fmtNumber(Number(lot.remaining_qty || lot.available_qty || 0), 6)} -> còn ${fmtNumber(remaining, 6)}</small>
+            <small>${lot.source_row || ""}</small>
+          </td>
+        `;
+        rows.push(tr);
+      });
+      return rows;
+    };
+
+    const replaceAllocationRowsLocally = (row, item, feasibility, norm) => {
+      const group = row.dataset.allocationGroup || "";
+      const panel = row.closest("[data-origin-sheet-panel]");
+      if (!group || !panel) return;
+      panel.querySelectorAll(`[data-origin-allocation-row][data-allocation-group="${group}"]`).forEach((allocationRow) => allocationRow.remove());
+      let anchor = row;
+      buildReplacementAllocationRows(row, item, feasibility, norm).forEach((allocationRow) => {
+        anchor.after(allocationRow);
+        anchor = allocationRow;
+      });
+      const sourceCell = row.querySelector(".origin-source-cell");
+      if (sourceCell) {
+        const taken = feasibility?.alloc?.taken || [];
+        const first = taken[0]?.lot || {};
+        const lotCount = taken.length;
+        sourceCell.innerHTML = `
+          <span class="badge source-status-badge badge-success" title="Đã tính lại từ NVL thay thế">Đủ dữ liệu</span>
+          ${lotCount === 1
+            ? `<span class="source-chip source-chip-reference" title="${first.import_declaration_no || ""} / line ${first.line_no || first.import_line_no || ""}">${first.import_declaration_no || ""} / ${first.line_no || first.import_line_no || ""}</span>`
+            : lotCount > 1
+              ? `<span class="source-chip source-chip-count" title="Đã thay NVL">${lotCount} dòng tồn</span>`
+              : `<span class="source-chip source-chip-warning">Chưa có dòng tồn</span>`}
+        `;
+      }
+    };
+
     const applyReplaceLocally = (item, feasibility, norm) => {
       if (!state.row) return;
       const row = state.row;
       const panel = row.closest("[data-origin-sheet-panel]");
+      const previousMaterialCode = rowMaterialCode(row);
+      pushSheetHistory(panel);
       const consumedNew = feasibility?.consumedNew || 0;
       const materialValueNew = feasibility?.materialValueNew || 0;
       const unitValueAvg = consumedNew > 0 ? (materialValueNew / consumedNew) : 0;
@@ -3104,6 +3238,7 @@
       }
       row.classList.remove("origin-row-deleted");
       row.classList.add("origin-row-edited");
+      cacheStockSummaryForCode(panel, item.material_code, item.stock);
       const ops = ensurePendingOps(panel);
       delete ops.deletes[String(state.rowIndex)];
       ops.replaces[String(state.rowIndex)] = {
@@ -3113,7 +3248,7 @@
         new_hs_code: item.hs_code || "",
       };
       markSheetDirty(panel);
-      recomputeSheetTotals(panel);
+      reallocateSheet(panel, {codes: [previousMaterialCode, item.material_code]});
     };
 
     const buildAddedRow = (item, feasibility, norm, key) => {
@@ -3127,6 +3262,7 @@
       tr.dataset.rowOriginalNorm = String(norm);
       tr.dataset.rowNonOriginBase = String(nonOriginNew);
       tr.dataset.rowOriginStatus = originStatus;
+      tr.dataset.allocationGroup = `allocation-added-${key}`;
       tr.dataset.pendingAddedKey = key;
       tr.classList.add("origin-row-added");
       tr.innerHTML = `
@@ -3172,7 +3308,9 @@
           <span data-origin-cell-non-origin data-base-non-origin="${nonOriginNew}">${fmtNumber(nonOriginNew, 2)}</span>
         </td>
         <td data-origin-column="source">
-          <span class="badge badge-warning">Dòng mới — chưa lưu</span>
+          <div class="origin-source-cell">
+            <span class="badge source-status-badge badge-warning">Dòng mới — chưa lưu</span>
+          </div>
         </td>
       `;
       return tr;
@@ -3183,10 +3321,12 @@
       if (!panel) return;
       const tbody = panel.querySelector("table.origin-material-table tbody");
       if (!tbody) return;
+      pushSheetHistory(panel);
       const ops = ensurePendingOps(panel);
       const key = `added_${ops.adds.length + tbody.querySelectorAll("[data-pending-added-key]").length}`;
       const tr = buildAddedRow(item, feasibility, norm, key);
       tbody.appendChild(tr);
+      cacheStockSummaryForCode(panel, item.material_code, item.stock);
       ops.adds.push({
         key,
         new_material_code: item.material_code,
@@ -3196,7 +3336,7 @@
         new_hs_code: item.hs_code || "",
       });
       markSheetDirty(panel);
-      recomputeSheetTotals(panel);
+      reallocateSheet(panel, {codes: [item.material_code]});
     };
 
     const apply = (item) => {
@@ -3224,6 +3364,8 @@
       if (!state.row) return;
       if (!confirm(`Xoá dòng NVL ${state.materialLabel || state.materialCode}?`)) return;
       const panel = state.row.closest("[data-origin-sheet-panel]");
+      const deletedMaterialCode = rowMaterialCode(state.row);
+      pushSheetHistory(panel);
       state.row.classList.add("origin-row-deleted");
       const group = state.row.dataset.allocationGroup;
       if (group) {
@@ -3240,7 +3382,7 @@
         ops.deletes[String(state.rowIndex)] = true;
       }
       markSheetDirty(panel);
-      recomputeSheetTotals(panel);
+      reallocateSheet(panel, {codes: [deletedMaterialCode]});
       toast("Đã đánh dấu xoá (client-side). Bấm \"Lưu bảng kê\" để ghi.", "success");
       close();
     };
@@ -3296,6 +3438,8 @@
               const candidate = latestCandidatesByCode.get(code);
               if (candidate) {
                 candidate.stock = stock;
+                const panel = sheetPanelOfState();
+                if (panel) cacheStockSummaryForCode(panel, code, stock);
                 renderFeasibilityCell(li, computeFeasibility(candidate), candidate);
               }
             });
@@ -3488,10 +3632,199 @@
     const idx = path.indexOf("co-case");
     return idx >= 0 ? path[idx + 1] : "";
   };
+  const currentOriginUrl = () => {
+    const clientId = currentClientId();
+    const caseId = currentCaseId();
+    return clientId && caseId
+      ? `/clients/${encodeURIComponent(clientId)}/co-case/${encodeURIComponent(caseId)}/origin`
+      : "";
+  };
 
   const fmtNumber = (value, fractionDigits = 2) => {
     if (!Number.isFinite(value)) return "—";
     return value.toLocaleString("vi-VN", {maximumFractionDigits: fractionDigits});
+  };
+
+  const originStockCache = new Map();
+  const originStockKey = (panel, code) => `${currentCaseId()}|${panel?.dataset.productCode || ""}|${code || ""}`;
+  const cacheStockSummaryForCode = (panel, code, stock) => {
+    const cleanCode = (code || "").trim();
+    if (!panel || !cleanCode || !stock) return;
+    originStockCache.set(originStockKey(panel, cleanCode), {
+      ...stock,
+      lots: (stock.lots || []).map((lot) => ({...lot})),
+    });
+  };
+  const cachedStockSummaryForCode = (panel, code) => originStockCache.get(originStockKey(panel, code || ""));
+  const stockUrlForPanel = (panel) => {
+    const productCode = panel?.dataset.productCode || "";
+    if (!productCode) return "";
+    return `/clients/${encodeURIComponent(currentClientId())}/co-case/${encodeURIComponent(currentCaseId())}/origin/sheet/${encodeURIComponent(productCode)}/substitute-stock`;
+  };
+  const fetchStockForPanelCodes = async (panel, codes) => {
+    const cleanCodes = [...new Set((codes || []).map((code) => (code || "").trim()).filter(Boolean))];
+    const missing = cleanCodes.filter((code) => !cachedStockSummaryForCode(panel, code));
+    if (!panel || missing.length === 0) return;
+    const url = stockUrlForPanel(panel);
+    if (!url) return;
+    const response = await fetch(`${url}?codes=${encodeURIComponent(missing.join(","))}`, {
+      headers: {"Accept": "application/json"},
+    });
+    if (!response.ok) return;
+    const data = await response.json();
+    Object.entries(data.stock || {}).forEach(([code, stock]) => cacheStockSummaryForCode(panel, code, stock));
+  };
+  const rowMaterialCode = (row) => (
+    row?.querySelector("[data-origin-substitute-trigger]")?.dataset.materialCode
+    || row?.querySelector("[data-origin-substitute-trigger]")?.dataset.internalCode
+    || ""
+  ).trim();
+  const rowMaterialName = (row) => (row?.querySelector(".origin-material-name")?.textContent || "").trim();
+  const rowMaterialHs = (row) => (row?.querySelector("[data-origin-column='hs'] .mono")?.textContent || "").trim();
+  const rowNormValue = (row) => parseFloat(row?.querySelector("[data-origin-norm-edit]")?.value || row?.dataset.rowOriginalNorm || "0") || 0;
+  const rowProductQty = (panel, row) => {
+    const panelQty = parseFloat(panel?.dataset.productQuantity || "0") || 0;
+    if (panelQty > 0) return panelQty;
+    const baseConsumed = parseFloat(row?.querySelector("[data-origin-cell-consumed]")?.dataset.baseConsumed || "0") || 0;
+    const originalNorm = parseFloat(row?.dataset.rowOriginalNorm || "0") || 0;
+    return baseConsumed > 0 && originalNorm > 0 ? baseConsumed / originalNorm : 0;
+  };
+  const rowRequiredQty = (panel, row) => rowNormValue(row) * rowProductQty(panel, row);
+  const setRowSourceSummary = (row, result) => {
+    const sourceCell = row.querySelector(".origin-source-cell");
+    if (!sourceCell) return;
+    const taken = result?.taken || [];
+    const first = taken[0]?.lot || {};
+    const shortage = result?.shortageQty || 0;
+    sourceCell.innerHTML = `
+      <span class="badge source-status-badge badge-${shortage > 0 ? "warning" : "success"}" title="Tính lại theo tồn hiện tại">${shortage > 0 ? "Thiếu tồn CO" : "Đủ dữ liệu"}</span>
+      ${taken.length === 1
+        ? `<span class="source-chip source-chip-reference" title="${first.import_declaration_no || ""} / line ${first.line_no || first.import_line_no || ""}">${first.import_declaration_no || ""} / ${first.line_no || first.import_line_no || ""}</span>`
+        : taken.length > 1
+          ? `<span class="source-chip source-chip-count" title="Tính lại theo tồn hiện tại">${taken.length} dòng tồn</span>`
+          : `<span class="source-chip source-chip-warning">Chưa có dòng tồn</span>`}
+      ${shortage > 0 ? `<span class="source-chip source-chip-warning">Thiếu ${fmtNumber(shortage, 6)}</span>` : ""}
+    `;
+  };
+  const allocateLotsForRow = (lots, requiredQty) => {
+    let remaining = Math.max(0, requiredQty || 0);
+    let totalValue = 0;
+    const taken = [];
+    for (const lot of lots || []) {
+      if (remaining <= 1e-9) break;
+      const available = Number(lot._liveRemainingQty ?? lot.remaining_qty ?? lot.available_qty ?? 0);
+      if (!Number.isFinite(available) || available <= 0) continue;
+      const take = Math.min(remaining, available);
+      const unitValue = Number(lot.unit_value || lot.unit_price || 0);
+      const unitValueOk = Number.isFinite(unitValue) && unitValue > 0;
+      if (unitValueOk) totalValue += take * unitValue;
+      lot._liveRemainingQty = available - take;
+      taken.push({lot, take, unit_value: unitValueOk ? unitValue : 0, opening_qty: available, remaining_qty: lot._liveRemainingQty});
+      remaining -= take;
+    }
+    return {taken, totalValue, shortageQty: Math.max(0, remaining), missingPrice: taken.some((entry) => entry.unit_value <= 0)};
+  };
+  const buildLiveAllocationRows = (row, result) => {
+    const group = row.dataset.allocationGroup || "";
+    const panel = row.closest("[data-origin-sheet-panel]");
+    const productSequence = panel?.querySelector('input[name$="_allocation_sequence"]')?.value || "";
+    const materialName = rowMaterialName(row);
+    const materialHs = rowMaterialHs(row);
+    return (result?.taken || []).map((entry, index) => {
+      const lot = entry.lot || {};
+      const take = Number(entry.take || 0);
+      const unitValue = Number(entry.unit_value || lot.unit_value || 0);
+      const value = take * unitValue;
+      const tr = document.createElement("tr");
+      tr.className = "origin-allocation-row origin-row-edited";
+      tr.setAttribute("data-origin-allocation-row", "");
+      tr.setAttribute("data-allocation-detail", "");
+      tr.dataset.allocationGroup = group;
+      tr.innerHTML = `
+        <td data-origin-column="row"></td>
+        <td data-origin-column="code"><span class="allocation-indent">Dòng tồn ${index + 1}</span></td>
+        <td data-origin-column="name">${lot.material_description || materialName}</td>
+        <td data-origin-column="hs"><span class="mono">${lot.hs_code || materialHs}</span></td>
+        <td data-origin-column="bom"></td>
+        <td data-origin-column="consumed" class="num">${fmtNumber(take, 6)} <small>${lot.uom || ""}</small></td>
+        <td data-origin-column="unit-value" class="num">${unitValue > 0 ? fmtNumber(unitValue, 6) : "Thiếu"} <small>${lot.currency || ""}</small></td>
+        <td data-origin-column="material-value" class="num">${value > 0 ? fmtNumber(value, 2) : "Thiếu"}</td>
+        <td data-origin-column="origin"></td>
+        <td data-origin-column="non-origin" class="num">${value > 0 ? fmtNumber(value, 2) : "0"}</td>
+        <td data-origin-column="source">
+          <strong>${lot.import_declaration_no || ""} / line ${lot.line_no || lot.import_line_no || ""}</strong>
+          <small>Bước ${productSequence || "?"} · tồn trước ${fmtNumber(Number(entry.opening_qty || 0), 6)} -> còn ${fmtNumber(Number(entry.remaining_qty || 0), 6)}</small>
+          <small>${lot.source_row || ""}</small>
+        </td>
+      `;
+      return tr;
+    });
+  };
+  const applyAllocationResultToRow = (row, result, requiredQty) => {
+    const materialValue = result.totalValue || 0;
+    const unitValueAvg = requiredQty > 0 ? materialValue / requiredQty : 0;
+    const originStatus = row.dataset.rowOriginStatus || "non_origin";
+    const nonOrigin = originStatus === "origin" ? 0 : materialValue;
+    row.dataset.rowOriginalNorm = String(rowNormValue(row));
+    row.dataset.rowNonOriginBase = String(nonOrigin);
+    const consumedCell = row.querySelector("[data-origin-cell-consumed]");
+    if (consumedCell) {
+      consumedCell.dataset.baseConsumed = String(requiredQty);
+      consumedCell.textContent = fmtNumber(requiredQty, 6);
+    }
+    const unitValueCell = row.querySelector("[data-origin-cell-unit-value]");
+    if (unitValueCell) {
+      unitValueCell.dataset.baseUnitValue = String(unitValueAvg);
+      unitValueCell.textContent = unitValueAvg > 0 ? fmtNumber(unitValueAvg, 6) : "Thiếu";
+    }
+    const matValueCell = row.querySelector("[data-origin-cell-material-value]");
+    if (matValueCell) {
+      matValueCell.dataset.baseMaterialValue = String(materialValue);
+      matValueCell.textContent = materialValue > 0 ? fmtNumber(materialValue, 2) : "Thiếu";
+    }
+    const nonOriginCell = row.querySelector("[data-origin-cell-non-origin]");
+    if (nonOriginCell) {
+      nonOriginCell.dataset.baseNonOrigin = String(nonOrigin);
+      nonOriginCell.textContent = fmtNumber(nonOrigin, 2);
+    }
+    row.classList.toggle("origin-row-warning", (result.shortageQty || 0) > 0 || result.missingPrice);
+    setRowSourceSummary(row, result);
+  };
+  const reallocateSheet = async (panel, options = {}) => {
+    if (!panel) return;
+    const targetCodes = new Set((options.codes || []).map((code) => (code || "").trim()).filter(Boolean));
+    const rows = Array.from(panel.querySelectorAll("[data-origin-material-row]"))
+      .filter((row) => !row.classList.contains("origin-row-deleted"));
+    const codes = targetCodes.size > 0 ? [...targetCodes] : rows.map(rowMaterialCode).filter(Boolean);
+    try {
+      await fetchStockForPanelCodes(panel, codes);
+    } catch (_error) {
+      return;
+    }
+    const lotsByCode = new Map();
+    codes.forEach((code) => {
+      if (lotsByCode.has(code)) return;
+      const stock = cachedStockSummaryForCode(panel, code);
+      lotsByCode.set(code, (stock?.lots || []).map((lot) => ({...lot, _liveRemainingQty: Number(lot.remaining_qty || lot.available_qty || 0)})));
+    });
+    rows.forEach((row) => {
+      const code = rowMaterialCode(row);
+      if (targetCodes.size > 0 && !targetCodes.has(code)) return;
+      const group = row.dataset.allocationGroup || "";
+      if (!code || !group) return;
+      if (!cachedStockSummaryForCode(panel, code)) return;
+      panel.querySelectorAll(`[data-origin-allocation-row][data-allocation-group="${group}"]`).forEach((allocationRow) => allocationRow.remove());
+      const requiredQty = rowRequiredQty(panel, row);
+      const result = allocateLotsForRow(lotsByCode.get(code) || [], requiredQty);
+      applyAllocationResultToRow(row, result, requiredQty);
+      let anchor = row;
+      buildLiveAllocationRows(row, result).forEach((allocationRow) => {
+        anchor.after(allocationRow);
+        anchor = allocationRow;
+      });
+    });
+    recomputeSheetTotals(panel);
+    if (!options.silent) markSheetDirty(panel);
   };
 
   const recomputeSheetTotals = (panel) => {
@@ -3566,6 +3899,121 @@
     + (ops?.adds || []).length
   );
 
+  const cloneOps = (ops) => JSON.parse(JSON.stringify(ops || {replaces: {}, adds: [], deletes: {}, normEdits: {}}));
+
+  const sheetHistory = (panel) => {
+    if (!panel.__sheetHistory) panel.__sheetHistory = {past: [], future: [], applying: false};
+    return panel.__sheetHistory;
+  };
+
+  const snapshotSheet = (panel) => {
+    const tbody = panel?.querySelector("table.origin-material-table tbody");
+    if (!tbody) return null;
+    const clone = tbody.cloneNode(true);
+    const sourceInputs = Array.from(tbody.querySelectorAll("input, textarea, select"));
+    clone.querySelectorAll("input, textarea, select").forEach((field, index) => {
+      const source = sourceInputs[index];
+      if (!source) return;
+      if (field.tagName === "SELECT") {
+        Array.from(field.options).forEach((option) => {
+          option.selected = source.options?.[option.index]?.selected || false;
+        });
+      } else if (field.type === "checkbox" || field.type === "radio") {
+        if (source.checked) field.setAttribute("checked", "checked");
+        else field.removeAttribute("checked");
+      } else {
+        field.setAttribute("value", source.value || "");
+      }
+    });
+    return {html: clone.innerHTML, ops: cloneOps(panel.__pendingOps)};
+  };
+
+  const updateSheetHistoryButtons = (panel) => {
+    const history = panel?.__sheetHistory || {past: [], future: []};
+    const banner = panel?.querySelector("[data-origin-dirty-banner]");
+    if (!banner) return;
+    const undo = banner.querySelector("[data-origin-history-undo]");
+    const redo = banner.querySelector("[data-origin-history-redo]");
+    const save = banner.querySelector("[data-origin-save-now]");
+    if (undo) undo.disabled = history.past.length === 0;
+    if (redo) redo.disabled = history.future.length === 0;
+    if (save && !save.dataset.saving) save.disabled = pendingOpsCount(panel.__pendingOps) === 0;
+  };
+
+  const restoreSheetSnapshot = (panel, snapshot) => {
+    const tbody = panel?.querySelector("table.origin-material-table tbody");
+    if (!tbody || !snapshot) return;
+    tbody.innerHTML = snapshot.html || "";
+    panel.__pendingOps = cloneOps(snapshot.ops);
+    recomputeSheetTotals(panel);
+    const hasOps = pendingOpsCount(panel.__pendingOps) > 0;
+    const history = sheetHistory(panel);
+    if (hasOps || history.future.length > 0) {
+      markSheetDirty(panel, hasOps ? undefined : "Không có thay đổi chưa lưu · có thể làm lại");
+    } else {
+      const banner = panel.querySelector("[data-origin-dirty-banner]");
+      if (banner) banner.remove();
+      panel.classList.remove("origin-sheet-panel-dirty");
+    }
+    updateSheetHistoryButtons(panel);
+  };
+
+  const pushSheetHistory = (panel) => {
+    if (!panel) return;
+    const history = sheetHistory(panel);
+    if (history.applying) return;
+    const snapshot = snapshotSheet(panel);
+    if (!snapshot) return;
+    history.past.push(snapshot);
+    if (history.past.length > 50) history.past.shift();
+    history.future = [];
+    updateSheetHistoryButtons(panel);
+  };
+
+  const undoSheetEdit = (panel) => {
+    const history = sheetHistory(panel);
+    if (history.past.length === 0) return;
+    const current = snapshotSheet(panel);
+    const previous = history.past.pop();
+    if (current) history.future.push(current);
+    history.applying = true;
+    restoreSheetSnapshot(panel, previous);
+    history.applying = false;
+  };
+
+  const redoSheetEdit = (panel) => {
+    const history = sheetHistory(panel);
+    if (history.future.length === 0) return;
+    const current = snapshotSheet(panel);
+    const next = history.future.pop();
+    if (current) history.past.push(current);
+    history.applying = true;
+    restoreSheetSnapshot(panel, next);
+    history.applying = false;
+  };
+
+  const syncNormEditOp = (input) => {
+    const panel = input?.closest("[data-origin-sheet-panel]");
+    if (!panel) return;
+    const ops = ensurePendingOps(panel);
+    const current = (input.value || "").trim();
+    const original = (input.dataset.originalValue || "").trim();
+    const rowIndex = input.dataset.rowIndex || "";
+    if (!rowIndex) return;
+    const row = input.closest("[data-origin-material-row]");
+    if (row?.dataset.pendingAddedKey) {
+      const op = ops.adds.find((entry) => entry.key === row.dataset.pendingAddedKey);
+      if (op) op.new_norm_per_unit = current;
+      return;
+    }
+    if (ops.replaces[rowIndex]) {
+      ops.replaces[rowIndex].new_norm_per_unit = current;
+      return;
+    }
+    if (current && current !== original) ops.normEdits[rowIndex] = current;
+    else delete ops.normEdits[rowIndex];
+  };
+
   const markSheetDirty = (panel, label) => {
     if (!panel) return;
     panel.classList.add("origin-sheet-panel-dirty");
@@ -3576,15 +4024,19 @@
       banner.className = "origin-dirty-banner";
       banner.innerHTML = `
         <span data-origin-dirty-msg>Bảng kê đã thay đổi (chưa lưu)</span>
+        <button type="button" class="btn-secondary" data-origin-history-undo title="Lùi một trạng thái">Lùi</button>
+        <button type="button" class="btn-secondary" data-origin-history-redo title="Tiến một trạng thái">Tiến</button>
         <button type="button" class="btn-primary" data-origin-save-now>Lưu bảng kê</button>
         <button type="button" class="btn-secondary" data-origin-discard>Bỏ thay đổi</button>
       `;
       const strip = panel.querySelector("[data-origin-strip]");
       strip?.parentNode?.insertBefore(banner, strip.nextSibling);
+      banner.querySelector("[data-origin-history-undo]")?.addEventListener("click", () => undoSheetEdit(panel));
+      banner.querySelector("[data-origin-history-redo]")?.addEventListener("click", () => redoSheetEdit(panel));
       banner.querySelector("[data-origin-save-now]")?.addEventListener("click", () => triggerSave(panel));
       banner.querySelector("[data-origin-discard]")?.addEventListener("click", () => {
         if (!confirm("Bỏ tất cả thay đổi chưa lưu trên sheet này?")) return;
-        window.location.reload();
+        window.location.assign(currentOriginUrl() || window.location.pathname);
       });
     }
     const ops = panel.__pendingOps;
@@ -3593,18 +4045,24 @@
       const count = pendingOpsCount(ops);
       msg.textContent = label || `Bảng kê đã thay đổi · ${count} thao tác chưa lưu`;
     }
+    updateSheetHistoryButtons(panel);
   };
 
   const clearSheetDirty = (panel) => {
     if (!panel) return;
     panel.classList.remove("origin-sheet-panel-dirty");
     panel.__pendingOps = {replaces: {}, adds: [], deletes: {}, normEdits: {}};
+    panel.__sheetHistory = {past: [], future: [], applying: false};
     const banner = panel.querySelector("[data-origin-dirty-banner]");
     if (banner) banner.remove();
   };
 
   const triggerSave = async (panel) => {
     if (!panel) return;
+    if (panel.__originSaveInFlight) {
+      toast("Đang lưu bảng kê, vui lòng chờ.", "info");
+      return;
+    }
     const ops = ensurePendingOps(panel);
     // Sweep ĐM input edits — anything that diverged from originalValue counts.
     panel.querySelectorAll("[data-origin-norm-edit]").forEach((input) => {
@@ -3633,14 +4091,22 @@
     }
     const productCode = panel.dataset.productCode || "";
     const url = `/clients/${encodeURIComponent(currentClientId())}/co-case/${encodeURIComponent(currentCaseId())}/origin/sheet/${encodeURIComponent(productCode)}/save`;
+    const form = panel.closest("form");
+    const workbookPayload = form ? compactOriginPayload(form) : {};
     const banner = panel.querySelector("[data-origin-dirty-banner]");
     const saveBtn = banner?.querySelector("[data-origin-save-now]");
-    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = "Đang lưu…"; }
+    if (saveBtn) { saveBtn.dataset.saving = "1"; saveBtn.disabled = true; saveBtn.textContent = "Đang lưu…"; }
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 60000);
+    let navigatingAfterSave = false;
+    panel.__originSaveInFlight = true;
     try {
       const response = await fetch(url, {
         method: "POST",
+        signal: controller.signal,
         headers: {"Content-Type": "application/json", "Accept": "application/json"},
         body: JSON.stringify({
+          ...workbookPayload,
           replaces: ops.replaces,
           adds: ops.adds,
           deletes: ops.deletes,
@@ -3652,27 +4118,73 @@
         let detail = "";
         try { detail = JSON.parse(text).detail || ""; } catch (_e) { detail = text.slice(0, 200); }
         toast(detail || `Lưu thất bại (HTTP ${response.status}).`, "error");
-        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = "Lưu bảng kê"; }
+        if (saveBtn) {
+          delete saveBtn.dataset.saving;
+          saveBtn.textContent = "Lưu bảng kê";
+          updateSheetHistoryButtons(panel);
+        }
         return;
       }
+      const saved = await response.json();
+      const workbook = panel.closest("[data-origin-workbook]");
+      if (saved.revision && workbook) workbook.dataset.originRevision = saved.revision;
       toast("Đã lưu bảng kê. Đang tải lại…", "success");
+      if (saveBtn) saveBtn.textContent = "Đã lưu, đang tải lại…";
       clearSheetDirty(panel);
-      window.location.reload();
+      navigatingAfterSave = true;
+      window.location.assign(currentOriginUrl() || window.location.pathname);
     } catch (err) {
-      toast(`Lỗi mạng: ${err}`, "error");
-      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = "Lưu bảng kê"; }
+      const message = err?.name === "AbortError"
+        ? "Lưu bảng kê quá lâu, đã dừng chờ. Kiểm tra Data Hub/source rồi thử lại."
+        : `Lỗi mạng: ${err}`;
+      toast(message, "error");
+      if (saveBtn) {
+        delete saveBtn.dataset.saving;
+        saveBtn.textContent = "Lưu bảng kê";
+        updateSheetHistoryButtons(panel);
+      }
+    } finally {
+      window.clearTimeout(timeout);
+      if (!navigatingAfterSave) panel.__originSaveInFlight = false;
     }
   };
 
   const initOriginLiveRecompute = (root = document) => {
     if (root.__originLiveRecomputeBound === true) return;
     root.__originLiveRecomputeBound = true;
+    document.body.addEventListener("focusin", (event) => {
+      const input = event.target?.closest?.("[data-origin-norm-edit]");
+      if (!input) return;
+      const panel = input.closest("[data-origin-sheet-panel]");
+      if (!panel) return;
+      panel.__normEditSnapshot = snapshotSheet(panel);
+      panel.__normEditHistoryPushed = false;
+    });
     document.body.addEventListener("input", (event) => {
       const input = event.target?.closest?.("[data-origin-norm-edit]");
       if (!input) return;
       const panel = input.closest("[data-origin-sheet-panel]");
-      recomputeSheetTotals(panel);
+      if (panel && !panel.__normEditHistoryPushed) {
+        const history = sheetHistory(panel);
+        if (panel.__normEditSnapshot && !history.applying) {
+          history.past.push(panel.__normEditSnapshot);
+          if (history.past.length > 50) history.past.shift();
+          history.future = [];
+        }
+        panel.__normEditHistoryPushed = true;
+      }
+      syncNormEditOp(input);
       markSheetDirty(panel);
+      const row = input.closest("[data-origin-material-row]");
+      reallocateSheet(panel, {codes: [rowMaterialCode(row)]});
+    });
+    document.body.addEventListener("focusout", (event) => {
+      const input = event.target?.closest?.("[data-origin-norm-edit]");
+      if (!input) return;
+      const panel = input.closest("[data-origin-sheet-panel]");
+      if (!panel) return;
+      panel.__normEditSnapshot = null;
+      panel.__normEditHistoryPushed = false;
     });
   };
 
@@ -3793,9 +4305,34 @@
     window.setTimeout(dismiss, 8000);
   };
 
+  const initOriginAllocationToggles = (root = document) => {
+    root.querySelectorAll("[data-allocation-toggle]").forEach((button) => {
+      if (button.dataset.allocationToggleInitialized === "1") return;
+      button.dataset.allocationToggleInitialized = "1";
+      const group = button.dataset.allocationGroup || "";
+      const rowsForButton = () => {
+        const panel = button.closest("[data-origin-sheet-panel]") || document;
+        return Array.from(panel.querySelectorAll("[data-allocation-detail]"))
+          .filter((row) => row.dataset.allocationGroup === group);
+      };
+      const setExpanded = (expanded) => {
+        button.setAttribute("aria-expanded", expanded ? "true" : "false");
+        button.title = expanded ? "Thu gọn dòng tồn" : "Mở dòng tồn";
+        rowsForButton().forEach((row) => {
+          row.hidden = !expanded;
+        });
+      };
+      button.addEventListener("click", () => {
+        setExpanded(button.getAttribute("aria-expanded") !== "true");
+      });
+      setExpanded(button.getAttribute("aria-expanded") === "true");
+    });
+  };
+
   refreshCaseShellInteractions = (root = document) => {
     initOriginWarningSummaries(root);
     initOriginColumnControls(root);
+    initOriginAllocationToggles(root);
     initOriginRecommendationOverrides(root);
     initOriginSubstituteModal();
     initOriginProposeBom(root);
@@ -3804,23 +4341,6 @@
     initCaseCreatedBanner(root);
   };
   refreshCaseShellInteractions();
-
-  document.querySelectorAll("[data-allocation-toggle]").forEach((button) => {
-    const group = button.dataset.allocationGroup || "";
-    const rows = Array.from(document.querySelectorAll("[data-allocation-detail]"))
-      .filter((row) => row.dataset.allocationGroup === group);
-    const setExpanded = (expanded) => {
-      button.setAttribute("aria-expanded", expanded ? "true" : "false");
-      button.title = expanded ? "Thu gọn dòng tồn" : "Mở dòng tồn";
-      rows.forEach((row) => {
-        row.hidden = !expanded;
-      });
-    };
-    button.addEventListener("click", () => {
-      setExpanded(button.getAttribute("aria-expanded") !== "true");
-    });
-    setExpanded(button.getAttribute("aria-expanded") === "true");
-  });
 
 })();
 </script>

@@ -186,9 +186,13 @@ class PortfolioService:
             client = self.client(client_id)
         except HTTPException:
             return []
-        rows = client.get("material_catalog", {}).get("published_rows") or client.get("material_catalog", {}).get("rows") or []
-        if not rows and isinstance(client.get("material_catalog"), list):
-            rows = client["material_catalog"]
+        catalog = client.get("material_catalog")
+        if isinstance(catalog, list):
+            rows = catalog
+        elif isinstance(catalog, dict):
+            rows = catalog.get("published_rows") or catalog.get("rows") or []
+        else:
+            rows = []
         text_query = (query or "").lower().strip()
         matches: list[dict] = []
         for row in rows:

@@ -223,6 +223,7 @@ def merge_origin_action_payload(case: dict, payload: dict) -> dict:
         for product in prepared.get("products", [])
         if str(product.get("code") or "").strip()
     }
+    product_sheet_states: dict[str, dict] = {}
     for incoming in payload.get("products") or []:
         if not isinstance(incoming, dict):
             continue
@@ -255,6 +256,11 @@ def merge_origin_action_payload(case: dict, payload: dict) -> dict:
                 product[key] = incoming.get(key)
         if isinstance(incoming.get("materials"), list):
             product["materials"] = incoming["materials"]
+        if incoming.get("origin_sheet_status") or incoming.get("origin_sheet_status_label"):
+            product_sheet_states[code] = {
+                "status": str(incoming.get("origin_sheet_status") or "").strip(),
+                "status_label": str(incoming.get("origin_sheet_status_label") or "").strip(),
+            }
         artifact_id = str(
             product.get("bom_product_artifact_id") or product.get("bom_product_version_id") or ""
         ).strip()
@@ -271,9 +277,15 @@ def merge_origin_action_payload(case: dict, payload: dict) -> dict:
         remainder = [code for code in products_by_code if code not in ordered]
         prepared["products"] = [products_by_code[code] for code in ordered + remainder if code in products_by_code]
     sheet_states = payload.get("origin_sheet_states")
+    if not isinstance(sheet_states, dict) and product_sheet_states:
+        sheet_states = product_sheet_states
     if isinstance(sheet_states, dict):
-        merged_states: dict[str, dict] = {}
         existing_states = prepared.get("origin_sheet_states") if isinstance(prepared.get("origin_sheet_states"), dict) else {}
+        merged_states: dict[str, dict] = {
+            str(code): dict(state)
+            for code, state in existing_states.items()
+            if isinstance(state, dict)
+        }
         for code, state in sheet_states.items():
             if not isinstance(state, dict):
                 continue
@@ -2153,6 +2165,123 @@ def prepare_case_origin_sheet(
     prepared = dict(case)
     prepared["products"] = products
     return prepared
+
+
+def recalculate_origin_sheet_edits(client: dict, case: dict, product_code: str) -> dict:
+    """Recompute one sheet from its saved sheet edits, without changing BOM selection."""
+    prepared = attach_origin_sheet_states(case)
+    products = prepared.get("products", [])
+    target_index = next(
+        (index for index, product in enumerate(products) if str(product.get("code") or "").strip() == product_code),
+        None,
+    )
+    if target_index is None:
+        return prepared
+    target = products[target_index]
+    overrides = target.get("origin_sheet_material_overrides") or {}
+    if not overrides:
+        return prepared
+
+    sheet_rows = sheet_edit_bom_rows(target, overrides)
+    material_codes = sorted({
+        str(row.get("material_code") or "").strip()
+        for row in sheet_rows
+        if str(row.get("material_code") or "").strip()
+    })
+    source_context = {"material_rows": [], "stock_rows": []}
+    stock_rows: list[dict] = []
+    try:
+        narrow_rows = portfolio_service.list_bcct_by_codes(client.get("id", ""), material_codes, direction="import")
+    except Exception:  # noqa: BLE001
+        narrow_rows = []
+    if narrow_rows:
+        try:
+            client_config = portfolio_service.get_client_config(client) if hasattr(portfolio_service, "get_client_config") else {}
+            stock_rows = co_stock_rows_from_bcct(narrow_rows, client_config)
+        except Exception:  # noqa: BLE001
+            stock_rows = []
+    if not stock_rows and not co_auth.data_hub_source_mode_enabled():
+        try:
+            source_context = co_case_source_context_cached(client, prepared)
+            stock_rows = source_context.get("stock_rows") or []
+        except Exception:  # noqa: BLE001
+            source_context = {"material_rows": [], "stock_rows": []}
+            stock_rows = []
+    material_index = material_catalog_index(source_context.get("material_rows") or [])
+    stock_pool = co_stock_allocation_pool(stock_rows)
+    for previous in products[:target_index]:
+        apply_existing_origin_product_consumption(previous, stock_pool)
+
+    form_lane = recommended_form_lane(
+        prioritized_form_lanes(prepared.get("destination_market", ""), [str(target.get("finished_hs") or "")])
+    )
+    recalculated = origin_product_from_invoice_match(
+        origin_match_from_existing_product(target),
+        sheet_rows,
+        form_lane,
+        material_index,
+        stock_pool,
+        product_sequence=target_index + 1,
+        bom_product_code=str(target.get("bom_product_code") or target.get("code") or ""),
+    )
+    for key in [
+        "bom_product_artifact_id",
+        "bom_product_artifact_no",
+        "bom_product_version_id",
+        "bom_product_version_no",
+    ]:
+        if target.get(key) and not recalculated.get(key):
+            recalculated[key] = target.get(key)
+
+    updated_products = [dict(product) for product in products]
+    updated_products[target_index] = recalculated
+    prepared["products"] = updated_products
+    return attach_origin_sheet_states(prepared)
+
+
+def sheet_edit_bom_rows(product: dict, overrides: dict) -> list[dict]:
+    rows: list[dict] = []
+    materials = product.get("materials") or []
+    for index, material in enumerate(materials):
+        override = overrides.get(str(index)) if isinstance(overrides.get(str(index)), dict) else {}
+        if override.get("deleted"):
+            continue
+        replacement_code = str(override.get("material_code") or "").strip()
+        original_code = str(material.get("material_code") or material.get("internal_material_code") or "").strip()
+        material_code = replacement_code or original_code
+        if not material_code:
+            continue
+        row = {
+            "product_code": product.get("bom_product_code") or product.get("code") or "",
+            "material_code": material_code,
+            "qty_per": str(override.get("norm_per_unit") or material.get("bom_qty_per") or "0"),
+            "uom": str(override.get("uom") or material.get("uom") or ""),
+            "material_name": str(override.get("name") or ("" if replacement_code else material.get("material_description")) or ""),
+            "hs_code": str(override.get("hs_code") or ("" if replacement_code else material.get("hs_code")) or ""),
+            "source": material.get("bom_source") or material.get("source_document_ref") or "sheet_edit",
+            "row_class": material.get("bom_row_class") or "",
+        }
+        if not replacement_code:
+            row["unit_value"] = material.get("unit_value", "")
+        rows.append(row)
+    added_items = [
+        (key, value)
+        for key, value in overrides.items()
+        if str(key).startswith("added_") and isinstance(value, dict) and value.get("material_code")
+    ]
+    added_items.sort(key=lambda item: numeric_sort_text(str(item[0]).split("_", 1)[1] if "_" in str(item[0]) else "0"))
+    for _key, value in added_items:
+        rows.append({
+            "product_code": product.get("bom_product_code") or product.get("code") or "",
+            "material_code": str(value.get("material_code") or "").strip(),
+            "qty_per": str(value.get("norm_per_unit") or "0"),
+            "uom": str(value.get("uom") or ""),
+            "material_name": str(value.get("name") or ""),
+            "hs_code": str(value.get("hs_code") or ""),
+            "source": "sheet_edit_added",
+            "row_class": "added",
+        })
+    return rows
 
 
 def apply_existing_origin_product_consumption(product: dict, stock_pool: dict[str, list[dict]]) -> None:
@@ -4857,7 +4986,13 @@ async def autosave_co_case_origin(request: Request, client_id: str, case_id: str
         update_case_record(client, case)
     except KeyError:
         raise HTTPException(status_code=404) from None
-    return {"status": "ok", "stale_from_index": stale_from_index}
+    return {
+        "status": "ok",
+        "revision": origin_case_revision(case),
+        "stale_from_index": stale_from_index,
+        "origin_product_order": origin_product_order(case),
+        "origin_sheet_states": json_safe(case.get("origin_sheet_states", {})),
+    }
 
 
 @app.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/calculate", response_class=HTMLResponse)
@@ -4941,6 +5076,12 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
     if target_index >= 0:
         context["case"] = mark_origin_sheets_stale(context["case"], target_index + 1)
         context["case"] = set_origin_sheet_status(context["case"], product_code, "calculated")
+        states = dict(context["case"].get("origin_sheet_states") or {})
+        previous = states.get(product_code) if isinstance(states.get(product_code), dict) else {}
+        if previous.get("material_overrides"):
+            states[product_code] = {**previous, "material_overrides": {}}
+            context["case"]["origin_sheet_states"] = states
+            context["case"] = attach_origin_sheet_states(context["case"])
     context["criteria_rows"] = build_case_criteria_rows(context["case"], context.get("form_candidates", []))
     if context["case"].get("persisted_case_id") and not context.get("origin_demo_active"):
         update_case_record(client, context["case"])
@@ -5234,8 +5375,13 @@ async def co_case_origin_sheet_substitute_stock(
                     "import_declaration_no": lot.get("import_declaration_no", ""),
                     "line_no": lot.get("line_no", ""),
                     "remaining_qty": str(lot.get("remaining_qty") or lot.get("available_qty") or "0"),
+                    "available_qty": str(lot.get("available_qty") or lot.get("remaining_qty") or "0"),
                     "unit_value": str(lot.get("unit_value") or lot.get("unit_price") or ""),
                     "currency": lot.get("currency", ""),
+                    "material_description": lot.get("material_description", ""),
+                    "hs_code": lot.get("hs_code", ""),
+                    "uom": lot.get("uom", ""),
+                    "allocation_code": lot.get("allocation_code", ""),
                 }
                 for lot in lots[:50]
             ],
@@ -5585,6 +5731,10 @@ async def co_case_origin_sheet_save(
         raise HTTPException(status_code=400, detail="empty payload")
     client = resolve_client(client_id)
     case = persisted_origin_case(client, case_id)
+    expected_revision = str(payload.get("expected_revision") or "").strip()
+    if expected_revision and expected_revision != origin_case_revision(case):
+        raise HTTPException(status_code=409, detail="Origin case state changed; reload before saving.")
+    case = merge_origin_action_payload(case, payload)
     target_index = next(
         (i for i, p in enumerate(case.get("products", [])) if str(p.get("code") or "").strip() == product_code),
         None,
@@ -5621,6 +5771,8 @@ async def co_case_origin_sheet_save(
                 "material_code": new_material_code,
                 "norm_per_unit": norm,
                 "name": str(info.get("new_name") or "").strip(),
+                "hs_code": str(info.get("new_hs_code") or "").strip(),
+                "uom": str(info.get("new_uom") or "").strip(),
             }
             counts["replaces"] += 1
 
@@ -5685,18 +5837,23 @@ async def co_case_origin_sheet_save(
     states[product_code] = {
         **previous,
         "material_overrides": overrides,
-        "status": "stale",
-        "status_label": ORIGIN_SHEET_STATUS_LABELS["stale"],
+        "status": "calculated",
+        "status_label": ORIGIN_SHEET_STATUS_LABELS["calculated"],
     }
     case["origin_sheet_states"] = states
-    case = mark_origin_sheets_stale(case, target_index)
+    case = recalculate_origin_sheet_edits(client, case, product_code)
+    case = set_origin_sheet_status(case, product_code, "calculated")
+    case = mark_origin_sheets_stale(case, target_index + 1)
     update_case_record(client, case)
     return JSONResponse({
         "ok": True,
         "product_code": product_code,
         "operations": counts,
         "override_count": len(overrides),
-        "sheet_status": "stale",
+        "sheet_status": "calculated",
+        "revision": origin_case_revision(case),
+        "origin_product_order": origin_product_order(case),
+        "origin_sheet_states": json_safe(case.get("origin_sheet_states", {})),
     })
 
 
@@ -5752,6 +5909,10 @@ async def co_case_origin_sheet_recommendation_override(
         overrides["optimization_mode"] = mode or "max_lvc"
     client = resolve_client(client_id)
     case = persisted_origin_case(client, case_id)
+    expected_revision = str(payload.get("expected_revision") or "").strip()
+    if expected_revision and expected_revision != origin_case_revision(case):
+        raise HTTPException(status_code=409, detail="Origin case state changed; reload before saving.")
+    case = merge_origin_action_payload(case, payload)
     if not any(str(p.get("code") or "").strip() == product_code for p in case.get("products", [])):
         raise HTTPException(status_code=404, detail=f"Sheet {product_code} not found in case")
     case = set_origin_sheet_config_override(case, product_code, overrides)

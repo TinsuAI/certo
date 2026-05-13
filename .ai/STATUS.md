@@ -1,42 +1,59 @@
 # Project Status
 
 ## Current State
-- Active branch: `main`. A focused handoff/implementation commit was requested after the substitute-modal search fix.
+- Active branch: `main`.
 - CO dev server is running at `http://127.0.0.1:8001`; latest health check returned `200`.
-- Local Data Hub is expected at `http://127.0.0.1:8754`. During this session, Data Hub still returned `500` for `GET /v1/hub/materials?client_id=growatt-vn`, while products, BCCT, and source-summary endpoints returned `200`.
-- Postgres `barry_co` remains the intended local database via Unix socket (`postgresql:///barry_co?host=/var/run/postgresql`) for stock ledger work.
-- Case workflow tabs remain: Lô hàng / Chứng từ / Form&PSR (W.I.P) / Bảng kê C/O / TKX-TKN / Review-Xuất.
-- Untracked screenshot directories and `.ai/sister-app-prompts/` are local artifacts and were intentionally not part of the requested commit unless the user explicitly asks to preserve them in git.
+- Local Data Hub is running at `http://127.0.0.1:8754`.
+- CO dev is now using Postgres, not local JSON, for workflow/case state and stock ledger:
+  - local ignored `.env`: `BARRY_DATABASE_URL=postgresql:///barry_co?host=/var/run/postgresql`, `BARRY_DATABASE_SCHEMA=co`
+  - imported state: `clients=3`, `co_cases=11`, `co_stock_rows=19370`, `co_stock_claims=3`
+  - source indexes were rebuilt for `growatt`, `johnson`, and `do-thanh`
+- Full Python suite passes: `uv run pytest` -> `216 passed, 1 skipped, 7 warnings`.
+- `npm test` still has pre-existing legal lookup failures around missing `raw-binary` source links; this is outside the CO bảng kê flow.
+- Untracked screenshot directories and `.ai/sister-app-prompts/` are local artifacts and should stay out of commits unless explicitly requested.
 
 ## Recent Changes
-- Fixed the NVL substitute modal `Tìm kiếm` tab when Data Hub material catalog search fails or returns empty:
-  - `substitute-candidates` now falls back to matching materials already present in the current CO dossier.
-  - duplicate material codes are de-duped between catalog results and dossier fallback.
-  - frontend search empty-state now says no match or shows the backend fallback message, instead of leaving the stale "Nhập từ khóa" prompt after a completed search.
-  - lazy `/substitute-stock` now returns empty stock summaries instead of `500` if the stock fallback path hits the broken Data Hub materials endpoint.
-- Added regression coverage for fallback search when `portfolio_service.search_materials()` raises.
-- Verification:
-  - `uv run pytest tests/test_co_demo.py::test_origin_sheet_substitute_candidates_endpoint_returns_search_and_recommended tests/test_co_demo.py::test_origin_sheet_substitute_search_falls_back_to_case_materials_when_catalog_fails` passed.
-  - Full `uv run pytest` passed: `211 passed, 1 skipped, 7 warnings in 77.63s`.
-  - Browser smoke on auth-disabled `http://127.0.0.1:8002` confirmed searching `012.0002700` rendered one result and `/substitute-stock` returned `200`.
-  - `git diff --check -- app/main.py app/templates/co_case.html tests/test_co_demo.py` passed.
+- Hardened Bảng kê C/O workbook persistence:
+  - compact JSON payload now carries workbook order, BOM artifact choices, all products, and all sheet states
+  - sheet save merges workbook snapshot before persisting current-sheet NVL edits
+  - current sheet edits are stored as sparse `material_overrides`, recomputed server-side, and later sheets are marked stale
+- Added client-side sheet history and dirty-state workflow:
+  - `Lùi` / `Tiến` history for current sheet edits
+  - batched `Lưu bảng kê` for replace/add/delete/norm edits
+  - guard for double-click/in-flight saves
+- Fixed replacement/recompute behavior:
+  - replacing NVL recomputes child stock rows for the new code
+  - norm edit/add/delete rebuild affected allocation child rows client-side
+  - saved replacement no longer reloads old NVL details after refresh
+- Fixed Load BOM and save UX:
+  - Load BOM shows persistent sheet-level loading until shell replacement completes
+  - POST actions no longer replace browser URL with `/origin/sheet/.../calculate`
+  - save now redirects back to canonical `/origin`, preventing `GET /calculate` -> `405 Method Not Allowed`
+- Fixed allocation row toggle after AJAX shell replacement:
+  - `data-allocation-toggle` binding now reinitializes via `refreshCaseShellInteractions()`
+- Switched local CO dev to DB-backed state:
+  - added ignored `.env` for local DB
+  - updated `npm run co:serve` to load `.env` if present
+  - ran migrations/imports/rebuilds against `barry_co`
+- Added regression coverage for compact origin payloads, workbook state persistence, sheet save recompute, allocation toggle initialization, local material search, and save URL guards.
 
 ## Next Steps
-1. Fix Data Hub-side `/v1/hub/materials` and `/v1/hub/materials/{code}` 500s for `growatt-vn`/`johnson-vn`; CO's fallback keeps the modal usable but full cross-catalog search depends on Data Hub.
-2. Browser-test cross-case stock ledger end-to-end: lock sheet in case A, confirm case B substitute modal shows reduced `remaining_qty`, reopen and confirm restoration, test concurrent locks and overclaim flag.
-3. Verify Data Hub `/v1/hub/clients/{c}/bcct/by-codes` availability before relying on narrow substitute-stock lookup for Johnson-scale clients.
-4. Decide whether `/sheet/{code}/lock` should read persisted sheet state instead of trusting form-rebuilt state, because form submits can strip `materials[*].allocation_lines`.
-5. Continue backlog item #9: NVL origin classification config / Data Hub evidence source.
+1. Browser-test cross-case stock ledger end-to-end with DB enabled: lock sheet in case A, confirm case B sees reduced `remaining_qty`, reopen and confirm restoration.
+2. Verify the Data Hub `bcct/by-codes` provider endpoint before relying on narrow substitute-stock lookup for Johnson-scale clients.
+3. Fix remaining Data Hub material catalog 500s if still present for `growatt-vn`/`johnson-vn`; CO has fallbacks, but full catalog search depends on Data Hub.
+4. Review and remove now-unused client-side replacement allocation helper code if it remains unused after the live allocator changes.
+5. Resolve unrelated `npm test` legal lookup failures around `raw-binary` links before treating Node tests as a release gate.
+6. Continue backlog item: NVL origin classification config / Data Hub evidence source.
 
 ## Blockers
-- Data Hub material catalog endpoints returning `500` block complete manual search across the full catalog. CO currently falls back only to dossier materials.
-- Substitute-stock first open on very large clients can still be slow until the Data Hub `bcct/by-codes` provider endpoint is available and verified.
+- Data Hub provider contract for `bcct/by-codes` still needs verification before Johnson-scale performance can be considered final.
 - `Form&PSR` remains W.I.P.; rule/evidence engine is not implemented beyond current form/criteria guidance.
+- Node legal tests are failing independently of CO workflow changes.
 
 ## Notes for Next AI Session
 - User writes Vietnamese casually; respond in fully accented Vietnamese.
-- User is sensitive to slow UX and loading without progress. Page must stay interactive during async; only the clicked control should show a busy spinner, with a global top progress bar as signal.
-- User explicitly said production uses Postgres; do not add JSON fallback for new persistence. Ledger may no-op when `BARRY_DATABASE_URL` is unset for tests, but do not write ledger state to JSON.
-- Default `uv run pytest` intentionally runs without `BARRY_DATABASE_URL`; one ledger test is skipped in that mode. Running with DB env can expose pre-existing JSON-store assumptions in unrelated tests.
-- Data Hub `uom` migration reference: commits `6a1b47a`, `42decc7`, `f64b500` in the Data Hub repo. Hub still emits deprecated `unit` alias for a grace window, but CO should not depend on it for material/product rows.
-- For Johnson substitute modal smoke data, use invoice `VNG26050001` or `VNG25120047`. Material `018.0645001` returns no Data Hub substitutes because it is not in Johnson catalog; CO heuristic fallback should kick in.
+- User is sensitive to slow UX and loading without progress. Keep async actions visibly loading and avoid page-level blocking unless necessary.
+- User expects CO dev to use Postgres. Do not add new JSON persistence for workbook/ledger state.
+- `npm run co:serve` now loads `.env` manually because `uv run` does not load `.env` by default.
+- Default `uv run pytest` still runs without `.env`; DB-specific checks should use `uv run --env-file .env ...`.
+- Current running CO server is a background `npm run co:serve` process writing logs to `/tmp/barry-co-8001.log`.

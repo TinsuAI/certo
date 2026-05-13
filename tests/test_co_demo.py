@@ -1896,6 +1896,9 @@ def test_co_case_detail_is_split_into_workflow_step_views():
     assert 'role="tablist" aria-label="Sheet sản phẩm trong bảng kê"' in origin.text
     assert 'data-origin-sheet-tab' in origin.text
     assert 'data-origin-sheet-panel' in origin.text
+    assert 'replaceHistory: method === "GET"' in origin.text
+    assert "__originSaveInFlight" in origin.text
+    assert "currentOriginUrl" in origin.text
     assert 'class="table-input"' not in origin.text
     assert "Upload và parse" not in origin.text
     assert "Tải seed XLSX" not in origin.text
@@ -2939,6 +2942,15 @@ def test_origin_sheet_substitute_candidates_endpoint_returns_search_and_recommen
     assert isinstance(payload["search_results"], list)
 
 
+def test_local_material_search_supports_seed_catalog_lists():
+    from app.portfolio import PortfolioService
+
+    results = PortfolioService().search_materials("growatt", "DEMO-NPL-001")
+
+    assert results
+    assert results[0]["internal_code"] == "DEMO-NPL-001"
+
+
 def test_origin_sheet_substitute_search_falls_back_to_case_materials_when_catalog_fails(monkeypatch):
     from app import main as main_module
 
@@ -3426,6 +3438,159 @@ def test_origin_sheet_edit_row_persists_norm_only_override():
     assert bad.status_code == 400
 
 
+def test_origin_sheet_renders_effective_norm_as_live_recompute_baseline():
+    client = TestClient(app)
+    client.post(
+        "/clients/growatt/bcct/upload",
+        files={
+            "file": (
+                "bcct.xlsx",
+                bcct_workbook([
+                    {
+                        "direction": "import",
+                        "declaration_type": "E11",
+                        "declaration_no": "NK-NORM",
+                        "line_no": "1",
+                        "item_code": "DEMO-NPL-001",
+                        "description": "Main control board",
+                        "hs_code": "8542.39",
+                        "quantity": "10",
+                        "unit": "PCE",
+                        "customs_value": "100",
+                        "currency": "VND",
+                    },
+                    {
+                        "direction": "export",
+                        "declaration_type": "E42",
+                        "declaration_no": "XK-NORM",
+                        "line_no": "1",
+                        "item_code": "PV00.0048500",
+                        "description": "Growatt inverter",
+                        "hs_code": "850440",
+                        "quantity": "1",
+                        "unit": "PCS",
+                        "customs_value": "1000",
+                        "currency": "VND",
+                        "invoice_ref": "INV-NORM",
+                    },
+                ]),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Norm baseline", "case_code": "CO-NORM", "destination_market": "Ấn Độ", "invoice_no": "INV-NORM"},
+        follow_redirects=False,
+    )
+    origin = client.get(f"{created.headers['location']}/origin")
+    calculated = client.post(
+        f"{created.headers['location']}/origin/sheet/PV00.0048500/calculate",
+        data=hidden_form_data(origin.text),
+    )
+    assert calculated.status_code == 200
+    edited = client.post(
+        f"{created.headers['location']}/origin/sheet/PV00.0048500/edit-row",
+        json={"row_index": 0, "new_norm_per_unit": "2.5"},
+    )
+    assert edited.status_code == 200
+
+    response = client.get(f"{created.headers['location']}/origin")
+    assert response.status_code == 200
+    assert 'data-row-original-norm="2.5"' in response.text
+    assert 'data-current-norm="2.5"' in response.text
+    assert 'data-original-value="2.5"' in response.text
+    assert 'value="2.5"' in response.text
+    assert 'data-row-original-norm="1"' not in response.text
+
+
+def test_origin_sheet_save_recomputes_replaced_material_snapshot():
+    client = TestClient(app)
+    client.post(
+        "/clients/growatt/bcct/upload",
+        files={
+            "file": (
+                "bcct.xlsx",
+                bcct_workbook([
+                    {
+                        "direction": "import",
+                        "declaration_type": "E11",
+                        "declaration_no": "NK-SWAP",
+                        "line_no": "1",
+                        "item_code": "M-NEW",
+                        "description": "New material from stock",
+                        "hs_code": "8542.39",
+                        "quantity": "10",
+                        "unit": "PCE",
+                        "customs_value": "80",
+                        "currency": "VND",
+                    },
+                    {
+                        "direction": "export",
+                        "declaration_type": "E42",
+                        "declaration_no": "XK-SWAP",
+                        "line_no": "1",
+                        "item_code": "PV00.0048500",
+                        "description": "Growatt inverter",
+                        "hs_code": "850440",
+                        "quantity": "1",
+                        "unit": "PCS",
+                        "customs_value": "1000",
+                        "currency": "VND",
+                        "invoice_ref": "INV-SWAP",
+                    },
+                ]),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Swap material", "case_code": "CO-SWAP", "destination_market": "Ấn Độ", "invoice_no": "INV-SWAP"},
+        follow_redirects=False,
+    )
+    origin = client.get(f"{created.headers['location']}/origin")
+    calculated = client.post(
+        f"{created.headers['location']}/origin/sheet/PV00.0048500/calculate",
+        data=hidden_form_data(origin.text),
+    )
+    assert calculated.status_code == 200
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    before = get_case_record(get_client("growatt"), case_id)
+    assert before["products"][0]["materials"][0]["material_code"] != "M-NEW"
+
+    saved_response = client.post(
+        f"{created.headers['location']}/origin/sheet/PV00.0048500/save",
+        json={
+            "replaces": {
+                "0": {
+                    "new_material_code": "M-NEW",
+                    "new_norm_per_unit": "2",
+                    "new_name": "New material override",
+                    "new_hs_code": "854239",
+                }
+            }
+        },
+    )
+    assert saved_response.status_code == 200
+    assert saved_response.json()["sheet_status"] == "calculated"
+
+    saved = get_case_record(get_client("growatt"), case_id)
+    material = saved["products"][0]["materials"][0]
+    assert material["material_code"] == "M-NEW"
+    assert material["internal_material_code"] == "M-NEW"
+    assert material["material_description"] == "New material override"
+    assert material["hs_code"] == "854239"
+    assert str(material["bom_qty_per"]) == "2"
+    assert str(material["consumed_qty"]) == "2"
+    assert saved["origin_sheet_states"]["PV00.0048500"]["status"] == "calculated"
+
+    reloaded = client.get(f"{created.headers['location']}/origin")
+    assert reloaded.status_code == 200
+    assert 'data-material-code="M-NEW"' in reloaded.text
+    assert "→ M-NEW" not in reloaded.text
+
+
 def test_origin_sheet_add_row_appends_added_override():
     client = TestClient(app)
     created = client.post(
@@ -3515,7 +3680,7 @@ def test_origin_sheet_save_batches_replaces_adds_deletes_and_norm_edits():
     body = response.json()
     assert body["ok"] is True
     assert body["operations"] == {"replaces": 1, "adds": 2, "deletes": 1, "norm_edits": 1}
-    assert body["sheet_status"] == "stale"
+    assert body["sheet_status"] == "calculated"
 
     saved = get_case_record(get_client("growatt"), case_id)
     overrides = saved["origin_sheet_states"]["TP-SAVE"]["material_overrides"]
@@ -3527,6 +3692,71 @@ def test_origin_sheet_save_batches_replaces_adds_deletes_and_norm_edits():
     added = [k for k in overrides if k.startswith("added_")]
     assert len(added) == 2
     assert {overrides[k]["material_code"] for k in added} == {"M-ADD", "M-ADD2"}
+
+
+def test_origin_sheet_save_merges_full_workbook_state_before_recompute():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Sheet save workbook", "case_code": "CO-SHEET-WB", "destination_market": "Ấn Độ", "invoice_no": "INV-SHEET-WB"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-SHEET-WB",
+            "title": "Sheet save workbook",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-SHEET-WB"},
+            "products": [
+                {"code": "TP-A", "name": "A", "quantity": "1", "unit": "PCS", "fob": "100", "currency": "USD", "materials": []},
+                {
+                    "code": "TP-B",
+                    "name": "B",
+                    "quantity": "1",
+                    "unit": "PCS",
+                    "fob": "100",
+                    "currency": "USD",
+                    "materials": [
+                        {"material_code": "M-OLD", "material_description": "Old", "uom": "PCS", "bom_qty_per": "1"}
+                    ],
+                },
+            ],
+            "origin_product_order": ["TP-A", "TP-B"],
+            "origin_sheet_states": {
+                "TP-A": {"status": "locked", "status_label": "Chốt", "criteria_override": "preserve A"},
+                "TP-B": {"status": "calculated", "status_label": "Đã tính", "currency_mode": "native"},
+            },
+        },
+    )
+
+    response = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-B/save",
+        json={
+            "origin_product_order": ["TP-A", "TP-B"],
+            "origin_sheet_states": {
+                "TP-A": {"status": "locked", "status_label": "Chốt", "criteria_override": "preserve A"},
+                "TP-B": {"status": "calculated", "status_label": "Đã tính", "currency_mode": "vnd"},
+            },
+            "products": [
+                {"code": "TP-A", "origin_sheet_status": "locked", "origin_sheet_status_label": "Chốt"},
+                {"code": "TP-B", "origin_sheet_status": "calculated", "origin_sheet_status_label": "Đã tính"},
+            ],
+            "norm_edits": {"0": "2"},
+        },
+    )
+
+    saved = get_case_record(get_client("growatt"), case_id)
+    assert response.status_code == 200
+    assert response.json()["origin_product_order"] == ["TP-A", "TP-B"]
+    assert saved["origin_product_order"] == ["TP-A", "TP-B"]
+    assert saved["origin_sheet_states"]["TP-A"]["status"] == "locked"
+    assert saved["origin_sheet_states"]["TP-A"]["criteria_override"] == "preserve A"
+    assert saved["origin_sheet_states"]["TP-B"]["status"] == "calculated"
+    assert saved["origin_sheet_states"]["TP-B"]["currency_mode"] == "vnd"
+    assert saved["origin_sheet_states"]["TP-B"]["material_overrides"]["0"]["norm_per_unit"] == "2"
 
 
 def test_origin_sheet_save_rejects_empty_payload_and_invalid_norm():
@@ -3803,6 +4033,59 @@ def test_origin_save_accepts_compact_json_and_marks_stale():
     assert record["origin_product_order"] == ["TP-B", "TP-A"]
     assert record["origin_sheet_states"]["TP-B"]["status"] == "stale"
     assert record["origin_sheet_states"]["TP-A"]["status"] == "stale"
+
+
+def test_origin_autosave_persists_full_workbook_state_without_dropping_sheets():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Workbook state", "case_code": "CO-WB", "destination_market": "Ấn Độ", "invoice_no": "INV-WB"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-WB",
+            "title": "Workbook state",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-WB", "bill_of_lading_no": ""},
+            "products": [{"code": "TP-A", "materials": []}, {"code": "TP-B", "materials": []}, {"code": "TP-C", "materials": []}],
+            "origin_product_order": ["TP-A", "TP-B", "TP-C"],
+            "origin_sheet_states": {
+                "TP-A": {"status": "locked", "status_label": "Chốt", "currency_mode": "native"},
+                "TP-B": {"status": "calculated", "status_label": "Đã tính", "currency_mode": "native"},
+                "TP-C": {"status": "draft", "status_label": "Chưa tính", "criteria_override": "keep me"},
+            },
+        },
+    )
+
+    response = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/autosave",
+        json={
+            "origin_product_order": ["TP-B", "TP-A", "TP-C"],
+            "stale_from_index": 3,
+            "origin_sheet_states": {
+                "TP-A": {"status": "locked", "status_label": "Chốt", "currency_mode": "native"},
+                "TP-B": {"status": "calculated", "status_label": "Đã tính", "currency_mode": "vnd"},
+            },
+            "products": [
+                {"code": "TP-A", "origin_sheet_status": "locked", "origin_sheet_status_label": "Chốt"},
+                {"code": "TP-B", "origin_sheet_status": "calculated", "origin_sheet_status_label": "Đã tính"},
+                {"code": "TP-C", "origin_sheet_status": "draft", "origin_sheet_status_label": "Chưa tính"},
+            ],
+        },
+    )
+
+    record = get_case_record(get_client("growatt"), case_id)
+    assert response.status_code == 200
+    assert response.json()["revision"]
+    assert record["origin_product_order"] == ["TP-B", "TP-A", "TP-C"]
+    assert record["origin_sheet_states"]["TP-A"]["status"] == "locked"
+    assert record["origin_sheet_states"]["TP-B"]["status"] == "calculated"
+    assert record["origin_sheet_states"]["TP-B"]["currency_mode"] == "vnd"
+    assert record["origin_sheet_states"]["TP-C"]["criteria_override"] == "keep me"
 
 
 def test_origin_sheet_lock_accepts_compact_json_without_source_refresh(monkeypatch):
@@ -4325,6 +4608,8 @@ def test_co_case_origin_round_trips_multi_lot_allocation_to_export_workbook():
     assert 'data-allocation-toggle' in origin.text
     assert 'aria-expanded="false"' in origin.text
     assert 'data-allocation-detail' in origin.text
+    assert "const initOriginAllocationToggles" in origin.text
+    assert "initOriginAllocationToggles(root);" in origin.text
     assert 'class="origin-allocation-row"' in origin.text
     assert "hidden" in origin.text
     assert "origin-material-name" in origin.text
