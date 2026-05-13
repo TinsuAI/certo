@@ -46,7 +46,8 @@ def _seed_material(cur, code: str, category: str = "nvl",
 
 
 def _insert_raw_artifact(cur, artifact_id: str, product_code: str,
-                          edges: list[tuple[str, str, float, str]]) -> None:
+                          edges: list[tuple[str, str, float, str]],
+                          *, bom_variant_id: str = "default") -> None:
     """Insert a published technical_raw artifact + its bom_edges.
 
     edges = [(parent_code, child_code, qty_per_parent, uom), ...]
@@ -61,8 +62,9 @@ def _insert_raw_artifact(cur, artifact_id: str, product_code: str,
         "values (%s, %s, %s, 1, 'published', 'agency_staff', "
         "'asserted_technical', '{}', %s, %s, 'technical_raw', "
         "'non_flattened', 'no_strategy', 'agency_upload', "
-        "'default', '{}', 'as_provided', 'v1', now())",
-        (artifact_id, CLIENT, product_code, f"h_{artifact_id}", len(edges)),
+        "%s, '{}', 'as_provided', 'v1', now())",
+        (artifact_id, CLIENT, product_code, f"h_{artifact_id}", len(edges),
+         bom_variant_id),
     )
     for idx, (parent, child, qty, uom) in enumerate(edges):
         cur.execute(
@@ -74,7 +76,8 @@ def _insert_raw_artifact(cur, artifact_id: str, product_code: str,
 
 
 def _insert_derived_stale(cur, artifact_id: str, product_code: str,
-                            strategy: str = "purchased_btp_as_leaf") -> None:
+                            strategy: str = "purchased_btp_as_leaf",
+                            *, bom_variant_id: str = "default") -> None:
     reasons = [{"dim": "catalog_category", "source_table": "hub.materials",
                 "source_pk": f"{CLIENT}/seed", "observed_at":
                 "2026-05-12T00:00:00Z"}]
@@ -88,10 +91,10 @@ def _insert_derived_stale(cur, artifact_id: str, product_code: str,
         "stale_reasons, stale_first_at) "
         "values (%s, %s, %s, 1, 'published', 'agency_staff', "
         "'derived', '{}', %s, 0, 'technical_flattened', "
-        "'flattened', %s, 'migration', 'default', '{}', 'recursive_sql', "
+        "'flattened', %s, 'migration', %s, '{}', 'recursive_sql', "
         "'1', now(), true, %s::jsonb, now())",
         (artifact_id, CLIENT, product_code, f"h_{artifact_id}", strategy,
-         json.dumps(reasons)),
+         bom_variant_id, json.dumps(reasons)),
     )
 
 
@@ -435,3 +438,43 @@ def test_refresh_same_hash_no_supersede():
         is_stale, ts = cur.fetchone()
     assert ts is None, "no tombstone when same hash"
     assert is_stale is False, "flag cleared on same-hash refresh"
+
+
+# ── Variant preservation through refresh path ───────────────────────────
+
+
+def test_refresh_preserves_bom_variant_id():
+    """Regression test (2026-05-13): refresh path lost bom_variant_id.
+
+    `_rederive_shape` previously omitted `bom_variant_id` from its
+    `create_artifact` call, so refreshing an artifact with variant
+    `agency_2026-05-07` minted a new artifact at variant `default`
+    — silently splitting a product's BOM across two variants.
+
+    This test fixes the variant at a non-default value, drives refresh,
+    and asserts the new artifact inherits the original variant.
+    """
+    raw_id = "ba_raw_variant"
+    derived_id = "ba_der_variant"
+    variant = "agency_2026-05-07"
+    with connect() as conn, conn.cursor() as cur:
+        _seed_material(cur, "TP_V", category="tp", uom="kg")
+        _seed_material(cur, "M_V", category="nvl", uom="kg")
+        _insert_raw_artifact(cur, raw_id, "TP_V",
+                              edges=[("TP_V", "M_V", 1.0, "kg")],
+                              bom_variant_id=variant)
+        _insert_derived_stale(cur, derived_id, "TP_V",
+                                strategy="technical_exploded",
+                                bom_variant_id=variant)
+
+    result = refresh_artifact(CLIENT, derived_id)
+    new_id = result["new_artifact_ids"][0]
+
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select bom_variant_id from hub.bom_artifacts where artifact_id=%s",
+            (new_id,))
+        (new_variant,) = cur.fetchone()
+    assert new_variant == variant, (
+        f"refresh dropped bom_variant_id: original={variant!r}, new={new_variant!r}"
+    )

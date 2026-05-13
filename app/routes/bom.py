@@ -847,6 +847,8 @@ async def list_stale(request: Request, client_id: str,
             (client_id,),
         )
         rows: list[dict] = []
+        _uom_dims = {"factor_missing", "unconfirmed_default_1to1",
+                     "catalog_uom_missing"}
         for r in cur.fetchall():
             (aid, pc, strat, kind, is_stale, sreas, sat,
              has_drift, dreas, dat, pub_at) = r
@@ -856,6 +858,20 @@ async def list_stale(request: Request, client_id: str,
                                   if x and x.get("dim")})
             is_source = strat in ("manual_flat_as_provided", "no_strategy")
             categories = _categorize_dims(stale_dims + drift_dims)
+            # Extract NVL material codes from UoM-dim reasons (source_pk
+            # carries the affected material). The TP/BTP product_code on
+            # the artifact itself is NOT the one with the UoM gap — the
+            # gap is on its child materials. Dedup, keep first for prefill.
+            uom_nvl_codes: list[str] = []
+            seen: set[str] = set()
+            for reason_list in (sreas or [], dreas or []):
+                for x in reason_list:
+                    if not (x and x.get("dim") in _uom_dims):
+                        continue
+                    pk = x.get("source_pk") or ""
+                    if pk and pk not in seen:
+                        seen.add(pk)
+                        uom_nvl_codes.append(pk)
             rows.append({
                 "artifact_id": aid, "product_code": pc,
                 "flatten_strategy": strat, "source_bom_kind": kind,
@@ -869,6 +885,8 @@ async def list_stale(request: Request, client_id: str,
                 "is_source": is_source,
                 "categories": sorted(categories),
                 "primary_action": _primary_action(categories, is_source),
+                "uom_nvl_first": uom_nvl_codes[0] if uom_nvl_codes else None,
+                "uom_nvl_count": len(uom_nvl_codes),
             })
     counts = {
         "all": len(rows),

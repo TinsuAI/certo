@@ -69,7 +69,7 @@ def _load_artifact(cur, artifact_id: str) -> dict | None:
     cur.execute(
         "select artifact_id, client_id, product_code, source_bom_kind, "
         "flatten_strategy, parent_artifact_id, lineage_root_id, "
-        "tombstoned_at, is_stale "
+        "tombstoned_at, is_stale, bom_variant_id "
         "from hub.bom_artifacts where artifact_id=%s",
         (artifact_id,),
     )
@@ -81,6 +81,7 @@ def _load_artifact(cur, artifact_id: str) -> dict | None:
         "source_bom_kind": row[3], "flatten_strategy": row[4],
         "parent_artifact_id": row[5], "lineage_root_id": row[6],
         "tombstoned_at": row[7], "is_stale": row[8],
+        "bom_variant_id": row[9],
     }
 
 
@@ -363,7 +364,8 @@ def _rederive_manual_flat(
 def _rederive_shape(client_id: str, raw_artifact_id: str,
                     product_code: str, strategy: str,
                     *, actor: str = "agency_staff",
-                    triggered_by_user_id: str | None = None
+                    triggered_by_user_id: str | None = None,
+                    bom_variant_id: str | None = None,
                     ) -> tuple[str | None, list[dict]]:
     """Re-run the materializer for one shape; return
     `(artifact_id_or_none, drift_signals)`.
@@ -377,6 +379,12 @@ def _rederive_shape(client_id: str, raw_artifact_id: str,
     `actor` defaults to 'agency_staff' (refresh is staff action, not a
     migration script). `triggered_by_user_id` goes into context jsonb
     for forensics — answers "which staff clicked refresh".
+
+    `bom_variant_id` MUST be passed through so refreshed artifacts stay
+    under the same variant as their predecessor. Forgetting this lets
+    refresh silently mint default-variant duplicates next to the existing
+    agency-batch variant — a pre-existing latent bug surfaced by bulk
+    --cleanup-stale runs on Johnson re-ingest (2026-05-13).
     """
     from scripts.materialize_shallow_and_full_flat import (
         SHALLOW_WALK_SQL, FULL_FLAT_WALK_SQL, derive,
@@ -410,6 +418,7 @@ def _rederive_shape(client_id: str, raw_artifact_id: str,
         flatten_status="flattened",
         flatten_strategy=strategy,
         source_channel="migration",
+        bom_variant_id=bom_variant_id,
         flatten_method="recursive_sql_with_uom_conversion",
         flatten_method_version="2",
     )
@@ -651,6 +660,7 @@ def commit_refresh(client_id: str, artifact_id: str,
                     client_id, raw_id, a["product_code"],
                     a["flatten_strategy"],
                     triggered_by_user_id=triggered_by_user_id,
+                    bom_variant_id=a["bom_variant_id"],
                 )
                 if new_id:
                     new_ids.append(new_id)

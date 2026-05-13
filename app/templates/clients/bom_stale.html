@@ -119,8 +119,8 @@
             </form>
           {% elif r.primary_action == 'fix_uom' %}
             <a class="btn-primary"
-               href="/clients/{{ client.client_id }}/uom-factors?prefill_material_code={{ r.product_code }}">
-              {{ t('bom.stale.action.fix_uom') }}
+               href="/clients/{{ client.client_id }}/uom-factors{% if r.uom_nvl_first %}?prefill_material_code={{ r.uom_nvl_first }}{% endif %}">
+              {{ t('bom.stale.action.fix_uom') }}{% if r.uom_nvl_count > 1 %} (+{{ r.uom_nvl_count - 1 }}){% endif %}
             </a>
           {% elif r.primary_action == 'reupload' %}
             <a class="btn-primary"
