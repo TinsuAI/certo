@@ -267,6 +267,7 @@ def create_artifact(*, client_id: str, product_code: str, rows: list[dict],
                    flatten_method: str = "none",
                    flatten_method_version: str = "0",
                    display_label: str | None = None,
+                   human_label: str | None = None,
                    # /rev finding C1: optional cursor for transactional
                    # composition with create_flattened_artifact_set.
                    cursor=None,
@@ -290,7 +291,7 @@ def create_artifact(*, client_id: str, product_code: str, rows: list[dict],
             bom_code=bom_code, bom_variant_id=bom_variant_id,
             lineage=lineage, flatten_method=flatten_method,
             flatten_method_version=flatten_method_version,
-            display_label=display_label,
+            display_label=display_label, human_label=human_label,
         )
     with connect() as conn:
         with conn.cursor() as cur:
@@ -304,7 +305,7 @@ def create_artifact(*, client_id: str, product_code: str, rows: list[dict],
                 bom_code=bom_code, bom_variant_id=bom_variant_id,
                 lineage=lineage, flatten_method=flatten_method,
                 flatten_method_version=flatten_method_version,
-                display_label=display_label,
+                display_label=display_label, human_label=human_label,
             )
 
 
@@ -312,7 +313,8 @@ def _create_artifact_inner(cur, *, client_id, product_code, rows, actor, intent,
                           parent_artifact_id, context, source_upload_id,
                           source_bom_kind, flatten_status, flatten_strategy,
                           source_channel, bom_code, bom_variant_id, lineage,
-                          flatten_method, flatten_method_version, display_label):
+                          flatten_method, flatten_method_version, display_label,
+                          human_label=None):
     nh = normalized_hash(rows)
     artifact_id = "ba_" + secrets.token_urlsafe(12)
     bom_code_norm = bom_code or ""
@@ -352,18 +354,18 @@ def _create_artifact_inner(cur, *, client_id, product_code, rows, actor, intent,
            row_count, status, published_at,
            source_bom_kind, flatten_status, flatten_strategy,
            source_channel, bom_code, bom_variant_id, lineage,
-           display_label, flatten_method, flatten_method_version)
+           display_label, flatten_method, flatten_method_version, human_label)
         values (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s,
                 'published', now(),
                 %s, %s, %s, %s, %s, %s, %s::jsonb,
-                %s, %s, %s)
+                %s, %s, %s, %s)
         """,
         (artifact_id, client_id, product_code, artifact_no, actor, intent,
          parent_artifact_id, json.dumps(context), source_upload_id, nh, len(rows),
          source_bom_kind, flatten_status, flatten_strategy,
          source_channel, bom_code_norm or None, bom_variant_id_norm,
          json.dumps(lineage or {}, ensure_ascii=False, default=str),
-         label, flatten_method, flatten_method_version),
+         label, flatten_method, flatten_method_version, human_label),
     )
     # Belt-and-suspenders qty validation. DB has chk_qty_per_unit_positive
     # (migration 026) so the INSERT would error anyway, but pre-validating
@@ -588,6 +590,7 @@ def list_artifacts_for_product(*, client_id: str, product_code: str) -> list[dic
                        v.flatten_status, v.flatten_strategy,
                        v.is_stale, v.stale_reasons,
                        v.has_uom_drift, v.uom_drift_reasons,
+                       v.human_label, v.display_label,
                        p.artifact_no       as parent_artifact_no,
                        p.bom_variant_id   as parent_variant_id,
                        p.flatten_status   as parent_flatten_status,
@@ -628,7 +631,7 @@ def get_artifact_with_rows(artifact_id: str) -> dict | None:
                        status, tombstoned_at, tombstone_reason, created_at, published_at,
                        source_bom_kind, flatten_status, flatten_strategy,
                        source_channel, bom_code, bom_variant_id, lineage,
-                       display_label, flatten_method, flatten_method_version,
+                       display_label, human_label, flatten_method, flatten_method_version,
                        is_stale, stale_reasons, stale_first_at, stale_resolved_at,
                        has_uom_drift, uom_drift_reasons,
                        uom_drift_first_at, uom_drift_resolved_at
@@ -1202,7 +1205,8 @@ def make_current_db_btp_lookup(client_id: str):
                     where client_id = %s
                       and tombstoned_at is null
                       and status = 'published'
-                      and intent in ('asserted_technical','staff_edit','derived')
+                      and intent in ('asserted_technical','staff_edit',
+                                     'derived','customs_declared')
                       and flatten_status in ('flattened','not_applicable')
                     order by product_code, coalesce(bom_variant_id, 'default'),
                              published_at desc nulls last, artifact_no desc
@@ -1552,6 +1556,14 @@ def latest_flattened_versions(*, client_id: str, product_code: str) -> list[dict
 
     Per spec §3A: 'latest' must be a query constrained by status and strategy.
     Excludes 'modified_for_case' to mirror the existing /latest semantics.
+
+    Multiple variants surface when (bom_variant_id, flatten_strategy)
+    partitions differ — e.g. technical_exploded vs purchased_btp_as_leaf
+    for the same product, or a Mẫu 16 customs-filed variant (bom_variant_id
+    like 'm16_<year>') alongside the technical_flattened 'default' variant.
+    Callers (/v1/hub/products/{p}/bom/latest) return 409 dual_source when
+    len(items) > 1; CO repo handles dropdown + default-pick by inspecting
+    `source_bom_kind` and `human_label`.
     """
     with connect() as conn:
         with conn.cursor() as cur:
@@ -1559,22 +1571,26 @@ def latest_flattened_versions(*, client_id: str, product_code: str) -> list[dict
                 """
                 with ranked as (
                     select artifact_id, artifact_no, flatten_strategy, source_bom_kind,
-                           flatten_status, display_label, bom_variant_id, bom_code,
+                           flatten_status, display_label, human_label,
+                           bom_variant_id, bom_code,
                            published_at,
                            row_number() over (
                                partition by coalesce(bom_variant_id,'default'),
                                             flatten_strategy
-                               order by published_at desc nulls last, artifact_no desc
+                               order by published_at desc nulls last,
+                                        artifact_no desc
                            ) as rn
                     from hub.bom_artifacts
                     where client_id = %s and product_code = %s
                       and tombstoned_at is null
                       and status = 'published'
-                      and intent in ('asserted_technical','staff_edit','derived')
+                      and intent in ('asserted_technical','staff_edit',
+                                     'derived','customs_declared')
                       and flatten_status in ('flattened','not_applicable')
                 )
                 select artifact_id, artifact_no, flatten_strategy, source_bom_kind,
-                       flatten_status, display_label, bom_variant_id, bom_code
+                       flatten_status, display_label, human_label,
+                       bom_variant_id, bom_code
                 from ranked where rn = 1
                 order by published_at desc nulls last, artifact_no desc
                 """,

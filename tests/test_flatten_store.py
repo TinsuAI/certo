@@ -166,6 +166,113 @@ def test_latest_returns_two_when_dual_source_published():
     assert strategies == ["purchased_btp_as_leaf", "self_produced_btp_exploded"]
 
 
+# ── Mẫu 16 customs-filed BOM coexists with SAP technical as a variant ──
+
+def test_latest_surfaces_customs_filed_alongside_technical():
+    """When a product has BOTH manual_flat (Mẫu 16 customs-filed, variant
+    'm16_<year>') AND technical_flattened (SAP rollup, variant 'default'),
+    latest_flattened_versions returns BOTH — they live in distinct
+    bom_variant_id partitions. CO repo handles the resulting 409
+    dual_source by surfacing a dropdown with `human_label` to disambiguate.
+    """
+    # Two technical_flattened strategies under 'default' variant
+    bom_store.create_artifact(
+        client_id=CLIENT, product_code="FT_TP-M16VAR",
+        rows=[{"material_code": "FT_NVL_A", "qty_per_unit": 1, "uom": "kg"}],
+        actor="agency_staff", intent="asserted_technical",
+        parent_artifact_id=None, context={}, source_upload_id=None,
+        source_bom_kind="technical_flattened",
+        flatten_status="flattened",
+        flatten_strategy="technical_exploded",
+        human_label="BOM kỹ thuật SAP",
+    )
+    bom_store.create_artifact(
+        client_id=CLIENT, product_code="FT_TP-M16VAR",
+        rows=[{"material_code": "FT_NVL_B", "qty_per_unit": 2, "uom": "kg"}],
+        actor="agency_staff", intent="asserted_technical",
+        parent_artifact_id=None, context={}, source_upload_id=None,
+        source_bom_kind="technical_flattened",
+        flatten_status="flattened",
+        flatten_strategy="purchased_btp_as_leaf",
+        human_label="BOM kỹ thuật SAP",
+    )
+    # Mẫu 16 customs-filed: distinct actor/intent/variant
+    bom_store.create_artifact(
+        client_id=CLIENT, product_code="FT_TP-M16VAR",
+        rows=[{"material_code": "FT_NVL_C", "qty_per_unit": 0.5, "uom": "kg"}],
+        actor="customs_filing", intent="customs_declared",
+        parent_artifact_id=None, context={"regulatory": "m16_2025"},
+        source_upload_id=None,
+        source_bom_kind="manual_flat",
+        flatten_status="flattened",
+        flatten_strategy="manual_flat_as_provided",
+        bom_variant_id="m16_2025",
+        human_label="Mẫu 16/2025",
+    )
+    items = bom_store.latest_flattened_versions(
+        client_id=CLIENT, product_code="FT_TP-M16VAR",
+    )
+    kinds_by_variant = {
+        (i["bom_variant_id"], i["flatten_strategy"]): i["source_bom_kind"]
+        for i in items
+    }
+    assert kinds_by_variant == {
+        ("default", "technical_exploded"): "technical_flattened",
+        ("default", "purchased_btp_as_leaf"): "technical_flattened",
+        ("m16_2025", "manual_flat_as_provided"): "manual_flat",
+    }
+    # Each row carries human_label
+    m16 = next(i for i in items if i["bom_variant_id"] == "m16_2025")
+    assert m16["human_label"] == "Mẫu 16/2025"
+
+
+def test_latest_technical_only_still_returns_dual_strategies():
+    """Regression guard: when there is NO manual_flat artifact, the
+    pre-existing dual-strategy behavior must still surface both
+    technical_flattened variants (so /latest 409s and CO disambiguates)."""
+    bom_store.create_artifact(
+        client_id=CLIENT, product_code="FT_TP-TECHONLY",
+        rows=[{"material_code": "FT_NVL_X", "qty_per_unit": 1, "uom": "kg"}],
+        actor="agency_staff", intent="asserted_technical",
+        parent_artifact_id=None, context={}, source_upload_id=None,
+        source_bom_kind="technical_flattened",
+        flatten_status="flattened",
+        flatten_strategy="technical_exploded",
+    )
+    bom_store.create_artifact(
+        client_id=CLIENT, product_code="FT_TP-TECHONLY",
+        rows=[{"material_code": "FT_NVL_Y", "qty_per_unit": 2, "uom": "kg"}],
+        actor="agency_staff", intent="asserted_technical",
+        parent_artifact_id=None, context={}, source_upload_id=None,
+        source_bom_kind="technical_flattened",
+        flatten_status="flattened",
+        flatten_strategy="purchased_btp_as_leaf",
+    )
+    items = bom_store.latest_flattened_versions(
+        client_id=CLIENT, product_code="FT_TP-TECHONLY",
+    )
+    assert len(items) == 2
+    assert {i["flatten_strategy"] for i in items} == {
+        "technical_exploded", "purchased_btp_as_leaf",
+    }
+
+
+def test_create_artifact_stores_human_label():
+    """human_label round-trips through create_artifact + get_artifact_with_rows."""
+    artifact_id = bom_store.create_artifact(
+        client_id=CLIENT, product_code="FT_TP-LABEL",
+        rows=[{"material_code": "FT_X", "qty_per_unit": 1, "uom": "kg"}],
+        actor="erp_pipeline", intent="asserted_technical",
+        parent_artifact_id=None, context={}, source_upload_id=None,
+        source_bom_kind="manual_flat",
+        flatten_status="flattened",
+        flatten_strategy="manual_flat_as_provided",
+        human_label="Mẫu 16/2025",
+    )
+    data = bom_store.get_artifact_with_rows(artifact_id)
+    assert data["artifact"]["human_label"] == "Mẫu 16/2025"
+
+
 # ── Item 24: every stored value uses stable English machine codes ──
 
 def test_stored_codes_are_english_only():
