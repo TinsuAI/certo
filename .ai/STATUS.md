@@ -137,6 +137,22 @@ conversion) still pending agency response but is not a dev blocker.
   Any future migration that uses a new Postgres extension must verify
   the image ships it, or add an explicit install step.
 
+- **Demo Tailscale outage at session-end (2026-05-13 ~17:30 ICT)**:
+  After all demo work landed and was verified green (9,411 artifacts,
+  BTP 1000534541 collapse, etc.), Tailscale relay `hkg` started timing
+  out on ssh/http/ping to `100.84.189.87`. Node still shown as `active`
+  by `tailscale status`. User accepted "trust demo state pre-outage"
+  since compose has `restart: unless-stopped` and Postgres uses
+  persistent volume. **Next session must re-verify** demo healthz +
+  Johnson artifact counts when Tailscale recovers — query template
+  in the session log §1 final validation block.
+
+- **Demo backups will accumulate**: `/home/tinsu/backups/data-hub/`
+  has 30-day retention via cron. The ad-hoc `pre_merge_*` /
+  `pre_wipe_*` dumps this session are NOT in that cron's retention
+  loop — they'll sit until manually removed. Consider periodic
+  cleanup.
+
 - **Demo backups will accumulate**: `/home/tinsu/backups/data-hub/`
   has 30-day retention via cron. The ad-hoc pre_merge/pre_wipe dumps
   this session are NOT in that cron's retention loop — they'll sit
