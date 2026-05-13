@@ -767,14 +767,60 @@ def _parse_inline_factor_edits(form) -> list[dict] | None:
     return edits or None
 
 
-@router.get("/clients/{client_id}/bom/stale", response_class=HTMLResponse)
-async def list_stale(request: Request, client_id: str):
-    """List all stale BOM artifacts for this client.
+# dim → category mapping for the /bom/stale UI (F — UI tabs).
+# Categories drive: (a) tab filter, (b) primary action button per row.
+# - dependency: a tracked dep mutated AFTER materialize → Refresh re-derives
+# - btp_bom:    a BTP raw_graph landed/was tombstoned → Refresh re-derives
+# - uom_drift:  UoM conversion gap at materialize time → needs override
+#               row in client_uom_overrides; Refresh alone won't clear it
+_STALE_DIM_CATEGORIES: dict[str, str] = {
+    "catalog_category": "dependency",
+    "materials_uom": "dependency",
+    "btp_sourcing": "dependency",
+    "derive_hook_failed": "dependency",
+    "btp_bom_added": "btp_bom",
+    "btp_bom_tombstoned": "btp_bom",
+    "factor_missing": "uom_drift",
+    "unconfirmed_default_1to1": "uom_drift",
+    "catalog_uom_missing": "uom_drift",
+}
+_VALID_CATEGORIES = ("all", "dependency", "btp_bom", "uom_drift")
 
-    Phase 2 step 5 follow-up: dedicated view so staff can find what
-    needs refresh without scrolling per-product. Surfaces is_stale +
-    has_uom_drift signals across artifacts. Filter: tombstoned
-    excluded; published only.
+
+def _categorize_dims(dims: list[str]) -> set[str]:
+    out: set[str] = set()
+    for d in dims:
+        out.add(_STALE_DIM_CATEGORIES.get(d, "other"))
+    return out
+
+
+def _primary_action(categories: set[str], is_source: bool) -> str:
+    """Determine the most actionable button for a stale row.
+    Refresh covers dependency + btp_bom (re-derive clears them).
+    uom_drift needs admin to fill client_uom_overrides → 'fix_uom'.
+    Source artifacts (manual_flat, raw_graph) with drift → 'reupload'.
+    """
+    if is_source and "uom_drift" in categories:
+        return "reupload"
+    if categories & {"dependency", "btp_bom"}:
+        return "refresh"
+    if "uom_drift" in categories:
+        return "fix_uom"
+    return "view"
+
+
+@router.get("/clients/{client_id}/bom/stale", response_class=HTMLResponse)
+async def list_stale(request: Request, client_id: str,
+                     category: str | None = None):
+    """List BOM artifacts needing attention, grouped into actionable tabs.
+
+    Category tabs (F):
+    - `dependency`: catalog/materials.uom/btp_sourcing changes → Refresh
+    - `btp_bom`: BTP raw_graph added/tombstoned → Refresh
+    - `uom_drift`: UoM conversion gap → Open UoM admin (Refresh won't clear)
+    - `all` (default): every row that has is_stale OR has_uom_drift
+
+    Tombstoned excluded; published only.
     """
     user = auth.require_user(request)
     auth.require_can_view_client(user, client_id)
@@ -782,6 +828,7 @@ async def list_stale(request: Request, client_id: str):
     if not client:
         raise HTTPException(404, "Client not found")
     can_edit = auth.can_edit_client(user, client_id)
+    selected_category = category if category in _VALID_CATEGORIES else "all"
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             """
@@ -799,7 +846,7 @@ async def list_stale(request: Request, client_id: str):
             """,
             (client_id,),
         )
-        rows = []
+        rows: list[dict] = []
         for r in cur.fetchall():
             (aid, pc, strat, kind, is_stale, sreas, sat,
              has_drift, dreas, dat, pub_at) = r
@@ -807,6 +854,8 @@ async def list_stale(request: Request, client_id: str):
                                   if x and x.get("dim")})
             drift_dims = sorted({x.get("dim") for x in (dreas or [])
                                   if x and x.get("dim")})
+            is_source = strat in ("manual_flat_as_provided", "no_strategy")
+            categories = _categorize_dims(stale_dims + drift_dims)
             rows.append({
                 "artifact_id": aid, "product_code": pc,
                 "flatten_strategy": strat, "source_bom_kind": kind,
@@ -817,13 +866,23 @@ async def list_stale(request: Request, client_id: str):
                 "drift_dims": drift_dims,
                 "uom_drift_first_at": dat,
                 "published_at": pub_at,
-                "is_source": strat in (
-                    "manual_flat_as_provided", "no_strategy"),
+                "is_source": is_source,
+                "categories": sorted(categories),
+                "primary_action": _primary_action(categories, is_source),
             })
+    counts = {
+        "all": len(rows),
+        "dependency": sum(1 for r in rows if "dependency" in r["categories"]),
+        "btp_bom":    sum(1 for r in rows if "btp_bom" in r["categories"]),
+        "uom_drift":  sum(1 for r in rows if "uom_drift" in r["categories"]),
+    }
+    if selected_category != "all":
+        rows = [r for r in rows if selected_category in r["categories"]]
     return request.app.state.templates.TemplateResponse(
         request, "clients/bom_stale.html",
         {"client": client, "stats": stats_for_client(client_id),
          "rows": rows, "can_edit": can_edit,
+         "selected_category": selected_category, "counts": counts,
          "active_root": "clients", "active_tab": "bom"},
     )
 

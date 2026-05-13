@@ -320,6 +320,23 @@ STRINGS: dict[str, dict[str, str]] = {
         "bom.stale.dim.btp_bom_added": "BTP có BOM mới",
         "bom.stale.dim.btp_bom_tombstoned": "BTP BOM bị thay thế",
         "bom.stale.dim.derive_hook_failed": "Hook derive thất bại",
+        # UoM-drift dims (mig 057) — currently land in is_stale for
+        # derived artifacts. Refresh re-runs conversion; clears only
+        # when staff fills hub.client_uom_overrides for the material.
+        "bom.stale.dim.factor_missing": "Thiếu factor quy đổi UoM",
+        "bom.stale.dim.unconfirmed_default_1to1": "Quy đổi UoM mặc định 1:1 (chưa xác nhận)",
+        "bom.stale.dim.catalog_uom_missing": "Catalog material chưa có ĐVT",
+        # Per-dim tooltips (UI tab F surfaces dim-specific guidance)
+        "bom.stale.tooltip.dependency": "Phụ thuộc thay đổi sau khi materialize — bấm 'Refresh' để re-derive.",
+        "bom.stale.tooltip.uom_drift": "UoM conversion chưa kín — cần bổ sung factor trong client_uom_overrides hoặc cập nhật catalog. Refresh sẽ không clear nếu data nguồn không thay đổi.",
+        # UI tab labels (F)
+        "bom.stale.tab.dependency": "Phụ thuộc đã đổi",
+        "bom.stale.tab.uom_drift": "UoM cần điền",
+        "bom.stale.tab.btp_bom": "BTP có BOM mới",
+        "bom.stale.tab.all": "Tất cả",
+        "bom.stale.action.refresh": "Refresh",
+        "bom.stale.action.fix_uom": "Mở UoM admin",
+        "bom.stale.action.reupload": "Re-upload",
         "bom.col.latest": "Mới nhất",
         "bom.col.last_published": "Lần published",
         "bom.col.actor": "Actor",
@@ -801,6 +818,22 @@ STRINGS: dict[str, dict[str, str]] = {
         "bom.stale.dim.btp_bom_added": "BTP got a new BOM",
         "bom.stale.dim.btp_bom_tombstoned": "BTP BOM tombstoned",
         "bom.stale.dim.derive_hook_failed": "Derive hook failed",
+        # UoM-drift dims (mig 057) — currently surface via is_stale for
+        # derived artifacts; clear only when staff fills overrides.
+        "bom.stale.dim.factor_missing": "UoM conversion factor missing",
+        "bom.stale.dim.unconfirmed_default_1to1": "UoM defaulted 1:1 (unconfirmed)",
+        "bom.stale.dim.catalog_uom_missing": "Catalog material has no UoM",
+        # Per-dim tooltips
+        "bom.stale.tooltip.dependency": "Dependency changed after materialize — click 'Refresh' to re-derive.",
+        "bom.stale.tooltip.uom_drift": "UoM conversion incomplete — add a factor in client_uom_overrides or fix catalog UoM. Refresh alone won't clear it.",
+        # UI tab labels (F)
+        "bom.stale.tab.dependency": "Dependency changed",
+        "bom.stale.tab.uom_drift": "UoM action needed",
+        "bom.stale.tab.btp_bom": "BTP got new BOM",
+        "bom.stale.tab.all": "All",
+        "bom.stale.action.refresh": "Refresh",
+        "bom.stale.action.fix_uom": "Open UoM admin",
+        "bom.stale.action.reupload": "Re-upload",
         "bom.col.latest": "Latest",
         "bom.col.last_published": "Last published",
         "bom.col.actor": "Actor",

@@ -23,10 +23,24 @@ Status policy: respects clients.auto_derive_shallow_from_raw
 
 Idempotent via normalized_hash. Re-runnable safely.
 
+Correct bulk-ingest order (avoids D2 false-positive stale flags):
+    1. scripts/ingest_technical_raw_batch.py  # TP raws
+    2. catalog fixup (per-client, e.g. fixup_johnson_btp_sx_after_bom.py)
+    3. scripts/derive_btp_shallows.py         # BTP raws (D2 trigger
+                                              # fires but finds no parents)
+    4. scripts/materialize_shallow_and_full_flat.py --commit  # tech_flat
+
+Running step 4 BEFORE step 3 produces tech_flat that references BTPs as
+leaves; the later BTP raw INSERTs then fire D2 → marks those tech_flat
+stale. Use `--cleanup-stale` on this script to recover after such a run:
+re-derive every stale tech_flat (idempotent if subtree is now settled;
+mints a fresh artifact if subtree changed since).
+
 Usage:
     uv run python scripts/materialize_shallow_and_full_flat.py --client growatt-vn
     uv run python scripts/materialize_shallow_and_full_flat.py --client growatt-vn --commit
     uv run python scripts/materialize_shallow_and_full_flat.py --client growatt-vn --commit --force-publish
+    uv run python scripts/materialize_shallow_and_full_flat.py --client growatt-vn --commit --cleanup-stale
 """
 from __future__ import annotations
 
@@ -258,6 +272,12 @@ def main() -> int:
     ap.add_argument("--commit", action="store_true")
     ap.add_argument("--force-publish", action="store_true",
                     help="ignore client policy; publish derived versions")
+    ap.add_argument("--cleanup-stale", action="store_true",
+                    help="after main materialize pass, refresh every "
+                         "is_stale derived artifact (re-derive). Idempotent: "
+                         "subtree settled → same hash → clear flag; subtree "
+                         "changed → mint new + tombstone old. Use to recover "
+                         "D2 false-positives caused by out-of-order ingest.")
     args = ap.parse_args()
 
     policy = fetch_client_policy(args.client)
@@ -362,7 +382,57 @@ def main() -> int:
     print()
     for k, v in counters.items():
         print(f"  {k}: {v}")
+
+    if args.cleanup_stale:
+        cleanup_counters = _cleanup_stale_derived(args.client)
+        print()
+        print("cleanup-stale pass:")
+        for k, v in cleanup_counters.items():
+            print(f"  {k}: {v}")
     return 0
+
+
+def _cleanup_stale_derived(client_id: str) -> dict:
+    """Re-derive every stale technical_flattened artifact for the client.
+
+    For each is_stale derived artifact: call refresh_artifact, which
+    re-walks the parent raw + current catalog + uom state and either
+    clears the stale flag (same hash) or mints a fresh artifact + clears
+    the old one (different hash). Used to recover from D2 false-positives
+    caused by out-of-order bulk ingest (materialize ran before all BTP
+    raws were minted).
+    """
+    from app.stores.bom_staleness import refresh_artifact
+    counters = {"refreshed": 0, "minted_new": 0, "cleared": 0,
+                 "skipped": 0, "errors": 0}
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            select artifact_id from hub.bom_artifacts
+            where client_id=%s and is_stale=true
+              and tombstoned_at is null
+              and source_bom_kind='technical_flattened'
+            order by stale_first_at
+            """,
+            (client_id,),
+        )
+        stale_ids = [r[0] for r in cur.fetchall()]
+    print(f"cleanup-stale: {len(stale_ids)} stale derived artifact(s) to refresh")
+    for aid in stale_ids:
+        try:
+            result = refresh_artifact(client_id, aid)
+        except Exception as exc:
+            counters["errors"] += 1
+            print(f"  ERROR refreshing {aid}: {exc}")
+            continue
+        counters["refreshed"] += 1
+        if result.get("skipped_reason"):
+            counters["skipped"] += 1
+        if result.get("new_artifact_ids"):
+            counters["minted_new"] += len(result["new_artifact_ids"])
+        if result.get("cleared"):
+            counters["cleared"] += 1
+    return counters
 
 
 if __name__ == "__main__":

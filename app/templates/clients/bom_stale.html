@@ -1,22 +1,48 @@
 {% extends "base.html" %}
-{% block title %}BOM cần refresh · {{ client.name }}{% endblock %}
+{% block title %}BOM cần xử lý · {{ client.name }}{% endblock %}
 {% block content %}
 {% include "_client_nav.html" %}
 
 <section class="page-bar">
-  <h1>BOM cần xử lý ({{ rows|length }})</h1>
+  <h1>BOM cần xử lý ({{ counts.all }})</h1>
   <span class="page-tagline">
-    Tất cả BOM artifacts đang stale (cần Refresh) hoặc có UoM drift (cần
-    re-upload). Sắp xếp theo thời điểm phát sinh stale/drift mới nhất.
+    Phân loại theo hành động cần làm. <em>Dependency</em>: Refresh re-derive.
+    <em>UoM</em>: cần bổ sung factor trong UoM admin. <em>BTP BOM</em>:
+    Refresh sau khi BTP raw_graph được ingest.
   </span>
   <div class="page-actions">
     <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom">← BOM list</a>
   </div>
 </section>
 
+<nav class="tabs" style="margin: 1em 0; border-bottom: 1px solid #ddd;">
+  {% set tabs = [
+    ('all',        t('bom.stale.tab.all'),        counts.all),
+    ('dependency', t('bom.stale.tab.dependency'), counts.dependency),
+    ('btp_bom',    t('bom.stale.tab.btp_bom'),    counts.btp_bom),
+    ('uom_drift',  t('bom.stale.tab.uom_drift'),  counts.uom_drift),
+  ] %}
+  {% for cat, label, n in tabs %}
+    {% if cat == selected_category %}
+      <span class="tab tab-active" style="padding: 0.5em 1em; border-bottom: 2px solid #2563eb; font-weight: 600;">
+        {{ label }} <span class="badge badge-info">{{ n }}</span>
+      </span>
+    {% else %}
+      <a class="tab" style="padding: 0.5em 1em; color: #555;"
+         href="/clients/{{ client.client_id }}/bom/stale{% if cat != 'all' %}?category={{ cat }}{% endif %}">
+        {{ label }} <span class="badge">{{ n }}</span>
+      </a>
+    {% endif %}
+  {% endfor %}
+</nav>
+
 {% if not rows %}
 <div class="zone mini-panel">
-  <p>Không có BOM artifact nào đang stale hoặc drift. 🎉</p>
+  {% if counts.all == 0 %}
+    <p>Không có BOM artifact nào đang stale hoặc drift. 🎉</p>
+  {% else %}
+    <p>Không có artifact nào thuộc nhóm này. Chọn tab khác.</p>
+  {% endif %}
 </div>
 {% else %}
 <table class="data-table">
@@ -24,9 +50,8 @@
     <tr>
       <th>Mã sản phẩm</th>
       <th>Loại</th>
-      <th>Strategy</th>
-      <th>Stale</th>
-      <th>UoM drift</th>
+      <th>Nhóm</th>
+      <th>Lý do</th>
       <th>Phát sinh</th>
       <th>Thao tác</th>
     </tr>
@@ -47,18 +72,28 @@
         {% endif %}
         <small style="color:#666">{{ r.source_bom_kind }}</small>
       </td>
-      <td><small>{{ r.flatten_strategy }}</small></td>
       <td>
-        {% if r.is_stale %}
-          <span class="badge badge-warning">stale</span>
-          <small style="color:#666">{{ r.stale_dims | join(', ') }}</small>
-        {% endif %}
+        {% for c in r.categories %}
+          {% if c == 'dependency' %}
+            <span class="badge badge-warning" title="{{ t('bom.stale.tooltip.dependency') }}">dependency</span>
+          {% elif c == 'uom_drift' %}
+            <span class="badge badge-warning" style="background:#fde" title="{{ t('bom.stale.tooltip.uom_drift') }}">UoM</span>
+          {% elif c == 'btp_bom' %}
+            <span class="badge badge-info">BTP BOM</span>
+          {% else %}
+            <span class="badge">{{ c }}</span>
+          {% endif %}
+        {% endfor %}
       </td>
       <td>
-        {% if r.has_uom_drift %}
-          <span class="badge badge-warning" style="background:#fde">drift</span>
-          <small style="color:#666">{{ r.drift_dims | join(', ') }}</small>
-        {% endif %}
+        <small style="color:#666">
+          {% set all_dims = r.stale_dims + r.drift_dims %}
+          {% for d in all_dims %}
+            {% set key = 'bom.stale.dim.' ~ d %}
+            {% set translated = t(key) %}
+            {{ translated if translated != key else d }}{% if not loop.last %}, {% endif %}
+          {% endfor %}
+        </small>
       </td>
       <td>
         <small>
@@ -76,14 +111,22 @@
           Xem
         </a>
         {% if can_edit %}
-          {% if r.flatten_strategy == 'no_strategy' %}
-            <small style="color:#999">(raw_graph: cần re-upload)</small>
-          {% else %}
+          {% if r.primary_action == 'refresh' %}
             <form method="post"
                   action="/clients/{{ client.client_id }}/bom/artifact/{{ r.artifact_id }}/refresh"
                   style="display:inline">
-              <button type="submit" class="btn-primary">Refresh</button>
+              <button type="submit" class="btn-primary">{{ t('bom.stale.action.refresh') }}</button>
             </form>
+          {% elif r.primary_action == 'fix_uom' %}
+            <a class="btn-primary"
+               href="/clients/{{ client.client_id }}/uom-factors?prefill_material_code={{ r.product_code }}">
+              {{ t('bom.stale.action.fix_uom') }}
+            </a>
+          {% elif r.primary_action == 'reupload' %}
+            <a class="btn-primary"
+               href="/clients/{{ client.client_id }}/bom/upload">
+              {{ t('bom.stale.action.reupload') }}
+            </a>
           {% endif %}
         {% endif %}
       </td>
@@ -94,13 +137,16 @@
 
 {% if can_edit %}
 <p class="muted" style="margin-top:1em">
-  • <strong>Derived</strong> (technical_exploded / purchased_btp_as_leaf):
-  click <em>Refresh</em> để re-derive từ raw + catalog UoM hiện tại.<br>
-  • <strong>Manual_flat</strong> (Phase 2): click <em>Refresh</em> để
-  re-convert UoM từ <span class="mono">source_uom</span> đã lưu —
-  không cần re-upload.<br>
-  • <strong>Raw_graph</strong>: edges immutable; refresh các derived
-  artifacts thay vì refresh raw.
+  • <strong>Dependency</strong>: catalog / sourcing thay đổi sau materialize.
+  <em>Refresh</em> re-derive.<br>
+  • <strong>UoM</strong>: <span class="mono">factor_missing</span> /
+  <span class="mono">unconfirmed_default_1to1</span> /
+  <span class="mono">catalog_uom_missing</span>. <em>Refresh</em> sẽ không
+  clear nếu data nguồn không đổi — phải bổ sung factor trong
+  <a href="/clients/{{ client.client_id }}/uom-factors">UoM admin</a>.<br>
+  • <strong>BTP BOM</strong>: BTP raw_graph mới ingest. <em>Refresh</em>
+  re-derive parent.<br>
+  • <strong>Raw_graph</strong>: edges immutable; refresh các derived artifacts.
 </p>
 {% endif %}
 {% endif %}
