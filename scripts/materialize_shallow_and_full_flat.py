@@ -54,6 +54,9 @@ sys.path.insert(0, os.fspath(Path(__file__).resolve().parents[1]))
 
 from app.database import connect
 from app.stores.bom import create_artifact
+from app.stores.bom_staleness import (
+    _apply_drift_to_artifact, _convert_rows_to_catalog_uom,
+)
 
 
 LIST_RAW_VERSIONS_SQL = """
@@ -319,6 +322,14 @@ def main() -> int:
             if not rows:
                 counters[f"{kind}_empty"] += 1
                 continue
+            # Phase 2 UoM conversion (mig 056/057): apply catalog UoM
+            # before persisting derived rows. Drift signals are routed to
+            # is_stale via _apply_drift_to_artifact so staff can act on
+            # them immediately. Without this layer, derived rows ship raw
+            # UoM and downstream consumers (CO) see unconverted qty.
+            converted_rows, drifts = _convert_rows_to_catalog_uom(
+                args.client, rows,
+            )
             new_ctx = dict(raw_ctx or {})
             new_ctx.update({
                 "channel": "auto_derived",  # logical role (record in jsonb)
@@ -330,7 +341,7 @@ def main() -> int:
             existing = create_artifact(
                 client_id=args.client,
                 product_code=product_code,
-                rows=rows,
+                rows=converted_rows,
                 actor="erp_pipeline",
                 intent="derived",
                 parent_artifact_id=raw_id,
@@ -341,11 +352,14 @@ def main() -> int:
                 flatten_strategy=strategy,
                 source_channel="migration",
                 bom_variant_id=raw_variant,
-                flatten_method="recursive_sql",
-                flatten_method_version="1",
+                flatten_method="recursive_sql_with_uom_conversion",
+                flatten_method_version="2",
             )
             if existing:
                 counters[f"{kind}_inserted"] += 1
+                if drifts:
+                    with connect() as conn, conn.cursor() as cur:
+                        _apply_drift_to_artifact(cur, existing, drifts)
             else:
                 counters[f"{kind}_dedup"] += 1
 
