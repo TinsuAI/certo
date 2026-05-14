@@ -29,8 +29,12 @@ from pathlib import Path
 
 sys.path.insert(0, os.fspath(Path(__file__).resolve().parents[1]))
 
+from app.database import connect
 from app.parsers.bom_adapters.manual_flat import ManualFlatAdapter
 from app.stores.bom import create_artifact
+from app.stores.bom_staleness import (
+    _apply_drift_to_artifact, _convert_rows_to_catalog_uom,
+)
 from app.stores.uom_standards import resolve_canonical
 
 
@@ -96,13 +100,21 @@ def main() -> int:
 
     created = 0
     skipped = 0
+    drift_count = 0
     errors: list[tuple[str, str]] = []
     for product_code, rows in products.items():
         try:
+            # Phase 2 UoM conversion (mig 056/057): apply catalog UoM
+            # before persisting source-artifact rows. Drift signals
+            # surface via has_uom_drift (manual_flat is a source kind, so
+            # _apply_drift_to_artifact routes there, not is_stale).
+            converted_rows, drifts = _convert_rows_to_catalog_uom(
+                args.client, rows,
+            )
             artifact_id = create_artifact(
                 client_id=args.client,
                 product_code=product_code,
-                rows=rows,
+                rows=converted_rows,
                 actor=ACTOR,
                 intent=INTENT,
                 parent_artifact_id=None,
@@ -117,11 +129,15 @@ def main() -> int:
                 lineage={"ingest": "scripts/ingest_mau16_johnson.py",
                          "source_file": args.source_file,
                          "period": args.period},
-                flatten_method="none",
-                flatten_method_version="0",
+                flatten_method="manual_flat_with_uom_conversion",
+                flatten_method_version="1",
                 display_label=None,
                 human_label=human_label,
             )
+            if artifact_id and drifts:
+                drift_count += len(drifts)
+                with connect() as conn, conn.cursor() as cur:
+                    _apply_drift_to_artifact(cur, artifact_id, drifts)
             if artifact_id is None:
                 skipped += 1
             else:
@@ -132,6 +148,7 @@ def main() -> int:
     print(f"\nIngest summary:")
     print(f"  created/upserted: {created}")
     print(f"  skipped:          {skipped}")
+    print(f"  drift signals:    {drift_count}")
     print(f"  errors:           {len(errors)}")
     for prod, err in errors[:5]:
         print(f"    {prod}: {err}")
