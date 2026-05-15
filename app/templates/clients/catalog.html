@@ -157,6 +157,17 @@
   </div>
   {% endif %}
 
+  {% if conflict_counts and conflict_counts.total and conflict_counts.total > 0 %}
+  <div class="toast toast-error" style="margin-bottom: 1rem;">
+    ⚠ <strong>{{ conflict_counts.total }}</strong> dòng cần review
+    <span class="meta">
+      ({{ conflict_counts.declared }} khai báo ≠ quan sát,
+       {{ conflict_counts.sourcing }} nguồn cung ≠ quan sát)
+    </span>
+    <a href="/clients/{{ client.client_id }}/catalog/conflicts">Mở trang conflicts →</a>
+  </div>
+  {% endif %}
+
   {# sort_th macro now imported from _sort.html #}
   {% macro _local_sort_th_unused(col, label) -%}
     {% set is_active = sort.column == col %}

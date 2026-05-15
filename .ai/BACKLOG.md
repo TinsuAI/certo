@@ -66,21 +66,18 @@ observed_roles[btp_sx + btp_nm] (mig 046) + sourcing-confirmation
 conflict (Python in catalog.py route + UI badge in catalog.html).
 Multi-role array on materials still pending.
 
-## A.2 Catalog conflicts page
+## A.2 Catalog conflicts page — SHIPPED 2026-05-15
 
-**Captured 2026-05-09** (originally Phase 3 of catalog multi-source).
-Surface mismatches between catalog declarations and observed data
-graph:
-
-- `v_material_roles.declared_observed_conflict` already computed
-  (boolean per row). Drives "⚠ Xét lại" badge in catalog list.
-- Missing: dedicated page listing all conflict rows for staff review.
-- Page `/clients/<id>/catalog/conflicts`: table of conflicts +
-  details + actions (update declared_kind, override, suppress).
-- Sourcing-confirmation conflict (mig 046 logic): catalog list has
-  inline badge but no dedicated review queue. Same page can host both.
-
-**Effort**: ~0.5-1 day (read-only view + actions reuse existing endpoints).
+Dedicated review queue at `/clients/<cid>/catalog/conflicts` surfacing
+both `declared_observed_conflict` (column on `v_material_roles`) and
+sourcing-confirmation conflict (Python/SQL-derived from
+`btp_sourcing` vs observed `observed_roles[]`). Inline `btp_sourcing`
+dropdown with `return_to` redirect to keep staff on the queue.
+Catalog list shows a "X dòng cần review" nav banner when count > 0.
+Brief: `.ai/features/2026-05-15-catalog-conflicts-page/brief.md`.
++8 provider tests (1101 passed). No suppress mechanism — staff
+resolve by editing declared category or btp_sourcing (immutable
+principle, [[feedback_no_derived_in_source]]).
 
 ## A.3 Catalog edit permission (per-role configurable)
 

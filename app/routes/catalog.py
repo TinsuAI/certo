@@ -209,6 +209,7 @@ async def list_view(
 
     def _sort_link(col: str) -> str:
         return sort_link(request=request, column=col, current_sort=sort)
+    conflict_counts = _conflict_counts(client_id)
     return request.app.state.templates.TemplateResponse(
         request, "clients/catalog.html",
         {
@@ -220,6 +221,64 @@ async def list_view(
             "unregistered_bcct": unregistered_bcct,
             "unresolved_bom": unresolved_bom,
             "ai_panel": ai_panel,
+            "paging": paging_ctx, "sort": sort, "sort_link": _sort_link,
+            "conflict_counts": conflict_counts,
+            "freshness": freshness_for_template(request, client_id, "catalog"),
+            "active_root": "clients", "active_tab": "catalog",
+        },
+    )
+
+
+@router.get("/clients/{client_id}/catalog/conflicts",
+            response_class=HTMLResponse)
+async def conflicts_view(
+    request: Request, client_id: str,
+    type: str = "all",
+    category: str | None = None, q: str | None = None,
+    provenance: str | None = None,
+):
+    """A.2 conflicts review queue. Lists materials where declared kind
+    disagrees with observed roles, OR staff sourcing confirmation
+    disagrees with the observed dual-source pattern."""
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    conflict_type = type if type in _CONFLICT_TYPES else "all"
+    page_params = parse_page_params(query_params=request.query_params)
+    sort = SortSpec.from_params(
+        query_params=request.query_params,
+        whitelist=CATALOG_SORT_WHITELIST, default=CATALOG_SORT_DEFAULT,
+    )
+    order_by = sort.sql_clause(tiebreakers=("m.material_code",)) \
+        if sort.column != "material_code" else sort.sql_clause()
+    items = _query_conflicts(
+        client_id=client_id, conflict_type=conflict_type,
+        category=category, provenance=provenance, q=q,
+        order_by=order_by,
+        limit=page_params.page_size, offset=page_params.offset,
+    )
+    total = _count_conflicts(
+        client_id=client_id, conflict_type=conflict_type,
+        category=category, provenance=provenance, q=q,
+    )
+    counts = _conflict_counts(client_id)
+    paging_ctx = pagination_context(
+        request=request, page_params=page_params, total=total,
+    )
+
+    def _sort_link(col: str) -> str:
+        return sort_link(request=request, column=col, current_sort=sort)
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/catalog_conflicts.html",
+        {
+            "client": client, "stats": stats_for_client(client_id),
+            "items": items, "categories": CATEGORIES,
+            "active_category": category, "q": q or "",
+            "active_provenance": provenance,
+            "active_conflict_type": conflict_type,
+            "conflict_counts": counts,
             "paging": paging_ctx, "sort": sort, "sort_link": _sort_link,
             "freshness": freshness_for_template(request, client_id, "catalog"),
             "active_root": "clients", "active_tab": "catalog",
@@ -635,6 +694,131 @@ def _count_materials(*, client_id: str, category: str | None,
         with conn.cursor() as cur:
             cur.execute(f"select count(*) from hub.materials m {where}", params)
             (n,) = cur.fetchone()
+    return n
+
+
+# ── Conflict queue helpers (A.2 conflicts page) ─────────────────────────
+#
+# Two conflict signals already surface as inline badges on the list:
+#   1. `declared_observed_conflict` — column on `hub.v_material_roles`,
+#      true when declared category disagrees with observed_roles[].
+#   2. Sourcing-confirmation conflict — Python-side derivation: staff
+#      `btp_sourcing` (self_produced_only / purchased_only / dual_source)
+#      disagrees with the role pattern observed in BCCT+BOM.
+#
+# Both encoded in SQL below so paging works on the conflict subset
+# directly (Python-side filter over the full materials table would not
+# scale).
+
+_SUGGESTED_SQL = (
+    "case "
+    "when 'btp_nm' = any(coalesce(vmr.observed_roles, '{}'::text[])) "
+    "then 'dual_source' "
+    "when 'btp_sx' = any(coalesce(vmr.observed_roles, '{}'::text[])) "
+    "and not 'btp_nm' = any(coalesce(vmr.observed_roles, '{}'::text[])) "
+    "then 'self_produced_only' "
+    "else null end"
+)
+
+_SOURCING_CONFLICT_SQL = (
+    f"({_SUGGESTED_SQL}) is not null "
+    "and m.btp_sourcing is not null "
+    "and m.btp_sourcing not in ('unknown', '') "
+    f"and m.btp_sourcing <> ({_SUGGESTED_SQL})"
+)
+
+_CONFLICT_TYPES = ("all", "declared", "sourcing")
+
+
+def _conflict_where(conflict_type: str) -> str:
+    """Filter clause for the conflicts page; assumes `vmr` JOIN exists."""
+    if conflict_type == "declared":
+        return "coalesce(vmr.declared_observed_conflict, false)"
+    if conflict_type == "sourcing":
+        return _SOURCING_CONFLICT_SQL
+    return (
+        "(coalesce(vmr.declared_observed_conflict, false) "
+        f"or {_SOURCING_CONFLICT_SQL})"
+    )
+
+
+def _conflict_counts(client_id: str) -> dict:
+    """Counts for the nav banner + page header.
+
+    Returns: total, declared, sourcing (both-conflict rows counted in
+    each; total uses OR so it is not declared+sourcing).
+    """
+    sql = (
+        "select "
+        "  count(*) filter (where coalesce(vmr.declared_observed_conflict, false) "
+        f"                       or {_SOURCING_CONFLICT_SQL}) as total, "
+        "  count(*) filter (where coalesce(vmr.declared_observed_conflict, false)) "
+        "    as declared, "
+        f"  count(*) filter (where {_SOURCING_CONFLICT_SQL}) as sourcing "
+        "from hub.materials m "
+        "left join hub.v_material_roles vmr "
+        "  on vmr.client_id = m.client_id and vmr.material_code = m.material_code "
+        "where m.client_id = %s and m.status = 'active'"
+    )
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(sql, (client_id,))
+        cols = [d[0] for d in cur.description]
+        return dict(zip(cols, cur.fetchone()))
+
+
+def _query_conflicts(*, client_id: str, conflict_type: str,
+                     category: str | None, provenance: str | None,
+                     q: str | None,
+                     order_by: str = "m.material_code asc",
+                     limit: int = 50, offset: int = 0) -> list[dict]:
+    where, params = _catalog_where_clause(
+        client_id=client_id, category=category, q=q,
+        provenance=provenance, status="active",
+    )
+    where += f" and ({_conflict_where(conflict_type)})"
+    sql = f"""
+        select m.material_code, m.name, m.category, m.category_override,
+               m.status, m.uom, m.hs_code, m.updated_at, m.provenance,
+               m.btp_sourcing, m.source, m.hq_registered, m.code_kind,
+               coalesce(vmr.observed_roles, '{{}}'::text[]) as observed_roles,
+               coalesce(vmr.declared_observed_conflict, false)
+                 as declared_observed_conflict,
+               {_SUGGESTED_SQL} as suggested_sourcing,
+               ({_SOURCING_CONFLICT_SQL}) as sourcing_conflict,
+               coalesce(vmr.observed_count, 0) as observed_count
+        from hub.materials m
+        left join hub.v_material_roles vmr
+               on vmr.client_id = m.client_id
+              and vmr.material_code = m.material_code
+        {where}
+        order by {order_by}
+        limit %s offset %s
+    """
+    params = [*params, limit, offset]
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def _count_conflicts(*, client_id: str, conflict_type: str,
+                     category: str | None, provenance: str | None,
+                     q: str | None) -> int:
+    where, params = _catalog_where_clause(
+        client_id=client_id, category=category, q=q,
+        provenance=provenance, status="active",
+    )
+    where += f" and ({_conflict_where(conflict_type)})"
+    sql = (
+        "select count(*) from hub.materials m "
+        "left join hub.v_material_roles vmr "
+        "  on vmr.client_id = m.client_id "
+        "  and vmr.material_code = m.material_code "
+        f"{where}"
+    )
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        (n,) = cur.fetchone()
     return n
 
 
@@ -1056,12 +1240,17 @@ async def tombstone_material(request: Request, client_id: str, material_code: st
 
 @router.post("/clients/{client_id}/catalog/{material_code:path}/btp_sourcing")
 async def set_btp_sourcing(request: Request, client_id: str, material_code: str,
-                            btp_sourcing: str = Form(...)):
+                            btp_sourcing: str = Form(...),
+                            return_to: str = Form("")):
     """Staff override of materials.btp_sourcing for one BTP material.
 
     Phase 3a — last-write-wins. Future: respect a separate
     `btp_sourcing_overridden_at` flag so classifier reruns don't
-    overwrite manual overrides (BACKLOG)."""
+    overwrite manual overrides (BACKLOG).
+
+    `return_to`: optional path the caller wants to redirect back to
+    (e.g. the conflicts queue). Must start with `/clients/{cid}/` for
+    this client; ignored otherwise to keep redirects scoped."""
     user = auth.require_user(request)
     auth.require_can_edit_client(user, client_id)
     if btp_sourcing not in _BTP_SOURCING_VALUES:
@@ -1082,7 +1271,7 @@ async def set_btp_sourcing(request: Request, client_id: str, material_code: str,
             "where client_id=%s and material_code=%s",
             (btp_sourcing, client_id, material_code),
         )
-    return RedirectResponse(
-        url=f"/clients/{client_id}/catalog?category=btp_sx",
-        status_code=303,
-    )
+    redirect = f"/clients/{client_id}/catalog?category=btp_sx"
+    if return_to and return_to.startswith(f"/clients/{client_id}/"):
+        redirect = return_to
+    return RedirectResponse(url=redirect, status_code=303)
