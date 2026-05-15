@@ -683,6 +683,62 @@ Response:
 Service token requires `hub:read` scope. Whitelisted `client_ids`
 honored normally.
 
+### Declarations
+
+#### `GET /v1/hub/clients/{client_id}/declarations`
+
+Per-declaration summary with `file_count` from
+`hub.customs_declaration_files`. Sister-app entry for CO's TKX/TKN
+"có tờ khai / thiếu tờ khai" status. BCCT row presence alone does
+not equate to declaration-file presence — this endpoint surfaces
+both signals so consumers can answer the file-presence question
+without scanning BCCT.
+
+Identity is `(client_id, declaration_no, direction)`. The same
+`declaration_no` can exist in both `import` and `export` and ships
+as two distinct rows.
+
+Query params:
+- `direction`: optional, `import` or `export`.
+- `declaration_nos`: optional, comma-separated declaration numbers
+  (max 500). Exact-match — no normalization is applied; preserves
+  Data Hub's canonical declaration_no string.
+- `has_files`: optional, `yes` or `no`. Filters by whether
+  `file_count > 0`.
+- `cursor`, `limit`: optional pagination (default `limit=200`,
+  capped at `500`). When `declaration_nos` is provided, the response
+  is single-page with `next_cursor=null`.
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "declaration_no": "308449399330",
+      "direction": "export",
+      "bcct_line_count": 2,
+      "file_count": 1,
+      "earliest_bcct_date": "2026-04-21"
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+Errors:
+- `400 invalid_direction` — `direction` not in `{import, export}`.
+- `400 invalid_has_files` — `has_files` not in `{yes, no}`.
+- `400 too many declaration_nos` — more than 500 in a single request.
+- `401 bearer token required` — missing or invalid bearer in strict
+  mode.
+- `403 forbidden` — service token without `hub:read` scope or
+  outside the client whitelist.
+- `404 Client not found` — unknown `client_id`.
+
+Contract spec:
+`barry-CO-main/.ai/api-requests/2026-05-15-declaration-file-status.md`.
+
 ### Health
 
 #### `GET /v1/hub/healthz`

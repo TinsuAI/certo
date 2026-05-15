@@ -156,16 +156,18 @@ def list_declarations_with_status(
     client_id: str, *,
     direction: str | None = None,
     has_files: bool | None = None,
+    declaration_nos: list[str] | None = None,
     limit: int = 200,
     offset: int = 0,
     search: str | None = None,
 ) -> list[DeclarationSummary]:
     """List declarations from BCCT with attached file counts.
 
-    Used for the declarations index page. Combines bcct_rows aggregated by
-    declaration with the file count from customs_declaration_files.
-    Filters: direction (import/export), has_files (true/false/None),
-    search (substring match on declaration_no).
+    Used for the declarations index page + sister-app declaration
+    summary API. Combines bcct_rows aggregated by declaration with the
+    file count from customs_declaration_files. Filters: direction
+    (import/export), has_files (true/false/None), declaration_nos
+    (exact-match list), search (substring match on declaration_no).
     """
     sql_parts = ["""
         with bcct_decls as (
@@ -179,6 +181,9 @@ def list_declarations_with_status(
     if direction is not None:
         sql_parts.append("    and direction = %(dir)s")
         params["dir"] = direction
+    if declaration_nos is not None:
+        sql_parts.append("    and declaration_no = any(%(decls)s)")
+        params["decls"] = list(declaration_nos)
     if search:
         sql_parts.append("    and declaration_no like %(srch)s")
         params["srch"] = f"%{search}%"
@@ -224,6 +229,7 @@ def count_declarations_with_status(
     client_id: str, *,
     direction: str | None = None,
     has_files: bool | None = None,
+    declaration_nos: list[str] | None = None,
     search: str | None = None,
 ) -> int:
     """Total count for the same query as `list_declarations_with_status`.
@@ -238,6 +244,9 @@ def count_declarations_with_status(
     if direction is not None:
         sql_parts.append("    and direction = %(dir)s")
         params["dir"] = direction
+    if declaration_nos is not None:
+        sql_parts.append("    and declaration_no = any(%(decls)s)")
+        params["decls"] = list(declaration_nos)
     if search:
         sql_parts.append("    and declaration_no like %(srch)s")
         params["srch"] = f"%{search}%"
@@ -262,6 +271,30 @@ def count_declarations_with_status(
     with connect() as conn, conn.cursor() as cur:
         cur.execute("".join(sql_parts), params)
         return cur.fetchone()[0]
+
+
+def list_files_for_declarations(
+    client_id: str, declaration_nos: list[str], *, direction: str,
+) -> list[DeclarationFile]:
+    """Bulk fetch of every uploaded file for the (client, direction,
+    declaration_no IN nos) tuple. Used by the ZIP download route. The
+    return list is empty when nothing matches; the caller produces the
+    NO_FILES_FOUND marker."""
+    if not declaration_nos:
+        return []
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            select * from hub.customs_declaration_files
+             where client_id = %s
+               and direction = %s
+               and declaration_no = any(%s)
+             order by declaration_no, uploaded_at, id
+            """,
+            (client_id, direction, list(declaration_nos)),
+        )
+        cols = [d.name for d in cur.description]
+        return [DeclarationFile(**dict(zip(cols, r))) for r in cur.fetchall()]
 
 
 def delete_declaration_file(file_id: int) -> bool:

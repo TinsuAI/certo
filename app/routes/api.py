@@ -885,6 +885,128 @@ async def api_list_bcct_by_codes(
     return _json(_paged(items, offset=offset, limit=safe_limit))
 
 
+_DECLARATIONS_NOS_MAX = 500
+
+
+def _parse_declaration_nos_param(value: str | None) -> list[str] | None:
+    """Split + dedupe comma-separated declaration numbers, preserving
+    case (declaration numbers are typically digits but the source-of-
+    truth is exact string match per `(client_id, declaration_no,
+    direction)` identity). None / empty → None (no filter applied).
+    Order preserved for log stability. >500 → 400."""
+    if value is None or not value.strip():
+        return None
+    tokens: list[str] = []
+    seen: set[str] = set()
+    for raw in value.split(","):
+        token = raw.strip()
+        if not token or token in seen:
+            continue
+        seen.add(token)
+        tokens.append(token)
+    if not tokens:
+        return None
+    if len(tokens) > _DECLARATIONS_NOS_MAX:
+        raise HTTPException(400, "too many declaration_nos")
+    return tokens
+
+
+@router.get("/clients/{client_id}/declarations")
+async def api_list_declarations(
+    client_id: str,
+    direction: str | None = None,
+    declaration_nos: str | None = None,
+    has_files: str | None = None,
+    cursor: str | None = None,
+    limit: int = 200,
+    authorization: str | None = Header(None),
+):
+    """Per-declaration summary with file_count from
+    hub.customs_declaration_files. Sister-app entry for CO's TKX/TKN
+    "có tờ khai / thiếu tờ khai" status. File presence is what staff
+    care about — BCCT row presence alone is not equivalent.
+
+    Contract spec:
+    `barry-CO-main/.ai/api-requests/2026-05-15-declaration-file-status.md`.
+
+    Identity is `(client_id, declaration_no, direction)`. Same
+    declaration_no can exist in both directions and ships as two rows.
+    `declaration_nos` is exact-match (no normalization) — preserves
+    Data Hub's canonical declaration_no string."""
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
+    if direction is not None and direction not in ("import", "export"):
+        raise HTTPException(400, "invalid_direction")
+    has_files_filter: bool | None = None
+    if has_files is not None:
+        if has_files == "yes":
+            has_files_filter = True
+        elif has_files == "no":
+            has_files_filter = False
+        else:
+            raise HTTPException(400, "invalid_has_files")
+    decl_nos = _parse_declaration_nos_param(declaration_nos)
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+
+    from app.stores.customs_declaration_files import (
+        list_declarations_with_status,
+    )
+
+    # When declaration_nos is provided: single-page return, no cursor.
+    # Cap at the declaration_nos length (CO contract: "return all
+    # requested matches up to the maximum request size and no cursor").
+    if decl_nos is not None:
+        summaries = list_declarations_with_status(
+            client_id,
+            direction=direction,
+            has_files=has_files_filter,
+            declaration_nos=decl_nos,
+            limit=_DECLARATIONS_NOS_MAX,
+            offset=0,
+        )
+        return _json({
+            "items": [
+                {
+                    "declaration_no": s.declaration_no,
+                    "direction": s.direction,
+                    "bcct_line_count": s.bcct_line_count,
+                    "file_count": s.file_count,
+                    "earliest_bcct_date": (
+                        s.earliest_bcct_date.isoformat()
+                        if s.earliest_bcct_date else None
+                    ),
+                }
+                for s in summaries
+            ],
+            "next_cursor": None,
+        })
+
+    offset, safe_limit = _page_args(cursor, limit)
+    safe_limit = min(safe_limit, _DECLARATIONS_NOS_MAX)
+    summaries = list_declarations_with_status(
+        client_id,
+        direction=direction,
+        has_files=has_files_filter,
+        limit=safe_limit + 1,
+        offset=offset,
+    )
+    items = [
+        {
+            "declaration_no": s.declaration_no,
+            "direction": s.direction,
+            "bcct_line_count": s.bcct_line_count,
+            "file_count": s.file_count,
+            "earliest_bcct_date": (
+                s.earliest_bcct_date.isoformat()
+                if s.earliest_bcct_date else None
+            ),
+        }
+        for s in summaries
+    ]
+    return _json(_paged(items, offset=offset, limit=safe_limit))
+
+
 @router.get("/code-mappings")
 async def api_list_code_mappings(
     client_id: str,

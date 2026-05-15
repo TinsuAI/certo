@@ -26,6 +26,7 @@ from app.stores.customs_declaration_files import (
     insert_declaration_file,
     list_declarations_with_status,
     list_files_for_declaration,
+    list_files_for_declarations,
 )
 
 
@@ -104,6 +105,86 @@ async def declarations_upload_view(
             "error": error,
             "active_root": "clients",
             "active_tab": "declarations",
+        },
+    )
+
+
+@router.get("/clients/{client_id}/declarations/download.zip")
+async def download_declarations_zip(
+    request: Request, client_id: str,
+    direction: str | None = None,
+    declaration_nos: str | None = None,
+    filename: str | None = None,
+):
+    """Bulk download every uploaded customs file for the requested
+    (client_id, direction, declaration_no IN nos) tuple as a single ZIP.
+
+    Cookie-session route for operator use: unauthenticated callers are
+    redirected to `/login?next=<this URL>` so the download resumes
+    after sign-in. The Bearer-aware list summary lives at
+    `/v1/hub/clients/{cid}/declarations`; this download intentionally
+    stays cookie-only because it returns file content rather than
+    metadata, and CO drives it via the operator's browser (the operator
+    is the one logged into Data Hub).
+
+    Route registration order matters: this must come BEFORE the
+    `/{declaration_no}` detail route or FastAPI's first-match wins
+    rule swallows `download.zip` as a declaration_no.
+
+    Archive layout:
+      - All declaration files at the root (no per-declaration subfolders)
+        — operator drops them straight into a dossier folder. Filename
+        collisions are de-duplicated by suffixing `_1`, `_2`, …
+      - `DANH_SACH_TO_KHAI.txt` lists every requested declaration with
+        its status (có/thiếu), file count, and included filenames.
+      - When zero files match, the archive still contains the manifest
+        plus a `NO_FILES_FOUND.txt` marker so the operator gets a
+        well-formed ZIP rather than an HTTP error.
+
+    Contract spec:
+    `barry-CO-main/.ai/api-requests/2026-05-15-declaration-file-status.md`.
+    """
+    # Auth: cookie session, with /login?next= bounce when missing.
+    user = auth.current_user(request)
+    if user is None:
+        query = str(request.url.query)
+        target = str(request.url.path) + (f"?{query}" if query else "")
+        return RedirectResponse(
+            url=f"/login?next={_q(target)}", status_code=303,
+        )
+    auth.require_can_view_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    if direction not in ("import", "export"):
+        raise HTTPException(400, "direction must be 'import' or 'export'")
+    decl_nos = _parse_zip_declaration_nos(declaration_nos)
+    if not decl_nos:
+        raise HTTPException(400, "declaration_nos is required")
+    archive_filename = _safe_archive_filename(
+        filename, fallback="declarations.zip",
+    )
+
+    files = list_files_for_declarations(
+        client_id, decl_nos, direction=direction,
+    )
+    files_by_decl: dict[str, list] = {d: [] for d in decl_nos}
+    for f in files:
+        files_by_decl.setdefault(f.declaration_no, []).append(f)
+
+    backend = get_backend()
+    zip_bytes = _build_declarations_zip(
+        client=client, direction=direction, requested=decl_nos,
+        files_by_decl=files_by_decl, backend=backend,
+    )
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={
+            "content-disposition": (
+                f'attachment; filename="{archive_filename}"'
+            ),
+            "content-length": str(len(zip_bytes)),
         },
     )
 
@@ -347,3 +428,169 @@ def _q(s: str) -> str:
     """Minimal URL-quote for redirect query strings."""
     from urllib.parse import quote
     return quote(s, safe="")
+
+
+# ── ZIP download helpers ───────────────────────────────────────────
+
+
+def _parse_zip_declaration_nos(value: str | None) -> list[str]:
+    """Split comma-separated declaration numbers, dedupe, preserve
+    order + case. Returns empty list for empty input — caller raises
+    400 because the ZIP route makes declaration_nos required."""
+    if value is None or not value.strip():
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in value.split(","):
+        token = raw.strip()
+        if not token or token in seen:
+            continue
+        seen.add(token)
+        out.append(token)
+    return out
+
+
+def _safe_archive_filename(value: str | None, *, fallback: str) -> str:
+    """Sanitize an operator-supplied archive filename. Caller already
+    confirms the user is logged in; we still strip path separators +
+    control chars so a malicious referrer can't shape the Content-
+    Disposition header. Reserved chars `"`, `\\` are dropped because
+    they'd break the quoted form. `..` patterns are refused even after
+    sanitization (path-traversal hardening for clients that may treat
+    the suggested filename as a save path)."""
+    name = (value or "").strip()
+    if not name:
+        return fallback
+    cleaned = "".join(
+        c for c in name
+        if c.isalnum() or c in "._- ()[]"
+    ).strip(" .")
+    if not cleaned or ".." in cleaned:
+        return fallback
+    if not cleaned.lower().endswith(".zip"):
+        cleaned += ".zip"
+    # Cap length so the header stays sane on legacy clients.
+    return cleaned[:120]
+
+
+def _safe_member_name(value: str) -> str:
+    """Sanitize a ZIP member name. Disallow path separators + control
+    chars so the archive cannot zip-slip. Empty → fallback."""
+    cleaned = "".join(
+        c for c in (value or "")
+        if c not in "/\\\0" and c >= " "
+    ).strip()
+    return cleaned or "unnamed_file"
+
+
+def _unique_member_name(name: str, taken: set[str]) -> str:
+    """Suffix `_1`, `_2`, … on collisions, preserving the extension."""
+    if name not in taken:
+        taken.add(name)
+        return name
+    if "." in name:
+        stem, ext = name.rsplit(".", 1)
+        ext = "." + ext
+    else:
+        stem, ext = name, ""
+    n = 1
+    while True:
+        candidate = f"{stem}_{n}{ext}"
+        if candidate not in taken:
+            taken.add(candidate)
+            return candidate
+        n += 1
+
+
+def _build_manifest_text(
+    *, client: dict, direction: str, requested: list[str],
+    files_by_decl: dict[str, list], member_by_file_id: dict[int, str],
+) -> str:
+    """Plain-text Vietnamese manifest listing requested declarations,
+    grouped by status (đã có / thiếu). One line per file under each
+    declaration with the in-archive filename so operator can spot
+    duplicates after the dedupe pass."""
+    present: list[str] = []
+    missing: list[str] = []
+    for decl in requested:
+        if files_by_decl.get(decl):
+            present.append(decl)
+        else:
+            missing.append(decl)
+    lines: list[str] = []
+    lines.append("DANH SÁCH TỜ KHAI")
+    lines.append(f"Client: {client.get('name', '')} ({client.get('client_id', '')})")
+    lines.append(
+        f"Chiều: {'Nhập khẩu (import)' if direction == 'import' else 'Xuất khẩu (export)'}"
+    )
+    lines.append(f"Tổng tờ khai yêu cầu: {len(requested)}")
+    lines.append(f"Đã có file: {len(present)}")
+    lines.append(f"Thiếu file: {len(missing)}")
+    lines.append("")
+    lines.append("== Tờ khai đã có file ==")
+    if present:
+        for decl in present:
+            entries = files_by_decl[decl]
+            lines.append(f"- {decl}: {len(entries)} file(s)")
+            for f in entries:
+                member = member_by_file_id.get(f.id, f.original_filename)
+                lines.append(f"    * {member}")
+    else:
+        lines.append("(none)")
+    lines.append("")
+    lines.append("== Tờ khai thiếu file ==")
+    if missing:
+        for decl in missing:
+            lines.append(f"- {decl}")
+    else:
+        lines.append("(none)")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _build_declarations_zip(
+    *, client: dict, direction: str, requested: list[str],
+    files_by_decl: dict[str, list], backend,
+) -> bytes:
+    """Build the ZIP archive in memory. Files at root, deduped names,
+    manifest at root, and a NO_FILES_FOUND marker when nothing matched."""
+    import io
+    import zipfile
+
+    taken: set[str] = set()
+    # First pass: stage the (file, member_name) pairs so the manifest
+    # can reference the post-dedupe filename actually written.
+    staged: list[tuple] = []  # (file_obj, member_name)
+    member_by_file_id: dict[int, str] = {}
+    for decl in requested:
+        for f in files_by_decl.get(decl, []):
+            base = _safe_member_name(f.original_filename)
+            member = _unique_member_name(base, taken)
+            staged.append((f, member))
+            member_by_file_id[f.id] = member
+
+    manifest = _build_manifest_text(
+        client=client, direction=direction, requested=requested,
+        files_by_decl=files_by_decl, member_by_file_id=member_by_file_id,
+    )
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for f, member in staged:
+            try:
+                blob = backend.get(f.backend_key)
+            except FileNotFoundError:
+                # File registered but blob missing on disk — record in
+                # manifest implicitly (it stays "present" by file_count
+                # but the operator will notice the missing entry). Skip
+                # the actual zip write to avoid a hard 500 mid-stream.
+                continue
+            zf.writestr(member, blob)
+        zf.writestr("DANH_SACH_TO_KHAI.txt", manifest)
+        if not staged:
+            zf.writestr(
+                "NO_FILES_FOUND.txt",
+                "Không có file tờ khai nào đã upload cho các tờ khai yêu cầu.\n"
+                "Xem DANH_SACH_TO_KHAI.txt cho chi tiết.\n",
+            )
+    return buf.getvalue()

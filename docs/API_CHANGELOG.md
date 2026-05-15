@@ -14,6 +14,66 @@ Only `Breaking:` headings trigger notifications to `dev`/`admin` users (CO + BCQ
 
 ## Entries
 
+## 2026-05-15 — Additive: `GET /v1/hub/clients/{c}/declarations`
+
+**Endpoint added:** `GET /v1/hub/clients/{client_id}/declarations`.
+
+**Why:**
+CO needs the TKX/TKN tab to answer "có tờ khai / thiếu tờ khai" per
+referenced declaration. The existing
+`GET /api/v1/clients/{c}/declarations` already exposed `file_count`
+but is cookie-session protected and returned `401 login required` to
+CO's service-token Bearer caller. BCCT row presence (via
+`/v1/hub/bcct`) does NOT equal declaration-file presence — the
+status answers the file question, not the BCCT-row question.
+
+**Contract:**
+- `direction` optional (`import` or `export`).
+- `declaration_nos` optional, comma-separated (max 500). Exact-match
+  on the canonical `declaration_no` string. When provided, response
+  is single-page (no cursor).
+- `has_files` optional (`yes` or `no`). Filters by `file_count > 0`.
+- `cursor` + `limit` (default 200, max 500). Standard pagination
+  contract.
+- Auth: user JWT or service token with `hub:read` scope; `client_ids`
+  whitelist enforced.
+- Identity: `(client_id, declaration_no, direction)`. The same
+  declaration_no can ship as two rows when present in both
+  directions.
+
+**Errors:**
+- `400 invalid_direction` / `400 invalid_has_files` / `400 too many
+  declaration_nos`.
+- `401 bearer token required` (strict mode).
+- `403 forbidden` (scope or whitelist).
+- `404 Client not found`.
+
+**Related operator route (cookie-session, web only):**
+`GET /clients/{client_id}/declarations/download.zip?direction=…&declaration_nos=…&filename=…`
+returns a ZIP containing every uploaded file for the requested set
+plus a `DANH_SACH_TO_KHAI.txt` manifest. Files land at archive root
+(no subfolders); duplicate filenames are suffixed `_1`, `_2`, …
+When zero files match, the archive still ships with the manifest +
+a `NO_FILES_FOUND.txt` marker. Unauthenticated callers receive
+a `303` to `/login?next=…`.
+
+**Why two routes:** the Bearer summary is consumed programmatically
+by CO before dossier export to drive the in-app "thiếu tờ khai"
+warnings; the ZIP download is opened by the operator's browser from
+CO links and naturally rides the existing Data Hub cookie session.
+
+**Provider tests:**
+- `tests/test_declarations_api_v1_hub.py` (17 tests; default list,
+  filters by direction / has_files / declaration_nos, exact same-no
+  in both directions, pagination cursor round-trip, all 400/401/403
+  paths, service-token scope + whitelist enforcement).
+- `tests/test_declarations_download_zip.py` (12 tests; login bounce,
+  validation, root-level files, duplicate-filename dedupe, manifest
+  counts, NO_FILES_FOUND marker, direction identity, filename param
+  sanitization).
+
+**Spec:** `barry-CO-main/.ai/api-requests/2026-05-15-declaration-file-status.md`.
+
 ## 2026-05-13 — Additive: `GET /v1/hub/clients/{c}/bcct/by-codes`
 
 **Endpoint added:** `GET /v1/hub/clients/{client_id}/bcct/by-codes?codes=A,B,C`.
