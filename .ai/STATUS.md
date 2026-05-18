@@ -1,159 +1,94 @@
 # Project Status
 
-**Date:** 2026-05-13 — Shipped 2 BOM data-quality fixes (commits
-`9d1984f`, `7552c64`), 1 CI/deploy repair PR (#1, merged as `44813c2`),
-and re-built Johnson end-to-end on demo. All work pushed to `origin/main`.
+**Date:** 2026-05-18 — Declaration file status API + bulk ZIP download shipped for CO (per CO request 2026-05-15). A.2 catalog conflicts page also shipped in the same session block.
 
 ## Current State
 
-**Branch:** `main` at `15ec298` (= origin/main). 4 commits added this
-session: `9d1984f` parser fix, `7552c64` subtree dedup, `5fb9365` CI
-pgvector image, `15ec298` chk_status drop + flake fix.
+**Branch:** `main` at `21f3620`. 8 commits ahead of `origin/main`, not pushed.
 
-**Tests:** 1082 passed, 15 skipped. The previously pre-existing flake
-`test_technical_raw_upload_confirm_materializes_edges` is now FIXED
-(filter on `source_bom_kind='technical_raw'` added).
+Commit streak (most recent first):
+- `21f3620` — **NEW:** declaration file status API (`/v1/hub/clients/{c}/declarations`) + bulk ZIP download (`/clients/{c}/declarations/download.zip`)
+- `d4ea2d7` — catalog conflicts review queue (A.2)
+- `b315eba` — UoM evidence audit brief; refactored overrides per-evidence
+- `b4665f6` — Mẫu 16 ingest applies UoM conversion
+- `10c2084` — bulk materialize applies UoM conversion + drift signals
+- `bb0faf1` — stale-page prefill NVL code + refresh preserves bom_variant_id
+- `3baea87` — stale-page tab UI + i18n + bulk-script ordering recovery
+- `69b9da0` — Mẫu 16 customs-filed BOM ingest as manual_flat artifacts
 
-**Working tree:** Untracked-only — `docs/training/` +
-`scripts/generate_training_input_scenarios.py` from prior session.
-No staged/unstaged code changes.
+**Tests:** 1130 passed, 15 skipped (+29 vs prior status from declaration tests).
 
-**Migrations:** at mig 064 (this session added `064_drop_legacy_chk_status_constraint.sql`).
+**Migrations:** at mig 066. No new mig this session.
 
-**Dev server:** `:8754` workers=4, log `/tmp/dh_dev.log`.
+**Working tree:** dirty with the same pre-existing unrelated changes
+as before (demo-company-feed/* PNG+xlsx, `app/routes/declarations.py` +
+`tests/test_customs_declaration_files_store.py` carry a small unrelated
+pre-existing M, plus `docs/training/`, `scripts/generate_training_input_scenarios.py`, two prior session notes untracked). None of this is from the current session and none is committed.
 
-**Local Johnson BOM** (post wipe + reingest):
-- 106 TP raws + 3,031 derived BTP raws + 6,274 flat = 9,411 total.
-- BTP `1000534541` collapsed 21→3 (one canonical raw, 2 children, 2 flat).
-- Backup: `/tmp/dh_backups/data_hub_pre_qty_fix_20260512_003330.dump` (127M).
+**Dev server:** `:8754` workers=4, detached via `setsid` (PID 318295 last seen — verify with `lsof -i :8754` at session start). Log `/tmp/dh_dev.log`.
 
-**Demo** (`http://100.84.189.87:8754`):
-- HEAD: `44813c2` (12 migrations applied 042..064, image swapped to
-  `pgvector/pgvector:pg16`).
-- Johnson BOM matches local exactly (9,411 artifacts, same BTP collapse).
-- Catalog: 12,743 materials (609 tp + 3,031 btp_sx + 9,103 nvl) —
-  bootstrap from BCCT 8,702 + fixup added 2,661 btp_sx + 1,380 leaf
-  nvl + 370 reclassified nvl→btp_sx.
-- Client policy: flipped `auto_derive_shallow_from_raw='publish'` so
-  derive_btp_shallows + materialize_shapes auto-flow on future ingests.
-- Backups: `/home/tinsu/backups/data-hub/pre_merge_20260512_212247.dump`
-  (35M, pre-deploy) + `pre_wipe_johnson_20260512_230856.dump` (35M,
-  pre-wipe).
+**Demo box (`100.84.189.87:8754`):** still NOT updated. Backlog of pending deploys: mig 065/066 + M16 ingest + UoM overrides + A.2 conflicts page + declaration file status API + ZIP route. Single deploy will pick all of them up.
 
-## Recent Changes — this session
+## Recent Changes
 
-**4 commits to main + 1 merged PR:**
+Two ships in this multi-day session:
 
-1. `9d1984f fix(bom): SAP indented parser picks per-parent qty (MENGE)
-   over cumulative (MNGKO)` — swap `_QTY_ALIASES` order in
-   `app/parsers/bom_adapters/sap_indented_walk.py`. Affects both
-   bulk-ingest and WebUI upload paths (same alias list shared).
-   12.6% Johnson rows previously contaminated with cumulative qty.
+### A.2 catalog conflicts page (commit `d4ea2d7`)
 
-2. `7552c64 fix(bom): _subtree_edges dedups multi-position BTP
-   occurrences` — output dedup keyed by tuple in
-   `scripts/derive_btp_shallows.py::_subtree_edges`. BTP slice is a
-   per-unit-of-BTP definition; multi-position usage scales the
-   parent_TP→BTP edge, not the BTP-internal sub-tree.
+Already detailed in `.ai/sessions/2026-05-15-catalog-conflicts-page-ship.md`. Page at `/clients/{cid}/catalog/conflicts`, nav banner on catalog list, inline btp_sourcing dropdown with `return_to`. +8 tests.
 
-3. `5fb9365 fix(ci): swap to pgvector/pgvector:pg16 for postgres
-   service` — CI failed since `dcc6216` (Johnson onboarding) because
-   mig 061 needs pgvector binaries. Applied to both
-   `.github/workflows/ci-cd.yml` AND `docker-compose.yml`.
+### Declaration file status API + ZIP (commit `21f3620`)
 
-4. `15ec298 fix(ci): unblock 3 remaining CI failures (chk_status drop +
-   flaky test scope)` — mig 064 drops stale `chk_status` constraint
-   (mig 042 had typo `materials_status_check` that no-op'd on fresh
-   DBs); `test_technical_raw_upload_confirm_materializes_edges` filter
-   `source_bom_kind='technical_raw'`.
+Per CO API request `barry-CO-main/.ai/api-requests/2026-05-15-declaration-file-status.md`:
 
-**Memory entries updated (2):**
-- `project_sap_parser_qty_bug.md` — marked SHIPPED 2026-05-12, commit `9d1984f`.
-- `project_bom_subtree_dedup.md` — NEW, documents 2nd bug + fix.
+- **Bearer summary:** `GET /v1/hub/clients/{cid}/declarations` — per-declaration `(bcct_line_count, file_count, earliest_bcct_date)`. Filters: `direction`, `declaration_nos` (max 500, exact-match), `has_files`. Identity `(client_id, declaration_no, direction)` — same decl_no in both directions ships as 2 rows. Auth: user JWT or service token `hub:read` + whitelist.
+- **Operator ZIP:** `GET /clients/{cid}/declarations/download.zip` — bundles every uploaded customs file at archive root + `DANH_SACH_TO_KHAI.txt` manifest. Duplicate filenames dedupe with `_1/_2/…` suffix. Empty match → archive still ships with manifest + `NO_FILES_FOUND.txt` marker. Cookie-session auth → 303 to `/login?next=…` when unauth. Filename param sanitized (no path traversal, `..` patterns refused).
+- Store: extended `list/count_declarations_with_status` with `declaration_nos` filter + new `list_files_for_declarations` bulk helper.
+- +29 tests across `tests/test_declarations_api_v1_hub.py` (17) and `tests/test_declarations_download_zip.py` (12). Full suite 1130 passed.
+- Sister-app note `.ai/sister-app-notes/2026-05-15-declaration-file-status-available.md`. API contract + changelog updated.
 
 ## Next Steps
 
-Priority order:
+Priority order (carry-over from prior STATUS plus new follow-ups):
 
-1. **Growatt wipe + re-ingest** (`project_reingest_pending.md`). Now
-   unblocked — pattern proven on Johnson local + demo. Estimated 0.5d.
-   On demo this is more involved (Growatt has 467 catalog materials
-   from earlier sessions; BCCT depth unknown).
+1. **Push 8 commits to `origin/main`** when ready.
 
-2. **CO consumer migration** (sister-app, no grace window). CO must
-   update `data_hub_client.normalize_material_row` to read `uom`
-   (not `unit`). After CO ships, drop the `m.uom AS unit` alias in
-   `app/routes/api.py` + `app/routes/catalog.py` + `app/agent/tools.py`.
-   Sunset 2026-05-25 in API_CONTRACT (placeholder; can be sooner).
+2. **Deploy session changes to demo box** — single deploy bundles mig 065/066, M16 ingest, UoM overrides, A.2 conflicts page, declaration file status API + ZIP route.
 
-3. **Demo collation warning** (`data_hub` was created with collation
-   v2.41 but OS provides v2.36). Cosmetic, but worth running
-   `ALTER DATABASE data_hub REFRESH COLLATION VERSION` on demo when
-   stable. Currently appears on every psql connection.
+3. **Wait for CO consumer PR** on the declaration file status endpoint. Per sister-app note: CO adds `list_declarations()` adapter in `app/data_hub_client.py`, wires `co_case_source_context()` to populate `declaration_file_counts`, surfaces ZIP download links in the TKX/TKN tab. Data Hub side complete — no further action until CO ships consumer + reports any contract gaps.
 
-4. **CI workflow polish**: `Smoke LLM /models (best effort)` step
-   currently exits 22 on auth-failure → marks whole run failed even
-   though deploy succeeded. Suffix with `|| true` to make truly
-   best-effort.
+4. **Ask Johnson confirm factor for 58 unverified M16 codes** (list in `.ai/features/2026-05-15-m16-uom-analysis/unverified_codes.txt`). Default factor=1.0 + Tier-A drift signal.
 
-5. **Vietnamese customs multi-meaning tokens** (Phase 2 follow-up):
-   `client_parser_rules` for `Chai/Lọ/Tuýp`, `SOI`, `Thanh/Mảnh/Miếng`,
-   `Viên/Hạt`, `Kiện/Hộp/Bao/Gói`. ~0.5d. Inventoried in
-   `.ai/features/2026-05-12-bom-uom-conversion-phase-2/factor_inventory.md`.
+5. **CO repo dropdown logic for dual_source 409**. Data Hub side ready; CO repo at `~/workspace/client/barry-CO-main` needs to handle the 409 + prefer `m16_2025` variant.
+
+6. **Verify `1000454182` factor=2.0** with Johnson (n=2/3 small sample).
+
+7. **70 sản phẩm XK 2026 thiếu BOM** — get from Johnson or document handling.
+
+8. **Next backlog item if bandwidth.** Lined-up candidates from BACKLOG:
+   - F.1 Growatt programmatic bulk re-ingest (~0.5-1d, mirror Johnson pattern).
+   - A.4.2 Substitute XLSX bulk upload (~0.5d).
+   - A.3 Catalog edit permission per-role (~1d, partially shipped).
 
 ## Blockers
 
-None. 220-code factor file from Johnson agency (cross-family UoM
-conversion) still pending agency response but is not a dev blocker.
+- Johnson contact / customs broker for UoM factor confirmation (carry-over).
+- CO repo dev availability for declaration consumer PR + dropdown logic (carry-over).
 
 ## Notes for Next AI Session
 
-- **Two BOM bugs were sequential**: Parser fix (MENGE vs MNGKO) only
-  got BTP 1000534541 from 21→9; required additional dedup fix to reach
-  3. If similar fragmentation seen elsewhere, check BOTH `bom_edges.qty`
-  values AND `_subtree_edges` output for multi-position artifacts.
+- **Dev server PID may have rolled.** Last known: PID 318295 with `setsid` so it survives Bash-tool shell churn. Verify with `lsof -i :8754 -P -n` before relying on it. Start fresh with `setsid nohup uv run uvicorn app.main:app --host 127.0.0.1 --port 8754 --workers 4 > /tmp/dh_dev.log 2>&1 < /dev/null &` if down.
 
-- **NVL-in-BOM-but-not-in-BCCT-import gap on Johnson**: 1,207 codes
-  (verified via 12 cross-checks). All have `source='bom_observed'` and
-  `code_kind='unified'`. This list belongs in a Q&A round with the
-  Johnson agency (Trọng Tín contact). Ad-hoc Excel export was generated
-  and discarded per user request; if needed again, regenerate from
-  `bom_children EXCEPT bcct_imports JOIN materials WHERE category='nvl'`.
+- **FastAPI route registration order is load-bearing.** The ZIP download route had to be defined BEFORE `/{declaration_no}` detail or first-match-wins swallowed `download.zip` as a declaration_no. Caught only by tests. Inline comment in `app/routes/declarations.py` flags this — preserve it on edits.
 
-- **Demo client policy quirk**: Demo Johnson was `auto_derive_shallow_from_raw='draft_only'`
-  pre-flip, which caused `materialize_shapes_hook` to skip 3,031 derived
-  BTP raws (its filter requires `status='published'`). Flipping to
-  `publish` is the right state to match local. If a new client onboard
-  uses `draft_only`, expect derived BTPs to stay invisible to flatten
-  until policy flips.
+- **Declaration_no exact-match on the API.** The new endpoint preserves case + format (declaration numbers are typically digits but we treat as opaque strings). If CO needs uppercasing or normalization, surface it as a CO-side concern — don't bake normalization into Data Hub.
 
-- **Materialize order matters**: On demo, post_ingest_hooks ran BEFORE
-  the BTP_SX fixup catalog repair → derive_btp_shallows found 0 eligible
-  parents (no btp_sx in catalog yet) → 0 derived BTPs. Required re-running
-  hooks AFTER fixup. Future re-ingest order should be:
-  bootstrap_catalog → ingest BOM → fixup_btp_sx → run hooks → materialize.
+- **Cookie-route vs Bearer-route split.** Pattern reused from substitute API (2026-05-13): operator-driven actions stay cookie-only (operator's browser already has the cookie); server-to-server stays Bearer-only (`/v1/hub/*`). The download ZIP is intentionally cookie-only — CO links the operator's browser to it; CO never fetches the bytes itself.
 
-- **CI was broken since `dcc6218`** (5+ runs failing). Now fully green.
-  Any future migration that uses a new Postgres extension must verify
-  the image ships it, or add an explicit install step.
+- **`_safe_archive_filename` rejects `..` patterns.** Path traversal hardening for clients that may save the suggested filename as a path. Test covers `../../etc/passwd` → falls back to default `declarations.zip`.
 
-- **Demo Tailscale outage at session-end (2026-05-13 ~17:30 ICT)**:
-  After all demo work landed and was verified green (9,411 artifacts,
-  BTP 1000534541 collapse, etc.), Tailscale relay `hkg` started timing
-  out on ssh/http/ping to `100.84.189.87`. Node still shown as `active`
-  by `tailscale status`. User accepted "trust demo state pre-outage"
-  since compose has `restart: unless-stopped` and Postgres uses
-  persistent volume. **Next session must re-verify** demo healthz +
-  Johnson artifact counts when Tailscale recovers — query template
-  in the session log §1 final validation block.
+- **Existing cookie-only `/api/v1/clients/{c}/declarations` kept.** Still serves the in-app declarations index page. New `/v1/hub/...` endpoint is the parallel Bearer-aware mirror, not a replacement.
 
-- **Demo backups will accumulate**: `/home/tinsu/backups/data-hub/`
-  has 30-day retention via cron. The ad-hoc `pre_merge_*` /
-  `pre_wipe_*` dumps this session are NOT in that cron's retention
-  loop — they'll sit until manually removed. Consider periodic
-  cleanup.
+- **`feedback_api_routing_convention.md` memory** confirms the cookie/`/api/v1/*` vs Bearer/`/v1/hub/*` split. The mirror-don't-retrofit precedent (substitute 2026-05-13 commit `ae3373b`) was followed here.
 
-- **Demo backups will accumulate**: `/home/tinsu/backups/data-hub/`
-  has 30-day retention via cron. The ad-hoc pre_merge/pre_wipe dumps
-  this session are NOT in that cron's retention loop — they'll sit
-  until manually removed. Consider periodic cleanup.
+- **Pre-existing dirty state** intentionally NOT committed. Same items as prior STATUS: demo-company-feed/* drift, two unrelated workdir mods on `declarations.py`/`test_customs_declaration_files_store.py` (Note: those files DID have my new content layered on top — but the diff between HEAD and workdir for those two specifically came from a prior session; confirmed by reading the workdir state pre-edit). The two M16-related artifacts (session note + training scripts) remain untracked.
