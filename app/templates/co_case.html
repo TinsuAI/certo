@@ -620,12 +620,12 @@
 <section class="callout {{ 'callout-warning' if _missing_tkx or _missing_tkn else 'callout-info' }}">
   <span class="callout-icon">{% if _missing_tkx or _missing_tkn %}!{% else %}i{% endif %}</span>
   <div>
-    <div class="callout-title">TKX / TKN — đối chiếu với Data Hub</div>
+    <div class="callout-title">TKX / TKN — kiểm tra file tờ khai</div>
     {% if _missing_tkx or _missing_tkn %}
-    Còn <strong>{{ _missing_tkx|length }}</strong> TKX và <strong>{{ _missing_tkn|length }}</strong> TKN chưa có trong Data Hub.
-    Bổ sung tại <a href="{{ data_hub_base_url }}/clients/{{ client.id }}/bcct" target="_blank" rel="noopener">Data Hub → BCCT</a> trước khi xuất dossier.
+    Còn <strong>{{ _missing_tkx|length }}</strong> TKX và <strong>{{ _missing_tkn|length }}</strong> TKN chưa có file tờ khai.
+    Bổ sung tại <a href="{{ data_hub_base_url }}/clients/{{ client.id }}/declarations" target="_blank" rel="noopener">Data Hub → Tờ khai</a> trước khi xuất dossier.
     {% else %}
-    Tất cả TKX/TKN tham chiếu trong hồ sơ đã có trong Data Hub. Sẵn sàng cho bước Review &amp; Xuất.
+    Tất cả TKX/TKN tham chiếu trong hồ sơ đã có file tờ khai. Sẵn sàng cho bước Review &amp; Xuất.
     {% endif %}
   </div>
 </section>
@@ -633,18 +633,42 @@
 <section class="zone">
   <div class="zone-head">
     <div>
+      <h2>Tải file tờ khai</h2>
+      <p class="meta">Tải toàn bộ file tờ khai đã có trên Data Hub cho lô hàng này.</p>
+    </div>
+    <div class="source-actions">
+      {% set _tkx_declarations = _tkx|map(attribute='declaration_no')|join(',') %}
+      {% set _tkn_declarations = _tkn|map(attribute='declaration_no')|join(',') %}
+      {% set _shipment_declaration_label = (_tkx|map(attribute='declaration_no')|join('_')) or case.case_code or 'TO_KHAI' %}
+      {% if _tkx %}
+      <a class="btn-secondary" href="{{ data_hub_base_url }}/clients/{{ client.id }}/declarations/download.zip?direction=export&declaration_nos={{ _tkx_declarations|urlencode }}&filename={{ ('TKX_' ~ _shipment_declaration_label ~ '.zip')|urlencode }}" target="_blank" rel="noopener">Tải TKX_{{ _shipment_declaration_label }}.zip</a>
+      {% else %}
+      <button class="btn-secondary" type="button" disabled>Tải TKX_{{ _shipment_declaration_label }}.zip</button>
+      {% endif %}
+      {% if _tkn %}
+      <a class="btn-secondary" href="{{ data_hub_base_url }}/clients/{{ client.id }}/declarations/download.zip?direction=import&declaration_nos={{ _tkn_declarations|urlencode }}&filename={{ ('TKN_CO_' ~ _shipment_declaration_label ~ '.ZIP')|urlencode }}" target="_blank" rel="noopener">Tải TKN_CO_{{ _shipment_declaration_label }}.ZIP</a>
+      {% else %}
+      <button class="btn-secondary" type="button" disabled>Tải TKN_CO_{{ _shipment_declaration_label }}.ZIP</button>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
       <h2>Tờ khai xuất (TKX)</h2>
-      <p class="meta">TKX được lấy từ BCCT xuất khẩu khớp invoice/tờ khai trong hồ sơ.</p>
+      <p class="meta">TKX lấy theo tờ khai xuất tham chiếu trong hồ sơ; trạng thái cho biết file tờ khai đã được bổ sung hay chưa.</p>
     </div>
     <div class="chip-row">
       <span class="chip">{{ _tkx|length }} TKX</span>
-      <span class="chip {{ 'chip-warning' if _missing_tkx else '' }}">{{ _missing_tkx|length }} thiếu trong Data Hub</span>
+      <span class="chip {{ 'chip-warning' if _missing_tkx else '' }}">{{ _missing_tkx|length }} thiếu tờ khai</span>
     </div>
   </div>
   <div class="table-scroll">
     <table class="table">
       <thead>
-        <tr><th>Tờ khai</th><th>Loại hình</th><th>Số dòng</th><th>Trạng thái Data Hub</th></tr>
+        <tr><th>Tờ khai</th><th>Loại hình</th><th>Số dòng</th><th>Trạng thái tờ khai</th></tr>
       </thead>
       <tbody>
         {% for entry in _tkx %}
@@ -652,7 +676,7 @@
           <td class="mono">{{ entry.declaration_no }}</td>
           <td class="mono">{{ entry.declaration_type or '—' }}</td>
           <td class="num">{{ entry.lines|length }}</td>
-          <td>{% if entry.in_data_hub %}<span class="origin-bom-diff-added">Đã có</span>{% else %}<span class="origin-bom-diff-removed">Cần bổ sung sang Data Hub</span>{% endif %}</td>
+          <td>{% if entry.in_data_hub %}<span class="origin-bom-diff-added">Đã có</span>{% else %}<span class="origin-bom-diff-removed">Thiếu tờ khai</span>{% endif %}</td>
         </tr>
         {% else %}
         <tr><td colspan="4" class="empty-cell">Chưa có TKX nào tham chiếu trong hồ sơ.</td></tr>
@@ -666,17 +690,17 @@
   <div class="zone-head">
     <div>
       <h2>Tờ khai nhập (TKN)</h2>
-      <p class="meta">TKN được lấy từ allocation_lines của các sheet đã chốt — đây là các tờ khai nhập mà bảng kê đã claim.</p>
+      <p class="meta">TKN lấy từ allocation_lines của các sheet đã chốt; trạng thái cho biết file tờ khai đã được bổ sung hay chưa.</p>
     </div>
     <div class="chip-row">
       <span class="chip">{{ _tkn|length }} TKN</span>
-      <span class="chip {{ 'chip-warning' if _missing_tkn else '' }}">{{ _missing_tkn|length }} thiếu trong Data Hub</span>
+      <span class="chip {{ 'chip-warning' if _missing_tkn else '' }}">{{ _missing_tkn|length }} thiếu tờ khai</span>
     </div>
   </div>
   <div class="table-scroll">
     <table class="table">
       <thead>
-        <tr><th>Tờ khai nhập</th><th>TP liên quan</th><th>Số dòng claim</th><th>Trạng thái Data Hub</th></tr>
+        <tr><th>Tờ khai nhập</th><th>TP liên quan</th><th>Số dòng claim</th><th>Trạng thái tờ khai</th></tr>
       </thead>
       <tbody>
         {% for entry in _tkn %}
@@ -684,7 +708,7 @@
           <td class="mono">{{ entry.declaration_no }}</td>
           <td>{{ entry.products|join(', ') }}</td>
           <td class="num">{{ entry.lines|length }}</td>
-          <td>{% if entry.in_data_hub %}<span class="origin-bom-diff-added">Đã có</span>{% else %}<span class="origin-bom-diff-removed">Cần bổ sung sang Data Hub</span>{% endif %}</td>
+          <td>{% if entry.in_data_hub %}<span class="origin-bom-diff-added">Đã có</span>{% else %}<span class="origin-bom-diff-removed">Thiếu tờ khai</span>{% endif %}</td>
         </tr>
         {% else %}
         <tr><td colspan="4" class="empty-cell">Chưa có TKN nào — sheet phải được "Chốt" để TKN xuất hiện ở đây.</td></tr>
@@ -1511,9 +1535,9 @@
           <span>
             {{ tkx_tkn_summary.tkx|length }} TKX · {{ tkx_tkn_summary.tkn|length }} TKN.
             {% if tkx_tkn_summary.missing_tkx or tkx_tkn_summary.missing_tkn %}
-            <span class="origin-bom-diff-removed">Còn thiếu trong Data Hub: {{ tkx_tkn_summary.missing_tkx|length }} TKX, {{ tkx_tkn_summary.missing_tkn|length }} TKN.</span>
+            <span class="origin-bom-diff-removed">Còn thiếu tờ khai: {{ tkx_tkn_summary.missing_tkx|length }} TKX, {{ tkx_tkn_summary.missing_tkn|length }} TKN.</span>
             {% else %}
-            Đầy đủ trong Data Hub.
+            Đầy đủ file tờ khai.
             {% endif %}
           </span>
         </li>
@@ -1705,6 +1729,11 @@
     }
     currentShell.replaceWith(document.importNode(nextShell, true));
     refreshCaseShellInteractions();
+    if (options.activeOriginProductCode) {
+      const activeTab = Array.from(document.querySelectorAll("[data-origin-sheet-tab]"))
+        .find((tab) => (tab.dataset.productCode || "") === options.activeOriginProductCode);
+      if (activeTab) activateOriginTab(activeTab);
+    }
     const flash = flashMessageFromDocument(doc);
     toast(flash.message || fallbackMessage, response.ok && flash.kind !== "error" ? "success" : "error");
     if (options.replaceHistory !== false && response.url) {
@@ -1847,6 +1876,9 @@
     const method = (submitter?.getAttribute("formmethod") || form.dataset.ajaxSubmitMethod || form.getAttribute("method") || "GET").toUpperCase();
     const isOriginSheetAction = /\/origin\/sheet\/[^/]+\/(calculate|lock|reopen)$/.test(action);
     const isOriginSheetCalculate = /\/origin\/sheet\/[^/]+\/calculate$/.test(action);
+    const activeOriginProductCode = isOriginSheetAction
+      ? (submitter?.closest("[data-origin-sheet-panel]")?.dataset.productCode || "")
+      : "";
     const payload = method === "GET"
       ? {body: null, headers: {"Accept": "text/html"}}
       : isOriginSheetAction
@@ -1863,6 +1895,7 @@
         headers: payload.headers,
       });
       await replaceCaseShellFromResponse(response, actionToast(submitter, form) || form.dataset.ajaxSubmitLabel, {
+        activeOriginProductCode,
         replaceHistory: method === "GET",
       });
     } catch (_error) {

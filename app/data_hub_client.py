@@ -94,6 +94,23 @@ class DataHubClient:
             },
         )
 
+    def list_declarations(
+        self,
+        client_id: str,
+        *,
+        direction: str | None = None,
+        declaration_nos: list[str] | None = None,
+        has_files: str | None = None,
+    ) -> list[dict]:
+        return self._get_all(
+            f"/v1/hub/clients/{hub_path_part(client_id)}/declarations",
+            {
+                "direction": direction,
+                "declaration_nos": ",".join((declaration_nos or [])[:500]),
+                "has_files": has_files,
+            },
+        )
+
     def list_products(self, client_id: str) -> list[dict]:
         return self._get_all("/v1/hub/products", {"client_id": client_id})
 
@@ -373,6 +390,21 @@ class DataHubPortfolioService:
         rows = self.data_hub.list_bcct_by_codes(client_id, codes, direction=direction)
         return [normalize_bcct_row(row) for row in rows]
 
+    def list_declarations(
+        self,
+        client_id: str,
+        *,
+        direction: str | None = None,
+        declaration_nos: list[str] | None = None,
+    ) -> list[dict]:
+        if not hasattr(self.data_hub, "list_declarations"):
+            return []
+        return self.data_hub.list_declarations(
+            client_id,
+            direction=direction,
+            declaration_nos=declaration_nos,
+        )
+
     def search_materials(self, client_id: str, query: str, limit: int = 20) -> list[dict]:
         if not hasattr(self.data_hub, "list_materials"):
             return []
@@ -408,6 +440,7 @@ class DataHubPortfolioService:
                 "invoice_matches": [],
                 "material_rows": [],
                 "stock_rows": [],
+                "declaration_file_counts": {"export": {}, "import": {}},
             }
         relevant_types = client_config.get("bcct", {}).get("relevant_export_declaration_types", [])
         material_rows = []
@@ -432,13 +465,53 @@ class DataHubPortfolioService:
         else:
             invoice_matches = self.data_hub.invoice_matches(client["id"], invoice_no, relevant_types) if invoice_no else []
             invoice_matches = enrich_invoice_matches_with_bcct(invoice_matches, bcct_rows)
+        stock_rows = co_stock_rows_from_bcct(bcct_rows, client_config)
+        declaration_file_counts = self.declaration_file_counts(client["id"], case, invoice_matches)
         return {
             "source_backend": source_backend,
             "source_summary": source_summary,
             "invoice_matches": invoice_matches,
             "material_rows": material_rows,
-            "stock_rows": co_stock_rows_from_bcct(bcct_rows, client_config),
+            "stock_rows": stock_rows,
+            "declaration_file_counts": declaration_file_counts,
         }
+
+    def declaration_file_counts(self, client_id: str, case: dict, invoice_matches: list[dict]) -> dict:
+        counts: dict[str, dict[str, int]] = {"export": {}, "import": {}}
+        if not hasattr(self.data_hub, "list_declarations"):
+            return counts
+        shipment_export_declarations = case.get("shipment", {}).get("export_declaration_nos", []) or []
+        matched_export_declarations = [
+            row.get("declaration_no")
+            for row in invoice_matches or []
+        ]
+        export_declarations = sorted({
+            str(value or "").strip()
+            for value in [*shipment_export_declarations, *matched_export_declarations]
+            if str(value or "").strip()
+        })
+        import_declarations = sorted({
+            str(line.get("import_declaration_no") or "").strip()
+            for product in case.get("products", []) or []
+            if str(product.get("origin_sheet_status") or "").strip() == "locked"
+            for material in product.get("materials", []) or []
+            for line in material.get("allocation_lines", []) or []
+            if str(line.get("import_declaration_no") or "").strip()
+        })
+        try:
+            if export_declarations:
+                for row in self.list_declarations(client_id, direction="export", declaration_nos=export_declarations):
+                    declaration_no = str(row.get("declaration_no") or "").strip()
+                    if declaration_no:
+                        counts["export"][declaration_no] = int(row.get("file_count") or 0)
+            if import_declarations:
+                for row in self.list_declarations(client_id, direction="import", declaration_nos=import_declarations):
+                    declaration_no = str(row.get("declaration_no") or "").strip()
+                    if declaration_no:
+                        counts["import"][declaration_no] = int(row.get("file_count") or 0)
+        except Exception:  # noqa: BLE001
+            return {"export": {}, "import": {}}
+        return counts
 
     def process_catalog_upload(self, *_args, **_kwargs) -> dict:
         raise RuntimeError("Catalog uploads must be handled in Data Hub.")

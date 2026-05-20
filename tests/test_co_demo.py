@@ -1886,6 +1886,8 @@ def test_co_case_detail_is_split_into_workflow_step_views():
     assert "Bổ sung" in documents.text
     assert "BCCT xuất khẩu theo tham chiếu hồ sơ" in exports.text
     assert "TKX / TKN" in exports.text
+    assert "TKX_CO-WORKFLOW.zip" in exports.text
+    assert "TKN_CO_CO-WORKFLOW.ZIP" in exports.text
     assert "Tờ khai xuất (TKX)" in exports.text
     assert "Tờ khai nhập (TKN)" in exports.text
     assert "Form và thông tư" in guidance.text
@@ -1897,6 +1899,7 @@ def test_co_case_detail_is_split_into_workflow_step_views():
     assert 'data-origin-sheet-tab' in origin.text
     assert 'data-origin-sheet-panel' in origin.text
     assert 'replaceHistory: method === "GET"' in origin.text
+    assert "activeOriginProductCode" in origin.text
     assert "__originSaveInFlight" in origin.text
     assert "currentOriginUrl" in origin.text
     assert 'class="table-input"' not in origin.text
@@ -1906,6 +1909,70 @@ def test_co_case_detail_is_split_into_workflow_step_views():
     assert "Xuất dossier XLSX" in review.text
     assert f"{case_url}/documents" in shipment.text
     assert f"{case_url}/origin" in shipment.text
+
+
+def test_tkx_tkn_status_uses_declaration_files_not_bcct_rows():
+    from app.main import case_tkx_tkn_summary
+
+    case = {
+        "shipment": {"export_declaration_nos": ["XK-001"]},
+        "products": [
+            {
+                "code": "TP-001",
+                "origin_sheet_status": "locked",
+                "materials": [
+                    {
+                        "material_code": "MAT-001",
+                        "allocation_lines": [
+                            {"import_declaration_no": "NK-001", "import_line_no": "1", "allocated_qty": "5"}
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    invoice_matches = [{"declaration_no": "XK-001", "line_no": "1", "declaration_type": "E42"}]
+    stock_rows = [{"import_declaration_no": "NK-001"}]
+
+    summary = case_tkx_tkn_summary(case, invoice_matches, stock_rows)
+
+    assert summary["tkx"][0]["in_data_hub"] is False
+    assert summary["tkn"][0]["in_data_hub"] is False
+    assert [entry["declaration_no"] for entry in summary["missing_tkx"]] == ["XK-001"]
+    assert [entry["declaration_no"] for entry in summary["missing_tkn"]] == ["NK-001"]
+
+
+def test_tkx_tkn_status_marks_present_when_declaration_file_exists():
+    from app.main import case_tkx_tkn_summary
+
+    case = {
+        "shipment": {"export_declaration_nos": ["XK-001"]},
+        "products": [
+            {
+                "code": "TP-001",
+                "origin_sheet_status": "locked",
+                "materials": [
+                    {
+                        "material_code": "MAT-001",
+                        "allocation_lines": [
+                            {"import_declaration_no": "NK-001", "import_line_no": "1", "allocated_qty": "5"}
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    invoice_matches = [{"declaration_no": "XK-001", "line_no": "1", "declaration_type": "E42"}]
+    file_counts = {"export": {"XK-001": 1}, "import": {"NK-001": 2}}
+
+    summary = case_tkx_tkn_summary(case, invoice_matches, [], file_counts)
+
+    assert summary["tkx"][0]["in_data_hub"] is True
+    assert summary["tkx"][0]["file_count"] == 1
+    assert summary["tkn"][0]["in_data_hub"] is True
+    assert summary["tkn"][0]["file_count"] == 2
+    assert summary["missing_tkx"] == []
+    assert summary["missing_tkn"] == []
 
 
 def test_co_case_origin_step_renders_without_origin_snapshot():
@@ -2092,23 +2159,15 @@ def test_co_case_origin_builds_and_persists_invoice_bom_snapshot():
     assert "Demo tự nạp" not in origin.text
     assert "STALE-MAT" not in origin.text
     assert "PV00.0048500" in origin.text
-    assert "DEMO-NPL-001" in origin.text
-    assert 'name="product_0_material_0_material_code" value="DEMO-NPL-001"' in origin.text
     form_data = hidden_form_data(origin.text)
+    assert form_data["product_0_material_count"] == "0"
+    assert form_data["product_0_origin_sheet_status"] == "draft"
     assert form_data["product_0_fob"] == "1000"
     assert form_data["product_0_currency"] == "VND"
-    assert form_data["product_0_material_0_consumed_qty"] == "3"
-    assert form_data["product_0_material_0_unit_value"] == "10"
-    assert form_data["product_0_material_0_currency"] == "VND"
-    assert form_data["product_0_material_0_material_value"] == "30"
-    assert form_data["product_0_material_1_material_value"] == "105"
-    assert form_data["product_0_vnm_value"] == "135"
-    assert form_data["product_0_lvc_percentage"] == "86.50"
     assert "1,000" in origin.text
     assert "VND" in origin.text
     assert 'name="product_0_bom_product_artifact_id"' in origin.text
-    assert "86.50%" in origin.text
-    assert "Đạt LVC" in origin.text
+    assert "DEMO-NPL-001" not in origin.text
     assert "<th>Tờ khai nhập</th>" not in origin.text
     assert "<th>Tồn CO</th>" not in origin.text
     assert "<th>Còn lại</th>" not in origin.text
@@ -2118,11 +2177,44 @@ def test_co_case_origin_builds_and_persists_invoice_bom_snapshot():
     assert '<th data-origin-column="material-value">Trị giá NVL</th>' in origin.text
     assert '<th data-origin-column="non-origin">Trị giá KXX/VNM</th>' in origin.text
 
-    recalculated = client.post("/clients/growatt/evaluate", data=form_data)
+    calculated = client.post(
+        f"{location}/origin/sheet/PV00.0048500/calculate",
+        json={
+            "origin_product_order": ["PV00.0048500"],
+            "products": [
+                {
+                    "code": "PV00.0048500",
+                    "bom_product_code": form_data["product_0_bom_product_code"],
+                    "bom_product_artifact_id": form_data.get("product_0_bom_product_artifact_id", ""),
+                    "name": form_data["product_0_name"],
+                    "finished_hs": form_data["product_0_finished_hs"],
+                    "quantity": form_data["product_0_quantity"],
+                    "unit": form_data["product_0_unit"],
+                    "currency": form_data["product_0_currency"],
+                    "fob": form_data["product_0_fob"],
+                    "rvc_threshold": form_data["product_0_rvc_threshold"],
+                    "origin_sheet_status": form_data["product_0_origin_sheet_status"],
+                    "origin_sheet_status_label": form_data["product_0_origin_sheet_status_label"],
+                }
+            ],
+            "mark_stale": False,
+        },
+    )
+    calculated_form = hidden_form_data(calculated.text)
     persisted = client.get(f"{location}/origin")
 
-    assert recalculated.status_code == 200
-    assert "Đã tính lại theo dữ liệu đang sửa." in recalculated.text
+    assert calculated.status_code == 200
+    assert "Đã load BOM vào bảng kê PV00.0048500" in calculated.text
+    assert 'name="product_0_material_0_material_code" value="DEMO-NPL-001"' in calculated.text
+    assert calculated_form["product_0_material_0_consumed_qty"] == "3"
+    assert calculated_form["product_0_material_0_unit_value"] == "10"
+    assert calculated_form["product_0_material_0_currency"] == "VND"
+    assert calculated_form["product_0_material_0_material_value"] == "30"
+    assert calculated_form["product_0_material_1_material_value"] == "105"
+    assert calculated_form["product_0_vnm_value"] == "135"
+    assert calculated_form["product_0_lvc_percentage"] == "86.50"
+    assert "86.50%" in calculated.text
+    assert "Đạt LVC" in calculated.text
     assert "DEMO-NPL-001" in persisted.text
     assert "#1 · 2 dòng" in persisted.text
 
@@ -2171,7 +2263,29 @@ def test_co_case_origin_switches_product_bom_version_from_dropdown():
 
     form_data = hidden_form_data(origin.text)
     form_data["product_0_bom_product_artifact_id"] = v1["product_version_id"]
-    switched = client.post("/clients/growatt/evaluate", data=form_data)
+    switched = client.post(
+        f"{created.headers['location']}/origin/sheet/PV00.0048500/calculate",
+        json={
+            "origin_product_order": ["PV00.0048500"],
+            "products": [
+                {
+                    "code": "PV00.0048500",
+                    "bom_product_code": form_data["product_0_bom_product_code"],
+                    "bom_product_artifact_id": v1["product_version_id"],
+                    "name": form_data["product_0_name"],
+                    "finished_hs": form_data["product_0_finished_hs"],
+                    "quantity": form_data["product_0_quantity"],
+                    "unit": form_data["product_0_unit"],
+                    "currency": form_data["product_0_currency"],
+                    "fob": form_data["product_0_fob"],
+                    "rvc_threshold": form_data["product_0_rvc_threshold"],
+                    "origin_sheet_status": form_data["product_0_origin_sheet_status"],
+                    "origin_sheet_status_label": form_data["product_0_origin_sheet_status_label"],
+                }
+            ],
+            "mark_stale": False,
+        },
+    )
     switched_data = hidden_form_data(switched.text)
 
     assert switched.status_code == 200
@@ -2430,8 +2544,8 @@ def test_co_case_origin_page_surfaces_method_readiness_and_evidence_gaps():
     assert "Build-down LVC/RVC" in origin.text
     assert "(FOB - VNM) / FOB x 100" in origin.text
     assert "Cần bổ sung evidence" in origin.text
-    assert "Thiếu đơn giá NVL" in origin.text
-    assert "DEMO-NPL-002: thiếu đơn giá để tính trị giá NVL/VNM." in origin.text
+    assert "Thiếu đơn giá NVL" not in origin.text
+    assert "DEMO-NPL-002: thiếu đơn giá để tính trị giá NVL/VNM." not in origin.text
     assert "CTSH preview" in origin.text
     assert "chưa thay thế PSR engine/legal review" in origin.text
     assert "Nguồn giá" in origin.text
@@ -2440,12 +2554,42 @@ def test_co_case_origin_page_surfaces_method_readiness_and_evidence_gaps():
     form_data = hidden_form_data(origin.text)
     assert form_data["product_0_origin_method"] == "build_down_lvc"
     assert form_data["product_0_origin_readiness_status"] == "blocked"
-    assert form_data["product_0_lvc_status"] == "partial_pass"
-    assert form_data["product_0_lvc_percentage"] == "97.00"
-    assert form_data["product_0_material_1_valuation_status"] == "missing_unit_value"
-    assert "97.00%" in origin.text
-    assert "Tạm đạt LVC" in origin.text
-    assert "Thiếu đơn giá 1 dòng NVL; LVC đang tạm tính từ các dòng đã có đơn giá." in origin.text
+    assert form_data["product_0_material_count"] == "0"
+
+    calculated = client.post(
+        f"{created.headers['location']}/origin/sheet/PV00.0048500/calculate",
+        json={
+            "origin_product_order": ["PV00.0048500"],
+            "products": [
+                {
+                    "code": "PV00.0048500",
+                    "bom_product_code": form_data["product_0_bom_product_code"],
+                    "bom_product_artifact_id": form_data.get("product_0_bom_product_artifact_id", ""),
+                    "name": form_data["product_0_name"],
+                    "finished_hs": form_data["product_0_finished_hs"],
+                    "quantity": form_data["product_0_quantity"],
+                    "unit": form_data["product_0_unit"],
+                    "currency": form_data["product_0_currency"],
+                    "fob": form_data["product_0_fob"],
+                    "rvc_threshold": form_data["product_0_rvc_threshold"],
+                    "origin_sheet_status": form_data["product_0_origin_sheet_status"],
+                    "origin_sheet_status_label": form_data["product_0_origin_sheet_status_label"],
+                }
+            ],
+            "mark_stale": False,
+        },
+    )
+    calculated_data = hidden_form_data(calculated.text)
+
+    assert calculated.status_code == 200
+    assert "Thiếu đơn giá NVL" in calculated.text
+    assert "DEMO-NPL-002: thiếu đơn giá để tính trị giá NVL/VNM." in calculated.text
+    assert calculated_data["product_0_lvc_status"] == "partial_pass"
+    assert calculated_data["product_0_lvc_percentage"] == "97.00"
+    assert calculated_data["product_0_material_1_valuation_status"] == "missing_unit_value"
+    assert "97.00%" in calculated.text
+    assert "Tạm đạt LVC" in calculated.text
+    assert "Thiếu đơn giá 1 dòng NVL; LVC đang tạm tính từ các dòng đã có đơn giá." in calculated.text
 
 
 def test_co_case_origin_does_not_calculate_lvc_without_bom_materials():
@@ -4230,12 +4374,13 @@ def test_origin_sheet_actions_follow_sequential_locking_rules():
     )
 
     case = {
-        "products": [{"code": "TP-1"}, {"code": "TP-2"}, {"code": "TP-3"}, {"code": "TP-4"}],
+        "products": [{"code": "TP-1"}, {"code": "TP-2"}, {"code": "TP-3"}, {"code": "TP-4"}, {"code": "TP-5"}],
         "origin_sheet_states": {
             "TP-1": {"status": "locked"},
             "TP-2": {"status": "calculated"},
             "TP-3": {"status": "draft"},
             "TP-4": {"status": "draft"},
+            "TP-5": {"status": "draft"},
         },
     }
     guarded = attach_origin_sheet_states(case)
@@ -4254,7 +4399,7 @@ def test_origin_sheet_actions_follow_sequential_locking_rules():
     assert origin_sheet_action_error(guarded, "TP-4", "reopen") == ""
 
     released = mark_origin_sheets_stale(guarded, 0)
-    assert [product["origin_sheet_status"] for product in released["products"]] == ["stale", "stale", "stale", "stale"]
+    assert [product["origin_sheet_status"] for product in released["products"]] == ["stale", "stale", "stale", "stale", "draft"]
 
 
 def test_origin_product_order_override_changes_sequential_allocation():
@@ -4857,6 +5002,9 @@ def test_co_case_supporting_upload_saves_invoice_metadata_and_matches_bcct_expor
     assert "BL-42" in documents.text
     assert "TP-001" in exports.text
     assert "XK-001" in exports.text
+    assert "TKX_XK-001.zip" in exports.text
+    assert "/clients/growatt/declarations/download.zip?direction=export" in exports.text
+    assert "filename=TKX_XK-001.zip" in exports.text
     assert "MAT-001" not in exports.text
     assert "TP-OTHER" not in exports.text
 

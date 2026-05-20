@@ -776,6 +776,36 @@ def test_data_hub_client_invoice_matches_requests_market_hint():
     ]
 
 
+def test_data_hub_client_lists_declaration_statuses():
+    from app.data_hub_client import DataHubClient
+
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.url.path, dict(request.url.params)))
+        return httpx.Response(200, json={"items": [{"declaration_no": "XK1", "file_count": 1}]})
+
+    client = DataHubClient(
+        base_url="https://hub.test",
+        token="secret-token",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert client.list_declarations("growatt-vn", direction="export", declaration_nos=["XK1"]) == [
+        {"declaration_no": "XK1", "file_count": 1}
+    ]
+    assert seen == [
+        (
+            "/v1/hub/clients/growatt-vn/declarations",
+            {
+                "direction": "export",
+                "declaration_nos": "XK1",
+                "limit": "1000",
+            },
+        )
+    ]
+
+
 def test_data_hub_client_fetches_bom_contract_and_conflicts():
     from app.data_hub_client import DataHubBomVariantConflict, DataHubClient
 
@@ -1123,6 +1153,12 @@ def test_data_hub_portfolio_service_uses_invoice_lookup_api():
                 }
             ]
 
+        def list_declarations(self, client_id: str, *, direction=None, declaration_nos=None):
+            assert client_id == "growatt-vn"
+            assert direction == "export"
+            assert declaration_nos == ["XK1"]
+            return [{"declaration_no": "XK1", "direction": "export", "file_count": 1}]
+
     service = DataHubPortfolioService(FakeDataHubClient())
 
     context = service.co_case_source_context({"id": "growatt-vn"}, {"shipment": {"invoice_no": "INV-001"}})
@@ -1140,6 +1176,7 @@ def test_data_hub_portfolio_service_uses_invoice_lookup_api():
     assert context["stock_rows"][0]["hs_code"] == "853690"
     assert context["stock_rows"][0]["unit_value"] == "10"
     assert context["stock_rows"][0]["currency"] == "VND"
+    assert context["declaration_file_counts"]["export"]["XK1"] == 1
 
 
 def test_data_hub_portfolio_service_skips_invoice_lookup_without_invoice_no():

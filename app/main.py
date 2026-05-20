@@ -1132,15 +1132,11 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
         selected_lane = recommended_form_lane(
             prioritized_form_lanes(case.get("destination_market", ""), co_case_hs_codes(case, invoice_matches))
         )
-        material_rows = source_context.get("material_rows") or client.get("material_catalog", [])
-        stock_rows = source_context.get("stock_rows") or client.get("co_stock", [])
-        case = prepare_case_origin_products(
+        case = prepare_case_origin_product_shells(
             case,
             invoice_matches,
             bom_workspace,
             selected_lane,
-            material_rows,
-            stock_rows,
             preserve_existing=preserve_origin_products,
         )
         case = attach_case_bom_snapshot(case, bom_workspace)
@@ -1194,7 +1190,12 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
             for row in load_co_form_config().get("forms", [])
             if row.get("enabled")
         ],
-        "tkx_tkn_summary": case_tkx_tkn_summary(case, invoice_matches, source_context.get("stock_rows") or []),
+        "tkx_tkn_summary": case_tkx_tkn_summary(
+            case,
+            invoice_matches,
+            source_context.get("stock_rows") or [],
+            source_context.get("declaration_file_counts") or {},
+        ),
         "data_hub_base_url": data_hub_link_settings().data_hub_base_url,
         "invoice_matches": invoice_matches,
         "origin_source_context": source_context,
@@ -1381,25 +1382,46 @@ def invoice_matches_only(client: dict, shipment: dict) -> list[dict]:
     return matches
 
 
-def case_tkx_tkn_summary(case: dict, invoice_matches: list[dict], stock_rows: list[dict]) -> dict:
+def declaration_file_count(
+    declaration_file_counts: dict,
+    direction: str,
+    declaration_no: str,
+) -> int:
+    key = str(declaration_no or "").strip()
+    if not key:
+        return 0
+    if (direction, key) in declaration_file_counts:
+        return int(declaration_file_counts.get((direction, key)) or 0)
+    direction_counts = declaration_file_counts.get(direction) if isinstance(declaration_file_counts, dict) else {}
+    if isinstance(direction_counts, dict):
+        return int(direction_counts.get(key) or 0)
+    return 0
+
+
+def case_tkx_tkn_summary(
+    case: dict,
+    invoice_matches: list[dict],
+    stock_rows: list[dict],
+    declaration_file_counts: dict | None = None,
+) -> dict:
     """Aggregate TKX (export) and TKN (import) declarations referenced by the case.
 
-    TKX is built from invoice_matches (BCCT export rows that matched the dossier).
-    TKN is built from allocation_lines on locked sheets — those are the import declarations
-    that the dossier actually claimed against.
+    TKX/TKN presence means the declaration file exists, not merely that a BCCT
+    row exists. BCCT rows only identify which declarations the case references.
     """
     invoice_matches = invoice_matches or []
     stock_rows = stock_rows or []
-    bcct_export_keys = {str(row.get("declaration_no") or "").strip() for row in invoice_matches}
-    bcct_import_keys = {str(row.get("import_declaration_no") or "").strip() for row in stock_rows}
+    declaration_file_counts = declaration_file_counts or {}
     tkx: dict[str, dict] = {}
     for row in invoice_matches:
         key = str(row.get("declaration_no") or "").strip()
         if not key:
             continue
+        file_count = declaration_file_count(declaration_file_counts, "export", key)
         entry = tkx.setdefault(key, {
             "declaration_no": key,
-            "in_data_hub": True,  # came from BCCT, by definition present
+            "in_data_hub": file_count > 0,
+            "file_count": file_count,
             "lines": [],
             "declaration_type": str(row.get("declaration_type") or ""),
         })
@@ -1410,14 +1432,15 @@ def case_tkx_tkn_summary(case: dict, invoice_matches: list[dict], stock_rows: li
             "quantity": row.get("quantity", ""),
             "invoice_ref": row.get("invoice_ref", ""),
         })
-    # Declared TKX from shipment that did NOT come back from BCCT → "missing in Data Hub"
     for declared in case.get("shipment", {}).get("export_declaration_nos", []) or []:
         declared_key = str(declared or "").strip()
         if not declared_key or declared_key in tkx:
             continue
+        file_count = declaration_file_count(declaration_file_counts, "export", declared_key)
         tkx[declared_key] = {
             "declaration_no": declared_key,
-            "in_data_hub": declared_key in bcct_export_keys,
+            "in_data_hub": file_count > 0,
+            "file_count": file_count,
             "lines": [],
             "declaration_type": "",
         }
@@ -1432,9 +1455,11 @@ def case_tkx_tkn_summary(case: dict, invoice_matches: list[dict], stock_rows: li
                 key = str(line.get("import_declaration_no") or "").strip()
                 if not key:
                     continue
+                file_count = declaration_file_count(declaration_file_counts, "import", key)
                 entry = tkn.setdefault(key, {
                     "declaration_no": key,
-                    "in_data_hub": key in bcct_import_keys,
+                    "in_data_hub": file_count > 0,
+                    "file_count": file_count,
                     "lines": [],
                     "products": set(),
                 })
@@ -2101,6 +2126,83 @@ def prepare_case_origin_products(
     return prepared
 
 
+def prepare_case_origin_product_shells(
+    case: dict,
+    invoice_matches: list[dict],
+    bom_workspace: dict,
+    form_lane: dict,
+    *,
+    preserve_existing: bool = True,
+) -> dict:
+    """Create per-product origin sheets without calculating BOM/material rows.
+
+    The origin page should show the workbook and let staff explicitly load each
+    sheet. Allocation and VNM calculation only happen in prepare_case_origin_sheet.
+    """
+    source_matches = (
+        invoice_matches
+        if invoice_matches
+        else [origin_match_from_existing_product(product) for product in case.get("products", [])]
+    )
+    if not source_matches:
+        return case
+
+    ordered_invoice_matches = order_invoice_matches_for_origin(case, source_matches) if invoice_matches else source_matches
+    bom_rows_by_product = selected_bom_rows_by_product(case, bom_workspace)
+    existing_by_code = {
+        str(product.get("code") or product.get("product_code") or "").strip(): dict(product)
+        for product in case.get("products", [])
+        if str(product.get("code") or product.get("product_code") or "").strip()
+    }
+    products = []
+    for product_sequence, match in enumerate(ordered_invoice_matches, start=1):
+        product_code = str(match.get("item_code") or match.get("product_code") or "").strip()
+        if not product_code:
+            continue
+        existing = existing_by_code.get(product_code)
+        if preserve_existing and existing and existing.get("materials"):
+            product = dict(existing)
+            product["allocation_sequence"] = str(product_sequence)
+            products.append(product)
+            continue
+        bom_product_code = bom_product_code_from_material_identity(match) or resolve_bom_product_code(
+            product_code,
+            bom_workspace,
+        )
+        product_rows = bom_rows_by_product.get(product_code) or bom_rows_by_product.get(bom_product_code, [])
+        shell = origin_product_shell_from_invoice_match(
+            match,
+            product_rows,
+            form_lane,
+            product_sequence=product_sequence,
+            bom_product_code=bom_product_code,
+        )
+        if preserve_existing and existing:
+            shell = {
+                **shell,
+                "materials": existing.get("materials", []),
+                "origin_sheet_material_overrides": existing.get("origin_sheet_material_overrides", {}),
+            }
+        products.append(shell)
+    if not products:
+        return case
+
+    prepared = dict(case)
+    prepared["products"] = products
+    prepared["mode"] = "Invoice + BCCT + BOM snapshot"
+    prepared["mode_note"] = "Sản phẩm lấy từ BCCT xuất khẩu khớp invoice; bấm Load BOM trên từng sheet để tính NVL và tồn CO."
+    prepared["origin_snapshot"] = {
+        **dict(prepared.get("origin_snapshot") or {}),
+        "source": "invoice_bcct_bom",
+        "invoice_no": prepared.get("shipment", {}).get("invoice_no", ""),
+        "invoice_match_count": len(ordered_invoice_matches),
+        "product_order": [product.get("code", "") for product in products],
+        "product_count": len(products),
+        "material_count": sum(len(product.get("materials", [])) for product in products),
+    }
+    return prepared
+
+
 def prepare_case_origin_sheet(
     case: dict,
     product_code: str,
@@ -2165,6 +2267,56 @@ def prepare_case_origin_sheet(
     prepared = dict(case)
     prepared["products"] = products
     return prepared
+
+
+def origin_product_shell_from_invoice_match(
+    match: dict,
+    bom_rows: list[dict],
+    form_lane: dict,
+    *,
+    product_sequence: int | None = None,
+    bom_product_code: str = "",
+) -> dict:
+    product_code = str(match.get("item_code") or match.get("product_code") or "").strip()
+    bom_product_code = str(bom_product_code or product_code).strip()
+    finished_hs = str(match.get("hs_code", "")).strip()
+    preview = criteria_preview_for_hs(form_lane.get("form_code", ""), finished_hs) if form_lane else {}
+    criterion = preview.get("criteria") or "Cần tra cứu PSR theo HS"
+    threshold = lvc_threshold_from_criterion(criterion)
+    quantity = decimal_value(match.get("quantity", "0"))
+    product_value = origin_product_value(match)
+    fob = product_value["value"]
+    first_row = bom_rows[0] if bom_rows else {}
+    product = {
+        "code": product_code,
+        "bom_product_code": bom_product_code,
+        "allocation_sequence": str(product_sequence or ""),
+        "name": match.get("description") or product_code,
+        "finished_hs": finished_hs,
+        "quantity": decimal_text(quantity),
+        "unit": match.get("unit", ""),
+        "currency": product_value["currency"],
+        "declared_currency": match.get("currency", ""),
+        "value_source": product_value["source"],
+        "source_declaration_no": match.get("declaration_no", ""),
+        "source_line_no": match.get("line_no", ""),
+        "invoice_ref": match.get("invoice_ref", ""),
+        "fob": decimal_text(fob) if fob is not None else "",
+        "non_origin_value": "",
+        "rvc_threshold": decimal_text(threshold) if threshold is not None else "",
+        "documented_result": criterion,
+        "lvc_percentage": "",
+        "lvc_status": "review",
+        "lvc_status_label": "Chưa tính",
+        "lvc_threshold": decimal_text(threshold) if threshold is not None else "",
+        "vnm_value": "",
+        "bom_product_artifact_id": first_row.get("product_artifact_id") or first_row.get("product_version_id", ""),
+        "bom_product_artifact_no": first_row.get("product_artifact_no") or first_row.get("product_version_no", ""),
+        "bom_product_version_id": first_row.get("product_artifact_id") or first_row.get("product_version_id", ""),
+        "bom_product_version_no": first_row.get("product_artifact_no") or first_row.get("product_version_no", ""),
+        "materials": [],
+    }
+    return enrich_origin_product(product)
 
 
 def recalculate_origin_sheet_edits(client: dict, case: dict, product_code: str) -> dict:
@@ -2524,7 +2676,8 @@ def mark_origin_sheets_stale(case: dict, from_index: int) -> dict:
     states = dict(prepared.get("origin_sheet_states") or {})
     for index, product in enumerate(prepared.get("products", [])):
         code = str(product.get("code") or "").strip()
-        if code and index >= max(from_index, 0):
+        current_status = str(product.get("origin_sheet_status") or "").strip()
+        if code and index >= max(from_index, 0) and current_status != "draft":
             previous = states.get(code) if isinstance(states.get(code), dict) else {}
             states[code] = {
                 **previous,
@@ -4909,7 +5062,12 @@ async def export_co_case_dossier_zip(client_id: str, case_id: str):
     source_context = co_case_source_context(client, case)
     invoice_matches = source_context.get("invoice_matches") or []
     stock_rows = source_context.get("stock_rows") or []
-    summary = case_tkx_tkn_summary(case, invoice_matches, stock_rows)
+    summary = case_tkx_tkn_summary(
+        case,
+        invoice_matches,
+        stock_rows,
+        source_context.get("declaration_file_counts") or {},
+    )
     supporting_files: list[dict] = []
     for file_row in case.get("supporting_files", []):
         upload_id = file_row.get("upload_id") or ""

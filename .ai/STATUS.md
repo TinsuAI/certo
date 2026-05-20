@@ -3,57 +3,51 @@
 ## Current State
 - Active branch: `main`.
 - CO dev server is running at `http://127.0.0.1:8001`; latest health check returned `200`.
-- Local Data Hub is running at `http://127.0.0.1:8754`.
-- CO dev is now using Postgres, not local JSON, for workflow/case state and stock ledger:
+- Local Data Hub is running at `http://127.0.0.1:8754`; latest health check returned `200`.
+- CO dev is using Postgres for workflow/case state and stock ledger:
   - local ignored `.env`: `BARRY_DATABASE_URL=postgresql:///barry_co?host=/var/run/postgresql`, `BARRY_DATABASE_SCHEMA=co`
-  - imported state: `clients=3`, `co_cases=11`, `co_stock_rows=19370`, `co_stock_claims=3`
-  - source indexes were rebuilt for `growatt`, `johnson`, and `do-thanh`
-- Full Python suite passes: `uv run pytest` -> `216 passed, 1 skipped, 7 warnings`.
+  - use `uv run --env-file .env ...` for DB-backed live-state checks
+- Full Python suite passes: `uv run pytest` -> `219 passed, 1 skipped, 7 warnings`.
+- `git diff --check` passes.
 - `npm test` still has pre-existing legal lookup failures around missing `raw-binary` source links; this is outside the CO bảng kê flow.
 - Untracked screenshot directories and `.ai/sister-app-prompts/` are local artifacts and should stay out of commits unless explicitly requested.
 
 ## Recent Changes
-- Hardened Bảng kê C/O workbook persistence:
-  - compact JSON payload now carries workbook order, BOM artifact choices, all products, and all sheet states
-  - sheet save merges workbook snapshot before persisting current-sheet NVL edits
-  - current sheet edits are stored as sparse `material_overrides`, recomputed server-side, and later sheets are marked stale
-- Added client-side sheet history and dirty-state workflow:
-  - `Lùi` / `Tiến` history for current sheet edits
-  - batched `Lưu bảng kê` for replace/add/delete/norm edits
-  - guard for double-click/in-flight saves
-- Fixed replacement/recompute behavior:
-  - replacing NVL recomputes child stock rows for the new code
-  - norm edit/add/delete rebuild affected allocation child rows client-side
-  - saved replacement no longer reloads old NVL details after refresh
-- Fixed Load BOM and save UX:
-  - Load BOM shows persistent sheet-level loading until shell replacement completes
-  - POST actions no longer replace browser URL with `/origin/sheet/.../calculate`
-  - save now redirects back to canonical `/origin`, preventing `GET /calculate` -> `405 Method Not Allowed`
-- Fixed allocation row toggle after AJAX shell replacement:
-  - `data-allocation-toggle` binding now reinitializes via `refreshCaseShellInteractions()`
-- Switched local CO dev to DB-backed state:
-  - added ignored `.env` for local DB
-  - updated `npm run co:serve` to load `.env` if present
-  - ran migrations/imports/rebuilds against `barry_co`
-- Added regression coverage for compact origin payloads, workbook state persistence, sheet save recompute, allocation toggle initialization, local material search, and save URL guards.
+- TKX/TKN tab now checks actual uploaded declaration files, not BCCT row presence:
+  - CO consumes Data Hub `GET /v1/hub/clients/{client_id}/declarations` through `app/data_hub_client.py`
+  - `case_tkx_tkn_summary()` uses `file_count > 0` for `Đã có` vs `Thiếu tờ khai`
+  - Data Hub API request artifact added at `.ai/api-requests/2026-05-15-declaration-file-status.md`
+- Added TKX/TKN bulk download links in the XNK tab:
+  - `TKX_<shipment_export_declaration_no>.zip`
+  - `TKN_CO_<shipment_export_declaration_no>.ZIP`
+  - links target Data Hub `/clients/{client_id}/declarations/download.zip`
+- Origin/Bảng kê C/O is now lazy-loaded per sheet:
+  - opening the Origin tab builds product sheet shells only
+  - no BOM/material allocation/LVC calculation happens until the user clicks `Load BOM vào Bảng Kê` for that sheet
+  - sheets that have never been loaded remain `draft`/`Chưa tính`; they are no longer marked `stale` just because an earlier sheet changed
+  - after `Load BOM`, `Chốt`, or `Mở chốt`, the UI keeps the active sheet tab instead of jumping back to sheet 1
+- Local Johnson test case state was cleaned to match the new flow:
+  - `MFW0502-571` remains locked
+  - later sheets were reset to `draft` with no precomputed material rows
 
 ## Next Steps
-1. Browser-test cross-case stock ledger end-to-end with DB enabled: lock sheet in case A, confirm case B sees reduced `remaining_qty`, reopen and confirm restoration.
-2. Verify the Data Hub `bcct/by-codes` provider endpoint before relying on narrow substitute-stock lookup for Johnson-scale clients.
-3. Fix remaining Data Hub material catalog 500s if still present for `growatt-vn`/`johnson-vn`; CO has fallbacks, but full catalog search depends on Data Hub.
-4. Review and remove now-unused client-side replacement allocation helper code if it remains unused after the live allocator changes.
+1. Manually browser-test Johnson case `johnson-vn/co-case-ec000d03522e/origin`: open each sheet, click `Load BOM vào Bảng Kê`, then `Chốt`, and confirm the UI stays on the active sheet.
+2. Confirm deployed Data Hub has both declaration contracts used by CO:
+   - `GET /v1/hub/clients/{client_id}/declarations`
+   - `GET /clients/{client_id}/declarations/download.zip`
+3. Browser-test TKX/TKN download links with a logged-in Data Hub session and real uploaded declaration files.
+4. Verify the Data Hub `bcct/by-codes` provider endpoint before relying on narrow substitute-stock lookup for Johnson-scale clients.
 5. Resolve unrelated `npm test` legal lookup failures around `raw-binary` links before treating Node tests as a release gate.
-6. Continue backlog item: NVL origin classification config / Data Hub evidence source.
 
 ## Blockers
-- Data Hub provider contract for `bcct/by-codes` still needs verification before Johnson-scale performance can be considered final.
+- CO now depends on the Data Hub declaration status/download routes being present in the Data Hub environment.
 - `Form&PSR` remains W.I.P.; rule/evidence engine is not implemented beyond current form/criteria guidance.
 - Node legal tests are failing independently of CO workflow changes.
 
 ## Notes for Next AI Session
 - User writes Vietnamese casually; respond in fully accented Vietnamese.
+- User prefers concise, direct status and expects concrete verification evidence.
 - User is sensitive to slow UX and loading without progress. Keep async actions visibly loading and avoid page-level blocking unless necessary.
 - User expects CO dev to use Postgres. Do not add new JSON persistence for workbook/ledger state.
-- `npm run co:serve` now loads `.env` manually because `uv run` does not load `.env` by default.
-- Default `uv run pytest` still runs without `.env`; DB-specific checks should use `uv run --env-file .env ...`.
 - Current running CO server is a background `npm run co:serve` process writing logs to `/tmp/barry-co-8001.log`.
+- Local Data Hub server logs are at `/tmp/data-hub-8754.log`.
