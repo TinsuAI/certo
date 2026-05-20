@@ -1188,6 +1188,11 @@ async def catalog_detail(request: Request, client_id: str, material_code: str):
         client_id=client_id, material_code=material_code,
     )
 
+    from app.stores.catalog_bcct_timeseries import analyze_material_timeline
+    bcct_timeline = analyze_material_timeline(
+        client_id=client_id, material_code=material_code,
+    )
+
     from app.stores.material_substitutes import list_for_material as list_subs
     substitutes_active = list_subs(
         client_id=client_id, material_code=material_code,
@@ -1210,6 +1215,7 @@ async def catalog_detail(request: Request, client_id: str, material_code: str):
         {"client": client, "material": material,
          "audit_events": audit_events, "bcct_rows": bcct_rows,
          "bcct_analysis": bcct_analysis,
+         "bcct_timeline": bcct_timeline,
          "substitutes_active": substitutes_active,
          "substitutes_rejected": substitutes_rejected,
          "bom_artifacts": bom_artifacts,

@@ -344,7 +344,16 @@
             <span class="badge">Info</span>
           {% endif %}
         </td>
-        <td class="num">{{ d.distinct_count }}</td>
+        <td class="num">
+          {{ d.distinct_count }}
+          {% if bcct_timeline and bcct_timeline.timelines %}
+            {% for ft in bcct_timeline.timelines %}
+              {% if ft.field == d.field and ft.runs|length >= 2 %}
+                <br><a class="meta" style="font-size:.85em" href="#timeline-{{ d.field }}">Xem biến động →</a>
+              {% endif %}
+            {% endfor %}
+          {% endif %}
+        </td>
         <td class="drift-values">
           {% if d.common_prefix_len > 20 or d.common_suffix_len > 10 %}
             <p class="meta drift-affix-hint">
@@ -384,6 +393,131 @@
     ✓ Không có drift — các dòng BCCT đồng nhất trên các trường được kiểm tra
     (ĐVT, Mã HS, Tên hàng, Xuất xứ).
   </p>
+  {% endif %}
+  {% endif %}
+
+  {# ── Biến động theo thời gian (RLE + per-quarter) ──────────────── #}
+  {% if bcct_timeline and bcct_timeline.n_declarations > 0 %}
+  <h3 id="timeline" style="margin-top: 1.5rem;">
+    Biến động theo thời gian
+    <small class="meta">
+      ({{ bcct_timeline.n_declarations }} tờ khai có ngày đăng ký)
+    </small>
+  </h3>
+
+  {% if not bcct_timeline.has_any_drift %}
+  <p class="meta">
+    ✓ Không có biến động trên các trường categorical
+    (ĐVT, HS, Xuất xứ, Loại TK).
+  </p>
+  {% endif %}
+
+  {% for ft in bcct_timeline.timelines %}
+    {% if ft.runs|length >= 2 %}
+    <details id="timeline-{{ ft.field }}" class="timeline-block"
+             {% if ft.severity == 'critical' %}open{% endif %}
+             style="margin-bottom: .75rem;">
+      <summary class="timeline-summary">
+        <strong>{{ ft.label }}</strong>
+        <small class="meta mono">{{ ft.field }}</small>
+        {% if ft.severity == 'critical' %}
+          <span class="badge badge-error" style="font-size:.7em">⚠ Critical</span>
+        {% elif ft.severity == 'warn' %}
+          <span class="badge badge-warn" style="font-size:.7em">Warn</span>
+        {% else %}
+          <span class="badge" style="font-size:.7em">Info</span>
+        {% endif %}
+        <small class="meta">
+          · {{ ft.n_distinct_values }} giá trị · {{ ft.runs|length }} đoạn
+        </small>
+      </summary>
+      <table class="dh-table" style="margin-top: .5rem;">
+        <thead>
+          <tr>
+            <th style="width:15%">Từ ngày</th>
+            <th style="width:15%">Đến ngày</th>
+            <th>Giá trị</th>
+            <th class="num">Số TK</th>
+            <th class="num">Số dòng</th>
+            <th>Chiều</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for r in ft.runs %}
+        <tr>
+          <td class="mono">{{ format_date(r.start_date) }}</td>
+          <td class="mono">{{ format_date(r.end_date) }}</td>
+          <td class="mono">
+            {% if r.value is none %}
+              <span class="meta">∅</span>
+            {% else %}
+              {{ r.value }}
+            {% endif %}
+          </td>
+          <td class="num">{{ r.n_declarations }}</td>
+          <td class="num">{{ r.n_lines }}</td>
+          <td>
+            {% if r.direction_breakdown.get('import') %}
+              <span class="badge" style="font-size:.7em" title="Nhập khẩu">↓ NK {{ r.direction_breakdown['import'] }}</span>
+            {% endif %}
+            {% if r.direction_breakdown.get('export') %}
+              <span class="badge" style="font-size:.7em" title="Xuất khẩu">↑ XK {{ r.direction_breakdown['export'] }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </details>
+    {% endif %}
+  {% endfor %}
+
+  {% if bcct_timeline.quarterly %}
+  <details class="timeline-block" style="margin-bottom: .75rem;">
+    <summary class="timeline-summary">
+      <strong>Giá trị / Số lượng theo quý</strong>
+      <small class="meta">
+        · {{ bcct_timeline.quarterly|length }} quý dữ liệu
+        {% set jumps = bcct_timeline.quarterly|selectattr('price_jump_from_prev')|list %}
+        {% if jumps %}
+          · <span class="badge badge-warn" style="font-size:.7em">⚠ {{ jumps|length }} quý có giá nhảy ≥2×</span>
+        {% endif %}
+      </small>
+    </summary>
+    <table class="dh-table" style="margin-top: .5rem;">
+      <thead>
+        <tr>
+          <th>Quý</th>
+          <th class="num">Số TK</th>
+          <th class="num">Số dòng</th>
+          <th class="num">Tổng SL</th>
+          <th class="num">SL TB/TK</th>
+          <th class="num">Giá min</th>
+          <th class="num">Giá median</th>
+          <th class="num">Giá max</th>
+          <th>Tiền tệ</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for q in bcct_timeline.quarterly %}
+      <tr {% if q.price_jump_from_prev %}class="row-warn" style="background:#fff8e1"{% endif %}>
+        <td class="mono">
+          {{ q.quarter }}
+          {% if q.price_jump_from_prev %}<span title="Giá median nhảy ≥2× so với quý trước" style="color:#c00">⚠</span>{% endif %}
+        </td>
+        <td class="num">{{ q.n_declarations }}</td>
+        <td class="num">{{ q.n_lines }}</td>
+        <td class="num mono">{{ '%.0f'|format(q.qty_total) if q.qty_total is not none else '—' }}</td>
+        <td class="num mono">{{ '%.1f'|format(q.qty_mean) if q.qty_mean is not none else '—' }}</td>
+        <td class="num mono">{{ '%.4g'|format(q.price_min) if q.price_min is not none else '—' }}</td>
+        <td class="num mono">{{ '%.4g'|format(q.price_median) if q.price_median is not none else '—' }}</td>
+        <td class="num mono">{{ '%.4g'|format(q.price_max) if q.price_max is not none else '—' }}</td>
+        <td class="mono">{{ q.currency or '—' }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </details>
   {% endif %}
   {% endif %}
 
