@@ -1,8 +1,9 @@
 # Johnson UoM audit + btp_sx uom bug fix
 
 **Date:** 2026-05-25
-**Branch:** main → `d7508ef` (commit)
-**Scope:** Local DB + code patch. Demo box NOT updated.
+**Branch:** main → `bc4fb3b` (after handoff commit). Code at `d7508ef`.
+**Scope:** Local DB + code patch + demo box deploy + password rotation.
+**Demo:** `ttdatahub.tinsu.ai` deployed and verified live.
 
 ## What was done
 
@@ -112,6 +113,35 @@ date + inverse-direction justification.
 
 Rerun materialize → 281 more stale cleared (3,093 → 2,812).
 
+### 7. Local DB cleanup + demo box deploy
+
+After landing all DB changes locally, prepared and shipped the full
+bundle to demo box (`ttdatahub.tinsu.ai` / `100.84.189.87:8754`):
+
+- **Cleanup local DB**: deleted 6 inactive/test clients
+  (`demo-precision-manufactu-{480e,68f7}`, `dke-vietnam-d0e3`,
+  `do-thanh-vietnam-2614`, `sa-test-{allowed,blocked}`). FK CASCADE
+  handled all dependents (materials/bcct/bom/overrides). Local now
+  Johnson + Growatt only.
+- **Push code**: `d7508ef` + `bc4fb3b` to `origin/main`.
+- **DB sync**: `pg_dump postgresql:///data_hub --schema=hub
+  --format=custom --no-owner --no-acl` (302MB compressed) → scp →
+  demo `data-hub-db-1` container → `pg_restore`. Row counts on demo
+  match local exactly: 13,589 materials / 88,926 BCCT / 13,602 BOM
+  artifacts / 167,581 BOM rows / 518 overrides.
+- **Code deploy**: `git pull` on demo (fast-forward to `bc4fb3b`),
+  `docker compose build app`, `docker compose up -d app`. Healthz
+  HTTP 200 + clean startup logs.
+- **Verified session changes on demo**: btp_sx EA=2614 (KG=0),
+  EA→SETS overrides=156, EA→mass overrides=3.
+- **Password rotation**: after DB sync, `admin@data-hub.local`
+  password hash was the LOCAL seed value (`local_test_password`) —
+  not the demo `.env` value. Generated argon2id hash via
+  `docker exec data-hub-app-1 python -c "from app.auth import
+  hash_password; print(hash_password('sS3EZgj9lf5b741'))"` and
+  UPDATE'd `hub.users`. Login flow verified end-to-end through
+  `https://ttdatahub.tinsu.ai/login`.
+
 ## Final state
 
 ```
@@ -169,17 +199,34 @@ Stale-flagged drift codes:
   intermediate output (got blocked by sleep guard); waited for
   notification each time as designed.
 
+- **First pg_restore on demo lost all big tables** (materials,
+  bcct_rows, bom_artifacts, bom_artifact_rows). Symptom: "33 errors
+  ignored on restore" with cryptic FK constraint failures and
+  "relation hub.materials does not exist" for every dependent. Root
+  cause was earlier in the chain: `materials.description_embedding` is
+  `vector(1536)`, and `DROP SCHEMA hub CASCADE` on demo had dropped
+  the `vector` extension (which lived in hub schema on demo). Restore
+  couldn't create the column type, so CREATE TABLE silently failed
+  and every later dependent failed too. Fixed by explicitly
+  `DROP EXTENSION vector CASCADE; CREATE EXTENSION vector WITH SCHEMA
+  public` BEFORE re-running `pg_restore`. Lesson: `pg_dump --schema`
+  does NOT include extensions; verify extension presence + location
+  on destination before restoring.
+
+- **`--data-only` retry** between fresh DROP and successful re-restore
+  caused 60 duplicate-key errors (background_jobs, deployment_config
+  seed rows already populated). Burned a few minutes diagnosing
+  before realizing the right path was a full clean restart.
+
 ## Open items
 
 1. **39 codes drift unresolved** — 5 buckets per table above. 20
    SETS→SETS most suspicious (same-UoM shouldn't drift).
-2. **Demo box deploy still pending** (carried from STATUS): mig 065/066,
-   M16 ingest, UoM overrides, A.2 conflicts, declaration API, ZIP,
-   time-series, AND now the btp_sx fix + 159 new override rows. Single
-   deploy picks all up.
-3. **Cross-repo**: bug fix `d7508ef` doesn't touch consumer code (CO/
+2. **Cross-repo**: bug fix `d7508ef` doesn't touch consumer code (CO/
    BCQT read catalog uom). Schema unchanged. CO consumer transparent.
-4. **STATUS.md update** — pending.
+3. **Stakeholder demo readiness**: demo box hot at
+   `ttdatahub.tinsu.ai` with full Johnson + Growatt data. Smoke path
+   for next walkthrough documented in STATUS Next Steps.
 
 ## Files touched (in commit `d7508ef`)
 

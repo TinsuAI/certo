@@ -1,28 +1,28 @@
 # Project Status
 
-**Date:** 2026-05-25 — Johnson UoM drift audit + btp_sx uom auto-capture bug fix shipped. Local DB synchronized with 159 new overrides + 440 catalog uom corrections. Demo box deploy pending.
+**Date:** 2026-05-25 — Johnson UoM drift audit + btp_sx uom bug fix shipped AND deployed to demo. Local + origin + demo all in sync at `bc4fb3b`.
 
 ## Current State
 
-**Branch:** `main` at `d7508ef`. One commit ahead of `origin/main` (push pending).
+**Branch:** `main` at `bc4fb3b`. **In sync with `origin/main`**.
 
-Recent commits:
-- `d7508ef` — **NEW:** btp_sx uom auto-capture switches from Base UoM (`parent_code`) to Component unit (`child_code`); 3 tests updated
+Recent commits on `origin/main`:
+- `bc4fb3b` — docs(handoff): Johnson UoM audit + btp_sx uom bug fix session
+- `d7508ef` — fix(catalog): btp_sx uom auto-capture uses Component unit, not Base UoM
 - `5e9a4fb` — docs(handoff): catalog time-series ship + UoM drift Excel tool
-- `58587ca` — per-material BCCT time-series on catalog detail page
+- `58587ca` — feat(catalog): per-material BCCT time-series on detail page
 - `6d45f77` — declaration file status + A.2 conflicts handoff
 - `21f3620` — declaration file status API + bulk ZIP download for CO
-- `d4ea2d7` — catalog conflicts review queue (A.2)
 
 **Tests:** 1143 passed, 15 skipped. `tests/test_fixup_johnson_btp_uom.py` 3/3 PASSED with corrected assertions.
 
 **Migrations:** at mig 066. No new mig.
 
-**Working tree:** clean of code/test drift after `d7508ef`. Untracked artefacts unchanged from 2026-05-21 (uom_drift_report.py, training scripts, prior session notes).
+**Working tree:** clean of code/test drift after `d7508ef`. Untracked artefacts unchanged from 2026-05-21 (uom_drift_report.py, training scripts).
 
 **Dev server:** `:8754` workers=4 — restarted at session start, healthz HTTP 200.
 
-**Demo box (`100.84.189.87:8754`):** still NOT updated. Backlog now also includes the btp_sx bug fix + 159 new override rows + 440 catalog uom corrections (data) on top of the prior bundle (mig 065/066 + M16 ingest + UoM overrides + A.2 conflicts + declaration API + ZIP route + time-series).
+**Demo box (`ttdatahub.tinsu.ai` → `100.84.189.87:8754` via Cloudflare):** **DEPLOYED 2026-05-25.** At `bc4fb3b`. DB fully replaced via `pg_dump --schema=hub --format=custom` + `pg_restore` (Johnson + Growatt only — 13,589 materials / 88,926 BCCT / 13,602 BOM artifacts / 167,581 BOM rows / 518 overrides). Bundle covers everything previously pending: mig 066, M16 ingest, UoM overrides, A.2 conflicts, declaration API + ZIP, time-series, btp_sx fix. Admin password rotated to demo `.env` value. Login flow verified end-to-end (`POST /login → 303 → /clients`).
 
 **Local DB Johnson state:**
 - Catalog: 2,614 btp_sx EA + 1 G (was 2,174 EA + 440 KG + 1 G — 440 corrected this session)
@@ -50,26 +50,24 @@ Other clients (6 inactive/test) deleted from local hub schema in preparation for
 
 Priority order:
 
-1. **Deploy bundle to demo box** (`100.84.189.87:8754`). Includes: mig 065/066, M16 ingest, UoM overrides (516 total), A.2 conflicts page, declaration file status API + ZIP route, time-series feature, btp_sx fix, 440 catalog corrections. Single deploy picks all of them up.
+1. **Wait for CO consumer PR** on the declaration file status endpoint. Provider tests + changelog + sister-app note shipped. Nothing to do until CO pings back.
 
-2. **Sync DB to demo box** — pg_dump local hub schema (Johnson + Growatt only) and restore on demo. Data changes from this session (440 catalog + 159 overrides + re-materialized BOM) are local-only until synced.
-
-3. **Wait for CO consumer PR** on the declaration file status endpoint. Provider tests + changelog + sister-app note shipped. Nothing to do until CO pings back.
-
-4. **Audit 39 remaining drift codes** — 5 small buckets:
+2. **Audit 39 remaining drift codes** — 5 small buckets:
    - 20 SETS→SETS same-UoM drift (alias case suspected)
    - 15 EA→SETS residual (not in original 156 set)
    - 2 EA→EA factor_missing (same-UoM weird)
    - 1 G→EA outlier
    - 1 Chai/Lọ/Tuýp→EA Vietnamese token
 
-5. **Verify `1000454182` factor=2.0** with Johnson (n=2/3 small sample, carry-over).
+3. **Verify `1000454182` factor=2.0** with Johnson (n=2/3 small sample, carry-over).
 
-6. **70 sản phẩm XK 2026 thiếu BOM** — get from Johnson or document (carry-over).
+4. **70 sản phẩm XK 2026 thiếu BOM** — get from Johnson or document (carry-over).
 
-7. **CO repo dropdown logic for dual_source 409** (carry-over).
+5. **CO repo dropdown logic for dual_source 409** (carry-over).
 
-8. **Next backlog item if bandwidth.**
+6. **Stakeholder demo walkthrough** — demo box ready; suggested smoke path: login at `ttdatahub.tinsu.ai`, browse `/catalog`, open a Johnson product detail (verify time-series renders), `/catalog/conflicts` queue, M16 ingest preview.
+
+7. **Next backlog item if bandwidth.**
    - F.1 Growatt programmatic bulk re-ingest (~0.5-1d, mirror Johnson).
    - A.4.2 Substitute XLSX bulk upload (~0.5d).
    - A.4.3 Smarter goods_name similarity — gated on pg_trgm.
@@ -91,6 +89,8 @@ Priority order:
 
 - **Local DB now Johnson + Growatt only.** Other 6 test/seed clients cleaned out 2026-05-25 in preparation for demo box sync. Don't expect demo-precision-manufactu-* or DKE/Do-Thanh in queries anymore.
 
-- **Demo box deploy bundle is large** — covers ~2 weeks of unshipped work. Test plan after deploy: login, navigate to /catalog/conflicts, view Johnson product detail page (verify time-series renders), trigger a sample M16 ingest preview, hit declaration file status API. If any step fails, isolate via mig version vs commit hash.
+- **Demo deploy gotcha** — `pg_dump --schema=hub` does NOT include extensions, but DROP SCHEMA hub CASCADE will drop extensions that live IN the hub schema. Local has `vector` ext in `public`; demo originally had it in `hub`. Resolved by `DROP EXTENSION vector CASCADE; CREATE EXTENSION vector WITH SCHEMA public` BEFORE `pg_restore`. Next time syncing, take same approach (or run `pg_dump` with `--extension=vector` flag — untested).
 
-- **Push gate** — d7508ef + new STATUS commit pending push. Sync to origin before deploying so demo box can `git pull`.
+- **Demo password rotation pattern**: run `docker exec data-hub-app-1 python -c "from app.auth import hash_password; print(hash_password('NEW_PW'))"` to get argon2id hash, then UPDATE `hub.users` directly. Local + demo had divergent password hashes after DB sync — local seed password got carried; rotated to demo `.env` value.
+
+- **Push gate** — clean. All commits pushed.
