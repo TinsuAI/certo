@@ -896,6 +896,7 @@
 {% if origin_calculation_lock_owned %}
 <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin-lock/release" id="origin-lock-release"></form>
 {% endif %}
+<form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export-bang-ke" id="origin-export-bang-ke" hx-boost="false"></form>
 
 <form method="post" action="/clients/{{ client.id }}/evaluate" id="co-case" class="origin-workspace">
   <input type="hidden" name="case_id" value="{{ case.id }}">
@@ -945,7 +946,7 @@
       {% endfor %}
     </div>
     <div class="origin-workbar-actions">
-      <button type="submit" data-origin-export-action formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export" formmethod="post" {% if origin_actions_blocked %}disabled title="Khách hàng đang có hồ sơ khác giữ phiên tính tồn"{% endif %}>Xuất dossier XLSX</button>
+      <button type="submit" form="origin-export-bang-ke" data-origin-export-action {% if origin_actions_blocked %}disabled title="Khách hàng đang có hồ sơ khác giữ phiên tính tồn"{% endif %}>Xuất bảng kê HQ</button>
       {% if origin_calculation_lock_owned %}
       <button type="submit" form="origin-lock-release" class="btn-secondary">Nhả phiên tính tồn</button>
       {% endif %}
@@ -1505,6 +1506,9 @@
         <button type="submit" class="btn-primary">Xuất dossier .zip (chứng từ + TKX/TKN + bảng kê HQ)</button>
         <small class="meta">Yêu cầu: tất cả bảng kê đã chốt hoặc tính. Bảng kê HQ build theo template <code>tru lui CO final</code>.</small>
       </form>
+      <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export-bang-ke" hx-boost="false">
+        <button type="submit" class="btn-secondary">Xuất bảng kê HQ XLSX</button>
+      </form>
       <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export" hx-boost="false">
         <button type="submit" class="btn-secondary">Xuất dossier XLSX (legacy)</button>
       </form>
@@ -1869,6 +1873,7 @@
   document.addEventListener("submit", async (event) => {
     const form = event.target;
     if (!(form instanceof HTMLFormElement) || !form.closest("[data-co-case-shell]")) return;
+    if (form.getAttribute("hx-boost") === "false") return;
     const submitter = event.submitter;
     const action = submitter?.getAttribute("formaction") || form.dataset.ajaxSubmitAction || form.getAttribute("action") || "";
     if (!action || /\/export$|\/delete$|supporting-files\/[^/]+$/.test(action)) return;

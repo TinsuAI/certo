@@ -4197,6 +4197,46 @@ body.origin-substitute-modal-open {
   overflow: hidden;
 }
 
+.co-stock-history-modal {
+  position: fixed !important;
+  top: 0; right: 0; bottom: 0; left: 0;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999;
+}
+.co-stock-history-modal[hidden] { display: none !important; }
+body.co-stock-history-modal-open { overflow: hidden; }
+.co-stock-history-modal-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+}
+.co-stock-history-modal-card {
+  position: relative;
+  width: min(960px, 95vw);
+  max-height: 88vh;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.45);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.co-stock-history-modal-head {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;
+}
+.co-stock-history-modal-head h2 { margin: 0.1rem 0; font-size: 1.05rem; }
+.co-stock-history-modal-body {
+  padding: 0.75rem 1.25rem 1rem;
+  overflow-y: auto;
+}
+.co-stock-history-table th, .co-stock-history-table td { font-size: 0.85rem; vertical-align: top; }
+.co-stock-event-claim_lock { background: #e0f2fe; color: #075985; }
+.co-stock-event-claim_release { background: #fef3c7; color: #92400e; }
+.co-stock-event-adjustment_import_insert { background: #ecfdf5; color: #065f46; }
+.co-stock-event-adjustment_import_update { background: #eff6ff; color: #1d4ed8; }
+.co-stock-event-adjustment_void { background: #fef2f2; color: #991b1b; }
+
 .origin-substitute-norm-label {
   display: grid;
   gap: 0.2rem;
@@ -4783,6 +4823,22 @@ body.origin-substitute-modal-open {
 .chip-warning {
   background: #fef3c7;
   color: #92400e;
+}
+
+.chip-success {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.chip-action {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+  font-weight: 600;
+}
+
+.chip-action:hover {
+  background: #1d4ed8;
 }
 
 /* PR7: review checklist */

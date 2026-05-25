@@ -12,6 +12,18 @@
     </div>
     <div class="chip-row">
       <span class="chip chip-active">{{ client.counts.co_stock }} bucket</span>
+      {% set sync = co_stock_sync_status or {} %}
+      {% if sync.status == 'in_sync' %}
+        <span class="chip chip-success" title="Snapshot khớp BCCT hiện tại trên Data Hub ({{ sync.bcct_now_rows }} dòng).">✓ Đồng bộ với Data Hub</span>
+      {% elif sync.status == 'stale' %}
+        <span class="chip chip-warning" title="Snapshot lưu {{ sync.snapshot_bcct_rows }} dòng BCCT; Data Hub hiện có {{ sync.bcct_now_rows }} dòng (Δ {{ sync.delta }}).">⚠ Lệch {{ sync.delta }} dòng BCCT — nên refresh</span>
+      {% elif sync.status == 'no_snapshot' %}
+        <span class="chip chip-warning">Chưa có snapshot</span>
+      {% endif %}
+      {% if co_stock_last_refresh_at %}
+      <span class="chip" title="Snapshot này được materialize lúc {{ co_stock_last_refresh_at }}">Cập nhật {{ co_stock_last_refresh_at[:19].replace('T', ' ') }}</span>
+      {% endif %}
+      <button type="button" class="chip {{ 'chip-action' if sync.status in ('stale', 'no_snapshot') else '' }}" data-co-stock-refresh-btn title="Pull BCCT từ Data Hub, derive lại tồn CO, ghi vào DB CO. Có thể mất ~10s với client lớn.">Refresh từ Data Hub</button>
       <a class="chip" href="/clients/{{ client.id }}/config">Cấu hình</a>
       <a class="chip" href="/clients/{{ client.id }}/co-case">Phân bổ vào hồ sơ</a>
     </div>
@@ -21,8 +33,234 @@
     <div>
       <div class="callout-title">Tồn CO khác tồn kho vật lý</div>
       Tồn CO chỉ tính dòng tồn nhập còn đủ điều kiện dùng cho C/O và chưa bị phân bổ hết cho hồ sơ khác.
+      Snapshot tồn CO được materialize trong DB CO; bấm <strong>Refresh từ Data Hub</strong> sau khi BCCT có upload mới.
     </div>
   </div>
+  {% if co_stock_empty_needs_refresh %}
+  <div class="callout callout-warning">
+    <span class="callout-icon">!</span>
+    <div>
+      <div class="callout-title">Chưa có snapshot tồn CO cho client này</div>
+      Bấm <strong>Refresh từ Data Hub</strong> ở trên để pull BCCT lần đầu và derive tồn CO. Lần đầu có thể mất ~10s với client lớn (Johnson), các lần load sau sẽ instant.
+    </div>
+  </div>
+  {% endif %}
+
+  <section class="zone" data-co-stock-section>
+    <div class="subsection-head">
+      <h3>Điều chỉnh thủ công</h3>
+      <p class="meta">
+        Layer ghi đè <code>opening_qty</code> + cộng dồn <code>used_qty</code> trên tồn derived từ BCCT (sau cross-case ledger).
+        Snapshot model: re-import cùng key <code>(declaration_no, line_no, customs_code)</code> sẽ overwrite.
+        Workbook gốc agency (<code>tru-lui-co-template.xlsm</code>) cần convert qua template chuẩn trước:
+        <code>uv run python scripts/convert_co_stock.py &lt;input.xlsm&gt; &lt;output.xlsx&gt;</code>
+        (mặc định dùng sheet <code>NK2</code> — snapshot per lot đã reconcile; <code>--sheet Save</code> cho event log legacy).
+      </p>
+    </div>
+    <div class="split-balanced">
+      <form data-co-stock-import method="post" action="/clients/{{ client.id }}/co-stock/import" enctype="multipart/form-data" class="mini-panel" hx-boost="false">
+        <div class="subsection-head">
+          <h4>Import tồn CO</h4>
+          <p class="meta">Xlsx theo standard template (sheet <code>co_stock</code>, 19 cột). Bắt buộc 3 cột key: <code>declaration_no</code>, <code>line_no</code>, <code>customs_code</code>.</p>
+        </div>
+        <div class="stack-form">
+          <input type="file" name="file" accept=".xlsx" required>
+          <button type="submit">Upload &amp; điều chỉnh</button>
+        </div>
+        <div data-co-stock-import-result class="meta" hidden></div>
+      </form>
+      <section class="mini-panel">
+        <div class="subsection-head">
+          <h4>Export tồn CO</h4>
+          <p class="meta">Dump trạng thái hiện tại (opening BCCT + used từ ledger + adjustments) ra standard template, header tiếng Việt cho người đọc.</p>
+        </div>
+        <div class="chip-row">
+          <a class="chip" href="/clients/{{ client.id }}/co-stock/export.xlsx">Tải tồn CO (.xlsx)</a>
+        </div>
+      </section>
+    </div>
+  </section>
+
   {% include "_advanced_table.html" %}
 </section>
+
+<div class="co-stock-history-modal" data-co-stock-history-modal hidden role="dialog" aria-modal="true" aria-labelledby="co-stock-history-title">
+  <div class="co-stock-history-modal-backdrop" data-co-stock-history-close></div>
+  <div class="co-stock-history-modal-card">
+    <header class="co-stock-history-modal-head">
+      <div>
+        <span class="eyebrow">Lịch sử lot tồn CO</span>
+        <h2 id="co-stock-history-title" data-co-stock-history-target>—</h2>
+        <p class="meta" data-co-stock-history-summary>—</p>
+      </div>
+      <button type="button" class="btn-secondary" data-co-stock-history-close aria-label="Đóng">×</button>
+    </header>
+    <div class="co-stock-history-modal-body">
+      <table class="table co-stock-history-table">
+        <thead>
+          <tr>
+            <th>Thời điểm</th>
+            <th>Loại</th>
+            <th class="num">Δ qty</th>
+            <th class="num">Sau</th>
+            <th>Hồ sơ / Batch</th>
+            <th>Actor</th>
+            <th>Ghi chú</th>
+          </tr>
+        </thead>
+        <tbody data-co-stock-history-rows>
+          <tr><td colspan="7" class="empty-cell">Đang tải…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const form = document.querySelector("[data-co-stock-import]");
+  if (!form) return;
+  const result = form.querySelector("[data-co-stock-import-result]");
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!result) return;
+    result.hidden = false;
+    result.textContent = "Đang upload và đối chiếu…";
+    const data = new FormData(form);
+    try {
+      const response = await fetch(form.action, {method: "POST", body: data});
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        result.textContent = `Lỗi: ${payload.detail || response.status}`;
+        return;
+      }
+      const upsert = payload.upsert || {};
+      const errors = (payload.parse_errors || []).concat(upsert.errors || []);
+      const lines = [
+        `Batch ${payload.batch_id || ""} — file: ${payload.filename || ""}`,
+        `Parsed: ${payload.parsed_rows} dòng · Inserted: ${upsert.inserted || 0} · Updated: ${upsert.updated || 0} · Skipped: ${upsert.skipped || 0}`,
+      ];
+      if (errors.length) {
+        lines.push(`⚠ ${errors.length} lỗi: ${errors.slice(0, 3).join("; ")}${errors.length > 3 ? "…" : ""}`);
+      }
+      result.textContent = lines.join(" · ");
+    } catch (err) {
+      result.textContent = `Lỗi mạng: ${err}`;
+    }
+  });
+})();
+
+// Refresh từ Data Hub — re-materialize co_stock_rows for this client.
+(() => {
+  const btn = document.querySelector("[data-co-stock-refresh-btn]");
+  if (!btn) return;
+  const clientId = window.location.pathname.split("/")[2] || "";
+  btn.addEventListener("click", async () => {
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Đang refresh… (có thể mất 10s)";
+    try {
+      const r = await fetch(`/clients/${encodeURIComponent(clientId)}/co-stock/refresh`, {
+        method: "POST", headers: {Accept: "application/json"},
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        btn.textContent = original;
+        btn.disabled = false;
+        alert(`Refresh thất bại: ${(data.errors || []).join(", ") || r.status}`);
+        return;
+      }
+      btn.textContent = `Đã refresh ${data.rows_persisted} dòng (${data.took_seconds}s). Đang tải lại…`;
+      window.location.reload();
+    } catch (err) {
+      btn.textContent = original;
+      btn.disabled = false;
+      alert(`Lỗi mạng: ${err}`);
+    }
+  });
+})();
+
+// Per-row "Lịch sử" modal — fetches /co-stock/lot-history and renders the
+// chronological audit log (claim_lock/release + adjustment_import_*).
+(() => {
+  const modal = document.querySelector("[data-co-stock-history-modal]");
+  if (!modal) return;
+  // Move modal to document.body so it escapes any ancestor with transform/
+  // filter/perspective that would break `position: fixed` positioning.
+  if (modal.parentElement !== document.body) document.body.appendChild(modal);
+  const title = modal.querySelector("[data-co-stock-history-target]");
+  const summary = modal.querySelector("[data-co-stock-history-summary]");
+  const tbody = modal.querySelector("[data-co-stock-history-rows]");
+  const close = () => { modal.hidden = true; document.body.classList.remove("co-stock-history-modal-open"); };
+  modal.querySelectorAll("[data-co-stock-history-close]").forEach((el) => el.addEventListener("click", close));
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !modal.hidden) close(); });
+
+  const fmtNum = (v) => {
+    if (v === null || v === undefined || v === "") return "—";
+    const n = Number(v);
+    return Number.isFinite(n) ? n.toLocaleString("vi-VN", {maximumFractionDigits: 6}) : v;
+  };
+  const labelFor = {
+    "adjustment_import_insert": "Import (mới)",
+    "adjustment_import_update": "Import (cập nhật)",
+    "adjustment_void": "Void",
+    "claim_lock": "Lock CO",
+    "claim_release": "Release CO",
+  };
+
+  const clientId = window.location.pathname.split("/")[2] || "";
+
+  document.body.addEventListener("click", async (event) => {
+    const btn = event.target.closest?.("[data-co-stock-history-btn]");
+    if (!btn) return;
+    const decl = btn.dataset.declarationNo || "";
+    const line = btn.dataset.lineNo || "";
+    const code = btn.dataset.customsCode || "";
+    if (!(decl && line && code)) return;
+    title.textContent = `${decl} / dòng ${line} / ${code}`;
+    summary.textContent = "Đang tải…";
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-cell">Đang tải…</td></tr>`;
+    modal.hidden = false;
+    document.body.classList.add("co-stock-history-modal-open");
+    const params = new URLSearchParams({declaration_no: decl, line_no: line, customs_code: code});
+    try {
+      const r = await fetch(`/clients/${encodeURIComponent(clientId)}/co-stock/lot-history?${params}`, {headers: {Accept: "application/json"}});
+      if (!r.ok) {
+        const text = await r.text();
+        summary.textContent = `Lỗi ${r.status}: ${text.slice(0, 200)}`;
+        tbody.innerHTML = `<tr><td colspan="7" class="empty-cell">—</td></tr>`;
+        return;
+      }
+      const data = await r.json();
+      summary.textContent = `${data.count} sự kiện · mới nhất trước`;
+      if (!data.events?.length) {
+        tbody.innerHTML = `<tr><td colspan="7" class="empty-cell">Chưa có sự kiện nào cho lot này.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = "";
+      data.events.forEach((ev) => {
+        const refs = [];
+        if (ev.case_id) refs.push(`case ${ev.case_id}`);
+        if (ev.sheet_product_code) refs.push(`sheet ${ev.sheet_product_code}`);
+        if (ev.source_file_ref) refs.push(`file ${ev.source_file_ref}`);
+        if (ev.batch_id) refs.push(`batch ${ev.batch_id}`);
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td class="mono">${(ev.recorded_at || "").slice(0, 19).replace("T", " ")}</td>
+          <td><span class="badge co-stock-event-${ev.event_type}">${labelFor[ev.event_type] || ev.event_type}</span></td>
+          <td class="num">${ev.qty_delta ? (Number(ev.qty_delta) > 0 ? "+" : "") + fmtNum(ev.qty_delta) : "—"}</td>
+          <td class="num">${fmtNum(ev.qty_after)}</td>
+          <td><span class="meta">${refs.join(" · ") || "—"}</span></td>
+          <td class="mono">${ev.actor || ""}</td>
+          <td><span class="meta">${ev.notes || ""}</span></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    } catch (err) {
+      summary.textContent = `Lỗi mạng: ${err}`;
+      tbody.innerHTML = `<tr><td colspan="7" class="empty-cell">—</td></tr>`;
+    }
+  });
+})();
+</script>
 {% endblock %}

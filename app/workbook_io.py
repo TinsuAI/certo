@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.utils import get_column_letter
 
 from app.demo_data import attach_results, get_demo_case
 
@@ -390,7 +391,69 @@ def write_hq_sheet_header(ws, product: dict, sheet_def: dict, case: dict, thresh
     ws["P5"] = threshold
 
 
-def write_hq_sheet_materials(ws, product: dict, start_row: int) -> int:
+def write_hq_template_sheet_header(ws, product: dict, sheet_def: dict, case: dict, threshold: str) -> None:
+    """Fill input cells on a copied `tru lui CO` template sheet.
+
+    The template already owns titles, merged table headers, row heights,
+    formulas, and print setup. Keep those intact and only replace the cells
+    the legacy macro treated as output values.
+    """
+    merchant = case.get("customer", "") or case.get("client_name", "") or case.get("client_id", "")
+    tax_code = case.get("customer_tax_code", "") or case.get("client_tax_code", "")
+    quantity = decimal_value(product.get("quantity") or "0")
+    fob = decimal_value(product.get("fob") or "0")
+    unit_price = fob / quantity if quantity else fob
+    declaration_no = product.get("source_declaration_no") or first_non_empty(case.get("shipment", {}).get("export_declaration_nos") or [])
+    declaration_date = product.get("source_declaration_date") or product.get("export_declaration_date") or ""
+    criterion = product.get("origin_sheet_effective_criteria_text") or product.get("documented_result", "") or sheet_def["sheet"]
+    if threshold and sheet_def["sheet"] in {"LVC", "RVC"} and "%" not in str(criterion):
+        criterion = f"{sheet_def['sheet']} {threshold}%"
+    material_count = count_hq_material_rows(product)
+
+    ws["B6"] = f"Tên Thương nhân: {merchant}" if merchant else "Tên Thương nhân: "
+    ws["B7"] = f"Mã số thuế: {tax_code}" if tax_code else "Mã số thuế: "
+    ws["K6"] = criterion
+    ws["K7"] = product.get("name", "")
+    ws["P7"] = product.get("code", "")
+    ws["K8"] = product.get("finished_hs", "")
+    ws["O8"] = product.get("incoterm", "FOB") or "FOB"
+    ws["P8"] = unit_price
+    if declaration_no:
+        ws["B9"] = f"{declaration_no} Ngày {declaration_date}".strip()
+    ws["K9"] = quantity
+    ws["L9"] = product.get("uom") or product.get("unit") or product.get("export_unit", "")
+    ws["P9"] = quantity
+    ws["Q9"] = declaration_no
+    ws["K10"] = fob
+    ws["K11"] = fob
+    ws["P5"] = material_count
+
+
+def count_hq_material_rows(product: dict) -> int:
+    materials = product.get("materials") or []
+    overrides = product.get("origin_sheet_material_overrides") or {}
+    count = 0
+    for index, _material in enumerate(materials):
+        override = overrides.get(str(index)) if isinstance(overrides.get(str(index)), dict) else {}
+        if not override.get("deleted"):
+            count += 1
+    count += sum(
+        1
+        for key, value in overrides.items()
+        if key.startswith("added_") and isinstance(value, dict) and not value.get("deleted")
+    )
+    return count
+
+
+def first_non_empty(values) -> str:
+    for value in values or []:
+        text = cell_text(value)
+        if text:
+            return text
+    return ""
+
+
+def write_hq_sheet_materials(ws, product: dict, start_row: int, *, legacy_export_layout: bool = False, sheet_code: str = "") -> int:
     materials = product.get("materials") or []
     overrides = product.get("origin_sheet_material_overrides") or {}
     row_index = start_row
@@ -427,8 +490,13 @@ def write_hq_sheet_materials(ws, product: dict, start_row: int) -> int:
         ws.cell(row=row_index, column=13, value=material.get("source_document_ref", ""))
         ws.cell(row=row_index, column=14, value=material.get("source_document_date", ""))
         # Helper columns (preserved per legacy macro layout, hidden in print).
+        ws.cell(row=row_index, column=15, value=material.get("import_line_no", ""))  # O
         ws.cell(row=row_index, column=16, value=material_code)  # P
+        ws.cell(row=row_index, column=17, value=f"{product.get('source_declaration_no', '')}{material_code}")  # Q
+        ws.cell(row=row_index, column=19, value=material.get("import_declaration_type", ""))  # S
         ws.cell(row=row_index, column=23, value=product.get("code", ""))  # W
+        ws.cell(row=row_index, column=24, value=product.get("source_line_no", ""))  # X
+        ws.cell(row=row_index, column=25, value=product.get("quantity", ""))  # Y
         row_index += 1
         counter += 1
     # Add added-rows from overrides at the end.
@@ -451,22 +519,31 @@ def write_hq_sheet_materials(ws, product: dict, start_row: int) -> int:
     ws["I1588"] = str(sum_non_origin)
     fob = decimal_value(product.get("fob") or "0")
     if fob > 0:
-        lvc = ((fob - sum_non_origin) / fob * Decimal("100")).quantize(Decimal("0.01"))
+        lvc_ratio = ((fob - sum_non_origin) / fob).quantize(Decimal("0.0001"))
+        lvc_percent = (lvc_ratio * Decimal("100")).quantize(Decimal("0.01"))
         ws["K1606"] = str(sum_non_origin)
         ws["J1606"] = str(fob)
         ws["I1604"] = str(fob)
-        ws["M1607"] = f"{lvc} %"
-        ws["B1611"] = f"{lvc} %"
+        ws["M1607"] = lvc_ratio
+        if sheet_code in {"CTH", "CTSH"}:
+            ws["B1611"] = f"Kết luận: Hàng hóa đáp ứng tiêu chí “{sheet_code}”"
+        elif sheet_code in {"LVC", "RVC"}:
+            ws["B1611"] = f"Kết luận: Hàng hóa đáp ứng tiêu chí {sheet_code} {lvc_percent} %"
+    if legacy_export_layout:
+        hide_hq_unused_rows_and_helpers(ws, row_index)
     return row_index
 
 
-HQ_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "data" / "local" / "hq-templates" / "tru-lui-co-template.xlsm"
+HQ_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "data" / "local" / "hq-templates" / "tru-lui-co-output-template.xlsx"
+HQ_LEGACY_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "data" / "local" / "hq-templates" / "tru-lui-co-template.xlsm"
 
 
 def hq_template_path() -> Path | None:
     """Locate the legacy `tru lui CO` workbook used as styling template."""
     if HQ_TEMPLATE_PATH.exists():
         return HQ_TEMPLATE_PATH
+    if HQ_LEGACY_TEMPLATE_PATH.exists():
+        return HQ_LEGACY_TEMPLATE_PATH
     return None
 
 
@@ -488,6 +565,7 @@ def create_hq_bang_ke_workbook(case: dict) -> bytes:
     if template_path is None:
         return _create_hq_bang_ke_workbook_shell(case)
     wb = load_workbook(template_path, keep_vba=False)
+    _sanitize_hq_template_workbook(wb)
     products = case.get("products") or []
     sheets_used: set[str] = set()
     created_sheet_titles: list[str] = []
@@ -508,8 +586,8 @@ def create_hq_bang_ke_workbook(case: dict) -> bytes:
             sheets_used.add(sheet_def["sheet"])
             threshold = product.get("origin_sheet_effective_lvc_threshold") or sheet_def["default_threshold"]
             _clear_template_body(ws_copy)
-            write_hq_sheet_header(ws_copy, product, sheet_def, case, threshold)
-            write_hq_sheet_materials(ws_copy, product, HQ_BODY_START)
+            write_hq_template_sheet_header(ws_copy, product, sheet_def, case, threshold)
+            write_hq_sheet_materials(ws_copy, product, HQ_BODY_START, legacy_export_layout=True, sheet_code=sheet_def["sheet"])
     # Drop every sheet that wasn't created for this dossier — including all
     # template/source sheets which still hold the legacy workbook's example data.
     keep = set(created_sheet_titles)
@@ -524,6 +602,15 @@ def create_hq_bang_ke_workbook(case: dict) -> bytes:
     return stream.getvalue()
 
 
+def _sanitize_hq_template_workbook(wb: Workbook) -> None:
+    """Remove legacy workbook links/names that can make Excel reject the XLSX."""
+    wb._external_links = []
+    wb.defined_names.clear()
+    for ws in wb.worksheets:
+        ws.defined_names.clear()
+    wb.code_name = None
+
+
 def _safe_sheet_title(name: str, wb: Workbook) -> str:
     cleaned = "".join(c for c in name if c not in "[]:*?/\\")[:31] or "Sheet"
     if cleaned not in wb.sheetnames:
@@ -536,9 +623,21 @@ def _safe_sheet_title(name: str, wb: Workbook) -> str:
 
 def _clear_template_body(ws) -> None:
     """Wipe the example body rows from the template so we can re-fill cleanly."""
+    for row_index in range(HQ_BODY_START, HQ_BODY_END + 1):
+        ws.row_dimensions[row_index].hidden = False
+    for col_index in range(15, 26):
+        ws.column_dimensions[get_column_letter(col_index)].hidden = False
     for row in ws.iter_rows(min_row=HQ_BODY_START, max_row=HQ_BODY_END, max_col=27):
         for cell in row:
             cell.value = None
+
+
+def hide_hq_unused_rows_and_helpers(ws, first_blank_row: int) -> None:
+    for row_index in range(max(first_blank_row, HQ_BODY_START), HQ_BODY_END + 1):
+        ws.row_dimensions[row_index].hidden = True
+    for col_index in range(15, 26):
+        ws.column_dimensions[get_column_letter(col_index)].hidden = True
+    ws.print_area = "A1:N1623"
 
 
 def _create_hq_bang_ke_workbook_shell(case: dict) -> bytes:

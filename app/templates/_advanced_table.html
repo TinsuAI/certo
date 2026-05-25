@@ -63,7 +63,15 @@
       <tr>
         {% for column in source_table.columns %}
         <td class="{{ column.class }}">
-          {% if column.link_key and row.get(column.link_key) %}
+          {% if column.kind == "history" %}
+            {% set h_decl = row.get("import_declaration_no") or row.get("declaration_no") or "" %}
+            {% set h_line = row.get("line_no") or "" %}
+            {% set h_code = row.get("customs_item_code") or row.get("customs_code") or "" %}
+            {% if h_decl and h_line and h_code %}
+            <button type="button" class="table-link" data-co-stock-history-btn
+                    data-declaration-no="{{ h_decl }}" data-line-no="{{ h_line }}" data-customs-code="{{ h_code }}">Xem</button>
+            {% endif %}
+          {% elif column.link_key and row.get(column.link_key) %}
           <a class="table-link" href="{{ row.get(column.link_key) }}">{{ row.get(column.key, "") }}</a>
           {% else %}
           {{ row.get(column.key, "") }}

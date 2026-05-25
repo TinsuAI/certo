@@ -20,6 +20,7 @@ import logging
 from decimal import Decimal, InvalidOperation
 from typing import Iterable
 
+from app import co_stock_events_store
 from app.database import DatabaseUnavailable, connect, database_url
 
 LOGGER = logging.getLogger(__name__)
@@ -61,6 +62,7 @@ def record_sheet_lock(
     if not _ledger_available():
         return 0
     rows: list[tuple] = []
+    new_allocs_by_claim: dict[str, dict] = {}
     for alloc in allocations:
         source_row = str(alloc.get("source_row") or "").strip()
         if not source_row:
@@ -68,8 +70,12 @@ def record_sheet_lock(
         qty = _normalize_qty(alloc.get("claimed_qty"))
         if qty <= 0:
             continue
+        cid = claim_id_for(case_id, sheet_product_code, source_row, int(alloc.get("material_index") or 0))
+        decl_no = str(alloc.get("declaration_no") or "").strip()
+        line_no = str(alloc.get("line_no") or "").strip()
+        customs_code = str(alloc.get("customs_code") or "").strip()
         rows.append((
-            claim_id_for(case_id, sheet_product_code, source_row, int(alloc.get("material_index") or 0)),
+            cid,
             client_id,
             case_id,
             sheet_product_code,
@@ -78,9 +84,29 @@ def record_sheet_lock(
             int(alloc.get("material_index") or 0),
             qty,
             "locked",
+            decl_no,
+            line_no,
+            customs_code,
         ))
+        new_allocs_by_claim[cid] = {
+            "qty": qty,
+            "declaration_no": decl_no,
+            "line_no": line_no,
+            "customs_code": customs_code,
+        }
+    prior_claims: list[tuple] = []
     try:
         with _connect() as conn, conn.cursor() as cur:
+            # Snapshot prior claims so we can emit release events for any that
+            # get replaced (re-lock of an already-locked sheet).
+            cur.execute(
+                """select claim_id, declaration_no, line_no, customs_code, claimed_qty
+                   from co_stock_claims
+                   where client_id = %s and case_id = %s and sheet_product_code = %s
+                     and status = 'locked'""",
+                (client_id, case_id, sheet_product_code),
+            )
+            prior_claims = cur.fetchall()
             # Replace any prior claims for this case+sheet so the active
             # allocation set is exactly what the sheet currently holds.
             cur.execute(
@@ -92,15 +118,19 @@ def record_sheet_lock(
                 cur.executemany(
                     """insert into co_stock_claims (
                         claim_id, client_id, case_id, sheet_product_code,
-                        source_row, material_code, material_index, claimed_qty, status
-                       ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        source_row, material_code, material_index, claimed_qty, status,
+                        declaration_no, line_no, customs_code
+                       ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                        on conflict (claim_id) do update set
                          claimed_qty = excluded.claimed_qty,
                          material_code = excluded.material_code,
                          material_index = excluded.material_index,
                          status = 'locked',
                          locked_at = now(),
-                         released_at = null""",
+                         released_at = null,
+                         declaration_no = excluded.declaration_no,
+                         line_no = excluded.line_no,
+                         customs_code = excluded.customs_code""",
                     rows,
                 )
     except DatabaseUnavailable:
@@ -108,6 +138,56 @@ def record_sheet_lock(
     except Exception as exc:  # noqa: BLE001 — never block the lock action
         LOGGER.warning("co_stock_ledger lock failed for %s/%s/%s: %s", client_id, case_id, sheet_product_code, exc)
         return 0
+
+    # Emit audit events outside the lock transaction.
+    event_rows: list[dict] = []
+    for claim_id, decl_no, line_no, customs_code, claimed_qty in prior_claims:
+        if not (decl_no and line_no and customs_code):
+            continue
+        new_info = new_allocs_by_claim.get(claim_id)
+        # Skip release events for claims whose key didn't change (re-lock with
+        # same allocation is a no-op from the audit perspective).
+        if new_info and (
+            new_info["declaration_no"] == decl_no
+            and new_info["line_no"] == line_no
+            and new_info["customs_code"] == customs_code
+            and new_info["qty"] == Decimal(str(claimed_qty))
+        ):
+            continue
+        event_rows.append({
+            "client_id": client_id,
+            "declaration_no": decl_no,
+            "line_no": line_no,
+            "customs_code": customs_code,
+            "event_type": "claim_release",
+            "qty_delta": -Decimal(str(claimed_qty)),
+            "case_id": case_id,
+            "sheet_product_code": sheet_product_code,
+            "actor": "ledger:relock",
+            "notes": "Replaced by re-lock",
+        })
+    for claim_id, alloc in new_allocs_by_claim.items():
+        if not (alloc["declaration_no"] and alloc["line_no"] and alloc["customs_code"]):
+            continue
+        # Skip lock events for claims that exactly match a prior claim (re-lock
+        # of identical allocation).
+        prior = next((p for p in prior_claims if p[0] == claim_id), None)
+        if prior and prior[1] == alloc["declaration_no"] and prior[2] == alloc["line_no"] \
+                and prior[3] == alloc["customs_code"] and Decimal(str(prior[4])) == alloc["qty"]:
+            continue
+        event_rows.append({
+            "client_id": client_id,
+            "declaration_no": alloc["declaration_no"],
+            "line_no": alloc["line_no"],
+            "customs_code": alloc["customs_code"],
+            "event_type": "claim_lock",
+            "qty_delta": alloc["qty"],
+            "case_id": case_id,
+            "sheet_product_code": sheet_product_code,
+            "actor": "ledger:lock",
+        })
+    if event_rows:
+        co_stock_events_store.record_events(event_rows)
     return len(rows)
 
 
@@ -115,8 +195,18 @@ def record_sheet_release(client_id: str, case_id: str, sheet_product_code: str) 
     """Mark all locked claims for the sheet as released. Returns count released."""
     if not _ledger_available():
         return 0
+    released: list[tuple] = []
     try:
         with _connect() as conn, conn.cursor() as cur:
+            # Snapshot the claims about to be released for the audit log.
+            cur.execute(
+                """select declaration_no, line_no, customs_code, claimed_qty
+                   from co_stock_claims
+                   where client_id = %s and case_id = %s
+                     and sheet_product_code = %s and status = 'locked'""",
+                (client_id, case_id, sheet_product_code),
+            )
+            released = cur.fetchall()
             cur.execute(
                 """update co_stock_claims
                    set status = 'released', released_at = now()
@@ -124,12 +214,30 @@ def record_sheet_release(client_id: str, case_id: str, sheet_product_code: str) 
                      and sheet_product_code = %s and status = 'locked'""",
                 (client_id, case_id, sheet_product_code),
             )
-            return cur.rowcount or 0
+            count = cur.rowcount or 0
     except DatabaseUnavailable:
         return 0
     except Exception as exc:  # noqa: BLE001
         LOGGER.warning("co_stock_ledger release failed for %s/%s/%s: %s", client_id, case_id, sheet_product_code, exc)
         return 0
+    event_rows: list[dict] = []
+    for decl_no, line_no, customs_code, claimed_qty in released:
+        if not (decl_no and line_no and customs_code):
+            continue
+        event_rows.append({
+            "client_id": client_id,
+            "declaration_no": decl_no,
+            "line_no": line_no,
+            "customs_code": customs_code,
+            "event_type": "claim_release",
+            "qty_delta": -Decimal(str(claimed_qty)),
+            "case_id": case_id,
+            "sheet_product_code": sheet_product_code,
+            "actor": "ledger:unlock",
+        })
+    if event_rows:
+        co_stock_events_store.record_events(event_rows)
+    return count
 
 
 def used_qty_by_lot(client_id: str) -> dict[str, Decimal]:

@@ -133,6 +133,7 @@ def normalize_column(column: Mapping) -> dict:
         "searchable": bool(column.get("searchable", True)),
         "sortable": bool(column.get("sortable", True)),
         "link_key": str(column.get("link_key", "")),
+        "kind": str(column.get("kind", "")),
     }
 
 

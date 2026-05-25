@@ -1906,6 +1906,11 @@ def test_co_case_detail_is_split_into_workflow_step_views():
     assert "Upload và parse" not in origin.text
     assert "Tải seed XLSX" not in origin.text
     assert "Xuất evidence XLSX" not in origin.text
+    assert "Xuất bảng kê HQ" in origin.text
+    assert "/export-bang-ke" in origin.text
+    assert 'id="origin-export-bang-ke" hx-boost="false"' in origin.text
+    assert 'form="origin-export-bang-ke" data-origin-export-action' in origin.text
+    assert 'form.getAttribute("hx-boost") === "false"' in origin.text
     assert "Xuất dossier XLSX" in review.text
     assert f"{case_url}/documents" in shipment.text
     assert f"{case_url}/origin" in shipment.text
@@ -3232,7 +3237,7 @@ def test_origin_sheet_substitute_row_persists_override_and_marks_stale():
     assert rejected.status_code == 400
 
 
-def test_export_dossier_zip_bundles_chung_tu_tkx_tkn_and_hq_bang_ke():
+def test_export_dossier_zip_bundles_chung_tu_tkx_tkn_and_hq_bang_ke(monkeypatch):
     import io
     import zipfile
     from openpyxl import load_workbook
@@ -3284,8 +3289,17 @@ def test_export_dossier_zip_bundles_chung_tu_tkx_tkn_and_hq_bang_ke():
     assert "bang-ke-co-hq.xlsx" in names
     assert "tkx-tkn.json" in names
 
-    workbook_bytes = archive.read("bang-ke-co-hq.xlsx")
-    wb = load_workbook(io.BytesIO(workbook_bytes))
+    hq_workbook_bytes = archive.read("bang-ke-co-hq.xlsx")
+    hq_archive = zipfile.ZipFile(io.BytesIO(hq_workbook_bytes))
+    hq_names = hq_archive.namelist()
+    hq_workbook_xml = hq_archive.read("xl/workbook.xml")
+    hq_content_types = hq_archive.read("[Content_Types].xml")
+    assert not [name for name in hq_names if "external" in name.lower()]
+    assert not [name for name in hq_names if "vba" in name.lower() or name.endswith(".bin")]
+    assert b"externalReferences" not in hq_workbook_xml
+    assert b"#REF!" not in hq_workbook_xml
+    assert b"vnd.ms-office.vbaProject" not in hq_content_types
+    wb = load_workbook(io.BytesIO(hq_workbook_bytes))
     # Template-based path renames each sheet to `<seq><product_code>`, e.g. "1TP-ZIP".
     # Shell-fallback path keeps the criterion sheet name (LVC). Accept either.
     template_named = any(name.endswith("TP-ZIP") for name in wb.sheetnames)
@@ -3294,10 +3308,32 @@ def test_export_dossier_zip_bundles_chung_tu_tkx_tkn_and_hq_bang_ke():
     target_name = next((n for n in wb.sheetnames if n.endswith("TP-ZIP")), None) or "LVC"
     sheet = wb[target_name]
     # Per docs/legacy-workbook-output-sheet-structure.md, body starts at row 16.
+    assert sheet.print_area == f"'{target_name}'!$A$1:$N$1623"
+    assert sheet["B12"].value == "Các loại chi phí\n"
+    assert sheet["F12"].value == "Nhu cầu nguyên liệu sử dụng lô hàng"
+    assert sheet["G12"].value is None
+    assert sheet["P5"].value == 1
     assert sheet.cell(row=16, column=1).value == 1
     assert sheet.cell(row=16, column=2).value == "Zip mat"
+    assert sheet.row_dimensions[17].hidden is True
+    assert sheet.column_dimensions["O"].hidden is True
+    assert sheet.column_dimensions["Y"].hidden is True
     assert sheet["P7"].value == "TP-ZIP"
+    assert sheet["P8"].value == 100
+    assert sheet["K10"].value == 100
     assert isinstance(sheet["A3"].value, str) and "BẢNG KÊ" in sheet["A3"].value.upper()
+
+    quick_wb = Workbook()
+    quick_wb.active.title = "1TP-ZIP"
+    quick_wb.active["A1"] = "quick bang ke"
+    import app.main as main_module
+    monkeypatch.setattr(main_module, "create_hq_bang_ke_workbook", lambda _case: workbook_bytes(quick_wb))
+
+    direct = client.post(f"/clients/growatt/co-case/{case_id}/export-bang-ke")
+    assert direct.status_code == 200, direct.text
+    assert 'filename="CO-ZIP-bang-ke-hq.xlsx"' in direct.headers["content-disposition"]
+    direct_wb = load_workbook(io.BytesIO(direct.content))
+    assert direct_wb["1TP-ZIP"]["A1"].value == "quick bang ke"
 
 
 def test_export_dossier_zip_blocks_when_sheet_stale_or_draft():
@@ -3778,6 +3814,196 @@ def test_origin_sheet_add_row_appends_added_override():
         json={"new_norm_per_unit": "0.1"},
     )
     assert rejected.status_code == 400
+
+
+def test_co_stock_import_upserts_adjustments_and_clears_cache():
+    from app import co_stock_adjustments_store
+    from app.co_stock_template import write_standard_co_stock
+    from app.database import database_url
+    from decimal import Decimal
+
+    if not database_url():
+        pytest.skip("co_stock_adjustments requires BARRY_DATABASE_URL")
+    # Clean slate for this test client.
+    try:
+        with co_stock_adjustments_store.connect() as conn, conn.cursor() as cur:
+            cur.execute("delete from co_stock_adjustments where client_id = %s", ("growatt",))
+    except Exception:  # noqa: BLE001
+        pytest.skip("co_stock_adjustments table missing — apply migrations first")
+
+    xlsx = write_standard_co_stock([
+        {"declaration_no": "D1", "line_no": "1", "customs_code": "M-A", "opening_qty": Decimal("500"), "used_qty": Decimal("11.489"), "source_co_no": "VNG-001"},
+        {"declaration_no": "D1", "line_no": "2", "customs_code": "M-B", "opening_qty": Decimal("200"), "used_qty": Decimal("80")},
+    ])
+    test_client = TestClient(app)
+    response = test_client.post(
+        "/clients/growatt/co-stock/import",
+        files={"file": ("test.xlsx", xlsx, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["parsed_rows"] == 2
+    assert body["upsert"]["inserted"] == 2
+    assert body["upsert"]["updated"] == 0
+    assert body["batch_id"].startswith("batch_")
+
+    # Re-upload same content → all rows updated (not inserted).
+    response2 = test_client.post(
+        "/clients/growatt/co-stock/import",
+        files={"file": ("test.xlsx", xlsx, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert response2.status_code == 200
+    body2 = response2.json()
+    assert body2["upsert"]["inserted"] == 0
+    assert body2["upsert"]["updated"] == 2
+    assert body2["batch_id"] == body["batch_id"]  # identical content → identical batch_id
+
+    # Adjustments are visible via the aggregation helper.
+    agg = co_stock_adjustments_store.aggregate_by_lookup_key("growatt")
+    assert ("D1", "1", "M-A") in agg
+    assert agg[("D1", "1", "M-A")]["used_qty"] == Decimal("11.489")
+
+
+def test_co_stock_import_emits_audit_events_with_diff():
+    from app import co_stock_adjustments_store, co_stock_events_store
+    from app.co_stock_template import write_standard_co_stock
+    from app.database import database_url
+    from decimal import Decimal
+
+    if not database_url():
+        pytest.skip("co_stock_adjustments requires BARRY_DATABASE_URL")
+    # Clean slate.
+    try:
+        with co_stock_adjustments_store.connect() as conn, conn.cursor() as cur:
+            cur.execute("delete from co_stock_adjustments where client_id = %s", ("growatt",))
+            cur.execute("delete from co_stock_events where client_id = %s", ("growatt",))
+    except Exception:
+        pytest.skip("co_stock_adjustments / co_stock_events table missing")
+    test_client = TestClient(app)
+
+    # First upload: insert events expected.
+    xlsx_v1 = write_standard_co_stock([
+        {"declaration_no": "D-EVT", "line_no": "1", "customs_code": "M-EVT", "opening_qty": Decimal("100"), "used_qty": Decimal("20")},
+    ])
+    r1 = test_client.post(
+        "/clients/growatt/co-stock/import",
+        files={"file": ("v1.xlsx", xlsx_v1, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r1.status_code == 200
+    assert r1.json()["upsert"]["events"] == 1
+
+    # Re-upload same values: no events (no diff).
+    r2 = test_client.post(
+        "/clients/growatt/co-stock/import",
+        files={"file": ("v1-again.xlsx", xlsx_v1, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r2.status_code == 200
+    assert r2.json()["upsert"]["events"] == 0
+
+    # Upload with bumped used_qty: one update event with positive delta.
+    xlsx_v2 = write_standard_co_stock([
+        {"declaration_no": "D-EVT", "line_no": "1", "customs_code": "M-EVT", "opening_qty": Decimal("100"), "used_qty": Decimal("55")},
+    ])
+    r3 = test_client.post(
+        "/clients/growatt/co-stock/import",
+        files={"file": ("v2.xlsx", xlsx_v2, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r3.status_code == 200
+    assert r3.json()["upsert"]["events"] == 1
+
+    events = co_stock_events_store.events_for_lot("growatt", "D-EVT", "1", "M-EVT")
+    assert len(events) == 2
+    # Newest first.
+    assert events[0]["event_type"] == "adjustment_import_update"
+    assert Decimal(events[0]["qty_delta"]) == Decimal("35")
+    assert Decimal(events[0]["qty_before"]) == Decimal("20")
+    assert Decimal(events[0]["qty_after"]) == Decimal("55")
+    assert events[1]["event_type"] == "adjustment_import_insert"
+    assert Decimal(events[1]["qty_after"]) == Decimal("20")
+
+
+def test_co_stock_lot_history_endpoint_returns_chronological_events():
+    from app import co_stock_adjustments_store, co_stock_events_store
+    from app.database import database_url
+
+    if not database_url():
+        pytest.skip("requires BARRY_DATABASE_URL")
+    try:
+        with co_stock_adjustments_store.connect() as conn, conn.cursor() as cur:
+            cur.execute("delete from co_stock_events where client_id = %s", ("growatt",))
+    except Exception:
+        pytest.skip("co_stock_events table missing")
+    # Seed two events manually.
+    co_stock_events_store.record_event(
+        client_id="growatt", declaration_no="D-H", line_no="2", customs_code="M-H",
+        event_type="adjustment_import_insert", qty_delta=10, qty_after=10, opening_qty_after=100,
+        batch_id="b1", source_file_ref="seed.xlsx", actor="seed",
+    )
+    co_stock_events_store.record_event(
+        client_id="growatt", declaration_no="D-H", line_no="2", customs_code="M-H",
+        event_type="claim_lock", qty_delta=5, case_id="case-X", sheet_product_code="TP-1",
+        actor="ledger:lock",
+    )
+    test_client = TestClient(app)
+    r = test_client.get("/clients/growatt/co-stock/lot-history", params={
+        "declaration_no": "D-H", "line_no": "2", "customs_code": "M-H",
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["count"] == 2
+    types = [e["event_type"] for e in body["events"]]
+    # Newest first: claim_lock then adjustment_import_insert
+    assert types == ["claim_lock", "adjustment_import_insert"]
+
+    # Missing key params → 400
+    r_bad = test_client.get("/clients/growatt/co-stock/lot-history", params={"declaration_no": "X"})
+    assert r_bad.status_code == 400
+
+
+def test_co_stock_import_rejects_malformed_workbook():
+    test_client = TestClient(app)
+    response = test_client.post(
+        "/clients/growatt/co-stock/import",
+        files={"file": ("garbage.xlsx", b"this is not a workbook", "application/octet-stream")},
+    )
+    assert response.status_code == 400
+    assert "workbook" in response.json()["detail"].lower()
+
+
+def test_co_stock_import_rejects_missing_key_columns():
+    from openpyxl import Workbook
+    from io import BytesIO
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "co_stock"
+    ws.append(["declaration_no", "line_no"])  # missing customs_code
+    ws.append(["D1", "1"])
+    payload = BytesIO()
+    wb.save(payload)
+    test_client = TestClient(app)
+    response = test_client.post(
+        "/clients/growatt/co-stock/import",
+        files={"file": ("bad.xlsx", payload.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert response.status_code == 400
+    assert "customs_code" in response.json()["detail"]
+
+
+def test_co_stock_export_returns_xlsx_with_standard_headers():
+    from app.co_stock_template import read_standard_co_stock
+
+    test_client = TestClient(app)
+    response = test_client.get("/clients/growatt/co-stock/export.xlsx")
+    assert response.status_code == 200
+    assert "spreadsheetml" in response.headers["content-type"]
+    assert "co-stock-" in response.headers["content-disposition"]
+    # Body must be parseable by our own loader (Vietnamese-label header round-trip).
+    rows, errors = read_standard_co_stock(response.content)
+    assert errors == []
+    # Growatt demo seeds at least one BCCT import row; export should reflect ≥1 row.
+    assert isinstance(rows, list)
 
 
 def test_origin_sheet_save_batches_replaces_adds_deletes_and_norm_edits():
