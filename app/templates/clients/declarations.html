@@ -21,6 +21,17 @@
     </div>
   </div>
 
+  {% if bulk_toast %}
+  <div class="toast {{ 'toast-warn' if bulk_toast.mismatch or bulk_toast.parse_err or bulk_toast.store_err else '' }}"
+       style="margin-bottom: 1rem;">
+    Đã thêm <strong>{{ bulk_toast.inserted }}</strong> file mới
+    {%- if bulk_toast.deduped %}, bỏ qua <strong>{{ bulk_toast.deduped }}</strong> trùng{% endif %}
+    {%- if bulk_toast.mismatch %}, <strong>{{ bulk_toast.mismatch }}</strong> sai khớp số TK{% endif %}
+    {%- if bulk_toast.parse_err %}, <strong>{{ bulk_toast.parse_err }}</strong> lỗi parse{% endif %}
+    {%- if bulk_toast.store_err %}, <strong>{{ bulk_toast.store_err }}</strong> lỗi lưu{% endif %}.
+  </div>
+  {% endif %}
+
   <div class="chip-row">
     <a class="chip {{ 'chip-active' if not direction else '' }}"
        href="/clients/{{ client.client_id }}/declarations{% if has_files %}?has_files={{ has_files }}{% endif %}{% if q %}{{ '&' if has_files else '?' }}q={{ q }}{% endif %}">

@@ -28,6 +28,16 @@ from app.stores.customs_declaration_files import (
     list_files_for_declaration,
     list_files_for_declarations,
 )
+from app.uploads.declaration_zip import (
+    ZipUploadError,
+    annotate_dedup_status,
+    cancel_staging,
+    commit_staged_files,
+    extract_to_staging,
+    get_staging_path,
+    parse_staged_files,
+    reap_expired_staging,
+)
 
 
 router = APIRouter()
@@ -42,6 +52,11 @@ async def declarations_index(
     direction: str | None = None,
     has_files: str | None = None,
     q: str | None = None,
+    bulk_inserted: int | None = None,
+    bulk_deduped: int | None = None,
+    bulk_mismatch: int | None = None,
+    bulk_parse_err: int | None = None,
+    bulk_store_err: int | None = None,
 ):
     user = auth.require_user(request)
     auth.require_can_view_client(user, client_id)
@@ -68,6 +83,15 @@ async def declarations_index(
     paging_ctx = pagination_context(
         request=request, page_params=page_params, total=total,
     )
+    bulk_toast = None
+    if bulk_inserted is not None or bulk_deduped is not None:
+        bulk_toast = {
+            "inserted": bulk_inserted or 0,
+            "deduped": bulk_deduped or 0,
+            "mismatch": bulk_mismatch or 0,
+            "parse_err": bulk_parse_err or 0,
+            "store_err": bulk_store_err or 0,
+        }
     return request.app.state.templates.TemplateResponse(
         request, "clients/declarations.html",
         {
@@ -78,6 +102,7 @@ async def declarations_index(
             "has_files": has_files,
             "q": q or "",
             "paging": paging_ctx,
+            "bulk_toast": bulk_toast,
             "active_root": "clients",
             "active_tab": "declarations",
         },
@@ -293,6 +318,122 @@ async def upload_declaration_file(
     suffix = "uploaded=1" if created else "deduped=1"
     return RedirectResponse(
         url=(f"/clients/{client_id}/declarations/{final_decl_no}?{suffix}"),
+        status_code=303,
+    )
+
+
+@router.post("/clients/{client_id}/declarations/upload-zip")
+async def upload_declaration_zip_preview(
+    request: Request, client_id: str,
+    file: UploadFile = File(...),
+    direction: str = Form(...),
+):
+    """Step 1 of bulk upload: accept ZIP, extract supported per-decl
+    XLS/PDF members into a staging dir, parse + dedup-check, render
+    preview. The actual commit happens via `…/upload-zip/<id>/commit`.
+    """
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    if direction not in ("import", "export"):
+        raise HTTPException(400, "direction must be 'import' or 'export'")
+
+    blob = await file.read()
+    # Reap before staging anything new so abandoned previews from earlier
+    # sessions don't accumulate. Cheap; no cron needed.
+    reap_expired_staging()
+    try:
+        extract = extract_to_staging(blob)
+    except ZipUploadError as exc:
+        return RedirectResponse(
+            url=(f"/clients/{client_id}/declarations/upload"
+                 f"?error={_q(str(exc))}"),
+            status_code=303,
+        )
+
+    staged = parse_staged_files(extract.staging_path)
+    staged = annotate_dedup_status(
+        staged, client_id=client_id, direction=direction,
+    )
+    counts = {"ok": 0, "duplicate": 0, "mismatch": 0, "parse_error": 0}
+    for f in staged:
+        counts[f.status] = counts.get(f.status, 0) + 1
+    non_ok = [f for f in staged if f.status in ("mismatch", "parse_error")]
+    can_commit = (counts["ok"] + counts["duplicate"]) > 0
+
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/declaration_zip_preview.html",
+        {
+            "client": client,
+            "stats": stats_for_client(client_id),
+            "staging_id": extract.staging_id,
+            "direction": direction,
+            "total_in_zip": extract.total_in_zip,
+            "ignored_non_pattern": extract.ignored_non_pattern,
+            "counts": counts,
+            "non_ok_files": non_ok,
+            "can_commit": can_commit,
+            "active_root": "clients",
+            "active_tab": "declarations",
+        },
+    )
+
+
+@router.post(
+    "/clients/{client_id}/declarations/upload-zip/{staging_id}/commit",
+)
+async def upload_declaration_zip_commit(
+    request: Request, client_id: str, staging_id: str,
+    direction: str = Form(...),
+):
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    if direction not in ("import", "export"):
+        raise HTTPException(400, "direction must be 'import' or 'export'")
+
+    staging_path = get_staging_path(staging_id)
+    if staging_path is None:
+        return RedirectResponse(
+            url=(f"/clients/{client_id}/declarations/upload"
+                 f"?error={_q('Phiên staging đã hết hạn hoặc không tồn tại. Tải lại ZIP.')}"),
+            status_code=303,
+        )
+
+    result = commit_staged_files(
+        staging_path,
+        client_id=client_id, direction=direction,
+        uploaded_by=user.user_id,
+    )
+    cancel_staging(staging_id)  # always clean up after commit
+    query = (
+        f"bulk_inserted={result.inserted}"
+        f"&bulk_deduped={result.deduped}"
+        f"&bulk_mismatch={result.mismatch_skipped}"
+        f"&bulk_parse_err={result.parse_error_skipped}"
+        f"&bulk_store_err={result.store_errors}"
+    )
+    return RedirectResponse(
+        url=f"/clients/{client_id}/declarations?{query}",
+        status_code=303,
+    )
+
+
+@router.post(
+    "/clients/{client_id}/declarations/upload-zip/{staging_id}/cancel",
+)
+async def upload_declaration_zip_cancel(
+    request: Request, client_id: str, staging_id: str,
+):
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    cancel_staging(staging_id)
+    return RedirectResponse(
+        url=f"/clients/{client_id}/declarations/upload",
         status_code=303,
     )
 

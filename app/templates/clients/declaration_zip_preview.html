@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% from "_format.html" import format_int %}
+{% block title %}Xem trước ZIP tờ khai · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Xem trước ZIP tờ khai</h2>
+      <p class="meta">
+        Hướng: <strong>{{ "Nhập khẩu (TKN)" if direction == "import" else "Xuất khẩu (TKX)" }}</strong>
+        · Tổng file trong ZIP:
+        <strong>{{ format_int(total_in_zip) }}</strong>
+        {% if ignored_non_pattern %}
+        · Bỏ qua không khớp mẫu:
+        <strong>{{ format_int(ignored_non_pattern) }}</strong>
+        {% endif %}
+      </p>
+    </div>
+    <div class="page-actions">
+      <a class="btn-ghost"
+         href="/clients/{{ client.client_id }}/declarations/upload#bulk">
+        ← Quay lại
+      </a>
+    </div>
+  </div>
+
+  <div class="card-grid" style="margin-bottom: 1.2rem;">
+    <div class="card">
+      <h3>Hợp lệ</h3>
+      <div style="font-size: 1.8rem; font-weight: 600; color: #1b5e20;">
+        {{ format_int(counts.ok) }}
+      </div>
+      <div class="card-meta">Sẵn sàng ingest mới</div>
+    </div>
+    <div class="card">
+      <h3>Trùng lặp</h3>
+      <div style="font-size: 1.8rem; font-weight: 600; color: #555;">
+        {{ format_int(counts.duplicate) }}
+      </div>
+      <div class="card-meta">Đã có trong hệ thống (sẽ no-op)</div>
+    </div>
+    <div class="card">
+      <h3>Sai khớp số TK</h3>
+      <div style="font-size: 1.8rem; font-weight: 600; color: #b65c00;">
+        {{ format_int(counts.mismatch) }}
+      </div>
+      <div class="card-meta">Tên file ≠ nội dung XLS</div>
+    </div>
+    <div class="card">
+      <h3>Lỗi parse</h3>
+      <div style="font-size: 1.8rem; font-weight: 600; color: #b00020;">
+        {{ format_int(counts.parse_error) }}
+      </div>
+      <div class="card-meta">XLS không đọc được / tên file sai mẫu</div>
+    </div>
+  </div>
+
+  {% if non_ok_files %}
+  <h3>Chi tiết file có vấn đề ({{ format_int(non_ok_files | length) }})</h3>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>File</th>
+        <th>Số TK (từ tên file)</th>
+        <th>Loại lỗi</th>
+        <th>Lý do</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for f in non_ok_files %}
+      <tr>
+        <td class="mono">{{ f.name }}</td>
+        <td class="mono">{{ f.declaration_no or "—" }}</td>
+        <td>
+          {% if f.status == "mismatch" %}
+            <span class="badge badge-warning">Sai khớp</span>
+          {% else %}
+            <span class="badge badge-error">Lỗi parse</span>
+          {% endif %}
+        </td>
+        <td class="meta">{{ f.reason }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <div style="margin-top: 1.5rem; display: flex; gap: .75rem;">
+    {% if can_commit %}
+    <form method="post"
+          action="/clients/{{ client.client_id }}/declarations/upload-zip/{{ staging_id }}/commit"
+          style="display: inline;">
+      <input type="hidden" name="direction" value="{{ direction }}">
+      <button type="submit" class="btn-primary">
+        Xác nhận tải lên ({{ format_int(counts.ok + counts.duplicate) }} file)
+      </button>
+    </form>
+    {% else %}
+    <button class="btn-primary" disabled
+            title="Không có file hợp lệ để ingest.">
+      Xác nhận tải lên
+    </button>
+    {% endif %}
+
+    <form method="post"
+          action="/clients/{{ client.client_id }}/declarations/upload-zip/{{ staging_id }}/cancel"
+          style="display: inline;">
+      <button type="submit" class="btn-ghost">Huỷ</button>
+    </form>
+  </div>
+
+  <p class="meta" style="margin-top: 1rem;">
+    File sai khớp số TK và file lỗi parse <strong>sẽ không được ingest</strong>.
+    Nếu cần ép buộc, sửa tên file rồi tải lại, hoặc dùng form đơn lẻ.
+  </p>
+</section>
+{% endblock %}

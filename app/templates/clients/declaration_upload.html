@@ -8,8 +8,8 @@
     <div>
       <h2>Tải lên file tờ khai</h2>
       <p class="meta">
-        File XLS gốc hoặc PDF scan. Nếu để trống "Số TK", hệ thống tự
-        đọc từ tên file (ví dụ <code class="mono">00000001_<strong>107185157440</strong>.xls</code>).
+        File XLS gốc hoặc PDF scan. Có thể tải lẻ từng file hoặc tải
+        hàng loạt qua ZIP.
       </p>
     </div>
     <div class="page-actions">
@@ -26,46 +26,96 @@
   </div>
   {% endif %}
 
-  <form method="post" enctype="multipart/form-data"
-        action="/clients/{{ client.client_id }}/declarations/upload"
-        class="stack-form" style="max-width: 720px;">
-    <label>
-      File
-      <input type="file" name="file" required
-             accept=".xls,.xlsx,.pdf">
-      <span class="meta">
-        Chấp nhận: <code>.xls</code>, <code>.xlsx</code>, <code>.pdf</code>.
-      </span>
-    </label>
+  <div class="chip-row" role="tablist" style="margin-bottom: 1rem;">
+    <a class="chip chip-active" id="tab-single"
+       href="#single" role="tab" aria-selected="true">
+      Tải 1 file
+    </a>
+    <a class="chip" id="tab-bulk"
+       href="#bulk" role="tab" aria-selected="false">
+      Tải hàng loạt (ZIP)
+    </a>
+  </div>
 
-    <label>
-      Hướng
-      <select name="direction" required>
-        <option value="">— Chọn —</option>
-        <option value="import">Nhập khẩu (TKN)</option>
-        <option value="export">Xuất khẩu (TKX)</option>
-      </select>
-    </label>
+  <div id="panel-single" role="tabpanel" aria-labelledby="tab-single">
+    <form method="post" enctype="multipart/form-data"
+          action="/clients/{{ client.client_id }}/declarations/upload"
+          class="stack-form" style="max-width: 720px;">
+      <label>
+        File
+        <input type="file" name="file" required
+               accept=".xls,.xlsx,.pdf">
+        <span class="meta">
+          Chấp nhận: <code>.xls</code>, <code>.xlsx</code>, <code>.pdf</code>.
+        </span>
+      </label>
 
-    <label>
-      Số tờ khai <span class="meta">(tuỳ chọn)</span>
-      <input type="text" name="declaration_no" class="mono"
-             placeholder="để trống = tự đọc từ tên file"
-             pattern="\d{10,14}"
-             title="10-14 chữ số. Để trống nếu muốn auto-detect.">
-      <span class="meta">
-        Bỏ trống nếu tên file đã chứa số TK
-        (<code>&lt;prefix&gt;_&lt;số TK&gt;.xls</code>). Nhập tay khi
-        tên file không theo mẫu, hoặc khi muốn ghi đè.
-      </span>
-    </label>
+      <label>
+        Hướng
+        <select name="direction" required>
+          <option value="">— Chọn —</option>
+          <option value="import">Nhập khẩu (TKN)</option>
+          <option value="export">Xuất khẩu (TKX)</option>
+        </select>
+      </label>
 
-    <div style="margin-top: 1rem;">
-      <button type="submit" class="btn-primary">Tải lên</button>
-      <a class="btn-ghost"
-         href="/clients/{{ client.client_id }}/declarations">Hủy</a>
-    </div>
-  </form>
+      <label>
+        Số tờ khai <span class="meta">(tuỳ chọn)</span>
+        <input type="text" name="declaration_no" class="mono"
+               placeholder="để trống = tự đọc từ tên file"
+               pattern="\d{10,14}"
+               title="10-14 chữ số. Để trống nếu muốn auto-detect.">
+        <span class="meta">
+          Bỏ trống nếu tên file đã chứa số TK
+          (<code>&lt;prefix&gt;_&lt;số TK&gt;.xls</code>). Nhập tay khi
+          tên file không theo mẫu, hoặc khi muốn ghi đè.
+        </span>
+      </label>
+
+      <div style="margin-top: 1rem;">
+        <button type="submit" class="btn-primary">Tải lên</button>
+        <a class="btn-ghost"
+           href="/clients/{{ client.client_id }}/declarations">Hủy</a>
+      </div>
+    </form>
+  </div>
+
+  <div id="panel-bulk" role="tabpanel" aria-labelledby="tab-bulk"
+       hidden>
+    <form method="post" enctype="multipart/form-data"
+          action="/clients/{{ client.client_id }}/declarations/upload-zip"
+          class="stack-form" style="max-width: 720px;">
+      <label>
+        File ZIP
+        <input type="file" name="file" required accept=".zip">
+        <span class="meta">
+          Một ZIP, chỉ chứa file XLS/PDF per-tờ-khai
+          (<code>&lt;prefix&gt;_&lt;số TK&gt;.&lt;ext&gt;</code>).
+          File không khớp mẫu sẽ bị bỏ qua.
+        </span>
+      </label>
+
+      <label>
+        Hướng (áp cho toàn bộ ZIP)
+        <select name="direction" required>
+          <option value="">— Chọn —</option>
+          <option value="import">Nhập khẩu (TKN)</option>
+          <option value="export">Xuất khẩu (TKX)</option>
+        </select>
+      </label>
+
+      <div style="margin-top: 1rem;">
+        <button type="submit" class="btn-primary">Tải ZIP & xem trước</button>
+        <a class="btn-ghost"
+           href="/clients/{{ client.client_id }}/declarations">Hủy</a>
+      </div>
+
+      <p class="meta" style="margin-top: 1rem;">
+        Giới hạn: ZIP ≤ 256 MB, ≤ 5000 file, mỗi file ≤ 10 MB. ZIP lớn
+        hơn dùng CLI <code>scripts/import_declaration_archive.py</code>.
+      </p>
+    </form>
+  </div>
 
   <details style="margin-top: 2rem;">
     <summary class="btn-ghost" style="cursor: pointer; user-select: none;">
@@ -92,8 +142,38 @@
           <strong>Trùng lặp</strong>: cùng client + số TK + hướng +
           sha256 → no-op (không tải lên lại).
         </li>
+        <li>
+          <strong>Bulk ZIP</strong>: extract, parse từng file, hiển thị
+          xem trước trước khi commit. File mismatch hoặc lỗi parse bị
+          bỏ qua khi commit, không abort cả batch.
+        </li>
       </ul>
     </div>
   </details>
 </section>
+
+<script>
+  (function() {
+    const tabs = {
+      single: {tab: document.getElementById('tab-single'), panel: document.getElementById('panel-single')},
+      bulk:   {tab: document.getElementById('tab-bulk'),   panel: document.getElementById('panel-bulk')},
+    };
+    function activate(which) {
+      for (const [k, {tab, panel}] of Object.entries(tabs)) {
+        const on = k === which;
+        tab.classList.toggle('chip-active', on);
+        tab.setAttribute('aria-selected', on ? 'true' : 'false');
+        panel.hidden = !on;
+      }
+    }
+    for (const [k, {tab}] of Object.entries(tabs)) {
+      tab.addEventListener('click', function(e) {
+        e.preventDefault();
+        activate(k);
+        history.replaceState(null, '', '#' + k);
+      });
+    }
+    if (location.hash === '#bulk') activate('bulk');
+  })();
+</script>
 {% endblock %}

@@ -43,6 +43,10 @@ class DeclarationFileError(Exception):
     """Raised when a file's metadata cannot be parsed or validated."""
 
 
+class DeclarationFileMismatchError(DeclarationFileError):
+    """Filename decl_no disagrees with the decl_no read from XLS content."""
+
+
 def parse_filename(filename: str) -> tuple[str, str]:
     """Extract `(declaration_no, file_kind)` from filename pattern
     `<prefix>_<digits>.<ext>`.
@@ -179,7 +183,7 @@ def parse_declaration_file(
 
     content_decl = extract_declaration_no_from_xls(content)
     if content_decl != filename_decl:
-        raise DeclarationFileError(
+        raise DeclarationFileMismatchError(
             f"declaration number mismatch: filename has {filename_decl!r}, "
             f"XLS content has {content_decl!r}",
         )
