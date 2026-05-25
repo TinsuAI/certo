@@ -349,7 +349,8 @@ async def upload_declaration_zip_preview(
     except ZipUploadError as exc:
         return RedirectResponse(
             url=(f"/clients/{client_id}/declarations/upload"
-                 f"?error={_q(str(exc))}"),
+                 f"?error={_q(str(exc))}"
+                 f"#bulk"),
             status_code=303,
         )
 
@@ -400,7 +401,8 @@ async def upload_declaration_zip_commit(
     if staging_path is None:
         return RedirectResponse(
             url=(f"/clients/{client_id}/declarations/upload"
-                 f"?error={_q('Phiên staging đã hết hạn hoặc không tồn tại. Tải lại ZIP.')}"),
+                 f"?error={_q('Phiên staging đã hết hạn hoặc không tồn tại. Tải lại ZIP.')}"
+                 f"#bulk"),
             status_code=303,
         )
 
@@ -433,7 +435,7 @@ async def upload_declaration_zip_cancel(
     auth.require_can_edit_client(user, client_id)
     cancel_staging(staging_id)
     return RedirectResponse(
-        url=f"/clients/{client_id}/declarations/upload",
+        url=f"/clients/{client_id}/declarations/upload#bulk",
         status_code=303,
     )
 

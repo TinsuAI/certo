@@ -179,7 +179,9 @@ def test_cancel_removes_staging_and_redirects(bulk_route_client):
             follow_redirects=False,
         )
         assert r2.status_code == 303
-        assert r2.headers["location"].endswith("/declarations/upload")
+        # Preserve `#bulk` fragment so the operator lands back on the
+        # bulk tab, not the single-file form.
+        assert r2.headers["location"].endswith("/declarations/upload#bulk")
 
         # Re-commit on the cancelled id → unknown staging path.
         r3 = tc.post(
