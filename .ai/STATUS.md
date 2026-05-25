@@ -1,160 +1,96 @@
 # Project Status
 
-**Date:** 2026-05-21 — Catalog detail per-material BCCT time-series shipped + pushed to origin. Ad-hoc UoM drift Excel report tool created (untracked).
+**Date:** 2026-05-25 — Johnson UoM drift audit + btp_sx uom auto-capture bug fix shipped. Local DB synchronized with 159 new overrides + 440 catalog uom corrections. Demo box deploy pending.
 
 ## Current State
 
-**Branch:** `main` at `58587ca`, **in sync with `origin/main`** (10 commits pushed in this session block).
+**Branch:** `main` at `d7508ef`. One commit ahead of `origin/main` (push pending).
 
-Recent commits on `origin/main`:
-- `58587ca` — **NEW:** per-material BCCT time-series on catalog detail page (RLE + quarterly aggregate)
-- `6d45f77` — handoff notes (declaration file status + A.2 conflicts session log)
+Recent commits:
+- `d7508ef` — **NEW:** btp_sx uom auto-capture switches from Base UoM (`parent_code`) to Component unit (`child_code`); 3 tests updated
+- `5e9a4fb` — docs(handoff): catalog time-series ship + UoM drift Excel tool
+- `58587ca` — per-material BCCT time-series on catalog detail page
+- `6d45f77` — declaration file status + A.2 conflicts handoff
 - `21f3620` — declaration file status API + bulk ZIP download for CO
 - `d4ea2d7` — catalog conflicts review queue (A.2)
-- `b315eba` — UoM evidence audit
-- `b4665f6` / `10c2084` / `bb0faf1` / `3baea87` / `69b9da0` — M16 + UoM work
 
-**Tests:** 1143 passed, 15 skipped (+13 this session for the time-series store).
+**Tests:** 1143 passed, 15 skipped. `tests/test_fixup_johnson_btp_uom.py` 3/3 PASSED with corrected assertions.
 
 **Migrations:** at mig 066. No new mig.
 
-**Working tree:** dirty with pre-existing `demo-company-feed/*` PNG/xlsx drift (unrelated, predates this session block). Untracked: `scripts/uom_drift_report.py` (ad-hoc tool built this session — NOT committed; reusable for future analyst questions, keep or commit standalone next session if desired), `scripts/generate_training_input_scenarios.py`, `docs/training/`, two prior session notes.
+**Working tree:** clean of code/test drift after `d7508ef`. Untracked artefacts unchanged from 2026-05-21 (uom_drift_report.py, training scripts, prior session notes).
 
-**Dev server:** `:8754` workers=4. Restarted via `setsid` mid-session after the template edit; PID rolled — verify with `lsof -i :8754 -P -n` next session.
+**Dev server:** `:8754` workers=4 — restarted at session start, healthz HTTP 200.
 
-**Demo box (`100.84.189.87:8754`):** still NOT updated. Backlog now includes the time-series feature on top of the prior bundle (mig 065/066 + M16 ingest + UoM overrides + A.2 conflicts + declaration API + ZIP route + time-series).
+**Demo box (`100.84.189.87:8754`):** still NOT updated. Backlog now also includes the btp_sx bug fix + 159 new override rows + 440 catalog uom corrections (data) on top of the prior bundle (mig 065/066 + M16 ingest + UoM overrides + A.2 conflicts + declaration API + ZIP route + time-series).
 
-**Local Johnson BOM state:** unchanged this session. Sample timeline rendering verified on `1000469833` — 6 SETS↔PIECES runs across 2025-06 to 2026-05; declaration_type drift E13→E11→E15→E11; 5 quarters of data, no price jumps.
+**Local DB Johnson state:**
+- Catalog: 2,614 btp_sx EA + 1 G (was 2,174 EA + 440 KG + 1 G — 440 corrected this session)
+- Overrides: 516 (was 357 at session start — +3 mass + +156 EA→SETS)
+- Stale tech_flat: 2,812 (was 2,543 baseline; peaked 3,445 after first materialize, cleared 633 net)
+- Drift-flagged codes: 39 unique (was ~180 at session start)
 
 ## Recent Changes
 
-Two deliverables this session block:
+### 1. Johnson UoM audit + btp_sx uom bug fix (commit `d7508ef`)
 
-### 1. UoM drift Excel report tool (uncommitted)
+Full session note at `.ai/sessions/2026-05-25-johnson-uom-audit-and-btp-uom-bugfix.md`.
 
-- `scripts/uom_drift_report.py` (untracked). Argparse CLI: `--client`, `--year-from`, `--year-to`, `--nvl-imports-only`, `--out`. Renders 2-sheet XLSX with summary + per-(code, unit) detail. Cross-year flags: "Bất nhất 2025/2026" (intra-year), "Bất nhất giữa 2 năm" (set-comparison: tập ĐVT khác nhau giữa 2 năm — broader than mode-drift), "Đổi ĐVT chính" (mode-drift only — narrow signal). Highlight vàng dòng có mode-drift.
-- Generated 2 files for user, both delivered to Windows side: `C:\Users\sys\Downloads\johnson_uom_drift_2025_2026.xlsx` (all rows, 188 codes) + `C:\temp\toss\johnson_uom_drift_NVL_nhap_2025_2026.xlsx` (NVL imports only, 171 codes).
-- **Lesson surfaced** (caught by user): semantic of "drift between years" must compare the full unit *set*, not just the mode — comparing modes alone can falsely report "stable" when 2025 has units {SETS, PIECES} (mode SETS) and 2026 has {SETS, METRES} (mode SETS). Set-comparison surfaces 118 cases vs 85 mode-only; the 33-case gap is exactly the misleading subset.
+Headlines:
+- **Inserted 3 mass-synonym overrides** for thép tấm + dây hàn (`1000478156`, `1000480137`, `K60000900`) — closes the 3-code gap from `factor_inventory.md` (2026-05-12). Evidence: M16 declared qty matches SAP tech_flat qty byte-identical → SAP "EA" is mass synonym, factor 1.0 (or 0.001 for MT scale).
+- **Discovered + fixed 440-code btp_sx uom bug**: `scripts/fixup_johnson_btp_sx_after_bom.py` queried `bom_edges WHERE parent_code = code` (= Base UoM of inputs the BTP consumes) instead of `child_code = code` (= the BTP's own Component unit). Per `project_bom_component_unit_canonical` memory, Component unit is canonical; Base UoM is SAP stockkeeping internal and must not populate catalog. Root-cause fix: 440 catalog rows updated KG→EA, script patched, 3 tests rewritten to assert Component unit behaviour.
+- **Inserted 156 EA→SETS overrides**: bidirectional synonym gap from the Johnson reply (2026-05-21 confirmed "1 EA = 1 SET"). Overrides table previously had SETS→PIECES but not EA→SETS — surfaced after 2026-05-25 catalog correction.
+- **Re-materialized** Johnson tech_flat 3 times. Net: 633 stale artifacts cleared, ~6,000 BOM rows now have `applied_uom_factor` populated.
 
-### 2. Catalog detail per-material BCCT time-series (commit `58587ca`)
+### 2. Local DB cleanup — Johnson + Growatt only
 
-Closes BACKLOG A.4 phase 2 (the snapshot panel shipped 2026-05-10 was phase 1).
-
-- New store `app/stores/catalog_bcct_timeseries.py::analyze_material_timeline` — 1 SQL query per material aggregating by `(declaration_no, direction, registration_date, declaration_type)` with `mode() within group` for multi-line collapse. Python-side RLE + calendar-quarter bucketing.
-- Categorical timelines for `unit / hs_code / origin / declaration_type` (declaration_type is new; snapshot panel covers `goods_name` instead — by design per brief). Critical fields expand by default.
-- Per-quarter numeric panel with price min/median/max + qty total/mean + currency mode + 2× median-jump flag (boundary inclusive: ratio == 2.0 or == 0.5 fires).
-- Direction breakdown chip per run (`↓ NK N`, `↑ XK M`). Combined NK+XK timeline per MVP decision.
-- Inline "Xem biến động →" anchor link from snapshot drift rows to matching timeline sections.
-- +13 provider tests (10 base + 3 from review bundle: same-day-different-values, 2.0×/0.5× boundary, direction-split-by-value-change).
-- 3 committed screenshots verify on Johnson `1000469833`.
-- Review bundle applied: `prev_median > 0` guard comment, `sorted(set(currencies))` for deterministic currency tie-break, 3 extra tests.
-
-### 3. Push to origin
-
-10 commits pushed `fd793fc..58587ca` in one go (first push since 2026-05-15 multi-session work).
+Other clients (6 inactive/test) deleted from local hub schema in preparation for demo box sync.
 
 ## Next Steps
 
 Priority order:
 
-1. **Wait for CO consumer PR** on the declaration file status endpoint
-   (`/v1/hub/clients/{cid}/declarations` + ZIP download). Data Hub
-   provider tests + changelog + sister-app note shipped; CO `CLAUDE.md`
-   rule satisfied. Nothing to do until CO pings back.
+1. **Deploy bundle to demo box** (`100.84.189.87:8754`). Includes: mig 065/066, M16 ingest, UoM overrides (516 total), A.2 conflicts page, declaration file status API + ZIP route, time-series feature, btp_sx fix, 440 catalog corrections. Single deploy picks all of them up.
 
-2. **Deploy bundle to demo box** (`100.84.189.87:8754`). Now includes:
-   mig 065/066, M16 ingest, UoM overrides, A.2 conflicts page,
-   declaration file status API + ZIP route, time-series feature.
-   Single deploy picks all of them up.
+2. **Sync DB to demo box** — pg_dump local hub schema (Johnson + Growatt only) and restore on demo. Data changes from this session (440 catalog + 159 overrides + re-materialized BOM) are local-only until synced.
 
-3. **Ask Johnson confirm factor for 58 unverified M16 codes** (list in
-   `.ai/features/2026-05-15-m16-uom-analysis/unverified_codes.txt`).
+3. **Wait for CO consumer PR** on the declaration file status endpoint. Provider tests + changelog + sister-app note shipped. Nothing to do until CO pings back.
 
-4. **CO repo dropdown logic for dual_source 409**. Data Hub side
-   ready; CO repo at `~/workspace/client/barry-CO-main` needs the
-   consumer.
+4. **Audit 39 remaining drift codes** — 5 small buckets:
+   - 20 SETS→SETS same-UoM drift (alias case suspected)
+   - 15 EA→SETS residual (not in original 156 set)
+   - 2 EA→EA factor_missing (same-UoM weird)
+   - 1 G→EA outlier
+   - 1 Chai/Lọ/Tuýp→EA Vietnamese token
 
-5. **Verify `1000454182` factor=2.0** with Johnson (n=2/3 small sample).
+5. **Verify `1000454182` factor=2.0** with Johnson (n=2/3 small sample, carry-over).
 
-6. **70 sản phẩm XK 2026 thiếu BOM** — get from Johnson or document.
+6. **70 sản phẩm XK 2026 thiếu BOM** — get from Johnson or document (carry-over).
 
-7. **Decide what to do with `scripts/uom_drift_report.py`.** Options:
-   - Commit standalone (keeps the analyst tool reusable + tested).
-   - Promote to a route / admin page if user wants it on-screen.
-   - Leave untracked (current state — useful for ad-hoc but not
-     versioned).
+7. **CO repo dropdown logic for dual_source 409** (carry-over).
 
 8. **Next backlog item if bandwidth.**
    - F.1 Growatt programmatic bulk re-ingest (~0.5-1d, mirror Johnson).
    - A.4.2 Substitute XLSX bulk upload (~0.5d).
    - A.4.3 Smarter goods_name similarity — gated on pg_trgm.
-   - Future phase 3 SVG timeline visualization on top of the time-
-     series store shipped today (defer unless staff request).
 
 ## Blockers
 
-- Johnson contact / customs broker for UoM factor confirmation
-  (carry-over).
-- CO repo dev availability for declaration consumer PR + dual_source
-  dropdown logic (carry-over).
+- Johnson contact / customs broker for UoM factor confirmation (carry-over for 39 residual codes + `1000454182` + 70 SP XK).
+- CO repo dev availability for declaration consumer PR + dual_source dropdown logic (carry-over).
 
 ## Notes for Next AI Session
 
-- **`scripts/uom_drift_report.py` untracked but useful.** Argparse-
-  driven; tested manually against Johnson 2025-2026 (188 codes all,
-  171 NVL-only with `--nvl-imports-only`). Per-code (unit) breakdown
-  + 4 boolean drift flags. Re-runs idempotently.
+- **`scripts/fixup_johnson_btp_sx_after_bom.py` is now correct.** Re-running on Johnson would be a no-op (440 codes already fixed via UPDATE). For new client onboarding, the corrected `child_code` query yields Component-unit-canonical uom from the start.
 
-- **"Bất nhất" semantic clarification baked in.** The script offers
-  two cross-year flags now: `Bất nhất giữa 2 năm` (set-comparison —
-  broader, surfaces ANY change in distinct unit sets between years)
-  and `Đổi ĐVT chính` (mode-only — narrower, only when mode flipped).
-  Cross-year set-drift was 118 codes for Johnson NVL; mode-drift
-  only 85. The 33-code gap matters because it captures cases where
-  2025 + 2026 share the same mode but one year has additional units
-  the other doesn't — a real signal staff would miss with mode-only.
+- **Bidirectional synonym pattern requires bidirectional overrides.** When agency confirms "X = Y" as synonym, you may need to insert BOTH `X→Y` AND `Y→X` rows depending on which direction each affected code's catalog uom drifts in. This session surfaced the inverse-direction gap (EA→SETS) only after re-materialize after catalog correction. Generalize: future agency synonym replies should be cross-checked for required override directions before assuming the insert is complete.
 
-- **`hub.bcct_rows.year` is a NOT NULL generated column** derived from
-  `registration_date`. Means you CANNOT insert a row with null
-  `registration_date` in tests. Discovered while writing
-  `tests/test_catalog_bcct_timeseries.py` — dropped the null-date
-  test. The `where registration_date is not null` clause in the
-  store stays as defensive coding but the case is schema-impossible.
+- **Materialize script `--cleanup-stale` is the canonical re-derive path** after override changes. Be aware it ALSO runs a main loop that fills missing shapes for raw_graph artifacts — first run this session unexpectedly created 6,274 new shallow+full_flat for raws that had been missing shapes. Net coherent; just know the scope before kicking off.
 
-- **Time-series store has a paren-extract limitation.** Same as the
-  snapshot panel — SQL uses `customs_code = %s`, doesn't match NB
-  codes hidden in `goods_name` parens (Growatt-shape). BACKLOG A.5
-  tracks the eventual fix; not in scope here.
+- **39 codes drift remaining** — 5 small buckets per Next Steps #4. Each bucket needs its own evidence path. 20 SETS→SETS same-uom case most suspicious for an aliasing bug; the rest are likely small data-quality outliers.
 
-- **`_FIELDS` is duplicated** between `catalog_bcct_analysis.py`
-  (snapshot, includes `goods_name`) and `catalog_bcct_timeseries.py`
-  (time-series, replaces `goods_name` with `declaration_type`). By
-  design — snapshot focuses on name drift, time-series doesn't track
-  name until BACKLOG A.4.3 lands. Worth flagging when a 3rd
-  consumer needs the field set; until then live with it.
+- **Local DB now Johnson + Growatt only.** Other 6 test/seed clients cleaned out 2026-05-25 in preparation for demo box sync. Don't expect demo-precision-manufactu-* or DKE/Do-Thanh in queries anymore.
 
-- **Multi-section screenshot trick:** when capturing the new section
-  with `page.screenshot(full_page=True)`, the resulting PNG was
-  34kx6k pixels (the catalog detail page is enormous). Fix in
-  `scripts/screenshot_catalog_timeline.py`: capture per-element
-  with `locator.screenshot()` against the specific
-  `#timeline-<field>` and the quarterly block. Each output ≤ 350px
-  tall. Pattern reusable for other detail-page sections.
+- **Demo box deploy bundle is large** — covers ~2 weeks of unshipped work. Test plan after deploy: login, navigate to /catalog/conflicts, view Johnson product detail page (verify time-series renders), trigger a sample M16 ingest preview, hit declaration file status API. If any step fails, isolate via mig version vs commit hash.
 
-- **`set` iteration is not deterministic** (Python 3.12 reorders
-  small int sets via hash). Code review flagged this in the
-  currency-mode tie-break path. Replacement: `sorted(set(values))`
-  before iterating. Worth keeping in mind for any "pick a mode"
-  helper.
-
-- **Dev server detached via setsid stays alive across Bash-tool
-  shell churn.** Verified twice this session — survived. Default
-  start command for new sessions:
-  `setsid nohup uv run uvicorn app.main:app --host 127.0.0.1 --port 8754 --workers 4 > /tmp/dh_dev.log 2>&1 < /dev/null &`
-  Confirm PID + PGID via
-  `ps -o pid,pgid,sid -p $(pgrep -f "uvicorn app.main" | head -1)`
-  — if PGID != session shell PGID, it's detached.
-
-- **Push gate now reset.** `main` matches `origin/main`. Future
-  commits should be smaller per-session pushes to avoid re-piling
-  10 commits at once.
+- **Push gate** — d7508ef + new STATUS commit pending push. Sync to origin before deploying so demo box can `git pull`.
