@@ -1,10 +1,14 @@
-"""Mig 063 invariant: when fixup_johnson_btp_sx_after_bom inserts a
-bom_observed BTP material (BTP first appears in BOM, no BCCT yet), it
-must capture the UoM from `hub.bom_edges` for that parent_code.
+"""Invariant: when fixup_johnson_btp_sx_after_bom inserts a bom_observed
+BTP material (BTP first appears in BOM, no BCCT yet), catalog uom is
+captured from `hub.bom_edges.uom` WHERE the BTP appears as CHILD — its
+Component unit, the unit it is consumed in by its parent. Per
+`project_bom_component_unit_canonical`, Component unit is canonical;
+Base UoM (which would come from rows where the BTP is parent = uom of
+its inputs) is SAP stockkeeping internal and must NOT be used.
 
-Before mig 063 this script left `uom=NULL` on every bom_observed BTP
-(2,615 Johnson BTPs in real data), causing engine to drift on
-`catalog_uom_missing` despite BOM source carrying the UoM per edge.
+Mig 063 first wired UoM capture (was uom=NULL on 2,615 BTPs); 2026-05-25
+correction switched parent_code → child_code after 440 Johnson BTPs
+landed with uom=KG (Base UoM) instead of EA (Component unit).
 """
 from __future__ import annotations
 
@@ -79,16 +83,19 @@ def _read_uom(client_id: str, material_code: str) -> str | None:
 
 
 def test_fixup_btp_captures_uom_from_bom_edges_mode(test_client):
-    """BTP appears as parent in 3 edges with mixed UoM. Mode = KG (2/3
-    edges). Fixup must insert material with uom='KG'."""
-    # Seed: TP-X → BTP-A (1 EA) → leaves (2 KG mostly, 1 EA outlier)
+    """BTP-A appears as CHILD in 3 edges with mixed UoM (mode = EA, 2/3).
+    Catalog uom must be the mode of Component unit (as-child rows), not
+    Base UoM (which would come from rows where BTP-A is parent).
+    """
+    # Seed: BTP-A appears as child of 3 different parents — mode EA (2/3).
+    # Also as parent of leaves (uom KG) — irrelevant for catalog uom.
     _seed_raw_artifact_with_edges(test_client, "TP-X", [
         ("TP-X",  "BTP-A", 1.0, "EA"),
+        ("TP-Y",  "BTP-A", 2.0, "EA"),
+        ("TP-Z",  "BTP-A", 0.5, "KG"),
         ("BTP-A", "NVL-1", 0.5, "KG"),
         ("BTP-A", "NVL-2", 0.3, "KG"),
-        ("BTP-A", "NVL-3", 1.0, "EA"),
     ])
-    # Run the fixup INSERT directly (mirrors what fixup_johnson script does).
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             """
@@ -102,7 +109,7 @@ def test_fixup_btp_captures_uom_from_bom_edges_mode(test_client):
                       join hub.bom_artifacts a
                            on a.artifact_id = e.artifact_id
                      where a.client_id = %s
-                       and e.parent_code = code
+                       and e.child_code = code
                        and a.tombstoned_at is null
                        and e.uom is not null and trim(e.uom) <> ''
                      group by e.uom
@@ -116,7 +123,7 @@ def test_fixup_btp_captures_uom_from_bom_edges_mode(test_client):
             """,
             (test_client, test_client, ["BTP-A"]),
         )
-    assert _read_uom(test_client, "BTP-A") == "KG"
+    assert _read_uom(test_client, "BTP-A") == "EA"
 
 
 def test_fixup_btp_uom_null_when_no_edges_match(test_client):
@@ -133,7 +140,7 @@ def test_fixup_btp_uom_null_when_no_edges_match(test_client):
                    (select e.uom from hub.bom_edges e
                       join hub.bom_artifacts a
                            on a.artifact_id = e.artifact_id
-                     where a.client_id = %s and e.parent_code = code
+                     where a.client_id = %s and e.child_code = code
                        and a.tombstoned_at is null and e.uom is not null
                      group by e.uom order by count(*) desc, e.uom limit 1),
                    '{"seen_in_bom_only": true}'::jsonb
@@ -156,7 +163,7 @@ def test_fixup_btp_uom_does_not_clobber_existing(test_client):
             (test_client, "BTP-STAFF"),
         )
     _seed_raw_artifact_with_edges(test_client, "TP-Y", [
-        ("BTP-STAFF", "NVL-Z", 1.0, "KG"),
+        ("TP-Y", "BTP-STAFF", 1.0, "KG"),
     ])
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
@@ -169,7 +176,7 @@ def test_fixup_btp_uom_does_not_clobber_existing(test_client):
                    (select e.uom from hub.bom_edges e
                       join hub.bom_artifacts a
                            on a.artifact_id = e.artifact_id
-                     where a.client_id = %s and e.parent_code = code
+                     where a.client_id = %s and e.child_code = code
                        and a.tombstoned_at is null and e.uom is not null
                      group by e.uom order by count(*) desc, e.uom limit 1),
                    '{"seen_in_bom_only": true}'::jsonb

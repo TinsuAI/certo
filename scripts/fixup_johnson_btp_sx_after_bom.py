@@ -125,13 +125,15 @@ def main() -> int:
 
     with connect() as conn, conn.cursor() as cur:
         if missing_btp:
-            # Capture uom per code from the mode (most-frequent) value of
-            # `bom_edges.uom` where the BTP appears as parent. Without this,
-            # bom_observed BTPs would land with uom=NULL even though the BOM
-            # source carries the UoM per edge — causing engine to drift on
-            # `catalog_uom_missing` despite source data being available
-            # (pipeline bug, not data gap; fixed at the ingest seam per
-            # mig 063 consolidation).
+            # Capture uom from the BTP's Component unit — the unit it is
+            # consumed in by its parent (i.e. `bom_edges.uom` WHERE this
+            # code is the CHILD). Per `project_bom_component_unit_canonical`,
+            # Component unit is canonical and BCCT aligns with it; Base UoM
+            # (which would correspond to `parent_code=code` rows = uom of
+            # inputs this BTP itself consumes) is SAP stockkeeping internal
+            # and must NOT be used. Prior version queried `e.parent_code =
+            # code` and shipped 440 Johnson btp_sx with uom=KG (Base UoM)
+            # instead of EA (Component unit) — fixed 2026-05-25.
             cur.execute(
                 """
                 insert into hub.materials
@@ -144,7 +146,7 @@ def main() -> int:
                           join hub.bom_artifacts a
                                on a.artifact_id = e.artifact_id
                          where a.client_id = %s
-                           and e.parent_code = code
+                           and e.child_code = code
                            and a.tombstoned_at is null
                            and e.uom is not null and trim(e.uom) <> ''
                          group by e.uom
