@@ -4,8 +4,13 @@
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 MAILTO=ops@example.com
 
-# Daily Postgres dump @ 02:30 (low-traffic window).
-30 2 * * * tinsu /usr/local/bin/backup-postgres.sh >> /var/log/data-hub/backup.log 2>&1
+# Daily full backup @ 02:30 (db dump + appfiles + appkeys + status).
+# Local-only. Retention 30 days, auto-prune. Writes ALARM file on FAIL.
+30 2 * * * tinsu BACKUP_ROOT=/home/tinsu/backups/data-hub COMPOSE_DIR=/home/tinsu/data-hub /home/tinsu/data-hub/deploy/scripts/backup-data-hub.sh >> /home/tinsu/logs/data-hub-backup.log 2>&1
+
+# Weekly restore drill @ Sunday 04:30 — boots scratch pgvector container,
+# restores newest dump, asserts row-count sanity, writes drill-YYYY-MM-DD.txt.
+30 4 * * 0 tinsu BACKUP_ROOT=/home/tinsu/backups/data-hub /home/tinsu/data-hub/deploy/scripts/restore-drill.sh >> /home/tinsu/logs/data-hub-drill.log 2>&1
 
 # Hourly purge of expired upload_pending rows (safety-net; lifespan
 # task already does this, but cron catches the case where the app was
