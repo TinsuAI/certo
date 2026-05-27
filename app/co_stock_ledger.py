@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from collections import defaultdict
 from decimal import Decimal, InvalidOperation
 from typing import Iterable
 
@@ -24,6 +25,22 @@ from app import co_stock_events_store
 from app.database import DatabaseUnavailable, connect, database_url
 
 LOGGER = logging.getLogger(__name__)
+
+
+class StockOverclaimError(Exception):
+    """Raised when a lock would push one or more lots past their available qty.
+
+    `violations` is a list of dicts: source_row, claimed, available,
+    bcct_remaining, other_claims (all qty fields are pre-stringified Decimals).
+    """
+
+    def __init__(self, violations: list[dict]):
+        self.violations = list(violations)
+        summary = "; ".join(
+            f"{v.get('source_row', '?')} (cần {v.get('claimed', '?')}, còn {v.get('available', '?')})"
+            for v in self.violations[:5]
+        )
+        super().__init__(f"Vượt tồn ở {len(self.violations)} lot: {summary}")
 
 
 def _ledger_available() -> bool:
@@ -58,11 +75,22 @@ def record_sheet_lock(
     to call from any code path that transitions a sheet into the "locked"
     state — multiple calls collapse to one row per (case, sheet, source_row,
     material_index).
+
+    Raises:
+        StockOverclaimError: if any source_row would be claimed past
+            (co_stock_rows.remaining_qty - sum_of_other_active_claims). The
+            full transaction is aborted; no claims are written.
+        DatabaseUnavailable is treated as a no-op so unit tests that don't
+            configure BARRY_DATABASE_URL keep working. All other database
+            errors propagate to the caller — silent failure would let the
+            sheet appear locked while the ledger has no claim, which would
+            in turn let other cases over-claim the same lots.
     """
     if not _ledger_available():
         return 0
     rows: list[tuple] = []
     new_allocs_by_claim: dict[str, dict] = {}
+    new_by_lot: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
     for alloc in allocations:
         source_row = str(alloc.get("source_row") or "").strip()
         if not source_row:
@@ -94,9 +122,74 @@ def record_sheet_lock(
             "line_no": line_no,
             "customs_code": customs_code,
         }
+        new_by_lot[source_row] += qty
     prior_claims: list[tuple] = []
     try:
         with _connect() as conn, conn.cursor() as cur:
+            # Availability pre-check: for each distinct source_row we're about
+            # to claim, look up BCCT remaining_qty (from materialized snapshot)
+            # and subtract all OTHER active claims (excluding this case+sheet
+            # since we replace those below). Abort if any lot would go negative.
+            #
+            # If the client has NO materialized snapshot at all (e.g. a fresh
+            # workspace or a unit test that bypasses /refresh), we can't
+            # validate against BCCT here — skip the check and trust the
+            # allocator's calculate-time check. We do NOT skip the check for
+            # individual missing source_rows when a snapshot exists: an
+            # allocation referencing a lot that's not in the snapshot is a
+            # legitimate violation (the lot doesn't exist or was filtered out).
+            if new_by_lot:
+                cur.execute(
+                    "select exists(select 1 from co_stock_rows where client_id = %s)",
+                    (client_id,),
+                )
+                snapshot_exists = bool(cur.fetchone()[0])
+                if snapshot_exists:
+                    source_rows = list(new_by_lot.keys())
+                    cur.execute(
+                        r"""select s.source_row,
+                                   case when s.remaining_qty ~ '^-?\d+(\.\d+)?$'
+                                        then s.remaining_qty::numeric else 0::numeric end,
+                                   coalesce(sum(case
+                                     when c.status = 'locked'
+                                       and not (c.case_id = %s and c.sheet_product_code = %s)
+                                     then c.claimed_qty else 0::numeric
+                                   end), 0::numeric)
+                              from co_stock_rows s
+                              left join co_stock_claims c
+                                on c.client_id = s.client_id and c.source_row = s.source_row
+                             where s.client_id = %s and s.source_row = any(%s)
+                             group by s.source_row, s.remaining_qty""",
+                        (case_id, sheet_product_code, client_id, source_rows),
+                    )
+                    availability = {
+                        row[0]: (Decimal(str(row[1])), Decimal(str(row[2])))
+                        for row in cur.fetchall()
+                    }
+                    violations: list[dict] = []
+                    for source_row, claimed in new_by_lot.items():
+                        if source_row not in availability:
+                            violations.append({
+                                "source_row": source_row,
+                                "claimed": str(claimed),
+                                "available": "0",
+                                "bcct_remaining": "lot không có trong snapshot",
+                                "other_claims": "0",
+                            })
+                            continue
+                        bcct_remaining, other_claims = availability[source_row]
+                        net = bcct_remaining - other_claims
+                        if claimed > net:
+                            violations.append({
+                                "source_row": source_row,
+                                "claimed": str(claimed),
+                                "available": str(net),
+                                "bcct_remaining": str(bcct_remaining),
+                                "other_claims": str(other_claims),
+                            })
+                    if violations:
+                        raise StockOverclaimError(violations)
+
             # Snapshot prior claims so we can emit release events for any that
             # get replaced (re-lock of an already-locked sheet).
             cur.execute(
@@ -134,9 +227,6 @@ def record_sheet_lock(
                     rows,
                 )
     except DatabaseUnavailable:
-        return 0
-    except Exception as exc:  # noqa: BLE001 — never block the lock action
-        LOGGER.warning("co_stock_ledger lock failed for %s/%s/%s: %s", client_id, case_id, sheet_product_code, exc)
         return 0
 
     # Emit audit events outside the lock transaction.
@@ -192,7 +282,12 @@ def record_sheet_lock(
 
 
 def record_sheet_release(client_id: str, case_id: str, sheet_product_code: str) -> int:
-    """Mark all locked claims for the sheet as released. Returns count released."""
+    """Mark all locked claims for the sheet as released. Returns count released.
+
+    DatabaseUnavailable is treated as a no-op for unit tests. Other database
+    errors propagate so the caller can keep the sheet locked (consistent
+    with the ledger still holding the claim) instead of silently leaking it.
+    """
     if not _ledger_available():
         return 0
     released: list[tuple] = []
@@ -216,9 +311,6 @@ def record_sheet_release(client_id: str, case_id: str, sheet_product_code: str) 
             )
             count = cur.rowcount or 0
     except DatabaseUnavailable:
-        return 0
-    except Exception as exc:  # noqa: BLE001
-        LOGGER.warning("co_stock_ledger release failed for %s/%s/%s: %s", client_id, case_id, sheet_product_code, exc)
         return 0
     event_rows: list[dict] = []
     for decl_no, line_no, customs_code, claimed_qty in released:

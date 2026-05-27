@@ -3376,9 +3376,26 @@ def test_origin_sheet_lock_records_cross_case_stock_ledger_claims():
     if not database_url():
         pytest.skip("co_stock_ledger requires BARRY_DATABASE_URL — run with Postgres for ledger coverage")
     # Reset ledger for a clean test scope (ledger is global per client_id).
+    # Also seed co_stock_rows for the synthetic lots this test claims against:
+    # the lock pre-check rejects allocations whose source_row isn't in the
+    # materialized snapshot (real lots that no longer exist in BCCT). Provide
+    # generous remaining_qty so the test exercises the happy path, not the
+    # over-claim path (that's covered by a dedicated test below).
+    from psycopg.types.json import Jsonb
     try:
         with co_stock_ledger._connect() as conn, conn.cursor() as cur:
             cur.execute("delete from co_stock_claims where client_id = %s", ("growatt",))
+            cur.execute(
+                "delete from co_stock_rows where client_id = %s and source_row = any(%s)",
+                ("growatt", ["ROW-A1", "ROW-A2", "ROW-B1"]),
+            )
+            for sr, qty in (("ROW-A1", "100"), ("ROW-A2", "100"), ("ROW-B1", "100")):
+                cur.execute(
+                    """insert into co_stock_rows (
+                        client_id, source_row, remaining_qty, payload
+                       ) values (%s, %s, %s, %s)""",
+                    ("growatt", sr, qty, Jsonb({"source_row": sr, "remaining_qty": qty})),
+                )
     except Exception:  # noqa: BLE001
         pytest.skip("co_stock_claims table missing — apply migrations first")
     client = TestClient(app)
@@ -3489,6 +3506,101 @@ def test_origin_sheet_lock_records_cross_case_stock_ledger_claims():
     assert release_response.status_code == 200, release_response.text
     used_after = co_stock_ledger.used_qty_by_lot("growatt")
     assert used_after == {}, f"expected ledger to release all locks, got {used_after}"
+
+
+def test_origin_sheet_lock_rejects_overclaim_against_materialized_snapshot():
+    """When the requested allocation exceeds (snapshot remaining - other-case
+    claims) for any lot, the lock must fail with 409 and leave the sheet in
+    its previous 'calculated' state — no claim should be written, no case
+    state mutation."""
+    from app import co_stock_ledger
+    from app.database import database_url
+    from psycopg.types.json import Jsonb
+
+    if not database_url():
+        pytest.skip("co_stock_ledger requires BARRY_DATABASE_URL")
+    try:
+        with co_stock_ledger._connect() as conn, conn.cursor() as cur:
+            cur.execute("delete from co_stock_claims where client_id = %s", ("growatt",))
+            cur.execute(
+                "delete from co_stock_rows where client_id = %s and source_row = any(%s)",
+                ("growatt", ["ROW-LIMIT"]),
+            )
+            # Seed a snapshot lot with only 4 units left.
+            cur.execute(
+                """insert into co_stock_rows (client_id, source_row, remaining_qty, payload)
+                   values (%s, %s, %s, %s)""",
+                ("growatt", "ROW-LIMIT", "4", Jsonb({"source_row": "ROW-LIMIT", "remaining_qty": "4"})),
+            )
+    except Exception:  # noqa: BLE001
+        pytest.skip("co_stock_rows table missing — apply migrations first")
+
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Overclaim", "case_code": "CO-OVERCLAIM", "destination_market": "Ấn Độ", "invoice_no": "INV-OC"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-OVERCLAIM",
+            "title": "Overclaim",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-OC"},
+            "products": [
+                {
+                    "code": "TP-OC",
+                    "name": "Overclaim product",
+                    "quantity": "1",
+                    "unit": "PCS",
+                    "fob": "100",
+                    "currency": "VND",
+                    "lvc_status": "pass",
+                    "lvc_status_label": "Đạt LVC",
+                    "lvc_percentage": "70.00",
+                    "materials": [
+                        {
+                            "material_code": "M-OC",
+                            "uom": "PCS",
+                            "bom_qty_per": "1",
+                            # Claim 10 against a lot with only 4 remaining.
+                            "allocation_lines": [{"source_row": "ROW-LIMIT", "allocated_qty": "10"}],
+                        }
+                    ],
+                }
+            ],
+            "origin_sheet_states": {"TP-OC": {"status": "calculated", "status_label": "Đã tính"}},
+        },
+    )
+
+    response = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-OC/lock",
+        data={
+            "case_id": case_id, "persisted_case_id": case_id,
+            "case_code": "CO-OVERCLAIM", "title": "Overclaim",
+            "destination_market": "Ấn Độ", "invoice_no": "INV-OC",
+            "product_count": "1", "origin_product_order": "TP-OC",
+            "product_0_code": "TP-OC", "product_0_name": "Overclaim product",
+            "product_0_quantity": "1", "product_0_unit": "PCS",
+            "product_0_fob": "100", "product_0_currency": "VND",
+            "product_0_lvc_status": "pass", "product_0_lvc_status_label": "Đạt LVC",
+            "product_0_lvc_percentage": "70.00",
+            "product_0_origin_sheet_status": "calculated", "product_0_material_count": "0",
+        },
+    )
+    assert response.status_code == 409, response.text
+    assert "ROW-LIMIT" in response.text and "vượt tồn" in response.text.lower()
+
+    # Verify no claim was written.
+    assert co_stock_ledger.used_qty_by_lot("growatt").get("ROW-LIMIT") is None
+
+    # Verify the case sheet stayed 'calculated' (the lock did not mutate state).
+    persisted = get_case_record(get_client("growatt"), case_id)
+    sheet_state = (persisted.get("origin_sheet_states") or {}).get("TP-OC", {})
+    assert sheet_state.get("status") == "calculated", sheet_state
 
 
 def test_origin_sheet_propose_bom_requires_lock_and_overrides(monkeypatch):

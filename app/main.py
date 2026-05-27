@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 from contextlib import asynccontextmanager
@@ -5866,7 +5867,37 @@ async def lock_co_case_origin_sheet(request: Request, client_id: str, case_id: s
     # Capture allocations from the PERSISTED case BEFORE update_case_record
     # rewrites the disk record. The form-rebuilt `case` may have stripped
     # materials/allocation_lines if the AJAX submitter only sent metadata.
-    record_sheet_lock_claims(client_id, case_id, product_code, case)
+    # The ledger writes claims in a single transaction with an availability
+    # pre-check; on any failure we must NOT update case state, otherwise the
+    # sheet appears locked while no claim was recorded (the ghost-claim bug
+    # this code path used to suffer from silent exception swallowing).
+    try:
+        record_sheet_lock_claims(client_id, case_id, product_code, case)
+    except co_stock_ledger.StockOverclaimError as exc:
+        detail_lines = [
+            f"{v['source_row']}: cần {v['claimed']}, còn {v['available']}"
+            f" (gốc {v['bcct_remaining']} - case khác {v['other_claims']})"
+            for v in exc.violations[:5]
+        ]
+        message = (
+            f"Không chốt được bảng kê {product_code} vì vượt tồn ở "
+            f"{len(exc.violations)} lot: " + "; ".join(detail_lines)
+            + ". Hãy tính lại bảng kê để cập nhật phân bổ theo tồn hiện tại."
+        )
+        return templates.TemplateResponse(
+            request=request,
+            name="co_case.html",
+            status_code=409,
+            context=co_case_context(
+                client_id,
+                case_id,
+                current_step="origin",
+                case=case,
+                error=message,
+                preserve_origin_products=True,
+                fast_origin_context=True,
+            ),
+        )
     case = set_origin_sheet_status(case, product_code, "locked")
     update_case_record(client, case)
     invalidate_co_case_source_cache(client_id, case_id)
@@ -6711,10 +6742,32 @@ async def reopen_co_case_origin_sheet(request: Request, client_id: str, case_id:
                 fast_origin_context=True,
             ),
         )
+    # Release ledger claims BEFORE updating case state so a DB failure leaves
+    # the sheet in a consistent locked state (claims still held, sheet still
+    # locked). The previous order (case state first, then release) meant a
+    # release failure silently leaked the claim while the UI showed unlocked.
+    try:
+        co_stock_ledger.record_sheet_release(client_id, case_id, product_code)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger(__name__).warning(
+            "reopen failed for %s/%s/%s: %s", client_id, case_id, product_code, exc
+        )
+        return templates.TemplateResponse(
+            request=request,
+            name="co_case.html",
+            status_code=409,
+            context=co_case_context(
+                client_id,
+                case_id,
+                current_step="origin",
+                case=case,
+                error=f"Không mở chốt được bảng kê {product_code}: ledger lỗi ({exc}). Hãy thử lại.",
+                preserve_origin_products=True,
+                fast_origin_context=True,
+            ),
+        )
     case = set_origin_sheet_status(case, product_code, "calculated")
     update_case_record(client, case)
-    # Release the lot claims so other cases see remaining_qty restored.
-    co_stock_ledger.record_sheet_release(client_id, case_id, product_code)
     invalidate_co_case_source_cache(client_id, case_id)
     return templates.TemplateResponse(
         request=request,
