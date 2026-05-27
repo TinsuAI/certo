@@ -14,10 +14,13 @@ Prior commits (still on HEAD, shipped earlier sessions):
 - `5fefa4a` — chore(bom): move Nguồn column to last position
 - `9affecb` — feat(bom): NK/BOM-only column + Excel export on flat artifact page
 
-**Tests:** 1,175 baseline (last verified 2026-05-25). This session
-added no new tests; 5 pre-existing failures in
-`tests/test_declarations_bulk_upload_route.py` (401 on seed login,
-unrelated to session work — needs separate fix).
+**Tests:** 1,224 passed, 15 skipped (verified 2026-05-28). The "5
+pre-existing failures" flagged previously were a symptom of a wider
+conftest issue — `seed_admin_if_empty` no-ops on dev DBs where the
+admin already exists with a non-`admin123` password (e.g. seeded
+from env `DATA_HUB_SEED_PASSWORD=local_test_password`). Fixed by
+force-resetting the admin password in `tests/conftest.py` at session
+start.
 
 **Migrations:** at mig **071** (unchanged this session).
 

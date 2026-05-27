@@ -18,6 +18,7 @@ from __future__ import annotations
 import pytest
 
 from app import auth
+from app.auth.session import hash_password
 from app.database import apply_migrations, connect
 from app.seed import auto_seed_demo_if_empty, seed_parser_rules_if_empty
 from app.seed_master_data import seed_master_data_if_empty
@@ -28,10 +29,13 @@ def _bootstrap_schema():
     apply_migrations()
     seed_master_data_if_empty()
     auth.seed_admin_if_empty(email="admin@data-hub.local", password="admin123")
+    # Force admin to the test-canonical password regardless of any prior
+    # seed (dev DBs may have been seeded with a different env password —
+    # tests hardcode admin123 across the suite, so reset every session).
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            "update hub.users set role='dev' where email=%s and role <> 'dev'",
-            ("admin@data-hub.local",),
+            "update hub.users set password_hash=%s, role='dev' where email=%s",
+            (hash_password("admin123"), "admin@data-hub.local"),
         )
     # Lifespan in app/main.py auto-seeds Growatt + Johnson demo clients
     # when no clients exist. Many test fixtures (test_agent, test_llm_*,
