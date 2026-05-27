@@ -5462,6 +5462,17 @@ async def co_case_detail(request: Request, client_id: str, case_id: str):
     )
 
 
+# Specific GET routes that share the /clients/{client_id}/co-case/{case_id}/...
+# prefix MUST be defined before the catch-all {step} route below — FastAPI's
+# router is order-sensitive, and {step} would otherwise swallow any single-
+# segment GET (e.g. /export-bang-ke) and 404 it for not being a workflow key.
+
+
+@app.get("/clients/{client_id}/co-case/{case_id}/export-bang-ke")
+async def export_co_case_bang_ke_workbook_get(request: Request, client_id: str, case_id: str):
+    return await export_co_case_bang_ke_workbook(request, client_id, case_id)
+
+
 @app.get("/clients/{client_id}/co-case/{case_id}/{step}", response_class=HTMLResponse)
 async def co_case_step(request: Request, client_id: str, case_id: str, step: str):
     if step not in CO_CASE_WORKFLOW_STEP_KEYS:
@@ -5613,7 +5624,6 @@ async def export_co_case_workbook(request: Request, client_id: str, case_id: str
     )
 
 
-@app.get("/clients/{client_id}/co-case/{case_id}/export-bang-ke")
 @app.post("/clients/{client_id}/co-case/{case_id}/export-bang-ke")
 async def export_co_case_bang_ke_workbook(request: Request, client_id: str, case_id: str):
     content_type = request.headers.get("content-type", "")
