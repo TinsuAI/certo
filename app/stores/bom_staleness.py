@@ -762,3 +762,95 @@ def refresh_product(client_id: str, product_code: str,
                          triggered_by_user_id=triggered_by_user_id)
         for aid in artifact_ids
     ]
+
+
+def reconcile_for_material(client_id: str, material_code: str,
+                            *, cap: int = 50,
+                            triggered_by_user_id: str | None = None) -> dict:
+    """Auto-reconcile after a catalog edit / override insert that touched
+    this material. Walks all NON-clean artifacts referencing the material
+    and:
+    - Derived (technical_flattened): refresh_artifact (re-derive).
+    - manual_flat: refresh_artifact too (calls _rederive_manual_flat).
+    - raw_graph: re-check alignment via hub.has_drift_remaining; clear
+      has_uom_drift if all edges now align (mig 071-style sweep narrowed
+      to this material).
+
+    Capped at `cap` artifacts. Returns counts {refreshed, cleared,
+    deferred, errors}. UI fires this after catalog edit; if `deferred > 0`
+    staff sees a notice and can hit "Refresh all" on /bom/needs-action.
+    """
+    counts = {"refreshed": 0, "cleared": 0, "deferred": 0, "errors": 0}
+    refs_cte = """
+        with refs as (
+          select distinct ba.artifact_id, ba.flatten_strategy,
+                          ba.source_bom_kind, ba.state
+            from hub.bom_artifacts ba
+            left join hub.bom_artifact_rows bar
+              on bar.artifact_id = ba.artifact_id
+            left join hub.bom_edges be
+              on be.artifact_id = ba.artifact_id
+           where ba.client_id = %s
+             and ba.tombstoned_at is null
+             and ba.state <> 'clean'
+             and (bar.material_code = %s or be.child_code = %s)
+        )
+    """
+    with connect(user_id=triggered_by_user_id) as conn, conn.cursor() as cur:
+        # Count first so we can report `deferred` exactly when capped.
+        cur.execute(
+            refs_cte + " select count(*) from refs",
+            (client_id, material_code, material_code),
+        )
+        (total,) = cur.fetchone()
+        if total > cap:
+            counts["deferred"] = total - cap
+        cur.execute(
+            refs_cte
+            + " select artifact_id, flatten_strategy, source_bom_kind, "
+              "        state from refs order by artifact_id limit %s",
+            (client_id, material_code, material_code, cap),
+        )
+        affected = cur.fetchall()
+
+    for aid, strategy, _kind, _state in affected:
+        try:
+            if strategy in _DERIVED_STRATEGIES \
+                    or strategy == "manual_flat_as_provided":
+                result = refresh_artifact(
+                    client_id, aid,
+                    triggered_by_user_id=triggered_by_user_id,
+                )
+                if result.get("cleared"):
+                    counts["refreshed"] += 1
+            else:
+                # raw_graph: re-check alignment. If all edges align under
+                # the current catalog uom + override state, clear the flag.
+                with connect(user_id=triggered_by_user_id) as conn, \
+                        conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        select count(*) from hub.bom_edges be
+                         where be.artifact_id = %s
+                           and hub.has_drift_remaining(%s, be.child_code,
+                                                       be.uom)
+                        """,
+                        (aid, client_id),
+                    )
+                    (n_unresolved,) = cur.fetchone()
+                    if n_unresolved == 0:
+                        cur.execute(
+                            "update hub.bom_artifacts "
+                            "set has_uom_drift = false, "
+                            "    uom_drift_resolved_at = coalesce("
+                            "      uom_drift_resolved_at, now()) "
+                            "where artifact_id = %s "
+                            "  and has_uom_drift = true",
+                            (aid,),
+                        )
+                        if cur.rowcount > 0:
+                            counts["cleared"] += 1
+        except Exception:
+            counts["errors"] += 1
+            continue
+    return counts

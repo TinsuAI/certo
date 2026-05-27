@@ -512,6 +512,25 @@ Latest logic — hardened 2026-05-03 with BOM flattening shipping:
 
 `unresolved` carries `{node_path, material_code, reason, evidence}` rows for non_flattened versions (always empty when `flatten_status='flattened'`). `reason` is one of `uom_conversion_missing | uom_conversion_ambiguous | missing_child_bom | cycle_detected | ambiguous_dual_source | classification_unknown | canonical_uom_missing` — all stable English machine codes.
 
+##### `state` field (mig 068, shipped 2026-05-27)
+
+`artifact.state` is one of:
+
+- `clean` — aligned with current catalog. Most artifacts.
+- `needs_refresh` — a catalog dependency moved; Refresh re-derives.
+- `needs_input` — staff decision required (factor missing, catalog uom missing, unconfirmed 1:1 default, raw_graph drift).
+- `broken` — reserved; unrecoverable. Not yet emitted.
+
+`state` is a stored generated column derived from `is_stale` +
+`has_uom_drift` + the reasons JSONB. Sister apps SHOULD bind UI badges
+to this field; the legacy `is_stale`/`has_uom_drift` booleans remain
+for backward compatibility and are not deprecated.
+
+Calculation consumers SHOULD treat `state="needs_input"` similarly to
+`flatten_status="non_flattened"` — refuse silent consumption,
+surface a warning. Such artifacts may carry rows with
+`applied_uom_factor IS NULL` (raw uom unconverted).
+
 #### `GET /v1/hub/products/{product_code}/bom/versions`
 
 List BOM versions for a product.

@@ -590,6 +590,7 @@ def list_artifacts_for_product(*, client_id: str, product_code: str) -> list[dic
                        v.flatten_status, v.flatten_strategy,
                        v.is_stale, v.stale_reasons,
                        v.has_uom_drift, v.uom_drift_reasons,
+                       v.state,
                        v.human_label, v.display_label,
                        p.artifact_no       as parent_artifact_no,
                        p.bom_variant_id   as parent_variant_id,
@@ -634,7 +635,8 @@ def get_artifact_with_rows(artifact_id: str) -> dict | None:
                        display_label, human_label, flatten_method, flatten_method_version,
                        is_stale, stale_reasons, stale_first_at, stale_resolved_at,
                        has_uom_drift, uom_drift_reasons,
-                       uom_drift_first_at, uom_drift_resolved_at
+                       uom_drift_first_at, uom_drift_resolved_at,
+                       state
                 from hub.bom_artifacts where artifact_id = %s
                 """,
                 (artifact_id,),

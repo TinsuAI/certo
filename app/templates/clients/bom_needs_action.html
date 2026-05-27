@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}{{ t('bom.needs_action.title') }} · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="page-bar">
+  <h1>{{ t('bom.needs_action.title') }} ({{ total }})</h1>
+  <span class="page-tagline">{{ t('bom.needs_action.subtitle') }}</span>
+  <div class="page-actions">
+    <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom">← BOM</a>
+    <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom/audit-log">
+      {{ t('bom.audit_log.title') }}
+    </a>
+  </div>
+</section>
+
+<nav class="tabs" style="margin: 1em 0; border-bottom: 1px solid #ddd;">
+  {% set tabs = [
+    ('all',           t('bom.needs_action.tab.all'),           counts.all),
+    ('needs_refresh', t('bom.needs_action.tab.needs_refresh'), counts.needs_refresh),
+    ('needs_input',   t('bom.needs_action.tab.needs_input'),   counts.needs_input),
+  ] %}
+  {% for cat, label, n in tabs %}
+    {% if cat == selected_state %}
+      <span class="tab tab-active" style="padding: 0.5em 1em; border-bottom: 2px solid #2563eb; font-weight: 600;">
+        {{ label }} <span class="badge badge-info">{{ n }}</span>
+      </span>
+    {% else %}
+      <a class="tab" style="padding: 0.5em 1em; color: #555;"
+         href="/clients/{{ client.client_id }}/bom/needs-action{% if cat != 'all' %}?state={{ cat }}{% endif %}">
+        {{ label }} <span class="badge">{{ n }}</span>
+      </a>
+    {% endif %}
+  {% endfor %}
+</nav>
+
+{% if not clusters %}
+<div class="zone mini-panel">
+  <p>{{ t('bom.needs_action.empty') }} 🎉</p>
+</div>
+{% else %}
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>{{ t('bom.needs_action.col.cause') }}</th>
+      <th>{{ t('bom.needs_action.col.material') }}</th>
+      <th>{{ t('bom.needs_action.col.affects') }}</th>
+      <th>{{ t('bom.needs_action.col.action') }}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for c in clusters %}
+    <tr>
+      <td>
+        {% set cause_key = 'bom.cause.' ~ c.cause_dim %}
+        {% set cause_label = t(cause_key) %}
+        <strong>{{ cause_label if cause_label != cause_key else c.cause_dim }}</strong>
+        <br>
+        {% if c.state == 'needs_input' %}
+          <span class="badge badge-warning" style="background:#fde">
+            {{ t('bom.state.needs_input') }}
+          </span>
+        {% elif c.state == 'needs_refresh' %}
+          <span class="badge badge-info">{{ t('bom.state.needs_refresh') }}</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if c.related_code %}
+          <a href="/clients/{{ client.client_id }}/catalog/{{ c.related_code }}/detail">
+            <code>{{ c.related_code }}</code>
+          </a>
+          {% if c.related_uom %}
+            <br><small style="color:#666">{{ t('bom.uom') }}: {{ c.related_uom }}</small>
+          {% endif %}
+          {% if c.related_name and c.related_name != c.related_code %}
+            <br><small style="color:#666">{{ c.related_name|truncate(60) }}</small>
+          {% endif %}
+        {% else %}
+          <small style="color:#999">—</small>
+        {% endif %}
+      </td>
+      <td>
+        <strong>{{ c.n_arts }}</strong>
+        <small style="color:#666">BOM</small>
+        {% if c.product_codes|length <= 3 %}
+          <br><small style="color:#666">
+            {% for pc in c.product_codes %}
+              <a href="/clients/{{ client.client_id }}/bom/{{ pc }}/artifacts">
+                {{ pc }}</a>{% if not loop.last %}, {% endif %}
+            {% endfor %}
+          </small>
+        {% else %}
+          <br><small style="color:#666">
+            {{ c.product_codes[0] }}, {{ c.product_codes[1] }}…
+            (+{{ c.product_codes|length - 2 }})
+          </small>
+        {% endif %}
+      </td>
+      <td>
+        {% if can_edit and c.action == 'refresh' %}
+          <form method="post"
+                action="/clients/{{ client.client_id }}/bom/refresh-cluster"
+                style="display:inline">
+            <input type="hidden" name="artifact_ids" value="{{ c.artifact_ids|join(',') }}">
+            <button type="submit" class="btn-primary">
+              {{ t('bom.needs_action.cluster_action_refresh').replace('{n_arts}', c.n_arts|string) }}
+            </button>
+          </form>
+        {% elif can_edit and c.action == 'fix_uom' %}
+          <a class="btn-primary"
+             href="/clients/{{ client.client_id }}/uom-factors{% if c.related_code %}?prefill_material_code={{ c.related_code }}{% endif %}">
+            {{ t('bom.action.fix_uom') }}
+          </a>
+        {% elif can_edit and c.action == 'reupload' %}
+          <a class="btn-primary"
+             href="/clients/{{ client.client_id }}/bom/upload">
+            {{ t('bom.action.reupload') }}
+          </a>
+        {% endif %}
+        {% if c.product_codes|length == 1 %}
+          <a class="btn-ghost"
+             href="/clients/{{ client.client_id }}/bom/{{ c.product_codes[0] }}/artifacts">
+            {{ t('bom.action.view') }}
+          </a>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if n_pages > 1 %}
+<nav style="margin-top:1em; text-align:center;">
+  {% set base = '/clients/' ~ client.client_id ~ '/bom/needs-action' %}
+  {% set qs = '?state=' ~ selected_state if selected_state != 'all' else '' %}
+  {% set joiner = '&' if qs else '?' %}
+  {% if page > 1 %}
+    <a class="btn-ghost" href="{{ base }}{{ qs }}{{ joiner }}page={{ page - 1 }}">← Trước</a>
+  {% endif %}
+  <span style="margin: 0 1em;">Trang {{ page }} / {{ n_pages }}</span>
+  {% if page < n_pages %}
+    <a class="btn-ghost" href="{{ base }}{{ qs }}{{ joiner }}page={{ page + 1 }}">Sau →</a>
+  {% endif %}
+</nav>
+{% endif %}
+
+{% endif %}
+
+{% endblock %}

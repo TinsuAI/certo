@@ -1004,6 +1004,14 @@ async def edit_material_submit(
         )
         if cur.rowcount == 0:
             raise HTTPException(404, "material not found")
+    # Mig 067-071 + audit 2026-05-27: catalog edit fires triggers that
+    # may flag downstream artifacts. Self-heal: walk non-clean artifacts
+    # referencing this material and refresh/reconcile so state ends up
+    # consistent without staff clicking Refresh manually. Capped at 50
+    # to keep the edit POST responsive.
+    from app.stores.bom_staleness import reconcile_for_material
+    reconcile_for_material(client_id, material_code,
+                            triggered_by_user_id=user.user_id)
     return RedirectResponse(
         url=f"/clients/{client_id}/catalog/{material_code}/detail?edited=1",
         status_code=303,

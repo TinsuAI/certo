@@ -767,40 +767,27 @@ def _parse_inline_factor_edits(form) -> list[dict] | None:
     return edits or None
 
 
-# dim → category mapping for the /bom/stale UI (F — UI tabs).
-# Categories drive: (a) tab filter, (b) primary action button per row.
-# - dependency: a tracked dep mutated AFTER materialize → Refresh re-derives
-# - btp_bom:    a BTP raw_graph landed/was tombstoned → Refresh re-derives
-# - uom_drift:  UoM conversion gap at materialize time → needs override
-#               row in client_uom_overrides; Refresh alone won't clear it
-_STALE_DIM_CATEGORIES: dict[str, str] = {
-    "catalog_category": "dependency",
-    "materials_uom": "dependency",
-    "btp_sourcing": "dependency",
-    "derive_hook_failed": "dependency",
-    "btp_bom_added": "btp_bom",
-    "btp_bom_tombstoned": "btp_bom",
-    "factor_missing": "uom_drift",
-    "unconfirmed_default_1to1": "uom_drift",
-    "catalog_uom_missing": "uom_drift",
-}
-_VALID_CATEGORIES = ("all", "dependency", "btp_bom", "uom_drift")
+# `_primary_action` retained as a pure helper used by the cluster page
+# (`/bom/needs-action`) for per-cluster action selection. The legacy
+# dim→category mapping table (`_STALE_DIM_CATEGORIES`) used by the
+# decommissioned `/bom/stale` page is intentionally removed.
 
 
-def _categorize_dims(dims: list[str]) -> set[str]:
-    out: set[str] = set()
-    for d in dims:
-        out.add(_STALE_DIM_CATEGORIES.get(d, "other"))
-    return out
+def _primary_action(categories: set[str], is_source: bool,
+                    source_bom_kind: str | None = None) -> str:
+    """Per-row action selector for the cluster page.
 
-
-def _primary_action(categories: set[str], is_source: bool) -> str:
-    """Determine the most actionable button for a stale row.
     Refresh covers dependency + btp_bom (re-derive clears them).
     uom_drift needs admin to fill client_uom_overrides → 'fix_uom'.
-    Source artifacts (manual_flat, raw_graph) with drift → 'reupload'.
+
+    Source artifacts split by kind:
+    - manual_flat: refresh re-applies conversion via _rederive_manual_flat
+      (mig 057), so Refresh works.
+    - technical_raw: edges immutable, re-upload is the only way.
     """
     if is_source and "uom_drift" in categories:
+        if source_bom_kind == "manual_flat":
+            return "refresh"
         return "reupload"
     if categories & {"dependency", "btp_bom"}:
         return "refresh"
@@ -809,18 +796,45 @@ def _primary_action(categories: set[str], is_source: bool) -> str:
     return "view"
 
 
-@router.get("/clients/{client_id}/bom/stale", response_class=HTMLResponse)
-async def list_stale(request: Request, client_id: str,
-                     category: str | None = None):
-    """List BOM artifacts needing attention, grouped into actionable tabs.
+_NEEDS_INPUT_DIMS = {
+    "factor_missing", "catalog_uom_missing", "unconfirmed_default_1to1",
+}
+_RAW_REUPLOAD_DIMS = {"materials_uom", "catalog_inserted"}
 
-    Category tabs (F):
-    - `dependency`: catalog/materials.uom/btp_sourcing changes → Refresh
-    - `btp_bom`: BTP raw_graph added/tombstoned → Refresh
-    - `uom_drift`: UoM conversion gap → Open UoM admin (Refresh won't clear)
-    - `all` (default): every row that has is_stale OR has_uom_drift
 
-    Tombstoned excluded; published only.
+def _cluster_action(cause_dim: str, strategies: set[str]) -> str:
+    """Decide the bulk action button for a cluster row.
+
+    All-derived → refresh. All-manual_flat → refresh (re-applies convert).
+    Cluster spans raw_graph or has needs_input dim → fix_uom or reupload
+    or view.
+    """
+    if cause_dim in _NEEDS_INPUT_DIMS:
+        # Most needs_input dims surface a uom factor gap.
+        if cause_dim in {"factor_missing", "catalog_uom_missing"}:
+            return "fix_uom"
+        # unconfirmed_default_1to1 is staff-ack territory; route to fix.
+        return "fix_uom"
+    if "no_strategy" in strategies:
+        # raw_graph edges immutable → re-upload only.
+        return "reupload"
+    return "refresh"
+
+
+@router.get("/clients/{client_id}/bom/needs-action",
+             response_class=HTMLResponse)
+async def list_needs_action(request: Request, client_id: str,
+                              state: str | None = None,
+                              page: int = 1):
+    """Action queue: BOMs needing handling, clustered by root cause.
+
+    Each row = (cause, related_material_code) cluster spanning N
+    artifacts. Bulk action button per cluster. Page size 50.
+
+    Tabs:
+    - all (default)
+    - needs_refresh (auto-fixable)
+    - needs_input (staff decision required)
     """
     user = auth.require_user(request)
     auth.require_can_view_client(user, client_id)
@@ -828,80 +842,274 @@ async def list_stale(request: Request, client_id: str,
     if not client:
         raise HTTPException(404, "Client not found")
     can_edit = auth.can_edit_client(user, client_id)
-    selected_category = category if category in _VALID_CATEGORIES else "all"
+    selected_state = state if state in {"all", "needs_refresh", "needs_input"} \
+        else "all"
+    if page < 1:
+        page = 1
+    per_page = 50
+
     with connect() as conn, conn.cursor() as cur:
+        # Counts by state for tab badges.
         cur.execute(
             """
-            select artifact_id, product_code, flatten_strategy,
-                   source_bom_kind, is_stale, stale_reasons,
-                   stale_first_at, has_uom_drift, uom_drift_reasons,
-                   uom_drift_first_at, published_at
-            from hub.bom_artifacts
-            where client_id=%s
-              and tombstoned_at is null
-              and status='published'
-              and (is_stale = true or has_uom_drift = true)
-            order by coalesce(stale_first_at, uom_drift_first_at) desc,
-                     product_code, artifact_id
+            select state, count(*) from hub.bom_artifacts
+            where client_id=%s and tombstoned_at is null
+              and state <> 'clean'
+            group by state
             """,
             (client_id,),
         )
-        rows: list[dict] = []
-        _uom_dims = {"factor_missing", "unconfirmed_default_1to1",
-                     "catalog_uom_missing"}
-        for r in cur.fetchall():
-            (aid, pc, strat, kind, is_stale, sreas, sat,
-             has_drift, dreas, dat, pub_at) = r
-            stale_dims = sorted({x.get("dim") for x in (sreas or [])
-                                  if x and x.get("dim")})
-            drift_dims = sorted({x.get("dim") for x in (dreas or [])
-                                  if x and x.get("dim")})
-            is_source = strat in ("manual_flat_as_provided", "no_strategy")
-            categories = _categorize_dims(stale_dims + drift_dims)
-            # Extract NVL material codes from UoM-dim reasons (source_pk
-            # carries the affected material). The TP/BTP product_code on
-            # the artifact itself is NOT the one with the UoM gap — the
-            # gap is on its child materials. Dedup, keep first for prefill.
-            uom_nvl_codes: list[str] = []
-            seen: set[str] = set()
-            for reason_list in (sreas or [], dreas or []):
-                for x in reason_list:
-                    if not (x and x.get("dim") in _uom_dims):
-                        continue
-                    pk = x.get("source_pk") or ""
-                    if pk and pk not in seen:
-                        seen.add(pk)
-                        uom_nvl_codes.append(pk)
-            rows.append({
-                "artifact_id": aid, "product_code": pc,
-                "flatten_strategy": strat, "source_bom_kind": kind,
-                "is_stale": is_stale,
-                "stale_dims": stale_dims,
-                "stale_first_at": sat,
-                "has_uom_drift": has_drift,
-                "drift_dims": drift_dims,
-                "uom_drift_first_at": dat,
-                "published_at": pub_at,
-                "is_source": is_source,
-                "categories": sorted(categories),
-                "primary_action": _primary_action(categories, is_source),
-                "uom_nvl_first": uom_nvl_codes[0] if uom_nvl_codes else None,
-                "uom_nvl_count": len(uom_nvl_codes),
-            })
-    counts = {
-        "all": len(rows),
-        "dependency": sum(1 for r in rows if "dependency" in r["categories"]),
-        "btp_bom":    sum(1 for r in rows if "btp_bom" in r["categories"]),
-        "uom_drift":  sum(1 for r in rows if "uom_drift" in r["categories"]),
-    }
-    if selected_category != "all":
-        rows = [r for r in rows if selected_category in r["categories"]]
+        state_counts = {s: n for s, n in cur.fetchall()}
+        counts = {
+            "all": sum(state_counts.values()),
+            "needs_refresh": state_counts.get("needs_refresh", 0),
+            "needs_input": state_counts.get("needs_input", 0),
+        }
+
+        # Cluster: (cause_dim, related_material_code) → list of artifacts.
+        state_filter = ""
+        params: list = [client_id]
+        if selected_state != "all":
+            state_filter = "and ba.state = %s"
+            params.append(selected_state)
+
+        cur.execute(
+            f"""
+            with art_reasons as (
+              select
+                ba.artifact_id, ba.product_code, ba.flatten_strategy,
+                ba.source_bom_kind, ba.state,
+                r->>'dim' as cause_dim,
+                coalesce(
+                  r->>'material_code',
+                  substring(r->>'source_pk' from '/(.+)$'),
+                  r->>'source_pk'
+                ) as related_code
+              from hub.bom_artifacts ba,
+                lateral (
+                  select e as r from jsonb_array_elements(ba.stale_reasons) e
+                  union all
+                  select e as r from jsonb_array_elements(ba.uom_drift_reasons) e
+                ) r
+              where ba.client_id = %s
+                and ba.tombstoned_at is null
+                and ba.state <> 'clean'
+                {state_filter}
+            )
+            select cause_dim, related_code,
+                   array_agg(distinct artifact_id) as artifact_ids,
+                   array_agg(distinct product_code) as product_codes,
+                   array_agg(distinct flatten_strategy) as strategies,
+                   count(distinct artifact_id) as n_arts,
+                   (array_agg(distinct state))[1] as sample_state
+              from art_reasons
+              where cause_dim is not null
+              group by cause_dim, related_code
+              order by n_arts desc, cause_dim, related_code
+            """,
+            params,
+        )
+        clusters_raw = cur.fetchall()
+
+        # Lookup related material names for display.
+        related_codes = sorted({rc for (_, rc, *_) in clusters_raw if rc})
+        name_lookup: dict[str, dict] = {}
+        if related_codes:
+            cur.execute(
+                "select material_code, name, uom from hub.materials "
+                "where client_id=%s and material_code = any(%s)",
+                (client_id, related_codes),
+            )
+            for code, name, uom in cur.fetchall():
+                name_lookup[code] = {"name": name, "uom": uom}
+
+    clusters: list[dict] = []
+    for (cause_dim, related_code, artifact_ids, product_codes,
+         strategies, n_arts, sample_state) in clusters_raw:
+        meta = name_lookup.get(related_code or "") or {}
+        clusters.append({
+            "cause_dim": cause_dim,
+            "related_code": related_code,
+            "related_name": (meta.get("name") or related_code),
+            "related_uom": meta.get("uom"),
+            "artifact_ids": list(artifact_ids),
+            "product_codes": list(product_codes),
+            "n_arts": n_arts,
+            "state": sample_state,
+            "action": _cluster_action(cause_dim, set(strategies or [])),
+            "is_input": cause_dim in _NEEDS_INPUT_DIMS,
+        })
+
+    total = len(clusters)
+    start = (page - 1) * per_page
+    end = start + per_page
+    page_clusters = clusters[start:end]
+    n_pages = max(1, (total + per_page - 1) // per_page)
+
     return request.app.state.templates.TemplateResponse(
-        request, "clients/bom_stale.html",
-        {"client": client, "stats": stats_for_client(client_id),
-         "rows": rows, "can_edit": can_edit,
-         "selected_category": selected_category, "counts": counts,
-         "active_root": "clients", "active_tab": "bom"},
+        request, "clients/bom_needs_action.html",
+        {
+            "client": client, "stats": stats_for_client(client_id),
+            "clusters": page_clusters,
+            "counts": counts,
+            "selected_state": selected_state,
+            "page": page, "n_pages": n_pages, "total": total,
+            "can_edit": can_edit,
+            "active_root": "clients", "active_tab": "bom",
+        },
+    )
+
+
+@router.post("/clients/{client_id}/bom/refresh-cluster")
+async def refresh_cluster(
+    request: Request, client_id: str,
+    artifact_ids: str = Form(""),
+):
+    """Bulk refresh action: comma-separated artifact_ids → refresh each.
+
+    Capped at 200 to keep POST responsive. Returns 303 to /needs-action.
+    """
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+    ids = [s.strip() for s in artifact_ids.split(",") if s.strip()]
+    if len(ids) > 200:
+        ids = ids[:200]
+    from app.stores.bom_staleness import refresh_artifact
+    for aid in ids:
+        try:
+            refresh_artifact(client_id, aid,
+                              triggered_by_user_id=user.user_id)
+        except Exception:
+            continue
+    return RedirectResponse(
+        url=f"/clients/{client_id}/bom/needs-action", status_code=303,
+    )
+
+
+@router.get("/clients/{client_id}/bom/audit-log",
+             response_class=HTMLResponse)
+async def bom_audit_log(request: Request, client_id: str,
+                         page: int = 1):
+    """Append-only log of catalog/UoM events that affected BOMs.
+
+    Reads from bom_artifacts.stale_reasons + uom_drift_reasons unioned,
+    grouped by (event, observed_at). Distinct from /needs-action which
+    surfaces ACTIONABLE state; this is forensic history.
+    """
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    if page < 1:
+        page = 1
+    per_page = 50
+
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            with events as (
+              select
+                ba.artifact_id, ba.product_code, ba.state,
+                r->>'dim' as cause_dim,
+                coalesce(
+                  r->>'material_code',
+                  substring(r->>'source_pk' from '/(.+)$'),
+                  r->>'source_pk'
+                ) as related_code,
+                (r->>'observed_at')::timestamptz as observed_at
+              from hub.bom_artifacts ba,
+                lateral (
+                  select e as r from jsonb_array_elements(ba.stale_reasons) e
+                  union all
+                  select e as r from jsonb_array_elements(ba.uom_drift_reasons) e
+                ) r
+              where ba.client_id = %s
+                and ba.tombstoned_at is null
+            )
+            select cause_dim, related_code,
+                   date_trunc('minute', observed_at) as bucket,
+                   count(distinct artifact_id) as n_arts,
+                   (array_agg(distinct state))[1] as sample_state,
+                   max(observed_at) as latest_at
+              from events
+              where cause_dim is not null and observed_at is not null
+              group by cause_dim, related_code,
+                       date_trunc('minute', observed_at)
+              order by latest_at desc
+              limit %s offset %s
+            """,
+            (client_id, per_page, (page - 1) * per_page),
+        )
+        rows = cur.fetchall()
+        # Total count for pagination.
+        cur.execute(
+            """
+            select count(distinct (r->>'dim',
+                                    coalesce(r->>'material_code',
+                                              r->>'source_pk'),
+                                    date_trunc('minute',
+                                                (r->>'observed_at')::timestamptz)))
+              from hub.bom_artifacts ba,
+                lateral (
+                  select e as r from jsonb_array_elements(ba.stale_reasons) e
+                  union all
+                  select e as r from jsonb_array_elements(ba.uom_drift_reasons) e
+                ) r
+             where ba.client_id = %s
+               and ba.tombstoned_at is null
+               and (r->>'dim') is not null
+            """,
+            (client_id,),
+        )
+        (total,) = cur.fetchone()
+
+        related_codes = sorted({rc for (_, rc, *_) in rows if rc})
+        name_lookup: dict[str, str] = {}
+        if related_codes:
+            cur.execute(
+                "select material_code, name from hub.materials "
+                "where client_id=%s and material_code = any(%s)",
+                (client_id, related_codes),
+            )
+            name_lookup = {c: n for c, n in cur.fetchall()}
+
+    events = [{
+        "cause_dim": r[0],
+        "related_code": r[1],
+        "related_name": name_lookup.get(r[1] or "") or r[1],
+        "bucket_at": r[2],
+        "n_arts": r[3],
+        "state": r[4],
+        "latest_at": r[5],
+    } for r in rows]
+    n_pages = max(1, (total + per_page - 1) // per_page)
+
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/bom_audit_log.html",
+        {
+            "client": client, "stats": stats_for_client(client_id),
+            "events": events,
+            "page": page, "n_pages": n_pages, "total": total,
+            "active_root": "clients", "active_tab": "bom",
+        },
+    )
+
+
+@router.get("/clients/{client_id}/bom/stale")
+async def legacy_stale_redirect(client_id: str):
+    """Permanent redirect: /bom/stale → /bom/needs-action.
+
+    The original Track D Phase 1 page (mig 053 era) lumped audit-log
+    semantics with action-queue semantics and surfaced 8 engineer-jargon
+    dims to staff. Replaced 2026-05-27 by the cluster-by-cause page +
+    a separate forensic audit log. Old route kept as a 308 redirect so
+    bookmarks + sister-app deeplinks still land.
+    """
+    return RedirectResponse(
+        url=f"/clients/{client_id}/bom/needs-action", status_code=308,
     )
 
 
