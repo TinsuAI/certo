@@ -1,117 +1,132 @@
 # Project Status
 
-**Date:** 2026-05-27 (PM) — BOM flat-view UX additions shipped + demo synced. Local + demo both at `5fefa4a`.
+**Date:** 2026-05-28 — Growatt 2026-05 data onboarded + volume mount bug fixed + backup pipeline (daily backup + weekly drill) installed on demo.
 
 ## Current State
 
-**Branch:** `main` at `5fefa4a`. **In sync with `origin/main` and demo box.**
+**Branch:** `main` at `b19c88e`. **In sync with `origin/main` and demo box.**
 
 Recent commits (this session):
+- `b19c88e` — fix(deploy): align FILES_ROOT env name + add full backup + drill
+
+Prior commits (still on HEAD, shipped earlier sessions):
+- `6094e3e` — docs(handoff): BOM flat NK column + Excel export + demo deploy + audit
 - `5fefa4a` — chore(bom): move Nguồn column to last position
 - `9affecb` — feat(bom): NK/BOM-only column + Excel export on flat artifact page
 
-Prior unshipped → now shipped to demo:
-- `869e0ea` — docs(handoff): BOM stale-UX rebuild session
-- `5cdf7fe` — feat(bom): cluster needs-action page replaces /bom/stale
-- `99abbec` — feat(catalog): fill placeholder name from BCCT on conflict
-- `637046e` — feat(bom): conditional staleness model + state column (migs 067-071)
-- `a331c74` — chore(ui): hide notification bell from navbar
+**Tests:** 1,175 baseline (last verified 2026-05-25). This session
+added no new tests; 5 pre-existing failures in
+`tests/test_declarations_bulk_upload_route.py` (401 on seed login,
+unrelated to session work — needs separate fix).
 
-**Tests:** 254 BOM-related tests pass (full suite untouched this session, no regressions expected — diffs are 2 files only).
+**Migrations:** at mig **071** (unchanged this session).
 
-**Migrations:** at mig **071** (demo also at 071 after deploy + on-startup migrator).
+**Working tree:** clean of code drift. Same .ai/features PNGs +
+untracked items as prior sessions.
 
-**Working tree:** clean of code drift relative to HEAD. Untracked items unchanged from prior sessions (training scripts, demo-company-feed PNGs).
+**Dev server:** `:8754` running (`--workers 4`); healthz HTTP 200.
 
-**Dev server:** `:8754` running (`nohup … --workers 4`); healthz HTTP 200.
+**Demo box (`100.84.189.87:8754`):** at `b19c88e`, healthz 200.
+App container recreated 2026-05-28 (env fix); db container untouched.
+**Files volume now wired correctly** — 2.2 GB / 4,038 blobs migrated
+from container layer to `appfiles` volume.
 
-**Demo box (`100.84.189.87:8754`):** at `5fefa4a`, healthz 200, johnson + growatt verified post-deploy. Migrations 067–071 ran on demo and backfilled `state` column.
+## Growatt counts (local = demo)
 
-**Demo DB state distribution (post-deploy):**
 ```
-johnson-vn  full_flat  3400 clean / 52 needs_input  (98.5%)
-johnson-vn  shallow    3128 clean / 41 needs_input
-johnson-vn  raw_graph  3051 clean / 86 uom_drift
-johnson-vn  manual_flat 517 clean / 0 needs_input
-growatt-vn  full_flat  197 clean / 0 needs_input  (100%)
-growatt-vn  shallow    197 clean / 0 needs_input
-growatt-vn  raw_graph  198 clean / 0 uom_drift
-growatt-vn  manual_flat 14 clean / 1 needs_input  (TEST_TP_DRIFT fixture)
+direction | bcct_rows | distinct decls | date range
+import    |    38,287 |          1,403 | 2022-11-23 → 2026-05-20
+export    |       916 |            500 | 2023-11-17 → 2026-05-20
+
+declaration_files: NK=3,538  XK=500
 ```
 
-Note: demo `needs_input` counts (52+41+86 johnson) > local `(11 derived + 9 raw)` reported in last STATUS — same data, fresh backfill on demo without iterative override-cleanup that happened locally. Material codes flagged on demo: top `1000202688` (42 ff), known `1000469803` (10 ff, mixed EA/KG, open item), 12 others.
+Before this session: NK 22,414/759 decls, XK 666/344 decls, decl_files 0/0.
 
-## Recent Changes (this session)
+## Backup pipeline on demo
 
-### 1. NK / BOM-only column on flat BOM (commit `9affecb`)
+**Daily 02:30** — `~/data-hub/deploy/scripts/backup-data-hub.sh`:
+- `db-YYYY-MM-DD.dump` (~305 MB pg_dump custom)
+- `appfiles-YYYY-MM-DD.tar.zst` (~167 MB compressed from 2.2 GB)
+- `appkeys-YYYY-MM-DD.tar.zst` (~300 B)
+- `status-YYYY-MM-DD.txt` PASS|FAIL
+- `ALARM` file on failure (cleared on next PASS)
+- Retention: 30 days
 
-In the artifact detail page (`/clients/{cid}/bom/artifact/{aid}`), when
-the artifact stores rows (manual_flat / shallow / full_flat — not raw_graph),
-the rows table now shows a **Nguồn** column with a badge:
-- `NK` — material_code has at least one BCCT row with `direction='import'` for this client.
-- `BOM-only` — code does not appear in any import declaration.
+**Sunday 04:30** — `~/data-hub/deploy/scripts/restore-drill.sh`:
+- Boots scratch `pgvector/pgvector:pg16`
+- `pg_restore` newest dump
+- Asserts bcct_rows>=1000, declaration_files>=1, dump_age<=2 days
+- Writes `drill-YYYY-MM-DD.txt` + log line
+- Last drill (manual): PASS — bcct=105,049 / files=7,259 /
+  bom=13,602 / mat=13,589
 
-Lookup batched once per request via existing `make_bcct_import_lookup(client_id)`
-(distinct customs_code preload, O(1) per row).
+Logs: `~/logs/data-hub-backup.log`, `~/logs/data-hub-drill.log`.
 
-### 2. Excel export button (same commit, plus `5fefa4a`)
+**Important verbiage on backup files:** `db-*.dump` is the new
+naming (umbrella script). The old `YYYY-MM-DD.dump` naming from
+`backup-postgres.sh` is no longer produced — old crontab entry was
+removed during install. The 24 historic `2026-05-04.dump`...
+`2026-05-27.dump` from the previous script remain in
+`~/backups/data-hub/` and will be pruned by the new 30-day rule.
 
-New route `GET /clients/{cid}/bom/artifact/{aid}/export.xlsx`:
-- 200 → openpyxl workbook, sheet `BOM_<product_code>` (capped 31 chars),
-  filename `BOM_<product>_v<artifact_no>.xlsx`.
-- 400 → if artifact is raw_graph (edges-only, no flat rows).
-- Columns: STT, Mã NVL, Định mức / đơn vị, ĐVT, Mã BOM, Đợt, Nguồn
-  (Nguồn at far right — repositioned per user feedback in `5fefa4a`).
-- Button "⬇ Xuất Excel" rendered next to "← artifacts" link, only when rows exist.
+## Open Items
 
-### 3. Deploy to demo
+1. **Offsite copy** still missing. User opted local-only this
+   session. Single VPS = single point of failure. Defer with
+   destination choice (Cloudflare R2 / GDrive / VPS-2).
 
-- Pushed `a331c74..5fefa4a` to `origin/main`.
-- ssh.exe → `git pull --ff-only && docker compose up -d --build`.
-- App auto-ran migrations 067–071. Backfill round 1 + 2 completed.
-- Verified post-deploy via curl with session cookie (cookie is `Secure` so
-  curl `-c/-b` won't auto-store over HTTP; copied set-cookie value manually).
+2. **ALARM file → external alert.** Currently writes to a file
+   only. Wire a 1-line cron to push contents to Telegram/Zalo/email
+   when it appears.
 
-### 4. Demo data audit (no code changes)
+3. **Test fail in `test_declarations_bulk_upload_route`** —
+   5 failures on HEAD with 401 login. Pre-existing, seed-password
+   fixture issue, unrelated to this session.
 
-- **Johnson full_flat:** 3137 raw products → 3452 ff artifacts, 100% coverage.
-  3400/3452 clean (98.5%). 52 needs_input all from UoM drift on ~14 material
-  codes (top: 1000202688 / 1000469803). 0 duplicate rows (dedup fix `7552c64` holding).
-- **Growatt full_flat:** 197/197 active, all clean. 1 raw missing ff: `B710.0071401`
-  (raw uploaded 2026-05-05 with 83 edges, never flattened — gap to address).
-- **Growatt UoM:** 1 real drift only — `033.0024500` (catalog PIECES vs BCCT 15 SETS / 1 PIECES,
-  no override, code not in BOM so no artifact flag). 5 alias-resolved (ST/PCS↔PIECES, OK).
-  6 materials with NULL uom (3 fixtures + 3 real: PV00.0048500, PV01.0117600 TPs, 001.0031100).
+4. **Collation version warning** still pending an
+   `ALTER DATABASE data_hub REFRESH COLLATION VERSION` in a
+   maintenance window.
 
-## Next Steps
+5. **Growatt UoM open items from prior STATUS:**
+   - `B710.0071401` raw artifact missing full_flat (1 raw uploaded
+     2026-05-05 with 83 edges, never flattened).
+   - `033.0024500` needs UoM override (BCCT 15 SETS / 1 PIECES vs
+     catalog PIECES, code not in BOM).
+   - Johnson UoM drift cleanup on 14 codes (top `1000202688`,
+     `1000469803`) — agency to confirm SET-to-PIECES factors.
 
-1. **Flatten Growatt `B710.0071401`** — the one raw artifact missing a ff. Run
-   the flatten endpoint or rerun the technical_flatten upload for this product.
-2. **`033.0024500` override** — agency to confirm `1 SET = ? PIECES`; add row to
-   `hub.client_uom_overrides` for growatt-vn. Mirrors Johnson `1000469803` workflow.
-3. **Johnson UoM drift cleanup** — confirm/add overrides for the 14 codes still
-   flagged on demo (top: 1000202688 with 42 artifacts; rest ≤5 each). Once
-   override added, `reconcile_for_material()` clears flag in-band.
-4. **Fill missing uom in Growatt catalog** for the 3 real codes (PV00.0048500,
-   PV01.0117600, 001.0031100) — fixtures (DEMO-*, VAI) can stay null.
-5. **(Stretch)** Extend drift gate to flag standalone NVL not yet in BOM —
-   `033.0024500` slipped through because it has no BOM artifact. Currently the
-   flag is artifact-level only; consider material-level surface for catalog-page UI.
+6. **Bulk BaoCao ingest is ad-hoc.** Inline Python with the
+   `_insert_bcct` helper. Worth a `scripts/ingest_baocao.py
+   --client X --nk … --xk …` so onboarding doesn't copy-paste
+   `ingest_johnson_real.py` for each new client.
 
 ## Notes for Next AI Session
 
-- **Demo verification recipe** (the cookie is `Secure` over plain HTTP — curl needs the workaround):
-  ```bash
-  SESS=$(curl -sv -d "email=admin@data-hub.local" -d "password=$DEMO_PASS" http://100.84.189.87:8754/login 2>&1 | grep "set-cookie" | sed -n 's/.*data_hub_session=\([^;]*\).*/\1/p')
-  curl -s -H "Cookie: data_hub_session=$SESS" http://100.84.189.87:8754/...
-  ```
-  Demo seed password lives in `~/data-hub/.env` on the server (chmod 600, do
-  not paste in chat). Read via `ssh.exe tinsu@100.84.189.87 "grep DATA_HUB_SEED_PASSWORD ~/data-hub/.env"`.
-- **Demo logins from Playwright/python work fine** — `urllib` + cookie jar handles redirects.
-- The Secure-cookie-over-plain-HTTP looks wrong but is existing behaviour — flagged
-  but not fixing this session.
-- Earlier-session `2026-05-27-bom-stale-rebuild.md` describes the migs 067-071
-  staleness model in depth — read first if touching `state` / `is_stale` /
-  `has_uom_drift` triggers.
-- Per `feedback_use_windows_ssh.md`, always use `/mnt/c/Windows/System32/OpenSSH/ssh.exe`
-  for remote ops (WSL ssh broken).
+- **Volume bug context** — `app/storage` + `app/data_promotion`
+  read `DATA_HUB_FILES_ROOT`. Compose file used to set the wrong
+  name (`DATA_HUB_FILES_DIR`), causing all file uploads to land
+  on the ephemeral container writable layer. **Fixed in `b19c88e`**.
+  If you find file blobs at `/app/data/files` inside the container
+  again, it means the fix regressed.
+
+- **RAR5 archives + 7z 23.01 on Linux** — silent partial extract
+  (only file #1). Use `uv pip install rarfile` + `RarFile.extractall`
+  via system `unrar` binary.
+
+- **Demo cron lives in `tinsu` user crontab** (not `/etc/cron.d/`).
+  `crontab -l` to inspect. `/etc/cron.d/data-hub` template in
+  repo is documentation-only on this host.
+
+- **Cancel CI before destructive deploys** that involve container
+  recreate — auto-deploy on push to main fires
+  `docker compose up -d --build`. Use
+  `gh run cancel <run-id>` if you need a window to migrate volume
+  data manually first.
+
+- **Demo seed password** in `~/data-hub/.env` on demo
+  (`DATA_HUB_SEED_PASSWORD`, chmod 600). Read via
+  `ssh.exe tinsu@100.84.189.87 "grep DATA_HUB_SEED_PASSWORD ~/data-hub/.env"`.
+
+- **Per `feedback_use_windows_ssh.md`**, always use
+  `/mnt/c/Windows/System32/OpenSSH/{ssh,scp}.exe` for remote ops.
