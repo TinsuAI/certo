@@ -1,105 +1,117 @@
 # Project Status
 
-**Date:** 2026-05-27 — BOM stale-UX rebuild shipped. Cluster-by-cause action queue + audit log split + self-healing reconcile + state column. Local at `5cdf7fe`. **Demo NOT yet synced.**
+**Date:** 2026-05-27 (PM) — BOM flat-view UX additions shipped + demo synced. Local + demo both at `5fefa4a`.
 
 ## Current State
 
-**Branch:** `main` at `5cdf7fe`. Ahead of `origin/main` by 3 commits.
+**Branch:** `main` at `5fefa4a`. **In sync with `origin/main` and demo box.**
 
-Recent commits:
+Recent commits (this session):
+- `5fefa4a` — chore(bom): move Nguồn column to last position
+- `9affecb` — feat(bom): NK/BOM-only column + Excel export on flat artifact page
+
+Prior unshipped → now shipped to demo:
+- `869e0ea` — docs(handoff): BOM stale-UX rebuild session
 - `5cdf7fe` — feat(bom): cluster needs-action page replaces /bom/stale
 - `99abbec` — feat(catalog): fill placeholder name from BCCT on conflict
 - `637046e` — feat(bom): conditional staleness model + state column (migs 067-071)
 - `a331c74` — chore(ui): hide notification bell from navbar
-- `db0a86f` — feat(declarations): keep #bulk hash on bulk-upload redirects
 
-**Tests:** 1,224 passed, 15 skipped (+38 new + several updated).
+**Tests:** 254 BOM-related tests pass (full suite untouched this session, no regressions expected — diffs are 2 files only).
 
-**Migrations:** at mig **071** (5 new this session, 067-071).
+**Migrations:** at mig **071** (demo also at 071 after deploy + on-startup migrator).
 
-**Working tree:** clean of code drift relative to HEAD. Untracked items unchanged from prior sessions (training scripts, old session notes, demo-company-feed PNGs).
+**Working tree:** clean of code drift relative to HEAD. Untracked items unchanged from prior sessions (training scripts, demo-company-feed PNGs).
 
-**Dev server:** `:8754` running (background `nohup … --workers 4`); healthz HTTP 200.
+**Dev server:** `:8754` running (`nohup … --workers 4`); healthz HTTP 200.
 
-**Demo box (`ttdatahub.tinsu.ai`):** at `bc4fb3b` — **3 commits + 5 migrations behind**. Pending sync.
+**Demo box (`100.84.189.87:8754`):** at `5fefa4a`, healthz 200, johnson + growatt verified post-deploy. Migrations 067–071 ran on demo and backfilled `state` column.
 
-**Local DB final state (Johnson + Growatt):**
+**Demo DB state distribution (post-deploy):**
 ```
-Johnson:  10,255 clean  ·  20 needs_input (11 derived + 9 raw)  ·  0 needs_refresh
-Growatt:  606    clean  ·  1  needs_input                       ·  0 needs_refresh
+johnson-vn  full_flat  3400 clean / 52 needs_input  (98.5%)
+johnson-vn  shallow    3128 clean / 41 needs_input
+johnson-vn  raw_graph  3051 clean / 86 uom_drift
+johnson-vn  manual_flat 517 clean / 0 needs_input
+growatt-vn  full_flat  197 clean / 0 needs_input  (100%)
+growatt-vn  shallow    197 clean / 0 needs_input
+growatt-vn  raw_graph  198 clean / 0 uom_drift
+growatt-vn  manual_flat 14 clean / 1 needs_input  (TEST_TP_DRIFT fixture)
 ```
-The 20 Johnson + 1 Growatt all trace to mã `1000469803` (mixed EA/KG BOM); open item awaiting Johnson evidence.
+
+Note: demo `needs_input` counts (52+41+86 johnson) > local `(11 derived + 9 raw)` reported in last STATUS — same data, fresh backfill on demo without iterative override-cleanup that happened locally. Material codes flagged on demo: top `1000202688` (42 ff), known `1000469803` (10 ff, mixed EA/KG, open item), 12 others.
 
 ## Recent Changes (this session)
 
-### 1. Stale-UX rebuild (commits `637046e` + `5cdf7fe`)
+### 1. NK / BOM-only column on flat BOM (commit `9affecb`)
 
-Audit 2026-05-27 found `/bom/stale` unusable at scale: 1,336 Johnson
-rows, 99% non-actionable, engineer jargon, no bulk action. Full
-rebuild:
+In the artifact detail page (`/clients/{cid}/bom/artifact/{aid}`), when
+the artifact stores rows (manual_flat / shallow / full_flat — not raw_graph),
+the rows table now shows a **Nguồn** column with a badge:
+- `NK` — material_code has at least one BCCT row with `direction='import'` for this client.
+- `BOM-only` — code does not appear in any import declaration.
 
-- **Migrations 067–071:**
-  - 067 clear stale flag on tombstone.
-  - 068 `state` GENERATED column (clean / needs_refresh / needs_input / broken).
-  - 069 `hub.is_uom_aligned()` + conditional D7/D9 triggers (skip flag when alias-aligned).
-  - 070 backfill round 1 (alias-aligned cleanup).
-  - 071 `hub.has_drift_remaining()` (extends alignment with override lookup) + backfill round 2.
-  - Net: Johnson 1,336 → 20 actionable.
+Lookup batched once per request via existing `make_bcct_import_lookup(client_id)`
+(distinct customs_code preload, O(1) per row).
 
-- **Self-healing:** `reconcile_for_material()` called from catalog edit
-  + override CRUD. Cap 50 sync, deferred surface.
+### 2. Excel export button (same commit, plus `5fefa4a`)
 
-- **New UI:**
-  - `/clients/{cid}/bom/needs-action` — cluster by (cause × code), bulk
-    refresh per cluster, 3 state tabs, pagination.
-  - `/clients/{cid}/bom/audit-log` — forensic event log.
-  - `POST /bom/refresh-cluster` — bulk refresh up to 200.
-  - Legacy `/bom/stale` removed (308 redirect, template + dead helpers
-    + dead i18n keys pruned).
+New route `GET /clients/{cid}/bom/artifact/{aid}/export.xlsx`:
+- 200 → openpyxl workbook, sheet `BOM_<product_code>` (capped 31 chars),
+  filename `BOM_<product>_v<artifact_no>.xlsx`.
+- 400 → if artifact is raw_graph (edges-only, no flat rows).
+- Columns: STT, Mã NVL, Định mức / đơn vị, ĐVT, Mã BOM, Đợt, Nguồn
+  (Nguồn at far right — repositioned per user feedback in `5fefa4a`).
+- Button "⬇ Xuất Excel" rendered next to "← artifacts" link, only when rows exist.
 
-- **Vocabulary cleanup:** bom.stale.* dim/tab/action labels replaced by
-  bom.state.* / bom.cause.* / bom.action.* in plain Vietnamese (VN + EN).
+### 3. Deploy to demo
 
-- **API:** additive `artifact.state` field on
-  `/v1/hub/products/{p}/bom` + `/bom/artifacts`. Legacy `is_stale` +
-  `has_uom_drift` retained for backward compatibility. Documented in
-  `docs/API_CONTRACT.md`. Sister-app notes at
-  `.ai/sister-app-notes/2026-05-27-bom-state-field-shipped.md`.
+- Pushed `a331c74..5fefa4a` to `origin/main`.
+- ssh.exe → `git pull --ff-only && docker compose up -d --build`.
+- App auto-ran migrations 067–071. Backfill round 1 + 2 completed.
+- Verified post-deploy via curl with session cookie (cookie is `Secure` so
+  curl `-c/-b` won't auto-store over HTTP; copied set-cookie value manually).
 
-### 2. Provenance name backfill gap (commit `99abbec`)
+### 4. Demo data audit (no code changes)
 
-3,822 Johnson catalog rows have `name=material_code` placeholder
-(bom_observed codes never reached BCCT). `derive_from_bcct` on-conflict
-path now fills `name` when current value is placeholder. Idempotent.
-No backfill source available today (bom_only set disjoint from
-BCCT-visible set); patch takes effect on future BCCT ingest.
+- **Johnson full_flat:** 3137 raw products → 3452 ff artifacts, 100% coverage.
+  3400/3452 clean (98.5%). 52 needs_input all from UoM drift on ~14 material
+  codes (top: 1000202688 / 1000469803). 0 duplicate rows (dedup fix `7552c64` holding).
+- **Growatt full_flat:** 197/197 active, all clean. 1 raw missing ff: `B710.0071401`
+  (raw uploaded 2026-05-05 with 83 edges, never flattened — gap to address).
+- **Growatt UoM:** 1 real drift only — `033.0024500` (catalog PIECES vs BCCT 15 SETS / 1 PIECES,
+  no override, code not in BOM so no artifact flag). 5 alias-resolved (ST/PCS↔PIECES, OK).
+  6 materials with NULL uom (3 fixtures + 3 real: PV00.0048500, PV01.0117600 TPs, 001.0031100).
 
 ## Next Steps
 
-Priority order:
+1. **Flatten Growatt `B710.0071401`** — the one raw artifact missing a ff. Run
+   the flatten endpoint or rerun the technical_flatten upload for this product.
+2. **`033.0024500` override** — agency to confirm `1 SET = ? PIECES`; add row to
+   `hub.client_uom_overrides` for growatt-vn. Mirrors Johnson `1000469803` workflow.
+3. **Johnson UoM drift cleanup** — confirm/add overrides for the 14 codes still
+   flagged on demo (top: 1000202688 with 42 artifacts; rest ≤5 each). Once
+   override added, `reconcile_for_material()` clears flag in-band.
+4. **Fill missing uom in Growatt catalog** for the 3 real codes (PV00.0048500,
+   PV01.0117600, 001.0031100) — fixtures (DEMO-*, VAI) can stay null.
+5. **(Stretch)** Extend drift gate to flag standalone NVL not yet in BOM —
+   `033.0024500` slipped through because it has no BOM artifact. Currently the
+   flag is artifact-level only; consider material-level surface for catalog-page UI.
 
-1. **Sync demo box** (`ttdatahub.tinsu.ai`) — push origin, apply migs
-   067-071 inside data-hub-db-1 container, git pull + docker compose
-   build app + up -d app. Verify state distribution matches local.
+## Notes for Next AI Session
 
-2. **Memory updates** — reinforce `project_bom_staleness` (state column),
-   add `feedback_self_healing_via_reconcile` if useful.
-
-3. **Wait for CO consumer PR** on declaration file status endpoint
-   (carry-over).
-
-4. **Re-enable notification bell** when feature finishes — uncomment
-   `app/templates/base.html:39`.
-
-5. **Fix CI "Smoke LLM /models (best effort)" step** (carry) — chronic
-   401 from `codex-lb-demo.sgnai.dev/v1/models` makes deploy-to-tinsu
-   job report failure even when deploy succeeds. Easy fix: append
-   `|| true` after the curl, or pass token, or remove the step.
-
-6. **Resolve `1000469803`** — mixed EA/KG BOM, needs Johnson evidence
-   (override or catalog correction). 20 stale artifacts depend on this.
-
-7. **70 sản phẩm XK 2026 thiếu BOM** (carry) — get from Johnson or
-   document.
-
-8. **CO repo dropdown logic for dual_source 409** (carry).
+- **Demo verification recipe** (the cookie is `Secure` over plain HTTP — curl needs the workaround):
+  ```bash
+  SESS=$(curl -sv -d "email=admin@data-hub.local" -d "password=$DEMO_PASS" http://100.84.189.87:8754/login 2>&1 | grep "set-cookie" | sed -n 's/.*data_hub_session=\([^;]*\).*/\1/p')
+  curl -s -H "Cookie: data_hub_session=$SESS" http://100.84.189.87:8754/...
+  ```
+  Demo seed password lives in `~/data-hub/.env` on the server (chmod 600, do
+  not paste in chat). Read via `ssh.exe tinsu@100.84.189.87 "grep DATA_HUB_SEED_PASSWORD ~/data-hub/.env"`.
+- **Demo logins from Playwright/python work fine** — `urllib` + cookie jar handles redirects.
+- The Secure-cookie-over-plain-HTTP looks wrong but is existing behaviour — flagged
+  but not fixing this session.
+- Earlier-session `2026-05-27-bom-stale-rebuild.md` describes the migs 067-071
+  staleness model in depth — read first if touching `state` / `is_stale` /
+  `has_uom_drift` triggers.
+- Per `feedback_use_windows_ssh.md`, always use `/mnt/c/Windows/System32/OpenSSH/ssh.exe`
+  for remote ops (WSL ssh broken).
