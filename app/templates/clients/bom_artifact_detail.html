@@ -228,17 +228,21 @@
     <thead><tr>
       <th>{{ t('bom.row_index') }}</th>
       <th>{{ t('bom.material') }}</th>
-      <th>Nguồn</th>
       <th>{{ t('bom.qty_per_unit') }}</th>
       <th>{{ t('bom.uom') }}</th>
       <th>{{ t('bom.bom_code') }}</th>
       <th>{{ t('bom.bom_variant') }}</th>
+      <th>Nguồn</th>
     </tr></thead>
     <tbody>
       {% for r in rows %}
       <tr>
         <td>{{ r.row_index }}</td>
         <td class="mono">{{ r.material_code }}</td>
+        <td class="mono">{{ '%.6f'|format(r.qty_per_unit) if r.qty_per_unit else '0' }}</td>
+        <td class="mono">{{ r.uom or '' }}</td>
+        <td class="mono">{{ r.bom_code or '' }}</td>
+        <td class="mono">{{ r.bom_variant_id or '' }}</td>
         <td>
           {% if r.has_nk %}
             <span class="badge" title="Có dòng nhập khẩu trong BCCT">NK</span>
@@ -246,10 +250,6 @@
             <span class="badge badge-warn" title="Chưa thấy trong BCCT — chỉ xuất hiện trong BOM">BOM-only</span>
           {% endif %}
         </td>
-        <td class="mono">{{ '%.6f'|format(r.qty_per_unit) if r.qty_per_unit else '0' }}</td>
-        <td class="mono">{{ r.uom or '' }}</td>
-        <td class="mono">{{ r.bom_code or '' }}</td>
-        <td class="mono">{{ r.bom_variant_id or '' }}</td>
       </tr>
       {% endfor %}
     </tbody>

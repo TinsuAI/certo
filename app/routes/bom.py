@@ -1507,19 +1507,19 @@ async def artifact_export_xlsx(request: Request, client_id: str, artifact_id: st
     ws = wb.active
     ws.title = f"BOM_{artifact['product_code']}"[:31]
     ws.append([
-        "STT", "Mã NVL", "Nguồn", "Định mức / đơn vị",
-        "ĐVT", "Mã BOM", "Đợt",
+        "STT", "Mã NVL", "Định mức / đơn vị",
+        "ĐVT", "Mã BOM", "Đợt", "Nguồn",
     ])
     for r in rows:
         code = r.get("material_code") or ""
         ws.append([
             r.get("row_index"),
             code,
-            "NK" if has_nk(code) else "BOM-only",
             float(r["qty_per_unit"]) if r.get("qty_per_unit") is not None else 0.0,
             r.get("uom") or "",
             r.get("bom_code") or "",
             r.get("bom_variant_id") or "",
+            "NK" if has_nk(code) else "BOM-only",
         ])
 
     buf = BytesIO()
