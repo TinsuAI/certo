@@ -15,7 +15,7 @@ uv sync
 uv run uvicorn app.main:app --port 8754
 ```
 
-Open http://127.0.0.1:8754. Default admin: `admin@data-hub.local / admin123`
+Open http://127.0.0.1:8754. Default admin: `admin@data-hub.local / local_test_password`
 (set via `DATA_HUB_SEED_EMAIL` / `DATA_HUB_SEED_PASSWORD` env vars).
 
 ### Demo data
@@ -78,7 +78,7 @@ POST /api/v1/hub/products/{product_code}/bom/proposals
 DATA_HUB_DATABASE_URL=postgresql:///data_hub
 DATA_HUB_FILES_ROOT=data/files
 DATA_HUB_SEED_EMAIL=admin@data-hub.local
-DATA_HUB_SEED_PASSWORD=admin123
+DATA_HUB_SEED_PASSWORD=local_test_password
 ```
 
 ## Documentation

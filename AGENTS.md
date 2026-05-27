@@ -118,7 +118,7 @@ Will likely match CO's existing choices to minimize friction:
 
 ```bash
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8754 --workers 4
-# Login admin@data-hub.local / admin123 (role=dev)
+# Login admin@data-hub.local / local_test_password (role=dev)
 #
 # Dev server runs 4 workers (concurrency for sister-app paginated
 # calls). `--workers N` is mutually exclusive with `--reload`, so no
