@@ -851,6 +851,26 @@
 {% endif %}
 
 {% if co_case_active_step == "origin" %}
+<datalist id="origin-criteria-options">
+  <option value="WO"></option>
+  <option value="PE"></option>
+  <option value="CC"></option>
+  <option value="CTH"></option>
+  <option value="CTSH"></option>
+  <option value="RVC 35%"></option>
+  <option value="RVC 40%"></option>
+  <option value="LVC 30%"></option>
+  <option value="LVC 35%"></option>
+  <option value="LVC 40%"></option>
+  <option value="RVC 40% hoặc CTH"></option>
+  <option value="RVC 40% hoặc CTSH"></option>
+  <option value="LVC 30% hoặc CTH"></option>
+  <option value="LVC 30% hoặc CTSH"></option>
+  <option value="LVC 40% hoặc CTH"></option>
+  <option value="LVC 40% hoặc CTSH"></option>
+  <option value="AIFTA 35% FOB + CTSH"></option>
+  <option value="Tra PSR theo Phụ lục"></option>
+</datalist>
 <section class="zone source-panel">
   <div class="zone-head">
     <div>
@@ -1248,13 +1268,10 @@
                 </select>
               </label>
               <label>Tiêu chí (override)
-                <input type="text" data-origin-recommendation-criteria value="{{ criteria_override }}" placeholder="VD: LVC 30% hoặc CTH">
+                <input list="origin-criteria-options" data-origin-recommendation-criteria value="{{ criteria_override }}" placeholder="— theo khuyến nghị —">
               </label>
-              <label>Ngưỡng LVC (%)
-                <input type="number" min="0" max="100" step="0.01" data-origin-recommendation-lvc value="{{ lvc_threshold_override }}" placeholder="VD: 30">
-              </label>
-              <label>Ngưỡng RVC (%)
-                <input type="number" min="0" max="100" step="0.01" data-origin-recommendation-rvc value="{{ rvc_threshold_override }}" placeholder="VD: 40">
+              <label>Ngưỡng LVC/RVC (%)
+                <input type="number" min="0" max="100" step="0.01" data-origin-recommendation-threshold value="{{ lvc_threshold_override or rvc_threshold_override }}" placeholder="VD: 40">
               </label>
               <label>Hiển thị
                 <select data-origin-recommendation-currency>
@@ -1269,6 +1286,11 @@
                 </select>
               </label>
               <button type="button" data-origin-recommendation-save>Lưu cấu hình</button>
+              <button type="button" class="btn-secondary" data-origin-recommendation-reset
+                      title="Xóa mọi override (form/tiêu chí/ngưỡng/tiền tệ/mode) và để engine tự khuyến nghị theo thị trường + HS hiện tại."
+                      {% if not (form_override or criteria_override or lvc_threshold_override or rvc_threshold_override or currency_mode != 'native' or optimization_mode != 'max_lvc') %}disabled{% endif %}>
+                Reset về khuyến nghị
+              </button>
               <span class="origin-recommendation-status" data-origin-recommendation-status hidden></span>
             </div>
             <div class="origin-recommendation-effective" hidden data-origin-effective-summary>
@@ -1904,8 +1926,8 @@
         status_label: product.origin_sheet_status_label || "",
         form_override: recommendation?.querySelector("[data-origin-recommendation-form]")?.value || "",
         criteria_override: recommendation?.querySelector("[data-origin-recommendation-criteria]")?.value || "",
-        lvc_threshold_override: recommendation?.querySelector("[data-origin-recommendation-lvc]")?.value || "",
-        rvc_threshold_override: recommendation?.querySelector("[data-origin-recommendation-rvc]")?.value || "",
+        lvc_threshold_override: recommendation?.querySelector("[data-origin-recommendation-threshold]")?.value || "",
+        rvc_threshold_override: recommendation?.querySelector("[data-origin-recommendation-threshold]")?.value || "",
         currency_mode: recommendation?.querySelector("[data-origin-recommendation-currency]")?.value || "native",
         optimization_mode: recommendation?.querySelector("[data-origin-recommendation-optimization]")?.value || "max_lvc",
       };
@@ -2815,11 +2837,11 @@
       const url = panel.dataset.overrideUrl || "";
       const formSel = panel.querySelector("[data-origin-recommendation-form]");
       const criteriaInp = panel.querySelector("[data-origin-recommendation-criteria]");
-      const lvcInp = panel.querySelector("[data-origin-recommendation-lvc]");
-      const rvcInp = panel.querySelector("[data-origin-recommendation-rvc]");
+      const thresholdInp = panel.querySelector("[data-origin-recommendation-threshold]");
       const currencySel = panel.querySelector("[data-origin-recommendation-currency]");
       const optimizationSel = panel.querySelector("[data-origin-recommendation-optimization]");
       const saveBtn = panel.querySelector("[data-origin-recommendation-save]");
+      const resetBtn = panel.querySelector("[data-origin-recommendation-reset]");
       const status = panel.querySelector("[data-origin-recommendation-status]");
       if (!saveBtn || !url) return;
       // Apply persisted currency mode immediately so the UI reflects it before save.
@@ -2844,8 +2866,10 @@
               ...payload,
               form_override: formSel?.value || "",
               criteria_override: criteriaInp?.value || "",
-              lvc_threshold_override: lvcInp?.value || "",
-              rvc_threshold_override: rvcInp?.value || "",
+              // The single threshold input feeds both LVC + RVC server fields;
+              // the engine picks whichever applies based on the criteria text.
+              lvc_threshold_override: thresholdInp?.value || "",
+              rvc_threshold_override: thresholdInp?.value || "",
               currency_mode: currencySel?.value || "native",
               optimization_mode: optimizationSel?.value || "max_lvc",
             }),
@@ -2865,6 +2889,53 @@
           setStatus(String(err), "error");
           toast("Lỗi mạng khi lưu cấu hình.", "error");
         } finally {
+          saveBtn.disabled = false;
+        }
+      });
+      resetBtn?.addEventListener("click", async () => {
+        if (!window.confirm("Reset form / tiêu chí / ngưỡng / tiền tệ / mode về khuyến nghị engine? Mọi override sẽ bị xoá.")) return;
+        resetBtn.disabled = true;
+        saveBtn.disabled = true;
+        setStatus("Đang reset…", "info");
+        const form = panel.closest("form");
+        const payload = form ? compactOriginPayload(form) : {};
+        try {
+          const response = await fetch(url, {
+            method: "POST",
+            headers: {"Content-Type": "application/json", "Accept": "application/json"},
+            body: JSON.stringify({
+              ...payload,
+              form_override: "",
+              criteria_override: "",
+              lvc_threshold_override: "",
+              rvc_threshold_override: "",
+              currency_mode: "native",
+              optimization_mode: "max_lvc",
+            }),
+          });
+          if (!response.ok) {
+            const text = await response.text();
+            let detail = "";
+            try { detail = JSON.parse(text).detail || ""; } catch (_e) { detail = text.slice(0, 160); }
+            setStatus(detail || `Lỗi ${response.status}`, "error");
+            toast(detail || "Không reset được.", "error");
+            resetBtn.disabled = false;
+            saveBtn.disabled = false;
+          } else {
+            if (formSel) formSel.value = "";
+            if (criteriaInp) criteriaInp.value = "";
+            if (thresholdInp) thresholdInp.value = "";
+            if (currencySel) currencySel.value = "native";
+            if (optimizationSel) optimizationSel.value = "max_lvc";
+            applyCurrencyMode(panel, "native");
+            setStatus("Đã reset. Đang tải lại…", "success");
+            toast("Đã reset về khuyến nghị.", "success");
+            window.setTimeout(() => window.location.reload(), 600);
+          }
+        } catch (err) {
+          setStatus(String(err), "error");
+          toast("Lỗi mạng khi reset.", "error");
+          resetBtn.disabled = false;
           saveBtn.disabled = false;
         }
       });
