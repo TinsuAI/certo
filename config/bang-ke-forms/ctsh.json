@@ -1,0 +1,83 @@
+{
+  "criterion": "CTSH",
+  "phu_luc": "Phụ lục V",
+  "title": "BẢNG KÊ KHAI HÀNG HÓA XUẤT KHẨU ĐẠT TIÊU CHÍ \"CTC\" (CTSH)",
+  "template_sheet": "CTSH",
+
+  "_doc": "CTSH shares the CTH layout — same Phụ lục V form, just a tighter HS-shift requirement. The combined template clones CTH→CTSH so the sheet structure is identical.",
+
+  "header_cells": [
+    { "cell": "B6",  "field": "merchant",      "prefix": "Tên Thương nhân: " },
+    { "cell": "B7",  "field": "tax_code",      "prefix": "Mã số thuế: " },
+    { "cell": "B9",  "field": "declaration",   "format": "{no} Ngày {date}", "skip_if_empty": true },
+    { "cell": "K6",  "field": "criterion_text" },
+    { "cell": "K7",  "field": "product_name" },
+    { "cell": "P7",  "field": "product_code" },
+    { "cell": "K8",  "field": "finished_hs" },
+    { "cell": "O8",  "field": "incoterm",      "default": "FOB" },
+    { "cell": "P8",  "field": "unit_price" },
+    { "cell": "K9",  "field": "quantity_decimal" },
+    { "cell": "L9",  "field": "uom" },
+    { "cell": "P9",  "field": "quantity_decimal" },
+    { "cell": "Q9",  "field": "source_declaration_no" },
+    { "cell": "K10", "field": "fob_decimal" },
+    { "cell": "K11", "field": "fob_decimal" },
+    { "cell": "P5",  "field": "material_count" }
+  ],
+
+  "clear_cells": [
+    "I1590", "I1591", "I1593",
+    "I1595", "I1596", "I1597", "I1599",
+    "I1600", "I1601", "I1602", "I1603",
+    "J1609"
+  ],
+
+  "body": {
+    "start_row": 16,
+    "end_row": 1585,
+    "hide_unused_rows": true,
+    "hidden_helper_cols": ["O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y"],
+    "columns": {
+      "stt":              "A",
+      "name":             "B",
+      "hs":               "C",
+      "uom":              "D",
+      "norm":             "E",
+      "qty":              "F",
+      "unit_price":       "G",
+      "origin_value":     "H",
+      "non_origin_value": "I",
+      "country":          "J",
+      "import_decl_no":   "K",
+      "import_decl_date": "L",
+      "co_doc_no":        "M",
+      "co_doc_date":      "N",
+      "import_line_no":   "O",
+      "material_code":    "P",
+      "decl_mat_key":     "Q",
+      "decl_type":        "S",
+      "product_code":     "W",
+      "product_line":     "X",
+      "product_qty":      "Y"
+    }
+  },
+
+  "footer": {
+    "sums": [
+      { "cell": "C1586", "source": "origin" },
+      { "cell": "C1587", "source": "non_origin" },
+      { "cell": "H1588", "source": "origin" },
+      { "cell": "I1588", "source": "non_origin" },
+      { "cell": "I1604", "source": "fob" },
+      { "cell": "J1606", "source": "fob" },
+      { "cell": "K1606", "source": "non_origin" },
+      { "cell": "M1607", "source": "ratio" }
+    ],
+    "conclusion": {
+      "cell": "B1611",
+      "template": "Kết luận: Hàng hóa đáp ứng tiêu chí “CTSH”"
+    }
+  },
+
+  "print_area_template": "'{sheet_name}'!$A$1:$N$1623"
+}

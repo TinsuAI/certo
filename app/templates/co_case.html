@@ -1053,6 +1053,51 @@
           <input type="hidden" name="product_{{ product_index }}_tariff_shift_status_label" value="{{ product.tariff_shift_status_label }}">
           <input type="hidden" name="product_{{ product_index }}_tariff_shift_note" value="{{ product.tariff_shift_note }}">
 
+          {% set cost_buildup = product.cost_buildup or {} %}
+          {% set criterion_upper = (product.origin_sheet_effective_criteria_text or product.documented_result or '')|upper %}
+          {% set cost_buildup_relevant = 'LVC' in criterion_upper or 'RVC' in criterion_upper %}
+          <details class="cost-buildup-block" {% if cost_buildup_relevant %}open{% endif %}>
+            <summary>
+              Chi phí xuất xưởng (LVC/RVC)
+              <small>Nhập các khoản ngoài NPL — engine sẽ điền vào block I-VIII của bảng kê.</small>
+            </summary>
+            <div class="cost-buildup-grid">
+              <label>
+                <span>Chi phí nhân công (II)</span>
+                <input type="number" step="0.01" min="0" inputmode="decimal"
+                       name="product_{{ product_index }}_cost_buildup_labor"
+                       value="{{ cost_buildup.labor or '' }}"
+                       data-cost-buildup-input
+                       placeholder="0.00">
+              </label>
+              <label>
+                <span>Chi phí phân bổ (III)</span>
+                <input type="number" step="0.01" min="0" inputmode="decimal"
+                       name="product_{{ product_index }}_cost_buildup_overhead"
+                       value="{{ cost_buildup.overhead or '' }}"
+                       data-cost-buildup-input
+                       placeholder="0.00">
+              </label>
+              <label>
+                <span>Lợi nhuận (V)</span>
+                <input type="number" step="0.01" min="0" inputmode="decimal"
+                       name="product_{{ product_index }}_cost_buildup_profit"
+                       value="{{ cost_buildup.profit or '' }}"
+                       data-cost-buildup-input
+                       placeholder="0.00">
+              </label>
+              <label>
+                <span>Chi phí khác (VII)</span>
+                <input type="number" step="0.01" min="0" inputmode="decimal"
+                       name="product_{{ product_index }}_cost_buildup_other"
+                       value="{{ cost_buildup.other or '' }}"
+                       data-cost-buildup-input
+                       placeholder="0.00">
+              </label>
+            </div>
+            <p class="cost-buildup-hint" data-cost-buildup-hint></p>
+          </details>
+
           <div class="product-head">
             <div>
               <span class="eyebrow">Bước tính {{ product.allocation_sequence or loop.index }}</span>
@@ -1807,6 +1852,12 @@
         lvc_threshold: panel.querySelector('input[name$="_lvc_threshold"]')?.value || "",
         origin_sheet_status: sheetStatus,
         origin_sheet_status_label: sheetStatusLabel,
+        cost_buildup: {
+          labor:    panel.querySelector('input[name$="_cost_buildup_labor"]')?.value || "",
+          overhead: panel.querySelector('input[name$="_cost_buildup_overhead"]')?.value || "",
+          profit:   panel.querySelector('input[name$="_cost_buildup_profit"]')?.value || "",
+          other:    panel.querySelector('input[name$="_cost_buildup_other"]')?.value || "",
+        },
       };
     }).filter((product) => product.code);
     const sheetStates = {};
@@ -4367,6 +4418,46 @@
     });
   };
 
+  const initCostBuildupHint = (root = document) => {
+    const formatNumber = (value) => {
+      if (!Number.isFinite(value)) return "0";
+      return new Intl.NumberFormat("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2}).format(value);
+    };
+    root.querySelectorAll(".cost-buildup-block").forEach((block) => {
+      const panel = block.closest("[data-origin-sheet-panel]");
+      if (!panel) return;
+      const fob = parseFloat(panel.dataset.productFob || "0") || 0;
+      const inputs = Array.from(block.querySelectorAll("[data-cost-buildup-input]"));
+      const hint = block.querySelector("[data-cost-buildup-hint]");
+      if (!hint) return;
+      const recompute = () => {
+        const sum = inputs.reduce((acc, input) => acc + (parseFloat(input.value || "0") || 0), 0);
+        // Material total = FOB - (labor+overhead+profit+other). Display hint vs FOB.
+        if (fob <= 0) {
+          hint.textContent = "";
+          hint.removeAttribute("data-state");
+          return;
+        }
+        const expectedMaterial = fob - sum;
+        if (sum === 0) {
+          hint.textContent = "Để trống: bảng kê chỉ show I/IV/VI/VIII; II-III-V-VII sẽ trống.";
+          hint.removeAttribute("data-state");
+        } else if (expectedMaterial < 0) {
+          hint.textContent = `Tổng chi phí ngoài NPL = ${formatNumber(sum)} > FOB ${formatNumber(fob)} — không hợp lệ.`;
+          hint.dataset.state = "warning";
+        } else {
+          hint.textContent = `Tổng II+III+V+VII = ${formatNumber(sum)}. NPL còn lại = ${formatNumber(expectedMaterial)} / FOB ${formatNumber(fob)}.`;
+          hint.dataset.state = "ok";
+        }
+      };
+      inputs.forEach((input) => {
+        input.addEventListener("input", recompute);
+        input.addEventListener("blur", recompute);
+      });
+      recompute();
+    });
+  };
+
   refreshCaseShellInteractions = (root = document) => {
     initOriginWarningSummaries(root);
     initOriginColumnControls(root);
@@ -4377,6 +4468,7 @@
     initOriginLiveRecompute(root);
     initCaseTabLoading(root);
     initCaseCreatedBanner(root);
+    initCostBuildupHint(root);
   };
   refreshCaseShellInteractions();
 

@@ -10,6 +10,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from urllib.parse import quote
 
+import httpx
 from fastapi import File, Form, HTTPException, Request, UploadFile
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
@@ -256,6 +257,9 @@ def merge_origin_action_payload(case: dict, payload: dict) -> dict:
         ]:
             if key in incoming:
                 product[key] = incoming.get(key)
+        if isinstance(incoming.get("cost_buildup"), dict):
+            existing_cb = product.get("cost_buildup") if isinstance(product.get("cost_buildup"), dict) else {}
+            product["cost_buildup"] = {**existing_cb, **{k: str(v or "") for k, v in incoming["cost_buildup"].items() if k in {"labor", "overhead", "profit", "other"}}}
         if isinstance(incoming.get("materials"), list):
             product["materials"] = incoming["materials"]
         if incoming.get("origin_sheet_status") or incoming.get("origin_sheet_status_label"):
@@ -1010,10 +1014,36 @@ def require_local_source_writes() -> None:
         )
 
 
+# Local CO state uses short client IDs (e.g. "johnson") while Data Hub stores
+# them suffixed with a country code (e.g. "johnson-vn"). When the literal
+# Data Hub lookup 404s, retry with these suffix variants before falling back
+# to the local registry. Edit when new tenants join.
+_CLIENT_ID_FALLBACK_SUFFIXES: tuple[str, ...] = ("-vn",)
+
+
 def resolve_client(client_id: str) -> dict:
+    """Resolve a CO client by short ID, mapping to Data Hub's suffix variant.
+
+    Data Hub stores tenants with a country suffix (e.g. `growatt-vn`) while
+    CO local state and URLs use the short form (`growatt`). The Data Hub
+    client wrapper itself retries 404s on the suffix variant, so the lookup
+    succeeds — but the returned record carries the Data Hub ID. Force the
+    short ID back onto the result so downstream lookups (`get_case_record`,
+    Postgres queries) stay consistent with CO state.
+    """
     service_client = getattr(portfolio_service, "client", None)
     if callable(service_client):
-        return service_client(client_id)
+        try:
+            resolved = service_client(client_id)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != 404:
+                raise
+            return registry_get_client(client_id)
+        if isinstance(resolved, dict):
+            resolved = dict(resolved)
+            resolved["id"] = client_id
+            resolved["client_id"] = client_id
+        return resolved
     return registry_get_client(client_id)
 
 

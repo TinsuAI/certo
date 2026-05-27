@@ -3308,26 +3308,26 @@ def test_export_dossier_zip_bundles_chung_tu_tkx_tkn_and_hq_bang_ke(monkeypatch)
     target_name = next((n for n in wb.sheetnames if n.endswith("TP-ZIP")), None) or "LVC"
     sheet = wb[target_name]
     if template_named:
-        # Legacy `tru lui CO` template-based path (data/local/hq-templates/tru-lui-co-template.xlsm
-        # present locally). CI does not have this gitignored agency file, so it
-        # exercises the shell fallback path instead — assertions below are
-        # tied to the legacy template's exact cell layout.
-        # Per docs/legacy-workbook-output-sheet-structure.md, body starts at row 16.
-        assert sheet.print_area == f"'{target_name}'!$A$1:$N$1623"
-        assert sheet["B12"].value == "Các loại chi phí\n"
-        assert sheet["F12"].value == "Nhu cầu nguyên liệu sử dụng lô hàng"
-        assert sheet["G12"].value is None
-        assert sheet["P5"].value == 1
+        # 2026 FORM MAU template path (data/local/hq-templates/form-mau-combined.xlsx
+        # present locally). CI may not have this gitignored agency file, so it
+        # may exercise the shell fallback path instead — assertions below are
+        # tied to the LVC form-mau compact layout.
+        # Per FORM LVC.xlsx, body starts at row 16 and ends ~row 437.
+        assert sheet.print_area == f"'{target_name}'!$A$1:$N$477"
+        assert sheet["B12"].value == "Tên nguyên phụ liệu\n原材料的名称"
+        assert sheet["C12"].value == "Mã nguyên vật liệu"
+        assert sheet["D12"].value == "Mã HS\nHS CODE"
         assert sheet.cell(row=16, column=1).value == 1
         assert sheet.cell(row=16, column=2).value == "Zip mat"
-        assert sheet.row_dimensions[17].hidden is True
-        assert sheet.column_dimensions["O"].hidden is True
-        assert sheet.column_dimensions["Y"].hidden is True
-        assert sheet["P7"].value == "TP-ZIP"
-        assert sheet["P8"].value == 100
-        assert sheet["K10"].value == 100
+        # LVC compact layout puts material_code at C, HS at D, UOM at E.
+        assert sheet.cell(row=16, column=3).value == "M-Z"
+        # LVC product header: name at L7, qty at L9, uom at N9, FOB at L10.
+        assert sheet["L9"].value == Decimal("1")
+        assert sheet["N9"].value == "PCS"
+        assert sheet["L10"].value == Decimal("100")
     # Title row is produced by both paths.
-    assert isinstance(sheet["A3"].value, str) and "BẢNG KÊ" in sheet["A3"].value.upper()
+    title = sheet["A3"].value or ""
+    assert isinstance(title, str) and ("BẢNG KÊ" in title.upper() or "BẢNG TÍNH HÀM LƯỢNG" in title.upper())
 
     quick_wb = Workbook()
     quick_wb.active.title = "1TP-ZIP"

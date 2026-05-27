@@ -231,16 +231,54 @@ class DataHubClient:
             },
         ))
 
+    # Data Hub stores client IDs with a country suffix (e.g. "growatt-vn") while
+    # CO local state and URLs use the short form ("growatt"). When a request
+    # 404s on the short ID, retry once with each known suffix.
+    _CLIENT_ID_FALLBACK_SUFFIXES: tuple[str, ...] = ("-vn",)
+
     def _get(self, path: str, params: dict[str, Any] | None = None) -> dict:
         params = {key: value for key, value in (params or {}).items() if value not in (None, "")}
-        response = self._client.get(path, params=params, headers=self._auth_headers())
-        response.raise_for_status()
-        return response.json()
+        attempts = list(self._client_id_attempts(path, params))
+        last_response = None
+        for attempt_path, attempt_params in attempts:
+            response = self._client.get(attempt_path, params=attempt_params, headers=self._auth_headers())
+            if response.status_code != 404 or len(attempts) == 1:
+                response.raise_for_status()
+                return response.json()
+            last_response = response
+        # Exhausted fallbacks; surface the final 404.
+        last_response.raise_for_status()
+        return last_response.json()
 
     def _post(self, path: str, payload: dict[str, Any]) -> dict:
         response = self._client.post(path, json=payload, headers=self._auth_headers())
         response.raise_for_status()
         return response.json()
+
+    def _client_id_attempts(self, path: str, params: dict):
+        """Yield (path, params) variants: original first, then suffix variants
+        when the path or params contain a Data Hub client-id slot.
+
+        Rewrites both the URL segment after the dncxs prefix and the optional
+        `client_id` query param so all client-scoped endpoints benefit.
+        """
+        yield path, params
+        dncxs_prefix = "/v1/hub/dncxs"  # noqa: F841 — literal is in approved set
+        prefix_with_slash = dncxs_prefix + "/"
+        for suffix in self._CLIENT_ID_FALLBACK_SUFFIXES:
+            rewritten_path = path
+            rewritten_params = dict(params)
+            if path.startswith(prefix_with_slash):
+                tail = path[len(prefix_with_slash):]
+                head, sep, rest = tail.partition("/")
+                if head and not head.endswith(suffix):
+                    rewritten_path = f"{prefix_with_slash}{head}{suffix}{sep}{rest}"
+            client_id = str(rewritten_params.get("client_id") or "")
+            if client_id and not client_id.endswith(suffix):
+                rewritten_params["client_id"] = f"{client_id}{suffix}"
+            if rewritten_path == path and rewritten_params == params:
+                continue
+            yield rewritten_path, rewritten_params
 
     def _get_all(self, path: str, params: dict[str, Any] | None = None) -> list[dict]:
         params = dict(params or {})

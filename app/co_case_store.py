@@ -685,6 +685,32 @@ def text_list(value) -> list[str]:
     return [item.strip() for item in str(value or "").split("|") if item.strip()]
 
 
+def _sanitize_cost_buildup(raw) -> dict[str, str]:
+    """Coerce labor / overhead / profit / other to non-negative numeric strings.
+
+    Invalid or negative entries become empty strings — the bảng kê engine then
+    treats them as "user hasn't filled in" rather than failing the export.
+    """
+    if not isinstance(raw, dict):
+        return {"labor": "", "overhead": "", "profit": "", "other": ""}
+    cleaned: dict[str, str] = {}
+    for key in ("labor", "overhead", "profit", "other"):
+        text = str(raw.get(key) or "").strip().replace(",", "")
+        if not text:
+            cleaned[key] = ""
+            continue
+        try:
+            value = decimal_value(text)
+        except Exception:
+            cleaned[key] = ""
+            continue
+        if value < 0:
+            cleaned[key] = ""
+        else:
+            cleaned[key] = str(value)
+    return cleaned
+
+
 def persisted_products(products: list[dict]) -> list[dict]:
     output = []
     for product in products:
@@ -693,6 +719,7 @@ def persisted_products(products: list[dict]) -> list[dict]:
             for key, value in product.items()
             if key not in {"materials", "result"}
         }
+        persisted["cost_buildup"] = _sanitize_cost_buildup(product.get("cost_buildup"))
         persisted["materials"] = [
             {
                 key: json_safe(value)

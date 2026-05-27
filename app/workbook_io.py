@@ -8,7 +8,30 @@ from typing import Any
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils import get_column_letter
 
+from app.bang_ke_renderer import load_form_config, render_into_sheet
+from app.bang_ke_xml_generator import render_case as render_case_via_xml
 from app.demo_data import attach_results, get_demo_case
+
+# Criteria migrated to the config-driven renderer (approach B).
+# All five form-mau criteria are now driven by JSON config under
+# config/bang-ke-forms/. The hardcoded Python mappings below are retained
+# only as a fallback when no config is present (e.g. for the shell builder).
+_CONFIG_DRIVEN_CRITERIA: set[str] = {"LVC", "CTH", "CTSH", "RVC", "PSR"}
+
+
+def _render_via_config(ws_copy, sheet_code: str, case: dict, product: dict, sheet_title: str) -> bool:
+    """If `sheet_code` has a JSON config, render through the engine and return True.
+
+    Otherwise return False so the caller falls back to the legacy hardcoded path.
+    """
+    if sheet_code not in _CONFIG_DRIVEN_CRITERIA:
+        return False
+    try:
+        config = load_form_config(sheet_code)
+    except FileNotFoundError:
+        return False
+    render_into_sheet(ws_copy, config, case=case, product=product, sheet_title=sheet_title)
+    return True
 
 CASE_HEADERS = ["field", "value"]
 DOCUMENT_HEADERS = ["slot", "label", "reference", "status"]
@@ -325,10 +348,11 @@ def write_seed_workbook(path: Path) -> None:
 # docs/legacy-workbook-output-sheet-structure.md.
 
 HQ_SHEET_DEFS = [
-    {"sheet": "LVC", "title": 'BẢNG KÊ KHAI HÀNG HÓA XUẤT KHẨU ĐẠT TIÊU CHÍ "LVC"', "default_threshold": "30"},
+    {"sheet": "LVC", "title": 'BẢNG TÍNH HÀM LƯỢNG VÀ KÊ KHAI HÀNG HÓA XUẤT KHẨU ĐẠT TIÊU CHÍ "LVC"', "default_threshold": "30"},
     {"sheet": "RVC", "title": 'BẢNG KÊ KHAI HÀNG HÓA XUẤT KHẨU ĐẠT TIÊU CHÍ "RVC"', "default_threshold": "40"},
     {"sheet": "CTH", "title": 'BẢNG KÊ KHAI HÀNG HÓA XUẤT KHẨU ĐẠT TIÊU CHÍ "CTC" (CTH)', "default_threshold": ""},
     {"sheet": "CTSH", "title": 'BẢNG KÊ KHAI HÀNG HÓA XUẤT KHẨU ĐẠT TIÊU CHÍ "CTC" (CTSH)', "default_threshold": ""},
+    {"sheet": "PSR", "title": 'BẢNG KÊ KHAI HÀNG HÓA XUẤT KHẨU ĐẠT TIÊU CHÍ "PSR"', "default_threshold": ""},
     {"sheet": "EUR1", "title": 'BẢNG KÊ KHAI HÀNG HÓA XUẤT KHẨU ĐẠT TIÊU CHÍ "PSR" (EUR.1)', "default_threshold": ""},
 ]
 HQ_LEGAL_NOTE = "Ban hành kèm theo Thông tư 05/2018/TT-BCT (sửa đổi 44/2023/TT-BCT, 23/2025/TT-BCT)."
@@ -339,6 +363,37 @@ HQ_HEADERS = [
 ]
 HQ_BODY_START = 16
 HQ_BODY_END = 1585
+
+# Per-sheet layout descriptors. The "legacy" layout matches CTH/CTSH/RVC/PSR/EUR1
+# (cols A-N data + O-Y helpers, body to row 1585, footer 1586-1611).
+# The "lvc" layout matches the compact LVC template (cols A-N, body to row 437,
+# template-owned summary block at 438+, conclusion at B463).
+_HQ_LEGACY_LAYOUT = {
+    "kind": "legacy",
+    "body_end": 1585,
+    "helper_cols": range(15, 26),
+    "cols": {
+        "stt": 1, "name": 2, "hs": 3, "uom": 4, "norm": 5, "qty": 6,
+        "unit_price": 7, "origin_val": 8, "non_origin_val": 9, "country": 10,
+        "imp_no": 11, "imp_date": 12, "co_no": 13, "co_date": 14,
+        "line_no": 15, "mat_code": 16, "col_q": 17, "col_s": 19,
+        "prod_code": 23, "src_line": 24, "qty_y": 25,
+    },
+}
+_HQ_LVC_LAYOUT = {
+    "kind": "lvc",
+    "body_end": 437,
+    "helper_cols": [],
+    "cols": {
+        "stt": 1, "name": 2, "mat_code": 3, "hs": 4, "uom": 5, "norm": 6,
+        "unit_price": 7, "origin_val": 8, "non_origin_val": 9, "country": 10,
+        "imp_no": 11, "imp_date": 12, "co_no": 13, "co_date": 14,
+    },
+}
+
+
+def _hq_layout_for(sheet_code: str) -> dict:
+    return _HQ_LVC_LAYOUT if sheet_code == "LVC" else _HQ_LEGACY_LAYOUT
 
 
 def hq_sheet_codes_for_product(product: dict) -> set[str]:
@@ -355,8 +410,10 @@ def hq_sheet_codes_for_product(product: dict) -> set[str]:
         product.get("origin_criterion_mode") or "",
     ]
     criteria = " ".join(str(c) for c in criteria_sources).upper()
-    if form == "EUR.1" or "EUR.1" in form or "PSR" in criteria:
+    if form == "EUR.1" or "EUR.1" in form:
         return {"EUR1"}
+    if "PSR" in criteria:
+        return {"PSR"}
     if "LVC" in criteria:
         return {"LVC"}
     if "RVC" in criteria or "MAXNOM" in criteria:
@@ -410,6 +467,22 @@ def write_hq_template_sheet_header(ws, product: dict, sheet_def: dict, case: dic
         criterion = f"{sheet_def['sheet']} {threshold}%"
     material_count = count_hq_material_rows(product)
 
+    sheet_code = sheet_def["sheet"]
+    uom = product.get("uom") or product.get("unit") or product.get("export_unit", "")
+    if sheet_code == "LVC":
+        # Compact LVC layout (Phụ lục VII, form-mau-combined): K-N header cells.
+        ws["B6"] = f"Tên Thương nhân: {merchant}" if merchant else "Tên Thương nhân: "
+        ws["B7"] = f"Mã số thuế : {tax_code}" if tax_code else "Mã số thuế : "
+        if declaration_no:
+            ws["B8"] = f"Tờ khai: {declaration_no} ngày {declaration_date}".strip()
+        ws["K6"] = f"Tiêu chí áp dụng: {criterion}"
+        ws["L7"] = product.get("name", "")
+        ws["K8"] = f"Mã HS của hàng hóa (6 số) : {product.get('finished_hs', '')}"
+        ws["L9"] = quantity
+        ws["N9"] = uom
+        ws["L10"] = fob
+        return
+    # Legacy wide layout (CTH/CTSH/RVC/PSR) — preserves Mã LH / Tỷ giá / helper cols.
     ws["B6"] = f"Tên Thương nhân: {merchant}" if merchant else "Tên Thương nhân: "
     ws["B7"] = f"Mã số thuế: {tax_code}" if tax_code else "Mã số thuế: "
     ws["K6"] = criterion
@@ -421,12 +494,15 @@ def write_hq_template_sheet_header(ws, product: dict, sheet_def: dict, case: dic
     if declaration_no:
         ws["B9"] = f"{declaration_no} Ngày {declaration_date}".strip()
     ws["K9"] = quantity
-    ws["L9"] = product.get("uom") or product.get("unit") or product.get("export_unit", "")
+    ws["L9"] = uom
     ws["P9"] = quantity
     ws["Q9"] = declaration_no
     ws["K10"] = fob
     ws["K11"] = fob
     ws["P5"] = material_count
+    # PSR template carries Trị giá xuất xưởng / Phí B/L+THC / Phí vận chuyển
+    # labels at M9/M10/M11 in the source template; we don't compute the
+    # breakdown yet, so leave those header cells to whatever the template ships.
 
 
 def count_hq_material_rows(product: dict) -> int:
@@ -454,12 +530,21 @@ def first_non_empty(values) -> str:
 
 
 def write_hq_sheet_materials(ws, product: dict, start_row: int, *, legacy_export_layout: bool = False, sheet_code: str = "") -> int:
+    layout = _hq_layout_for(sheet_code)
+    cols = layout["cols"]
     materials = product.get("materials") or []
     overrides = product.get("origin_sheet_material_overrides") or {}
     row_index = start_row
     counter = 1
     sum_origin = Decimal("0")
     sum_non_origin = Decimal("0")
+
+    def put(row: int, key: str, value) -> None:
+        col = cols.get(key)
+        if not col:
+            return
+        ws.cell(row=row, column=col, value=value)
+
     for index, material in enumerate(materials):
         override = overrides.get(str(index)) if isinstance(overrides.get(str(index)), dict) else {}
         if override.get("deleted"):
@@ -475,76 +560,127 @@ def write_hq_sheet_materials(ws, product: dict, start_row: int, *, legacy_export
         non_origin_value = material_value if origin_status != "origin" else Decimal("0")
         sum_origin += origin_value
         sum_non_origin += non_origin_value
-        ws.cell(row=row_index, column=1, value=counter)
-        ws.cell(row=row_index, column=2, value=material_name)
-        ws.cell(row=row_index, column=3, value=material.get("hs_code", ""))
-        ws.cell(row=row_index, column=4, value=material.get("uom", ""))
-        ws.cell(row=row_index, column=5, value=str(norm))
-        ws.cell(row=row_index, column=6, value=str(required_qty))
-        ws.cell(row=row_index, column=7, value=str(unit_price))
-        ws.cell(row=row_index, column=8, value=str(origin_value))
-        ws.cell(row=row_index, column=9, value=str(non_origin_value))
-        ws.cell(row=row_index, column=10, value=material.get("origin_country", ""))
-        ws.cell(row=row_index, column=11, value=material.get("import_declaration_no", ""))
-        ws.cell(row=row_index, column=12, value=material.get("import_declaration_date", ""))
-        ws.cell(row=row_index, column=13, value=material.get("source_document_ref", ""))
-        ws.cell(row=row_index, column=14, value=material.get("source_document_date", ""))
-        # Helper columns (preserved per legacy macro layout, hidden in print).
-        ws.cell(row=row_index, column=15, value=material.get("import_line_no", ""))  # O
-        ws.cell(row=row_index, column=16, value=material_code)  # P
-        ws.cell(row=row_index, column=17, value=f"{product.get('source_declaration_no', '')}{material_code}")  # Q
-        ws.cell(row=row_index, column=19, value=material.get("import_declaration_type", ""))  # S
-        ws.cell(row=row_index, column=23, value=product.get("code", ""))  # W
-        ws.cell(row=row_index, column=24, value=product.get("source_line_no", ""))  # X
-        ws.cell(row=row_index, column=25, value=product.get("quantity", ""))  # Y
+
+        put(row_index, "stt", counter)
+        put(row_index, "name", material_name)
+        put(row_index, "mat_code", material_code)
+        put(row_index, "hs", material.get("hs_code", ""))
+        put(row_index, "uom", material.get("uom", ""))
+        put(row_index, "norm", str(norm))
+        put(row_index, "qty", str(required_qty))
+        put(row_index, "unit_price", str(unit_price))
+        put(row_index, "origin_val", str(origin_value))
+        put(row_index, "non_origin_val", str(non_origin_value))
+        put(row_index, "country", material.get("origin_country", ""))
+        put(row_index, "imp_no", material.get("import_declaration_no", ""))
+        put(row_index, "imp_date", material.get("import_declaration_date", ""))
+        put(row_index, "co_no", material.get("source_document_ref", ""))
+        put(row_index, "co_date", material.get("source_document_date", ""))
+        # Legacy helper columns — only meaningful on the wide layout.
+        if layout["kind"] == "legacy":
+            put(row_index, "line_no", material.get("import_line_no", ""))
+            put(row_index, "col_q", f"{product.get('source_declaration_no', '')}{material_code}")
+            put(row_index, "col_s", material.get("import_declaration_type", ""))
+            put(row_index, "prod_code", product.get("code", ""))
+            put(row_index, "src_line", product.get("source_line_no", ""))
+            put(row_index, "qty_y", product.get("quantity", ""))
         row_index += 1
         counter += 1
-    # Add added-rows from overrides at the end.
+
+    # Added-rows from overrides go at the end.
     for key, value in overrides.items():
         if not key.startswith("added_") or not isinstance(value, dict):
             continue
-        ws.cell(row=row_index, column=1, value=counter)
-        ws.cell(row=row_index, column=2, value=value.get("name", ""))
-        ws.cell(row=row_index, column=3, value=value.get("hs_code", ""))
-        ws.cell(row=row_index, column=4, value=value.get("uom", ""))
-        ws.cell(row=row_index, column=5, value=str(value.get("norm_per_unit", "0")))
-        ws.cell(row=row_index, column=16, value=value.get("material_code", ""))
-        ws.cell(row=row_index, column=23, value=product.get("code", ""))
+        put(row_index, "stt", counter)
+        put(row_index, "name", value.get("name", ""))
+        put(row_index, "mat_code", value.get("material_code", ""))
+        put(row_index, "hs", value.get("hs_code", ""))
+        put(row_index, "uom", value.get("uom", ""))
+        put(row_index, "norm", str(value.get("norm_per_unit", "0")))
+        if layout["kind"] == "legacy":
+            put(row_index, "prod_code", product.get("code", ""))
         row_index += 1
         counter += 1
-    # Footer totals at fixed positions per docs/legacy-workbook-output-sheet-structure.md
-    ws["C1586"] = str(sum_origin)
-    ws["C1587"] = str(sum_non_origin)
-    ws["H1588"] = str(sum_origin)
-    ws["I1588"] = str(sum_non_origin)
+
     fob = decimal_value(product.get("fob") or "0")
-    if fob > 0:
-        lvc_ratio = ((fob - sum_non_origin) / fob).quantize(Decimal("0.0001"))
-        lvc_percent = (lvc_ratio * Decimal("100")).quantize(Decimal("0.01"))
-        ws["K1606"] = str(sum_non_origin)
-        ws["J1606"] = str(fob)
-        ws["I1604"] = str(fob)
-        ws["M1607"] = lvc_ratio
-        if sheet_code in {"CTH", "CTSH"}:
-            ws["B1611"] = f"Kết luận: Hàng hóa đáp ứng tiêu chí “{sheet_code}”"
-        elif sheet_code in {"LVC", "RVC"}:
-            ws["B1611"] = f"Kết luận: Hàng hóa đáp ứng tiêu chí {sheet_code} {lvc_percent} %"
-    if legacy_export_layout:
-        hide_hq_unused_rows_and_helpers(ws, row_index)
+    if layout["kind"] == "legacy":
+        # Footer totals at fixed positions per docs/legacy-workbook-output-sheet-structure.md
+        ws["C1586"] = str(sum_origin)
+        ws["C1587"] = str(sum_non_origin)
+        ws["H1588"] = str(sum_origin)
+        ws["I1588"] = str(sum_non_origin)
+        if fob > 0:
+            lvc_ratio = ((fob - sum_non_origin) / fob).quantize(Decimal("0.0001"))
+            lvc_percent = (lvc_ratio * Decimal("100")).quantize(Decimal("0.01"))
+            ws["K1606"] = str(sum_non_origin)
+            ws["J1606"] = str(fob)
+            ws["I1604"] = str(fob)
+            ws["M1607"] = lvc_ratio
+            if sheet_code in {"CTH", "CTSH"}:
+                ws["B1611"] = f"Kết luận: Hàng hóa đáp ứng tiêu chí “{sheet_code}”"
+            elif sheet_code == "RVC":
+                ws["B1611"] = f"Kết luận: Hàng hóa đáp ứng tiêu chí RVC {lvc_percent} %"
+            elif sheet_code in {"PSR", "EUR1"}:
+                # FORM PSR carries an example "Tỷ lệ giá trị nguyên liệu sử dụng" string
+                # in B1611 and its real conclusion at B1617 — clear the first and
+                # set the second so stale example numbers don't show up.
+                ws["B1611"] = None
+                ws["B1617"] = "Kết luận: Hàng hóa đáp ứng tiêu chí PSR"
+        if legacy_export_layout:
+            hide_hq_unused_rows_and_helpers(ws, row_index)
+    else:  # LVC compact layout — re-point the template's SUM ranges & conclusion.
+        last_data_row = row_index - 1
+        ws["H438"] = f"=SUM(H16:H{last_data_row})" if last_data_row >= HQ_BODY_START else 0
+        ws["I438"] = f"=SUM(I16:I{last_data_row})" if last_data_row >= HQ_BODY_START else 0
+        if fob > 0:
+            lvc_ratio = ((fob - sum_non_origin) / fob).quantize(Decimal("0.0001"))
+            lvc_percent = (lvc_ratio * Decimal("100")).quantize(Decimal("0.01"))
+            ws["B463"] = f"Kết luận: Sản phẩm đạt tiêu chí LVC = {lvc_percent}%"
+        # Hide the empty body rows between last data row and the summary block
+        # so the print preview stays at 1-2 pages instead of paginating blanks.
+        if legacy_export_layout:
+            body_end = _HQ_LVC_LAYOUT["body_end"]
+            for hide_row in range(max(row_index, HQ_BODY_START), body_end + 1):
+                ws.row_dimensions[hide_row].hidden = True
     return row_index
 
 
+HQ_FORM_MAU_COMBINED_PATH = Path(__file__).resolve().parent.parent / "data" / "local" / "hq-templates" / "form-mau-combined.xlsx"
 HQ_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "data" / "local" / "hq-templates" / "tru-lui-co-output-template.xlsx"
 HQ_LEGACY_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "data" / "local" / "hq-templates" / "tru-lui-co-template.xlsm"
 
 
 def hq_template_path() -> Path | None:
-    """Locate the legacy `tru lui CO` workbook used as styling template."""
+    """Locate the bảng kê styling template.
+
+    Preference order: the new 2026 FORM MAU combined workbook, then the legacy
+    `tru lui CO` template, then the original .xlsm.
+    """
+    if HQ_FORM_MAU_COMBINED_PATH.exists():
+        return HQ_FORM_MAU_COMBINED_PATH
     if HQ_TEMPLATE_PATH.exists():
         return HQ_TEMPLATE_PATH
     if HQ_LEGACY_TEMPLATE_PATH.exists():
         return HQ_LEGACY_TEMPLATE_PATH
     return None
+
+
+def create_hq_bang_ke_workbook_xml(case: dict) -> bytes:
+    """Render bảng kê via the XML-driven generator (approach A).
+
+    Output is built from scratch using config/bang-ke-config.xml — no xlsx
+    template is consulted. Consistent style across all criteria.
+
+    The template-based path remains via `create_hq_bang_ke_workbook` for
+    parallel evaluation.
+    """
+    def _criterion_for(product: dict) -> str:
+        codes = hq_sheet_codes_for_product(product)
+        for preferred in ("LVC", "RVC", "CTH", "CTSH", "PSR", "EUR1"):
+            if preferred in codes:
+                return "PSR" if preferred == "EUR1" else preferred
+        return ""
+    return render_case_via_xml(case, _criterion_for)
 
 
 def create_hq_bang_ke_workbook(case: dict) -> bytes:
@@ -572,6 +708,9 @@ def create_hq_bang_ke_workbook(case: dict) -> bytes:
     sequence = 0
     for product in products:
         codes = hq_sheet_codes_for_product(product)
+        # EUR1 falls back to PSR in the form-mau template (same Phụ lục VII).
+        if "EUR1" in codes and "EUR1" not in wb.sheetnames and "PSR" in wb.sheetnames:
+            codes = {"PSR" if c == "EUR1" else c for c in codes}
         for sheet_def in HQ_SHEET_DEFS:
             if sheet_def["sheet"] not in codes:
                 continue
@@ -585,9 +724,16 @@ def create_hq_bang_ke_workbook(case: dict) -> bytes:
             created_sheet_titles.append(new_title)
             sheets_used.add(sheet_def["sheet"])
             threshold = product.get("origin_sheet_effective_lvc_threshold") or sheet_def["default_threshold"]
-            _clear_template_body(ws_copy)
+            if _render_via_config(ws_copy, sheet_def["sheet"], case, product, new_title):
+                continue
+            # Fallback to legacy hardcoded path for criteria without a config yet.
+            _clear_template_body(ws_copy, sheet_code=sheet_def["sheet"])
             write_hq_template_sheet_header(ws_copy, product, sheet_def, case, threshold)
             write_hq_sheet_materials(ws_copy, product, HQ_BODY_START, legacy_export_layout=True, sheet_code=sheet_def["sheet"])
+            # openpyxl's copy_worksheet drops print_area; re-apply with the new title.
+            body_end = _hq_layout_for(sheet_def["sheet"])["body_end"]
+            print_end_row = 1623 if body_end > 500 else 477
+            ws_copy.print_area = f"'{new_title}'!$A$1:$N${print_end_row}"
     # Drop every sheet that wasn't created for this dossier — including all
     # template/source sheets which still hold the legacy workbook's example data.
     keep = set(created_sheet_titles)
@@ -621,15 +767,69 @@ def _safe_sheet_title(name: str, wb: Workbook) -> str:
     return f"{cleaned[:28]}_{suffix}"
 
 
-def _clear_template_body(ws) -> None:
-    """Wipe the example body rows from the template so we can re-fill cleanly."""
-    for row_index in range(HQ_BODY_START, HQ_BODY_END + 1):
+def _clear_template_body(ws, sheet_code: str = "") -> None:
+    """Wipe the example body rows from the template so we can re-fill cleanly.
+
+    LVC uses the compact layout (body to ~row 437, no helper cols). All other
+    criteria use the wide legacy layout (body to row 1585, helper cols O-Y).
+    """
+    layout = _hq_layout_for(sheet_code)
+    body_end = layout["body_end"]
+    max_clear_col = 14 if layout["kind"] == "lvc" else 27
+    for row_index in range(HQ_BODY_START, body_end + 1):
         ws.row_dimensions[row_index].hidden = False
-    for col_index in range(15, 26):
+    for col_index in layout["helper_cols"]:
         ws.column_dimensions[get_column_letter(col_index)].hidden = False
-    for row in ws.iter_rows(min_row=HQ_BODY_START, max_row=HQ_BODY_END, max_col=27):
+    for row in ws.iter_rows(min_row=HQ_BODY_START, max_row=body_end, max_col=max_clear_col):
         for cell in row:
             cell.value = None
+    if layout["kind"] == "lvc":
+        _clear_lvc_template_example_data(ws)
+    else:
+        _clear_legacy_summary_example_data(ws)
+
+
+def _clear_lvc_template_example_data(ws) -> None:
+    """Wipe the example labor / overhead / freight / signature values that
+    ship in FORM LVC.xlsx so they don't bleed into a fresh export.
+
+    The LVC template carries a fully-worked example case beyond the body
+    table (rows 438-476): labor wages, factory rent, depreciation, freight,
+    plus a hard-coded city + date on the signature line. Those numbers and
+    the date must be cleared — actual labor/overhead/freight inputs need to
+    come from the user's case data once we model them.
+    """
+    # I440-I446 + J440-J446: labor and overhead absolute values + percent of FOB.
+    # NB: ws.cell(row, col, value=None) is a no-op in openpyxl — `value=None`
+    # means "don't update". Set .value explicitly to clear.
+    for row_index in (440, 441, 444, 445, 446):
+        ws.cell(row=row_index, column=9).value = None   # I
+        ws.cell(row=row_index, column=10).value = None  # J
+    # Freight + other (I454, J454).
+    ws["I454"].value = None
+    ws["J454"].value = None
+    # Signature city + date stamped in the template.
+    ws["K466"].value = None
+
+
+def _clear_legacy_summary_example_data(ws) -> None:
+    """Wipe example labor / overhead / cost-buildup values shipped with the
+    FORM CTH/RVC/PSR templates at rows 1589-1609.
+
+    The CTH/RVC/PSR templates each carry a fully-worked example case below
+    the body table — labor wages at I1590/I1591, overhead at I1595-I1597,
+    chi phí xuất xưởng / lợi nhuận / giá xuất xưởng / các chi phí khác at
+    I1600-I1603 and FOB shadows at J1609. They confuse output because they
+    look like real numbers. Clear them — actual cost-buildup inputs need to
+    come from the user's case data once we model them.
+    """
+    for cell_address in (
+        "I1590", "I1591", "I1593",          # Chi phí nhân công + Tổng II
+        "I1595", "I1596", "I1597", "I1599", # Chi phí phân bổ + Tổng III
+        "I1600", "I1601", "I1602", "I1603", # IV/V/VI/VII totals
+        "J1609",                              # shadow FOB used by ratio formula
+    ):
+        ws[cell_address].value = None
 
 
 def hide_hq_unused_rows_and_helpers(ws, first_blank_row: int) -> None:

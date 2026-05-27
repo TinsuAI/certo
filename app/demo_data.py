@@ -633,6 +633,12 @@ def case_from_form(form: dict[str, str]) -> dict:
             "tariff_shift_status": form.get(prefix + "tariff_shift_status", ""),
             "tariff_shift_status_label": form.get(prefix + "tariff_shift_status_label", ""),
             "tariff_shift_note": form.get(prefix + "tariff_shift_note", ""),
+            "cost_buildup": {
+                "labor":    form.get(prefix + "cost_buildup_labor", "") or "",
+                "overhead": form.get(prefix + "cost_buildup_overhead", "") or "",
+                "profit":   form.get(prefix + "cost_buildup_profit", "") or "",
+                "other":    form.get(prefix + "cost_buildup_other", "") or "",
+            },
             "materials": [],
         }
         sheet_status = form.get(prefix + "origin_sheet_status", "")

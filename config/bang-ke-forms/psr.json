@@ -1,0 +1,84 @@
+{
+  "criterion": "PSR",
+  "phu_luc": "Phụ lục VII",
+  "title": "BẢNG KÊ KHAI HÀNG HÓA XUẤT KHẨU ĐẠT TIÊU CHÍ \"PSR\"",
+  "template_sheet": "PSR",
+
+  "_doc": "Per FORM PSR.xlsx. Wide layout sharing the CTH/RVC body structure but the PSR-specific conclusion lives at B1617 (not B1611). FORM PSR ships a stale ratio sentence at B1611 — clear it via conclusion.also_clear.",
+
+  "header_cells": [
+    { "cell": "B6",  "field": "merchant",      "prefix": "Tên Thương nhân: " },
+    { "cell": "B7",  "field": "tax_code",      "prefix": "Mã số thuế: " },
+    { "cell": "B9",  "field": "declaration",   "format": "{no} Ngày {date}", "skip_if_empty": true },
+    { "cell": "K6",  "field": "criterion_text" },
+    { "cell": "K7",  "field": "product_name" },
+    { "cell": "P7",  "field": "product_code" },
+    { "cell": "K8",  "field": "finished_hs" },
+    { "cell": "O8",  "field": "incoterm",      "default": "FOB" },
+    { "cell": "P8",  "field": "unit_price" },
+    { "cell": "K9",  "field": "quantity_decimal" },
+    { "cell": "L9",  "field": "uom" },
+    { "cell": "P9",  "field": "quantity_decimal" },
+    { "cell": "Q9",  "field": "source_declaration_no" },
+    { "cell": "K10", "field": "fob_decimal" },
+    { "cell": "K11", "field": "fob_decimal" },
+    { "cell": "P5",  "field": "material_count" }
+  ],
+
+  "clear_cells": [
+    "I1590", "I1591", "I1593",
+    "I1595", "I1596", "I1597", "I1599",
+    "I1600", "I1601", "I1602", "I1603",
+    "J1609"
+  ],
+
+  "body": {
+    "start_row": 16,
+    "end_row": 1585,
+    "hide_unused_rows": true,
+    "hidden_helper_cols": ["O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y"],
+    "columns": {
+      "stt":              "A",
+      "name":             "B",
+      "hs":               "C",
+      "uom":              "D",
+      "norm":             "E",
+      "qty":              "F",
+      "unit_price":       "G",
+      "origin_value":     "H",
+      "non_origin_value": "I",
+      "country":          "J",
+      "import_decl_no":   "K",
+      "import_decl_date": "L",
+      "co_doc_no":        "M",
+      "co_doc_date":      "N",
+      "import_line_no":   "O",
+      "material_code":    "P",
+      "decl_mat_key":     "Q",
+      "decl_type":        "S",
+      "product_code":     "W",
+      "product_line":     "X",
+      "product_qty":      "Y"
+    }
+  },
+
+  "footer": {
+    "sums": [
+      { "cell": "C1586", "source": "origin" },
+      { "cell": "C1587", "source": "non_origin" },
+      { "cell": "H1588", "source": "origin" },
+      { "cell": "I1588", "source": "non_origin" },
+      { "cell": "I1604", "source": "fob" },
+      { "cell": "J1606", "source": "fob" },
+      { "cell": "K1606", "source": "non_origin" },
+      { "cell": "M1607", "source": "ratio" }
+    ],
+    "conclusion": {
+      "cell": "B1617",
+      "template": "Kết luận: Hàng hóa đáp ứng tiêu chí PSR",
+      "also_clear": ["B1611"]
+    }
+  },
+
+  "print_area_template": "'{sheet_name}'!$A$1:$N$1623"
+}

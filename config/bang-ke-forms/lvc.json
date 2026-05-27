@@ -1,0 +1,67 @@
+{
+  "criterion": "LVC",
+  "phu_luc": "Phụ lục VII",
+  "title": "BẢNG TÍNH HÀM LƯỢNG VÀ KÊ KHAI HÀNG HÓA XUẤT KHẨU ĐẠT TIÊU CHÍ \"LVC\"",
+  "template_sheet": "LVC",
+
+  "_doc": "Per FORM LVC.xlsx (Phụ lục VII của TT 05/2018/TT-BCT). Compact 17-col layout: STT, Tên NPL, Mã NPL, Mã HS, ĐVT, Định mức, Đơn giá CIF, Trị giá trong nước, Trị giá nước ngoài, Nước XX, TK NK Số/Ngày, CO Số/Ngày.",
+
+  "header_cells": [
+    { "cell": "B6",  "field": "merchant",        "prefix": "Tên Thương nhân: " },
+    { "cell": "B7",  "field": "tax_code",        "prefix": "Mã số thuế : " },
+    { "cell": "B8",  "field": "declaration",     "format": "Tờ khai: {no} ngày {date}", "skip_if_empty": true },
+    { "cell": "K6",  "field": "criterion_text",  "prefix": "Tiêu chí áp dụng: " },
+    { "cell": "L7",  "field": "product_name" },
+    { "cell": "K8",  "field": "finished_hs",     "prefix": "Mã HS của hàng hóa (6 số) : " },
+    { "cell": "L9",  "field": "quantity_decimal" },
+    { "cell": "N9",  "field": "uom" },
+    { "cell": "L10", "field": "fob_decimal" }
+  ],
+
+  "clear_cells": [
+    "I440", "J440",
+    "I441", "J441",
+    "I444", "J444",
+    "I445", "J445",
+    "I446", "J446",
+    "I454", "J454",
+    "K466"
+  ],
+  "_clear_cells_doc": "FORM LVC.xlsx ships a fully-worked example: labor wages, factory rent, depreciation, freight + a hard-coded 'Hải Phòng, ngày 18/05/2026' on the signature line. These must be cleared on every export.",
+
+  "body": {
+    "start_row": 16,
+    "end_row": 437,
+    "hide_unused_rows": true,
+    "columns": {
+      "stt":              "A",
+      "name":             "B",
+      "material_code":    "C",
+      "hs":               "D",
+      "uom":              "E",
+      "norm":             "F",
+      "unit_price":       "G",
+      "origin_value":     "H",
+      "non_origin_value": "I",
+      "country":          "J",
+      "import_decl_no":   "K",
+      "import_decl_date": "L",
+      "co_doc_no":        "M",
+      "co_doc_date":      "N"
+    }
+  },
+
+  "footer": {
+    "sums": [
+      { "cell": "H438", "formula": "=SUM(H{start}:H{last})" },
+      { "cell": "I438", "formula": "=SUM(I{start}:I{last})" }
+    ],
+    "conclusion": {
+      "cell": "B463",
+      "template": "Kết luận: Sản phẩm đạt tiêu chí LVC = {ratio_percent}%",
+      "requires_fob": true
+    }
+  },
+
+  "print_area_template": "'{sheet_name}'!$A$1:$N$477"
+}

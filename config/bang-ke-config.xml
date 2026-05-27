@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Bảng kê C/O — declarative form spec.
+
+  This file owns every decision about how a bảng kê is rendered: page,
+  fonts, colors, table layout, header fields, summary block, conclusion,
+  and notes. The generator (app/bang_ke_xml_generator.py) reads this file
+  and emits xlsx from scratch — no xlsx template is consulted.
+
+  Conventions:
+    - <style> describes global look & feel (font, size, color, margins).
+      Hex colors are RRGGBB (Excel format).
+    - <columns> defines the materials table once; per-form attributes use
+      `only-on="LVC"` or `skip-on="LVC"` for column variants.
+    - <form> entries list the per-criterion text differences (title, phụ
+      lục, conclusion sentence, whether to show LVC cost-buildup block).
+    - {placeholders} inside `template` attributes are substituted at
+      render time with values from the case + product (merchant, fob,
+      ratio_percent, etc.). See app/bang_ke_xml_generator._FIELD_MAP.
+
+  All values are tunable. The intended workflow when an agency wants a
+  visual change is: edit this XML, restart the app — no code change.
+-->
+<bang-ke-config>
+
+  <style>
+    <!-- Page setup -->
+    <page paper="A4" orientation="landscape"
+          margin-top="2.0" margin-bottom="1.5"
+          margin-left="2.0" margin-right="1.5"
+          fit-width-pages="1"/>
+
+    <!-- Fonts: per-region overrides; size in pt, color in hex RRGGBB. -->
+    <font name="Times New Roman" size="11" color="000000"/>
+    <title-font size="14" bold="true"/>
+    <subtitle-font size="10" italic="true"/>
+    <phu-luc-font size="11" italic="true"/>
+    <table-header-font size="10" bold="true"/>
+    <table-body-font size="10"/>
+    <conclusion-font size="11" bold="true"/>
+    <notes-font size="9" italic="true"/>
+    <signature-font size="10"/>
+
+    <!-- Colors & shading -->
+    <fill region="table-header" color="E7E6E6"/>
+    <fill region="summary-block" color="F2F2F2"/>
+
+    <!-- Borders (thin solid black on grid). -->
+    <border region="table" style="thin" color="000000"/>
+    <border region="summary-block" style="thin" color="000000"/>
+
+    <!-- Numeric formatting for value cells. -->
+    <number-format decimals="2" thousand-sep="true"/>
+    <date-format pattern="dd/mm/yyyy"/>
+  </style>
+
+  <!--
+    Materials table layout — shared by all forms.
+    `width` is in Excel character units (1 = average digit width).
+    `align` ∈ {left, center, right}.
+    `only-on` / `skip-on` toggle the column per criterion.
+  -->
+  <columns>
+    <column key="stt"              header="STT"                width="5"  align="center"/>
+    <column key="name"             header="Tên nguyên liệu"    width="36" align="left"/>
+    <column key="material_code"    header="Mã NPL"             width="14" align="center" only-on="LVC"/>
+    <column key="hs"               header="Mã HS"              width="10" align="center"/>
+    <column key="uom"              header="ĐVT"                width="9"  align="center"/>
+    <column key="norm"             header="Định mức/SP"        width="10" align="right"/>
+    <column key="qty"              header="Số lượng lô"        width="10" align="right" skip-on="LVC"/>
+    <column key="unit_price"       header="Đơn giá CIF"        width="11" align="right"/>
+    <column key="origin_value"     header="Trị giá có XX"      width="11" align="right"/>
+    <column key="non_origin_value" header="Trị giá không XX"   width="11" align="right"/>
+    <column key="country"          header="Nước XX"            width="11" align="center"/>
+    <column key="import_decl_no"   header="TK NK Số"           width="13" align="center"/>
+    <column key="import_decl_date" header="Ngày"               width="10" align="center"/>
+    <column key="co_doc_no"        header="C/O Số"             width="11" align="center"/>
+    <column key="co_doc_date"      header="Ngày"               width="10" align="center"/>
+  </columns>
+
+  <!--
+    Header block layout — two-column key/value grid above the table.
+    `field` references _FIELD_MAP in the generator.
+    `format` (optional) joins multiple fields, e.g. "{no} ngày {date}".
+  -->
+  <header>
+    <left-column>
+      <field label="Tên Thương nhân:"             field="merchant"/>
+      <field label="Mã số thuế:"                  field="tax_code"/>
+      <field label="Tờ khai HQ xuất khẩu số:"     field="declaration" format="{no} ngày {date}"/>
+    </left-column>
+    <right-column>
+      <field label="Tiêu chí áp dụng:"            field="criterion_text"/>
+      <field label="Tên hàng hóa:"                field="product_name"/>
+      <field label="Mã HS (6 số):"                field="finished_hs"/>
+      <field label="Số lượng:"                    field="quantity_uom"  format="{quantity} {uom}"/>
+      <field label="Trị giá FOB:"                 field="fob_usd"       format="{fob} USD"/>
+    </right-column>
+  </header>
+
+  <!--
+    LVC cost-buildup block. Only rendered when <form>.show-cost-buildup="true".
+    Rows are I-VIII per Thông tư 05/2018. Sections with `input="..."` take a
+    user-provided value (left blank until we model cost-buildup inputs);
+    sections with `formula` are computed from other rows.
+  -->
+  <cost-buildup>
+    <section roman="I"    label="Tổng trị giá nguyên liệu"          auto-from="material-totals"/>
+    <section roman="II"   label="Chi phí nhân công trực tiếp"       input="labor"/>
+    <section roman="III"  label="Chi phí phân bổ trực tiếp"         input="overhead"/>
+    <section roman="IV"   label="Chi phí xuất xưởng (I+II+III)"      formula="I+II+III"/>
+    <section roman="V"    label="Lợi nhuận"                         input="profit"/>
+    <section roman="VI"   label="Giá xuất xưởng (IV+V)"              formula="IV+V"/>
+    <section roman="VII"  label="Các chi phí khác (vận chuyển,...)" input="other"/>
+    <section roman="VIII" label="Trị giá FOB (VI+VII)"               formula="fob"/>
+  </cost-buildup>
+
+  <!--
+    Signature & notes — shared structure across forms; agency-editable text.
+  -->
+  <signature>
+    <date-line>...., ngày ..... tháng ..... năm 20....</date-line>
+    <line>Người đại diện theo pháp luật của thương nhân</line>
+    <line italic="true">(Ký tên, đóng dấu)</line>
+  </signature>
+
+  <notes>
+    <note>Thương nhân lựa chọn công thức tính RVC trong Chương Quy tắc xuất xứ hàng hóa thuộc các FTA mà Việt Nam đã ký kết hoặc gia nhập, thực hiện theo quy định tại các văn bản quy phạm pháp luật của Bộ Công Thương hướng dẫn các FTA trước đó.</note>
+    <note>Thương nhân nộp bản in Tờ khai hải quan nhập khẩu và bản sao các chứng từ (có đóng dấu sao y bản chính): Hóa đơn giá trị gia tăng, C/O ưu đãi nhập khẩu, Bản khai báo của nhà sản xuất / nhà cung cấp nguyên liệu trong nước để đối chiếu với thông tin kê khai từ cột (9) đến cột (13).</note>
+  </notes>
+
+  <!--
+    Per-form overrides. Only fields that differ between criteria live here:
+    title, Phụ lục number, conclusion sentence, whether the cost-buildup
+    block is shown.
+  -->
+  <forms>
+    <form criterion="LVC" phu-luc="Phụ lục VII"
+          show-cost-buildup="true">
+      <title>BẢNG KÊ KHAI HÀNG HÓA XUẤT KHẨU ĐẠT TIÊU CHÍ "LVC"</title>
+      <legal-note>(ban hành kèm theo Thông tư 05/2018/TT-BCT, sửa đổi 44/2023/TT-BCT, 23/2025/TT-BCT)</legal-note>
+      <conclusion>Kết luận: Sản phẩm đạt tiêu chí LVC = {ratio_percent}%</conclusion>
+    </form>
+
+    <form criterion="RVC" phu-luc="Phụ lục VIII"
+          show-cost-buildup="true">
+      <title>BẢNG KÊ KHAI HÀNG HÓA XUẤT KHẨU ĐẠT TIÊU CHÍ "RVC"</title>
+      <legal-note>(ban hành kèm theo Thông tư 05/2018/TT-BCT, sửa đổi 44/2023/TT-BCT, 23/2025/TT-BCT)</legal-note>
+      <conclusion>Kết luận: Hàng hóa đáp ứng tiêu chí RVC {ratio_percent}%</conclusion>
+    </form>
+
+    <form criterion="CTH" phu-luc="Phụ lục V"
+          show-cost-buildup="false">
+      <title>BẢNG KÊ KHAI HÀNG HÓA XUẤT KHẨU ĐẠT TIÊU CHÍ "CTC" (CTH)</title>
+      <legal-note>(ban hành kèm theo Thông tư 05/2018/TT-BCT, sửa đổi 44/2023/TT-BCT, 23/2025/TT-BCT)</legal-note>
+      <conclusion>Kết luận: Hàng hóa đáp ứng tiêu chí "CTH"</conclusion>
+    </form>
+
+    <form criterion="CTSH" phu-luc="Phụ lục V"
+          show-cost-buildup="false">
+      <title>BẢNG KÊ KHAI HÀNG HÓA XUẤT KHẨU ĐẠT TIÊU CHÍ "CTC" (CTSH)</title>
+      <legal-note>(ban hành kèm theo Thông tư 05/2018/TT-BCT, sửa đổi 44/2023/TT-BCT, 23/2025/TT-BCT)</legal-note>
+      <conclusion>Kết luận: Hàng hóa đáp ứng tiêu chí "CTSH"</conclusion>
+    </form>
+
+    <form criterion="PSR" phu-luc="Phụ lục VII"
+          show-cost-buildup="false">
+      <title>BẢNG KÊ KHAI HÀNG HÓA XUẤT KHẨU ĐẠT TIÊU CHÍ "PSR"</title>
+      <legal-note>(ban hành kèm theo Thông tư 05/2018/TT-BCT, sửa đổi 44/2023/TT-BCT, 23/2025/TT-BCT)</legal-note>
+      <conclusion>Kết luận: Hàng hóa đáp ứng tiêu chí PSR</conclusion>
+    </form>
+  </forms>
+
+</bang-ke-config>
