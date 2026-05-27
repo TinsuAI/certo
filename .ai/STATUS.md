@@ -1,96 +1,105 @@
 # Project Status
 
-**Date:** 2026-05-25 — Johnson UoM drift audit + btp_sx uom bug fix shipped AND deployed to demo. Local + origin + demo all in sync at `bc4fb3b`.
+**Date:** 2026-05-27 — BOM stale-UX rebuild shipped. Cluster-by-cause action queue + audit log split + self-healing reconcile + state column. Local at `5cdf7fe`. **Demo NOT yet synced.**
 
 ## Current State
 
-**Branch:** `main` at `bc4fb3b`. **In sync with `origin/main`**.
+**Branch:** `main` at `5cdf7fe`. Ahead of `origin/main` by 3 commits.
 
-Recent commits on `origin/main`:
-- `bc4fb3b` — docs(handoff): Johnson UoM audit + btp_sx uom bug fix session
-- `d7508ef` — fix(catalog): btp_sx uom auto-capture uses Component unit, not Base UoM
-- `5e9a4fb` — docs(handoff): catalog time-series ship + UoM drift Excel tool
-- `58587ca` — feat(catalog): per-material BCCT time-series on detail page
-- `6d45f77` — declaration file status + A.2 conflicts handoff
-- `21f3620` — declaration file status API + bulk ZIP download for CO
+Recent commits:
+- `5cdf7fe` — feat(bom): cluster needs-action page replaces /bom/stale
+- `99abbec` — feat(catalog): fill placeholder name from BCCT on conflict
+- `637046e` — feat(bom): conditional staleness model + state column (migs 067-071)
+- `a331c74` — chore(ui): hide notification bell from navbar
+- `db0a86f` — feat(declarations): keep #bulk hash on bulk-upload redirects
 
-**Tests:** 1143 passed, 15 skipped. `tests/test_fixup_johnson_btp_uom.py` 3/3 PASSED with corrected assertions.
+**Tests:** 1,224 passed, 15 skipped (+38 new + several updated).
 
-**Migrations:** at mig 066. No new mig.
+**Migrations:** at mig **071** (5 new this session, 067-071).
 
-**Working tree:** clean of code/test drift after `d7508ef`. Untracked artefacts unchanged from 2026-05-21 (uom_drift_report.py, training scripts).
+**Working tree:** clean of code drift relative to HEAD. Untracked items unchanged from prior sessions (training scripts, old session notes, demo-company-feed PNGs).
 
-**Dev server:** `:8754` workers=4 — restarted at session start, healthz HTTP 200.
+**Dev server:** `:8754` running (background `nohup … --workers 4`); healthz HTTP 200.
 
-**Demo box (`ttdatahub.tinsu.ai` → `100.84.189.87:8754` via Cloudflare):** **DEPLOYED 2026-05-25.** At `bc4fb3b`. DB fully replaced via `pg_dump --schema=hub --format=custom` + `pg_restore` (Johnson + Growatt only — 13,589 materials / 88,926 BCCT / 13,602 BOM artifacts / 167,581 BOM rows / 518 overrides). Bundle covers everything previously pending: mig 066, M16 ingest, UoM overrides, A.2 conflicts, declaration API + ZIP, time-series, btp_sx fix. Admin password rotated to demo `.env` value. Login flow verified end-to-end (`POST /login → 303 → /clients`).
+**Demo box (`ttdatahub.tinsu.ai`):** at `bc4fb3b` — **3 commits + 5 migrations behind**. Pending sync.
 
-**Local DB Johnson state:**
-- Catalog: 2,614 btp_sx EA + 1 G (was 2,174 EA + 440 KG + 1 G — 440 corrected this session)
-- Overrides: 516 (was 357 at session start — +3 mass + +156 EA→SETS)
-- Stale tech_flat: 2,812 (was 2,543 baseline; peaked 3,445 after first materialize, cleared 633 net)
-- Drift-flagged codes: 39 unique (was ~180 at session start)
+**Local DB final state (Johnson + Growatt):**
+```
+Johnson:  10,255 clean  ·  20 needs_input (11 derived + 9 raw)  ·  0 needs_refresh
+Growatt:  606    clean  ·  1  needs_input                       ·  0 needs_refresh
+```
+The 20 Johnson + 1 Growatt all trace to mã `1000469803` (mixed EA/KG BOM); open item awaiting Johnson evidence.
 
-## Recent Changes
+## Recent Changes (this session)
 
-### 1. Johnson UoM audit + btp_sx uom bug fix (commit `d7508ef`)
+### 1. Stale-UX rebuild (commits `637046e` + `5cdf7fe`)
 
-Full session note at `.ai/sessions/2026-05-25-johnson-uom-audit-and-btp-uom-bugfix.md`.
+Audit 2026-05-27 found `/bom/stale` unusable at scale: 1,336 Johnson
+rows, 99% non-actionable, engineer jargon, no bulk action. Full
+rebuild:
 
-Headlines:
-- **Inserted 3 mass-synonym overrides** for thép tấm + dây hàn (`1000478156`, `1000480137`, `K60000900`) — closes the 3-code gap from `factor_inventory.md` (2026-05-12). Evidence: M16 declared qty matches SAP tech_flat qty byte-identical → SAP "EA" is mass synonym, factor 1.0 (or 0.001 for MT scale).
-- **Discovered + fixed 440-code btp_sx uom bug**: `scripts/fixup_johnson_btp_sx_after_bom.py` queried `bom_edges WHERE parent_code = code` (= Base UoM of inputs the BTP consumes) instead of `child_code = code` (= the BTP's own Component unit). Per `project_bom_component_unit_canonical` memory, Component unit is canonical; Base UoM is SAP stockkeeping internal and must not populate catalog. Root-cause fix: 440 catalog rows updated KG→EA, script patched, 3 tests rewritten to assert Component unit behaviour.
-- **Inserted 156 EA→SETS overrides**: bidirectional synonym gap from the Johnson reply (2026-05-21 confirmed "1 EA = 1 SET"). Overrides table previously had SETS→PIECES but not EA→SETS — surfaced after 2026-05-25 catalog correction.
-- **Re-materialized** Johnson tech_flat 3 times. Net: 633 stale artifacts cleared, ~6,000 BOM rows now have `applied_uom_factor` populated.
+- **Migrations 067–071:**
+  - 067 clear stale flag on tombstone.
+  - 068 `state` GENERATED column (clean / needs_refresh / needs_input / broken).
+  - 069 `hub.is_uom_aligned()` + conditional D7/D9 triggers (skip flag when alias-aligned).
+  - 070 backfill round 1 (alias-aligned cleanup).
+  - 071 `hub.has_drift_remaining()` (extends alignment with override lookup) + backfill round 2.
+  - Net: Johnson 1,336 → 20 actionable.
 
-### 2. Local DB cleanup — Johnson + Growatt only
+- **Self-healing:** `reconcile_for_material()` called from catalog edit
+  + override CRUD. Cap 50 sync, deferred surface.
 
-Other clients (6 inactive/test) deleted from local hub schema in preparation for demo box sync.
+- **New UI:**
+  - `/clients/{cid}/bom/needs-action` — cluster by (cause × code), bulk
+    refresh per cluster, 3 state tabs, pagination.
+  - `/clients/{cid}/bom/audit-log` — forensic event log.
+  - `POST /bom/refresh-cluster` — bulk refresh up to 200.
+  - Legacy `/bom/stale` removed (308 redirect, template + dead helpers
+    + dead i18n keys pruned).
+
+- **Vocabulary cleanup:** bom.stale.* dim/tab/action labels replaced by
+  bom.state.* / bom.cause.* / bom.action.* in plain Vietnamese (VN + EN).
+
+- **API:** additive `artifact.state` field on
+  `/v1/hub/products/{p}/bom` + `/bom/artifacts`. Legacy `is_stale` +
+  `has_uom_drift` retained for backward compatibility. Documented in
+  `docs/API_CONTRACT.md`. Sister-app notes at
+  `.ai/sister-app-notes/2026-05-27-bom-state-field-shipped.md`.
+
+### 2. Provenance name backfill gap (commit `99abbec`)
+
+3,822 Johnson catalog rows have `name=material_code` placeholder
+(bom_observed codes never reached BCCT). `derive_from_bcct` on-conflict
+path now fills `name` when current value is placeholder. Idempotent.
+No backfill source available today (bom_only set disjoint from
+BCCT-visible set); patch takes effect on future BCCT ingest.
 
 ## Next Steps
 
 Priority order:
 
-1. **Wait for CO consumer PR** on the declaration file status endpoint. Provider tests + changelog + sister-app note shipped. Nothing to do until CO pings back.
+1. **Sync demo box** (`ttdatahub.tinsu.ai`) — push origin, apply migs
+   067-071 inside data-hub-db-1 container, git pull + docker compose
+   build app + up -d app. Verify state distribution matches local.
 
-2. **Audit 39 remaining drift codes** — 5 small buckets:
-   - 20 SETS→SETS same-UoM drift (alias case suspected)
-   - 15 EA→SETS residual (not in original 156 set)
-   - 2 EA→EA factor_missing (same-UoM weird)
-   - 1 G→EA outlier
-   - 1 Chai/Lọ/Tuýp→EA Vietnamese token
+2. **Memory updates** — reinforce `project_bom_staleness` (state column),
+   add `feedback_self_healing_via_reconcile` if useful.
 
-3. **Verify `1000454182` factor=2.0** with Johnson (n=2/3 small sample, carry-over).
+3. **Wait for CO consumer PR** on declaration file status endpoint
+   (carry-over).
 
-4. **70 sản phẩm XK 2026 thiếu BOM** — get from Johnson or document (carry-over).
+4. **Re-enable notification bell** when feature finishes — uncomment
+   `app/templates/base.html:39`.
 
-5. **CO repo dropdown logic for dual_source 409** (carry-over).
+5. **Fix CI "Smoke LLM /models (best effort)" step** (carry) — chronic
+   401 from `codex-lb-demo.sgnai.dev/v1/models` makes deploy-to-tinsu
+   job report failure even when deploy succeeds. Easy fix: append
+   `|| true` after the curl, or pass token, or remove the step.
 
-6. **Stakeholder demo walkthrough** — demo box ready; suggested smoke path: login at `ttdatahub.tinsu.ai`, browse `/catalog`, open a Johnson product detail (verify time-series renders), `/catalog/conflicts` queue, M16 ingest preview.
+6. **Resolve `1000469803`** — mixed EA/KG BOM, needs Johnson evidence
+   (override or catalog correction). 20 stale artifacts depend on this.
 
-7. **Next backlog item if bandwidth.**
-   - F.1 Growatt programmatic bulk re-ingest (~0.5-1d, mirror Johnson).
-   - A.4.2 Substitute XLSX bulk upload (~0.5d).
-   - A.4.3 Smarter goods_name similarity — gated on pg_trgm.
+7. **70 sản phẩm XK 2026 thiếu BOM** (carry) — get from Johnson or
+   document.
 
-## Blockers
-
-- Johnson contact / customs broker for UoM factor confirmation (carry-over for 39 residual codes + `1000454182` + 70 SP XK).
-- CO repo dev availability for declaration consumer PR + dual_source dropdown logic (carry-over).
-
-## Notes for Next AI Session
-
-- **`scripts/fixup_johnson_btp_sx_after_bom.py` is now correct.** Re-running on Johnson would be a no-op (440 codes already fixed via UPDATE). For new client onboarding, the corrected `child_code` query yields Component-unit-canonical uom from the start.
-
-- **Bidirectional synonym pattern requires bidirectional overrides.** When agency confirms "X = Y" as synonym, you may need to insert BOTH `X→Y` AND `Y→X` rows depending on which direction each affected code's catalog uom drifts in. This session surfaced the inverse-direction gap (EA→SETS) only after re-materialize after catalog correction. Generalize: future agency synonym replies should be cross-checked for required override directions before assuming the insert is complete.
-
-- **Materialize script `--cleanup-stale` is the canonical re-derive path** after override changes. Be aware it ALSO runs a main loop that fills missing shapes for raw_graph artifacts — first run this session unexpectedly created 6,274 new shallow+full_flat for raws that had been missing shapes. Net coherent; just know the scope before kicking off.
-
-- **39 codes drift remaining** — 5 small buckets per Next Steps #4. Each bucket needs its own evidence path. 20 SETS→SETS same-uom case most suspicious for an aliasing bug; the rest are likely small data-quality outliers.
-
-- **Local DB now Johnson + Growatt only.** Other 6 test/seed clients cleaned out 2026-05-25 in preparation for demo box sync. Don't expect demo-precision-manufactu-* or DKE/Do-Thanh in queries anymore.
-
-- **Demo deploy gotcha** — `pg_dump --schema=hub` does NOT include extensions, but DROP SCHEMA hub CASCADE will drop extensions that live IN the hub schema. Local has `vector` ext in `public`; demo originally had it in `hub`. Resolved by `DROP EXTENSION vector CASCADE; CREATE EXTENSION vector WITH SCHEMA public` BEFORE `pg_restore`. Next time syncing, take same approach (or run `pg_dump` with `--extension=vector` flag — untested).
-
-- **Demo password rotation pattern**: run `docker exec data-hub-app-1 python -c "from app.auth import hash_password; print(hash_password('NEW_PW'))"` to get argon2id hash, then UPDATE `hub.users` directly. Local + demo had divergent password hashes after DB sync — local seed password got carried; rotated to demo `.env` value.
-
-- **Push gate** — clean. All commits pushed.
+8. **CO repo dropdown logic for dual_source 409** (carry).
