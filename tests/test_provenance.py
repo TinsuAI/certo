@@ -417,3 +417,51 @@ def test_derive_keeps_existing_uom_when_already_set(test_client):
                          customs_codes=["UOM-STAFF"])
     # Staff-declared uom='pcs' survives; BCCT mode 'KILO-GRAMMES' is ignored.
     assert _read_material_uom(test_client, "UOM-STAFF") == "pcs"
+
+
+# ─── name backfill on conflict (placeholder → BCCT goods_name) ─────────
+
+
+def _read_material_name(client_id: str, material_code: str) -> str | None:
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select name from hub.materials where client_id=%s and material_code=%s",
+            (client_id, material_code),
+        )
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
+def test_derive_fills_placeholder_name_from_bcct(test_client):
+    """bom_observed auto-capture sets name=material_code (placeholder).
+    When that code later appears in BCCT, derive_from_bcct must overwrite
+    the placeholder with BCCT goods_name."""
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "insert into hub.materials (client_id, material_code, name, "
+            "category, status, source, uom) "
+            "values (%s, %s, %s, 'btp_sx', 'active', 'bom_observed', 'EA')",
+            (test_client, "BOM-PLACEHOLDER", "BOM-PLACEHOLDER"),
+        )
+    _seed_bcct(test_client, "D-NAME-1", "1", "BOM-PLACEHOLDER",
+               goods_name="Vít M3x10 inox")
+    with connect() as conn, conn.cursor() as cur:
+        derive_from_bcct(cur, client_id=test_client,
+                         customs_codes=["BOM-PLACEHOLDER"])
+    assert _read_material_name(test_client, "BOM-PLACEHOLDER") == "Vít M3x10 inox"
+
+
+def test_derive_preserves_staff_edited_name(test_client):
+    """If material.name != material_code (i.e. staff edited it OR a prior
+    BCCT row populated it), derive_from_bcct must NOT clobber."""
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "insert into hub.materials (client_id, material_code, name, "
+            "category, status, source, uom) "
+            "values (%s, %s, %s, 'nvl', 'active', 'client_declared', 'EA')",
+            (test_client, "NAMED", "Tên do staff đặt"),
+        )
+    _seed_bcct(test_client, "D-NAME-2", "1", "NAMED", goods_name="Tên từ BCCT")
+    with connect() as conn, conn.cursor() as cur:
+        derive_from_bcct(cur, client_id=test_client, customs_codes=["NAMED"])
+    assert _read_material_name(test_client, "NAMED") == "Tên do staff đặt"

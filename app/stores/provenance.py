@@ -62,6 +62,16 @@ _DERIVE_FROM_BCCT_SQL = """
       -- view live; no jsonb merge needed anymore.
       -- Fill uom if previously NULL (post-mig-063 backfill path for legacy rows).
       uom = coalesce(hub.materials.uom, excluded.uom),
+      -- Fill name when current is placeholder (= material_code, set by
+      -- bom_observed auto-capture which has no description column) or empty.
+      -- Staff-edited names (anything else) are preserved.
+      name = case
+        when hub.materials.name is null
+          or hub.materials.name = ''
+          or hub.materials.name = hub.materials.material_code
+        then coalesce(excluded.name, hub.materials.name)
+        else hub.materials.name
+      end,
       updated_at = now()
 """
 
