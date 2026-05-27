@@ -20,6 +20,17 @@
 - **Perf fix**: `_cost_allocation_context()` was calling shared `client_context()` which triggers a Data Hub source-workspace scan (~2.6s for Growatt). Replaced with minimal context (`resolve_client` + ratio rows). **3588 ms → 67 ms (53× faster).** Tradeoff: nav tagline counts (`X TP · Y NVL · …`) hidden on cost-allocation page only; `_client_nav.html` now `{% if client.counts %}…{% endif %}`.
 - **Pre-existing bug fix**: `app/origin.py:109` did `row["hs_code"]` (KeyError when a material row lacked the key); changed to `.get("hs_code", "")`. Bug existed since the demo commit; only surfaced after Data Hub became material source-of-truth (some materials lack HS). Fix unblocks origin-page render for several existing growatt cases (e.g. CO-ZIP).
 
+## Local Test Fixture (added 2026-05-28)
+- Case `co-case-b1e2602f0d8d` (case_code `CO-ZIP`) on growatt is now a **Mode-A Áp hệ số smoke test fixture**:
+  - product `PV00.0048400` (matches the GROWATT 24-row sample)
+  - FOB `5000`
+  - criterion `LVC 40%` (so cost-buildup block renders open + Áp hệ số resolves Mode A)
+- Verified end-to-end via `/tmp/local_apply_test.py` (Playwright):
+  - resolve returns Mode A with wages=44.94, welfare=4.11, rent=129.05, depreciation=86.68, other_mfg=47.45, transport_storage=17.06
+  - hint shows green "Tổng = 329.29, NPL còn lại = 4670.71 / FOB 5000"
+  - re-click triggers confirm dialog with "Ô đã có giá trị. Áp hệ số sẽ ghi đè — tiếp tục?" — dismiss preserves values
+- To restore original CO-ZIP shape (TP-ZIP / FOB 100 / AIFTA 35% FOB + CTSH), re-create the demo case or edit `payload->products->0` via `update_case_record`.
+
 ## Next Steps
 1. **Commit pending work** (this snapshot is uncommitted — see `git status`).
 2. **Investigate the remaining ~29 pre-existing test failures**. Same class as the `hs_code` bug — likely demo data evolved while strict-typed accessors didn't. Quickest path: pick a few representative failures and apply the same `[key]` → `.get(key, "")` pattern where safe.
