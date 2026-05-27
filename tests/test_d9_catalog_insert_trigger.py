@@ -72,11 +72,14 @@ def _insert_artifact(cur, artifact_id, product_code, strategy, source_kind,
 
 
 def test_d9_marks_derived_artifact_stale_on_catalog_insert():
-    """BOM ingested first (no catalog row); catalog INSERT fires D9."""
+    """BOM ingested first (no catalog row); catalog INSERT with a
+    different (unaligned) uom fires D9. Mig 071: must be unaligned to
+    flag — using 'EA' on BOM vs 'kg' on catalog (cross-family, no
+    override) so has_drift_remaining returns true."""
     with connect() as conn, conn.cursor() as cur:
         _insert_artifact(cur, "ba_d9_der", "TP1", "technical_exploded",
                           source_kind="technical_flattened",
-                          rows=[("M_LATE", 3.0, "kg")])
+                          rows=[("M_LATE", 3.0, "EA")])
         cur.execute(
             "select is_stale from hub.bom_artifacts "
             "where artifact_id='ba_d9_der'")

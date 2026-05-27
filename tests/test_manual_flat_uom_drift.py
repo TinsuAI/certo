@@ -217,3 +217,75 @@ def test_d7_skips_tombstoned_artifacts():
             "select has_uom_drift from hub.bom_artifacts "
             "where artifact_id='ba_trig_ts'")
         assert cur.fetchone()[0] is False
+
+
+# ── Mig 067: tombstone trigger clears flag ────────────────────────────
+
+
+def test_tombstone_clears_is_stale_flag():
+    """Mig 067 trigger: tombstoning an artifact must atomically clear
+    is_stale + has_uom_drift in the same UPDATE. Forensics (reasons
+    arrays) preserved."""
+    with connect() as conn, conn.cursor() as cur:
+        _seed_material(cur, "M_TS1", uom="kg")
+        _insert_artifact(cur, "ba_ts1", "P_TS1", "manual_flat_as_provided",
+                          source_kind="technical_flattened",
+                          rows=[("M_TS1", 1.0, "kg")])
+        # Flip flags ON via direct UPDATE (simulating a prior trigger fire).
+        cur.execute(
+            "update hub.bom_artifacts set is_stale=true, "
+            "has_uom_drift=true, "
+            "stale_reasons='[{\"dim\":\"test\"}]'::jsonb, "
+            "uom_drift_reasons='[{\"dim\":\"test\"}]'::jsonb "
+            "where artifact_id='ba_ts1'")
+    # Now tombstone it. Trigger should clear flags + set resolved_at.
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "update hub.bom_artifacts set tombstoned_at=now(), "
+            "tombstone_reason='test' where artifact_id='ba_ts1'")
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select is_stale, has_uom_drift, "
+            "       stale_resolved_at is not null, "
+            "       uom_drift_resolved_at is not null, "
+            "       jsonb_array_length(stale_reasons), "
+            "       jsonb_array_length(uom_drift_reasons) "
+            "from hub.bom_artifacts where artifact_id='ba_ts1'")
+        is_stale, has_drift, sat, dat, srcnt, dcnt = cur.fetchone()
+        assert is_stale is False
+        assert has_drift is False
+        assert sat is True
+        assert dat is True
+        # Reasons preserved for forensics.
+        assert srcnt == 1
+        assert dcnt == 1
+
+
+def test_tombstone_trigger_idempotent_on_already_clean():
+    """Re-tombstoning (or tombstoning a clean artifact) is a no-op for the
+    booleans (they're already false). Trigger only fires on NULL→non-NULL
+    transition so subsequent UPDATEs on tombstoned_at don't re-fire."""
+    with connect() as conn, conn.cursor() as cur:
+        _seed_material(cur, "M_TS2", uom="kg")
+        _insert_artifact(cur, "ba_ts2", "P_TS2", "manual_flat_as_provided",
+                          source_kind="technical_flattened",
+                          rows=[("M_TS2", 1.0, "kg")])
+        cur.execute(
+            "update hub.bom_artifacts set tombstoned_at=now(), "
+            "tombstone_reason='r1' where artifact_id='ba_ts2'")
+        cur.execute(
+            "select stale_resolved_at from hub.bom_artifacts "
+            "where artifact_id='ba_ts2'")
+        first_resolved = cur.fetchone()[0]
+    # Subsequent UPDATEs to tombstoned_at (which is unusual, but possible)
+    # should not re-fire the clear logic — trigger has WHEN guard.
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "update hub.bom_artifacts set tombstone_reason='r2' "
+            "where artifact_id='ba_ts2'")
+        cur.execute(
+            "select stale_resolved_at, is_stale "
+            "from hub.bom_artifacts where artifact_id='ba_ts2'")
+        resolved2, is_stale2 = cur.fetchone()
+        assert is_stale2 is False
+        assert resolved2 == first_resolved
