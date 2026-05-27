@@ -5,7 +5,7 @@ import json
 import secrets
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from app import auth, llm
 from app.database import connect
@@ -1462,14 +1462,76 @@ async def artifact_detail(request: Request, client_id: str, artifact_id: str):
         artifact.get("flatten_status") or "",
         artifact.get("flatten_strategy") or "",
     )
+    rows = data["rows"]
+    if rows:
+        has_nk = make_bcct_import_lookup(client_id)
+        for r in rows:
+            r["has_nk"] = has_nk(r.get("material_code") or "")
     lineage = get_lineage_for_artifact(artifact_id)
     return request.app.state.templates.TemplateResponse(
         request, "clients/bom_artifact_detail.html",
         {"client": client, "stats": stats_for_client(client_id),
-         "artifact": artifact, "rows": data["rows"],
+         "artifact": artifact, "rows": rows,
          "edges": data.get("edges") or [],
          "lineage": lineage,
          "active_root": "clients", "active_tab": "bom"},
+    )
+
+
+@router.get("/clients/{client_id}/bom/artifact/{artifact_id}/export.xlsx")
+async def artifact_export_xlsx(request: Request, client_id: str, artifact_id: str):
+    """Export BOM phẳng (rows) of an artifact as an Excel workbook.
+
+    Only flat artifacts (rows-based: manual_flat / shallow / full_flat)
+    have an Excel-friendly tabular form. Raw_graph (edges-only) returns 400.
+    """
+    from io import BytesIO
+    from openpyxl import Workbook
+
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    data = get_artifact_with_rows(artifact_id)
+    if not data or data["artifact"]["client_id"] != client_id:
+        raise HTTPException(404, "Artifact not found")
+    artifact = data["artifact"]
+    rows = data["rows"] or []
+    if not rows:
+        raise HTTPException(400, "Artifact has no flat rows to export")
+
+    has_nk = make_bcct_import_lookup(client_id)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = f"BOM_{artifact['product_code']}"[:31]
+    ws.append([
+        "STT", "Mã NVL", "Nguồn", "Định mức / đơn vị",
+        "ĐVT", "Mã BOM", "Đợt",
+    ])
+    for r in rows:
+        code = r.get("material_code") or ""
+        ws.append([
+            r.get("row_index"),
+            code,
+            "NK" if has_nk(code) else "BOM-only",
+            float(r["qty_per_unit"]) if r.get("qty_per_unit") is not None else 0.0,
+            r.get("uom") or "",
+            r.get("bom_code") or "",
+            r.get("bom_variant_id") or "",
+        ])
+
+    buf = BytesIO()
+    wb.save(buf)
+    fname = f"BOM_{artifact['product_code']}_v{artifact['artifact_no']}.xlsx"
+    return Response(
+        content=buf.getvalue(),
+        media_type=("application/vnd.openxmlformats-officedocument."
+                    "spreadsheetml.sheet"),
+        headers={
+            "Content-Disposition": f'attachment; filename="{fname}"',
+        },
     )
 
 

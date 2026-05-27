@@ -102,7 +102,14 @@
         {% endif %}
       </p>
     </div>
-    <div><a class="btn-secondary" href="/clients/{{ client.client_id }}/bom/{{ artifact.product_code }}/artifacts">← artifacts</a></div>
+    <div>
+      {% if rows %}
+      <a class="btn-secondary"
+         href="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/export.xlsx"
+         style="margin-right:6px;">⬇ Xuất Excel</a>
+      {% endif %}
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom/{{ artifact.product_code }}/artifacts">← artifacts</a>
+    </div>
   </div>
 
   <div style="background: var(--surface-alt, #f7f8fc); padding: 1rem; border-radius: 8px; margin: 1rem 0;">
@@ -221,6 +228,7 @@
     <thead><tr>
       <th>{{ t('bom.row_index') }}</th>
       <th>{{ t('bom.material') }}</th>
+      <th>Nguồn</th>
       <th>{{ t('bom.qty_per_unit') }}</th>
       <th>{{ t('bom.uom') }}</th>
       <th>{{ t('bom.bom_code') }}</th>
@@ -231,6 +239,13 @@
       <tr>
         <td>{{ r.row_index }}</td>
         <td class="mono">{{ r.material_code }}</td>
+        <td>
+          {% if r.has_nk %}
+            <span class="badge" title="Có dòng nhập khẩu trong BCCT">NK</span>
+          {% else %}
+            <span class="badge badge-warn" title="Chưa thấy trong BCCT — chỉ xuất hiện trong BOM">BOM-only</span>
+          {% endif %}
+        </td>
         <td class="mono">{{ '%.6f'|format(r.qty_per_unit) if r.qty_per_unit else '0' }}</td>
         <td class="mono">{{ r.uom or '' }}</td>
         <td class="mono">{{ r.bom_code or '' }}</td>
