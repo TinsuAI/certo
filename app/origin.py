@@ -106,7 +106,7 @@ def evaluate_rvc_ctsh(product: dict) -> CombinedResult:
         )
     rvc = calculate_rvc(product["fob"], non_origin_value, product.get("rvc_threshold", "35"))
     non_origin_hs = [
-        row["hs_code"]
+        row.get("hs_code", "")
         for row in product.get("materials", [])
         if row.get("origin_status") == "non_origin"
     ]

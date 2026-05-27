@@ -4939,6 +4939,23 @@ body.co-stock-history-modal-open { overflow: hidden; }
 }
 .cost-buildup-hint[data-state="warning"] { color: #b45309; }
 .cost-buildup-hint[data-state="ok"] { color: #047857; }
+.cost-buildup-grid-6 { grid-template-columns: repeat(4, minmax(140px, 1fr)); }
+.cost-buildup-apply-btn {
+  float: right;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.6rem;
+  margin-left: 0.5rem;
+}
+.cost-buildup-apply-status {
+  margin: 0.3rem 0 0;
+  font-size: 0.8rem;
+  color: var(--color-muted, #6b7280);
+  min-height: 1.1rem;
+}
+.cost-buildup-apply-status[data-state="warning"] { color: #b45309; }
+.cost-buildup-apply-status[data-state="ok"] { color: #047857; }
+.cost-buildup-grid .cost-buildup-profit input { background: #f9fafb; }
 @media (max-width: 768px) {
   .cost-buildup-grid { grid-template-columns: repeat(2, 1fr); }
+  .cost-buildup-grid-6 { grid-template-columns: repeat(2, 1fr); }
 }

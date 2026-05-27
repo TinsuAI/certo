@@ -634,9 +634,16 @@ def case_from_form(form: dict[str, str]) -> dict:
             "tariff_shift_status_label": form.get(prefix + "tariff_shift_status_label", ""),
             "tariff_shift_note": form.get(prefix + "tariff_shift_note", ""),
             "cost_buildup": {
+                "wages":             form.get(prefix + "cost_buildup_wages", "") or "",
+                "welfare":           form.get(prefix + "cost_buildup_welfare", "") or "",
+                "rent":              form.get(prefix + "cost_buildup_rent", "") or "",
+                "depreciation":      form.get(prefix + "cost_buildup_depreciation", "") or "",
+                "other_mfg":         form.get(prefix + "cost_buildup_other_mfg", "") or "",
+                "transport_storage": form.get(prefix + "cost_buildup_transport_storage", "") or "",
+                "profit":            form.get(prefix + "cost_buildup_profit", "") or "",
+                # Legacy 4-key shape still read for backward-compat with older serialised forms.
                 "labor":    form.get(prefix + "cost_buildup_labor", "") or "",
                 "overhead": form.get(prefix + "cost_buildup_overhead", "") or "",
-                "profit":   form.get(prefix + "cost_buildup_profit", "") or "",
                 "other":    form.get(prefix + "cost_buildup_other", "") or "",
             },
             "materials": [],

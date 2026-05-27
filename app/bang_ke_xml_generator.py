@@ -744,24 +744,43 @@ def _ratio_percent(fob: Decimal, non_origin: Decimal) -> str:
 
 
 COST_BUILDUP_KEYS = ("labor", "overhead", "profit", "other")
-"""Keys recognised on product.cost_buildup. Each maps to the XML
-<section input="..."> attribute. The data shape on `product` is:
+"""Rollup keys the XML config references via <section input="..."> on the
+bảng kê. The engine consumes these four; cost_buildup storage uses a finer
+6-detail shape (wages/welfare/rent/depreciation/other_mfg/transport_storage)
+plus profit — rolled up here so the engine layout (I-VIII) stays unchanged.
 
-    product["cost_buildup"] = {
-        "labor":     "1379.17",   # II — Chi phí nhân công trực tiếp
-        "overhead":  "8077.47",   # III — Chi phí phân bổ trực tiếp
-        "profit":    "1199.97",   # V — Lợi nhuận
-        "other":     "523.68",    # VII — Các chi phí khác (vận chuyển, ...)
-    }
+Rollup contract:
+    labor    = wages + welfare
+    overhead = rent + depreciation + other_mfg
+    other    = transport_storage
+    profit   = profit (direct, residual on the form)
 
-Strings are coerced to Decimal. Missing keys default to 0 — the section
-prints blank, the next subtotal (IV/VI/VIII) still computes via formula.
+Legacy 4-key shape (labor/overhead/profit/other) is recognised as fallback
+when no detail key is present in the raw dict.
 """
+
+_COST_BUILDUP_DETAIL_KEYS = (
+    "wages", "welfare", "rent", "depreciation", "other_mfg", "transport_storage",
+)
 
 
 def _coerce_cost_buildup(raw) -> dict[str, Decimal]:
     if not isinstance(raw, dict):
-        return {}
+        return {key: Decimal(0) for key in COST_BUILDUP_KEYS}
+    has_details = any(str(raw.get(k) or "").strip() for k in _COST_BUILDUP_DETAIL_KEYS)
+    if has_details:
+        wages = _decimal(raw.get("wages"))
+        welfare = _decimal(raw.get("welfare"))
+        rent = _decimal(raw.get("rent"))
+        depreciation = _decimal(raw.get("depreciation"))
+        other_mfg = _decimal(raw.get("other_mfg"))
+        transport_storage = _decimal(raw.get("transport_storage"))
+        return {
+            "labor": wages + welfare,
+            "overhead": rent + depreciation + other_mfg,
+            "profit": _decimal(raw.get("profit")),
+            "other": transport_storage,
+        }
     return {key: _decimal(raw.get(key)) for key in COST_BUILDUP_KEYS}
 
 

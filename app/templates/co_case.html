@@ -1059,43 +1059,74 @@
           <details class="cost-buildup-block" {% if cost_buildup_relevant %}open{% endif %}>
             <summary>
               Chi phí xuất xưởng (LVC/RVC)
-              <small>Nhập các khoản ngoài NPL — engine sẽ điền vào block I-VIII của bảng kê.</small>
+              <small>Nhập 6 chi tiết — engine cộng vào II/III/VII của bảng kê. Lợi nhuận (V) tự suy phần dư nếu để trống.</small>
+              <button type="button" class="btn-secondary cost-buildup-apply-btn"
+                      data-cost-buildup-apply
+                      data-product-code="{{ product.code }}"
+                      title="Lấy hệ số (Mode A theo mã TP, Mode B fallback) × FOB của sản phẩm">
+                Áp hệ số
+              </button>
             </summary>
-            <div class="cost-buildup-grid">
+            <div class="cost-buildup-grid cost-buildup-grid-6">
               <label>
-                <span>Chi phí nhân công (II)</span>
+                <span>Lương, thưởng (II.a)</span>
                 <input type="number" step="0.01" min="0" inputmode="decimal"
-                       name="product_{{ product_index }}_cost_buildup_labor"
-                       value="{{ cost_buildup.labor or '' }}"
-                       data-cost-buildup-input
+                       name="product_{{ product_index }}_cost_buildup_wages"
+                       value="{{ cost_buildup.wages or '' }}"
+                       data-cost-buildup-input data-cost-buildup-key="wages"
                        placeholder="0.00">
               </label>
               <label>
-                <span>Chi phí phân bổ (III)</span>
+                <span>Phúc lợi y tế (II.b)</span>
                 <input type="number" step="0.01" min="0" inputmode="decimal"
-                       name="product_{{ product_index }}_cost_buildup_overhead"
-                       value="{{ cost_buildup.overhead or '' }}"
-                       data-cost-buildup-input
+                       name="product_{{ product_index }}_cost_buildup_welfare"
+                       value="{{ cost_buildup.welfare or '' }}"
+                       data-cost-buildup-input data-cost-buildup-key="welfare"
                        placeholder="0.00">
               </label>
               <label>
-                <span>Lợi nhuận (V)</span>
+                <span>Thuê nhà xưởng (III.a)</span>
+                <input type="number" step="0.01" min="0" inputmode="decimal"
+                       name="product_{{ product_index }}_cost_buildup_rent"
+                       value="{{ cost_buildup.rent or '' }}"
+                       data-cost-buildup-input data-cost-buildup-key="rent"
+                       placeholder="0.00">
+              </label>
+              <label>
+                <span>Khấu hao, BH, BD (III.b)</span>
+                <input type="number" step="0.01" min="0" inputmode="decimal"
+                       name="product_{{ product_index }}_cost_buildup_depreciation"
+                       value="{{ cost_buildup.depreciation or '' }}"
+                       data-cost-buildup-input data-cost-buildup-key="depreciation"
+                       placeholder="0.00">
+              </label>
+              <label>
+                <span>CP SX chung khác (III.c)</span>
+                <input type="number" step="0.01" min="0" inputmode="decimal"
+                       name="product_{{ product_index }}_cost_buildup_other_mfg"
+                       value="{{ cost_buildup.other_mfg or '' }}"
+                       data-cost-buildup-input data-cost-buildup-key="other_mfg"
+                       placeholder="0.00">
+              </label>
+              <label>
+                <span>Vận chuyển, lưu kho (VII)</span>
+                <input type="number" step="0.01" min="0" inputmode="decimal"
+                       name="product_{{ product_index }}_cost_buildup_transport_storage"
+                       value="{{ cost_buildup.transport_storage or '' }}"
+                       data-cost-buildup-input data-cost-buildup-key="transport_storage"
+                       placeholder="0.00">
+              </label>
+              <label class="cost-buildup-profit">
+                <span>Lợi nhuận (V) <small>tự tính nếu để trống</small></span>
                 <input type="number" step="0.01" min="0" inputmode="decimal"
                        name="product_{{ product_index }}_cost_buildup_profit"
                        value="{{ cost_buildup.profit or '' }}"
-                       data-cost-buildup-input
-                       placeholder="0.00">
-              </label>
-              <label>
-                <span>Chi phí khác (VII)</span>
-                <input type="number" step="0.01" min="0" inputmode="decimal"
-                       name="product_{{ product_index }}_cost_buildup_other"
-                       value="{{ cost_buildup.other or '' }}"
-                       data-cost-buildup-input
-                       placeholder="0.00">
+                       data-cost-buildup-input data-cost-buildup-key="profit"
+                       placeholder="dư (FOB − chi phí)">
               </label>
             </div>
             <p class="cost-buildup-hint" data-cost-buildup-hint></p>
+            <p class="cost-buildup-apply-status" data-cost-buildup-apply-status></p>
           </details>
 
           <div class="product-head">
@@ -1853,10 +1884,13 @@
         origin_sheet_status: sheetStatus,
         origin_sheet_status_label: sheetStatusLabel,
         cost_buildup: {
-          labor:    panel.querySelector('input[name$="_cost_buildup_labor"]')?.value || "",
-          overhead: panel.querySelector('input[name$="_cost_buildup_overhead"]')?.value || "",
-          profit:   panel.querySelector('input[name$="_cost_buildup_profit"]')?.value || "",
-          other:    panel.querySelector('input[name$="_cost_buildup_other"]')?.value || "",
+          wages:             panel.querySelector('input[name$="_cost_buildup_wages"]')?.value || "",
+          welfare:           panel.querySelector('input[name$="_cost_buildup_welfare"]')?.value || "",
+          rent:              panel.querySelector('input[name$="_cost_buildup_rent"]')?.value || "",
+          depreciation:      panel.querySelector('input[name$="_cost_buildup_depreciation"]')?.value || "",
+          other_mfg:         panel.querySelector('input[name$="_cost_buildup_other_mfg"]')?.value || "",
+          transport_storage: panel.querySelector('input[name$="_cost_buildup_transport_storage"]')?.value || "",
+          profit:            panel.querySelector('input[name$="_cost_buildup_profit"]')?.value || "",
         },
       };
     }).filter((product) => product.code);
@@ -4432,7 +4466,6 @@
       if (!hint) return;
       const recompute = () => {
         const sum = inputs.reduce((acc, input) => acc + (parseFloat(input.value || "0") || 0), 0);
-        // Material total = FOB - (labor+overhead+profit+other). Display hint vs FOB.
         if (fob <= 0) {
           hint.textContent = "";
           hint.removeAttribute("data-state");
@@ -4440,13 +4473,13 @@
         }
         const expectedMaterial = fob - sum;
         if (sum === 0) {
-          hint.textContent = "Để trống: bảng kê chỉ show I/IV/VI/VIII; II-III-V-VII sẽ trống.";
+          hint.textContent = "Để trống: bảng kê chỉ show I/IV/VI/VIII; II/III/V/VII sẽ trống.";
           hint.removeAttribute("data-state");
         } else if (expectedMaterial < 0) {
           hint.textContent = `Tổng chi phí ngoài NPL = ${formatNumber(sum)} > FOB ${formatNumber(fob)} — không hợp lệ.`;
           hint.dataset.state = "warning";
         } else {
-          hint.textContent = `Tổng II+III+V+VII = ${formatNumber(sum)}. NPL còn lại = ${formatNumber(expectedMaterial)} / FOB ${formatNumber(fob)}.`;
+          hint.textContent = `Tổng chi phí ngoài NPL = ${formatNumber(sum)}. NPL còn lại = ${formatNumber(expectedMaterial)} / FOB ${formatNumber(fob)}.`;
           hint.dataset.state = "ok";
         }
       };
@@ -4455,6 +4488,66 @@
         input.addEventListener("blur", recompute);
       });
       recompute();
+    });
+  };
+
+  const initCostBuildupApply = (root = document) => {
+    root.querySelectorAll("[data-cost-buildup-apply]").forEach((btn) => {
+      if (btn.dataset.bound === "1") return;
+      btn.dataset.bound = "1";
+      btn.addEventListener("click", async (event) => {
+        event.preventDefault();
+        const block = btn.closest(".cost-buildup-block");
+        const panel = btn.closest("[data-origin-sheet-panel]");
+        const status = block?.querySelector("[data-cost-buildup-apply-status]");
+        const productCode = btn.dataset.productCode || "";
+        const fob = panel?.dataset.productFob || "0";
+        const clientId = currentClientId();
+        if (!clientId || !productCode) {
+          if (status) status.textContent = "Thiếu client_id hoặc mã TP — không gọi được resolve.";
+          return;
+        }
+        // Confirm overwrite when any detail input has a value.
+        const inputs = Array.from(block.querySelectorAll("[data-cost-buildup-input]"));
+        const detailInputs = inputs.filter((i) => i.dataset.costBuildupKey !== "profit");
+        const hasValue = detailInputs.some((i) => (i.value || "").trim() !== "");
+        if (hasValue && !confirm("Ô đã có giá trị. Áp hệ số sẽ ghi đè — tiếp tục?")) return;
+        btn.disabled = true;
+        if (status) { status.textContent = "Đang tra hệ số…"; status.removeAttribute("data-state"); }
+        try {
+          const url = `/clients/${encodeURIComponent(clientId)}/cost-allocation/resolve?product_code=${encodeURIComponent(productCode)}&fob=${encodeURIComponent(fob)}`;
+          const resp = await fetch(url, { headers: { "Accept": "application/json" } });
+          const body = await resp.json();
+          if (!body.found) {
+            if (status) {
+              status.textContent = `Không tìm thấy hệ số cho ${productCode} (Mode A) và không có Mode B mặc định.`;
+              status.dataset.state = "warning";
+            }
+            return;
+          }
+          // Fill 6 detail inputs; leave profit empty so engine derives.
+          const details = body.details || {};
+          detailInputs.forEach((input) => {
+            const key = input.dataset.costBuildupKey;
+            if (key && details[key] !== undefined) {
+              input.value = details[key];
+              input.dispatchEvent(new Event("input", { bubbles: true }));
+            }
+          });
+          if (status) {
+            const modeLabel = body.matched_mode === "A" ? `Mode A (mã ${body.matched_product_code})` : "Mode B (mặc định DN)";
+            status.textContent = `Đã áp hệ số ${modeLabel}. FOB = ${body.fob}.`;
+            status.dataset.state = "ok";
+          }
+        } catch (err) {
+          if (status) {
+            status.textContent = `Lỗi gọi resolve: ${err}`;
+            status.dataset.state = "warning";
+          }
+        } finally {
+          btn.disabled = false;
+        }
+      });
     });
   };
 
@@ -4469,6 +4562,7 @@
     initCaseTabLoading(root);
     initCaseCreatedBanner(root);
     initCostBuildupHint(root);
+    initCostBuildupApply(root);
   };
   refreshCaseShellInteractions();
 

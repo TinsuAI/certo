@@ -685,23 +685,45 @@ def text_list(value) -> list[str]:
     return [item.strip() for item in str(value or "").split("|") if item.strip()]
 
 
-def _sanitize_cost_buildup(raw) -> dict[str, str]:
-    """Coerce labor / overhead / profit / other to non-negative numeric strings.
+COST_BUILDUP_DETAIL_KEYS = (
+    "wages",
+    "welfare",
+    "rent",
+    "depreciation",
+    "other_mfg",
+    "transport_storage",
+)
+COST_BUILDUP_LEGACY_KEYS = ("labor", "overhead", "other")
+COST_BUILDUP_PROFIT_KEY = "profit"
 
-    Invalid or negative entries become empty strings — the bảng kê engine then
-    treats them as "user hasn't filled in" rather than failing the export.
+
+def _sanitize_cost_buildup(raw) -> dict[str, str]:
+    """Coerce cost-buildup inputs to non-negative numeric strings.
+
+    Accepts two shapes:
+      - New: 6 detail keys (wages, welfare, rent, depreciation, other_mfg,
+        transport_storage) + profit.
+      - Legacy: labor / overhead / profit / other rollups (pre-2026-05-27).
+
+    Both shapes are preserved as-is — no lossy reshape. The bảng kê engine
+    reader normalises at read time. Invalid or negative entries become "".
     """
+    all_keys = (
+        *COST_BUILDUP_DETAIL_KEYS,
+        *COST_BUILDUP_LEGACY_KEYS,
+        COST_BUILDUP_PROFIT_KEY,
+    )
     if not isinstance(raw, dict):
-        return {"labor": "", "overhead": "", "profit": "", "other": ""}
+        return {key: "" for key in all_keys}
     cleaned: dict[str, str] = {}
-    for key in ("labor", "overhead", "profit", "other"):
+    for key in all_keys:
         text = str(raw.get(key) or "").strip().replace(",", "")
         if not text:
             cleaned[key] = ""
             continue
         try:
-            value = decimal_value(text)
-        except Exception:
+            value = Decimal(text)
+        except (InvalidOperation, ValueError):
             cleaned[key] = ""
             continue
         if value < 0:

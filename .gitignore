@@ -20,3 +20,6 @@ yarn-error.log*
 # local source material
 /data/
 /temp/
+/config/cost-allocation/
+/.ai/samples/
+/.ai/screenshots/

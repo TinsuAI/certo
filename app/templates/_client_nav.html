@@ -1,6 +1,6 @@
 <section class="page-bar">
   <h1>{{ client.name }}</h1>
-  <span class="page-tagline">{{ client.code }} · MST: {{ client.tax_code }} · {{ client.counts.products }} TP · {{ client.counts.materials }} NVL · {{ client.counts.bom_lines }} dòng BOM · {{ client.counts.co_stock }} dòng Tồn CO · {{ client.counts.bcct }} dòng BCCT</span>
+  <span class="page-tagline">{{ client.code }} · MST: {{ client.tax_code }}{% if client.counts %} · {{ client.counts.products }} TP · {{ client.counts.materials }} NVL · {{ client.counts.bom_lines }} dòng BOM · {{ client.counts.co_stock }} dòng Tồn CO · {{ client.counts.bcct }} dòng BCCT{% endif %}</span>
   <div class="page-actions">
     <span class="badge badge-{{ 'success' if client.status == 'active' else 'warning' }}">{{ client.status }}</span>
     <a class="btn-secondary" href="/clients">Đổi công ty</a>
@@ -24,6 +24,7 @@
     <a class="tab-link {{ 'tab-link-active' if active == 'bom' else '' }}" href="/clients/{{ client.id }}/bom">BOM</a>
     <a class="tab-link {{ 'tab-link-active' if active == 'co-stock' else '' }}" href="/clients/{{ client.id }}/co-stock">Tồn CO</a>
     <a class="tab-link {{ 'tab-link-active' if active == 'bcct' else '' }}" href="/clients/{{ client.id }}/bcct">BCCT</a>
+    <a class="tab-link {{ 'tab-link-active' if active == 'cost-allocation' else '' }}" href="/clients/{{ client.id }}/cost-allocation">Hệ số phân bổ</a>
     <a class="tab-link {{ 'tab-link-active' if active == 'config' else '' }}" href="/clients/{{ client.id }}/config">Config</a>
   </nav>
 {% endif %}
