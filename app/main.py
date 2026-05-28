@@ -2593,18 +2593,22 @@ def origin_product_order(case: dict) -> list[str]:
     return output
 
 
-def _hydrate_product_export_declaration_dates(case: dict) -> None:
-    """Backfill missing `product.source_declaration_date` from cached invoice matches.
+def _hydrate_product_export_declaration_dates(case: dict, client: dict | None = None) -> None:
+    """Backfill missing `product.source_declaration_date` from cached matches,
+    falling back to Data Hub `list_declarations` for cases saved before
+    `enrich_invoice_matches_with_bcct` started forwarding `declaration_date`.
 
-    Cases saved before `source_declaration_date` was wired on product creation
-    have the field empty. The cached `source_invoice_matches` (post-enrichment)
-    carries `declaration_date` per export-BCCT row; match by `declaration_no`.
-    Read-only hydration — no override loss.
+    Read-only patch — operator overrides on `case["products"]` are untouched.
+    Cached `case["source_invoice_matches"]` is updated in place so the next
+    `update_case_record` call (typically right after export prep) persists the
+    backfill, making future renders free.
     """
-    matches = case.get("source_invoice_matches") if isinstance(case.get("source_invoice_matches"), list) else []
-    if not matches:
+    products = [p for p in (case.get("products") or []) if not p.get("source_declaration_date")]
+    if not products:
         return
-    by_decl = {}
+
+    matches = case.get("source_invoice_matches") if isinstance(case.get("source_invoice_matches"), list) else []
+    by_decl: dict[str, str] = {}
     for row in matches:
         decl = str(row.get("declaration_no") or "").strip()
         if not decl or decl in by_decl:
@@ -2612,14 +2616,67 @@ def _hydrate_product_export_declaration_dates(case: dict) -> None:
         value = str(row.get("declaration_date") or row.get("registration_date") or "").strip()
         if value:
             by_decl[decl] = value
+
+    missing: list[str] = []
+    for product in products:
+        decl = str(product.get("source_declaration_no") or "").strip()
+        if decl and decl not in by_decl:
+            missing.append(decl)
+
+    if missing and client and client.get("id"):
+        dates = _fetch_export_declaration_dates(client["id"], sorted(set(missing)))
+        by_decl.update({k: v for k, v in dates.items() if v})
+        if dates and matches:
+            for row in matches:
+                decl = str(row.get("declaration_no") or "").strip()
+                if decl and not row.get("declaration_date") and dates.get(decl):
+                    row["declaration_date"] = dates[decl]
+
     if not by_decl:
         return
-    for product in case.get("products") or []:
-        if product.get("source_declaration_date"):
-            continue
+    for product in products:
         decl = str(product.get("source_declaration_no") or "").strip()
         if decl and decl in by_decl:
             product["source_declaration_date"] = by_decl[decl]
+
+
+def _fetch_export_declaration_dates(client_id: str, declaration_nos: list[str]) -> dict[str, str]:
+    """Resolve `earliest_bcct_date` per export declaration_no from Data Hub.
+
+    Returns mapping {declaration_no: "YYYY-MM-DD"}. Empty dict on any error or
+    when the active portfolio service doesn't wrap a Data Hub client.
+    """
+    data_hub = getattr(portfolio_service, "data_hub", None)
+    if data_hub is None or not declaration_nos:
+        return {}
+    try:
+        rows = data_hub.list_declarations(
+            client_id,
+            direction="export",
+            declaration_nos=declaration_nos,
+        )
+    except Exception:  # noqa: BLE001 — best-effort backfill; export must not block
+        return {}
+    out: dict[str, str] = {}
+    for row in rows or []:
+        decl = str(row.get("declaration_no") or "").strip()
+        date = str(row.get("earliest_bcct_date") or "").strip()
+        if decl and date:
+            out[decl] = _to_vietnamese_date(date)
+    return out
+
+
+def _to_vietnamese_date(value: str) -> str:
+    """Convert "YYYY-MM-DD" (Data Hub ISO) to "DD/MM/YYYY" (bảng kê format)."""
+    text = value.strip()
+    if not text:
+        return ""
+    try:
+        from datetime import date
+        d = date.fromisoformat(text[:10])
+        return d.strftime("%d/%m/%Y")
+    except ValueError:
+        return text
 
 
 def _hydrate_material_dates_from_stock(case: dict, client: dict) -> None:
@@ -5788,7 +5845,7 @@ async def export_co_case_bang_ke_workbook(request: Request, client_id: str, case
             case["origin_sheet_states"] = persisted.get("origin_sheet_states") or {}
     case = attach_origin_sheet_states(case)
     _hydrate_material_dates_from_stock(case, client)
-    _hydrate_product_export_declaration_dates(case)
+    _hydrate_product_export_declaration_dates(case, client)
     blockers = origin_sheet_export_blockers(case)
     if blockers:
         raise HTTPException(

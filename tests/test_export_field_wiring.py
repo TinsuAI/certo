@@ -7,7 +7,9 @@
 """
 from __future__ import annotations
 
-from app import bang_ke_renderer, bang_ke_xml_generator, workbook_io
+from unittest.mock import patch
+
+from app import bang_ke_renderer, bang_ke_xml_generator, main as main_module, workbook_io
 from app.bang_ke_xml_generator import FormSpec
 from app.co_case_store import case_from_record
 
@@ -79,6 +81,43 @@ def test_renderer_field_table_uses_legal_name():
     assert fields["merchant"] == "CÔNG TY TNHH X"
     assert fields["tax_code"] == "0123"
     assert fields["declaration"] == {"no": "308449399330", "date": "15/03/2026"}
+
+
+def test_backfill_uses_cached_matches_when_available():
+    case = {
+        "products": [
+            {"source_declaration_no": "308449399330", "source_declaration_date": ""},
+        ],
+        "source_invoice_matches": [
+            {"declaration_no": "308449399330", "declaration_date": "21/04/2026"},
+        ],
+    }
+    main_module._hydrate_product_export_declaration_dates(case, client={"id": "growatt"})
+    assert case["products"][0]["source_declaration_date"] == "21/04/2026"
+
+
+def test_backfill_falls_back_to_data_hub_and_updates_cache():
+    case = {
+        "products": [
+            {"source_declaration_no": "308449399330", "source_declaration_date": ""},
+        ],
+        "source_invoice_matches": [
+            {"declaration_no": "308449399330"},  # cached match without date
+        ],
+    }
+    fake_dates = {"308449399330": "21/04/2026"}
+    with patch.object(main_module, "_fetch_export_declaration_dates", return_value=fake_dates):
+        main_module._hydrate_product_export_declaration_dates(case, client={"id": "growatt"})
+    assert case["products"][0]["source_declaration_date"] == "21/04/2026"
+    # Cache should be patched so subsequent renders skip the Data Hub call.
+    assert case["source_invoice_matches"][0]["declaration_date"] == "21/04/2026"
+
+
+def test_backfill_iso_to_vietnamese_date_format():
+    # Data Hub returns earliest_bcct_date as ISO; xlsx expects DD/MM/YYYY.
+    assert main_module._to_vietnamese_date("2026-04-21") == "21/04/2026"
+    assert main_module._to_vietnamese_date("") == ""
+    assert main_module._to_vietnamese_date("not-a-date") == "not-a-date"  # passthrough
 
 
 def test_xml_config_uses_dynamic_currency_format():
