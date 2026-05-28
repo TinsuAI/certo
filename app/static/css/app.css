@@ -4322,6 +4322,34 @@ body.co-stock-history-modal-open { overflow: hidden; }
   font-variant-numeric: tabular-nums;
 }
 
+.origin-lot-ineligible {
+  background: var(--error-soft, #fee);
+  color: var(--foreground-muted, #6b7280);
+}
+
+.origin-lot-ineligible .num,
+.origin-lot-ineligible .mono {
+  text-decoration: line-through;
+  text-decoration-color: rgba(239, 68, 68, 0.55);
+}
+
+.origin-lot-date {
+  color: var(--foreground-muted, #6b7280);
+  margin-left: 0.25rem;
+  font-weight: 500;
+}
+
+.origin-lot-reason {
+  background: rgba(239, 68, 68, 0.12);
+  color: #b91c1c;
+  border: 1px solid rgba(239, 68, 68, 0.28);
+  margin-left: 0.35rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
 .origin-substitute-chevron {
   transition: transform 120ms ease;
 }

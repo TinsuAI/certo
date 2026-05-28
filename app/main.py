@@ -6923,6 +6923,7 @@ async def co_case_origin_sheet_substitute_stock(
                     "source_row": lot.get("source_row", ""),
                     "import_declaration_no": lot.get("import_declaration_no", ""),
                     "line_no": lot.get("line_no", ""),
+                    "registration_date": str(lot.get("registration_date") or lot.get("declaration_date") or ""),
                     "remaining_qty": str(lot.get("remaining_qty") or lot.get("available_qty") or "0"),
                     "available_qty": str(lot.get("available_qty") or lot.get("remaining_qty") or "0"),
                     "unit_value": str(lot.get("unit_value") or lot.get("unit_price") or ""),
@@ -6931,6 +6932,11 @@ async def co_case_origin_sheet_substitute_stock(
                     "hs_code": lot.get("hs_code", ""),
                     "uom": lot.get("uom", ""),
                     "allocation_code": lot.get("allocation_code", ""),
+                    "eligibility_ok": bool(lot.get("_eligibility_ok", True)),
+                    "eligibility_reason": str(lot.get("_eligibility_reason", "ok")),
+                    "eligibility_label": co_stock_eligibility.REJECTION_LABELS.get(
+                        str(lot.get("_eligibility_reason", "ok")), ""
+                    ),
                 }
                 for lot in lots[:50]
             ],

@@ -3618,13 +3618,21 @@
                 lotsTbody.innerHTML = "";
                 stock.lots.forEach((lot, idx) => {
                   const tr = document.createElement("tr");
+                  const ineligible = lot.eligibility_ok === false;
+                  if (ineligible) tr.classList.add("origin-lot-ineligible");
+                  const declCell = lot.import_declaration_no || "";
+                  const regDate = lot.registration_date ? lot.registration_date.slice(0, 10) : "";
+                  const dateBadge = regDate ? ` <small class="origin-lot-date">${regDate}</small>` : "";
+                  const reasonBadge = ineligible && lot.eligibility_label
+                    ? ` <span class="badge origin-lot-reason" title="${lot.eligibility_reason || ""}">${lot.eligibility_label}</span>`
+                    : "";
                   tr.innerHTML = `
                     <td>${idx + 1}</td>
-                    <td class="mono">${lot.import_declaration_no || ""}</td>
+                    <td class="mono">${declCell}${dateBadge}</td>
                     <td class="mono">${lot.line_no || ""}</td>
                     <td class="num">${lot.remaining_qty || "0"}</td>
                     <td class="num">${lot.unit_value && Number.isFinite(Number(lot.unit_value)) ? Number(lot.unit_value).toLocaleString("vi-VN", {maximumFractionDigits: 4}) : "—"}</td>
-                    <td>${lot.currency || ""}</td>
+                    <td>${lot.currency || ""}${reasonBadge}</td>
                   `;
                   lotsTbody.appendChild(tr);
                 });
