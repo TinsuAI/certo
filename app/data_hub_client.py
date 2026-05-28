@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextvars import ContextVar, Token
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 from urllib.parse import quote
 
 import httpx
@@ -180,6 +180,42 @@ class DataHubClient:
                 {"client_id": client_id, **query},
             )
         ]
+
+    def list_bom_artifacts_filtered(
+        self,
+        client_id: str,
+        product_code: str,
+        *,
+        intents: Sequence[str] = (),
+        lifecycle: str = "active",
+        shape: str = "flat",
+        latest_per_variant: bool = True,
+        case_id: str = "",
+    ) -> dict:
+        """Picker-oriented filtered fetch. Returns {items, filter_applied}.
+
+        `filter_applied=None` signals the Data Hub server hasn't shipped
+        the picker contract yet — caller must apply equivalent predicate
+        client-side (see `app/bom_service.product_version_options_by_code`).
+        """
+        params: dict[str, Any] = {
+            "client_id": client_id,
+            "lifecycle": lifecycle,
+            "shape": shape,
+            "latest_per_variant": "true" if latest_per_variant else "false",
+        }
+        if intents:
+            params["intents"] = ",".join(intents)
+        if case_id:
+            params["case_id"] = case_id
+        envelope = self._get_filter_envelope(
+            hub_bom_path(HUB_BOM_ARTIFACTS_PATH, product_code),
+            params,
+        )
+        return {
+            "items": [normalize_bom_artifact(row) for row in envelope["items"]],
+            "filter_applied": envelope["filter_applied"],
+        }
 
     def get_bom_latest(self, client_id: str, product_code: str) -> dict:
         try:
@@ -379,6 +415,34 @@ class DataHubClient:
             cursor = next_cursor(payload)
             if not cursor or cursor in seen_cursors:
                 return {"items": rows, "tombstones": tombstones, "server_time": server_time}
+            seen_cursors.add(cursor)
+
+    def _get_filter_envelope(self, path: str, params: dict[str, Any] | None = None) -> dict:
+        """Paginate items + capture filter_applied from the first page.
+
+        Mirrors `_get_all_envelope` but for the picker contract on
+        `/bom/artifacts`. `filter_applied` is None when DH doesn't echo
+        it (pre-shipment); present only on the first page per contract.
+        """
+        params = dict(params or {})
+        params.setdefault("limit", 1000)
+        cursor = ""
+        seen_cursors: set[str] = set()
+        rows: list[dict] = []
+        filter_applied: dict | None = None
+        first_page = True
+        while True:
+            page_params = {**params, "cursor": cursor} if cursor else params
+            payload = self._get(path, page_params)
+            rows.extend(items(payload))
+            if first_page:
+                fa = payload.get("filter_applied") if isinstance(payload, dict) else None
+                if isinstance(fa, dict):
+                    filter_applied = fa
+                first_page = False
+            cursor = next_cursor(payload)
+            if not cursor or cursor in seen_cursors:
+                return {"items": rows, "filter_applied": filter_applied}
             seen_cursors.add(cursor)
 
     def _auth_headers(self) -> dict[str, str]:

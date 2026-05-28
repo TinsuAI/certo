@@ -25,11 +25,19 @@ from app.data_hub_client import (
 )
 
 DATA_HUB_BOM_WORKSPACE_CACHE_TTL_SECONDS = 60.0
-_DATA_HUB_BOM_WORKSPACE_CACHE: dict[tuple[str, str, str, tuple[str, ...]], tuple[float, dict]] = {}
+_DATA_HUB_BOM_WORKSPACE_CACHE: dict[tuple[str, str, str, tuple[str, ...], str], tuple[float, dict]] = {}
+
+PICKER_INTENTS: tuple[str, ...] = (
+    "asserted_technical",
+    "staff_edit",
+    "derived",
+    "customs_declared",
+    "modified_for_case",
+)
 
 
 class LocalBomService:
-    def workspace(self, client: dict, product_codes: list[str] | None = None) -> dict:
+    def workspace(self, client: dict, product_codes: list[str] | None = None, *, case_id: str = "") -> dict:
         workspace = get_bom_workspace(client)
         workspace["backend"] = "local"
         workspace["read_only"] = False
@@ -64,19 +72,19 @@ class DataHubBomService:
     def __init__(self, data_hub: DataHubClient):
         self.data_hub = data_hub
 
-    def workspace(self, client: dict, product_codes: list[str] | None = None) -> dict:
-        cache_key = data_hub_bom_workspace_cache_key(self.data_hub, client["id"], product_codes)
+    def workspace(self, client: dict, product_codes: list[str] | None = None, *, case_id: str = "") -> dict:
+        cache_key = data_hub_bom_workspace_cache_key(self.data_hub, client["id"], product_codes, case_id)
         now = monotonic()
         if cache_key[0]:
             cached = _DATA_HUB_BOM_WORKSPACE_CACHE.get(cache_key)
             if cached and now - cached[0] <= DATA_HUB_BOM_WORKSPACE_CACHE_TTL_SECONDS:
                 return deepcopy(cached[1])
-        workspace = self._build_workspace(client, product_codes)
+        workspace = self._build_workspace(client, product_codes, case_id=case_id)
         if cache_key[0]:
             _DATA_HUB_BOM_WORKSPACE_CACHE[cache_key] = (now, deepcopy(workspace))
         return workspace
 
-    def _build_workspace(self, client: dict, product_codes: list[str] | None = None) -> dict:
+    def _build_workspace(self, client: dict, product_codes: list[str] | None = None, *, case_id: str = "") -> dict:
         client_id = client["id"]
         product_filter = normalized_product_code_filter(product_codes)
         product_rows = (
@@ -87,12 +95,17 @@ class DataHubBomService:
         product_versions: list[dict] = []
         latest_rows: list[dict] = []
         variant_conflicts: list[dict] = []
+        dh_filter_active = False
 
         for product in product_rows:
             product_code = product_code_from_row(product)
             if not product_code:
                 continue
-            artifact_payloads = self.product_artifact_payloads(client_id, product_code)
+            artifact_payloads, picker_filter_applied = self.product_artifact_payloads(
+                client_id, product_code, case_id=case_id
+            )
+            if picker_filter_applied:
+                dh_filter_active = True
             if artifact_payloads:
                 current_payload = next(
                     (
@@ -159,6 +172,7 @@ class DataHubBomService:
         return {
             "backend": "data-hub",
             "read_only": True,
+            "dh_picker_filter_active": dh_filter_active,
             "config": {
                 "bom_profile": "data_hub",
                 "default_import_mode": "data_hub",
@@ -166,7 +180,11 @@ class DataHubBomService:
             },
             "versions": [aggregate] if aggregate["version_id"] else [],
             "product_versions": product_versions,
-            "product_version_options_by_code": product_version_options_by_code(product_versions),
+            "product_version_options_by_code": product_version_options_by_code(
+                product_versions,
+                case_id=case_id,
+                trust_server_filter=dh_filter_active,
+            ),
             "product_composition": composition,
             "uploads": [],
             "audit": [],
@@ -179,17 +197,47 @@ class DataHubBomService:
             "variant_conflicts": variant_conflicts,
         }
 
-    def product_artifact_payloads(self, client_id: str, product_code: str) -> list[dict]:
-        if not hasattr(self.data_hub, "list_bom_artifacts") or not hasattr(self.data_hub, "get_bom_artifact"):
-            return []
+    def product_artifact_payloads(
+        self,
+        client_id: str,
+        product_code: str,
+        *,
+        case_id: str = "",
+    ) -> tuple[list[dict], bool]:
+        """Returns (payloads, picker_filter_applied).
+
+        `picker_filter_applied` is True when DH responded to the
+        picker-filter contract (`filter_applied` echo present). Callers
+        use it to skip duplicate client-side filtering.
+        """
+        if not hasattr(self.data_hub, "get_bom_artifact"):
+            return [], False
+        has_filtered = hasattr(self.data_hub, "list_bom_artifacts_filtered")
+        has_legacy = hasattr(self.data_hub, "list_bom_artifacts")
+        if not (has_filtered or has_legacy):
+            return [], False
+        picker_filter_applied = False
         try:
-            summaries = self.data_hub.list_bom_artifacts(client_id, product_code)
+            if case_id and has_filtered:
+                envelope = self.data_hub.list_bom_artifacts_filtered(
+                    client_id,
+                    product_code,
+                    intents=PICKER_INTENTS,
+                    lifecycle="active",
+                    shape="flat",
+                    latest_per_variant=True,
+                    case_id=case_id,
+                )
+                summaries = envelope.get("items", [])
+                picker_filter_applied = envelope.get("filter_applied") is not None
+            else:
+                summaries = self.data_hub.list_bom_artifacts(client_id, product_code)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 404:
-                return []
+                return [], False
             raise
         if len(summaries) <= 1:
-            return []
+            return [], picker_filter_applied
         payloads = []
         for summary in sorted(summaries, key=lambda row: int(row.get("artifact_no") or 0), reverse=True):
             artifact_id = summary.get("artifact_id", "")
@@ -210,7 +258,7 @@ class DataHubBomService:
                     "product_code": product_code,
                 },
             })
-        return payloads
+        return payloads, picker_filter_applied
 
     def update_config(self, *_args, **_kwargs) -> dict:
         raise RuntimeError("Canonical BOM config must be managed in Data Hub.")
@@ -237,12 +285,18 @@ class BomServiceProxy:
 bom_service = BomServiceProxy()
 
 
-def data_hub_bom_workspace_cache_key(data_hub: DataHubClient, client_id: str, product_codes: list[str] | None) -> tuple[str, str, str, tuple[str, ...]]:
+def data_hub_bom_workspace_cache_key(
+    data_hub: DataHubClient,
+    client_id: str,
+    product_codes: list[str] | None,
+    case_id: str = "",
+) -> tuple[str, str, str, tuple[str, ...], str]:
     return (
         data_hub_cache_identity(data_hub),
         client_id,
         current_data_hub_token(),
         tuple(sorted(normalized_product_code_filter(product_codes))),
+        case_id or "",
     )
 
 
@@ -379,12 +433,49 @@ def aggregate_version(composition: list[dict], rows: list[dict]) -> dict:
     }
 
 
-def product_version_options_by_code(product_versions: list[dict]) -> dict[str, list[dict]]:
+def product_version_options_by_code(
+    product_versions: list[dict],
+    *,
+    case_id: str = "",
+    trust_server_filter: bool = False,
+) -> dict[str, list[dict]]:
+    """Group versions per product_code, applying the picker filter.
+
+    When `trust_server_filter` is True the rows already came through
+    Data Hub's `/bom/artifacts` filter contract and pass through as-is.
+    Otherwise we apply an equivalent predicate locally so the picker
+    behaves the same against legacy DH builds and the LocalBomService.
+    """
     output: dict[str, list[dict]] = {}
     for version in product_versions:
         if version.get("status") == "variant_conflict":
             continue
         if version.get("flatten_status") == "non_flattened":
             continue
+        if not trust_server_filter and not _picker_predicate_keeps(version, case_id):
+            continue
         output.setdefault(version["product_code"], []).append(version)
     return output
+
+
+def _picker_predicate_keeps(version: dict, case_id: str) -> bool:
+    """Mirror of Data Hub's picker filter (`lifecycle=active`, `shape=flat`,
+    case-scoped `modified_for_case`). Used when DH didn't echo
+    `filter_applied` — keeps CO behaving correctly against legacy DH and
+    LocalBomService.
+    """
+    if version.get("tombstoned_at"):
+        return False
+    status = str(version.get("status") or "").lower()
+    if status in {"draft", "superseded"}:
+        return False
+    if str(version.get("flatten_status") or "") not in {"flattened", "not_applicable"}:
+        return False
+    intent = str(version.get("intent") or "")
+    if intent == "modified_for_case":
+        if not case_id:
+            return False
+        context = version.get("context") if isinstance(version.get("context"), dict) else {}
+        if str(context.get("case_id") or "") != case_id:
+            return False
+    return True

@@ -2309,7 +2309,7 @@ def test_cached_origin_context_loads_live_bom_artifact_options(monkeypatch):
     from app import main as main_module
 
     class FakeBomService:
-        def workspace(self, client, product_codes=None):
+        def workspace(self, client, product_codes=None, *, case_id=""):
             assert client["id"] == "growatt"
             assert product_codes == ["TP-BOM"]
             versions = [

@@ -1179,8 +1179,9 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
     criteria_rows = extra.pop("criteria_rows")
     if current_step == "origin":
         bom_product_codes = co_case_bom_product_codes(case, invoice_matches)
+        picker_case_id = str(case.get("persisted_case_id") or case.get("id") or "")
         bom_workspace = (
-            bom_service.workspace(client, product_codes=bom_product_codes)
+            bom_service.workspace(client, product_codes=bom_product_codes, case_id=picker_case_id)
             if bom_product_codes
             else minimal_bom_workspace()
         )
