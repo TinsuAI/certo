@@ -98,18 +98,25 @@ def build_catalog_index_records(client_id: str, module: str, rows: list[dict]) -
 
 
 def build_co_stock_index_records(client_id: str, rows: list[dict]) -> list[dict]:
+    def _t(value) -> str:
+        # Coerce None / missing to "" — co_stock_rows has NOT NULL constraints
+        # on customs_item_code / declaration_no / line_no etc. Upstream BCCT
+        # rows occasionally land with null fields (item_code missing on Vietnamese
+        # bao bì lines) and must not break the materializer.
+        return "" if value is None else str(value)
+
     return [
         {
             "client_id": client_id,
             "source_row": row["source_row"],
-            "transaction_key": row.get("source_transaction_key", ""),
-            "import_declaration_no": row.get("import_declaration_no", ""),
-            "line_no": row.get("line_no", ""),
-            "declaration_type": row.get("declaration_type", ""),
-            "customs_item_code": row.get("customs_item_code", ""),
-            "allocation_code": row.get("allocation_code", ""),
-            "eligibility_status": row.get("eligibility_status", ""),
-            "remaining_qty": row.get("remaining_qty", ""),
+            "transaction_key": _t(row.get("source_transaction_key")),
+            "import_declaration_no": _t(row.get("import_declaration_no")),
+            "line_no": _t(row.get("line_no")),
+            "declaration_type": _t(row.get("declaration_type")),
+            "customs_item_code": _t(row.get("customs_item_code")),
+            "allocation_code": _t(row.get("allocation_code")),
+            "eligibility_status": _t(row.get("eligibility_status")),
+            "remaining_qty": _t(row.get("remaining_qty")),
             "payload": dict(row),
         }
         for row in rows

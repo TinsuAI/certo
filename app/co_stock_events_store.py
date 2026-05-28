@@ -26,6 +26,9 @@ EVENT_TYPES = {
     "adjustment_void",
     "claim_lock",
     "claim_release",
+    "snapshot_row_added",
+    "snapshot_row_removed",
+    "snapshot_row_updated",
 }
 
 

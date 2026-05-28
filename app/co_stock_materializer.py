@@ -36,16 +36,30 @@ def _store_available() -> bool:
 
 
 def refresh_co_stock_for_client(client: dict, derive_rows) -> dict:
-    """Wipe + insert co_stock_rows for one client from a derivation callable.
+    """Incremental refresh of co_stock_rows from a derivation callable.
 
-    `derive_rows()` returns the freshly-derived list[dict] of stock rows
-    (shape: `co_stock_rows_from_bcct` output). Pulling BCCT + running the
-    derivation is the caller's responsibility so this module stays free of
-    portfolio_service / Data Hub imports.
+    Replaces the legacy DELETE+INSERT wipe with an UPSERT + targeted DELETE
+    pattern (option B per `.ai/features/2026-05-28-co-stock-refresh-audit.md`):
+
+      1. Snapshot the current rows by `source_row` (with payload, for diff).
+      2. UPSERT every row from `derive_rows()` — INSERT new, UPDATE changed,
+         no-op identical. Track which keys are new vs touched.
+      3. Compute removed = old_keys - new_keys. Filter out lots that have
+         active claims in `co_stock_claims` — those stay (orphan-safe);
+         warning surfaces in summary so the operator knows to release the
+         case or contact Data Hub before the next refresh.
+      4. Targeted DELETE for the cleared removed set.
+      5. Emit per-lot `snapshot_row_added / _removed / _updated` events to
+         `co_stock_events` so the audit log has provenance for every change.
     """
     summary = {
         "client_id": str(client.get("id", "")),
         "rows_persisted": 0,
+        "rows_added": 0,
+        "rows_updated": 0,
+        "rows_removed": 0,
+        "rows_blocked_by_claims": 0,
+        "blocked_lots": [],
         "took_seconds": 0.0,
         "last_refresh_at": None,
         "errors": [],
@@ -65,33 +79,24 @@ def refresh_co_stock_for_client(client: dict, derive_rows) -> dict:
         summary["errors"].append(f"derive: {exc}")
         return summary
     records = build_co_stock_index_records(client_id, rows)
+    new_by_key = {row["source_row"]: row for row in records}
+
     try:
         with connect() as conn, conn.cursor() as cur:
-            cur.execute("delete from co_stock_rows where client_id = %s", (client_id,))
-            if records:
-                cur.executemany(
-                    """insert into co_stock_rows (
-                        client_id, source_row, transaction_key, import_declaration_no,
-                        line_no, declaration_type, customs_item_code, allocation_code,
-                        eligibility_status, remaining_qty, payload
-                       ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                    [
-                        (
-                            row["client_id"],
-                            row["source_row"],
-                            row["transaction_key"],
-                            row["import_declaration_no"],
-                            row["line_no"],
-                            row["declaration_type"],
-                            row["customs_item_code"],
-                            row["allocation_code"],
-                            row["eligibility_status"],
-                            row["remaining_qty"],
-                            Jsonb(row["payload"]),
-                        )
-                        for row in records
-                    ],
+            old_payloads, old_lot_keys = _load_existing_snapshot(cur, client_id)
+            added, updated, identical = _classify_changes(new_by_key, old_payloads)
+            _upsert_records(cur, records)
+            removed = set(old_payloads.keys()) - set(new_by_key.keys())
+            blocked = _claims_blocking_removal(cur, client_id, removed)
+            removable = sorted(removed - blocked)
+            if removable:
+                cur.execute(
+                    "delete from co_stock_rows where client_id = %s and source_row = any(%s)",
+                    (client_id, removable),
                 )
+            _emit_diff_events(client_id, added, updated, removable, new_by_key, old_lot_keys)
+            if blocked:
+                summary["blocked_lots"] = [old_lot_keys.get(k) or {"source_row": k} for k in sorted(blocked)]
     except DatabaseUnavailable:
         summary["errors"].append("database unavailable")
         return summary
@@ -100,9 +105,181 @@ def refresh_co_stock_for_client(client: dict, derive_rows) -> dict:
         summary["errors"].append(str(exc))
         return summary
     summary["rows_persisted"] = len(records)
+    summary["rows_added"] = len(added)
+    summary["rows_updated"] = len(updated)
+    summary["rows_removed"] = len(removable)
+    summary["rows_blocked_by_claims"] = len(blocked)
     summary["took_seconds"] = round(time.time() - t0, 2)
     summary["last_refresh_at"] = datetime.utcnow().isoformat()
     return summary
+
+
+def _load_existing_snapshot(cur, client_id: str) -> tuple[dict, dict]:
+    """Return (source_row → payload, source_row → lot_key dict) for the
+    current snapshot. Lot key is the (decl_no, line_no, customs_code) tuple
+    used by co_stock_claims, kept separately so audit events can carry it."""
+    cur.execute(
+        """select source_row, payload, import_declaration_no, line_no, customs_item_code
+           from co_stock_rows where client_id = %s""",
+        (client_id,),
+    )
+    payloads: dict[str, dict] = {}
+    lot_keys: dict[str, dict] = {}
+    for source_row, payload, decl_no, line_no, customs_code in cur.fetchall():
+        payloads[source_row] = dict(payload or {})
+        lot_keys[source_row] = {
+            "source_row": source_row,
+            "declaration_no": decl_no or "",
+            "line_no": line_no or "",
+            "customs_code": customs_code or "",
+        }
+    return payloads, lot_keys
+
+
+def _classify_changes(new_by_key: dict, old_payloads: dict) -> tuple[list[str], list[str], list[str]]:
+    """Bucket keys into added / updated / identical for event emission.
+
+    Identical rows still get UPSERTed (no-op on the DB side, simpler code)
+    but are excluded from event emission to keep the audit log meaningful.
+
+    Volatile audit fields (`eligibility_config_*`) are stripped before the
+    comparison: they encode which client_config_version produced the row,
+    not anything about the lot itself. `get_client_config` regenerates
+    `updated_at` on every call (pre-existing quirk in client_config_store
+    that bumps config_hash even when the config content is unchanged) so
+    including these in the diff would flag every row as updated on every
+    refresh.
+    """
+    added: list[str] = []
+    updated: list[str] = []
+    identical: list[str] = []
+    for key, row in new_by_key.items():
+        existing = old_payloads.get(key)
+        if existing is None:
+            added.append(key)
+        elif _payload_for_diff(existing) != _payload_for_diff(row["payload"]):
+            updated.append(key)
+        else:
+            identical.append(key)
+    return added, updated, identical
+
+
+_DIFF_IGNORED_PAYLOAD_KEYS = frozenset({
+    "eligibility_config_version",
+    "eligibility_config_hash",
+})
+
+
+def _payload_for_diff(payload: dict) -> dict:
+    return {k: v for k, v in payload.items() if k not in _DIFF_IGNORED_PAYLOAD_KEYS}
+
+
+def _upsert_records(cur, records: list[dict]) -> None:
+    if not records:
+        return
+    cur.executemany(
+        """insert into co_stock_rows (
+            client_id, source_row, transaction_key, import_declaration_no,
+            line_no, declaration_type, customs_item_code, allocation_code,
+            eligibility_status, remaining_qty, payload
+           ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+           on conflict (client_id, source_row) do update set
+             transaction_key = excluded.transaction_key,
+             import_declaration_no = excluded.import_declaration_no,
+             line_no = excluded.line_no,
+             declaration_type = excluded.declaration_type,
+             customs_item_code = excluded.customs_item_code,
+             allocation_code = excluded.allocation_code,
+             eligibility_status = excluded.eligibility_status,
+             remaining_qty = excluded.remaining_qty,
+             payload = excluded.payload,
+             indexed_at = now()""",
+        [
+            (
+                row["client_id"],
+                row["source_row"],
+                row["transaction_key"],
+                row["import_declaration_no"],
+                row["line_no"],
+                row["declaration_type"],
+                row["customs_item_code"],
+                row["allocation_code"],
+                row["eligibility_status"],
+                row["remaining_qty"],
+                Jsonb(row["payload"]),
+            )
+            for row in records
+        ],
+    )
+
+
+def _claims_blocking_removal(cur, client_id: str, removed_keys: set[str]) -> set[str]:
+    """Return the subset of removed_keys that still have active locked claims.
+
+    Those lots stay in `co_stock_rows` — deleting them would orphan a
+    case's claim. The operator must release the case (or have Data Hub
+    explain the upstream change) before the next refresh can clean them up.
+    """
+    if not removed_keys:
+        return set()
+    cur.execute(
+        """select distinct source_row from co_stock_claims
+           where client_id = %s and status = 'locked' and source_row = any(%s)""",
+        (client_id, sorted(removed_keys)),
+    )
+    return {row[0] for row in cur.fetchall()}
+
+
+def _emit_diff_events(
+    client_id: str,
+    added: list[str],
+    updated: list[str],
+    removed: list[str],
+    new_by_key: dict,
+    old_lot_keys: dict,
+) -> None:
+    """Best-effort: write `snapshot_row_*` events for each classified change.
+    Failures here must not abort the refresh — events are audit-only."""
+    if not (added or updated or removed):
+        return
+    try:
+        from app import co_stock_events_store
+
+        payload = []
+        for key in added:
+            row = new_by_key[key]
+            payload.append({
+                "client_id": client_id,
+                "declaration_no": row["import_declaration_no"],
+                "line_no": row["line_no"],
+                "customs_code": row["customs_item_code"],
+                "event_type": "snapshot_row_added",
+                "notes": f"materializer:{row['source_row']}",
+            })
+        for key in updated:
+            row = new_by_key[key]
+            payload.append({
+                "client_id": client_id,
+                "declaration_no": row["import_declaration_no"],
+                "line_no": row["line_no"],
+                "customs_code": row["customs_item_code"],
+                "event_type": "snapshot_row_updated",
+                "notes": f"materializer:{row['source_row']}",
+            })
+        for key in removed:
+            lot = old_lot_keys.get(key, {})
+            payload.append({
+                "client_id": client_id,
+                "declaration_no": lot.get("declaration_no", ""),
+                "line_no": lot.get("line_no", ""),
+                "customs_code": lot.get("customs_code", ""),
+                "event_type": "snapshot_row_removed",
+                "notes": f"materializer:{key}",
+            })
+        if payload:
+            co_stock_events_store.record_events(payload)
+    except Exception as exc:  # noqa: BLE001 — audit log failure must never block refresh
+        LOGGER.warning("co_stock refresh event emit failed for %s: %s", client_id, exc)
 
 
 def read_co_stock_rows(client_id: str) -> list[dict]:
