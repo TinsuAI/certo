@@ -1,121 +1,118 @@
 # Project Status
 
-**Date:** 2026-05-28 (PM session) — closed 3 CO API requests in one
-go, plus assorted quality fixes (conftest, CI badge, docs).
+**Date:** 2026-05-29 — closed BACKLOG A.1 the cheap way (dead-column
+drop, not the planned cross-cut refactor) after data audit showed
+zero in-use overrides.
 
 ## Current State
 
-**Branch:** `main` at `316ec57`. **In sync with `origin/main` and demo box.**
+**Branch:** `main` at `79ae85a`. **In sync with `origin/main` and demo box.**
 
-Recent commits (this session, newest first):
+Recent commits (newest first):
 
+- `79ae85a` — feat!(catalog): drop unused materials.category_override + override_reason
+- `b7f5081` — feat!(bom-api): drop BOM vocab v1 URL aliases (308 → 404)
+- `ec528ed` — docs(handoff): CO API trio + quality fixes session
 - `316ec57` — feat(bom-api): picker filters on `/bom/artifacts`
-  (lifecycle/shape/intents/latest_per_variant/case_id) + filter_applied echo
-- `28ea610` — feat(declarations-api): Bearer mirror of
-  `/clients/{c}/declarations/download.zip` at `/v1/hub/...`
-- `ebedf86` — feat(bcct-api): `since` + `include_tombstones` for CO
-  incremental refresh; `transaction_key` stability confirmed
-- `2f3362e` — docs(a.4.3): feature brief + before/after screenshots
-  for goods_name bucketing
-- `d595bbe` — feat(catalog): bucket near-duplicate `goods_name` to
-  reduce drift noise (Johnson -21% on per-product codes)
-- `8072749` — ci: make LLM /models smoke step soft-fail (CI badge
-  was red on upstream 401 even when deploy + tests passed)
-- `a16202b` — test(conftest): force-reset admin password each
-  session (1175 → 1224 fixed env-vs-test password drift)
-- `e7192ed` — docs: fix admin password (`admin123` → `local_test_password`
-  matching `.env` seed)
+- `28ea610` — feat(declarations-api): Bearer mirror of declarations ZIP
 
-**Tests:** **1,263 passed, 15 skipped** (verified 2026-05-28 PM).
-+88 new tests this session.
+**Tests:** **1,260 passed, 15 skipped** (verified 2026-05-28
+post-mig-072 ship; baseline unchanged — schema-only drop, no
+behaviour change).
 
-**Migrations:** at mig **071** (unchanged this session).
+**Migrations:** at mig **072**.
 
-**Dev server:** `:8754` running with new code (restarted after each
-route change); healthz HTTP 200.
+**Dev server:** `:8754` running with new code; healthz HTTP 200.
 
-**Demo box (`100.84.189.87:8754`):** at `316ec57`, healthz 200.
-CI auto-deployed each push (~1.5-2 min). All 3 new endpoints
-smoke-tested live with real Growatt/Johnson data.
+**Demo box (`100.84.189.87:8754`):** at `79ae85a`, healthz 200.
+CI auto-deployed (~1.5 min). Demo DB confirmed columns dropped;
+`hub.materials` no longer has `category_override` / `override_reason`.
 
-## Three CO API requests — all closed end-to-end
+## Recent Changes (last session)
 
-Each: route + provider tests + `API_CONTRACT.md` + `API_CHANGELOG.md`
-+ sister-app note + live smoke on demo with real data.
+A.1 BACKLOG closure — but **not** the way the BACKLOG plan suggested.
+Original plan: replace single `category` + `category_override` patch
+with multi-role `roles[] text[]`, ~2-3 days cross-cut refactor.
 
-| Request | Endpoint | Tests |
-|---|---|---:|
-| 2026-05-28 BCCT incremental `since` | `GET /v1/hub/bcct?since=…&include_tombstones=…` | 9 |
-| 2026-05-28 Declarations Bearer ZIP | `GET /v1/hub/clients/{c}/declarations/download.zip` | 13 |
-| 2026-05-28 BOM picker filter | `GET /v1/hub/products/{p}/bom/artifacts?lifecycle&shape&intents&case_id&latest_per_variant` | 13 |
+Discovery 2026-05-28 found:
+- `category_override` + `override_reason` (mig 002 scaffold,
+  2026-05-01) were a "patch instead of edit" design from before
+  mig 045 audit trigger + A.3 edit form supplanted them. The UI
+  to set overrides was never built (session 2026-05-01 to-do #11,
+  dropped on the floor).
+- Local dev DB audit: **0/13,589 rows** across Growatt + Johnson
+  have either column set. Dead architecture, not active hack.
+- `observed_roles[]` (mig 046) already surfaces multi-role truth at
+  view level — declared multi-role would only resolve 1 conflict
+  out of 13,589.
 
-CO has pre-staged consumers for all 3 (commits `e47e968` declarations,
-`e0797c9` since). Picker adapter pattern was specified in the request
-but CO commit not yet inspected — adapter probably already wired given
-the pattern.
+Mig 072 + 6-callsite refactor shipped in ~35 min instead of 2-3
+days. Phase 3 declared multi-role deferred until concrete staff
+workflow blocker appears. Files: `db/migrations/072_drop_category_override.sql`,
+`app/routes/{catalog,api}.py`, `app/resolvers/bcct_material_identity.py`,
+`app/templates/clients/catalog_{detail,conflicts}.html`,
+`docs/API_CONTRACT.md`, `docs/API_CHANGELOG.md` (Breaking entry),
+`.ai/BACKLOG.md` (A.1 marked CLOSED with rationale),
+`.ai/features/2026-05-28-catalog-roles-array/brief.md` (discovery doc).
 
-CO end-to-end verified for declarations ZIP: local CO →
-`DataHubClient.download_declarations_zip()` → local DH → 3 real
-Growatt XLS + manifest, 87 KB returned. Contracts match.
-
-## Growatt/Johnson data parity (local = demo)
-
-```
-client      | bcct_rows | decl_files | materials | bom_rows
-growatt-vn  |    39,203 |      4,038 |       457 |   35,086
-johnson-vn  |    65,846 |      3,221 |    13,132 |  132,495
-```
-
-Unchanged from prior session.
+Memory updated: `project_bom_code_multirole.md` notes mig 072 + the
+view-level surfacing supersedes the originally-planned column-level
+fix.
 
 ## Next Steps
 
 1. **F.1 Growatt BOM wipe + re-ingest** — still pending per
-   `project_reingest_pending.md`. Hygiene, not bug — Growatt uses
-   `growatt_factory_technical` adapter (not affected by SAP qty bug
-   or subtree dedup bug that drove Johnson's wipe). Only concrete
-   user-visible win: description backfill (A.7 ship 2026-05-13).
-   Defer unless surface pain appears.
+   `project_reingest_pending.md`. Hygiene only; defer unless surface
+   pain appears.
 2. **A.4.3 follow-up if needed** — current normalize-then-bucket
-   gives 21% noise reduction on Johnson per-product codes. If staff
-   still report noise, add: strip `#&CN` country suffix (10% of rows)
-   + strip "hàng mới 100%" trailer (97%). Probabilistic marginal —
-   only worth it on actual complaint.
-3. **C.3 alias drop check** (~30 min) — `/bom/version/...` 308
-   redirects have explicit removal trigger ("zero alias hits in 24h
-   window"). Grep demo `nginx_access.log` / app logs for the redirect
-   hits, drop the alias handlers if zero.
-4. **A.1 Phase 2 catalog `roles[]`** — multi-role first-class, drops
-   `category`/`category_override`. ~2-3 days. Cross-cut refactor.
-5. **D.1 Aggregate-data git-history** — large principle work
+   gives 21% noise reduction on Johnson per-product codes. Only
+   worth more work if staff complain.
+3. **D.1 Aggregate-data git-history** — large principle work
    (materials/code_mappings/client_config history tables + revert UI).
-6. **STATUS open items unchanged** — offsite backup missing
+   Needs `/discover` first.
+4. **STATUS open items unchanged** — offsite backup missing
    (single VPS = SPOF); ALARM file → external alert (user passed
    on this one explicitly).
 
 ## Notes for Next AI Session
 
-- **Conftest now force-resets admin password.** Running `pytest`
-  against the dev DB will change `admin@data-hub.local`'s password
-  back to `admin123`. The actual `.env` seeds `local_test_password`
-  but conftest overrides for test isolation. If you can't log in
-  to the dev UI, that's why — run a test once and password becomes
-  `admin123` again, or vice versa if uvicorn was restarted post-test.
-- **CO pre-staged consumers** for all 3 new endpoints. They use
-  `filter_applied` / `server_time` probes to detect server support
-  and fall back to client-side behavior. So none of the 3 CO PRs
-  require coordinated deploys.
+- **`category_override` / `override_reason` dropped on local + demo
+  (mig 072).** Any caller reading those JSON fields from
+  `/v1/hub/.../catalog/...` gets nothing. None known. CO consumes
+  `category` (verified by grep), not the override.
+- **Discovery lesson:** A.1 was scoped as "2-3 day cross-cut
+  refactor" in BACKLOG. Data audit before committing showed the
+  pain was hypothetical. Quick query against the dev DB
+  (`select count(*) filter (where category_override is not null)`)
+  collapsed the scope from refactor to dead-code drop. Worth doing
+  before any "large scope" item — verify the pain is real.
+- **Alias drop (commit `b7f5081`) is live.** Old `/bom/version/...`
+  paths return 404, not 308. CO + BCQT verified clean pre-ship.
+- **Demo log retention is NIL across deploys.** `data-hub-app-1`
+  container is `restart: unless-stopped`, started fresh on every CI
+  push. `docker logs` only covers since-last-restart. `/var/log/nginx/`
+  needs root and is unused anyway (all traffic direct to uvicorn:8754).
+  This means "zero alias hits in 24h" type removal triggers can't be
+  strictly verified — fall back to caller-side grep + grace-period
+  duration when this comes up again.
+- **Conftest force-resets admin password** to `admin123` (PM-session
+  fix). Real seed is `local_test_password`. Running `pytest` once
+  flips it; if you can't log in to UI after running tests, that's why.
+- **CO pre-staged consumers** for the 3 PM-session endpoints use
+  `filter_applied` / `server_time` probes so no coordinated deploy
+  needed.
 - **Demo deploy is GitOps via GitHub Actions** — every push to main
-  triggers CI which builds + deploys to `tinsu@100.84.189.87`.
-  ~1.5-2 min per cycle. `gh run watch` for sync; `ssh tinsu@100.84.189.87
-  cd ~/data-hub && git log` to verify.
-- **Use Windows `ssh.exe`** for demo: WSL ssh broken. Always
-  `/mnt/c/Windows/System32/OpenSSH/ssh.exe tinsu@100.84.189.87 '...'`.
-  Demo Docker is reachable via `docker exec data-hub-db-1`.
-- **Dev server hot reload is OFF** (4 workers, `--workers N` not
+  triggers CI build + deploy. ~1.5-2 min per cycle. `gh run watch
+  <id> --exit-status` for sync; verify with `ssh tinsu@100.84.189.87
+  cd ~/data-hub && git log -1`.
+- **Use Windows `ssh.exe`** for demo: `/mnt/c/Windows/System32/OpenSSH/ssh.exe
+  tinsu@100.84.189.87 ...`. WSL ssh broken. Docker reachable via
+  `docker exec data-hub-db-1`.
+- **Dev server hot reload is OFF** (4 workers; `--workers N` not
   compatible with `--reload`). Restart manually after code changes:
-  `kill $(pidof uvicorn for :8754); nohup uv run uvicorn ... &`.
-  Multiple times this session — confusing if you forget.
+  `pkill -f "uvicorn app.main:app --host 127.0.0.1 --port 8754";
+  nohup uv run uvicorn ... &`. The PM-session note about this was
+  re-confirmed today — easy to forget.
 - **STATUS-counts vs reality:** baseline test count drifts every
-  session. Check fresh with `uv run pytest -q` rather than trusting
+  session. Re-check with `uv run pytest -q` rather than trusting
   STATUS.md.
