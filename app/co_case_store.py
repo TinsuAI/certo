@@ -951,14 +951,40 @@ def write_json(path: Path, payload) -> None:
 
 @contextmanager
 def case_lock(client_id: str):
+    """Serialize load-mutate-save sequences against a client's case state.
+
+    Local file mode: fcntl.LOCK_EX on `data/cases/{client_id}/.lock` —
+    protects against same-host racers (single-server dev).
+
+    Postgres mode: ALSO acquires a session-scoped advisory lock via the
+    workflow state store. This is the Phase 1 cross-process / cross-host
+    serialization that keeps two operators on the same client from
+    clobbering each other's payload while editing different cases
+    (audit gap HIGH #3). Phase 2 narrows the lock scope to per-case rows
+    with optimistic concurrency.
+    """
     root = case_root(client_id)
     root.mkdir(parents=True, exist_ok=True)
     lock_path = root / ".lock"
+    store = get_co_case_state_store()
+    db_lock_conn = None
     with lock_path.open("w") as lock_file:
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        if store is not None and hasattr(store, "acquire_client_lock"):
+            db_lock_conn = store.acquire_client_lock(client_id)
         try:
             yield
         finally:
+            if db_lock_conn is not None:
+                try:
+                    store.release_client_lock(client_id, db_lock_conn)
+                except Exception:  # noqa: BLE001
+                    # Release best-effort: connection close releases the
+                    # session-scoped lock anyway.
+                    try:
+                        db_lock_conn.close()
+                    except Exception:  # noqa: BLE001
+                        pass
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 

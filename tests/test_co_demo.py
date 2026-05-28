@@ -3241,6 +3241,92 @@ def test_origin_sheet_substitute_row_persists_override_and_marks_stale():
     assert rejected.status_code == 400
 
 
+def test_case_lock_serializes_concurrent_save_state_on_postgres():
+    """Phase 1: with Postgres, two operators editing different cases of the
+    same client must not clobber each other. case_lock acquires a
+    session-scoped pg_advisory_lock for the client, so the second
+    `with case_lock(...)` blocks until the first commits.
+
+    Skipped without a DB (the file-mode fcntl.LOCK_EX path is already
+    covered by single-threaded test_co_demo paths).
+    """
+    import threading
+    import time
+    import pytest
+
+    from app.database import database_url
+    from app.co_case_store import (
+        case_lock,
+        load_state,
+        save_state,
+        update_case_record,
+    )
+
+    if not database_url():
+        pytest.skip("BARRY_DATABASE_URL not set; advisory lock requires Postgres")
+
+    client = {"id": "lock-test"}
+    # Seed two cases for this client.
+    with case_lock(client["id"]):
+        state = load_state(client["id"])
+        state["cases"] = [
+            {"case_id": "lock-a", "case_code": "LOCK-A", "title": "A",
+             "destination_market": "", "shipment": {}, "products": [],
+             "updated_at": "2026-05-28T00:00:00Z", "created_at": "2026-05-28T00:00:00Z",
+             "supporting_files": []},
+            {"case_id": "lock-b", "case_code": "LOCK-B", "title": "B",
+             "destination_market": "", "shipment": {}, "products": [],
+             "updated_at": "2026-05-28T00:00:00Z", "created_at": "2026-05-28T00:00:00Z",
+             "supporting_files": []},
+        ]
+        save_state(client["id"], state)
+
+    timings: dict[str, float] = {}
+    errors: list[Exception] = []
+
+    def mutate(case_id: str, new_title: str, hold_seconds: float, key: str):
+        try:
+            with case_lock(client["id"]):
+                timings[f"{key}_lock_acquired"] = time.monotonic()
+                state = load_state(client["id"])
+                for row in state["cases"]:
+                    if row["case_id"] == case_id:
+                        row["title"] = new_title
+                if hold_seconds:
+                    time.sleep(hold_seconds)
+                save_state(client["id"], state)
+                timings[f"{key}_saved"] = time.monotonic()
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    t1 = threading.Thread(target=mutate, args=("lock-a", "A-edited", 0.5, "t1"))
+    t2 = threading.Thread(target=mutate, args=("lock-b", "B-edited", 0.0, "t2"))
+    t1.start()
+    time.sleep(0.1)  # Make sure T1 holds the lock before T2 tries.
+    t2.start()
+    t1.join(timeout=10)
+    t2.join(timeout=10)
+
+    assert not errors, errors
+
+    # T2 must not have acquired the lock until T1 saved (~0.4s after t1_lock).
+    assert timings["t2_lock_acquired"] >= timings["t1_saved"] - 0.01, (
+        "T2 acquired the lock before T1 saved — advisory lock is not blocking"
+    )
+
+    final = load_state(client["id"])
+    titles = {row["case_id"]: row["title"] for row in final["cases"]}
+    assert titles == {"lock-a": "A-edited", "lock-b": "B-edited"}, (
+        f"clobber detected, titles={titles}"
+    )
+
+    # Cleanup.
+    with case_lock(client["id"]):
+        state = load_state(client["id"])
+        state["cases"] = []
+        save_state(client["id"], state)
+
+
 def test_delete_case_requires_confirm_when_active_claims_and_then_releases(monkeypatch):
     """HIGH #2 fix: deleting a case that still holds locked co_stock_claims
     must (a) refuse without explicit confirm_release_claims=1 (modal alert
