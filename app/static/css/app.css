@@ -4790,7 +4790,7 @@ body.co-stock-history-modal-open { overflow: hidden; }
   filter: brightness(1.1);
 }
 
-/* PR7: review checklist */
+/* PR7: review checklist (legacy — kept until other callers migrate). */
 
 .review-checklist {
   list-style: none;
@@ -4812,6 +4812,185 @@ body.co-stock-history-modal-open { overflow: hidden; }
 .review-checklist strong {
   font-size: 0.85rem;
   color: var(--foreground-muted);
+}
+
+/* 2026-05-28: Review & Xuất step redesigned. Hero + 2-action panel + 3-card checklist grid. */
+
+.review-page {
+  display: grid;
+  gap: 1.5rem;
+  max-width: 920px;
+  margin: 0 auto;
+}
+
+.review-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 12%, var(--card)), var(--card));
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
+  border-radius: var(--radius-lg);
+}
+
+.review-hero-headline .eyebrow {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--foreground-muted);
+}
+
+.review-hero-headline h2 {
+  margin: 0.25rem 0 0.15rem;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.review-hero-headline .meta {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--foreground-muted);
+}
+
+.review-hero-status .badge {
+  font-size: 0.78rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+}
+
+.review-actions {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 1rem;
+}
+
+.review-action-primary button,
+.review-action-secondary button {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  width: 100%;
+  padding: 1rem 1.2rem;
+  border-radius: var(--radius-md);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  transition: transform 100ms ease, box-shadow 100ms ease, opacity 100ms ease;
+}
+
+.review-action-primary button:hover:not(:disabled),
+.review-action-secondary button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
+.review-action-primary button:disabled,
+.review-action-secondary button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.review-action-icon {
+  font-size: 1.7rem;
+  line-height: 1;
+}
+
+.review-action-body {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.review-action-body strong {
+  font-size: 0.95rem;
+}
+
+.review-action-body small {
+  font-size: 0.75rem;
+  opacity: 0.85;
+}
+
+.review-check-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.review-check {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--foreground);
+  text-decoration: none;
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+
+.review-check:hover {
+  border-color: color-mix(in srgb, var(--primary) 50%, var(--border));
+  transform: translateY(-1px);
+}
+
+.review-check-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 0.9rem;
+}
+
+.review-check-ok .review-check-icon {
+  background: color-mix(in srgb, var(--success) 18%, transparent);
+  color: var(--success);
+}
+
+.review-check-warn .review-check-icon {
+  background: color-mix(in srgb, var(--warning) 18%, transparent);
+  color: var(--warning);
+}
+
+.review-check-warn {
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--border));
+}
+
+.review-check-body {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.review-check-body strong {
+  font-size: 0.85rem;
+}
+
+.review-check-body span {
+  font-size: 0.78rem;
+  color: var(--foreground-muted);
+}
+
+.review-check-body em {
+  color: var(--warning);
+  font-style: normal;
+  font-weight: 600;
+}
+
+.review-check-cta {
+  font-size: 0.78rem;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  .review-hero { flex-direction: column; align-items: flex-start; }
+  .review-actions,
+  .review-check-grid { grid-template-columns: 1fr; }
 }
 
 .btn-primary {

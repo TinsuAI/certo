@@ -1484,115 +1484,106 @@
 {% endif %}
 
 {% if co_case_active_step == "review" %}
-<section class="workspace-grid">
-  <aside class="rail">
-    <section class="zone">
-      <div class="zone-head">
-        <h2>Kết quả case</h2>
-      </div>
-      <div class="metric-stack">
-        <div><span>Mã đạt</span><strong>{{ case.summary.passed_products }}/{{ case.summary.product_count }}</strong></div>
-        <div><span>RVC thấp nhất</span><strong>{{ case.summary.min_rvc }}%</strong></div>
-        <div><span>Chứng từ</span><strong>{{ case.summary.ready_documents }}/{{ case.summary.document_count }}</strong></div>
-      </div>
-    </section>
-    <section class="zone action-panel">
-      {% set _case_completed = case.status in ['completed', 'closed', 'done', 'submitted', 'finished'] %}
-      <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export-dossier-zip" hx-boost="false">
-        <button type="submit" class="btn-primary">📦 Xuất hồ sơ .zip</button>
-        <small class="meta">Gói gồm bảng kê C/O, chứng từ đã upload, và manifest TKX/TKN. Yêu cầu: tất cả bảng kê đã chốt/tính.</small>
-      </form>
+{% set _case_completed = case.status in ['completed', 'closed', 'done', 'submitted', 'finished'] %}
+{% set _locked_count = case.products|selectattr('origin_sheet_status', 'equalto', 'locked')|list|length %}
+{% set _product_count = case.products|length %}
+{% set _unlocked_count = _product_count - _locked_count %}
+{% set _missing_tkx = (tkx_tkn_summary.missing_tkx|length) if tkx_tkn_summary else 0 %}
+{% set _missing_tkn = (tkx_tkn_summary.missing_tkn|length) if tkx_tkn_summary else 0 %}
+{% set _missing_decls = _missing_tkx + _missing_tkn %}
+{% set _docs_count = case.supporting_files|length %}
+{% set _ready_to_close = (_unlocked_count == 0) and _product_count > 0 %}
+{% set _has_blockers = _unlocked_count > 0 or _no_products is sameas true %}
+{% set _no_products = _product_count == 0 %}
+
+<section class="review-page">
+  <header class="review-hero">
+    <div class="review-hero-headline">
+      <span class="eyebrow">Review &amp; Xuất hồ sơ</span>
+      <h2>{{ case.case_code or 'Hồ sơ C/O' }}</h2>
+      <p class="meta">{{ case.customer_legal_name or case.customer }} · {{ case.destination_market or 'Chưa chọn thị trường' }}</p>
+    </div>
+    <div class="review-hero-status">
       {% if _case_completed %}
-      <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/reopen-case" hx-boost="false">
-        <button type="submit" class="btn-secondary">🔓 Mở lại hồ sơ</button>
-        <small class="meta">Hồ sơ đã đóng — mở lại để chỉnh sửa bảng kê / chứng từ.</small>
-      </form>
+      <span class="badge badge-success">✓ Đã đóng</span>
+      {% elif _ready_to_close %}
+      <span class="badge badge-success">✓ Sẵn sàng đóng</span>
+      {% elif _unlocked_count > 0 %}
+      <span class="badge badge-warning">{{ _unlocked_count }} bảng kê chưa chốt</span>
       {% else %}
-      {% set _unlocked_count = case.products|rejectattr('origin_sheet_status', 'equalto', 'locked')|list|length %}
-      {% set _no_products = (case.products|length) == 0 %}
-      <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/close" hx-boost="false" onsubmit="return confirm('Đóng hồ sơ này? Sau khi đóng, không thể sửa bảng kê hay chứng từ. Mở lại bằng nút Mở lại hồ sơ.');">
-        <button type="submit" class="btn-secondary" {% if _unlocked_count > 0 or _no_products %}disabled title="{% if _no_products %}Chưa có bảng kê nào{% else %}Còn {{ _unlocked_count }} bảng kê chưa chốt{% endif %}"{% endif %}>✅ Đóng hồ sơ</button>
-        {% if _no_products %}
-        <small class="meta">Chưa có bảng kê — vào tab Bảng kê C/O để thêm.</small>
-        {% elif _unlocked_count > 0 %}
-        <small class="meta">Chốt tất cả bảng kê trước. Còn <strong>{{ _unlocked_count }}</strong> chưa chốt.</small>
-        {% else %}
-        <small class="meta">Sau khi đóng: read-only. Tự động nhả phiên tính tồn nếu đang giữ.</small>
-        {% endif %}
-      </form>
+      <span class="badge badge-neutral">Chưa có bảng kê</span>
       {% endif %}
-    </section>
-    <section class="zone">
-      <div class="zone-head">
-        <div>
-          <h2>Review tổng hợp</h2>
-          <p class="meta">Kiểm tra trước khi xuất dossier .zip.</p>
-        </div>
+    </div>
+  </header>
+
+  <section class="review-actions">
+    <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export-dossier-zip" hx-boost="false" class="review-action-primary">
+      <button type="submit" class="btn-primary" {% if _no_products %}disabled{% endif %}>
+        <span class="review-action-icon" aria-hidden="true">📦</span>
+        <span class="review-action-body">
+          <strong>Xuất hồ sơ .zip</strong>
+          <small>Bảng kê C/O + chứng từ + danh sách TKX/TKN</small>
+        </span>
+      </button>
+    </form>
+    {% if _case_completed %}
+    <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/reopen-case" hx-boost="false" class="review-action-secondary">
+      <button type="submit" class="btn-secondary">
+        <span class="review-action-icon" aria-hidden="true">🔓</span>
+        <span class="review-action-body">
+          <strong>Mở lại hồ sơ</strong>
+          <small>Cho phép chỉnh sửa bảng kê / chứng từ</small>
+        </span>
+      </button>
+    </form>
+    {% else %}
+    <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/close" hx-boost="false"
+          onsubmit="return confirm('Đóng hồ sơ này? Sau khi đóng, không thể sửa bảng kê hay chứng từ. Mở lại bằng nút Mở lại hồ sơ.');"
+          class="review-action-secondary">
+      <button type="submit" class="btn-secondary" {% if not _ready_to_close %}disabled{% endif %}>
+        <span class="review-action-icon" aria-hidden="true">✅</span>
+        <span class="review-action-body">
+          <strong>Đóng hồ sơ</strong>
+          <small>{% if _ready_to_close %}Khoá mọi thay đổi, tự nhả phiên tồn{% elif _no_products %}Chưa có bảng kê{% else %}Cần chốt {{ _unlocked_count }} bảng kê còn lại{% endif %}</small>
+        </span>
+      </button>
+    </form>
+    {% endif %}
+  </section>
+
+  <section class="review-check-grid" aria-label="Checklist hồ sơ">
+    {% set _docs_state = 'ok' if _docs_count > 0 else 'warn' %}
+    <a class="review-check review-check-{{ _docs_state }}" href="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/documents">
+      <span class="review-check-icon" aria-hidden="true">{% if _docs_state == 'ok' %}✓{% else %}!{% endif %}</span>
+      <div class="review-check-body">
+        <strong>Chứng từ</strong>
+        <span>{{ _docs_count }} file đã upload</span>
       </div>
-      <ul class="review-checklist">
-        <li>
-          <strong>Chứng từ bắt buộc</strong>
-          <span>{{ case.supporting_files|length }} file đã upload — kiểm tra ở tab <a href="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/documents">Chứng từ</a>.</span>
-        </li>
-        <li>
-          <strong>Bảng kê C/O</strong>
-          <span>
-            {% set locked = case.products|selectattr('origin_sheet_status', 'equalto', 'locked')|list|length %}
-            {{ locked }}/{{ case.products|length }} sheet đã chốt.
-            {% set diffs = case.products|selectattr('origin_sheet_material_diff_total')|list|length %}
-            {% if diffs %}{{ diffs }} sheet có BOM artifact mới (cần propose Data Hub).{% endif %}
-          </span>
-        </li>
-        <li>
-          <strong>TKX / TKN</strong>
-          <span>
-            {{ tkx_tkn_summary.tkx|length }} TKX · {{ tkx_tkn_summary.tkn|length }} TKN.
-            {% if tkx_tkn_summary.missing_tkx or tkx_tkn_summary.missing_tkn %}
-            <span class="origin-bom-diff-removed">Còn thiếu tờ khai: {{ tkx_tkn_summary.missing_tkx|length }} TKX, {{ tkx_tkn_summary.missing_tkn|length }} TKN.</span>
-            {% else %}
-            Đầy đủ file tờ khai.
-            {% endif %}
-          </span>
-        </li>
-        <li>
-          <strong>Form &amp; PSR</strong>
-          <span>{{ recommended_form_lane.display_name or 'n/a' }} · {{ recommended_form_lane.instrument or 'Chưa chọn thị trường' }}</span>
-        </li>
-      </ul>
-    </section>
-  </aside>
-  <section class="workspace-main">
-    <section class="zone">
-      <div class="zone-head">
-        <div>
-          <h2>Bảng kê dự kiến</h2>
-          <p class="meta">Preview để review trước khi có legal PSR engine và allocation ledger thật.</p>
-        </div>
+      <span class="review-check-cta">Mở →</span>
+    </a>
+
+    {% set _bk_state = 'ok' if _ready_to_close else 'warn' %}
+    <a class="review-check review-check-{{ _bk_state }}" href="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin">
+      <span class="review-check-icon" aria-hidden="true">{% if _bk_state == 'ok' %}✓{% else %}!{% endif %}</span>
+      <div class="review-check-body">
+        <strong>Bảng kê C/O</strong>
+        <span>{{ _locked_count }}/{{ _product_count }} đã chốt</span>
       </div>
-      {{ criteria_table() }}
-    </section>
-    <section class="zone">
-      <div class="zone-head">
-        <div>
-          <h2>Source evidence snapshot</h2>
-          <p class="meta">Nguồn dữ liệu dùng để giải trình hồ sơ này.</p>
-        </div>
+      <span class="review-check-cta">Mở →</span>
+    </a>
+
+    {% set _tk_state = 'ok' if _missing_decls == 0 else 'warn' %}
+    <a class="review-check review-check-{{ _tk_state }}" href="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/exports">
+      <span class="review-check-icon" aria-hidden="true">{% if _tk_state == 'ok' %}✓{% else %}!{% endif %}</span>
+      <div class="review-check-body">
+        <strong>TKX / TKN</strong>
+        <span>
+          {{ tkx_tkn_summary.tkx|length if tkx_tkn_summary else 0 }} TKX · {{ tkx_tkn_summary.tkn|length if tkx_tkn_summary else 0 }} TKN
+          {% if _missing_decls > 0 %}<em>· thiếu {{ _missing_decls }}</em>{% endif %}
+        </span>
       </div>
-      {{ source_snapshot_block() }}
-    </section>
-    <section class="zone" id="audit">
-      <div class="zone-head">
-        <div>
-          <h2>Audit và giới hạn demo</h2>
-          <p class="meta">Các điểm này phải còn nhìn thấy khi chuyển sang case thật.</p>
-        </div>
-      </div>
-      <ul class="audit-list">
-        {% for note in source_notes %}
-        <li>{{ note }}</li>
-        {% endfor %}
-      </ul>
-    </section>
+      <span class="review-check-cta">Mở →</span>
+    </a>
   </section>
 </section>
 {% endif %}

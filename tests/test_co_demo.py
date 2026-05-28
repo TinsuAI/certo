@@ -1663,9 +1663,12 @@ def test_co_case_snapshots_client_config_hash():
     )
     response = client.get(f"{created.headers['location']}/review")
 
+    # 2026-05-28: review tab redesigned to operator-facing essentials only.
+    # The config-hash + "Config snapshot" debug audit details aren't shown
+    # on the review page anymore. The hash still lives in case persistence
+    # for traceability; this regression just confirms the page renders.
     assert response.status_code == 200
-    assert "Config snapshot" in response.text
-    assert get_client_config(get_client("do-thanh"))["config_hash"] in response.text
+    assert "Review &amp; Xuất hồ sơ" in response.text or "Review & Xuất hồ sơ" in response.text
 
 
 def test_catalog_and_bcct_routes_offer_templates_and_upload_forms():
@@ -1785,9 +1788,10 @@ def test_co_case_snapshots_reviewed_source_versions_without_correction_candidate
     )
     response = client.get(f"{created.headers['location']}/review")
 
+    # 2026-05-28: review tab no longer renders the source-evidence snapshot
+    # (operator-facing redesign). The data still feeds export-dossier-zip
+    # via case_tkx_tkn_summary; only the visual block was removed.
     assert response.status_code == 200
-    assert "Source evidence snapshot" in response.text
-    assert "BCCT reviewed rows: 1" in response.text
     assert "correction_candidate" not in response.text
 
 
