@@ -1910,7 +1910,10 @@ def test_co_case_detail_is_split_into_workflow_step_views():
     assert 'id="origin-export-bang-ke" hx-boost="false"' in origin.text
     assert 'form="origin-export-bang-ke" data-origin-export-action' in origin.text
     assert 'form.getAttribute("hx-boost") === "false"' in origin.text
-    assert "Xuất dossier XLSX" in review.text
+    # Step 6 was redesigned (2026-05-28): single dossier ZIP + close-case
+    # button. Legacy XLSX dossier export removed.
+    assert "Xuất hồ sơ .zip" in review.text
+    assert "Đóng hồ sơ" in review.text
     assert f"{case_url}/documents" in shipment.text
     assert f"{case_url}/origin" in shipment.text
 
@@ -3282,11 +3285,12 @@ def test_export_dossier_zip_bundles_chung_tu_tkx_tkn_and_hq_bang_ke(monkeypatch)
 
     archive = zipfile.ZipFile(io.BytesIO(response.content))
     names = archive.namelist()
-    assert "README.txt" in names
-    assert "bang-ke-co-hq.xlsx" in names
-    assert "tkx-tkn.json" in names
+    # Layout redesigned 2026-05-28: numbered sections + MD readme/manifest.
+    assert "00-README.md" in names
+    bang_ke_entry = next(n for n in names if n.startswith("01-bang-ke/") and n.endswith(".xlsx"))
+    assert "03-to-khai/MANIFEST.md" in names
 
-    hq_workbook_bytes = archive.read("bang-ke-co-hq.xlsx")
+    hq_workbook_bytes = archive.read(bang_ke_entry)
     hq_archive = zipfile.ZipFile(io.BytesIO(hq_workbook_bytes))
     hq_names = hq_archive.namelist()
     hq_workbook_xml = hq_archive.read("xl/workbook.xml")

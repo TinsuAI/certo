@@ -457,6 +457,16 @@
   <div class="case-tab-progress" data-case-tab-progress aria-hidden="true"></div>
 </section>
 
+{% if case.status in ['completed', 'closed', 'done', 'submitted', 'finished'] %}
+<section class="callout callout-info">
+  <span class="callout-icon">✅</span>
+  <div>
+    <div class="callout-title">Hồ sơ đã đóng</div>
+    <span>Hồ sơ này đã được đóng. Mọi tab ở chế độ chỉ đọc. Vào tab <strong>Review &amp; Xuất</strong> và bấm <strong>Mở lại hồ sơ</strong> nếu cần chỉnh sửa.</span>
+  </div>
+</section>
+{% endif %}
+
 {% if origin_calculation_lock %}
 {% set current_case_holds_origin_lock = origin_calculation_lock.case_id == case.persisted_case_id %}
 <section class="callout {{ 'callout-success' if current_case_holds_origin_lock else 'callout-info' }}">
@@ -1487,16 +1497,22 @@
       </div>
     </section>
     <section class="zone action-panel">
+      {% set _case_completed = case.status in ['completed', 'closed', 'done', 'submitted', 'finished'] %}
       <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export-dossier-zip" hx-boost="false">
-        <button type="submit" class="btn-primary">Xuất dossier .zip (chứng từ + TKX/TKN + bảng kê HQ)</button>
-        <small class="meta">Yêu cầu: tất cả bảng kê đã chốt hoặc tính. Bảng kê HQ build theo template <code>tru lui CO final</code>.</small>
+        <button type="submit" class="btn-primary">📦 Xuất hồ sơ .zip</button>
+        <small class="meta">Gói gồm bảng kê C/O, chứng từ đã upload, và manifest TKX/TKN. Yêu cầu: tất cả bảng kê đã chốt/tính.</small>
       </form>
-      <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export-bang-ke" hx-boost="false">
-        <button type="submit" class="btn-secondary">Xuất bảng kê HQ XLSX</button>
+      {% if _case_completed %}
+      <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/reopen-case" hx-boost="false">
+        <button type="submit" class="btn-secondary">🔓 Mở lại hồ sơ</button>
+        <small class="meta">Hồ sơ đã đóng — mở lại để chỉnh sửa.</small>
       </form>
-      <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export" hx-boost="false">
-        <button type="submit" class="btn-secondary">Xuất dossier XLSX (legacy)</button>
+      {% else %}
+      <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/close" hx-boost="false" onsubmit="return confirm('Đóng hồ sơ này? Sau khi đóng, không thể sửa bảng kê hay chứng từ. Mở lại bằng nút Mở lại hồ sơ.');">
+        <button type="submit" class="btn-secondary">✅ Đóng hồ sơ</button>
+        <small class="meta">Sau khi đóng: read-only. Mở lại được nếu cần.</small>
       </form>
+      {% endif %}
     </section>
     <section class="zone">
       <div class="zone-head">

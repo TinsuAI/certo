@@ -6100,12 +6100,46 @@ async def export_co_case_dossier_zip(client_id: str, case_id: str):
             "filename": row.get("filename", "supporting.bin"),
             "content": path.read_bytes(),
         })
-    content = create_dossier_zip(case, supporting_files, summary)
+    content = create_dossier_zip(
+        case,
+        supporting_files,
+        summary,
+        data_hub_base_url=data_hub_link_settings().data_hub_base_url,
+    )
     filename = safe_filename(f"{case.get('case_code') or 'co-case'}-dossier.zip")
     return StreamingResponse(
         iter([content]),
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/clients/{client_id}/co-case/{case_id}/close")
+async def close_co_case(request: Request, client_id: str, case_id: str):
+    """Mark the case as completed (status=completed). All edits become blocked
+    via co_case_is_completed once persisted. Reverse via /reopen."""
+    client = resolve_client(client_id)
+    try:
+        update_case_record(client, {"id": case_id, "persisted_case_id": case_id, "status": "completed"})
+    except KeyError:
+        raise HTTPException(status_code=404) from None
+    return RedirectResponse(
+        f"/clients/{client_id}/co-case/{case_id}/review",
+        status_code=303,
+    )
+
+
+@app.post("/clients/{client_id}/co-case/{case_id}/reopen-case")
+async def reopen_co_case(request: Request, client_id: str, case_id: str):
+    """Re-open a completed case for further edits."""
+    client = resolve_client(client_id)
+    try:
+        update_case_record(client, {"id": case_id, "persisted_case_id": case_id, "status": "open"})
+    except KeyError:
+        raise HTTPException(status_code=404) from None
+    return RedirectResponse(
+        f"/clients/{client_id}/co-case/{case_id}/review",
+        status_code=303,
     )
 
 

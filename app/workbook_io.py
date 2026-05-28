@@ -913,54 +913,144 @@ def _create_hq_bang_ke_workbook_shell(case: dict) -> bytes:
     return stream.getvalue()
 
 
-def create_dossier_zip(case: dict, supporting_files: list[dict], tkx_tkn_summary: dict) -> bytes:
-    """Bundle uploaded supporting files + TKX/TKN summary + HQ bảng kê into one .zip."""
-    import json
+def create_dossier_zip(
+    case: dict,
+    supporting_files: list[dict],
+    tkx_tkn_summary: dict,
+    *,
+    data_hub_base_url: str = "",
+    declaration_archives: dict[str, bytes] | None = None,
+) -> bytes:
+    """Bundle the full C/O dossier into a single .zip an operator can hand
+    straight to HQ.
+
+    Layout (numbered prefixes drive Windows Explorer sort order):
+        00-README.md                            — Vietnamese cover doc.
+        01-bang-ke/{case_code}-bang-ke-HQ.xlsx
+        02-chung-tu/{NN}-{slot}-{original}      — supporting files from step 2,
+                                                  numbered + slot-tagged so the
+                                                  HQ reviewer sees groups
+                                                  (BL, Invoice, Packing, ...).
+        03-to-khai/MANIFEST.md                  — list of every TKX/TKN with
+                                                  Data Hub download URLs (until
+                                                  the Bearer-aware download API
+                                                  ships per .ai/api-requests/
+                                                  2026-05-28-bcct-declarations-
+                                                  download-bearer.md).
+        03-to-khai/{direction}/{filename}       — actual blobs when
+                                                  declaration_archives carries
+                                                  pre-fetched bytes (future).
+    """
     import zipfile
+    case_code = (case.get("case_code") or "co-case").strip() or "co-case"
     stream = BytesIO()
     with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("README.txt", build_dossier_readme(case))
-        zf.writestr("bang-ke-co-hq.xlsx", create_hq_bang_ke_workbook(case))
-        zf.writestr("tkx-tkn.json", json.dumps(_serialise_tkx_tkn(tkx_tkn_summary), ensure_ascii=False, indent=2))
-        for file in supporting_files or []:
+        zf.writestr("00-README.md", build_dossier_readme(case, tkx_tkn_summary))
+        zf.writestr(
+            f"01-bang-ke/{case_code}-bang-ke-HQ.xlsx",
+            create_hq_bang_ke_workbook(case),
+        )
+        for index, file in enumerate(supporting_files or [], start=1):
             content = file.get("content")
             if not isinstance(content, (bytes, bytearray)):
                 continue
-            slot = str(file.get("slot") or "other").strip() or "other"
-            filename = str(file.get("filename") or "supporting.bin").strip() or "supporting.bin"
-            zf.writestr(f"chung-tu/{slot}/{filename}", bytes(content))
+            slot = _slugify(file.get("slot") or "other")
+            original = (file.get("filename") or "supporting.bin").strip() or "supporting.bin"
+            archive_name = f"02-chung-tu/{index:02d}-{slot}-{original}"
+            zf.writestr(archive_name, bytes(content))
+        zf.writestr(
+            "03-to-khai/MANIFEST.md",
+            _build_declarations_manifest(case, tkx_tkn_summary, data_hub_base_url),
+        )
+        for archive_path, blob in (declaration_archives or {}).items():
+            if isinstance(blob, (bytes, bytearray)):
+                zf.writestr(f"03-to-khai/{archive_path}", bytes(blob))
     return stream.getvalue()
 
 
-def _serialise_tkx_tkn(summary: dict) -> dict:
-    """Convert sets to lists so the TKX/TKN summary survives JSON round-trip."""
-    cleaned: dict = {}
-    for key, value in (summary or {}).items():
-        if isinstance(value, list):
-            cleaned[key] = [
-                {**entry, "products": sorted(entry["products"]) if isinstance(entry.get("products"), set) else entry.get("products", [])}
-                for entry in value
-            ]
-        else:
-            cleaned[key] = value
-    return cleaned
+def _slugify(text: str) -> str:
+    import re
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "-", str(text or "").strip().lower()).strip("-")
+    return cleaned or "other"
 
 
-def build_dossier_readme(case: dict) -> str:
+def _build_declarations_manifest(case: dict, summary: dict, data_hub_base_url: str) -> str:
+    from urllib.parse import quote
+    case_code = case.get("case_code") or case.get("id") or "co-case"
+    client_id = case.get("client_id") or ""
     lines = [
-        f"Hồ sơ C/O: {case.get('case_code', '')}",
-        f"Khách hàng: {case.get('customer', '') or case.get('client_id', '')}",
-        f"Thị trường: {case.get('destination_market', '')}",
-        f"Số TP: {len(case.get('products') or [])}",
+        f"# Tờ khai tham chiếu — hồ sơ {case_code}",
         "",
-        "Cấu trúc thư mục:",
-        "  bang-ke-co-hq.xlsx — Bảng kê C/O theo template HQ (LVC/RVC/CTH/CTSH/EUR1)",
-        "  tkx-tkn.json       — Danh sách TKX và TKN tham chiếu trong hồ sơ",
-        "  chung-tu/<slot>/   — Các chứng từ đã upload theo tab Chứng từ",
+        "Danh sách TKX (xuất) và TKN (nhập) được hồ sơ tham chiếu. Khi Data Hub bổ sung",
+        "endpoint Bearer-aware cho download.zip thì các blob sẽ được nhúng trực tiếp",
+        "vào thư mục `03-to-khai/`; tạm thời bộ liệt kê + link dưới đây để operator",
+        "tải thủ công 1 lần.",
         "",
-        "Lưu ý: bảng kê HQ được build từ template tham chiếu trong",
-        "docs/legacy-workbook-output-sheet-structure.md. Khi file .xlsm",
-        "gốc 'tru lui CO final ...' được nạp vào repo, builder cần đọc",
-        "template đó trực tiếp để giữ đúng styling/format gốc.",
+    ]
+
+    def _block(title: str, entries: list[dict], direction: str) -> list[str]:
+        out = [f"## {title} ({len(entries)})", ""]
+        if not entries:
+            out.append("_Không có tờ khai nào._")
+            out.append("")
+            return out
+        nos = [str(entry.get("declaration_no") or "").strip() for entry in entries if entry.get("declaration_no")]
+        if data_hub_base_url and nos and client_id:
+            link_filename = quote(f"{direction.upper()}_{case_code}.zip")
+            url = (
+                f"{data_hub_base_url}/clients/{client_id}/declarations/download.zip"
+                f"?direction={direction}&declaration_nos={quote(','.join(nos))}"
+                f"&filename={link_filename}"
+            )
+            out.append(f"Tải nhanh toàn bộ {direction.upper()}: [{link_filename}]({url})")
+            out.append("")
+        for entry in entries:
+            decl_no = entry.get("declaration_no") or "?"
+            file_count = entry.get("file_count") or 0
+            present = "✅" if file_count > 0 else "⚠️"
+            out.append(f"- {present} **{decl_no}** — file đã upload: {file_count}")
+        out.append("")
+        return out
+
+    lines += _block("TKX (xuất khẩu)", summary.get("tkx") or [], "export")
+    lines += _block("TKN (nhập khẩu)", summary.get("tkn") or [], "import")
+    missing_tkx = summary.get("missing_tkx") or []
+    missing_tkn = summary.get("missing_tkn") or []
+    if missing_tkx or missing_tkn:
+        lines.append("## Còn thiếu")
+        lines.append("")
+        for entry in missing_tkx:
+            lines.append(f"- TKX **{entry.get('declaration_no', '?')}** — chưa có file trên Data Hub.")
+        for entry in missing_tkn:
+            lines.append(f"- TKN **{entry.get('declaration_no', '?')}** — chưa có file trên Data Hub.")
+    return "\n".join(lines)
+
+
+def build_dossier_readme(case: dict, tkx_tkn_summary: dict | None = None) -> str:
+    summary = tkx_tkn_summary or {}
+    tkx_count = len(summary.get("tkx") or [])
+    tkn_count = len(summary.get("tkn") or [])
+    missing = len(summary.get("missing_tkx") or []) + len(summary.get("missing_tkn") or [])
+    lines = [
+        f"# Hồ sơ C/O — {case.get('case_code', '')}",
+        "",
+        f"- Khách hàng: **{case.get('customer_legal_name') or case.get('customer') or case.get('client_id', '')}**",
+        f"- MST: {case.get('customer_tax_code') or '—'}",
+        f"- Thị trường: {case.get('destination_market', '')}",
+        f"- Số TP: {len(case.get('products') or [])}",
+        f"- TKX/TKN: {tkx_count}/{tkn_count}" + (f" — còn thiếu **{missing}**" if missing else ""),
+        "",
+        "## Cấu trúc thư mục",
+        "",
+        "- `01-bang-ke/…-bang-ke-HQ.xlsx` — Bảng kê C/O theo template HQ.",
+        "- `02-chung-tu/NN-<slot>-<tên file>` — Chứng từ upload ở bước 2 (BL, Invoice, Packing, …) đã đánh số.",
+        "- `03-to-khai/MANIFEST.md` — Danh sách TKX/TKN + link Data Hub để tải file tờ khai.",
+        "- `03-to-khai/<direction>/…` — File tờ khai (xuất hiện khi Data Hub bật endpoint Bearer-aware).",
+        "",
+        "## Lưu ý",
+        "",
+        "Bảng kê HQ render từ JSON config `config/bang-ke-forms/*.json` + template",
+        "`data/local/hq-templates/form-mau-combined.xlsx`. Khi tham chiếu lại để rà soát,",
+        "đối chiếu cell theo số dòng nguyên gốc của form (cell K6 = tiêu chí, K8 = HS, …).",
     ]
     return "\n".join(lines)
