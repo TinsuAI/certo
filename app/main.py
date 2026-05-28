@@ -2290,6 +2290,8 @@ def prepare_case_origin_sheet(
     form_lane: dict,
     material_rows: list[dict],
     stock_rows: list[dict],
+    *,
+    min_gap_days: int | None = None,
 ) -> dict:
     target_code = str(product_code or "").strip()
     if not target_code:
@@ -2303,7 +2305,7 @@ def prepare_case_origin_sheet(
     target_match = None
     target_sequence = 0
     products_by_code = {str(product.get("code") or product.get("product_code") or "").strip(): product for product in case.get("products", [])}
-    stock_pool = case_allocation_pool(case, ordered_invoice_matches, stock_rows)
+    stock_pool = case_allocation_pool(case, ordered_invoice_matches, stock_rows, min_gap_days=min_gap_days)
     for sequence, match in enumerate(ordered_invoice_matches, start=1):
         match_code = str(match.get("item_code") or match.get("product_code") or "").strip()
         if match_code == target_code:
@@ -2400,7 +2402,7 @@ def origin_product_shell_from_invoice_match(
     return enrich_origin_product(product)
 
 
-def recalculate_origin_sheet_edits(client: dict, case: dict, product_code: str) -> dict:
+def recalculate_origin_sheet_edits(client: dict, case: dict, product_code: str, *, min_gap_days: int | None = None) -> dict:
     """Recompute one sheet from its saved sheet edits, without changing BOM selection."""
     prepared = attach_origin_sheet_states(case)
     products = prepared.get("products", [])
@@ -2442,7 +2444,7 @@ def recalculate_origin_sheet_edits(client: dict, case: dict, product_code: str) 
             stock_rows = []
     material_index = material_catalog_index(source_context.get("material_rows") or [])
     cached_matches = case.get("source_invoice_matches") if isinstance(case.get("source_invoice_matches"), list) else []
-    stock_pool = case_allocation_pool(prepared, cached_matches, stock_rows)
+    stock_pool = case_allocation_pool(prepared, cached_matches, stock_rows, min_gap_days=min_gap_days)
     for previous in products[:target_index]:
         apply_existing_origin_product_consumption(previous, stock_pool)
 
@@ -6562,6 +6564,14 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
         )
         source_context = context.get("origin_source_context", {})
         stock_rows = source_context.get("stock_rows", [])
+    try:
+        client_config_for_rule = (
+            portfolio_service.get_client_config(client)
+            if hasattr(portfolio_service, "get_client_config") else {}
+        )
+    except Exception:  # noqa: BLE001
+        client_config_for_rule = {}
+    min_gap_days = co_stock_eligibility.min_gap_days_from_config(client_config_for_rule)
     context["case"] = prepare_case_origin_sheet(
         context["case"],
         product_code,
@@ -6570,6 +6580,7 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
         context.get("recommended_form_lane", {}),
         source_context.get("material_rows", []),
         stock_rows,
+        min_gap_days=min_gap_days,
     )
     context["case"] = attach_case_bom_snapshot(context["case"], context.get("bom_workspace", minimal_bom_workspace()))
     context["case"] = attach_origin_bom_product_codes(
@@ -7420,7 +7431,17 @@ async def co_case_origin_sheet_save(
         "status_label": ORIGIN_SHEET_STATUS_LABELS["calculated"],
     }
     case["origin_sheet_states"] = states
-    case = recalculate_origin_sheet_edits(client, case, product_code)
+    try:
+        client_config_for_rule = (
+            portfolio_service.get_client_config(client)
+            if hasattr(portfolio_service, "get_client_config") else {}
+        )
+    except Exception:  # noqa: BLE001
+        client_config_for_rule = {}
+    case = recalculate_origin_sheet_edits(
+        client, case, product_code,
+        min_gap_days=co_stock_eligibility.min_gap_days_from_config(client_config_for_rule),
+    )
     case = set_origin_sheet_status(case, product_code, "calculated")
     case = mark_origin_sheets_stale(case, target_index + 1)
     update_case_record(client, case)

@@ -215,6 +215,32 @@ def test_case_allocation_pool_no_export_anchor_makes_rule_noop():
     assert pool["M"][0]["_eligibility_ok"] is True
 
 
+def test_case_allocation_pool_threshold_kwarg_overrides_default():
+    """min_gap_days kwarg controls the predicate end-to-end through the
+    allocation pool builder (route handlers resolve the value from
+    client_config and pass it down)."""
+    from app.main import case_allocation_pool
+
+    case = {"shipment": {"export_declaration_nos": ["XK-1"]}}
+    invoice_matches = [{"declaration_no": "XK-1", "registration_date": "2026-05-10"}]
+    stock_rows = [
+        {"material_code": "M", "source_row": "row-1",
+         "eligibility_status": "active",
+         "registration_date": "2026-05-05",
+         "available_qty": "100"},
+    ]
+    # Gap = 5 days. Default (2) → eligible.
+    pool_default = case_allocation_pool(case, invoice_matches, stock_rows)
+    assert pool_default["M"][0]["_eligibility_ok"] is True
+    # Override threshold to 7 days → rejected.
+    pool_strict = case_allocation_pool(case, invoice_matches, stock_rows, min_gap_days=7)
+    assert pool_strict["M"][0]["_eligibility_ok"] is False
+    assert pool_strict["M"][0]["_eligibility_reason"] == REASON_IMPORT_TOO_RECENT
+    # Disable the rule (threshold 0) → eligible no matter what.
+    pool_off = case_allocation_pool(case, invoice_matches, stock_rows, min_gap_days=0)
+    assert pool_off["M"][0]["_eligibility_ok"] is True
+
+
 def test_case_allocation_pool_multi_export_uses_earliest_as_anchor():
     """Conservative anchor: the tightest constraint wins when a case
     carries multiple export declarations."""
