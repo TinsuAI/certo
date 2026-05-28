@@ -6364,6 +6364,33 @@ async def autosave_co_case_origin(request: Request, client_id: str, case_id: str
     }
 
 
+def _calculate_stock_rows_from_snapshot(client: dict) -> list[dict] | None:
+    """Returns stock rows ready for `prepare_case_origin_sheet`, decorated
+    with current ledger used/remaining qty, or None when the snapshot
+    isn't usable (no DB, empty for this client, or delta refresh failed).
+
+    The caller falls back to the legacy full-pull path on None — the
+    operator never silently calculates against an empty snapshot.
+    """
+    client_id = str(client.get("id", "")) if isinstance(client, dict) else ""
+    if not client_id:
+        return None
+    try:
+        summary = _refresh_co_stock_delta_or_full(client)
+    except Exception as exc:  # noqa: BLE001 — fall back, never block /calculate
+        logging.getLogger(__name__).warning(
+            "co_stock delta-refresh failed for %s; using legacy full pull: %s", client_id, exc
+        )
+        return None
+    if summary.get("errors"):
+        return None
+    rows = co_stock_materializer.read_co_stock_rows(client_id)
+    if not rows:
+        return None
+    used_by_lot = co_stock_ledger.used_qty_by_lot(client_id)
+    return co_stock_ledger.apply_used_qty(rows, used_by_lot)
+
+
 @app.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/calculate", response_class=HTMLResponse)
 async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_id: str, product_code: str):
     client = resolve_client(client_id)
@@ -6406,16 +6433,38 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
                 preserve_origin_products=True,
             ),
         )
-    context = co_case_context(
-        client_id,
-        case_id,
-        current_step="origin",
-        case=case,
-        message=f"Đã load BOM vào bảng kê {product_code}.",
-        preserve_origin_products=True,
-        force_source_refresh=True,
-    )
-    source_context = context.get("origin_source_context", {})
+    # Fast path: delta-refresh the materialized stock snapshot (1-2s when
+    # the upstream BCCT is quiet, vs 30-45s for a full DH pull every time)
+    # and read stock rows from co_stock_rows directly. invoice_matches +
+    # material_rows are pulled through the cached snapshot the shipment
+    # step already populated. Falls back to the legacy full-pull path when
+    # the snapshot is empty (fresh client) or delta refresh errored, so we
+    # never silently calculate against stale data.
+    snapshot_stock_rows = _calculate_stock_rows_from_snapshot(client)
+    if snapshot_stock_rows is not None:
+        context = co_case_context(
+            client_id,
+            case_id,
+            current_step="origin",
+            case=case,
+            message=f"Đã load BOM vào bảng kê {product_code}.",
+            preserve_origin_products=True,
+            cached_case_context=True,
+        )
+        source_context = context.get("origin_source_context", {})
+        stock_rows = snapshot_stock_rows
+    else:
+        context = co_case_context(
+            client_id,
+            case_id,
+            current_step="origin",
+            case=case,
+            message=f"Đã load BOM vào bảng kê {product_code}.",
+            preserve_origin_products=True,
+            force_source_refresh=True,
+        )
+        source_context = context.get("origin_source_context", {})
+        stock_rows = source_context.get("stock_rows", [])
     context["case"] = prepare_case_origin_sheet(
         context["case"],
         product_code,
@@ -6423,7 +6472,7 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
         context.get("bom_workspace", minimal_bom_workspace()),
         context.get("recommended_form_lane", {}),
         source_context.get("material_rows", []),
-        source_context.get("stock_rows", []),
+        stock_rows,
     )
     context["case"] = attach_case_bom_snapshot(context["case"], context.get("bom_workspace", minimal_bom_workspace()))
     context["case"] = attach_origin_bom_product_codes(
