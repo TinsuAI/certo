@@ -6,7 +6,7 @@ import logging
 import os
 import re
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from urllib.parse import quote
@@ -6364,10 +6364,20 @@ async def autosave_co_case_origin(request: Request, client_id: str, case_id: str
     }
 
 
+CALCULATE_SNAPSHOT_FRESHNESS_SECONDS = 30
+
+
 def _calculate_stock_rows_from_snapshot(client: dict) -> list[dict] | None:
     """Returns stock rows ready for `prepare_case_origin_sheet`, decorated
     with current ledger used/remaining qty, or None when the snapshot
     isn't usable (no DB, empty for this client, or delta refresh failed).
+
+    Skips the DH delta round trip when the materialized snapshot was
+    refreshed within `CALCULATE_SNAPSHOT_FRESHNESS_SECONDS` — operators
+    clicking Load BOM repeatedly within a 30-second window don't pay
+    the ~4s DH delta cost per click. The explicit /refresh-co-stock
+    endpoint bypasses this TTL when the operator wants to force a
+    pull (e.g. right after importing fresh BCCT in Data Hub).
 
     The caller falls back to the legacy full-pull path on None — the
     operator never silently calculates against an empty snapshot.
@@ -6375,15 +6385,26 @@ def _calculate_stock_rows_from_snapshot(client: dict) -> list[dict] | None:
     client_id = str(client.get("id", "")) if isinstance(client, dict) else ""
     if not client_id:
         return None
-    try:
-        summary = _refresh_co_stock_delta_or_full(client)
-    except Exception as exc:  # noqa: BLE001 — fall back, never block /calculate
-        logging.getLogger(__name__).warning(
-            "co_stock delta-refresh failed for %s; using legacy full pull: %s", client_id, exc
-        )
-        return None
-    if summary.get("errors"):
-        return None
+    state = co_stock_materializer.read_refresh_state(client_id) or {}
+    refreshed_at = str(state.get("refreshed_at") or "")
+    is_fresh = False
+    if refreshed_at:
+        try:
+            last = datetime.fromisoformat(refreshed_at)
+            age = (datetime.now(last.tzinfo or timezone.utc) - last).total_seconds()
+            is_fresh = age < CALCULATE_SNAPSHOT_FRESHNESS_SECONDS
+        except ValueError:
+            is_fresh = False
+    if not is_fresh:
+        try:
+            summary = _refresh_co_stock_delta_or_full(client)
+        except Exception as exc:  # noqa: BLE001 — fall back, never block /calculate
+            logging.getLogger(__name__).warning(
+                "co_stock delta-refresh failed for %s; using legacy full pull: %s", client_id, exc
+            )
+            return None
+        if summary.get("errors"):
+            return None
     rows = co_stock_materializer.read_co_stock_rows_cached(client_id)
     if not rows:
         return None
