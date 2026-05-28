@@ -498,7 +498,8 @@ def write_hq_template_sheet_header(ws, product: dict, sheet_def: dict, case: dic
     sheet_code = sheet_def["sheet"]
     uom = product.get("uom") or product.get("unit") or product.get("export_unit", "")
     currency_mode = (product.get("origin_sheet_currency_mode") or "native").strip().lower()
-    currency = "VND" if currency_mode == "vnd" else (product.get("currency") or "").strip()
+    from app.bang_ke_renderer import _resolve_target_currency
+    currency = _resolve_target_currency(product, currency_mode == "vnd")
     if sheet_code == "LVC":
         # Compact LVC layout (Phụ lục VII, form-mau-combined): K-N header cells.
         ws["B6"] = f"Tên Thương nhân: {merchant}" if merchant else "Tên Thương nhân: "

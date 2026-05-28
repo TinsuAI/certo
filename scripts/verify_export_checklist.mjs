@@ -16,8 +16,10 @@ const BASE_CO = 'http://127.0.0.1:8001';
 const BASE_HUB = 'http://127.0.0.1:8754';
 const EMAIL = 'admin@data-hub.local';
 const PASSWORD = 'admin123';
-const CLIENT_ID = 'growatt-vn';
-const CASE_ID = 'co-case-e44fe2065b62';
+// USD-product case for the bidirectional FX conversion smoke (product.currency=USD,
+// fob=100, FOB rate populated → NVL VND rows should print as USD when native mode).
+const CLIENT_ID = 'growatt';
+const CASE_ID = 'co-case-03df44bb9e66';
 const LEGAL_NAME = 'CÔNG TY TNHH CLAUDE VERIFY (test)';
 const TAX_CODE = '0312345678';
 

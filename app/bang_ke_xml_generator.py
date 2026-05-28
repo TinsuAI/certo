@@ -490,8 +490,8 @@ def _build_material_row(
     norm = override.get("norm_per_unit") or material.get("bom_qty_per", "0")
     consumed_qty = _decimal(material.get("consumed_qty") or norm)
     use_vnd = (product.get("origin_sheet_currency_mode") or "native").strip().lower() == "vnd"
-    unit_price = _decimal(_pick_currency_value(material, "unit_value", use_vnd))
-    material_value = _decimal(_pick_currency_value(material, "material_value", use_vnd))
+    unit_price = _decimal(_pick_currency_value(material, "unit_value", use_vnd, product))
+    material_value = _decimal(_pick_currency_value(material, "material_value", use_vnd, product))
     is_origin = str(material.get("origin_status") or "non_origin") == "origin"
     origin_value = material_value if is_origin else Decimal("0")
     non_origin_value = material_value if not is_origin else Decimal("0")
@@ -520,14 +520,18 @@ def _build_material_row(
     return values, origin_value, non_origin_value
 
 
-def _pick_currency_value(material: dict, base_key: str, use_vnd: bool) -> str:
-    """Mirror of bang_ke_renderer._pick_currency_value: prefer *_vnd field when
-    in VND mode, fall back to native if VND wasn't populated (missing FX)."""
-    if use_vnd:
-        vnd = material.get(f"{base_key}_vnd")
-        if vnd not in (None, ""):
-            return vnd
-    return material.get(base_key, "")
+def _resolve_target_currency_for_product(product: dict) -> str:
+    from app.bang_ke_renderer import _resolve_target_currency
+    use_vnd = (product.get("origin_sheet_currency_mode") or "native").strip().lower() == "vnd"
+    return _resolve_target_currency(product, use_vnd)
+
+
+def _pick_currency_value(material: dict, base_key: str, use_vnd: bool, product: dict | None = None) -> str:
+    """Mirror of bang_ke_renderer._pick_currency_value with bidirectional
+    conversion (VND ↔ nguyên tệ). See that function's docstring for the
+    direction matrix."""
+    from app.bang_ke_renderer import _pick_currency_value as renderer_pick
+    return renderer_pick(material, base_key, use_vnd, product)
 
 
 def _build_added_row(value: dict, product: dict, counter: int) -> tuple[dict, Decimal, Decimal]:
@@ -664,11 +668,7 @@ def _build_field_table(case: dict, product: dict, form: FormSpec) -> dict[str, A
         "quantity_uom": {"quantity": quantity, "uom": uom},
         "fob_with_currency": {
             "fob": fob_pretty,
-            "currency": (
-                "VND"
-                if (product.get("origin_sheet_currency_mode") or "native").strip().lower() == "vnd"
-                else (product.get("currency") or "")
-            ),
+            "currency": _resolve_target_currency_for_product(product),
         },
     }
 

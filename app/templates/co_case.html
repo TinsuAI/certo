@@ -974,6 +974,8 @@
           data-product-fob="{{ product.fob or '0' }}"
           data-product-quantity="{{ product.quantity or '0' }}"
           data-product-currency="{{ product.currency or '' }}"
+          data-product-fob-currency="{{ product.fob_currency or product.currency or 'VND' }}"
+          data-product-fob-fx-rate="{{ product.fob_fx_rate or '' }}"
           data-product-vnm-baseline="{{ product.vnm_value or product.non_origin_value or '0' }}"
           data-product-lvc-baseline="{{ product.lvc_percentage or '0' }}"
           data-product-lvc-threshold="{{ product.origin_sheet_effective_lvc_threshold or product.lvc_threshold or '0' }}"
@@ -1413,14 +1415,18 @@
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_unit_value" value="{{ material.unit_value }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_currency" value="{{ material.currency }}">
                     <span data-origin-cell-unit-value
+                          data-row-currency="{{ material.currency or 'VND' }}"
                           data-base-unit-value="{{ material.unit_value or '0' }}"
                           data-base-unit-value-native="{{ material.unit_value_native or material.unit_value or '0' }}"
                           data-base-unit-value-vnd="{{ material.unit_value_vnd or '' }}">{{ material.unit_value|number(6) if material.unit_value else 'Thiếu' }}</span>
-                    <small data-origin-cell-currency>{{ 'VND' if currency_mode == 'vnd' else (material.currency or product.currency or 'n/a') }}</small>
+                    {% set _fob_target = (product.fob_currency or product.currency or 'VND') %}
+                    {% set _display_currency = 'VND' if currency_mode == 'vnd' else _fob_target %}
+                    <small data-origin-cell-currency>{{ _display_currency }}</small>
                   </td>
                   <td data-origin-column="material-value" class="num">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_material_value" value="{{ material.material_value }}">
                     <span data-origin-cell-material-value
+                          data-row-currency="{{ material.currency or 'VND' }}"
                           data-base-material-value="{{ material.material_value or '0' }}"
                           data-base-material-value-native="{{ material.material_value_native or material.material_value or '0' }}"
                           data-base-material-value-vnd="{{ material.material_value_vnd or '' }}">{{ material.material_value|number if material.material_value else 'Thiếu' }}</span>
@@ -1435,6 +1441,7 @@
                   <td data-origin-column="non-origin" class="num">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_non_origin_cif_value" value="{{ material.non_origin_cif_value }}">
                     <span data-origin-cell-non-origin
+                          data-row-currency="{{ material.currency or 'VND' }}"
                           data-base-non-origin="{{ material.non_origin_cif_value or '0' }}"
                           data-base-non-origin-native="{{ material.non_origin_cif_value or '0' }}"
                           data-base-non-origin-vnd="{{ material.non_origin_cif_value_vnd or '' }}">{{ material.non_origin_cif_value|number }}</span>
@@ -2794,13 +2801,27 @@
     const sheetPanel = panel.closest("[data-origin-sheet-panel]") || panel;
     const useVnd = (mode || "native").toLowerCase() === "vnd";
     sheetPanel.dataset.originCurrencyMode = useVnd ? "vnd" : "native";
+    // Target currency = VND in vnd mode, else the product's export currency
+    // (fob_currency). Cross-conversion VND→nguyên tệ uses fob_fx_rate.
+    const productFobCurrency = (sheetPanel.dataset.productFobCurrency || sheetPanel.dataset.productCurrency || "VND").toUpperCase();
+    const fobFxRate = parseFloat(sheetPanel.dataset.productFobFxRate || "0");
+    const target = useVnd ? "VND" : productFobCurrency;
     const swap = (selector, nativeAttr, vndAttr, decimals = 2) => {
       sheetPanel.querySelectorAll(selector).forEach((el) => {
+        const rowCurrency = (el.dataset.rowCurrency || "VND").toUpperCase();
         const nativeRaw = el.getAttribute(nativeAttr);
         const vndRaw = el.getAttribute(vndAttr);
-        // Prefer the requested mode; fall back to native when *_vnd is empty
-        // (e.g. row's FX source = "missing").
-        const pick = useVnd ? (vndRaw || nativeRaw) : nativeRaw;
+        let pick;
+        if (target === rowCurrency) {
+          pick = nativeRaw;  // no conversion needed
+        } else if (target === "VND") {
+          pick = vndRaw || nativeRaw;  // canonical VND value
+        } else if (vndRaw && fobFxRate > 0) {
+          // Cross-convert: VND base ÷ target_fx_rate = nguyên tệ value.
+          pick = String(parseFloat(vndRaw) / fobFxRate);
+        } else {
+          pick = nativeRaw;  // fallback when fx_rate missing
+        }
         if (pick === null || pick === undefined || pick === "") return;
         const num = parseFloat(pick);
         if (Number.isFinite(num)) {
@@ -2811,14 +2832,11 @@
     swap("[data-origin-cell-unit-value]", "data-base-unit-value-native", "data-base-unit-value-vnd", 6);
     swap("[data-origin-cell-material-value]", "data-base-material-value-native", "data-base-material-value-vnd", 2);
     swap("[data-origin-cell-non-origin]", "data-base-non-origin-native", "data-base-non-origin-vnd", 2);
-    // Currency label small <small data-origin-cell-currency> next to unit-value.
+    // Currency label small <small data-origin-cell-currency> next to unit-value
+    // reflects the target so VND/USD labels match the displayed numbers.
     sheetPanel.querySelectorAll("[data-origin-cell-currency]").forEach((el) => {
-      if (useVnd) {
-        if (!el.dataset.originNativeCurrency) el.dataset.originNativeCurrency = el.textContent.trim();
-        el.textContent = "VND";
-      } else if (el.dataset.originNativeCurrency) {
-        el.textContent = el.dataset.originNativeCurrency;
-      }
+      if (!el.dataset.originNativeCurrency) el.dataset.originNativeCurrency = el.textContent.trim();
+      el.textContent = target;
     });
   };
 

@@ -155,15 +155,54 @@ def _apply_header(ws, header_cells: list[dict], fields: dict[str, Any]) -> None:
             ws[cell] = raw
 
 
-def _pick_currency_value(material: dict, base_key: str, use_vnd: bool) -> str:
-    """Swap material's native value cell for the *_vnd variant when caller is
-    rendering in VND mode. Falls back to native when VND wasn't populated
-    (e.g. row's exchange_rate_source = "missing" — no rate available)."""
-    if use_vnd:
+def _pick_currency_value(material: dict, base_key: str, use_vnd: bool, product: dict | None = None) -> str:
+    """Resolve display value in the target currency.
+
+    Target = "VND" when use_vnd; else product.fob_currency (the export
+    invoice currency — the "nguyên tệ" the bảng kê is filed in).
+
+    Direction matrix:
+      row.currency == target          → row[base_key]            (no-op)
+      target == "VND"                 → row[base_key + "_vnd"]   (canonical)
+      target is non-VND, row is VND   → row[base_key + "_vnd"] / fob_fx_rate
+                                         (cross-convert VND base into nguyên tệ)
+
+    Falls back to native value when the conversion can't be completed (missing
+    fx_rate, missing *_vnd field on legacy data, etc.). The renderer should
+    surface an FX-source chip elsewhere so the operator sees the warning."""
+    target = _resolve_target_currency(product, use_vnd)
+    row_currency = (material.get("currency") or "VND").strip().upper() or "VND"
+    if target == row_currency:
+        return material.get(base_key, "")
+    if target == "VND":
         vnd = material.get(f"{base_key}_vnd")
-        if vnd not in (None, ""):
-            return vnd
+        return vnd if vnd not in (None, "") else material.get(base_key, "")
+    # target is non-VND and row stored in VND (the common growatt case):
+    # divide canonical VND value by fob_fx_rate to get the nguyên tệ figure.
+    vnd_value = material.get(f"{base_key}_vnd") or material.get(base_key, "")
+    fx_rate = (product or {}).get("fob_fx_rate") or ""
+    try:
+        if vnd_value and fx_rate:
+            converted = Decimal(str(vnd_value)) / Decimal(str(fx_rate))
+            return _decimal_text(converted)
+    except (InvalidOperation, ValueError, ZeroDivisionError):
+        pass
     return material.get(base_key, "")
+
+
+def _resolve_target_currency(product: dict | None, use_vnd: bool) -> str:
+    if use_vnd:
+        return "VND"
+    if not product:
+        return "VND"
+    raw = product.get("fob_currency") or product.get("currency") or "VND"
+    return str(raw).strip().upper() or "VND"
+
+
+def _decimal_text(value: Decimal) -> str:
+    """Match the decimal_text() format used elsewhere — strip trailing zeros."""
+    text = format(value, "f")
+    return text.rstrip("0").rstrip(".") if "." in text else text
 
 
 def _apply_currency_labels(ws, cells: list[dict | str], product: dict) -> None:
@@ -178,7 +217,7 @@ def _apply_currency_labels(ws, cells: list[dict | str], product: dict) -> None:
         {"cell": "H13", "format": "Trị giá ({currency})"}  → templated
     """
     currency_mode = (product.get("origin_sheet_currency_mode") or "native").strip().lower()
-    currency = "VND" if currency_mode == "vnd" else (product.get("currency") or "").strip()
+    currency = _resolve_target_currency(product, currency_mode == "vnd")
     if not currency:
         return
     for entry in cells:
@@ -221,8 +260,8 @@ def _write_body(ws, body_cfg: dict, product: dict) -> tuple[int, dict]:
         material_name = override.get("name") or material.get("material_description", "")
         norm = override.get("norm_per_unit") or material.get("bom_qty_per", "0")
         consumed_qty = _decimal(material.get("consumed_qty") or norm)
-        unit_price = _decimal(_pick_currency_value(material, "unit_value", use_vnd))
-        material_value = _decimal(_pick_currency_value(material, "material_value", use_vnd))
+        unit_price = _decimal(_pick_currency_value(material, "unit_value", use_vnd, product))
+        material_value = _decimal(_pick_currency_value(material, "material_value", use_vnd, product))
         is_origin = str(material.get("origin_status") or "non_origin") == "origin"
         origin_value = material_value if is_origin else Decimal("0")
         non_origin_value = material_value if not is_origin else Decimal("0")
