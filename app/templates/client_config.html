@@ -19,6 +19,21 @@
   <form method="post" action="/clients/{{ client.id }}/config" class="config-grid">
     <section class="zone mini-panel">
       <div class="subsection-head">
+        <h3>Thông tin pháp lý</h3>
+        <p class="meta">Tên thương nhân + MST hiển thị trên bảng kê HQ. Tên ngắn (<code>{{ client.name }}</code>) chỉ dùng nội bộ.</p>
+      </div>
+      <div class="stack-form">
+        <label>Tên thương nhân (đầy đủ pháp lý)
+          <input name="legal_name" value="{{ client.legal_name or '' }}" placeholder="CÔNG TY TNHH ...">
+        </label>
+        <label>Mã số thuế
+          <input name="tax_code" value="{{ client.tax_code if client.tax_code and client.tax_code != 'Chưa nhập' else '' }}" placeholder="0123456789">
+        </label>
+      </div>
+    </section>
+
+    <section class="zone mini-panel">
+      <div class="subsection-head">
         <h3>Data Hub master config</h3>
         <p class="meta">Loại hình tờ khai là master data từ Data Hub, C/O chỉ đọc để tính tồn và đối chiếu hồ sơ.</p>
       </div>

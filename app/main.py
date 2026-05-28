@@ -88,6 +88,7 @@ from app.demo_data import (
     update_products_from_form,
 )
 from app.origin import evaluate_tariff_shift
+from app.app_state_store import get_app_state_store
 from app.portfolio import portfolio_app, portfolio_service
 from app.source_store import (
     attach_case_source_snapshot,
@@ -1036,6 +1037,11 @@ def resolve_client(client_id: str) -> dict:
     succeeds — but the returned record carries the Data Hub ID. Force the
     short ID back onto the result so downstream lookups (`get_case_record`,
     Postgres queries) stay consistent with CO state.
+
+    Identity fields the agency edits in CO (legal_name + tax_code, used on
+    the bảng kê HQ render) are stored locally and overlay whatever Data Hub
+    returns — Data Hub does not yet expose `legal_name`, and tax_code is
+    often "Chưa nhập" upstream.
     """
     service_client = getattr(portfolio_service, "client", None)
     if callable(service_client):
@@ -1044,13 +1050,32 @@ def resolve_client(client_id: str) -> dict:
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code != 404:
                 raise
-            return registry_get_client(client_id)
+            return _apply_co_identity_overlay(client_id, registry_get_client(client_id))
         if isinstance(resolved, dict):
             resolved = dict(resolved)
             resolved["id"] = client_id
             resolved["client_id"] = client_id
-        return resolved
-    return registry_get_client(client_id)
+        return _apply_co_identity_overlay(client_id, resolved)
+    return _apply_co_identity_overlay(client_id, registry_get_client(client_id))
+
+
+def _apply_co_identity_overlay(client_id: str, client: dict) -> dict:
+    if not isinstance(client, dict):
+        return client
+    store = get_app_state_store()
+    if not store:
+        return client
+    try:
+        local = store.client(client_id)
+    except KeyError:
+        return client
+    legal_name = str(local.get("legal_name") or "").strip()
+    tax_code = str(local.get("tax_code") or "").strip()
+    if legal_name:
+        client["legal_name"] = legal_name
+    if tax_code and tax_code != "Chưa nhập":
+        client["tax_code"] = tax_code
+    return client
 
 
 def default_client_case(client: dict) -> dict:
@@ -1058,7 +1083,9 @@ def default_client_case(client: dict) -> dict:
     case.update(
         {
             "id": f"{client['id']}-empty-co-case",
-            "customer": client["name"],
+            "customer": client.get("legal_name") or client["name"],
+            "customer_legal_name": client.get("legal_name", ""),
+            "customer_tax_code": client.get("tax_code", ""),
             "case_code": "Chưa tạo",
             "title": f"Hồ sơ C/O {client['name']}",
             "destination_market": "Chưa nhập",
@@ -2347,6 +2374,7 @@ def origin_product_shell_from_invoice_match(
         "declared_currency": match.get("currency", ""),
         "value_source": product_value["source"],
         "source_declaration_no": match.get("declaration_no", ""),
+        "source_declaration_date": match.get("declaration_date") or match.get("registration_date", ""),
         "source_line_no": match.get("line_no", ""),
         "invoice_ref": match.get("invoice_ref", ""),
         "fob": decimal_text(fob) if fob is not None else "",
@@ -2563,6 +2591,35 @@ def origin_product_order(case: dict) -> list[str]:
         if code and code not in output:
             output.append(code)
     return output
+
+
+def _hydrate_product_export_declaration_dates(case: dict) -> None:
+    """Backfill missing `product.source_declaration_date` from cached invoice matches.
+
+    Cases saved before `source_declaration_date` was wired on product creation
+    have the field empty. The cached `source_invoice_matches` (post-enrichment)
+    carries `declaration_date` per export-BCCT row; match by `declaration_no`.
+    Read-only hydration — no override loss.
+    """
+    matches = case.get("source_invoice_matches") if isinstance(case.get("source_invoice_matches"), list) else []
+    if not matches:
+        return
+    by_decl = {}
+    for row in matches:
+        decl = str(row.get("declaration_no") or "").strip()
+        if not decl or decl in by_decl:
+            continue
+        value = str(row.get("declaration_date") or row.get("registration_date") or "").strip()
+        if value:
+            by_decl[decl] = value
+    if not by_decl:
+        return
+    for product in case.get("products") or []:
+        if product.get("source_declaration_date"):
+            continue
+        decl = str(product.get("source_declaration_no") or "").strip()
+        if decl and decl in by_decl:
+            product["source_declaration_date"] = by_decl[decl]
 
 
 def _hydrate_material_dates_from_stock(case: dict, client: dict) -> None:
@@ -3283,6 +3340,7 @@ def origin_product_from_invoice_match(
         "declared_currency": match.get("currency", ""),
         "value_source": product_value["source"],
         "source_declaration_no": match.get("declaration_no", ""),
+        "source_declaration_date": match.get("declaration_date") or match.get("registration_date", ""),
         "source_line_no": match.get("line_no", ""),
         "invoice_ref": match.get("invoice_ref", ""),
         "fob": decimal_text(fob) if fob is not None else "",
@@ -4902,9 +4960,20 @@ async def client_config(request: Request, client_id: str):
 
 @app.post("/clients/{client_id}/config", response_class=HTMLResponse)
 async def save_client_config_route(request: Request, client_id: str):
-    require_local_source_writes()
     client = resolve_client(client_id)
     form = await request.form()
+    # Identity fields (legal_name / tax_code) are CO-side render metadata, not
+    # source data — editable even when Data Hub source-mode is enabled.
+    if "legal_name" in form or "tax_code" in form:
+        client = dict(client)
+        if "legal_name" in form:
+            client["legal_name"] = str(form.get("legal_name") or "").strip()
+        if "tax_code" in form:
+            client["tax_code"] = str(form.get("tax_code") or "").strip()
+        store = get_app_state_store()
+        if store:
+            store.upsert_client(client)
+    require_local_source_writes()
     config = portfolio_service.get_client_config(client)
     config["co_stock"]["lot_policy"] = str(form.get("co_stock_lot_policy", "line_level"))
     config["allocation_code"]["strategy"] = str(form.get("allocation_code_strategy", "same_as_customs_code"))
@@ -5719,6 +5788,7 @@ async def export_co_case_bang_ke_workbook(request: Request, client_id: str, case
             case["origin_sheet_states"] = persisted.get("origin_sheet_states") or {}
     case = attach_origin_sheet_states(case)
     _hydrate_material_dates_from_stock(case, client)
+    _hydrate_product_export_declaration_dates(case)
     blockers = origin_sheet_export_blockers(case)
     if blockers:
         raise HTTPException(
@@ -6954,7 +7024,9 @@ async def upload_workbook(request: Request, client_id: str, file: UploadFile = F
             status_code=400,
             context=co_case_context(client_id, error=str(exc)),
         )
-    case["customer"] = client["name"]
+    case["customer"] = client.get("legal_name") or client["name"]
+    case["customer_legal_name"] = client.get("legal_name", "")
+    case["customer_tax_code"] = client.get("tax_code", "")
     return templates.TemplateResponse(
         request=request,
         name="co_case.html",

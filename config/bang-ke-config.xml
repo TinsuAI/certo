@@ -94,7 +94,7 @@
       <field label="Tên hàng hóa:"                field="product_name"/>
       <field label="Mã HS (6 số):"                field="finished_hs"/>
       <field label="Số lượng:"                    field="quantity_uom"  format="{quantity} {uom}"/>
-      <field label="Trị giá FOB:"                 field="fob_usd"       format="{fob} USD"/>
+      <field label="Trị giá FOB:"                 field="fob_with_currency" format="{fob} {currency}"/>
     </right-column>
   </header>
 

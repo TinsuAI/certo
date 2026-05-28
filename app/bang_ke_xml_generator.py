@@ -633,7 +633,12 @@ def _build_field_table(case: dict, product: dict, form: FormSpec) -> dict[str, A
     )
     uom = product.get("uom") or product.get("unit") or product.get("export_unit", "")
     return {
-        "merchant": case.get("customer", "") or case.get("client_name", "") or case.get("client_id", ""),
+        "merchant": (
+            case.get("customer_legal_name")
+            or case.get("customer", "")
+            or case.get("client_name", "")
+            or case.get("client_id", "")
+        ),
         "tax_code": case.get("customer_tax_code", "") or case.get("client_tax_code", ""),
         "criterion_text": criterion_text,
         "product_name": product.get("name", ""),
@@ -643,7 +648,7 @@ def _build_field_table(case: dict, product: dict, form: FormSpec) -> dict[str, A
         "fob": fob_raw,
         "declaration": {"no": declaration_no, "date": declaration_date} if declaration_no else None,
         "quantity_uom": {"quantity": quantity, "uom": uom},
-        "fob_usd": {"fob": fob_pretty},
+        "fob_with_currency": {"fob": fob_pretty, "currency": product.get("currency") or ""},
     }
 
 

@@ -47,6 +47,7 @@ def render_into_sheet(
     """
     fields = _build_field_table(case, product)
     _apply_header(ws, config.get("header_cells", []), fields)
+    _apply_currency_labels(ws, config.get("currency_cells", []), product)
     _clear_cells(ws, config.get("clear_cells", []))
     _clear_body_range(ws, config["body"])
     last_row, totals = _write_body(ws, config["body"], product)
@@ -105,7 +106,12 @@ def _build_field_table(case: dict, product: dict) -> dict[str, Any]:
     overrides = product.get("origin_sheet_material_overrides") or {}
     material_count = _count_visible_materials(materials, overrides)
     return {
-        "merchant": case.get("customer", "") or case.get("client_name", "") or case.get("client_id", ""),
+        "merchant": (
+            case.get("customer_legal_name")
+            or case.get("customer", "")
+            or case.get("client_name", "")
+            or case.get("client_id", "")
+        ),
         "tax_code": case.get("customer_tax_code", "") or case.get("client_tax_code", ""),
         "criterion_text": criterion_text,
         "product_name": product.get("name", ""),
@@ -147,6 +153,28 @@ def _apply_header(ws, header_cells: list[dict], fields: dict[str, Any]) -> None:
             ws[cell] = f"{entry['prefix']}{_text(raw)}"
         else:
             ws[cell] = raw
+
+
+def _apply_currency_labels(ws, cells: list[dict | str], product: dict) -> None:
+    """Overwrite template's hardcoded "USD" cells with the product's currency.
+
+    The form-mau template ships with "USD" hardcoded at L10/L11 + "Trị giá (USD)"
+    at H13. Without this override, a VND/EUR/etc. case still prints "USD" on
+    the bảng kê HQ — a regulatory mismatch the user explicitly flagged.
+
+    Config entry shapes:
+        "L10"                          → write currency code verbatim
+        {"cell": "H13", "format": "Trị giá ({currency})"}  → templated
+    """
+    currency = (product.get("currency") or "").strip()
+    if not currency:
+        return
+    for entry in cells:
+        if isinstance(entry, str):
+            ws[entry] = currency
+        elif isinstance(entry, dict) and entry.get("cell"):
+            template = entry.get("format") or "{currency}"
+            ws[entry["cell"]] = template.format(currency=currency)
 
 
 def _clear_cells(ws, cells: list[str]) -> None:

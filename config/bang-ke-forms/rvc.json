@@ -25,6 +25,12 @@
     { "cell": "P5",  "field": "material_count" }
   ],
 
+  "currency_cells": [
+    "L10",
+    "L11",
+    { "cell": "H13", "format": "Trị giá ({currency})" }
+  ],
+
   "clear_cells": [
     "I1590", "I1591", "I1593",
     "I1595", "I1596", "I1597", "I1599",

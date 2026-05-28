@@ -18,6 +18,10 @@
     { "cell": "L10", "field": "fob_decimal" }
   ],
 
+  "currency_cells": [
+    { "cell": "H13", "format": "Trị giá ({currency})" }
+  ],
+
   "clear_cells": [
     "I440", "J440",
     "I441", "J441",

@@ -476,7 +476,12 @@ def write_hq_template_sheet_header(ws, product: dict, sheet_def: dict, case: dic
     formulas, and print setup. Keep those intact and only replace the cells
     the legacy macro treated as output values.
     """
-    merchant = case.get("customer", "") or case.get("client_name", "") or case.get("client_id", "")
+    merchant = (
+        case.get("customer_legal_name")
+        or case.get("customer", "")
+        or case.get("client_name", "")
+        or case.get("client_id", "")
+    )
     tax_code = case.get("customer_tax_code", "") or case.get("client_tax_code", "")
     quantity = decimal_value(product.get("quantity") or "0")
     fob = decimal_value(product.get("fob") or "0")
@@ -490,6 +495,7 @@ def write_hq_template_sheet_header(ws, product: dict, sheet_def: dict, case: dic
 
     sheet_code = sheet_def["sheet"]
     uom = product.get("uom") or product.get("unit") or product.get("export_unit", "")
+    currency = (product.get("currency") or "").strip()
     if sheet_code == "LVC":
         # Compact LVC layout (Phụ lục VII, form-mau-combined): K-N header cells.
         ws["B6"] = f"Tên Thương nhân: {merchant}" if merchant else "Tên Thương nhân: "
@@ -502,6 +508,8 @@ def write_hq_template_sheet_header(ws, product: dict, sheet_def: dict, case: dic
         ws["L9"] = quantity
         ws["N9"] = uom
         ws["L10"] = fob
+        if currency:
+            ws["H13"] = f"Trị giá ({currency})"
         return
     # Legacy wide layout (CTH/CTSH/RVC/PSR) — preserves Mã LH / Tỷ giá / helper cols.
     ws["B6"] = f"Tên Thương nhân: {merchant}" if merchant else "Tên Thương nhân: "
@@ -520,6 +528,12 @@ def write_hq_template_sheet_header(ws, product: dict, sheet_def: dict, case: dic
     ws["Q9"] = declaration_no
     ws["K10"] = fob
     ws["K11"] = fob
+    # Template hardcodes "USD" at L10/L11 + "(USD)" in H13 header. Overwrite
+    # with the product's actual currency so the bảng kê HQ never mismatches.
+    if currency:
+        ws["L10"] = currency
+        ws["L11"] = currency
+        ws["H13"] = f"Trị giá ({currency})"
     ws["P5"] = material_count
     # PSR template carries Trị giá xuất xưởng / Phí B/L+THC / Phí vận chuyển
     # labels at M9/M10/M11 in the source template; we don't compute the

@@ -805,6 +805,8 @@ def enrich_invoice_matches_with_bcct(invoice_matches: list[dict], bcct_rows: lis
             "origin_country": first_value(match.get("origin_country"), source.get("origin_country")),
             "invoice_date": first_value(match.get("invoice_date"), source.get("invoice_date")),
             "departure_date": first_value(match.get("departure_date"), source.get("departure_date")),
+            "declaration_date": first_value(match.get("declaration_date"), source.get("declaration_date")),
+            "registration_date": first_value(match.get("registration_date"), source.get("registration_date")),
             "consignee_name": first_value(match.get("consignee_name"), source.get("consignee_name")),
             "exporter_name": first_value(match.get("exporter_name"), source.get("exporter_name")),
             "unloading_location": first_value(match.get("unloading_location"), source.get("unloading_location")),

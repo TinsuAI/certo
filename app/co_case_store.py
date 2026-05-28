@@ -211,7 +211,10 @@ def case_from_record(base_case: dict, client: dict, record: dict) -> dict:
     case = dict(base_case)
     case["id"] = record["case_id"]
     case["persisted_case_id"] = record["case_id"]
-    case["customer"] = client["name"]
+    legal_name = clean_text(client.get("legal_name") or "")
+    case["customer"] = legal_name or client["name"]
+    case["customer_legal_name"] = legal_name
+    case["customer_tax_code"] = clean_text(client.get("tax_code") or "")
     case["title"] = record.get("title", case.get("title", ""))
     case["case_code"] = record.get("case_code", case.get("case_code", ""))
     case["destination_market"] = record.get("destination_market", case.get("destination_market", ""))
