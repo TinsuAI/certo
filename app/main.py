@@ -6384,9 +6384,12 @@ def _calculate_stock_rows_from_snapshot(client: dict) -> list[dict] | None:
         return None
     if summary.get("errors"):
         return None
-    rows = co_stock_materializer.read_co_stock_rows(client_id)
+    rows = co_stock_materializer.read_co_stock_rows_cached(client_id)
     if not rows:
         return None
+    # apply_used_qty mutates the rows in place to attach used/remaining,
+    # so copy the cached payloads first — the cache must stay clean.
+    rows = [dict(r) for r in rows]
     used_by_lot = co_stock_ledger.used_qty_by_lot(client_id)
     return co_stock_ledger.apply_used_qty(rows, used_by_lot)
 

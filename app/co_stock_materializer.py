@@ -303,6 +303,74 @@ def _emit_diff_events(
         LOGGER.warning("co_stock refresh event emit failed for %s: %s", client_id, exc)
 
 
+# In-process snapshot cache keyed by client_id. Cache entry holds
+# (max_indexed_at_marker, rows). The marker is `max(indexed_at)` from
+# co_stock_rows — advances only when the materializer UPSERTs or DELETEs
+# something, so a no-op delta refresh leaves the marker untouched and
+# the cache stays valid. Cap on number of clients prevents one worker
+# from holding multiple 250MB snapshots indefinitely.
+_CO_STOCK_ROWS_CACHE: dict[str, tuple[tuple[str, int], list[dict]]] = {}
+_CO_STOCK_ROWS_CACHE_MAX_CLIENTS = 4
+
+
+def _snapshot_marker(client_id: str) -> tuple[str, int]:
+    """`(max_indexed_at, row_count)` — cache invalidation key.
+
+    `max(indexed_at)` catches INSERT/UPDATE because the materializer's
+    UPSERT sets `indexed_at = now()` on every row it touches. `count`
+    catches pure DELETE — if we removed a row but the most-recent
+    indexed_at belonged to an untouched row, max(indexed_at) would not
+    advance, so row_count is the second axis the cache checks on.
+    """
+    if not _store_available():
+        return ("", 0)
+    try:
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "select max(indexed_at), count(*) from co_stock_rows where client_id = %s",
+                (client_id,),
+            )
+            value, count = cur.fetchone()
+            return (value.isoformat() if value else "", int(count or 0))
+    except Exception:  # noqa: BLE001
+        return ("", 0)
+
+
+def read_co_stock_rows_cached(client_id: str) -> list[dict]:
+    """Cached read of `co_stock_rows` for a client.
+
+    Skips the 2-3s JSONB deserialize round trip on every /calculate when
+    upstream BCCT didn't change (the common case during an editing
+    session). Invalidates automatically when the materializer touches
+    any row for this client via the snapshot marker.
+    """
+    if not _store_available():
+        return []
+    marker = _snapshot_marker(client_id)
+    cached = _CO_STOCK_ROWS_CACHE.get(client_id)
+    if cached and cached[0] == marker and marker[1] > 0:
+        return cached[1]
+    rows = read_co_stock_rows(client_id)
+    _CO_STOCK_ROWS_CACHE[client_id] = (marker, rows)
+    while len(_CO_STOCK_ROWS_CACHE) > _CO_STOCK_ROWS_CACHE_MAX_CLIENTS:
+        evict = next(iter(_CO_STOCK_ROWS_CACHE))
+        if evict == client_id:
+            evict = next((k for k in _CO_STOCK_ROWS_CACHE if k != client_id), None)
+        if evict is None:
+            break
+        _CO_STOCK_ROWS_CACHE.pop(evict, None)
+    return rows
+
+
+def invalidate_co_stock_rows_cache(client_id: str = "") -> None:
+    """Clear the in-process snapshot cache. Pass a client_id to drop a
+    single entry; empty clears all (used by tests + admin flows)."""
+    if client_id:
+        _CO_STOCK_ROWS_CACHE.pop(client_id, None)
+    else:
+        _CO_STOCK_ROWS_CACHE.clear()
+
+
 def read_co_stock_rows(client_id: str) -> list[dict]:
     """Read all stock rows for a client from the materialized table.
 
