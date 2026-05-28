@@ -760,95 +760,6 @@
 </section>
 {% endif %}
 
-{% if co_case_active_step == "guidance" %}
-<section class="callout callout-warning">
-  <span class="callout-icon">!</span>
-  <div>
-    <div class="callout-title">Form &amp; PSR — W.I.P</div>
-    Tab này đang trong giai đoạn xây dựng. Mục tiêu: confirm pháp lý (form nào, sản phẩm nào dùng tiêu chí gì). Khuyến nghị form/tiêu chí từ engine cấu hình trong <a href="/clients/{{ client.id }}/co-form-settings">Settings → CO Form Index</a>; user có thể override per-bảng-kê trong tab <strong>Bảng kê C/O</strong>.
-  </div>
-</section>
-<section class="zone">
-  <div class="zone-head">
-    <div>
-      <h2>Form và thông tư / tiêu chí theo HS</h2>
-      <p class="meta">Form được gợi ý từ thị trường; tiêu chí được preview theo HS lấy từ BCCT export khớp invoice.</p>
-    </div>
-    <div class="chip-row">
-      <span class="chip">Thị trường {{ case.destination_market }}</span>
-      <span class="chip">Form {{ recommended_form_lane.display_name or case.co_form_type }}</span>
-      <span class="chip">Chưa lắp đủ: legal PSR engine</span>
-    </div>
-  </div>
-  <div class="guidance-summary">
-    <div>
-      <span>Form gợi ý</span>
-      <strong>{{ recommended_form_lane.display_name or case.co_form_type }}</strong>
-    </div>
-    <div>
-      <span>Thông tư</span>
-      <strong>{{ recommended_form_lane.instrument or 'Chưa chọn thị trường' }}</strong>
-    </div>
-    <div>
-      <span>Hiệp định</span>
-      <strong>{{ recommended_form_lane.agreement or case.agreement }}</strong>
-    </div>
-  </div>
-  <div class="table-scroll compact-table">
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Sản phẩm từ BCCT</th>
-          <th>HS</th>
-          <th>Form</th>
-          <th>Thông tư / nguồn</th>
-          <th>Tiêu chí preview</th>
-          <th>Ghi chú</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in invoice_criteria_rows %}
-        <tr>
-          <td>
-            <strong class="mono">{{ row.product_code or row.declaration_no }}</strong>
-            <div class="meta">{{ row.product_name or row.invoice_ref }}</div>
-          </td>
-          <td class="mono">{{ row.finished_hs }}</td>
-          <td>{{ row.form }}</td>
-          <td>{{ row.source_reference }}</td>
-          <td>{{ row.rule }}</td>
-          <td>{{ row.rule_note }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="6" class="empty-cell">Chưa có sản phẩm từ BCCT cho invoice này. Sau khi BCCT khớp invoice, bảng này sẽ hiện từng HS và tiêu chí tương ứng.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
-
-<section class="zone">
-  <div class="zone-head">
-    <div>
-      <h2>Thông tư / nguồn tham chiếu</h2>
-      <p class="meta">Danh sách này chỉ dùng để định hướng operator trước khi engine pháp lý thật được lắp.</p>
-    </div>
-  </div>
-  <div class="rowlist audit-trail">
-    {% for candidate in form_candidates %}
-    <div class="rowitem">
-      <div>
-        <strong>{{ candidate.display_name }}</strong>
-        <div class="meta">{{ candidate.agreement }} · {{ candidate.instrument }}</div>
-        <div class="meta">{{ candidate.rule_lookup_label }} · {{ candidate.verification_status }}</div>
-      </div>
-    </div>
-    {% else %}
-    <p class="empty-cell">Nhập thị trường để gợi ý form.</p>
-    {% endfor %}
-  </div>
-</section>
-{% endif %}
 
 {% if co_case_active_step == "origin" %}
 <datalist id="origin-criteria-options">
@@ -976,6 +887,7 @@
           data-product-currency="{{ product.currency or '' }}"
           data-product-fob-currency="{{ product.fob_currency or product.currency or 'VND' }}"
           data-product-fob-fx-rate="{{ product.fob_fx_rate or '' }}"
+          data-origin-sheet-locked="{{ '1' if product.origin_sheet_status == 'locked' else '0' }}"
           data-product-vnm-baseline="{{ product.vnm_value or product.non_origin_value or '0' }}"
           data-product-lvc-baseline="{{ product.lvc_percentage or '0' }}"
           data-product-lvc-threshold="{{ product.origin_sheet_effective_lvc_threshold or product.lvc_threshold or '0' }}"
@@ -1371,6 +1283,7 @@
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_bom_row_class" value="{{ material.bom_row_class }}">
                     {% set substitute_label = material.internal_material_code or material.material_code or 'n/a' %}
                     {% set row_override = product.origin_sheet_material_overrides.get(material_index|string) if product.origin_sheet_material_overrides else none %}
+                    {% set _sheet_locked = product.origin_sheet_status == 'locked' %}
                     <button type="button"
                             class="origin-material-code-btn {% if row_override %}origin-material-code-overridden{% endif %}"
                             data-origin-substitute-trigger
@@ -1381,7 +1294,7 @@
                             data-current-norm="{{ effective_norm or '0' }}"
                             data-current-uom="{{ material.uom }}"
                             data-current-hs="{{ material.hs_code }}"
-                            title="{% if row_override %}Đã thay sang {{ row_override.material_code }}{% else %}Click để thay NVL{% endif %}">
+                            {% if _sheet_locked %}disabled title="Sheet đã chốt — nhả chốt để sửa NVL"{% else %}title="{% if row_override %}Đã thay sang {{ row_override.material_code }}{% else %}Click để thay NVL{% endif %}"{% endif %}>
                       <span class="mono">{{ substitute_label }}</span>
                       {% if row_override and row_override.material_code and row_override.material_code != substitute_label %}<small class="origin-material-code-override-mark">→ {{ row_override.material_code }}</small>{% endif %}
                       {% if row_override and row_override.deleted %}<small class="origin-material-code-override-mark">(đã xoá)</small>{% endif %}
@@ -1519,7 +1432,7 @@
                             data-material-code="{{ override.material_code }}"
                             data-current-norm="{{ override.norm_per_unit or '0' }}"
                             data-current-hs="{{ override.hs_code or '' }}"
-                            title="Đã thêm tay — click để sửa/xoá">
+                            {% if product.origin_sheet_status == 'locked' %}disabled title="Sheet đã chốt — nhả chốt để sửa NVL"{% else %}title="Đã thêm tay — click để sửa/xoá"{% endif %}>
                       <span class="mono">{{ override.material_code or 'n/a' }}</span>
                       <small class="origin-material-code-override-mark">(thêm tay)</small>
                     </button>
@@ -1542,8 +1455,13 @@
           <div class="origin-table-actions">
             <button type="button" class="btn-secondary"
                     data-origin-add-row-trigger
-                    data-product-code="{{ product.code }}">+ Thêm dòng NVL</button>
+                    data-product-code="{{ product.code }}"
+                    {% if product.origin_sheet_status == 'locked' %}disabled title="Sheet đã chốt — nhả chốt để thêm dòng NVL"{% endif %}>+ Thêm dòng NVL</button>
+            {% if product.origin_sheet_status == 'locked' %}
+            <small class="meta callout-warning-text">Sheet đã chốt. Bấm <strong>Mở chốt</strong> ở thanh trên để chỉnh sửa.</small>
+            {% else %}
             <small class="meta">Dòng thêm/xoá/thay sẽ ghi vào BOM artifact mới khi chốt sheet.</small>
+            {% endif %}
           </div>
         </article>
         {% else %}
@@ -3763,10 +3681,19 @@
     });
     sharedNormInput?.addEventListener("input", () => refreshAllFeasibility());
 
+    const sheetIsLocked = (el) => {
+      const panel = el?.closest?.("[data-origin-sheet-panel]");
+      return panel?.dataset.originSheetLocked === "1";
+    };
     document.body.addEventListener("click", (event) => {
       const trigger = event.target.closest?.("[data-origin-substitute-trigger]");
       if (trigger) {
         event.preventDefault();
+        if (sheetIsLocked(trigger)) {
+          // Bypass attempts via dev-tools removing `disabled` — server-side
+          // lock state is still authoritative; we just refuse to open the modal.
+          return;
+        }
         state.productCode = trigger.dataset.productCode || "";
         state.rowIndex = parseInt(trigger.dataset.rowIndex || "-1", 10);
         state.materialCode = trigger.dataset.materialCode || trigger.dataset.internalCode || "";
@@ -3794,6 +3721,7 @@
       const addTrigger = event.target.closest?.("[data-origin-add-row-trigger]");
       if (addTrigger) {
         event.preventDefault();
+        if (sheetIsLocked(addTrigger)) return;
         state.productCode = addTrigger.dataset.productCode || "";
         state.rowIndex = -1;
         state.materialCode = "";

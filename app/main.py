@@ -454,28 +454,21 @@ CO_CASE_WORKFLOW_STEPS = [
         "description": "Upload BL, Invoice/Packing và các chứng từ bổ sung. TKX query sau khi chốt bảng kê.",
     },
     {
-        "key": "guidance",
-        "label": "Form & PSR",
-        "short_label": "3",
-        "description": "Confirm pháp lý: form/SP/tiêu chí. (W.I.P)",
-        "wip": True,
-    },
-    {
         "key": "origin",
         "label": "Bảng kê C/O",
-        "short_label": "4",
+        "short_label": "3",
         "description": "Tính tuần tự từng sheet, override tiêu chí/ngưỡng, thay NVL, chốt và sinh BOM artifact mới.",
     },
     {
         "key": "exports",
         "label": "TKX / TKN",
-        "short_label": "5",
+        "short_label": "4",
         "description": "Sau khi chốt bảng kê: query TKX/TKN từ Data Hub, bổ sung phần thiếu.",
     },
     {
         "key": "review",
         "label": "Review & Xuất",
-        "short_label": "6",
+        "short_label": "5",
         "description": "Kiểm tra dossier và xuất .zip tổng hợp (chứng từ + TKX/TKN + bảng kê HQ).",
     },
 ]
@@ -4893,10 +4886,6 @@ def co_case_step_status(
         if not has_reference:
             return "todo"
         return "ready" if invoice_matches else "review"
-    if step_key == "guidance":
-        if not has_market:
-            return "todo"
-        return "ready" if invoice_matches else "preview"
     if step_key == "origin":
         if origin_demo_active:
             return "preview"

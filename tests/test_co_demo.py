@@ -1875,7 +1875,9 @@ def test_co_case_detail_is_split_into_workflow_step_views():
     assert shipment.status_code == 200
     assert documents.status_code == 200
     assert exports.status_code == 200
-    assert guidance.status_code == 200
+    # `guidance` was the placeholder Form & PSR step; removed per user request
+    # (2026-05-28). Re-add when a real PSR confirmation flow lands.
+    assert guidance.status_code == 404
     assert origin.status_code == 200
     assert review.status_code == 200
     assert "Thông tin lô hàng" in shipment.text
@@ -1889,8 +1891,6 @@ def test_co_case_detail_is_split_into_workflow_step_views():
     assert "TKN_CO_CO-WORKFLOW.ZIP" in exports.text
     assert "Tờ khai xuất (TKX)" in exports.text
     assert "Tờ khai nhập (TKN)" in exports.text
-    assert "Form và thông tư" in guidance.text
-    assert "W.I.P" in guidance.text
     assert ">Load BOM<" in origin.text
     assert "origin-config-bar" in origin.text
     assert "data-origin-recommendation-optimization" in origin.text
@@ -5349,6 +5349,11 @@ def test_co_case_supporting_upload_saves_invoice_metadata_and_matches_bcct_expor
 
 
 def test_co_case_guidance_maps_invoice_bcct_products_to_form_instrument_and_hs_criteria():
+    """The guidance workflow step was removed (2026-05-28). What remains is
+    that the shipment page still surfaces the recommended form + instrument
+    based on destination market — verified here. The criteria preview that
+    used to live on /guidance is gone; if/when PSR confirmation comes back,
+    re-add the assertions."""
     client = TestClient(app)
     upload = bcct_workbook([
         {"direction": "export", "declaration_type": "E42", "declaration_no": "XK-PSR", "line_no": "1", "item_code": "PV00.0048500", "description": "Growatt inverter", "hs_code": "850440", "quantity": "12", "unit": "PCS", "invoice_ref": "INV-PSR"},
@@ -5374,8 +5379,7 @@ def test_co_case_guidance_maps_invoice_bcct_products_to_form_instrument_and_hs_c
     assert "03/2019/TT-BCT" in shipment.text
     assert "PV00.0048500" in shipment.text
     assert "850440" in shipment.text
-    assert "CTH; hoặc RVC không thấp hơn" in guidance.text
-    assert "03/2019/TT-BCT, Phụ lục I" in guidance.text
+    assert guidance.status_code == 404
 
 
 def test_co_case_state_prefers_postgres_store_and_keeps_supporting_file_metadata(monkeypatch):
@@ -6272,9 +6276,11 @@ def test_co_case_destination_market_shows_verified_form_candidates():
         follow_redirects=False,
     )
 
-    india_page = client.get(f"{india.headers['location']}/guidance")
-    france_page = client.get(f"{france.headers['location']}/guidance")
-    canada_page = client.get(f"{canada.headers['location']}/guidance")
+    # The /guidance step was removed; the form-candidate hint still renders
+    # on the shipment page (step 1) via the recommended_form_lane sidebar.
+    india_page = client.get(india.headers["location"])
+    france_page = client.get(france.headers["location"])
+    canada_page = client.get(canada.headers["location"])
 
     assert "Form AI" in india_page.text
     assert "15/2010/TT-BCT" in india_page.text
@@ -6282,7 +6288,6 @@ def test_co_case_destination_market_shows_verified_form_candidates():
     assert "11/2020/TT-BCT" in france_page.text
     assert "Form CPTPP" in canada_page.text
     assert "03/2019/TT-BCT" in canada_page.text
-    assert "Cần tra cứu PSR theo HS" in canada_page.text
 
 
 def test_co_form_index_defaults_cover_initial_priority_forms():
