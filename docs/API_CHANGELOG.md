@@ -14,6 +14,21 @@ Only `Breaking:` headings trigger notifications to `dev`/`admin` users (CO + BCQ
 
 ## Entries
 
+## 2026-05-28 — Breaking: `category_override` field removed from materials JSON
+
+**Field removed** from `/v1/hub/clients/{c}/catalog/materials` and `/v1/hub/materials/{customs_code}` responses:
+- `category_override` (text, was always emitted even when null).
+
+**Why:**
+Backing column `hub.materials.category_override` + `override_reason` (mig 002 scaffold, 2026-05-01) were a "patch instead of edit" design from before the audit trigger (mig 045) and the catalog edit form (A.3) supplanted them. The UI to set overrides was never built. Data audit 2026-05-28: 0/13,589 rows across Growatt + Johnson had either column set. Dead architecture.
+
+**Impact:**
+None expected. CO `data_hub_client.py` consumes `category` (used for product/material partition) but not `category_override` — verified by grep. If a downstream consumer was reading `category_override`, the field is now absent from JSON.
+
+**Mig:** 072.
+
+**Commit:** TBD (this entry lands with the schema change).
+
 ## 2026-05-28 — Breaking: BOM vocab v1 URL aliases removed
 
 **Endpoint removed (was 308 redirect since mig 031, 2026-05-07):**

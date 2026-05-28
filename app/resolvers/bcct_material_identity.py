@@ -104,7 +104,7 @@ class ResolverContext:
             """
             select m.material_code,
                    m.name,
-                   coalesce(m.category_override, m.category) as category,
+                   m.category,
                    m.btp_sourcing,
                    m.source,
                    m.status,

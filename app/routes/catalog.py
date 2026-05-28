@@ -625,7 +625,7 @@ def _query_materials(*, client_id: str, category: str | None,
     # per D11 (auto-detection badge, distinct from operator-confirmed
     # btp_sourcing dropdown).
     sql = f"""
-        select m.material_code, m.name, m.category, m.category_override,
+        select m.material_code, m.name, m.category,
                m.status, m.uom, m.uom as unit, m.hs_code, m.updated_at, m.provenance,
                m.btp_sourcing, m.source, m.hq_registered, m.code_kind,
                m.promoted_to_declared_at, m.promoted_by,
@@ -777,7 +777,7 @@ def _query_conflicts(*, client_id: str, conflict_type: str,
     )
     where += f" and ({_conflict_where(conflict_type)})"
     sql = f"""
-        select m.material_code, m.name, m.category, m.category_override,
+        select m.material_code, m.name, m.category,
                m.status, m.uom, m.hs_code, m.updated_at, m.provenance,
                m.btp_sourcing, m.source, m.hq_registered, m.code_kind,
                coalesce(vmr.observed_roles, '{{}}'::text[]) as observed_roles,

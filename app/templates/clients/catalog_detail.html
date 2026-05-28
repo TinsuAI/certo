@@ -66,9 +66,7 @@
       </td></tr>
       <tr><td class="mono"><strong>name</strong></td><td>{{ material.name or '—' }}</td></tr>
       <tr><td class="mono"><strong>category</strong></td>
-          <td><span class="badge badge-info">{{ material.category }}</span>
-              {% if material.category_override %} (override: <code>{{ material.category_override }}</code>){% endif %}
-          </td></tr>
+          <td><span class="badge badge-info">{{ material.category }}</span></td></tr>
       <tr><td class="mono"><strong>source</strong></td><td>
           {% set src = material.source %}
           {% if src == 'client_declared' %}<span class="badge badge-success">📥 client_declared</span>

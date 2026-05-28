@@ -408,7 +408,7 @@ async def api_source_summary(client_id: str, authorization: str | None = Header(
 
 _MATERIALS_SELECT_WITH_ROLES = """
     select m.client_id, m.material_code, m.name,
-           m.category, m.category_override,
+           m.category,
            m.status,
            -- Post-mig-063: `materials.unit` was consolidated into `uom`.
            -- Emit BOTH keys in JSON for the sister-app grace window: `uom`

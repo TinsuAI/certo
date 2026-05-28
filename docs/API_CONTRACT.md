@@ -293,7 +293,6 @@ Response item fields:
 - `internal_code`
 - `name`
 - `category`
-- `category_override`
 - `status`
 - `uom` — canonical unit of measure (post-mig-063, replaces `unit`)
 - `unit` — **deprecated alias of `uom`**, grace window through **2026-05-25**, then removed. New consumers must read `uom`.

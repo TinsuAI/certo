@@ -33,38 +33,35 @@ roles, candidate feed, candidate richness). Phase 2 + supporting items
 remain open. Identity-resolution items (parser-rules, paren-extract)
 sit here too because they share the catalog data graph.
 
-## A.1 Phase 2 catalog — multi-role roles[] + manual fields
+## A.1 Phase 2 catalog — CLOSED 2026-05-28 (dead-code drop, not refactor)
 
-**Captured 2026-05-09**. After mig 042-046 + 047 (Mã chờ duyệt) shipped
-Phase 1 catalog multi-source, Phase 2 is the schema enrichment:
+**Captured 2026-05-09**. Original plan: replace single-value `category`
++ `category_override` patch with multi-role `roles[] text[]`. ~2-3 days
+cross-cut refactor.
 
-1. **`materials.roles[] text[]`** — multi-role first-class.
-   Memory `project_bom_code_multirole.md` ("a code can be TP+BTP+NVL
-   simultaneously"). Currently `category` is single-value;
-   `category_override` patches one case but doesn't scale.
-   Plan:
-   - Add `roles[]` column with check constraint `roles <@
-     array['nvl','tp','btp_sx','btp_nm','ccdc']`
-   - Backfill `roles = array[category]` for existing rows.
-   - Update consumer queries: `m.category = 'X'` → `'X' = ANY(m.roles)`.
-   - Drop `category` AFTER all consumers migrate.
-   - Drop `category_override` (becomes redundant).
-2. **Manual fields**: `production_source` (nk/sx/mixed/unknown — partial
-   shipped via mig 047 enum), `hq_registration_no` text,
-   `hq_registration_date` date, `supplier_hint` text, `name_source` enum,
-   `uom` text (separate from `client_uom_overrides`).
-3. **Cross-cut refactor**: ~30-50 file touches expected. Critic
-   round 2 flagged dual-source-of-truth trap if `category` + `roles[]`
-   coexist long-term — commit to drop `category` in same release OR
-   defer `roles[]` until ready to drop.
+**Closed without doing the refactor.** Discovery 2026-05-28 found:
 
-**Effort**: ~2-3 days (schema mig + cross-cut refactor + sister-app
-note for CO/BCQT).
+- `category_override` + `override_reason` (mig 002 scaffold) were a
+  "patch instead of edit" design from before mig 045 audit trigger and
+  the A.3 edit form supplanted them. The UI to set overrides was never
+  built (session 2026-05-01 to-do #11, dropped on the floor).
+- Data audit on local dev DB: **0/13,589 rows** across Growatt + Johnson
+  have either column set. Dead architecture, not active hack.
+- `observed_roles[]` (mig 046) already surfaces multi-role truth at the
+  view level. The 421 observed-multi-role rows render "Đa nguồn" badge
+  today without any declared-side change.
+- Declared/observed conflict count: **1** out of 13,589. The hypothetical
+  pain `roles[]` would resolve does not exist in current data.
 
-**Status of related work shipped**: dual-source pattern via
-observed_roles[btp_sx + btp_nm] (mig 046) + sourcing-confirmation
-conflict (Python in catalog.py route + UI badge in catalog.html).
-Multi-role array on materials still pending.
+**Mig 072 shipped** (2026-05-28): drop both columns + recreate
+`v_material_roles` without `coalesce(override, category)`. ~30 min,
+not 2-3 days. Phase 3 declared multi-role deferred until a concrete
+staff workflow blocker appears. See
+`project_bom_code_multirole.md` memory revision.
+
+Manual fields (item 2 of the original plan: `hq_registration_no`,
+`hq_registration_date`, `supplier_hint`, `name_source`, `uom` — `uom`
+already shipped via mig 063) tracked separately if/when needed.
 
 ## A.2 Catalog conflicts page — SHIPPED 2026-05-15
 
