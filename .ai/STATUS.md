@@ -1,56 +1,56 @@
 # Project Status
 
 ## Current State
-- Active branch: `main`. Cost-allocation feature work uncommitted at the moment of this snapshot.
-- CO dev server running at `http://127.0.0.1:8001` (`npm run co:serve`, with `--reload`). `/healthz` → 200.
-- Local Data Hub running at `http://127.0.0.1:8754`. Login: `admin@data-hub.local` / `local_test_password`.
-- CO Postgres: `BARRY_DATABASE_URL=postgresql:///barry_co?host=/var/run/postgresql`, schema `co`.
-- Migration 012 (`co_cost_allocation_ratio`) applied. GROWATT sample (24 rows) imported via admin UI.
-- New tests (4 files, **38 passing**): `tests/test_cost_allocation_store.py`, `tests/test_cost_allocation_importer.py`, `tests/test_cost_allocation_routes.py`, `tests/test_cost_buildup_schema.py`.
-- Pre-existing 30 test failures on `main` are environmental drift (Data Hub state, demo data mismatch); confirmed unrelated by stash comparison (43 pristine fails − 13 new passing tests = 30). One was a real bug we fixed today (`origin.py:109` KeyError on `hs_code`); the rest likely benefit too.
+- Branch `main` is at `f83bfa1`, 4 commits ahead of the snapshot in the prior STATUS.md. All pushed to `tinsu/main`; CI green (1m08s); deployed to `https://barry-co.tinsu.ai` and verified live via puppeteer.
+- Latest commits (newest first):
+  - `f83bfa1` — Fix GET `/export-bang-ke` returning 404 (route-order fix; FastAPI catch-all `{step}` was eating it before the dedicated route).
+  - `4cf31f2` — Simplify Origin override controls: datalist criteria, single LVC/RVC threshold input, Reset-to-recommendation button.
+  - `dfda66f` — Stock ledger: drop silent `except Exception → return 0` swallow; add `StockOverclaimError` pre-check inside same transaction; reverse release order in `reopen_co_case_origin_sheet`.
+  - `36891e0` — Dark theme: route 142 hardcoded colour literals in `app/static/css/app.css` through existing CSS vars; 5 modal `rgba(15, 23, 42, …)` backdrops kept (theme-neutral).
+- Local CO dev server at `http://127.0.0.1:8001` (`npm run co:serve` with `--reload`), Data Hub at `:8754`. Both `/healthz` OK.
+- CO Postgres: `BARRY_DATABASE_URL=postgresql:///barry_co?host=/var/run/postgresql`, schema `co`. Migration 012 applied.
+- **Local Áp hệ số end-to-end** still working on case `co-case-b1e2602f0d8d` (CO-ZIP). Mode-A fixture intact.
+- **Prod verified post-deploy** with `claude-check@local`. Override UX renders correctly (single threshold, Reset button, datalist of 18 criteria). GET + POST `/export-bang-ke` both return 200 + xlsx.
+- Pre-existing test failures unchanged: ~7 in the `export | step | co_case_workflow` slice; ~30 total local-only environmental drift on `main`. CI runs all 264 tests green.
 
-## Recent Changes (this session)
-- **Cost allocation ratios** — new feature, end-to-end:
-  - Schema: `db/migrations/012_cost_allocation_ratio.sql` (PK `(client_id, product_code)`, `product_code=''` = Mode B sentinel).
-  - Store: `app/cost_allocation_store.py` with DB+JSON dual-write. JSON fallback root via `COST_ALLOCATION_CONFIG_ROOT` env (default `config/cost-allocation`).
-  - Excel importer: `app/cost_allocation_importer.py` parses agency files by column index (matches GROWATT shape). 7th coefficient column (`Lợi nhuận`) intentionally ignored — profit is residual.
-  - Admin UI: `/clients/{id}/cost-allocation` with Mode B panel, Mode A table, Excel upload (replace-all-per-client, preserves Mode B), template download, `/resolve` JSON endpoint. New nav tab "Hệ số phân bổ".
-  - Origin panel UI: cost-buildup grid expanded from 4 → **6 detail inputs + editable profit**. "Áp hệ số" button next to FOB calls `/resolve` and fills 6 details; profit left blank for engine to derive.
-  - Schema migration: `cost_buildup` now stores 6 detail keys (`wages, welfare, rent, depreciation, other_mfg, transport_storage`) + `profit`. Legacy 4-key shape still read for back-compat. Engine reader `bang_ke_xml_generator._coerce_cost_buildup` rolls 6 details up to the 4 rollups the XML config consumes — no XML/template change needed.
-- **Perf fix**: `_cost_allocation_context()` was calling shared `client_context()` which triggers a Data Hub source-workspace scan (~2.6s for Growatt). Replaced with minimal context (`resolve_client` + ratio rows). **3588 ms → 67 ms (53× faster).** Tradeoff: nav tagline counts (`X TP · Y NVL · …`) hidden on cost-allocation page only; `_client_nav.html` now `{% if client.counts %}…{% endif %}`.
-- **Pre-existing bug fix**: `app/origin.py:109` did `row["hs_code"]` (KeyError when a material row lacked the key); changed to `.get("hs_code", "")`. Bug existed since the demo commit; only surfaced after Data Hub became material source-of-truth (some materials lack HS). Fix unblocks origin-page render for several existing growatt cases (e.g. CO-ZIP).
+## Recent Changes (2026-05-28 evening session)
+- **Stock ledger safety**: replaced silent-failure pattern with raise-on-DB-error + `StockOverclaimError` pre-check (queries `co_stock_rows` snapshot + cross-case `co_stock_claims`, excludes self). Lock route returns 409 with violating-lot detail; reopen route now release-first so DB failure leaves sheet locked instead of leaking the claim.
+- **Origin override UX**: criteria is now a datalist (18 common patterns + custom text); LVC + RVC thresholds collapsed into one input that writes to both server slots; new "Reset về khuyến nghị" button posts empty values to revert to engine recommendation.
+- **Bug fix**: GET `/export-bang-ke` was 404 because the catch-all `{step}` GET route at `main.py:5465` ate it before the dedicated route at line 5616. Reordered (delegating wrapper above the catch-all). Tried `Path(..., pattern=...)` first — discovered FastAPI returns 422 on mismatch rather than skipping the route.
+- **Dark theme**: comprehensive audit + fix of 142 hardcoded light-palette literals concentrated in late-added features (workflow steps, callouts, document checklist, substitute/co-stock modals, BOM diff, cost-buildup). WCAG contrast scan (3.0 threshold) on 20 pages: 0 findings post-fix.
+- **Audit work** (no code, just understanding): mapped the form/criteria/threshold flow end-to-end across engine layer (`co_forms.py`, `co_form_psr_index.py`), config layer (`co_form_config_store.py`), UI layer (`co_case.html`), and persistence (`origin_sheet_states` in case JSON). Verified Explore-agent claims against real code — ~5/15 findings were false positives (e.g., agent claimed re-lock spams audit log; in fact `co_stock_ledger.py:144-177` already dedupes).
+- New helpers in `scripts/`: `dark_theme_audit.mjs`, `verify_export_route.mjs`, `verify_prod_deploy.mjs` committed (only `verify_export_route.mjs` is in a commit; `dark_theme_audit.mjs` was in `36891e0` commit). The 4 `full_workflow_audit*.mjs` files remain untracked.
 
-## Local Test Fixture (added 2026-05-28)
-- Case `co-case-b1e2602f0d8d` (case_code `CO-ZIP`) on growatt is now a **Mode-A Áp hệ số smoke test fixture**:
-  - product `PV00.0048400` (matches the GROWATT 24-row sample)
-  - FOB `5000`
-  - criterion `LVC 40%` (so cost-buildup block renders open + Áp hệ số resolves Mode A)
-- Verified end-to-end via `/tmp/local_apply_test.py` (Playwright):
-  - resolve returns Mode A with wages=44.94, welfare=4.11, rent=129.05, depreciation=86.68, other_mfg=47.45, transport_storage=17.06
-  - hint shows green "Tổng = 329.29, NPL còn lại = 4670.71 / FOB 5000"
-  - re-click triggers confirm dialog with "Ô đã có giá trị. Áp hệ số sẽ ghi đè — tiếp tục?" — dismiss preserves values
-- To restore original CO-ZIP shape (TP-ZIP / FOB 100 / AIFTA 35% FOB + CTSH), re-create the demo case or edit `payload->products->0` via `update_case_record`.
+## Local Test Fixture
+- Case `co-case-b1e2602f0d8d` (case_code `CO-ZIP`) on growatt is still the **Mode-A Áp hệ số smoke fixture** — see prior STATUS for details. Unchanged this session.
 
 ## Next Steps
-1. **Commit pending work** (this snapshot is uncommitted — see `git status`).
-2. **Investigate the remaining ~29 pre-existing test failures**. Same class as the `hs_code` bug — likely demo data evolved while strict-typed accessors didn't. Quickest path: pick a few representative failures and apply the same `[key]` → `.get(key, "")` pattern where safe.
-3. **Áp hệ số visual test on a real LVC/RVC case** with a TP code that exists in GROWATT sample (e.g. `PV00.0048400`). Today's screenshot used `TP-ZIP` which rightly fell back to Mode B; confirming Mode A on a real product completes the visual loop.
-4. **Profit handling on bảng kê output**: today the engine derives V as `FOB − (IV + VII)` style. Confirm with agency that leaving the profit input blank and letting the engine derive matches their expectation, vs requiring an explicit number.
-5. **Consider extending replace_all to support partial updates** (today it nukes all per-Mã-SP rows). If agencies send incremental updates instead of full lists, we'll need an upsert-by-row import mode.
-6. **Old open items still apply**: Approach A vs B default engine choice (session 2026-05-26 §1), PSR conclusion text confirmation, `-vn` suffix centralisation.
+1. **Per-client default form / criteria / threshold overrides** in `client_config_store.py` — flagged HIGH in this session's form/criteria flexibility audit. Operators currently re-override per-sheet for every case; a per-client default would remove that friction.
+2. **Seed missing CO forms** (D / E / AK / AANZ / AJ / RCEP / UKVFTA / VK / VC / VJ) into `default_co_form_config()` + minimal "Tra theo Phụ lục" PSR fallback per form. Built-in config currently has only B / CPTPP / EUR.1 / AI — major content gap for ASEAN+ markets.
+3. **Concurrent edit race** on `co_case_states` (last-writer-wins, no `revision` field) — flagged HIGH; add optimistic-concurrency check in `update_case_record`.
+4. **HS↔form coherence + criteria token validation** — flagged MED in audit, soft (warning, not block) implementation.
+5. **Export gate too lenient**: `origin_sheet_export_blockers` only rejects `{draft, stale, calculating}` — accepts `calculated` (not yet `locked`), meaning user can export bảng kê HQ before stock claim is recorded in ledger. Confirm with business: is `calculated` enough, or should it require `locked`?
+6. **Investigate the 30 pre-existing local test failures** (carry-over from prior STATUS).
+7. **GitHub Actions Node 20 deprecation** before 2026-06-02 (carry-over).
+8. **Short→long client_id URL fallback in `can_view_client`** (carry-over).
+9. Old open items still apply: PSR conclusion confirmation, Approach A/B engine default, `-vn` suffix centralisation.
 
 ## Blockers
-- None blocking cost-allocation work.
+- None.
 
 ## Notes for Next AI Session
-- User writes Vietnamese casually; respond in **fully accented Vietnamese** (or English if accents aren't practical). Never unaccented Vietnamese.
-- User prefers concise, direct status — no fluff, no preambles. Verify before claiming done.
-- Cost-allocation storage decision: **CO Postgres**, not Data Hub. Cost-buildup ratios are CO-form-specific accounting policy (TT 05/2018), not shared master data. Data Hub guardrail (`test_data_hub_policy.py`) doesn't apply.
-- `require_local_source_writes()` is intentionally **not** called on cost-allocation write routes. That guard exists for Data-Hub-owned shared source data (BCCT, catalog); cost-allocation ratios are CO-only config and need to be editable even when `DATA_HUB_ENABLED` is on.
-- Schema design: `cost_buildup` persists 6 details + profit (new shape) OR 4 rollups (legacy). Reader at engine boundary normalises. Don't normalise on persist — keep what came in.
-- Profit is **residual**, not a coefficient. GROWATT sheet's column H (`=GIÁ XUẤT XƯỞNG - CHI PHÍ XUẤT XƯỞNG`) is intentionally ignored on import. UI leaves the profit input blank after "Áp hệ số"; user can override.
-- `_cost_allocation_context()` deliberately skips `client_context()` for perf. If you add fields that need source workspace or BOM, profile first — `source_workspace_for_client()` is ~2.6s on Growatt.
-- E2E script: `scripts/e2e_cost_allocation.py` (Playwright). Drives login → upload sample → resolve endpoint → click Áp hệ số. Screenshots land in `.ai/screenshots/cost-allocation/`. Both `.ai/screenshots/` and `.ai/samples/` are gitignored.
-- Pre-existing CO-ZIP test case has FOB=100 + product `TP-ZIP` which is NOT in the GROWATT sheet — falls back to Mode B. For a Mode-A live test, use a product code from the GROWATT 24 list (`PV00.0048400`, `SD00.0010600`, `BIENTAN.16`, ...).
-- Test DB isolation: route + store tests force JSON fallback via `monkeypatch.delenv("BARRY_DATABASE_URL", raising=False)`. One opt-in DB integration test uses a unique `client_id=test-cost-alloc-{os.getpid()}` and cleans up before/after.
-- Reload mode is on (`uvicorn --reload`), so Python/HTML/CSS edits hot-reload without a restart.
+- **Memory** at `/home/vp/.claude/projects/-home-vp-workspace-client-barry-CO/memory/` has 5 entries: demo URLs, SSH access, test account, deploy hygiene, test-local-by-default preference. Read MEMORY.md first.
+- **Test on local by default.** Only touch prod when explicitly told ("trên prod" / "lên demo" / etc.).
+- **Public demo URLs** (in memory, not in repo): `barry-co.tinsu.ai`, `ttdatahub.tinsu.ai`.
+- **Prod test account**: `claude-check@local` / `claude-temp-2026`. URLs MUST use `-vn` long form on prod until `can_view_client` is fixed.
+- **Don't commit hostnames** or server paths.
+- **Stock ledger now propagates DB errors** — if you wrap a call to `co_stock_ledger.record_sheet_lock` / `record_sheet_release`, handle `Exception` explicitly. `StockOverclaimError` is the new domain exception for over-claim attempts.
+- **Override semantics**: per-sheet `form_override` / `criteria_override` / `*_threshold_override` in `origin_sheet_states[product_code]` are persisted across market changes by design (user choice, not bug). The "Reset về khuyến nghị" button is the escape hatch.
+- **FastAPI route ordering matters**: catch-all path params (e.g. `{step}`) eat ALL single-segment paths. Define specific routes BEFORE catch-alls. `Path(..., pattern=...)` does NOT make the router skip — it returns 422 on mismatch.
+- **The Explore agent has ~30% false-positive rate** on code-flow audits. Always read the cited file:line before acting on a finding. Two agent reports in this session both required correction (e.g., "no cascading unlock" claim was wrong; agent missed the silent-exception swallow which turned out to be the most serious issue).
+- **`libreoffice --headless --convert-to pdf` + Read tool's PDF page rendering** is a reliable end-to-end xlsx verification path (no Excel install needed).
+- Authoritative case state lives in `co.co_case_states` (jsonb-per-client). Never UPDATE `co.co_cases` directly — use `update_case_record()` from `app/co_case_store.py`.
+- User writes Vietnamese casually; respond in **fully accented Vietnamese** (or English). Never unaccented Vietnamese.
+- User wants concise direct status, evidence-based "done" claims. No fluff.
+- Pre-existing 30 test failures on `main` are local environmental drift; CI is green. Don't chase them as regressions.
+
