@@ -1566,8 +1566,9 @@
   </header>
 
   <section class="review-actions">
+    {% if _case_completed %}
     <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export-dossier-zip" hx-boost="false" class="review-action-primary">
-      <button type="submit" class="btn-primary" {% if _no_products %}disabled{% endif %}>
+      <button type="submit" class="btn-primary">
         <span class="review-action-icon" aria-hidden="true">📦</span>
         <span class="review-action-body">
           <strong>Xuất hồ sơ .zip</strong>
@@ -1575,7 +1576,6 @@
         </span>
       </button>
     </form>
-    {% if _case_completed %}
     <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/reopen-case" hx-boost="false" class="review-action-secondary">
       <button type="submit" class="btn-secondary">
         <span class="review-action-icon" aria-hidden="true">🔓</span>
@@ -1588,8 +1588,8 @@
     {% else %}
     <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/close" hx-boost="false"
           onsubmit="return confirm('Đóng hồ sơ này? Sau khi đóng, không thể sửa bảng kê hay chứng từ. Mở lại bằng nút Mở lại hồ sơ.');"
-          class="review-action-secondary">
-      <button type="submit" class="btn-secondary" {% if not _ready_to_close %}disabled{% endif %}>
+          class="review-action-primary">
+      <button type="submit" class="btn-primary" {% if not _ready_to_close %}disabled{% endif %}>
         <span class="review-action-icon" aria-hidden="true">✅</span>
         <span class="review-action-body">
           <strong>Đóng hồ sơ</strong>
@@ -1597,6 +1597,16 @@
         </span>
       </button>
     </form>
+    <div class="review-action-secondary">
+      <button type="button" class="btn-secondary" disabled
+              title="Đóng hồ sơ trước rồi mới xuất file tổng hợp. Cần khoá toàn bộ bảng kê để tính đủ TKX/TKN.">
+        <span class="review-action-icon" aria-hidden="true">📦</span>
+        <span class="review-action-body">
+          <strong>Xuất hồ sơ .zip</strong>
+          <small>{% if _no_products %}Chưa có bảng kê{% elif _unlocked_count > 0 %}Đóng hồ sơ trước (còn {{ _unlocked_count }} bảng kê chưa chốt){% else %}Đóng hồ sơ trước để chốt danh sách TKX/TKN{% endif %}</small>
+        </span>
+      </button>
+    </div>
     {% endif %}
   </section>
 

@@ -3502,6 +3502,8 @@ def test_export_dossier_zip_bundles_chung_tu_tkx_tkn_and_hq_bang_ke(monkeypatch)
             "origin_sheet_states": {"TP-ZIP": {"status": "locked", "status_label": "Chốt"}},
         },
     )
+    # Dossier export requires case closed (sheets locked + case marked completed).
+    update_case_record(get_client("growatt"), {"persisted_case_id": case_id, "status": "completed"})
 
     response = client.post(f"/clients/growatt/co-case/{case_id}/export-dossier-zip")
     assert response.status_code == 200, response.text
@@ -3554,17 +3556,50 @@ def test_export_dossier_zip_bundles_chung_tu_tkx_tkn_and_hq_bang_ke(monkeypatch)
     title = sheet["A3"].value or ""
     assert isinstance(title, str) and ("BẢNG KÊ" in title.upper() or "BẢNG TÍNH HÀM LƯỢNG" in title.upper())
 
+
+def test_export_bang_ke_direct_route_works_on_open_case(monkeypatch):
+    """Per-product Excel export is a WIP tool — must work without case close."""
+    import io
+    from openpyxl import load_workbook
+
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Direct bang ke", "case_code": "CO-DIRECT", "destination_market": "Ấn Độ", "invoice_no": "INV-DIRECT"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-DIRECT",
+            "title": "Direct bang ke",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-DIRECT"},
+            "products": [
+                {"code": "TP-DIRECT", "name": "Direct", "quantity": "1", "unit": "PCS", "fob": "100", "currency": "USD",
+                 "documented_result": "LVC 30%", "lvc_threshold": "30",
+                 "materials": [
+                     {"material_code": "M-D", "uom": "PCS", "bom_qty_per": "1", "unit_value": "10", "material_value": "10",
+                      "origin_status": "non_origin", "consumed_qty": "1"},
+                 ]},
+            ],
+            "origin_sheet_states": {"TP-DIRECT": {"status": "locked", "status_label": "Chốt"}},
+        },
+    )
+
     quick_wb = Workbook()
-    quick_wb.active.title = "1TP-ZIP"
+    quick_wb.active.title = "1TP-DIRECT"
     quick_wb.active["A1"] = "quick bang ke"
     import app.main as main_module
     monkeypatch.setattr(main_module, "create_hq_bang_ke_workbook", lambda _case: workbook_bytes(quick_wb))
 
     direct = client.post(f"/clients/growatt/co-case/{case_id}/export-bang-ke")
     assert direct.status_code == 200, direct.text
-    assert 'filename="CO-ZIP-bang-ke-hq.xlsx"' in direct.headers["content-disposition"]
+    assert 'filename="CO-DIRECT-bang-ke-hq.xlsx"' in direct.headers["content-disposition"]
     direct_wb = load_workbook(io.BytesIO(direct.content))
-    assert direct_wb["1TP-ZIP"]["A1"].value == "quick bang ke"
+    assert direct_wb["1TP-DIRECT"]["A1"].value == "quick bang ke"
 
 
 def test_export_dossier_zip_blocks_when_sheet_stale_or_draft():
@@ -3592,6 +3627,67 @@ def test_export_dossier_zip_blocks_when_sheet_stale_or_draft():
     response = client.post(f"/clients/growatt/co-case/{case_id}/export-dossier-zip")
     assert response.status_code == 409
     assert "TP-DRAFT" in response.json()["detail"]
+
+
+def test_export_dossier_zip_requires_case_closed_even_when_all_sheets_locked():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "All locked open", "case_code": "CO-ALL-LOCKED", "destination_market": "Ấn Độ", "invoice_no": "INV-AL"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-ALL-LOCKED",
+            "title": "All locked open",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-AL"},
+            "products": [
+                {"code": "TP-A", "name": "A", "quantity": "1", "unit": "PCS", "fob": "100", "currency": "USD", "materials": []},
+            ],
+            "origin_sheet_states": {"TP-A": {"status": "locked", "status_label": "Chốt"}},
+        },
+    )
+    # Sheet locked but case still open → must close first.
+    response = client.post(f"/clients/growatt/co-case/{case_id}/export-dossier-zip")
+    assert response.status_code == 409
+    assert "Đóng hồ sơ" in response.json()["detail"]
+
+
+def test_export_dossier_zip_blocks_open_case_with_partial_locks():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Partial locks", "case_code": "CO-PARTIAL", "destination_market": "Ấn Độ", "invoice_no": "INV-PL"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-PARTIAL",
+            "title": "Partial locks",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-PL"},
+            "products": [
+                {"code": "TP-A", "name": "A", "quantity": "1", "unit": "PCS", "fob": "100", "currency": "USD", "materials": []},
+                {"code": "TP-B", "name": "B", "quantity": "1", "unit": "PCS", "fob": "100", "currency": "USD", "materials": []},
+            ],
+            "origin_sheet_states": {
+                "TP-A": {"status": "locked", "status_label": "Chốt"},
+                "TP-B": {"status": "calculated", "status_label": "Đã tính"},
+            },
+        },
+    )
+    response = client.post(f"/clients/growatt/co-case/{case_id}/export-dossier-zip")
+    assert response.status_code == 409
+    body = response.json()["detail"]
+    assert "TP-B" in body
+    assert "chưa chốt" in body
 
 
 def test_origin_sheet_lock_records_cross_case_stock_ledger_claims():

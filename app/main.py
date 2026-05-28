@@ -6255,12 +6255,26 @@ async def export_co_case_dossier_zip(client_id: str, case_id: str):
     client = resolve_client(client_id)
     case = persisted_origin_case(client, case_id)
     case = attach_origin_sheet_states(case)
-    blockers = origin_sheet_export_blockers(case)
-    if blockers:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Chưa thể xuất dossier: bảng kê {', '.join(blockers[:5])} cần tính lại hoặc chốt trước.",
-        )
+    # Hard gate: case must be closed. Close itself already requires every sheet
+    # locked, so this implicitly guarantees the TKN summary is complete (it
+    # filters to locked sheets — see case_tkx_tkn_summary). Without this gate
+    # an operator could ship a dossier whose TKN list silently omits the
+    # declarations referenced by half-finished sheets.
+    if not co_case_is_completed(case):
+        unlocked = [
+            str(p.get("code") or "?")
+            for p in case.get("products") or []
+            if str(p.get("origin_sheet_status") or "").strip() != "locked"
+        ]
+        if unlocked:
+            detail = (
+                f"Còn {len(unlocked)} bảng kê chưa chốt: "
+                f"{', '.join(unlocked[:5])}{'…' if len(unlocked) > 5 else ''}. "
+                "Chốt hết các bảng kê rồi bấm 'Đóng hồ sơ' trước khi xuất file tổng hợp."
+            )
+        else:
+            detail = "Đóng hồ sơ trước khi xuất file tổng hợp (cần khoá để chốt danh sách TKX/TKN)."
+        raise HTTPException(status_code=409, detail=detail)
     source_context = co_case_source_context(client, case)
     invoice_matches = source_context.get("invoice_matches") or []
     stock_rows = source_context.get("stock_rows") or []
