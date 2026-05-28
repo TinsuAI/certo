@@ -438,40 +438,9 @@ class PostgresCoCaseStateStore:
         record = _co_case_record_fields(client_id, case_payload)
         with connect(self.url) as connection:
             with connection.cursor() as cursor:
-                if expected_revision <= 0:
-                    cursor.execute(
-                        """
-                        insert into co_cases (
-                          client_id, case_id, title, case_code, destination_market,
-                          agreement, co_form_type, rule, invoice_no, bill_of_lading_no,
-                          supporting_file_count, payload, revision, created_at, updated_at
-                        )
-                        values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1,
-                                coalesce(%s::timestamptz, now()), coalesce(%s::timestamptz, now()))
-                        on conflict (client_id, case_id) do nothing
-                        returning revision
-                        """,
-                        (
-                            client_id, case_id, record["title"], record["case_code"],
-                            record["destination_market"], record["agreement"],
-                            record["co_form_type"], record["rule"], record["invoice_no"],
-                            record["bill_of_lading_no"], record["supporting_file_count"],
-                            Jsonb(record["payload"]),
-                            timestamp(record["created_at"]), timestamp(record["updated_at"]),
-                        ),
-                    )
-                    inserted = cursor.fetchone()
-                    if inserted:
-                        return int(inserted[0])
-                    # Row already exists — fall through to fetch current revision.
-                    cursor.execute(
-                        "select revision from co_cases where client_id = %s and case_id = %s",
-                        (client_id, case_id),
-                    )
-                    current = cursor.fetchone()
-                    raise CaseRevisionConflict(
-                        client_id, case_id, expected_revision, int(current[0]) if current else 0
-                    )
+                # Try UPDATE first — succeeds when the row exists at
+                # `expected_revision` (the common case: caller read the
+                # revision from get_case before mutating).
                 cursor.execute(
                     """
                     update co_cases
@@ -492,16 +461,58 @@ class PostgresCoCaseStateStore:
                     ),
                 )
                 row = cursor.fetchone()
-                if row is None:
-                    cursor.execute(
-                        "select revision from co_cases where client_id = %s and case_id = %s",
-                        (client_id, case_id),
-                    )
-                    current = cursor.fetchone()
+                if row is not None:
+                    return int(row[0])
+
+                # No row matched. Either (a) the row exists at a different
+                # revision (real concurrency conflict — raise) or (b) the
+                # row doesn't exist yet. Only insert when expected_revision
+                # is 0 (caller signaled "treat as fresh insert"); otherwise
+                # raise so the caller knows their stored revision is stale.
+                cursor.execute(
+                    "select revision from co_cases where client_id = %s and case_id = %s",
+                    (client_id, case_id),
+                )
+                current = cursor.fetchone()
+                if current is not None:
                     raise CaseRevisionConflict(
-                        client_id, case_id, expected_revision, int(current[0]) if current else 0
+                        client_id, case_id, expected_revision, int(current[0])
                     )
-                return int(row[0])
+                if expected_revision != 0:
+                    raise CaseRevisionConflict(client_id, case_id, expected_revision, 0)
+                cursor.execute(
+                    """
+                    insert into co_cases (
+                      client_id, case_id, title, case_code, destination_market,
+                      agreement, co_form_type, rule, invoice_no, bill_of_lading_no,
+                      supporting_file_count, payload, revision, created_at, updated_at
+                    )
+                    values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1,
+                            coalesce(%s::timestamptz, now()), coalesce(%s::timestamptz, now()))
+                    on conflict (client_id, case_id) do nothing
+                    returning revision
+                    """,
+                    (
+                        client_id, case_id, record["title"], record["case_code"],
+                        record["destination_market"], record["agreement"],
+                        record["co_form_type"], record["rule"], record["invoice_no"],
+                        record["bill_of_lading_no"], record["supporting_file_count"],
+                        Jsonb(record["payload"]),
+                        timestamp(record["created_at"]), timestamp(record["updated_at"]),
+                    ),
+                )
+                inserted = cursor.fetchone()
+                if inserted:
+                    return int(inserted[0])
+                # Lost the race to a concurrent insert — refetch and conflict.
+                cursor.execute(
+                    "select revision from co_cases where client_id = %s and case_id = %s",
+                    (client_id, case_id),
+                )
+                current = cursor.fetchone()
+                raise CaseRevisionConflict(
+                    client_id, case_id, expected_revision, int(current[0]) if current else 0
+                )
 
     def delete_case(self, client_id: str, case_id: str) -> None:
         """Remove a single case row + its supporting files. Phase 2.5 makes
