@@ -1943,34 +1943,48 @@ small,
 .workflow-stepper,
 .workflow-step-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 0.45rem;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.4rem;
 }
 
 .workflow-step {
   display: grid;
-  gap: 0.22rem;
-  min-height: 4.5rem;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.6rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 0.65rem;
+  padding: 0.45rem 0.65rem;
   background: var(--surface-subtle);
   color: var(--foreground-muted);
 }
 
+.workflow-step > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground-muted) 18%, var(--card));
+  color: var(--foreground);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
 .workflow-step strong {
   color: var(--foreground-soft);
-  font-size: 0.8rem;
-  line-height: 1.25;
+  font-size: 0.82rem;
+  line-height: 1.2;
 }
 
 .workflow-step em {
-  align-self: end;
   color: var(--foreground-muted);
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   font-style: normal;
-  font-weight: 800;
-  letter-spacing: 0.06em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 

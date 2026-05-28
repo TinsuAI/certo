@@ -1276,6 +1276,7 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
         invoice_matches=invoice_matches,
         criteria_rows=criteria_rows,
         origin_demo_active=origin_demo_active,
+        tkx_tkn_summary=context.get("tkx_tkn_summary"),
     )
     return context
 
@@ -4841,6 +4842,7 @@ def co_case_workflow_steps(
     invoice_matches: list[dict] | None = None,
     criteria_rows: list[dict] | None = None,
     origin_demo_active: bool = False,
+    tkx_tkn_summary: dict | None = None,
 ) -> list[dict]:
     case_id = case.get("persisted_case_id", "")
     base_url = f"/clients/{client_id}/co-case/{case_id}" if case_id else ""
@@ -4853,6 +4855,7 @@ def co_case_workflow_steps(
             invoice_matches=invoice_matches or [],
             criteria_rows=criteria_rows or [],
             origin_demo_active=origin_demo_active,
+            tkx_tkn_summary=tkx_tkn_summary,
         )
         steps.append({
             **step,
@@ -4870,6 +4873,7 @@ def co_case_step_status(
     invoice_matches: list[dict] | None = None,
     criteria_rows: list[dict] | None = None,
     origin_demo_active: bool = False,
+    tkx_tkn_summary: dict | None = None,
 ) -> str:
     invoice_matches = invoice_matches or []
     criteria_rows = criteria_rows or []
@@ -4879,13 +4883,30 @@ def co_case_step_status(
     has_products = bool(case.get("products") or criteria_rows)
     has_bom_snapshot = bool(case.get("bom_snapshot", {}).get("composition"))
     if step_key == "shipment":
-        return "ready" if has_reference and has_market else "todo"
+        # Partial = invoice OR market but not both. Avoids misleading "thiếu"
+        # when operator has filled the invoice but hasn't yet set the market.
+        if has_reference and has_market:
+            return "ready"
+        if has_reference or has_market:
+            return "review"
+        return "todo"
     if step_key == "documents":
         return "ready" if case.get("supporting_files") else "todo"
     if step_key == "exports":
         if not has_reference:
             return "todo"
-        return "ready" if invoice_matches else "review"
+        if not invoice_matches:
+            return "review"
+        # "ready" only when actual declaration files are uploaded — matching
+        # the inner page's truth instead of just BCCT row presence. Falls
+        # back to "review" when summary isn't available (caller didn't pass).
+        if tkx_tkn_summary is not None:
+            missing_tkx = tkx_tkn_summary.get("missing_tkx") or []
+            missing_tkn = tkx_tkn_summary.get("missing_tkn") or []
+            if missing_tkx or missing_tkn:
+                return "review"
+            return "ready"
+        return "review"
     if step_key == "origin":
         if origin_demo_active:
             return "preview"
