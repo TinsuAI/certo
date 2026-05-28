@@ -1,88 +1,127 @@
 # Project Status
 
-**Date:** 2026-05-29 — closed BACKLOG A.1 the cheap way (dead-column
-drop, not the planned cross-cut refactor) after data audit showed
-zero in-use overrides. Then ran F.1 Growatt BOM wipe + re-ingest on
-local + demo — 608 → 807 artifacts (269 raw_graphs × 3 shapes).
+**Date:** 2026-05-29 PM — F.1 Growatt BOM wipe + re-ingest shipped
+on local + demo. 608 mixed-variant artifacts → 823 clean (807
+re-ingested + 16 manual_flat restored from snapshot mid-session
+after near-miss data loss). A.1 dead-column drop earlier same day
+(mig 072) — see prior session.
 
 ## Current State
 
-**Branch:** `main` at `79ae85a`. **In sync with `origin/main` and demo box.**
+**Branch:** `main` at `03e9c4b`. **Local ahead of `origin/main`
+by 1 commit (not pushed). Demo DB synced via direct SQL, NOT via
+GitOps** — the F.1 commit is docs-only; no app code changed.
 
 Recent commits (newest first):
 
+- `03e9c4b` — docs(status): F.1 Growatt BOM wipe + re-ingest + restore
+- `51503bf` — docs(status): refresh after A.1 closure + mig 072
 - `79ae85a` — feat!(catalog): drop unused materials.category_override + override_reason
 - `b7f5081` — feat!(bom-api): drop BOM vocab v1 URL aliases (308 → 404)
 - `ec528ed` — docs(handoff): CO API trio + quality fixes session
-- `316ec57` — feat(bom-api): picker filters on `/bom/artifacts`
-- `28ea610` — feat(declarations-api): Bearer mirror of declarations ZIP
 
-**Tests:** **1,260 passed, 15 skipped** (verified 2026-05-28
-post-mig-072 ship; baseline unchanged — schema-only drop, no
-behaviour change).
+**Tests:** **1,260 passed, 15 skipped** (re-verified post-F.1
+restore, baseline unchanged).
 
 **Migrations:** at mig **072**.
 
-**Dev server:** `:8754` running with new code; healthz HTTP 200.
+**Dev server:** `:8754` running; healthz HTTP 200.
 
-**Demo box (`100.84.189.87:8754`):** at `79ae85a`, healthz 200.
-CI auto-deployed (~1.5 min). Demo DB confirmed columns dropped;
-`hub.materials` no longer has `category_override` / `override_reason`.
+**Demo box (`100.84.189.87:8754`):** at `79ae85a` (HEAD - 1 from
+local). Healthz 200. Demo DB Growatt BOM byte-identical with
+local (823 / 823).
 
-## Recent Changes (last session)
+**Growatt BOM final state both DBs:**
 
-A.1 BACKLOG closure — but **not** the way the BACKLOG plan suggested.
-Original plan: replace single `category` + `category_override` patch
-with multi-role `roles[] text[]`, ~2-3 days cross-cut refactor.
+| Bucket | Count |
+|---|---|
+| TP raw_graph (re-ingest XLSX) | 57 |
+| BTP raw_graph derived | 212 |
+| Shallow derived (`purchased_btp_as_leaf`) | 269 |
+| Full_flat derived (`technical_exploded`) | 269 |
+| manual_flat rescued (B710.* + ST01.* etc.) | 14 |
+| manual_flat TEST_TP_DRIFT pair | 2 |
+| **Total** | **823** |
 
-Discovery 2026-05-28 found:
-- `category_override` + `override_reason` (mig 002 scaffold,
-  2026-05-01) were a "patch instead of edit" design from before
-  mig 045 audit trigger + A.3 edit form supplanted them. The UI
-  to set overrides was never built (session 2026-05-01 to-do #11,
-  dropped on the floor).
-- Local dev DB audit: **0/13,589 rows** across Growatt + Johnson
-  have either column set. Dead architecture, not active hack.
-- `observed_roles[]` (mig 046) already surfaces multi-role truth at
-  view level — declared multi-role would only resolve 1 conflict
-  out of 13,589.
+Johnson untouched: 12,994 artifacts / 65,846 BCCT / 13,132 materials
+on both DBs.
 
-Mig 072 + 6-callsite refactor shipped in ~35 min instead of 2-3
-days. Phase 3 declared multi-role deferred until concrete staff
-workflow blocker appears. Files: `db/migrations/072_drop_category_override.sql`,
-`app/routes/{catalog,api}.py`, `app/resolvers/bcct_material_identity.py`,
-`app/templates/clients/catalog_{detail,conflicts}.html`,
-`docs/API_CONTRACT.md`, `docs/API_CHANGELOG.md` (Breaking entry),
-`.ai/BACKLOG.md` (A.1 marked CLOSED with rationale),
-`.ai/features/2026-05-28-catalog-roles-array/brief.md` (discovery doc).
+## Recent Changes (this session)
 
-Memory updated: `project_bom_code_multirole.md` notes mig 072 + the
-view-level surfacing supersedes the originally-planned column-level
-fix.
+**F.1 BACKLOG closure** (Growatt BOM wipe + re-ingest). Pipeline:
+
+1. `pg_dump -Fc` snapshot (local + demo separately)
+2. Single-tx wipe of 8 BOM tables scoped `client_id='growatt-vn'`
+3. 3× `scripts/ingest_technical_raw_batch.py` (root 14 + supplemental
+   39 + 2026-04-23-technical 4 = 57 TP raws)
+4. `python -m scripts.derive_btp_shallows growatt-vn --status publish`
+   (+212 BTP raws)
+5. `scripts/materialize_shallow_and_full_flat.py --force-publish`
+   (+269 shallow + 269 full_flat)
+6. Flip `bom_proposal_mode='auto'`
+7. Pytest baseline
+
+**Near-miss recovery:** wipe dropped 16 `manual_flat agency_upload`
+artifacts (14 `agency_rescued_only_gom` BTPs from 2026-05-05
+`cleanup_gom_phase.py` rescue session + 2 TEST_TP_DRIFT). These had
+no XLSX source to replay. User flagged ("Sao lai drop?"). Restored
+via filtered `pg_restore --data-only` from snapshot, on local + demo.
+Lesson saved to memory `feedback_wipe_enumerate_unreplayable.md`.
+
+**Files committed:** `.ai/STATUS.md`, `.ai/sessions/2026-05-29-growatt-bom-wipe-reingest.md`.
+
+**Memories updated:**
+- `project_reingest_pending.md` — Growatt BOM marked SHIPPED with
+  full pipeline + restore note
+- `feedback_wipe_enumerate_unreplayable.md` — new feedback memory
+  for the lesson
+- `MEMORY.md` — index entries updated
 
 ## Next Steps
 
-1. **F.1 Growatt BOM — CLOSED 2026-05-29.** Wipe + re-ingest done
-   local + demo. 57 TP from 3 source batches + 212 derived BTPs =
-   269 raw_graphs × (raw + shallow + full_flat) = 807 published
-   artifacts. Plus 16 manual_flat artifacts (agency_rescued_only_gom +
-   stray TEST) initially dropped by the wipe and **restored same
-   session from snapshot** — they had no XLSX source to replay.
-   Final: 823 artifacts both DBs. 536 stale flags from pre-existing
-   4-material UoM gap (not regression). See
-   `.ai/sessions/2026-05-29-growatt-bom-wipe-reingest.md`.
-2. **A.4.3 follow-up if needed** — current normalize-then-bucket
-   gives 21% noise reduction on Johnson per-product codes. Only
-   worth more work if staff complain.
-3. **D.1 Aggregate-data git-history** — large principle work
-   (materials/code_mappings/client_config history tables + revert UI).
-   Needs `/discover` first.
-4. **STATUS open items unchanged** — offsite backup missing
-   (single VPS = SPOF); ALARM file → external alert (user passed
-   on this one explicitly).
+1. **Optional `git push`** — `03e9c4b` is local-only. Demo already
+   has the data state via direct sync, so push is not blocking. Only
+   needed if the F.1 session log should be on GitHub.
+2. **Repo hygiene** — untracked sessions from earlier weeks
+   (`2026-05-15-catalog-conflicts-page-ship.md`,
+   `2026-05-15-m16-ingest-and-uom-evidence-audit.md`,
+   `2026-05-25-bulk-zip-upload-shipped.md`,
+   `2026-05-28-bom-vocab-v1-alias-drop.md`,
+   `2026-05-29-a1-dead-column-drop.md`); untracked scripts
+   (`generate_training_input_scenarios.py`, `uom_drift_report.py`);
+   untracked `docs/training/` dir; 31 modified files under
+   `.ai/features/2026-05-04-demo-company-feed/` (screenshots +
+   manifests). Triage in a future session.
+3. **A.4.3 follow-up if needed** — normalize-then-bucket gives 21%
+   noise reduction on Johnson per-product codes. Only worth more
+   work if staff complain.
+4. **D.1 Aggregate-data git-history** — large principle work
+   (materials/code_mappings/client_config history tables + revert
+   UI). Needs `/discover` first.
+5. **STATUS open items unchanged** — offsite backup missing (single
+   VPS = SPOF); ALARM file → external alert (user passed on this
+   one explicitly).
 
 ## Notes for Next AI Session
 
+- **F.1 snapshots are on disk** in case rollback ever needed: local
+  `/tmp/data_hub_pre_growatt_bom_wipe_2026-05-29_0106.dump` (332M),
+  demo `~/backups/demo_pre_growatt_wipe_2026-05-29_0116.dump` (305M).
+  `/tmp/` survives between sessions on this dev box but is not
+  guaranteed — move to a persistent location if you want long-term
+  rollback safety.
+- **Wipe discipline:** before any "wipe + replay" operation,
+  enumerate every artifact bucket by `(variant_id, source_channel,
+  source_bom_kind)` and identify which have no replay source — see
+  memory `feedback_wipe_enumerate_unreplayable.md`. The Growatt
+  near-miss happened because I saw 15 `manual_flat` in the variant
+  breakdown but didn't flag them as unreplayable before deleting.
+- **Demo data sync without code change:** since F.1 was data ops
+  only (no app code), I synced demo directly via `ssh + docker exec`
+  rather than push-to-main → CI-deploy. Pattern: snapshot →
+  identical SQL via psql -f → re-run ingest scripts inside
+  `data-hub-app-1` container with `uv run python /app/scripts/...`.
+  Source XLSX shipped via `tar` + scp + `docker cp`.
 - **`category_override` / `override_reason` dropped on local + demo
   (mig 072).** Any caller reading those JSON fields from
   `/v1/hub/.../catalog/...` gets nothing. None known. CO consumes
