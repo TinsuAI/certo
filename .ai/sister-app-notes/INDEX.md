@@ -25,6 +25,7 @@ header.
 | 2026-05-12 | `2026-05-12-uom-conversion-cutover.md` ⭐ | Phase 2 UoM conversion engine + Phase 3 G refresh-preview (amended 2026-05-13). **BREAKING for derived BOM consumers — derived rows now in catalog UoM, not raw.** | 053-058 |
 | 2026-05-13 | `2026-05-13-catalog-candidates-shipped.md` | Mã chờ duyệt feed + `materials.production_source` enum (covers gap in 2026-05-09 note for mig 047-049) | 047-049 |
 | 2026-05-28 | `2026-05-28-bcct-incremental-since-available.md` | `since` + `tombstones` on `GET /v1/hub/bcct` for CO incremental refresh; `transaction_key` stability confirmed | — |
+| 2026-05-28 | `2026-05-28-bcct-declarations-download-bearer-available.md` | Bearer mirror of `/clients/{c}/declarations/download.zip` at `/v1/hub/clients/{c}/declarations/download.zip` for CO dossier builder | — |
 
 ## Read order if starting fresh today (2026-05-13)
 

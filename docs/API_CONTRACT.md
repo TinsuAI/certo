@@ -762,6 +762,45 @@ Errors:
 Contract spec:
 `barry-CO-main/.ai/api-requests/2026-05-15-declaration-file-status.md`.
 
+#### `GET /v1/hub/clients/{client_id}/declarations/download.zip`
+
+Bearer-auth mirror of the operator cookie route at
+`/clients/{cid}/declarations/download.zip`. Returns the same ZIP bytes
+for server-to-server callers (CO's dossier builder consolidating TKX
++ TKN into a single deliverable). The cookie route stays in place for
+operator browser flow.
+
+Query params:
+- `direction`: required, `import` or `export`.
+- `declaration_nos`: required, comma-separated declaration numbers
+  (max 500). Exact-match against the canonical Data Hub
+  `declaration_no` string.
+- `filename`: optional preferred archive filename in
+  `Content-Disposition`. When omitted, defaults to
+  `declarations_{client_id}_{direction}.zip`. Sanitized: only
+  alphanumerics + `._- ()[]` kept, max 120 chars, `.zip` suffix
+  enforced.
+
+Response:
+- `200` — `Content-Type: application/zip`,
+  `Content-Disposition: attachment; filename="..."`. Body is identical
+  to the cookie route: files at archive root (deduped by `_1`/`_2`
+  suffix on collision), `DANH_SACH_TO_KHAI.txt` manifest, and a
+  `NO_FILES_FOUND.txt` marker when zero files matched.
+
+Errors:
+- `400 invalid_direction` — `direction` missing or not in
+  `{import, export}`.
+- `400 declaration_nos_required` — empty / missing.
+- `400 too_many_declaration_nos` — more than 500.
+- `401 bearer token required` — missing/invalid bearer in strict mode.
+- `403 forbidden` — service token without `hub:read` scope or outside
+  the client whitelist.
+- `404 Client not found` — unknown `client_id`.
+
+Contract spec:
+`barry-CO-main/.ai/api-requests/2026-05-28-bcct-declarations-download-bearer.md`.
+
 ### Health
 
 #### `GET /v1/hub/healthz`

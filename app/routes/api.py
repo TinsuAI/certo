@@ -1840,6 +1840,72 @@ async def api_list_substitutes_v1(
     })
 
 
+_DECLARATIONS_ZIP_MAX_NOS = 500
+
+
+@router.get("/clients/{client_id}/declarations/download.zip")
+async def api_download_declarations_zip(
+    client_id: str,
+    direction: str | None = None,
+    declaration_nos: str | None = None,
+    filename: str | None = None,
+    authorization: str | None = Header(None),
+):
+    """Bearer-auth mirror of the operator cookie route at
+    `/clients/{cid}/declarations/download.zip`. Returns the same ZIP
+    bytes for server-to-server callers (CO's dossier builder).
+
+    Spec: `barry-CO-main/.ai/api-requests/2026-05-28-bcct-declarations-download-bearer.md`.
+
+    Auth: user JWT or service token with `hub:read` scope. The cookie
+    route stays for operator-browser flow (no auth-mode retrofit per
+    [[project_api_routing_convention]] — mirror, not dual-mode).
+    """
+    from fastapi.responses import Response
+    from app.routes.declarations import (
+        _build_declarations_zip, _parse_zip_declaration_nos,
+        _safe_archive_filename,
+    )
+    from app.storage import get_backend
+    from app.stores.customs_declaration_files import list_files_for_declarations
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
+    if direction not in ("import", "export"):
+        raise HTTPException(400, "invalid_direction")
+    decl_nos = _parse_zip_declaration_nos(declaration_nos)
+    if not decl_nos:
+        raise HTTPException(400, "declaration_nos_required")
+    if len(decl_nos) > _DECLARATIONS_ZIP_MAX_NOS:
+        raise HTTPException(400, "too_many_declaration_nos")
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    archive_filename = _safe_archive_filename(
+        filename,
+        fallback=f"declarations_{client_id}_{direction}.zip",
+    )
+    files = list_files_for_declarations(
+        client_id, decl_nos, direction=direction,
+    )
+    files_by_decl: dict[str, list] = {d: [] for d in decl_nos}
+    for f in files:
+        files_by_decl.setdefault(f.declaration_no, []).append(f)
+    zip_bytes = _build_declarations_zip(
+        client=client, direction=direction, requested=decl_nos,
+        files_by_decl=files_by_decl, backend=get_backend(),
+    )
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={
+            "content-disposition": (
+                f'attachment; filename="{archive_filename}"'
+            ),
+            "content-length": str(len(zip_bytes)),
+        },
+    )
+
+
 @router.get("/healthz")
 async def api_healthz():
     return _json({"status": "ok"})

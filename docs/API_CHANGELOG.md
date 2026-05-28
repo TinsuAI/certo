@@ -14,6 +14,27 @@ Only `Breaking:` headings trigger notifications to `dev`/`admin` users (CO + BCQ
 
 ## Entries
 
+## 2026-05-28 — Additive: `GET /v1/hub/clients/{c}/declarations/download.zip` — Bearer mirror of operator ZIP download
+
+**Endpoint added:** `GET /v1/hub/clients/{client_id}/declarations/download.zip`.
+
+**Why:**
+CO is building a self-contained dossier ZIP in the "Review & Xuất" step that consolidates Bảng kê C/O + supporting chứng từ + all referenced TKX/TKN declaration files. The existing cookie route at `/clients/{cid}/declarations/download.zip` is operator-browser only — `auth.current_user()` returns `None` for Bearer callers and the route 303s to `/login`. CO server can't pull the bytes server-side, so the dossier today ships with manifest links only, forcing the operator into a second manual step. CO request: `barry-CO-main/.ai/api-requests/2026-05-28-bcct-declarations-download-bearer.md`.
+
+**Contract:**
+- Same query params as the cookie route: `direction` (required, `import`/`export`), `declaration_nos` (required, comma-separated, max 500), `filename` (optional).
+- Default archive filename: `declarations_{client_id}_{direction}.zip`.
+- Response shape identical to the cookie route: files at archive root with `_1`/`_2` collision dedup, `DANH_SACH_TO_KHAI.txt` manifest, `NO_FILES_FOUND.txt` marker on zero-match.
+- Auth: `hub:read` scope; user JWT or service token with `client_ids` whitelist (`include client_id`).
+
+**Errors:** `400 invalid_direction`, `400 declaration_nos_required`, `400 too_many_declaration_nos`, `401 bearer token required`, `403 forbidden`, `404 Client not found`.
+
+**Pattern:** mirror, not dual-auth retrofit on the cookie route ([[project_api_routing_convention]] — precedent: substitute API mirror 2026-05-13).
+
+**Tests:** 13 provider tests in `tests/test_declarations_download_zip_bearer.py` (happy paths, error paths, service-token scope, client whitelist, strict-mode 401).
+
+**Commit:** TBD (this entry lands with the route change).
+
 ## 2026-05-28 — Additive: `GET /v1/hub/bcct` — `since` + `tombstones` for incremental pull
 
 **Params added:** `since` (ISO-8601 UTC) + `include_tombstones` (`true`/`false`).
