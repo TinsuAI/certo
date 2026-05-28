@@ -995,8 +995,19 @@ def case_lock(client_id: str):
     workflow state store. This is the Phase 1 cross-process / cross-host
     serialization that keeps two operators on the same client from
     clobbering each other's payload while editing different cases
-    (audit gap HIGH #3). Phase 2 narrows the lock scope to per-case rows
-    with optimistic concurrency.
+    (audit gap HIGH #3 band-aid).
+
+    Status after Phase 2 + 3.1: the per-case race on `co_cases` is now
+    handled by optimistic concurrency on the `revision` column and FK
+    `co_stock_claims.case_id` → `co_cases` ON DELETE CASCADE. This
+    advisory lock is still held because `save_state` still wipes and
+    rewrites `co_supporting_files` per-client — two operators saving
+    different cases of the same client would clobber each other's
+    file rows without the lock. Removing the lock cleanly requires a
+    follow-up that promotes supporting_files to per-case writes (see
+    STATUS.md "Phase 3.2 prerequisite"). Until then, treat this as
+    defense-in-depth: optimistic concurrency is the primary mechanism,
+    case_lock is the safety net.
     """
     root = case_root(client_id)
     root.mkdir(parents=True, exist_ok=True)
