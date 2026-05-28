@@ -114,6 +114,7 @@ jobs:
 
       - name: Smoke LLM /models (best effort)
         working-directory: /home/tinsu/data-hub
+        continue-on-error: true
         run: |
           base=$(docker compose exec -T db psql -U hub -d data_hub -tAc \
             "select value from hub.app_settings where key='llm_base_url'" \
@@ -123,5 +124,8 @@ jobs:
             exit 0
           fi
           echo "probing $base/models"
-          curl -fsS --connect-timeout 10 "$base/models" > /dev/null \
-            && echo "LLM /models OK"
+          if curl -fsS --connect-timeout 10 "$base/models" > /dev/null; then
+            echo "LLM /models OK"
+          else
+            echo "LLM /models unreachable (upstream issue) — non-blocking, deploy proceeds"
+          fi
