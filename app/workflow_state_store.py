@@ -11,6 +11,25 @@ from typing import Any
 from app.database import apply_migrations, connect, database_url
 
 
+class CaseRevisionConflict(RuntimeError):
+    """Optimistic-concurrency conflict from `save_case_record`.
+
+    Carries the expected and current revisions so the caller (Phase 2.4
+    `update_case_record` retry loop) can reload, reapply its mutation,
+    and retry without clobbering the writer that won the race.
+    """
+
+    def __init__(self, client_id: str, case_id: str, expected_revision: int, current_revision: int):
+        self.client_id = client_id
+        self.case_id = case_id
+        self.expected_revision = int(expected_revision)
+        self.current_revision = int(current_revision)
+        super().__init__(
+            f"Case {client_id}/{case_id} revision {current_revision} "
+            f"!= expected {expected_revision}"
+        )
+
+
 def get_bom_state_store() -> "PostgresBomStateStore | None":
     url = database_url()
     return PostgresBomStateStore(url) if url else None
@@ -330,6 +349,135 @@ class PostgresCoCaseStateStore:
         finally:
             connection.close()
 
+    def get_case(self, client_id: str, case_id: str) -> tuple[dict, int] | None:
+        """Returns (case_payload, revision) for a single case or None.
+
+        Phase 2.2 entry point — `co_cases` is the per-case row + revision
+        token. Phase 2.5 makes this table the source of truth (currently
+        callers still read through `get_state` for the merged view).
+        """
+        self.ensure_schema()
+        with connect(self.url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "select payload, revision from co_cases where client_id = %s and case_id = %s",
+                    (client_id, case_id),
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    return None
+                return dict(row[0]), int(row[1])
+
+    def save_case_record(
+        self,
+        client_id: str,
+        case_payload: dict,
+        expected_revision: int,
+    ) -> int:
+        """Upsert a single case with optimistic concurrency on `revision`.
+
+        - `expected_revision == 0` and no row: INSERT, returns 1.
+        - existing row with `revision == expected_revision`: UPDATE,
+          bumps to `expected_revision + 1`, returns the new revision.
+        - existing row with mismatched revision: raises
+          `CaseRevisionConflict` carrying the current DB revision so
+          the caller can reload + reapply (Phase 2.4 retry loop).
+
+        Phase 2.5 wires this into update_case_record and drops the
+        cases[] block from co_case_states.payload.
+        """
+        from psycopg.types.json import Jsonb
+
+        self.ensure_schema()
+        case_id = str(case_payload.get("case_id") or "").strip()
+        if not case_id:
+            raise ValueError("case_payload missing case_id")
+        record = _co_case_record_fields(client_id, case_payload)
+        with connect(self.url) as connection:
+            with connection.cursor() as cursor:
+                if expected_revision <= 0:
+                    cursor.execute(
+                        """
+                        insert into co_cases (
+                          client_id, case_id, title, case_code, destination_market,
+                          agreement, co_form_type, rule, invoice_no, bill_of_lading_no,
+                          supporting_file_count, payload, revision, created_at, updated_at
+                        )
+                        values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1,
+                                coalesce(%s::timestamptz, now()), coalesce(%s::timestamptz, now()))
+                        on conflict (client_id, case_id) do nothing
+                        returning revision
+                        """,
+                        (
+                            client_id, case_id, record["title"], record["case_code"],
+                            record["destination_market"], record["agreement"],
+                            record["co_form_type"], record["rule"], record["invoice_no"],
+                            record["bill_of_lading_no"], record["supporting_file_count"],
+                            Jsonb(record["payload"]),
+                            timestamp(record["created_at"]), timestamp(record["updated_at"]),
+                        ),
+                    )
+                    inserted = cursor.fetchone()
+                    if inserted:
+                        return int(inserted[0])
+                    # Row already exists — fall through to fetch current revision.
+                    cursor.execute(
+                        "select revision from co_cases where client_id = %s and case_id = %s",
+                        (client_id, case_id),
+                    )
+                    current = cursor.fetchone()
+                    raise CaseRevisionConflict(
+                        client_id, case_id, expected_revision, int(current[0]) if current else 0
+                    )
+                cursor.execute(
+                    """
+                    update co_cases
+                       set title = %s, case_code = %s, destination_market = %s,
+                           agreement = %s, co_form_type = %s, rule = %s,
+                           invoice_no = %s, bill_of_lading_no = %s,
+                           supporting_file_count = %s, payload = %s,
+                           revision = revision + 1, updated_at = now()
+                     where client_id = %s and case_id = %s and revision = %s
+                     returning revision
+                    """,
+                    (
+                        record["title"], record["case_code"], record["destination_market"],
+                        record["agreement"], record["co_form_type"], record["rule"],
+                        record["invoice_no"], record["bill_of_lading_no"],
+                        record["supporting_file_count"], Jsonb(record["payload"]),
+                        client_id, case_id, expected_revision,
+                    ),
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    cursor.execute(
+                        "select revision from co_cases where client_id = %s and case_id = %s",
+                        (client_id, case_id),
+                    )
+                    current = cursor.fetchone()
+                    raise CaseRevisionConflict(
+                        client_id, case_id, expected_revision, int(current[0]) if current else 0
+                    )
+                return int(row[0])
+
+    def delete_case(self, client_id: str, case_id: str) -> None:
+        """Remove a single case row + its supporting files. Phase 2.5 makes
+        this the canonical case-delete path; Phase 2.2 ships it for the
+        retry-loop and future cutover use without removing the legacy
+        save_state path.
+        """
+        self.ensure_schema()
+        with connect(self.url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "delete from co_supporting_files where client_id = %s and case_id = %s",
+                    (client_id, case_id),
+                )
+                cursor.execute(
+                    "delete from co_cases where client_id = %s and case_id = %s",
+                    (client_id, case_id),
+                )
+
     def save_state(self, client_id: str, state: dict) -> None:
         from psycopg.types.json import Jsonb
 
@@ -636,27 +784,28 @@ def bom_client_root(client_id: str) -> Path:
     return Path(os.environ.get("BOM_STORE_ROOT", "data/local/bom-builder")) / "clients" / safe_storage_filename(client_id)
 
 
+def _co_case_record_fields(client_id: str, case: dict) -> dict:
+    shipment = dict(case.get("shipment") or {})
+    return {
+        "client_id": client_id,
+        "case_id": case["case_id"],
+        "title": case.get("title", ""),
+        "case_code": case.get("case_code", ""),
+        "destination_market": case.get("destination_market", ""),
+        "agreement": case.get("agreement", ""),
+        "co_form_type": case.get("co_form_type", ""),
+        "rule": case.get("rule", ""),
+        "invoice_no": shipment.get("invoice_no", ""),
+        "bill_of_lading_no": shipment.get("bill_of_lading_no", ""),
+        "supporting_file_count": len(case.get("supporting_files", [])),
+        "payload": dict(case),
+        "created_at": case.get("created_at"),
+        "updated_at": case.get("updated_at"),
+    }
+
+
 def co_case_records(client_id: str, state: dict) -> list[dict]:
-    records = []
-    for case in state.get("cases", []):
-        shipment = dict(case.get("shipment") or {})
-        records.append({
-            "client_id": client_id,
-            "case_id": case["case_id"],
-            "title": case.get("title", ""),
-            "case_code": case.get("case_code", ""),
-            "destination_market": case.get("destination_market", ""),
-            "agreement": case.get("agreement", ""),
-            "co_form_type": case.get("co_form_type", ""),
-            "rule": case.get("rule", ""),
-            "invoice_no": shipment.get("invoice_no", ""),
-            "bill_of_lading_no": shipment.get("bill_of_lading_no", ""),
-            "supporting_file_count": len(case.get("supporting_files", [])),
-            "payload": dict(case),
-            "created_at": case.get("created_at"),
-            "updated_at": case.get("updated_at"),
-        })
-    return records
+    return [_co_case_record_fields(client_id, case) for case in state.get("cases", [])]
 
 
 def co_supporting_file_records(client_id: str, state: dict) -> list[dict]:
