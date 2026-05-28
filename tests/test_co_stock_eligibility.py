@@ -154,3 +154,85 @@ def test_min_gap_days_from_config_rejects_negative():
 
 def test_min_gap_days_from_config_rejects_garbage():
     assert min_gap_days_from_config({"co_stock": {"min_days_before_export": "abc"}}) == DEFAULT_MIN_GAP_DAYS
+
+
+# Integration: pool-level filter via `case_allocation_pool` in main.py
+
+
+def test_case_allocation_pool_filters_recent_imports_when_export_anchor_present():
+    from app.main import case_allocation_pool
+
+    case = {
+        "shipment": {"export_declaration_nos": ["XK-EXPORT-1"]},
+    }
+    invoice_matches = [
+        {"declaration_no": "XK-EXPORT-1", "registration_date": "2026-05-03"},
+    ]
+    stock_rows = [
+        # Imported 5 days before export → eligible.
+        {"material_code": "M-OK", "source_row": "row-1",
+         "eligibility_status": "active",
+         "registration_date": "2026-04-28",
+         "available_qty": "100"},
+        # Imported 1 day before export → too recent, filtered.
+        {"material_code": "M-RECENT", "source_row": "row-2",
+         "eligibility_status": "active",
+         "registration_date": "2026-05-02",
+         "available_qty": "50"},
+        # Imported on the same day → too recent, filtered.
+        {"material_code": "M-SAMEDAY", "source_row": "row-3",
+         "eligibility_status": "active",
+         "registration_date": "2026-05-03",
+         "available_qty": "30"},
+    ]
+
+    pool = case_allocation_pool(case, invoice_matches, stock_rows)
+
+    assert pool["M-OK"][0]["_eligibility_ok"] is True
+    assert pool["M-OK"][0]["_eligibility_reason"] == REASON_OK
+    assert pool["M-RECENT"][0]["_eligibility_ok"] is False
+    assert pool["M-RECENT"][0]["_eligibility_reason"] == REASON_IMPORT_TOO_RECENT
+    assert pool["M-SAMEDAY"][0]["_eligibility_ok"] is False
+    assert pool["M-SAMEDAY"][0]["_eligibility_reason"] == REASON_IMPORT_TOO_RECENT
+
+
+def test_case_allocation_pool_no_export_anchor_makes_rule_noop():
+    """When the case has no matched export declaration, the gap rule is
+    skipped — operators editing a case before confirming shipment shouldn't
+    see "ineligible" lots that the rule can't actually anchor."""
+    from app.main import case_allocation_pool
+
+    case = {"shipment": {"export_declaration_nos": []}}
+    invoice_matches = []
+    stock_rows = [
+        {"material_code": "M", "source_row": "row-1",
+         "eligibility_status": "active",
+         "registration_date": "2026-05-03",
+         "available_qty": "100"},
+    ]
+    pool = case_allocation_pool(case, invoice_matches, stock_rows)
+    # No anchor → no gap rejection.
+    assert pool["M"][0]["_eligibility_ok"] is True
+
+
+def test_case_allocation_pool_multi_export_uses_earliest_as_anchor():
+    """Conservative anchor: the tightest constraint wins when a case
+    carries multiple export declarations."""
+    from app.main import case_allocation_pool
+
+    case = {"shipment": {"export_declaration_nos": ["XK-A", "XK-B"]}}
+    invoice_matches = [
+        {"declaration_no": "XK-A", "registration_date": "2026-05-10"},
+        {"declaration_no": "XK-B", "registration_date": "2026-05-03"},  # earlier
+    ]
+    stock_rows = [
+        # Eligible vs the later export (XK-A 2026-05-10) but NOT vs the
+        # earlier export (XK-B 2026-05-03). Anchor = XK-B → reject.
+        {"material_code": "M", "source_row": "row-1",
+         "eligibility_status": "active",
+         "registration_date": "2026-05-02",
+         "available_qty": "10"},
+    ]
+    pool = case_allocation_pool(case, invoice_matches, stock_rows)
+    assert pool["M"][0]["_eligibility_ok"] is False
+    assert pool["M"][0]["_eligibility_reason"] == REASON_IMPORT_TOO_RECENT

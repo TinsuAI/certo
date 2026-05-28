@@ -62,7 +62,7 @@ from app.co_form_config_store import (
     save_co_form_config,
     unique_text_list,
 )
-from app import co_stock_adjustments_store, co_stock_events_store, co_stock_ledger, co_stock_materializer
+from app import co_stock_adjustments_store, co_stock_eligibility, co_stock_events_store, co_stock_ledger, co_stock_materializer
 from app.co_stock_template import CoStockTemplateError, read_standard_co_stock, write_standard_co_stock
 from app.co_market_hints import infer_market_from_invoice_matches
 from app.client_registry import get_client as registry_get_client
@@ -2165,7 +2165,7 @@ def prepare_case_origin_products(
         return case
 
     material_index = material_catalog_index(material_rows)
-    stock_pool = co_stock_allocation_pool(stock_rows)
+    stock_pool = case_allocation_pool(case, ordered_invoice_matches, stock_rows)
     products = []
     for product_sequence, match in enumerate(ordered_invoice_matches, start=1):
         product_code = str(match.get("item_code", "")).strip()
@@ -2303,7 +2303,7 @@ def prepare_case_origin_sheet(
     target_match = None
     target_sequence = 0
     products_by_code = {str(product.get("code") or product.get("product_code") or "").strip(): product for product in case.get("products", [])}
-    stock_pool = co_stock_allocation_pool(stock_rows)
+    stock_pool = case_allocation_pool(case, ordered_invoice_matches, stock_rows)
     for sequence, match in enumerate(ordered_invoice_matches, start=1):
         match_code = str(match.get("item_code") or match.get("product_code") or "").strip()
         if match_code == target_code:
@@ -2441,7 +2441,8 @@ def recalculate_origin_sheet_edits(client: dict, case: dict, product_code: str) 
             source_context = {"material_rows": [], "stock_rows": []}
             stock_rows = []
     material_index = material_catalog_index(source_context.get("material_rows") or [])
-    stock_pool = co_stock_allocation_pool(stock_rows)
+    cached_matches = case.get("source_invoice_matches") if isinstance(case.get("source_invoice_matches"), list) else []
+    stock_pool = case_allocation_pool(prepared, cached_matches, stock_rows)
     for previous in products[:target_index]:
         apply_existing_origin_product_consumption(previous, stock_pool)
 
@@ -3338,12 +3339,72 @@ def co_stock_rank(row: dict) -> tuple[bool, bool, bool]:
     )
 
 
-def co_stock_allocation_pool(stock_rows: list[dict]) -> dict[str, list[dict]]:
+def case_allocation_pool(
+    case: dict,
+    invoice_matches: list[dict],
+    stock_rows: list[dict],
+    *,
+    min_gap_days: int | None = None,
+) -> dict[str, list[dict]]:
+    """Convenience: resolve the export anchor date for this case and build
+    an allocation pool that applies the 2-day rule. Callers that already
+    know the threshold can pass `min_gap_days`; otherwise the default
+    (`DEFAULT_MIN_GAP_DAYS`) is used."""
+    export_date = case_export_anchor_date(case, invoice_matches)
+    gap = co_stock_eligibility.DEFAULT_MIN_GAP_DAYS if min_gap_days is None else min_gap_days
+    return co_stock_allocation_pool(stock_rows, export_date=export_date, min_gap_days=gap)
+
+
+def case_export_anchor_date(case: dict, invoice_matches: list[dict]) -> date | None:
+    """Earliest BCCT registration_date across the case's matched export
+    declarations — the anchor for the 2-day gap rule.
+
+    Returns None when the case has no export anchor (no
+    `shipment.export_declaration_nos` set OR no matching BCCT row
+    found). The rule then becomes a no-op for this case — we don't
+    fabricate a date from invoice_date or today() because either
+    could overreject lots.
+    """
+    if not isinstance(case, dict) or not invoice_matches:
+        return None
+    shipment_nos = {
+        str(value or "").strip()
+        for value in (case.get("shipment") or {}).get("export_declaration_nos") or []
+        if str(value or "").strip()
+    }
+    relevant = [
+        match for match in invoice_matches
+        if isinstance(match, dict)
+        and (not shipment_nos or str(match.get("declaration_no") or "").strip() in shipment_nos)
+    ]
+    return co_stock_eligibility.earliest_export_date(relevant)
+
+
+def co_stock_allocation_pool(
+    stock_rows: list[dict],
+    *,
+    export_date: date | None = None,
+    min_gap_days: int = co_stock_eligibility.DEFAULT_MIN_GAP_DAYS,
+) -> dict[str, list[dict]]:
+    """Group + sort candidate stock rows by allocation key.
+
+    `export_date` + `min_gap_days` apply the regulatory 2-day rule
+    (see `co_stock_eligibility.is_stock_lot_eligible`). Rejected rows
+    are NOT dropped — they stay in the pool with an
+    `_eligibility_reason` annotation so the substitute modal can
+    surface why a candidate was filtered out. Sorting pushes
+    rejected rows to the bottom.
+    """
     output: dict[str, list[dict]] = {}
     for index, row in enumerate(stock_rows):
         stock = dict(row)
         stock["_allocation_sequence"] = index
         stock["_allocation_remaining_qty"] = stock_available_qty(stock)
+        verdict = co_stock_eligibility.is_stock_lot_eligible(
+            stock, export_date=export_date, min_gap_days=min_gap_days,
+        )
+        stock["_eligibility_ok"] = verdict.ok
+        stock["_eligibility_reason"] = verdict.reason
         for key in co_stock_key_candidates(stock):
             output.setdefault(key, []).append(stock)
     for rows in output.values():
@@ -3372,14 +3433,26 @@ def numeric_sort_text(value) -> tuple[int, str]:
         return 0, text
 
 
-def co_stock_is_usable(row: dict) -> bool:
-    eligibility = str(row.get("eligibility_status") or "").strip()
-    allocation_status = str(row.get("allocation_code_status") or "").strip()
-    if eligibility and eligibility not in {"active", "eligible", "available"}:
-        return False
-    if allocation_status and allocation_status != "resolved":
-        return False
-    return True
+def co_stock_is_usable(
+    row: dict,
+    *,
+    export_date: date | None = None,
+    min_gap_days: int | None = None,
+) -> bool:
+    """Boolean wrapper around `co_stock_eligibility.is_stock_lot_eligible`.
+
+    When the row carries the `_eligibility_ok` annotation written by
+    `co_stock_allocation_pool`, trust it — the pool has already done
+    the work with the right `export_date` / `min_gap_days` context.
+    Otherwise compute fresh with the (optional) caller-supplied params.
+    """
+    if "_eligibility_ok" in row:
+        return bool(row["_eligibility_ok"])
+    gap = co_stock_eligibility.DEFAULT_MIN_GAP_DAYS if min_gap_days is None else min_gap_days
+    verdict = co_stock_eligibility.is_stock_lot_eligible(
+        row, export_date=export_date, min_gap_days=gap,
+    )
+    return verdict.ok
 
 
 def co_stock_has_value(row: dict) -> bool:
@@ -6812,15 +6885,19 @@ async def co_case_origin_sheet_substitute_stock(
         narrow_rows = portfolio_service.list_bcct_by_codes(client_id, requested, direction="import")
     except Exception:  # noqa: BLE001
         narrow_rows = []
+    cached_matches = case.get("source_invoice_matches") if isinstance(case.get("source_invoice_matches"), list) else []
     if narrow_rows:
         client_config = portfolio_service.get_client_config(client) if hasattr(portfolio_service, "get_client_config") else {}
         if client_config:
             narrow_stock_rows = co_stock_rows_from_bcct(narrow_rows, client_config)
-            stock_pool = co_stock_allocation_pool(narrow_stock_rows)
+            stock_pool = case_allocation_pool(
+                case, cached_matches, narrow_stock_rows,
+                min_gap_days=co_stock_eligibility.min_gap_days_from_config(client_config),
+            )
     if not stock_pool:
         try:
             source_context = co_case_source_context_cached(client, case)
-            stock_pool = co_stock_allocation_pool(source_context.get("stock_rows") or [])
+            stock_pool = case_allocation_pool(case, cached_matches, source_context.get("stock_rows") or [])
         except Exception:  # noqa: BLE001
             stock_pool = {}
     out: dict[str, dict] = {}
