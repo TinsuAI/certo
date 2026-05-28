@@ -489,8 +489,9 @@ def _build_material_row(
     material_name = override.get("name") or material.get("material_description", "")
     norm = override.get("norm_per_unit") or material.get("bom_qty_per", "0")
     consumed_qty = _decimal(material.get("consumed_qty") or norm)
-    unit_price = _decimal(material.get("unit_value") or "0")
-    material_value = _decimal(material.get("material_value") or "0")
+    use_vnd = (product.get("origin_sheet_currency_mode") or "native").strip().lower() == "vnd"
+    unit_price = _decimal(_pick_currency_value(material, "unit_value", use_vnd))
+    material_value = _decimal(_pick_currency_value(material, "material_value", use_vnd))
     is_origin = str(material.get("origin_status") or "non_origin") == "origin"
     origin_value = material_value if is_origin else Decimal("0")
     non_origin_value = material_value if not is_origin else Decimal("0")
@@ -517,6 +518,16 @@ def _build_material_row(
         "co_doc_date": material.get("source_document_date", ""),
     }
     return values, origin_value, non_origin_value
+
+
+def _pick_currency_value(material: dict, base_key: str, use_vnd: bool) -> str:
+    """Mirror of bang_ke_renderer._pick_currency_value: prefer *_vnd field when
+    in VND mode, fall back to native if VND wasn't populated (missing FX)."""
+    if use_vnd:
+        vnd = material.get(f"{base_key}_vnd")
+        if vnd not in (None, ""):
+            return vnd
+    return material.get(base_key, "")
 
 
 def _build_added_row(value: dict, product: dict, counter: int) -> tuple[dict, Decimal, Decimal]:
@@ -616,7 +627,10 @@ def _write_cost_buildup(
 
 def _build_field_table(case: dict, product: dict, form: FormSpec) -> dict[str, Any]:
     quantity = product.get("quantity", "") or "0"
+    currency_mode = (product.get("origin_sheet_currency_mode") or "native").strip().lower()
     fob_raw = product.get("fob", "") or "0"
+    if currency_mode == "vnd" and product.get("fob_vnd"):
+        fob_raw = product["fob_vnd"]
     fob_pretty = _format_number(_decimal(fob_raw), decimals=2, thousand_sep=True)
     declaration_no = product.get("source_declaration_no") or _first_non_empty(
         (case.get("shipment") or {}).get("export_declaration_nos") or []
@@ -648,7 +662,14 @@ def _build_field_table(case: dict, product: dict, form: FormSpec) -> dict[str, A
         "fob": fob_raw,
         "declaration": {"no": declaration_no, "date": declaration_date} if declaration_no else None,
         "quantity_uom": {"quantity": quantity, "uom": uom},
-        "fob_with_currency": {"fob": fob_pretty, "currency": product.get("currency") or ""},
+        "fob_with_currency": {
+            "fob": fob_pretty,
+            "currency": (
+                "VND"
+                if (product.get("origin_sheet_currency_mode") or "native").strip().lower() == "vnd"
+                else (product.get("currency") or "")
+            ),
+        },
     }
 
 

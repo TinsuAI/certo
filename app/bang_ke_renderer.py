@@ -155,6 +155,17 @@ def _apply_header(ws, header_cells: list[dict], fields: dict[str, Any]) -> None:
             ws[cell] = raw
 
 
+def _pick_currency_value(material: dict, base_key: str, use_vnd: bool) -> str:
+    """Swap material's native value cell for the *_vnd variant when caller is
+    rendering in VND mode. Falls back to native when VND wasn't populated
+    (e.g. row's exchange_rate_source = "missing" — no rate available)."""
+    if use_vnd:
+        vnd = material.get(f"{base_key}_vnd")
+        if vnd not in (None, ""):
+            return vnd
+    return material.get(base_key, "")
+
+
 def _apply_currency_labels(ws, cells: list[dict | str], product: dict) -> None:
     """Overwrite template's hardcoded "USD" cells with the product's currency.
 
@@ -166,7 +177,8 @@ def _apply_currency_labels(ws, cells: list[dict | str], product: dict) -> None:
         "L10"                          → write currency code verbatim
         {"cell": "H13", "format": "Trị giá ({currency})"}  → templated
     """
-    currency = (product.get("currency") or "").strip()
+    currency_mode = (product.get("origin_sheet_currency_mode") or "native").strip().lower()
+    currency = "VND" if currency_mode == "vnd" else (product.get("currency") or "").strip()
     if not currency:
         return
     for entry in cells:
@@ -199,6 +211,8 @@ def _write_body(ws, body_cfg: dict, product: dict) -> tuple[int, dict]:
             return
         ws[f"{col_letter}{row_index}"] = value
 
+    currency_mode = (product.get("origin_sheet_currency_mode") or "native").strip().lower()
+    use_vnd = currency_mode == "vnd"
     for index, material in enumerate(materials):
         override = overrides.get(str(index)) if isinstance(overrides.get(str(index)), dict) else {}
         if override.get("deleted"):
@@ -207,8 +221,8 @@ def _write_body(ws, body_cfg: dict, product: dict) -> tuple[int, dict]:
         material_name = override.get("name") or material.get("material_description", "")
         norm = override.get("norm_per_unit") or material.get("bom_qty_per", "0")
         consumed_qty = _decimal(material.get("consumed_qty") or norm)
-        unit_price = _decimal(material.get("unit_value") or "0")
-        material_value = _decimal(material.get("material_value") or "0")
+        unit_price = _decimal(_pick_currency_value(material, "unit_value", use_vnd))
+        material_value = _decimal(_pick_currency_value(material, "material_value", use_vnd))
         is_origin = str(material.get("origin_status") or "non_origin") == "origin"
         origin_value = material_value if is_origin else Decimal("0")
         non_origin_value = material_value if not is_origin else Decimal("0")

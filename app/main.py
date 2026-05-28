@@ -2371,6 +2371,7 @@ def origin_product_shell_from_invoice_match(
         "quantity": decimal_text(quantity),
         "unit": match.get("unit", ""),
         "currency": product_value["currency"],
+        "fob_currency": product_value["currency"] or match.get("currency", ""),
         "declared_currency": match.get("currency", ""),
         "value_source": product_value["source"],
         "source_declaration_no": match.get("declaration_no", ""),
@@ -2731,6 +2732,56 @@ def _hydrate_material_dates_from_stock(case: dict, client: dict) -> None:
                         allocation["import_declaration_date"] = value
 
 
+def _attach_fob_vnd(product: dict) -> None:
+    """Compute product.fob_vnd from fob × FX rate at the product's declaration date.
+
+    fob_currency falls back to product.currency (set when the product was built
+    from a BCCT match). For VND-native cases, fob_vnd = fob. For non-VND with
+    no FX hit, fob_vnd stays empty + fob_fx_source = "missing" so the renderer
+    can show a warning instead of a wrong number.
+    """
+    fob_raw = str(product.get("fob") or "").strip()
+    if not fob_raw:
+        product["fob_vnd"] = ""
+        product["fob_fx_source"] = "missing"
+        return
+    fob_currency = str(product.get("fob_currency") or product.get("currency") or "").strip().upper()
+    try:
+        fob_dec = Decimal(fob_raw)
+    except (InvalidOperation, ValueError):
+        product["fob_vnd"] = ""
+        product["fob_fx_source"] = "missing"
+        return
+    if not fob_currency or fob_currency == "VND":
+        product["fob_vnd"] = decimal_text(fob_dec)
+        product["fob_fx_source"] = "vnd_native"
+        return
+    target_date = str(
+        product.get("source_declaration_date")
+        or product.get("export_declaration_date")
+        or product.get("invoice_date")
+        or ""
+    ).strip()
+    try:
+        from app.customs_fx_store import CUSTOMS_FX_CLIENT_ID, get_customs_fx_store, lookup_exchange_rate
+        rows = get_customs_fx_store().rows(CUSTOMS_FX_CLIENT_ID)
+        hit = lookup_exchange_rate(rows, fob_currency, target_date) if target_date else None
+    except Exception:  # noqa: BLE001 — fob_vnd is optional; never block render
+        hit = None
+    if hit and hit.get("rate_vnd_per_unit"):
+        try:
+            rate = Decimal(str(hit["rate_vnd_per_unit"]))
+        except (InvalidOperation, ValueError):
+            rate = None
+        if rate and rate > 0:
+            product["fob_vnd"] = decimal_text(fob_dec * rate)
+            product["fob_fx_rate"] = decimal_text(rate)
+            product["fob_fx_source"] = "customs_lookup"
+            return
+    product["fob_vnd"] = ""
+    product["fob_fx_source"] = "missing"
+
+
 def attach_origin_sheet_states(case: dict) -> dict:
     products = case.get("products", [])
     existing = case.get("origin_sheet_states") if isinstance(case.get("origin_sheet_states"), dict) else {}
@@ -2792,6 +2843,7 @@ def attach_origin_sheet_states(case: dict) -> dict:
         product["origin_sheet_rvc_threshold_override"] = rvc_threshold_override
         product["origin_sheet_currency_mode"] = currency_mode
         product["origin_sheet_optimization_mode"] = optimization_mode
+        _attach_fob_vnd(product)
         product["origin_sheet_recommended_form_code"] = state["recommended_form_code"]
         product["origin_sheet_recommended_form_label"] = state["recommended_form_label"]
         product["origin_sheet_recommended_criteria_text"] = state["recommended_criteria_text"]
@@ -3394,6 +3446,7 @@ def origin_product_from_invoice_match(
         "quantity": decimal_text(quantity),
         "unit": match.get("unit", ""),
         "currency": product_value["currency"],
+        "fob_currency": product_value["currency"] or match.get("currency", ""),
         "declared_currency": match.get("currency", ""),
         "value_source": product_value["source"],
         "source_declaration_no": match.get("declaration_no", ""),
@@ -3502,7 +3555,22 @@ def origin_material_from_bom_row(
         material_value = consumed_qty * fallback_unit_value
     else:
         material_value = None
+    # VND-base aggregates — even when mixed currencies make material_value
+    # ambiguous, the per-line *_vnd values still sum cleanly because every
+    # line was already converted to VND via its own exchange_rate_to_vnd.
+    allocated_values_vnd = [
+        decimal_value(line.get("material_value_vnd"))
+        for line in allocation_lines
+        if line.get("material_value_vnd") not in (None, "")
+    ]
+    if allocated_values_vnd and len(allocated_values_vnd) == len(allocation_lines):
+        material_value_vnd = sum(allocated_values_vnd, Decimal("0"))
+    else:
+        material_value_vnd = None
     vnm_value = material_value if origin_status == "non_origin" and material_value is not None else None
+    vnm_value_vnd = material_value_vnd if origin_status == "non_origin" and material_value_vnd is not None else None
+    line_fx_sources = unique_texts(line.get("exchange_rate_source", "") for line in allocation_lines)
+    aggregated_fx_source = line_fx_sources[0] if len(line_fx_sources) == 1 else ("mixed" if line_fx_sources else "")
     line_unit_missing = any(not line.get("unit_value") for line in allocation_lines)
     unit_value_missing = material_value is None or line_unit_missing
     allocation_status = "covered" if shortage_qty <= 0 else "shortage"
@@ -3571,7 +3639,11 @@ def origin_material_from_bom_row(
         "unit_value": unit_value_text,
         "currency": currency,
         "material_value": decimal_text(material_value) if material_value is not None else "",
+        "material_value_native": decimal_text(material_value) if material_value is not None else "",
+        "material_value_vnd": decimal_text(material_value_vnd) if material_value_vnd is not None else "",
         "non_origin_cif_value": decimal_text(vnm_value) if vnm_value is not None else "",
+        "non_origin_cif_value_vnd": decimal_text(vnm_value_vnd) if vnm_value_vnd is not None else "",
+        "exchange_rate_source": aggregated_fx_source,
         "unit_value_missing": unit_value_missing,
         "valuation_status": valuation_status,
         "valuation_status_label": valuation_status_label(valuation_status),
@@ -3648,6 +3720,13 @@ def stock_allocation_line(
         ("material_catalog", material.get("taxable_unit_price")),
     )
     material_value = allocated_qty * unit_value if unit_value is not None else None
+    fx_rate, fx_source = _allocation_line_fx(stock)
+    if unit_value is not None and fx_rate is not None:
+        unit_value_vnd = unit_value * fx_rate
+        material_value_vnd = allocated_qty * unit_value_vnd
+    else:
+        unit_value_vnd = None
+        material_value_vnd = None
     source_line_ids = stock.get("source_line_ids", [])
     if isinstance(source_line_ids, list):
         source_line_ids_text = ",".join(str(item) for item in source_line_ids if str(item).strip())
@@ -3674,13 +3753,35 @@ def stock_allocation_line(
         "remaining_qty": decimal_text(available_qty - allocated_qty),
         "allocated_qty": decimal_text(allocated_qty),
         "unit_value": decimal_text(unit_value) if unit_value is not None else "",
+        "unit_value_native": decimal_text(unit_value) if unit_value is not None else "",
+        "unit_value_vnd": decimal_text(unit_value_vnd) if unit_value_vnd is not None else "",
         "currency": stock.get("value_currency") or stock.get("currency") or material.get("value_currency") or material.get("currency", ""),
         "material_value": decimal_text(material_value) if material_value is not None else "",
+        "material_value_native": decimal_text(material_value) if material_value is not None else "",
+        "material_value_vnd": decimal_text(material_value_vnd) if material_value_vnd is not None else "",
+        "exchange_rate_to_vnd": decimal_text(fx_rate) if fx_rate is not None else "",
+        "exchange_rate_source": fx_source,
         "valuation_source": unit_value_source,
         "valuation_source_label": valuation_source_label(unit_value_source),
         "material_description": stock.get("material_description", ""),
         "hs_code": stock.get("hs_code", ""),
     }
+
+
+def _allocation_line_fx(stock: dict) -> tuple[Decimal | None, str]:
+    """Return (rate, source) parsed from a co_stock row's FX payload fields.
+
+    Materializer writes exchange_rate_to_vnd + exchange_rate_source (phase 1).
+    Old snapshots predating phase 1 lack these fields — treat as 'missing'.
+    """
+    source = (stock.get("exchange_rate_source") or "").strip() or "missing"
+    raw = (stock.get("exchange_rate_to_vnd") or "").strip()
+    if not raw:
+        return None, source
+    try:
+        return Decimal(raw), source
+    except (InvalidOperation, ValueError):
+        return None, source
 
 
 def stock_allocation_consumption(line: dict, allocation_context: dict) -> dict:

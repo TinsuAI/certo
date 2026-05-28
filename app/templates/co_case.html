@@ -1413,13 +1413,17 @@
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_unit_value" value="{{ material.unit_value }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_currency" value="{{ material.currency }}">
                     <span data-origin-cell-unit-value
-                          data-base-unit-value="{{ material.unit_value or '0' }}">{{ material.unit_value|number(6) if material.unit_value else 'Thiếu' }}</span>
-                    <small>{{ material.currency or product.currency or 'n/a' }}</small>
+                          data-base-unit-value="{{ material.unit_value or '0' }}"
+                          data-base-unit-value-native="{{ material.unit_value_native or material.unit_value or '0' }}"
+                          data-base-unit-value-vnd="{{ material.unit_value_vnd or '' }}">{{ material.unit_value|number(6) if material.unit_value else 'Thiếu' }}</span>
+                    <small data-origin-cell-currency>{{ 'VND' if currency_mode == 'vnd' else (material.currency or product.currency or 'n/a') }}</small>
                   </td>
                   <td data-origin-column="material-value" class="num">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_material_value" value="{{ material.material_value }}">
                     <span data-origin-cell-material-value
-                          data-base-material-value="{{ material.material_value or '0' }}">{{ material.material_value|number if material.material_value else 'Thiếu' }}</span>
+                          data-base-material-value="{{ material.material_value or '0' }}"
+                          data-base-material-value-native="{{ material.material_value_native or material.material_value or '0' }}"
+                          data-base-material-value-vnd="{{ material.material_value_vnd or '' }}">{{ material.material_value|number if material.material_value else 'Thiếu' }}</span>
                   </td>
                   <td data-origin-column="origin">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_origin_status" value="{{ material.origin_status }}">
@@ -1431,7 +1435,9 @@
                   <td data-origin-column="non-origin" class="num">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_non_origin_cif_value" value="{{ material.non_origin_cif_value }}">
                     <span data-origin-cell-non-origin
-                          data-base-non-origin="{{ material.non_origin_cif_value or '0' }}">{{ material.non_origin_cif_value|number }}</span>
+                          data-base-non-origin="{{ material.non_origin_cif_value or '0' }}"
+                          data-base-non-origin-native="{{ material.non_origin_cif_value or '0' }}"
+                          data-base-non-origin-vnd="{{ material.non_origin_cif_value_vnd or '' }}">{{ material.non_origin_cif_value|number }}</span>
                   </td>
                   <td data-origin-column="source" title="{{ material.material_warnings_text }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_valuation_source" value="{{ material.valuation_source }}">
@@ -1453,6 +1459,12 @@
                       {% endif %}
                       {% if material.allocation_shortage_trace %}
                       <span class="source-chip source-chip-warning" title="{{ material.allocation_shortage_trace }}">Đã dùng ở bước trước</span>
+                      {% endif %}
+                      {% set fx_source = material.exchange_rate_source or '' %}
+                      {% if fx_source and fx_source != 'vnd_native' %}
+                      {% set fx_chip_class = 'source-chip-warning' if fx_source in ('missing', 'mixed') else 'source-chip-reference' %}
+                      {% set fx_chip_label = {'bcct_declared': 'FX khai HQ', 'customs_lookup': 'FX HQ tuần', 'missing': 'FX thiếu', 'mixed': 'FX hỗn hợp'}.get(fx_source, fx_source) %}
+                      <span class="source-chip {{ fx_chip_class }}" title="Nguồn tỷ giá: {{ fx_source }}">{{ fx_chip_label }}</span>
                       {% endif %}
                     </div>
                   </td>
@@ -2780,7 +2792,34 @@
   };
   const applyCurrencyMode = (panel, mode) => {
     const sheetPanel = panel.closest("[data-origin-sheet-panel]") || panel;
-    sheetPanel.dataset.originCurrencyMode = mode || "native";
+    const useVnd = (mode || "native").toLowerCase() === "vnd";
+    sheetPanel.dataset.originCurrencyMode = useVnd ? "vnd" : "native";
+    const swap = (selector, nativeAttr, vndAttr, decimals = 2) => {
+      sheetPanel.querySelectorAll(selector).forEach((el) => {
+        const nativeRaw = el.getAttribute(nativeAttr);
+        const vndRaw = el.getAttribute(vndAttr);
+        // Prefer the requested mode; fall back to native when *_vnd is empty
+        // (e.g. row's FX source = "missing").
+        const pick = useVnd ? (vndRaw || nativeRaw) : nativeRaw;
+        if (pick === null || pick === undefined || pick === "") return;
+        const num = parseFloat(pick);
+        if (Number.isFinite(num)) {
+          el.textContent = fmtNumber(num, decimals);
+        }
+      });
+    };
+    swap("[data-origin-cell-unit-value]", "data-base-unit-value-native", "data-base-unit-value-vnd", 6);
+    swap("[data-origin-cell-material-value]", "data-base-material-value-native", "data-base-material-value-vnd", 2);
+    swap("[data-origin-cell-non-origin]", "data-base-non-origin-native", "data-base-non-origin-vnd", 2);
+    // Currency label small <small data-origin-cell-currency> next to unit-value.
+    sheetPanel.querySelectorAll("[data-origin-cell-currency]").forEach((el) => {
+      if (useVnd) {
+        if (!el.dataset.originNativeCurrency) el.dataset.originNativeCurrency = el.textContent.trim();
+        el.textContent = "VND";
+      } else if (el.dataset.originNativeCurrency) {
+        el.textContent = el.dataset.originNativeCurrency;
+      }
+    });
   };
 
   const initOriginRecommendationOverrides = (root = document) => {
