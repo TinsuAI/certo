@@ -306,12 +306,55 @@ class PostgresCoCaseStateStore:
         apply_migrations(self.url)
 
     def get_state(self, client_id: str) -> dict | None:
+        """Phase 2.3: hydrate `cases[]` from `co_cases` rows instead of
+        the legacy `co_case_states.payload.cases` blob.
+
+        co_case_states.payload keeps everything that isn't per-case:
+        origin_calculation_lock, schema_version, etc. The cases array
+        is rebuilt from co_cases ordered by updated_at desc to preserve
+        the case-list UI order. supporting_files come from
+        co_supporting_files joined on case_id.
+
+        Returns None only when neither co_case_states nor co_cases has
+        any row for this client (true "nothing here"). When
+        co_case_states is missing but co_cases has rows (an unlikely
+        partial state) we synthesize an empty top-level dict + the
+        per-case rows so the caller never loses case data.
+        """
         self.ensure_schema()
         with connect(self.url) as connection:
             with connection.cursor() as cursor:
-                cursor.execute("select payload from co_case_states where client_id = %s", (client_id,))
+                cursor.execute(
+                    "select payload from co_case_states where client_id = %s",
+                    (client_id,),
+                )
                 row = cursor.fetchone()
-                return dict(row[0]) if row else None
+                top_level = dict(row[0]) if row else None
+                cursor.execute(
+                    """select payload, updated_at from co_cases
+                       where client_id = %s
+                       order by updated_at desc nulls last, case_id""",
+                    (client_id,),
+                )
+                case_rows = cursor.fetchall()
+                if top_level is None and not case_rows:
+                    return None
+                cursor.execute(
+                    "select case_id, payload from co_supporting_files where client_id = %s",
+                    (client_id,),
+                )
+                files_by_case: dict[str, list[dict]] = {}
+                for case_id, file_payload in cursor.fetchall():
+                    files_by_case.setdefault(case_id, []).append(dict(file_payload))
+        state: dict = dict(top_level) if top_level is not None else {}
+        cases: list[dict] = []
+        for payload, _ in case_rows:
+            case = dict(payload)
+            case_id = case.get("case_id", "")
+            case["supporting_files"] = files_by_case.get(case_id, [])
+            cases.append(case)
+        state["cases"] = cases
+        return state
 
     def acquire_client_lock(self, client_id: str):
         """Open a dedicated session-scoped advisory lock on this client.
