@@ -24,6 +24,7 @@ header.
 | 2026-05-09 | `2026-05-09-catalog-multi-source-and-vocab.md` | `materials.customs_code` → `material_code` rename; `internal_code` dropped; provenance jsonb keys → typed columns; `v_material_roles` extended | 042-043 |
 | 2026-05-12 | `2026-05-12-uom-conversion-cutover.md` ⭐ | Phase 2 UoM conversion engine + Phase 3 G refresh-preview (amended 2026-05-13). **BREAKING for derived BOM consumers — derived rows now in catalog UoM, not raw.** | 053-058 |
 | 2026-05-13 | `2026-05-13-catalog-candidates-shipped.md` | Mã chờ duyệt feed + `materials.production_source` enum (covers gap in 2026-05-09 note for mig 047-049) | 047-049 |
+| 2026-05-28 | `2026-05-28-bcct-incremental-since-available.md` | `since` + `tombstones` on `GET /v1/hub/bcct` for CO incremental refresh; `transaction_key` stability confirmed | — |
 
 ## Read order if starting fresh today (2026-05-13)
 

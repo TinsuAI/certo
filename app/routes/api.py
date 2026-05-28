@@ -497,6 +497,36 @@ async def api_get_material(
             return _json(item)
 
 
+def _parse_since(value: str | None) -> "datetime | None":
+    """Parse `since` query param per CO incremental-pull contract
+    (`barry-CO-main/.ai/api-requests/2026-05-28-bcct-incremental-since-filter.md`).
+    Required to be ISO-8601 with explicit timezone (UTC).
+    Returns None when caller omitted the param; raises 400 otherwise.
+    """
+    from datetime import datetime
+    if value is None or value == "":
+        return None
+    try:
+        ts = datetime.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(400, "invalid_since")
+    if ts.tzinfo is None:
+        # Spec requires explicit UTC; reject timezone-naive strings so
+        # callers can't accidentally drift across server local time zones.
+        raise HTTPException(400, "invalid_since")
+    return ts
+
+
+def _parse_include_tombstones(value: str | None) -> bool:
+    if value is None or value == "":
+        return False
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    raise HTTPException(400, "invalid_include_tombstones")
+
+
 @router.get("/bcct")
 async def api_list_bcct(
     client_id: str, year: int | None = None,
@@ -505,14 +535,32 @@ async def api_list_bcct(
     cursor: str | None = None, limit: int = 200,
     include_material_identity: bool = False,
     material_identity_candidate_limit: str | None = None,
+    since: str | None = None,
+    include_tombstones: str | None = None,
     authorization: str | None = Header(None),
 ):
     """List BCCT rows with optional `material_identity` per CO API request
     2026-05-07. Default `include_material_identity=false` for broad list
-    views (D7). Persisted column wins; lazy-fill at read for legacy rows."""
+    views (D7). Persisted column wins; lazy-fill at read for legacy rows.
+
+    Incremental pull (CO API request 2026-05-28):
+    - `since` (ISO-8601 UTC): filter to rows whose `indexed_at > since`.
+    - `include_tombstones=true` (requires `since`): include a
+      `tombstones[]` array of transaction_keys deleted since that
+      timestamp, sourced from `hub.bcct_row_history`.
+    - `server_time` is always present in the response so callers can
+      use it as the high-water mark for their next call.
+    """
+    from datetime import datetime, timezone
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
     cand_limit = _validate_pid_candidate_limit(material_identity_candidate_limit)
+    since_ts = _parse_since(since)
+    want_tombstones = _parse_include_tombstones(include_tombstones)
+    if want_tombstones and since_ts is None:
+        # Tombstones need a time window — without `since`, "deleted when?"
+        # has no answer and the response would be unbounded.
+        raise HTTPException(400, "include_tombstones_requires_since")
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
     offset, safe_limit = _page_args(cursor, limit)
@@ -543,13 +591,41 @@ async def api_list_bcct(
     if declaration_no:
         sql += " and declaration_no = %s"
         params.append(declaration_no)
+    if since_ts is not None:
+        sql += " and indexed_at > %s"
+        params.append(since_ts)
     sql += " order by registration_date desc nulls last, declaration_no, line_no limit %s offset %s"
     params.extend([safe_limit + 1, offset])
+    server_time = datetime.now(timezone.utc)
+    tombstones: list[dict] = []
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
             cols = [d[0] for d in cur.description]
             items = [dict(zip(cols, r)) for r in cur.fetchall()]
+            if want_tombstones and offset == 0:
+                # Spec: tombstones are returned in full on the first page.
+                # Subsequent pages have tombstones=[] (kept as empty array
+                # only when include_tombstones=true was requested).
+                cur.execute(
+                    """
+                    select transaction_key, changed_at, changed_by
+                      from hub.bcct_row_history
+                     where client_id = %s
+                       and action = 'delete'
+                       and changed_at > %s
+                     order by changed_at desc
+                    """,
+                    (client_id, since_ts),
+                )
+                tombstones = [
+                    {
+                        "transaction_key": tk,
+                        "removed_at": removed_at,
+                        "reason": changed_by or "system",
+                    }
+                    for tk, removed_at, changed_by in cur.fetchall()
+                ]
     if include_material_identity:
         _attach_material_identity(
             items, client_id=client_id, candidate_limit=cand_limit,
@@ -557,7 +633,11 @@ async def api_list_bcct(
     else:
         for it in items:
             it.pop("material_identity", None)
-    return _json(_paged(items, offset=offset, limit=safe_limit))
+    payload = _paged(items, offset=offset, limit=safe_limit)
+    payload["server_time"] = server_time
+    if want_tombstones:
+        payload["tombstones"] = tombstones
+    return _json(payload)
 
 
 _DECLARATION_TYPE_RE = re.compile(r"^[A-Za-z0-9_]{1,16}$")

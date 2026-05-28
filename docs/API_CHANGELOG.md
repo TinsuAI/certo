@@ -14,6 +14,30 @@ Only `Breaking:` headings trigger notifications to `dev`/`admin` users (CO + BCQ
 
 ## Entries
 
+## 2026-05-28 — Additive: `GET /v1/hub/bcct` — `since` + `tombstones` for incremental pull
+
+**Params added:** `since` (ISO-8601 UTC) + `include_tombstones` (`true`/`false`).
+**Field added:** `server_time` (always present in response); `tombstones[]` (when `include_tombstones=true`).
+
+**Why:**
+CO is moving `refresh_co_stock_for_client()` from destructive DELETE+INSERT to diff-based incremental refresh. The full-corpus pull (~65k Johnson rows, ~8-10s) was the dominant cost of every refresh. CO request: `barry-CO-main/.ai/api-requests/2026-05-28-bcct-incremental-since-filter.md`.
+
+**Contract:**
+- `since=<ISO-8601 UTC>`: filter to rows whose `indexed_at > since`. Timezone-naive strings return 400 `invalid_since`.
+- `include_tombstones=true` (requires `since`): include a `tombstones` array of `{transaction_key, removed_at, reason}` for rows deleted in the window. Sourced from `hub.bcct_row_history` (`action='delete'`). Without `since` → 400 `include_tombstones_requires_since`.
+- `server_time`: always returned. Callers use it as the next call's `since` — closes the gap from multiple rows sharing one `indexed_at` tick.
+- Backward compatible: omit `since` → existing shape plus the new `server_time` field. Existing callers ignore unknown keys.
+
+**Auth:** unchanged — `hub:read` scope, user JWT or service token with `client_ids` whitelist.
+
+**Tombstone first-page-only:** the `tombstones` array is returned in full on the first page (its size is bounded by deletions, which are rare). Pages 2+ return `tombstones=[]` when `include_tombstones=true` was passed.
+
+**`transaction_key` stability** (CO correctness prerequisite): confirmed deterministic. Built as `f"{declaration_no}-{line_no}"` when declaration_no is present (the normal case). Edge fallback `f"{customs_code}-{token_hex(4)}"` only triggers when declaration_no is empty — should not occur in normal customs data.
+
+**Tests:** 9 provider tests in `tests/test_bcct_incremental_since.py` cover the happy paths, tombstone semantics, pagination, and all 4 error cases.
+
+**Commit:** TBD (this entry lands with the route change).
+
 ## 2026-05-15 — Additive: `GET /v1/hub/clients/{c}/declarations`
 
 **Endpoint added:** `GET /v1/hub/clients/{client_id}/declarations`.

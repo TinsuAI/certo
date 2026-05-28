@@ -320,6 +320,10 @@ Query params:
 - `declaration_no`: optional.
 - `cursor`: optional.
 - `limit`: optional, default 200, max 1000.
+- `since`: optional ISO-8601 UTC timestamp. When provided, returns only rows whose `indexed_at > since`. Caller MUST supply an explicit timezone (timezone-naive strings return 400 `invalid_since`).
+- `include_tombstones`: optional `true` / `false`, default `false`. When `true` (requires `since`), the response includes a `tombstones` array of `{transaction_key, removed_at, reason}` entries from `hub.bcct_row_history` where `action='delete' AND changed_at > since`. Returned in full on the first page only; subsequent pages have `tombstones=[]`.
+
+Response always includes `server_time` (ISO-8601 UTC, current server time). Callers running incremental refresh should persist `server_time` from the previous response and pass it as the next call's `since` — that closes the gap from multiple rows sharing one `indexed_at` clock tick.
 
 Response item fields include:
 - `client_id`
