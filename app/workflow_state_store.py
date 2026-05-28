@@ -356,42 +356,6 @@ class PostgresCoCaseStateStore:
         state["cases"] = cases
         return state
 
-    def acquire_client_lock(self, client_id: str):
-        """Open a dedicated session-scoped advisory lock on this client.
-
-        The returned connection holds the lock — session-scoped advisory
-        locks (pg_advisory_lock) survive across transactions but are
-        bound to the backend, so the caller MUST keep the connection
-        open and pass it back to `release_client_lock`. We commit after
-        acquiring so the implicit SET-search_path transaction from
-        connect() doesn't stay open.
-
-        This is the Phase 1 cross-process serialization that keeps two
-        operators editing the same client from clobbering each other's
-        payload (audit gap HIGH #3 band-aid). Per-case rows + optimistic
-        concurrency lands in Phase 2.
-        """
-        self.ensure_schema()
-        connection = connect(self.url)
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "select pg_advisory_lock(hashtext(%s))",
-                (f"co_case_states:{client_id}",),
-            )
-        connection.commit()
-        return connection
-
-    def release_client_lock(self, client_id: str, connection) -> None:
-        try:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "select pg_advisory_unlock(hashtext(%s))",
-                    (f"co_case_states:{client_id}",),
-                )
-            connection.commit()
-        finally:
-            connection.close()
-
     def get_case(self, client_id: str, case_id: str) -> tuple[dict, int] | None:
         """Returns (case_payload, revision) for a single case or None.
 
