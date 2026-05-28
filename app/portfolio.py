@@ -19,6 +19,7 @@ from app.demo_data import get_clients as seed_get_clients
 from app.source_index_store import get_source_index_store, rebuild_source_index_if_configured
 from app.source_postgres_store import get_source_write_store
 from app.source_store import (
+    _safe_customs_fx_rows,
     co_stock_rows_from_bcct,
     create_bcct_template_workbook,
     create_material_catalog_template_workbook,
@@ -151,7 +152,11 @@ class PortfolioService:
                 client_config,
             ),
             "material_rows": material["published_rows"],
-            "stock_rows": co_stock_rows_from_bcct(bcct["published_rows"], client_config),
+            "stock_rows": co_stock_rows_from_bcct(
+                bcct["published_rows"],
+                client_config,
+                customs_fx_rows=_safe_customs_fx_rows(),
+            ),
         }
 
     def process_catalog_upload(self, client: dict, catalog_type: str, content: bytes, filename: str, upload_scope: str) -> dict:

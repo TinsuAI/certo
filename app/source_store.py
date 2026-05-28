@@ -310,8 +310,22 @@ def get_source_workspace(client: dict) -> dict:
         "material_catalog": module_workspace(material),
         "product_catalog": module_workspace(product),
         "bcct": module_workspace(bcct),
-        "co_stock_rows": co_stock_rows_from_bcct(bcct["published_rows"], client_config),
+        "co_stock_rows": co_stock_rows_from_bcct(
+            bcct["published_rows"],
+            client_config,
+            customs_fx_rows=_safe_customs_fx_rows(),
+        ),
     }
+
+
+def _safe_customs_fx_rows() -> list[dict]:
+    """Load all customs FX rows once per derivation. Empty list on store failure
+    so a missing customs FX backend never breaks stock materialization."""
+    try:
+        from app.customs_fx_store import CUSTOMS_FX_CLIENT_ID, get_customs_fx_store
+        return get_customs_fx_store().rows(CUSTOMS_FX_CLIENT_ID)
+    except Exception:  # noqa: BLE001 — best-effort; FX backfill is optional
+        return []
 
 
 def get_source_summary(client: dict) -> dict:
@@ -1190,7 +1204,18 @@ def write_snapshot(client_id: str, module: str, upload_id: str, rows: list[dict]
     return snapshot_id
 
 
-def co_stock_rows_from_bcct(rows: list[dict], client_config: dict) -> list[dict]:
+def co_stock_rows_from_bcct(
+    rows: list[dict],
+    client_config: dict,
+    customs_fx_rows: list[dict] | None = None,
+) -> list[dict]:
+    """Derive per-lot CO stock rows from raw BCCT.
+
+    `customs_fx_rows` enables FX backfill when the BCCT row's own `ty_gia_thanh_toan`
+    column is empty — pre-load once via `get_customs_fx_store().rows()` and pass
+    it through (avoid per-row DB hits inside the loop). Leave None to skip FX
+    resolution (output rows get `exchange_rate_source="missing"`).
+    """
     lot_policy = client_config["co_stock"].get("lot_policy")
     output = []
     for row in rows:
@@ -1199,6 +1224,13 @@ def co_stock_rows_from_bcct(rows: list[dict], client_config: dict) -> list[dict]
         quantity = row.get("quantity", "")
         source_row = row.get("import_row_id") or import_row_id(row["transaction_key"])
         value_fields = co_stock_value_fields(row, quantity)
+        registration_date = (
+            row.get("registration_date")
+            or row.get("declaration_date")
+            or row.get("import_declaration_date")
+            or ""
+        )
+        fx_fields = co_stock_fx_fields(row, value_fields, registration_date, customs_fx_rows)
         eligibility = resolve_stock_eligibility(row, client_config)
         allocation = resolve_allocation_code(row, client_config)
         if lot_policy == "manual_review":
@@ -1209,12 +1241,7 @@ def co_stock_rows_from_bcct(rows: list[dict], client_config: dict) -> list[dict]
             "source_transaction_key": row.get("transaction_key", ""),
             "source_line_ids": [source_row],
             "import_declaration_no": row.get("declaration_no", ""),
-            "registration_date": (
-                row.get("registration_date")
-                or row.get("declaration_date")
-                or row.get("import_declaration_date")
-                or ""
-            ),
+            "registration_date": registration_date,
             "line_no": row.get("line_no", ""),
             "declaration_type": row.get("declaration_type", ""),
             "customs_item_code": row.get("item_code", ""),
@@ -1236,10 +1263,48 @@ def co_stock_rows_from_bcct(rows: list[dict], client_config: dict) -> list[dict]
             "used_qty": "0",
             "remaining_qty": quantity if usable else "0",
             **value_fields,
+            **fx_fields,
         })
     if lot_policy == "aggregate_by_declaration_and_allocation_code":
         return aggregate_co_stock_rows(output)
     return output
+
+
+def co_stock_fx_fields(
+    row: dict,
+    value_fields: dict,
+    registration_date: str,
+    customs_fx_rows: list[dict] | None,
+) -> dict:
+    """Resolve `exchange_rate_to_vnd` + `exchange_rate_source` for one BCCT row.
+
+    Priority:
+      1. `value_currency == "VND"` → rate = 1, source = "vnd_native".
+      2. BCCT row's own `exchange_rate` (= "ty_gia_thanh_toan", the rate the
+         importer declared on the customs form) → "bcct_declared".
+      3. `customs_fx_store.lookup_exchange_rate` against the row's registration
+         date (weekly granularity — picks the most recent rate ≤ that date) →
+         "customs_lookup".
+      4. None of the above → rate = 1, source = "missing" (UI shows a chip
+         warning; downstream callers may opt-out of VND mode).
+    """
+    currency = (value_fields.get("value_currency") or value_fields.get("currency") or "").strip().upper()
+    if not currency:
+        return {"exchange_rate_to_vnd": "", "exchange_rate_source": "missing"}
+    if currency == "VND":
+        return {"exchange_rate_to_vnd": "1", "exchange_rate_source": "vnd_native"}
+    bcct_rate = normalize_decimal(row.get("exchange_rate"))
+    if bcct_rate:
+        return {"exchange_rate_to_vnd": bcct_rate, "exchange_rate_source": "bcct_declared"}
+    if customs_fx_rows:
+        from app.customs_fx_store import lookup_exchange_rate
+        hit = lookup_exchange_rate(customs_fx_rows, currency, registration_date)
+        if hit and hit.get("rate_vnd_per_unit"):
+            return {
+                "exchange_rate_to_vnd": str(hit["rate_vnd_per_unit"]),
+                "exchange_rate_source": "customs_lookup",
+            }
+    return {"exchange_rate_to_vnd": "", "exchange_rate_source": "missing"}
 
 
 def co_stock_value_fields(row: dict, quantity: str) -> dict:

@@ -850,6 +850,7 @@ class PostgresSourceIndexStore:
     def rebuild_client_from_files(self, client: dict) -> dict:
         from app.client_config_store import get_client_config
         from app.source_store import (
+            _safe_customs_fx_rows,
             co_stock_rows_from_bcct,
             load_module_state,
             state_path,
@@ -859,7 +860,11 @@ class PostgresSourceIndexStore:
         product = load_module_state(client, "product_catalog")
         bcct = load_module_state(client, "bcct")
         client_config = get_client_config(client)
-        stock_rows = co_stock_rows_from_bcct(bcct["published_rows"], client_config)
+        stock_rows = co_stock_rows_from_bcct(
+            bcct["published_rows"],
+            client_config,
+            customs_fx_rows=_safe_customs_fx_rows(),
+        )
         catalog_records = (
             build_catalog_index_records(client["id"], "material_catalog", material["published_rows"])
             + build_catalog_index_records(client["id"], "product_catalog", product["published_rows"])

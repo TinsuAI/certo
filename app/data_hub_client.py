@@ -10,6 +10,7 @@ from app.client_config_store import default_config, migrate_config
 from app.co_case_store import match_case_bcct_exports
 from app.data_hub_settings import data_hub_link_settings
 from app.source_store import (
+    _safe_customs_fx_rows,
     co_stock_rows_from_bcct,
 )
 
@@ -363,7 +364,11 @@ class DataHubPortfolioService:
             "material_catalog": module_workspace(states["material_catalog"]),
             "product_catalog": module_workspace(states["product_catalog"]),
             "bcct": module_workspace(states["bcct"]),
-            "co_stock_rows": co_stock_rows_from_bcct(states["bcct"]["published_rows"], client_config),
+            "co_stock_rows": co_stock_rows_from_bcct(
+                states["bcct"]["published_rows"],
+                client_config,
+                customs_fx_rows=_safe_customs_fx_rows(),
+            ),
         }, "data-hub"
 
     def submit_bom_proposal(
@@ -503,7 +508,11 @@ class DataHubPortfolioService:
         else:
             invoice_matches = self.data_hub.invoice_matches(client["id"], invoice_no, relevant_types) if invoice_no else []
             invoice_matches = enrich_invoice_matches_with_bcct(invoice_matches, bcct_rows)
-        stock_rows = co_stock_rows_from_bcct(bcct_rows, client_config)
+        stock_rows = co_stock_rows_from_bcct(
+            bcct_rows,
+            client_config,
+            customs_fx_rows=_safe_customs_fx_rows(),
+        )
         declaration_file_counts = self.declaration_file_counts(client["id"], case, invoice_matches)
         return {
             "source_backend": source_backend,

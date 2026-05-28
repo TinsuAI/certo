@@ -16,8 +16,8 @@ const BASE_CO = 'http://127.0.0.1:8001';
 const BASE_HUB = 'http://127.0.0.1:8754';
 const EMAIL = 'admin@data-hub.local';
 const PASSWORD = 'admin123';
-const CLIENT_ID = 'growatt';
-const CASE_ID = 'co-case-36ad2da0201a';
+const CLIENT_ID = 'growatt-vn';
+const CASE_ID = 'co-case-e44fe2065b62';
 const LEGAL_NAME = 'CÔNG TY TNHH CLAUDE VERIFY (test)';
 const TAX_CODE = '0312345678';
 
