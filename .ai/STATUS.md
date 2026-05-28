@@ -2,7 +2,8 @@
 
 **Date:** 2026-05-29 — closed BACKLOG A.1 the cheap way (dead-column
 drop, not the planned cross-cut refactor) after data audit showed
-zero in-use overrides.
+zero in-use overrides. Then ran F.1 Growatt BOM wipe + re-ingest on
+local + demo — 608 → 807 artifacts (269 raw_graphs × 3 shapes).
 
 ## Current State
 
@@ -61,9 +62,15 @@ fix.
 
 ## Next Steps
 
-1. **F.1 Growatt BOM wipe + re-ingest** — still pending per
-   `project_reingest_pending.md`. Hygiene only; defer unless surface
-   pain appears.
+1. **F.1 Growatt BOM — CLOSED 2026-05-29.** Wipe + re-ingest done
+   local + demo. 57 TP from 3 source batches + 212 derived BTPs =
+   269 raw_graphs × (raw + shallow + full_flat) = 807 published
+   artifacts. Plus 16 manual_flat artifacts (agency_rescued_only_gom +
+   stray TEST) initially dropped by the wipe and **restored same
+   session from snapshot** — they had no XLSX source to replay.
+   Final: 823 artifacts both DBs. 536 stale flags from pre-existing
+   4-material UoM gap (not regression). See
+   `.ai/sessions/2026-05-29-growatt-bom-wipe-reingest.md`.
 2. **A.4.3 follow-up if needed** — current normalize-then-bucket
    gives 21% noise reduction on Johnson per-product codes. Only
    worth more work if staff complain.
