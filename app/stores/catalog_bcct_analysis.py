@@ -9,9 +9,14 @@ Severity tiers mirror the UoM ingest-time drift gate:
 - `warn` for `hs_code` (variants per declaration are legitimate but
   worth surfacing).
 - `info` for `goods_name`, `origin`, `unit_price_range`.
+
+`goods_name` drift uses normalize-then-bucket so cosmetic variations
+(whitespace, double-comma, code prefix, casing) collapse to one
+bucket. Real semantic divergence still surfaces.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date
 
@@ -70,6 +75,58 @@ _FIELDS = [
     ("goods_name", "Tên hàng", "info"),
     ("origin", "Xuất xứ", "info"),
 ]
+
+
+_GOODS_NAME_PREFIX_RE = re.compile(r"^[a-z0-9][\w.\-/]*#&\s*")
+_PUNCT_RUN_RE = re.compile(r"[\s,.;:!?\-_/\\|()\[\]{}'\"`]+")
+
+
+def _normalize_goods_name(value: str) -> str:
+    """Fold cosmetic variants of one goods_name onto a canonical key.
+
+    Real Johnson data shows variations like:
+        "001679-00#&Chốt cố định dây bằng nhựa HC-101, kích thước: 20x20 mm,, hàng mới 100%"
+        "001679-00#&Chốt cố định dây bằng nhựa, kích thước: 20x20 mm, hàng mới 100%"
+        "001679-00#&Chốt cố định dây bằng nhựa HC-101, kích thước: 20x20 mm, hàng mới 100%"
+    that differ only in punctuation runs / dropped tokens but describe
+    the same product. They should bucket together so the catalog drift
+    panel surfaces only semantic divergence.
+
+    Normalization:
+    - lowercase
+    - strip leading `<code>#&` prefix (Johnson SAP-export convention)
+    - collapse any run of whitespace + punctuation to a single space
+    - trim
+    """
+    s = value.lower()
+    s = _GOODS_NAME_PREFIX_RE.sub("", s)
+    s = _PUNCT_RUN_RE.sub(" ", s).strip()
+    return s
+
+
+def _bucket_by_normalized(
+    values: list[tuple[str | None, int]],
+    normalize,
+) -> list[tuple[str | None, int]]:
+    """Regroup (value, count) pairs by `normalize(value)`.
+
+    Representative per bucket = highest-count original; bucket count =
+    sum across raw values. Input is already ordered desc by count, so
+    first-seen original in each bucket is the most frequent.
+    Returns (representative, total_count) pairs ordered desc by count.
+    """
+    buckets: dict[object, tuple[str | None, int]] = {}
+    for raw, count in values:
+        if raw is None:
+            key: object = None
+        else:
+            key = normalize(raw)
+        if key in buckets:
+            rep, total = buckets[key]
+            buckets[key] = (rep, total + count)
+        else:
+            buckets[key] = (raw, count)
+    return sorted(buckets.values(), key=lambda x: (-x[1], x[0] or ""))
 
 
 def _common_affixes(values: list[str]) -> tuple[int, int]:
@@ -194,6 +251,8 @@ def analyze_material_bcct(
                 (client_id, material_code),
             )
             values = [(v, int(c)) for v, c in cur.fetchall()]
+            if field == "goods_name":
+                values = _bucket_by_normalized(values, _normalize_goods_name)
             distinct = len(values)
             if distinct >= 2:
                 p_len, s_len = _common_affixes([v for v, _ in values])

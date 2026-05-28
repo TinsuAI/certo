@@ -125,3 +125,66 @@ def test_no_bcct_rows_returns_empty(client_id):
     assert a.declaration_count == 0
     assert a.representative is None
     assert a.drifts == []
+
+
+def test_goods_name_cosmetic_variants_bucket_together(client_id):
+    # Three variants taken from real Johnson 001679-00 data: differ only in
+    # punctuation (double comma vs single) and one missing the HC-101 token.
+    # After normalization the first and third collapse; the no-HC-101 form
+    # stays separate (semantic difference).
+    _insert_bcct(client_id, **{
+        "100001-1": {"goods_name":
+            "Chốt cố định dây bằng nhựa HC-101, kích thước: 20x20 mm,, hàng mới 100%"},
+        "100002-1": {"goods_name":
+            "Chốt cố định dây bằng nhựa HC-101, kích thước: 20x20 mm, hàng mới 100%",
+            "declaration_no": "100002"},
+    })
+    a = analyze_material_bcct(client_id=client_id, material_code="X1")
+    drifts = [d for d in a.drifts if d.field == "goods_name"]
+    assert drifts == [], (
+        f"cosmetic-only variants should not trigger drift; got {drifts}")
+
+
+def test_goods_name_real_divergence_still_flagged(client_id):
+    # Different products under one customs_code — must still surface.
+    _insert_bcct(client_id, **{
+        "100001-1": {"goods_name": "Sơn bột tĩnh điện, màu đen, 25kg"},
+        "100002-1": {"goods_name": "Vít M3x10 thép không gỉ",
+                     "declaration_no": "100002"},
+    })
+    a = analyze_material_bcct(client_id=client_id, material_code="X1")
+    gn = next(d for d in a.drifts if d.field == "goods_name")
+    assert gn.distinct_count == 2
+
+
+def test_goods_name_strips_johnson_code_prefix(client_id):
+    # Johnson SAP exports prepend "<code>#&" to goods_name. Two rows where
+    # the only difference is whether that prefix is present.
+    _insert_bcct(client_id, **{
+        "100001-1": {"goods_name":
+            "001679-00#&Chốt cố định dây bằng nhựa HC-101"},
+        "100002-1": {"goods_name":
+            "Chốt cố định dây bằng nhựa HC-101",
+            "declaration_no": "100002"},
+    })
+    a = analyze_material_bcct(client_id=client_id, material_code="X1")
+    drifts = [d for d in a.drifts if d.field == "goods_name"]
+    assert drifts == []
+
+
+def test_goods_name_bucket_representative_is_most_frequent(client_id):
+    # Two cosmetic variants of the same product: A appears 3 times, B once.
+    # Bucket representative should be A (most frequent original).
+    _insert_bcct(client_id, **{
+        "100001-1": {"goods_name": "Cap dien 5mm"},
+        "100002-1": {"goods_name": "Cap dien 5mm", "declaration_no": "100002"},
+        "100003-1": {"goods_name": "Cap dien 5mm", "declaration_no": "100003"},
+        "100004-1": {"goods_name": "cap dien, 5mm", "declaration_no": "100004"},
+    })
+    a = analyze_material_bcct(client_id=client_id, material_code="X1")
+    drifts = [d for d in a.drifts if d.field == "goods_name"]
+    # Both forms normalize to "cap dien 5mm" → single bucket → no drift.
+    assert drifts == []
+    # Representative comes from the most-frequent ROW (per existing logic),
+    # which is unchanged.
+    assert a.representative.goods_name == "Cap dien 5mm"
