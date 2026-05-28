@@ -3241,6 +3241,69 @@ def test_origin_sheet_substitute_row_persists_override_and_marks_stale():
     assert rejected.status_code == 400
 
 
+def test_origin_sheet_locked_rejects_material_and_norm_mutations():
+    """Locked sheet must refuse server-side POSTs from all material/norm
+    mutation endpoints. The UI hides the edit buttons, but a dev-tools or
+    curl bypass would otherwise quietly leave the ledger holding claims for
+    materials no longer on the persisted sheet (Tồn CO leak).
+    """
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={
+            "title": "Locked guard",
+            "case_code": "CO-LOCKED-GUARD",
+            "destination_market": "Ấn Độ",
+            "invoice_no": "INV-LOCKED",
+        },
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    seed_record = {
+        "persisted_case_id": case_id,
+        "case_code": "CO-LOCKED-GUARD",
+        "title": "Locked guard",
+        "destination_market": "Ấn Độ",
+        "shipment": {"invoice_no": "INV-LOCKED"},
+        "products": [
+            {
+                "code": "TP-LOCKED",
+                "name": "Locked product",
+                "finished_hs": "850440",
+                "quantity": "1",
+                "unit": "PCS",
+                "fob": "100",
+                "currency": "USD",
+                "materials": [
+                    {"material_code": "M-LOCKED", "material_description": "Locked material", "uom": "PCS", "bom_qty_per": "1"},
+                ],
+            }
+        ],
+        "origin_sheet_states": {"TP-LOCKED": {"status": "locked", "status_label": "Chốt"}},
+    }
+    update_case_record(get_client("growatt"), seed_record)
+
+    base = f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-LOCKED"
+
+    rejections = [
+        ("substitute-row", {"row_index": 0, "new_material_code": "M-X", "new_norm_per_unit": "1"}),
+        ("edit-row", {"row_index": 0, "new_norm_per_unit": "2.5"}),
+        ("add-row", {"new_material_code": "M-NEW", "new_norm_per_unit": "1"}),
+        ("save", {"replaces": {"0": {"new_material_code": "M-Y", "new_norm_per_unit": "1"}}}),
+    ]
+    for path, body in rejections:
+        resp = client.post(f"{base}/{path}", json=body)
+        assert resp.status_code == 409, f"{path} should reject when sheet locked, got {resp.status_code}: {resp.text}"
+        assert "mở chốt" in resp.text.lower()
+
+    saved = get_case_record(get_client("growatt"), case_id)
+    state = saved["origin_sheet_states"]["TP-LOCKED"]
+    assert state["status"] == "locked", "sheet status must stay locked after rejected mutations"
+    assert "material_overrides" not in state or not state["material_overrides"], (
+        "no material_overrides should be written when server rejected the mutation"
+    )
+
+
 def test_export_dossier_zip_bundles_chung_tu_tkx_tkn_and_hq_bang_ke(monkeypatch):
     import io
     import zipfile

@@ -2940,6 +2940,23 @@ def set_origin_sheet_status(case: dict, product_code: str, status: str) -> dict:
     return attach_origin_sheet_states(prepared)
 
 
+def reject_if_sheet_locked(case: dict, product_code: str) -> None:
+    """Refuse material/norm mutations on a sheet whose status is `locked`.
+
+    The UI hides the edit buttons when locked (`co_case.html` + JS gate from
+    commit `0ca012a`), but those guards can be bypassed by direct POST. Without
+    this server check, mutating a locked sheet would leave the ledger holding
+    `co_stock_claims` for the old materials while the persisted sheet now lists
+    the new ones — a quiet Tồn CO leak. Operator must Mở chốt the sheet first.
+    """
+    state = (case.get("origin_sheet_states") or {}).get(product_code, {}) or {}
+    if state.get("status") == "locked":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Sheet {product_code} đã chốt; mở chốt trước khi sửa NVL.",
+        )
+
+
 def mark_origin_sheets_stale(case: dict, from_index: int) -> dict:
     prepared = attach_origin_sheet_states(case)
     states = dict(prepared.get("origin_sheet_states") or {})
@@ -6847,6 +6864,7 @@ async def co_case_origin_sheet_substitute_row(
     )
     if target_index is None:
         raise HTTPException(status_code=404, detail=f"Sheet {product_code} not found in case")
+    reject_if_sheet_locked(case, product_code)
     states = dict(case.get("origin_sheet_states") or {})
     previous = states.get(product_code) if isinstance(states.get(product_code), dict) else {}
     overrides = dict(previous.get("material_overrides") or {})
@@ -7011,6 +7029,7 @@ async def co_case_origin_sheet_edit_row(
     )
     if target_index is None:
         raise HTTPException(status_code=404, detail=f"Sheet {product_code} not found in case")
+    reject_if_sheet_locked(case, product_code)
     states = dict(case.get("origin_sheet_states") or {})
     previous = states.get(product_code) if isinstance(states.get(product_code), dict) else {}
     overrides = dict(previous.get("material_overrides") or {})
@@ -7052,6 +7071,7 @@ async def co_case_origin_sheet_add_row(
     )
     if target_index is None:
         raise HTTPException(status_code=404, detail=f"Sheet {product_code} not found in case")
+    reject_if_sheet_locked(case, product_code)
     states = dict(case.get("origin_sheet_states") or {})
     previous = states.get(product_code) if isinstance(states.get(product_code), dict) else {}
     overrides = dict(previous.get("material_overrides") or {})
@@ -7112,6 +7132,7 @@ async def co_case_origin_sheet_save(
     )
     if target_index is None:
         raise HTTPException(status_code=404, detail=f"Sheet {product_code} not found in case")
+    reject_if_sheet_locked(case, product_code)
     states = dict(case.get("origin_sheet_states") or {})
     previous = states.get(product_code) if isinstance(states.get(product_code), dict) else {}
     overrides = dict(previous.get("material_overrides") or {})
