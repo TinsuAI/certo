@@ -339,6 +339,16 @@
         <span>Tồn C/O</span>
         <span></span>
       </div>
+      {% if request.cookies.get("co_flash") %}
+      <div class="toast" data-flash-banner data-flash-encoded="{{ request.cookies.get('co_flash') }}"></div>
+      <script>
+        (function () {
+          const banner = document.querySelector("[data-flash-banner]");
+          if (banner) banner.textContent = decodeURIComponent(banner.dataset.flashEncoded || "");
+          document.cookie = "co_flash=; Max-Age=0; Path=" + window.location.pathname.split('/co-case')[0] + '/co-case';
+        })();
+      </script>
+      {% endif %}
       {% for dossier in case_workspace.cases %}
       {% set dossier_reference = ('Tờ khai ' ~ dossier.shipment.export_declaration_nos|join(', ')) if dossier.shipment.export_declaration_nos else ('Invoice ' ~ dossier.shipment.invoice_no if dossier.shipment.invoice_no else 'Chưa nhập') %}
       {% set dossier_status = 'missing-invoice' if not dossier.shipment.invoice_no and not dossier.shipment.export_declaration_nos else 'missing-bill' if not dossier.shipment.bill_of_lading_no else 'has-products' if dossier.products else 'needs-origin' %}
@@ -393,7 +403,8 @@
         <div class="dossier-action">
           <a class="btn-secondary" href="/clients/{{ client.id }}/co-case/{{ dossier.case_id }}">Mở</a>
           {% if can_delete_co_cases %}
-          <form method="post" action="/clients/{{ client.id }}/co-case/{{ dossier.case_id }}/delete" data-delete-case-form data-case-code="{{ dossier.case_code }}" data-case-title="{{ dossier.title }}">
+          <form method="post" action="/clients/{{ client.id }}/co-case/{{ dossier.case_id }}/delete" data-delete-case-form data-case-code="{{ dossier.case_code }}" data-case-title="{{ dossier.title }}" data-claims-count="{{ (dossier.delete_claims_summary or {}).count or 0 }}" data-lots-count="{{ (dossier.delete_claims_summary or {}).lots or 0 }}">
+            <input type="hidden" name="confirm_release_claims" value="1">
             <button type="submit" class="btn-secondary btn-danger" data-delete-case-trigger {% if dossier.delete_block_reason %}disabled title="{{ dossier.delete_block_reason }}"{% endif %}>Xoá</button>
           </form>
           {% endif %}
@@ -414,7 +425,7 @@
       <h2 id="delete-case-title">Xác nhận xoá hồ sơ</h2>
     </div>
     <p id="delete-case-detail" class="meta" data-delete-case-detail>Hồ sơ đang chọn sẽ bị xoá khỏi danh sách.</p>
-    <div class="confirm-modal-warning">Thao tác này không xoá tồn C/O và không thể hoàn tác.</div>
+    <div class="confirm-modal-warning" data-delete-case-warning>Thao tác này không thể hoàn tác.</div>
     <div class="confirm-modal-actions">
       <button type="button" class="btn-secondary" data-delete-case-cancel>Huỷ</button>
       <button type="button" class="btn-secondary btn-danger" data-delete-case-confirm>Xoá hồ sơ</button>
@@ -2067,6 +2078,7 @@
       deleteModal.hidden = true;
       pendingDeleteForm = null;
     };
+    const warning = deleteModal.querySelector("[data-delete-case-warning]");
     document.querySelectorAll("[data-delete-case-form]").forEach((form) => {
       form.addEventListener("submit", (event) => {
         if (form.dataset.deleteConfirmed === "1") return;
@@ -2075,6 +2087,17 @@
         const code = form.dataset.caseCode || "hồ sơ này";
         const title = form.dataset.caseTitle || "";
         if (detail) detail.textContent = title ? `${code} · ${title}` : code;
+        if (warning) {
+          const claims = Number(form.dataset.claimsCount || "0");
+          const lots = Number(form.dataset.lotsCount || "0");
+          if (claims > 0) {
+            warning.textContent = `Hồ sơ đang giữ ${claims} dòng tồn trên ${lots} lot. Xác nhận xoá sẽ nhả toàn bộ tồn về kho. Thao tác không thể hoàn tác.`;
+            warning.classList.add("confirm-modal-warning-strong");
+          } else {
+            warning.textContent = "Thao tác này không thể hoàn tác.";
+            warning.classList.remove("confirm-modal-warning-strong");
+          }
+        }
         deleteModal.hidden = false;
         confirmButton?.focus();
       });

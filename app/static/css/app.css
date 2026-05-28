@@ -1573,6 +1573,11 @@ small,
   font-weight: 800;
 }
 
+.confirm-modal-warning-strong {
+  border-width: 2px;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12);
+}
+
 .confirm-modal-actions {
   display: flex;
   justify-content: flex-end;

@@ -332,6 +332,79 @@ def record_sheet_release(client_id: str, case_id: str, sheet_product_code: str) 
     return count
 
 
+def claims_summary_for_case(client_id: str, case_id: str) -> dict:
+    """Quick probe: how many locked claims + distinct lots for a case.
+
+    Used by the delete-case flow to (a) decide whether to require explicit
+    operator confirmation, and (b) show a concrete count in the warning
+    modal so the operator knows what's about to be released.
+    """
+    if not _ledger_available():
+        return {"count": 0, "lots": 0}
+    try:
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """select count(*), count(distinct source_row)
+                   from co_stock_claims
+                   where client_id = %s and case_id = %s and status = 'locked'""",
+                (client_id, case_id),
+            )
+            count, lots = cur.fetchone()
+            return {"count": int(count or 0), "lots": int(lots or 0)}
+    except DatabaseUnavailable:
+        return {"count": 0, "lots": 0}
+
+
+def release_all_claims_for_case(client_id: str, case_id: str) -> int:
+    """Release every locked claim belonging to a case, across all sheets.
+
+    Used by `delete_case_record` so deleting a case never leaves orphan
+    `co_stock_claims` rows pointing at a dead `case_id` (audit gap HIGH #2).
+    Identical semantics to `record_sheet_release` but unscoped per-sheet —
+    a single DB round trip touches every sheet of the case at once.
+    """
+    if not _ledger_available():
+        return 0
+    released: list[tuple] = []
+    try:
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """select sheet_product_code, declaration_no, line_no,
+                          customs_code, claimed_qty
+                   from co_stock_claims
+                   where client_id = %s and case_id = %s and status = 'locked'""",
+                (client_id, case_id),
+            )
+            released = cur.fetchall()
+            cur.execute(
+                """update co_stock_claims
+                   set status = 'released', released_at = now()
+                   where client_id = %s and case_id = %s and status = 'locked'""",
+                (client_id, case_id),
+            )
+            count = cur.rowcount or 0
+    except DatabaseUnavailable:
+        return 0
+    event_rows: list[dict] = []
+    for sheet_code, decl_no, line_no, customs_code, claimed_qty in released:
+        if not (decl_no and line_no and customs_code):
+            continue
+        event_rows.append({
+            "client_id": client_id,
+            "declaration_no": decl_no,
+            "line_no": line_no,
+            "customs_code": customs_code,
+            "event_type": "claim_release",
+            "qty_delta": -Decimal(str(claimed_qty)),
+            "case_id": case_id,
+            "sheet_product_code": sheet_code,
+            "actor": "ledger:case_delete",
+        })
+    if event_rows:
+        co_stock_events_store.record_events(event_rows)
+    return count
+
+
 def used_qty_by_lot(client_id: str) -> dict[str, Decimal]:
     """Return `source_row -> total locked qty` for one client.
 

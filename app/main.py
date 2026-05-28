@@ -24,6 +24,7 @@ from app.bom_service import bom_service
 from app.co_case_store import (
     MAX_SUPPORTING_FILE_BYTES,
     CaseClosedError,
+    CaseHasActiveClaimsError,
     acquire_origin_calculation_lock,
     active_origin_calculation_lock,
     build_case_criteria_rows,
@@ -4835,6 +4836,12 @@ def co_case_context(client_id: str, case_id: str = "", current_step: str = "inde
     origin_lock = active_origin_calculation_lock(client)
     for dossier in workspace["cases"]:
         dossier["delete_block_reason"] = co_case_delete_block_reason(dossier, origin_lock)
+        try:
+            dossier["delete_claims_summary"] = co_stock_ledger.claims_summary_for_case(
+                client_id, dossier.get("case_id", "")
+            )
+        except Exception:  # noqa: BLE001
+            dossier["delete_claims_summary"] = {"count": 0, "lots": 0}
     current_case_id = case.get("persisted_case_id") or effective_case_id
     origin_lock_owned = bool(origin_lock and current_case_id and origin_lock.get("case_id") == current_case_id)
     origin_lock_blocked = bool(origin_lock and current_case_id and origin_lock.get("case_id") != current_case_id)
@@ -5837,10 +5844,19 @@ async def delete_co_case(request: Request, client_id: str, case_id: str):
     if not co_auth.can_delete_co_cases(co_auth.current_user(request)):
         raise HTTPException(status_code=403, detail="Không có quyền xoá hồ sơ C/O.")
     client = resolve_client(client_id)
+    form = await request.form()
+    release_claims = str(form.get("confirm_release_claims") or "").strip() == "1"
     try:
-        delete_case_record(client, case_id)
+        result = delete_case_record(client, case_id, release_claims=release_claims)
     except KeyError:
         raise HTTPException(status_code=404) from None
+    except CaseHasActiveClaimsError as exc:
+        return templates.TemplateResponse(
+            request=request,
+            name="co_case.html",
+            status_code=409,
+            context=co_case_context(client_id, error=str(exc)),
+        )
     except ValueError as exc:
         return templates.TemplateResponse(
             request=request,
@@ -5848,7 +5864,22 @@ async def delete_co_case(request: Request, client_id: str, case_id: str):
             status_code=409,
             context=co_case_context(client_id, error=str(exc)),
         )
-    return RedirectResponse(f"/clients/{client_id}/co-case", status_code=303)
+    released = int(result.get("claims_released") or 0)
+    flash = (
+        f"Đã xoá hồ sơ và nhả {released} dòng tồn về kho."
+        if released
+        else "Đã xoá hồ sơ."
+    )
+    redirect = RedirectResponse(f"/clients/{client_id}/co-case", status_code=303)
+    # Cookies are latin-1 only; URL-encode the Vietnamese flash text and
+    # decode in the template (request.cookies.get(...) | urldecode).
+    redirect.set_cookie(
+        "co_flash",
+        quote(flash, safe=""),
+        max_age=15,
+        path=f"/clients/{client_id}/co-case",
+    )
+    return redirect
 
 
 @app.post("/clients/{client_id}/co-case/{case_id}/shipment")

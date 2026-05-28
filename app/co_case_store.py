@@ -33,6 +33,25 @@ class CaseClosedError(ValueError):
     COMPLETED_CASE_STATUSES. Surfaces as HTTP 409 at the route boundary."""
 
 
+class CaseHasActiveClaimsError(ValueError):
+    """Raised by `delete_case_record` when the case still holds locked
+    `co_stock_claims` rows AND the caller did not pass `release_claims=True`.
+
+    The route handler turns this into a 409 + Vietnamese explanation so the
+    operator gets a chance to confirm they really want the claims released
+    along with the case. Carries `claims_count` and `lots_count` for
+    surface-level messaging.
+    """
+
+    def __init__(self, claims_count: int, lots_count: int):
+        self.claims_count = int(claims_count)
+        self.lots_count = int(lots_count)
+        super().__init__(
+            f"Hồ sơ đang giữ {self.claims_count} dòng tồn trên {self.lots_count} lot. "
+            "Bấm xoá lại để xác nhận nhả tồn + xoá hồ sơ."
+        )
+
+
 def get_case_workspace(client: dict, selected_case_id: str = "") -> dict:
     state = load_state(client["id"])
     cases = sorted(state["cases"], key=lambda row: row["updated_at"], reverse=True)
@@ -130,10 +149,25 @@ def update_case_record(client: dict, case: dict) -> dict:
         return dict(record)
 
 
-def delete_case_record(client: dict, case_id: str) -> dict:
+def delete_case_record(client: dict, case_id: str, *, release_claims: bool = False) -> dict:
+    """Delete a case record. Returns the deleted record + `claims_released`.
+
+    When the case still holds active `co_stock_claims`, refuses unless
+    `release_claims=True` (raises `CaseHasActiveClaimsError` carrying the
+    claim/lot count for surface messaging). This guards against the silent
+    Tồn CO leak audit gap HIGH #2 where deleting a case used to leave
+    orphan claims pinning lots forever.
+
+    When `release_claims=True`, every locked claim for the case is
+    released (status → 'released', `claim_release` events emitted) BEFORE
+    the case row is removed, so the ledger never points at a dead case_id.
+    """
+    from app import co_stock_ledger
+
     case_id = clean_text(case_id)
     if not case_id:
         raise KeyError(case_id)
+    claims_released = 0
     with case_lock(client["id"]):
         state = load_state(client["id"])
         record = next((row for row in state["cases"] if row["case_id"] == case_id), None)
@@ -142,10 +176,17 @@ def delete_case_record(client: dict, case_id: str) -> dict:
         block_reason = co_case_delete_block_reason(record, state.get("origin_calculation_lock") or {})
         if block_reason:
             raise ValueError(block_reason)
+        summary = co_stock_ledger.claims_summary_for_case(client["id"], case_id)
+        if summary.get("count", 0) > 0:
+            if not release_claims:
+                raise CaseHasActiveClaimsError(summary["count"], summary["lots"])
+            claims_released = co_stock_ledger.release_all_claims_for_case(client["id"], case_id)
         state["cases"] = [row for row in state["cases"] if row["case_id"] != case_id]
         save_state(client["id"], state)
     shutil.rmtree(case_upload_root(client["id"], case_id), ignore_errors=True)
-    return dict(record)
+    result = dict(record)
+    result["claims_released"] = claims_released
+    return result
 
 
 def co_case_delete_block_reason(case: dict, origin_lock: dict | None = None) -> str:

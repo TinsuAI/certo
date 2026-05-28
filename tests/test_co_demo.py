@@ -3241,6 +3241,67 @@ def test_origin_sheet_substitute_row_persists_override_and_marks_stale():
     assert rejected.status_code == 400
 
 
+def test_delete_case_requires_confirm_when_active_claims_and_then_releases(monkeypatch):
+    """HIGH #2 fix: deleting a case that still holds locked co_stock_claims
+    must (a) refuse without explicit confirm_release_claims=1 (modal alert
+    path), and (b) release every claim when confirm is passed. Without this
+    fix, deleting an open case with locked sheets used to orphan claims and
+    silently leak Tồn CO.
+    """
+    from app import co_stock_ledger
+
+    # Simulate the ledger reporting active claims even without a DB so the
+    # business rule is exercised in unit-test mode.
+    claims_state = {"count": 2, "lots": 2}
+    released_calls: list[tuple[str, str]] = []
+
+    def fake_summary(client_id: str, case_id: str) -> dict:
+        return dict(claims_state)
+
+    def fake_release(client_id: str, case_id: str) -> int:
+        released_calls.append((client_id, case_id))
+        n = claims_state["count"]
+        claims_state["count"] = 0
+        claims_state["lots"] = 0
+        return n
+
+    monkeypatch.setattr(co_stock_ledger, "claims_summary_for_case", fake_summary)
+    monkeypatch.setattr(co_stock_ledger, "release_all_claims_for_case", fake_release)
+
+    test_client = TestClient(app)
+    created = test_client.post(
+        "/clients/growatt/co-case/create",
+        data={
+            "title": "Delete with claims",
+            "case_code": "CO-DEL-CLAIMS",
+            "destination_market": "Ấn Độ",
+            "invoice_no": "INV-DEL-CLAIMS",
+        },
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+
+    # Without confirm → 409 with claim-count message, no release call.
+    resp_no_confirm = test_client.post(f"/clients/growatt/co-case/{case_id}/delete")
+    assert resp_no_confirm.status_code == 409
+    assert "đang giữ" in resp_no_confirm.text.lower()
+    assert released_calls == [], "release must NOT run when operator hasn't confirmed"
+    assert claims_state["count"] == 2
+
+    # With confirm → claims released, case removed, redirect with flash cookie.
+    resp_confirm = test_client.post(
+        f"/clients/growatt/co-case/{case_id}/delete",
+        data={"confirm_release_claims": "1"},
+        follow_redirects=False,
+    )
+    assert resp_confirm.status_code == 303
+    assert released_calls == [("growatt", case_id)]
+    assert claims_state["count"] == 0
+    # Flash cookie is URL-encoded; substring check on the encoded form.
+    flash = resp_confirm.cookies.get("co_flash") or ""
+    assert "nh%E1%BA%A3" in flash or "nhả" in flash  # noqa: RUF001
+
+
 def test_origin_sheet_locked_rejects_material_and_norm_mutations():
     """Locked sheet must refuse server-side POSTs from all material/norm
     mutation endpoints. The UI hides the edit buttons, but a dev-tools or
