@@ -4006,7 +4006,14 @@ def test_origin_sheet_propose_bom_requires_lock_and_overrides(monkeypatch):
     assert success.json()["proposal"]["artifact_id"] == "bv_NEW"
     assert captured["parent_artifact_id"] == "bv_OLD"
     assert captured["product_code"] == "TP-PROP"
-    assert any(row["material_code"] == "M-NEW" for row in captured["rows"])
+    # Field-name contract: Data Hub's bom-row contract uses qty_per_unit, not
+    # norm_per_unit. Sending the wrong key makes DH read qty as 0 and reject
+    # via qty_delta_exceeds_tolerance (auto mode) or display blank định mức
+    # in the reviewer UI (manual mode).
+    rows_by_code = {row["material_code"]: row for row in captured["rows"]}
+    assert rows_by_code["M-NEW"]["qty_per_unit"] == "2"
+    assert "norm_per_unit" not in rows_by_code["M-NEW"]
+    assert rows_by_code["M-B"]["qty_per_unit"] == "1"
     assert captured["context"]["case_id"] == case_id
 
     saved = get_case_record(get_client("growatt"), case_id)

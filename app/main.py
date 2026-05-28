@@ -7227,6 +7227,16 @@ async def co_case_origin_sheet_propose_bom(
 
 
 def build_bom_proposal_rows(product: dict, overrides: dict) -> list[dict]:
+    """Shape rows for the Data Hub BOM proposal submission.
+
+    Field names match Data Hub's BOM row contract: qty_per_unit + uom are
+    typed columns; everything else lands in the row payload jsonb. CO-internal
+    overrides store the qty under `norm_per_unit` (operator-facing "định mức")
+    — translate that to `qty_per_unit` at the boundary, never inside DH's
+    payload. Sending `norm_per_unit` makes DH read qty as 0, which auto-rejects
+    every proposal via `qty_delta_exceeds_tolerance` and leaves the qty cell
+    blank in the reviewer UI.
+    """
     materials = product.get("materials") or []
     output: list[dict] = []
     for index, material in enumerate(materials):
@@ -7234,10 +7244,10 @@ def build_bom_proposal_rows(product: dict, overrides: dict) -> list[dict]:
         if override.get("deleted"):
             continue
         material_code = override.get("material_code") or material.get("material_code") or material.get("internal_material_code")
-        norm = override.get("norm_per_unit") or material.get("bom_qty_per") or "0"
+        qty = override.get("norm_per_unit") or material.get("bom_qty_per") or "0"
         output.append({
             "material_code": str(material_code or "").strip(),
-            "norm_per_unit": str(norm),
+            "qty_per_unit": str(qty),
             "scrap_rate": str(material.get("bom_scrap_rate") or "0"),
             "uom": str(material.get("uom") or override.get("uom") or ""),
             "name": str(override.get("name") or material.get("material_description") or ""),
@@ -7249,7 +7259,7 @@ def build_bom_proposal_rows(product: dict, overrides: dict) -> list[dict]:
             continue
         output.append({
             "material_code": str(value.get("material_code") or "").strip(),
-            "norm_per_unit": str(value.get("norm_per_unit") or "0"),
+            "qty_per_unit": str(value.get("norm_per_unit") or "0"),
             "scrap_rate": "0",
             "uom": str(value.get("uom") or ""),
             "name": str(value.get("name") or ""),
