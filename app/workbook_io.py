@@ -416,10 +416,13 @@ def hq_sheet_codes_for_product(product: dict) -> set[str]:
     overrides to "CTH", merging keeps "LVC" in the search string and ships the
     wrong template. With the precedence chain, the override wins by virtue of
     being checked first.
+
+    Form-driven fallback (EUR.1 → PSR/Phụ lục VII) only applies when no
+    criterion above matches — explicit overrides (LVC/CTH/...) always win,
+    even for EVFTA cases.
     """
     form = str(product.get("origin_sheet_effective_form_code") or "").upper()
-    if form == "EUR.1" or "EUR.1" in form:
-        return {"EUR1"}
+    is_eur1 = form == "EUR.1" or "EUR.1" in form
     primary_criterion = ""
     for key in (
         "origin_sheet_criteria_override",
@@ -443,7 +446,9 @@ def hq_sheet_codes_for_product(product: dict) -> set[str]:
         return {"CTSH"}
     if "CTH" in primary_criterion:
         return {"CTH"}
-    return {"LVC"}
+    # No specific criterion matched. EVFTA defaults to PSR (Phụ lục VII);
+    # everything else falls back to LVC for backward compat.
+    return {"EUR1"} if is_eur1 else {"LVC"}
 
 
 def write_hq_sheet_header(ws, product: dict, sheet_def: dict, case: dict, threshold: str) -> None:
