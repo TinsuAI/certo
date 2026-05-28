@@ -1,37 +1,22 @@
-"""Vocab rename pass: schema + URL alias guarantees.
+"""Vocab rename pass: schema guarantees.
 
 Locks in the canonical rename (mig 031, 2026-05-07):
 - bom_versions → bom_artifacts
 - bom_resolution_profiles → bom_presets
 - column renames per .ai/GLOSSARY.md
-- Old URL paths 308-redirect to new paths for one release (D10).
 
-These tests are the safety net for the alias-removal milestone tracked
-in .ai/BACKLOG.md "Drop BOM vocab v1 aliases" — when the aliases are
-removed, the redirect tests should be deleted (not fixed). The schema
-tests stay forever.
+URL alias 308 redirects (D10) lived through 2026-05-28 then were
+dropped per BACKLOG.md C.3 removal trigger; redirect tests removed
+with the handlers.
 """
 from __future__ import annotations
 
-import jwt as pyjwt
 import pytest
-import tempfile
-from pathlib import Path
-from fastapi.testclient import TestClient
 
-from app import auth, jwt_issuer
 from app.database import connect
-from app.main import app
 
 
 CLIENT = "vocab_rename_test"
-
-
-@pytest.fixture(autouse=True)
-def isolated_keys_dir(monkeypatch):
-    with tempfile.TemporaryDirectory() as d:
-        monkeypatch.setenv("DATA_HUB_KEYS_DIR", d)
-        yield Path(d)
 
 
 @pytest.fixture(autouse=True)
@@ -45,13 +30,6 @@ def setup_client():
     yield
     with connect() as conn, conn.cursor() as cur:
         cur.execute("delete from hub.clients where client_id = %s", (CLIENT,))
-
-
-def _bearer():
-    out = jwt_issuer.make_token(
-        user_id="u_vocab", email="v@e", role="admin", display_name="V",
-    )
-    return {"authorization": f"Bearer {out['access_token']}"}
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -111,42 +89,6 @@ def test_bcct_rows_artifact_id_column():
         names = {r[0] for r in cur.fetchall()}
     assert "artifact_id" in names
     assert "bom_version_id" not in names
-
-
-# ─────────────────────────────────────────────────────────────────────
-# URL alias — 308 redirect, one-release grace (D10)
-# ─────────────────────────────────────────────────────────────────────
-# Auth is required on the destination route, but the redirect itself
-# should fire before auth check on the alias path. We use a plain
-# unauthenticated client and assert 308 + Location.
-
-
-def test_old_bom_artifacts_list_url_redirects_308():
-    c = TestClient(app, follow_redirects=False)
-    r = c.get(f"/clients/{CLIENT}/bom/INV-3000/versions")
-    assert r.status_code == 308
-    assert r.headers["location"].endswith(
-        f"/clients/{CLIENT}/bom/INV-3000/artifacts"
-    )
-
-
-def test_old_bom_artifact_detail_url_redirects_308():
-    c = TestClient(app, follow_redirects=False)
-    r = c.get(f"/clients/{CLIENT}/bom/version/ba_some_id")
-    assert r.status_code == 308
-    assert r.headers["location"].endswith(
-        f"/clients/{CLIENT}/bom/artifact/ba_some_id"
-    )
-
-
-def test_old_api_bom_versions_url_redirects_308():
-    c = TestClient(app, follow_redirects=False)
-    r = c.get(
-        f"/v1/hub/products/INV-3000/bom/versions?client_id={CLIENT}",
-        headers=_bearer(),
-    )
-    assert r.status_code == 308
-    assert "/v1/hub/products/INV-3000/bom/artifacts" in r.headers["location"]
 
 
 # ─────────────────────────────────────────────────────────────────────

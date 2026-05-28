@@ -27,6 +27,7 @@ header.
 | 2026-05-28 | `2026-05-28-bcct-incremental-since-available.md` | `since` + `tombstones` on `GET /v1/hub/bcct` for CO incremental refresh; `transaction_key` stability confirmed | — |
 | 2026-05-28 | `2026-05-28-bcct-declarations-download-bearer-available.md` | Bearer mirror of `/clients/{c}/declarations/download.zip` at `/v1/hub/clients/{c}/declarations/download.zip` for CO dossier builder | — |
 | 2026-05-28 | `2026-05-28-bom-artifacts-picker-filter-available.md` | `lifecycle`/`shape`/`intents`/`latest_per_variant`/`case_id` filters on `/bom/artifacts` for CO picker; `filter_applied` echo for support detection | — |
+| 2026-05-28 | `2026-05-28-bom-vocab-v1-aliases-removed.md` | **Breaking.** BOM vocab v1 URL aliases (`/bom/version/{id}`, `/bom/{p}/versions`, `/v1/hub/.../bom/versions`) now return 404 instead of 308. Canonical `/artifact*` URLs unchanged | — |
 
 ## Read order if starting fresh today (2026-05-13)
 
@@ -49,8 +50,7 @@ know "what's the current state to build against", read in this order:
   legacy bearer / user JWTs. Adopt before C.2.
 - **C.2 API auth strict** — Data Hub reads still permissive in dev.
   Sister apps need C.1 done first.
-- **C.3 Drop BOM vocab v1 aliases** — 308 redirect grace period in
-  place. Sister apps confirm migration to `/artifact` URLs before
-  Data Hub drops the aliases.
+- **C.3 Drop BOM vocab v1 aliases** — SHIPPED 2026-05-28. See
+  `2026-05-28-bom-vocab-v1-aliases-removed.md`.
 
 See `.ai/BACKLOG.md` § C for details.

@@ -618,32 +618,14 @@ ergonomics today, prioritize corruption prevention on writes.
    section.
 4. Update CO/BCQT consumer code to send real JWT on every read call.
 
-## C.3 Drop BOM vocab v1 aliases
+## C.3 Drop BOM vocab v1 aliases — SHIPPED 2026-05-28
 
-**Captured 2026-05-07** as part of mig-031 rename pass (see
-`.ai/features/2026-05-07-bom-vocab-rename/brief.md`). The rename
-ships with a one-release grace period of 308 redirects from old URLs
-to new URLs:
-
-- `/clients/{c}/bom/version/{id}` → 308 → `/clients/{c}/bom/artifact/{id}`
-- `/clients/{c}/bom/{p}/versions` → 308 → `/clients/{c}/bom/{p}/artifacts`
-- `/v1/hub/products/{p}/bom/versions` → 308 → `/v1/hub/products/{p}/bom/artifacts`
-
-Aliases live as `_alias_*` route handlers in `app/routes/bom.py` +
-`app/routes/api.py`. Tests guarding the 308 behavior are in
-`tests/test_bom_vocab_rename.py` under "URL alias — 308 redirect".
-
-**Removal trigger:**
-1. CO and BCQT confirm migration to new URLs (CO has 28 refs to old
-   names per sister-app note; BCQT has 0 refs).
-2. Server logs show zero alias hits over a 24h window.
-3. Any external bookmarks confirmed migrated.
-
-**Removal procedure** (small commit):
-1. Delete `_alias_*` route handlers in routes/bom.py + routes/api.py.
-2. Delete URL alias tests in tests/test_bom_vocab_rename.py
-   (keep schema + ID-prefix tests forever).
-3. Update API_CONTRACT.md to remove alias section.
+3-week grace period elapsed; sister apps verified clean of old URL
+refs (CO + BCQT, `grep -rn "bom/version\|bom/versions"` zero hits).
+`_alias_*` handlers in `app/routes/bom.py` + `app/routes/api.py`
+deleted, the 3 redirect tests in `tests/test_bom_vocab_rename.py`
+removed (schema + ID-prefix tests retained), `docs/API_CONTRACT.md`
+alias section removed, `docs/API_CHANGELOG.md` Breaking entry added.
 
 ---
 

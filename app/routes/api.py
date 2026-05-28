@@ -22,7 +22,7 @@ from typing import Any
 import jwt as pyjwt
 from psycopg import errors as psycopg_errors
 from fastapi import APIRouter, Header, HTTPException, Request, status
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse
 
 from app import auth
 from app import jwt_issuer, markets, settings_store
@@ -1144,16 +1144,6 @@ async def api_bom_latest(
         )
     data = get_artifact_with_rows(items[0]["artifact_id"])
     return _json(data)
-
-
-@router.get("/products/{product_code}/bom/versions", include_in_schema=False)
-async def _alias_api_bom_versions(product_code: str, request: Request):
-    """Vocab rename alias (D9/D10, removable per BACKLOG)."""
-    qs = request.url.query
-    target = f"/v1/hub/products/{product_code}/bom/artifacts"
-    if qs:
-        target = f"{target}?{qs}"
-    return RedirectResponse(url=target, status_code=308)
 
 
 _BOM_ARTIFACT_ALLOWED_INTENTS = {

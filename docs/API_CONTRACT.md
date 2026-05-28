@@ -535,10 +535,6 @@ Calculation consumers SHOULD treat `state="needs_input"` similarly to
 surface a warning. Such artifacts may carry rows with
 `applied_uom_factor IS NULL` (raw uom unconverted).
 
-#### `GET /v1/hub/products/{product_code}/bom/versions`
-
-Legacy alias of `/v1/hub/products/{product_code}/bom/artifacts` (308 redirect since mig 031). New consumers should use `/bom/artifacts` directly.
-
 #### `GET /v1/hub/products/{product_code}/bom/artifacts`
 
 List BOM artifacts for a product. Operator picker uses this with filter params to surface only currently-pickable artifacts; admin / debug tools call with default params to get the raw history.

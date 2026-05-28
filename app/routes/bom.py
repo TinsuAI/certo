@@ -1411,26 +1411,6 @@ def _raw_edges_to_preview_products(edges: list[dict]) -> dict[str, list[dict]]:
     return products
 
 
-@router.get("/clients/{client_id}/bom/version/{artifact_id}",
-            include_in_schema=False)
-async def _alias_artifact_detail(client_id: str, artifact_id: str):
-    """Vocab rename alias (D9/D10, removable per BACKLOG)."""
-    return RedirectResponse(
-        url=f"/clients/{client_id}/bom/artifact/{artifact_id}",
-        status_code=308,
-    )
-
-
-@router.get("/clients/{client_id}/bom/{product_code:path}/versions",
-            include_in_schema=False)
-async def _alias_artifacts_list(client_id: str, product_code: str):
-    """Vocab rename alias (D9/D10, removable per BACKLOG)."""
-    return RedirectResponse(
-        url=f"/clients/{client_id}/bom/{product_code}/artifacts",
-        status_code=308,
-    )
-
-
 @router.get("/clients/{client_id}/bom/{product_code:path}/artifacts", response_class=HTMLResponse)
 async def artifacts_view(request: Request, client_id: str, product_code: str):
     user = auth.require_user(request)

@@ -14,6 +14,23 @@ Only `Breaking:` headings trigger notifications to `dev`/`admin` users (CO + BCQ
 
 ## Entries
 
+## 2026-05-28 — Breaking: BOM vocab v1 URL aliases removed
+
+**Endpoint removed (was 308 redirect since mig 031, 2026-05-07):**
+- `GET /v1/hub/products/{p}/bom/versions` → use `/v1/hub/products/{p}/bom/artifacts` directly.
+- `GET /clients/{c}/bom/version/{id}` (UI) → use `/clients/{c}/bom/artifact/{id}`.
+- `GET /clients/{c}/bom/{p}/versions` (UI) → use `/clients/{c}/bom/{p}/artifacts`.
+
+**Why:**
+3-week grace period elapsed. CO and BCQT codebases verified clean of old URL refs (`grep -rn "bom/version\|bom/versions"` returns zero). Demo is internal-only so external-bookmark risk is low. Tracked in `.ai/BACKLOG.md` C.3.
+
+**Impact:**
+After this release the old URLs return 404, not 308. Any caller still using the old paths breaks. None known at ship time.
+
+**Tests:** 3 redirect tests removed from `tests/test_bom_vocab_rename.py`; schema + ID-prefix tests retained.
+
+**Commit:** TBD (this entry lands with the route change).
+
 ## 2026-05-28 — Additive: `GET /v1/hub/products/{p}/bom/artifacts` — picker filter params
 
 **Params added:** `intents`, `lifecycle`, `shape`, `latest_per_variant`, `case_id`. **Response field added:** `filter_applied` echo block (always present).
