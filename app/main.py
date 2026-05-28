@@ -5562,29 +5562,118 @@ async def import_co_stock_workbook(client_id: str, file: UploadFile = File(...))
 @app.post("/clients/{client_id}/co-stock/refresh")
 async def refresh_co_stock_endpoint(client_id: str):
     """Materialize the derived stock pool for one client into CO's
-    co_stock_rows table. Heavy on first call (paginates full BCCT from
-    Data Hub — ~10s for Johnson) but makes subsequent /co-stock page
-    loads sub-second.
+    co_stock_rows table.
 
-    Also records refresh state (BCCT row count + timestamp) so the page
-    can detect when the snapshot is stale relative to current Data Hub.
+    Tries the Data Hub delta path first (`list_bcct_with_envelope` with
+    `since` + `include_tombstones`) when we have a stored
+    `last_bcct_server_time` AND the response carries a fresh `server_time`.
+    Falls back to full-pull when either is missing — the very first refresh
+    of a client, or when Data Hub is on an older contract.
     """
     client = resolve_client(client_id)
-    workspace, _backend = portfolio_service.source_workspace(client)
-    summary = co_stock_materializer.refresh_co_stock_for_client(
-        client, lambda: workspace.get("co_stock_rows") or [],
-    )
-    # Capture BCCT row count snapshot so we know what we were in sync with.
-    source_summary, _ = portfolio_service.source_summary(client)
-    co_stock_materializer.record_refresh_state(
-        client["id"],
-        snapshot_row_count=summary.get("rows_persisted", 0),
-        bcct_row_count_at_refresh=source_summary.get("bcct", {}).get("published_row_count", 0),
-    )
+    summary = _refresh_co_stock_delta_or_full(client)
     # Invalidate the case-source cache so the substitute modal / sheet calc
     # paths see the same fresh data.
     _CO_CASE_SOURCE_CACHE.clear()
     return JSONResponse({"ok": not summary.get("errors"), **summary})
+
+
+def _refresh_co_stock_delta_or_full(client: dict) -> dict:
+    """Pick delta vs full refresh and run it. Records refresh state so the
+    next call can decide again. Errors fall back to full on the spot so a
+    transient Data Hub issue doesn't strand the operator on an old snapshot."""
+    state = co_stock_materializer.read_refresh_state(client["id"]) or {}
+    last_server_time = state.get("last_bcct_server_time", "") if state else ""
+    data_hub = getattr(portfolio_service, "data_hub", None)
+    if last_server_time and data_hub is not None and hasattr(data_hub, "list_bcct_with_envelope"):
+        delta_summary = _try_delta_refresh(client, data_hub, last_server_time)
+        if delta_summary is not None:
+            return delta_summary
+    return _full_refresh(client)
+
+
+def _try_delta_refresh(client: dict, data_hub, last_server_time: str) -> dict | None:
+    """Returns a summary on success, or None if delta path can't be taken
+    (e.g. response missing `server_time`, indicating Data Hub doesn't yet
+    support the contract on this deployment)."""
+    try:
+        envelope = data_hub.list_bcct_with_envelope(
+            client["id"], since=last_server_time, include_tombstones=True,
+        )
+    except Exception as exc:  # noqa: BLE001 — log + fall back to full
+        logging.getLogger(__name__).warning(
+            "co_stock delta refresh pull failed for %s: %s", client["id"], exc
+        )
+        return None
+    server_time = envelope.get("server_time") or ""
+    if not server_time:
+        return None  # Data Hub on old contract — caller falls back to full.
+    delta_items = envelope.get("items") or []
+    tombstones = envelope.get("tombstones") or []
+    tombstone_source_rows = [
+        f"import-row-{hashlib.sha1(str(t.get('transaction_key') or '').encode('utf-8')).hexdigest()[:16]}"
+        for t in tombstones
+        if isinstance(t, dict) and t.get("transaction_key")
+    ]
+    client_config = portfolio_service.get_client_config(client)
+    from app.source_store import _safe_customs_fx_rows, co_stock_rows_from_bcct
+    from app.data_hub_client import normalize_bcct_row
+    delta_rows = co_stock_rows_from_bcct(
+        [normalize_bcct_row(row) for row in delta_items],
+        client_config,
+        customs_fx_rows=_safe_customs_fx_rows(),
+    )
+    summary = co_stock_materializer.refresh_co_stock_for_client(
+        client,
+        lambda: delta_rows,
+        mode="delta",
+        tombstone_source_rows=tombstone_source_rows,
+    )
+    source_summary, _ = portfolio_service.source_summary(client)
+    co_stock_materializer.record_refresh_state(
+        client["id"],
+        snapshot_row_count=co_stock_materializer.row_count(client["id"]),
+        bcct_row_count_at_refresh=source_summary.get("bcct", {}).get("published_row_count", 0),
+        last_bcct_server_time=server_time,
+    )
+    summary["server_time"] = server_time
+    summary["tombstones_received"] = len(tombstones)
+    return summary
+
+
+def _full_refresh(client: dict) -> dict:
+    workspace, _backend = portfolio_service.source_workspace(client)
+    summary = co_stock_materializer.refresh_co_stock_for_client(
+        client, lambda: workspace.get("co_stock_rows") or [],
+    )
+    source_summary, _ = portfolio_service.source_summary(client)
+    # Best-effort: probe a quick server_time so subsequent refreshes can go
+    # delta. If the deployment doesn't carry server_time yet, leave it blank
+    # — _refresh_co_stock_delta_or_full will keep trying full each time.
+    server_time = _probe_server_time(client)
+    co_stock_materializer.record_refresh_state(
+        client["id"],
+        snapshot_row_count=summary.get("rows_persisted", 0),
+        bcct_row_count_at_refresh=source_summary.get("bcct", {}).get("published_row_count", 0),
+        last_bcct_server_time=server_time,
+    )
+    if server_time:
+        summary["server_time"] = server_time
+    return summary
+
+
+def _probe_server_time(client: dict) -> str:
+    data_hub = getattr(portfolio_service, "data_hub", None)
+    if data_hub is None or not hasattr(data_hub, "list_bcct_with_envelope"):
+        return ""
+    try:
+        # Empty `since` returns full set + server_time. We discard items here
+        # because the full path already pulled them via source_workspace; the
+        # only goal is to capture the high-water mark.
+        envelope = data_hub.list_bcct_with_envelope(client["id"], since="", include_tombstones=False)
+        return envelope.get("server_time") or ""
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 @app.get("/clients/{client_id}/co-stock/lot-history")

@@ -76,6 +76,28 @@ class DataHubClient:
     def list_bcct(self, client_id: str, **query) -> list[dict]:
         return self._get_all("/v1/hub/bcct", {"client_id": client_id, **query})
 
+    def list_bcct_with_envelope(
+        self,
+        client_id: str,
+        *,
+        since: str = "",
+        include_tombstones: bool = False,
+        **query,
+    ) -> dict:
+        """Envelope-returning variant — required for delta refresh.
+
+        Returns `{items, tombstones, server_time}`. Falls back to a
+        synthetic envelope (empty tombstones + empty server_time) when
+        the Data Hub deployment doesn't yet ship `since` support so
+        callers can branch on server_time presence.
+        """
+        params = {"client_id": client_id, **query}
+        if since:
+            params["since"] = since
+            if include_tombstones:
+                params["include_tombstones"] = "true"
+        return self._get_all_envelope("/v1/hub/bcct", params)
+
     def list_bcct_by_codes(
         self,
         client_id: str,
@@ -294,6 +316,37 @@ class DataHubClient:
             cursor = next_cursor(payload)
             if not cursor or cursor in seen_cursors:
                 return rows
+            seen_cursors.add(cursor)
+
+    def _get_all_envelope(self, path: str, params: dict[str, Any] | None = None) -> dict:
+        """Like _get_all but returns the full envelope: items, tombstones, server_time.
+
+        tombstones are guaranteed by Data Hub to ship in full on the first page;
+        subsequent pages have tombstones=[]. server_time comes from the first
+        page response. Missing server_time signals the server doesn't yet
+        implement the new contract — callers fall back to full-pull semantics.
+        """
+        params = dict(params or {})
+        params.setdefault("limit", 1000)
+        cursor = ""
+        seen_cursors: set[str] = set()
+        rows: list[dict] = []
+        tombstones: list[dict] = []
+        server_time = ""
+        first_page = True
+        while True:
+            page_params = {**params, "cursor": cursor} if cursor else params
+            payload = self._get(path, page_params)
+            rows.extend(items(payload))
+            if first_page:
+                raw_tombs = payload.get("tombstones") if isinstance(payload, dict) else None
+                if isinstance(raw_tombs, list):
+                    tombstones = list(raw_tombs)
+                server_time = str(payload.get("server_time") or "") if isinstance(payload, dict) else ""
+                first_page = False
+            cursor = next_cursor(payload)
+            if not cursor or cursor in seen_cursors:
+                return {"items": rows, "tombstones": tombstones, "server_time": server_time}
             seen_cursors.add(cursor)
 
     def _auth_headers(self) -> dict[str, str]:

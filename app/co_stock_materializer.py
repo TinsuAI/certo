@@ -35,7 +35,13 @@ def _store_available() -> bool:
     return bool(database_url())
 
 
-def refresh_co_stock_for_client(client: dict, derive_rows) -> dict:
+def refresh_co_stock_for_client(
+    client: dict,
+    derive_rows,
+    *,
+    mode: str = "full",
+    tombstone_source_rows: list[str] | None = None,
+) -> dict:
     """Incremental refresh of co_stock_rows from a derivation callable.
 
     Replaces the legacy DELETE+INSERT wipe with an UPSERT + targeted DELETE
@@ -44,16 +50,23 @@ def refresh_co_stock_for_client(client: dict, derive_rows) -> dict:
       1. Snapshot the current rows by `source_row` (with payload, for diff).
       2. UPSERT every row from `derive_rows()` — INSERT new, UPDATE changed,
          no-op identical. Track which keys are new vs touched.
-      3. Compute removed = old_keys - new_keys. Filter out lots that have
-         active claims in `co_stock_claims` — those stay (orphan-safe);
-         warning surfaces in summary so the operator knows to release the
-         case or contact Data Hub before the next refresh.
-      4. Targeted DELETE for the cleared removed set.
-      5. Emit per-lot `snapshot_row_added / _removed / _updated` events to
+      3. Compute removed:
+         - mode="full" (default): removed = old_keys - new_keys. The derive
+           callback returns the complete snapshot; anything missing is
+           presumed deleted upstream.
+         - mode="delta": removed = explicit tombstone_source_rows. The
+           derive callback returns ONLY the changed/added rows from a
+           Data Hub `since` pull; untouched rows in the existing snapshot
+           stay. Untracked source_rows are NEVER deleted in delta mode.
+      4. Filter out lots that have active claims in `co_stock_claims` — they
+         stay (orphan-safe); summary.blocked_lots surfaces them.
+      5. Targeted DELETE for the cleared removed set.
+      6. Emit per-lot `snapshot_row_added / _removed / _updated` events to
          `co_stock_events` so the audit log has provenance for every change.
     """
     summary = {
         "client_id": str(client.get("id", "")),
+        "mode": mode,
         "rows_persisted": 0,
         "rows_added": 0,
         "rows_updated": 0,
@@ -64,6 +77,9 @@ def refresh_co_stock_for_client(client: dict, derive_rows) -> dict:
         "last_refresh_at": None,
         "errors": [],
     }
+    if mode not in {"full", "delta"}:
+        summary["errors"].append(f"unknown mode: {mode}")
+        return summary
     if not _store_available():
         summary["errors"].append("BARRY_DATABASE_URL not configured")
         return summary
@@ -86,7 +102,12 @@ def refresh_co_stock_for_client(client: dict, derive_rows) -> dict:
             old_payloads, old_lot_keys = _load_existing_snapshot(cur, client_id)
             added, updated, identical = _classify_changes(new_by_key, old_payloads)
             _upsert_records(cur, records)
-            removed = set(old_payloads.keys()) - set(new_by_key.keys())
+            if mode == "delta":
+                # Delta mode: derive callback returned ONLY changed rows. Removed
+                # rows must be explicit (from Data Hub tombstones); never sweep.
+                removed = {k for k in (tombstone_source_rows or []) if k in old_payloads}
+            else:
+                removed = set(old_payloads.keys()) - set(new_by_key.keys())
             blocked = _claims_blocking_removal(cur, client_id, removed)
             removable = sorted(removed - blocked)
             if removable:
@@ -457,6 +478,7 @@ def record_refresh_state(
     snapshot_row_count: int,
     bcct_row_count_at_refresh: int,
     bcct_indexed_at_at_refresh=None,
+    last_bcct_server_time: str = "",
 ) -> None:
     if not _store_available() or not client_id:
         return
@@ -465,14 +487,23 @@ def record_refresh_state(
             cur.execute(
                 """insert into co_stock_refresh_state (
                     client_id, snapshot_row_count, bcct_row_count_at_refresh,
-                    bcct_indexed_at_at_refresh, refreshed_at
-                   ) values (%s, %s, %s, %s, now())
+                    bcct_indexed_at_at_refresh, last_bcct_server_time, refreshed_at
+                   ) values (%s, %s, %s, %s, %s, now())
                    on conflict (client_id) do update set
                      snapshot_row_count = excluded.snapshot_row_count,
                      bcct_row_count_at_refresh = excluded.bcct_row_count_at_refresh,
                      bcct_indexed_at_at_refresh = excluded.bcct_indexed_at_at_refresh,
+                     last_bcct_server_time = case
+                       when excluded.last_bcct_server_time = '' then co_stock_refresh_state.last_bcct_server_time
+                       else excluded.last_bcct_server_time end,
                      refreshed_at = now()""",
-                (client_id, int(snapshot_row_count), int(bcct_row_count_at_refresh), bcct_indexed_at_at_refresh),
+                (
+                    client_id,
+                    int(snapshot_row_count),
+                    int(bcct_row_count_at_refresh),
+                    bcct_indexed_at_at_refresh,
+                    last_bcct_server_time or "",
+                ),
             )
     except Exception as exc:  # noqa: BLE001
         LOGGER.warning("co_stock refresh state write failed for %s: %s", client_id, exc)
@@ -485,7 +516,7 @@ def read_refresh_state(client_id: str) -> dict | None:
         with connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """select snapshot_row_count, bcct_row_count_at_refresh,
-                          bcct_indexed_at_at_refresh, refreshed_at
+                          bcct_indexed_at_at_refresh, refreshed_at, last_bcct_server_time
                    from co_stock_refresh_state where client_id = %s""",
                 (client_id,),
             )
@@ -497,6 +528,7 @@ def read_refresh_state(client_id: str) -> dict | None:
                 "bcct_row_count_at_refresh": int(row[1] or 0),
                 "bcct_indexed_at_at_refresh": row[2].isoformat() if row[2] else "",
                 "refreshed_at": row[3].isoformat() if row[3] else "",
+                "last_bcct_server_time": row[4] or "",
             }
     except Exception:  # noqa: BLE001
         return None
