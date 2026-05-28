@@ -522,24 +522,24 @@ class PostgresCoCaseStateStore:
                 )
 
     def save_state(self, client_id: str, state: dict) -> None:
-        """Phase 2.4: save_state no longer rewrites the `co_cases` table.
+        """Phase 2.5: drop `cases[]` from the persisted payload.
 
-        Per-case writes go through `save_case_record` (optimistic lock
-        on the `revision` column) and `delete_case`. save_state's role
-        is reduced to:
-        - `co_case_states.payload` (legacy blob — Phase 2.5 drops the
-           `cases` key from this blob)
-        - `co_supporting_files` (still rewritten in full; per-case
-           file management migrates in a later pass)
+        Per-case state lives in `co_cases` (written via
+        `save_case_record` / `delete_case`). `co_case_states.payload`
+        now keeps only the truly per-client bits: `origin_calculation_lock`,
+        `schema_version`, and anything else top-level that isn't a case.
+        Read path (`get_state`) re-hydrates `cases[]` from `co_cases`
+        rows, so the in-memory shape is unchanged for callers.
 
-        The `cases` variable below is computed only to derive
-        per-case supporting_files for re-insertion.
+        `co_supporting_files` still gets fully rewritten here so the
+        case-list page (which loads files by joining on case_id) stays
+        in sync; per-case file management migrates in a later pass.
         """
         from psycopg.types.json import Jsonb
 
         self.ensure_schema()
-        cases = co_case_records(client_id, state)  # noqa: F841 — supporting_files helper consumes state directly
         supporting_files = co_supporting_file_records(client_id, state)
+        persisted_payload = {k: v for k, v in state.items() if k != "cases"}
         with connect(self.url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute("delete from co_supporting_files where client_id = %s", (client_id,))
@@ -552,7 +552,7 @@ class PostgresCoCaseStateStore:
                       payload = excluded.payload,
                       updated_at = now()
                     """,
-                    (client_id, int(state.get("schema_version") or 1), Jsonb(state)),
+                    (client_id, int(state.get("schema_version") or 1), Jsonb(persisted_payload)),
                 )
                 cursor.executemany(
                     """
