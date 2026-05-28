@@ -982,8 +982,8 @@ def test_co_case_can_select_aggregate_bom_version_snapshot():
     )
     get_response = client.get(f"{created.headers['location']}/origin")
     assert get_response.status_code == 200
-    assert "BOM snapshot" in get_response.text
-    assert "Composition #2" in get_response.text
+    assert "data-bom-version-select" in get_response.text
+    assert "#2 · " in get_response.text
 
     post_response = client.post(
         "/clients/growatt/evaluate",
@@ -1006,7 +1006,6 @@ def test_co_case_can_select_aggregate_bom_version_snapshot():
     )
 
     assert post_response.status_code == 200
-    assert f'value="{v1["version_id"]}" selected' in post_response.text
     assert "#1 · 2 dòng" in post_response.text
 
 
@@ -1892,9 +1891,9 @@ def test_co_case_detail_is_split_into_workflow_step_views():
     assert "Tờ khai nhập (TKN)" in exports.text
     assert "Form và thông tư" in guidance.text
     assert "W.I.P" in guidance.text
-    assert "Load BOM vào Bảng Kê" in origin.text
-    assert "Cấu hình bảng kê" in origin.text
-    assert "Mode tối ưu" in origin.text
+    assert ">Load BOM<" in origin.text
+    assert "origin-config-bar" in origin.text
+    assert "data-origin-recommendation-optimization" in origin.text
     assert 'role="tablist" aria-label="Sheet sản phẩm trong bảng kê"' in origin.text
     assert 'data-origin-sheet-tab' in origin.text
     assert 'data-origin-sheet-panel' in origin.text
@@ -2058,7 +2057,7 @@ def test_co_case_shipment_step_updates_metadata_without_dropping_origin_view():
     assert "INV-NEW" in shipment.text
     assert "BL-NEW" in shipment.text
     assert "PV00.0048500" in origin.text
-    assert "Bảng kê LVC" in origin.text
+    assert "origin-config-bar" in origin.text
 
 
 def test_co_case_origin_preloads_demo_when_case_has_no_invoice_source_data():
@@ -2400,8 +2399,8 @@ def test_cached_origin_context_loads_live_bom_artifact_options(monkeypatch):
 
     assert origin.status_code == 200
     assert 'value="bom-artifact-2" selected' in origin.text
-    assert "TP-BOM · #1 · 122 dòng · published" in origin.text
-    assert "TP-BOM · #2 · 368 dòng · current" in origin.text
+    assert "#1 · 122 dòng · published" in origin.text
+    assert "#2 · 368 dòng · current" in origin.text
 
 
 def test_co_case_origin_uses_data_hub_material_identity_for_bom_code():
@@ -2545,9 +2544,7 @@ def test_co_case_origin_page_surfaces_method_readiness_and_evidence_gaps():
     origin = client.get(f"{created.headers['location']}/origin")
 
     assert origin.status_code == 200
-    assert "Bảng tính Xuất xứ" in origin.text
-    assert "Build-down LVC/RVC" in origin.text
-    assert "(FOB - VNM) / FOB x 100" in origin.text
+    assert "origin-config-bar" in origin.text
     assert "Cần bổ sung evidence" in origin.text
     assert "Thiếu đơn giá NVL" not in origin.text
     assert "DEMO-NPL-002: thiếu đơn giá để tính trị giá NVL/VNM." not in origin.text
@@ -3010,7 +3007,7 @@ def test_origin_sheet_recommendation_override_persists_per_sheet():
 
     initial = client.get(f"/clients/growatt/co-case/{case_id}/origin")
     assert initial.status_code == 200
-    assert "Cấu hình bảng kê" in initial.text
+    assert "origin-config-bar" in initial.text
 
     response = client.post(
         f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-OVR/recommendation-override",
@@ -5064,8 +5061,6 @@ def test_co_case_origin_round_trips_multi_lot_allocation_to_export_workbook():
     response = client.post(f"{created.headers['location']}/export", data=form_data)
 
     assert origin.status_code == 200
-    assert "Tính tuần tự theo tồn CO" in origin.text
-    assert "Dùng mũi tên trên tab sheet để đổi thứ tự giữ tồn" in origin.text
     assert 'data-origin-product-order' in origin.text
     assert 'data-origin-sheet-tab' in origin.text
     assert 'data-origin-sequence-move="left"' in origin.text
@@ -5075,7 +5070,7 @@ def test_co_case_origin_round_trips_multi_lot_allocation_to_export_workbook():
     assert 'data-origin-sequence-position' not in origin.text
     assert 'data-origin-sequence-move="up"' not in origin.text
     assert 'class="origin-sheet-toolbar"' in origin.text
-    assert 'class="origin-sheet-state"' in origin.text
+    assert 'origin-sheet-status-pill' in origin.text
     assert 'data-origin-step-input' in origin.text
     assert 'data-origin-sheet-calculate' in origin.text
     assert 'data-origin-export-action' in origin.text

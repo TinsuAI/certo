@@ -400,27 +400,48 @@ def hq_sheet_codes_for_product(product: dict) -> set[str]:
     """Pick the ONE HQ template sheet this TP should use.
 
     Per legacy macro flow and user requirement: 1 sheet per TP per dossier.
-    Priority: LVC > RVC > CTSH > CTH > EUR1, narrowed by the TP's effective
-    criteria text. Returns a set of size 1 (set type kept for caller convenience).
+    Priority within a single source: LVC > RVC > CTSH > CTH (PSR/EUR1 by form).
+    Returns a set of size 1 (set type kept for caller convenience).
+
+    Source priority — use the FIRST non-empty source, don't merge:
+      1. `origin_sheet_criteria_override` — operator's explicit choice via the
+         config bar. Authoritative; never override this with anything else.
+      2. `documented_result` — operator's persisted criterion saved on the
+         product record (typically what they originally documented).
+      3. `origin_sheet_effective_criteria_text` — engine recommendation (only
+         used when neither override nor documented result is set).
+      4. `origin_criterion_mode` — coarse mode (legacy fallback).
+
+    Why not merge: if documented_result = "LVC 30% hoặc CTH" and operator
+    overrides to "CTH", merging keeps "LVC" in the search string and ships the
+    wrong template. With the precedence chain, the override wins by virtue of
+    being checked first.
     """
     form = str(product.get("origin_sheet_effective_form_code") or "").upper()
-    criteria_sources = [
-        product.get("origin_sheet_effective_criteria_text") or "",
-        product.get("documented_result") or "",
-        product.get("origin_criterion_mode") or "",
-    ]
-    criteria = " ".join(str(c) for c in criteria_sources).upper()
     if form == "EUR.1" or "EUR.1" in form:
         return {"EUR1"}
-    if "PSR" in criteria:
+    primary_criterion = ""
+    for key in (
+        "origin_sheet_criteria_override",
+        "documented_result",
+        "origin_sheet_effective_criteria_text",
+        "origin_criterion_mode",
+    ):
+        candidate = str(product.get(key) or "").strip()
+        if candidate:
+            primary_criterion = candidate.upper()
+            break
+    if "PSR" in primary_criterion:
         return {"PSR"}
-    if "LVC" in criteria:
+    # For "LVC 30% hoặc CTH"-style alternatives, prefer LVC > RVC > CTSH > CTH.
+    # Operator overrides to a single criterion get the matched sheet directly.
+    if "LVC" in primary_criterion:
         return {"LVC"}
-    if "RVC" in criteria or "MAXNOM" in criteria:
+    if "RVC" in primary_criterion or "MAXNOM" in primary_criterion:
         return {"RVC"}
-    if "CTSH" in criteria:
+    if "CTSH" in primary_criterion:
         return {"CTSH"}
-    if "CTH" in criteria:
+    if "CTH" in primary_criterion:
         return {"CTH"}
     return {"LVC"}
 
@@ -573,7 +594,14 @@ def write_hq_sheet_materials(ws, product: dict, start_row: int, *, legacy_export
         put(row_index, "non_origin_val", str(non_origin_value))
         put(row_index, "country", material.get("origin_country", ""))
         put(row_index, "imp_no", material.get("import_declaration_no", ""))
-        put(row_index, "imp_date", material.get("import_declaration_date", ""))
+        put(
+            row_index,
+            "imp_date",
+            material.get("import_declaration_date")
+            or material.get("declaration_date")
+            or material.get("registration_date")
+            or "",
+        )
         put(row_index, "co_no", material.get("source_document_ref", ""))
         put(row_index, "co_date", material.get("source_document_date", ""))
         # Legacy helper columns — only meaningful on the wide layout.

@@ -2565,6 +2565,58 @@ def origin_product_order(case: dict) -> list[str]:
     return output
 
 
+def _hydrate_material_dates_from_stock(case: dict, client: dict) -> None:
+    """Backfill missing `import_declaration_date` on materials + allocation lines.
+
+    Materials/allocations saved before `co_stock_rows_from_bcct` started
+    copying `registration_date` out of the BCCT payload have empty date
+    fields, which leaves col "Ngày" blank on the exported xlsx. Re-running
+    Calculate would refresh the snapshot but also wipes operator overrides
+    (delete/substitute/norm/added rows), so we look up dates from the
+    materialized stock table here instead — read-only, no override loss.
+    """
+    client_id = str(client.get("id") or "").strip()
+    if not client_id:
+        return
+    rows_to_lookup: set[str] = set()
+    for product in case.get("products") or []:
+        for material in product.get("materials") or []:
+            if not (material.get("import_declaration_date")
+                    or material.get("declaration_date")
+                    or material.get("registration_date")):
+                source_row = str(material.get("source_row") or "").strip()
+                if source_row:
+                    rows_to_lookup.add(source_row)
+            for allocation in material.get("allocation_lines") or []:
+                if not (allocation.get("import_declaration_date")
+                        or allocation.get("declaration_date")
+                        or allocation.get("registration_date")):
+                    source_row = str(allocation.get("source_row") or "").strip()
+                    if source_row:
+                        rows_to_lookup.add(source_row)
+    if not rows_to_lookup:
+        return
+    dates = co_stock_materializer.registration_dates_for_source_rows(client_id, list(rows_to_lookup))
+    if not dates:
+        return
+    for product in case.get("products") or []:
+        for material in product.get("materials") or []:
+            if not material.get("import_declaration_date"):
+                joined = []
+                source_row = str(material.get("source_row") or "").strip()
+                for piece in [p.strip() for p in source_row.split(",") if p.strip()]:
+                    value = dates.get(piece)
+                    if value and value not in joined:
+                        joined.append(value)
+                if joined:
+                    material["import_declaration_date"] = ", ".join(joined)
+            for allocation in material.get("allocation_lines") or []:
+                if not allocation.get("import_declaration_date"):
+                    value = dates.get(str(allocation.get("source_row") or "").strip())
+                    if value:
+                        allocation["import_declaration_date"] = value
+
+
 def attach_origin_sheet_states(case: dict) -> dict:
     products = case.get("products", [])
     existing = case.get("origin_sheet_states") if isinstance(case.get("origin_sheet_states"), dict) else {}
@@ -3372,6 +3424,7 @@ def origin_material_from_bom_row(
     allocation_source_rows = unique_texts(line.get("source_row", "") for line in allocation_lines)
     allocation_import_declarations = unique_texts(line.get("import_declaration_no", "") for line in allocation_lines)
     allocation_import_lines = unique_texts(line.get("import_line_no", "") for line in allocation_lines)
+    allocation_import_dates = unique_texts(line.get("import_declaration_date", "") for line in allocation_lines)
     available_qty = allocation_available_qty(allocation_lines, stock_candidates)
     currency = allocation_currency_summary(allocation_lines)
     if not currency:
@@ -3379,6 +3432,13 @@ def origin_material_from_bom_row(
     return {
         "source_row": ",".join(allocation_source_rows) or stock.get("source_row") or f"BOM:{row.get('source', '')}",
         "import_declaration_no": ", ".join(allocation_import_declarations) or stock.get("import_declaration_no", ""),
+        "import_declaration_date": (
+            ", ".join(allocation_import_dates)
+            or stock.get("registration_date")
+            or stock.get("declaration_date")
+            or stock.get("import_declaration_date")
+            or ""
+        ),
         "import_line_no": ", ".join(allocation_import_lines) or stock.get("line_no", ""),
         "material_code": material_code,
         "material_sequence": str(material_sequence or ""),
@@ -3482,6 +3542,12 @@ def stock_allocation_line(
         "source_row": stock.get("source_row", ""),
         "source_line_ids": source_line_ids_text,
         "import_declaration_no": stock.get("import_declaration_no", ""),
+        "import_declaration_date": (
+            stock.get("registration_date")
+            or stock.get("declaration_date")
+            or stock.get("import_declaration_date")
+            or ""
+        ),
         "import_line_no": stock.get("line_no", ""),
         "customs_material_code": stock.get("customs_item_code", ""),
         "allocation_code": stock.get("allocation_code", ""),
@@ -4168,7 +4234,7 @@ def bcct_table_context(request: Request, client_id: str, direction: str | None =
     return context
 
 
-def _co_stock_lean_client_context(client_id: str) -> dict:
+def _co_stock_lean_client_context(client_id: str, co_stock_row_count: int | None = None) -> dict:
     """Lean context for /co-stock — skips full source_workspace pagination.
 
     Standard client_context calls source_workspace_for_client which paginates
@@ -4183,12 +4249,14 @@ def _co_stock_lean_client_context(client_id: str) -> dict:
     source_summary, source_backend = portfolio_service.source_summary(client)
     client_config = source_summary.get("client_config") or portfolio_service.get_client_config(client)
     bcct_row_count = source_summary.get("bcct", {}).get("published_row_count", 0)
+    if co_stock_row_count is None:
+        co_stock_row_count = co_stock_materializer.row_count(client["id"])
     counts = {
         **client.get("counts", {}),
         "materials": source_summary.get("material_catalog", {}).get("published_row_count", 0),
         "products": source_summary.get("product_catalog", {}).get("published_row_count", 0),
         "bcct": bcct_row_count,
-        "co_stock": co_stock_materializer.row_count(client["id"]),
+        "co_stock": co_stock_row_count,
     }
     client = {**client, "counts": counts}
     sync_status = co_stock_materializer.compute_sync_status(client["id"], bcct_row_count)
@@ -4264,7 +4332,7 @@ def co_stock_table_context(request: Request, client_id: str) -> dict:
         )
         return context
 
-    context = _co_stock_lean_client_context(client_id)
+    context = _co_stock_lean_client_context(client_id, co_stock_row_count=total_co_stock_rows)
     client = context["client"]
     context["co_stock_empty_needs_refresh"] = total_co_stock_rows == 0
 
@@ -5635,7 +5703,22 @@ async def export_co_case_bang_ke_workbook(request: Request, client_id: str, case
             posted_case["persisted_case_id"] = posted_case.get("persisted_case_id") or case_id
     client = resolve_client(client_id)
     case = posted_case or persisted_origin_case(client, case_id)
+    # The form-rebuilt case has empty origin_sheet_states (case_from_form starts
+    # with {}). Re-hydrate from the persisted DB row so per-sheet overrides
+    # (form / criteria / threshold / currency_mode) AND material_overrides
+    # (delete / substitute / norm-edit / added rows) are honored by the
+    # renderer. Without this, the export ships every material — including
+    # ones the operator deleted via Substitute — and always picks the LVC
+    # template because effective_criteria is unresolved.
+    if posted_case and case_id:
+        try:
+            persisted = persisted_origin_case(client, case_id)
+        except KeyError:
+            persisted = None
+        if persisted:
+            case["origin_sheet_states"] = persisted.get("origin_sheet_states") or {}
     case = attach_origin_sheet_states(case)
+    _hydrate_material_dates_from_stock(case, client)
     blockers = origin_sheet_export_blockers(case)
     if blockers:
         raise HTTPException(
@@ -6270,10 +6353,17 @@ async def co_case_origin_sheet_substitute_row(
     delete = bool(payload.get("delete"))
     if row_index is None or str(row_index).strip() == "":
         raise HTTPException(status_code=400, detail="row_index required")
-    try:
-        row_index_int = int(row_index)
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail="row_index must be integer") from exc
+    raw_key = str(row_index).strip()
+    is_added_key = raw_key.startswith("added_")
+    if is_added_key:
+        key = raw_key
+        row_index_int = -1
+    else:
+        try:
+            row_index_int = int(raw_key)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="row_index must be integer or added_<n>") from exc
+        key = str(row_index_int)
     if not delete and not new_material_code:
         raise HTTPException(status_code=400, detail="new_material_code required when not deleting")
     client = resolve_client(client_id)
@@ -6288,9 +6378,22 @@ async def co_case_origin_sheet_substitute_row(
     states = dict(case.get("origin_sheet_states") or {})
     previous = states.get(product_code) if isinstance(states.get(product_code), dict) else {}
     overrides = dict(previous.get("material_overrides") or {})
-    key = str(row_index_int)
     if delete:
-        overrides[key] = {"deleted": True}
+        if is_added_key:
+            # added rows aren't part of product.materials; "deletion" = drop the override
+            # so the row disappears completely from both UI and export.
+            overrides.pop(key, None)
+        else:
+            overrides[key] = {"deleted": True}
+    elif is_added_key:
+        existing = overrides.get(key) if isinstance(overrides.get(key), dict) else {}
+        overrides[key] = {
+            **existing,
+            "added": True,
+            "material_code": new_material_code,
+            "norm_per_unit": new_norm,
+            "name": new_name,
+        }
     else:
         overrides[key] = {
             "material_code": new_material_code,
@@ -6304,8 +6407,8 @@ async def co_case_origin_sheet_substitute_row(
     return JSONResponse({
         "ok": True,
         "product_code": product_code,
-        "row_index": row_index_int,
-        "applied_override": overrides[key],
+        "row_index": row_index_int if not is_added_key else key,
+        "applied_override": overrides.get(key, {"deleted": True}),
         "sheet_status": "stale",
     })
 

@@ -507,7 +507,12 @@ def _build_material_row(
         "non_origin_value": non_origin_value,
         "country": material.get("origin_country", ""),
         "import_decl_no": material.get("import_declaration_no", ""),
-        "import_decl_date": material.get("import_declaration_date", ""),
+        "import_decl_date": (
+            material.get("import_declaration_date")
+            or material.get("declaration_date")
+            or material.get("registration_date")
+            or ""
+        ),
         "co_doc_no": material.get("source_document_ref", ""),
         "co_doc_date": material.get("source_document_date", ""),
     }

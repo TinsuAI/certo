@@ -48,10 +48,37 @@ def render_into_sheet(
     fields = _build_field_table(case, product)
     _apply_header(ws, config.get("header_cells", []), fields)
     _clear_cells(ws, config.get("clear_cells", []))
+    _clear_body_range(ws, config["body"])
     last_row, totals = _write_body(ws, config["body"], product)
     _apply_footer(ws, config.get("footer", {}), last_row, totals, fields)
     _hide_unused_helpers(ws, config["body"], last_row)
     _apply_print_area(ws, config.get("print_area_template"), sheet_title)
+
+
+def _clear_body_range(ws, body_cfg: dict) -> None:
+    """Wipe every body cell before writing fresh material rows.
+
+    The form-mau templates ship with worked example BOM data at rows 16-end
+    (e.g. TEM/TUI/PALLET demo lines for LVC). Without clearing, any row index
+    not overwritten by the new material list keeps the template's example
+    values and they leak into the export. _hide_unused_helpers later hides
+    the still-empty rows; we clear values too so unhiding doesn't reveal
+    placeholder data.
+    """
+    start_row = int(body_cfg.get("start_row", 16))
+    end_row = int(body_cfg.get("end_row", start_row))
+    last_col_letter = "Y"  # cover both LVC (A-N) and wide layout helper cols (A-Y)
+    last_col = _column_index(last_col_letter)
+    for row in ws.iter_rows(min_row=start_row, max_row=end_row, max_col=last_col):
+        for cell in row:
+            cell.value = None
+
+
+def _column_index(letter: str) -> int:
+    result = 0
+    for ch in letter.upper():
+        result = result * 26 + (ord(ch) - ord("A") + 1)
+    return result
 
 
 # ---- helpers --------------------------------------------------------------
@@ -172,7 +199,13 @@ def _write_body(ws, body_cfg: dict, product: dict) -> tuple[int, dict]:
         put("non_origin_value", _text(non_origin_value))
         put("country", material.get("origin_country", ""))
         put("import_decl_no", material.get("import_declaration_no", ""))
-        put("import_decl_date", material.get("import_declaration_date", ""))
+        put(
+            "import_decl_date",
+            material.get("import_declaration_date")
+            or material.get("declaration_date")
+            or material.get("registration_date")
+            or "",
+        )
         put("co_doc_no", material.get("source_document_ref", ""))
         put("co_doc_date", material.get("source_document_date", ""))
         # Legacy helper columns (only present on wide layouts).

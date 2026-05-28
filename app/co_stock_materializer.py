@@ -225,6 +225,39 @@ def row_count(client_id: str) -> int:
         return 0
 
 
+def registration_dates_for_source_rows(client_id: str, source_rows: list[str]) -> dict[str, str]:
+    """Batch lookup `payload->>'registration_date'` for a set of source_row ids.
+
+    Used at export time to backfill `import_declaration_date` on materials
+    that were saved before the materializer started copying registration_date
+    out of the BCCT payload — re-calculating a locked sheet would clear its
+    material_overrides, so we hydrate the missing date here instead.
+    """
+    if not _store_available() or not client_id or not source_rows:
+        return {}
+    flat: list[str] = []
+    for entry in source_rows:
+        text = str(entry or "").strip()
+        if not text:
+            continue
+        for part in text.split(","):
+            piece = part.strip()
+            if piece:
+                flat.append(piece)
+    if not flat:
+        return {}
+    try:
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "select source_row, payload->>'registration_date' "
+                "from co_stock_rows where client_id = %s and source_row = ANY(%s)",
+                (client_id, flat),
+            )
+            return {row[0]: (row[1] or "") for row in cur.fetchall()}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def last_refresh_at(client_id: str) -> str:
     """Newest indexed_at for the client (proxy for last refresh wall-clock)."""
     if not _store_available():

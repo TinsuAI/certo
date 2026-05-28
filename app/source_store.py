@@ -1209,6 +1209,12 @@ def co_stock_rows_from_bcct(rows: list[dict], client_config: dict) -> list[dict]
             "source_transaction_key": row.get("transaction_key", ""),
             "source_line_ids": [source_row],
             "import_declaration_no": row.get("declaration_no", ""),
+            "registration_date": (
+                row.get("registration_date")
+                or row.get("declaration_date")
+                or row.get("import_declaration_date")
+                or ""
+            ),
             "line_no": row.get("line_no", ""),
             "declaration_type": row.get("declaration_type", ""),
             "customs_item_code": row.get("item_code", ""),

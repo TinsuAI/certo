@@ -871,45 +871,14 @@
   <option value="AIFTA 35% FOB + CTSH"></option>
   <option value="Tra PSR theo Phụ lục"></option>
 </datalist>
-<section class="zone source-panel">
-  <div class="zone-head">
-    <div>
-      <h2>Bảng tính tiêu chí C/O</h2>
-      <p class="meta">Bảng tiêu chí do hệ thống tính từ tham chiếu hồ sơ, BCCT xuất khẩu, form/thông tư và BOM snapshot. Operator không upload bảng tiêu chí thủ công.</p>
-    </div>
-  </div>
-  <div class="origin-source-strip">
-    <div>
-      <span>Tham chiếu</span>
-      <strong class="mono">{{ case.shipment_reference_label }}</strong>
-    </div>
-    <div>
-      <span>{{ 'Demo' if origin_demo_active else 'BCCT khớp' }}</span>
-      <strong>{{ case.products|length ~ ' TP mẫu' if origin_demo_active else invoice_matches|length ~ ' dòng' }}</strong>
-    </div>
-    <div>
-      <span>Form</span>
-      <strong>{{ recommended_form_lane.display_name or case.co_form_type }}</strong>
-    </div>
-    <div>
-      <span>BOM</span>
-      <strong>{{ origin_demo_material_count ~ ' NVL mẫu' if origin_demo_active else case.bom_snapshot.composition|length ~ ' TP' }}</strong>
-    </div>
-    <div>
-      <span>Trạng thái</span>
-      <strong>{{ case.origin_snapshot.readiness_label or 'Chưa tính' }}</strong>
-    </div>
-  </div>
-  <div class="callout {{ 'callout-success' if origin_demo_active else 'callout-info' }}">
-    <span class="callout-icon">i</span>
-    <div>
-      <div class="callout-title">{{ 'Demo tự nạp' if origin_demo_active else 'Bảng tính Xuất xứ' }}</div>
-      {% if origin_demo_active %}
-      Hồ sơ chưa có dòng BCCT/BOM đủ để tính thật, nên tab Xuất xứ đang nạp sẵn 2 TP mẫu và NVL mẫu để operator nhìn được cách hệ thống dựng bảng tiêu chí. Dữ liệu demo này không phải file upload và không ghi vào hồ sơ lưu.
-      {% else %}
-      Trang web là snapshot tính toán chính cho hồ sơ này và là nguồn cho Bảng kê LVC/RVC khi export. Phương pháp đang áp dụng là <strong>Build-down LVC/RVC</strong> với công thức <span class="mono">(FOB - VNM) / FOB x 100</span>; phần CTC chỉ là preview HS và chưa thay thế PSR engine/legal review.
-      {% endif %}
-    </div>
+<section class="origin-page-bar" aria-label="Tóm tắt bảng kê C/O">
+  <div class="origin-page-strip">
+    <span><em>Tham chiếu</em> <strong class="mono">{{ case.shipment_reference_label }}</strong></span>
+    <span><em>{{ 'Demo' if origin_demo_active else 'BCCT' }}</em> <strong>{{ case.products|length ~ ' TP mẫu' if origin_demo_active else invoice_matches|length ~ ' dòng' }}</strong></span>
+    <span><em>Form</em> <strong>{{ recommended_form_lane.display_name or case.co_form_type }}</strong></span>
+    <span><em>BOM</em> <strong>{{ origin_demo_material_count ~ ' NVL mẫu' if origin_demo_active else case.bom_snapshot.composition|length ~ ' TP' }}</strong></span>
+    <span><em>Trạng thái</em> <strong>{{ case.origin_snapshot.readiness_label or 'Chưa tính' }}</strong></span>
+    {% if origin_demo_active %}<span class="origin-page-demo-badge" title="Hồ sơ chưa có BCCT/BOM thật — đang nạp 2 TP mẫu để minh họa.">Demo</span>{% endif %}
   </div>
 </section>
 
@@ -946,55 +915,26 @@
   <input type="hidden" name="document_{{ doc_index }}_status" value="{{ doc.status }}">
   {% endfor %}
 
-  <section class="zone origin-workbar" aria-label="Điều khiển snapshot xuất xứ">
-    {% set origin_actions_blocked = origin_calculation_lock_blocked %}
-    <label>BOM composition
-      <select name="bom_artifact_id" {% if origin_actions_blocked %}disabled{% endif %}>
-        {% for version in bom_workspace.versions %}
-        <option value="{{ version.artifact_id or version.version_id }}" {% if (version.artifact_id or version.version_id) == (case.bom_snapshot.aggregate_artifact_id or case.bom_snapshot.aggregate_version_id) %}selected{% endif %}>Composition #{{ version.artifact_no or version.version_no }} · {{ version.product_versions|length }} TP artifact</option>
-        {% endfor %}
-        {% if not bom_workspace.versions %}
-        <option value="">Chọn theo TP artifact</option>
-        {% endif %}
-      </select>
-    </label>
-    <div class="origin-bom-chips">
-      {% for product_version in case.bom_snapshot.composition %}
-      <span class="origin-bom-chip"><strong>{{ product_version.product_code }}</strong> #{{ product_version.product_artifact_no or product_version.product_version_no }} · {{ product_version.row_count }} dòng</span>
-      {% else %}
-      <span class="origin-bom-chip origin-bom-chip-warning">Chưa có BOM snapshot có dòng NVL</span>
-      {% endfor %}
-    </div>
+  {% set origin_actions_blocked = origin_calculation_lock_blocked %}
+  <section class="origin-workbar-compact" aria-label="Điều khiển bảng kê xuất xứ">
+    <span class="origin-workbar-sequence-dirty" data-origin-sequence-dirty hidden>Thứ tự sheet đã đổi — cần tính lại</span>
     <div class="origin-workbar-actions">
-      <button type="submit" form="origin-export-bang-ke" data-origin-export-action {% if origin_actions_blocked %}disabled title="Khách hàng đang có hồ sơ khác giữ phiên tính tồn"{% endif %}>Xuất bảng kê HQ</button>
       {% if origin_calculation_lock_owned %}
-      <button type="submit" form="origin-lock-release" class="btn-secondary">Nhả phiên tính tồn</button>
+      <button type="submit" form="origin-lock-release" class="btn-secondary" title="Nhả phiên tính tồn cho hồ sơ khác">Nhả phiên tính tồn</button>
       {% endif %}
+      <button type="submit" form="origin-export-bang-ke" data-origin-export-action {% if origin_actions_blocked %}disabled title="Khách hàng đang có hồ sơ khác giữ phiên tính tồn"{% endif %}>Xuất bảng kê HQ</button>
     </div>
   </section>
 
   <section class="workspace-main full-width">
-    <section class="zone" id="lvc-statement">
-      <div class="zone-head">
-        <div>
-          <h2>Bảng tính Xuất xứ</h2>
-          <p class="meta">{{ 'Demo từ 2 TP mẫu để minh họa bảng tính xuất xứ.' if origin_demo_active else 'Mỗi TP là một bảng kê, tính tuần tự theo thứ tự invoice/BCCT để tồn CO sau bước trước làm đầu vào cho bước sau.' }}</p>
-        </div>
-      </div>
-
-      <div
-        class="product-stack origin-workbook"
-        data-origin-workbook
-        data-origin-autosave-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/autosave"
-        data-origin-save-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/save"
-        data-origin-payload-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/calculation-payload"
-        data-origin-revision="{{ origin_case_revision(case) if cached_case_context else '' }}">
-        {% if case.products %}
-        <div class="origin-sequence-note">
-          <strong>Tính tuần tự theo tồn CO</strong>
-          <span>Dùng mũi tên trên tab sheet để đổi thứ tự giữ tồn; mỗi bước trừ dòng tồn trước khi tính bước kế tiếp.</span>
-          <span class="origin-sequence-dirty" data-origin-sequence-dirty hidden>Thứ tự đã lưu, bảng kê bị ảnh hưởng cần tính lại.</span>
-        </div>
+    <div
+      class="product-stack origin-workbook"
+      data-origin-workbook
+      data-origin-autosave-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/autosave"
+      data-origin-save-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/save"
+      data-origin-payload-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/calculation-payload"
+      data-origin-revision="{{ origin_case_revision(case) if cached_case_context else '' }}">
+      {% if case.products %}
         <div class="origin-sheet-tabs" role="tablist" aria-label="Sheet sản phẩm trong bảng kê">
           {% for product in case.products %}
           {% set tab_has_bom = (product.materials|length > 0) or (product.bom_product_artifact_id or product.bom_product_version_id) %}
@@ -1076,133 +1016,55 @@
           {% set cost_buildup = product.cost_buildup or {} %}
           {% set criterion_upper = (product.origin_sheet_effective_criteria_text or product.documented_result or '')|upper %}
           {% set cost_buildup_relevant = 'LVC' in criterion_upper or 'RVC' in criterion_upper %}
-          <details class="cost-buildup-block" {% if cost_buildup_relevant %}open{% endif %}>
-            <summary>
-              Chi phí xuất xưởng (LVC/RVC)
-              <small>Nhập 6 chi tiết — engine cộng vào II/III/VII của bảng kê. Lợi nhuận (V) tự suy phần dư nếu để trống.</small>
-              <button type="button" class="btn-secondary cost-buildup-apply-btn"
-                      data-cost-buildup-apply
-                      data-product-code="{{ product.code }}"
-                      title="Lấy hệ số (Mode A theo mã TP, Mode B fallback) × FOB của sản phẩm">
-                Áp hệ số
-              </button>
-            </summary>
-            <div class="cost-buildup-grid cost-buildup-grid-6">
-              <label>
-                <span>Lương, thưởng (II.a)</span>
-                <input type="number" step="0.01" min="0" inputmode="decimal"
-                       name="product_{{ product_index }}_cost_buildup_wages"
-                       value="{{ cost_buildup.wages or '' }}"
-                       data-cost-buildup-input data-cost-buildup-key="wages"
-                       placeholder="0.00">
-              </label>
-              <label>
-                <span>Phúc lợi y tế (II.b)</span>
-                <input type="number" step="0.01" min="0" inputmode="decimal"
-                       name="product_{{ product_index }}_cost_buildup_welfare"
-                       value="{{ cost_buildup.welfare or '' }}"
-                       data-cost-buildup-input data-cost-buildup-key="welfare"
-                       placeholder="0.00">
-              </label>
-              <label>
-                <span>Thuê nhà xưởng (III.a)</span>
-                <input type="number" step="0.01" min="0" inputmode="decimal"
-                       name="product_{{ product_index }}_cost_buildup_rent"
-                       value="{{ cost_buildup.rent or '' }}"
-                       data-cost-buildup-input data-cost-buildup-key="rent"
-                       placeholder="0.00">
-              </label>
-              <label>
-                <span>Khấu hao, BH, BD (III.b)</span>
-                <input type="number" step="0.01" min="0" inputmode="decimal"
-                       name="product_{{ product_index }}_cost_buildup_depreciation"
-                       value="{{ cost_buildup.depreciation or '' }}"
-                       data-cost-buildup-input data-cost-buildup-key="depreciation"
-                       placeholder="0.00">
-              </label>
-              <label>
-                <span>CP SX chung khác (III.c)</span>
-                <input type="number" step="0.01" min="0" inputmode="decimal"
-                       name="product_{{ product_index }}_cost_buildup_other_mfg"
-                       value="{{ cost_buildup.other_mfg or '' }}"
-                       data-cost-buildup-input data-cost-buildup-key="other_mfg"
-                       placeholder="0.00">
-              </label>
-              <label>
-                <span>Vận chuyển, lưu kho (VII)</span>
-                <input type="number" step="0.01" min="0" inputmode="decimal"
-                       name="product_{{ product_index }}_cost_buildup_transport_storage"
-                       value="{{ cost_buildup.transport_storage or '' }}"
-                       data-cost-buildup-input data-cost-buildup-key="transport_storage"
-                       placeholder="0.00">
-              </label>
-              <label class="cost-buildup-profit">
-                <span>Lợi nhuận (V) <small>tự tính nếu để trống</small></span>
-                <input type="number" step="0.01" min="0" inputmode="decimal"
-                       name="product_{{ product_index }}_cost_buildup_profit"
-                       value="{{ cost_buildup.profit or '' }}"
-                       data-cost-buildup-input data-cost-buildup-key="profit"
-                       placeholder="dư (FOB − chi phí)">
-              </label>
-            </div>
-            <p class="cost-buildup-hint" data-cost-buildup-hint></p>
-            <p class="cost-buildup-apply-status" data-cost-buildup-apply-status></p>
-          </details>
 
-          <div class="product-head">
-            <div>
-              <span class="eyebrow">Bước tính {{ product.allocation_sequence or loop.index }}</span>
-              <h3>{{ product.code }}</h3>
-              <p>{{ product.name }}</p>
-            </div>
+          <div class="origin-sheet-product-line">
+            <strong class="mono">{{ product.code }}</strong>
+            <span>{{ product.name }}</span>
           </div>
 
           {% set bom_lookup_code = product.bom_product_code or product.code %}
           {% set bom_options = bom_workspace.product_version_options_by_code.get(bom_lookup_code, []) %}
           {% set selected_bom_artifact_id = product.bom_product_artifact_id or product.bom_product_version_id %}
           <div class="origin-sheet-toolbar">
-            <div class="origin-sheet-state">
-              <span>Trạng thái</span>
-              <strong class="origin-sheet-state-{{ product.origin_sheet_status or 'draft' }}">{{ product.origin_sheet_status_label or 'Chưa tính' }}</strong>
+            <div class="origin-sheet-toolbar-main">
+              <strong class="origin-sheet-status-pill origin-sheet-state-{{ product.origin_sheet_status or 'draft' }}" title="Trạng thái sheet">{{ product.origin_sheet_status_label or 'Chưa tính' }}</strong>
+              <label class="product-bom-picker {% if not bom_options %}product-bom-picker-missing{% endif %}" title="TP artifact (BOM)">
+                <select name="product_{{ product_index }}_bom_product_artifact_id" data-bom-version-select data-origin-step-input data-origin-step-index="{{ product_index }}">
+                  {% for option in bom_options %}
+                  <option value="{{ option.product_artifact_id or option.product_version_id }}" {% if (option.product_artifact_id or option.product_version_id) == selected_bom_artifact_id %}selected{% endif %}>#{{ option.product_artifact_no or option.product_version_no }} · {{ option.row_count }} dòng · {{ option.status }}</option>
+                  {% endfor %}
+                  {% if not bom_options %}
+                  <option value="{{ selected_bom_artifact_id }}">{% if product.bom_product_artifact_no or product.bom_product_version_no %}#{{ product.bom_product_artifact_no or product.bom_product_version_no }}{% else %}❗ Chưa có BOM{% endif %}</option>
+                  {% endif %}
+                </select>
+              </label>
+              <div class="origin-sheet-actions">
+                <button type="submit" data-origin-sheet-calculate formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/calculate" formmethod="post" {% if origin_actions_blocked or not product.origin_can_calculate %}disabled title="{{ 'Khách hàng đang có hồ sơ khác giữ phiên tính tồn' if origin_actions_blocked else product.origin_calculate_block_reason }}"{% else %}title="Nạp BOM artifact đang chọn vào bảng kê (ghi đè chỉnh sửa client-side chưa lưu)"{% endif %}>Load BOM</button>
+                {% if product.origin_sheet_status == 'locked' %}
+                <button type="submit" class="btn-secondary" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/reopen" formmethod="post" {% if origin_actions_blocked or not product.origin_can_reopen %}disabled title="{{ 'Khách hàng đang có hồ sơ khác giữ phiên tính tồn' if origin_actions_blocked else product.origin_reopen_block_reason }}"{% endif %}>Mở chốt</button>
+                {% if product.origin_sheet_material_diff_total %}
+                <button type="button" class="btn-primary"
+                        data-origin-propose-bom
+                        data-product-code="{{ product.code }}"
+                        data-propose-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/propose-bom"
+                        title="Lưu BOM artifact mới về Data Hub">
+                  {% if product.origin_sheet_proposed_artifact_id %}Đã propose ✓{% else %}Lưu BOM mới{% endif %}
+                </button>
+                {% endif %}
+                {% else %}
+                <button type="submit" class="btn-secondary" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/lock" formmethod="post" {% if origin_actions_blocked or not product.origin_can_lock %}disabled title="{{ 'Khách hàng đang có hồ sơ khác giữ phiên tính tồn' if origin_actions_blocked else product.origin_lock_block_reason }}"{% endif %}>Chốt</button>
+                {% endif %}
+              </div>
             </div>
             {% if product.origin_sheet_material_diff_total %}
             <div class="origin-bom-diff" title="So với BOM artifact gốc">
-              <span class="origin-bom-diff-eyebrow">BOM artifact đã sửa</span>
-              <span>
-                {% if product.origin_sheet_material_diff_added %}<span class="origin-bom-diff-added">+{{ product.origin_sheet_material_diff_added }} thêm</span>{% endif %}
-                {% if product.origin_sheet_material_diff_removed %}<span class="origin-bom-diff-removed">−{{ product.origin_sheet_material_diff_removed }} xoá</span>{% endif %}
-                {% if product.origin_sheet_material_diff_replaced %}<span class="origin-bom-diff-replaced">↔{{ product.origin_sheet_material_diff_replaced }} thay</span>{% endif %}
-                {% if product.origin_sheet_material_diff_norm_only %}<span class="origin-bom-diff-norm">Δ{{ product.origin_sheet_material_diff_norm_only }} ĐM</span>{% endif %}
-              </span>
+              <span class="origin-bom-diff-eyebrow">BOM đã sửa</span>
+              {% if product.origin_sheet_material_diff_added %}<span class="origin-bom-diff-added">+{{ product.origin_sheet_material_diff_added }}</span>{% endif %}
+              {% if product.origin_sheet_material_diff_removed %}<span class="origin-bom-diff-removed">−{{ product.origin_sheet_material_diff_removed }}</span>{% endif %}
+              {% if product.origin_sheet_material_diff_replaced %}<span class="origin-bom-diff-replaced">↔{{ product.origin_sheet_material_diff_replaced }}</span>{% endif %}
+              {% if product.origin_sheet_material_diff_norm_only %}<span class="origin-bom-diff-norm">Δ{{ product.origin_sheet_material_diff_norm_only }} ĐM</span>{% endif %}
             </div>
             {% endif %}
-            <label class="product-bom-picker {% if not bom_options %}product-bom-picker-missing{% endif %}">TP artifact
-              <select name="product_{{ product_index }}_bom_product_artifact_id" data-bom-version-select data-origin-step-input data-origin-step-index="{{ product_index }}">
-                {% for option in bom_options %}
-                <option value="{{ option.product_artifact_id or option.product_version_id }}" {% if (option.product_artifact_id or option.product_version_id) == selected_bom_artifact_id %}selected{% endif %}>{{ bom_lookup_code }} · #{{ option.product_artifact_no or option.product_version_no }} · {{ option.row_count }} dòng · {{ option.status }}</option>
-                {% endfor %}
-                {% if not bom_options %}
-                <option value="{{ selected_bom_artifact_id }}">{{ bom_lookup_code }} · {% if product.bom_product_artifact_no or product.bom_product_version_no %}#{{ product.bom_product_artifact_no or product.bom_product_version_no }}{% else %}❗ Chưa có BOM trên Data Hub{% endif %}</option>
-                {% endif %}
-              </select>
-            </label>
-            <div class="origin-sheet-actions">
-              <button type="submit" data-origin-sheet-calculate formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/calculate" formmethod="post" {% if origin_actions_blocked or not product.origin_can_calculate %}disabled title="{{ 'Khách hàng đang có hồ sơ khác giữ phiên tính tồn' if origin_actions_blocked else product.origin_calculate_block_reason }}"{% else %}title="Nạp BOM artifact đang chọn vào bảng kê (ghi đè chỉnh sửa client-side chưa lưu)"{% endif %}>Load BOM vào Bảng Kê</button>
-              {% if product.origin_sheet_status == 'locked' %}
-              <button type="submit" class="btn-secondary" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/reopen" formmethod="post" {% if origin_actions_blocked or not product.origin_can_reopen %}disabled title="{{ 'Khách hàng đang có hồ sơ khác giữ phiên tính tồn' if origin_actions_blocked else product.origin_reopen_block_reason }}"{% endif %}>Mở chốt</button>
-              {% if product.origin_sheet_material_diff_total %}
-              <button type="button" class="btn-primary"
-                      data-origin-propose-bom
-                      data-product-code="{{ product.code }}"
-                      data-propose-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/propose-bom"
-                      title="Lưu BOM artifact mới về Data Hub">
-                {% if product.origin_sheet_proposed_artifact_id %}Đã propose ✓{% else %}Lưu BOM artifact mới{% endif %}
-              </button>
-              {% endif %}
-              {% else %}
-              <button type="submit" class="btn-secondary" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/lock" formmethod="post" {% if origin_actions_blocked or not product.origin_can_lock %}disabled title="{{ 'Khách hàng đang có hồ sơ khác giữ phiên tính tồn' if origin_actions_blocked else product.origin_lock_block_reason }}"{% endif %}>Chốt</button>
-              {% endif %}
-            </div>
           </div>
           {% if not bom_options and not product.materials %}
           <div class="callout callout-warning origin-bom-missing">
@@ -1245,97 +1107,149 @@
           {% set effective_criteria = product.origin_sheet_effective_criteria_text %}
           {% set effective_lvc_threshold = product.origin_sheet_effective_lvc_threshold %}
           {% set effective_rvc_threshold = product.origin_sheet_effective_rvc_threshold %}
-          <div class="origin-recommendation"
+          {% set lvc_metric_class = 'warning' if product.lvc_quality_warning_text else 'blocked' if product.lvc_status in ['missing_value', 'missing_bom'] else product.lvc_status %}
+          {% set displayed_threshold = effective_lvc_threshold or effective_rvc_threshold %}
+          {% set has_any_override = form_override or criteria_override or lvc_threshold_override or rvc_threshold_override or currency_mode != 'native' or optimization_mode != 'max_lvc' %}
+          <div class="origin-config-bar"
                data-origin-recommendation
                data-product-code="{{ product.code }}"
                data-product-currency="{{ product.currency }}"
                data-override-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/recommendation-override">
-            <div class="origin-recommendation-summary">
-              <span class="origin-recommendation-eyebrow">Cấu hình bảng kê (form / tiêu chí / ngưỡng / tiền tệ)</span>
-              <strong>
-                {% if rec_form %}{{ rec_form_label or rec_form }}{% else %}<em class="meta">Chưa có thị trường để khuyến nghị</em>{% endif %}
-                {% if form_override and form_override != rec_form %}<span class="origin-recommendation-overridden">→ override: {{ form_override }}</span>{% endif %}
-              </strong>
-              <small>{{ rec_criteria or 'Chưa có tiêu chí khuyến nghị' }}{% if criteria_override %} <span class="origin-recommendation-overridden">→ override: {{ criteria_override }}</span>{% endif %}</small>
-            </div>
-            <div class="origin-recommendation-controls">
-              <label>Form
+            <div class="origin-config-controls">
+              <label class="origin-config-pill" title="Khuyến nghị: {{ rec_form_label or rec_form or 'n/a' }}">
+                <span>Form</span>
                 <select data-origin-recommendation-form>
-                  <option value="">— theo khuyến nghị ({{ rec_form or 'n/a' }}) —</option>
+                  <option value="">khuyến nghị ({{ rec_form or 'n/a' }})</option>
                   {% for form in co_form_options %}
                   <option value="{{ form.form_code }}" {% if form_override == form.form_code %}selected{% endif %}>{{ form.display_name or form.form_code }}</option>
                   {% endfor %}
                 </select>
               </label>
-              <label>Tiêu chí (override)
-                <input list="origin-criteria-options" data-origin-recommendation-criteria value="{{ criteria_override }}" placeholder="— theo khuyến nghị —">
+              <label class="origin-config-pill origin-config-pill-wide" title="Khuyến nghị: {{ rec_criteria or 'n/a' }}">
+                <span>Tiêu chí</span>
+                <input list="origin-criteria-options" data-origin-recommendation-criteria value="{{ criteria_override }}" placeholder="khuyến nghị">
               </label>
-              <label>Ngưỡng LVC/RVC (%)
-                <input type="number" min="0" max="100" step="0.01" data-origin-recommendation-threshold value="{{ lvc_threshold_override or rvc_threshold_override }}" placeholder="VD: 40">
+              <label class="origin-config-pill origin-config-pill-narrow">
+                <span>Ngưỡng %</span>
+                <input type="number" min="0" max="100" step="0.01" data-origin-recommendation-threshold value="{{ lvc_threshold_override or rvc_threshold_override }}" placeholder="auto">
               </label>
-              <label>Hiển thị
+              <label class="origin-config-pill">
+                <span>Tiền tệ</span>
                 <select data-origin-recommendation-currency>
                   <option value="native" {% if currency_mode == 'native' %}selected{% endif %}>Nguyên tệ ({{ product.currency or 'NT' }})</option>
                   <option value="vnd" {% if currency_mode == 'vnd' %}selected{% endif %}>VND</option>
                 </select>
               </label>
-              <label>Mode tối ưu
+              <label class="origin-config-pill">
+                <span>Tối ưu</span>
                 <select data-origin-recommendation-optimization>
-                  <option value="max_lvc" {% if optimization_mode == 'max_lvc' %}selected{% endif %}>Tăng LVC/RVC</option>
-                  <option value="min_lvc" {% if optimization_mode == 'min_lvc' %}selected{% endif %}>Giảm LVC/RVC</option>
+                  <option value="max_lvc" {% if optimization_mode == 'max_lvc' %}selected{% endif %}>↑ LVC/RVC</option>
+                  <option value="min_lvc" {% if optimization_mode == 'min_lvc' %}selected{% endif %}>↓ LVC/RVC</option>
                 </select>
               </label>
-              <button type="button" data-origin-recommendation-save>Lưu cấu hình</button>
-              <button type="button" class="btn-secondary" data-origin-recommendation-reset
-                      title="Xóa mọi override (form/tiêu chí/ngưỡng/tiền tệ/mode) và để engine tự khuyến nghị theo thị trường + HS hiện tại."
-                      {% if not (form_override or criteria_override or lvc_threshold_override or rvc_threshold_override or currency_mode != 'native' or optimization_mode != 'max_lvc') %}disabled{% endif %}>
-                Reset về khuyến nghị
-              </button>
-              <span class="origin-recommendation-status" data-origin-recommendation-status hidden></span>
+              <div class="origin-config-actions">
+                <button type="button" data-origin-recommendation-save>Lưu</button>
+                <button type="button" class="btn-secondary" data-origin-recommendation-reset
+                        title="Xóa mọi override và để engine tự khuyến nghị theo thị trường + HS hiện tại."
+                        {% if not has_any_override %}disabled{% endif %}>Reset</button>
+                <span class="origin-recommendation-status" data-origin-recommendation-status hidden></span>
+              </div>
+              <div class="origin-recommendation-effective" hidden data-origin-effective-summary>
+                <small>
+                  Hiệu lực: form <strong>{{ effective_form or 'n/a' }}</strong> ·
+                  tiêu chí <strong>{{ effective_criteria or 'n/a' }}</strong> ·
+                  ngưỡng LVC <strong>{{ effective_lvc_threshold or 'n/a' }}%</strong> ·
+                  ngưỡng RVC <strong>{{ effective_rvc_threshold or 'n/a' }}%</strong>
+                </small>
+              </div>
             </div>
-            <div class="origin-recommendation-effective" hidden data-origin-effective-summary>
-              <small>
-                Hiệu lực: form <strong>{{ effective_form or 'n/a' }}</strong> ·
-                tiêu chí <strong>{{ effective_criteria or 'n/a' }}</strong> ·
-                ngưỡng LVC <strong>{{ effective_lvc_threshold or 'n/a' }}%</strong> ·
-                ngưỡng RVC <strong>{{ effective_rvc_threshold or 'n/a' }}%</strong>
-              </small>
+            <div class="origin-config-metrics" data-origin-strip>
+              <span class="origin-metric-chip"><em>Bước</em> <strong>{{ product.allocation_sequence or loop.index }}</strong></span>
+              <span class="origin-metric-chip"><em>HS</em> <strong class="mono">{{ product.finished_hs }}</strong></span>
+              <span class="origin-metric-chip"><em>SL</em> <strong>{{ product.quantity|number(6) }}</strong> {{ product.unit or product.export_unit }}</span>
+              <span class="origin-metric-chip"><em>FOB</em> <strong class="num" data-origin-fob>{{ product.fob|number if product.fob else 'Thiếu' }}</strong> {{ product.currency }}</span>
+              <span class="origin-metric-chip"><em>VNM</em> <strong class="num" data-origin-vnm>{{ (product.vnm_value or product.non_origin_value or '0')|number }}</strong> {{ product.currency }}</span>
+              <span class="origin-metric-chip origin-metric-{{ lvc_metric_class }}" data-origin-lvc-cell title="{{ product.lvc_quality_warning_text or product.lvc_status_label or 'LVC' }}">
+                <em>LVC <small data-origin-live-flag hidden>(live)</small></em>
+                <strong class="num" data-origin-lvc>{{ product.lvc_percentage ~ '%' if product.lvc_percentage else product.lvc_status_label or 'Thiếu' }}</strong>{% if displayed_threshold %} / {{ displayed_threshold }}%{% if lvc_threshold_override or rvc_threshold_override %} <small class="origin-recommendation-overridden">(override)</small>{% endif %}{% endif %}
+              </span>
+              <span class="origin-metric-chip" title="{{ product.tariff_shift_note or product.origin_formula }}"><em>CTC</em> <strong>{{ product.tariff_shift_status_label or '—' }}</strong></span>
+              {% if product.origin_method_label %}
+              <span class="origin-metric-chip" title="{{ product.origin_formula }}"><em>Phương pháp</em> <strong>{{ product.origin_method_label }}</strong></span>
+              {% endif %}
             </div>
-          </div>
-
-          {% set lvc_metric_class = 'warning' if product.lvc_quality_warning_text else 'blocked' if product.lvc_status in ['missing_value', 'missing_bom'] else product.lvc_status %}
-          <div class="origin-product-strip" data-origin-strip>
-            <div><span>Thứ tự tính</span><strong>Bước {{ product.allocation_sequence or loop.index }}</strong></div>
-            <div><span>HS TP</span><strong class="mono">{{ product.finished_hs }}</strong></div>
-            <div><span>Số lượng invoice</span><strong>{{ product.quantity|number(6) }} {{ product.unit or product.export_unit }}</strong></div>
-            <div><span>FOB/trị giá TP</span><strong class="num" data-origin-fob>{{ product.fob|number if product.fob else 'Thiếu' }} <em>{{ product.currency }}</em></strong></div>
-            <div><span>VNM</span><strong class="num" data-origin-vnm>{{ (product.vnm_value or product.non_origin_value or '0')|number }} <em>{{ product.currency }}</em></strong></div>
-            <div class="origin-metric-{{ lvc_metric_class }}" data-origin-lvc-cell title="{{ product.lvc_quality_warning_text or product.lvc_status_label or 'LVC' }}">
-              <span>LVC <em data-origin-live-flag hidden>(live)</em></span>
-              <strong class="num" data-origin-lvc>{{ product.lvc_percentage ~ '%' if product.lvc_percentage else product.lvc_status_label or 'Thiếu trị giá' }}</strong>
-              {% if product.lvc_quality_warning_text %}<small>{{ product.lvc_status_label }}</small>{% endif %}
-            </div>
-            {% set displayed_threshold = effective_lvc_threshold or effective_rvc_threshold %}
-            <div class="origin-metric-{{ 'blocked' if not displayed_threshold or product.lvc_status in ['missing_value', 'missing_bom'] else 'ready' }}" title="{% if lvc_threshold_override or rvc_threshold_override %}Override per-sheet đang áp dụng.{% else %}Ngưỡng đến từ tiêu chí khuyến nghị.{% endif %}"><span>Ngưỡng</span><strong>{{ displayed_threshold ~ '%' if displayed_threshold else 'Thiếu ngưỡng' }}{% if lvc_threshold_override or rvc_threshold_override %} <em class="origin-recommendation-overridden">(override)</em>{% endif %}</strong></div>
-            <div><span>Trạng thái</span><strong>{{ product.lvc_status_label or 'Chưa tính' }}</strong></div>
-          </div>
-
-          <div class="origin-method-grid">
-            <div>
-              <span>Phương pháp</span>
-              <strong>{{ product.origin_method_label }}</strong>
-              <small>{{ product.origin_formula }}</small>
-            </div>
-            <div>
-              <span>Tiêu chí</span>
-              <strong>{{ product.documented_result or 'Cần tra cứu PSR' }}</strong>
-              <small>{{ product.origin_criterion_mode }}</small>
-            </div>
-            <div>
-              <span>CTC/PSR</span>
-              <strong>{{ product.tariff_shift_status_label or 'Không có CTC trong tiêu chí' }}</strong>
-              <small>{{ product.tariff_shift_note }}</small>
-            </div>
+            <details class="cost-buildup-block">
+              <summary>
+                <span class="cost-buildup-summary-label">Chi phí xuất xưởng (LVC/RVC)</span>
+                <small>6 chi tiết → II/III/VII của bảng kê. Lợi nhuận (V) tự suy phần dư nếu trống.</small>
+                <button type="button" class="btn-secondary cost-buildup-apply-btn"
+                        data-cost-buildup-apply
+                        data-product-code="{{ product.code }}"
+                        title="Lấy hệ số (Mode A theo mã TP, Mode B fallback) × FOB của sản phẩm">
+                  Áp hệ số
+                </button>
+              </summary>
+              <div class="cost-buildup-grid cost-buildup-grid-6">
+                <label>
+                  <span>Lương, thưởng (II.a)</span>
+                  <input type="number" step="0.01" min="0" inputmode="decimal"
+                         name="product_{{ product_index }}_cost_buildup_wages"
+                         value="{{ cost_buildup.wages or '' }}"
+                         data-cost-buildup-input data-cost-buildup-key="wages"
+                         placeholder="0.00">
+                </label>
+                <label>
+                  <span>Phúc lợi y tế (II.b)</span>
+                  <input type="number" step="0.01" min="0" inputmode="decimal"
+                         name="product_{{ product_index }}_cost_buildup_welfare"
+                         value="{{ cost_buildup.welfare or '' }}"
+                         data-cost-buildup-input data-cost-buildup-key="welfare"
+                         placeholder="0.00">
+                </label>
+                <label>
+                  <span>Thuê nhà xưởng (III.a)</span>
+                  <input type="number" step="0.01" min="0" inputmode="decimal"
+                         name="product_{{ product_index }}_cost_buildup_rent"
+                         value="{{ cost_buildup.rent or '' }}"
+                         data-cost-buildup-input data-cost-buildup-key="rent"
+                         placeholder="0.00">
+                </label>
+                <label>
+                  <span>Khấu hao, BH, BD (III.b)</span>
+                  <input type="number" step="0.01" min="0" inputmode="decimal"
+                         name="product_{{ product_index }}_cost_buildup_depreciation"
+                         value="{{ cost_buildup.depreciation or '' }}"
+                         data-cost-buildup-input data-cost-buildup-key="depreciation"
+                         placeholder="0.00">
+                </label>
+                <label>
+                  <span>CP SX chung khác (III.c)</span>
+                  <input type="number" step="0.01" min="0" inputmode="decimal"
+                         name="product_{{ product_index }}_cost_buildup_other_mfg"
+                         value="{{ cost_buildup.other_mfg or '' }}"
+                         data-cost-buildup-input data-cost-buildup-key="other_mfg"
+                         placeholder="0.00">
+                </label>
+                <label>
+                  <span>Vận chuyển, lưu kho (VII)</span>
+                  <input type="number" step="0.01" min="0" inputmode="decimal"
+                         name="product_{{ product_index }}_cost_buildup_transport_storage"
+                         value="{{ cost_buildup.transport_storage or '' }}"
+                         data-cost-buildup-input data-cost-buildup-key="transport_storage"
+                         placeholder="0.00">
+                </label>
+                <label class="cost-buildup-profit">
+                  <span>Lợi nhuận (V) <small>tự tính nếu để trống</small></span>
+                  <input type="number" step="0.01" min="0" inputmode="decimal"
+                         name="product_{{ product_index }}_cost_buildup_profit"
+                         value="{{ cost_buildup.profit or '' }}"
+                         data-cost-buildup-input data-cost-buildup-key="profit"
+                         placeholder="dư (FOB − chi phí)">
+                </label>
+              </div>
+              <p class="cost-buildup-hint" data-cost-buildup-hint></p>
+              <p class="cost-buildup-apply-status" data-cost-buildup-apply-status></p>
+            </details>
           </div>
 
           {% if product.origin_warning_summary %}
@@ -1566,6 +1480,43 @@
                 {% endfor %}
                 {% endif %}
                 {% endfor %}
+                {# Server-side render of added_* overrides. JS appends new rows
+                   live but they disappear after page reload unless we re-emit
+                   here. Export renderer also emits them — keep parity so the
+                   user can see + delete added rows after refresh. #}
+                {% for override_key, override in (product.origin_sheet_material_overrides or {}).items() %}
+                {% if override_key.startswith('added_') and not override.deleted %}
+                {% set added_counter = product.materials|length + loop.index %}
+                <tr data-origin-material-row
+                    data-origin-added-key="{{ override_key }}"
+                    class="origin-row-added">
+                  <td data-origin-column="row"><span class="mono">+{{ loop.index }}</span></td>
+                  <td data-origin-column="code">
+                    <button type="button"
+                            class="origin-material-code-btn origin-material-code-overridden"
+                            data-origin-substitute-trigger
+                            data-product-code="{{ product.code }}"
+                            data-row-index="{{ override_key }}"
+                            data-material-code="{{ override.material_code }}"
+                            data-current-norm="{{ override.norm_per_unit or '0' }}"
+                            data-current-hs="{{ override.hs_code or '' }}"
+                            title="Đã thêm tay — click để sửa/xoá">
+                      <span class="mono">{{ override.material_code or 'n/a' }}</span>
+                      <small class="origin-material-code-override-mark">(thêm tay)</small>
+                    </button>
+                  </td>
+                  <td data-origin-column="name">{{ override.name or '—' }}</td>
+                  <td data-origin-column="hs"><span class="mono">{{ override.hs_code or '' }}</span></td>
+                  <td data-origin-column="bom" class="num">{{ override.norm_per_unit or '' }} <small>{{ override.uom or '' }}</small></td>
+                  <td data-origin-column="consumed" class="num">—</td>
+                  <td data-origin-column="unit-value" class="num">—</td>
+                  <td data-origin-column="material-value" class="num">—</td>
+                  <td data-origin-column="origin"><span class="badge badge-warning">Chưa rõ</span></td>
+                  <td data-origin-column="non-origin" class="num">—</td>
+                  <td data-origin-column="source"><span class="badge badge-warning" title="Hàng thêm tay — không có dòng BCCT đối chứng">Thêm tay</span></td>
+                </tr>
+                {% endif %}
+                {% endfor %}
               </tbody>
             </table>
           </div>
@@ -1581,7 +1532,6 @@
         {% endfor %}
         </div>
       </div>
-    </section>
   </section>
 </form>
 {% endif %}
@@ -2749,7 +2699,7 @@
     });
   };
 
-  const storageKey = "barryCo.origin.hiddenColumns";
+  const storageKey = "barryCo.origin.hiddenColumns.v2";
   const columnWidths = {
     row: 3.1,
     code: 7.2,
@@ -2764,12 +2714,15 @@
     source: 11,
   };
   const optionalColumns = ["hs", "bom", "consumed", "unit-value", "material-value", "origin", "non-origin", "source"];
+  const defaultHiddenColumns = ["hs", "non-origin", "source"];
   const readHiddenColumns = () => {
     try {
-      const saved = JSON.parse(window.localStorage.getItem(storageKey) || "[]");
+      const raw = window.localStorage.getItem(storageKey);
+      if (raw === null) return new Set(defaultHiddenColumns);
+      const saved = JSON.parse(raw);
       return new Set(Array.isArray(saved) ? saved.filter((key) => optionalColumns.includes(key)) : []);
     } catch (_error) {
-      return new Set();
+      return new Set(defaultHiddenColumns);
     }
   };
   let hiddenColumns = readHiddenColumns();
