@@ -180,6 +180,33 @@ def _persist_case_row(client_id: str, record: dict, *, expected_revision: int | 
                 raise
 
 
+def _persist_case_supporting_files(client_id: str, record: dict) -> None:
+    """Phase 3.2 prereq — per-case wipe + rewrite of `co_supporting_files`.
+
+    Called by every mutator that touches `record["supporting_files"]`
+    (currently `save_supporting_file`; create/update don't normally
+    change file lists but call this for safety). Phase 2.5's save_state
+    no longer manages the table per-client, so this is the only place
+    the per-case file rows are kept in sync with the in-memory record.
+    """
+    from app.workflow_state_store import (
+        co_supporting_file_record,
+        get_co_case_state_store,
+    )
+
+    store = get_co_case_state_store()
+    if store is None:
+        return
+    case_id = record.get("case_id", "")
+    if not case_id:
+        return
+    files = [
+        co_supporting_file_record(client_id, case_id, file_row)
+        for file_row in record.get("supporting_files", []) or []
+    ]
+    store.save_case_supporting_files(client_id, case_id, files)
+
+
 def delete_case_record(client: dict, case_id: str, *, release_claims: bool = False) -> dict:
     """Delete a case record. Returns the deleted record + `claims_released`.
 
@@ -406,6 +433,8 @@ def save_supporting_file(
         record.setdefault("supporting_files", []).append(file_row)
         record["updated_at"] = uploaded_at
         save_state(client["id"], state)
+        _persist_case_row(client["id"], record)
+        _persist_case_supporting_files(client["id"], record)
         return dict(file_row)
 
 
@@ -986,51 +1015,37 @@ def write_json(path: Path, payload) -> None:
 
 @contextmanager
 def case_lock(client_id: str):
-    """Serialize load-mutate-save sequences against a client's case state.
+    """Same-host serialization for load-mutate-save sequences against a
+    client's case state.
 
-    Local file mode: fcntl.LOCK_EX on `data/cases/{client_id}/.lock` —
-    protects against same-host racers (single-server dev).
+    Phase 3.2 final: the Postgres advisory lock that this context manager
+    used to also acquire is gone. Per-case writes in Postgres mode now
+    rely entirely on:
 
-    Postgres mode: ALSO acquires a session-scoped advisory lock via the
-    workflow state store. This is the Phase 1 cross-process / cross-host
-    serialization that keeps two operators on the same client from
-    clobbering each other's payload while editing different cases
-    (audit gap HIGH #3 band-aid).
+    - `co_cases.revision` optimistic concurrency (Phase 2.1 + 2.2) for
+      the case rows themselves
+    - `co_supporting_files` per-case wipe + rewrite via
+      `save_case_supporting_files` (Phase 3.2 prereq) so two operators
+      uploading to different cases of the same client no longer touch
+      each other's file rows
+    - `co_stock_claims` FK with ON DELETE CASCADE (Phase 3.1) so any
+      delete that bypasses the application path can't strand claims
 
-    Status after Phase 2 + 3.1: the per-case race on `co_cases` is now
-    handled by optimistic concurrency on the `revision` column and FK
-    `co_stock_claims.case_id` → `co_cases` ON DELETE CASCADE. This
-    advisory lock is still held because `save_state` still wipes and
-    rewrites `co_supporting_files` per-client — two operators saving
-    different cases of the same client would clobber each other's
-    file rows without the lock. Removing the lock cleanly requires a
-    follow-up that promotes supporting_files to per-case writes (see
-    STATUS.md "Phase 3.2 prerequisite"). Until then, treat this as
-    defense-in-depth: optimistic concurrency is the primary mechanism,
-    case_lock is the safety net.
+    What's left is the local file lock — fcntl.LOCK_EX on
+    `data/cases/{client_id}/.lock`. It still matters for the file-mode
+    backend (single-server dev / tests without BARRY_DATABASE_URL),
+    and as a same-process belt-and-braces for the Postgres backend.
+    True cross-host serialization is no longer needed because every
+    Postgres write is per-case + optimistic.
     """
     root = case_root(client_id)
     root.mkdir(parents=True, exist_ok=True)
     lock_path = root / ".lock"
-    store = get_co_case_state_store()
-    db_lock_conn = None
     with lock_path.open("w") as lock_file:
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        if store is not None and hasattr(store, "acquire_client_lock"):
-            db_lock_conn = store.acquire_client_lock(client_id)
         try:
             yield
         finally:
-            if db_lock_conn is not None:
-                try:
-                    store.release_client_lock(client_id, db_lock_conn)
-                except Exception:  # noqa: BLE001
-                    # Release best-effort: connection close releases the
-                    # session-scoped lock anyway.
-                    try:
-                        db_lock_conn.close()
-                    except Exception:  # noqa: BLE001
-                        pass
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 

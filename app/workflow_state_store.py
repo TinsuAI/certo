@@ -514,12 +514,18 @@ class PostgresCoCaseStateStore:
                     client_id, case_id, expected_revision, int(current[0]) if current else 0
                 )
 
-    def delete_case(self, client_id: str, case_id: str) -> None:
-        """Remove a single case row + its supporting files. Phase 2.5 makes
-        this the canonical case-delete path; Phase 2.2 ships it for the
-        retry-loop and future cutover use without removing the legacy
-        save_state path.
+    def save_case_supporting_files(self, client_id: str, case_id: str, file_records: list[dict]) -> None:
+        """Replace `co_supporting_files` rows for a single case.
+
+        Phase 3.2 prereq: legacy `save_state` used to wipe + re-insert
+        every supporting file for the whole client, which races between
+        two operators editing different cases of the same client. This
+        method scopes the wipe to one case so per-case writes from
+        `create_case_record` / `update_case_record` no longer touch
+        other cases' rows.
         """
+        from psycopg.types.json import Jsonb
+
         self.ensure_schema()
         with connect(self.url) as connection:
             with connection.cursor() as cursor:
@@ -527,44 +533,8 @@ class PostgresCoCaseStateStore:
                     "delete from co_supporting_files where client_id = %s and case_id = %s",
                     (client_id, case_id),
                 )
-                cursor.execute(
-                    "delete from co_cases where client_id = %s and case_id = %s",
-                    (client_id, case_id),
-                )
-
-    def save_state(self, client_id: str, state: dict) -> None:
-        """Phase 2.5: drop `cases[]` from the persisted payload.
-
-        Per-case state lives in `co_cases` (written via
-        `save_case_record` / `delete_case`). `co_case_states.payload`
-        now keeps only the truly per-client bits: `origin_calculation_lock`,
-        `schema_version`, and anything else top-level that isn't a case.
-        Read path (`get_state`) re-hydrates `cases[]` from `co_cases`
-        rows, so the in-memory shape is unchanged for callers.
-
-        `co_supporting_files` still gets fully rewritten here so the
-        case-list page (which loads files by joining on case_id) stays
-        in sync; per-case file management migrates in a later pass.
-        """
-        from psycopg.types.json import Jsonb
-
-        self.ensure_schema()
-        supporting_files = co_supporting_file_records(client_id, state)
-        persisted_payload = {k: v for k, v in state.items() if k != "cases"}
-        with connect(self.url) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute("delete from co_supporting_files where client_id = %s", (client_id,))
-                cursor.execute(
-                    """
-                    insert into co_case_states (client_id, schema_version, payload, updated_at)
-                    values (%s, %s, %s, now())
-                    on conflict (client_id) do update set
-                      schema_version = excluded.schema_version,
-                      payload = excluded.payload,
-                      updated_at = now()
-                    """,
-                    (client_id, int(state.get("schema_version") or 1), Jsonb(persisted_payload)),
-                )
+                if not file_records:
+                    return
                 cursor.executemany(
                     """
                     insert into co_supporting_files (
@@ -593,10 +563,59 @@ class PostgresCoCaseStateStore:
                             row["invoice_no"],
                             row["bill_of_lading_no"],
                             Jsonb(row["payload"]),
-                            timestamp(row["uploaded_at"]),
+                            timestamp(row.get("uploaded_at")),
                         )
-                        for row in supporting_files
+                        for row in file_records
                     ],
+                )
+
+    def delete_case(self, client_id: str, case_id: str) -> None:
+        """Remove a single case row + its supporting files. Phase 2.5 makes
+        this the canonical case-delete path; Phase 2.2 ships it for the
+        retry-loop and future cutover use without removing the legacy
+        save_state path.
+        """
+        self.ensure_schema()
+        with connect(self.url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "delete from co_supporting_files where client_id = %s and case_id = %s",
+                    (client_id, case_id),
+                )
+                cursor.execute(
+                    "delete from co_cases where client_id = %s and case_id = %s",
+                    (client_id, case_id),
+                )
+
+    def save_state(self, client_id: str, state: dict) -> None:
+        """Phase 3.2 prereq: save_state only writes the per-client
+        payload now — both `co_cases` (since Phase 2.4) and
+        `co_supporting_files` (since this commit) are managed per-case
+        by `save_case_record` / `save_case_supporting_files` /
+        `delete_case`. Two operators editing different cases of the
+        same client therefore no longer collide on any row written
+        from here, which clears the path to drop the case_lock band-aid.
+
+        Per-case mutators (`create_case_record`,
+        `save_supporting_file`) call into `save_case_supporting_files`
+        explicitly with the merged file set for that case.
+        """
+        from psycopg.types.json import Jsonb
+
+        self.ensure_schema()
+        persisted_payload = {k: v for k, v in state.items() if k != "cases"}
+        with connect(self.url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    insert into co_case_states (client_id, schema_version, payload, updated_at)
+                    values (%s, %s, %s, now())
+                    on conflict (client_id) do update set
+                      schema_version = excluded.schema_version,
+                      payload = excluded.payload,
+                      updated_at = now()
+                    """,
+                    (client_id, int(state.get("schema_version") or 1), Jsonb(persisted_payload)),
                 )
 
 

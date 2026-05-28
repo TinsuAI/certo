@@ -3242,13 +3242,16 @@ def test_origin_sheet_substitute_row_persists_override_and_marks_stale():
 
 
 def test_case_lock_serializes_concurrent_save_state_on_postgres():
-    """Phase 1: with Postgres, two operators editing different cases of the
-    same client must not clobber each other. case_lock acquires a
-    session-scoped pg_advisory_lock for the client, so the second
-    `with case_lock(...)` blocks until the first commits.
+    """Two operators editing different cases of the same client must not
+    clobber each other. After Phase 3.2 final, case_lock is file-only
+    (fcntl.LOCK_EX), which still serializes within a single host;
+    cross-host safety comes from per-case co_cases optimistic
+    concurrency on `revision` and per-case co_supporting_files writes.
+    This test pins the single-host invariant by running both writers in
+    a single process — under the file lock, they take turns; both
+    mutations persist.
 
-    Skipped without a DB (the file-mode fcntl.LOCK_EX path is already
-    covered by single-threaded test_co_demo paths).
+    Skipped without a DB.
     """
     import threading
     import time
