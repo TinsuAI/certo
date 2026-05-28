@@ -943,9 +943,13 @@ def create_dossier_zip(
     """
     import zipfile
     case_code = (case.get("case_code") or "co-case").strip() or "co-case"
+    archives = declaration_archives or {}
     stream = BytesIO()
     with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("00-README.md", build_dossier_readme(case, tkx_tkn_summary))
+        zf.writestr(
+            "00-README.md",
+            build_dossier_readme(case, tkx_tkn_summary, embedded_declaration_archives=bool(archives)),
+        )
         zf.writestr(
             f"01-bang-ke/{case_code}-bang-ke-HQ.xlsx",
             create_hq_bang_ke_workbook(case),
@@ -960,9 +964,12 @@ def create_dossier_zip(
             zf.writestr(archive_name, bytes(content))
         zf.writestr(
             "03-to-khai/MANIFEST.md",
-            _build_declarations_manifest(case, tkx_tkn_summary, data_hub_base_url),
+            _build_declarations_manifest(
+                case, tkx_tkn_summary, data_hub_base_url,
+                embedded=bool(archives),
+            ),
         )
-        for archive_path, blob in (declaration_archives or {}).items():
+        for archive_path, blob in archives.items():
             if isinstance(blob, (bytes, bytearray)):
                 zf.writestr(f"03-to-khai/{archive_path}", bytes(blob))
     return stream.getvalue()
@@ -974,17 +981,32 @@ def _slugify(text: str) -> str:
     return cleaned or "other"
 
 
-def _build_declarations_manifest(case: dict, summary: dict, data_hub_base_url: str) -> str:
+def _build_declarations_manifest(
+    case: dict,
+    summary: dict,
+    data_hub_base_url: str,
+    *,
+    embedded: bool = False,
+) -> str:
     from urllib.parse import quote
     case_code = case.get("case_code") or case.get("id") or "co-case"
     client_id = case.get("client_id") or ""
+    if embedded:
+        intro = [
+            "Danh sách TKX (xuất) và TKN (nhập) tham chiếu trong hồ sơ.",
+            "Bộ file tờ khai thực đã được nhúng trong thư mục `03-to-khai/TKX/`",
+            "và `03-to-khai/TKN/`. Bảng kê dưới đây để đối chiếu nhanh.",
+        ]
+    else:
+        intro = [
+            "Danh sách TKX (xuất) và TKN (nhập) được hồ sơ tham chiếu. Bộ file tờ khai",
+            "chưa được nhúng trực tiếp vào ZIP — bấm các link dưới để tải về từ Data Hub",
+            "(yêu cầu đã đăng nhập Data Hub trong cùng browser).",
+        ]
     lines = [
         f"# Tờ khai tham chiếu — hồ sơ {case_code}",
         "",
-        "Danh sách TKX (xuất) và TKN (nhập) được hồ sơ tham chiếu. Khi Data Hub bổ sung",
-        "endpoint Bearer-aware cho download.zip thì các blob sẽ được nhúng trực tiếp",
-        "vào thư mục `03-to-khai/`; tạm thời bộ liệt kê + link dưới đây để operator",
-        "tải thủ công 1 lần.",
+        *intro,
         "",
     ]
 
@@ -1026,11 +1048,21 @@ def _build_declarations_manifest(case: dict, summary: dict, data_hub_base_url: s
     return "\n".join(lines)
 
 
-def build_dossier_readme(case: dict, tkx_tkn_summary: dict | None = None) -> str:
+def build_dossier_readme(
+    case: dict,
+    tkx_tkn_summary: dict | None = None,
+    *,
+    embedded_declaration_archives: bool = False,
+) -> str:
     summary = tkx_tkn_summary or {}
     tkx_count = len(summary.get("tkx") or [])
     tkn_count = len(summary.get("tkn") or [])
     missing = len(summary.get("missing_tkx") or []) + len(summary.get("missing_tkn") or [])
+    declaration_section = (
+        "- `03-to-khai/TKX/…zip`, `03-to-khai/TKN/…zip` — File tờ khai đã nhúng sẵn."
+        if embedded_declaration_archives
+        else "- `03-to-khai/<direction>/…` — File tờ khai (sẽ tự nhúng khi Data Hub bật endpoint Bearer-aware)."
+    )
     lines = [
         f"# Hồ sơ C/O — {case.get('case_code', '')}",
         "",
@@ -1045,7 +1077,7 @@ def build_dossier_readme(case: dict, tkx_tkn_summary: dict | None = None) -> str
         "- `01-bang-ke/…-bang-ke-HQ.xlsx` — Bảng kê C/O theo template HQ.",
         "- `02-chung-tu/NN-<slot>-<tên file>` — Chứng từ upload ở bước 2 (BL, Invoice, Packing, …) đã đánh số.",
         "- `03-to-khai/MANIFEST.md` — Danh sách TKX/TKN + link Data Hub để tải file tờ khai.",
-        "- `03-to-khai/<direction>/…` — File tờ khai (xuất hiện khi Data Hub bật endpoint Bearer-aware).",
+        declaration_section,
         "",
         "## Lưu ý",
         "",

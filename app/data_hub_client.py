@@ -134,6 +134,38 @@ class DataHubClient:
             },
         )
 
+    def download_declarations_zip(
+        self,
+        client_id: str,
+        *,
+        direction: str,
+        declaration_nos: list[str],
+        filename: str = "",
+    ) -> bytes:
+        """Bearer-aware bulk download of declaration files, returned as raw
+        ZIP bytes for inclusion in CO's consolidated dossier export.
+
+        Contract: `barry-CO-main/.ai/api-requests/2026-05-28-bcct-declarations-download-bearer.md`.
+
+        Raises httpx.HTTPStatusError on non-200. Callers fall back to
+        manifest-link mode in the dossier ZIP when this endpoint isn't yet
+        deployed (Data Hub returns 404 on the path until they ship the
+        cookie→Bearer wrapper)."""
+        if direction not in ("import", "export"):
+            raise ValueError("direction must be 'import' or 'export'")
+        if not declaration_nos:
+            raise ValueError("declaration_nos is required")
+        path = f"/v1/hub/clients/{hub_path_part(client_id)}/declarations/download.zip"
+        params = {
+            "direction": direction,
+            "declaration_nos": ",".join(list(declaration_nos)[:500]),
+        }
+        if filename:
+            params["filename"] = filename
+        response = self._client.get(path, params=params, headers=self._auth_headers())
+        response.raise_for_status()
+        return response.content
+
     def list_products(self, client_id: str) -> list[dict]:
         return self._get_all("/v1/hub/products", {"client_id": client_id})
 
