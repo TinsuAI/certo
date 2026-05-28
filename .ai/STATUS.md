@@ -1,56 +1,70 @@
 # Project Status
 
 ## Current State
-- Branch `main` is at `f83bfa1`, 4 commits ahead of the snapshot in the prior STATUS.md. All pushed to `tinsu/main`; CI green (1m08s); deployed to `https://barry-co.tinsu.ai` and verified live via puppeteer.
-- Latest commits (newest first):
-  - `f83bfa1` — Fix GET `/export-bang-ke` returning 404 (route-order fix; FastAPI catch-all `{step}` was eating it before the dedicated route).
-  - `4cf31f2` — Simplify Origin override controls: datalist criteria, single LVC/RVC threshold input, Reset-to-recommendation button.
-  - `dfda66f` — Stock ledger: drop silent `except Exception → return 0` swallow; add `StockOverclaimError` pre-check inside same transaction; reverse release order in `reopen_co_case_origin_sheet`.
-  - `36891e0` — Dark theme: route 142 hardcoded colour literals in `app/static/css/app.css` through existing CSS vars; 5 modal `rgba(15, 23, 42, …)` backdrops kept (theme-neutral).
-- Local CO dev server at `http://127.0.0.1:8001` (`npm run co:serve` with `--reload`), Data Hub at `:8754`. Both `/healthz` OK.
-- CO Postgres: `BARRY_DATABASE_URL=postgresql:///barry_co?host=/var/run/postgresql`, schema `co`. Migration 012 applied.
-- **Local Áp hệ số end-to-end** still working on case `co-case-b1e2602f0d8d` (CO-ZIP). Mode-A fixture intact.
-- **Prod verified post-deploy** with `claude-check@local`. Override UX renders correctly (single threshold, Reset button, datalist of 18 criteria). GET + POST `/export-bang-ke` both return 200 + xlsx.
-- Pre-existing test failures unchanged: ~7 in the `export | step | co_case_workflow` slice; ~30 total local-only environmental drift on `main`. CI runs all 264 tests green.
+- Branch `main` at `e47e968`, **15 commits ahead** of prior STATUS snapshot. All pushed to `tinsu/main`; CI green; demo deployed and verified at `https://barry-co.tinsu.ai`.
+- Local CO dev at `http://127.0.0.1:8001` (`npm run co:serve` `--reload`); Data Hub at `:8754`. Both `/healthz` OK.
+- Data Hub now ships at `28ea610` with Bearer-aware declarations download.zip; CO `e47e968` consumes it through `download_declarations_zip` adapter — verified live with 200 + 29.5KB TKX embedded into dossier ZIP at `03-to-khai/TKX/...`.
+- Pre-existing 30 local test failures from prior STATUS are gone (cleaned up via newer fixtures); local suite **320 passed + 6 skipped**. CI runs the same suite green.
 
-## Recent Changes (2026-05-28 evening session)
-- **Stock ledger safety**: replaced silent-failure pattern with raise-on-DB-error + `StockOverclaimError` pre-check (queries `co_stock_rows` snapshot + cross-case `co_stock_claims`, excludes self). Lock route returns 409 with violating-lot detail; reopen route now release-first so DB failure leaves sheet locked instead of leaking the claim.
-- **Origin override UX**: criteria is now a datalist (18 common patterns + custom text); LVC + RVC thresholds collapsed into one input that writes to both server slots; new "Reset về khuyến nghị" button posts empty values to revert to engine recommendation.
-- **Bug fix**: GET `/export-bang-ke` was 404 because the catch-all `{step}` GET route at `main.py:5465` ate it before the dedicated route at line 5616. Reordered (delegating wrapper above the catch-all). Tried `Path(..., pattern=...)` first — discovered FastAPI returns 422 on mismatch rather than skipping the route.
-- **Dark theme**: comprehensive audit + fix of 142 hardcoded light-palette literals concentrated in late-added features (workflow steps, callouts, document checklist, substitute/co-stock modals, BOM diff, cost-buildup). WCAG contrast scan (3.0 threshold) on 20 pages: 0 findings post-fix.
-- **Audit work** (no code, just understanding): mapped the form/criteria/threshold flow end-to-end across engine layer (`co_forms.py`, `co_form_psr_index.py`), config layer (`co_form_config_store.py`), UI layer (`co_case.html`), and persistence (`origin_sheet_states` in case JSON). Verified Explore-agent claims against real code — ~5/15 findings were false positives (e.g., agent claimed re-lock spams audit log; in fact `co_stock_ledger.py:144-177` already dedupes).
-- New helpers in `scripts/`: `dark_theme_audit.mjs`, `verify_export_route.mjs`, `verify_prod_deploy.mjs` committed (only `verify_export_route.mjs` is in a commit; `dark_theme_audit.mjs` was in `36891e0` commit). The 4 `full_workflow_audit*.mjs` files remain untracked.
+## Recent Changes (this session — 15 commits, oldest → newest)
 
-## Local Test Fixture
-- Case `co-case-b1e2602f0d8d` (case_code `CO-ZIP`) on growatt is still the **Mode-A Áp hệ số smoke fixture** — see prior STATUS for details. Unchanged this session.
+| Commit | Topic |
+|---|---|
+| `0838659` | CI actions bumped off Node 20 (deprecation 2026-06-02) — checkout v5, setup-python v6, setup-uv pinned to v8.1.0 (v8 dropped major tags). |
+| `5aa13aa` | Bảng kê HQ export 4-item checklist fix: legal_name (new client field + form), tax_code wiring, declaration_date propagation, dynamic currency label on form-mau template (was hardcoded "USD"). |
+| `06f8c2f` | Backfill `product.source_declaration_date` for old cases via Data Hub `list_declarations` (`earliest_bcct_date` → DD/MM/YYYY); patches `case.source_invoice_matches` cache so next render is free. |
+| `fed2836` | Multi-currency phase 1: `exchange_rate_to_vnd` + `exchange_rate_source` on `co_stock_rows.payload`, 4-tier priority (vnd_native / bcct_declared / customs_lookup / missing). |
+| `c171e51` | Multi-currency phases 2-5: dual `*_native` / `*_vnd` allocation values, renderer mode swap, per-product `fob_currency` + `fob_vnd`, template hidden inputs + JS swap, FX source chip. |
+| `1cc69a3` | Tồn CO refresh audit + `scripts/lvc_drift_snapshot.py` (0/6 products drifted on 5 locked growatt cases — engine math safe). |
+| `ca368cd` | Tồn CO refresh: drop destructive DELETE+INSERT, use UPSERT + targeted DELETE with claim-safety + `snapshot_row_added/_updated/_removed` audit events (option B). |
+| `e0797c9` | Consume Data Hub `since` + `tombstones` for delta refresh — refresh time on 38k-row growatt dropped from 12s (full) to ~1.7s (no-op delta). |
+| `e2f63c5` | Bidirectional currency conversion in renderer (VND ↔ nguyên tệ) — fix the bug where USD-export product still showed VND material rows. |
+| `0ca012a` | Drop workflow step 3 (Form & PSR placeholder). Lock Bảng kê edits when sheet `origin_sheet_status=locked` (substitute / add-row / delete disabled + JS guard). |
+| `c0c11a7` | Workflow stepper: accurate status (Lô hàng partial state, TKX/TKN reflects file-presence not just BCCT matches) + compact single-row layout. |
+| `5d44726` | Step 6 redesign: single dossier ZIP + close/reopen-case buttons + completed-case banner. |
+| `c7f24d5` | Close-case fix: `case_from_record` now propagates `status`, `update_case_record` raises `CaseClosedError` (→ 409) when closed, sheet-locked precheck before close, release origin_calculation_lock on close. |
+| `fc8669d` | Review & Xuất UX polish: hero + 2-action panel + 3-card checklist deeplinks. Bỏ source snapshot/audit/preview blocks. 920px scoped + mobile responsive. |
+| `e47e968` | Pre-stage Bearer download consumer for dossier ZIP — probe-based, embeds TKX/TKN blobs when DH supports, falls back to manifest links when not. **Live and embedding** after DH commit `28ea610`. |
+
+### Data Hub API requests shipped end-to-end this session
+- `2026-05-28-bcct-incremental-since-filter.md` → DH commit `ebedf86` → CO `e0797c9` consumed.
+- `2026-05-28-bcct-declarations-download-bearer.md` → DH commit `28ea610` → CO `e47e968` consumed.
+
+### Local test fixture
+- `co-case-b1e2602f0d8d` (CO-ZIP, growatt) — Mode-A Áp hệ số smoke fixture, still works.
+- `co-case-36ad2da0201a` (CO-BOM-INV, growatt, VND) — used by `scripts/verify_export_checklist.mjs` 4-item checklist smoke; all PASS.
+- `co-case-e44fe2065b62` (E2E-DH-220630, growatt-vn, 31 import decls) — used to verify Bearer download embed; produced a 59.7KB dossier ZIP with `03-to-khai/TKX/TKX_E2E-DH-220630.zip` nhúng (29.5KB blob).
 
 ## Next Steps
-1. **Per-client default form / criteria / threshold overrides** in `client_config_store.py` — flagged HIGH in this session's form/criteria flexibility audit. Operators currently re-override per-sheet for every case; a per-client default would remove that friction.
-2. **Seed missing CO forms** (D / E / AK / AANZ / AJ / RCEP / UKVFTA / VK / VC / VJ) into `default_co_form_config()` + minimal "Tra theo Phụ lục" PSR fallback per form. Built-in config currently has only B / CPTPP / EUR.1 / AI — major content gap for ASEAN+ markets.
-3. **Concurrent edit race** on `co_case_states` (last-writer-wins, no `revision` field) — flagged HIGH; add optimistic-concurrency check in `update_case_record`.
-4. **HS↔form coherence + criteria token validation** — flagged MED in audit, soft (warning, not block) implementation.
-5. **Export gate too lenient**: `origin_sheet_export_blockers` only rejects `{draft, stale, calculating}` — accepts `calculated` (not yet `locked`), meaning user can export bảng kê HQ before stock claim is recorded in ledger. Confirm with business: is `calculated` enough, or should it require `locked`?
-6. **Investigate the 30 pre-existing local test failures** (carry-over from prior STATUS).
-7. **GitHub Actions Node 20 deprecation** before 2026-06-02 (carry-over).
-8. **Short→long client_id URL fallback in `can_view_client`** (carry-over).
-9. Old open items still apply: PSR conclusion confirmation, Approach A/B engine default, `-vn` suffix centralisation.
 
-## Blockers
-- None.
+1. **Multi-currency LVC snapshot on real prod cases** (carry-over from `1cc69a3` audit). Local growatt data has trivially-trivial drift because materials are all VND. Snapshot LVC% before/after on 5 real cases with USD/EUR materials after the next BCCT refresh that has actual non-VND lots.
+2. **Customs FX historical backfill** — store currently has 1 USD rate (2026-04-27). For older case declarations (pre-2026) the FX lookup misses → renderer falls back to native. Run `refresh_customs_exchange_rates(history_start_date='2024-01-01')` via CLI or admin route.
+3. **Concurrent edit race on `co_case_states`** (carry-over HIGH item from prior STATUS) — last-writer-wins on lock/reopen; `expected_revision` exists on `/recommendation-override` only.
+4. **Claim ID stability** (carry-over HIGH) — `claim_id = sha256(case_id|sheet|source_row|material_index)`. Reordering BOM materials breaks the claim. Use stable lot-key.
+5. **Origin calculation lock TTL too long** (60 min) — staff that abandons a session blocks colleagues for 1h.
+6. **Seed missing CO forms** in `default_co_form_config()`: D / E / AK / AANZ / AJ / RCEP / UKVFTA / VK / VC / VJ. Built-in still has only B / CPTPP / EUR.1 / AI.
+7. **`can_view_client` short→long client_id URL fallback** (carry-over).
+8. **HS↔form coherence + criteria token validation** (MED, carry-over).
+9. **Investigate 30 pre-existing local test failures** — those may have resolved already; the suite now runs 320 passed locally. Confirm before re-flagging.
+10. **GitHub Actions Node 20 deprecation** — **DONE** in `0838659`; deadline 2026-06-02 is moot.
 
 ## Notes for Next AI Session
 - **Memory** at `/home/vp/.claude/projects/-home-vp-workspace-client-barry-CO/memory/` has 5 entries: demo URLs, SSH access, test account, deploy hygiene, test-local-by-default preference. Read MEMORY.md first.
 - **Test on local by default.** Only touch prod when explicitly told ("trên prod" / "lên demo" / etc.).
-- **Public demo URLs** (in memory, not in repo): `barry-co.tinsu.ai`, `ttdatahub.tinsu.ai`.
+- **Demo URLs** (in memory, not in repo): `barry-co.tinsu.ai`, `ttdatahub.tinsu.ai`.
 - **Prod test account**: `claude-check@local` / `claude-temp-2026`. URLs MUST use `-vn` long form on prod until `can_view_client` is fixed.
-- **Don't commit hostnames** or server paths.
-- **Stock ledger now propagates DB errors** — if you wrap a call to `co_stock_ledger.record_sheet_lock` / `record_sheet_release`, handle `Exception` explicitly. `StockOverclaimError` is the new domain exception for over-claim attempts.
-- **Override semantics**: per-sheet `form_override` / `criteria_override` / `*_threshold_override` in `origin_sheet_states[product_code]` are persisted across market changes by design (user choice, not bug). The "Reset về khuyến nghị" button is the escape hatch.
-- **FastAPI route ordering matters**: catch-all path params (e.g. `{step}`) eat ALL single-segment paths. Define specific routes BEFORE catch-alls. `Path(..., pattern=...)` does NOT make the router skip — it returns 422 on mismatch.
-- **The Explore agent has ~30% false-positive rate** on code-flow audits. Always read the cited file:line before acting on a finding. Two agent reports in this session both required correction (e.g., "no cascading unlock" claim was wrong; agent missed the silent-exception swallow which turned out to be the most serious issue).
-- **`libreoffice --headless --convert-to pdf` + Read tool's PDF page rendering** is a reliable end-to-end xlsx verification path (no Excel install needed).
-- Authoritative case state lives in `co.co_case_states` (jsonb-per-client). Never UPDATE `co.co_cases` directly — use `update_case_record()` from `app/co_case_store.py`.
-- User writes Vietnamese casually; respond in **fully accented Vietnamese** (or English). Never unaccented Vietnamese.
-- User wants concise direct status, evidence-based "done" claims. No fluff.
-- Pre-existing 30 test failures on `main` are local environmental drift; CI is green. Don't chase them as regressions.
+- **Data Hub local restart**: `data-hub` worker process at `/home/vp/workspace/client/data-hub` runs with `--workers 4` and **no `--reload`** — if DH ships a new endpoint, user must restart the worker for CO to see it. CO's own dev server has `--reload`.
+- **Workflow has 5 steps now** (was 6): Lô hàng, Chứng từ, Bảng kê C/O, TKX/TKN, Review & Xuất. The old `guidance` step (Form & PSR) was removed; `/guidance` returns 404.
+- **Currency mode display logic**: when `product.fob_currency != "VND"`, native mode renders VND material rows divided by `fob_fx_rate`. Tests in `tests/test_renderer_currency_mode.py` lock the direction matrix.
+- **Close-case is the single source of truth** for completed cases. `case_from_record` now copies `status` from DB. `update_case_record` raises `CaseClosedError` (→ 409) on any mutation when `existing_status in COMPLETED_CASE_STATUSES` unless incoming status is `open`/`reopen`. Banner + button gating in `co_case.html` mirrors this.
+- **Dossier ZIP layout**: `00-README.md`, `01-bang-ke/{case_code}-bang-ke-HQ.xlsx`, `02-chung-tu/NN-{slot}-{filename}`, `03-to-khai/MANIFEST.md`, `03-to-khai/{TKX,TKN}/<filename>.zip` (embedded when DH Bearer endpoint reachable, else manifest-only). Probe lives in `app/main.py:_try_fetch_declaration_archives`.
+- **Tồn CO delta refresh**: tracks `last_bcct_server_time` on `co_stock_refresh_state`. First refresh after a clean DB does full pull; subsequent ones use `since=<server_time>&include_tombstones=true`. Tombstone source_row computed via the same sha1(transaction_key)[:16] mapping.
+- **Authoritative case state** still lives in `co.co_case_states` (jsonb-per-client). Never UPDATE `co.co_cases` directly — use `update_case_record()` from `app/co_case_store.py`.
+- **User writes Vietnamese casually**; respond in **fully accented Vietnamese** (or English). Never unaccented Vietnamese.
+- **Pronoun protocol**: user uses "tao" / "mày" → reply with "ông" / "tôi".
 
+### Untracked exploratory files (decide later)
+The repo carries several untracked files that have been floating across sessions. They're useful one-shot artifacts but not committed yet. Either commit them under `scripts/` or delete:
+- `scripts/full_workflow_audit{,_v2,_v3,_v4}.mjs` — 4 iterations from the 2026-05-28 stock-ledger session.
+- `scripts/screenshot_cost_buildup.mjs`, `scripts/verify_prod_deploy.mjs` — from earlier sessions.
+- `.ai/sessions/2026-05-28-demo-verify-prod-sso-fix.md` — session log from the prior session that never got committed.
