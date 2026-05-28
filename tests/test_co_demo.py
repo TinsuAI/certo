@@ -2406,8 +2406,8 @@ def test_cached_origin_context_loads_live_bom_artifact_options(monkeypatch):
 
     assert origin.status_code == 200
     assert 'value="bom-artifact-2" selected' in origin.text
-    assert "#1 · 122 dòng · published" in origin.text
-    assert "#2 · 368 dòng · current" in origin.text
+    assert "#1 · 122 dòng" in origin.text
+    assert "#2 · 368 dòng" in origin.text
 
 
 def test_co_case_origin_uses_data_hub_material_identity_for_bom_code():

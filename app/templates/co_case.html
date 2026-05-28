@@ -949,19 +949,57 @@
           {% set bom_lookup_code = product.bom_product_code or product.code %}
           {% set bom_options = bom_workspace.product_version_options_by_code.get(bom_lookup_code, []) %}
           {% set selected_bom_artifact_id = product.bom_product_artifact_id or product.bom_product_version_id %}
+          {% set bom_kind_short = {
+              'manual_flat': 'manual-flat',
+              'technical_flattened': 'technical-flat',
+              'technical_non_flattened': 'technical-raw',
+              'co_modified': 'co-edit',
+              'staff_edit': 'staff-edit',
+              'customs_filing': 'customs-filed',
+          } %}
+          {% set bom_state_glyph = {
+              'needs_refresh': '⟳',
+              'needs_input': '?',
+              'broken': '✕',
+          } %}
+          {% set bom_state_label = {
+              'needs_refresh': 'Cần refresh',
+              'needs_input': 'Thiếu input',
+              'broken': 'Lỗi',
+          } %}
+          {% set selected_bom_option = namespace(value=none) %}
+          {% for option in bom_options %}{% if (option.product_artifact_id or option.product_version_id) == selected_bom_artifact_id %}{% set selected_bom_option.value = option %}{% endif %}{% endfor %}
           <div class="origin-sheet-toolbar">
             <div class="origin-sheet-toolbar-main">
               <strong class="origin-sheet-status-pill origin-sheet-state-{{ product.origin_sheet_status or 'draft' }}" title="Trạng thái sheet">{{ product.origin_sheet_status_label or 'Chưa tính' }}</strong>
               <label class="product-bom-picker {% if not bom_options %}product-bom-picker-missing{% endif %}" title="TP artifact (BOM)">
                 <select name="product_{{ product_index }}_bom_product_artifact_id" data-bom-version-select data-origin-step-input data-origin-step-index="{{ product_index }}">
                   {% for option in bom_options %}
-                  <option value="{{ option.product_artifact_id or option.product_version_id }}" {% if (option.product_artifact_id or option.product_version_id) == selected_bom_artifact_id %}selected{% endif %}>#{{ option.product_artifact_no or option.product_version_no }} · {{ option.row_count }} dòng · {{ option.status }}</option>
+                  {% set opt_kind = bom_kind_short.get(option.source_bom_kind, option.source_bom_kind or 'data-hub') %}
+                  {% set opt_variant = option.bom_variant_id or 'default' %}
+                  {% set opt_state = option.state or 'clean' %}
+                  {% set opt_glyph = bom_state_glyph.get(opt_state, '') %}
+                  {% set opt_date = (option.published_at or '')[:10] %}
+                  <option value="{{ option.product_artifact_id or option.product_version_id }}" {% if (option.product_artifact_id or option.product_version_id) == selected_bom_artifact_id %}selected{% endif %}>#{{ option.product_artifact_no or option.product_version_no }} · {{ option.row_count }} dòng{% if opt_date %} · {{ opt_date }}{% endif %} · {{ opt_kind }}{% if opt_variant != 'default' %} · v:{{ opt_variant }}{% endif %}{% if opt_glyph %} · {{ opt_glyph }}{% endif %}</option>
                   {% endfor %}
                   {% if not bom_options %}
                   <option value="{{ selected_bom_artifact_id }}">{% if product.bom_product_artifact_no or product.bom_product_version_no %}#{{ product.bom_product_artifact_no or product.bom_product_version_no }}{% else %}❗ Chưa có BOM{% endif %}</option>
                   {% endif %}
                 </select>
               </label>
+              {% if selected_bom_option.value %}
+              {% set sel = selected_bom_option.value %}
+              {% set sel_kind = bom_kind_short.get(sel.source_bom_kind, sel.source_bom_kind or '') %}
+              {% set sel_variant = sel.bom_variant_id or 'default' %}
+              {% set sel_state = sel.state or 'clean' %}
+              {% set sel_stale_reasons = (sel.stale_reasons or [])|join(', ') %}
+              <div class="product-bom-picker-meta" title="{{ sel.human_label or sel.display_label or '' }}">
+                {% if sel_kind %}<span class="bom-meta-pill bom-meta-kind">{{ sel_kind }}</span>{% endif %}
+                {% if sel.flatten_strategy and sel.flatten_strategy not in ('manual_flat_as_provided', 'no_strategy') %}<span class="bom-meta-pill">{{ sel.flatten_strategy|replace('_', '-') }}</span>{% endif %}
+                {% if sel_variant != 'default' %}<span class="bom-meta-pill bom-meta-variant">v:{{ sel_variant }}</span>{% endif %}
+                {% if sel_state != 'clean' %}<span class="bom-meta-pill bom-meta-state bom-meta-state-{{ sel_state }}" title="{{ sel_stale_reasons }}">{{ bom_state_label.get(sel_state, sel_state) }}</span>{% endif %}
+              </div>
+              {% endif %}
               <div class="origin-sheet-actions">
                 <button type="submit" data-origin-sheet-calculate formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/calculate" formmethod="post" {% if origin_actions_blocked or not product.origin_can_calculate %}disabled title="{{ 'Khách hàng đang có hồ sơ khác giữ phiên tính tồn' if origin_actions_blocked else product.origin_calculate_block_reason }}"{% else %}title="Nạp BOM artifact đang chọn vào bảng kê (ghi đè chỉnh sửa client-side chưa lưu)"{% endif %}>Load BOM</button>
                 {% if product.origin_sheet_status == 'locked' %}

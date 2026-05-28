@@ -2904,6 +2904,56 @@ small,
   text-transform: none;
 }
 
+.product-bom-picker-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  margin-left: 0.35rem;
+}
+
+.bom-meta-pill {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--surface-2, #e9ecef);
+  color: var(--foreground-muted, #495057);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  line-height: 1.4;
+  border: 1px solid transparent;
+}
+
+.bom-meta-pill.bom-meta-kind {
+  background: #e7f1ff;
+  color: #0b5fbf;
+}
+
+.bom-meta-pill.bom-meta-variant {
+  background: #f3e8ff;
+  color: #6f2dbd;
+}
+
+.bom-meta-pill.bom-meta-state-needs_refresh {
+  background: #fff3cd;
+  color: #7a5b00;
+  border-color: #ffe69c;
+}
+
+.bom-meta-pill.bom-meta-state-needs_input {
+  background: #ffe5d0;
+  color: #8a3f00;
+  border-color: #ffc89a;
+}
+
+.bom-meta-pill.bom-meta-state-broken {
+  background: #f8d7da;
+  color: #842029;
+  border-color: #f1aeb5;
+}
+
 .origin-sheet-product-line {
   display: flex;
   align-items: baseline;
