@@ -92,6 +92,7 @@ def create_case_record(client: dict, form: dict[str, str]) -> dict:
         apply_form_defaults(record)
         state["cases"].append(record)
         save_state(client["id"], state)
+        _persist_case_row(client["id"], record, expected_revision=0)
         return dict(record)
 
 
@@ -146,7 +147,37 @@ def update_case_record(client: dict, case: dict) -> dict:
             record["bom_product_version_overrides"] = json_safe(case.get("bom_product_artifact_overrides"))
         record["updated_at"] = now_iso()
         save_state(client["id"], state)
+        _persist_case_row(client["id"], record)
         return dict(record)
+
+
+def _persist_case_row(client_id: str, record: dict, *, expected_revision: int | None = None) -> None:
+    """Phase 2.4 helper — keep per-row `co_cases` in sync with the legacy
+    save_state path. Under the surrounding case_lock the optimistic check
+    can't actually conflict, but we still pass the current revision so
+    Phase 3.2 (drop the case_lock band-aid) inherits a working retry
+    surface. `expected_revision=0` means "this is a fresh insert".
+    """
+    from app.workflow_state_store import CaseRevisionConflict, get_co_case_state_store
+
+    store = get_co_case_state_store()
+    if store is None:
+        return
+    case_id = record.get("case_id", "")
+    if not case_id:
+        return
+    revision = expected_revision
+    if revision is None:
+        loaded = store.get_case(client_id, case_id)
+        revision = loaded[1] if loaded else 0
+    for attempt in range(3):
+        try:
+            store.save_case_record(client_id, record, revision)
+            return
+        except CaseRevisionConflict as exc:
+            revision = exc.current_revision
+            if attempt == 2:
+                raise
 
 
 def delete_case_record(client: dict, case_id: str, *, release_claims: bool = False) -> dict:
@@ -183,6 +214,10 @@ def delete_case_record(client: dict, case_id: str, *, release_claims: bool = Fal
             claims_released = co_stock_ledger.release_all_claims_for_case(client["id"], case_id)
         state["cases"] = [row for row in state["cases"] if row["case_id"] != case_id]
         save_state(client["id"], state)
+        from app.workflow_state_store import get_co_case_state_store
+        store = get_co_case_state_store()
+        if store is not None:
+            store.delete_case(client["id"], case_id)
     shutil.rmtree(case_upload_root(client["id"], case_id), ignore_errors=True)
     result = dict(record)
     result["claims_released"] = claims_released

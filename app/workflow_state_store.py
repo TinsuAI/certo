@@ -522,15 +522,27 @@ class PostgresCoCaseStateStore:
                 )
 
     def save_state(self, client_id: str, state: dict) -> None:
+        """Phase 2.4: save_state no longer rewrites the `co_cases` table.
+
+        Per-case writes go through `save_case_record` (optimistic lock
+        on the `revision` column) and `delete_case`. save_state's role
+        is reduced to:
+        - `co_case_states.payload` (legacy blob — Phase 2.5 drops the
+           `cases` key from this blob)
+        - `co_supporting_files` (still rewritten in full; per-case
+           file management migrates in a later pass)
+
+        The `cases` variable below is computed only to derive
+        per-case supporting_files for re-insertion.
+        """
         from psycopg.types.json import Jsonb
 
         self.ensure_schema()
-        cases = co_case_records(client_id, state)
+        cases = co_case_records(client_id, state)  # noqa: F841 — supporting_files helper consumes state directly
         supporting_files = co_supporting_file_records(client_id, state)
         with connect(self.url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute("delete from co_supporting_files where client_id = %s", (client_id,))
-                cursor.execute("delete from co_cases where client_id = %s", (client_id,))
                 cursor.execute(
                     """
                     insert into co_case_states (client_id, schema_version, payload, updated_at)
@@ -541,35 +553,6 @@ class PostgresCoCaseStateStore:
                       updated_at = now()
                     """,
                     (client_id, int(state.get("schema_version") or 1), Jsonb(state)),
-                )
-                cursor.executemany(
-                    """
-                    insert into co_cases (
-                      client_id, case_id, title, case_code, destination_market,
-                      agreement, co_form_type, rule, invoice_no, bill_of_lading_no,
-                      supporting_file_count, payload, created_at, updated_at
-                    )
-                    values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, coalesce(%s::timestamptz, now()), coalesce(%s::timestamptz, now()))
-                    """,
-                    [
-                        (
-                            row["client_id"],
-                            row["case_id"],
-                            row["title"],
-                            row["case_code"],
-                            row["destination_market"],
-                            row["agreement"],
-                            row["co_form_type"],
-                            row["rule"],
-                            row["invoice_no"],
-                            row["bill_of_lading_no"],
-                            row["supporting_file_count"],
-                            Jsonb(row["payload"]),
-                            timestamp(row["created_at"]),
-                            timestamp(row["updated_at"]),
-                        )
-                        for row in cases
-                    ],
                 )
                 cursor.executemany(
                     """

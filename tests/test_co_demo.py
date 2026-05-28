@@ -3265,11 +3265,15 @@ def test_case_lock_serializes_concurrent_save_state_on_postgres():
     if not database_url():
         pytest.skip("BARRY_DATABASE_URL not set; advisory lock requires Postgres")
 
+    from app.co_case_store import _persist_case_row
+
     client = {"id": "lock-test"}
-    # Seed two cases for this client.
+    # Seed two cases for this client via the per-case write path
+    # (Phase 2.4: save_state no longer rewrites co_cases).
     with case_lock(client["id"]):
         state = load_state(client["id"])
-        state["cases"] = [
+        state.setdefault("cases", [])
+        for seed in (
             {"case_id": "lock-a", "case_code": "LOCK-A", "title": "A",
              "destination_market": "", "shipment": {}, "products": [],
              "updated_at": "2026-05-28T00:00:00Z", "created_at": "2026-05-28T00:00:00Z",
@@ -3278,7 +3282,9 @@ def test_case_lock_serializes_concurrent_save_state_on_postgres():
              "destination_market": "", "shipment": {}, "products": [],
              "updated_at": "2026-05-28T00:00:00Z", "created_at": "2026-05-28T00:00:00Z",
              "supporting_files": []},
-        ]
+        ):
+            state["cases"].append(seed)
+            _persist_case_row(client["id"], seed, expected_revision=None)
         save_state(client["id"], state)
 
     timings: dict[str, float] = {}
@@ -3292,6 +3298,7 @@ def test_case_lock_serializes_concurrent_save_state_on_postgres():
                 for row in state["cases"]:
                     if row["case_id"] == case_id:
                         row["title"] = new_title
+                        _persist_case_row(client["id"], row)
                 if hold_seconds:
                     time.sleep(hold_seconds)
                 save_state(client["id"], state)
