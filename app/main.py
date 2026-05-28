@@ -23,11 +23,13 @@ from app.bom_store import attach_case_bom_snapshot
 from app.bom_service import bom_service
 from app.co_case_store import (
     MAX_SUPPORTING_FILE_BYTES,
+    CaseClosedError,
     acquire_origin_calculation_lock,
     active_origin_calculation_lock,
     build_case_criteria_rows,
     case_from_record,
     co_case_delete_block_reason,
+    co_case_is_completed,
     create_case_record,
     create_case_workbook,
     declaration_refs,
@@ -168,6 +170,12 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="Barry CO Demo", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 app.mount("/portfolio", portfolio_app, name="portfolio")
+
+
+@app.exception_handler(CaseClosedError)
+async def _case_closed_handler(request: Request, exc: CaseClosedError):
+    """Mutating route hit a closed case → 409 with the friendly Vietnamese message."""
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 templates = Jinja2Templates(directory=ROOT / "templates", context_processors=[theme_context])
 
@@ -5920,6 +5928,14 @@ async def upload_co_case_supporting_file(
     bill_of_lading_no: str = Form(""),
 ):
     client = resolve_client(client_id)
+    # save_supporting_file bypasses update_case_record's close-state gate;
+    # check it explicitly here so closed cases also reject uploads.
+    record = get_case_record(client, case_id)
+    if record and co_case_is_completed(record):
+        raise HTTPException(
+            status_code=409,
+            detail="Hồ sơ đã đóng — bấm 'Mở lại hồ sơ' ở tab Review & Xuất trước khi upload chứng từ.",
+        )
     content = await file.read(MAX_SUPPORTING_FILE_BYTES + 1)
     try:
         save_supporting_file(
@@ -6116,13 +6132,63 @@ async def export_co_case_dossier_zip(client_id: str, case_id: str):
 
 @app.post("/clients/{client_id}/co-case/{case_id}/close")
 async def close_co_case(request: Request, client_id: str, case_id: str):
-    """Mark the case as completed (status=completed). All edits become blocked
-    via co_case_is_completed once persisted. Reverse via /reopen."""
+    """Mark the case as completed. Pre-conditions:
+
+    - Every product's origin sheet must be in `locked` status. A case with
+      a half-finished bảng kê isn't ready to be filed; we refuse rather
+      than silently freezing edits on top of incomplete data.
+    - The case must currently be open. (Re-closing a closed case is a
+      no-op; the route is idempotent in spirit, but `update_case_record`
+      treats it as a normal mutation, so no-op early.)
+
+    After close: every mutating endpoint refuses via CaseClosedError.
+    Also releases any origin-calculation lock the case holds."""
     client = resolve_client(client_id)
+    try:
+        record = get_case_record(client, case_id)
+    except KeyError:
+        raise HTTPException(status_code=404) from None
+    if record is None:
+        raise HTTPException(status_code=404)
+    case = case_from_record(default_client_case(client), client, record)
+    # Idempotent: re-clicking close on a closed case redirects without write.
+    if co_case_is_completed(case):
+        return RedirectResponse(
+            f"/clients/{client_id}/co-case/{case_id}/review",
+            status_code=303,
+        )
+    case = attach_origin_sheet_states(case)
+    products = case.get("products") or []
+    if not products:
+        raise HTTPException(
+            status_code=409,
+            detail="Chưa có bảng kê nào — không thể đóng hồ sơ rỗng.",
+        )
+    unlocked = [
+        p.get("code") or "?"
+        for p in products
+        if str(p.get("origin_sheet_status") or "").strip() != "locked"
+    ]
+    if unlocked:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Còn {len(unlocked)} bảng kê chưa chốt: "
+                f"{', '.join(unlocked[:5])}{'…' if len(unlocked) > 5 else ''}. "
+                "Chốt tất cả ở tab Bảng kê C/O trước khi đóng hồ sơ."
+            ),
+        )
     try:
         update_case_record(client, {"id": case_id, "persisted_case_id": case_id, "status": "completed"})
     except KeyError:
         raise HTTPException(status_code=404) from None
+    # Best-effort lock release: don't fail the close if no lock is held.
+    try:
+        existing_lock = active_origin_calculation_lock(client)
+        if existing_lock and existing_lock.get("case_id") == case_id:
+            release_origin_calculation_lock(client, case_id)
+    except Exception:  # noqa: BLE001 — lock release is housekeeping
+        pass
     return RedirectResponse(
         f"/clients/{client_id}/co-case/{case_id}/review",
         status_code=303,

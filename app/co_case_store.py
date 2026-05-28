@@ -28,6 +28,11 @@ ORIGIN_CALCULATION_LOCK_TTL_MINUTES = 60
 COMPLETED_CASE_STATUSES = {"completed", "done", "finished", "submitted", "closed"}
 
 
+class CaseClosedError(ValueError):
+    """Raised when a mutating call lands on a case whose status is in
+    COMPLETED_CASE_STATUSES. Surfaces as HTTP 409 at the route boundary."""
+
+
 def get_case_workspace(client: dict, selected_case_id: str = "") -> dict:
     state = load_state(client["id"])
     cases = sorted(state["cases"], key=lambda row: row["updated_at"], reverse=True)
@@ -88,6 +93,17 @@ def update_case_record(client: dict, case: dict) -> dict:
         record = next((row for row in state["cases"] if row["case_id"] == case_id), None)
         if record is None:
             raise KeyError(case_id)
+        # Centralised close-state gate: every mutating route in app/main.py goes
+        # through update_case_record, so blocking here covers shipment edits,
+        # origin sheet save/lock/reopen, recommendation overrides, etc. The
+        # carve-out is the /reopen-case endpoint which passes status="open" or
+        # "reopen" to re-open the case.
+        existing_status = clean_text(record.get("status") or "").lower()
+        incoming_status = clean_text(case.get("status") or "").lower()
+        if existing_status in COMPLETED_CASE_STATUSES and incoming_status not in ("open", "reopen"):
+            raise CaseClosedError(
+                "Hồ sơ đã đóng — bấm 'Mở lại hồ sơ' ở tab Review & Xuất trước khi sửa."
+            )
         for key in ["title", "case_code", "destination_market", "agreement", "co_form_type", "rule", "status"]:
             if clean_text(case.get(key)):
                 record[key] = clean_text(case.get(key))
@@ -221,6 +237,7 @@ def case_from_record(base_case: dict, client: dict, record: dict) -> dict:
     case["agreement"] = record.get("agreement") or case.get("agreement", "Chưa chọn")
     case["co_form_type"] = record.get("co_form_type") or case.get("co_form_type", "Chưa chọn")
     case["rule"] = record.get("rule") or case.get("rule", "Cần tra cứu PSR theo HS")
+    case["status"] = clean_text(record.get("status") or case.get("status", ""))
     case["source_label"] = f"Hồ sơ lưu: {case['case_code']}"
     case["shipment"] = dict(record.get("shipment", {}))
     case["supporting_files"] = [dict(file_row) for file_row in record.get("supporting_files", [])]

@@ -1505,12 +1505,20 @@
       {% if _case_completed %}
       <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/reopen-case" hx-boost="false">
         <button type="submit" class="btn-secondary">🔓 Mở lại hồ sơ</button>
-        <small class="meta">Hồ sơ đã đóng — mở lại để chỉnh sửa.</small>
+        <small class="meta">Hồ sơ đã đóng — mở lại để chỉnh sửa bảng kê / chứng từ.</small>
       </form>
       {% else %}
+      {% set _unlocked_count = case.products|rejectattr('origin_sheet_status', 'equalto', 'locked')|list|length %}
+      {% set _no_products = (case.products|length) == 0 %}
       <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/close" hx-boost="false" onsubmit="return confirm('Đóng hồ sơ này? Sau khi đóng, không thể sửa bảng kê hay chứng từ. Mở lại bằng nút Mở lại hồ sơ.');">
-        <button type="submit" class="btn-secondary">✅ Đóng hồ sơ</button>
-        <small class="meta">Sau khi đóng: read-only. Mở lại được nếu cần.</small>
+        <button type="submit" class="btn-secondary" {% if _unlocked_count > 0 or _no_products %}disabled title="{% if _no_products %}Chưa có bảng kê nào{% else %}Còn {{ _unlocked_count }} bảng kê chưa chốt{% endif %}"{% endif %}>✅ Đóng hồ sơ</button>
+        {% if _no_products %}
+        <small class="meta">Chưa có bảng kê — vào tab Bảng kê C/O để thêm.</small>
+        {% elif _unlocked_count > 0 %}
+        <small class="meta">Chốt tất cả bảng kê trước. Còn <strong>{{ _unlocked_count }}</strong> chưa chốt.</small>
+        {% else %}
+        <small class="meta">Sau khi đóng: read-only. Tự động nhả phiên tính tồn nếu đang giữ.</small>
+        {% endif %}
       </form>
       {% endif %}
     </section>
