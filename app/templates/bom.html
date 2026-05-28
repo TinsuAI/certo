@@ -3,7 +3,6 @@
 
 {% block content %}
 {% include "_client_nav.html" %}
-{% set latest = bom_workspace.latest_version %}
 
 {% if message %}
 <div class="toast">{{ message }}</div>
@@ -12,6 +11,36 @@
 <div class="toast toast-error">{{ error }}</div>
 {% endif %}
 
+{% if source_backend == "data-hub" %}
+<section class="zone" id="bom">
+  <div class="zone-head">
+    <div>
+      <h2>BOM</h2>
+      <p class="meta">BOM canonical được upload, flatten và publish trong Data Hub; CO chỉ đọc artifact đã publish để bind vào hồ sơ C/O.</p>
+    </div>
+    <div class="chip-row">
+      <span class="chip">{{ client.counts.bom_lines }} dòng BOM</span>
+      <a class="chip" href="/clients/{{ client.id }}/co-case">Dùng trong hồ sơ C/O</a>
+      <span class="chip">Data Hub</span>
+    </div>
+  </div>
+
+  <section class="callout callout-info">
+    <span class="callout-icon">i</span>
+    <div>
+      <div class="callout-title">BOM đang lấy từ Data Hub.</div>
+      Upload, flatten và cấu hình BOM canonical xử lý trong Data Hub. CO không nhân bản UI bảng — bấm nút bên dưới để mở thẳng trên Data Hub.
+    </div>
+  </section>
+
+  <p>
+    <a class="btn-primary" href="{{ data_hub_target_url }}" target="_blank" rel="noopener">
+      Mở BOM trên Data Hub →
+    </a>
+  </p>
+</section>
+{% else %}
+{% set latest = bom_workspace.latest_version %}
 <div class="bom-page">
 {% if client.bom_source_profile %}
 <section class="zone zone-muted bom-source-zone">
@@ -384,4 +413,5 @@
   </div>
 </section>
 </div>
+{% endif %}
 {% endblock %}

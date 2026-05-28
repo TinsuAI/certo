@@ -19,24 +19,6 @@
     </div>
   </div>
 
-  {% if source_backend == "data-hub" %}
-  <section class="callout callout-info">
-    <span class="callout-icon">i</span>
-    <div>
-      <div class="callout-title">BCCT đang lấy từ Data Hub.</div>
-      BCCT canonical được upload, preview và publish trong Data Hub; CO chỉ đọc dữ liệu đã publish để đối chiếu C/O.
-    </div>
-  </section>
-  {% else %}
-  <section class="callout callout-info">
-    <span class="callout-icon">i</span>
-    <div>
-      <div class="callout-title">Upload BCCT</div>
-      Mode <span class="mono">append_or_review_by_transaction_key</span>: hỗ trợ BCCT HQ có header dòng 10, <span class="mono">.xlsx</span> hoặc ZIP chứa file gốc; dòng thiếu trong upload mới không bị xóa.
-    </div>
-  </section>
-  {% endif %}
-
   {% if bcct_result %}
   <div class="callout {{ 'callout-info' if bcct_result.status != 'failed' else 'callout-danger' }}">
     <span class="callout-icon">i</span>
@@ -50,7 +32,29 @@
   </div>
   {% endif %}
 
-  {% if source_backend != "data-hub" %}
+  {% if source_backend == "data-hub" %}
+  <section class="callout callout-info">
+    <span class="callout-icon">i</span>
+    <div>
+      <div class="callout-title">BCCT đang lấy từ Data Hub.</div>
+      BCCT canonical được upload, preview và publish trong Data Hub. CO không nhân bản UI bảng — bấm nút bên dưới để mở thẳng trên Data Hub.
+      <div class="meta">Tồn CO dùng loại hình {{ client_config.bcct.eligible_import_declaration_types|join(', ') or 'chưa cấu hình' }} và policy {{ client_config.co_stock.lot_policy }}.</div>
+    </div>
+  </section>
+  <p>
+    <a class="btn-primary" href="{{ data_hub_target_url }}" target="_blank" rel="noopener">
+      Mở BCCT trên Data Hub →
+    </a>
+  </p>
+  {% else %}
+  <section class="callout callout-info">
+    <span class="callout-icon">i</span>
+    <div>
+      <div class="callout-title">Upload BCCT</div>
+      Mode <span class="mono">append_or_review_by_transaction_key</span>: hỗ trợ BCCT HQ có header dòng 10, <span class="mono">.xlsx</span> hoặc ZIP chứa file gốc; dòng thiếu trong upload mới không bị xóa.
+    </div>
+  </section>
+
   <div class="split-balanced">
     <form method="post" action="/clients/{{ client.id }}/bcct/upload" enctype="multipart/form-data" class="zone mini-panel" hx-boost="false">
       <div class="subsection-head">
@@ -75,19 +79,6 @@
       </div>
     </section>
   </div>
-  {% else %}
-  <section class="zone mini-panel">
-    <div class="subsection-head">
-      <h3>Version và review</h3>
-      <p class="meta">Tồn CO dùng loại hình {{ client_config.bcct.eligible_import_declaration_types|join(', ') or 'chưa cấu hình' }} và policy {{ client_config.co_stock.lot_policy }}.</p>
-    </div>
-    <div class="chip-row">
-      <span class="chip">Data Hub</span>
-      <span class="chip">BCCT v{{ source_workspace.bcct.latest_version.version_no if source_workspace.bcct.latest_version else 'none' }}</span>
-      <span class="chip">{{ source_workspace.bcct.correction_candidates|length }} correction_candidate</span>
-    </div>
-  </section>
-  {% endif %}
 
   {% if source_workspace.bcct.correction_candidates %}
   <section class="zone">
@@ -109,5 +100,6 @@
   {% endif %}
 
   {% include "_advanced_table.html" %}
+  {% endif %}
 </section>
 {% endblock %}

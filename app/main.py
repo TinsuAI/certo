@@ -4502,8 +4502,69 @@ def minimal_bom_workspace() -> dict:
     }
 
 
+def _data_hub_overview_context(
+    client_id: str,
+    active: str,
+    *,
+    dh_path: str,
+) -> dict | None:
+    """Lean context for Data Hub-backed source views (catalog / bom / bcct).
+
+    Returns None when CO is not in Data Hub mode — caller should fall through
+    to the full `client_context`. When in DH mode, skips the expensive
+    `source_workspace` pagination (which pulls full materials / products /
+    BCCT rows over HTTP) and returns only the metadata + counts needed to
+    render a summary card + link-out to Data Hub. Pattern mirrors
+    `_co_stock_lean_client_context`.
+
+    `dh_path` is the path segment on the Data Hub side
+    (catalog / bom / bcct) — composed into a target URL the template can
+    render as a "Mở trên Data Hub" button.
+    """
+    client = resolve_client(client_id)
+    try:
+        source_summary, source_backend = portfolio_service.source_summary(client)
+    except AttributeError:
+        # Test shims (FakePortfolioService / FakeSourceIndexStore) may not
+        # expose the lean summary call; fall through to the legacy full-
+        # workspace path which they do support.
+        return None
+    if source_backend != "data-hub":
+        return None
+    client_config = source_summary.get("client_config") or portfolio_service.get_client_config(client)
+    bcct_summary = source_summary.get("bcct", {}) or {}
+    material_summary = source_summary.get("material_catalog", {}) or {}
+    product_summary = source_summary.get("product_catalog", {}) or {}
+    bom_summary = source_summary.get("bom", {}) or {}
+    counts = {
+        **client.get("counts", {}),
+        "materials": material_summary.get("published_row_count", 0),
+        "products": product_summary.get("published_row_count", 0),
+        "bcct": bcct_summary.get("published_row_count", 0),
+        "bom_lines": bom_summary.get("published_row_count", client.get("counts", {}).get("bom_lines", 0)),
+        "co_stock": source_summary.get("co_stock_row_count", 0),
+    }
+    client = {**client, "counts": counts}
+    dh_base = data_hub_link_settings().data_hub_base_url
+    return {
+        "client": client,
+        "case": client_case(client),
+        "active": active,
+        "source_backend": source_backend,
+        "client_config": client_config,
+        "source_summary": source_summary,
+        "data_hub_base_url": dh_base,
+        "data_hub_target_url": f"{dh_base.rstrip('/')}/clients/{client_id}/{dh_path}",
+    }
+
+
 def catalog_table_context(request: Request, client_id: str, view_name: str, **extra) -> dict:
     view = CATALOG_VIEWS[view_name]
+    lean = _data_hub_overview_context(client_id, "catalog", dh_path="catalog")
+    if lean is not None and not extra.get("catalog_result"):
+        # DH mode and no upload result to surface → skip the table build entirely.
+        lean["catalog_view"] = {**view, "name": view_name}
+        return lean
     context = client_context(client_id, "catalog", **extra)
     rows = context["source_workspace"][view["module"]]["published_rows"]
     if context["source_backend"] == "data-hub":
@@ -4535,6 +4596,12 @@ def catalog_table_context(request: Request, client_id: str, view_name: str, **ex
 
 
 def bcct_table_context(request: Request, client_id: str, direction: str | None = None, **extra) -> dict:
+    lean = _data_hub_overview_context(client_id, "bcct", dh_path="bcct")
+    if lean is not None and not extra.get("bcct_result"):
+        lean["bcct_view"] = direction or "all"
+        title_by_direction = {"import": "BCCT nhập khẩu", "export": "BCCT xuất khẩu"}
+        lean["bcct_title"] = title_by_direction.get(direction, "BCCT nhập khẩu / xuất khẩu")
+        return lean
     context = client_context(client_id, "bcct", **extra)
     rows = [bcct_table_row(row) for row in context["source_workspace"]["bcct"]["published_rows"]]
     if direction:
@@ -4793,6 +4860,12 @@ def customs_exchange_rate_context(request: Request, **extra) -> dict:
 
 
 def bom_context(request: Request, client_id: str, **extra) -> dict:
+    lean = _data_hub_overview_context(client_id, "bom", dh_path="bom")
+    if lean is not None and not extra.get("message") and not extra.get("error"):
+        # DH mode: BOM is read-only; CO renders summary + link rather than
+        # paginating the full bom_workspace (which fetches every product
+        # version + line over HTTP from Data Hub).
+        return lean
     context = client_context(client_id, "bom", **extra)
     workspace = context["bom_workspace"]
     selected_product = selected_bom_product(workspace, request.query_params.get("product", ""))
@@ -5149,10 +5222,12 @@ def client_overview_context(client_id: str) -> dict:
 
 @app.get("/clients/{client_id}/catalog", response_class=HTMLResponse)
 async def catalog(request: Request, client_id: str):
+    context = _data_hub_overview_context(client_id, "catalog", dh_path="catalog") \
+        or client_context(client_id, "catalog")
     return templates.TemplateResponse(
         request=request,
         name="catalog.html",
-        context=client_context(client_id, "catalog"),
+        context=context,
     )
 
 

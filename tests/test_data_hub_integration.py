@@ -1443,9 +1443,13 @@ def test_bom_page_uses_bom_service_boundary(monkeypatch):
     response = TestClient(app).get("/clients/hub-only/bom")
 
     assert response.status_code == 200
+    # DH-mode BOM page is now a summary card + link-out to Data Hub. CO no
+    # longer re-renders the full BOM table — operators bounce to Data Hub
+    # for inspection, which is the canonical surface.
     assert "BOM đang lấy từ Data Hub" in response.text
-    assert "NVL-1" in response.text
+    assert "Mở BOM trên Data Hub" in response.text
     assert "Upload và so sánh" not in response.text
+    assert "NVL-1" not in response.text
 
 
 def test_clients_page_filters_by_jwt_client_claims(monkeypatch):

@@ -34,15 +34,25 @@
   </div>
   {% endif %}
 
+  {% if source_backend == "data-hub" %}
+  <section class="callout callout-info">
+    <span class="callout-icon">i</span>
+    <div>
+      <div class="callout-title">{{ catalog_view.title }} đang lấy từ Data Hub.</div>
+      Catalog canonical được upload, preview và publish trong Data Hub. CO không nhân bản UI — bấm nút bên dưới để mở thẳng trên Data Hub.
+    </div>
+  </section>
+  <p>
+    <a class="btn-primary" href="{{ data_hub_target_url }}" target="_blank" rel="noopener">
+      Mở {{ catalog_view.title }} trên Data Hub →
+    </a>
+  </p>
+  {% else %}
   <div class="table-action-row">
-    {% if source_backend != "data-hub" %}
     <a class="chip" href="/clients/{{ client.id }}/catalog/{{ catalog_view.template_url }}">{{ catalog_view.template_label }}</a>
-    {% else %}
-    <span class="chip">Data Hub</span>
-    {% endif %}
     <span class="chip">v{{ source_workspace[catalog_view.module].latest_version.version_no if source_workspace[catalog_view.module].latest_version else 'none' }}</span>
   </div>
-
   {% include "_advanced_table.html" %}
+  {% endif %}
 </section>
 {% endblock %}
