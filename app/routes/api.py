@@ -1156,20 +1156,178 @@ async def _alias_api_bom_versions(product_code: str, request: Request):
     return RedirectResponse(url=target, status_code=308)
 
 
+_BOM_ARTIFACT_ALLOWED_INTENTS = {
+    "asserted_technical", "staff_edit", "derived",
+    "customs_declared", "modified_for_case",
+}
+
+
+def _parse_bom_intents(value: str | None) -> set[str] | None:
+    """Parse `intents` query param per CO API request 2026-05-28.
+    Returns None when omitted (caller falls back to single `intent`)."""
+    if value is None or value == "":
+        return None
+    tokens = {t.strip() for t in value.split(",") if t.strip()}
+    if not tokens:
+        return None
+    bad = tokens - _BOM_ARTIFACT_ALLOWED_INTENTS
+    if bad:
+        raise HTTPException(400, "invalid_intents")
+    return tokens
+
+
+def _validate_lifecycle(value: str | None) -> str:
+    if value is None or value == "":
+        return "all"
+    if value not in {"active", "all"}:
+        raise HTTPException(400, "invalid_lifecycle")
+    return value
+
+
+def _validate_shape_filter(value: str | None) -> str:
+    if value is None or value == "":
+        return "any"
+    if value not in {"flat", "any"}:
+        raise HTTPException(400, "invalid_shape")
+    return value
+
+
+def _parse_bool_param(value: str | None, *, default: bool) -> bool:
+    if value is None or value == "":
+        return default
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    raise HTTPException(400, "invalid_boolean")
+
+
+def _apply_bom_artifact_filters(
+    versions: list[dict],
+    *,
+    lifecycle: str,
+    shape: str,
+    intents: set[str] | None,
+    intent_singular: str | None,
+    latest_per_variant: bool,
+    case_id: str | None,
+) -> list[dict]:
+    """Apply CO picker filter chain to raw artifact history.
+
+    Order: lifecycle → shape → intent(s) → modified_for_case scoping
+    by case_id → latest-per-(variant_id, strategy) partition.
+    """
+    out = versions
+    if lifecycle == "active":
+        out = [
+            v for v in out
+            if v.get("status") == "published" and v.get("tombstoned_at") is None
+        ]
+    if shape == "flat":
+        out = [
+            v for v in out
+            if v.get("flatten_status") in ("flattened", "not_applicable")
+        ]
+    if intents is not None:
+        out = [v for v in out if v.get("intent") in intents]
+    elif intent_singular:
+        out = [v for v in out if v.get("intent") == intent_singular]
+    if intents is not None and "modified_for_case" in intents:
+        # modified_for_case rows only kept for matching case_id; rows for
+        # other intents pass through untouched. Also exclude
+        # modified_for_case rows that lack context.case_id entirely.
+        def _scope_ok(v: dict) -> bool:
+            if v.get("intent") != "modified_for_case":
+                return True
+            row_case = (v.get("context") or {}).get("case_id")
+            return bool(row_case) and row_case == case_id
+        out = [v for v in out if _scope_ok(v)]
+    if latest_per_variant:
+        # Partition by (bom_variant_id COALESCE 'default', flatten_strategy);
+        # keep newest published_at, then highest artifact_no, then
+        # artifact_id desc for determinism.
+        def _sort_key(v: dict):
+            return (
+                v.get("published_at") or "",
+                v.get("artifact_no") or 0,
+                v.get("artifact_id") or "",
+            )
+        seen: dict[tuple, dict] = {}
+        for v in sorted(out, key=_sort_key, reverse=True):
+            key = (
+                v.get("bom_variant_id") or "default",
+                v.get("flatten_strategy") or "",
+            )
+            if key not in seen:
+                seen[key] = v
+        out = sorted(
+            seen.values(),
+            key=_sort_key,
+            reverse=True,
+        )
+    return out
+
+
 @router.get("/products/{product_code}/bom/artifacts")
 async def api_bom_artifacts(
     product_code: str, client_id: str,
     actor: str | None = None, intent: str | None = None,
+    intents: str | None = None,
+    lifecycle: str | None = None,
+    shape: str | None = None,
+    latest_per_variant: str | None = None,
+    case_id: str | None = None,
     authorization: str | None = Header(None),
 ):
+    """List BOM artifacts for `(client_id, product_code)` with optional
+    picker filters per CO API request 2026-05-28.
+
+    Defaults preserve back-compat (lifecycle=all, shape=any,
+    latest_per_variant=false). Picker passes explicit
+    `lifecycle=active&shape=flat&latest_per_variant=true&intents=…`
+    to get the curated list. Existing admin/debug callers without new
+    params see the raw history unchanged.
+
+    Response carries `filter_applied` echo so consumers can detect
+    server-side support and fall back to client-side filtering when
+    absent (older deployments).
+    """
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
-    versions = list_artifacts_for_product(client_id=client_id, product_code=product_code)
+    intents_set = _parse_bom_intents(intents)
+    lifecycle_v = _validate_lifecycle(lifecycle)
+    shape_v = _validate_shape_filter(shape)
+    latest = _parse_bool_param(latest_per_variant, default=False)
+    if intent and intents_set is not None and intent not in intents_set:
+        raise HTTPException(400, "conflicting_intent_params")
+    if intents_set is not None and "modified_for_case" in intents_set \
+            and not case_id:
+        raise HTTPException(400, "case_id_required")
+    versions = list_artifacts_for_product(
+        client_id=client_id, product_code=product_code,
+    )
     if actor:
-        versions = [v for v in versions if v["actor"] == actor]
-    if intent:
-        versions = [v for v in versions if v["intent"] == intent]
-    return _json({"items": versions, "total_estimate": len(versions)})
+        versions = [v for v in versions if v.get("actor") == actor]
+    filtered = _apply_bom_artifact_filters(
+        versions,
+        lifecycle=lifecycle_v, shape=shape_v,
+        intents=intents_set, intent_singular=intent,
+        latest_per_variant=latest, case_id=case_id,
+    )
+    return _json({
+        "items": filtered,
+        "total_estimate": len(filtered),
+        "filter_applied": {
+            "lifecycle": lifecycle_v,
+            "shape": shape_v,
+            "intents": (
+                sorted(intents_set) if intents_set is not None
+                else ([intent] if intent else None)
+            ),
+            "latest_per_variant": latest,
+            "case_id": case_id,
+        },
+    })
 
 
 @router.get("/products/{product_code}/bom")

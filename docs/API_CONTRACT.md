@@ -537,12 +537,58 @@ surface a warning. Such artifacts may carry rows with
 
 #### `GET /v1/hub/products/{product_code}/bom/versions`
 
-List BOM versions for a product.
+Legacy alias of `/v1/hub/products/{product_code}/bom/artifacts` (308 redirect since mig 031). New consumers should use `/bom/artifacts` directly.
 
-Query params:
-- `client_id`: required.
-- `actor`: optional.
-- `intent`: optional.
+#### `GET /v1/hub/products/{product_code}/bom/artifacts`
+
+List BOM artifacts for a product. Operator picker uses this with filter params to surface only currently-pickable artifacts; admin / debug tools call with default params to get the raw history.
+
+Query params (defaults preserve raw-history back-compat — opt in to filtering):
+
+| Param | Values | Default | Notes |
+|---|---|---|---|
+| `client_id` | string | required | Scope. |
+| `actor` | string | omit | Existing filter. |
+| `intent` | single intent | omit | Existing filter (kept for back-compat). |
+| `intents` | comma-separated subset of `asserted_technical,staff_edit,derived,customs_declared,modified_for_case` | omit | When `modified_for_case` is in the list, `case_id` MUST be supplied. |
+| `lifecycle` | `active` \| `all` | `all` | `active` ⇒ `status='published' AND tombstoned_at IS NULL`. |
+| `shape` | `flat` \| `any` | `any` | `flat` ⇒ `flatten_status IN ('flattened','not_applicable')`. |
+| `latest_per_variant` | `true` \| `false` | `false` | Partition by `(bom_variant_id, flatten_strategy)`; keep newest `published_at` (then `artifact_no DESC`, then `artifact_id DESC`). |
+| `case_id` | string | omit | Required when `intents` includes `modified_for_case`. Restricts `modified_for_case` rows to `context.case_id == case_id`; other intents pass through. |
+
+Response always echoes `filter_applied` so consumers can detect server-side support; when absent (older deployment), fall back to client-side filtering.
+
+```json
+{
+  "items": [
+    { "artifact_id": "ba_…", "artifact_no": 7, "intent": "staff_edit",
+      "status": "published", "tombstoned_at": null,
+      "flatten_status": "not_applicable",
+      "flatten_strategy": "manual_flat_as_provided",
+      "bom_variant_id": "default", "row_count": 42,
+      "is_stale": false, "stale_reasons": [], "state": "clean",
+      "published_at": "2026-05-24T03:11:00Z",
+      "context": { "case_id": null, "...": "..." } }
+  ],
+  "total_estimate": 1,
+  "filter_applied": {
+    "lifecycle": "active", "shape": "flat",
+    "intents": ["asserted_technical","staff_edit","derived","customs_declared","modified_for_case"],
+    "latest_per_variant": true,
+    "case_id": "co-case-4e9f5a3b1e9c"
+  }
+}
+```
+
+Errors:
+- `400 invalid_lifecycle` / `invalid_shape` / `invalid_intents` / `invalid_boolean` — bad enum or non-`true`/`false` for `latest_per_variant`.
+- `400 case_id_required` — `intents` includes `modified_for_case` and `case_id` omitted.
+- `400 conflicting_intent_params` — both `intent` (singular) and `intents` (plural) supplied with disagreeing values.
+- Existing `401` / `403` / `404` unchanged.
+
+`modified_for_case` rows with missing `context.case_id` are excluded — case-scoped intent without a case is malformed; safer to hide.
+
+Contract spec: `barry-CO-main/.ai/api-requests/2026-05-28-bom-artifacts-active-flat-filter.md`.
 
 #### `GET /v1/hub/products/{product_code}/bom`
 

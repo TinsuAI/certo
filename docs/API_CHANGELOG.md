@@ -14,6 +14,28 @@ Only `Breaking:` headings trigger notifications to `dev`/`admin` users (CO + BCQ
 
 ## Entries
 
+## 2026-05-28 — Additive: `GET /v1/hub/products/{p}/bom/artifacts` — picker filter params
+
+**Params added:** `intents`, `lifecycle`, `shape`, `latest_per_variant`, `case_id`. **Response field added:** `filter_applied` echo block (always present).
+
+**Why:**
+CO's per-TP BOM picker (operator's selection surface for which BOM artifact drives origin calculations) leaks tombstoned, draft, superseded, foreign-case `modified_for_case`, and `technical_non_flattened` rows. Operators can silently pick a stale or wrong-case BOM — correctness issue, not cosmetics. The `/bom/latest` endpoint already computes the right set via `latest_flattened_versions`, but `409`s on dual-source variants instead of returning all winners. CO request: `barry-CO-main/.ai/api-requests/2026-05-28-bom-artifacts-active-flat-filter.md`.
+
+**Contract:**
+- `lifecycle=active` ⇒ `status='published' AND tombstoned_at IS NULL`. Default `all` (back-compat).
+- `shape=flat` ⇒ `flatten_status IN ('flattened','not_applicable')`. Default `any` (back-compat).
+- `intents=<comma-list>` from `{asserted_technical, staff_edit, derived, customs_declared, modified_for_case}`. When `modified_for_case` is included, `case_id` is required and scopes those rows to `context.case_id == case_id`. Other intents pass through unchanged.
+- `latest_per_variant=true` partitions by `(bom_variant_id, flatten_strategy)` and keeps newest `published_at` per partition (deterministic tiebreak: `artifact_no DESC`, then `artifact_id DESC`). Default `false`.
+- `filter_applied` echo always returned — consumers detect server-side support and fall back to client-side filtering when the field is absent.
+
+**Defaults preserve raw-history behavior** — CO picker opts in by passing explicit filter params. Existing admin/debug consumers see no change.
+
+**Errors:** `400 invalid_lifecycle`, `400 invalid_shape`, `400 invalid_intents`, `400 invalid_boolean`, `400 case_id_required`, `400 conflicting_intent_params`.
+
+**Tests:** 13 provider tests in `tests/test_bom_artifacts_picker_filter.py` (defaults, each filter dimension, dual-source partition, error cases, picker full combination).
+
+**Commit:** TBD (this entry lands with the route change).
+
 ## 2026-05-28 — Additive: `GET /v1/hub/clients/{c}/declarations/download.zip` — Bearer mirror of operator ZIP download
 
 **Endpoint added:** `GET /v1/hub/clients/{client_id}/declarations/download.zip`.
