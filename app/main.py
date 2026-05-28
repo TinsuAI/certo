@@ -1061,6 +1061,30 @@ def resolve_client(client_id: str) -> dict:
     return _apply_co_identity_overlay(client_id, registry_get_client(client_id))
 
 
+def effective_min_gap_days(client: dict | None, client_config: dict | None = None) -> int:
+    """Resolve the final 2-day rule threshold for a client.
+
+    1. CO-local `co_stock_overrides.min_days_before_export` wins — it's
+       the value the operator set via the CO client-config form.
+    2. Falls back to `client_config["co_stock"]["min_days_before_export"]`
+       (which today lives in Data Hub when DH source mode is enabled).
+    3. Falls back to `DEFAULT_MIN_GAP_DAYS` (2).
+
+    Centralised so the calculate / substitute paths all see the same
+    answer without each one re-implementing the lookup.
+    """
+    if isinstance(client, dict):
+        overrides = client.get("co_stock_overrides")
+        if isinstance(overrides, dict) and "min_days_before_export" in overrides:
+            try:
+                value = int(overrides["min_days_before_export"])
+                if value >= 0:
+                    return value
+            except (TypeError, ValueError):
+                pass
+    return co_stock_eligibility.min_gap_days_from_config(client_config)
+
+
 def _apply_co_identity_overlay(client_id: str, client: dict) -> dict:
     if not isinstance(client, dict):
         return client
@@ -1077,6 +1101,9 @@ def _apply_co_identity_overlay(client_id: str, client: dict) -> dict:
         client["legal_name"] = legal_name
     if tax_code and tax_code != "Chưa nhập":
         client["tax_code"] = tax_code
+    overrides = local.get("co_stock_overrides")
+    if isinstance(overrides, dict) and overrides:
+        client["co_stock_overrides"] = dict(overrides)
     return client
 
 
@@ -5239,13 +5266,30 @@ async def save_client_config_route(request: Request, client_id: str):
     client = resolve_client(client_id)
     form = await request.form()
     # Identity fields (legal_name / tax_code) are CO-side render metadata, not
-    # source data — editable even when Data Hub source-mode is enabled.
-    if "legal_name" in form or "tax_code" in form:
+    # source data — editable even when Data Hub source-mode is enabled. The
+    # `co_stock_min_days_before_export` knob is also CO-side: it controls a
+    # local CO eligibility predicate, not anything DH owns, so it persists to
+    # the same local overlay without going through `require_local_source_writes`.
+    if "legal_name" in form or "tax_code" in form or "co_stock_min_days_before_export" in form:
         client = dict(client)
         if "legal_name" in form:
             client["legal_name"] = str(form.get("legal_name") or "").strip()
         if "tax_code" in form:
             client["tax_code"] = str(form.get("tax_code") or "").strip()
+        if "co_stock_min_days_before_export" in form:
+            raw = str(form.get("co_stock_min_days_before_export") or "").strip()
+            overrides = dict(client.get("co_stock_overrides") or {})
+            if raw == "":
+                overrides.pop("min_days_before_export", None)
+            else:
+                try:
+                    n = int(raw)
+                    if n < 0:
+                        n = co_stock_eligibility.DEFAULT_MIN_GAP_DAYS
+                except ValueError:
+                    n = co_stock_eligibility.DEFAULT_MIN_GAP_DAYS
+                overrides["min_days_before_export"] = n
+            client["co_stock_overrides"] = overrides
         store = get_app_state_store()
         if store:
             store.upsert_client(client)
@@ -6571,7 +6615,7 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
         )
     except Exception:  # noqa: BLE001
         client_config_for_rule = {}
-    min_gap_days = co_stock_eligibility.min_gap_days_from_config(client_config_for_rule)
+    min_gap_days = effective_min_gap_days(client, client_config_for_rule)
     context["case"] = prepare_case_origin_sheet(
         context["case"],
         product_code,
@@ -6903,7 +6947,7 @@ async def co_case_origin_sheet_substitute_stock(
             narrow_stock_rows = co_stock_rows_from_bcct(narrow_rows, client_config)
             stock_pool = case_allocation_pool(
                 case, cached_matches, narrow_stock_rows,
-                min_gap_days=co_stock_eligibility.min_gap_days_from_config(client_config),
+                min_gap_days=effective_min_gap_days(client, client_config),
             )
     if not stock_pool:
         try:
@@ -7440,7 +7484,7 @@ async def co_case_origin_sheet_save(
         client_config_for_rule = {}
     case = recalculate_origin_sheet_edits(
         client, case, product_code,
-        min_gap_days=co_stock_eligibility.min_gap_days_from_config(client_config_for_rule),
+        min_gap_days=effective_min_gap_days(client, client_config_for_rule),
     )
     case = set_origin_sheet_status(case, product_code, "calculated")
     case = mark_origin_sheets_stale(case, target_index + 1)

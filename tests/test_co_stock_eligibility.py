@@ -215,6 +215,38 @@ def test_case_allocation_pool_no_export_anchor_makes_rule_noop():
     assert pool["M"][0]["_eligibility_ok"] is True
 
 
+def test_effective_min_gap_days_prefers_co_local_override_over_dh_config():
+    from app.main import effective_min_gap_days
+
+    client = {"id": "growatt-vn", "co_stock_overrides": {"min_days_before_export": 7}}
+    dh_config = {"co_stock": {"min_days_before_export": 2}}
+    assert effective_min_gap_days(client, dh_config) == 7
+
+
+def test_effective_min_gap_days_falls_back_to_dh_when_no_override():
+    from app.main import effective_min_gap_days
+
+    client = {"id": "growatt-vn"}
+    dh_config = {"co_stock": {"min_days_before_export": 5}}
+    assert effective_min_gap_days(client, dh_config) == 5
+
+
+def test_effective_min_gap_days_default_when_neither_present():
+    from app.main import effective_min_gap_days
+
+    assert effective_min_gap_days({"id": "x"}, {}) == DEFAULT_MIN_GAP_DAYS
+
+
+def test_effective_min_gap_days_local_zero_disables_rule():
+    """Operator setting the local field to 0 must win over a non-zero
+    DH-side default — the CO knob is the authoritative override."""
+    from app.main import effective_min_gap_days
+
+    client = {"id": "x", "co_stock_overrides": {"min_days_before_export": 0}}
+    dh_config = {"co_stock": {"min_days_before_export": 5}}
+    assert effective_min_gap_days(client, dh_config) == 0
+
+
 def test_case_allocation_pool_threshold_kwarg_overrides_default():
     """min_gap_days kwarg controls the predicate end-to-end through the
     allocation pool builder (route handlers resolve the value from

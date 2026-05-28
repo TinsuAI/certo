@@ -66,6 +66,11 @@
             <option value="manual_review" {% if client_config.co_stock.lot_policy == 'manual_review' %}selected{% endif %}>manual_review</option>
           </select>
         </label>
+        <label>Số ngày tối thiểu giữa ngày nhập (BCCT NK) và ngày xuất khẩu (BCCT XK)
+          <input type="number" name="co_stock_min_days_before_export" min="0" max="365" step="1"
+                 value="{{ (client.co_stock_overrides or {}).get('min_days_before_export', client_config.co_stock.min_days_before_export | default(2)) }}">
+          <small class="meta">Lô NVL muốn được dùng phải có ngày đăng ký tờ khai nhập sớm hơn ngày đăng ký tờ khai xuất ít nhất N ngày (mặc định 2). Đặt 0 để tắt rule.</small>
+        </label>
       </div>
     </section>
 
