@@ -131,6 +131,25 @@ Out (phase 2 nếu cần):
 6. FX source badge ở cột "Nguồn".
 7. Snapshot tests + manual screenshot trên 5 case thật trước khi bật default.
 
+## LVC drift snapshot (2026-05-28, post phases 2-5)
+
+Ran `scripts/lvc_drift_snapshot.py --limit 5` against local DB on
+growatt locked cases (CO-LEDGER ×2, CO-SHEET-WB, CO-FAST-LOCK, CO-ZIP).
+Result: **0/6 products show LVC drift between native and vnd modes**.
+
+Why: existing materialized rows were saved before phase-1 wiring, so
+they carry no `material_value_vnd` aggregate; the renderer falls back
+to native. Engine math is unchanged. The "HIGH risk — engine semantics
+drift" line in the original brief is therefore over-stated **for
+already-locked cases** — locked exports won't suddenly shift.
+
+Drift surfaces only when (a) `Refresh từ Data Hub` re-materializes
+co_stock_rows with the new FX columns AND (b) the recalculate path
+re-derives material_value_vnd. Cases with USD/EUR materials + a
+populated customs FX rate for the declaration date will then show real
+LVC% deltas. Snapshot recommended **after** the next customs FX
+historical backfill so we can compare with real conversion data.
+
 ## Acceptance
 
 - Toggle Nguyên tệ ↔ VND trên 1 sheet đổi text các cột Đơn giá / Trị giá NVL /
