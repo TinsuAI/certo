@@ -51,9 +51,93 @@ def _connect():
     return connect()
 
 
-def claim_id_for(case_id: str, sheet_product_code: str, source_row: str, material_index: int) -> str:
-    raw = f"{case_id}|{sheet_product_code}|{source_row}|{material_index}".encode("utf-8")
+def claim_id_for(
+    case_id: str,
+    sheet_product_code: str,
+    source_row: str,
+    material_code: str = "",
+    material_index: int = 0,
+) -> str:
+    """Stable identity for a consumption claim.
+
+    Keyed on the material *code*, not its position in the sheet, so reordering
+    the BOM doesn't change the id of a physically-identical claim (which used to
+    churn the audit log and break re-lock no-op detection). Falls back to the
+    positional index only when the material has no code, so unnamed materials on
+    the same lot still get distinct ids.
+    """
+    material_key = (material_code or "").strip() or f"#{int(material_index or 0)}"
+    raw = f"{case_id}|{sheet_product_code}|{source_row}|{material_key}".encode("utf-8")
     return "claim_" + hashlib.sha256(raw).hexdigest()[:16]
+
+
+def _build_claim_rows(
+    client_id: str,
+    case_id: str,
+    sheet_product_code: str,
+    allocations: Iterable[dict],
+) -> tuple[list[tuple], dict[str, dict], dict[str, Decimal]]:
+    """Aggregate allocations into one claim row per stable claim_id.
+
+    Two allocation lines that resolve to the same claim_id (same case, sheet,
+    lot, material) are summed rather than overwritten — a stable claim_id makes
+    split/duplicate BOM lines collide on purpose, and the lot only cares about
+    total qty consumed. Returns (rows, new_allocs_by_claim, new_by_lot) where
+    `rows` matches the INSERT column order in record_sheet_lock.
+    """
+    by_claim: dict[str, dict] = {}
+    new_by_lot: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
+    for alloc in allocations:
+        source_row = str(alloc.get("source_row") or "").strip()
+        if not source_row:
+            continue
+        qty = _normalize_qty(alloc.get("claimed_qty"))
+        if qty <= 0:
+            continue
+        material_code = str(alloc.get("material_code") or "").strip()
+        material_index = int(alloc.get("material_index") or 0)
+        cid = claim_id_for(case_id, sheet_product_code, source_row, material_code, material_index)
+        existing = by_claim.get(cid)
+        if existing:
+            existing["qty"] += qty
+        else:
+            by_claim[cid] = {
+                "qty": qty,
+                "source_row": source_row,
+                "material_code": material_code,
+                "material_index": material_index,
+                "declaration_no": str(alloc.get("declaration_no") or "").strip(),
+                "line_no": str(alloc.get("line_no") or "").strip(),
+                "customs_code": str(alloc.get("customs_code") or "").strip(),
+            }
+        new_by_lot[source_row] += qty
+    rows = [
+        (
+            cid,
+            client_id,
+            case_id,
+            sheet_product_code,
+            c["source_row"],
+            c["material_code"],
+            c["material_index"],
+            c["qty"],
+            "locked",
+            c["declaration_no"],
+            c["line_no"],
+            c["customs_code"],
+        )
+        for cid, c in by_claim.items()
+    ]
+    new_allocs_by_claim = {
+        cid: {
+            "qty": c["qty"],
+            "declaration_no": c["declaration_no"],
+            "line_no": c["line_no"],
+            "customs_code": c["customs_code"],
+        }
+        for cid, c in by_claim.items()
+    }
+    return rows, new_allocs_by_claim, new_by_lot
 
 
 def _normalize_qty(value) -> Decimal:
@@ -88,41 +172,9 @@ def record_sheet_lock(
     """
     if not _ledger_available():
         return 0
-    rows: list[tuple] = []
-    new_allocs_by_claim: dict[str, dict] = {}
-    new_by_lot: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
-    for alloc in allocations:
-        source_row = str(alloc.get("source_row") or "").strip()
-        if not source_row:
-            continue
-        qty = _normalize_qty(alloc.get("claimed_qty"))
-        if qty <= 0:
-            continue
-        cid = claim_id_for(case_id, sheet_product_code, source_row, int(alloc.get("material_index") or 0))
-        decl_no = str(alloc.get("declaration_no") or "").strip()
-        line_no = str(alloc.get("line_no") or "").strip()
-        customs_code = str(alloc.get("customs_code") or "").strip()
-        rows.append((
-            cid,
-            client_id,
-            case_id,
-            sheet_product_code,
-            source_row,
-            str(alloc.get("material_code") or "").strip(),
-            int(alloc.get("material_index") or 0),
-            qty,
-            "locked",
-            decl_no,
-            line_no,
-            customs_code,
-        ))
-        new_allocs_by_claim[cid] = {
-            "qty": qty,
-            "declaration_no": decl_no,
-            "line_no": line_no,
-            "customs_code": customs_code,
-        }
-        new_by_lot[source_row] += qty
+    rows, new_allocs_by_claim, new_by_lot = _build_claim_rows(
+        client_id, case_id, sheet_product_code, allocations
+    )
     prior_claims: list[tuple] = []
     try:
         with _connect() as conn, conn.cursor() as cur:
