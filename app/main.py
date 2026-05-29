@@ -5131,8 +5131,14 @@ def co_case_step_status(
 
 
 def config_context(client_id: str, **extra) -> dict:
-    context = client_context(client_id, "config", **extra)
-    return context
+    # /config only renders client identity + client_config knobs. It does NOT
+    # need source_workspace / bom_workspace, so skip the full pagination that
+    # client_context triggers (Johnson: ~65k BCCT rows over HTTP per render).
+    lean = _data_hub_overview_context(client_id, "config", dh_path="")
+    if lean is not None:
+        lean.update(extra)
+        return lean
+    return client_context(client_id, "config", **extra)
 
 
 def bcct_table_row(row: dict) -> dict:
