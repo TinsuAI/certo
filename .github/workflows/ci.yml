@@ -104,3 +104,12 @@ jobs:
             sleep 2
           done
           docker compose exec -T app sh -c 'curl -fsS -m 12 "$DATA_HUB_API_BASE_URL/v1/hub/dncxs" >/tmp/co-data-hub-smoke.json'
+
+      - name: Refresh nightly stack (CO)
+        continue-on-error: true
+        run: |
+          if [ -x /home/tinsu/tinsu-deploy/scripts/rebuild-app.sh ]; then
+            cd /home/tinsu/tinsu-deploy && ./scripts/rebuild-app.sh co
+          else
+            echo "tinsu-deploy not present; skipping nightly refresh"
+          fi
