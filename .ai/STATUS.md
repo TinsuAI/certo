@@ -1,16 +1,29 @@
 # Project Status
 
 ## Current State
-- Branch `main` at `922d6bb`, **8 commits ahead** of prior STATUS snapshot
-  (`ad25ffb`). All pushed to `tinsu/main`; demo deployed at
+- Branch `main` at `24d4731`, pushed to `tinsu/main`. Demo deployed at
   `https://barry-co.tinsu.ai` (pull + `docker compose up -d --build app`).
+  **Note:** these 2 commits are pushed but **not yet deployed** to prod — run
+  the deploy step when ready.
 - Local CO dev at `http://127.0.0.1:8001` (`npm run co:serve` `--reload`);
   Data Hub at `:8754`. Both `/healthz` OK.
 - Local suite **374 passed + 7 skipped**.
 - Johnson `tru lui CO Johnson.28.05.26.xlsm` ingested both local and prod
   (25,717 unique stock-adjustment rows; batch hash `batch_0ba5ff092ef3bc99`).
 
-## Recent Changes (this session — 8 commits, oldest → newest)
+## Recent Changes (2026-05-29 — claim_id + DH link guard)
+
+| Commit | Topic |
+|---|---|
+| `2b9c535` | Guard `data_hub_target_url` against empty deep-link (was Next-Step #2) — only emit when a real DH page exists; `client_context` sets it for catalog/bom/bcct in DH mode, `None` otherwise; 4 templates wrap the "Mở DH" button in `{% if data_hub_target_url %}` |
+| `24d4731` | **Claim ID stability** (was carry-over HIGH) — `claim_id_for` now keys on `material_code` (fallback to index only when code empty), so reordering a sheet's materials no longer churns the audit log. Extracted `_build_claim_rows` to sum `claimed_qty` on claim_id collision instead of last-write-wins overwrite (fixed latent under-claim when one material hits a lot via two allocation lines). No migration — `claim_id` is sole PK, legacy claims replaced on next lock/release. Brief: `.ai/features/2026-05-29-claim-id-stability.md`. 6 DB-free unit tests + 3 Postgres-gated e2e ledger tests pass; full suite 380 passed / 7 skipped. |
+
+- **Open decision (deferred by user):** whether to add a DB-level unique
+  constraint on `(client_id, case_id, sheet_product_code, source_row,
+  material_code)` to enforce the new claim identity. Currently app-only / no
+  migration. See brief "Open Questions".
+
+## Recent Changes (prior session — 8 commits, oldest → newest)
 
 | Group | Commit | Topic |
 |---|---|---|
@@ -57,13 +70,9 @@
    `bom_service.workspace`. Add bom-workspace eager warm in preload so the
    first /origin click is sub-second after detail open. Cache infra already
    exists (`_DATA_HUB_BOM_WORKSPACE_CACHE`, 60s TTL).
-2. **Backfill `data_hub_target_url=""`** for `/config` template safety —
-   currently the template doesn't reference it, but if any future config-tab
-   template adds a "Mở DH" button it would render an empty href. Either
-   add a guard in the template or stop emitting the field for `dh_path=""`.
-3. **Lock cleanup** of stale carry-over items (no progress this session):
-   - **Claim ID stability** (HIGH carry-over) — `claim_id` derives from
-     `material_index`, breaks on BOM reorder.
+2. ~~**Backfill `data_hub_target_url=""`**~~ — DONE (`2b9c535`).
+3. **Lock cleanup** of stale carry-over items:
+   - ~~**Claim ID stability**~~ — DONE (`24d4731`).
    - Customs FX historical backfill.
    - Origin calculation lock TTL (60 min).
    - Seed missing CO forms (D / E / AK / AANZ / AJ / RCEP / UKVFTA / VK /
