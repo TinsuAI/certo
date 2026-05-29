@@ -100,7 +100,7 @@ def test_create_mints_and_reveals_token(setup):
     assert claims["typ"] == "service"
 
 
-def test_create_default_expiry_is_30d(setup):
+def test_create_default_expiry_is_1y(setup):
     from datetime import datetime, timezone
     _c(setup["dev"]).post(
         "/admin/service-accounts/new",
@@ -108,8 +108,8 @@ def test_create_default_expiry_is_30d(setup):
     )
     row = sa_store.get_account("sa_ui_defexp")
     assert row["token_expires_at"] is not None
-    days = (row["token_expires_at"] - datetime.now(timezone.utc)).days
-    assert 28 <= days <= 30
+    days = (row["token_expires_at"].astimezone(timezone.utc) - datetime.now(timezone.utc)).days
+    assert 360 <= days <= 366
 
 
 def test_create_with_chosen_expiry(setup):
@@ -142,54 +142,6 @@ def test_create_rejects_bad_expiry_format(setup):
     assert r.status_code == 200
     assert "không hợp lệ" in r.text
     assert sa_store.get_account("sa_ui_badexp") is None
-
-
-def test_create_auto_renew_route(setup):
-    from datetime import datetime, timezone
-    r = _c(setup["dev"]).post(
-        "/admin/service-accounts/new",
-        data={"name": "sa_ui_auto", "scopes": ["hub:read"], "auto_renew": "true"},
-    )
-    assert r.status_code == 200
-    row = sa_store.get_account("sa_ui_auto")
-    assert row["auto_renew"] is True
-    # Live gate ~ 30d idle window.
-    gate_days = (row["token_expires_at"].astimezone(timezone.utc) - datetime.now(timezone.utc)).days
-    assert 28 <= gate_days <= 30
-    # Minted JWT exp = hard ceiling ~ 365d.
-    import re
-    m = re.search(r"eyJ[A-Za-z0-9_\-]+\.eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+", r.text)
-    claims = jwt_issuer.verify_token(m.group(0))
-    ceiling_days = (datetime.fromtimestamp(claims["exp"], tz=timezone.utc) - datetime.now(timezone.utc)).days
-    assert ceiling_days > 300
-
-
-def test_auto_renew_slides_expiry_on_use(setup):
-    from datetime import datetime, timezone, timedelta
-    sa_store.create_account(
-        name="sa_ui_slide", description="", scopes=["hub:read"], client_ids=None,
-        created_by=setup["dev_email"],
-        expires_at=datetime.now(timezone.utc) + timedelta(days=1), auto_renew=True)
-    token = jwt_issuer.make_service_token(
-        name="sa_ui_slide", scopes=["hub:read"], client_ids=None,
-        ttl_seconds=365 * 86400)["access_token"]
-    jwt_issuer.verify_token(token)  # use within window → slide forward
-    row = sa_store.get_account("sa_ui_slide")
-    slid_days = (row["token_expires_at"].astimezone(timezone.utc) - datetime.now(timezone.utc)).days
-    assert slid_days >= 27  # pushed from +1d toward the ~30d idle window
-
-
-def test_auto_renew_idle_expired_rejected(setup):
-    from datetime import datetime, timezone, timedelta
-    sa_store.create_account(
-        name="sa_ui_idle", description="", scopes=["hub:read"], client_ids=None,
-        created_by=setup["dev_email"],
-        expires_at=datetime.now(timezone.utc) - timedelta(seconds=10), auto_renew=True)
-    token = jwt_issuer.make_service_token(
-        name="sa_ui_idle", scopes=["hub:read"], client_ids=None,
-        ttl_seconds=365 * 86400)["access_token"]
-    with pytest.raises(jwt_issuer.ServiceTokenInvalid):
-        jwt_issuer.verify_token(token)
 
 
 def test_create_with_client_whitelist(setup):

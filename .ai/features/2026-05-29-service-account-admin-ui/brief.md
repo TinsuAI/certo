@@ -13,27 +13,25 @@ issuer + signing key, avoiding the "minted on localhost" footgun.
 - `GET /admin/service-accounts` — list accounts (name, scopes, clients,
   created_by, created_at, last_used, **token expiry**) + create form.
 - **Expiry selection + display** (mig 073, added 2026-05-29): pick an expiry
-  date at mint (`<input type=date>`, blank = default 30d from
-  `service_token_ttl_seconds`); chosen date → ttl passed to
-  `make_service_token` so the JWT `exp` and the stored `token_expires_at`
-  agree. List shows the expiry (UTC, normalized from the DB session tz) with
-  "đã hết hạn" / "sắp hết (<7d)" badges. Past/invalid dates rejected.
-- **Auto-renew / sliding expiry** (mig 074, added 2026-05-29): opt-in checkbox.
-  When on, the JWT is minted with a long hard-ceiling `exp` (chosen date, else
-  365d) and the registry `token_expires_at` is the **live gate** (idle window =
-  `service_token_ttl_seconds`, 30d). `_validate_service_token` enforces the
-  registry expiry and, on each use within the window, pushes `token_expires_at`
-  forward (capped at the ceiling) via `extend_token_expiry`. The token **string
-  never changes** → sister apps never rotate their `.env`. It dies only on idle
-  (unused for the window) or at the hard ceiling. Off (default) = unchanged
-  behaviour (`token_expires_at == JWT exp`, no sliding). Revocation (delete /
-  revoke-jti) still kills it instantly. List shows a "↻ auto" badge.
+  date at mint (`<input type=date>`, blank = default from
+  `service_token_ttl_seconds`, now **1 year** — mig 074); chosen date → ttl
+  passed to `make_service_token` so the JWT `exp` and the stored
+  `token_expires_at` agree. List shows the expiry (UTC, normalized from the DB
+  session tz) with "đã hết hạn" / "sắp hết (<7d)" badges. Past/invalid dates
+  rejected.
+- **1-year static keys** (mig 074, 2026-05-29): default token lifetime bumped
+  30d → 1 year. Service accounts are long-lived static M2M keys, rotated yearly
+  by re-mint, not auto-renewed.
 
-  **Reverses** the 2026-05-02 sister-app note ("no refresh flow") — chosen by
-  user 2026-05-29 because Data Hub cannot push a new token to CO's `.env`, so a
-  sliding never-rotating token is the only fully hands-off option. Additive, not
-  breaking: a sliding token behaves to CO like a long-lived one. Sister-app note
-  + DECISIONS entry to follow.
+  *Design note:* a sliding "auto-renew" mechanism was prototyped (registry-
+  enforced expiry + extend-on-use) then **dropped** in favour of plain 1-year
+  static keys — the more conventional M2M pattern (cf. GitHub PAT / Stripe key:
+  long-lived bearer + revocation list). Sliding expiry on M2M API tokens is
+  non-standard; the "proper" zero-touch alternative is OAuth2 client-credentials
+  (durable secret ↔ ephemeral token), which needs CO-side work and is overkill
+  at this scale. Static-key + revocation registry (delete / revoke-jti) + a
+  yearly rotation reminder is the pragmatic norm here. mig 074 also drops the
+  abandoned `auto_renew` column.
 - `POST /admin/service-accounts/new` — create row + mint token; render the
   list page with a **one-time token reveal** box (status 200, no redirect —
   the token is never persisted, so it cannot survive a redirect).
