@@ -5,6 +5,7 @@ Gated to admin/dev. Manager-of-client + staff cannot access /admin/* at all.
 from __future__ import annotations
 
 import hashlib
+import re
 import secrets
 
 import psycopg
@@ -19,6 +20,10 @@ router = APIRouter()
 
 ROLES = ("dev", "admin", "manager", "staff")
 ASSIGNABLE_ROLES = ("admin", "manager", "staff")
+
+# Scopes the read/write API actually enforces today (see app/routes/api.py).
+SERVICE_SCOPES = ("hub:read", "bom:propose")
+_SVC_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
 
 def _new_user_id(email: str) -> str:
@@ -563,3 +568,109 @@ async def staff_scope(
                 (scope, actor.user_id, user_id, client_id),
             )
     return RedirectResponse(url=f"/clients/{client_id}/staff", status_code=303)
+
+
+# ── Service accounts (machine-to-machine tokens) — dev-only ─────────────
+
+
+def _require_dev(request: Request):
+    user = auth.require_user(request)
+    if user.role != "dev":
+        raise HTTPException(403, "dev only")
+    return user
+
+
+def _render_service_accounts(
+    request: Request, *, minted: dict | None = None, error: str | None = None,
+):
+    from app.stores import service_accounts as sa_store
+    return request.app.state.templates.TemplateResponse(
+        request, "admin/service_accounts.html",
+        {
+            "accounts": sa_store.list_accounts(),
+            "clients": _list_clients_minimal(),
+            "scopes": SERVICE_SCOPES,
+            "minted": minted,
+            "error": error,
+            "active_root": "admin",
+        },
+    )
+
+
+@router.get("/admin/service-accounts", response_class=HTMLResponse)
+async def service_accounts_view(request: Request):
+    _require_dev(request)
+    return _render_service_accounts(request)
+
+
+@router.post("/admin/service-accounts/new")
+async def service_accounts_create(
+    request: Request,
+    name: str = Form(...),
+    description: str = Form(""),
+    scopes: list[str] = Form(default=[]),
+    client_ids: list[str] = Form(default=[]),
+):
+    from app import jwt_issuer
+    from app.stores import service_accounts as sa_store
+    actor = _require_dev(request)
+
+    name = name.strip()
+    if not _SVC_NAME_RE.match(name):
+        return _render_service_accounts(
+            request, error="Tên không hợp lệ — chỉ a-z, 0-9, '_', '-', bắt đầu bằng chữ, tối đa 32 ký tự.")
+    picked_scopes = [s for s in scopes if s in SERVICE_SCOPES]
+    if not picked_scopes:
+        return _render_service_accounts(request, error="Cần chọn ít nhất một scope.")
+    # Empty selection = null = all clients. But "selected some, all invalid"
+    # must NOT silently widen to all — that would over-scope the token.
+    valid_client_ids = {c["client_id"] for c in _list_clients_minimal()}
+    submitted_clients = [c for c in client_ids if c.strip()]
+    picked_clients: list[str] | None = [c for c in submitted_clients if c in valid_client_ids]
+    if submitted_clients and not picked_clients:
+        return _render_service_accounts(
+            request, error="Client whitelist không hợp lệ — chọn lại hoặc bỏ trống để cấp tất cả client.")
+    picked_clients = picked_clients or None
+    if sa_store.get_account(name) is not None:
+        return _render_service_accounts(
+            request, error=f"Service account '{name}' đã tồn tại — xoá trước hoặc đổi tên.")
+
+    sa_store.create_account(
+        name=name, description=description.strip(),
+        scopes=picked_scopes, client_ids=picked_clients, created_by=actor.email,
+    )
+    out = jwt_issuer.make_service_token(
+        name=name, scopes=picked_scopes, client_ids=picked_clients,
+    )
+    # One-time reveal: render inline, never persist/redirect/log the token.
+    return _render_service_accounts(request, minted={
+        "name": name,
+        "scopes": picked_scopes,
+        "client_ids": picked_clients,
+        "access_token": out["access_token"],
+        "jti": out["jti"],
+        "expires_in": out["expires_in"],
+    })
+
+
+@router.post("/admin/service-accounts/{name}/delete")
+async def service_accounts_delete(request: Request, name: str):
+    from app.stores import service_accounts as sa_store
+    _require_dev(request)
+    sa_store.delete_account(name)
+    return RedirectResponse(url="/admin/service-accounts", status_code=303)
+
+
+@router.post("/admin/service-accounts/revoke-jti")
+async def service_accounts_revoke_jti(
+    request: Request,
+    jti: str = Form(...),
+    reason: str = Form(""),
+):
+    from app.stores import service_accounts as sa_store
+    actor = _require_dev(request)
+    jti = jti.strip()
+    if not jti:
+        return _render_service_accounts(request, error="jti rỗng.")
+    sa_store.revoke_jti(jti=jti, revoked_by=actor.email, reason=reason.strip())
+    return RedirectResponse(url="/admin/service-accounts", status_code=303)
