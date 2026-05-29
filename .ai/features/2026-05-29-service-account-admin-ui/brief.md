@@ -11,7 +11,13 @@ issuer + signing key, avoiding the "minted on localhost" footgun.
 
 **In:**
 - `GET /admin/service-accounts` — list accounts (name, scopes, clients,
-  created_by, created_at, last_used) + create form.
+  created_by, created_at, last_used, **token expiry**) + create form.
+- **Expiry selection + display** (mig 073, added 2026-05-29): pick an expiry
+  date at mint (`<input type=date>`, blank = default 30d from
+  `service_token_ttl_seconds`); chosen date → ttl passed to
+  `make_service_token` so the JWT `exp` and the stored `token_expires_at`
+  agree. List shows the expiry (UTC, normalized from the DB session tz) with
+  "đã hết hạn" / "sắp hết (<7d)" badges. Past/invalid dates rejected.
 - `POST /admin/service-accounts/new` — create row + mint token; render the
   list page with a **one-time token reveal** box (status 200, no redirect —
   the token is never persisted, so it cannot survive a redirect).

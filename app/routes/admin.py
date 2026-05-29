@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import re
 import secrets
+from datetime import datetime, timedelta, timezone
 
 import psycopg
 from fastapi import APIRouter, Form, HTTPException, Request
@@ -584,14 +585,21 @@ def _render_service_accounts(
     request: Request, *, minted: dict | None = None, error: str | None = None,
 ):
     from app.stores import service_accounts as sa_store
+    # psycopg returns timestamptz in the DB session tz; normalize to UTC so the
+    # displayed expiry date matches what was chosen at mint (template labels UTC).
+    accounts = sa_store.list_accounts()
+    for a in accounts:
+        if a.get("token_expires_at"):
+            a["token_expires_at"] = a["token_expires_at"].astimezone(timezone.utc)
     return request.app.state.templates.TemplateResponse(
         request, "admin/service_accounts.html",
         {
-            "accounts": sa_store.list_accounts(),
+            "accounts": accounts,
             "clients": _list_clients_minimal(),
             "scopes": SERVICE_SCOPES,
             "minted": minted,
             "error": error,
+            "now": datetime.now(timezone.utc),
             "active_root": "admin",
         },
     )
@@ -610,6 +618,7 @@ async def service_accounts_create(
     description: str = Form(""),
     scopes: list[str] = Form(default=[]),
     client_ids: list[str] = Form(default=[]),
+    expires_on: str = Form(""),
 ):
     from app import jwt_issuer
     from app.stores import service_accounts as sa_store
@@ -622,6 +631,21 @@ async def service_accounts_create(
     picked_scopes = [s for s in scopes if s in SERVICE_SCOPES]
     if not picked_scopes:
         return _render_service_accounts(request, error="Cần chọn ít nhất một scope.")
+    # Expiry: a chosen date (end of that day, UTC) → ttl; blank = default 30d.
+    now = datetime.now(timezone.utc)
+    if expires_on.strip():
+        try:
+            chosen = datetime.strptime(expires_on.strip(), "%Y-%m-%d").replace(
+                hour=23, minute=59, second=59, tzinfo=timezone.utc)
+        except ValueError:
+            return _render_service_accounts(request, error="Ngày hết hạn không hợp lệ (định dạng YYYY-MM-DD).")
+        ttl = int((chosen - now).total_seconds())
+        if ttl <= 0:
+            return _render_service_accounts(request, error="Ngày hết hạn phải ở tương lai.")
+        expires_at = chosen
+    else:
+        ttl = jwt_issuer.get_service_token_ttl_seconds()
+        expires_at = now + timedelta(seconds=ttl)
     # Empty selection = null = all clients. But "selected some, all invalid"
     # must NOT silently widen to all — that would over-scope the token.
     valid_client_ids = {c["client_id"] for c in _list_clients_minimal()}
@@ -638,9 +662,11 @@ async def service_accounts_create(
     sa_store.create_account(
         name=name, description=description.strip(),
         scopes=picked_scopes, client_ids=picked_clients, created_by=actor.email,
+        expires_at=expires_at,
     )
     out = jwt_issuer.make_service_token(
         name=name, scopes=picked_scopes, client_ids=picked_clients,
+        ttl_seconds=ttl,
     )
     # One-time reveal: render inline, never persist/redirect/log the token.
     return _render_service_accounts(request, minted={
@@ -650,6 +676,7 @@ async def service_accounts_create(
         "access_token": out["access_token"],
         "jti": out["jti"],
         "expires_in": out["expires_in"],
+        "expires_at": expires_at,
     })
 
 

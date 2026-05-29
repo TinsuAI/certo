@@ -100,6 +100,50 @@ def test_create_mints_and_reveals_token(setup):
     assert claims["typ"] == "service"
 
 
+def test_create_default_expiry_is_30d(setup):
+    from datetime import datetime, timezone
+    _c(setup["dev"]).post(
+        "/admin/service-accounts/new",
+        data={"name": "sa_ui_defexp", "scopes": ["hub:read"]},
+    )
+    row = sa_store.get_account("sa_ui_defexp")
+    assert row["token_expires_at"] is not None
+    days = (row["token_expires_at"] - datetime.now(timezone.utc)).days
+    assert 28 <= days <= 30
+
+
+def test_create_with_chosen_expiry(setup):
+    from datetime import datetime, timezone
+    _c(setup["dev"]).post(
+        "/admin/service-accounts/new",
+        data={"name": "sa_ui_exp", "scopes": ["hub:read"], "expires_on": "2099-01-15"},
+    )
+    row = sa_store.get_account("sa_ui_exp")
+    exp_utc = row["token_expires_at"].astimezone(timezone.utc)
+    assert (exp_utc.year, exp_utc.month, exp_utc.day) == (2099, 1, 15)
+    assert (exp_utc - datetime.now(timezone.utc)).days > 365
+
+
+def test_create_rejects_past_expiry(setup):
+    r = _c(setup["dev"]).post(
+        "/admin/service-accounts/new",
+        data={"name": "sa_ui_past", "scopes": ["hub:read"], "expires_on": "2000-01-01"},
+    )
+    assert r.status_code == 200
+    assert "tương lai" in r.text
+    assert sa_store.get_account("sa_ui_past") is None
+
+
+def test_create_rejects_bad_expiry_format(setup):
+    r = _c(setup["dev"]).post(
+        "/admin/service-accounts/new",
+        data={"name": "sa_ui_badexp", "scopes": ["hub:read"], "expires_on": "15/01/2099"},
+    )
+    assert r.status_code == 200
+    assert "không hợp lệ" in r.text
+    assert sa_store.get_account("sa_ui_badexp") is None
+
+
 def test_create_with_client_whitelist(setup):
     _c(setup["dev"]).post(
         "/admin/service-accounts/new",

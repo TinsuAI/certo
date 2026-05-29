@@ -25,18 +25,19 @@ def create_account(
     scopes: list[str],
     client_ids: list[str] | None,
     created_by: str,
+    expires_at: datetime | None = None,
 ) -> dict[str, Any]:
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 insert into hub.service_accounts
-                  (name, description, scopes, client_ids, created_by)
-                values (%s, %s, %s, %s, %s)
+                  (name, description, scopes, client_ids, created_by, token_expires_at)
+                values (%s, %s, %s, %s, %s, %s)
                 returning name, description, scopes, client_ids, created_at,
-                          created_by, last_used_at
+                          created_by, last_used_at, token_expires_at
                 """,
-                (name, description, scopes, client_ids, created_by),
+                (name, description, scopes, client_ids, created_by, expires_at),
             )
             return _row_to_dict(cur.fetchone(), cur.description)
 
@@ -47,7 +48,7 @@ def get_account(name: str) -> dict[str, Any] | None:
             cur.execute(
                 """
                 select name, description, scopes, client_ids, created_at,
-                       created_by, last_used_at
+                       created_by, last_used_at, token_expires_at
                 from hub.service_accounts where name = %s
                 """,
                 (name,),
@@ -62,7 +63,7 @@ def list_accounts() -> list[dict[str, Any]]:
             cur.execute(
                 """
                 select name, description, scopes, client_ids, created_at,
-                       created_by, last_used_at
+                       created_by, last_used_at, token_expires_at
                 from hub.service_accounts order by name
                 """,
             )
