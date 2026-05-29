@@ -26,18 +26,21 @@ def create_account(
     client_ids: list[str] | None,
     created_by: str,
     expires_at: datetime | None = None,
+    auto_renew: bool = False,
 ) -> dict[str, Any]:
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 insert into hub.service_accounts
-                  (name, description, scopes, client_ids, created_by, token_expires_at)
-                values (%s, %s, %s, %s, %s, %s)
+                  (name, description, scopes, client_ids, created_by,
+                   token_expires_at, auto_renew)
+                values (%s, %s, %s, %s, %s, %s, %s)
                 returning name, description, scopes, client_ids, created_at,
-                          created_by, last_used_at, token_expires_at
+                          created_by, last_used_at, token_expires_at, auto_renew
                 """,
-                (name, description, scopes, client_ids, created_by, expires_at),
+                (name, description, scopes, client_ids, created_by,
+                 expires_at, auto_renew),
             )
             return _row_to_dict(cur.fetchone(), cur.description)
 
@@ -48,7 +51,7 @@ def get_account(name: str) -> dict[str, Any] | None:
             cur.execute(
                 """
                 select name, description, scopes, client_ids, created_at,
-                       created_by, last_used_at, token_expires_at
+                       created_by, last_used_at, token_expires_at, auto_renew
                 from hub.service_accounts where name = %s
                 """,
                 (name,),
@@ -63,7 +66,7 @@ def list_accounts() -> list[dict[str, Any]]:
             cur.execute(
                 """
                 select name, description, scopes, client_ids, created_at,
-                       created_by, last_used_at, token_expires_at
+                       created_by, last_used_at, token_expires_at, auto_renew
                 from hub.service_accounts order by name
                 """,
             )
@@ -88,6 +91,18 @@ def touch_last_used(name: str, when: datetime) -> None:
             cur.execute(
                 "update hub.service_accounts set last_used_at = %s where name = %s",
                 (when, name),
+            )
+
+
+def extend_token_expiry(name: str, new_expires_at: datetime) -> None:
+    """Push token_expires_at forward (sliding expiry for auto-renew). Only
+    advances — never shortens — so concurrent calls can't move it backward."""
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "update hub.service_accounts set token_expires_at = %s"
+                " where name = %s and (token_expires_at is null or token_expires_at < %s)",
+                (new_expires_at, name, new_expires_at),
             )
 
 

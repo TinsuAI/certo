@@ -268,8 +268,32 @@ def _validate_service_token(claims: dict) -> None:
         list(account["client_ids"]) if account.get("client_ids") is not None else None
     )
 
+    # Sliding expiry: token_expires_at in the registry is the live gate.
+    # - non-renew accounts: token_expires_at == JWT exp (already enforced by
+    #   decode); this check is a harmless backstop.
+    # - auto-renew accounts: JWT exp is a long hard ceiling, and each use
+    #   within the idle window pushes token_expires_at forward — the token
+    #   string never changes, so consumers never rotate their secret. The
+    #   token dies only on idle (unused for the window) or at the ceiling.
+    now = datetime.now(timezone.utc)
+    reg_exp = account.get("token_expires_at")
+    if reg_exp is not None and now >= reg_exp:
+        raise ServiceTokenInvalid(f"service token expired (idle): {name}")
+    if account.get("auto_renew") and reg_exp is not None:
+        hard_exp = datetime.fromtimestamp(int(claims["exp"]), tz=timezone.utc)
+        target = min(now + timedelta(seconds=get_service_token_ttl_seconds()), hard_exp)
+        # Only write when the gate would move meaningfully — otherwise every
+        # single request would UPDATE (now advances each call). Sliding ~once
+        # a day keeps a 30d window comfortably topped up.
+        if target - reg_exp > timedelta(days=1):
+            try:
+                sa_store.extend_token_expiry(name, target)
+            except Exception:  # noqa: BLE001
+                logger.error(
+                    "service token: failed to slide expiry for %s — may expire early", name)
+
     try:
-        sa_store.touch_last_used(name, datetime.now(timezone.utc))
+        sa_store.touch_last_used(name, now)
     except Exception:  # noqa: BLE001
         logger.error(
             "service token: failed to touch last_used_at for %s — last_used signal will lag",

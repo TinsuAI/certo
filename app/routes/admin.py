@@ -25,6 +25,9 @@ ASSIGNABLE_ROLES = ("admin", "manager", "staff")
 # Scopes the read/write API actually enforces today (see app/routes/api.py).
 SERVICE_SCOPES = ("hub:read", "bom:propose")
 _SVC_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+# Auto-renew without a chosen ceiling date: how long the sliding token may
+# live in total before a re-mint is forced (bounds leak exposure).
+_AUTO_RENEW_DEFAULT_MAX_DAYS = 365
 
 
 def _new_user_id(email: str) -> str:
@@ -619,6 +622,7 @@ async def service_accounts_create(
     scopes: list[str] = Form(default=[]),
     client_ids: list[str] = Form(default=[]),
     expires_on: str = Form(""),
+    auto_renew: str = Form(""),
 ):
     from app import jwt_issuer
     from app.stores import service_accounts as sa_store
@@ -631,21 +635,27 @@ async def service_accounts_create(
     picked_scopes = [s for s in scopes if s in SERVICE_SCOPES]
     if not picked_scopes:
         return _render_service_accounts(request, error="Cần chọn ít nhất một scope.")
-    # Expiry: a chosen date (end of that day, UTC) → ttl; blank = default 30d.
+    auto_renew_on = auto_renew.strip().lower() in {"1", "true", "on", "yes"}
+    idle_window = jwt_issuer.get_service_token_ttl_seconds()  # default 30d
     now = datetime.now(timezone.utc)
+    # The chosen date is the JWT exp = hard ceiling. Blank: 30d normally, or
+    # the auto-renew max lifetime when sliding is on.
     if expires_on.strip():
         try:
-            chosen = datetime.strptime(expires_on.strip(), "%Y-%m-%d").replace(
+            hard_exp = datetime.strptime(expires_on.strip(), "%Y-%m-%d").replace(
                 hour=23, minute=59, second=59, tzinfo=timezone.utc)
         except ValueError:
             return _render_service_accounts(request, error="Ngày hết hạn không hợp lệ (định dạng YYYY-MM-DD).")
-        ttl = int((chosen - now).total_seconds())
-        if ttl <= 0:
+        if hard_exp <= now:
             return _render_service_accounts(request, error="Ngày hết hạn phải ở tương lai.")
-        expires_at = chosen
+    elif auto_renew_on:
+        hard_exp = now + timedelta(days=_AUTO_RENEW_DEFAULT_MAX_DAYS)
     else:
-        ttl = jwt_issuer.get_service_token_ttl_seconds()
-        expires_at = now + timedelta(seconds=ttl)
+        hard_exp = now + timedelta(seconds=idle_window)
+    ttl = int((hard_exp - now).total_seconds())
+    # Live gate stored in the registry: for auto-renew it's the idle window
+    # (slides forward on use, capped at the ceiling); otherwise == ceiling.
+    expires_at = min(now + timedelta(seconds=idle_window), hard_exp) if auto_renew_on else hard_exp
     # Empty selection = null = all clients. But "selected some, all invalid"
     # must NOT silently widen to all — that would over-scope the token.
     valid_client_ids = {c["client_id"] for c in _list_clients_minimal()}
@@ -662,7 +672,7 @@ async def service_accounts_create(
     sa_store.create_account(
         name=name, description=description.strip(),
         scopes=picked_scopes, client_ids=picked_clients, created_by=actor.email,
-        expires_at=expires_at,
+        expires_at=expires_at, auto_renew=auto_renew_on,
     )
     out = jwt_issuer.make_service_token(
         name=name, scopes=picked_scopes, client_ids=picked_clients,
@@ -676,7 +686,8 @@ async def service_accounts_create(
         "access_token": out["access_token"],
         "jti": out["jti"],
         "expires_in": out["expires_in"],
-        "expires_at": expires_at,
+        "expires_at": hard_exp,
+        "auto_renew": auto_renew_on,
     })
 
 

@@ -18,6 +18,22 @@ issuer + signing key, avoiding the "minted on localhost" footgun.
   `make_service_token` so the JWT `exp` and the stored `token_expires_at`
   agree. List shows the expiry (UTC, normalized from the DB session tz) with
   "đã hết hạn" / "sắp hết (<7d)" badges. Past/invalid dates rejected.
+- **Auto-renew / sliding expiry** (mig 074, added 2026-05-29): opt-in checkbox.
+  When on, the JWT is minted with a long hard-ceiling `exp` (chosen date, else
+  365d) and the registry `token_expires_at` is the **live gate** (idle window =
+  `service_token_ttl_seconds`, 30d). `_validate_service_token` enforces the
+  registry expiry and, on each use within the window, pushes `token_expires_at`
+  forward (capped at the ceiling) via `extend_token_expiry`. The token **string
+  never changes** → sister apps never rotate their `.env`. It dies only on idle
+  (unused for the window) or at the hard ceiling. Off (default) = unchanged
+  behaviour (`token_expires_at == JWT exp`, no sliding). Revocation (delete /
+  revoke-jti) still kills it instantly. List shows a "↻ auto" badge.
+
+  **Reverses** the 2026-05-02 sister-app note ("no refresh flow") — chosen by
+  user 2026-05-29 because Data Hub cannot push a new token to CO's `.env`, so a
+  sliding never-rotating token is the only fully hands-off option. Additive, not
+  breaking: a sliding token behaves to CO like a long-lived one. Sister-app note
+  + DECISIONS entry to follow.
 - `POST /admin/service-accounts/new` — create row + mint token; render the
   list page with a **one-time token reveal** box (status 200, no redirect —
   the token is never persisted, so it cannot survive a redirect).
