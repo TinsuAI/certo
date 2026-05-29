@@ -342,6 +342,43 @@ only calculation-ready versions.
 
 ---
 
+## 2026-05-29 — Service tokens: static 1-year keys, not auto-renew
+
+**Context:** Building a service-account admin UI (mint via web, not just
+the CLI) raised the question of token lifecycle. The pain point: the
+30-day default forces frequent manual re-mint + sister-app `.env` update.
+Data Hub cannot push a new token to a consumer's `.env`, so true hands-off
+rotation has no clean path within Data Hub alone.
+
+**Decision:** Service tokens are **long-lived static keys, default 1 year**
+(mig 074 bumps `service_token_ttl_seconds` 30d → 1y; expiry selectable per
+mint, visible in the UI with near-expiry badges). Rotation is by **re-mint
+before expiry**, optionally with a `/schedule` reminder once a real token's
+expiry date exists. The token contract (claims, scopes, whitelist,
+verification, delete/revoke-jti revocation) is unchanged.
+
+**Alternatives considered:**
+- **Sliding / auto-renew** (registry-enforced expiry that extends on use, so
+  the token string never changes). Prototyped, then dropped: applying
+  inactivity-sliding to M2M API tokens is non-standard, and it changed the
+  hot verification path. The 2026-05-02 "no refresh flow" stance holds.
+- **OAuth2 client-credentials** (durable secret ↔ ephemeral access token) —
+  the conventional M2M standard and the "proper" zero-touch answer, but needs
+  CO-side code (token fetch + secret self-rotation) and is overkill at current
+  scale (~2 service accounts, single VPS, private Tailscale net). Recorded as
+  the future direction if/when scale or external exposure warrants it.
+
+**Consequences:** Matches the common small-scale norm (long-lived bearer +
+revocation list, cf. GitHub PAT / Stripe key). Blast radius of a long-lived
+bearer is mitigated by registry-driven authz (instant scope/whitelist
+changes), jti blacklist, delete-to-revoke, and the visible expiry. Cross-repo:
+sister-app note `2026-05-29-service-account-admin-ui-and-1y-tokens.md` — and
+it surfaced that CO's `.env` uses the wrong key (`DATA_HUB_API_TOKEN` vs the
+code's `DATA_HUB_SERVICE_TOKEN`), so CO prod has no service token in effect
+(fix before the C.2 strict cutover).
+
+---
+
 ## Decisions to add post-discovery
 
 (Placeholder — entries to be written during/after M9 discovery sprint)
