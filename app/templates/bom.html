@@ -33,11 +33,13 @@
     </div>
   </section>
 
+  {% if data_hub_target_url %}
   <p>
     <a class="btn-primary" href="{{ data_hub_target_url }}" target="_blank" rel="noopener">
       Mở BOM trên Data Hub →
     </a>
   </p>
+  {% endif %}
 </section>
 {% else %}
 {% set latest = bom_workspace.latest_version %}

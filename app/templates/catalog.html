@@ -29,11 +29,13 @@
       Canonical DS NVL và DS SP được upload, preview và publish trong Data Hub. CO không nhân bản UI bảng — bấm nút bên dưới để mở thẳng trên Data Hub.
     </div>
   </section>
+  {% if data_hub_target_url %}
   <p>
     <a class="btn-primary" href="{{ data_hub_target_url }}" target="_blank" rel="noopener">
       Mở Danh mục trên Data Hub →
     </a>
   </p>
+  {% endif %}
   {% else %}
   <section class="callout callout-info">
     <span class="callout-icon">i</span>

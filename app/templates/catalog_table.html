@@ -42,11 +42,13 @@
       Catalog canonical được upload, preview và publish trong Data Hub. CO không nhân bản UI — bấm nút bên dưới để mở thẳng trên Data Hub.
     </div>
   </section>
+  {% if data_hub_target_url %}
   <p>
     <a class="btn-primary" href="{{ data_hub_target_url }}" target="_blank" rel="noopener">
       Mở {{ catalog_view.title }} trên Data Hub →
     </a>
   </p>
+  {% endif %}
   {% else %}
   <div class="table-action-row">
     <a class="chip" href="/clients/{{ client.id }}/catalog/{{ catalog_view.template_url }}">{{ catalog_view.template_label }}</a>

@@ -1142,10 +1142,18 @@ def client_context(client_id: str, active: str, **extra):
     bom_workspace = bom_service.workspace(client)
     case = attach_case_bom_snapshot(case, bom_workspace)
     case = attach_case_source_snapshot(case, source_workspace)
+    # Deep-link to the Data Hub page for tabs that have a canonical DH surface.
+    # None for everything else (incl. /config) so the template guard hides the
+    # "Mở trên Data Hub" button instead of rendering an empty href.
+    data_hub_target_url = None
+    if source_backend == "data-hub" and active in {"catalog", "bom", "bcct"}:
+        dh_base = data_hub_link_settings().data_hub_base_url
+        data_hub_target_url = f"{dh_base.rstrip('/')}/clients/{client_id}/{active}"
     return {
         "client": client,
         "case": case,
         "active": active,
+        "data_hub_target_url": data_hub_target_url,
         "bom_workspace": bom_workspace,
         "source_workspace": source_workspace,
         "client_config": source_workspace["client_config"],
@@ -4546,7 +4554,7 @@ def _data_hub_overview_context(
     }
     client = {**client, "counts": counts}
     dh_base = data_hub_link_settings().data_hub_base_url
-    return {
+    context = {
         "client": client,
         "case": client_case(client),
         "active": active,
@@ -4554,8 +4562,16 @@ def _data_hub_overview_context(
         "client_config": client_config,
         "source_summary": source_summary,
         "data_hub_base_url": dh_base,
-        "data_hub_target_url": f"{dh_base.rstrip('/')}/clients/{client_id}/{dh_path}",
     }
+    # Only emit a target URL when there is a real DH page to deep-link to.
+    # /config passes dh_path="" (no DH page) → omit the field so a "Mở DH"
+    # button rendered by a future config-tab template can't point at an
+    # empty / bare-client URL.
+    if dh_path:
+        context["data_hub_target_url"] = (
+            f"{dh_base.rstrip('/')}/clients/{client_id}/{dh_path}"
+        )
+    return context
 
 
 def catalog_table_context(request: Request, client_id: str, view_name: str, **extra) -> dict:

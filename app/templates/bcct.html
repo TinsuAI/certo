@@ -41,11 +41,13 @@
       <div class="meta">Tồn CO dùng loại hình {{ client_config.bcct.eligible_import_declaration_types|join(', ') or 'chưa cấu hình' }} và policy {{ client_config.co_stock.lot_policy }}.</div>
     </div>
   </section>
+  {% if data_hub_target_url %}
   <p>
     <a class="btn-primary" href="{{ data_hub_target_url }}" target="_blank" rel="noopener">
       Mở BCCT trên Data Hub →
     </a>
   </p>
+  {% endif %}
   {% else %}
   <section class="callout callout-info">
     <span class="callout-icon">i</span>
