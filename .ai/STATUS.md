@@ -4,7 +4,9 @@
 on local + demo. 608 mixed-variant artifacts → 823 clean (807
 re-ingested + 16 manual_flat restored from snapshot mid-session
 after near-miss data loss). A.1 dead-column drop earlier same day
-(mig 072) — see prior session.
+(mig 072) — see prior session. Sau handoff F.1, user soạn email
+gửi Trọng Tín cập nhật dữ liệu + giới thiệu CO + đề xuất bắt đầu
+Johnson — final text trong `.ai/sessions/2026-05-29-trongtin-status-email.md`.
 
 ## Current State
 
