@@ -133,8 +133,10 @@ jobs:
       - name: Refresh nightly stack (Data Hub)
         continue-on-error: true
         run: |
-          if [ -x /home/tinsu/tinsu-deploy/scripts/rebuild-app.sh ]; then
-            cd /home/tinsu/tinsu-deploy && ./scripts/rebuild-app.sh dh
+          D=/home/tinsu/tinsu-deploy
+          if [ -d "$D/.git" ]; then
+            git -C "$D" pull --ff-only --quiet || true
+            "$D/scripts/rebuild-app.sh" dh
           else
             echo "tinsu-deploy not present; skipping nightly refresh"
           fi
