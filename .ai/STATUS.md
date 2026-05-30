@@ -43,15 +43,24 @@
 
 ## Next Steps
 
-1. **Case detail load ~21s — DONE (Option A), committed, not yet prod-verified.**
-   Implemented `skip_heavy_context` on `co_case_source_context` so non-origin
-   steps skip the `list_materials` + `list_bcct` pagination (commit `d28e237`).
-   E2E-verified against local Data Hub (johnson-vn, 12.5k/66k rows): 39.7s →
-   0.03s, invoice_matches parity preserved. **Remaining:** benchmark once on
-   prod after deploy (test case `johnson-vn / co-case-0605189d5eea`, invoice_no
-   `VNG26050002`, 0 products; baseline 21s) to confirm the prod path matches.
+1. **Case detail load (shipment tab) ~21s — DONE, deployed, prod-verified.**
+   `skip_heavy_context` on `co_case_source_context` (commit `d28e237`, deployed
+   via CI run `aab0957`). Prod benchmark (`johnson-vn / co-case-0605189d5eea`,
+   Bearer JWT for `claude-check@local`): shipment tab **~1.5–3.6s** vs ~21s
+   baseline (~7–10x). invoice_matches parity preserved (local E2E: 39.7s→0.03s).
 
-2. **Origin lock TTL cleanup** (60-min stale lock) — deferred, no code yet.
+2. **Origin tab is now the dominant bottleneck (NEW, HIGH).** Same prod case,
+   `/origin` measured **34.5s, 140s, and one 503 timeout at ~41s**. The origin
+   step still does the full `list_materials` + `list_bcct` pagination (by
+   design — it needs material/stock rows), so it didn't benefit from
+   `skip_heavy_context` and is heavier than the old 21s baseline. Options to
+   investigate: (a) the BOM-workspace / source-context TTL cache may be cold on
+   first origin open; (b) batch/narrow the BCCT pull to only the case's product
+   codes instead of the whole 66k-row catalog; (c) async-render origin like the
+   shipment shell. Reuse the local-DH benchmark harness (Bearer token via
+   `/v1/auth/token`) to measure.
+
+3. **Origin lock TTL cleanup** (60-min stale lock) — deferred, no code yet.
 
 3. **Customs FX historical backfill** — deferred, no code yet.
 
