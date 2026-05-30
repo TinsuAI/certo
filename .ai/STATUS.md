@@ -1,18 +1,25 @@
 # Project Status
 
 ## Current State
-- Branch `main` at `d28e237` (perf skip_heavy_context + no-silent-local-fallback
-  guard, one combined commit on base `83efe8d`). Committed locally, **not pushed**.
-- Local suite **386 passed + 7 skipped**.
+- Branch `main`: 4 commits on base `83efe8d` — `d28e237` (perf skip_heavy_context
+  + no-silent-local-fallback guard), `e76a526` (STATUS), `dbb9315` (map DH
+  outages to 503/502 + 3 regression tests), then this STATUS commit. Committed
+  locally, **not pushed**.
+- Local suite **389 passed + 7 skipped**.
 - **Case detail load fix DONE and E2E-verified** against the local Data Hub
   (johnson-vn, 12.5k materials / 66k BCCT): origin/old path 39.7s → shipment
   light path 0.03s, 82 → 2-3 round trips, invoice_matches parity preserved.
-- **No-silent-local-fallback DONE.** When `DATA_HUB_ENABLED` is off and
-  `CO_ALLOW_LOCAL_SOURCE` is not set, every source-touching route returns 503
-  (`SourceBackendUnavailable` → handler in main.py) instead of quietly serving
-  the local file-store backup. Guard at the single chokepoint
-  `app/portfolio.py:get_portfolio_service()`. Tests/dev opt into local via
-  `CO_ALLOW_LOCAL_SOURCE=1` (conftest sets it autouse).
+- **No-silent-local-fallback DONE (both branches).** CO never serves local
+  backup data when Data Hub is the source of truth:
+  - `DATA_HUB_ENABLED` off + `CO_ALLOW_LOCAL_SOURCE` unset → 503
+    (`SourceBackendUnavailable`) at the single chokepoint
+    `app/portfolio.py:get_portfolio_service()`.
+  - `DATA_HUB_ENABLED` on but API unreachable → 503 (`httpx.TransportError`
+    handler); DH returns an unhandled error status → 502
+    (`httpx.HTTPStatusError` handler). Both fire only for unhandled exceptions,
+    so routes that intentionally catch DH 404s (fallbacks) are unaffected.
+  - Tests/dev opt into local via `CO_ALLOW_LOCAL_SOURCE=1` (conftest autouse).
+    Regression tests: `tests/test_source_backend_guard.py` (6 tests).
 - Local dev `.env` now points CO at the local Data Hub on :8754
   (`DATA_HUB_ENABLED=1`, `DATA_HUB_SERVICE_TOKEN=co-service`, auth off).
 
