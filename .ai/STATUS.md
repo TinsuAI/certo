@@ -1,11 +1,20 @@
 # Project Status
 
 ## Current State
-- Branch `main` at `ad17bb3`, pushed to `tinsu/main` and deployed to prod.
-- Local suite **380 passed + 7 skipped**.
-- **Case detail load is still slow (~21s) on prod for cases with invoice_no.**
-  The preload background fix (`ad17bb3`) was a necessary but insufficient step
-  — see perf investigation below.
+- Branch `main` at `d28e237` (perf skip_heavy_context + no-silent-local-fallback
+  guard, one combined commit on base `83efe8d`). Committed locally, **not pushed**.
+- Local suite **386 passed + 7 skipped**.
+- **Case detail load fix DONE and E2E-verified** against the local Data Hub
+  (johnson-vn, 12.5k materials / 66k BCCT): origin/old path 39.7s → shipment
+  light path 0.03s, 82 → 2-3 round trips, invoice_matches parity preserved.
+- **No-silent-local-fallback DONE.** When `DATA_HUB_ENABLED` is off and
+  `CO_ALLOW_LOCAL_SOURCE` is not set, every source-touching route returns 503
+  (`SourceBackendUnavailable` → handler in main.py) instead of quietly serving
+  the local file-store backup. Guard at the single chokepoint
+  `app/portfolio.py:get_portfolio_service()`. Tests/dev opt into local via
+  `CO_ALLOW_LOCAL_SOURCE=1` (conftest sets it autouse).
+- Local dev `.env` now points CO at the local Data Hub on :8754
+  (`DATA_HUB_ENABLED=1`, `DATA_HUB_SERVICE_TOKEN=co-service`, auth off).
 
 ## Recent Changes (2026-05-30 session)
 
