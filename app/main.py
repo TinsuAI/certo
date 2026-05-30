@@ -186,6 +186,33 @@ async def _source_backend_unavailable_handler(request: Request, exc: SourceBacke
     allowed → 503 with a clear message instead of a silently-empty page."""
     return PlainTextResponse(str(exc), status_code=503)
 
+
+@app.exception_handler(httpx.TransportError)
+async def _data_hub_unreachable_handler(request: Request, exc: httpx.TransportError):
+    """Data Hub is enabled but the API is unreachable (connection refused /
+    timeout). Surface a clear 503 instead of a generic 500 so the operator knows
+    it's a Data Hub outage, not a CO bug. Only fires for transport errors that
+    propagate unhandled — local try/except (e.g. 404 fallbacks) still wins."""
+    return PlainTextResponse(
+        "Data Hub không phản hồi (kết nối thất bại/timeout). CO không dùng dữ liệu "
+        "local backup; kiểm tra Data Hub rồi thử lại.",
+        status_code=503,
+    )
+
+
+@app.exception_handler(httpx.HTTPStatusError)
+async def _data_hub_error_status_handler(request: Request, exc: httpx.HTTPStatusError):
+    """Data Hub returned an error status that no route handled → 502 (bad
+    gateway): the upstream source failed, not CO. Routes that intentionally
+    handle Data Hub statuses (e.g. 404 → fallback) catch the error themselves
+    and never reach this handler."""
+    upstream = exc.response.status_code if exc.response is not None else "?"
+    return PlainTextResponse(
+        f"Data Hub trả lỗi ({upstream}). CO không dùng dữ liệu local backup; "
+        "kiểm tra Data Hub rồi thử lại.",
+        status_code=502,
+    )
+
 templates = Jinja2Templates(directory=ROOT / "templates", context_processors=[theme_context])
 
 
