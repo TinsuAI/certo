@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -6121,7 +6122,15 @@ async def update_co_case_shipment(request: Request, client_id: str, case_id: str
 
 @app.get("/clients/{client_id}/co-case/{case_id}", response_class=HTMLResponse)
 async def co_case_detail(request: Request, client_id: str, case_id: str):
-    preload_co_case_origin_context(client_id, case_id)
+    # Run preload in a thread so the case detail page returns immediately.
+    # Preload fetches source_context (BCCT pagination) and persists it to the
+    # case record; the next /origin click reads the cached snapshot instead of
+    # hitting Data Hub again. Background is fine because the shipment tab
+    # doesn't need origin context, and /origin has its own fallback if preload
+    # hasn't finished yet.
+    asyncio.get_event_loop().run_in_executor(
+        None, preload_co_case_origin_context, client_id, case_id
+    )
     return templates.TemplateResponse(
         request=request,
         name="co_case.html",
