@@ -1,14 +1,17 @@
 # Project Status
 
 ## Current State
-- Branch `main` at `ea25b36`, pushed to `tinsu/main`. Deployed to prod at
-  `https://barry-co.tinsu.ai` (healthz 200, container healthy).
-- Local CO dev at `http://127.0.0.1:8001` — server is currently running
-  (`npm run co:serve`). Log at `/tmp/barry-co-8001.log`.
-- Local suite **380 passed + 7 skipped** (6 new claim_id tests).
-- **Uncommitted in working tree:** timing instrumentation added to
-  `co_case_light_context` in `app/main.py` for `/origin` perf diagnosis.
-  Not meant to ship — remove or keep for measurement, then decide fix.
+- Branch `main` at `ad17bb3`, pushed to `tinsu/main` and deployed to prod.
+- Local suite **380 passed + 7 skipped**.
+- **Case detail load is still slow (~21s) on prod for cases with invoice_no.**
+  The preload background fix (`ad17bb3`) was a necessary but insufficient step
+  — see perf investigation below.
+
+## Recent Changes (2026-05-30 session)
+
+| Commit | Topic |
+|---|---|
+| `ad17bb3` | perf: preload in background thread (necessary but insufficient — see perf note below) |
 
 ## Recent Changes (2026-05-29/30 session)
 
@@ -22,14 +25,46 @@
 
 ## Next Steps
 
-1. **`/origin` perf diagnosis** (IN PROGRESS) — timing instrumentation is live
-   in the local dev server. Measure cold vs warm:
-   - Open a case detail page → click **Origin** tab (cold hit)
-   - Click Origin again (warm hit)
-   - Read log: `grep '\[origin-timing\]' /tmp/barry-co-8001.log`
-   - Key question: is the bottleneck `source=fresh` (DH BCCT pagination) or
-     `bom_workspace` (DH BOM fetch), and what's the split?
-   - After measurement: remove timing lines from `app/main.py` before shipping.
+1. **Case detail load ~21s — root cause found, fix NOT done yet (HIGH PRIORITY)**
+
+   **Root cause:** `co_case_source_context` (called by `co_case_light_context`
+   for every step including shipment) fetches `list_materials` + `list_bcct`
+   (65k rows for Johnson) even when rendering the shipment tab, which only
+   needs `source_summary` + `invoice_matches`.
+
+   **What was tried (partial fix, `ad17bb3`):** moved `preload_co_case_origin_context`
+   to a background thread — necessary, but the **shipment tab render itself**
+   still calls `co_case_source_context` synchronously. Measured: 21s before
+   and after the background fix on prod (Johnson, case with invoice_no).
+
+   **Why shipment tab triggers full BCCT fetch:**
+   `co_case_source_context` short-circuits (returns only `source_summary`)
+   only when case has NO `invoice_no`, no `export_declaration_nos`, AND no
+   `products` (line 628 in `data_hub_client.py`). Johnson cases always have
+   an `invoice_no` → triggers full `list_materials` + `list_bcct` pagination
+   even though shipment tab doesn't use `material_rows` or `stock_rows`.
+
+   **Fix to implement next session:**
+   In `co_case_light_context` (or `co_case_source_context`), skip
+   `list_materials` + `list_bcct` pagination when the caller only needs
+   `source_summary` + `invoice_matches` (i.e. non-origin steps). The
+   `invoice_matches` DH endpoint (`/v1/hub/bcct/invoice-matches`) is already
+   a lightweight dedicated call — only the BCCT enrichment
+   (`enrich_invoice_matches_with_bcct`) and stock rows need the full paginate.
+
+   Options:
+   - **A (targeted):** add `skip_heavy_context: bool = False` param to
+     `co_case_source_context`; when True, skip `list_materials`/`list_bcct`,
+     return bare `invoice_matches` from the lightweight endpoint only.
+     Pass `skip_heavy_context=True` for all steps except `origin`.
+   - **B (lazy):** split `co_case_light_context` into two phases: fast
+     (source_summary + invoice_matches) always, heavy (materials + bcct) only
+     on demand. More invasive but cleaner long-term.
+   Option A is lower-risk; go with A unless B is obviously better on review.
+
+   **Test case on prod:** `johnson-vn / co-case-0605189d5eea` (invoice_no
+   `VNG26050002`, 0 products). Snapshot was cleared for benchmark — will
+   re-populate automatically on next load after fix. Benchmark baseline: 21s.
 
 2. **Origin lock TTL cleanup** (60-min stale lock) — deferred, no code yet.
 
