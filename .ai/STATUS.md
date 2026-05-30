@@ -27,7 +27,9 @@
 
 | Commit | Topic |
 |---|---|
-| `ad17bb3` | perf: preload in background thread (necessary but insufficient — see perf note below) |
+| `d28e237` | perf: `skip_heavy_context` — non-origin case steps skip materials+BCCT pagination (39.7s→0.03s on Johnson); + no-silent-local-fallback guard (DH off→503) |
+| `dbb9315` | map DH outages to 503 (TransportError) / 502 (HTTPStatusError) instead of generic 500; 3 regression tests |
+| `ad17bb3` | perf: preload in background thread (necessary but insufficient — superseded by `d28e237`) |
 
 ## Recent Changes (2026-05-29/30 session)
 
@@ -41,46 +43,13 @@
 
 ## Next Steps
 
-1. **Case detail load ~21s — root cause found, fix NOT done yet (HIGH PRIORITY)**
-
-   **Root cause:** `co_case_source_context` (called by `co_case_light_context`
-   for every step including shipment) fetches `list_materials` + `list_bcct`
-   (65k rows for Johnson) even when rendering the shipment tab, which only
-   needs `source_summary` + `invoice_matches`.
-
-   **What was tried (partial fix, `ad17bb3`):** moved `preload_co_case_origin_context`
-   to a background thread — necessary, but the **shipment tab render itself**
-   still calls `co_case_source_context` synchronously. Measured: 21s before
-   and after the background fix on prod (Johnson, case with invoice_no).
-
-   **Why shipment tab triggers full BCCT fetch:**
-   `co_case_source_context` short-circuits (returns only `source_summary`)
-   only when case has NO `invoice_no`, no `export_declaration_nos`, AND no
-   `products` (line 628 in `data_hub_client.py`). Johnson cases always have
-   an `invoice_no` → triggers full `list_materials` + `list_bcct` pagination
-   even though shipment tab doesn't use `material_rows` or `stock_rows`.
-
-   **Fix to implement next session:**
-   In `co_case_light_context` (or `co_case_source_context`), skip
-   `list_materials` + `list_bcct` pagination when the caller only needs
-   `source_summary` + `invoice_matches` (i.e. non-origin steps). The
-   `invoice_matches` DH endpoint (`/v1/hub/bcct/invoice-matches`) is already
-   a lightweight dedicated call — only the BCCT enrichment
-   (`enrich_invoice_matches_with_bcct`) and stock rows need the full paginate.
-
-   Options:
-   - **A (targeted):** add `skip_heavy_context: bool = False` param to
-     `co_case_source_context`; when True, skip `list_materials`/`list_bcct`,
-     return bare `invoice_matches` from the lightweight endpoint only.
-     Pass `skip_heavy_context=True` for all steps except `origin`.
-   - **B (lazy):** split `co_case_light_context` into two phases: fast
-     (source_summary + invoice_matches) always, heavy (materials + bcct) only
-     on demand. More invasive but cleaner long-term.
-   Option A is lower-risk; go with A unless B is obviously better on review.
-
-   **Test case on prod:** `johnson-vn / co-case-0605189d5eea` (invoice_no
-   `VNG26050002`, 0 products). Snapshot was cleared for benchmark — will
-   re-populate automatically on next load after fix. Benchmark baseline: 21s.
+1. **Case detail load ~21s — DONE (Option A), committed, not yet prod-verified.**
+   Implemented `skip_heavy_context` on `co_case_source_context` so non-origin
+   steps skip the `list_materials` + `list_bcct` pagination (commit `d28e237`).
+   E2E-verified against local Data Hub (johnson-vn, 12.5k/66k rows): 39.7s →
+   0.03s, invoice_matches parity preserved. **Remaining:** benchmark once on
+   prod after deploy (test case `johnson-vn / co-case-0605189d5eea`, invoice_no
+   `VNG26050002`, 0 products; baseline 21s) to confirm the prod path matches.
 
 2. **Origin lock TTL cleanup** (60-min stale lock) — deferred, no code yet.
 
