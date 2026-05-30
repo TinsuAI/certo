@@ -24,6 +24,7 @@ DEFAULT_ADMIN_ROLES = ("dev", "admin")
 TRUTHY = {"1", "true", "yes", "on"}
 DATA_HUB_LINK_ENV_KEYS = (
     "DATA_HUB_ENABLED",
+    "CO_ALLOW_LOCAL_SOURCE",
     "CO_AUTH_REQUIRED",
     "DATA_HUB_BASE_URL",
     "DATA_HUB_API_BASE_URL",
@@ -43,6 +44,7 @@ SECRET_ENV_KEYS = {"DATA_HUB_SERVICE_TOKEN"}
 @dataclass(frozen=True)
 class DataHubLinkSettings:
     source_enabled: bool
+    allow_local_source: bool
     auth_required: bool
     data_hub_base_url: str
     data_hub_api_base_url: str
@@ -65,6 +67,7 @@ class DataHubLinkSettings:
         jwks_url = clean_url(values.get("DATA_HUB_JWKS_URL"), f"{issuer_url}/v1/auth/jwks")
         return cls(
             source_enabled=env_flag(values.get("DATA_HUB_ENABLED")),
+            allow_local_source=env_flag(values.get("CO_ALLOW_LOCAL_SOURCE")),
             auth_required=env_flag(values.get("CO_AUTH_REQUIRED")),
             data_hub_base_url=data_hub_base_url,
             data_hub_api_base_url=data_hub_api_base_url,

@@ -615,7 +615,7 @@ class DataHubPortfolioService:
                     break
         return rows
 
-    def co_case_source_context(self, client: dict, case: dict) -> dict:
+    def co_case_source_context(self, client: dict, case: dict, *, skip_heavy_context: bool = False) -> dict:
         source_summary, source_backend = self.source_summary(client)
         client_config = source_summary["client_config"]
         shipment = case.get("shipment", {})
@@ -635,6 +635,29 @@ class DataHubPortfolioService:
                 "declaration_file_counts": {"export": {}, "import": {}},
             }
         relevant_types = client_config.get("bcct", {}).get("relevant_export_declaration_types", [])
+        # Lightweight path for non-origin steps (shipment/documents/exports/review).
+        # Those tabs only render source_summary + invoice_matches, so skip the full
+        # list_materials + list_bcct pagination (65k+ rows for big clients) that
+        # otherwise makes the case detail page take ~21s. material_rows/stock_rows
+        # stay empty; invoice_matches comes from the dedicated lightweight endpoint
+        # (no BCCT enrichment). Export-declaration cases still need the full BCCT
+        # pull (match_case_bcct_exports) to populate invoice_matches, so they fall
+        # through to the heavy path even on non-origin tabs.
+        if skip_heavy_context and not export_declaration_nos:
+            invoice_matches = (
+                self.data_hub.invoice_matches(client["id"], invoice_no, relevant_types)
+                if invoice_no
+                else []
+            )
+            declaration_file_counts = self.declaration_file_counts(client["id"], case, invoice_matches)
+            return {
+                "source_backend": source_backend,
+                "source_summary": source_summary,
+                "invoice_matches": invoice_matches,
+                "material_rows": [],
+                "stock_rows": [],
+                "declaration_file_counts": declaration_file_counts,
+            }
         material_rows = []
         if hasattr(self.data_hub, "list_materials"):
             material_rows = [

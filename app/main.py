@@ -93,7 +93,7 @@ from app.demo_data import (
 )
 from app.origin import evaluate_tariff_shift
 from app.app_state_store import get_app_state_store
-from app.portfolio import portfolio_app, portfolio_service
+from app.portfolio import SourceBackendUnavailable, portfolio_app, portfolio_service
 from app.source_store import (
     attach_case_source_snapshot,
     co_stock_rows_from_bcct,
@@ -178,6 +178,13 @@ app.mount("/portfolio", portfolio_app, name="portfolio")
 async def _case_closed_handler(request: Request, exc: CaseClosedError):
     """Mutating route hit a closed case → 409 with the friendly Vietnamese message."""
     return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(SourceBackendUnavailable)
+async def _source_backend_unavailable_handler(request: Request, exc: SourceBackendUnavailable):
+    """Data Hub is the source of truth but unavailable, and local fallback is not
+    allowed → 503 with a clear message instead of a silently-empty page."""
+    return PlainTextResponse(str(exc), status_code=503)
 
 templates = Jinja2Templates(directory=ROOT / "templates", context_processors=[theme_context])
 
@@ -1193,7 +1200,12 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
     if use_cached_context:
         source_context = cached_origin_source_context(client, case)
     else:
-        source_context = co_case_source_context(client, case)
+        # Non-origin steps only need source_summary + invoice_matches; skip the
+        # heavy materials + BCCT pagination so the shipment tab (the default
+        # landing tab) renders fast instead of ~21s for big clients.
+        source_context = co_case_source_context(
+            client, case, skip_heavy_context=(current_step != "origin")
+        )
         # Warm the TTL cache so the next substitute-modal open in this session
         # reuses the same Data Hub fetch (avoids 30s re-pagination for Johnson).
         if source_context.get("material_rows") or source_context.get("stock_rows"):
@@ -1331,8 +1343,10 @@ _CO_CASE_SOURCE_CACHE: dict[tuple[str, str], tuple[float, dict]] = {}
 _CO_CASE_SOURCE_CACHE_TTL_SECONDS = 90.0
 
 
-def co_case_source_context(client: dict, case: dict) -> dict:
-    return portfolio_service.co_case_source_context(client, case)
+def co_case_source_context(client: dict, case: dict, *, skip_heavy_context: bool = False) -> dict:
+    return portfolio_service.co_case_source_context(
+        client, case, skip_heavy_context=skip_heavy_context
+    )
 
 
 def co_case_source_context_cached(client: dict, case: dict) -> dict:

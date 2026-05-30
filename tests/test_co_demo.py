@@ -6479,7 +6479,7 @@ def test_co_routes_use_portfolio_service_adapter(monkeypatch):
                 "co_stock_rows": [],
             }, "portfolio-fake"
 
-        def co_case_source_context(self, client: dict, case: dict) -> dict:
+        def co_case_source_context(self, client: dict, case: dict, *, skip_heavy_context: bool = False) -> dict:
             return {
                 "source_backend": "portfolio-fake",
                 "source_summary": {
@@ -6760,7 +6760,7 @@ def test_co_case_create_explains_invoice_market_hint_without_auto_selecting(monk
         def client(self, client_id: str) -> dict:
             return {"id": client_id, "name": "Growatt VN", "code": client_id, "counts": {}}
 
-        def co_case_source_context(self, client: dict, case: dict) -> dict:
+        def co_case_source_context(self, client: dict, case: dict, *, skip_heavy_context: bool = False) -> dict:
             return {
                 "source_backend": "data-hub",
                 "source_summary": {

@@ -120,7 +120,9 @@ class PortfolioService:
             return store.source_workspace(client["id"], client_config), "postgres"
         return get_source_workspace(client), "files"
 
-    def co_case_source_context(self, client: dict, case: dict) -> dict:
+    def co_case_source_context(self, client: dict, case: dict, *, skip_heavy_context: bool = False) -> dict:
+        # Local store context is in-memory and cheap; skip_heavy_context (a Data Hub
+        # pagination optimization) is a no-op here.
         client_config = self.get_client_config(client)
         store = get_source_index_store()
         shipment = case.get("shipment", {})
@@ -230,11 +232,28 @@ def source_index_accepts_declaration_refs(match_func) -> bool:
         return False
 
 
+class SourceBackendUnavailable(RuntimeError):
+    """Data Hub is the source of truth but is not configured/reachable, and the
+    local file-store fallback is not explicitly allowed. Surfaced as 503 so the
+    operator sees a clear error instead of a silently-empty page built from
+    stale local backup data."""
+
+
 def get_portfolio_service() -> PortfolioService | DataHubPortfolioService:
     data_hub_client = data_hub_client_from_env(token_provider=current_data_hub_token)
     if data_hub_client:
         return DataHubPortfolioService(data_hub_client)
-    return PortfolioService()
+    # No Data Hub client means DATA_HUB_ENABLED is off. Only fall back to the
+    # local file-store backend when explicitly allowed (tests / offline dev via
+    # CO_ALLOW_LOCAL_SOURCE=1). In a real deployment this raises so the request
+    # fails loudly rather than quietly serving local backup data.
+    if data_hub_link_settings().allow_local_source:
+        return PortfolioService()
+    raise SourceBackendUnavailable(
+        "Data Hub chưa được cấu hình (DATA_HUB_ENABLED). CO không dùng dữ liệu "
+        "local backup; hãy bật Data Hub hoặc đặt CO_ALLOW_LOCAL_SOURCE=1 cho môi "
+        "trường dev/test."
+    )
 
 
 _PORTFOLIO_SERVICE_CACHE: tuple[tuple, PortfolioService | DataHubPortfolioService] | None = None
@@ -245,6 +264,7 @@ def current_portfolio_service() -> PortfolioService | DataHubPortfolioService:
     settings = data_hub_link_settings()
     cache_key = (
         settings.source_enabled,
+        settings.allow_local_source,
         settings.data_hub_api_base_url,
         settings.api_token,
         settings.request_timeout_seconds,
