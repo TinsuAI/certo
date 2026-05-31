@@ -59,7 +59,22 @@ services:
       interval: 10s
       timeout: 3s
       retries: 12
+    networks:
+      # default: reach this project's `db`. tinsu-shared: reach Data Hub's
+      # API by its internal alias `data-hub-app:8754` (set
+      # DATA_HUB_API_BASE_URL=http://data-hub-app:8754) instead of the public
+      # domain. Keep DATA_HUB_ISSUER_URL/JWKS/BASE_URL on the public URL —
+      # CO decouples call-URL from issuer and verifies a multi-issuer tuple.
+      default: {}
+      tinsu-shared: {}
 
 volumes:
   pgdata:
   appdata:
+
+networks:
+  # Cross-project bridge shared with the Data Hub compose project. Created out
+  # of band (`docker network create tinsu-shared`); external so neither
+  # project owns/destroys it.
+  tinsu-shared:
+    external: true
