@@ -1,7 +1,11 @@
 # Feature prep: BOM workspace perf — the next origin bottleneck
 
-**Status:** prep / not started. Scoped at the end of the 2026-05-31 origin
-narrow-BCCT session so the next session can start without re-discovering.
+**Status:** IMPLEMENTED locally (Option A, parallel client-side fetch) — TDD +
+reviewed, parity byte-identical on real Johnson products, full suite green. NOT yet
+committed/deployed/prod-benchmarked (pending user go-ahead). Discovery question
+resolved: no multi-product batch DH endpoint exists (all BOM paths key on a single
+`{product_code}`), so a batch endpoint would require a DH contract change → A is the
+correct self-contained move. See STATUS.md for the result summary.
 
 ## Problem
 

@@ -67,17 +67,29 @@
 
 ## Next Steps
 
-> **▶ ACTIVE NEXT TASK — BOM workspace perf.** Prep brief ready (full analysis +
-> recommendation): **`.ai/features/2026-05-31-bom-workspace-perf-prep.md`**. After
-> the BCCT pull was eliminated, `_build_workspace` (bom_service.py:87 — **sequential
-> per-product DH fetch**) is the dominant origin cold cost (~22s on product-heavy
-> cases; scales with #products). **Recommendation: parallel client-side fetch**
-> (~22s → ~3-4s, output-identical → near-zero parity risk; contained in
-> `_build_workspace`). **Gotcha:** httpx is sync → ThreadPoolExecutor, and
-> `CURRENT_DATA_HUB_TOKEN` is a contextvar that worker threads DON'T inherit —
-> propagate it or every parallel fetch 401s. Flow: short `/discover` (parallel vs
-> asking DH for a batch endpoint) → `/tdd` with a parallel-output == sequential-output
-> parity test. NOT a BOM materializer unless parallel proves insufficient.
+> **▶ BOM workspace perf — DONE locally (TDD + reviewed), NOT committed/deployed.**
+> Parallelized the sequential per-product DH fetch in `_build_workspace`
+> (bom_service.py). New `_fetch_product_results` runs each product's
+> `_build_product_result` concurrently via `ThreadPoolExecutor`
+> (`BOM_FETCH_MAX_WORKERS=8`), propagating `CURRENT_DATA_HUB_TOKEN` with a fresh
+> `copy_context()` per task (worker threads don't inherit contextvars → would 401
+> otherwise). Assembly stays in product order; final sort makes output fully
+> order-independent. Single-product fast path skips the executor.
+> - **Parity: byte-identical** (local DH, real Johnson products N=20/40: product_versions,
+>   latest_rows count, aggregate version_hash, variant_conflicts, dh_picker_filter all
+>   equal sequential). Live contextvar propagation verified (workers=8, no 401).
+> - **Speedup ~2.3–2.6x local** (N=20: 0.30s→0.13s; N=40: 0.66s→0.26s). Local DH is
+>   co-located so per-product latency is tiny → the win scales with latency; prod
+>   (network round-trips) should see a larger speedup. The discovery-era ~22s figure
+>   predates the BCCT-pull elimination and a faster local DH.
+> - Tests: `tests/test_bom_workspace_parallel.py` (4: concurrency-barrier proof,
+>   token contextvar propagation, output determinism vs fetch order, variant-conflict
+>   under parallel). Full suite **399 passed + 8 skipped** (file-store mode).
+> - Decision: stayed with parallel client-side fetch (A); confirmed NO multi-product
+>   batch DH endpoint exists (all BOM paths are single `{product_code}`), so a batch
+>   approach would need a DH contract change. Materialize-BOM (C) not needed.
+> - **Next:** commit + push (CI/CD deploy) + prod benchmark on product-heavy case
+>   `co-case-0605189d5eea` — **pending user go-ahead** (not yet committed).
 
 1. **Case detail load (shipment tab) ~21s — DONE, deployed, prod-verified.**
    `skip_heavy_context` on `co_case_source_context` (commit `d28e237`, deployed
