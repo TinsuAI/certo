@@ -1,8 +1,31 @@
 # Project Status
 
 ## Current State
-- Branch `main` at `9064564` — **pushed to `tinsu/main` + deployed (CI/CD green)
-  + prod-verified**. Working tree clean.
+- Branch `main` at `5ce27f3` (`deploy: attach app to external tinsu-shared
+  network`) — pushed to `tinsu/main` + deployed. Working tree clean.
+- **DH↔CO internal-network cutover VERIFIED (2026-06-01, CO side, all 5 checks
+  PASS, no rollback).** CO→Data Hub server-to-server now goes over the internal
+  Docker bridge `tinsu-shared` (DH alias `data-hub-app`): prod `.env`
+  `DATA_HUB_API_BASE_URL=http://data-hub-app:8754`; issuer/JWKS/BASE stay public
+  (`https://ttdatahub.tinsu.ai`).
+  - **Issuer/JWKS decoupling safe** (code + live env): `data_hub_settings.py`
+    derives `issuer_url` from `DATA_HUB_ISSUER_URL`/`BASE_URL` and `jwks_url` from
+    `issuer_url` — **never** from `API_BASE_URL`; `DataHubTokenVerifier` validates
+    `iss`/JWKS against the public URLs. `api_base_url` feeds only the `/v1/hub`
+    client (`data_hub_client.py:874`) + `/v1/auth/exchange` (`co_auth.py:319`).
+  - **Latency** (from inside co-app-1): internal ~22ms median vs public ~174ms
+    (~8x; tail 34ms vs 1.5s). Full 50-product johnson-vn BOM workspace: **64ms via
+    batch over internal** (`batch_used=True`, one round-trip) vs ~10.4s
+    public-sequential baseline (~160x).
+  - **Browser SSO e2e (Playwright)**: real login `claude-check@local` → CO
+    `/auth/callback` → `/v1/auth/exchange` over the internal bridge → session set →
+    johnson-vn origin BOM workspace renders (real products + materials + version
+    picker), 0 auth errors, co-app-1 logs clean. Screenshots:
+    `.ai/screenshots/dh-internal-network-verify/`. (Only noise: benign Cloudflare
+    `cdn-cgi/rum` beacon aborts.)
+  - **Batch endpoint now LIVE on prod DH** (internal probe returns 400
+    `missing_client_id`, not 404) → prod CO uses the batch path, not the
+    per-product fallback. Memory: [[demo-server-ssh]], [[bom-batch-endpoint-and-parity]].
 - **Origin tab full-BCCT pull ELIMINATED — DONE, deployed, prod-verified
   (commits `b3d6083` code + `9064564` docs).** The cold origin tab-load now reads
   stock from the materialized CO-stock snapshot (same source `/calculate` uses) +
