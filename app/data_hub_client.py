@@ -695,6 +695,49 @@ class DataHubPortfolioService:
             "declaration_file_counts": declaration_file_counts,
         }
 
+    def origin_invoice_matches(self, client: dict, case: dict, client_config: dict) -> list[dict]:
+        """Invoice_matches for the origin tab-load via a NARROW Data Hub fetch —
+        never the full list_bcct catalog pull (~40s for Johnson).
+
+        Invoice case: indexed invoice-match lookup, then enrich values from a
+        by-codes export fetch scoped to the matched item codes.
+        Export-declaration case: per-declaration list_bcct(declaration_no=) — the
+        Data Hub bcct filter honours the singular declaration_no only (the plural
+        form is ignored), so fetch one declaration at a time, then run the same
+        match_case_bcct_exports the heavy path uses. Produces identical matches to
+        the full pull (verified on Johnson: by-codes 0 field mismatch; declaration
+        filter 43/43 exact).
+        """
+        shipment = case.get("shipment", {})
+        invoice_no = str(shipment.get("invoice_no", "") or "").strip()
+        export_declaration_nos = shipment.get("export_declaration_nos", []) or []
+        if export_declaration_nos:
+            narrow_rows: list[dict] = []
+            for declaration_no in export_declaration_nos:
+                token = str(declaration_no or "").strip()
+                if not token:
+                    continue
+                narrow_rows.extend(
+                    normalize_bcct_row(row)
+                    for row in self.data_hub.list_bcct(
+                        client["id"], declaration_no=token, direction="export"
+                    )
+                )
+            return match_case_bcct_exports(
+                case, {"bcct": {"published_rows": narrow_rows}}, client_config
+            )
+        if not invoice_no:
+            return []
+        relevant_types = client_config.get("bcct", {}).get("relevant_export_declaration_types", [])
+        matches = self.data_hub.invoice_matches(client["id"], invoice_no, relevant_types)
+        item_codes = sorted({
+            str(match.get("item_code") or "").strip()
+            for match in matches
+            if str(match.get("item_code") or "").strip()
+        })
+        narrow_export = self.list_bcct_by_codes(client["id"], item_codes, direction="export")
+        return enrich_invoice_matches_with_bcct(matches, narrow_export)
+
     def declaration_file_counts(self, client_id: str, case: dict, invoice_matches: list[dict]) -> dict:
         counts: dict[str, dict[str, int]] = {"export": {}, "import": {}}
         if not hasattr(self.data_hub, "list_declarations"):

@@ -1226,16 +1226,22 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
     use_cached_context = cached_case_context and not force_source_refresh and bool(case.get("source_snapshot"))
     if use_cached_context:
         source_context = cached_origin_source_context(client, case)
+    elif current_step == "origin":
+        # Origin tab-load: stock from the materialized CO-stock snapshot +
+        # narrow export invoice_matches, never the ~40s full BCCT pull.
+        source_context = origin_source_context(client, case)
     else:
         # Non-origin steps only need source_summary + invoice_matches; skip the
         # heavy materials + BCCT pagination so the shipment tab (the default
         # landing tab) renders fast instead of ~21s for big clients.
-        source_context = co_case_source_context(
-            client, case, skip_heavy_context=(current_step != "origin")
-        )
+        source_context = co_case_source_context(client, case, skip_heavy_context=True)
+    if not use_cached_context:
         # Warm the TTL cache so the next substitute-modal open in this session
         # reuses the same Data Hub fetch (avoids 30s re-pagination for Johnson).
-        if source_context.get("material_rows") or source_context.get("stock_rows"):
+        # Only warm when a real materials pull happened: the converged origin
+        # path returns material_rows=[] and must not overwrite the cache the
+        # substitute-modal HS heuristic relies on.
+        if source_context.get("material_rows"):
             import time
             persisted = case.get("persisted_case_id") or case.get("id") or ""
             shipment = case.get("shipment") or {}
@@ -1425,6 +1431,55 @@ def co_case_source_context_cached(client: dict, case: dict) -> dict:
             rows = co_stock_adjustments_store.apply_adjustments(rows, adjustments)
         context = {**context, "stock_rows": rows}
     return context
+
+
+def origin_source_context(client: dict, case: dict) -> dict:
+    """Converged source context for the origin tab-load (cold path).
+
+    Replaces the heavy co_case_source_context — whose dominant cost is the full
+    list_bcct pull (~40s for Johnson) — with:
+      - stock_rows from the materialized CO-stock snapshot (the same source the
+        /calculate path uses, net of the ledger), so the preview matches the
+        computed result;
+      - invoice_matches from a narrow Data Hub fetch (per-declaration / by-codes
+        export), persisted on the case downstream for the warm path to reuse;
+      - material_rows = [] (unused at tab render; the substitute modal self-fetches).
+
+    This is the COLD path: the warm reuse of case["source_invoice_matches"]
+    lives upstream in cached_origin_source_context (gated on use_cached_context).
+    We always re-fetch here so a force_source_refresh actually refreshes — never
+    serve possibly-stale cached matches when the caller asked to bypass the cache.
+
+    Falls back to the legacy full pull when the snapshot is unusable (no DB /
+    empty for this client) so an operator never sees an empty stock preview.
+    """
+    # The converged snapshot path is a Data-Hub-mode optimization: stock comes
+    # from the materialized co_stock snapshot built off Data Hub BCCT. In
+    # file-store mode (tests / offline dev) there is no such snapshot, so use
+    # the cheap in-memory heavy path directly and never touch the materializer.
+    if getattr(portfolio_service, "data_hub", None) is None:
+        return co_case_source_context(client, case)
+    snapshot_stock = _calculate_stock_rows_from_snapshot(client)
+    if snapshot_stock is None:
+        return co_case_source_context(client, case)
+
+    source_summary, source_backend = portfolio_service.source_summary(client)
+    client_config = source_summary.get("client_config", {}) if isinstance(source_summary, dict) else {}
+    invoice_matches = portfolio_service.origin_invoice_matches(client, case, client_config)
+
+    declaration_file_counts = {"export": {}, "import": {}}
+    if hasattr(portfolio_service, "declaration_file_counts"):
+        declaration_file_counts = portfolio_service.declaration_file_counts(
+            client.get("id", ""), case, invoice_matches
+        )
+    return {
+        "source_backend": source_backend,
+        "source_summary": source_summary,
+        "invoice_matches": invoice_matches,
+        "material_rows": [],
+        "stock_rows": snapshot_stock,
+        "declaration_file_counts": declaration_file_counts,
+    }
 
 
 def record_sheet_lock_claims(client_id: str, case_id: str, product_code: str, case: dict) -> int:
