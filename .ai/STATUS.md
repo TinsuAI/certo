@@ -67,7 +67,16 @@
 
 ## Next Steps
 
-> **▶ BOM workspace perf — DONE locally (TDD + reviewed), NOT committed/deployed.**
+> **▶ BOM workspace perf — DONE, deployed, prod-verified** (commits `2c0ff21` code
+> + `3c077ea`/this-doc; CI/CD run 26713547506 green: tests+docker+deploy+nightly
+> refresh). Prod benchmark (johnson-vn / `co-case-0605189d5eea`, 2 products
+> `PV00.0048500`+`PV01.0117600`, Bearer JWT): `/origin` **200, byte-identical**
+> output across runs, no 401 → **contextvar token propagation confirmed under prod
+> live auth** (the key risk; local DH had auth off). Cold ~2.9s, warm ~1.0s. Timing
+> varies run-to-run (2.9 / 1.0 / 3.2s) because the BOM cache is **in-process per
+> worker** and prod runs multiple workers → a cold worker re-pays until warmed (not a
+> bug). NOTE: this case is only 2 products, so it proves correctness/no-regression,
+> not a heavy speedup; the speedup characterization is the local N=50 run below.
 > Parallelized the sequential per-product DH fetch in `_build_workspace`
 > (bom_service.py). New `_fetch_product_results` runs each product's
 > `_build_product_result` concurrently via `ThreadPoolExecutor`
