@@ -1,19 +1,21 @@
 # Project Status
 
 ## Current State
-- Branch `main` at `b3d6083` (local — **NOT pushed/deployed**; prod still at the
-  synced `tinsu/main` baseline, unaffected & healthy). Untracked: discovery
-  artifacts `.ai/features/2026-05-31-origin-narrow-bcct-fetch.md` +
-  `.ai/sessions/2026-05-31-origin-bcct-elimination-discovery.md`; plus a
-  pre-existing unstaged `.ai/STATUS.md` edit.
-- **Origin tab full-BCCT pull ELIMINATED — DONE & local-verified (commit
-  `b3d6083`).** The cold origin tab-load now reads stock from the materialized
-  CO-stock snapshot (same source `/calculate` uses) + a narrow export
-  invoice_matches fetch, instead of the ~40s full `list_bcct` (65k rows for
-  Johnson). Real-Johnson parity: **invoice_matches byte-identical**, stock
-  material_code coverage identical (8 660), `origin_build_signature` stable across
-  reloads. Origin source-context **~60s → ~0.9s warm / ~8s cold** (one-time delta
-  refresh). BOM workspace (~22s) is now the dominant origin cost (separate task).
+- Branch `main` at `9064564` — **pushed to `tinsu/main` + deployed (CI/CD green)
+  + prod-verified**. Working tree clean.
+- **Origin tab full-BCCT pull ELIMINATED — DONE, deployed, prod-verified
+  (commits `b3d6083` code + `9064564` docs).** The cold origin tab-load now reads
+  stock from the materialized CO-stock snapshot (same source `/calculate` uses) +
+  a narrow export invoice_matches fetch, instead of the ~40s full `list_bcct`
+  (65k rows for Johnson). Real-Johnson parity (local DH): **invoice_matches
+  byte-identical**, stock material_code coverage identical (8 660),
+  `origin_build_signature` stable across reloads. Local: origin source-context
+  **~60s → ~0.9s warm / ~8s cold** (one-time delta refresh). **Prod benchmark
+  (johnson-vn, throwaway case, created→measured→deleted): cold `/origin`
+  **1.47s** (warm 1.64s)** — faster than local cold because the nightly stack
+  refresh keeps the prod snapshot fresh, skipping the delta-refresh. Prod
+  snapshot present (60 173 rows). BOM workspace (~22s) is now the dominant origin
+  cost (separate task).
 - Session summaries:
   `.ai/sessions/2026-05-31-origin-bcct-elimination-discovery.md` (latest),
   `.ai/sessions/2026-05-31-case-detail-perf-fix-and-dh-guard.md`.
@@ -70,17 +72,24 @@
    Bearer JWT for `claude-check@local`): shipment tab **~1.5–3.6s** vs ~21s
    baseline (~7–10x). invoice_matches parity preserved (local E2E: 39.7s→0.03s).
 
-2. **Origin tab full-BCCT pull — DONE & local-verified (commit `b3d6083`).**
-   Implemented per brief `.ai/features/2026-05-31-origin-narrow-bcct-fetch.md`.
-   Cold origin tab-load now reads stock from the materialized `co_stock_rows`
-   snapshot + a narrow export invoice_matches fetch; the ~40s full `list_bcct`
-   (65 846 rows) is gone. Real-Johnson parity: invoice_matches byte-identical,
-   stock coverage identical, `origin_build_signature` stable. **~60s → ~0.9s warm
-   / ~8s cold.** Code: `origin_source_context` (main.py) +
+2. **Origin tab full-BCCT pull — DONE, deployed, prod-verified (commits
+   `b3d6083` code + `9064564` docs).** Implemented per brief
+   `.ai/features/2026-05-31-origin-narrow-bcct-fetch.md`. Cold origin tab-load now
+   reads stock from the materialized `co_stock_rows` snapshot + a narrow export
+   invoice_matches fetch; the ~40s full `list_bcct` (65 846 rows) is gone.
+   Real-Johnson parity: invoice_matches byte-identical, stock coverage identical,
+   `origin_build_signature` stable. Code: `origin_source_context` (main.py) +
    `DataHubPortfolioService.origin_invoice_matches`; wired into
    `co_case_light_context` cold origin branch with a DH-mode guard.
-   - **NOT pushed/deployed** — local commit only. Next: push + CI deploy, then
-     prod benchmark (Bearer JWT, `johnson-vn / co-case-0605189d5eea`).
+   - **Deployed via CI/CD** (push `tinsu/main` → tests+docker+deploy all green).
+     **Prod benchmark** (johnson-vn, throwaway case created→measured→deleted):
+     cold `/origin` **1.47s** / warm 1.64s vs ~60s baseline. Local: ~0.9s warm /
+     ~8s cold (local snapshot was stale → one-time delta refresh; prod's nightly
+     refresh keeps it fresh, so prod cold skips that). Prod snapshot present
+     (60 173 rows).
+   - **Prod delete needs a privileged role**: `claude-check@local` is NOT in
+     `co_case_delete_roles` → `/delete` returns 403. To remove a prod case, use
+     `delete_case_record` inside container `co-app-1` via SSH `tinsu`.
    - **DH `/v1/hub/bcct` filters on singular `declaration_no`** — plural
      `declaration_nos` silently ignored; export-decl fetch loops per declaration.
      Memory: `dh-bcct-declaration-filter-singular`.
