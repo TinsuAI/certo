@@ -130,6 +130,8 @@ def test_two_products_rows_embedded(auth_disabled):
             assert len(env["items"]) == 1
             item = env["items"][0]
             assert item["intent"] == "staff_edit"
+            assert item["client_id"] == cid  # rich shape carries client_id
+            assert item["product_code"] == pc
             row = item["rows"][0]
             assert row["material_code"] == "NVL-1"
             assert str(row["qty_per_unit"]) in ("1.5", "1.50")
@@ -180,9 +182,12 @@ def test_include_rows_false_no_fetch(auth_disabled, monkeypatch):
         _cleanup(cid)
 
 
-# ── GOLDEN: per-product parity (items identical to per-product endpoint) ──
+# ── GOLDEN: same filter -> same artifacts (same set + order) as per-product ──
+# Items carry the richer single-artifact shape (see test_artifact_field_parity),
+# but the SET and ORDER of artifacts surviving the filter must match the
+# per-product LIST endpoint exactly.
 
-def test_per_product_parity(auth_disabled):
+def test_same_artifact_set_as_per_product(auth_disabled):
     cid = _new_cid()
     with connect() as conn, conn.cursor() as cur:
         _mk_client(cur, cid)
@@ -207,7 +212,7 @@ def test_per_product_parity(auth_disabled):
         per = _client().get(PER_PRODUCT_URL.format(pc="P1"),
                             params=params, headers=_bearer())
         assert per.status_code == 200, per.text
-        per_items = per.json()["items"]
+        per_ids = [it["artifact_id"] for it in per.json()["items"]]
 
         batch = _client().post(BATCH_URL, headers=_bearer(), json={
             "client_id": cid, "product_codes": ["P1"],
@@ -215,12 +220,68 @@ def test_per_product_parity(auth_disabled):
             "latest_per_variant": True, "include_rows": False,
         })
         assert batch.status_code == 200, batch.text
-        batch_items = batch.json()["results"]["P1"]["items"]
+        batch_ids = [it["artifact_id"]
+                     for it in batch.json()["results"]["P1"]["items"]]
 
-        # Byte-identical: same items, same order, same fields.
-        assert batch_items == per_items
-        assert len(batch_items) == 1
-        assert batch_items[0]["artifact_id"] == f"{cid}_a2"
+        assert batch_ids == per_ids
+        assert batch_ids == [f"{cid}_a2"]
+    finally:
+        _cleanup(cid)
+
+
+# ── ARTIFACT FIELD PARITY: batch item (minus embeds) == single-artifact GET ──
+
+def test_artifact_field_parity(auth_disabled):
+    cid = _new_cid()
+    with connect() as conn, conn.cursor() as cur:
+        _mk_client(cur, cid)
+    try:
+        aid = bom_store.create_artifact(
+            client_id=cid, product_code="P1",
+            rows=[{
+                "material_code": "NVL-1", "bom_code": "P1",
+                "bom_variant_id": "default", "qty_per_unit": 1.5, "uom": "PCS",
+                "material_name": "PET film", "hs_code": "3920.62.90",
+            }],
+            actor="agency_staff", intent="staff_edit", parent_artifact_id=None,
+            context={}, source_upload_id=None,
+            flatten_status="not_applicable",
+            flatten_strategy="manual_flat_as_provided",
+            bom_code="P1", bom_variant_id="default",
+            lineage={"origin": "field-parity-test"},
+            flatten_method="manual_test", flatten_method_version="9",
+        )
+        batch = _client().post(BATCH_URL, headers=_bearer(), json={
+            "client_id": cid, "product_codes": ["P1"],
+        })
+        assert batch.status_code == 200, batch.text
+        item = batch.json()["results"]["P1"]["items"][0]
+
+        single = _client().get(
+            f"/v1/hub/products/P1/bom/artifacts/{aid}",
+            params={"client_id": cid}, headers=_bearer(),
+        )
+        assert single.status_code == 200, single.text
+        artifact_obj = single.json()["artifact"]
+
+        batch_minus = {k: v for k, v in item.items()
+                       if k not in ("rows", "unresolved", "decisions")}
+        # Field-for-field identical to the single-artifact `artifact` object.
+        assert batch_minus == artifact_obj
+
+        # The 7 fields the list-summary build was missing must be present + equal.
+        for f in ("client_id", "flatten_method", "flatten_method_version",
+                  "lineage", "uom_drift_resolved_at", "stale_resolved_at",
+                  "stale_first_at"):
+            assert f in batch_minus, f
+            assert batch_minus[f] == artifact_obj[f], f
+
+        # Prove real enrichment (these are NULL/absent in the list summary).
+        assert batch_minus["client_id"] == cid
+        assert batch_minus["product_code"] == "P1"
+        assert batch_minus["flatten_method"] == "manual_test"
+        assert batch_minus["flatten_method_version"] == "9"
+        assert batch_minus["lineage"] == {"origin": "field-parity-test"}
     finally:
         _cleanup(cid)
 
@@ -469,7 +530,7 @@ def test_fan_in_single_query_class(auth_disabled, monkeypatch):
 
         calls = {"artifacts": 0, "rows": 0, "unresolved": 0, "decisions": 0}
         for attr, key in (
-            ("list_artifacts_for_products", "artifacts"),
+            ("list_artifact_meta_for_products", "artifacts"),
             ("get_rows_for_artifacts", "rows"),
             ("get_unresolved_for_artifacts", "unresolved"),
             ("get_decisions_for_artifacts", "decisions"),

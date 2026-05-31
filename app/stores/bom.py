@@ -646,23 +646,66 @@ def list_artifacts_for_product(*, client_id: str, product_code: str) -> list[dic
     ).get(product_code, [])
 
 
+# The full single-artifact column set. Shared by get_artifact_with_rows and
+# list_artifact_meta_for_products so the single-artifact GET and the batch
+# items[*] artifact shape can never drift (the ARTIFACT FIELD PARITY contract
+# CO depends on — client_id, lineage, flatten_method[_version], stale_*/
+# uom_drift_* timestamps must be present on both paths).
+_ARTIFACT_META_COLS = (
+    "artifact_id, client_id, product_code, artifact_no, actor, intent, "
+    "parent_artifact_id, context, normalized_hash, row_count, "
+    "status, tombstoned_at, tombstone_reason, created_at, published_at, "
+    "source_bom_kind, flatten_status, flatten_strategy, "
+    "source_channel, bom_code, bom_variant_id, lineage, "
+    "display_label, human_label, flatten_method, flatten_method_version, "
+    "is_stale, stale_reasons, stale_first_at, stale_resolved_at, "
+    "has_uom_drift, uom_drift_reasons, "
+    "uom_drift_first_at, uom_drift_resolved_at, "
+    "state"
+)
+
+
+def list_artifact_meta_for_products(*, client_id: str,
+                                    product_codes: list[str]) -> dict[str, list[dict]]:
+    """Fan-in of the SINGLE-artifact `artifact` shape for many products in
+    ONE query. Returns {product_code: [artifact_meta, ...]}.
+
+    Distinct from list_artifacts_for_products (the lighter LIST-summary shape
+    behind GET /bom/artifacts): this carries the full diagnostic/freshness
+    metadata so the batch endpoint's items are field-for-field identical to
+    the single-artifact GET. Shares _ARTIFACT_META_COLS with
+    get_artifact_with_rows. Ordered (created_at desc, artifact_no desc) per
+    product to match list_artifacts_for_product's filter-input order, so the
+    same _apply_bom_artifact_filters chain yields the same artifacts in the
+    same order on both the per-product and batch paths.
+    """
+    if not product_codes:
+        return {}
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                select {_ARTIFACT_META_COLS}
+                from hub.bom_artifacts
+                where client_id = %s and product_code = any(%s)
+                order by product_code, created_at desc, artifact_no desc
+                """,
+                (client_id, list(product_codes)),
+            )
+            cols = [d[0] for d in cur.description]
+            out: dict[str, list[dict]] = {}
+            for r in cur.fetchall():
+                row = dict(zip(cols, r))
+                out.setdefault(row["product_code"], []).append(row)
+            return out
+
+
 def get_artifact_with_rows(artifact_id: str) -> dict | None:
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
-                select artifact_id, client_id, product_code, artifact_no, actor, intent,
-                       parent_artifact_id, context, normalized_hash, row_count,
-                       status, tombstoned_at, tombstone_reason, created_at, published_at,
-                       source_bom_kind, flatten_status, flatten_strategy,
-                       source_channel, bom_code, bom_variant_id, lineage,
-                       display_label, human_label, flatten_method, flatten_method_version,
-                       is_stale, stale_reasons, stale_first_at, stale_resolved_at,
-                       has_uom_drift, uom_drift_reasons,
-                       uom_drift_first_at, uom_drift_resolved_at,
-                       state
-                from hub.bom_artifacts where artifact_id = %s
-                """,
+                f"select {_ARTIFACT_META_COLS} from hub.bom_artifacts "
+                "where artifact_id = %s",
                 (artifact_id,),
             )
             row = cur.fetchone()

@@ -1363,7 +1363,7 @@ async def api_bom_artifacts_batch(
     just the current page's artifacts — independent of product count.
     """
     from app.stores.bom import (
-        list_artifacts_for_products,
+        list_artifact_meta_for_products,
         get_rows_for_artifacts,
         get_unresolved_for_artifacts,
         get_decisions_for_artifacts,
@@ -1438,9 +1438,11 @@ async def api_bom_artifacts_batch(
         "case_id": case_id,
     }
 
-    # ONE artifact query for every requested product (fan-in), then the SAME
-    # per-product filter applied to each product's slice -> per-product parity.
-    arts_by_product = list_artifacts_for_products(
+    # ONE artifact query for every requested product (fan-in), in the full
+    # single-artifact shape, then the SAME per-product filter applied to each
+    # product's slice. Items are therefore field-for-field identical to the
+    # single-artifact GET (ARTIFACT FIELD PARITY), not the lighter list summary.
+    arts_by_product = list_artifact_meta_for_products(
         client_id=client_id, product_codes=product_codes,
     )
     filtered_by_product: dict[str, list[dict]] = {}
@@ -1514,6 +1516,27 @@ async def api_bom_artifacts_batch(
         "missing": missing,
         "next_cursor": next_cursor,
     })
+
+
+@router.get("/products/{product_code}/bom/artifacts/{artifact_id}")
+async def api_bom_artifact_single(
+    product_code: str, artifact_id: str, client_id: str,
+    authorization: str | None = Header(None),
+):
+    """Single artifact (full shape) + rows/edges/unresolved/decisions,
+    scoped to (client_id, product_code).
+
+    The `artifact` object returned here is the canonical rich shape that the
+    batch endpoint's items[*] mirror field-for-field (ARTIFACT FIELD PARITY).
+    404 when the id does not exist or belongs to another client/product.
+    """
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
+    data = get_artifact_with_rows(artifact_id)
+    if not data or data["artifact"]["client_id"] != client_id \
+            or data["artifact"]["product_code"] != product_code:
+        raise HTTPException(404, "artifact not found")
+    return _json(data)
 
 
 @router.get("/products/{product_code}/bom")
