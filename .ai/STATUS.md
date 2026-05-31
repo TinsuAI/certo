@@ -1,12 +1,24 @@
 # Project Status
 
 ## Current State
-- Branch `main` synced with `tinsu/main` at `c088852` (this session: `d28e237`
-  perf skip_heavy_context + DH-off guard, `dbb9315` DH-unreachable 503/502, +
-  STATUS/handoff docs, on base `83efe8d`). **Pushed; CI/CD auto-deployed the
-  code commits; prod healthy** (`/healthz` 200).
-- Session summary: `.ai/sessions/2026-05-31-case-detail-perf-fix-and-dh-guard.md`.
-- Local suite **389 passed + 7 skipped**.
+- Branch `main` at `b3d6083` (local — **NOT pushed/deployed**; prod still at the
+  synced `tinsu/main` baseline, unaffected & healthy). Untracked: discovery
+  artifacts `.ai/features/2026-05-31-origin-narrow-bcct-fetch.md` +
+  `.ai/sessions/2026-05-31-origin-bcct-elimination-discovery.md`; plus a
+  pre-existing unstaged `.ai/STATUS.md` edit.
+- **Origin tab full-BCCT pull ELIMINATED — DONE & local-verified (commit
+  `b3d6083`).** The cold origin tab-load now reads stock from the materialized
+  CO-stock snapshot (same source `/calculate` uses) + a narrow export
+  invoice_matches fetch, instead of the ~40s full `list_bcct` (65k rows for
+  Johnson). Real-Johnson parity: **invoice_matches byte-identical**, stock
+  material_code coverage identical (8 660), `origin_build_signature` stable across
+  reloads. Origin source-context **~60s → ~0.9s warm / ~8s cold** (one-time delta
+  refresh). BOM workspace (~22s) is now the dominant origin cost (separate task).
+- Session summaries:
+  `.ai/sessions/2026-05-31-origin-bcct-elimination-discovery.md` (latest),
+  `.ai/sessions/2026-05-31-case-detail-perf-fix-and-dh-guard.md`.
+- Local suite **395 passed + 8 skipped** (file-store/CI mode; the +1 skip is the
+  opt-in real-DH origin parity e2e).
 - **Case detail (shipment) load fix DONE, deployed, prod-verified.** Local DH
   E2E (johnson-vn, 12.5k materials / 66k BCCT): origin/old path 39.7s → shipment
   light 0.03s, 82 → 2-3 round trips, invoice_matches parity preserved. Prod
@@ -25,6 +37,12 @@
     Regression tests: `tests/test_source_backend_guard.py` (6 tests).
 - Local dev `.env` now points CO at the local Data Hub on :8754
   (`DATA_HUB_ENABLED=1`, `DATA_HUB_SERVICE_TOKEN=co-service`, auth off).
+
+## Recent Changes (2026-05-31 session)
+
+| Commit | Topic |
+|---|---|
+| `b3d6083` | perf(origin): converge cold origin tab-load onto the CO-stock snapshot + narrow export invoice_matches; drop the ~40s full `list_bcct` pull. New `origin_source_context` (main.py) + `DataHubPortfolioService.origin_invoice_matches`; DH-mode guard (file-store/test falls back to in-memory heavy path); cache-warm gated on `material_rows`. 6 unit tests + 1 opt-in real-DH parity e2e. **Local only — not pushed/deployed.** |
 
 ## Recent Changes (2026-05-30 session)
 
@@ -52,43 +70,28 @@
    Bearer JWT for `claude-check@local`): shipment tab **~1.5–3.6s** vs ~21s
    baseline (~7–10x). invoice_matches parity preserved (local E2E: 39.7s→0.03s).
 
-2. **Origin tab is now the dominant bottleneck (NEW, HIGH).** Same prod case,
-   `/origin` measured **34.5s, 140s, and one 503 timeout at ~41s**. The origin
-   step still does the full `list_materials` + `list_bcct` pagination (by
-   design — it needs material/stock rows), so it didn't benefit from
-   `skip_heavy_context` and is heavier than the old 21s baseline.
-
-   **Profiled (2026-05-31, johnson-vn on local DH), origin path = 64.85s:**
-   - `list_bcct` full 66k rows = **36.15s** ← main culprit (paginated, ~66 RTs)
-   - `list_materials` 13k rows = 3.67s
-   - `co_stock_rows_from_bcct` (local CPU) = 2.39s
-   - remainder (~22s) = `bom_service.workspace` (BOM artifacts fetch)
-
-   **Recommended fix — narrow BCCT fetch (no new DH endpoint needed):**
-   Origin only consumes `stock_rows`/`material_rows` via `case_allocation_pool`
-   (pools stock by material_code) and `material_catalog_index` (BOM-material
-   lookup) — i.e. it only needs stock for materials in THIS case's BOM (tens of
-   rows), not all 66k. The substitute modal already does this:
-   `main.py:~2510` uses `list_bcct_by_codes(material_codes)` (narrow endpoint,
-   already approved + in adapter). Plan: in `co_case_light_context` for the
-   origin step, reorder to fetch invoice_matches → bom_workspace → derive the
-   case's material codes → `list_bcct_by_codes` instead of full `list_bcct`.
-   Expected: origin ~65s → ~24s (BOM workspace then becomes next bottleneck).
-
-   **Two risk points — do `/discover` then `/tdd`, NOT a quick fix:**
-   (1) origin RVC/LVC parity is a high-risk area (CLAUDE.md); reordering the
-   central `co_case_light_context` must not change calc results.
-   (2) `origin_build_signature` (origin-snapshot cache key, `main.py:3169`)
-   hashes `stock_rows` — narrowing stock changes the signature; verify it
-   doesn't break snapshot reuse / force needless recompute.
-   Benchmark harness: Bearer JWT via DH `/v1/auth/token` for `claude-check@local`,
-   then `curl -w %{time_total}` the `/origin` route (case
-   `johnson-vn / co-case-0605189d5eea`). Also profile components by calling
-   `svc.co_case_source_context(..., skip_heavy_context=False)` + the individual
-   `list_bcct`/`list_materials` adapter methods directly.
-   Secondary: the background preload (`co_case_detail` route → thread →
-   `preload_co_case_origin_context`) + 90s TTL cache (`_CO_CASE_SOURCE_CACHE`)
-   only help a warm second open; first cold origin still pays full cost.
+2. **Origin tab full-BCCT pull — DONE & local-verified (commit `b3d6083`).**
+   Implemented per brief `.ai/features/2026-05-31-origin-narrow-bcct-fetch.md`.
+   Cold origin tab-load now reads stock from the materialized `co_stock_rows`
+   snapshot + a narrow export invoice_matches fetch; the ~40s full `list_bcct`
+   (65 846 rows) is gone. Real-Johnson parity: invoice_matches byte-identical,
+   stock coverage identical, `origin_build_signature` stable. **~60s → ~0.9s warm
+   / ~8s cold.** Code: `origin_source_context` (main.py) +
+   `DataHubPortfolioService.origin_invoice_matches`; wired into
+   `co_case_light_context` cold origin branch with a DH-mode guard.
+   - **NOT pushed/deployed** — local commit only. Next: push + CI deploy, then
+     prod benchmark (Bearer JWT, `johnson-vn / co-case-0605189d5eea`).
+   - **DH `/v1/hub/bcct` filters on singular `declaration_no`** — plural
+     `declaration_nos` silently ignored; export-decl fetch loops per declaration.
+     Memory: `dh-bcct-declaration-filter-singular`.
+   - **Freshness (scheduled refresh) still deferred** — refresh-on-access already
+     lives in `_calculate_stock_rows_from_snapshot`. Memory:
+     `origin-costock-freshness-deferred`.
+   - **Next origin bottleneck = BOM workspace (~22s)** — separate task (see Notes).
+   - Local invoice-only test case `co-case-ec000d03522e` (invoice `VNG25120047`).
+     Re-run parity: `set -a; . ./.env; set +a; RUN_ORIGIN_PARITY_E2E=1 PYTHONPATH=.
+     .venv/bin/python -m pytest tests/test_origin_narrow_source_context.py -k
+     parity_e2e -q`.
 
 3. **Origin lock TTL cleanup** (60-min stale lock) — deferred, no code yet.
 
@@ -122,10 +125,8 @@
 - **Prod deploy**: SSH `tinsu`, `cd /home/tinsu/co && git pull && docker compose up -d --build app`.
 - **DH local**: runs at `:8754` with `--workers 4`, no `--reload`. Restart
   manually if DH schema/code changes.
-- **Timing instrumentation** left uncommitted in `app/main.py`:
-  `[origin-timing]` log lines in `co_case_light_context`. Remove before
-  shipping. Measure first: run dev server, open a case, click Origin cold then
-  warm, `grep '[origin-timing]' /tmp/barry-co-8001.log`.
+- **Timing instrumentation** — already clean; no `[origin-timing]` lines remain
+  in `app/main.py` (verified 2026-05-31).
 - **`can_view_client`** — explored and confirmed non-issue for prod. UI always
   uses canonical long-form client IDs from DH. Short-form is seed/demo only.
   Do not add fuzzy-match fallback — that trades correctness for convenience.
