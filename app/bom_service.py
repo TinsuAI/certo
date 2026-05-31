@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from copy import deepcopy
 from time import monotonic
 
@@ -25,6 +27,7 @@ from app.data_hub_client import (
 )
 
 DATA_HUB_BOM_WORKSPACE_CACHE_TTL_SECONDS = 60.0
+BOM_FETCH_MAX_WORKERS = 8
 _DATA_HUB_BOM_WORKSPACE_CACHE: dict[tuple[str, str, str, tuple[str, ...], str], tuple[float, dict]] = {}
 
 PICKER_INTENTS: tuple[str, ...] = (
@@ -92,76 +95,28 @@ class DataHubBomService:
             if product_filter
             else self.data_hub.list_bom_products(client_id)
         )
+        product_codes_in_order = [
+            code for code in (product_code_from_row(product) for product in product_rows) if code
+        ]
+
         product_versions: list[dict] = []
         latest_rows: list[dict] = []
         variant_conflicts: list[dict] = []
         dh_filter_active = False
 
-        for product in product_rows:
-            product_code = product_code_from_row(product)
-            if not product_code:
-                continue
-            artifact_payloads, picker_filter_applied = self.product_artifact_payloads(
-                client_id, product_code, case_id=case_id
-            )
-            if picker_filter_applied:
+        # Per-product fetches are independent; run them concurrently and
+        # assemble the results back in product order so the output is
+        # identical to the sequential build (the final sort makes it fully
+        # order-independent anyway). httpx.Client is thread-safe for
+        # concurrent requests; copy_context() carries CURRENT_DATA_HUB_TOKEN
+        # (a contextvar) into the worker threads, which they would not inherit
+        # otherwise — without it every parallel fetch would 401.
+        for result in self._fetch_product_results(client_id, product_codes_in_order, case_id=case_id):
+            if result["picker_filter_applied"]:
                 dh_filter_active = True
-            if artifact_payloads:
-                current_payload = next(
-                    (
-                        payload
-                        for payload in artifact_payloads
-                        if (payload.get("artifact") or {}).get("flatten_status") != "non_flattened"
-                        and payload.get("rows")
-                    ),
-                    artifact_payloads[0],
-                )
-                current_artifact_id = current_payload["artifact"].get("artifact_id", "")
-                for payload in artifact_payloads:
-                    version = normalize_hub_artifact(payload.get("artifact") or {}, product_code)
-                    rows = [
-                        normalize_hub_row(row, version)
-                        for row in payload.get("rows", [])
-                        if isinstance(row, dict)
-                    ]
-                    version["status"] = (
-                        "current"
-                        if version.get("product_artifact_id") == current_artifact_id and version.get("flatten_status") != "non_flattened"
-                        else "non_flattened"
-                        if version.get("flatten_status") == "non_flattened"
-                        else "published"
-                    )
-                    version["rows"] = rows
-                    version["row_count"] = version.get("row_count") or len(rows)
-                    version["unresolved"] = payload.get("unresolved", [])
-                    version["decisions"] = payload.get("decisions", [])
-                    product_versions.append(version)
-                    if version["status"] == "current":
-                        latest_rows.extend(rows)
-                continue
-            try:
-                payload = self.data_hub.get_bom_latest(client_id, product_code)
-            except DataHubBomVariantConflict as exc:
-                variant_conflicts.append({"product_code": product_code, "variants": exc.variants})
-                product_versions.extend(artifact_from_variant(product_code, variant) for variant in exc.variants)
-                continue
-            except httpx.HTTPStatusError as exc:
-                if exc.response.status_code == 404:
-                    continue
-                raise
-
-            version = normalize_hub_artifact(payload.get("artifact") or {}, product_code)
-            rows = [
-                normalize_hub_row(row, version)
-                for row in payload.get("rows", [])
-                if isinstance(row, dict)
-            ]
-            version["rows"] = rows
-            version["row_count"] = version.get("row_count") or len(rows)
-            version["unresolved"] = payload.get("unresolved", [])
-            version["decisions"] = payload.get("decisions", [])
-            product_versions.append(version)
-            latest_rows.extend(rows)
+            product_versions.extend(result["product_versions"])
+            latest_rows.extend(result["latest_rows"])
+            variant_conflicts.extend(result["variant_conflicts"])
 
         product_versions.sort(
             key=lambda row: (row.get("product_code", ""), row.get("product_version_no", 0))
@@ -195,6 +150,117 @@ class DataHubBomService:
             "upload_scope_options": UPLOAD_SCOPE_OPTIONS,
             "code_system_options": CODE_SYSTEM_OPTIONS,
             "variant_conflicts": variant_conflicts,
+        }
+
+    def _fetch_product_results(
+        self, client_id: str, product_codes: list[str], *, case_id: str = ""
+    ) -> list[dict]:
+        if not product_codes:
+            return []
+        if len(product_codes) == 1:
+            return [self._build_product_result(client_id, product_codes[0], case_id=case_id)]
+        max_workers = min(BOM_FETCH_MAX_WORKERS, len(product_codes))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # A fresh copy_context() per task: a Context object cannot be run
+            # by more than one thread concurrently, so each worker gets its own
+            # snapshot of the calling thread's contextvars (incl. the DH token).
+            futures = [
+                executor.submit(
+                    copy_context().run,
+                    self._build_product_result,
+                    client_id,
+                    product_code,
+                    case_id,
+                )
+                for product_code in product_codes
+            ]
+            return [future.result() for future in futures]
+
+    def _build_product_result(self, client_id: str, product_code: str, case_id: str = "") -> dict:
+        product_versions: list[dict] = []
+        latest_rows: list[dict] = []
+        variant_conflicts: list[dict] = []
+
+        artifact_payloads, picker_filter_applied = self.product_artifact_payloads(
+            client_id, product_code, case_id=case_id
+        )
+        if artifact_payloads:
+            current_payload = next(
+                (
+                    payload
+                    for payload in artifact_payloads
+                    if (payload.get("artifact") or {}).get("flatten_status") != "non_flattened"
+                    and payload.get("rows")
+                ),
+                artifact_payloads[0],
+            )
+            current_artifact_id = current_payload["artifact"].get("artifact_id", "")
+            for payload in artifact_payloads:
+                version = normalize_hub_artifact(payload.get("artifact") or {}, product_code)
+                rows = [
+                    normalize_hub_row(row, version)
+                    for row in payload.get("rows", [])
+                    if isinstance(row, dict)
+                ]
+                version["status"] = (
+                    "current"
+                    if version.get("product_artifact_id") == current_artifact_id and version.get("flatten_status") != "non_flattened"
+                    else "non_flattened"
+                    if version.get("flatten_status") == "non_flattened"
+                    else "published"
+                )
+                version["rows"] = rows
+                version["row_count"] = version.get("row_count") or len(rows)
+                version["unresolved"] = payload.get("unresolved", [])
+                version["decisions"] = payload.get("decisions", [])
+                product_versions.append(version)
+                if version["status"] == "current":
+                    latest_rows.extend(rows)
+            return {
+                "product_versions": product_versions,
+                "latest_rows": latest_rows,
+                "variant_conflicts": variant_conflicts,
+                "picker_filter_applied": picker_filter_applied,
+            }
+
+        try:
+            payload = self.data_hub.get_bom_latest(client_id, product_code)
+        except DataHubBomVariantConflict as exc:
+            variant_conflicts.append({"product_code": product_code, "variants": exc.variants})
+            product_versions.extend(artifact_from_variant(product_code, variant) for variant in exc.variants)
+            return {
+                "product_versions": product_versions,
+                "latest_rows": latest_rows,
+                "variant_conflicts": variant_conflicts,
+                "picker_filter_applied": picker_filter_applied,
+            }
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return {
+                    "product_versions": product_versions,
+                    "latest_rows": latest_rows,
+                    "variant_conflicts": variant_conflicts,
+                    "picker_filter_applied": picker_filter_applied,
+                }
+            raise
+
+        version = normalize_hub_artifact(payload.get("artifact") or {}, product_code)
+        rows = [
+            normalize_hub_row(row, version)
+            for row in payload.get("rows", [])
+            if isinstance(row, dict)
+        ]
+        version["rows"] = rows
+        version["row_count"] = version.get("row_count") or len(rows)
+        version["unresolved"] = payload.get("unresolved", [])
+        version["decisions"] = payload.get("decisions", [])
+        product_versions.append(version)
+        latest_rows.extend(rows)
+        return {
+            "product_versions": product_versions,
+            "latest_rows": latest_rows,
+            "variant_conflicts": variant_conflicts,
+            "picker_filter_applied": picker_filter_applied,
         }
 
     def product_artifact_payloads(
