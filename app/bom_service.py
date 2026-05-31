@@ -34,6 +34,10 @@ DATA_HUB_BOM_WORKSPACE_CACHE_TTL_SECONDS = 60.0
 # prod benchmarks; raise it only once Data Hub scales out its workers.
 BOM_FETCH_MAX_WORKERS = 4
 _DATA_HUB_BOM_WORKSPACE_CACHE: dict[tuple[str, str, str, tuple[str, ...], str], tuple[float, dict]] = {}
+# Process-local memo of whether a Data Hub backend (keyed by base_url|token)
+# serves the batch BOM artifacts endpoint. False once a 404 is seen, so we
+# stop probing and use the per-product fallback until the process restarts.
+_DATA_HUB_BOM_BATCH_SUPPORTED: dict[str, bool] = {}
 
 PICKER_INTENTS: tuple[str, ...] = (
     "asserted_technical",
@@ -109,14 +113,13 @@ class DataHubBomService:
         variant_conflicts: list[dict] = []
         dh_filter_active = False
 
-        # Per-product fetches are independent; run them concurrently and
-        # assemble the results back in product order so the output is
-        # identical to the sequential build (the final sort makes it fully
-        # order-independent anyway). httpx.Client is thread-safe for
-        # concurrent requests; copy_context() carries CURRENT_DATA_HUB_TOKEN
-        # (a contextvar) into the worker threads, which they would not inherit
-        # otherwise — without it every parallel fetch would 401.
-        for result in self._fetch_product_results(client_id, product_codes_in_order, case_id=case_id):
+        # Prefer the batch endpoint (one round-trip for all products); fall
+        # back to the per-product parallel fetch when Data Hub hasn't shipped
+        # it. Both produce the same per-product result shape.
+        product_results = self._try_batch_results(client_id, product_codes_in_order, case_id=case_id)
+        if product_results is None:
+            product_results = self._fetch_product_results(client_id, product_codes_in_order, case_id=case_id)
+        for result in product_results:
             if result["picker_filter_applied"]:
                 dh_filter_active = True
             product_versions.extend(result["product_versions"])
@@ -181,6 +184,120 @@ class DataHubBomService:
             ]
             return [future.result() for future in futures]
 
+    def _try_batch_results(
+        self, client_id: str, product_codes: list[str], *, case_id: str = ""
+    ) -> list[dict] | None:
+        """One batch round-trip -> per-product results, or None to fall back.
+
+        Returns None when the backend lacks the batch endpoint (no adapter,
+        or a memoized/observed 404) so the caller uses the per-product
+        parallel fetch. On success the per-product result shape matches
+        `_build_product_result`.
+        """
+        if not product_codes:
+            return []
+        if not hasattr(self.data_hub, "list_bom_artifacts_batch"):
+            return None
+        identity = data_hub_cache_identity(self.data_hub)
+        if _DATA_HUB_BOM_BATCH_SUPPORTED.get(identity) is False:
+            return None
+        try:
+            envelope = self.data_hub.list_bom_artifacts_batch(
+                client_id,
+                product_codes,
+                intents=PICKER_INTENTS,
+                lifecycle="active",
+                shape="flat",
+                latest_per_variant=True,
+                case_id=case_id,
+                include_rows=True,
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                _DATA_HUB_BOM_BATCH_SUPPORTED[identity] = False
+                return None
+            raise
+        _DATA_HUB_BOM_BATCH_SUPPORTED[identity] = True
+        results = envelope.get("results") or {}
+        out: list[dict] = []
+        for product_code in product_codes:
+            product_envelope = results.get(product_code) or {}
+            items = product_envelope.get("items") or []
+            picker_filter_applied = product_envelope.get("filter_applied") is not None
+            if items:
+                # Match product_artifact_payloads ordering (artifact_no DESC)
+                # so the "current" version selection doesn't depend on the
+                # order Data Hub returned the items in.
+                ordered = sorted(items, key=lambda it: int(it.get("artifact_no") or 0), reverse=True)
+                out.append(
+                    self._assemble_from_payloads(
+                        product_code,
+                        [batch_item_payload(item) for item in ordered],
+                        picker_filter_applied,
+                    )
+                )
+            else:
+                out.append(
+                    {
+                        "product_versions": [],
+                        "latest_rows": [],
+                        "variant_conflicts": [],
+                        "picker_filter_applied": picker_filter_applied,
+                    }
+                )
+        return out
+
+    def _assemble_from_payloads(
+        self, product_code: str, artifact_payloads: list[dict], picker_filter_applied: bool
+    ) -> dict:
+        """Build a per-product result from a list of artifact payloads.
+
+        Shared by the per-product (`product_artifact_payloads`) and batch
+        paths, so the two cannot drift. `variant_conflicts` is always empty
+        here — multiple active artifacts surface as multiple versions, not a
+        conflict (the conflict path only exists for the get_bom_latest 409
+        fallback below).
+        """
+        product_versions: list[dict] = []
+        latest_rows: list[dict] = []
+        current_payload = next(
+            (
+                payload
+                for payload in artifact_payloads
+                if (payload.get("artifact") or {}).get("flatten_status") != "non_flattened"
+                and payload.get("rows")
+            ),
+            artifact_payloads[0],
+        )
+        current_artifact_id = current_payload["artifact"].get("artifact_id", "")
+        for payload in artifact_payloads:
+            version = normalize_hub_artifact(payload.get("artifact") or {}, product_code)
+            rows = [
+                normalize_hub_row(row, version)
+                for row in payload.get("rows", [])
+                if isinstance(row, dict)
+            ]
+            version["status"] = (
+                "current"
+                if version.get("product_artifact_id") == current_artifact_id and version.get("flatten_status") != "non_flattened"
+                else "non_flattened"
+                if version.get("flatten_status") == "non_flattened"
+                else "published"
+            )
+            version["rows"] = rows
+            version["row_count"] = version.get("row_count") or len(rows)
+            version["unresolved"] = payload.get("unresolved", [])
+            version["decisions"] = payload.get("decisions", [])
+            product_versions.append(version)
+            if version["status"] == "current":
+                latest_rows.extend(rows)
+        return {
+            "product_versions": product_versions,
+            "latest_rows": latest_rows,
+            "variant_conflicts": [],
+            "picker_filter_applied": picker_filter_applied,
+        }
+
     def _build_product_result(self, client_id: str, product_code: str, case_id: str = "") -> dict:
         product_versions: list[dict] = []
         latest_rows: list[dict] = []
@@ -190,43 +307,7 @@ class DataHubBomService:
             client_id, product_code, case_id=case_id
         )
         if artifact_payloads:
-            current_payload = next(
-                (
-                    payload
-                    for payload in artifact_payloads
-                    if (payload.get("artifact") or {}).get("flatten_status") != "non_flattened"
-                    and payload.get("rows")
-                ),
-                artifact_payloads[0],
-            )
-            current_artifact_id = current_payload["artifact"].get("artifact_id", "")
-            for payload in artifact_payloads:
-                version = normalize_hub_artifact(payload.get("artifact") or {}, product_code)
-                rows = [
-                    normalize_hub_row(row, version)
-                    for row in payload.get("rows", [])
-                    if isinstance(row, dict)
-                ]
-                version["status"] = (
-                    "current"
-                    if version.get("product_artifact_id") == current_artifact_id and version.get("flatten_status") != "non_flattened"
-                    else "non_flattened"
-                    if version.get("flatten_status") == "non_flattened"
-                    else "published"
-                )
-                version["rows"] = rows
-                version["row_count"] = version.get("row_count") or len(rows)
-                version["unresolved"] = payload.get("unresolved", [])
-                version["decisions"] = payload.get("decisions", [])
-                product_versions.append(version)
-                if version["status"] == "current":
-                    latest_rows.extend(rows)
-            return {
-                "product_versions": product_versions,
-                "latest_rows": latest_rows,
-                "variant_conflicts": variant_conflicts,
-                "picker_filter_applied": picker_filter_applied,
-            }
+            return self._assemble_from_payloads(product_code, artifact_payloads, picker_filter_applied)
 
         try:
             payload = self.data_hub.get_bom_latest(client_id, product_code)
@@ -383,8 +464,22 @@ def normalized_product_code_filter(product_codes: list[str] | None) -> set[str]:
     return {str(code or "").strip() for code in product_codes or [] if str(code or "").strip()}
 
 
+def batch_item_payload(item: dict) -> dict:
+    """Reshape a batch `results[pc].items[*]` row (artifact summary fields at
+    top level + rows/unresolved/decisions) into the `{artifact, rows,
+    unresolved, decisions}` payload shape the per-product path produces."""
+    artifact = {key: value for key, value in item.items() if key not in ("rows", "unresolved", "decisions")}
+    return {
+        "artifact": artifact,
+        "rows": item.get("rows") or [],
+        "unresolved": item.get("unresolved") or [],
+        "decisions": item.get("decisions") or [],
+    }
+
+
 def clear_data_hub_bom_workspace_cache() -> None:
     _DATA_HUB_BOM_WORKSPACE_CACHE.clear()
+    _DATA_HUB_BOM_BATCH_SUPPORTED.clear()
 
 
 def product_code_from_row(row: dict) -> str:

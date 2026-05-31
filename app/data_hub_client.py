@@ -19,6 +19,7 @@ HUB_BOM_PATH = "/v1/hub/products/{product_code}/bom"
 HUB_BOM_LATEST_PATH = "/v1/hub/products/{product_code}/bom/latest"
 HUB_BOM_PROPOSALS_PATH = "/v1/hub/products/{product_code}/bom/proposals"
 HUB_BOM_ARTIFACTS_PATH = "/v1/hub/products/{product_code}/bom/artifacts"
+HUB_BOM_ARTIFACTS_BATCH_PATH = "/v1/hub/products/bom/artifacts:batch"
 HUB_PROPOSAL_PATH = "/v1/hub/proposals/{proposal_id}"
 
 
@@ -216,6 +217,64 @@ class DataHubClient:
             "items": [normalize_bom_artifact(row) for row in envelope["items"]],
             "filter_applied": envelope["filter_applied"],
         }
+
+    def list_bom_artifacts_batch(
+        self,
+        client_id: str,
+        product_codes: Sequence[str],
+        *,
+        intents: Sequence[str] = (),
+        lifecycle: str = "active",
+        shape: str = "flat",
+        latest_per_variant: bool = True,
+        case_id: str = "",
+        include_rows: bool = True,
+    ) -> dict:
+        """Multi-product fan-in of the picker-filtered BOM artifacts fetch.
+
+        POSTs to HUB_BOM_ARTIFACTS_BATCH_PATH. One round-trip replaces the
+        per-product (list + per-artifact) fan-out. Follows next_cursor
+        internally and merges pages into one results/missing map; each
+        results[product_code] is the per-product items/filter_applied
+        envelope (items carry rows, unresolved, decisions when include_rows).
+        Raises httpx.HTTPStatusError 404 when Data Hub has not shipped the
+        endpoint, so callers fall back to the per-product path.
+        """
+        codes = [str(code).strip() for code in product_codes if str(code or "").strip()]
+        base_body: dict[str, Any] = {
+            "client_id": client_id,
+            "product_codes": codes,
+            "lifecycle": lifecycle,
+            "shape": shape,
+            "latest_per_variant": latest_per_variant,
+            "include_rows": include_rows,
+        }
+        if intents:
+            base_body["intents"] = list(intents)
+        if case_id:
+            base_body["case_id"] = case_id
+
+        results: dict[str, dict] = {}
+        missing: list[str] = []
+        seen_missing: set[str] = set()
+        cursor = ""
+        seen_cursors: set[str] = set()
+        while True:
+            body = {**base_body, "cursor": cursor} if cursor else base_body
+            payload = self._post(HUB_BOM_ARTIFACTS_BATCH_PATH, body)
+            for code, envelope in (payload.get("results") or {}).items():
+                results[code] = {
+                    "items": [normalize_bom_artifact(item) for item in envelope.get("items", [])],
+                    "filter_applied": envelope.get("filter_applied"),
+                }
+            for code in payload.get("missing") or []:
+                if code not in seen_missing:
+                    seen_missing.add(code)
+                    missing.append(code)
+            cursor = next_cursor(payload)
+            if not cursor or cursor in seen_cursors:
+                return {"results": results, "missing": missing}
+            seen_cursors.add(cursor)
 
     def get_bom_latest(self, client_id: str, product_code: str) -> dict:
         try:
