@@ -98,6 +98,14 @@
 >   **batch BOM endpoint** (the deferred Option from the prep brief). Until DH scales
 >   out, client-side parallelism gives a modest, capped, variable win — keep workers
 >   low.
+> - **DH API request DRAFTED (awaiting DH-side approval):**
+>   `.ai/api-requests/2026-05-31-bom-artifacts-batch-fetch.md` — `POST
+>   /v1/hub/products/bom/artifacts:batch`, multi-product + rows inline, collapses the
+>   ~150-call fan-out into one round-trip. Per CLAUDE.md, **do not implement the CO
+>   consumer until DH approves + ships provider tests**; CO will pre-stage the adapter
+>   with graceful fallback to the current per-product parallel fetch. The two
+>   operational findings (DH `--workers 1`; CO→DH public-hostname routing) are noted in
+>   the artifact for the DH owner — they are config/deploy items, not contract changes.
 > Parallelized the sequential per-product DH fetch in `_build_workspace`
 > (bom_service.py). New `_fetch_product_results` runs each product's
 > `_build_product_result` concurrently via `ThreadPoolExecutor`
