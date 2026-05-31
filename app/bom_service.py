@@ -27,7 +27,12 @@ from app.data_hub_client import (
 )
 
 DATA_HUB_BOM_WORKSPACE_CACHE_TTL_SECONDS = 60.0
-BOM_FETCH_MAX_WORKERS = 8
+# Capped low on purpose: prod Data Hub runs a single uvicorn worker behind a
+# public proxy, so it serializes requests. Higher concurrency just queues on
+# that one backend worker and the tail latency can exceed the sequential build
+# (and breach the client read timeout -> 503). 4 is the stable sweet spot in
+# prod benchmarks; raise it only once Data Hub scales out its workers.
+BOM_FETCH_MAX_WORKERS = 4
 _DATA_HUB_BOM_WORKSPACE_CACHE: dict[tuple[str, str, str, tuple[str, ...], str], tuple[float, dict]] = {}
 
 PICKER_INTENTS: tuple[str, ...] = (

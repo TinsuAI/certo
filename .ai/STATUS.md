@@ -77,6 +77,27 @@
 > worker** and prod runs multiple workers → a cold worker re-pays until warmed (not a
 > bug). NOTE: this case is only 2 products, so it proves correctness/no-regression,
 > not a heavy speedup; the speedup characterization is the local N=50 run below.
+>
+> **Product-heavy prod benchmark (in-container `co-app-1`, johnson-vn, N=50
+> products, real prod DH) — and a major root-cause finding:**
+> - Sequential (workers=1): **~10.4–11.0s**, stable. Parallel best case **~2.4–3s
+>   (≈3.4–4.4x)**, FULL-DICT parity byte-identical (100 product_versions, 456 rows).
+> - **BUT prod Data Hub runs `--workers 1`** (single uvicorn worker on a 24-core box)
+>   and CO reaches it over the **public hostname** `https://ttdatahub.tinsu.ai`
+>   (proxy + TLS per request). DH therefore serializes; client-side parallelism just
+>   queues N requests onto one backend worker. Tail latency is high and variable:
+>   workers=8 → `[1.83, 9.8, 13.86, 5.64]s` (**worst case SLOWER than sequential**)
+>   and occasional `httpx.ReadTimeout` (20s) → would surface as **503** on `/origin`.
+>   workers=4 is the stable sweet spot (~3–6s, ≈1.7–3.4x).
+> - **FIX SHIPPED:** lowered `BOM_FETCH_MAX_WORKERS` 8 → **4** (commit below). 8 was a
+>   latent regression (worse-than-sequential tail + timeout/503 risk).
+> - **High-leverage follow-ups are DH-side (NOT this repo — recommend to DH owner):**
+>   (1) run prod DH with multiple workers (it's `--workers 1` on 24 cores); (2) route
+>   CO→DH over the internal docker network instead of the public proxy hostname; (3)
+>   the per-product fan-out (50 products × ~3 sub-requests = ~150 calls) argues for a
+>   **batch BOM endpoint** (the deferred Option from the prep brief). Until DH scales
+>   out, client-side parallelism gives a modest, capped, variable win — keep workers
+>   low.
 > Parallelized the sequential per-product DH fetch in `_build_workspace`
 > (bom_service.py). New `_fetch_product_results` runs each product's
 > `_build_product_result` concurrently via `ThreadPoolExecutor`
