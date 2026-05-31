@@ -578,12 +578,27 @@ def count_products_with_bom(client_id: str, *, q: str | None = None,
     return n
 
 
-def list_artifacts_for_product(*, client_id: str, product_code: str) -> list[dict]:
+def list_artifacts_for_products(*, client_id: str,
+                                product_codes: list[str]) -> dict[str, list[dict]]:
+    """Fan-in sibling of list_artifacts_for_product: artifact history for
+    many products in ONE query (product_code = ANY), returned as
+    {product_code: [artifact, ...]}.
+
+    Per-product lists are byte-identical (same columns, same order, same
+    bom_shape/parent_shape enrichment) to list_artifacts_for_product, so the
+    /v1/hub batch endpoint stays in parity with the per-product endpoint.
+    `product_code` is selected only for grouping and is popped from each item,
+    matching the per-product item shape exactly. Only product_codes with at
+    least one artifact appear as keys.
+    """
+    if not product_codes:
+        return {}
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                select v.artifact_id, v.artifact_no, v.actor, v.intent, v.parent_artifact_id,
+                select v.product_code,
+                       v.artifact_id, v.artifact_no, v.actor, v.intent, v.parent_artifact_id,
                        v.row_count, v.normalized_hash, v.status, v.tombstoned_at,
                        v.created_at, v.published_at, v.context,
                        v.bom_variant_id, v.source_bom_kind, v.source_channel,
@@ -598,15 +613,16 @@ def list_artifacts_for_product(*, client_id: str, product_code: str) -> list[dic
                        p.flatten_strategy as parent_flatten_strategy
                 from hub.bom_artifacts v
                 left join hub.bom_artifacts p on p.artifact_id = v.parent_artifact_id
-                where v.client_id = %s and v.product_code = %s
-                order by v.created_at desc, v.artifact_no desc
+                where v.client_id = %s and v.product_code = any(%s)
+                order by v.product_code, v.created_at desc, v.artifact_no desc
                 """,
-                (client_id, product_code),
+                (client_id, list(product_codes)),
             )
             cols = [d[0] for d in cur.description]
-            out = []
+            out: dict[str, list[dict]] = {}
             for r in cur.fetchall():
                 row = dict(zip(cols, r))
+                pc = row.pop("product_code")
                 row["bom_shape"] = bom_shape(
                     row.get("flatten_status") or "",
                     row.get("flatten_strategy") or "",
@@ -618,8 +634,16 @@ def list_artifacts_for_product(*, client_id: str, product_code: str) -> list[dic
                     )
                 else:
                     row["parent_shape"] = None
-                out.append(row)
+                out.setdefault(pc, []).append(row)
             return out
+
+
+def list_artifacts_for_product(*, client_id: str, product_code: str) -> list[dict]:
+    """Single-product artifact history. Thin wrapper over
+    list_artifacts_for_products so the SQL + item shape are single-sourced."""
+    return list_artifacts_for_products(
+        client_id=client_id, product_codes=[product_code],
+    ).get(product_code, [])
 
 
 def get_artifact_with_rows(artifact_id: str) -> dict | None:
@@ -1633,3 +1657,84 @@ def get_decisions_for_version(artifact_id: str) -> list[dict]:
             )
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def get_rows_for_artifacts(artifact_ids: list[str]) -> dict[str, list[dict]]:
+    """Batched sibling of the row fetch inside get_artifact_with_rows: rows
+    for many artifacts in ONE query. Returns {artifact_id: [row, ...]} in
+    row_index order. Per-row dicts are byte-identical to get_artifact_with_rows
+    (artifact_id is popped, not emitted)."""
+    if not artifact_ids:
+        return {}
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select artifact_id, row_index, material_code, bom_code,
+                       bom_variant_id, qty_per_unit, uom, payload
+                from hub.bom_artifact_rows
+                where artifact_id = any(%s)
+                order by artifact_id, row_index
+                """,
+                (list(artifact_ids),),
+            )
+            cols = [d[0] for d in cur.description]
+            out: dict[str, list[dict]] = {}
+            for r in cur.fetchall():
+                row = dict(zip(cols, r))
+                aid = row.pop("artifact_id")
+                out.setdefault(aid, []).append(row)
+            return out
+
+
+def get_unresolved_for_artifacts(artifact_ids: list[str]) -> dict[str, list[dict]]:
+    """Batched sibling of get_unresolved_for_version. Per-item dicts match
+    that function (artifact_id popped)."""
+    if not artifact_ids:
+        return {}
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select artifact_id, node_path, material_code, reason, evidence
+                from hub.bom_unresolved_nodes
+                where artifact_id = any(%s)
+                order by artifact_id, node_path
+                """,
+                (list(artifact_ids),),
+            )
+            cols = [d[0] for d in cur.description]
+            out: dict[str, list[dict]] = {}
+            for r in cur.fetchall():
+                row = dict(zip(cols, r))
+                aid = row.pop("artifact_id")
+                out.setdefault(aid, []).append(row)
+            return out
+
+
+def get_decisions_for_artifacts(artifact_ids: list[str]) -> dict[str, list[dict]]:
+    """Batched sibling of get_decisions_for_version, keyed by
+    materialized_artifact_id. Per-item dicts match that function (the key
+    column is popped)."""
+    if not artifact_ids:
+        return {}
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                select materialized_artifact_id, decision_id, decision_type,
+                       chosen_action, alternatives, evidence, status,
+                       staff_confirmation_required, confirmed_by, confirmed_at
+                from hub.bom_flatten_decisions
+                where materialized_artifact_id = any(%s)
+                order by materialized_artifact_id, created_at
+                """,
+                (list(artifact_ids),),
+            )
+            cols = [d[0] for d in cur.description]
+            out: dict[str, list[dict]] = {}
+            for r in cur.fetchall():
+                row = dict(zip(cols, r))
+                aid = row.pop("materialized_artifact_id")
+                out.setdefault(aid, []).append(row)
+            return out

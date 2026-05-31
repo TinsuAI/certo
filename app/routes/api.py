@@ -1320,6 +1320,202 @@ async def api_bom_artifacts(
     })
 
 
+_BOM_BATCH_MAX_PRODUCTS = 500
+_BOM_BATCH_DEFAULT_LIMIT = 200
+
+
+def _bom_batch_cursor_encode(after_product_code: str) -> str:
+    import base64 as _b64
+    import json as _json_mod
+    raw = _json_mod.dumps({"after_pc": after_product_code}).encode("utf-8")
+    return _b64.urlsafe_b64encode(raw).decode("ascii")
+
+
+def _bom_batch_cursor_decode(cursor: str | None) -> str | None:
+    if not cursor:
+        return None
+    import base64 as _b64
+    import json as _json_mod
+    try:
+        raw = _b64.urlsafe_b64decode(cursor.encode("ascii"))
+        return _json_mod.loads(raw)["after_pc"]
+    except Exception:
+        raise HTTPException(400, "invalid_cursor")
+
+
+@router.post("/products/bom/artifacts:batch")
+async def api_bom_artifacts_batch(
+    request: Request,
+    authorization: str | None = Header(None),
+):
+    """Multi-product fan-in of GET /products/{product_code}/bom/artifacts.
+
+    One round-trip replaces CO's per-product (list + per-artifact) fan-out.
+    Each results[product_code] envelope is byte-identical to calling the
+    per-product endpoint with the same filters (plus embedded rows when
+    include_rows=true). Reuses the SAME filter chain
+    (_apply_bom_artifact_filters) and the SAME row serialization columns
+    (get_rows_for_artifacts == get_artifact_with_rows row shape), so the two
+    contracts cannot drift.
+
+    Read-only, idempotent; scope hub:read; one client per request. Genuine
+    fan-in: 1 artifact query + (when include_rows) 3 batched ANY queries for
+    just the current page's artifacts — independent of product count.
+    """
+    from app.stores.bom import (
+        list_artifacts_for_products,
+        get_rows_for_artifacts,
+        get_unresolved_for_artifacts,
+        get_decisions_for_artifacts,
+    )
+
+    claims = _require_token(authorization)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "invalid_body")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "invalid_body")
+
+    client_id = body.get("client_id")
+    if not client_id:
+        raise HTTPException(400, "missing_client_id")
+
+    raw_codes = body.get("product_codes")
+    if not isinstance(raw_codes, list) or not raw_codes:
+        raise HTTPException(400, "empty_product_codes")
+    # dedupe server-side; sort ASC (pagination order is product_code ASC).
+    product_codes = sorted({
+        str(c) for c in raw_codes if c is not None and str(c) != ""
+    })
+    if not product_codes:
+        raise HTTPException(400, "empty_product_codes")
+    if len(product_codes) > _BOM_BATCH_MAX_PRODUCTS:
+        raise HTTPException(400, "too_many_product_codes")
+
+    _require_can_view_client(claims, client_id)
+
+    # Batch defaults are the picker contract (active/flat/latest), unlike the
+    # back-compat per-product defaults (all/any/false). Parity is "same
+    # filters -> same items", not "same defaults".
+    lifecycle_v = _validate_lifecycle(body.get("lifecycle") or "active")
+    shape_v = _validate_shape_filter(body.get("shape") or "flat")
+    latest_raw = body.get("latest_per_variant")
+    latest = True if latest_raw is None else bool(latest_raw)
+    include_rows_raw = body.get("include_rows")
+    include_rows = True if include_rows_raw is None else bool(include_rows_raw)
+    case_id = body.get("case_id")
+
+    raw_intents = body.get("intents")
+    if raw_intents is None:
+        intents_set: set[str] | None = None
+    else:
+        if not isinstance(raw_intents, list):
+            raise HTTPException(400, "invalid_intents")
+        intents_set = {str(i) for i in raw_intents}
+        if intents_set - _BOM_ARTIFACT_ALLOWED_INTENTS:
+            raise HTTPException(400, "invalid_intents")
+        if not intents_set:
+            intents_set = None
+    if intents_set is not None and "modified_for_case" in intents_set \
+            and not case_id:
+        raise HTTPException(400, "case_id_required")
+
+    limit_raw = body.get("limit")
+    try:
+        limit = int(limit_raw) if limit_raw is not None else _BOM_BATCH_DEFAULT_LIMIT
+    except (TypeError, ValueError):
+        raise HTTPException(400, "invalid_limit")
+    if limit <= 0:
+        raise HTTPException(400, "invalid_limit")
+    after_pc = _bom_batch_cursor_decode(body.get("cursor"))
+
+    filter_applied = {
+        "lifecycle": lifecycle_v,
+        "shape": shape_v,
+        "intents": sorted(intents_set) if intents_set is not None else None,
+        "latest_per_variant": latest,
+        "case_id": case_id,
+    }
+
+    # ONE artifact query for every requested product (fan-in), then the SAME
+    # per-product filter applied to each product's slice -> per-product parity.
+    arts_by_product = list_artifacts_for_products(
+        client_id=client_id, product_codes=product_codes,
+    )
+    filtered_by_product: dict[str, list[dict]] = {}
+    for pc in product_codes:
+        filtered_by_product[pc] = _apply_bom_artifact_filters(
+            arts_by_product.get(pc, []),
+            lifecycle=lifecycle_v, shape=shape_v,
+            intents=intents_set, intent_singular=None,
+            latest_per_variant=latest, case_id=case_id,
+        )
+
+    # missing = requested codes with zero artifacts after filtering. Computed
+    # over the full set (deterministic, complete) and returned on every page.
+    missing = [pc for pc in product_codes if not filtered_by_product[pc]]
+
+    # Pagination over product_code ASC. A product's items are never split
+    # across pages; a single product whose item count exceeds `limit` is
+    # emitted whole on its own page. Concatenating pages reproduces the set.
+    present = [pc for pc in product_codes if filtered_by_product[pc]]
+    if after_pc is not None:
+        present = [pc for pc in present if pc > after_pc]
+    page_products: list[str] = []
+    count = 0
+    for pc in present:
+        n = len(filtered_by_product[pc])
+        if page_products and count + n > limit:
+            break
+        page_products.append(pc)
+        count += n
+        if count >= limit:
+            break
+    remaining = len(page_products) < len(present)
+    next_cursor = (
+        _bom_batch_cursor_encode(page_products[-1])
+        if remaining and page_products else None
+    )
+
+    # Embed rows only for artifacts on this page — one batched query class
+    # each, regardless of product count.
+    rows_by_aid: dict[str, list[dict]] = {}
+    unresolved_by_aid: dict[str, list[dict]] = {}
+    decisions_by_aid: dict[str, list[dict]] = {}
+    if include_rows:
+        page_aids = [
+            it["artifact_id"]
+            for pc in page_products for it in filtered_by_product[pc]
+        ]
+        if page_aids:
+            rows_by_aid = get_rows_for_artifacts(page_aids)
+            unresolved_by_aid = get_unresolved_for_artifacts(page_aids)
+            decisions_by_aid = get_decisions_for_artifacts(page_aids)
+
+    results: dict[str, dict] = {}
+    for pc in page_products:
+        items = []
+        for v in filtered_by_product[pc]:
+            if include_rows:
+                aid = v["artifact_id"]
+                items.append({
+                    **v,
+                    "rows": rows_by_aid.get(aid, []),
+                    "unresolved": unresolved_by_aid.get(aid, []),
+                    "decisions": decisions_by_aid.get(aid, []),
+                })
+            else:
+                items.append(v)
+        results[pc] = {"items": items, "filter_applied": filter_applied}
+
+    return _json({
+        "results": results,
+        "missing": missing,
+        "next_cursor": next_cursor,
+    })
+
+
 @router.get("/products/{product_code}/bom")
 async def api_bom_pinned(
     product_code: str, client_id: str,
