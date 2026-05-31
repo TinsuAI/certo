@@ -1,5 +1,30 @@
 # Data Hub API Request: batch BOM artifacts (multi-product, rows inline)
 
+## Status / Amendment (2026-05-31)
+
+**DH shipped v1** (`POST /v1/hub/products/bom/artifacts:batch`, DH commit
+`64d2761`, 19 provider tests green — local DH only, not yet pushed/deployed).
+CO consumer built behind graceful fallback (`app/data_hub_client.py:list_bom_artifacts_batch`
++ `app/bom_service.py` batch path). Verified:
+
+- **CO consumption parity (real Johnson, 50 products, reconstruction):**
+  byte-identical workspace vs the per-product path.
+- **End-to-end vs the real route (new-code DH on :8764):** one gap found — batch
+  `items[*]` carry only the `/bom/artifacts` LIST-summary fields, but CO's
+  per-product path enriches each artifact via the single
+  `GET .../bom/artifacts/{id}`. So 7 fields come back NULL via batch
+  (`client_id`, `flatten_method`, `flatten_method_version`, `lineage`,
+  `uom_drift_resolved_at`, `stale_resolved_at`, `stale_first_at`). Counts, rows,
+  and aggregate version_hash all match; only this diagnostic/freshness metadata
+  (shown in the picker) differs.
+
+**Refinement requested (small DH change):** batch `items[*]` must use the
+single-GET `artifact` serializer (full artifact object), not the list summary —
+see "ARTIFACT FIELD PARITY" in the consumer plan and the DH prompt
+(`2026-05-31-bom-artifacts-batch-fetch-dh-prompt.md`). CO's consumer needs NO
+change once DH enriches the items (it already passes all item fields through), so
+parity becomes byte-identical automatically.
+
 ## Use Case
 
 CO builds the origin-tab BOM workspace

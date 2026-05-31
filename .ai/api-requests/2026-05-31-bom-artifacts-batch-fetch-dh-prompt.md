@@ -102,6 +102,7 @@ Any extra fields you already emit are fine — CO passes them through. Numeric v
 ## Rules
 - `results` keyed by product_code; each value is exactly the per-product {items, filter_applied} envelope (so CO reuses its normalization unchanged).
 - include_rows=true -> embed rows (+ unresolved, decisions) per the row schema above. include_rows=false -> summaries only, no rows.
+- **ARTIFACT FIELD PARITY (required for byte-identical CO output):** each `items[*]` artifact object MUST carry the SAME fields as the single-artifact `GET /v1/hub/products/{product_code}/bom/artifacts/{artifact_id}` response's `artifact` object — use that serializer, NOT the lighter `/bom/artifacts` LIST summary. CO's per-product path enriches every artifact via the single GET, so a batch item built from only the list summary is missing fields and breaks parity. Concretely, end-to-end testing found these present via the single GET but NULL/absent in the batch items: `client_id`, `flatten_method`, `flatten_method_version`, `lineage`, `uom_drift_resolved_at`, `stale_resolved_at`, `stale_first_at`. Emit the full set (this list is illustrative, not exhaustive — match the single-GET artifact shape exactly).
 - Dual-source variants: return ALL active-flat winners as separate items. NEVER 409 (unlike /bom/latest).
 - Filter applied independently per product.
 - Tiebreaker within a (bom_variant_id, flatten_strategy) partition: newest published_at, then artifact_no DESC, then artifact_id DESC (deterministic).
@@ -120,6 +121,7 @@ scope hub:read (read-only, no mutate scope). Service-token client_ids whitelist 
 - include_rows=false -> no rows, no per-artifact row fetch.
 - PER-PRODUCT PARITY: for each code, items == GET /bom/artifacts with same filters (plus rows). Golden test.
 - Row-shape parity: a batch item's rows == the same artifact's rows from GET .../bom/artifacts/{artifact_id}.
+- ARTIFACT-shape parity: a batch item MINUS (rows, unresolved, decisions) == the `artifact` object from GET .../bom/artifacts/{artifact_id} for the same id, field-for-field (incl. client_id, flatten_method, flatten_method_version, lineage, stale_first_at, stale_resolved_at, uom_drift_resolved_at). This is the field-parity guarantee above.
 - latest_per_variant=true on a dual-source product -> both legs as separate items, NO 409.
 - modified_for_case + case_id -> case-scoped drafts only for matching case; other intents unfiltered by case; modified_for_case w/o case_id -> 400.
 - Zero-artifact product -> in `missing`, not 404.
@@ -134,4 +136,26 @@ scope hub:read (read-only, no mutate scope). Service-token client_ids whitelist 
 - If any part conflicts with Data Hub internals (e.g. you can't fan-in cheaply at the storage layer, or POST-with-body doesn't fit conventions — GET with repeated product_code params is acceptable), propose the adjustment instead of forcing this shape, and flag it back to CO before finalizing.
 
 Do not start until the contract is agreed. After implementing, report the final endpoint shape and the provider-test results so CO can wire its consumer.
+```
+
+---
+
+## Refinement follow-up (after DH commit `64d2761`)
+
+Hand this to the DH AI as a follow-up — v1 is correct except for one
+field-parity gap CO found in end-to-end testing.
+
+```
+Follow-up on your POST /v1/hub/products/bom/artifacts:batch (commit 64d2761). The endpoint works and the 19 provider tests are good. CO wired its consumer and ran an end-to-end parity check against the real route (new-code DH on :8764, real Johnson client, 50 products). One gap:
+
+The batch items[*] carry only the LIST-summary artifact fields (from list_artifacts_for_products). But CO's per-product path enriches every artifact via the SINGLE-artifact GET /v1/hub/products/{product_code}/bom/artifacts/{artifact_id}, whose `artifact` object is richer. So these fields come back NULL via batch but are populated via the per-product path, breaking byte-identical parity for CO's BOM workspace:
+  client_id, flatten_method, flatten_method_version, lineage,
+  uom_drift_resolved_at, stale_resolved_at, stale_first_at
+(counts, rows, and the aggregate version_hash already match — only this diagnostic/freshness metadata differs; it drives picker badges/tooltips in CO.)
+
+Fix: build each batch items[*] artifact object with the SAME serializer the single-artifact GET uses (the full artifact shape), not the list summary. The data already exists (the single GET returns it); just select/serialize the same columns in the batch artifact builder. Keep rows/unresolved/decisions embedding unchanged.
+
+Add a provider test: for an artifact returned in the batch, assert (batch_item MINUS rows/unresolved/decisions) == the `artifact` object from GET .../bom/artifacts/{artifact_id} for the same id, field-for-field — including the 7 fields above. This is "ARTIFACT FIELD PARITY".
+
+CO's consumer needs NO change — it already passes all item fields through — so once you enrich the items, CO's workspace becomes byte-identical automatically. Please push/deploy after this lands so CO can run the final end-to-end check and switch on the batch path.
 ```

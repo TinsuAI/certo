@@ -98,14 +98,44 @@
 >   **batch BOM endpoint** (the deferred Option from the prep brief). Until DH scales
 >   out, client-side parallelism gives a modest, capped, variable win — keep workers
 >   low.
-> - **DH API request DRAFTED (awaiting DH-side approval):**
->   `.ai/api-requests/2026-05-31-bom-artifacts-batch-fetch.md` — `POST
->   /v1/hub/products/bom/artifacts:batch`, multi-product + rows inline, collapses the
->   ~150-call fan-out into one round-trip. Per CLAUDE.md, **do not implement the CO
->   consumer until DH approves + ships provider tests**; CO will pre-stage the adapter
->   with graceful fallback to the current per-product parallel fetch. The two
->   operational findings (DH `--workers 1`; CO→DH public-hostname routing) are noted in
->   the artifact for the DH owner — they are config/deploy items, not contract changes.
+> - **DH batch endpoint SHIPPED (v1) + CO consumer BUILT (uncommitted, pending one
+>   DH refinement).** `POST /v1/hub/products/bom/artifacts:batch` (DH commit
+>   `64d2761`, 19 provider tests green — **local DH only, not pushed/deployed**).
+>   - CO side (working tree, **not committed**): `list_bom_artifacts_batch` adapter
+>     (`app/data_hub_client.py`, paginated, policy-approved in
+>     `tests/test_data_hub_policy.py`); `_build_workspace` tries batch first and
+>     **falls back** to the per-product parallel fetch on 404 (memoized per backend).
+>     Shared `_assemble_from_payloads` so batch & per-product paths can't drift. Tests:
+>     `tests/test_bom_workspace_batch.py` (4 — batch-used, **byte-for-byte
+>     batch==per-product parity**, 404 fallback+memo, adapter body/pagination). Full
+>     suite **403 passed + 8 skipped**.
+>   - **Verified:** CO-consumption parity byte-identical on real Johnson (50 products,
+>     reconstruction). **End-to-end vs the real new-code DH (:8764)** found ONE gap:
+>     batch `items[*]` use the LIST-summary artifact shape, but CO's per-product path
+>     enriches via the single `GET .../bom/artifacts/{id}` → 7 fields NULL via batch
+>     (`client_id`, `flatten_method`, `flatten_method_version`, `lineage`,
+>     `uom_drift_resolved_at`, `stale_resolved_at`, `stale_first_at`). Counts/rows/agg
+>     hash all match; only picker diagnostic+freshness metadata differs.
+>   - **Refinement requested of DH** (small): batch items must use the single-GET
+>     `artifact` serializer (full object). CO consumer needs NO change once DH enriches
+>     — parity goes byte-identical automatically. See the amendment in
+>     `.ai/api-requests/2026-05-31-bom-artifacts-batch-fetch.md` + the updated DH prompt.
+>   - **DH refinement shipped** (`9408c8f`, 20 provider tests) added the first 7
+>     fields. Re-ran end-to-end on :8764: **byte-identical on every field CO actually
+>     uses** + identical `origin_build_signature` (the recalc gate). Remaining diff is
+>     6 resolver-lineage fields (`bom_shape`, `parent_shape`, `parent_variant_id`,
+>     `parent_flatten_strategy`, `parent_flatten_status`, `parent_artifact_no`) — these
+>     come from CO's per-product call to the resolver-pinned `/bom?artifact_id=`, not
+>     `/bom/artifacts/{id}`. **All 13 differing fields are UNUSED in CO** (no template /
+>     JS / app reference; picker filter + build signature don't read them). So the batch
+>     path is **functionally equivalent**; chasing byte-identical on dead fields isn't
+>     worth more DH work — DH told to stop. (Lesson: check field usage before demanding
+>     byte-identical — the first refinement also targeted unused fields.)
+>   - **CO consumer COMMITTED** (functionally-equivalent, falls back in prod until DH
+>     deploys the batch endpoint). DH batch (`9408c8f`) still local-only → prod CO uses
+>     the per-product parallel path until DH pushes/deploys.
+>   - Operational findings still stand for the DH owner (DH `--workers 1`; CO→DH
+>     public-hostname routing) — config/deploy items, not contract changes.
 > Parallelized the sequential per-product DH fetch in `_build_workspace`
 > (bom_service.py). New `_fetch_product_results` runs each product's
 > `_build_product_result` concurrently via `ThreadPoolExecutor`
