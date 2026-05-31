@@ -38,8 +38,25 @@ services:
     volumes:
       - appfiles:/var/lib/data-hub/files
       - appkeys:/var/lib/data-hub/keys
+    networks:
+      # default: reach `db` (project-local). tinsu-shared: let sister apps
+      # (CO) call this API server-to-server by the alias `data-hub-app`
+      # instead of round-tripping out to the public domain. JWT `iss` is
+      # unaffected — CO keeps DATA_HUB_ISSUER_URL/JWKS pointed at the public
+      # URL; only the call path moves onto the internal bridge.
+      default: {}
+      tinsu-shared:
+        aliases:
+          - data-hub-app
 
 volumes:
   pgdata:
   appfiles:
   appkeys:
+
+networks:
+  # Cross-project bridge shared with the CO compose project. Created out of
+  # band (`docker network create tinsu-shared`); external so neither project
+  # owns/destroys it.
+  tinsu-shared:
+    external: true
