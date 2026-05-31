@@ -53,22 +53,49 @@
    `/origin` measured **34.5s, 140s, and one 503 timeout at ~41s**. The origin
    step still does the full `list_materials` + `list_bcct` pagination (by
    design — it needs material/stock rows), so it didn't benefit from
-   `skip_heavy_context` and is heavier than the old 21s baseline. Options to
-   investigate: (a) the BOM-workspace / source-context TTL cache may be cold on
-   first origin open; (b) batch/narrow the BCCT pull to only the case's product
-   codes instead of the whole 66k-row catalog; (c) async-render origin like the
-   shipment shell. Reuse the local-DH benchmark harness (Bearer token via
-   `/v1/auth/token`) to measure.
+   `skip_heavy_context` and is heavier than the old 21s baseline.
+
+   **Profiled (2026-05-31, johnson-vn on local DH), origin path = 64.85s:**
+   - `list_bcct` full 66k rows = **36.15s** ← main culprit (paginated, ~66 RTs)
+   - `list_materials` 13k rows = 3.67s
+   - `co_stock_rows_from_bcct` (local CPU) = 2.39s
+   - remainder (~22s) = `bom_service.workspace` (BOM artifacts fetch)
+
+   **Recommended fix — narrow BCCT fetch (no new DH endpoint needed):**
+   Origin only consumes `stock_rows`/`material_rows` via `case_allocation_pool`
+   (pools stock by material_code) and `material_catalog_index` (BOM-material
+   lookup) — i.e. it only needs stock for materials in THIS case's BOM (tens of
+   rows), not all 66k. The substitute modal already does this:
+   `main.py:~2510` uses `list_bcct_by_codes(material_codes)` (narrow endpoint,
+   already approved + in adapter). Plan: in `co_case_light_context` for the
+   origin step, reorder to fetch invoice_matches → bom_workspace → derive the
+   case's material codes → `list_bcct_by_codes` instead of full `list_bcct`.
+   Expected: origin ~65s → ~24s (BOM workspace then becomes next bottleneck).
+
+   **Two risk points — do `/discover` then `/tdd`, NOT a quick fix:**
+   (1) origin RVC/LVC parity is a high-risk area (CLAUDE.md); reordering the
+   central `co_case_light_context` must not change calc results.
+   (2) `origin_build_signature` (origin-snapshot cache key, `main.py:3169`)
+   hashes `stock_rows` — narrowing stock changes the signature; verify it
+   doesn't break snapshot reuse / force needless recompute.
+   Benchmark harness: Bearer JWT via DH `/v1/auth/token` for `claude-check@local`,
+   then `curl -w %{time_total}` the `/origin` route (case
+   `johnson-vn / co-case-0605189d5eea`). Also profile components by calling
+   `svc.co_case_source_context(..., skip_heavy_context=False)` + the individual
+   `list_bcct`/`list_materials` adapter methods directly.
+   Secondary: the background preload (`co_case_detail` route → thread →
+   `preload_co_case_origin_context`) + 90s TTL cache (`_CO_CASE_SOURCE_CACHE`)
+   only help a warm second open; first cold origin still pays full cost.
 
 3. **Origin lock TTL cleanup** (60-min stale lock) — deferred, no code yet.
 
-3. **Customs FX historical backfill** — deferred, no code yet.
+4. **Customs FX historical backfill** — deferred, no code yet.
 
-4. **Seed missing CO forms** — D/E/AK/AANZ/AJ/RCEP/UKVFTA/VK/VC/VJ.
+5. **Seed missing CO forms** — D/E/AK/AANZ/AJ/RCEP/UKVFTA/VK/VC/VJ.
 
-5. **HS↔form coherence + criteria token validation** (MED).
+6. **HS↔form coherence + criteria token validation** (MED).
 
-6. **`can_view_client` short→long fallback** — investigated; confirmed **not a
+7. **`can_view_client` short→long fallback** — investigated; confirmed **not a
    real prod bug**. UI only generates long-form (`growatt-vn`) client IDs from
    `client["id"]` which comes from DH canonical. 403 only hits typed/bookmarked
    short URLs. `clients` table in prod Postgres is empty — clients loaded live
