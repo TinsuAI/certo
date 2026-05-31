@@ -17,7 +17,8 @@
   snapshot present (60 173 rows). BOM workspace (~22s) is now the dominant origin
   cost (separate task).
 - Session summaries:
-  `.ai/sessions/2026-05-31-origin-bcct-elimination-discovery.md` (latest),
+  `.ai/sessions/2026-05-31-origin-narrow-bcct-tdd-ship.md` (latest — TDD+ship),
+  `.ai/sessions/2026-05-31-origin-bcct-elimination-discovery.md` (design),
   `.ai/sessions/2026-05-31-case-detail-perf-fix-and-dh-guard.md`.
 - Local suite **395 passed + 8 skipped** (file-store/CI mode; the +1 skip is the
   opt-in real-DH origin parity e2e).
@@ -65,6 +66,18 @@
 | `ea25b36` | CI: self-pull tinsu-deploy before nightly refresh — user committed separately |
 
 ## Next Steps
+
+> **▶ ACTIVE NEXT TASK — BOM workspace perf.** Prep brief ready (full analysis +
+> recommendation): **`.ai/features/2026-05-31-bom-workspace-perf-prep.md`**. After
+> the BCCT pull was eliminated, `_build_workspace` (bom_service.py:87 — **sequential
+> per-product DH fetch**) is the dominant origin cold cost (~22s on product-heavy
+> cases; scales with #products). **Recommendation: parallel client-side fetch**
+> (~22s → ~3-4s, output-identical → near-zero parity risk; contained in
+> `_build_workspace`). **Gotcha:** httpx is sync → ThreadPoolExecutor, and
+> `CURRENT_DATA_HUB_TOKEN` is a contextvar that worker threads DON'T inherit —
+> propagate it or every parallel fetch 401s. Flow: short `/discover` (parallel vs
+> asking DH for a batch endpoint) → `/tdd` with a parallel-output == sequential-output
+> parity test. NOT a BOM materializer unless parallel proves insufficient.
 
 1. **Case detail load (shipment tab) ~21s — DONE, deployed, prod-verified.**
    `skip_heavy_context` on `co_case_source_context` (commit `d28e237`, deployed
