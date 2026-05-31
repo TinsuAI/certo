@@ -6,8 +6,19 @@
 - **DH↔CO internal-network cutover VERIFIED (2026-06-01, CO side, all 5 checks
   PASS, no rollback).** CO→Data Hub server-to-server now goes over the internal
   Docker bridge `tinsu-shared` (DH alias `data-hub-app`): prod `.env`
-  `DATA_HUB_API_BASE_URL=http://data-hub-app:8754`; issuer/JWKS/BASE stay public
-  (`https://ttdatahub.tinsu.ai`).
+  `DATA_HUB_API_BASE_URL=http://data-hub-app:8754`.
+- **JWKS fetch ALSO flipped internal (2026-06-01, re-verified working).** Prod
+  `.env` now `DATA_HUB_JWKS_URL=http://data-hub-app:8754/v1/auth/jwks` (was
+  public). `DATA_HUB_ISSUER_URL` + `DATA_HUB_BASE_URL` stay public
+  (`https://ttdatahub.tinsu.ai`). This is safe because **`iss` validation is
+  independent of the JWKS fetch location**: tokens still carry
+  `iss=https://ttdatahub.tinsu.ai` (verified via password-grant AND the browser
+  SSO session cookie `co_data_hub_session`), CO validates `iss` against the public
+  `DATA_HUB_ISSUER_URL`, and only the key fetch moved to the internal bridge.
+  Internal `/v1/auth/jwks` serves the same `kid=k1`. Browser SSO e2e re-run:
+  login → exchange → johnson-vn BOM renders, 0 auth/console errors, logs clean
+  (`.ai/screenshots/dh-internal-network-verify/04-after-jwks-flip.png`). DH batch
+  endpoint confirmed live on prod.
   - **Issuer/JWKS decoupling safe** (code + live env): `data_hub_settings.py`
     derives `issuer_url` from `DATA_HUB_ISSUER_URL`/`BASE_URL` and `jwks_url` from
     `issuer_url` — **never** from `API_BASE_URL`; `DataHubTokenVerifier` validates
