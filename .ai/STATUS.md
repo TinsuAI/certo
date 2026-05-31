@@ -1,14 +1,17 @@
 # Project Status
 
 ## Current State
-- Branch `main`: 4 commits on base `83efe8d` — `d28e237` (perf skip_heavy_context
-  + no-silent-local-fallback guard), `e76a526` (STATUS), `dbb9315` (map DH
-  outages to 503/502 + 3 regression tests), then this STATUS commit. Committed
-  locally, **not pushed**.
+- Branch `main` synced with `tinsu/main` at `c088852` (this session: `d28e237`
+  perf skip_heavy_context + DH-off guard, `dbb9315` DH-unreachable 503/502, +
+  STATUS/handoff docs, on base `83efe8d`). **Pushed; CI/CD auto-deployed the
+  code commits; prod healthy** (`/healthz` 200).
+- Session summary: `.ai/sessions/2026-05-31-case-detail-perf-fix-and-dh-guard.md`.
 - Local suite **389 passed + 7 skipped**.
-- **Case detail load fix DONE and E2E-verified** against the local Data Hub
-  (johnson-vn, 12.5k materials / 66k BCCT): origin/old path 39.7s → shipment
-  light path 0.03s, 82 → 2-3 round trips, invoice_matches parity preserved.
+- **Case detail (shipment) load fix DONE, deployed, prod-verified.** Local DH
+  E2E (johnson-vn, 12.5k materials / 66k BCCT): origin/old path 39.7s → shipment
+  light 0.03s, 82 → 2-3 round trips, invoice_matches parity preserved. Prod
+  benchmark (Bearer JWT, `johnson-vn / co-case-0605189d5eea`): shipment tab
+  ~1.5–3.6s vs ~21s baseline (~7–10x).
 - **No-silent-local-fallback DONE (both branches).** CO never serves local
   backup data when Data Hub is the source of truth:
   - `DATA_HUB_ENABLED` off + `CO_ALLOW_LOCAL_SOURCE` unset → 503
