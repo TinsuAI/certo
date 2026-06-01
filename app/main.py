@@ -67,7 +67,7 @@ from app.co_stock_template import CoStockTemplateError, read_standard_co_stock, 
 from app.co_market_hints import infer_market_from_invoice_matches
 from app.client_registry import get_client as registry_get_client
 from app.client_registry import get_client_case
-from app.customs_fx_store import CUSTOMS_FX_CLIENT_ID, get_customs_fx_store, refresh_customs_exchange_rates
+from app.customs_fx_store import CUSTOMS_FX_CLIENT_ID, get_customs_fx_store
 from app.database import apply_migrations, database_url
 from app.data_hub_client import (
     DataHubClient,
@@ -95,6 +95,7 @@ from app import material_search
 from app.app_state_store import get_app_state_store
 from app.portfolio import SourceBackendUnavailable, portfolio_app, portfolio_service
 from app.routers import auth as auth_routes
+from app.routers import customs_fx as customs_fx_routes
 from app.routers import settings as settings_routes
 from app.source_store import (
     attach_case_source_snapshot,
@@ -161,6 +162,7 @@ app = FastAPI(title="Barry CO Demo", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 app.mount("/portfolio", portfolio_app, name="portfolio")
 app.include_router(auth_routes.router)
+app.include_router(customs_fx_routes.router)
 app.include_router(settings_routes.router)
 
 
@@ -528,15 +530,6 @@ CO_STOCK_COLUMNS = [
     {"key": "status_label", "label": "Trạng thái"},
     {"key": "stock_reason_label", "label": "Lý do"},
     {"key": "history_action", "label": "Lịch sử", "kind": "history", "sortable": False},
-]
-
-CUSTOMS_FX_COLUMNS = [
-    {"key": "currency_code", "label": "Nguyên tệ", "class": "mono"},
-    {"key": "currency_name", "label": "Tên ngoại tệ"},
-    {"key": "effective_date", "label": "Ngày hiệu lực", "class": "mono"},
-    {"key": "rate_display", "label": "Tỷ giá", "class": "num", "sortable": False},
-    {"key": "source_endpoint", "label": "Nguồn API", "class": "mono"},
-    {"key": "fetched_at", "label": "Lần lấy", "class": "mono"},
 ]
 
 BOM_PRODUCT_COLUMNS = [
@@ -4456,33 +4449,6 @@ def co_stock_table_context(request: Request, client_id: str) -> dict:
     return context
 
 
-def customs_exchange_rate_context(request: Request, **extra) -> dict:
-    context = dict(extra)
-    store = get_customs_fx_store()
-    rows = store.rows(CUSTOMS_FX_CLIENT_ID)
-    query = dict(request.query_params)
-    if "sort" not in query:
-        query["sort"] = "effective_date"
-        query["dir"] = "desc"
-    context["customs_fx_scope"] = CUSTOMS_FX_CLIENT_ID
-    context["customs_fx_summary"] = store.summary(CUSTOMS_FX_CLIENT_ID)
-    context["source_table"] = build_table_view(
-        rows,
-        columns=CUSTOMS_FX_COLUMNS,
-        query=query,
-        filters=[
-            {"name": "currency", "field": "currency_code", "label": "Nguyên tệ"},
-            {"name": "endpoint", "field": "source_endpoint", "label": "Nguồn API"},
-        ],
-        summary_fields=[
-            {"field": "currency_code", "label": "Nguyên tệ"},
-            {"field": "source_endpoint", "label": "Nguồn API"},
-        ],
-        default_sort="effective_date",
-    )
-    return context
-
-
 def bom_context(request: Request, client_id: str, **extra) -> dict:
     lean = _data_hub_overview_context(client_id, "bom", dh_path="bom")
     if lean is not None and not extra.get("message") and not extra.get("error"):
@@ -5314,48 +5280,6 @@ async def bcct_exports(request: Request, client_id: str):
         name="bcct.html",
         context=bcct_table_context(request, client_id, "export"),
     )
-
-
-@app.get("/customs-exchange-rates", response_class=HTMLResponse)
-async def customs_exchange_rates(request: Request):
-    return templates.TemplateResponse(
-        request=request,
-        name="customs_exchange_rates.html",
-        context=customs_exchange_rate_context(request),
-    )
-
-
-@app.post("/customs-exchange-rates/refresh", response_class=HTMLResponse)
-async def refresh_customs_exchange_rates_route(request: Request):
-    try:
-        result = refresh_customs_exchange_rates(client_id=CUSTOMS_FX_CLIENT_ID)
-    except Exception as exc:
-        return templates.TemplateResponse(
-            request=request,
-            name="customs_exchange_rates.html",
-            status_code=502,
-            context=customs_exchange_rate_context(
-                request,
-                error=f"Không cập nhật được tỷ giá hải quan: {exc}",
-            ),
-        )
-    return templates.TemplateResponse(
-        request=request,
-        name="customs_exchange_rates.html",
-        context=customs_exchange_rate_context(
-            request,
-            customs_fx_result=result,
-            message=(
-                f"Đã cập nhật {result['fetched_row_count']} dòng tỷ giá hải quan; "
-                f"đang lưu {result['saved_row_count']} dòng."
-            ),
-        ),
-    )
-
-
-@app.get("/clients/{client_id}/customs-exchange-rates")
-async def client_customs_exchange_rates_redirect(client_id: str):
-    return RedirectResponse("/customs-exchange-rates", status_code=303)
 
 
 @app.get("/clients/{client_id}/bcct/template.xlsx")

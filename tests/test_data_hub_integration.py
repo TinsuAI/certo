@@ -1517,7 +1517,6 @@ def test_data_hub_mode_blocks_local_shared_source_uploads(monkeypatch):
 
 def test_data_hub_mode_allows_customs_fx_refresh_until_hub_contract_exists(monkeypatch):
     monkeypatch.setenv("DATA_HUB_ENABLED", "1")
-    from app import main as main_module
 
     calls = []
 
@@ -1529,7 +1528,7 @@ def test_data_hub_mode_allows_customs_fx_refresh_until_hub_contract_exists(monke
             "latest_effective_date": "2026-04-27",
         }
 
-    monkeypatch.setattr(main_module, "refresh_customs_exchange_rates", refresh_stub)
+    monkeypatch.setattr("app.routers.customs_fx.refresh_customs_exchange_rates", refresh_stub)
 
     response = TestClient(app).post("/customs-exchange-rates/refresh")
 
