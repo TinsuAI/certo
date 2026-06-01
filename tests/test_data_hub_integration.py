@@ -438,6 +438,26 @@ def test_data_hub_settings_page_is_guarded_when_auth_required(monkeypatch):
     assert response.headers["location"] == "/auth/login?next=/settings/technical"
 
 
+def test_can_delete_co_cases_allows_manager_by_default(monkeypatch):
+    from app import co_auth
+    from app.data_hub_settings import DEFAULT_CO_CASE_DELETE_ROLES, DataHubLinkSettings
+
+    assert "manager" in DEFAULT_CO_CASE_DELETE_ROLES
+
+    default_settings = DataHubLinkSettings.from_env({})
+    monkeypatch.setattr(co_auth, "auth_required", lambda: True)
+    monkeypatch.setattr(co_auth, "data_hub_link_settings", lambda: default_settings)
+
+    def user(role):
+        return co_auth.DataHubUser(user_id="u", email="e", role=role, name="n", claims={})
+
+    assert co_auth.can_delete_co_cases(user("manager")) is True
+    assert co_auth.can_delete_co_cases(user("admin")) is True
+    assert co_auth.can_delete_co_cases(user("dev")) is True
+    assert co_auth.can_delete_co_cases(user("staff")) is False
+    assert co_auth.can_delete_co_cases(None) is False
+
+
 def test_technical_settings_requires_dev_when_auth_required(monkeypatch):
     from app import co_auth
 

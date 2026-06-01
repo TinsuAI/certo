@@ -10,7 +10,7 @@ from typing import Mapping
 DEFAULT_DATA_HUB_BASE_URL = "http://127.0.0.1:8754"
 DEFAULT_DATA_HUB_TIMEOUT_SECONDS = 20.0
 DEFAULT_DATA_HUB_CONFIG_PATH = "data/local/runtime/data-hub-link.json"
-DEFAULT_CO_CASE_DELETE_ROLES = ("dev", "admin")
+DEFAULT_CO_CASE_DELETE_ROLES = ("dev", "admin", "manager")
 DEFAULT_CLIENT_CLAIM_KEYS = (
     "client_ids",
     "clients",
