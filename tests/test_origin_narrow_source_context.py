@@ -169,14 +169,14 @@ def test_origin_source_context_cold_reads_snapshot_and_narrow_matches(monkeypatc
     snapshot = [{"material_code": "MAT-1", "remaining_qty": "10"}]
     calls: dict = {}
     monkeypatch.setattr(main, "_calculate_stock_rows_from_snapshot", lambda client: snapshot)
-    monkeypatch.setattr(
-        main, "portfolio_service",
-        _FakePortfolio(calls, narrow_matches=[{"item_code": "MAT-1", "declaration_no": "EX-1"}]),
-    )
-    monkeypatch.setattr(
-        main, "co_case_source_context",
-        lambda *a, **k: pytest.fail("heavy full-BCCT path must not run when snapshot exists"),
-    )
+    monkeypatch.setattr("app.web.co_case_context._calculate_stock_rows_from_snapshot", lambda client: snapshot)
+    _fake_pf = _FakePortfolio(calls, narrow_matches=[{"item_code": "MAT-1", "declaration_no": "EX-1"}])
+    monkeypatch.setattr(main, "portfolio_service", _fake_pf)
+    monkeypatch.setattr("app.web.client_context.portfolio_service", _fake_pf)
+    monkeypatch.setattr("app.web.co_case_context.portfolio_service", _fake_pf)
+    _fail_heavy = lambda *a, **k: pytest.fail("heavy full-BCCT path must not run when snapshot exists")
+    monkeypatch.setattr(main, "co_case_source_context", _fail_heavy)
+    monkeypatch.setattr("app.web.co_case_context.co_case_source_context", _fail_heavy)
 
     ctx = main.origin_source_context({"id": "johnson-vn"}, {"shipment": {"invoice_no": "INV-1"}})
 
@@ -198,10 +198,11 @@ def test_origin_source_context_cold_always_refetches_not_stale_case_matches(monk
     snapshot = [{"material_code": "MAT-1", "remaining_qty": "10"}]
     calls: dict = {}
     monkeypatch.setattr(main, "_calculate_stock_rows_from_snapshot", lambda client: snapshot)
-    monkeypatch.setattr(
-        main, "portfolio_service",
-        _FakePortfolio(calls, narrow_matches=[{"item_code": "FRESH", "declaration_no": "EX-1"}]),
-    )
+    monkeypatch.setattr("app.web.co_case_context._calculate_stock_rows_from_snapshot", lambda client: snapshot)
+    _fake_pf = _FakePortfolio(calls, narrow_matches=[{"item_code": "FRESH", "declaration_no": "EX-1"}])
+    monkeypatch.setattr(main, "portfolio_service", _fake_pf)
+    monkeypatch.setattr("app.web.client_context.portfolio_service", _fake_pf)
+    monkeypatch.setattr("app.web.co_case_context.portfolio_service", _fake_pf)
 
     case = {
         "shipment": {"invoice_no": "INV-1"},
@@ -218,6 +219,7 @@ def test_origin_source_context_falls_back_to_heavy_when_snapshot_unusable(monkey
     import app.main as main
 
     monkeypatch.setattr(main, "_calculate_stock_rows_from_snapshot", lambda client: None)
+    monkeypatch.setattr("app.web.co_case_context._calculate_stock_rows_from_snapshot", lambda client: None)
     sentinel = {
         "source_backend": "data-hub",
         "source_summary": {},
@@ -233,7 +235,10 @@ def test_origin_source_context_falls_back_to_heavy_when_snapshot_unusable(monkey
         return sentinel
 
     monkeypatch.setattr(main, "co_case_source_context", fake_heavy)
+    monkeypatch.setattr("app.web.co_case_context.co_case_source_context", fake_heavy)
     monkeypatch.setattr(main, "portfolio_service", _FakePortfolio({}, narrow_matches=[]))
+    monkeypatch.setattr("app.web.client_context.portfolio_service", _FakePortfolio({}, narrow_matches=[]))
+    monkeypatch.setattr("app.web.co_case_context.portfolio_service", _FakePortfolio({}, narrow_matches=[]))
 
     ctx = main.origin_source_context({"id": "johnson-vn"}, {"shipment": {"invoice_no": "INV-1"}})
 

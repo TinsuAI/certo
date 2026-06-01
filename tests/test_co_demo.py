@@ -2429,6 +2429,7 @@ def test_cached_origin_context_loads_live_bom_artifact_options(monkeypatch):
 
     _fake_bom = FakeBomService()
     monkeypatch.setattr(main_module, "bom_service", _fake_bom)
+    monkeypatch.setattr("app.web.co_case_context.bom_service", _fake_bom)
     monkeypatch.setattr("app.web.client_context.bom_service", _fake_bom)
     client = TestClient(app)
     created = client.post(
@@ -2988,6 +2989,7 @@ def test_origin_sheet_lock_uses_cached_case_context(monkeypatch):
         raise AssertionError("state-only origin actions must not refresh source context")
 
     monkeypatch.setattr(main_module, "co_case_source_context", fail_source_refresh)
+    monkeypatch.setattr("app.web.co_case_context.co_case_source_context", fail_source_refresh)
     client = TestClient(app)
     created = client.post(
         "/clients/growatt/co-case/create",
@@ -5077,6 +5079,7 @@ def test_origin_sheet_lock_accepts_compact_json_without_source_refresh(monkeypat
         raise AssertionError("compact state-only origin actions must not refresh source context")
 
     monkeypatch.setattr(main_module, "co_case_source_context", fail_source_refresh)
+    monkeypatch.setattr("app.web.co_case_context.co_case_source_context", fail_source_refresh)
     client = TestClient(app)
     created = client.post(
         "/clients/growatt/co-case/create",
@@ -5300,6 +5303,7 @@ def test_calculate_reads_stale_snapshot_without_blocking_and_refreshes_in_backgr
         return {}
 
     monkeypatch.setattr(main_module, "_refresh_co_stock_delta_or_full", fake_refresh)
+    monkeypatch.setattr("app.web.co_case_context._refresh_co_stock_delta_or_full", fake_refresh)
 
     rows = main_module._calculate_stock_rows_from_snapshot({"id": "blkA"})
     # Returned immediately from the snapshot — the heavy DH refresh did NOT run
@@ -5317,6 +5321,7 @@ def test_calculate_returns_none_on_empty_snapshot_without_refresh(monkeypatch):
     monkeypatch.setattr(co_stock_materializer, "read_co_stock_rows_cached", lambda cid: [])
     calls = []
     monkeypatch.setattr(main_module, "_refresh_co_stock_delta_or_full", lambda c: calls.append(1) or {})
+    monkeypatch.setattr("app.web.co_case_context._refresh_co_stock_delta_or_full", lambda c: calls.append(1) or {})
     # Empty snapshot (cold start) → None so the caller's legacy full pull runs;
     # no background work is scheduled.
     assert main_module._calculate_stock_rows_from_snapshot({"id": "blkB"}) is None
@@ -5340,6 +5345,7 @@ def test_calculate_fresh_snapshot_skips_background_refresh(monkeypatch):
     monkeypatch.setattr(co_stock_ledger, "apply_used_qty", lambda rows, used: rows)
     calls = []
     monkeypatch.setattr(main_module, "_refresh_co_stock_delta_or_full", lambda c: calls.append(1) or {})
+    monkeypatch.setattr("app.web.co_case_context._refresh_co_stock_delta_or_full", lambda c: calls.append(1) or {})
 
     rows = main_module._calculate_stock_rows_from_snapshot({"id": "blkC"})
     assert rows == snapshot
@@ -6800,6 +6806,7 @@ def test_co_routes_use_portfolio_service_adapter(monkeypatch):
 
     _fake_portfolio = FakePortfolioService()
     monkeypatch.setattr(main_module, "portfolio_service", _fake_portfolio)
+    monkeypatch.setattr("app.web.co_case_context.portfolio_service", _fake_portfolio)
     monkeypatch.setattr("app.web.client_context.portfolio_service", _fake_portfolio)
 
     client = TestClient(app)
@@ -7081,6 +7088,7 @@ def test_co_case_create_explains_invoice_market_hint_without_auto_selecting(monk
 
     _fake_portfolio = FakePortfolioService()
     monkeypatch.setattr(main_module, "portfolio_service", _fake_portfolio)
+    monkeypatch.setattr("app.web.co_case_context.portfolio_service", _fake_portfolio)
     monkeypatch.setattr("app.web.client_context.portfolio_service", _fake_portfolio)
     client = TestClient(app)
 

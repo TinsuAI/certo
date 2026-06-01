@@ -1347,6 +1347,7 @@ def test_clients_page_uses_portfolio_service_boundary(monkeypatch):
 
     _fake_portfolio = FakePortfolioService()
     monkeypatch.setattr(main_module, "portfolio_service", _fake_portfolio)
+    monkeypatch.setattr("app.web.co_case_context.portfolio_service", _fake_portfolio)
     monkeypatch.setattr("app.web.client_context.portfolio_service", _fake_portfolio)
 
     response = TestClient(app).get("/clients")
@@ -1384,6 +1385,7 @@ def test_client_detail_uses_portfolio_service_boundary(monkeypatch):
 
     _fake_portfolio = FakePortfolioService()
     monkeypatch.setattr(main_module, "portfolio_service", _fake_portfolio)
+    monkeypatch.setattr("app.web.co_case_context.portfolio_service", _fake_portfolio)
     monkeypatch.setattr("app.web.client_context.portfolio_service", _fake_portfolio)
 
     response = TestClient(app).get("/clients/hub-only")
@@ -1463,9 +1465,11 @@ def test_bom_page_uses_bom_service_boundary(monkeypatch):
 
     _fake_portfolio = FakePortfolioService()
     monkeypatch.setattr(main_module, "portfolio_service", _fake_portfolio)
+    monkeypatch.setattr("app.web.co_case_context.portfolio_service", _fake_portfolio)
     monkeypatch.setattr("app.web.client_context.portfolio_service", _fake_portfolio)
     _fake_bom = FakeBomService()
     monkeypatch.setattr(main_module, "bom_service", _fake_bom)
+    monkeypatch.setattr("app.web.co_case_context.bom_service", _fake_bom)
     monkeypatch.setattr("app.web.client_context.bom_service", _fake_bom)
 
     response = TestClient(app).get("/clients/hub-only/bom")
@@ -1497,6 +1501,7 @@ def test_clients_page_filters_by_jwt_client_claims(monkeypatch):
     monkeypatch.setenv("DATA_HUB_ISSUER_URL", "https://hub.test")
     _fake_portfolio = FakePortfolioService()
     monkeypatch.setattr(main_module, "portfolio_service", _fake_portfolio)
+    monkeypatch.setattr("app.web.co_case_context.portfolio_service", _fake_portfolio)
     monkeypatch.setattr("app.web.client_context.portfolio_service", _fake_portfolio)
     monkeypatch.setattr(
         co_auth,
@@ -1629,9 +1634,11 @@ def test_data_hub_mode_hides_shared_source_upload_ui(monkeypatch):
     monkeypatch.setenv("DATA_HUB_ENABLED", "1")
     _fake_portfolio = FakePortfolioService()
     monkeypatch.setattr(main_module, "portfolio_service", _fake_portfolio)
+    monkeypatch.setattr("app.web.co_case_context.portfolio_service", _fake_portfolio)
     monkeypatch.setattr("app.web.client_context.portfolio_service", _fake_portfolio)
     _fake_bom = FakeBomService()
     monkeypatch.setattr(main_module, "bom_service", _fake_bom)
+    monkeypatch.setattr("app.web.co_case_context.bom_service", _fake_bom)
     monkeypatch.setattr("app.web.client_context.bom_service", _fake_bom)
     client = TestClient(app)
 
