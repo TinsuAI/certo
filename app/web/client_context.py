@@ -138,6 +138,70 @@ def source_workspace_for_client(client: dict) -> tuple[dict, str]:
     return portfolio_service.source_workspace(client)
 
 
+def _data_hub_overview_context(
+    client_id: str,
+    active: str,
+    *,
+    dh_path: str,
+) -> dict | None:
+    """Lean context for Data Hub-backed source views (catalog / bom / bcct).
+
+    Returns None when CO is not in Data Hub mode — caller should fall through
+    to the full `client_context`. When in DH mode, skips the expensive
+    `source_workspace` pagination (which pulls full materials / products /
+    BCCT rows over HTTP) and returns only the metadata + counts needed to
+    render a summary card + link-out to Data Hub. Pattern mirrors
+    `_co_stock_lean_client_context`.
+
+    `dh_path` is the path segment on the Data Hub side
+    (catalog / bom / bcct) — composed into a target URL the template can
+    render as a "Mở trên Data Hub" button.
+    """
+    client = resolve_client(client_id)
+    try:
+        source_summary, source_backend = portfolio_service.source_summary(client)
+    except AttributeError:
+        # Test shims (FakePortfolioService / FakeSourceIndexStore) may not
+        # expose the lean summary call; fall through to the legacy full-
+        # workspace path which they do support.
+        return None
+    if source_backend != "data-hub":
+        return None
+    client_config = source_summary.get("client_config") or portfolio_service.get_client_config(client)
+    bcct_summary = source_summary.get("bcct", {}) or {}
+    material_summary = source_summary.get("material_catalog", {}) or {}
+    product_summary = source_summary.get("product_catalog", {}) or {}
+    bom_summary = source_summary.get("bom", {}) or {}
+    counts = {
+        **client.get("counts", {}),
+        "materials": material_summary.get("published_row_count", 0),
+        "products": product_summary.get("published_row_count", 0),
+        "bcct": bcct_summary.get("published_row_count", 0),
+        "bom_lines": bom_summary.get("published_row_count", client.get("counts", {}).get("bom_lines", 0)),
+        "co_stock": source_summary.get("co_stock_row_count", 0),
+    }
+    client = {**client, "counts": counts}
+    dh_base = data_hub_link_settings().data_hub_base_url
+    context = {
+        "client": client,
+        "case": client_case(client),
+        "active": active,
+        "source_backend": source_backend,
+        "client_config": client_config,
+        "source_summary": source_summary,
+        "data_hub_base_url": dh_base,
+    }
+    # Only emit a target URL when there is a real DH page to deep-link to.
+    # /config passes dh_path="" (no DH page) → omit the field so a "Mở DH"
+    # button rendered by a future config-tab template can't point at an
+    # empty / bare-client URL.
+    if dh_path:
+        context["data_hub_target_url"] = (
+            f"{dh_base.rstrip('/')}/clients/{client_id}/{dh_path}"
+        )
+    return context
+
+
 def case_finished_hs_codes(case: dict) -> list[str]:
     return [
         str(product.get("finished_hs", ""))
