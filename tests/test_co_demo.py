@@ -3095,6 +3095,87 @@ def test_origin_sheet_substitute_candidates_endpoint_returns_search_and_recommen
     assert isinstance(payload["search_results"], list)
 
 
+def test_substitute_stock_reads_materialized_snapshot_not_bcct(monkeypatch):
+    from app import main as main_module
+
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={
+            "title": "Substitute stock snapshot",
+            "case_code": "CO-SUB-STOCK",
+            "destination_market": "Ấn Độ",
+            "invoice_no": "INV-SUB-STOCK",
+        },
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-SUB-STOCK",
+            "title": "Substitute stock snapshot",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-SUB-STOCK", "bill_of_lading_no": ""},
+            "products": [
+                {
+                    "code": "TP-STK",
+                    "name": "Stock product",
+                    "finished_hs": "850440",
+                    "quantity": "1",
+                    "unit": "PCS",
+                    "fob": "100",
+                    "currency": "USD",
+                    "materials": [
+                        {"material_code": "STK-1", "material_description": "Stock material", "uom": "PCS", "bom_qty_per": "1"},
+                    ],
+                }
+            ],
+        },
+    )
+
+    snapshot_row = {
+        "material_code": "STK-1",
+        "customs_item_code": "STK-1",
+        "allocation_code": "STK-1",
+        "import_declaration_no": "IMP-9",
+        "line_no": "1",
+        "registration_date": "2026-01-02",
+        "remaining_qty": "12",
+        "available_qty": "12",
+        "unit_value": "7.5",
+        "currency": "USD",
+        "material_description": "Stock material",
+        "hs_code": "850440",
+    }
+    monkeypatch.setattr(
+        main_module.co_stock_materializer, "read_co_stock_rows_cached",
+        lambda _cid: [snapshot_row],
+    )
+    monkeypatch.setattr(
+        main_module.co_stock_materializer, "last_refresh_at",
+        lambda _cid: "2026-06-01T08:30:00+00:00",
+    )
+
+    def _bcct_must_not_be_called(*_args, **_kwargs):
+        raise AssertionError("substitute-stock must not call Data Hub BCCT")
+
+    monkeypatch.setattr(main_module.portfolio_service, "list_bcct_by_codes", _bcct_must_not_be_called)
+
+    response = client.get(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-STK/substitute-stock",
+        params={"codes": "STK-1"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["stock_refreshed_at"] == "2026-06-01T08:30:00+00:00"
+    entry = payload["stock"]["STK-1"]
+    assert entry["lot_count"] == 1
+    assert entry["total_remaining_qty"] not in ("", "0")
+
+
 def test_local_material_search_supports_seed_catalog_lists():
     from app.portfolio import PortfolioService
 

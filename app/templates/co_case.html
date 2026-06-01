@@ -1673,6 +1673,7 @@
         <input type="number" min="0" step="0.000001" data-origin-substitute-shared-norm placeholder="auto">
       </label>
       <span class="origin-substitute-mode" data-origin-substitute-mode>Mode tối ưu: —</span>
+      <span class="origin-substitute-freshness" data-origin-substitute-freshness hidden></span>
       <button type="button" class="btn-secondary" data-origin-substitute-refresh>Tải lại</button>
       <button type="button" class="btn-secondary origin-substitute-delete-row" data-origin-substitute-delete-row>Xoá dòng này</button>
     </div>
@@ -2963,6 +2964,7 @@
     const currentStrip = modal.querySelector("[data-origin-substitute-current]");
     const currentField = (key) => currentStrip?.querySelector(`[data-current-field="${key}"]`);
     const modeLabel = modal.querySelector("[data-origin-substitute-mode]");
+    const freshnessLabel = modal.querySelector("[data-origin-substitute-freshness]");
     const searchInput = modal.querySelector("[data-origin-substitute-search]");
     const sharedNormInput = modal.querySelector("[data-origin-substitute-shared-norm]");
     const refreshBtn = modal.querySelector("[data-origin-substitute-refresh]");
@@ -3601,6 +3603,19 @@
       target.innerHTML = `<li class="origin-substitute-loading"><span class="origin-substitute-spinner" aria-hidden="true"></span><span>${label}</span></li>`;
     };
 
+    const updateFreshness = (iso) => {
+      if (!freshnessLabel) return;
+      const text = (iso || "").trim();
+      if (!text) { freshnessLabel.hidden = true; freshnessLabel.textContent = ""; return; }
+      const parsed = new Date(text);
+      const when = Number.isNaN(parsed.getTime())
+        ? text
+        : parsed.toLocaleString("vi-VN", {hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit"});
+      freshnessLabel.hidden = false;
+      freshnessLabel.textContent = `Tồn cập nhật ${when}`;
+      freshnessLabel.title = "Tồn C/O lấy từ snapshot đã vật chất hóa; đây là thời điểm refresh gần nhất.";
+    };
+
     const mergeLazyStock = (data, items) => {
       if (!data.stock_pending || !data.stock_url) return;
       const allCodes = (items || []).map((c) => c.material_code).filter(Boolean);
@@ -3610,6 +3625,7 @@
       })
         .then((r) => r.ok ? r.json() : null)
         .then((stockData) => {
+          if (stockData) updateFreshness(stockData.stock_refreshed_at);
           if (!stockData?.stock) return;
           Object.entries(stockData.stock).forEach(([code, stock]) => {
             modal.querySelectorAll(`li.origin-substitute-item[data-material-code="${code}"]`).forEach((li) => {

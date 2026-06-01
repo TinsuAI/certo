@@ -7151,26 +7151,24 @@ async def co_case_origin_sheet_substitute_stock(
     case = persisted_origin_case(client, case_id)
     sheet_state = (case.get("origin_sheet_states") or {}).get(product_code, {}) or {}
     optimization_mode = sheet_state.get("optimization_mode") or "max_lvc"
-    stock_pool: dict[str, list[dict]] = {}
-    try:
-        narrow_rows = portfolio_service.list_bcct_by_codes(client_id, requested, direction="import")
-    except Exception:  # noqa: BLE001
-        narrow_rows = []
     cached_matches = case.get("source_invoice_matches") if isinstance(case.get("source_invoice_matches"), list) else []
-    if narrow_rows:
-        client_config = portfolio_service.get_client_config(client) if hasattr(portfolio_service, "get_client_config") else {}
-        if client_config:
-            narrow_stock_rows = co_stock_rows_from_bcct(narrow_rows, client_config)
-            stock_pool = case_allocation_pool(
-                case, cached_matches, narrow_stock_rows,
-                min_gap_days=effective_min_gap_days(client, client_config),
-            )
-    if not stock_pool:
-        try:
-            source_context = co_case_source_context_cached(client, case)
-            stock_pool = case_allocation_pool(case, cached_matches, source_context.get("stock_rows") or [])
-        except Exception:  # noqa: BLE001
-            stock_pool = {}
+    client_config = portfolio_service.get_client_config(client) if hasattr(portfolio_service, "get_client_config") else {}
+    min_gap = effective_min_gap_days(client, client_config)
+    # Substitute feasibility only needs CO stock (tồn) lots per candidate, not
+    # raw BCCT — read solely from the materialized CO-stock snapshot. This is
+    # the single source of truth: a flaky Data Hub BCCT call can never blank
+    # out the suggestions, and we never silently fall back to file-store or a
+    # heavy live DH pull (consistent with the no-silent-local-fallback rule).
+    # A candidate code absent from the snapshot simply has no tồn. The snapshot
+    # may lag BCCT; the response carries `stock_refreshed_at` so the modal shows
+    # how fresh the tồn is (empty when the client has never been materialized).
+    requested_set = set(requested)
+    snapshot_rows = co_stock_materializer.read_co_stock_rows_cached(client_id)
+    candidate_rows = [
+        row for row in snapshot_rows
+        if any(key in requested_set for key in co_stock_key_candidates(row))
+    ]
+    stock_pool = case_allocation_pool(case, cached_matches, candidate_rows, min_gap_days=min_gap)
     out: dict[str, dict] = {}
     for code in requested:
         lots = stock_pool.get(code, [])
@@ -7212,7 +7210,12 @@ async def co_case_origin_sheet_substitute_stock(
                 for lot in lots[:50]
             ],
         }
-    return JSONResponse({"ok": True, "optimization_mode": optimization_mode, "stock": out})
+    return JSONResponse({
+        "ok": True,
+        "optimization_mode": optimization_mode,
+        "stock": out,
+        "stock_refreshed_at": co_stock_materializer.last_refresh_at(client_id),
+    })
 
 
 def compute_substitute_heuristic_candidates(
