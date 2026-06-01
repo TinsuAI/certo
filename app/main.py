@@ -1,97 +1,22 @@
 from __future__ import annotations
 
-import asyncio
-import hashlib
-import json
-import logging
-import re
-import threading
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
-from urllib.parse import quote
 
 import httpx
-from fastapi import File, Form, HTTPException, Request, UploadFile
+from fastapi import File, Request, UploadFile
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import co_auth
-from app.bom_store import attach_case_bom_snapshot
 from app.bom_service import bom_service
-from app.co_case_store import (
-    MAX_SUPPORTING_FILE_BYTES,
-    CaseClosedError,
-    CaseHasActiveClaimsError,
-    acquire_origin_calculation_lock,
-    active_origin_calculation_lock,
-    build_case_criteria_rows,
-    case_from_record,
-    co_case_delete_block_reason,
-    co_case_is_completed,
-    create_case_record,
-    create_case_workbook,
-    declaration_refs,
-    delete_case_record,
-    get_case_record,
-    get_case_workspace,
-    get_supporting_file,
-    invoice_keys,
-    json_safe,
-    match_case_bcct_exports,
-    safe_filename,
-    save_supporting_file,
-    release_origin_calculation_lock,
-    update_case_record,
-)
-from app.co_forms import (
-    COMMON_MARKET_PRESETS,
-    common_market_guidance,
-    criteria_preview_for_hs,
-    form_candidates_for_market,
-    prioritized_form_lanes,
-    recommended_form_lane,
-)
-from app.co_form_config_store import (
-    co_form_config_path,
-    load_co_form_config,
-    reset_co_form_config,
-    sanitize_co_form_config,
-    save_co_form_config,
-    unique_text_list,
-)
-from app import co_stock_adjustments_store, co_stock_eligibility, co_stock_events_store, co_stock_ledger, co_stock_materializer
-from app.co_stock_template import CoStockTemplateError, read_standard_co_stock, write_standard_co_stock
-from app.co_market_hints import infer_market_from_invoice_matches
-from app.client_registry import get_client as registry_get_client
-from app.client_registry import get_client_case
-from app.customs_fx_store import CUSTOMS_FX_CLIENT_ID, get_customs_fx_store
+from app.co_case_store import CaseClosedError, acquire_origin_calculation_lock, update_case_record
+from app import co_stock_eligibility, co_stock_materializer
 from app.database import apply_migrations, database_url
-from app.data_hub_client import (
-    DataHubClient,
-    bom_product_code_from_material_identity,
-    reset_current_data_hub_token,
-    set_current_data_hub_token,
-)
-from app.data_hub_settings import (
-    DATA_HUB_LINK_ENV_KEYS,
-    DataHubLinkSettings,
-    data_hub_config_path,
-    data_hub_link_settings,
-    load_data_hub_overrides,
-    save_data_hub_overrides,
-)
-from app.demo_data import (
-    DEMO_CASE,
-    SOURCE_NOTES,
-    attach_results,
-    clone_case,
-    update_products_from_form,
-)
-from app.origin import evaluate_tariff_shift
-from app import material_search
+from app.data_hub_client import reset_current_data_hub_token, set_current_data_hub_token
+from app.demo_data import update_products_from_form
 from app.app_state_store import get_app_state_store
 from app.portfolio import SourceBackendUnavailable, portfolio_app, portfolio_service
 from app.routers import auth as auth_routes
@@ -103,21 +28,12 @@ from app.routers import cost_allocation as cost_allocation_routes
 from app.routers import co_stock as co_stock_routes
 from app.routers import customs_fx as customs_fx_routes
 from app.routers import settings as settings_routes
-from app.source_store import (
-    attach_case_source_snapshot,
-    co_stock_rows_from_bcct,
-    enrich_client_with_source_workspace,
-)
-from app.table_view import build_table_view
 from app.web.client_context import (
     _data_hub_overview_context,
-    case_finished_hs_codes,
     client_case,
     client_context,
-    default_client_case,
     effective_min_gap_days,
     resolve_client,
-    source_workspace_for_client,
 )
 from app.web.deps import large_request_form, require_local_source_writes
 from app.routers.co_case import (
@@ -130,138 +46,37 @@ from app.routers.co_case import (
     set_origin_sheet_status,
 )
 from app.web.co_case_context import (
-    CO_CASE_WORKFLOW_STEP_KEYS,
-    _CO_CASE_SOURCE_CACHE,
-    _co_stock_refresh_inflight,
-    CALCULATE_SNAPSHOT_FRESHNESS_SECONDS,
-    CO_CASE_STEP_STATUS_LABELS,
-    CO_CASE_WORKFLOW_STEPS,
-    ORIGIN_SHEET_STATUS_LABELS,
-    SHEET_CURRENCY_MODES,
-    SHEET_OPTIMIZATION_MODES,
-    _CO_CASE_SOURCE_CACHE_TTL_SECONDS,
     _allocation_line_fx,
     _attach_fob_vnd,
     _calculate_stock_rows_from_snapshot,
-    _co_stock_refresh_inflight_lock,
-    _co_stock_snapshot_is_fresh,
-    _full_refresh,
-    _probe_server_time,
     _refresh_co_stock_delta_or_full,
-    _schedule_background_co_stock_refresh,
-    _try_delta_refresh,
-    add_bom_code,
-    allocate_material_stock,
-    allocation_available_qty,
-    allocation_currency_summary,
-    allocation_document_ref,
-    allocation_line_matches_stock,
-    allocation_summary,
-    allocation_unit_value_summary,
-    allocation_valuation_source,
-    apply_existing_origin_product_consumption,
-    attach_case_source_summary_snapshot,
-    attach_origin_bom_product_codes,
-    attach_origin_demo,
-    attach_origin_readiness,
     attach_origin_sheet_states,
-    bom_code_candidates,
-    bom_workspace_from_case_snapshot,
-    cached_origin_source_context,
-    calculate_lvc_result,
     case_allocation_pool,
-    case_export_anchor_date,
     case_tkx_tkn_summary,
     co_case_bom_product_codes,
     co_case_context,
-    co_case_hs_codes,
-    co_case_light_context,
     co_case_source_context,
-    co_case_source_context_cached,
-    co_case_step_status,
-    co_case_workflow_steps,
     co_stock_allocation_pool,
-    co_stock_allocation_sort_key,
     co_stock_has_value,
     co_stock_is_usable,
     co_stock_key_candidates,
-    compact_origin_signature_row,
-    criterion_mode,
-    decimal_text,
     decimal_value,
-    declaration_file_count,
-    durable_sheet_status,
     enrich_client_with_source_summary,
-    enrich_origin_material,
     enrich_origin_product,
-    first_decimal_source,
-    first_non_empty,
-    has_shipment_reference,
-    invoice_form_lane_view,
-    invoice_match_criteria_rows,
-    invoice_match_preview_row,
-    invoice_match_summary,
-    invoice_preview_from_matches,
-    latest_usable_product_version,
-    lvc_threshold_from_criterion,
-    market_inference_view,
-    material_catalog_index,
-    material_issue_summary,
-    material_summary_row,
-    minimal_bom_workspace,
-    normalize_threshold,
-    normalized_lvc_result,
-    numeric_sequence,
-    numeric_sort_text,
-    order_invoice_matches_for_origin,
     origin_build_signature,
-    origin_case_revision,
     origin_lock_actor,
-    origin_match_from_existing_product,
-    origin_material_count,
     origin_material_from_bom_row,
-    origin_product_from_invoice_match,
-    origin_product_order,
-    origin_product_shell_from_invoice_match,
-    origin_product_value,
     origin_sheet_action_error,
-    origin_sheet_export_blockers,
     origin_source_context,
-    origin_status_details_from_material,
-    origin_status_from_material,
-    origin_warning_summary,
-    prepare_case_origin_product_shells,
     prepare_case_origin_products,
     prepare_case_origin_sheet,
-    primary_shipment_reference,
-    resolve_bom_product_code,
     selected_bom_rows_by_product,
-    sheet_form_recommendation,
-    shipment_reference_warnings,
-    should_show_origin_demo,
-    source_summary_from_case_snapshot,
-    stock_allocation_consumption,
     stock_allocation_line,
-    stock_allocation_remaining_qty,
-    stock_available_qty,
-    stock_candidates_for_material,
-    stock_consumption_is_before,
-    stock_consumption_label,
-    stock_for_existing_allocation_line,
-    stock_shortage_trace,
-    tariff_shift_rule_from_criterion,
-    text_list,
-    unique_texts,
-    usable_bom_product_version,
-    valuation_source_label,
-    valuation_status_label,
 )
 from app.web.templating import templates
 from app.workbook_io import (
     WorkbookParseError,
-    create_dossier_zip,
     create_evidence_workbook,
-    create_hq_bang_ke_workbook,
     create_input_workbook,
     parse_input_workbook,
 )
