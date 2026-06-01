@@ -3761,7 +3761,7 @@ def test_export_bang_ke_direct_route_works_on_open_case(monkeypatch):
     quick_wb.active.title = "1TP-DIRECT"
     quick_wb.active["A1"] = "quick bang ke"
     import app.main as main_module
-    monkeypatch.setattr(main_module, "create_hq_bang_ke_workbook", lambda _case: workbook_bytes(quick_wb))
+    monkeypatch.setattr("app.routers.co_case.create_hq_bang_ke_workbook", lambda _case: workbook_bytes(quick_wb))
 
     direct = client.post(f"/clients/growatt/co-case/{case_id}/export-bang-ke")
     assert direct.status_code == 200, direct.text

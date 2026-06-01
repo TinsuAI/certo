@@ -103,6 +103,7 @@ CO_CASE_WORKFLOW_STEPS = [
         "description": "Kiểm tra dossier và xuất .zip tổng hợp (chứng từ + TKX/TKN + bảng kê HQ).",
     },
 ]
+CO_CASE_WORKFLOW_STEP_KEYS = {step["key"] for step in CO_CASE_WORKFLOW_STEPS}
 CO_CASE_STEP_STATUS_LABELS = {
     "ready": "Đủ",
     "todo": "Thiếu",

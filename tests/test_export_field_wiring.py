@@ -106,7 +106,7 @@ def test_backfill_falls_back_to_data_hub_and_updates_cache():
         ],
     }
     fake_dates = {"308449399330": "21/04/2026"}
-    with patch.object(main_module, "_fetch_export_declaration_dates", return_value=fake_dates):
+    with patch("app.routers.co_case._fetch_export_declaration_dates", return_value=fake_dates):
         main_module._hydrate_product_export_declaration_dates(case, client={"id": "growatt"})
     assert case["products"][0]["source_declaration_date"] == "21/04/2026"
     # Cache should be patched so subsequent renders skip the Data Hub call.
