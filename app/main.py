@@ -95,6 +95,7 @@ from app import material_search
 from app.app_state_store import get_app_state_store
 from app.portfolio import SourceBackendUnavailable, portfolio_app, portfolio_service
 from app.routers import auth as auth_routes
+from app.routers import catalog as catalog_routes
 from app.routers import customs_fx as customs_fx_routes
 from app.routers import settings as settings_routes
 from app.source_store import (
@@ -173,6 +174,7 @@ app = FastAPI(title="Barry CO Demo", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 app.mount("/portfolio", portfolio_app, name="portfolio")
 app.include_router(auth_routes.router)
+app.include_router(catalog_routes.router)
 app.include_router(customs_fx_routes.router)
 app.include_router(settings_routes.router)
 
@@ -417,62 +419,6 @@ async def require_data_hub_auth(request: Request, call_next):
     finally:
         if token_context:
             reset_current_data_hub_token(token_context)
-
-CATALOG_VIEWS = {
-    "materials": {
-        "module": "material_catalog",
-        "title": "DS NVL DK HQ",
-        "subtitle": "Nguyên vật liệu theo danh mục đăng ký hải quan.",
-        "template_url": "material-template.xlsx",
-        "template_label": "Tải template DS NVL",
-        "columns": [
-            {"key": "customs_code", "label": "Mã HQ", "class": "mono"},
-            {"key": "name", "label": "Tên"},
-            {"key": "unit", "label": "ĐVT", "class": "mono"},
-            {"key": "hs_code", "label": "HS", "class": "mono"},
-            {"key": "purpose", "label": "Mục đích"},
-            {"key": "origin_default", "label": "Xuất xứ mặc định"},
-            {"key": "status", "label": "Trạng thái"},
-        ],
-        "filters": [
-            {"name": "status", "field": "status", "label": "Trạng thái"},
-            {"name": "unit", "field": "unit", "label": "ĐVT"},
-            {"name": "hs", "field": "hs_code", "label": "HS"},
-            {"name": "purpose", "field": "purpose", "label": "Mục đích"},
-        ],
-        "summary_fields": [
-            {"field": "status", "label": "Trạng thái"},
-            {"field": "unit", "label": "ĐVT"},
-        ],
-        "default_sort": "customs_code",
-    },
-    "products": {
-        "module": "product_catalog",
-        "title": "DS SP DK HQ",
-        "subtitle": "Thành phẩm theo danh mục đăng ký hải quan.",
-        "template_url": "product-template.xlsx",
-        "template_label": "Tải template DS SP",
-        "columns": [
-            {"key": "product_code", "label": "Mã SP", "class": "mono"},
-            {"key": "name", "label": "Tên"},
-            {"key": "unit", "label": "ĐVT", "class": "mono"},
-            {"key": "hs_code", "label": "HS", "class": "mono"},
-            {"key": "purpose", "label": "Mục đích"},
-            {"key": "status", "label": "Trạng thái"},
-        ],
-        "filters": [
-            {"name": "status", "field": "status", "label": "Trạng thái"},
-            {"name": "unit", "field": "unit", "label": "ĐVT"},
-            {"name": "hs", "field": "hs_code", "label": "HS"},
-            {"name": "purpose", "field": "purpose", "label": "Mục đích"},
-        ],
-        "summary_fields": [
-            {"field": "status", "label": "Trạng thái"},
-            {"field": "unit", "label": "ĐVT"},
-        ],
-        "default_sort": "product_code",
-    },
-}
 
 BCCT_COLUMNS = [
     {"key": "coverage_period", "label": "Kỳ"},
@@ -3948,43 +3894,6 @@ def minimal_bom_workspace() -> dict:
     }
 
 
-def catalog_table_context(request: Request, client_id: str, view_name: str, **extra) -> dict:
-    view = CATALOG_VIEWS[view_name]
-    lean = _data_hub_overview_context(client_id, "catalog", dh_path="catalog")
-    if lean is not None and not extra.get("catalog_result"):
-        # DH mode and no upload result to surface → skip the table build entirely.
-        lean["catalog_view"] = {**view, "name": view_name}
-        return lean
-    context = client_context(client_id, "catalog", **extra)
-    rows = context["source_workspace"][view["module"]]["published_rows"]
-    if context["source_backend"] == "data-hub":
-        view = {
-            **view,
-            "columns": [
-                {**column, "key": "uom"} if column.get("key") == "unit" else column
-                for column in view["columns"]
-            ],
-            "filters": [
-                {**filter_row, "field": "uom"} if filter_row.get("field") == "unit" else filter_row
-                for filter_row in view["filters"]
-            ],
-            "summary_fields": [
-                {**summary_row, "field": "uom"} if summary_row.get("field") == "unit" else summary_row
-                for summary_row in view["summary_fields"]
-            ],
-        }
-    context["catalog_view"] = {**view, "name": view_name}
-    context["source_table"] = build_table_view(
-        rows,
-        columns=view["columns"],
-        query=request.query_params,
-        filters=view["filters"],
-        summary_fields=view["summary_fields"],
-        default_sort=view["default_sort"],
-    )
-    return context
-
-
 def bcct_table_context(request: Request, client_id: str, direction: str | None = None, **extra) -> dict:
     lean = _data_hub_overview_context(client_id, "bcct", dh_path="bcct")
     if lean is not None and not extra.get("bcct_result"):
@@ -4587,91 +4496,6 @@ def client_overview_context(client_id: str) -> dict:
         "active": "overview",
         "source_backend": source_backend,
     }
-
-
-@app.get("/clients/{client_id}/catalog", response_class=HTMLResponse)
-async def catalog(request: Request, client_id: str):
-    context = _data_hub_overview_context(client_id, "catalog", dh_path="catalog") \
-        or client_context(client_id, "catalog")
-    return templates.TemplateResponse(
-        request=request,
-        name="catalog.html",
-        context=context,
-    )
-
-
-@app.get("/clients/{client_id}/catalog/materials", response_class=HTMLResponse)
-async def material_catalog(request: Request, client_id: str):
-    return templates.TemplateResponse(
-        request=request,
-        name="catalog_table.html",
-        context=catalog_table_context(request, client_id, "materials"),
-    )
-
-
-@app.get("/clients/{client_id}/catalog/products", response_class=HTMLResponse)
-async def product_catalog(request: Request, client_id: str):
-    return templates.TemplateResponse(
-        request=request,
-        name="catalog_table.html",
-        context=catalog_table_context(request, client_id, "products"),
-    )
-
-
-@app.get("/clients/{client_id}/catalog/material-template.xlsx")
-async def download_material_catalog_template(client_id: str):
-    require_local_source_writes()
-    content = portfolio_service.material_catalog_template(resolve_client(client_id))
-    return StreamingResponse(
-        iter([content]),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{client_id}-ds-nvl-template.xlsx"'},
-    )
-
-
-@app.get("/clients/{client_id}/catalog/product-template.xlsx")
-async def download_product_catalog_template(client_id: str):
-    require_local_source_writes()
-    content = portfolio_service.product_catalog_template(resolve_client(client_id))
-    return StreamingResponse(
-        iter([content]),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{client_id}-ds-sp-template.xlsx"'},
-    )
-
-
-@app.post("/clients/{client_id}/catalog/upload", response_class=HTMLResponse)
-async def upload_catalog_workbook(
-    request: Request,
-    client_id: str,
-    file: UploadFile = File(...),
-    catalog_type: str = Form("material"),
-    upload_scope: str = Form("full_catalog"),
-):
-    require_local_source_writes()
-    client = resolve_client(client_id)
-    result = portfolio_service.process_catalog_upload(
-        client,
-        catalog_type,
-        await file.read(),
-        file.filename or "catalog.xlsx",
-        upload_scope,
-    )
-    status_code = 400 if result["status"] == "failed" else 200
-    view_name = "products" if catalog_type == "product" else "materials"
-    return templates.TemplateResponse(
-        request=request,
-        name="catalog_table.html",
-        status_code=status_code,
-        context=catalog_table_context(
-            request,
-            client_id,
-            view_name,
-            catalog_result=result,
-            message=result["message"] if status_code == 200 else "",
-            error=result["message"] if status_code == 400 else "",
-        ),
-    )
 
 
 @app.get("/clients/{client_id}/bom", response_class=HTMLResponse)
