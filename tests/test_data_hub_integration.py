@@ -511,7 +511,7 @@ def test_data_hub_settings_connection_check_uses_existing_adapter(monkeypatch, t
     monkeypatch.setenv("DATA_HUB_SERVICE_TOKEN", "service-token")
     monkeypatch.setenv("DATA_HUB_REQUEST_TIMEOUT_SECONDS", "5")
     monkeypatch.setattr(co_auth, "fetch_data_hub_jwks", lambda _url: {"keys": [{"kid": "k-test"}]})
-    monkeypatch.setattr(main_module, "DataHubClient", FakeDataHubClient)
+    monkeypatch.setattr("app.routers.settings.DataHubClient", FakeDataHubClient)
 
     response = TestClient(app).post("/settings/technical/test")
 
