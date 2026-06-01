@@ -1,92 +1,84 @@
 # Project Status
 
 ## Current State
-- Branch `main` at `0ebba12` — pushed to `tinsu/main` + deployed (CI/CD green).
-  Working tree clean. Local suite **403 passed + 8 skipped** (file-store/CI mode).
-- **DH↔CO internal-network + JWKS cutover — DONE, prod-verified (2026-06-01).**
-  CO→Data Hub server-to-server now rides the internal docker bridge `tinsu-shared`
-  (DH alias `data-hub-app`): prod `.env` `DATA_HUB_API_BASE_URL` **and**
-  `DATA_HUB_JWKS_URL` = `http://data-hub-app:8754...`. `DATA_HUB_ISSUER_URL` +
-  `DATA_HUB_BASE_URL` stay public (`https://ttdatahub.tinsu.ai`).
-  - **Safe because `iss` validation is independent of call/JWKS-fetch URLs**
-    (`data_hub_settings.py`: issuer←ISSUER_URL/BASE_URL, jwks←issuer, neither from
-    API_BASE_URL; `DataHubTokenVerifier` checks `iss` vs public issuer). Tokens
-    still carry `iss=https://ttdatahub.tinsu.ai` (password-grant + SSO cookie).
-  - Verified: internal reachability 200; latency ~22ms vs ~174ms public (~8x);
-    50-product johnson BOM workspace **64ms via batch over internal** vs ~10.4s
-    public-sequential baseline; **browser SSO e2e** (Playwright) login → exchange →
-    BOM renders, 0 auth/console errors, co-app-1 logs clean. Screenshots:
-    `.ai/screenshots/dh-internal-network-verify/`.
-- **BOM workspace perf — DONE, deployed.** (a) Parallel per-product fetch capped at
-  `BOM_FETCH_MAX_WORKERS=4` (8 regressed against single-worker DH); (b) **batch
-  endpoint consumer** `POST /v1/hub/products/bom/artifacts:batch` via
-  `list_bom_artifacts_batch` + `_build_workspace` batch-first with per-product
-  fallback (404-memoized). Batch is **live on prod DH** → prod CO uses it (one
-  round-trip). Functionally equivalent to per-product (13 differing artifact fields
-  are all unused in CO; counts/rows/`origin_build_signature` identical). Tests:
-  `tests/test_bom_workspace_parallel.py`, `tests/test_bom_workspace_batch.py`.
-- **Earlier-shipped, still current:**
-  - Origin tab full-BCCT pull eliminated (snapshot + narrow invoice_matches); cold
-    `/origin` ~1.47s prod (`b3d6083`).
-  - Case-detail (shipment) load fix via `skip_heavy_context` (~21s → ~1.5–3.6s,
-    `d28e237`).
-  - No-silent-local-fallback: DH off→503, unreachable→503/502; opt-in local via
-    `CO_ALLOW_LOCAL_SOURCE=1`. `tests/test_source_backend_guard.py`.
-  - Claim-ID stability keyed on `material_code` (`24d4731`).
+- Branch `main` at `013750d` — pushed to `tinsu/main` + **deployed (CI/CD green, co-app-1 @ `013750d`)**.
+  Working tree clean. Local suite **405 passed + 8 skipped** (file-store/CI mode).
+- **Client feedback batch 1 — #1 + #3 DONE, prod-verified (2026-06-01).** Triage of the
+  6-item client PDF feedback is in `.ai/features/2026-06-01-client-feedback-batch1.md`.
+  - **#1 Delete dossier visible to managers** — feature already existed but was gated to
+    `dev`/`admin`; client testers are `manager` → couldn't see it. Added `manager` to
+    `DEFAULT_CO_CASE_DELETE_ROLES` (`data_hub_settings.py:13`). Existing guards
+    (release-claims confirm, block-when-completed/locked) unchanged. **Prod-verified**
+    with the real manager account (auth ON): manager now sees the "Xoá" button.
+  - **#3 Substitute "no suggestion / errors"** — root cause was deeper than retry-DH:
+    `/substitute-stock` re-derived CO stock from BCCT live via `list_bcct_by_codes` (a
+    flaky Data Hub round-trip that intermittently blanked suggestions). The modal's
+    what-if (đủ tồn? / ΔLVC, computed client-side in `co_case.html`
+    `computeFeasibility`/`renderFeasibilityCell`) only needs CO stock lots. Reworked the
+    endpoint to read **solely from the materialized CO-stock snapshot**
+    (`co_stock_materializer.read_co_stock_rows_cached`), case-allocated — no BCCT, no
+    silent file-store/heavy-DH fallback (per no-silent-local-fallback rule). Response now
+    carries `stock_refreshed_at`; the modal shows a freshness chip ("Tồn cập nhật HH:MM
+    DD-MM"). **Prod-verified** (johnson-vn mã 0000081548 → 10 DH candidates, real lots +
+    ΔLVC +0.17%→76.99%; growatt-vn DIENTRO.CHIP 868 lô/25M tồn; 0 console errors).
+    Screenshots in `.ai/screenshots/client-feedback-batch1/`.
+- **Still current from prior sessions:** DH↔CO internal-network + JWKS cutover (prod);
+  BOM workspace batch endpoint + parallel fetch; origin narrow-BCCT; case-detail
+  `skip_heavy_context`; no-silent-local-fallback; claim-ID stability.
 
-## Recent Changes (2026-05-31 → 06-01 session)
+## Recent Changes (2026-06-01 session)
 
-Full detail: `.ai/sessions/2026-06-01-bom-batch-and-dh-internal-network.md`.
+Full detail: `.ai/sessions/2026-06-01-client-feedback-batch1.md`.
 
 | Commit | Topic |
 |---|---|
-| `0ebba12` | docs: DH JWKS flipped internal, CO re-verified (SSO + BOM) |
-| `3a7745a` | docs: DH↔CO internal-network cutover verified |
-| `5ce27f3` | deploy: attach app to external `tinsu-shared` network |
-| `ea17e59` | docs: batch consumer verified functionally equivalent |
-| `a91e97a` | feat(bom): consume DH batch BOM artifacts endpoint + fallback |
-| `5e36b96` / `3ddb659` | docs: DH batch API request + DH implementation prompt |
-| `6eddef9` | perf(bom): cap BOM fetch concurrency 8 → 4 |
-| `2c0ff21` | perf(bom): parallelize per-product DH fetch |
+| `013750d` | docs: triage + fix plan for client feedback batch 1 |
+| `3af5914` | fix(substitute): source candidate tồn from materialized CO-stock snapshot |
+| `e296267` | feat(co-case): allow manager role to delete CO dossiers |
 
-## Next Steps (deferred — no code yet unless noted)
+New tests: `test_can_delete_co_cases_allows_manager_by_default`
+(`tests/test_data_hub_integration.py`), `test_substitute_stock_reads_materialized_snapshot_not_bcct`
+(`tests/test_co_demo.py`, asserts BCCT is never called).
 
-1. **Origin lock TTL cleanup** (60-min stale lock).
-2. **Customs FX historical backfill.**
-3. **Seed missing CO forms** — D/E/AK/AANZ/AJ/RCEP/UKVFTA/VK/VC/VJ.
-4. **HS↔form coherence + criteria token validation** (MED).
-5. **Claim-identity DB unique constraint** `(client_id, case_id, sheet_product_code,
-   source_row, material_code)` — app-only today. See
-   `.ai/features/2026-05-29-claim-id-stability.md`.
-6. **CO-stock scheduled freshness refresh** — refresh-on-access already exists.
-7. **Recommend to DH owner:** prod DH still runs `--workers 1` on a 24-core box —
-   internal networking removed proxy/TLS overhead but DH is still single-process.
-8. **Prod CO↔DH backend auth cutover** — deferred by user (low risk, one company).
-9. **`can_view_client` short→long fallback** — confirmed NOT a real prod bug; do not
-   add fuzzy-match fallback.
+## Next Steps (priority order)
+
+**Client feedback batch 1 — remaining (plan: `.ai/features/2026-06-01-client-feedback-batch1.md`):**
+1. **#2 "mở" load lâu** — already fixed in prior sessions (skip_heavy_context, BOM batch,
+   internal network). No code; just **confirm with client** the current build feels fast,
+   and if not, capture which step + client + timing before any further work.
+2. **#5 Multi-filter (mã + tên cùng lúc)** — extend the shared table component
+   (`table_view.py` + `_advanced_table.html`) to support free-text `kind:"text"` filters
+   per field alongside the existing select filters. Benefits all 5 tables. Effort M.
+3. **#4 Substitute "chưa phù hợp"** — chiefly DH ranking quality. User decided: **file a
+   Data Hub API request** (`.ai/api-requests/2026-06-01-substitute-ranking-quality.md`
+   from the template) — needs 3-5 concrete bad-example material codes **collected from the
+   client first**. Optionally also improve CO heuristic fallback (`main.py:7218+`) beyond
+   HS-prefix. Effort M + cross-team.
+4. **#6 Multi-select + bulk action (xóa hàng loạt)** — add checkbox column + select-all +
+   bulk-action bar to `_advanced_table.html` (per-table opt-in). First action = bulk
+   delete looping the guarded single-delete. **Needs client confirmation on which table.**
+   Effort M-L.
+
+**Older deferred (pre-feedback):**
+5. Origin lock TTL cleanup (60-min stale lock).
+6. Customs FX historical backfill.
+7. Seed missing CO forms (D/E/AK/AANZ/AJ/RCEP/UKVFTA/VK/VC/VJ).
+8. HS↔form coherence + criteria token validation (MED).
+9. Claim-identity DB unique constraint (app-only today; see
+   `.ai/features/2026-05-29-claim-id-stability.md`).
 
 ## Notes for Next AI Session
-- **Memory** at `/home/vp/.claude/projects/-home-vp-workspace-client-barry-CO/memory/`
-  — read `MEMORY.md` first. Key: `demo-server-ssh` (SSH, containers, internal net +
-  JWKS-internal), `bom-batch-endpoint-and-parity`, `dh-bcct-declaration-filter-singular`,
-  `no-silent-local-fallback`, `test-local-by-default`.
-- **Test on local by default.** Only touch prod when explicitly told.
-- **Prod box:** SSH `tinsu` (Tailscale `100.84.189.87`). Containers `co-app-1`,
-  `co-db-1`, `data-hub-app-1`, `data-hub-db-1`. Prod CO `:8755`, DH `:8754`. `.env`
-  backup `/home/tinsu/co/.env.bak-20260601-004118`. Deploy = push `tinsu/main` →
-  CI/CD (tests+docker+deploy+nightly refresh).
-- **Prod test account:** `claude-check@local` / `claude-temp-2026` (manager,
-  growatt-vn + johnson-vn). Use long client IDs (`johnson-vn`); short forms 403.
-  Product-heavy prod case: `co-case-0605189d5eea`.
-- **DH is a separate repo** (`~/workspace/client/data-hub`, `TinsuAI/data-hub`) —
-  sibling checkout; its AGENTS.md treats CO repo as a sister repo. CO never edits DH
-  endpoints from this repo (guardrail `tests/test_data_hub_policy.py`); new endpoints
-  go through `.ai/api-requests/` + DH approval.
-- **Playwright available** in `.venv` (chromium installed) — used for browser SSO e2e.
-  Save screenshots under `.ai/screenshots/<feature-slug>/`.
-- **BOM workspace cache** (`bom_service.py`): in-process per worker, TTL 60s. Prod
-  runs multiple workers → cold-worker re-pay until warmed (not a bug). Batch support
-  memoized in `_DATA_HUB_BOM_BATCH_SUPPORTED` (cleared with the workspace cache).
-- **Run suite WITHOUT sourcing `.env`** (`env -u BARRY_DATABASE_URL -u
-  DATA_HUB_ENABLED -u DATA_HUB_SERVICE_TOKEN`) to mirror CI/file-store mode; sourcing
-  `.env` drives the real local DB/DH and can cause spurious failures.
+- **Browser testing recipe** is in memory `browser-test-recipe.md`: real data lives under
+  client **`-vn` forms** (`growatt-vn` ≈38k co_stock rows, `johnson-vn` ≈60k); short forms
+  `growatt`/`johnson` only have DEMO seed (1 row). Origin sheet renders at the **`/origin`
+  sub-path** (case detail is an SPA with workflow steps). Substitute freshness chip only
+  shows when a material has candidates.
+- **Playwright**: not in repo node_modules; run with
+  `PWDIR=$(dirname "$(ls -d ~/.npm/_npx/*/node_modules/playwright | head -1)"); NODE_PATH="$PWDIR" node script.js`.
+- Local dev server runs on `:8001` (`npm run co:serve`), `CO_AUTH_REQUIRED=0` (role gating
+  not testable locally — use unit tests or prod with the manager account).
+- Local `barry_co` Postgres is reachable two ways that DISAGREE: the app/psycopg sees the
+  demo-seed DB; a stray `psql` to the same string can hit a different cluster — trust the
+  app's connection, not ad-hoc psql.
+- `#3` snapshot path only activates in Postgres mode (`_store_available()` =
+  `bool(BARRY_DATABASE_URL)`); both local and prod satisfy this.
