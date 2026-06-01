@@ -54,8 +54,10 @@ logic touched. Baseline node suite still 53 pass / 3 pre-existing fails
 (`legal-lookup-server.test.mjs`, unrelated).
 
 ## Open items / follow-ups (none block; all optional)
-1. **Slim `main.py` to a pure factory**: move the leftover dashboard/`config`/
-   `evaluate`/`upload`/`export`/`demo-input` routes into a `pages`/`misc` router.
+1. ~~Slim `main.py` to a pure factory~~ **DONE**: leftover routes →
+   `app/routers/pages.py`; 4 dead helpers deleted; main.py is now factory-only
+   (167 lines). Two clients-page tests gained an `app.routers.pages.portfolio_service`
+   twin patch.
 2. ~~Remove dead imports in `main.py`~~ **DONE**: AST pass dropped 181 unused
    imports, keeping body-used names + the test-required re-export blocks (detection
    covers `from app.main import`, `main.X` attr access, and
