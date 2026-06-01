@@ -1,10 +1,16 @@
 # Project Status
 
 ## Current State
-- Local `main` at `e777144`. **Deployed commit (demo) = `8fe944a` on `tinsu/main`**
-  (CI/CD green, Deploy demo OK). The `e777144` screenshot reorg is **committed
-  locally only — NOT pushed/deployed** (docs-only, no app change). Working tree clean.
-- Local suite **419 passed + 8 skipped** (file-store/CI mode).
+- **On branch `refactor/split-main` (NOT merged, NOT pushed).** `main`/`origin/main`/
+  `tinsu/main` = `861ec57` (deployed demo unchanged). The refactor branch is 11
+  commits ahead — pure code-movement, no behavior change.
+- **`app/main.py` split 8017 → 629 lines (-92%)** into `app/web/` (templating, deps,
+  client_context gate, co_case_context closure) + `app/routers/` (auth, settings,
+  customs_fx, catalog, co_case, bom, bcct, co_stock, cost_allocation). See
+  `.ai/sessions/2026-06-02-main-monolith-split.md` for structure, method, and the
+  monkeypatch-namespace tax. Follow-ups: slim main to factory, drop dead imports,
+  split large stores, then merge.
+- Local suite **419 passed + 8 skipped** at every refactor commit (file-store/CI mode).
 - **Client feedback batch 1 — #1/#3/#5/#6 DONE + live; #2/#4 need client input.**
   Plan/tracker: `.ai/features/2026-06-01-client-feedback-batch1/brief.md`.
   - **#1 manager delete** — `manager` in `DEFAULT_CO_CASE_DELETE_ROLES`. (prior session)
@@ -47,12 +53,10 @@ Beyond #6, this session also shipped (all in `13d0fcd`, deployed via `8fe944a`):
    - #2: ask client if "mở" is fast enough now.
    - #4: collect 3-5 wrong-substitute examples (seed code + bad suggestion +
      expected) → file `.ai/api-requests/2026-06-01-substitute-ranking-quality.md`.
-2. **(optional) Push the reorg** `e777144` to origin+tinsu if you want the
-   feature-folder layout on remotes (currently local-only).
-3. **(optional) Cleanup leftover tracked screenshots:** `co-case-overview-lock` (11)
-   and `data-hub-e2e` (5) PNGs are still committed under `.ai/screenshots/`; the rest
-   of `.ai/screenshots/` is unsorted verification/audit (ignored).
-4. **Older deferred:** origin lock TTL cleanup; customs FX historical backfill; seed
+2. ~~Push reorg / cleanup leftover screenshots~~ **DONE** this session: reorg +
+   handoff pushed to origin+tinsu, 16 leftover PNGs untracked (`861ec57`), demo
+   redeployed green.
+3. **Older deferred:** origin lock TTL cleanup; customs FX historical backfill; seed
    missing CO forms; HS↔form coherence; claim-identity DB unique constraint.
 
 ## Blockers
