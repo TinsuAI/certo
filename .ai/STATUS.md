@@ -56,10 +56,9 @@ it on merge to main — confirmed green this session. Prod CO→DH calls current
    `/home/tinsu/co/.env.bak-20260601-004118` (pre-API-flip) and `.env.bak-jwks-*` (pre-JWKS-flip)
    — rollback is one sed line each + `docker compose up -d app`. NOTE: these are box-side
    gitignored `.env` edits; CI resets code only, never `.env`.
-   **Final acceptance still TODO (needs a human/browser):** log into CO and load a
-   BOM workspace to confirm the authenticated SSO round-trip + DH-backed data fetch
-   (now verifies the token signature via the *internal* JWKS). Prompt for the CO-side AI to
-   run this was handed to the user.
+   **Final acceptance: DONE 2026-06-01** — CO-side AI ran the verification (login + BOM
+   workspace load over the internal path; SSO round-trip verifies the token signature via
+   the *internal* JWKS) and reported PASS. Feature fully closed.
 2. Decide whether to commit the `AGENTS.md` worker-note change.
 3. **C.2 strict cutover (prod)** — still open from 2026-05-30: mint CO prod service token,
    fix CO `DATA_HUB_API_TOKEN`→`DATA_HUB_SERVICE_TOKEN` env-key bug, flip `api_auth_strict=true`.
