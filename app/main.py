@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import threading
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -131,6 +132,20 @@ ORIGIN_SHEET_STATUS_LABELS = {
     "locked": "Chốt",
     "stale": "Cần tính lại",
 }
+
+
+def durable_sheet_status(status) -> str:
+    """Coerce the transient `calculating` status to a durable one.
+
+    `calculating` ("Đang tính") is set optimistically in the browser the instant
+    staff click "Tính"; it must never persist as a resting state. A sheet found
+    resting in it had its calculation interrupted, or an autosave/save captured
+    the optimistic value from the form — which silently left the sheet
+    un-lockable ("Chốt" requires status `calculated`). Recover it as `stale`
+    ("Cần tính lại") so staff simply recalculate, then lock.
+    """
+    text = str(status or "").strip()
+    return "stale" if text == "calculating" else text
 
 
 def normalize_theme(value: str | None) -> str:
@@ -315,9 +330,12 @@ def merge_origin_action_payload(case: dict, payload: dict) -> dict:
         if isinstance(incoming.get("materials"), list):
             product["materials"] = incoming["materials"]
         if incoming.get("origin_sheet_status") or incoming.get("origin_sheet_status_label"):
+            durable = durable_sheet_status(incoming.get("origin_sheet_status"))
             product_sheet_states[code] = {
-                "status": str(incoming.get("origin_sheet_status") or "").strip(),
-                "status_label": str(incoming.get("origin_sheet_status_label") or "").strip(),
+                "status": durable,
+                "status_label": ORIGIN_SHEET_STATUS_LABELS.get(
+                    durable, str(incoming.get("origin_sheet_status_label") or "").strip()
+                ),
             }
         artifact_id = str(
             product.get("bom_product_artifact_id") or product.get("bom_product_version_id") or ""
@@ -2937,7 +2955,10 @@ def attach_origin_sheet_states(case: dict) -> dict:
         # set_origin_sheet_status). Never auto-mark calculated even when the
         # underlying snapshot has data — staff has to confirm intent.
         default_status = "draft"
-        status = str(raw_state.get("status") or default_status).strip()
+        # `durable_sheet_status` rescues any sheet left resting in the transient
+        # `calculating` state (interrupted calc / autosaved optimistic status)
+        # so it never stays silently un-lockable.
+        status = durable_sheet_status(raw_state.get("status") or default_status)
         if status not in ORIGIN_SHEET_STATUS_LABELS:
             status = default_status
         recommendation = sheet_form_recommendation(market, product.get("finished_hs", ""))
@@ -6703,47 +6724,80 @@ async def autosave_co_case_origin(request: Request, client_id: str, case_id: str
 CALCULATE_SNAPSHOT_FRESHNESS_SECONDS = 30
 
 
+def _co_stock_snapshot_is_fresh(client_id: str) -> bool:
+    state = co_stock_materializer.read_refresh_state(client_id) or {}
+    refreshed_at = str(state.get("refreshed_at") or "")
+    if not refreshed_at:
+        return False
+    try:
+        last = datetime.fromisoformat(refreshed_at)
+    except ValueError:
+        return False
+    age = (datetime.now(last.tzinfo or timezone.utc) - last).total_seconds()
+    return age < CALCULATE_SNAPSHOT_FRESHNESS_SECONDS
+
+
+_co_stock_refresh_inflight: set[str] = set()
+_co_stock_refresh_inflight_lock = threading.Lock()
+
+
+def _schedule_background_co_stock_refresh(client: dict) -> None:
+    """Refresh the materialized co_stock snapshot OFF the request path.
+
+    Fired when /calculate (or origin load) reads a stale snapshot: the operator
+    gets the snapshot we already have immediately, while a daemon thread pulls
+    the delta (or full) from Data Hub and re-materializes — so the next
+    calculate sees fresh tồn instead of stranding this one on a multi-minute
+    re-pull (≈60k rows for a large client). A per-client in-flight guard
+    collapses repeated Load BOM clicks into a single refresh.
+    """
+    client_id = str(client.get("id", "")) if isinstance(client, dict) else ""
+    if not client_id:
+        return
+    with _co_stock_refresh_inflight_lock:
+        if client_id in _co_stock_refresh_inflight:
+            return
+        _co_stock_refresh_inflight.add(client_id)
+
+    def _run() -> None:
+        try:
+            _refresh_co_stock_delta_or_full(client)
+        except Exception as exc:  # noqa: BLE001 — best effort; next click retries
+            logging.getLogger(__name__).warning(
+                "background co_stock refresh failed for %s: %s", client_id, exc
+            )
+        finally:
+            with _co_stock_refresh_inflight_lock:
+                _co_stock_refresh_inflight.discard(client_id)
+
+    threading.Thread(target=_run, name=f"co-stock-refresh-{client_id}", daemon=True).start()
+
+
 def _calculate_stock_rows_from_snapshot(client: dict) -> list[dict] | None:
-    """Returns stock rows ready for `prepare_case_origin_sheet`, decorated
-    with current ledger used/remaining qty, or None when the snapshot
-    isn't usable (no DB, empty for this client, or delta refresh failed).
+    """Returns stock rows ready for `prepare_case_origin_sheet`, decorated with
+    current ledger used/remaining qty, or None when the snapshot is empty (no
+    DB / never materialized) so the caller's legacy full-pull runs instead — an
+    operator never calculates against an empty snapshot.
 
-    Skips the DH delta round trip when the materialized snapshot was
-    refreshed within `CALCULATE_SNAPSHOT_FRESHNESS_SECONDS` — operators
-    clicking Load BOM repeatedly within a 30-second window don't pay
-    the ~4s DH delta cost per click. The explicit /refresh-co-stock
-    endpoint bypasses this TTL when the operator wants to force a
-    pull (e.g. right after importing fresh BCCT in Data Hub).
-
-    The caller falls back to the legacy full-pull path on None — the
-    operator never silently calculates against an empty snapshot.
+    The calculation needs only the materialized co_stock snapshot (the tồn lots)
+    plus live ledger claims — NOT a fresh Data Hub BCCT pull. So we read the
+    snapshot we already have and return immediately. When it is older than
+    `CALCULATE_SNAPSHOT_FRESHNESS_SECONDS` we kick a NON-BLOCKING background
+    refresh so the next calculate sees fresh tồn, instead of blocking this
+    request on a multi-minute synchronous re-pull. The origin UI surfaces the
+    snapshot's age, so calculating on it is never silent, and `apply_used_qty`
+    keeps available tồn correct against the latest claims regardless of age.
     """
     client_id = str(client.get("id", "")) if isinstance(client, dict) else ""
     if not client_id:
         return None
-    state = co_stock_materializer.read_refresh_state(client_id) or {}
-    refreshed_at = str(state.get("refreshed_at") or "")
-    is_fresh = False
-    if refreshed_at:
-        try:
-            last = datetime.fromisoformat(refreshed_at)
-            age = (datetime.now(last.tzinfo or timezone.utc) - last).total_seconds()
-            is_fresh = age < CALCULATE_SNAPSHOT_FRESHNESS_SECONDS
-        except ValueError:
-            is_fresh = False
-    if not is_fresh:
-        try:
-            summary = _refresh_co_stock_delta_or_full(client)
-        except Exception as exc:  # noqa: BLE001 — fall back, never block /calculate
-            logging.getLogger(__name__).warning(
-                "co_stock delta-refresh failed for %s; using legacy full pull: %s", client_id, exc
-            )
-            return None
-        if summary.get("errors"):
-            return None
     rows = co_stock_materializer.read_co_stock_rows_cached(client_id)
     if not rows:
+        # Cold start — nothing materialized yet. Defer to the caller's legacy
+        # full pull rather than calculate against nothing.
         return None
+    if not _co_stock_snapshot_is_fresh(client_id):
+        _schedule_background_co_stock_refresh(client)
     # apply_used_qty mutates the rows in place to attach used/remaining,
     # so copy the cached payloads first — the cache must stay clean.
     rows = [dict(r) for r in rows]

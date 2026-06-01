@@ -867,6 +867,12 @@
       data-origin-payload-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/calculation-payload"
       data-origin-revision="{{ origin_case_revision(case) if cached_case_context else '' }}">
       {% if case.products %}
+        {% if case.products|length > 1 %}
+        <div class="origin-sheet-tabs-toolbar">
+          <button type="button" class="btn-secondary" data-origin-reorder-open>Đổi thứ tự sheet</button>
+          <span class="origin-sheet-tabs-hint">Thứ tự quyết định sheet nào trừ tồn trước.</span>
+        </div>
+        {% endif %}
         <div class="origin-sheet-tabs" role="tablist" aria-label="Sheet sản phẩm trong bảng kê">
           {% for product in case.products %}
           {% set tab_has_bom = (product.materials|length > 0) or (product.bom_product_artifact_id or product.bom_product_version_id) %}
@@ -882,15 +888,23 @@
             data-origin-sheet-tab
             data-origin-sheet-target="origin-sheet-{{ loop.index0 }}"
             title="{% if not tab_has_bom %}TP {{ product.code }} chưa có BOM trên Data Hub{% endif %}">
-            <span class="origin-tab-order-controls" aria-label="Đổi thứ tự {{ product.code }}">
-              <button type="button" data-origin-sequence-move="left" title="Đưa sheet này sang trái" aria-label="Đưa {{ product.code }} sang trái">‹</button>
-              <button type="button" data-origin-sequence-move="right" title="Đưa sheet này sang phải" aria-label="Đưa {{ product.code }} sang phải">›</button>
-            </span>
             <span>Bước <span data-origin-sequence-label>{{ product.allocation_sequence or loop.index }}</span></span>
             <strong class="mono">{{ product.code }} {% if not tab_has_bom %}<em class="origin-sheet-tab-no-bom-mark">⚠ no BOM</em>{% endif %}</strong>
             <small>{{ product.origin_sheet_status_label or 'Chưa tính' }} · {{ product.materials|length }} NVL</small>
           </div>
           {% endfor %}
+        </div>
+        <div class="modal-backdrop" data-origin-reorder-modal hidden>
+          <div class="confirm-modal origin-reorder-modal" role="dialog" aria-modal="true" aria-labelledby="origin-reorder-title">
+            <h3 id="origin-reorder-title">Đổi thứ tự sheet (bước tính tồn)</h3>
+            <p class="meta">Dùng nút lên/xuống để sắp lại. Thứ tự quyết định sheet nào trừ tồn CO trước.</p>
+            <ol class="origin-reorder-list" data-origin-reorder-list></ol>
+            <div class="confirm-modal-warning">Đổi thứ tự sẽ khiến các bảng kê liên quan cần tính lại.</div>
+            <div class="confirm-modal-actions">
+              <button type="button" class="btn-secondary" data-origin-reorder-cancel>Huỷ</button>
+              <button type="button" class="btn-primary" data-origin-reorder-apply>Áp dụng</button>
+            </div>
+          </div>
         </div>
         {% endif %}
         <div class="origin-sheet-panels">
@@ -1104,7 +1118,7 @@
               </label>
               <label class="origin-config-pill origin-config-pill-narrow">
                 <span>Ngưỡng %</span>
-                <input type="number" min="0" max="100" step="0.01" data-origin-recommendation-threshold value="{{ lvc_threshold_override or rvc_threshold_override }}" placeholder="auto">
+                <input type="number" min="0" max="100" step="any" data-origin-recommendation-threshold value="{{ lvc_threshold_override or rvc_threshold_override }}" placeholder="auto">
               </label>
               <label class="origin-config-pill">
                 <span>Tiền tệ</span>
@@ -1165,7 +1179,7 @@
               <div class="cost-buildup-grid cost-buildup-grid-6">
                 <label>
                   <span>Lương, thưởng (II.a)</span>
-                  <input type="number" step="0.01" min="0" inputmode="decimal"
+                  <input type="number" step="any" min="0" inputmode="decimal"
                          name="product_{{ product_index }}_cost_buildup_wages"
                          value="{{ cost_buildup.wages or '' }}"
                          data-cost-buildup-input data-cost-buildup-key="wages"
@@ -1173,7 +1187,7 @@
                 </label>
                 <label>
                   <span>Phúc lợi y tế (II.b)</span>
-                  <input type="number" step="0.01" min="0" inputmode="decimal"
+                  <input type="number" step="any" min="0" inputmode="decimal"
                          name="product_{{ product_index }}_cost_buildup_welfare"
                          value="{{ cost_buildup.welfare or '' }}"
                          data-cost-buildup-input data-cost-buildup-key="welfare"
@@ -1181,7 +1195,7 @@
                 </label>
                 <label>
                   <span>Thuê nhà xưởng (III.a)</span>
-                  <input type="number" step="0.01" min="0" inputmode="decimal"
+                  <input type="number" step="any" min="0" inputmode="decimal"
                          name="product_{{ product_index }}_cost_buildup_rent"
                          value="{{ cost_buildup.rent or '' }}"
                          data-cost-buildup-input data-cost-buildup-key="rent"
@@ -1189,7 +1203,7 @@
                 </label>
                 <label>
                   <span>Khấu hao, BH, BD (III.b)</span>
-                  <input type="number" step="0.01" min="0" inputmode="decimal"
+                  <input type="number" step="any" min="0" inputmode="decimal"
                          name="product_{{ product_index }}_cost_buildup_depreciation"
                          value="{{ cost_buildup.depreciation or '' }}"
                          data-cost-buildup-input data-cost-buildup-key="depreciation"
@@ -1197,7 +1211,7 @@
                 </label>
                 <label>
                   <span>CP SX chung khác (III.c)</span>
-                  <input type="number" step="0.01" min="0" inputmode="decimal"
+                  <input type="number" step="any" min="0" inputmode="decimal"
                          name="product_{{ product_index }}_cost_buildup_other_mfg"
                          value="{{ cost_buildup.other_mfg or '' }}"
                          data-cost-buildup-input data-cost-buildup-key="other_mfg"
@@ -1205,7 +1219,7 @@
                 </label>
                 <label>
                   <span>Vận chuyển, lưu kho (VII)</span>
-                  <input type="number" step="0.01" min="0" inputmode="decimal"
+                  <input type="number" step="any" min="0" inputmode="decimal"
                          name="product_{{ product_index }}_cost_buildup_transport_storage"
                          value="{{ cost_buildup.transport_storage or '' }}"
                          data-cost-buildup-input data-cost-buildup-key="transport_storage"
@@ -1213,7 +1227,7 @@
                 </label>
                 <label class="cost-buildup-profit">
                   <span>Lợi nhuận (V) <small>tự tính nếu để trống</small></span>
-                  <input type="number" step="0.01" min="0" inputmode="decimal"
+                  <input type="number" step="any" min="0" inputmode="decimal"
                          name="product_{{ product_index }}_cost_buildup_profit"
                          value="{{ cost_buildup.profit or '' }}"
                          data-cost-buildup-input data-cost-buildup-key="profit"
@@ -1252,10 +1266,23 @@
             <button type="button" class="origin-column-reset" data-origin-column-reset>Đầy đủ</button>
           </div>
 
+          {% if product.origin_sheet_status != 'locked' %}
+          <div class="origin-rowselect-tools">
+            <button type="button" class="btn-secondary" data-origin-bulk-missing>Chọn dòng không có tồn/BCCT</button>
+            <span class="origin-rowselect-hint">Tick ô đầu mỗi dòng để xoá nhiều NVL cùng lúc (ví dụ NVL không khớp tồn CO / không có trong BCCT).</span>
+          </div>
+          <div class="origin-bulk-bar" data-origin-bulk-bar hidden>
+            <span>Đã chọn <strong data-origin-bulk-count>0</strong> dòng NVL</span>
+            <button type="button" class="btn-secondary btn-danger" data-origin-bulk-delete>Xoá dòng đã chọn</button>
+            <button type="button" class="btn-secondary" data-origin-bulk-clear>Bỏ chọn</button>
+          </div>
+          {% endif %}
+
           <div class="table-scroll origin-table-scroll">
             <table class="table origin-material-table">
               <thead>
                 <tr>
+                  <th data-origin-column="select" class="origin-col-select"><input type="checkbox" class="origin-rows-select-all" data-origin-rows-select-all aria-label="Chọn tất cả dòng NVL" {% if product.origin_sheet_status == 'locked' %}disabled{% endif %}></th>
                   <th data-origin-column="row">STT</th>
                   <th data-origin-column="code">Mã NVL</th>
                   <th data-origin-column="name">Tên NVL</th>
@@ -1283,10 +1310,14 @@
                 <tr class="{{ 'origin-row-warning' if material.material_warnings else '' }}"
                     data-origin-material-row
                     data-allocation-group="{{ allocation_group }}"
+                    data-row-no-stock="{{ '1' if allocation_count == 0 else '0' }}"
                     data-row-original-norm="{{ effective_norm or '0' }}"
                     data-row-non-origin-base="{{ _row_non_origin_base }}"
                     data-row-origin-status="{{ material.origin_status or 'non_origin' }}"
                     data-origin-warning-kinds="{% if material.valuation_status == 'missing_unit_value' %} missing_unit_value{% endif %}{% if material.allocation_status == 'shortage' %} allocation_shortage{% endif %}{% if material.origin_status_source == 'default_conservative' %} default_conservative{% endif %}{% if material.material_name_missing %} missing_material_name{% endif %}">
+                  <td data-origin-column="select" class="origin-col-select">
+                    <input type="checkbox" class="origin-row-select" data-origin-row-select aria-label="Chọn dòng {{ material.material_code }}" {% if product.origin_sheet_status == 'locked' %}disabled{% endif %}>
+                  </td>
                   <td data-origin-column="row">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_source_row" value="{{ material.source_row }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_import_declaration_no" value="{{ material.import_declaration_no }}">
@@ -1367,7 +1398,7 @@
                     <span class="mono">{{ material.hs_code }}</span>
                   </td>
                   <td data-origin-column="bom" class="num">
-                    <input type="number" min="0" step="0.000001"
+                    <input type="number" min="0" step="any"
                            class="origin-norm-edit {% if norm_override and norm_override.norm_per_unit %}origin-norm-edit-overridden{% endif %}"
                            data-origin-norm-edit
                            data-product-code="{{ product.code }}"
@@ -1452,6 +1483,7 @@
                 {% for allocation in material.allocation_lines %}
                 {% set allocation_opening_qty = allocation.opening_qty or allocation.available_qty %}
                 <tr class="origin-allocation-row" data-origin-allocation-row data-allocation-detail data-allocation-group="{{ allocation_group }}" {% if not allocation_default_expanded %}hidden{% endif %}>
+                  <td data-origin-column="select" class="origin-col-select"></td>
                   <td data-origin-column="row"></td>
                   <td data-origin-column="code"><span class="allocation-indent">Dòng tồn {{ loop.index }}</span></td>
                   <td data-origin-column="name">{{ allocation.material_description or material.material_description }}</td>
@@ -1481,6 +1513,9 @@
                 <tr data-origin-material-row
                     data-origin-added-key="{{ override_key }}"
                     class="origin-row-added">
+                  <td data-origin-column="select" class="origin-col-select">
+                    <input type="checkbox" class="origin-row-select" data-origin-row-select aria-label="Chọn dòng {{ override.material_code }}" {% if product.origin_sheet_status == 'locked' %}disabled{% endif %}>
+                  </td>
                   <td data-origin-column="row"><span class="mono">+{{ loop.index }}</span></td>
                   <td data-origin-column="code">
                     <button type="button"
@@ -1670,7 +1705,7 @@
     </header>
     <div class="origin-substitute-modal-toolbar">
       <label class="origin-substitute-norm-label">ĐM áp dụng
-        <input type="number" min="0" step="0.000001" data-origin-substitute-shared-norm placeholder="auto">
+        <input type="number" min="0" step="any" data-origin-substitute-shared-norm placeholder="auto">
       </label>
       <span class="origin-substitute-mode" data-origin-substitute-mode>Mode tối ưu: —</span>
       <span class="origin-substitute-freshness" data-origin-substitute-freshness hidden></span>
@@ -1996,10 +2031,6 @@
       tab.dataset.originSequenceIndex = String(index);
       const label = tab.querySelector("[data-origin-sequence-label]");
       if (label) label.textContent = String(index + 1);
-      const left = tab.querySelector('[data-origin-sequence-move="left"]');
-      const right = tab.querySelector('[data-origin-sequence-move="right"]');
-      if (left) left.disabled = index === 0;
-      if (right) right.disabled = index === tabs.length - 1;
     });
   };
   const activateOriginTab = (tab) => {
@@ -2018,46 +2049,101 @@
       panel.classList.toggle("origin-sheet-panel-active", active);
     });
   };
-  document.addEventListener("click", (event) => {
-    const move = event.target.closest?.("[data-origin-sequence-move]");
-    if (move) {
-      event.preventDefault();
-      event.stopPropagation();
-      const tab = move.closest("[data-origin-sheet-tab]");
-      const workbook = originWorkbookFor(tab);
-      if (!tab || !workbook) return;
-      const tabs = Array.from(workbook.querySelectorAll("[data-origin-sheet-tab]"));
-      const fromIndex = tabs.indexOf(tab);
-      if (move.dataset.originSequenceMove === "left" && tab.previousElementSibling) {
-        tab.parentElement.insertBefore(tab, tab.previousElementSibling);
-      } else if (move.dataset.originSequenceMove === "right" && tab.nextElementSibling) {
-        tab.parentElement.insertBefore(tab.nextElementSibling, tab);
-      } else {
-        return;
-      }
-      syncOriginSequence(workbook);
-      const dirty = workbook.querySelector("[data-origin-sequence-dirty]");
-      if (dirty) {
-        dirty.textContent = "Đã đổi thứ tự sheet; bảng kê bị ảnh hưởng cần tính lại.";
-        dirty.hidden = false;
-      }
-      const form = workbook.closest("form");
-      const url = workbook.dataset.originAutosaveUrl || "";
-      if (form && url) {
-        const payload = compactOriginRequest(form, null, "application/json", {
-          stale_from_index: Math.max(fromIndex - 1, 0),
-          mark_stale: true,
-        });
-        fetch(url, {method: "POST", body: payload.body, headers: payload.headers}).catch(() => {
-          toast("Chưa lưu được thứ tự sheet.", "error");
-        });
-      }
-      tab.focus();
-      return;
+  const persistOriginOrder = (workbook, staleFromIndex) => {
+    syncOriginSequence(workbook);
+    const dirty = workbook.querySelector("[data-origin-sequence-dirty]");
+    if (dirty) {
+      dirty.textContent = "Đã đổi thứ tự sheet; bảng kê bị ảnh hưởng cần tính lại.";
+      dirty.hidden = false;
     }
+    const form = workbook.closest("form");
+    const url = workbook.dataset.originAutosaveUrl || "";
+    if (form && url) {
+      const payload = compactOriginRequest(form, null, "application/json", {
+        stale_from_index: Math.max(staleFromIndex - 1, 0),
+        mark_stale: true,
+      });
+      fetch(url, {method: "POST", body: payload.body, headers: payload.headers}).catch(() => {
+        toast("Chưa lưu được thứ tự sheet.", "error");
+      });
+    }
+  };
+
+  document.addEventListener("click", (event) => {
     const tab = event.target.closest?.("[data-origin-sheet-tab]");
     if (tab) activateOriginTab(tab);
   });
+
+  // Sheet-order modal — deliberate reorder with up/down + an explicit Apply,
+  // replacing the misclick-prone inline ‹ › arrows that used to sit on each tab.
+  const reorderModal = document.querySelector("[data-origin-reorder-modal]");
+  if (reorderModal) {
+    const listEl = reorderModal.querySelector("[data-origin-reorder-list]");
+    let workingOrder = [];
+    let targetWorkbook = null;
+    const renderReorderList = () => {
+      listEl.innerHTML = "";
+      workingOrder.forEach((entry, index) => {
+        const li = document.createElement("li");
+        li.className = "origin-reorder-item";
+        li.innerHTML = `
+          <span class="origin-reorder-step">${index + 1}</span>
+          <span class="origin-reorder-info"><strong class="mono">${entry.code}</strong><small>${entry.status || ""}</small></span>
+          <span class="origin-reorder-move">
+            <button type="button" class="btn-secondary" data-reorder-up ${index === 0 ? "disabled" : ""} aria-label="Lên">↑</button>
+            <button type="button" class="btn-secondary" data-reorder-down ${index === workingOrder.length - 1 ? "disabled" : ""} aria-label="Xuống">↓</button>
+          </span>`;
+        li.querySelector("[data-reorder-up]")?.addEventListener("click", () => {
+          if (index === 0) return;
+          [workingOrder[index - 1], workingOrder[index]] = [workingOrder[index], workingOrder[index - 1]];
+          renderReorderList();
+        });
+        li.querySelector("[data-reorder-down]")?.addEventListener("click", () => {
+          if (index === workingOrder.length - 1) return;
+          [workingOrder[index + 1], workingOrder[index]] = [workingOrder[index], workingOrder[index + 1]];
+          renderReorderList();
+        });
+        listEl.appendChild(li);
+      });
+    };
+    const openReorder = (workbook) => {
+      targetWorkbook = workbook;
+      workingOrder = Array.from(workbook.querySelectorAll("[data-origin-sheet-tab]")).map((tab) => ({
+        code: tab.dataset.productCode || "",
+        status: tab.querySelector("small")?.textContent?.trim() || "",
+      }));
+      renderReorderList();
+      reorderModal.hidden = false;
+    };
+    const closeReorder = () => { reorderModal.hidden = true; targetWorkbook = null; };
+    document.addEventListener("click", (event) => {
+      const opener = event.target.closest?.("[data-origin-reorder-open]");
+      if (!opener) return;
+      const workbook = originWorkbookFor(opener);
+      if (workbook) openReorder(workbook);
+    });
+    reorderModal.querySelector("[data-origin-reorder-cancel]")?.addEventListener("click", closeReorder);
+    reorderModal.addEventListener("click", (event) => { if (event.target === reorderModal) closeReorder(); });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !reorderModal.hidden) closeReorder();
+    });
+    reorderModal.querySelector("[data-origin-reorder-apply]")?.addEventListener("click", () => {
+      if (!targetWorkbook) return;
+      const tabsContainer = targetWorkbook.querySelector(".origin-sheet-tabs");
+      const tabByCode = new Map(
+        Array.from(targetWorkbook.querySelectorAll("[data-origin-sheet-tab]")).map((t) => [t.dataset.productCode, t])
+      );
+      const oldOrder = Array.from(tabByCode.keys());
+      const newOrder = workingOrder.map((e) => e.code);
+      if (oldOrder.join("|") === newOrder.join("|")) { closeReorder(); return; }
+      let firstChanged = 0;
+      while (firstChanged < oldOrder.length && oldOrder[firstChanged] === newOrder[firstChanged]) firstChanged++;
+      newOrder.forEach((code) => { const t = tabByCode.get(code); if (t) tabsContainer.appendChild(t); });
+      persistOriginOrder(targetWorkbook, firstChanged);
+      toast("Đã đổi thứ tự sheet; các bảng kê liên quan cần tính lại.", "success");
+      closeReorder();
+    });
+  }
   document.addEventListener("keydown", (event) => {
     const tab = event.target.closest?.("[data-origin-sheet-tab]");
     if (!tab || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -2590,37 +2676,15 @@
         tab.dataset.originSequenceIndex = String(index);
         const label = tab.querySelector("[data-origin-sequence-label]");
         if (label) label.textContent = String(index + 1);
-        const left = tab.querySelector('[data-origin-sequence-move="left"]');
-        const right = tab.querySelector('[data-origin-sequence-move="right"]');
-        if (left) left.disabled = index === 0;
-        if (right) right.disabled = index === tabs.length - 1;
       });
       if (changed) {
         markSnapshotDirty(fromIndex, "Đã lưu thứ tự sheet; bảng kê bị ảnh hưởng cần tính lại.");
         autosave(fromIndex);
       }
     };
-
-    tabList.querySelectorAll("[data-origin-sequence-move]").forEach((button) => {
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        const tab = button.closest("[data-origin-sheet-tab]");
-        if (!tab) return;
-        const tabs = Array.from(tabList.querySelectorAll("[data-origin-sheet-tab]"));
-        const fromIndex = tabs.indexOf(tab);
-        if (button.dataset.originSequenceMove === "left" && tab.previousElementSibling) {
-          tabList.insertBefore(tab, tab.previousElementSibling);
-          syncSequence(true, Math.max(fromIndex - 1, 0));
-          tab.focus();
-        }
-        if (button.dataset.originSequenceMove === "right" && tab.nextElementSibling) {
-          tabList.insertBefore(tab.nextElementSibling, tab);
-          syncSequence(true, fromIndex);
-          tab.focus();
-        }
-      });
-    });
+    // Reordering moved to the dedicated "Đổi thứ tự sheet" modal (see the
+    // global [data-origin-reorder-modal] handler); the inline per-tab arrows
+    // were removed because they were trivially misclicked while switching tabs.
 
     form?.querySelectorAll("[data-origin-step-input]").forEach((field) => {
       field.addEventListener("change", () => {
@@ -3398,6 +3462,7 @@
         tr.setAttribute("data-allocation-detail", "");
         tr.dataset.allocationGroup = group;
         tr.innerHTML = `
+          <td data-origin-column="select" class="origin-col-select"></td>
           <td data-origin-column="row"></td>
           <td data-origin-column="code"><span class="allocation-indent">Dòng tồn ${index + 1}</span></td>
           <td data-origin-column="name">${lot.material_description || item.name || ""}</td>
@@ -3529,6 +3594,7 @@
       tr.dataset.pendingAddedKey = key;
       tr.classList.add("origin-row-added");
       tr.innerHTML = `
+        <td data-origin-column="select" class="origin-col-select"><input type="checkbox" class="origin-row-select" data-origin-row-select aria-label="Chọn dòng ${item.material_code || ""}"></td>
         <td data-origin-column="row"><span class="mono">+</span></td>
         <td data-origin-column="code">
           <button type="button"
@@ -3545,7 +3611,7 @@
         <td data-origin-column="name"><span class="origin-material-name">${item.name || ""}</span></td>
         <td data-origin-column="hs"><span class="mono">${item.hs_code || ""}</span></td>
         <td data-origin-column="bom" class="num">
-          <input type="number" min="0" step="0.000001"
+          <input type="number" min="0" step="any"
                  class="origin-norm-edit"
                  data-origin-norm-edit
                  data-product-code="${state.productCode}"
@@ -3627,25 +3693,10 @@
       if (!state.row) return;
       if (!confirm(`Xoá dòng NVL ${state.materialLabel || state.materialCode}?`)) return;
       const panel = state.row.closest("[data-origin-sheet-panel]");
-      const deletedMaterialCode = rowMaterialCode(state.row);
       pushSheetHistory(panel);
-      state.row.classList.add("origin-row-deleted");
-      const group = state.row.dataset.allocationGroup;
-      if (group) {
-        panel.querySelectorAll(`[data-origin-allocation-row][data-allocation-group="${group}"]`).forEach((r) => r.classList.add("origin-row-deleted"));
-      }
-      const ops = ensurePendingOps(panel);
-      delete ops.replaces[String(state.rowIndex)];
-      // Track delete for non-added rows; added rows just get removed entirely.
-      const addedKey = state.row.dataset.pendingAddedKey;
-      if (addedKey) {
-        ops.adds = ops.adds.filter((entry) => entry.key !== addedKey);
-        state.row.remove();
-      } else {
-        ops.deletes[String(state.rowIndex)] = true;
-      }
+      const deletedMaterialCode = stageRowDeletion(panel, state.row, state.rowIndex);
       markSheetDirty(panel);
-      reallocateSheet(panel, {codes: [deletedMaterialCode]});
+      reallocateSheet(panel, {codes: deletedMaterialCode ? [deletedMaterialCode] : []});
       toast("Đã đánh dấu xoá (client-side). Bấm \"Lưu bảng kê\" để ghi.", "success");
       close();
     };
@@ -4041,6 +4092,7 @@
       tr.setAttribute("data-allocation-detail", "");
       tr.dataset.allocationGroup = group;
       tr.innerHTML = `
+        <td data-origin-column="select" class="origin-col-select"></td>
         <td data-origin-column="row"></td>
         <td data-origin-column="code"><span class="allocation-indent">Dòng tồn ${index + 1}</span></td>
         <td data-origin-column="name">${lot.material_description || materialName}</td>
@@ -4347,6 +4399,97 @@
     }
     updateSheetHistoryButtons(panel);
   };
+
+  // Stage a single material row for deletion (client-side) the same way the
+  // substitute modal's "Xoá dòng này" does: strike the row + its allocation
+  // detail rows, drop any pending replace, and record the delete in pendingOps
+  // (added rows are removed outright). Persisted only when the user saves.
+  const stageRowDeletion = (panel, row, rowIndexHint) => {
+    if (!panel || !row || row.classList.contains("origin-row-deleted")) return null;
+    const code = rowMaterialCode(row);
+    row.classList.add("origin-row-deleted");
+    const group = row.dataset.allocationGroup;
+    if (group) {
+      panel.querySelectorAll(`[data-origin-allocation-row][data-allocation-group="${group}"]`)
+        .forEach((r) => r.classList.add("origin-row-deleted"));
+    }
+    const ops = ensurePendingOps(panel);
+    const trigger = row.querySelector("[data-origin-substitute-trigger]");
+    const rowIndex = rowIndexHint != null ? String(rowIndexHint) : (trigger?.dataset.rowIndex ?? "");
+    if (rowIndex !== "") delete ops.replaces[rowIndex];
+    const addedKey = row.dataset.pendingAddedKey;
+    if (addedKey) {
+      ops.adds = ops.adds.filter((entry) => entry.key !== addedKey);
+      row.remove();
+    } else if (rowIndex !== "") {
+      ops.deletes[rowIndex] = true;
+    }
+    return code;
+  };
+
+  // Per-sheet bulk row selection + delete. Reuses the staged-delete path above
+  // so claims/lock semantics and the single Save flow are unchanged; the quick
+  // button targets rows with no CO-stock allocation (no BCCT match).
+  const wireSheetBulkDelete = (panel) => {
+    const bar = panel.querySelector("[data-origin-bulk-bar]");
+    if (!bar) return;
+    const selectAll = panel.querySelector("[data-origin-rows-select-all]");
+    const quickBtn = panel.querySelector("[data-origin-bulk-missing]");
+    const clearBtn = panel.querySelector("[data-origin-bulk-clear]");
+    const deleteBtn = panel.querySelector("[data-origin-bulk-delete]");
+    const countEl = panel.querySelector("[data-origin-bulk-count]");
+    const boxes = () => Array.from(panel.querySelectorAll("[data-origin-row-select]"))
+      .filter((cb) => !cb.disabled && !cb.closest("tr").classList.contains("origin-row-deleted"));
+    const checkedBoxes = () => boxes().filter((cb) => cb.checked);
+    const refresh = () => {
+      const picked = checkedBoxes().length;
+      if (countEl) countEl.textContent = String(picked);
+      bar.hidden = picked === 0;
+      if (selectAll) {
+        const all = boxes();
+        selectAll.checked = all.length > 0 && all.every((cb) => cb.checked);
+        selectAll.indeterminate = picked > 0 && !selectAll.checked;
+      }
+    };
+    panel.addEventListener("change", (event) => {
+      if (event.target.matches("[data-origin-row-select]")) refresh();
+    });
+    selectAll?.addEventListener("change", () => {
+      boxes().forEach((cb) => { cb.checked = selectAll.checked; });
+      refresh();
+    });
+    quickBtn?.addEventListener("click", () => {
+      let hit = 0;
+      boxes().forEach((cb) => {
+        const noStock = cb.closest("tr")?.dataset.rowNoStock === "1";
+        cb.checked = noStock;
+        if (noStock) hit += 1;
+      });
+      refresh();
+      toast(hit ? `Đã chọn ${hit} dòng không có tồn/BCCT.` : "Không có dòng nào thiếu tồn/BCCT.", hit ? "success" : "error");
+    });
+    clearBtn?.addEventListener("click", () => {
+      boxes().forEach((cb) => { cb.checked = false; });
+      refresh();
+    });
+    deleteBtn?.addEventListener("click", () => {
+      const rows = checkedBoxes().map((cb) => cb.closest("tr")).filter(Boolean);
+      if (!rows.length) return;
+      if (!confirm(`Xoá ${rows.length} dòng NVL đã chọn khỏi bảng kê?`)) return;
+      pushSheetHistory(panel);
+      const codes = [];
+      rows.forEach((row) => {
+        const code = stageRowDeletion(panel, row);
+        if (code) codes.push(code);
+      });
+      markSheetDirty(panel);
+      reallocateSheet(panel, {codes});
+      refresh();
+      toast(`Đã đánh dấu xoá ${rows.length} dòng (client-side). Bấm "Lưu bảng kê" để ghi.`, "success");
+    });
+    refresh();
+  };
+  document.querySelectorAll("[data-origin-sheet-panel]").forEach(wireSheetBulkDelete);
 
   const clearSheetDirty = (panel) => {
     if (!panel) return;

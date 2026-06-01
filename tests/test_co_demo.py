@@ -2134,6 +2134,44 @@ def test_co_case_origin_preloads_demo_when_case_has_no_invoice_source_data():
     assert "2 TP mẫu" not in review.text
 
 
+def test_origin_sheet_renders_bulk_row_select_controls():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/do-thanh/co-case/create",
+        data={"title": "Bulk rows", "case_code": "CO-BULKROWS", "destination_market": "Canada"},
+        follow_redirects=False,
+    )
+    origin = client.get(f"{created.headers['location']}/origin")
+    assert origin.status_code == 200
+    # Per-row checkbox + per-sheet select-all + quick-select + bulk bar all render
+    # on an unlocked sheet so NVL rows can be removed in bulk.
+    assert "data-origin-row-select" in origin.text
+    assert "data-origin-rows-select-all" in origin.text
+    assert "data-origin-bulk-missing" in origin.text
+    assert "data-origin-bulk-bar" in origin.text
+    # Material rows carry the no-stock flag used by the quick-select (no CO
+    # stock / not in BCCT → allocation_count == 0).
+    assert "data-row-no-stock=" in origin.text
+    # The select checkbox lives in its OWN column, not inside the STT cell.
+    assert 'data-origin-column="select"' in origin.text
+
+
+def test_origin_sheet_uses_reorder_modal_not_inline_arrows():
+    client = TestClient(app)
+    created = client.post(
+        "/clients/do-thanh/co-case/create",
+        data={"title": "Reorder", "case_code": "CO-REORDER", "destination_market": "Canada"},
+        follow_redirects=False,
+    )
+    origin = client.get(f"{created.headers['location']}/origin")
+    assert origin.status_code == 200
+    # Demo has >1 TP, so the dedicated reorder affordance + modal render...
+    assert "data-origin-reorder-open" in origin.text
+    assert "data-origin-reorder-modal" in origin.text
+    # ...and the misclick-prone inline ‹ › arrows on each tab are gone.
+    assert "data-origin-sequence-move" not in origin.text
+
+
 def test_co_case_origin_builds_and_persists_invoice_bom_snapshot():
     client = TestClient(app)
     client.post(
@@ -5200,6 +5238,129 @@ def test_origin_sheet_actions_follow_sequential_locking_rules():
     assert [product["origin_sheet_status"] for product in released["products"]] == ["stale", "stale", "stale", "stale", "draft"]
 
 
+def test_origin_sheet_recovers_stuck_calculating_status_and_becomes_lockable():
+    from app.main import attach_origin_sheet_states, origin_sheet_action_error, set_origin_sheet_status
+
+    # A sheet left resting in the transient "calculating" status (interrupted
+    # calc / autosaved optimistic value) must not stay silently un-lockable.
+    case = {
+        "products": [{"code": "TP-1"}],
+        "origin_sheet_states": {"TP-1": {"status": "calculating", "status_label": "Đang tính"}},
+    }
+    guarded = attach_origin_sheet_states(case)
+    state = guarded["origin_sheet_states"]["TP-1"]
+    assert state["status"] == "stale"
+    assert state["status_label"] == "Cần tính lại"
+    assert guarded["products"][0]["origin_sheet_status"] == "stale"
+    # Not lockable yet, but recalculable — and a recalc unblocks "Chốt".
+    assert guarded["products"][0]["origin_can_lock"] is False
+    assert guarded["products"][0]["origin_can_calculate"] is True
+    recalculated = set_origin_sheet_status(guarded, "TP-1", "calculated")
+    assert origin_sheet_action_error(recalculated, "TP-1", "lock") == ""
+
+
+def test_merge_origin_action_payload_never_persists_calculating_status():
+    from app.main import merge_origin_action_payload
+
+    case = {"products": [{"code": "TP-1"}], "origin_sheet_states": {}}
+    payload = {"products": [{
+        "code": "TP-1",
+        "origin_sheet_status": "calculating",
+        "origin_sheet_status_label": "Đang tính",
+    }]}
+    merged = merge_origin_action_payload(case, payload)
+    saved = merged["origin_sheet_states"]["TP-1"]
+    assert saved["status"] == "stale"
+    assert saved["status_label"] == "Cần tính lại"
+
+
+def test_calculate_reads_stale_snapshot_without_blocking_and_refreshes_in_background(monkeypatch):
+    import threading as _threading
+
+    from app import co_stock_ledger, co_stock_materializer
+    from app import main as main_module
+
+    snapshot = [{"source_row": "r1", "remaining_qty": "10"}]
+    monkeypatch.setattr(co_stock_materializer, "read_co_stock_rows_cached", lambda cid: snapshot)
+    monkeypatch.setattr(
+        co_stock_materializer, "read_refresh_state",
+        lambda cid: {"refreshed_at": "2000-01-01T00:00:00+00:00"},  # very stale
+    )
+    monkeypatch.setattr(co_stock_ledger, "used_qty_by_lot", lambda cid: {})
+    monkeypatch.setattr(co_stock_ledger, "apply_used_qty", lambda rows, used: rows)
+
+    refreshed = _threading.Event()
+    calls = []
+
+    def fake_refresh(client):
+        calls.append(client["id"])
+        refreshed.set()
+        return {}
+
+    monkeypatch.setattr(main_module, "_refresh_co_stock_delta_or_full", fake_refresh)
+
+    rows = main_module._calculate_stock_rows_from_snapshot({"id": "blkA"})
+    # Returned immediately from the snapshot — the heavy DH refresh did NOT run
+    # inline (would otherwise have appended before the return).
+    assert rows == snapshot
+    # ...but a background refresh was kicked so the next calculate is fresh.
+    assert refreshed.wait(timeout=5)
+    assert calls == ["blkA"]
+
+
+def test_calculate_returns_none_on_empty_snapshot_without_refresh(monkeypatch):
+    from app import co_stock_materializer
+    from app import main as main_module
+
+    monkeypatch.setattr(co_stock_materializer, "read_co_stock_rows_cached", lambda cid: [])
+    calls = []
+    monkeypatch.setattr(main_module, "_refresh_co_stock_delta_or_full", lambda c: calls.append(1) or {})
+    # Empty snapshot (cold start) → None so the caller's legacy full pull runs;
+    # no background work is scheduled.
+    assert main_module._calculate_stock_rows_from_snapshot({"id": "blkB"}) is None
+    assert calls == []
+
+
+def test_calculate_fresh_snapshot_skips_background_refresh(monkeypatch):
+    import time
+    from datetime import datetime, timezone
+
+    from app import co_stock_ledger, co_stock_materializer
+    from app import main as main_module
+
+    snapshot = [{"source_row": "r1"}]
+    monkeypatch.setattr(co_stock_materializer, "read_co_stock_rows_cached", lambda cid: snapshot)
+    monkeypatch.setattr(
+        co_stock_materializer, "read_refresh_state",
+        lambda cid: {"refreshed_at": datetime.now(timezone.utc).isoformat()},  # fresh
+    )
+    monkeypatch.setattr(co_stock_ledger, "used_qty_by_lot", lambda cid: {})
+    monkeypatch.setattr(co_stock_ledger, "apply_used_qty", lambda rows, used: rows)
+    calls = []
+    monkeypatch.setattr(main_module, "_refresh_co_stock_delta_or_full", lambda c: calls.append(1) or {})
+
+    rows = main_module._calculate_stock_rows_from_snapshot({"id": "blkC"})
+    assert rows == snapshot
+    time.sleep(0.2)  # a stray background thread would have recorded a call
+    assert calls == []
+
+
+def test_origin_number_inputs_use_step_any_so_submit_is_never_blocked():
+    # An `<input type="number" step="0.000001">` silently fails HTML5 validation
+    # (stepMismatch) for a BOM-derived norm with more decimals (e.g. the real
+    # johnson value 3.351351351). That makes the WHOLE origin form invalid, so
+    # clicking "Load BOM" never fires a submit/fetch — the button sticks on
+    # "Đang tính..." forever with no request. Every numeric input in the origin
+    # form must use step="any" (server stores arbitrary precision via Decimal).
+    from pathlib import Path
+
+    template = Path(__file__).resolve().parent.parent / "app" / "templates" / "co_case.html"
+    text = template.read_text(encoding="utf-8")
+    assert 'step="0.000001"' not in text
+    assert 'step="0.01"' not in text
+    assert 'step="any"' in text
+
+
 def test_origin_product_order_override_changes_sequential_allocation():
     from app.main import prepare_case_origin_products
 
@@ -5520,12 +5681,13 @@ def test_co_case_origin_round_trips_multi_lot_allocation_to_export_workbook():
     assert origin.status_code == 200
     assert 'data-origin-product-order' in origin.text
     assert 'data-origin-sheet-tab' in origin.text
-    assert 'data-origin-sequence-move="left"' in origin.text
-    assert 'data-origin-sequence-move="right"' in origin.text
+    # Sheet reordering moved to a dedicated confirm modal; the misclick-prone
+    # inline ‹ › arrows on each tab were removed.
+    assert 'data-origin-reorder-open' in origin.text
+    assert 'data-origin-reorder-modal' in origin.text
+    assert 'data-origin-sequence-move' not in origin.text
     assert 'data-origin-tab-drag-handle' not in origin.text
     assert 'draggable="true"' not in origin.text
-    assert 'data-origin-sequence-position' not in origin.text
-    assert 'data-origin-sequence-move="up"' not in origin.text
     assert 'class="origin-sheet-toolbar"' in origin.text
     assert 'origin-sheet-status-pill' in origin.text
     assert 'data-origin-step-input' in origin.text
