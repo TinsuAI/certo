@@ -56,11 +56,10 @@ logic touched. Baseline node suite still 53 pass / 3 pre-existing fails
 ## Open items / follow-ups (none block; all optional)
 1. **Slim `main.py` to a pure factory**: move the leftover dashboard/`config`/
    `evaluate`/`upload`/`export`/`demo-input` routes into a `pages`/`misc` router.
-2. **Remove dead imports in `main.py`**: ~100+ leftover imports (co_case-era) are
-   now unused in the body. CAUTION: the `from app.web.* import (...)` re-export
-   blocks are intentional — keep any name a test imports/patches via `app.main.X`.
-   Removing the rest needs an AST pass that excludes test-required names, then
-   full pytest.
+2. ~~Remove dead imports in `main.py`~~ **DONE**: AST pass dropped 181 unused
+   imports, keeping body-used names + the test-required re-export blocks (detection
+   covers `from app.main import`, `main.X` attr access, and
+   `setattr/patch.object(main, "X")` / `patch("app.main.X")`). main.py 629 → 444.
 3. **Split the large stores** (task 5): `source_store.py` (1724),
    `source_index_store.py` (1394), `bom_store.py` (1251).
 4. Merge `refactor/split-main` → `main` (then optionally push; tinsu push

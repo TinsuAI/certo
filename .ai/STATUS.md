@@ -4,12 +4,12 @@
 - **On branch `refactor/split-main` (NOT merged, NOT pushed).** `main`/`origin/main`/
   `tinsu/main` = `861ec57` (deployed demo unchanged). The refactor branch is 11
   commits ahead — pure code-movement, no behavior change.
-- **`app/main.py` split 8017 → 629 lines (-92%)** into `app/web/` (templating, deps,
+- **`app/main.py` split 8017 → 444 lines (-94%)** into `app/web/` (templating, deps,
   client_context gate, co_case_context closure) + `app/routers/` (auth, settings,
   customs_fx, catalog, co_case, bom, bcct, co_stock, cost_allocation). See
   `.ai/sessions/2026-06-02-main-monolith-split.md` for structure, method, and the
-  monkeypatch-namespace tax. Follow-ups: slim main to factory, drop dead imports,
-  split large stores, then merge.
+  monkeypatch-namespace tax. Dead imports dropped (181). Follow-ups: slim main to
+  factory, split large stores, then merge.
 - Local suite **419 passed + 8 skipped** at every refactor commit (file-store/CI mode).
 - **Client feedback batch 1 — #1/#3/#5/#6 DONE + live; #2/#4 need client input.**
   Plan/tracker: `.ai/features/2026-06-01-client-feedback-batch1/brief.md`.
