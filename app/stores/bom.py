@@ -483,8 +483,18 @@ def list_products_with_bom(client_id: str, *,
     where_q = ""
     params_q: list = []
     if q:
-        where_q = " and product_code ilike %s"
-        params_q = [f"%{q}%"]
+        # `q` matches the finished-product code OR any component code in
+        # the product's BOM — material_code in flat rows (manual_flat /
+        # flattened) or child_code in raw graph edges (technical_raw).
+        pat = f"%{q}%"
+        where_q = (
+            " and (ba.product_code ilike %s"
+            " or exists (select 1 from hub.bom_artifact_rows r"
+            " where r.artifact_id = ba.artifact_id and r.material_code ilike %s)"
+            " or exists (select 1 from hub.bom_edges e"
+            " where e.artifact_id = ba.artifact_id and e.child_code ilike %s))"
+        )
+        params_q = [pat, pat, pat]
     if kind == "tp":
         where_kind = (
             " and (m_kind.category is null or m_kind.category not in ('btp_sx','btp_nm'))"
@@ -554,8 +564,17 @@ def count_products_with_bom(client_id: str, *, q: str | None = None,
     where_q = ""
     params: list = [client_id, client_id]
     if q:
-        where_q = " and ba.product_code ilike %s"
-        params.append(f"%{q}%")
+        # Mirror list_products_with_bom: match product code or any
+        # component code (flat rows or raw graph edges) in the BOM.
+        pat = f"%{q}%"
+        where_q = (
+            " and (ba.product_code ilike %s"
+            " or exists (select 1 from hub.bom_artifact_rows r"
+            " where r.artifact_id = ba.artifact_id and r.material_code ilike %s)"
+            " or exists (select 1 from hub.bom_edges e"
+            " where e.artifact_id = ba.artifact_id and e.child_code ilike %s))"
+        )
+        params.extend([pat, pat, pat])
     if kind == "tp":
         where_kind = (
             " and (m_kind.category is null or m_kind.category not in ('btp_sx','btp_nm'))"

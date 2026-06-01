@@ -1602,11 +1602,15 @@ def _raise_resolver_http(exc):
 @router.get("/products")
 async def api_list_products(
     client_id: str,
+    q: str | None = None,
     authorization: str | None = Header(None),
 ):
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
-    return _json({"items": list_products_with_bom(client_id), "total_estimate": None})
+    return _json({
+        "items": list_products_with_bom(client_id, q=q),
+        "total_estimate": None,
+    })
 
 
 @router.post("/products/{product_code:path}/bom/proposals")
