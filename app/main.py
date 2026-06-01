@@ -18,7 +18,6 @@ from fastapi import File, Form, HTTPException, Request, UploadFile
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 from app import co_auth
 from app.bom_store import attach_case_bom_snapshot
@@ -102,6 +101,7 @@ from app.source_store import (
     enrich_client_with_source_workspace,
 )
 from app.table_view import build_table_view
+from app.web.templating import THEME_COOKIE, normalize_theme, templates
 from app.workbook_io import (
     WorkbookParseError,
     create_dossier_zip,
@@ -121,9 +121,6 @@ PSR_STATUS_LABELS = {
 }
 
 ROOT = Path(__file__).resolve().parent
-
-THEME_COOKIE = "co_theme"
-SUPPORTED_THEMES = {"light", "dark"}
 
 ORIGIN_SHEET_STATUS_LABELS = {
     "draft": "Chưa tính",
@@ -146,24 +143,6 @@ def durable_sheet_status(status) -> str:
     """
     text = str(status or "").strip()
     return "stale" if text == "calculating" else text
-
-
-def normalize_theme(value: str | None) -> str:
-    return value if value in SUPPORTED_THEMES else "light"
-
-
-def theme_context(request: Request) -> dict[str, str]:
-    theme = normalize_theme(request.cookies.get(THEME_COOKIE))
-    user = co_auth.current_user(request)
-    return {
-        "theme": theme,
-        "next_theme": "light" if theme == "dark" else "dark",
-        "co_user": user,
-        "auth_required": co_auth.auth_required(),
-        "show_login": (co_auth.auth_required() or co_auth.data_hub_source_mode_enabled()) and request.url.path != "/auth/logout",
-        "can_view_technical_settings": co_auth.can_view_technical_settings(user),
-        "can_delete_co_cases": co_auth.can_delete_co_cases(user),
-    }
 
 
 def origin_lock_actor(request: Request) -> dict[str, str]:
@@ -228,8 +207,6 @@ async def _data_hub_error_status_handler(request: Request, exc: httpx.HTTPStatus
         "kiểm tra Data Hub rồi thử lại.",
         status_code=502,
     )
-
-templates = Jinja2Templates(directory=ROOT / "templates", context_processors=[theme_context])
 
 
 async def large_request_form(request: Request):
