@@ -10,9 +10,9 @@ Date: 2026-06-01. All 6 items triaged against code; all valid.
 | 1 | Chưa có mục xóa hồ sơ | Valid — permission gap | CO (config) |
 | 2 | Bước "mở" load hơi lâu | Already fixed prior session | — (confirm w/ client) |
 | 3 | Thỉnh thoảng lỗi, không đề xuất được NVL thay thế | Valid — empty/error fallback | CO |
-| 4 | Mã NVL thay thế chưa phù hợp | Valid — ranking quality | DH (request) + CO (fallback) |
-| 5 | Muốn nhiều bộ lọc cùng lúc (mã + tên) | Valid — UX gap | CO |
-| 6 | Muốn chọn nhiều dòng để thao tác hàng loạt (xóa…) | Valid — feature missing | CO |
+| 4 | Mã NVL thay thế chưa phù hợp | DH request pending client examples; CO heuristic dropped (see note) | DH (request) |
+| 5 | Muốn nhiều bộ lọc cùng lúc (mã + tên) | DONE (fuzzy modal search) | CO |
+| 6 | Muốn chọn nhiều dòng để thao tác hàng loạt (xóa…) | DONE — bảng kê (origin sheet) bulk row delete | CO |
 
 Decisions taken (user, 2026-06-01):
 - #1: add `manager` to delete roles.
@@ -24,6 +24,23 @@ Decisions taken (user, 2026-06-01):
 ## STATUS (2026-06-01)
 - **#1 — DONE** (code). `DEFAULT_CO_CASE_DELETE_ROLES` now includes `manager`
   (`data_hub_settings.py:13`). Test: `test_can_delete_co_cases_allows_manager_by_default`.
+- **#6 — DONE** (code), target = **bảng kê (origin sheet) row delete**, NOT the dossier
+  list. Use case (client): after Load BOM, the sheet has NVL rows with no CO stock / not in
+  BCCT — they want to delete many at once. Added per-row checkbox (STT cell) + per-sheet
+  select-all (thead) + a **"Chọn dòng không có tồn/BCCT"** quick-select + a bulk-action bar
+  (`co_case.html`), all gated to unlocked sheets. Quick-select targets rows with
+  `data-row-no-stock="1"` (= `allocation_count == 0`, i.e. no CO-stock lot matched from
+  BCCT). Delete **reuses the existing staged-delete path**: extracted `stageRowDeletion()`
+  (shared by the substitute modal's "Xoá dòng này" and bulk), marks rows struck-through +
+  records `pendingOps.deletes`, then the single **"Lưu bảng kê"** persists — no new server
+  endpoint, lock/claims semantics unchanged. CSS resets the global `input{width:100%}` on
+  the checkboxes + `.origin-bulk-bar[hidden]` so the bar hides. Test:
+  `test_origin_sheet_renders_bulk_row_select_controls`. **Browser-verified** on real
+  growatt-vn case `SD00.0010600` (128 rows, 125 with tồn / 3 without): quick-select picks
+  exactly the 3 no-BCCT rows, bulk-delete strikes them + raises the dirty banner, 0 console
+  errors (staged only, not saved → real data untouched). Screenshots in
+  `.ai/screenshots/bangke-bulk-delete/`.
+  - **Note:** earlier mis-built on the dossier list — reverted entirely per client.
 - **#3 — DONE** (code), reframed after review. Root cause was deeper than "retry DH":
   `/substitute-stock` re-derived CO stock from BCCT live via `list_bcct_by_codes` (the
   flaky dependency). Substitute feasibility (đủ tồn? / ΔLVC) only needs CO stock lots —
@@ -119,8 +136,13 @@ CO is a consumer; ranking quality (`combined_score`) is DH-precomputed. Create
 - Proposed response: richer `raw_scores` breakdown + min-quality threshold + reason codes.
 - Provider tests DH must add. **Stop and get DH contract approval before consuming.**
 
-**(b) CO fallback heuristic (interim).**
-Improve `compute_substitute_heuristic_candidates` (`main.py:7218+`) beyond HS-prefix:
+**(b) CO fallback heuristic (interim) — DROPPED (decision 2026-06-01).**
+Improving `compute_substitute_heuristic_candidates` was prototyped (multi-signal +
+reason chips) but **reverted**: the heuristic only fires when DH returns *no* precomputed
+substitute for a code, and in practice DH covers all real materials — the codes DH misses
+are junk components (no HS, no usable name), so the path almost never yields a useful
+suggestion. Effort there is wasted; the real lever is **(a) DH-side ranking quality**.
+Original intent (kept for reference if ever revisited):
 - Add token/name similarity + category match + unit match as weighted signals.
 - Keep HS-prefix but down-weight when it's the only signal.
 - Surface why each candidate was suggested (reason chips) so users can judge fit.
