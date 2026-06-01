@@ -6796,7 +6796,9 @@ def test_co_routes_use_portfolio_service_adapter(monkeypatch):
                 ],
             }
 
-    monkeypatch.setattr(main_module, "portfolio_service", FakePortfolioService())
+    _fake_portfolio = FakePortfolioService()
+    monkeypatch.setattr(main_module, "portfolio_service", _fake_portfolio)
+    monkeypatch.setattr("app.web.client_context.portfolio_service", _fake_portfolio)
 
     client = TestClient(app)
     materials = client.get("/clients/growatt/catalog/materials")
@@ -7075,7 +7077,9 @@ def test_co_case_create_explains_invoice_market_hint_without_auto_selecting(monk
                 ],
             }
 
-    monkeypatch.setattr(main_module, "portfolio_service", FakePortfolioService())
+    _fake_portfolio = FakePortfolioService()
+    monkeypatch.setattr(main_module, "portfolio_service", _fake_portfolio)
+    monkeypatch.setattr("app.web.client_context.portfolio_service", _fake_portfolio)
     client = TestClient(app)
 
     created = client.post(
