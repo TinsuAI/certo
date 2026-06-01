@@ -62,10 +62,18 @@ logic touched. Baseline node suite still 53 pass / 3 pre-existing fails
    imports, keeping body-used names + the test-required re-export blocks (detection
    covers `from app.main import`, `main.X` attr access, and
    `setattr/patch.object(main, "X")` / `patch("app.main.X")`). main.py 629 → 444.
-3. **Split the large stores** (task 5): `source_store.py` (1724),
-   `source_index_store.py` (1394), `bom_store.py` (1251).
-4. Merge `refactor/split-main` → `main` (then optionally push; tinsu push
-   redeploys demo).
+3. ~~Split the large stores~~ **DONE** (re-export shims keep each store's public
+   API, so no importer churn; same AST splitter, leaf-cluster closures with zero
+   back-references):
+   - `source_store` 1724→912 → `source_workbook_io.py` (535, parsing) +
+     `co_stock_derivation.py` (270, co_stock_rows_from_bcct + fx/value/aggregate)
+   - `source_index_store` 1394→938 → `source_index_records.py` (442, record
+     builders); the `PostgresSourceIndexStore` class (one cohesive ~840-line unit)
+     stays
+   - `bom_store` 1251→976 → `bom_workbook_io.py` (188, parsers) +
+     `bom_composition.py` (89, product-version composition)
+4. **Merge `refactor/split-main` → `main`** (then optionally push; tinsu push
+   redeploys demo). 20 commits, all green.
 
 ## Pre-refactor batch-1 items (still open, unchanged this session)
 #2 (mở speed) + #4 (substitute ranking) still need client input; email draft at

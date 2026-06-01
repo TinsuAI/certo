@@ -11,7 +11,13 @@
   co_case_context closure) + `app/routers/` (auth, settings, customs_fx, catalog,
   co_case, bom, bcct, co_stock, cost_allocation, pages). See
   `.ai/sessions/2026-06-02-main-monolith-split.md` for structure, method, and the
-  monkeypatch-namespace tax. Remaining follow-ups: split large stores, then merge.
+  monkeypatch-namespace tax.
+- **Large stores split** (all now <1000 lines, re-export shims preserve public API):
+  `source_store` 1724→912 (+`source_workbook_io` 535, `co_stock_derivation` 270);
+  `source_index_store` 1394→938 (+`source_index_records` 442; the
+  `PostgresSourceIndexStore` class stays); `bom_store` 1251→976 (+`bom_workbook_io`
+  188, `bom_composition` 89). Remaining follow-up: **merge `refactor/split-main` →
+  `main`** (20 commits, all green; demo still at `861ec57`).
 - Local suite **419 passed + 8 skipped** at every refactor commit (file-store/CI mode).
 - **Client feedback batch 1 — #1/#3/#5/#6 DONE + live; #2/#4 need client input.**
   Plan/tracker: `.ai/features/2026-06-01-client-feedback-batch1/brief.md`.
