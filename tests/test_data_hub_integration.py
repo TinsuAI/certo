@@ -1464,7 +1464,9 @@ def test_bom_page_uses_bom_service_boundary(monkeypatch):
     _fake_portfolio = FakePortfolioService()
     monkeypatch.setattr(main_module, "portfolio_service", _fake_portfolio)
     monkeypatch.setattr("app.web.client_context.portfolio_service", _fake_portfolio)
-    monkeypatch.setattr(main_module, "bom_service", FakeBomService())
+    _fake_bom = FakeBomService()
+    monkeypatch.setattr(main_module, "bom_service", _fake_bom)
+    monkeypatch.setattr("app.web.client_context.bom_service", _fake_bom)
 
     response = TestClient(app).get("/clients/hub-only/bom")
 
@@ -1628,7 +1630,9 @@ def test_data_hub_mode_hides_shared_source_upload_ui(monkeypatch):
     _fake_portfolio = FakePortfolioService()
     monkeypatch.setattr(main_module, "portfolio_service", _fake_portfolio)
     monkeypatch.setattr("app.web.client_context.portfolio_service", _fake_portfolio)
-    monkeypatch.setattr(main_module, "bom_service", FakeBomService())
+    _fake_bom = FakeBomService()
+    monkeypatch.setattr(main_module, "bom_service", _fake_bom)
+    monkeypatch.setattr("app.web.client_context.bom_service", _fake_bom)
     client = TestClient(app)
 
     catalog = client.get("/clients/hub-only/catalog")

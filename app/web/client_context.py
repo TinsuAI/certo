@@ -4,10 +4,23 @@ import httpx
 
 from app import co_stock_eligibility
 from app.app_state_store import get_app_state_store
+from app.bom_service import bom_service
+from app.bom_store import attach_case_bom_snapshot
 from app.client_registry import get_client as registry_get_client
 from app.client_registry import get_client_case
-from app.demo_data import DEMO_CASE, attach_results, clone_case
+from app.co_case_store import get_case_workspace
+from app.co_form_config_store import load_co_form_config
+from app.co_forms import (
+    COMMON_MARKET_PRESETS,
+    common_market_guidance,
+    form_candidates_for_market,
+    prioritized_form_lanes,
+    recommended_form_lane,
+)
+from app.data_hub_settings import data_hub_link_settings
+from app.demo_data import DEMO_CASE, SOURCE_NOTES, attach_results, clone_case
 from app.portfolio import portfolio_service
+from app.source_store import attach_case_source_snapshot, enrich_client_with_source_workspace
 
 
 # Local CO state uses short client IDs (e.g. "johnson") while Data Hub stores
@@ -123,3 +136,56 @@ def client_case(client: dict) -> dict:
 
 def source_workspace_for_client(client: dict) -> tuple[dict, str]:
     return portfolio_service.source_workspace(client)
+
+
+def case_finished_hs_codes(case: dict) -> list[str]:
+    return [
+        str(product.get("finished_hs", ""))
+        for product in case.get("products", [])
+        if str(product.get("finished_hs", "")).strip()
+    ]
+
+
+def client_context(client_id: str, active: str, **extra):
+    client = resolve_client(client_id)
+    case = extra.pop("case", client_case(client))
+    source_workspace, source_backend = source_workspace_for_client(client)
+    client = enrich_client_with_source_workspace(client, source_workspace)
+    bom_workspace = bom_service.workspace(client)
+    case = attach_case_bom_snapshot(case, bom_workspace)
+    case = attach_case_source_snapshot(case, source_workspace)
+    # Deep-link to the Data Hub page for tabs that have a canonical DH surface.
+    # None for everything else (incl. /config) so the template guard hides the
+    # "Mở trên Data Hub" button instead of rendering an empty href.
+    data_hub_target_url = None
+    if source_backend == "data-hub" and active in {"catalog", "bom", "bcct"}:
+        dh_base = data_hub_link_settings().data_hub_base_url
+        data_hub_target_url = f"{dh_base.rstrip('/')}/clients/{client_id}/{active}"
+    return {
+        "client": client,
+        "case": case,
+        "active": active,
+        "data_hub_target_url": data_hub_target_url,
+        "bom_workspace": bom_workspace,
+        "source_workspace": source_workspace,
+        "client_config": source_workspace["client_config"],
+        "case_workspace": extra.pop("case_workspace", get_case_workspace(client)),
+        "form_candidates": extra.pop("form_candidates", form_candidates_for_market(case.get("destination_market", ""))),
+        "form_lanes": prioritized_form_lanes(case.get("destination_market", ""), case_finished_hs_codes(case)),
+        "recommended_form_lane": recommended_form_lane(
+            prioritized_form_lanes(case.get("destination_market", ""), case_finished_hs_codes(case))
+        ),
+        "common_market_presets": COMMON_MARKET_PRESETS,
+        "common_market_guidance": common_market_guidance(),
+        "co_form_options": [
+            {"form_code": row["form_code"], "display_name": row.get("display_name") or row["form_code"]}
+            for row in load_co_form_config().get("forms", [])
+            if row.get("enabled")
+        ],
+        "invoice_matches": extra.pop("invoice_matches", []),
+        "invoice_criteria_rows": extra.pop("invoice_criteria_rows", []),
+        "criteria_rows": extra.pop("criteria_rows", []),
+        "source_notes": SOURCE_NOTES,
+        "source_backend": source_backend,
+        **extra,
+    }

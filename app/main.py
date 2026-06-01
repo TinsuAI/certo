@@ -104,7 +104,9 @@ from app.source_store import (
 )
 from app.table_view import build_table_view
 from app.web.client_context import (
+    case_finished_hs_codes,
     client_case,
+    client_context,
     default_client_case,
     effective_min_gap_days,
     resolve_client,
@@ -564,51 +566,6 @@ def require_local_source_writes() -> None:
             status_code=409,
             detail="Shared source data is read-only in CO when DATA_HUB_ENABLED is active. Use Data Hub for source changes.",
         )
-
-
-def client_context(client_id: str, active: str, **extra):
-    client = resolve_client(client_id)
-    case = extra.pop("case", client_case(client))
-    source_workspace, source_backend = source_workspace_for_client(client)
-    client = enrich_client_with_source_workspace(client, source_workspace)
-    bom_workspace = bom_service.workspace(client)
-    case = attach_case_bom_snapshot(case, bom_workspace)
-    case = attach_case_source_snapshot(case, source_workspace)
-    # Deep-link to the Data Hub page for tabs that have a canonical DH surface.
-    # None for everything else (incl. /config) so the template guard hides the
-    # "Mở trên Data Hub" button instead of rendering an empty href.
-    data_hub_target_url = None
-    if source_backend == "data-hub" and active in {"catalog", "bom", "bcct"}:
-        dh_base = data_hub_link_settings().data_hub_base_url
-        data_hub_target_url = f"{dh_base.rstrip('/')}/clients/{client_id}/{active}"
-    return {
-        "client": client,
-        "case": case,
-        "active": active,
-        "data_hub_target_url": data_hub_target_url,
-        "bom_workspace": bom_workspace,
-        "source_workspace": source_workspace,
-        "client_config": source_workspace["client_config"],
-        "case_workspace": extra.pop("case_workspace", get_case_workspace(client)),
-        "form_candidates": extra.pop("form_candidates", form_candidates_for_market(case.get("destination_market", ""))),
-        "form_lanes": prioritized_form_lanes(case.get("destination_market", ""), case_finished_hs_codes(case)),
-        "recommended_form_lane": recommended_form_lane(
-            prioritized_form_lanes(case.get("destination_market", ""), case_finished_hs_codes(case))
-        ),
-        "common_market_presets": COMMON_MARKET_PRESETS,
-        "common_market_guidance": common_market_guidance(),
-        "co_form_options": [
-            {"form_code": row["form_code"], "display_name": row.get("display_name") or row["form_code"]}
-            for row in load_co_form_config().get("forms", [])
-            if row.get("enabled")
-        ],
-        "invoice_matches": extra.pop("invoice_matches", []),
-        "invoice_criteria_rows": extra.pop("invoice_criteria_rows", []),
-        "criteria_rows": extra.pop("criteria_rows", []),
-        "source_notes": SOURCE_NOTES,
-        "source_backend": source_backend,
-        **extra,
-    }
 
 
 def co_case_light_context(client_id: str, case: dict, current_step: str, **extra) -> dict:
@@ -1638,14 +1595,6 @@ def attach_origin_demo(case: dict) -> dict:
 
 def origin_material_count(case: dict) -> int:
     return sum(len(product.get("materials", [])) for product in case.get("products", []))
-
-
-def case_finished_hs_codes(case: dict) -> list[str]:
-    return [
-        str(product.get("finished_hs", ""))
-        for product in case.get("products", [])
-        if str(product.get("finished_hs", "")).strip()
-    ]
 
 
 def co_case_hs_codes(case: dict, invoice_matches: list[dict]) -> list[str]:

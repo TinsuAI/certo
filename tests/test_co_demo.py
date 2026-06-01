@@ -2427,7 +2427,9 @@ def test_cached_origin_context_loads_live_bom_artifact_options(monkeypatch):
                 "latest_rows": [],
             }
 
-    monkeypatch.setattr(main_module, "bom_service", FakeBomService())
+    _fake_bom = FakeBomService()
+    monkeypatch.setattr(main_module, "bom_service", _fake_bom)
+    monkeypatch.setattr("app.web.client_context.bom_service", _fake_bom)
     client = TestClient(app)
     created = client.post(
         "/clients/growatt/co-case/create",
