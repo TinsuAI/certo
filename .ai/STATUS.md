@@ -1,10 +1,23 @@
 # Project Status
 
 ## Current State
-- Branch `main` at `013750d` — pushed to `tinsu/main` + **deployed (CI/CD green, co-app-1 @ `013750d`)**.
-  Working tree clean. Local suite **405 passed + 8 skipped** (file-store/CI mode).
-- **Client feedback batch 1 — #1 + #3 DONE, prod-verified (2026-06-01).** Triage of the
+- Branch `main` at `04ce3ca` — pushed to `tinsu/main` + **deployed (CI/CD green, Deploy demo OK)**.
+  Working tree clean. Local suite **411 passed + 8 skipped** (file-store/CI mode).
+- **Client feedback batch 1 — #1 + #3 + #5 DONE, prod-deployed.** Triage of the
   6-item client PDF feedback is in `.ai/features/2026-06-01-client-feedback-batch1.md`.
+  - **#5 Fuzzy multi-field substitute search (PR #1, squash `04ce3ca`).** New shared
+    matcher `app/material_search.py`: multi-token AND across {code, internal_code, name,
+    hs}, order-independent, accent-folded (Vietnamese diacritics + đ→d), ranked best-first.
+    Subsequence (typo) tolerance **gated two ways** — short space-free fields (codes/HS)
+    AND alphabetic tokens ≥3 chars — so a numeric token like `5000` can't scatter-match an
+    HS code (`85044090`→5,0,0,0) or long descriptions. Wired into both `search_materials`
+    impls (`portfolio.py` file-store + `data_hub_client.py` DH) and `search_case_material_rows`
+    (`main.py`). Modal (`co_case.html`): live client-side "Lọc nhanh" filter on the Khuyến
+    nghị tab (mirrors the server matcher) + multi-token search hint on Tìm kiếm. 7 new
+    `material_search` unit tests. Browser-verified on growatt-vn real data (0 console
+    errors); screenshots in `.ai/screenshots/substitute-fuzzy-search/`. Two false-positives
+    caught during verification (IC matching "aptomat"; HS scatter-matching "5000"), fixed
+    at the root.
   - **#1 Delete dossier visible to managers** — feature already existed but was gated to
     `dev`/`admin`; client testers are `manager` → couldn't see it. Added `manager` to
     `DEFAULT_CO_CASE_DELETE_ROLES` (`data_hub_settings.py:13`). Existing guards
@@ -26,19 +39,21 @@
   BOM workspace batch endpoint + parallel fetch; origin narrow-BCCT; case-detail
   `skip_heavy_context`; no-silent-local-fallback; claim-ID stability.
 
-## Recent Changes (2026-06-01 session)
-
-Full detail: `.ai/sessions/2026-06-01-client-feedback-batch1.md`.
+## Recent Changes
 
 | Commit | Topic |
 |---|---|
+| `04ce3ca` | feat(substitute): fuzzy multi-field search + live recommended filter (#5, PR #1) |
 | `013750d` | docs: triage + fix plan for client feedback batch 1 |
 | `3af5914` | fix(substitute): source candidate tồn from materialized CO-stock snapshot |
 | `e296267` | feat(co-case): allow manager role to delete CO dossiers |
 
-New tests: `test_can_delete_co_cases_allows_manager_by_default`
-(`tests/test_data_hub_integration.py`), `test_substitute_stock_reads_materialized_snapshot_not_bcct`
-(`tests/test_co_demo.py`, asserts BCCT is never called).
+New tests: 7 `material_search` cases in `tests/test_co_demo.py` (multi-token, accent,
+ranking, subsequence, anti-scatter on long descriptions, numeric-token-vs-HS);
+`test_can_delete_co_cases_allows_manager_by_default` (`tests/test_data_hub_integration.py`);
+`test_substitute_stock_reads_materialized_snapshot_not_bcct` (`tests/test_co_demo.py`).
+Session detail: `.ai/sessions/2026-06-01-client-feedback-batch1.md` (#1/#3) +
+`.ai/sessions/2026-06-01-substitute-fuzzy-search.md` (#5).
 
 ## Next Steps (priority order)
 
@@ -46,18 +61,23 @@ New tests: `test_can_delete_co_cases_allows_manager_by_default`
 1. **#2 "mở" load lâu** — already fixed in prior sessions (skip_heavy_context, BOM batch,
    internal network). No code; just **confirm with client** the current build feels fast,
    and if not, capture which step + client + timing before any further work.
-2. **#5 Multi-filter (mã + tên cùng lúc)** — extend the shared table component
-   (`table_view.py` + `_advanced_table.html`) to support free-text `kind:"text"` filters
-   per field alongside the existing select filters. Benefits all 5 tables. Effort M.
-3. **#4 Substitute "chưa phù hợp"** — chiefly DH ranking quality. User decided: **file a
+2. **#4 Substitute "chưa phù hợp"** — chiefly DH ranking quality. User decided: **file a
    Data Hub API request** (`.ai/api-requests/2026-06-01-substitute-ranking-quality.md`
    from the template) — needs 3-5 concrete bad-example material codes **collected from the
    client first**. Optionally also improve CO heuristic fallback (`main.py:7218+`) beyond
    HS-prefix. Effort M + cross-team.
-4. **#6 Multi-select + bulk action (xóa hàng loạt)** — add checkbox column + select-all +
+3. **#6 Multi-select + bulk action (xóa hàng loạt)** — add checkbox column + select-all +
    bulk-action bar to `_advanced_table.html` (per-table opt-in). First action = bulk
    delete looping the guarded single-delete. **Needs client confirmation on which table.**
    Effort M-L.
+
+**Note on #5 scope:** the original plan proposed a `kind:"text"` filter on the shared
+**table** component (`table_view.py`/`_advanced_table.html`). During implementation the
+client clarified they meant the **substitute NVL modal** search, not the data tables — and
+catalog/BOM tables are DH-delegated in demo mode anyway (render on Data Hub, not in CO). So
+#5 shipped as fuzzy search in the substitute modal instead. If multi-field filtering on the
+CO-rendered tables (BCCT, Tồn CO) is later requested, the `kind:"text"` table approach is
+still the right design (co_stock would need the filter pushed into its SQL path).
 
 **Older deferred (pre-feedback):**
 5. Origin lock TTL cleanup (60-min stale lock).
