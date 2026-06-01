@@ -18,6 +18,32 @@ from typing import Any
 from openpyxl import Workbook, load_workbook
 
 from app.workflow_state_store import get_bom_state_store
+from app.bom_workbook_io import (
+    GROWATT_REQUIRED_HEADERS,
+    JOHNSON_REQUIRED_HEADERS,
+    MANUAL_HEADER_ALIASES,
+    cell_text,
+    header_key,
+    normalized_bom_row,
+    parse_bom_workbook,
+    parse_growatt_workbook,
+    parse_int,
+    parse_johnson_workbook,
+    parse_manual_flat_workbook,
+    quantity_text,
+)
+from app.bom_composition import (
+    compose_rows_from_composition,
+    compose_rows_from_product_versions,
+    composition_entry,
+    flattened_product_versions,
+    group_rows_by_product,
+    latest_composition_map,
+    latest_product_version,
+    latest_published_version,
+    product_version_options_by_code,
+    with_aggregate_rows,
+)
 
 
 BOM_PROFILE_OPTIONS = [
@@ -40,20 +66,6 @@ CODE_SYSTEM_OPTIONS = [
     {"value": "single_code", "label": "Một mã"},
     {"value": "customs_internal_mapping_required", "label": "Cần map mã HQ/nội bộ"},
 ]
-
-MANUAL_HEADER_ALIASES = {
-    "product_code": {"product_code", "export_product_code", "finished_product_code", "ma_tp", "ma_sp", "ma_thanh_pham"},
-    "bom_code": {"bom_code", "ma_bom"},
-    "bom_variant_id": {"bom_variant_id", "variant", "version", "phien_ban"},
-    "material_code": {"material_code", "component_code", "ma_nvl", "ma_vat_tu", "ma_nguyen_lieu"},
-    "material_name": {"material_name", "component_name", "ten_nvl", "ten_vat_tu", "ten_nguyen_lieu"},
-    "qty_per": {"qty_per", "quantity", "dinh_muc", "so_luong", "standard_usage"},
-    "uom": {"uom", "unit", "dvt", "don_vi"},
-    "scrap_rate": {"scrap_rate", "waste_rate", "hao_hut"},
-}
-
-GROWATT_REQUIRED_HEADERS = {"成品物料", "组件物料", "标准用量"}
-JOHNSON_REQUIRED_HEADERS = {"Level", "Explosion level", "Component number"}
 
 
 class BomParseError(ValueError):
@@ -390,157 +402,6 @@ def create_bom_template_workbook(client: dict) -> bytes:
     stream = BytesIO()
     wb.save(stream)
     return stream.getvalue()
-
-
-def parse_bom_workbook(content: bytes, filename: str, profile: str, upload_mode: str) -> list[dict]:
-    try:
-        wb = load_workbook(BytesIO(content), data_only=True)
-    except Exception as exc:
-        raise BomParseError(f"Không đọc được BOM workbook: {exc}") from exc
-
-    if upload_mode == "technical_bom" and profile == "growatt_multi_workbook":
-        rows = parse_growatt_workbook(wb)
-        if rows:
-            return rows
-
-    if upload_mode == "technical_bom" and profile == "johnson_sap_exploded":
-        rows = parse_johnson_workbook(wb, filename)
-        if rows:
-            return rows
-
-    return parse_manual_flat_workbook(wb)
-
-
-def parse_manual_flat_workbook(wb) -> list[dict]:
-    ws = wb["BOM"] if "BOM" in wb.sheetnames else wb.active
-    raw_rows = list(ws.iter_rows(values_only=True))
-    if not raw_rows:
-        raise BomParseError("Workbook BOM không có dữ liệu.")
-
-    headers = [header_key(value) for value in raw_rows[0]]
-    field_indexes = {}
-    for field, aliases in MANUAL_HEADER_ALIASES.items():
-        for index, header in enumerate(headers):
-            if header in aliases:
-                field_indexes[field] = index
-                break
-
-    for required in ["product_code", "material_code", "qty_per", "uom"]:
-        if required not in field_indexes:
-            raise BomParseError(f"Thiếu cột BOM bắt buộc: {required}.")
-
-    rows = []
-    for excel_index, raw in enumerate(raw_rows[1:], start=2):
-        values = {field: cell_text(raw[index] if index < len(raw) else "") for field, index in field_indexes.items()}
-        if not any(values.values()):
-            continue
-        if not values.get("product_code") or not values.get("material_code"):
-            continue
-        rows.append(normalized_bom_row(
-            product_code=values["product_code"],
-            bom_code=values.get("bom_code") or values["product_code"],
-            bom_variant_id=values.get("bom_variant_id") or "default",
-            material_code=values["material_code"],
-            material_name=values.get("material_name", ""),
-            qty_per=values.get("qty_per", "0"),
-            uom=values.get("uom", ""),
-            scrap_rate=values.get("scrap_rate", ""),
-            source=f"{ws.title}:{excel_index}",
-            row_class="material_candidate_leaf",
-        ))
-
-    if not rows:
-        raise BomParseError("Workbook BOM không có dòng hợp lệ.")
-    return rows
-
-
-def parse_growatt_workbook(wb) -> list[dict]:
-    rows = []
-    for ws in wb.worksheets:
-        raw_rows = list(ws.iter_rows(values_only=True))
-        if not raw_rows:
-            continue
-        headers = [cell_text(value) for value in raw_rows[0]]
-        if not GROWATT_REQUIRED_HEADERS.issubset(set(headers)):
-            continue
-        indexes = {header: headers.index(header) for header in headers}
-        for excel_index, raw in enumerate(raw_rows[1:], start=2):
-            product_code = cell_text(raw[indexes["成品物料"]])
-            material_code = cell_text(raw[indexes["组件物料"]])
-            if not product_code or not material_code:
-                continue
-            rows.append(normalized_bom_row(
-                product_code=product_code,
-                bom_code=product_code,
-                bom_variant_id="technical",
-                material_code=material_code,
-                material_name=cell_text(raw[indexes.get("组件物料描述", -1)] if indexes.get("组件物料描述", -1) >= 0 else ""),
-                qty_per=cell_text(raw[indexes["标准用量"]]),
-                uom=cell_text(raw[indexes.get("单位", -1)] if indexes.get("单位", -1) >= 0 else ""),
-                scrap_rate="",
-                source=f"{ws.title}:{excel_index}",
-                row_class="needs_graph_flatten_review",
-            ))
-    return rows
-
-
-def parse_johnson_workbook(wb, filename: str) -> list[dict]:
-    rows = []
-    product_code = Path(filename).stem
-    for ws in wb.worksheets:
-        raw_rows = list(ws.iter_rows(values_only=True))
-        if not raw_rows:
-            continue
-        headers = [cell_text(value) for value in raw_rows[0]]
-        if not JOHNSON_REQUIRED_HEADERS.issubset(set(headers)):
-            continue
-        indexes = {header: headers.index(header) for header in headers}
-        levels = [parse_int(cell_text(raw[indexes["Level"]])) for raw in raw_rows[1:]]
-        for offset, raw in enumerate(raw_rows[1:]):
-            level = levels[offset]
-            next_level = levels[offset + 1] if offset + 1 < len(levels) else 0
-            is_leaf = next_level <= level
-            if not is_leaf:
-                continue
-            material_code = cell_text(raw[indexes["Component number"]])
-            if not material_code:
-                continue
-            qty = cell_text(raw[indexes.get("Comp. Qty (CUn)", -1)] if indexes.get("Comp. Qty (CUn)", -1) >= 0 else "")
-            if not qty:
-                qty = cell_text(raw[indexes.get("Component quantity", -1)] if indexes.get("Component quantity", -1) >= 0 else "")
-            rows.append(normalized_bom_row(
-                product_code=product_code,
-                bom_code=product_code,
-                bom_variant_id="sap-exploded",
-                material_code=material_code,
-                material_name=cell_text(raw[indexes.get("Object description", -1)] if indexes.get("Object description", -1) >= 0 else ""),
-                qty_per=qty,
-                uom=cell_text(raw[indexes.get("Component unit", -1)] if indexes.get("Component unit", -1) >= 0 else ""),
-                scrap_rate="",
-                source=f"{ws.title}:{offset + 2}",
-                row_class="material_candidate_leaf",
-            ))
-    return rows
-
-
-def normalized_bom_row(**values) -> dict:
-    product_code = cell_text(values["product_code"])
-    bom_code = cell_text(values.get("bom_code") or product_code)
-    material_code = cell_text(values["material_code"])
-    uom = cell_text(values.get("uom", "")).upper()
-    return {
-        "product_code": product_code,
-        "bom_code": bom_code,
-        "bom_variant_id": cell_text(values.get("bom_variant_id") or "default"),
-        "material_code": material_code,
-        "material_name": cell_text(values.get("material_name", "")),
-        "qty_per": quantity_text(values.get("qty_per", "0")),
-        "uom": uom,
-        "scrap_rate": cell_text(values.get("scrap_rate", "")),
-        "source": cell_text(values.get("source", "")),
-        "row_class": cell_text(values.get("row_class", "material_candidate_leaf")),
-        "row_key": "||".join([product_code, bom_code, material_code, uom]),
-    }
 
 
 def seed_rows_from_client(client: dict) -> list[dict]:
@@ -892,43 +753,6 @@ def publish_product_version(
     return product_version
 
 
-def group_rows_by_product(rows: list[dict]) -> dict[str, list[dict]]:
-    groups: dict[str, list[dict]] = {}
-    for row in rows:
-        product_code = row.get("product_code", "")
-        if not product_code:
-            continue
-        groups.setdefault(product_code, []).append(row)
-    return {key: sorted(value, key=lambda row: row["row_key"]) for key, value in sorted(groups.items())}
-
-
-def latest_product_version(state: dict, product_code: str) -> dict | None:
-    versions = state.get("product_versions", {}).get(product_code, [])
-    if not versions:
-        return None
-    return max(versions, key=lambda version: version["product_version_no"])
-
-
-def flattened_product_versions(state: dict) -> list[dict]:
-    output = []
-    for product_code in sorted(state.get("product_versions", {})):
-        output.extend(
-            sorted(
-                state["product_versions"][product_code],
-                key=lambda version: version["product_version_no"],
-                reverse=True,
-            )
-        )
-    return output
-
-
-def product_version_options_by_code(product_versions: list[dict]) -> dict[str, list[dict]]:
-    output: dict[str, list[dict]] = {}
-    for version in product_versions:
-        output.setdefault(version["product_code"], []).append(version)
-    return output
-
-
 def attach_case_bom_snapshot(case: dict, bom_workspace: dict) -> dict:
     versions = bom_workspace.get("versions", [])
     latest = bom_workspace.get("latest_version", {})
@@ -1022,35 +846,6 @@ def latest_usable_product_version(bom_workspace: dict, product_code: str) -> dic
     return max(versions, key=lambda version: int(version.get("product_version_no") or 0), default={})
 
 
-def latest_composition_map(state: dict) -> dict[str, dict]:
-    latest = latest_published_version(state)
-    if latest.get("product_versions"):
-        return {row["product_code"]: dict(row) for row in latest["product_versions"]}
-    return {
-        product_code: composition_entry(version)
-        for product_code, version in (
-            (product_code, latest_product_version(state, product_code))
-            for product_code in state.get("product_versions", {})
-        )
-        if version
-    }
-
-
-def composition_entry(product_version: dict) -> dict:
-    product_artifact_id = product_version.get("product_artifact_id") or product_version["product_version_id"]
-    product_artifact_no = product_version.get("product_artifact_no") or product_version["product_version_no"]
-    return {
-        "product_code": product_version["product_code"],
-        "product_artifact_id": product_artifact_id,
-        "product_artifact_no": product_artifact_no,
-        "product_version_id": product_artifact_id,
-        "product_version_no": product_artifact_no,
-        "version_hash": product_version["version_hash"],
-        "row_count": product_version["row_count"],
-        "status": product_version.get("status", "current"),
-    }
-
-
 def refresh_product_version_statuses(state: dict, composition: list[dict]) -> None:
     current_ids = {row.get("product_artifact_id") or row["product_version_id"] for row in composition}
     for versions in state.get("product_versions", {}).values():
@@ -1071,38 +866,6 @@ def refresh_composition_entries(state: dict, composition: list[dict]) -> list[di
     ]
 
 
-def with_aggregate_rows(state: dict, version: dict) -> dict:
-    output = dict(version)
-    if "rows" not in output:
-        output["rows"] = compose_rows_from_composition(state, output.get("product_versions", []))
-    output["row_count"] = len(output.get("rows", []))
-    output.setdefault("product_versions", [])
-    return output
-
-
-def compose_rows_from_composition(state: dict, composition: list[dict]) -> list[dict]:
-    return compose_rows_from_product_versions(state.get("product_versions", {}), composition)
-
-
-def compose_rows_from_product_versions(product_versions: dict[str, list[dict]], composition: list[dict]) -> list[dict]:
-    version_index = {
-        version["product_version_id"]: version
-        for versions in product_versions.values()
-        for version in versions
-    }
-    rows = []
-    for entry in sorted(composition, key=lambda row: row["product_code"]):
-        product_version = version_index.get(entry["product_version_id"])
-        if not product_version:
-            continue
-        for row in product_version.get("rows", []):
-            enriched = dict(row)
-            enriched["product_version_id"] = product_version["product_version_id"]
-            enriched["product_version_no"] = product_version["product_version_no"]
-            rows.append(enriched)
-    return rows
-
-
 def merge_diff_summaries(product_results: list[dict]) -> dict:
     summary = {"added": 0, "removed": 0, "changed": 0, "unchanged": 0, "changed_products": 0}
     for result in product_results:
@@ -1111,13 +874,6 @@ def merge_diff_summaries(product_results: list[dict]) -> dict:
         for key in ["added", "removed", "changed", "unchanged"]:
             summary[key] += result.get("diff_summary", {}).get(key, 0)
     return summary
-
-
-def latest_published_version(state: dict) -> dict:
-    published = [version for version in state.get("versions", []) if version["status"] == "published"]
-    if not published:
-        return {"version_no": 0, "version_id": "", "rows": []}
-    return max(published, key=lambda version: version["version_no"])
 
 
 def hash_rows(rows: list[dict]) -> str:
@@ -1214,37 +970,6 @@ def make_id(prefix: str, seed: str) -> str:
 def safe_filename(filename: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", filename.strip()).strip("-")
     return cleaned or "file"
-
-
-def cell_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
-
-
-def quantity_text(value: Any) -> str:
-    text = cell_text(value).replace(",", "")
-    if not text:
-        return "0"
-    try:
-        decimal = Decimal(text)
-    except InvalidOperation:
-        return text
-    normalized = decimal.normalize()
-    return format(normalized, "f")
-
-
-def parse_int(value: str) -> int:
-    try:
-        return int(Decimal(value))
-    except InvalidOperation:
-        return 0
-
-
-def header_key(value: Any) -> str:
-    text = unicodedata.normalize("NFKD", cell_text(value))
-    text = "".join(char for char in text if not unicodedata.combining(char))
-    return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
 
 
 def clean_choice(value: str | None, allowed: set[str], fallback: str) -> str:
