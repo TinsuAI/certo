@@ -23,9 +23,29 @@ started scoping whether CO↔DH should talk over Docker's internal network.
   object via `/bom?artifact_id=`). Returns canonical rich artifact, client/product
   -scoped, 404 on mismatch.
 - Pushed `main` (`f23b091..9408c8f`) → CI/CD `26716832669` green incl. "Refresh
-  nightly stack". Verified live on `:8764`: new routes 401 (deployed), bogus 404.
-  **CO can run final e2e + switch on the batch path.**
-- Updated worker note in `AGENTS.md` (CLAUDE.md → symlink). **UNCOMMITTED.**
+  nightly stack". Verified live on `:8764` and prod `:8754` (CI deploy job builds +
+  deploys prod on every push to main, then refreshes nightly). CO ran the final e2e
+  and reported **PASS**; batch path switched on.
+- Updated worker note in `AGENTS.md` (CLAUDE.md → symlink). Committed `e467a66`.
+
+### CO↔DH internal docker networking (shipped this session)
+- Prod topology corrected: prod DH + CO run as **Docker** (`data-hub-app-1` /
+  `co-app-1`), NOT systemd (repo `deploy/systemd/*.service` is stale). Two separate
+  compose projects → separate networks. Verified live.
+- Moved CO→DH server-to-server traffic onto an internal docker bridge `tinsu-shared`
+  (created out of band; `external: true` in both composes). DH gets alias
+  `data-hub-app`. Committed: DH `48d874b` (→ origin TinsuAI/data-hub), CO `5ce27f3`
+  (→ `tinsu` remote = TinsuAI/co; origin `sgnjfk/*` is a FORK, never push prod there).
+- Flipped prod CO `.env` (box-side, gitignored): `DATA_HUB_API_BASE_URL` AND
+  `DATA_HUB_JWKS_URL` → `http://data-hub-app:8754[/v1/auth/jwks]`. Kept
+  `DATA_HUB_ISSUER_URL` + `DATA_HUB_BASE_URL` public `https://ttdatahub.tinsu.ai`
+  (iss is a string identifier matched against the token, not a fetch; browser SSO
+  redirect can't resolve a docker alias). Result: entire CO→DH path (data + auth)
+  no longer touches the internet. Backups on box: `/home/tinsu/co/.env.bak-*`.
+- Pre-flip safety check: internal JWKS == public JWKS (keys=1, kid=k1, same key).
+  Post-flip: CO healthy, jwks=200 from container, no error logs, public CO+DH still 200.
+- Final state pushed: DH `main` = `origin/main` = `f9ba8bd`; prod box checkout =
+  `f9ba8bd`, container recreated, batch route serving real CO traffic (200).
 
 ## Decisions
 - Parity target = the single-artifact `artifact` shape, NOT the lighter `/bom/artifacts`
