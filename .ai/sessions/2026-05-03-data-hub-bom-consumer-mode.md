@@ -49,7 +49,7 @@
 - Verify/fix Data Hub provider provenance for approved CO proposals before relying on proposal materialized versions for legal traceability.
 - Decide whether Data Hub BOM product/version endpoints need pagination before larger real-client rollouts.
 - Existing pre-session uncommitted discovery artifacts remain outside this commit unless the user asks to include them:
-  - `.ai/features/2026-05-02-co-bom-data-hub-migration.md`
+  - `.ai/features/2026-05-02-co-bom-data-hub-migration/brief.md`
   - `.ai/features/2026-05-02-data-hub-bom-flattening-instructions.md`
   - `.ai/sessions/2026-05-03-data-hub-bom-flattening-plan.md`
 - Existing unrelated Node legal lookup `raw-binary` test failures were not revisited.

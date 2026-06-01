@@ -2,7 +2,7 @@
 
 ## What Was Done
 - Reviewed the project state and the goal of separating shared source/master data into Data Hub while keeping CO workflow state in this app.
-- Wrote the feature brief `.ai/features/2026-05-02-data-hub-sso-and-source-consumer.md`.
+- Wrote the feature brief `.ai/features/2026-05-02-data-hub-sso-and-source-consumer/brief.md`.
 - Added CO Data Hub auth consumer support in `app/co_auth.py`: JWKS verification, SSO authorize/callback exchange integration, signed session cookie handling, route guard helpers, client ACL checks, and safe redirects.
 - Added the CO Data Hub adapter in `app/data_hub_client.py` and wired `app/portfolio.py` to select it when `DATA_HUB_ENABLED` is active.
 - Updated `app/main.py` to use `portfolio_service` for client resolution and source reads, filter clients by the authenticated Data Hub user, support Data Hub-only clients, and block local shared-source writes in Data Hub mode.

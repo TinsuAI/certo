@@ -2,7 +2,7 @@
 
 ## What Was Done
 - Created branch `sprint/co-case-supporting-files-20260429` for the sprint.
-- Added a discovery brief for the dossier workflow and form guidance scope at `.ai/features/2026-04-29-co-dossier-supporting-files-and-form-guidance.md`.
+- Added a discovery brief for the dossier workflow and form guidance scope at `.ai/features/2026-04-29-co-dossier-supporting-files-and-form-guidance/brief.md`.
 - Implemented persisted C/O case records in `app/co_case_store.py`, stored under `CO_CASE_STORE_ROOT` or `data/local/co-cases`.
 - Added supporting-file upload with a 20 MB limit, extension allowlist, safe filenames, and invoice/B/L metadata capture.
 - Added invoice matching from a C/O case to reviewed BCCT export rows, filtered by configured export declaration types.

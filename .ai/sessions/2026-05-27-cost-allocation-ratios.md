@@ -3,7 +3,7 @@
 ## What Was Done
 
 ### Feature brief (`/discover`)
-- `.ai/features/2026-05-27-cost-allocation-ratios.md` (~125 lines) — scope, decisions, risks, open Qs.
+- `.ai/features/2026-05-27-cost-allocation-ratios/brief.md` (~125 lines) — scope, decisions, risks, open Qs.
 - Pre-discover step: pulled the GROWATT sample (`P:\Downloads\BANG PHAN BO TY LE CHI PHI.xlsx`) into `.ai/samples/`, identified the column layout (B=Mã SP, C-G=cost details, H=profit-residual, I=transport, J=note), and mapped them to existing `product.cost_buildup` keys.
 - User chose: schema expand 4 → 6 details, storage CO Postgres (not Data Hub), Mode A primary + B fallback.
 

@@ -5,7 +5,7 @@ Date: 2026-05-05
 ## What Was Done
 
 - Clarified the business rule: one shipment can include multiple finished products, producing multiple origin sheets / bảng kê, but C/O stock calculation must be sequential rather than parallel.
-- Added a feature brief at `.ai/features/2026-05-05-origin-sequential-product-allocation.md`.
+- Added a feature brief at `.ai/features/2026-05-05-origin-sequential-product-allocation/brief.md`.
 - Implemented case-level sequential allocation trace:
   - products receive `allocation_sequence`
   - materials receive `material_sequence`

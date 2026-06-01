@@ -43,6 +43,6 @@
 - Build a real `CTH/CTSH` evaluator if tariff-shift decisions must be system-generated rather than carried from selected criteria.
 - Model direct/build-up inputs explicitly before using them in origin qualification.
 - Keep pre-existing untracked artifacts separate unless the user asks to include them:
-  - `.ai/features/2026-05-02-co-bom-data-hub-migration.md`
+  - `.ai/features/2026-05-02-co-bom-data-hub-migration/brief.md`
   - `.ai/features/2026-05-02-data-hub-bom-flattening-instructions.md`
   - `.ai/sessions/2026-05-03-data-hub-bom-flattening-plan.md`

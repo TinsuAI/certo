@@ -34,7 +34,7 @@
   - updated `npm run co:serve` to source `.env` before starting uvicorn
   - ran migrations and imported app/workflow state
   - rebuilt source indexes for `growatt`, `johnson`, and `do-thanh`
-- Added discovery note `.ai/features/2026-05-12-origin-sheet-live-allocation.md`.
+- Added discovery note `.ai/features/2026-05-12-origin-sheet-live-allocation/brief.md`.
 - Added regression tests for:
   - compact workbook payloads
   - autosave preserving all sheet states

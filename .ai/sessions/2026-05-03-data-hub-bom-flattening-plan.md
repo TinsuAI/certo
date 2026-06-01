@@ -10,7 +10,7 @@
 - Investigated the sibling Data Hub repo enough to answer whether it can already support CO BOM migration:
   - Data Hub has BOM schema, read APIs, proposal API, upload preview, and local BOM data.
   - Data Hub does not yet implement a full technical BOM graph flattener.
-- Created `.ai/features/2026-05-02-co-bom-data-hub-migration.md` describing the future CO migration path after Data Hub BOM is ready.
+- Created `.ai/features/2026-05-02-co-bom-data-hub-migration/brief.md` describing the future CO migration path after Data Hub BOM is ready.
 - Created `.ai/features/2026-05-02-data-hub-bom-flattening-instructions.md`, a detailed implementation prompt for a Data Hub agent.
 - Iteratively strengthened the Data Hub BOM flattening prompt with user feedback:
   - Store both BOM TP and BOM BTP.

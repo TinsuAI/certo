@@ -4,7 +4,7 @@
 - Branch `main` at `04ce3ca` — pushed to `tinsu/main` + **deployed (CI/CD green, Deploy demo OK)**.
   Working tree clean. Local suite **411 passed + 8 skipped** (file-store/CI mode).
 - **Client feedback batch 1 — #1 + #3 + #5 DONE, prod-deployed.** Triage of the
-  6-item client PDF feedback is in `.ai/features/2026-06-01-client-feedback-batch1.md`.
+  6-item client PDF feedback is in `.ai/features/2026-06-01-client-feedback-batch1/brief.md`.
   - **#5 Fuzzy multi-field substitute search (PR #1, squash `04ce3ca`).** New shared
     matcher `app/material_search.py`: multi-token AND across {code, internal_code, name,
     hs}, order-independent, accent-folded (Vietnamese diacritics + đ→d), ranked best-first.
@@ -57,7 +57,7 @@ Session detail: `.ai/sessions/2026-06-01-client-feedback-batch1.md` (#1/#3) +
 
 ## Next Steps (priority order)
 
-**Client feedback batch 1 — remaining (plan: `.ai/features/2026-06-01-client-feedback-batch1.md`):**
+**Client feedback batch 1 — remaining (plan: `.ai/features/2026-06-01-client-feedback-batch1/brief.md`):**
 1. **#2 "mở" load lâu** — already fixed in prior sessions (skip_heavy_context, BOM batch,
    internal network). No code; just **confirm with client** the current build feels fast,
    and if not, capture which step + client + timing before any further work.
@@ -85,7 +85,7 @@ still the right design (co_stock would need the filter pushed into its SQL path)
 7. Seed missing CO forms (D/E/AK/AANZ/AJ/RCEP/UKVFTA/VK/VC/VJ).
 8. HS↔form coherence + criteria token validation (MED).
 9. Claim-identity DB unique constraint (app-only today; see
-   `.ai/features/2026-05-29-claim-id-stability.md`).
+   `.ai/features/2026-05-29-claim-id-stability/brief.md`).
 
 ## Notes for Next AI Session
 - **Browser testing recipe** is in memory `browser-test-recipe.md`: real data lives under

@@ -50,6 +50,6 @@
 - Improve the origin tab's editable product/material grid into a more read-first calculation table.
 - Decide whether old C/O workbook upload route should remain as a hidden developer/demo parser or be moved to a dedicated admin/dev tool.
 - Existing pre-session untracked artifacts remain outside this commit unless the user asks:
-  - `.ai/features/2026-05-02-co-bom-data-hub-migration.md`
+  - `.ai/features/2026-05-02-co-bom-data-hub-migration/brief.md`
   - `.ai/features/2026-05-02-data-hub-bom-flattening-instructions.md`
   - `.ai/sessions/2026-05-03-data-hub-bom-flattening-plan.md`

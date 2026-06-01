@@ -5,7 +5,7 @@
 Discovery-only session (no code changes). Picks up STATUS Next Steps #2 (origin
 tab = the dominant bottleneck after the shipment fix). Produced a verified design
 to remove the full BCCT pull from the origin path. Output: feature brief
-`.ai/features/2026-05-31-origin-narrow-bcct-fetch.md` (title: "eliminate the full
+`.ai/features/2026-05-31-origin-narrow-bcct-fetch/brief.md` (title: "eliminate the full
 BCCT pull"). Next session: `/tdd`.
 
 ## What Was Done
@@ -90,7 +90,7 @@ not assumed.
 
 ## State at Handoff
 
-- Branch `main`, clean except untracked `.ai/features/2026-05-31-origin-narrow-bcct-fetch.md`.
+- Branch `main`, clean except untracked `.ai/features/2026-05-31-origin-narrow-bcct-fetch/brief.md`.
   No code changes. Prod unaffected.
 - Servers up: CO :8001, local DH :8754 (both healthy). May need restart next session.
 - Memory added: `origin-costock-freshness-deferred` (+ MEMORY.md index).

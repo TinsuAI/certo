@@ -2,7 +2,7 @@
 
 ## What Was Done
 - Got current with project state and confirmed the C/O demo/manual-test setup on branch `sprint/co-case-supporting-files-20260429`.
-- Used discovery first and wrote `.ai/features/2026-04-29-co-workflow-navigation-redesign.md`.
+- Used discovery first and wrote `.ai/features/2026-04-29-co-workflow-navigation-redesign/brief.md`.
 - Reworked the C/O mental model in the UI:
   - C/O is now the primary workflow entry for a client.
   - Catalog, BOM, C/O stock, BCCT, and config remain supporting data surfaces.

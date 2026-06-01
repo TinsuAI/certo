@@ -3,7 +3,7 @@
 ## Use Case
 CO is moving `refresh_co_stock_for_client()` from a destructive
 DELETE+INSERT of `co.co_stock_rows` to a diff-based incremental refresh
-(`.ai/features/2026-05-28-co-stock-refresh-audit.md` for the rationale).
+(`.ai/features/2026-05-28-co-stock-refresh-audit/brief.md` for the rationale).
 
 Even with the local diff logic in place, CO still has to pull the full
 BCCT corpus on every refresh because today's adapter is

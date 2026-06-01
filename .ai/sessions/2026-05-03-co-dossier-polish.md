@@ -51,6 +51,6 @@
   - `GIN01425L031` currently returns zero Data Hub rows for `growatt-vn`
 - Continue replacing demo origin calculation with real legal PSR engine, allocation ledger, and durable case-level Data Hub BOM binding.
 - Existing pre-session untracked artifacts remain outside this work unless explicitly requested:
-  - `.ai/features/2026-05-02-co-bom-data-hub-migration.md`
+  - `.ai/features/2026-05-02-co-bom-data-hub-migration/brief.md`
   - `.ai/features/2026-05-02-data-hub-bom-flattening-instructions.md`
   - `.ai/sessions/2026-05-03-data-hub-bom-flattening-plan.md`

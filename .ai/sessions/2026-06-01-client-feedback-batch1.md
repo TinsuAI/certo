@@ -5,7 +5,7 @@
 Triaged a 6-item client feedback PDF (`HIỆN TRẠNG BARRY CO`) against the code, then
 implemented + prod-verified the two highest-value items.
 
-**Triage** (full table in `.ai/features/2026-06-01-client-feedback-batch1.md`): all 6 valid.
+**Triage** (full table in `.ai/features/2026-06-01-client-feedback-batch1/brief.md`): all 6 valid.
 1. No delete-dossier — perception bug (feature gated to dev/admin; testers are manager).
 2. "mở" load slow — already fixed prior sessions.
 3. Substitute sometimes errors / no suggestion — flaky DH BCCT dependency.
