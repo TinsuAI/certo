@@ -72,8 +72,32 @@ logic touched. Baseline node suite still 53 pass / 3 pre-existing fails
      stays
    - `bom_store` 1251→976 → `bom_workbook_io.py` (188, parsers) +
      `bom_composition.py` (89, product-version composition)
-4. **Merge `refactor/split-main` → `main`** (then optionally push; tinsu push
-   redeploys demo). 20 commits, all green.
+4. ~~Merge `refactor/split-main` → `main`~~ **DONE** — see Landing below.
+
+## Landing: merge, deploy, e2e (end of session)
+- **Merged** `refactor/split-main` → `main` (fast-forward, 21 commits) and pushed to
+  **origin + tinsu**. CI/CD on `TinsuAI/co` ran all 3 jobs green (Python tests / Docker
+  build / **Deploy demo**) — no Docker Hub gotcha this time. Demo now serves `2a04f4a`;
+  `/healthz` 200, `/` 303 (auth ON). A trailing docs-only STATUS commit (`aa55480`) was
+  pushed to **origin only** so the demo wouldn't redeploy for a doc line — hence
+  `tinsu/main` sits one commit behind `main`.
+- **Local browser e2e** (`.ai/scripts/e2e_refactor_smoke.cjs`): 20/20 pages 200, no
+  traceback, origin SPA renders; `e2e_substitute_flow.cjs` drove the substitute modal
+  (XHR `substitute-candidates` 200, freshness chip). Visually verified clients/catalog/
+  origin/substitute/co-forms screenshots.
+- **Prod browser e2e** (`.ai/scripts/e2e_prod.cjs`, `barry-co.tinsu.ai`): SSO login OK,
+  17/17 pages, auth-filtered client list (manager → only growatt-vn + johnson-vn),
+  origin SPA with `sheet-panels=2 substitute-triggers=300`. Confirms the refactor works
+  with real auth + real data on the live demo.
+
+### e2e gotchas (so next AI doesn't relearn)
+- Playwright lives in the **npx cache**, not repo `node_modules`. ESM `import` does NOT
+  honor `NODE_PATH` → use **CJS `.cjs` with `require` + async IIFE** and
+  `NODE_PATH="$PWDIR" node script.cjs` where
+  `PWDIR=$(dirname "$(ls -d ~/.npm/_npx/*/node_modules/playwright|head -1)")`.
+- Substitute triggers can be present but **disabled** when a sheet is "đã chốt" (locked);
+  select `[data-origin-substitute-trigger]:not([disabled]):visible`. Many growatt-vn
+  cases have no BOM (triggers=0); pick a johnson-vn case for a populated sheet.
 
 ## Pre-refactor batch-1 items (still open, unchanged this session)
 #2 (mở speed) + #4 (substitute ranking) still need client input; email draft at
