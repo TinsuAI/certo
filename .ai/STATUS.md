@@ -1,9 +1,11 @@
 # Project Status
 
 ## Current State
-- **On branch `refactor/split-main` (NOT merged, NOT pushed).** `main`/`origin/main`/
-  `tinsu/main` = `861ec57` (deployed demo unchanged). The refactor branch is 11
-  commits ahead — pure code-movement, no behavior change.
+- **Refactor merged into local `main` (fast-forward, 21 commits) — NOT pushed.**
+  Local `main` = `2ba87b0`; `origin/main`/`tinsu/main` still = `861ec57` (deployed
+  demo unchanged). Push to tinsu when ready (redeploys demo). `refactor/split-main`
+  branch ref still exists (== main tip), safe to delete. 419 pytest green on main;
+  browser e2e 20/20 pages + substitute flow verified.
 - **`app/main.py` split 8017 → 167 lines (-98%)** — now a pure app factory
   (lifespan + FastAPI() + mounts + include_router + exception handlers + auth
   middleware + number filter + a re-export shim for `app.main.X` test imports).
