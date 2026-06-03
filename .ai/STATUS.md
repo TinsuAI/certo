@@ -2,8 +2,9 @@
 
 **Date:** 2026-06-01 — Extended **BOM product search** to match NVL/component codes,
 not just the finished-product code. Single `q` box now does reverse lookup ("which TPs
-use this NVL"). TDD, full suite green, UI screenshot captured. **Uncommitted — awaiting
-review.** See `.ai/sessions/2026-06-01-bom-search-nvl.md`.
+use this NVL"). TDD, full suite green, UI screenshot captured. **Committed + pushed +
+deployed** (prod/demo `:8754` and nightly `:8764`, both verified live). See
+`.ai/sessions/2026-06-01-bom-search-nvl.md`.
 
 ## Current State
 
@@ -11,13 +12,17 @@ review.** See `.ai/sessions/2026-06-01-bom-search-nvl.md`.
 skipped (`uv run pytest -q`). **Migrations:** 074 — no new migration this session
 (query/route/template only).
 
-**Uncommitted (this session — BOM search):**
-- `app/stores/bom.py` — `list_products_with_bom` + `count_products_with_bom` `where_q`
-  now matches product code OR component code (rows.material_code / edges.child_code).
-- `app/routes/api.py` — `GET /v1/hub/products` accepts + forwards `q`.
-- `app/templates/clients/bom.html` — search placeholder updated.
-- `tests/test_bom_search_components.py` — 7 new tests (NEW, untracked).
-- `.ai/features/2026-06-01-bom-search-nvl/` — `ui_smoke.py` + committed screenshot (NEW).
+**This session's commits (pushed to `main`):**
+- `57564a5` — feat(bom): search matches component/NVL codes (store + api + template +
+  `tests/test_bom_search_components.py` + `.ai/features/2026-06-01-bom-search-nvl/`).
+- `388c17f` — docs(handoff): session 2026-06-01 BOM search by NVL/component code.
+
+**Deploy (CI run `26763037985`, all green — test → docker → deploy):**
+- Prod/demo `:8754` (`data-hub-app-1`) — recreated, healthz 200.
+- Nightly `:8764` (`nightly-dh-app-1`, via `rebuild-app.sh dh`) — recreated, healthz 200.
+- Verified **inside both running containers**: `child_code ilike` ×2 in
+  `app/stores/bom.py` + new "mã NVL trong BOM" placeholder. Not just CI-log trust.
+- `tinsu-shared` net unaffected (attach lives in repo compose; recreate preserves alias).
 
 **Dev server:** running `uvicorn ... --workers 4` (no `--reload`) on `:8754` with the new
 code. Restart gotcha: workers show as `python3`, so kill by port
@@ -35,9 +40,9 @@ is fully closed (verified both sides 2026-06-01).**
 - BOM search component matching (see Current State + session log).
 
 ## Next Steps
-1. **Commit the BOM search change** (3 source files + new test + feature folder) once
-   reviewed. Back-compatible: `q` on `/v1/hub/products` is optional, no CO-side change
-   needed.
+1. ~~Commit + deploy the BOM search change~~ **DONE 2026-06-01** (commits `57564a5` /
+   `388c17f`, live on `:8754` + `:8764`). Back-compatible: `q` on `/v1/hub/products` is
+   optional; CO could adopt it for component reverse-lookup but needs no change.
 2. Decide whether to commit the older uncommitted `AGENTS.md` worker-note change (from
    the prior session — may already be in `e467a66`; verify).
 3. **C.2 strict cutover (prod)** — still open from 2026-05-30: mint CO prod service token,
