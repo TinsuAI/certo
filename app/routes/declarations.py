@@ -648,11 +648,18 @@ def _unique_member_name(name: str, taken: set[str]) -> str:
 def _build_manifest_text(
     *, client: dict, direction: str, requested: list[str],
     files_by_decl: dict[str, list], member_by_file_id: dict[int, str],
+    unresolved_file_ids: set[int] | None = None,
 ) -> str:
     """Plain-text Vietnamese manifest listing requested declarations,
     grouped by status (đã có / thiếu). One line per file under each
     declaration with the in-archive filename so operator can spot
-    duplicates after the dedupe pass."""
+    duplicates after the dedupe pass.
+
+    `unresolved_file_ids` are files registered in metadata whose blob is
+    absent from storage — they can't be embedded, so each is annotated
+    `[THIẾU NỘI DUNG]` and counted on a dedicated line (only rendered
+    when non-empty, to keep the healthy-case manifest stable)."""
+    unresolved_file_ids = unresolved_file_ids or set()
     present: list[str] = []
     missing: list[str] = []
     for decl in requested:
@@ -669,6 +676,10 @@ def _build_manifest_text(
     lines.append(f"Tổng tờ khai yêu cầu: {len(requested)}")
     lines.append(f"Đã có file: {len(present)}")
     lines.append(f"Thiếu file: {len(missing)}")
+    if unresolved_file_ids:
+        lines.append(
+            f"File thiếu nội dung trên máy chủ: {len(unresolved_file_ids)}"
+        )
     lines.append("")
     lines.append("== Tờ khai đã có file ==")
     if present:
@@ -677,7 +688,8 @@ def _build_manifest_text(
             lines.append(f"- {decl}: {len(entries)} file(s)")
             for f in entries:
                 member = member_by_file_id.get(f.id, f.original_filename)
-                lines.append(f"    * {member}")
+                suffix = "  [THIẾU NỘI DUNG]" if f.id in unresolved_file_ids else ""
+                lines.append(f"    * {member}{suffix}")
     else:
         lines.append("(none)")
     lines.append("")
@@ -701,35 +713,52 @@ def _build_declarations_zip(
     import zipfile
 
     taken: set[str] = set()
-    # First pass: stage the (file, member_name) pairs so the manifest
-    # can reference the post-dedupe filename actually written.
-    staged: list[tuple] = []  # (file_obj, member_name)
+    # First pass: stage (file, member_name, blob) so the manifest can
+    # reference the post-dedupe filename and, crucially, reflect which
+    # blobs actually resolved. A file registered in metadata but absent
+    # from storage is staged with blob=None and surfaced (manifest
+    # annotation + count + marker) rather than silently dropped.
+    staged: list[tuple] = []  # (file_obj, member_name, blob | None)
     member_by_file_id: dict[int, str] = {}
+    unresolved_file_ids: set[int] = set()
     for decl in requested:
         for f in files_by_decl.get(decl, []):
             base = _safe_member_name(f.original_filename)
             member = _unique_member_name(base, taken)
-            staged.append((f, member))
             member_by_file_id[f.id] = member
+            try:
+                blob = backend.get(f.backend_key)
+            except FileNotFoundError:
+                unresolved_file_ids.add(f.id)
+                staged.append((f, member, None))
+                continue
+            staged.append((f, member, blob))
 
     manifest = _build_manifest_text(
         client=client, direction=direction, requested=requested,
         files_by_decl=files_by_decl, member_by_file_id=member_by_file_id,
+        unresolved_file_ids=unresolved_file_ids,
     )
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for f, member in staged:
-            try:
-                blob = backend.get(f.backend_key)
-            except FileNotFoundError:
-                # File registered but blob missing on disk — record in
-                # manifest implicitly (it stays "present" by file_count
-                # but the operator will notice the missing entry). Skip
-                # the actual zip write to avoid a hard 500 mid-stream.
-                continue
+        for f, member, blob in staged:
+            if blob is None:
+                continue  # registered-but-missing: surfaced below, not written
             zf.writestr(member, blob)
         zf.writestr("DANH_SACH_TO_KHAI.txt", manifest)
+        if unresolved_file_ids:
+            marker = [
+                "Các file dưới đây có trong metadata nhưng thiếu nội dung "
+                "trên máy chủ — không thể đưa vào ZIP.",
+                "Xem DANH_SACH_TO_KHAI.txt để biết chi tiết.",
+                "",
+            ]
+            for decl in requested:
+                for f in files_by_decl.get(decl, []):
+                    if f.id in unresolved_file_ids:
+                        marker.append(f"- {decl}: {f.original_filename}")
+            zf.writestr("FILE_THIEU_NOI_DUNG.txt", "\n".join(marker) + "\n")
         if not staged:
             zf.writestr(
                 "NO_FILES_FOUND.txt",
