@@ -302,3 +302,28 @@ def test_origin_parity_e2e_converged_matches_full_pull_on_real_johnson():
     again = main.origin_source_context(client, case)
     sig2 = main.origin_build_signature(again["invoice_matches"], {}, again["material_rows"], again["stock_rows"], {})
     assert sig1 == sig2
+
+
+def test_cached_origin_source_context_carries_declaration_file_counts(monkeypatch):
+    """The cached (warm) path feeds the exports/review TKX/TKN file-status panel.
+    Without declaration_file_counts every declaration falsely reads
+    "Thiếu tờ khai" even when Data Hub has the file (regression)."""
+    import app.web.co_case_context as ctx
+
+    sentinel = {"export": {"EX-1": 1}, "import": {"IM-1": 1}}
+
+    class _PF:
+        data_hub = object()
+
+        def declaration_file_counts(self, client_id, case, invoice_matches):
+            return sentinel
+
+    monkeypatch.setattr("app.web.co_case_context.portfolio_service", _PF())
+
+    case = {
+        "source_invoice_matches": [{"item_code": "MAT-1", "declaration_no": "EX-1"}],
+        "products": [],
+    }
+    out = ctx.cached_origin_source_context({"id": "johnson-vn"}, case)
+    assert out["source_backend"] == "case-snapshot"
+    assert out["declaration_file_counts"] == sentinel

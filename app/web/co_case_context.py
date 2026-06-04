@@ -459,12 +459,23 @@ def case_tkx_tkn_summary(
     }
 def cached_origin_source_context(client: dict, case: dict) -> dict:
     cached_matches = case.get("source_invoice_matches") if isinstance(case.get("source_invoice_matches"), list) else []
+    invoice_matches = cached_matches or [origin_match_from_existing_product(product) for product in case.get("products", [])]
+    # The TKX/TKN file-status panel (exports/review steps) reads
+    # declaration_file_counts. The cached path skips the heavy BCCT pull but must
+    # still carry this — it's a narrow declarations call, not the 40s catalog
+    # pull — otherwise every declaration falsely shows "Thiếu tờ khai".
+    declaration_file_counts = {"export": {}, "import": {}}
+    if getattr(portfolio_service, "data_hub", None) is not None and hasattr(portfolio_service, "declaration_file_counts"):
+        declaration_file_counts = portfolio_service.declaration_file_counts(
+            client.get("id", ""), case, invoice_matches
+        )
     return {
         "source_backend": "case-snapshot",
         "source_summary": source_summary_from_case_snapshot(client, case),
-        "invoice_matches": cached_matches or [origin_match_from_existing_product(product) for product in case.get("products", [])],
+        "invoice_matches": invoice_matches,
         "material_rows": [],
         "stock_rows": [],
+        "declaration_file_counts": declaration_file_counts,
     }
 def source_summary_from_case_snapshot(client: dict, case: dict) -> dict:
     snapshot = case.get("source_snapshot") if isinstance(case.get("source_snapshot"), dict) else {}
