@@ -20,6 +20,8 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY app ./app
 COPY db ./db
 COPY docs ./docs
+COPY config ./config
+COPY assets ./assets
 
 EXPOSE 8755
 

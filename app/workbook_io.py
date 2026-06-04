@@ -716,19 +716,25 @@ def write_hq_sheet_materials(ws, product: dict, start_row: int, *, legacy_export
     return row_index
 
 
-HQ_FORM_MAU_COMBINED_PATH = Path(__file__).resolve().parent.parent / "data" / "local" / "hq-templates" / "form-mau-combined.xlsx"
-HQ_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "data" / "local" / "hq-templates" / "tru-lui-co-output-template.xlsx"
-HQ_LEGACY_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "data" / "local" / "hq-templates" / "tru-lui-co-template.xlsm"
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+HQ_FORM_MAU_COMBINED_PATH = _REPO_ROOT / "data" / "local" / "hq-templates" / "form-mau-combined.xlsx"
+HQ_TEMPLATE_PATH = _REPO_ROOT / "data" / "local" / "hq-templates" / "tru-lui-co-output-template.xlsx"
+HQ_LEGACY_TEMPLATE_PATH = _REPO_ROOT / "data" / "local" / "hq-templates" / "tru-lui-co-template.xlsm"
+# Shippable copy of the FORM MAU template. `data/` is .dockerignore'd, so the
+# committed `assets/` copy is what reaches the production image.
+HQ_FORM_MAU_ASSET_PATH = _REPO_ROOT / "assets" / "hq-templates" / "form-mau-combined.xlsx"
 
 
 def hq_template_path() -> Path | None:
     """Locate the bảng kê styling template.
 
-    Preference order: the new 2026 FORM MAU combined workbook, then the legacy
-    `tru lui CO` template, then the original .xlsm.
+    Preference order: the local FORM MAU workbook (richer dev set), the shipped
+    `assets/` copy, then the legacy `tru lui CO` template and original .xlsm.
     """
     if HQ_FORM_MAU_COMBINED_PATH.exists():
         return HQ_FORM_MAU_COMBINED_PATH
+    if HQ_FORM_MAU_ASSET_PATH.exists():
+        return HQ_FORM_MAU_ASSET_PATH
     if HQ_TEMPLATE_PATH.exists():
         return HQ_TEMPLATE_PATH
     if HQ_LEGACY_TEMPLATE_PATH.exists():
