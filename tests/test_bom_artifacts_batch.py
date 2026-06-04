@@ -143,7 +143,7 @@ def test_two_products_rows_embedded(auth_disabled):
             assert item["unresolved"] == []
             assert item["decisions"] == []
             assert env["filter_applied"] == {
-                "lifecycle": "active", "shape": "flat",
+                "lifecycle": "active", "shape": "flat", "depth": "any",
                 "intents": None, "latest_per_variant": True,
                 "case_id": None,
             }

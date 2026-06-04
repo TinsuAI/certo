@@ -46,6 +46,26 @@ def bom_shape(flatten_status: str, flatten_strategy: str) -> BomShape:
     return "shallow"
 
 
+def is_shallow_flatten(flatten_status: str, flatten_strategy: str) -> bool:
+    """Authoritative shallow/full classification for the `depth` picker filter.
+
+    Shallow == a flat artifact whose leaves may still include in-house BTPs
+    (partial explosion), so it is structurally incomplete for a certificate
+    of origin. Single-sourced with bom_shape() — shallow iff bom_shape()
+    reports 'shallow' — so the depth semantics can never drift from the
+    4-shape model. Concretely the shallow strategies are:
+      - purchased_btp_as_leaf  (every dual-source BTP kept as a leaf)
+      - mixed_confirmed / no_strategy  (conservative: leaves may include BTPs)
+    Full (NOT shallow): technical_exploded, self_produced_btp_exploded.
+    Leaf-complete-by-assertion (NEVER shallow): manual_flat_as_provided
+    (agency-provided and customs-declared "Mẫu 16" flats), and any
+    flatten_status='not_applicable' artifact.
+    """
+    if flatten_status == "not_applicable":
+        return False
+    return bom_shape(flatten_status, flatten_strategy) == "shallow"
+
+
 def normalized_hash(rows: list[dict]) -> str:
     """Canonicalize BOM rows for idempotency: sort by (material_code, bom_variant_id),
     round qty to 9 decimals, NFC-trim text, exclude row_index."""
@@ -646,6 +666,10 @@ def list_artifacts_for_products(*, client_id: str,
                     row.get("flatten_status") or "",
                     row.get("flatten_strategy") or "",
                 )
+                row["is_shallow"] = is_shallow_flatten(
+                    row.get("flatten_status") or "",
+                    row.get("flatten_strategy") or "",
+                )
                 if row.get("parent_artifact_id"):
                     row["parent_shape"] = bom_shape(
                         row.get("parent_flatten_status") or "",
@@ -715,6 +739,10 @@ def list_artifact_meta_for_products(*, client_id: str,
             out: dict[str, list[dict]] = {}
             for r in cur.fetchall():
                 row = dict(zip(cols, r))
+                row["is_shallow"] = is_shallow_flatten(
+                    row.get("flatten_status") or "",
+                    row.get("flatten_strategy") or "",
+                )
                 out.setdefault(row["product_code"], []).append(row)
             return out
 
@@ -732,6 +760,10 @@ def get_artifact_with_rows(artifact_id: str) -> dict | None:
                 return None
             cols = [d[0] for d in cur.description]
             artifact = dict(zip(cols, row))
+            artifact["is_shallow"] = is_shallow_flatten(
+                artifact.get("flatten_status") or "",
+                artifact.get("flatten_strategy") or "",
+            )
             cur.execute(
                 """
                 select row_index, material_code, bom_code, bom_variant_id,

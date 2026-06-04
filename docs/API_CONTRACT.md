@@ -548,6 +548,7 @@ Query params (defaults preserve raw-history back-compat — opt in to filtering)
 | `intents` | comma-separated subset of `asserted_technical,staff_edit,derived,customs_declared,modified_for_case` | omit | When `modified_for_case` is in the list, `case_id` MUST be supplied. |
 | `lifecycle` | `active` \| `all` | `all` | `active` ⇒ `status='published' AND tombstoned_at IS NULL`. |
 | `shape` | `flat` \| `any` | `any` | `flat` ⇒ `flatten_status IN ('flattened','not_applicable')`. |
+| `depth` | `full` \| `any` | `any` | `full` ⇒ exclude SHALLOW flats (`flatten_strategy='purchased_btp_as_leaf'`, and the conservatively-shallow `mixed_confirmed`/`no_strategy` flattened rows — i.e. `is_shallow=true`). Keeps `technical_exploded`, `self_produced_btp_exploded`, `manual_flat_as_provided`, and `flatten_status='not_applicable'`. Applied as an AND predicate **before** `latest_per_variant`, so a shallow artifact is dropped from partition selection rather than allowed to win its `(bom_variant_id, flatten_strategy)` partition. `any` is a no-op (back-compat). |
 | `latest_per_variant` | `true` \| `false` | `false` | Partition by `(bom_variant_id, flatten_strategy)`; keep newest `published_at` (then `artifact_no DESC`, then `artifact_id DESC`). |
 | `case_id` | string | omit | Required when `intents` includes `modified_for_case`. Restricts `modified_for_case` rows to `context.case_id == case_id`; other intents pass through. |
 
@@ -560,6 +561,7 @@ Response always echoes `filter_applied` so consumers can detect server-side supp
       "status": "published", "tombstoned_at": null,
       "flatten_status": "not_applicable",
       "flatten_strategy": "manual_flat_as_provided",
+      "is_shallow": false,
       "bom_variant_id": "default", "row_count": 42,
       "is_stale": false, "stale_reasons": [], "state": "clean",
       "published_at": "2026-05-24T03:11:00Z",
@@ -567,7 +569,7 @@ Response always echoes `filter_applied` so consumers can detect server-side supp
   ],
   "total_estimate": 1,
   "filter_applied": {
-    "lifecycle": "active", "shape": "flat",
+    "lifecycle": "active", "shape": "flat", "depth": "full",
     "intents": ["asserted_technical","staff_edit","derived","customs_declared","modified_for_case"],
     "latest_per_variant": true,
     "case_id": "co-case-4e9f5a3b1e9c"
@@ -575,8 +577,10 @@ Response always echoes `filter_applied` so consumers can detect server-side supp
 }
 ```
 
+Each item carries a server-computed `is_shallow` boolean (`true` iff the artifact is a shallow/partial flatten) so consumers need not re-encode the strategy→depth mapping. Present on this list endpoint, the `:batch` endpoint, and the single-artifact GET.
+
 Errors:
-- `400 invalid_lifecycle` / `invalid_shape` / `invalid_intents` / `invalid_boolean` — bad enum or non-`true`/`false` for `latest_per_variant`.
+- `400 invalid_lifecycle` / `invalid_shape` / `invalid_depth` / `invalid_intents` / `invalid_boolean` — bad enum or non-`true`/`false` for `latest_per_variant`.
 - `400 case_id_required` — `intents` includes `modified_for_case` and `case_id` omitted.
 - `400 conflicting_intent_params` — both `intent` (singular) and `intents` (plural) supplied with disagreeing values.
 - Existing `401` / `403` / `404` unchanged.

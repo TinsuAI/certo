@@ -35,6 +35,7 @@ from app.stores.bom import (
     ResolverError,
     get_proposal,
     get_artifact_with_rows,
+    is_shallow_flatten,
     list_artifacts_for_product,
     list_products_with_bom,
     resolve_bom_artifact,
@@ -1182,6 +1183,14 @@ def _validate_shape_filter(value: str | None) -> str:
     return value
 
 
+def _validate_depth_filter(value: str | None) -> str:
+    if value is None or value == "":
+        return "any"
+    if value not in {"full", "any"}:
+        raise HTTPException(400, "invalid_depth")
+    return value
+
+
 def _parse_bool_param(value: str | None, *, default: bool) -> bool:
     if value is None or value == "":
         return default
@@ -1201,11 +1210,18 @@ def _apply_bom_artifact_filters(
     intent_singular: str | None,
     latest_per_variant: bool,
     case_id: str | None,
+    depth: str = "any",
 ) -> list[dict]:
     """Apply CO picker filter chain to raw artifact history.
 
     Order: lifecycle → shape → intent(s) → modified_for_case scoping
-    by case_id → latest-per-(variant_id, strategy) partition.
+    by case_id → depth → latest-per-(variant_id, strategy) partition.
+
+    depth runs BEFORE latest_per_variant so depth=full drops shallow
+    artifacts out of partition selection entirely — a shallow artifact can
+    never "win" a (bom_variant_id, flatten_strategy) partition over a
+    dropped-but-newer sibling, because shallow and full are separate
+    partitions and the shallow one is gone before the partition step.
     """
     out = versions
     if lifecycle == "active":
@@ -1232,6 +1248,14 @@ def _apply_bom_artifact_filters(
             row_case = (v.get("context") or {}).get("case_id")
             return bool(row_case) and row_case == case_id
         out = [v for v in out if _scope_ok(v)]
+    if depth == "full":
+        out = [
+            v for v in out
+            if not is_shallow_flatten(
+                v.get("flatten_status") or "",
+                v.get("flatten_strategy") or "",
+            )
+        ]
     if latest_per_variant:
         # Partition by (bom_variant_id COALESCE 'default', flatten_strategy);
         # keep newest published_at, then highest artifact_no, then
@@ -1265,6 +1289,7 @@ async def api_bom_artifacts(
     intents: str | None = None,
     lifecycle: str | None = None,
     shape: str | None = None,
+    depth: str | None = None,
     latest_per_variant: str | None = None,
     case_id: str | None = None,
     authorization: str | None = Header(None),
@@ -1287,6 +1312,7 @@ async def api_bom_artifacts(
     intents_set = _parse_bom_intents(intents)
     lifecycle_v = _validate_lifecycle(lifecycle)
     shape_v = _validate_shape_filter(shape)
+    depth_v = _validate_depth_filter(depth)
     latest = _parse_bool_param(latest_per_variant, default=False)
     if intent and intents_set is not None and intent not in intents_set:
         raise HTTPException(400, "conflicting_intent_params")
@@ -1302,7 +1328,7 @@ async def api_bom_artifacts(
         versions,
         lifecycle=lifecycle_v, shape=shape_v,
         intents=intents_set, intent_singular=intent,
-        latest_per_variant=latest, case_id=case_id,
+        latest_per_variant=latest, case_id=case_id, depth=depth_v,
     )
     return _json({
         "items": filtered,
@@ -1310,6 +1336,7 @@ async def api_bom_artifacts(
         "filter_applied": {
             "lifecycle": lifecycle_v,
             "shape": shape_v,
+            "depth": depth_v,
             "intents": (
                 sorted(intents_set) if intents_set is not None
                 else ([intent] if intent else None)
@@ -1400,6 +1427,7 @@ async def api_bom_artifacts_batch(
     # filters -> same items", not "same defaults".
     lifecycle_v = _validate_lifecycle(body.get("lifecycle") or "active")
     shape_v = _validate_shape_filter(body.get("shape") or "flat")
+    depth_v = _validate_depth_filter(body.get("depth"))
     latest_raw = body.get("latest_per_variant")
     latest = True if latest_raw is None else bool(latest_raw)
     include_rows_raw = body.get("include_rows")
@@ -1433,6 +1461,7 @@ async def api_bom_artifacts_batch(
     filter_applied = {
         "lifecycle": lifecycle_v,
         "shape": shape_v,
+        "depth": depth_v,
         "intents": sorted(intents_set) if intents_set is not None else None,
         "latest_per_variant": latest,
         "case_id": case_id,
@@ -1451,7 +1480,7 @@ async def api_bom_artifacts_batch(
             arts_by_product.get(pc, []),
             lifecycle=lifecycle_v, shape=shape_v,
             intents=intents_set, intent_singular=None,
-            latest_per_variant=latest, case_id=case_id,
+            latest_per_variant=latest, case_id=case_id, depth=depth_v,
         )
 
     # missing = requested codes with zero artifacts after filtering. Computed

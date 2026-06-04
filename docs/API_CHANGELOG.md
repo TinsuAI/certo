@@ -14,6 +14,26 @@ Only `Breaking:` headings trigger notifications to `dev`/`admin` users (CO + BCQ
 
 ## Entries
 
+## 2026-06-05 — Additive: `depth` filter + `is_shallow` field on BOM artifacts
+
+**New optional query param** on `GET /v1/hub/products/{p}/bom/artifacts` and `POST /v1/hub/products/bom/artifacts:batch`:
+- `depth` = `full` | `any` (default `any`).
+  - `any` (default / omitted): no behavior change — shallow artifacts still returned.
+  - `full`: exclude SHALLOW flats (`is_shallow=true` — `flatten_strategy='purchased_btp_as_leaf'` plus the conservatively-shallow `mixed_confirmed`/`no_strategy` flattened rows). Keeps `technical_exploded`, `self_produced_btp_exploded`, `manual_flat_as_provided`, and `flatten_status='not_applicable'`.
+
+**New optional field** on every artifact item (list, `:batch`, single-artifact GET):
+- `is_shallow` (bool) — `true` iff the artifact is a shallow/partial flatten. Server-computed via `app.stores.bom.is_shallow_flatten` (single-sourced with `bom_shape`).
+
+**Echoed** in `filter_applied.depth` on every response.
+
+**Why:**
+`shape=flat` keeps `flatten_status IN ('flattened','not_applicable')` but does NOT encode flatten depth. A shallow flatten (`purchased_btp_as_leaf`) passes `shape=flat` and leaked into CO's certificate-of-origin picker next to the fully-exploded version, letting an operator pick a structurally incomplete BOM (e.g. johnson-vn VGM0121-05: a 2-row shallow vs a 223-row full). `depth=full` lets the picker exclude shallow flats. Applied before `latest_per_variant` so a shallow artifact is dropped from partition selection, not allowed to win its `(bom_variant_id, flatten_strategy)` partition.
+
+**Impact:**
+None for existing callers (default `any` is a no-op). CO opts in by passing `depth=full` from its picker. New `400 invalid_depth` for `depth` not in `{full, any}`.
+
+**Commit:** TBD (this entry lands with the change).
+
 ## 2026-05-28 — Breaking: `category_override` field removed from materials JSON
 
 **Field removed** from `/v1/hub/clients/{c}/catalog/materials` and `/v1/hub/materials/{customs_code}` responses:

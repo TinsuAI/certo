@@ -165,7 +165,7 @@ def test_default_params_keep_raw_history_and_echo_filters(seeded):
     # Back-compat: no filters applied → all 4 PA versions present.
     assert len(body["items"]) == 4
     assert body["filter_applied"] == {
-        "lifecycle": "all", "shape": "any",
+        "lifecycle": "all", "shape": "any", "depth": "any",
         "intents": None, "latest_per_variant": False,
         "case_id": None,
     }
