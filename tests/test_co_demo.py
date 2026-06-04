@@ -3813,6 +3813,63 @@ def test_hq_bang_ke_shell_tolerates_non_numeric_unit_value():
     assert "Nhiều đơn giá" in cells
 
 
+def test_export_dossier_zip_keeps_tkx_from_persisted_matches_when_heavy_empty(monkeypatch):
+    """A closed case whose shipment ref was never set still carries the matches
+    persisted during the origin step. The dossier must fall back to those so the
+    TKX (export) declarations — and their files — aren't dropped (regression)."""
+    import io
+    import zipfile
+
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Zip persisted", "case_code": "CO-ZIPP", "destination_market": "Ấn Độ"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-ZIPP",
+            "title": "Zip persisted",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": ""},  # no live shipment reference
+            "source_invoice_matches": [{"declaration_no": "EX-PERSIST-1", "declaration_type": "E42"}],
+            "products": [
+                {"code": "TP-ZP", "name": "Zip persisted", "quantity": "1", "unit": "PCS",
+                 "fob": "100", "currency": "USD", "documented_result": "LVC 30%", "lvc_threshold": "30",
+                 "materials": [
+                     {"material_code": "M-ZP", "uom": "PCS", "bom_qty_per": "1", "unit_value": "10",
+                      "material_value": "10", "origin_status": "non_origin", "consumed_qty": "1"},
+                 ]},
+            ],
+            "origin_sheet_states": {"TP-ZP": {"status": "locked", "status_label": "Chốt"}},
+        },
+    )
+    update_case_record(get_client("growatt"), {"persisted_case_id": case_id, "status": "completed"})
+
+    # Force the heavy recompute to yield no matches (mirrors a case with no live
+    # shipment ref), so the route must fall back to the persisted ones.
+    monkeypatch.setattr(
+        "app.routers.co_case.co_case_source_context",
+        lambda client, case: {
+            "source_backend": "data-hub",
+            "source_summary": {"client_config": {}},
+            "invoice_matches": [],
+            "material_rows": [],
+            "stock_rows": [],
+            "declaration_file_counts": {"export": {}, "import": {}},
+        },
+    )
+
+    response = client.post(f"/clients/growatt/co-case/{case_id}/export-dossier-zip")
+    assert response.status_code == 200, response.text
+    archive = zipfile.ZipFile(io.BytesIO(response.content))
+    manifest = archive.read("03-to-khai/MANIFEST.md").decode("utf-8")
+    assert "EX-PERSIST-1" in manifest
+
+
 def test_export_dossier_zip_blocks_when_sheet_stale_or_draft():
     client = TestClient(app)
     created = client.post(

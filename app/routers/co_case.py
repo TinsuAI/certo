@@ -1149,13 +1149,24 @@ async def export_co_case_dossier_zip(client_id: str, case_id: str):
             detail = "Đóng hồ sơ trước khi xuất file tổng hợp (cần khoá để chốt danh sách TKX/TKN)."
         raise HTTPException(status_code=409, detail=detail)
     source_context = co_case_source_context(client, case)
-    invoice_matches = source_context.get("invoice_matches") or []
     stock_rows = source_context.get("stock_rows") or []
+    # The heavy recompute derives invoice_matches from a live shipment reference
+    # (invoice_no / export_declaration_nos). A closed case whose shipment ref was
+    # never set still carries the matches persisted during the origin step, so
+    # fall back to those — otherwise the TKX (export) declarations vanish and the
+    # dossier ships no export declaration files. Recompute file counts from the
+    # matches we actually use so the export TKX resolves.
+    invoice_matches = source_context.get("invoice_matches") or case.get("source_invoice_matches") or []
+    declaration_file_counts = source_context.get("declaration_file_counts") or {}
+    if invoice_matches and not source_context.get("invoice_matches") and hasattr(portfolio_service, "declaration_file_counts"):
+        declaration_file_counts = portfolio_service.declaration_file_counts(
+            client.get("id", ""), case, invoice_matches
+        )
     summary = case_tkx_tkn_summary(
         case,
         invoice_matches,
         stock_rows,
-        source_context.get("declaration_file_counts") or {},
+        declaration_file_counts,
     )
     supporting_files: list[dict] = []
     for file_row in case.get("supporting_files", []):
