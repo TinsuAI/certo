@@ -1,32 +1,43 @@
 # Project Status
 
-**Date:** 2026-06-01 — Extended **BOM product search** to match NVL/component codes,
-not just the finished-product code. Single `q` box now does reverse lookup ("which TPs
-use this NVL"). TDD, full suite green, UI screenshot captured. **Committed + pushed +
-deployed** (prod/demo `:8754` and nightly `:8764`, both verified live). See
-`.ai/sessions/2026-06-01-bom-search-nvl.md`.
+**Date:** 2026-06-04 — Fixed the declarations **download.zip "manifest-only" defect**
+(reported as a CO Bearer-route bug). Real root cause was NOT route divergence: johnson-vn
+landed in prod **metadata-only** — 3221 `customs_declaration_files` rows with no blob on
+disk — and the shared builder silently swallowed the FileNotFoundError. Restored all 3221
+blobs (sha256-matched) on **prod + nightly**, and hardened the builder to surface missing
+blobs instead of dropping them. See `.ai/sessions/2026-06-04-declaration-blob-backfill.md`.
+Prior 2026-06-01 work: **BOM product search by NVL/component code** (deployed, see
+`.ai/sessions/2026-06-01-bom-search-nvl.md`).
 
 ## Current State
 
-**Branch:** `main`, last commit `5beab13` (handoff doc). **Tests:** 1303 passed, 15
-skipped (`uv run pytest -q`). **Migrations:** 074 — no new migration this session
-(query/route/template only).
+**Branch:** `main`, last commit `ce15574`. **Tests:** 1306 passed, 15 skipped
+(`uv run pytest -q`). **Migrations:** 074 — no new migration (query/route/data only).
 
-**This session's commits (pushed to `main`):**
-- `57564a5` — feat(bom): search matches component/NVL codes (store + api + template +
-  `tests/test_bom_search_components.py` + `.ai/features/2026-06-01-bom-search-nvl/`).
-- `388c17f` — docs(handoff): session 2026-06-01 BOM search by NVL/component code.
+**Recent commits (pushed to `main`):**
+- `ce15574` — chore(scripts): `backfill_declaration_blobs.py` (sha256-matched, dry-run
+  default, idempotent ops tool).
+- `db7ae88` — fix(declarations): surface registered-but-missing blobs (manifest count +
+  `[THIẾU NỘI DUNG]` annotation + `FILE_THIEU_NOI_DUNG.txt` marker; shared builder so
+  cookie≡Bearer). `tests/test_declarations_zip_missing_blob.py` (3 tests).
+- `fd7a742` / `388c17f` / `57564a5` — BOM search by NVL/component (2026-06-01).
 
-**Deploy (CI run `26763037985`, all green — test → docker → deploy):**
-- Prod/demo `:8754` (`data-hub-app-1`) — recreated, healthz 200.
-- Nightly `:8764` (`nightly-dh-app-1`, via `rebuild-app.sh dh`) — recreated, healthz 200.
-- Verified **inside both running containers**: `child_code ilike` ×2 in
-  `app/stores/bom.py` + new "mã NVL trong BOM" placeholder. Not just CI-log trust.
-- `tinsu-shared` net unaffected (attach lives in repo compose; recreate preserves alias).
+**Declaration blob backfill (2026-06-04, both environments):**
+- Cause: johnson-vn was metadata-only; `backend.get(backend_key)` raised FileNotFoundError
+  for all 3221 rows; growatt-vn was fine (4038/4038 present). Cookie route had the SAME
+  symptom — not Bearer-specific (the report's premise was wrong).
+- Prod `:8754`: ran `backfill_declaration_blobs.py --apply` in container, source = repo
+  `data/source_inventory/johnson-vn/.../TKN|TKX/` (scp'd in). 3221 put, 0 failed.
+- Nightly `:8764`: backend_keys identical to prod (DB snapshot), so stream-copied the blob
+  dir container→container (`docker cp prod:- | docker cp - nightly:`). 3221 files.
+- Verified both: resolve_ok=3221, missing=0, sha_mismatch=0; download.zip for
+  107271918940 (import, 1.18MB .xls) + 308189816340 (export, 138KB .xls) now embed files.
+- Blobs live in volume `data-hub_appfiles` — survive container recreate/redeploy.
+- Deploy of the code fix: CI run `26932326139` green; (B) live on prod + nightly.
 
-**Dev server:** running `uvicorn ... --workers 4` (no `--reload`) on `:8754` with the new
-code. Restart gotcha: workers show as `python3`, so kill by port
-(`lsof -ti:8754 | xargs kill -9`) not `pkill -f uvicorn`.
+**Dev server:** default now `--workers 1 --reload` on `:8754` (user pref 2026-06-04;
+auto-reload, no manual restart). Use `--workers 4` only to test real concurrency. Restart
+gotcha: workers show as `python3`, so kill by port (`lsof -ti:8754 | xargs kill -9`).
 
 **Box (`100.84.189.87` = `tinsu-online-server`):** prod DH `:8754` + CO `:8755` run as
 **Docker** (`data-hub-app-1` / `co-app-1`), NOT systemd (repo's `deploy/systemd/*` is
@@ -36,11 +47,18 @@ docker net `tinsu-shared` (DH alias `data-hub-app:8754`) for both data + JWKS; i
 browser SSO redirect stay public `https://ttdatahub.tinsu.ai`. **That networking feature
 is fully closed (verified both sides 2026-06-01).**
 
-## Recent Changes (this session)
-- BOM search component matching (see Current State + session log).
+## Recent Changes
+- 2026-06-04: declaration-blob backfill (prod + nightly) + download.zip missing-blob
+  hardening (see Current State + session log).
+- 2026-06-01: BOM search component matching.
 
 ## Next Steps
-1. ~~Commit + deploy the BOM search change~~ **DONE 2026-06-01** (commits `57564a5` /
+1. ~~Backfill johnson-vn declaration blobs + harden download.zip~~ **DONE 2026-06-04**
+   (prod + nightly, 3221 each verified; commits `db7ae88` / `ce15574`). CO can re-run its
+   container probe to confirm end-to-end. **Open question for next session:** why did
+   johnson land metadata-only? (which ingest path registered rows but skipped `backend.put`
+   — fix it so future ingests don't repeat the gap). growatt-vn was unaffected.
+2. ~~Commit + deploy the BOM search change~~ **DONE 2026-06-01** (commits `57564a5` /
    `388c17f`, live on `:8754` + `:8764`). Back-compatible: `q` on `/v1/hub/products` is
    optional; CO could adopt it for component reverse-lookup but needs no change.
 2. Decide whether to commit the older uncommitted `AGENTS.md` worker-note change (from
