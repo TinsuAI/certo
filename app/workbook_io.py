@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -76,7 +76,23 @@ def decimal_value(value: Any) -> Decimal:
     text = cell_text(value).replace(",", "")
     if not text:
         return Decimal("0")
-    return Decimal(text)
+    try:
+        return Decimal(text)
+    except InvalidOperation:
+        # Non-numeric markers slip through from the context layer, e.g.
+        # "Nhiều đơn giá" when a material is allocated across lots with
+        # differing unit prices. Treat as 0 so the export never 500s.
+        return Decimal("0")
+
+
+def _is_non_numeric_marker(text: str) -> bool:
+    if not text:
+        return False
+    try:
+        Decimal(text.replace(",", ""))
+        return False
+    except InvalidOperation:
+        return True
 
 
 def create_input_workbook(case: dict | None = None) -> bytes:
@@ -597,7 +613,11 @@ def write_hq_sheet_materials(ws, product: dict, start_row: int, *, legacy_export
         material_name = override.get("name") or material.get("material_description", "")
         norm = override.get("norm_per_unit") or material.get("bom_qty_per", "0")
         required_qty = decimal_value(material.get("consumed_qty") or norm)
-        unit_price = decimal_value(material.get("unit_value") or "0")
+        unit_value_raw = cell_text(material.get("unit_value"))
+        unit_price = decimal_value(unit_value_raw or "0")
+        # Preserve non-numeric markers ("Nhiều đơn giá") for display rather than
+        # showing a misleading 0 in the unit-price column.
+        unit_price_display = unit_value_raw if _is_non_numeric_marker(unit_value_raw) else str(unit_price)
         material_value = decimal_value(material.get("material_value") or "0")
         origin_status = str(material.get("origin_status") or "non_origin")
         origin_value = material_value if origin_status == "origin" else Decimal("0")
@@ -612,7 +632,7 @@ def write_hq_sheet_materials(ws, product: dict, start_row: int, *, legacy_export
         put(row_index, "uom", material.get("uom", ""))
         put(row_index, "norm", str(norm))
         put(row_index, "qty", str(required_qty))
-        put(row_index, "unit_price", str(unit_price))
+        put(row_index, "unit_price", unit_price_display)
         put(row_index, "origin_val", str(origin_value))
         put(row_index, "non_origin_val", str(non_origin_value))
         put(row_index, "country", material.get("origin_country", ""))

@@ -3770,6 +3770,49 @@ def test_export_bang_ke_direct_route_works_on_open_case(monkeypatch):
     assert direct_wb["1TP-DIRECT"]["A1"].value == "quick bang ke"
 
 
+def test_hq_bang_ke_shell_tolerates_non_numeric_unit_value():
+    """A material allocated across lots with differing prices carries the
+    "Nhiều đơn giá" marker as unit_value. The shell builder must not 500 on it
+    (regression: decimal.InvalidOperation), and should keep the marker text in
+    the unit-price column rather than a misleading 0."""
+    import io
+    from openpyxl import load_workbook
+    from app.workbook_io import _create_hq_bang_ke_workbook_shell
+
+    case = {
+        "case_code": "CO-MARKER",
+        "products": [
+            {
+                "code": "TP-MARK",
+                "name": "Marker",
+                "quantity": "1",
+                "unit": "PCS",
+                "fob": "100",
+                "currency": "USD",
+                "documented_result": "LVC 30%",
+                "lvc_threshold": "30",
+                "origin_sheet_effective_lvc_threshold": "30",
+                "materials": [
+                    {
+                        "material_code": "M-MULTI",
+                        "uom": "PCS",
+                        "bom_qty_per": "1",
+                        "consumed_qty": "2",
+                        "unit_value": "Nhiều đơn giá",
+                        "material_value": "20",
+                        "origin_status": "non_origin",
+                    },
+                ],
+            },
+        ],
+    }
+
+    content = _create_hq_bang_ke_workbook_shell(case)
+    wb = load_workbook(io.BytesIO(content))
+    cells = [c.value for row in wb.worksheets[0].iter_rows() for c in row]
+    assert "Nhiều đơn giá" in cells
+
+
 def test_export_dossier_zip_blocks_when_sheet_stale_or_draft():
     client = TestClient(app)
     created = client.post(
