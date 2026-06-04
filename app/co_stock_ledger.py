@@ -179,9 +179,13 @@ def record_sheet_lock(
     try:
         with _connect() as conn, conn.cursor() as cur:
             # Availability pre-check: for each distinct source_row we're about
-            # to claim, look up BCCT remaining_qty (from materialized snapshot)
+            # to claim, look up the materialized remaining_qty — which is now
+            # the trừ-lùi-FOLDED tồn (opening − agency "Đã xuất"), not raw BCCT —
             # and subtract all OTHER active claims (excluding this case+sheet
             # since we replace those below). Abort if any lot would go negative.
+            # Folding the adjustment baseline into remaining_qty is what closes
+            # the old gap where a lot the agency marked fully-consumed could
+            # still be over-claimed here.
             #
             # If the client has NO materialized snapshot at all (e.g. a fresh
             # workspace or a unit test that bypasses /refresh), we can't
@@ -543,24 +547,42 @@ def _row_to_dict(row: tuple) -> dict:
     }
 
 
-def apply_used_qty(stock_rows: list[dict], used_by_lot: dict[str, Decimal]) -> list[dict]:
-    """Decorate stock rows with `used_qty` and `remaining_qty` from the ledger.
+def _dec(value) -> Decimal:
+    try:
+        return Decimal(str(value if value not in (None, "") else "0"))
+    except (InvalidOperation, ValueError):
+        return Decimal("0")
 
-    Mutates each row in-place and returns it for chaining. `available_qty`
-    stays as the BCCT raw qty; `used_qty` and `remaining_qty` reflect
-    cross-case ledger state.
+
+def apply_used_qty(stock_rows: list[dict], used_by_lot: dict[str, Decimal]) -> list[dict]:
+    """Overlay LIVE ledger claims onto already-folded stock rows.
+
+    This is the single read-time stock derivation. The static layers (BCCT
+    opening + manual trừ-lùi adjustments) are folded into the materialized
+    snapshot ahead of time, so each row carries:
+      - opening_qty:        effective opening (BCCT qty, or trừ-lùi override)
+      - baseline_used_qty:  trừ-lùi "Đã xuất" already consumed off-app
+    and this function adds only the cross-case ledger locks. It decorates each
+    row (in-place) with:
+      - used_qty:            baseline_used_qty + live ledger locks
+      - remaining_signed_qty: opening_qty - used_qty (may be negative)
+      - remaining_qty:       max(0, remaining_signed_qty) — clamped for display
+      - ledger_overclaim:    True when the signed remaining is negative
+
+    Backward compatible with un-folded rows (file-mode / demo fixtures): when
+    opening_qty / baseline_used_qty are absent it falls back to available_qty
+    with a zero baseline, matching the legacy `available - ledger` behaviour.
     """
     for row in stock_rows:
         source_row = str(row.get("source_row") or "")
-        used = used_by_lot.get(source_row, Decimal("0"))
-        try:
-            available = Decimal(str(row.get("available_qty") or "0"))
-        except (InvalidOperation, ValueError):
-            available = Decimal("0")
-        remaining = available - used
-        if remaining < 0:
-            remaining = Decimal("0")
-        row["used_qty"] = str(used)
-        row["remaining_qty"] = str(remaining)
-        row["ledger_overclaim"] = used > available
+        ledger_used = used_by_lot.get(source_row, Decimal("0"))
+        baseline_used = _dec(row.get("baseline_used_qty"))
+        opening = _dec(row.get("opening_qty") if row.get("opening_qty") not in (None, "")
+                       else row.get("available_qty"))
+        used_total = baseline_used + ledger_used
+        remaining_signed = opening - used_total
+        row["used_qty"] = str(used_total)
+        row["remaining_signed_qty"] = str(remaining_signed)
+        row["remaining_qty"] = str(remaining_signed if remaining_signed > 0 else Decimal("0"))
+        row["ledger_overclaim"] = remaining_signed < 0
     return stock_rows

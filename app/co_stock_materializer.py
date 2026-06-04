@@ -12,9 +12,11 @@ SQL selects (sub-second on 60k+ rows). Refresh is explicit — operator
 clicks "Refresh từ Data Hub" or it runs lazily on first page load when
 the table is empty for the client.
 
-Adjustments + ledger claims are still applied on top of the materialized
-snapshot at query time (they live in `co_stock_adjustments` /
-`co_stock_claims` and change per case lock).
+The STATIC trừ-lùi adjustments (`co_stock_adjustments`) are FOLDED into the
+snapshot here, so `remaining_qty` is the true tồn-after-reconciliation. Only
+the LIVE cross-case ledger (`co_stock_claims`, changes per case lock) is still
+overlaid at query time via `co_stock_ledger.apply_used_qty`. Re-fold on every
+refresh and on adjustment import/void keeps the snapshot authoritative.
 """
 from __future__ import annotations
 
@@ -94,6 +96,14 @@ def refresh_co_stock_for_client(
         LOGGER.warning("co_stock refresh derive failed for %s: %s", client_id, exc)
         summary["errors"].append(f"derive: {exc}")
         return summary
+    # Fold the static trừ-lùi layer into the freshly-derived rows so the
+    # persisted `remaining_qty` is the true tồn-after-reconciliation. In delta
+    # mode only changed rows are present; their adjustments still fold here, and
+    # untouched lots keep the fold from their last refresh / import re-fold.
+    from app import co_stock_adjustments_store
+
+    adjustments = co_stock_adjustments_store.aggregate_by_lookup_key(client_id)
+    co_stock_adjustments_store.fold_baseline(rows, adjustments or {})
     records = build_co_stock_index_records(client_id, rows)
     new_by_key = {row["source_row"]: row for row in records}
 
@@ -133,6 +143,72 @@ def refresh_co_stock_for_client(
     summary["took_seconds"] = round(time.time() - t0, 2)
     summary["last_refresh_at"] = datetime.utcnow().isoformat()
     return summary
+
+
+def refold_adjustment_lots(client_id: str, keys) -> int:
+    """Re-fold the trừ-lùi layer for specific lots without a full BCCT refresh.
+
+    Call after an adjustment import (the touched lookup keys) or a void (the
+    voided keys — fold then reverts opening to `bcct_qty` and baseline to 0,
+    since those keys are no longer in the active aggregate). Bounded: only the
+    matching `co_stock_rows` are recomputed and re-persisted. Returns the count
+    of rows updated.
+    """
+    if not _store_available():
+        return 0
+    keyset = {(str(k[0]), str(k[1]), str(k[2])) for k in keys}
+    if not keyset:
+        return 0
+    from app import co_stock_adjustments_store
+
+    adjustments = co_stock_adjustments_store.aggregate_by_lookup_key(client_id)
+    decls = sorted({k[0] for k in keyset})
+    try:
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """select source_row, payload from co_stock_rows
+                   where client_id = %s and import_declaration_no = any(%s)""",
+                (client_id, decls),
+            )
+            to_update = []
+            for source_row, payload in cur.fetchall():
+                key = (
+                    str(payload.get("import_declaration_no") or ""),
+                    str(payload.get("line_no") or ""),
+                    str(payload.get("customs_item_code") or ""),
+                )
+                if key not in keyset:
+                    continue
+                co_stock_adjustments_store.fold_baseline([payload], adjustments or {})
+                to_update.append(
+                    (str(payload.get("remaining_qty", "")), Jsonb(payload), client_id, source_row)
+                )
+            if to_update:
+                cur.executemany(
+                    """update co_stock_rows
+                       set remaining_qty = %s, payload = %s, indexed_at = now()
+                       where client_id = %s and source_row = %s""",
+                    to_update,
+                )
+    except DatabaseUnavailable:
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning("co_stock refold failed for %s: %s", client_id, exc)
+        return 0
+    invalidate_co_stock_rows_cache(client_id)
+    return len(to_update)
+
+
+def refold_all_adjustments(client_id: str) -> int:
+    """Backfill: re-fold every lot that currently has an active trừ-lùi
+    adjustment. Run once after deploying the fold change so existing snapshots
+    stop carrying the legacy `remaining_qty == opening` value."""
+    from app import co_stock_adjustments_store
+
+    adjustments = co_stock_adjustments_store.aggregate_by_lookup_key(client_id)
+    if not adjustments:
+        return 0
+    return refold_adjustment_lots(client_id, list(adjustments.keys()))
 
 
 def _load_existing_snapshot(cur, client_id: str) -> tuple[dict, dict]:
@@ -414,15 +490,19 @@ STATUS_FILTERS = {
         "(eligibility_status <> 'inactive'"
         " and coalesce(payload->>'allocation_code_status', '') <> 'resolved')"
     ),
+    # `remaining_qty` is folded (opening - trừ-lùi baseline), so an
+    # over-reconciled lot can be <= 0; treat any non-positive folded remaining
+    # as depleted. The numeric cast guards the legacy "" / text rows.
     "depleted": (
         "(eligibility_status <> 'inactive'"
         " and coalesce(payload->>'allocation_code_status', '') = 'resolved'"
-        " and remaining_qty in ('', '0', '0.0', '0.00'))"
+        r" and (remaining_qty in ('', '0', '0.0', '0.00')"
+        r"      or (remaining_qty ~ '^-?\d+(\.\d+)?$' and remaining_qty::numeric <= 0)))"
     ),
     "available": (
         "(eligibility_status <> 'inactive'"
         " and coalesce(payload->>'allocation_code_status', '') = 'resolved'"
-        " and remaining_qty not in ('', '0', '0.0', '0.00'))"
+        r" and remaining_qty ~ '^-?\d+(\.\d+)?$' and remaining_qty::numeric > 0)"
     ),
 }
 

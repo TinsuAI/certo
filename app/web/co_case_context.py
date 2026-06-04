@@ -306,14 +306,14 @@ def co_case_source_context_cached(client: dict, case: dict) -> dict:
     client_id = client.get("id", "")
     used_by_lot = co_stock_ledger.used_qty_by_lot(client_id)
     adjustments = co_stock_adjustments_store.aggregate_by_lookup_key(client_id)
-    if (used_by_lot or adjustments) and context.get("stock_rows"):
+    if context.get("stock_rows"):
         # Don't mutate the cached list in place if someone else holds a reference;
-        # snapshot a new list with applied ledger + adjustment values.
+        # snapshot a new list. Fold the static trừ-lùi (idempotent — safe whether
+        # rows are materialized-and-folded or freshly derived) then overlay the
+        # live cross-case ledger.
         rows = [dict(row) for row in context["stock_rows"]]
-        if used_by_lot:
-            rows = co_stock_ledger.apply_used_qty(rows, used_by_lot)
-        if adjustments:
-            rows = co_stock_adjustments_store.apply_adjustments(rows, adjustments)
+        co_stock_adjustments_store.fold_baseline(rows, adjustments or {})
+        rows = co_stock_ledger.apply_used_qty(rows, used_by_lot)
         context = {**context, "stock_rows": rows}
     return context
 def origin_source_context(client: dict, case: dict) -> dict:
@@ -2888,7 +2888,10 @@ def _calculate_stock_rows_from_snapshot(client: dict) -> list[dict] | None:
     if not _co_stock_snapshot_is_fresh(client_id):
         _schedule_background_co_stock_refresh(client)
     # apply_used_qty mutates the rows in place to attach used/remaining,
-    # so copy the cached payloads first — the cache must stay clean.
+    # so copy the cached payloads first — the cache must stay clean. The
+    # materialized snapshot is already trừ-lùi-folded (refresh + import re-fold
+    # keep it authoritative), so the live-ledger overlay alone is correct here;
+    # no per-calculate adjustment query on the hot path.
     rows = [dict(r) for r in rows]
     used_by_lot = co_stock_ledger.used_qty_by_lot(client_id)
     return co_stock_ledger.apply_used_qty(rows, used_by_lot)

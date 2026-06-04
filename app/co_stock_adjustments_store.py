@@ -346,8 +346,59 @@ def void_batch(client_id: str, batch_id: str) -> int:
         return 0
 
 
+def fold_baseline(stock_rows: list[dict], adjustments: dict[tuple[str, str, str], dict]) -> list[dict]:
+    """Fold the STATIC trừ-lùi layer into stock rows at materialize time.
+
+    Unlike `apply_adjustments` (a legacy read-time overlay that also mixed in
+    ledger state), this writes only the static, snapshot-able fields so the
+    materialized `remaining_qty` becomes the *true* tồn-after-reconciliation
+    (before any live app-ledger lock). The live cross-case ledger is overlaid
+    separately at read time by `co_stock_ledger.apply_used_qty`.
+
+    Per row (in-place):
+      - bcct_qty:           raw BCCT opening, preserved so a void can revert.
+      - opening_qty:        effective opening = trừ-lùi override or bcct_qty.
+      - available_qty:      mirrors opening_qty (the "Tồn CO" the operator sees).
+      - baseline_used_qty:  trừ-lùi "Đã xuất" (0 when no adjustment for the lot).
+      - used_qty:           baseline_used_qty (ledger added later at read time).
+      - remaining_qty:      opening_qty - baseline_used_qty (SIGNED).
+
+    Idempotent: re-folding always recomputes opening from `bcct_qty` (or the
+    current available_qty on the first fold), so repeated refreshes / re-imports
+    converge instead of compounding.
+    """
+    for row in stock_rows:
+        raw = row.get("bcct_qty")
+        bcct = _decimal_zero(raw if raw not in (None, "") else row.get("available_qty"))
+        key = (
+            str(row.get("import_declaration_no") or ""),
+            str(row.get("line_no") or ""),
+            str(row.get("customs_item_code") or ""),
+        )
+        adj = adjustments.get(key) or {}
+        override = adj.get("opening_qty_override")
+        opening = override if override is not None else bcct
+        baseline = adj.get("used_qty") or Decimal("0")
+        remaining = opening - baseline
+        row["bcct_qty"] = str(bcct)
+        row["opening_qty"] = str(opening)
+        row["available_qty"] = str(opening)
+        row["baseline_used_qty"] = str(baseline)
+        row["used_qty"] = str(baseline)
+        row["remaining_qty"] = str(remaining)
+        if adj:
+            row["adjustment_applied"] = True
+            if override is not None:
+                row["opening_qty_adjusted"] = True
+    return stock_rows
+
+
 def apply_adjustments(stock_rows: list[dict], adjustments: dict[tuple[str, str, str], dict]) -> list[dict]:
-    """Layer adjustments onto stock rows (after apply_used_qty).
+    """DEPRECATED read-time overlay. Superseded by `fold_baseline` (materialize
+    time) + `co_stock_ledger.apply_used_qty` (read time). Retained for the
+    legacy file-mode path and tests until those migrate.
+
+    Layer adjustments onto stock rows (after apply_used_qty).
 
     For each row whose (import_declaration_no, line_no, customs_item_code)
     matches an adjustment:

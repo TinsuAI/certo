@@ -148,14 +148,10 @@ def co_stock_table_context(request: Request, client_id: str) -> dict:
         offset=(page - 1) * per_page,
         limit=per_page,
     )
-    # Apply ledger + adjustments only to the visible page.
+    # Trừ-lùi is already folded into the snapshot; overlay only the live ledger.
     if page_rows:
         used_by_lot = co_stock_ledger.used_qty_by_lot(client["id"])
-        if used_by_lot:
-            page_rows = co_stock_ledger.apply_used_qty(page_rows, used_by_lot)
-        adjustments = co_stock_adjustments_store.aggregate_by_lookup_key(client["id"])
-        if adjustments:
-            page_rows = co_stock_adjustments_store.apply_adjustments(page_rows, adjustments)
+        page_rows = co_stock_ledger.apply_used_qty(page_rows, used_by_lot)
     rows = [co_stock_table_row(row) for row in page_rows]
 
     column_defs = [normalize_column(col) for col in CO_STOCK_COLUMNS]
@@ -238,6 +234,14 @@ def co_stock_table_row(row: dict) -> dict:
         "stock_reason_label": stock_reason_label(row, status),
     }
 def stock_reason_label(row: dict, status: str) -> str:
+    if row.get("ledger_overclaim"):
+        from decimal import Decimal, InvalidOperation
+        raw = str(row.get("remaining_signed_qty") or "0").lstrip("-")
+        try:
+            amount = format(Decimal(raw).normalize(), "f")
+        except (InvalidOperation, ValueError):
+            amount = raw
+        return f"⚠ Vượt tồn {amount}"
     if status == "inactive" and row.get("eligibility_reason") == "excluded_by_declaration_type_config":
         return "Loại hình không active trong config"
     if status == "review_required":
@@ -273,6 +277,16 @@ async def import_co_stock_workbook(client_id: str, file: UploadFile = File(...))
         batch_id=batch_id,
         source_file_ref=file.filename or "co_stock.xlsx",
     )
+    # Fold the new trừ-lùi values straight into the materialized snapshot so
+    # remaining_qty (and the lock guard, which reads it) are immediately
+    # authoritative — without waiting for the next BCCT refresh.
+    keys = [
+        (str(r.get("declaration_no") or ""), str(r.get("line_no") or ""), str(r.get("customs_code") or ""))
+        for r in rows
+        if r.get("declaration_no") and r.get("line_no") and r.get("customs_code")
+    ]
+    refolded = co_stock_materializer.refold_adjustment_lots(client["id"], keys)
+    summary = {**summary, "lots_refolded": refolded}
     # Invalidate the cached source context so the next case page reflects the
     # new adjustments. The cache is process-local so this is cheap.
     _CO_CASE_SOURCE_CACHE.clear()
@@ -324,13 +338,68 @@ async def co_stock_lot_history(
         customs_code.strip(),
         limit=max(1, min(int(limit), 500)),
     )
+    anchor = _lot_effective_anchor(
+        client["id"], declaration_no.strip(), line_no.strip(), customs_code.strip()
+    )
     return JSONResponse({
         "ok": True,
         "client_id": client["id"],
-        "lot": {"declaration_no": declaration_no, "line_no": line_no, "customs_code": customs_code},
+        "lot": {
+            "declaration_no": declaration_no,
+            "line_no": line_no,
+            "customs_code": customs_code,
+            **anchor,
+        },
         "events": events,
         "count": len(events),
     })
+def _lot_effective_anchor(client_id: str, declaration_no: str, line_no: str, customs_code: str) -> dict:
+    """Current BCCT opening + effective remaining for one lot — anchors the
+    history modal's running-balance (SAU) column.
+
+    Mirrors the Tồn CO table pipeline (snapshot → ledger → adjustments) for
+    `available_qty`/`used_qty`, but reports remaining UN-clamped: the table
+    floors remaining at 0 for allocation UX, whereas the audit history must
+    show the true figure so the backward-walk stays arithmetically consistent.
+    A genuinely over-allocated lot therefore anchors on a negative remaining
+    (flagged via `overclaim`) instead of a clamped 0 that would skew every
+    historical SAU. Returns {} when no snapshot row matches (file-mode /
+    un-materialized client), letting the UI leave SAU blank.
+    """
+    page_rows, _ = co_stock_materializer.read_co_stock_page(
+        client_id, q=declaration_no, limit=500
+    )
+    matched = [
+        row for row in page_rows
+        if str(row.get("import_declaration_no") or "") == declaration_no
+        and str(row.get("line_no") or "") == line_no
+        and str(row.get("customs_item_code") or "") == customs_code
+    ]
+    if not matched:
+        return {}
+    # Trừ-lùi is folded into the snapshot; overlay only the live ledger. The
+    # helper exposes remaining_signed_qty (un-clamped), which is the honest
+    # anchor for the history modal's running-balance walk.
+    used_by_lot = co_stock_ledger.used_qty_by_lot(client_id)
+    matched = co_stock_ledger.apply_used_qty(matched, used_by_lot)
+    from decimal import Decimal, InvalidOperation
+
+    def _sum(field: str) -> Decimal:
+        total = Decimal("0")
+        for row in matched:
+            try:
+                total += Decimal(str(row.get(field) or "0"))
+            except (InvalidOperation, ValueError):
+                pass
+        return total
+
+    opening = _sum("opening_qty") or _sum("available_qty")
+    remaining = _sum("remaining_signed_qty")
+    return {
+        "available_qty": str(opening),
+        "remaining_qty": str(remaining),
+        "overclaim": remaining < 0,
+    }
 @router.get("/clients/{client_id}/co-stock/export.xlsx")
 async def export_co_stock_workbook(client_id: str):
     """Dump effective ton CO state (BCCT opening + ledger + adjustments) into
@@ -341,12 +410,13 @@ async def export_co_stock_workbook(client_id: str):
     workspace, _backend = portfolio_service.source_workspace(client)
     stock_rows = [dict(row) for row in workspace.get("co_stock_rows") or []]
     client_id_value = client.get("id", "")
-    used_by_lot = co_stock_ledger.used_qty_by_lot(client_id_value)
-    if used_by_lot:
-        stock_rows = co_stock_ledger.apply_used_qty(stock_rows, used_by_lot)
+    # Export may run against fresh-derived rows (not the materialized snapshot),
+    # so fold the static trừ-lùi here too (idempotent) before overlaying the
+    # live ledger — keeping export identical to what the Tồn CO table shows.
     adjustments = co_stock_adjustments_store.aggregate_by_lookup_key(client_id_value)
-    if adjustments:
-        stock_rows = co_stock_adjustments_store.apply_adjustments(stock_rows, adjustments)
+    co_stock_adjustments_store.fold_baseline(stock_rows, adjustments or {})
+    used_by_lot = co_stock_ledger.used_qty_by_lot(client_id_value)
+    stock_rows = co_stock_ledger.apply_used_qty(stock_rows, used_by_lot)
     rows_for_template = []
     for row in stock_rows:
         rows_for_template.append({
