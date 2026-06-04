@@ -101,8 +101,8 @@
           <tr>
             <th>Thời điểm</th>
             <th>Loại</th>
-            <th class="num">Δ qty</th>
-            <th class="num">Sau</th>
+            <th class="num">Δ tồn</th>
+            <th class="num">Tồn sau</th>
             <th>Hồ sơ / Batch</th>
             <th>Actor</th>
             <th>Ghi chú</th>
@@ -232,24 +232,52 @@
         return;
       }
       const data = await r.json();
-      summary.textContent = `${data.count} sự kiện · mới nhất trước`;
+      summary.textContent = data.lot?.overclaim
+        ? `${data.count} sự kiện · mới nhất trước · ⚠ vượt tồn (còn ${fmtNum(data.lot.remaining_qty)})`
+        : `${data.count} sự kiện · mới nhất trước`;
       if (!data.events?.length) {
         tbody.innerHTML = `<tr><td colspan="7" class="empty-cell">Chưa có sự kiện nào cho lot này.</td></tr>`;
         return;
       }
+      // Each event's effect on remaining tồn (display convention): a Lock CO
+      // *consumes* the lot, so it shows as −qty; a Release returns it (+qty).
+      // Adjustments move remaining by Δopening − Δused.
+      const numOf = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+      const effectOf = (ev) => {
+        if (ev.event_type === "claim_lock" || ev.event_type === "claim_release") {
+          return -numOf(ev.qty_delta);
+        }
+        return (numOf(ev.opening_qty_after) - numOf(ev.opening_qty_before)) - numOf(ev.qty_delta);
+      };
+      // SAU = remaining tồn right after each event. Anchor at the lot's current
+      // effective remaining (= newest event's "after") and walk backward, so the
+      // column stays correct even when older events fall outside the fetch limit.
+      const hasAnchor = data.lot?.remaining_qty !== undefined && data.lot?.remaining_qty !== null && data.lot?.remaining_qty !== "";
+      const sau = new Array(data.events.length).fill(null);
+      if (hasAnchor) {
+        let running = numOf(data.lot.remaining_qty);
+        for (let i = 0; i < data.events.length; i++) {
+          if (i > 0) running -= effectOf(data.events[i - 1]);
+          sau[i] = running;
+        }
+      }
       tbody.innerHTML = "";
-      data.events.forEach((ev) => {
+      data.events.forEach((ev, i) => {
         const refs = [];
         if (ev.case_id) refs.push(`case ${ev.case_id}`);
         if (ev.sheet_product_code) refs.push(`sheet ${ev.sheet_product_code}`);
         if (ev.source_file_ref) refs.push(`file ${ev.source_file_ref}`);
         if (ev.batch_id) refs.push(`batch ${ev.batch_id}`);
+        const eff = effectOf(ev);
+        const deltaCell = eff === 0
+          ? `<td class="num">—</td>`
+          : `<td class="num ${eff > 0 ? "qty-pos" : "qty-neg"}">${(eff > 0 ? "+" : "−") + fmtNum(Math.abs(eff))}</td>`;
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td class="mono">${(ev.recorded_at || "").slice(0, 19).replace("T", " ")}</td>
           <td><span class="badge co-stock-event-${ev.event_type}">${labelFor[ev.event_type] || ev.event_type}</span></td>
-          <td class="num">${ev.qty_delta ? (Number(ev.qty_delta) > 0 ? "+" : "") + fmtNum(ev.qty_delta) : "—"}</td>
-          <td class="num">${fmtNum(ev.qty_after)}</td>
+          ${deltaCell}
+          <td class="num ${sau[i] !== null && sau[i] < 0 ? "qty-neg" : ""}">${sau[i] === null ? "—" : fmtNum(sau[i])}</td>
           <td><span class="meta">${refs.join(" · ") || "—"}</span></td>
           <td class="mono">${ev.actor || ""}</td>
           <td><span class="meta">${ev.notes || ""}</span></td>

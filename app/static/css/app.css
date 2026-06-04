@@ -3430,8 +3430,19 @@ small,
 }
 
 .table-link {
+  background: none;
+  border: 0;
+  padding: 0;
   color: var(--primary);
   font-weight: 800;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.table-link:hover {
+  background: none;
+  color: var(--primary-hover);
 }
 
 .compact-table {
@@ -4235,6 +4246,8 @@ body.co-stock-history-modal-open { overflow: hidden; }
 .co-stock-event-adjustment_import_insert { background: var(--success-soft); color: var(--success); }
 .co-stock-event-adjustment_import_update { background: var(--info-soft); color: var(--info); }
 .co-stock-event-adjustment_void { background: var(--error-soft); color: var(--error); }
+.co-stock-history-table .qty-pos { color: var(--success); font-weight: 700; }
+.co-stock-history-table .qty-neg { color: var(--error); font-weight: 700; }
 
 .origin-substitute-norm-label {
   display: grid;
