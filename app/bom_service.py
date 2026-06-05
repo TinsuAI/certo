@@ -47,6 +47,29 @@ PICKER_INTENTS: tuple[str, ...] = (
     "modified_for_case",
 )
 
+# Data Hub owns the shallow/full classification (depth=full filter). This set is
+# the CLIENT-SIDE FALLBACK mirror, used only when DH hasn't shipped `depth` yet
+# (no `is_shallow` field on items, no `depth` echo in `filter_applied`). A shallow
+# flatten stops before exploding sub-assemblies → a structurally incomplete BOM
+# that must never reach the picker. `not_applicable` artifacts are never shallow.
+_SHALLOW_FLATTEN_STRATEGIES: frozenset[str] = frozenset(
+    {"purchased_btp_as_leaf", "mixed_confirmed", "no_strategy"}
+)
+
+
+def _version_is_shallow(version: dict) -> bool:
+    """True if an artifact is a shallow/partial flatten.
+
+    Prefers Data Hub's authoritative per-item `is_shallow` boolean when present;
+    falls back to the `flatten_strategy` mirror for a pre-depth Data Hub.
+    """
+    is_shallow = version.get("is_shallow")
+    if is_shallow is not None:
+        return bool(is_shallow)
+    if str(version.get("flatten_status") or "") == "not_applicable":
+        return False
+    return str(version.get("flatten_strategy") or "") in _SHALLOW_FLATTEN_STRATEGIES
+
 
 class LocalBomService:
     def workspace(self, client: dict, product_codes: list[str] | None = None, *, case_id: str = "") -> dict:
@@ -148,6 +171,11 @@ class DataHubBomService:
                 case_id=case_id,
                 trust_server_filter=dh_filter_active,
             ),
+            "bom_shallow_only_codes": bom_shallow_only_codes(
+                product_versions,
+                case_id=case_id,
+                trust_server_filter=dh_filter_active,
+            ),
             "product_composition": composition,
             "uploads": [],
             "audit": [],
@@ -208,6 +236,7 @@ class DataHubBomService:
                 intents=PICKER_INTENTS,
                 lifecycle="active",
                 shape="flat",
+                depth="full",
                 latest_per_variant=True,
                 case_id=case_id,
                 include_rows=True,
@@ -377,6 +406,7 @@ class DataHubBomService:
                     intents=PICKER_INTENTS,
                     lifecycle="active",
                     shape="flat",
+                    depth="full",
                     latest_per_variant=True,
                     case_id=case_id,
                 )
@@ -618,17 +648,51 @@ def product_version_options_by_code(
             continue
         if version.get("flatten_status") == "non_flattened":
             continue
-        if not trust_server_filter and not _picker_predicate_keeps(version, case_id):
+        if trust_server_filter:
+            # DH applied lifecycle/shape/case. It may NOT have applied depth (a
+            # pre-`depth` build echoes `filter_applied` but ignores the param), so
+            # still drop shallow client-side — a no-op when DH ran depth=full.
+            if _version_is_shallow(version):
+                continue
+        elif not _picker_predicate_keeps(version, case_id, depth="full"):
             continue
         output.setdefault(version["product_code"], []).append(version)
     return output
 
 
-def _picker_predicate_keeps(version: dict, case_id: str) -> bool:
+def bom_shallow_only_codes(
+    product_versions: list[dict],
+    *,
+    case_id: str = "",
+    trust_server_filter: bool = False,
+) -> list[str]:
+    """Product codes whose ONLY pickable flat artifact(s) are shallow.
+
+    These products have a flat BOM but no FULL-depth one, so the depth=full
+    picker offers nothing for them — distinct from "no BOM at all". The picker
+    surfaces a specific "chỉ có BOM rút gọn" state for these.
+    """
+    kept: set[str] = set()
+    full: set[str] = set()
+    for version in product_versions:
+        if version.get("status") == "variant_conflict":
+            continue
+        if version.get("flatten_status") == "non_flattened":
+            continue
+        if not trust_server_filter and not _picker_predicate_keeps(version, case_id, depth="any"):
+            continue
+        code = version["product_code"]
+        kept.add(code)
+        if not _version_is_shallow(version):
+            full.add(code)
+    return sorted(kept - full)
+
+
+def _picker_predicate_keeps(version: dict, case_id: str, *, depth: str = "any") -> bool:
     """Mirror of Data Hub's picker filter (`lifecycle=active`, `shape=flat`,
-    case-scoped `modified_for_case`). Used when DH didn't echo
+    case-scoped `modified_for_case`, and `depth`). Used when DH didn't echo
     `filter_applied` — keeps CO behaving correctly against legacy DH and
-    LocalBomService.
+    LocalBomService. `depth="full"` additionally drops shallow flattens.
     """
     if version.get("tombstoned_at"):
         return False
@@ -636,6 +700,8 @@ def _picker_predicate_keeps(version: dict, case_id: str) -> bool:
     if status in {"draft", "superseded"}:
         return False
     if str(version.get("flatten_status") or "") not in {"flattened", "not_applicable"}:
+        return False
+    if depth == "full" and _version_is_shallow(version):
         return False
     intent = str(version.get("intent") or "")
     if intent == "modified_for_case":

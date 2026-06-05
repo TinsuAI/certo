@@ -973,6 +973,7 @@
 
           {% set bom_lookup_code = product.bom_product_code or product.code %}
           {% set bom_options = bom_workspace.product_version_options_by_code.get(bom_lookup_code, []) %}
+          {% set bom_shallow_only = bom_lookup_code in (bom_workspace.bom_shallow_only_codes or []) %}
           {% set selected_bom_artifact_id = product.bom_product_artifact_id or product.bom_product_version_id %}
           {% set bom_kind_short = {
               'manual_flat': 'manual-flat',
@@ -1008,10 +1009,13 @@
                   <option value="{{ option.product_artifact_id or option.product_version_id }}" {% if (option.product_artifact_id or option.product_version_id) == selected_bom_artifact_id %}selected{% endif %}>#{{ option.product_artifact_no or option.product_version_no }} · {{ option.row_count }} dòng{% if opt_date %} · {{ opt_date }}{% endif %} · {{ opt_kind }}{% if opt_variant != 'default' %} · v:{{ opt_variant }}{% endif %}{% if opt_glyph %} · {{ opt_glyph }}{% endif %}</option>
                   {% endfor %}
                   {% if not bom_options %}
-                  <option value="{{ selected_bom_artifact_id }}">{% if product.bom_product_artifact_no or product.bom_product_version_no %}#{{ product.bom_product_artifact_no or product.bom_product_version_no }}{% else %}❗ Chưa có BOM{% endif %}</option>
+                  <option value="{{ selected_bom_artifact_id }}">{% if product.bom_product_artifact_no or product.bom_product_version_no %}#{{ product.bom_product_artifact_no or product.bom_product_version_no }}{% elif bom_shallow_only %}❗ Chưa có BOM khai triển đầy đủ{% else %}❗ Chưa có BOM{% endif %}</option>
                   {% endif %}
                 </select>
               </label>
+              {% if not bom_options and bom_shallow_only %}
+              <span class="origin-sheet-bom-shallow-warning meta" title="BOM hiện chỉ có bản rút gọn (giữ bán thành phẩm làm lá, chưa khai triển hết NVL) — không đủ để tính bảng kê. Cần BOM khai triển đầy đủ hoặc BOM theo định mức (Mẫu 16).">Chỉ có BOM rút gọn — chưa khai triển hết NVL. Cần BOM đầy đủ để tính bảng kê.</span>
+              {% endif %}
               {% if selected_bom_option.value %}
               {% set sel = selected_bom_option.value %}
               {% set sel_kind = bom_kind_short.get(sel.source_bom_kind, sel.source_bom_kind or '') %}

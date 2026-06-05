@@ -191,6 +191,7 @@ class DataHubClient:
         intents: Sequence[str] = (),
         lifecycle: str = "active",
         shape: str = "flat",
+        depth: str = "any",
         latest_per_variant: bool = True,
         case_id: str = "",
     ) -> dict:
@@ -199,11 +200,15 @@ class DataHubClient:
         `filter_applied=None` signals the Data Hub server hasn't shipped
         the picker contract yet — caller must apply equivalent predicate
         client-side (see `app/bom_service.product_version_options_by_code`).
+        `depth="full"` asks DH to drop shallow flattens; a pre-depth DH
+        ignores it and CO drops shallow client-side (`filter_applied` won't
+        carry a `depth` key).
         """
         params: dict[str, Any] = {
             "client_id": client_id,
             "lifecycle": lifecycle,
             "shape": shape,
+            "depth": depth,
             "latest_per_variant": "true" if latest_per_variant else "false",
         }
         if intents:
@@ -227,6 +232,7 @@ class DataHubClient:
         intents: Sequence[str] = (),
         lifecycle: str = "active",
         shape: str = "flat",
+        depth: str = "any",
         latest_per_variant: bool = True,
         case_id: str = "",
         include_rows: bool = True,
@@ -247,6 +253,7 @@ class DataHubClient:
             "product_codes": codes,
             "lifecycle": lifecycle,
             "shape": shape,
+            "depth": depth,
             "latest_per_variant": latest_per_variant,
             "include_rows": include_rows,
         }
