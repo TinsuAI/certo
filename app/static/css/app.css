@@ -4290,6 +4290,7 @@ body.co-stock-history-modal-open { overflow: hidden; }
   gap: 0.6rem;
   align-items: center;
   font: inherit;
+  color: var(--foreground);
   text-align: left;
 }
 
@@ -4299,6 +4300,7 @@ body.co-stock-history-modal-open { overflow: hidden; }
 
 .origin-substitute-item-code {
   font-weight: 600;
+  color: var(--foreground);
 }
 
 .origin-substitute-item-name {
@@ -4366,6 +4368,7 @@ body.co-stock-history-modal-open { overflow: hidden; }
 }
 
 .origin-substitute-chevron {
+  color: var(--foreground-muted);
   transition: transform 120ms ease;
 }
 
