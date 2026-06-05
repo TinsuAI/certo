@@ -225,14 +225,25 @@ def render_mapping_page_with_llm_suggestion(
         ctx["llm_error"] = f"LLM trả lời lỗi: {e}"
         return ctx
 
-    # Pre-fill column_map with LLM proposal where it differs from rigid.
-    proposed_lower = {str(k).strip().lower(): v for k, v in proposed.items()}
-    for col in ctx["column_map"]:
-        norm = (col["header"] or "").strip().lower()
-        if norm in proposed_lower:
-            col["proposed"] = proposed_lower[norm]
+    # Fill ONLY the columns the rigid layer couldn't resolve — never
+    # override a confident rigid match (LLM is for genuinely unknown
+    # headers). LLM abstentions (omitted headers) stay unmapped → the
+    # form flags them "cần chọn".
+    _merge_llm_into_unresolved(ctx["column_map"], proposed)
     ctx["llm_applied"] = True
     return ctx
+
+
+def _merge_llm_into_unresolved(column_map: list[dict], proposed: dict) -> None:
+    """Mutate `column_map`, setting `proposed` from the LLM result only for
+    columns the rigid match left empty. Rigid matches are authoritative."""
+    proposed_lower = {str(k).strip().lower(): v for k, v in proposed.items()}
+    for col in column_map:
+        if col.get("proposed"):
+            continue  # rigid already resolved this header — keep it
+        norm = (col.get("header") or "").strip().lower()
+        if norm in proposed_lower:
+            col["proposed"] = proposed_lower[norm]
 
 
 # ── Step 3: parse with overrides + stash (POST /mapping/parse) ───────────

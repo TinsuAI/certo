@@ -133,12 +133,38 @@ _TARGET_FIELDS_BY_MODULE: dict[str, list[str]] = {
 }
 
 
+# Per-field disambiguation hints sent to the LLM. Focused on the fields a
+# header name alone can't separate — especially the VND-converted ("tính
+# thuế") vs nguyên-tệ price/value domains, where SAMPLE MAGNITUDE + the
+# exchange_rate column are the real signal.
+_FIELD_DEFINITIONS_BY_MODULE: dict[str, dict[str, str]] = {
+    "bcct": {
+        "unit_price": (
+            "Đơn giá tính thuế — đã quy đổi sang VND (đồng). Với dòng hàng "
+            "ngoại tệ, giá trị này LỚN ≈ unit_price_nt × exchange_rate."
+        ),
+        "unit_price_nt": (
+            "Đơn giá nguyên tệ — theo đồng tiền giao dịch gốc (USD/EUR…). "
+            "Giá trị NHỎ hơn unit_price nhiều lần (bằng unit_price ÷ tỷ giá)."
+        ),
+        "total_value": "Tổng trị giá đã quy đổi VND (lớn).",
+        "total_value_nt": "Tổng trị giá nguyên tệ (nhỏ, theo currency_nt).",
+        "exchange_rate": "Tỷ giá thanh toán — số VND cho 1 đơn vị ngoại tệ.",
+        "currency_nt": "Mã tiền tệ nguyên tệ (USD, EUR, JPY…).",
+        "customs_code": "Mã NPL/SP khai báo hải quan của dòng hàng.",
+        "declaration_no": "Số tờ khai hải quan.",
+        "registration_date": "Ngày đăng ký tờ khai.",
+    },
+}
+
+
 def propose_header_mapping(
     *,
     client_id: str,
     module: str,
     headers: list[str],
     sample_rows: list[list],
+    field_definitions: dict[str, str] | None = None,
     cfg: LLMConfig | None = None,
 ) -> dict[str, str]:
     """Ask the LLM to propose a mapping `header_name → logical_field` for
@@ -161,6 +187,8 @@ def propose_header_mapping(
     _check_and_record_budget(client_id, cfg)
 
     target_fields = _TARGET_FIELDS_BY_MODULE[module]
+    if field_definitions is None:
+        field_definitions = _FIELD_DEFINITIONS_BY_MODULE.get(module, {})
 
     # Build a compact, defended prompt: headers + truncated sample. No
     # raw user prose passes through unescaped.
@@ -173,6 +201,7 @@ def propose_header_mapping(
         "headers": headers,
         "samples": truncated_samples,
         "logical_fields": target_fields,
+        "field_definitions": field_definitions,
     }
 
     # OpenAI's structured-output rule + many compat servers (LM Studio,
@@ -188,11 +217,20 @@ def propose_header_mapping(
         "Vietnamese, English, or Chinese. Match by both the header text "
         "and the value patterns in the samples (numeric vs date vs short "
         "codes).\n\n"
+        "Use `field_definitions` to disambiguate near-identical headers. "
+        "Several fields can only be told apart by the SAMPLE MAGNITUDES, not "
+        "the header text: a VND-converted amount (e.g. unit_price, "
+        "total_value) is much LARGER than its nguyên-tệ counterpart "
+        "(unit_price_nt, total_value_nt) — roughly the foreign amount times "
+        "the exchange_rate. Read the sample values to decide which column is "
+        "VND and which is the original currency.\n\n"
         "Output rules:\n"
         "1. Each logical field is mapped to AT MOST one header.\n"
         "2. Each header maps to AT MOST one logical field (omit ambiguous).\n"
         "3. Use only the provided logical_fields. Don't invent new ones.\n"
-        "4. Prefer omitting over guessing.\n"
+        "4. ABSTAIN over guessing: if you are not confident a header is a "
+        "given field, OMIT it (leave it unmapped) so a human resolves it. A "
+        "wrong mapping is worse than an unmapped column.\n"
         "5. Reply with strict json only: "
         "{\"mapping\": {\"<header>\": \"<logical_field>\", ...}}\n"
         "Do not return anything outside the json object."
