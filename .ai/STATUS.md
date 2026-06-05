@@ -13,9 +13,15 @@ need dev SQL to clean bad data. Full feature:
 
 ## Current State
 
-**Branch:** `main`, last commit `7886efa` (pushed + **deployed to prod**).
-**Tests:** 1346 passed, 15 skipped (`uv run pytest -q`). **Migrations:** none new
-(latest is **075**, `hub.client_column_aliases`).
+**Branch:** `main`, last commit `be0da06` (code `7886efa`; all pushed +
+**deployed to prod**). **Tests:** 1346 passed, 15 skipped (`uv run pytest -q`).
+**Migrations:** none new (latest is **075**, `hub.client_column_aliases`).
+
+**Both new write capabilities verified on the LIVE prod server** (httpx →
+`127.0.0.1:8754` in-container, throwaway clients, self-cleaned): tombstone
+(empty-reason→400, cascade raw+derived→0 active + 2 audit rows, real product
+untouched) + upload delete (error→row+blob gone, done→400 kept, unknown→404).
+ALL PASS.
 
 **This session's commits (pushed to `main`, live on prod):**
 - `7886efa` — self-service retract BOM version (cascade to derived shapes,
