@@ -22,9 +22,26 @@
   </div>
 
   {% if request.query_params.get('ingested') %}
-  <div class="toast" style="margin-bottom: 1rem;">
-    ✓ Đã lưu {{ request.query_params.get('ingested') }} BOM version.
+  {% set _ingested = request.query_params.get('ingested') %}
+  {% set _kind = request.query_params.get('kind') %}
+  {% if _kind == 'raw' and request.query_params.get('flat') == '0' %}
+  <div class="toast toast-error" style="margin-bottom: 1rem;">
+    ⚠ Đã nạp {{ _ingested }} BOM kỹ thuật nhưng CHƯA sinh được BOM phẳng.
+    Kiểm tra lại cấu trúc file hoặc cấu hình derive của client.
   </div>
+  {% elif _kind == 'raw' %}
+  <div class="toast" style="margin-bottom: 1rem;">
+    ✓ Đã nạp {{ _ingested }} BOM kỹ thuật và tự động sinh BOM phẳng (shallow + full_flat).
+  </div>
+  {% elif _kind == 'flat' %}
+  <div class="toast" style="margin-bottom: 1rem;">
+    ✓ Đã lưu {{ _ingested }} BOM phẳng (lưu nguyên trạng, không phân rã cấp).
+  </div>
+  {% else %}
+  <div class="toast" style="margin-bottom: 1rem;">
+    ✓ Đã lưu {{ _ingested }} BOM version.
+  </div>
+  {% endif %}
   {% elif request.query_params.get('rejected') %}
   <div class="toast toast-error" style="margin-bottom: 1rem;">
     ⚠ File đã bị reject. Không có BOM version nào được tạo.

@@ -323,11 +323,20 @@ def test_auto_profile_tree_adapter_lands_as_raw_graph(http):
     r = _upload(http, blob, profile="auto", filename="TP-AUTO-TREE.xlsx")
     assert r.status_code == 303, r.text
     pending_id = _extract_pending_id(r.headers["location"])
+
+    # Preview banner must announce flattening will happen for a tree file.
+    prev = http.get(f"/clients/{CLIENT}/bom/preview/{pending_id}")
+    assert prev.status_code == 200
+    assert "tự động sinh BOM phẳng" in prev.text
+
     conf = http.post(
         f"/clients/{CLIENT}/bom/preview/{pending_id}/confirm",
         follow_redirects=False,
     )
     assert conf.status_code == 303, conf.text
+    # Honest post-ingest signal: raw kind + flat shapes derived.
+    assert "kind=raw" in conf.headers["location"], conf.headers["location"]
+    assert "flat=1" in conf.headers["location"], conf.headers["location"]
 
     with connect() as conn, conn.cursor() as cur:
         cur.execute(

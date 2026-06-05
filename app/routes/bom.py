@@ -475,12 +475,31 @@ async def preview_view(request: Request, client_id: str, pending_id: str):
     for prod_rows in (products.values() if isinstance(products, dict) else []):
         flat_rows.extend(prod_rows)
     uom_drifts = compute_uom_drifts(client_id, flat_rows)
+    # Destination banner: tell staff up-front what confirming produces.
+    # technical_raw → raw_graph that auto-derives shallow/full_flat;
+    # anything else → stored flat as-provided (no flattening).
+    will_flatten = profile == "technical_raw"
+    # Defensive: a file with multi-level node paths about to land FLAT
+    # (e.g. a tree file uploaded under a manually-chosen flat profile)
+    # would silently skip flattening — flag it so staff can re-pick.
+    multi_level_flat = False
+    if not will_flatten:
+        for prod_rows in (products.values() if isinstance(products, dict) else []):
+            for r in prod_rows:
+                np = r.get("_node_path") if isinstance(r, dict) else None
+                if isinstance(np, str) and np.count(" > ") >= 2:
+                    multi_level_flat = True
+                    break
+            if multi_level_flat:
+                break
     return request.app.state.templates.TemplateResponse(
         request, "clients/bom_preview.html",
         {
             "client": client, "stats": stats_for_client(client_id),
             "pending_id": pending_id,
             "profile": profile,
+            "will_flatten": will_flatten,
+            "multi_level_flat": multi_level_flat,
             "summary": summary_for_chrome,
             "sample": sample,
             "sample_rows": [],  # BOM uses per-product `sample`; shared sample slot is overridden
@@ -550,6 +569,7 @@ async def preview_confirm(request: Request, client_id: str, pending_id: str):
 
     n = 0
     created_artifact_ids: list[str] = []
+    created_products: set[str] = set()
     if profile == "technical_raw":
         raw_edges = parsed_rows.get("raw_edges", []) if isinstance(parsed_rows, dict) else []
         edges_by_root: dict[str, list[dict]] = {}
@@ -569,6 +589,7 @@ async def preview_confirm(request: Request, client_id: str, pending_id: str):
             if artifact_id:
                 n += 1
                 created_artifact_ids.append(artifact_id)
+                created_products.add(root_code)
     else:
         # Phase 2: convert UoM at ingest for manual_flat / staff-flat
         # uploads. Source artifact rows store catalog UoM (with audit
@@ -595,6 +616,7 @@ async def preview_confirm(request: Request, client_id: str, pending_id: str):
             if artifact_id:
                 n += 1
                 created_artifact_ids.append(artifact_id)
+                created_products.add(product_code)
                 if drifts:
                     with _connect(user_id=user.user_id) as conn:
                         with conn.cursor() as cur:
@@ -665,8 +687,26 @@ async def preview_confirm(request: Request, client_id: str, pending_id: str):
                 headers=list(used_mapping.keys()),
                 confirmed_by_user_id=user.user_id, proposed_by="llm",
             )
+    # Honest post-ingest signal: for a technical_raw upload the user
+    # expects flat BOM shapes. Report whether the materialize hook actually
+    # produced any, so a silent skip (the MPL0100-39 bug) surfaces as a
+    # warning instead of a false "done".
+    redirect_kind = "raw" if profile == "technical_raw" else "flat"
+    has_flat = 0
+    if redirect_kind == "raw" and created_products:
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "select count(*) from hub.bom_artifacts where client_id=%s "
+                "and product_code = any(%s) "
+                "and source_bom_kind='technical_flattened' "
+                "and tombstoned_at is null",
+                (client_id, list(created_products)),
+            )
+            has_flat = 1 if cur.fetchone()[0] > 0 else 0
     return RedirectResponse(
-        url=f"/clients/{client_id}/bom?ingested={n}", status_code=303,
+        url=(f"/clients/{client_id}/bom?ingested={n}"
+             f"&kind={redirect_kind}&flat={has_flat}"),
+        status_code=303,
     )
 
 

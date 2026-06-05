@@ -1,6 +1,25 @@
 {% extends "clients/_upload_preview.html" %}
 
 {% block module_summary %}
+{% if will_flatten %}
+<div class="toast" style="margin-bottom: 1rem;">
+  ℹ <strong>BOM kỹ thuật (nhiều cấp).</strong> Khi xác nhận, hệ thống sẽ lưu
+  bản gốc và <strong>tự động sinh BOM phẳng</strong> (shallow + full_flat).
+</div>
+{% else %}
+<div class="toast" style="margin-bottom: 1rem;">
+  ℹ <strong>BOM phẳng.</strong> Khi xác nhận, dữ liệu được lưu nguyên trạng —
+  <strong>không phân rã thêm cấp</strong>.
+</div>
+{% endif %}
+{% if multi_level_flat %}
+<div class="toast toast-error" style="margin-bottom: 1rem;">
+  ⚠ Phát hiện cấu trúc <strong>nhiều cấp</strong> trong file nhưng đang lưu ở
+  dạng <strong>phẳng</strong> — sẽ KHÔNG sinh BOM phẳng phân rã. Nếu đây là BOM
+  kỹ thuật, hãy reject và tải lại với parser <code>technical_raw</code>
+  (hoặc để <code>Tự động phát hiện</code>).
+</div>
+{% endif %}
 <div class="zone mini-panel" style="margin-bottom: 1rem;">
   <strong>Tổng quan ({{ profile }}):</strong>
   <ul style="margin: 0.5rem 0 0 1.2rem;">
