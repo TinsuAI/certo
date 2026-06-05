@@ -1,36 +1,42 @@
 # Project Status
 
-**Date:** 2026-06-05 — **BCCT upload mapping-flow overhaul, shipped to prod.**
-Auto-map skips the manual mapping page for standard files; no-header files map
-by position (with value-pattern pre-fill + auto-selected "Không có header");
-per-client column aliases (admin UI, `mig 075`); sharper LLM prompt; the price-
-column-inversion check is now advisory (was a hard gate). Also: BOM `depth=full`
-filter + `is_shallow` for CO's picker; LLM swapped to OpenRouter (sgnai endpoint
-was down). Full feature: `.ai/features/2026-06-05-bcct-mapping-flow-overhaul/`,
-session log `.ai/sessions/2026-06-05-bcct-mapping-flow-overhaul.md`.
+**Date:** 2026-06-06 — **BOM auto-detect tree-flat fix + honest signals +
+self-service retraction, all shipped to prod.** `profile=auto` was storing
+single-rooted explosion trees (`sap_indented_walk`/`multi_sheet_per_root`) as
+flat `manual_flat`/`not_applicable` — no `raw_graph`, no shallow/full_flat
+derived, yet `parse_status='done'` (the MPL0100-39 bug). Fixed routing; added a
+preview destination banner + honest post-ingest toast (warns when a technical
+upload produced NO flat shapes); added self-service tombstone of a BOM version
+(cascades to derived shapes) + delete of failed uploads — so staff no longer
+need dev SQL to clean bad data. Full feature:
+`.ai/features/2026-06-05-bom-auto-tree-flat-fix/` (brief + 9 screenshots).
 
 ## Current State
 
-**Branch:** `main`, last commit `1c9a014` (pushed + **deployed to prod**).
-**Tests:** 1340 passed, 15 skipped (`uv run pytest -q`). **Migrations:** **075**
-(`hub.client_column_aliases`) — additive, auto-applied on prod via container
-restart (verified `mig075=true`).
+**Branch:** `main`, last commit `7886efa` (pushed + **deployed to prod**).
+**Tests:** 1346 passed, 15 skipped (`uv run pytest -q`). **Migrations:** none new
+(latest is **075**, `hub.client_column_aliases`).
 
 **This session's commits (pushed to `main`, live on prod):**
-- `1c9a014` — no-header value inference + demote anomaly to advisory.
-- `f621bd6` — real-data flow smoke + full 9-stage screenshot set.
-- `45f6c47` / `56fcd1d` — Phase 5 no-header positional mapping + auto-suggest.
-- `21f2a23` — Phase 3 per-client column aliases (`mig 075`) + admin UI.
-- `834ac99` — Phase 4 sharper LLM prompt + fill-only-unresolved merge.
-- `81adc4b` — Phase 1 auto-map confident uploads (skip mapping page).
-- `f58c42a` — Phase 2 price-inversion check (now advisory).
-- `a8a3816` — BOM `depth=full` filter + `is_shallow` (CO picker).
+- `7886efa` — self-service retract BOM version (cascade to derived shapes,
+  reason+audit) + delete error/rejected uploads.
+- `1105993` — flow-signal screenshots (7) + feature brief.
+- `0bd85d2` — preview destination banner + honest upload toast.
+- `90ba345` — auto-detect tree adapters land as raw_graph, not flat (core fix).
 
-**Deploy (2026-06-05, prod `ttdatahub.tinsu.ai`):** `git pull` (ce15574 →
-`1c9a014`) + `docker compose up -d --build` → migration 075 auto-applied.
-Verified live: health 200 (public + internal), `client_column_aliases` table
-exists, new `/column-aliases` route reachable (401 unauth, not 404), new modules
-import OK, **real-data smoke ALL FLOWS PASS on prod** (temp client self-cleaned).
+**Deploy (2026-06-06, prod `ttdatahub.tinsu.ai`):** 3 sequential
+`git pull` + `docker compose up -d --build` (→ `90ba345` → `0bd85d2` →
+`7886efa`). Verified live each time: healthz 200, public 200, new routes
+registered (`/bom/artifact/{id}/tombstone`, `/uploads/{id}/delete`).
+
+**Prod data remediation (johnson-vn):** tombstoned 2 stuck artifacts
+(`MPL0100-39`, `MFW0537-39`); re-ingested via the fixed flow. `MPL0100-39` now
+has raw + shallow + full_flat (published). `MFW0537-39` already had good shapes
+(the 2026-06-04 re-upload was a byte-identical stray `manual_flat`); re-ingest
+duplicates were tombstoned. **Gotcha found:** `create_raw_artifact` dedup keys on
+`actor`, so an `erp_pipeline` raw and an `agency_staff` raw with identical edges
+do NOT dedup (made a duplicate set on re-ingest). See memory
+`project_bom_auto_tree_flat_bug`.
 
 **LLM endpoint:** sgnai `codex-lb-demo.sgnai.dev` was **down** (Cloudflare 1033
 tunnel error). Swapped `hub.app_settings` LLM config (dev + prod) to **OpenRouter
@@ -55,6 +61,10 @@ browser SSO redirect stay public `https://ttdatahub.tinsu.ai`. **That networking
 is fully closed (verified both sides 2026-06-01).**
 
 ## Recent Changes
+- 2026-06-06: BOM `profile=auto` tree-flat fix (tree adapters → raw_graph →
+  materialize, not flat manual_flat) + preview destination banner + honest
+  post-ingest toast + self-service tombstone BOM version / delete failed uploads;
+  prod data remediated (MPL0100-39 / MFW0537-39); **deployed to prod**.
 - 2026-06-05: BCCT mapping-flow overhaul (auto-map, no-header positional + inference,
   per-client column aliases `mig 075`, LLM prompt, anomaly→advisory) + BOM `depth=full`
   + LLM→OpenRouter; **deployed to prod, real-data smoke PASS**.
