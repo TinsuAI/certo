@@ -444,6 +444,76 @@ def _create_artifact_inner(cur, *, client_id, product_code, rows, actor, intent,
     return artifact_id
 
 
+_PARENT_SENTINEL = "00000000-0000-0000-0000-000000000000"
+
+
+def tombstone_bom_version(*, client_id: str, artifact_id: str, reason: str,
+                          actor: str) -> dict:
+    """Soft-retract a wrongly-stored BOM version (never DELETE — BOM
+    immutable principle). Resolves the version root (a derived shape's
+    raw_graph parent, else the artifact itself) and tombstones the root
+    PLUS its derived children (shallow/full_flat via parent_artifact_id),
+    so a single action leaves no orphaned shapes. Writes one
+    `version.tombstoned` audit row per artifact. Idempotent: already-
+    tombstoned targets are skipped.
+
+    Returns {"count", "ids", "product_code", "root", "already"}.
+    """
+    with connect(user_id=actor) as conn, conn.cursor() as cur:
+        cur.execute(
+            "select product_code, source_bom_kind, parent_artifact_id, "
+            "tombstoned_at from hub.bom_artifacts "
+            "where artifact_id=%s and client_id=%s",
+            (artifact_id, client_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise LookupError("artifact not found")
+        product_code, _kind, parent, tombstoned_at = row
+        if tombstoned_at is not None:
+            return {"count": 0, "ids": [], "product_code": product_code,
+                    "root": artifact_id, "already": True}
+        # Resolve the version root: if this is a derived shape pointing at a
+        # live parent, retract from the parent so siblings go too.
+        root = artifact_id
+        if parent and parent != _PARENT_SENTINEL:
+            cur.execute(
+                "select artifact_id from hub.bom_artifacts "
+                "where artifact_id=%s and client_id=%s and tombstoned_at is null",
+                (parent, client_id),
+            )
+            p = cur.fetchone()
+            if p:
+                root = p[0]
+        cur.execute(
+            "select artifact_id, product_code from hub.bom_artifacts "
+            "where client_id=%s and tombstoned_at is null "
+            "and (artifact_id=%s or parent_artifact_id=%s)",
+            (client_id, root, root),
+        )
+        targets = cur.fetchall()
+        ids = [t[0] for t in targets]
+        if not ids:
+            return {"count": 0, "ids": [], "product_code": product_code,
+                    "root": root, "already": True}
+        cur.execute(
+            "update hub.bom_artifacts set tombstoned_at=now(), "
+            "tombstone_reason=%s where artifact_id = any(%s)",
+            (reason, ids),
+        )
+        for tid, pcode in targets:
+            cur.execute(
+                "insert into hub.bom_audit_events "
+                "(client_id, product_code, artifact_id, event_type, actor, details) "
+                "values (%s, %s, %s, 'version.tombstoned', %s, %s::jsonb)",
+                (client_id, pcode, tid, actor,
+                 json.dumps({"reason": reason, "via": artifact_id,
+                             "root": root})),
+            )
+    return {"count": len(ids), "ids": ids, "product_code": product_code,
+            "root": root, "already": False}
+
+
 def _next_artifact_no_for_variant(cur, *, client_id: str, product_code: str,
                                  bom_variant_id: str) -> int:
     """Variant-scoped artifact_no — spec §3A: 'artifact_no must not mix

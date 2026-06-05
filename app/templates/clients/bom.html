@@ -42,6 +42,10 @@
     ✓ Đã lưu {{ _ingested }} BOM version.
   </div>
   {% endif %}
+  {% elif request.query_params.get('tombstoned') %}
+  <div class="toast" style="margin-bottom: 1rem;">
+    ✓ Đã thu hồi {{ request.query_params.get('tombstoned') }} phiên bản BOM (gồm shape dẫn xuất).
+  </div>
   {% elif request.query_params.get('rejected') %}
   <div class="toast toast-error" style="margin-bottom: 1rem;">
     ⚠ File đã bị reject. Không có BOM version nào được tạo.

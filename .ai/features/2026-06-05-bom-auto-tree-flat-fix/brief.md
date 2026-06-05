@@ -55,6 +55,24 @@ an `agency_staff` raw with identical edges do NOT dedup.
 6. `06_toast_technical_warning` — raw but NO flat shapes (silent-skip signal).
 7. `07_toast_flat_stored` — flat stored as-provided.
 
+## Self-service retraction (follow-up)
+
+Staff previously had no UI to remove a wrongly-stored confirmed artifact —
+the MPL0100-39 fix needed a developer SQL tombstone. Added:
+
+- **Tombstone a BOM version** — `POST /clients/{id}/bom/artifact/{aid}/tombstone`
+  + danger-zone form on the artifact detail. Requires a reason, writes a
+  `version.tombstoned` audit row, and **cascades to derived shapes**: it
+  resolves the version root (a shape's raw_graph parent, else the artifact)
+  and tombstones root + children, so no orphaned shallow/full_flat. Confirm
+  dialog warns sister apps (BCQT/CO) may consume the version. Soft only
+  (never DELETE — BOM immutable principle).
+- **Delete a failed upload** — `POST /clients/{id}/uploads/{uid}/delete`
+  + "Xoá" button in the uploads list, restricted to `error`/`rejected`
+  rows (a `done` row backs an artifact via `source_upload_id`).
+
+Shots `08_artifact_danger_zone`, `09_uploads_delete_error`.
+
 ## Tests
 
 `tests/test_bom_flexible_flow.py::test_auto_profile_tree_adapter_lands_as_raw_graph`

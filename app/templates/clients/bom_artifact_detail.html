@@ -255,5 +255,28 @@
     </tbody>
   </table>
   {% endif %}
+
+  {% if not artifact.tombstoned_at %}
+  <div class="mini-panel" style="margin-top: 1.5rem; border: 1px solid #f0c0c0; background: #fdf6f6;">
+    <h3 style="margin: 0 0 .3rem 0; color: #c00;">Thu hồi phiên bản</h3>
+    <p class="meta" style="margin: 0 0 .6rem 0;">
+      Đánh dấu thu hồi (tombstone) phiên bản lưu sai. Bản gốc giữ lại để truy vết,
+      nhưng sẽ ẩn khỏi danh sách BOM và API cho app khác. Nếu đây là BOM kỹ thuật,
+      các BOM phẳng dẫn xuất (shallow / full_flat) cũng được thu hồi cùng.
+      <strong>App khác (BCQT/CO) có thể đang dùng phiên bản này.</strong>
+    </p>
+    <form method="post"
+          action="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/tombstone"
+          onsubmit="return confirm('Thu hồi phiên bản này (và các BOM phẳng dẫn xuất)? Hành động ghi log audit.');"
+          style="display: flex; gap: .5rem; align-items: center; flex-wrap: wrap;">
+      <input type="text" name="reason" required maxlength="500"
+             placeholder="Lý do thu hồi (bắt buộc)"
+             style="flex: 1; min-width: 280px; padding: .4rem .6rem;">
+      <button type="submit" class="btn-secondary" style="color: #c00; border-color: #f0c0c0;">
+        Thu hồi
+      </button>
+    </form>
+  </div>
+  {% endif %}
 </section>
 {% endblock %}

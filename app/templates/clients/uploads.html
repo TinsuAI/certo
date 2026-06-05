@@ -14,6 +14,10 @@
     </div>
   </div>
 
+  {% if request.query_params.get('deleted') %}
+  <div class="toast" style="margin-bottom: 1rem;">✓ Đã xoá upload lỗi.</div>
+  {% endif %}
+
   <div class="chip-row">
     <a class="chip {{ 'chip-active' if not selected_module else '' }}"
        href="/clients/{{ client.client_id }}/uploads">{{ t('common.all') }}</a>
@@ -33,6 +37,7 @@
       <th>{{ t('common.status') }}</th>
       <th>{{ t('uploads.col.rows') }}</th>
       <th>{{ t('uploads.col.error') }}</th>
+      <th></th>
     </tr></thead>
     <tbody>
       {% for u in items %}
@@ -57,6 +62,15 @@
         </td>
         <td class="mono">{{ u.row_count if u.row_count is not none else '—' }}</td>
         <td style="font-size: .82rem; color: var(--text-soft, #5b6478); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ u.parse_error or '' }}</td>
+        <td>
+          {% if u.parse_status in ['error', 'rejected'] %}
+          <form method="post"
+                action="/clients/{{ client.client_id }}/uploads/{{ u.upload_id }}/delete"
+                onsubmit="return confirm('Xoá upload lỗi này?');" style="margin:0;">
+            <button type="submit" class="btn-link" style="color:#c00;">Xoá</button>
+          </form>
+          {% endif %}
+        </td>
       </tr>
       {% endfor %}
     </tbody>

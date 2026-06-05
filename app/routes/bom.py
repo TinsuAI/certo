@@ -53,6 +53,7 @@ from app.stores.bom import (
     make_catalog_lookup,
     make_current_db_btp_lookup,
     submit_proposal,
+    tombstone_bom_version,
     validate_proposal_contract,
 )
 from app.stores import flatten_decisions as decisions_store
@@ -1513,6 +1514,32 @@ async def artifact_detail(request: Request, client_id: str, artifact_id: str):
          "edges": data.get("edges") or [],
          "lineage": lineage,
          "active_root": "clients", "active_tab": "bom"},
+    )
+
+
+@router.post("/clients/{client_id}/bom/artifact/{artifact_id}/tombstone")
+async def artifact_tombstone(request: Request, client_id: str, artifact_id: str,
+                             reason: str = Form("")):
+    """Soft-retract a wrongly-stored BOM version + its derived shapes.
+    Edit-level; requires a reason; writes audit. Hidden from list + API
+    afterwards (consumers read tombstoned_at is null)."""
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+    reason = (reason or "").strip()
+    if not reason:
+        raise HTTPException(400, "Lý do thu hồi là bắt buộc.")
+    data = get_artifact_with_rows(artifact_id)
+    if not data or data["artifact"]["client_id"] != client_id:
+        raise HTTPException(404, "Artifact not found")
+    result = tombstone_bom_version(
+        client_id=client_id, artifact_id=artifact_id,
+        reason=reason, actor=user.user_id,
+    )
+    return RedirectResponse(
+        url=f"/clients/{client_id}/bom?tombstoned={result['count']}",
+        status_code=303,
     )
 
 
