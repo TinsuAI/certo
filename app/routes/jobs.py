@@ -44,6 +44,11 @@ _JOB_RECIPES: dict[str, dict] = {
         "script": "refresh_substitutes.py",
         "extra_args": [],
     },
+    "declaration_pdf_render": {
+        "label_template": "Render PDF tờ khai còn thiếu ({client_id})",
+        "script": "backfill_declaration_pdfs.py",
+        "extra_args": [],
+    },
 }
 
 
