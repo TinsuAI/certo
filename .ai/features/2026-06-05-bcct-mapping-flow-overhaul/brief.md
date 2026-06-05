@@ -128,6 +128,23 @@ urgent. Each phase: tests first → implement → `/rev` → commit. UI proof
 (mapping page skip, preview warnings, admin config) committed under this
 feature folder's `screenshots/`.
 
+## Post-review adjustments (2026-06-05)
+
+- **No-header value inference** (`app/parsers/bcct_infer.py`): when a file
+  has no header, the distinctive columns (declaration_no 11-12 digits,
+  date, declaration_type, currency 3-upper, hs_code, hyphen/letter customs
+  code, goods_name) are pre-filled by value pattern so the operator only
+  maps the ambiguous numeric columns. Bare-digit SAP customs codes
+  (johnson `1000…`) are NOT inferable by value alone — left for the user.
+- **Anomaly demoted to ADVISORY** (was a hard gate). Rationale: auto-map
+  (Phase 1) already prevents the original swap for standard files, and the
+  Diff is the operator's real review surface; a blocking gate + ack
+  checkbox added confusion for little marginal safety. Now a non-blocking
+  warning ("Lưu ý … không chặn lưu") pointing at the Diff. Detector
+  unchanged (still only the VND↔nguyên-tệ price/value pairs — NOT a general
+  any-column-swap detector; deliberately not expanded to avoid false
+  positives).
+
 ## Verification
 
 - `scripts/smoke_bcct_flows.py` — real-data (johnson-vn) end-to-end smoke

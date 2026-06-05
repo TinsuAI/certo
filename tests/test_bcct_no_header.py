@@ -99,6 +99,51 @@ def test_no_header_flow_keeps_all_rows(tmp_path, monkeypatch):
             cur.execute("delete from hub.users where user_id=%s", (uid,))
 
 
+def test_infer_distinctive_columns_by_value():
+    from app.parsers.bcct_infer import infer_bcct_columns_by_values
+    rows = [
+        ["108212187420", "1", "E11", "2026-05-18", "PE-001", "Nhựa PE nguyên sinh",
+         "100", "kg", "250000", "0.05", "1300", "9.5", "USD", "26138"],
+        ["108212187421", "2", "E42", "2026-05-19", "AL-200", "Nhôm tấm cán nguội",
+         "80", "kg", "200000", "0.04", "1100", "8.0", "USD", "26140"],
+    ]
+    m = infer_bcct_columns_by_values(rows)
+    assert m[0] == "declaration_no"
+    assert m[2] == "declaration_type"
+    assert m[3] == "registration_date"
+    assert m[4] == "customs_code"      # PE-001 / AL-200 are distinctive
+    assert m[5] == "goods_name"
+    assert m[13 - 1] == "currency_nt"  # idx 12
+    # ambiguous numeric columns are NOT inferred
+    for num_idx in (6, 8, 9, 10, 11):
+        assert num_idx not in m
+
+
+def test_infer_skips_pure_numeric_columns():
+    from app.parsers.bcct_infer import infer_bcct_columns_by_values
+    rows = [["100", "250", "1300"], ["80", "200", "1100"]]
+    assert infer_bcct_columns_by_values(rows) == {}
+
+
+def test_build_context_prefills_inferred_on_no_header():
+    from app.routes._mapping_flow import _build_mapping_context
+    from app.routes.bcct import BCCT_MAPPING_CFG
+    blob = _xlsx([
+        ("108212187420", "1", "E11", "2026-05-18", "PE-001", "Nhựa PE nguyên sinh",
+         "100", "kg", "250000", "0.05", "1300", "9.5", "USD", "26138"),
+        ("108212187421", "2", "E42", "2026-05-19", "AL-200", "Nhôm tấm",
+         "80", "kg", "200000", "0.04", "1100", "8.0", "USD", "26140"),
+    ])
+    ctx = _build_mapping_context(
+        client_id="no-such-client", upload_id="u", cfg=BCCT_MAPPING_CFG,
+        blob=blob, file_signature=None, extra={}, rigid_only=True)
+    assert ctx["suggest_no_header"] is True
+    proposed = {c["index"]: c["proposed"] for c in ctx["column_map"] if c["proposed"]}
+    assert proposed.get(0) == "declaration_no"
+    assert proposed.get(3) == "registration_date"
+    assert proposed.get(12) == "currency_nt"
+
+
 def test_headerless_file_suggests_no_header():
     from app.routes._mapping_flow import _build_mapping_context
     from app.routes.bcct import BCCT_MAPPING_CFG

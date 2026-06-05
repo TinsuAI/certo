@@ -562,6 +562,15 @@ def _build_mapping_context(
     n_proposed = sum(1 for c in column_map if c["proposed"])
     suggest_no_header = bool(column_map) and n_proposed == 0
 
+    # No-header: pre-fill the distinctive columns by VALUE pattern so the
+    # operator only fills the numeric ones, not all of them. BCCT-specific.
+    if suggest_no_header and cfg.name == "bcct":
+        from app.parsers.bcct_infer import infer_bcct_columns_by_values
+        inferred = infer_bcct_columns_by_values(raw_rows)
+        for col in column_map:
+            if col["index"] in inferred:
+                col["proposed"] = inferred[col["index"]]
+
     return {
         "upload_id": upload_id,
         "module": cfg.name,

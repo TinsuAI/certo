@@ -137,17 +137,16 @@ def main() -> int:
         results.append(("A auto-map→clean→apply", a1 and a2,
                         f"preview={a1} ingested={_count()} up({up})>up_nt({upnt})"))
 
-        # B — anomaly gate
+        # B — anomaly advisory (warning shown, does NOT block save)
         _wipe()
         r = _upload(_xlsx(rows, swap=True)); pid = r.headers["location"].rsplit("/", 1)[-1]
         pg = _get(f"/clients/{CLIENT}/bcct/upload/preview/{pid}")
-        b1 = "Cảnh báo bất thường" in pg.text and 'name="confirm_anomalies"' in pg.text
-        noack = _confirm(pid, confirm_diffs="on", confirm_orphans="on")
-        b2 = noack.status_code == 400 and noack.json().get("detail") == "anomaly_ack_required"
-        ack = _confirm(pid, confirm_diffs="on", confirm_orphans="on", confirm_anomalies="on")
-        b3 = ack.status_code == 303 and _count() == 8
-        results.append(("B anomaly gate block→ack→apply", b1 and b2 and b3,
-                        f"warn={b1} blocked={b2} acked_ingested={_count()}"))
+        b1 = "Lưu ý" in pg.text and "không chặn lưu" in pg.text \
+            and 'name="confirm_anomalies"' not in pg.text
+        cf = _confirm(pid, confirm_diffs="on", confirm_orphans="on")
+        b2 = cf.status_code == 303 and _count() == 8
+        results.append(("B anomaly advisory (warn, not blocking)", b1 and b2,
+                        f"warn={b1} confirmed_ingested={_count()}"))
 
         # C — no-header positional
         _wipe()

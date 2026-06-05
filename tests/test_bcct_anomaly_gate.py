@@ -90,32 +90,23 @@ def _pending_exists() -> bool:
         return cur.fetchone() is not None
 
 
-def test_preview_shows_blocking_anomaly_and_ack(setup):
+def test_preview_shows_advisory_warning_no_gate(setup):
+    # Anomaly is ADVISORY: the warning shows, but there is no ack checkbox
+    # and the copy says it does not block saving.
     _stash(_inverted_rows())
     r = _http(setup).get(f"/clients/{CLIENT}/bcct/upload/preview/{PENDING}")
     assert r.status_code == 200, r.text
-    assert "Cảnh báo bất thường" in r.text
-    assert 'name="confirm_anomalies"' in r.text
+    assert "Lưu ý" in r.text and "unit_price" in r.text
+    assert "không chặn lưu" in r.text
+    assert 'name="confirm_anomalies"' not in r.text
 
 
-def test_confirm_blocked_without_ack(setup):
+def test_confirm_not_blocked_by_anomaly(setup):
+    # Confirm succeeds WITHOUT any anomaly ack — advisory, not a gate.
     _stash(_inverted_rows())
     r = _http(setup).post(
         f"/clients/{CLIENT}/bcct/upload/preview/{PENDING}/confirm",
         data={"confirm_diffs": "on", "confirm_orphans": "on"},
-        follow_redirects=False)
-    assert r.status_code == 400
-    assert r.json()["detail"] == "anomaly_ack_required"
-    # pending preserved → upload recoverable.
-    assert _pending_exists()
-
-
-def test_confirm_succeeds_with_ack(setup):
-    _stash(_inverted_rows())
-    r = _http(setup).post(
-        f"/clients/{CLIENT}/bcct/upload/preview/{PENDING}/confirm",
-        data={"confirm_diffs": "on", "confirm_orphans": "on",
-              "confirm_anomalies": "on"},
         follow_redirects=False)
     assert r.status_code == 303, r.text
     assert not _pending_exists()

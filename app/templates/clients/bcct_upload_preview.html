@@ -52,13 +52,10 @@
     {% include "clients/_uom_drift_banner.html" ignore missing %}
     {% if anomalies %}
     <div class="zone mini-panel anomaly-panel" style="margin-bottom: 1rem;">
-      <strong>⚠ Cảnh báo bất thường dữ liệu</strong>
+      <strong>⚠ Lưu ý — kiểm tra lại cột ở phần Diff bên dưới</strong>
       <ul style="margin: 0.5rem 0 0 1.2rem;">
         {% for a in anomalies %}
         <li style="margin-bottom: 0.4rem;">
-          <span class="badge {% if a.severity == 'block' %}badge-danger{% else %}badge-warn{% endif %}">
-            {{ 'CHẶN' if a.severity == 'block' else 'lưu ý' }}
-          </span>
           {{ a.message }}
           {% if a.samples %}
           <details>
@@ -79,12 +76,7 @@
         </li>
         {% endfor %}
       </ul>
-      {% if anomaly_blocks_confirm %}
-      <label class="checkbox-label" style="margin-top: 0.5rem;">
-        <input type="checkbox" name="confirm_anomalies" id="confirm_anomalies">
-        <span>Đã kiểm tra ánh xạ cột là đúng — vẫn ghi đè bất chấp cảnh báo.</span>
-      </label>
-      {% endif %}
+      <p class="meta" style="margin-top: 0.4rem;">Đây là cảnh báo, không chặn lưu.</p>
     </div>
     {% endif %}
     {% if summary.diff %}
@@ -159,16 +151,4 @@
     {% endif %}
   </form>
 </section>
-{% if anomaly_blocks_confirm %}
-<script>
-  (function () {
-    var ack = document.getElementById('confirm_anomalies');
-    var btn = document.querySelector('#confirm-form button[type=submit]');
-    if (!ack || !btn) return;
-    function sync() { btn.disabled = !ack.checked; }
-    ack.addEventListener('change', sync);
-    sync();
-  })();
-</script>
-{% endif %}
 {% endblock %}
