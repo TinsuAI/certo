@@ -60,7 +60,7 @@ Scale rigor to the change — a quick fix needs less ceremony than a payments in
 - **Progressive rigor:** Small change = lightweight. Risky change = thorough spec and review.
 - **Assumptions mode:** On existing codebases, state assumptions from reading the code rather than asking many questions. User corrects what's wrong.
 - **Verify before claiming done:** No "done" without running tests and confirming the change works. Evidence, not claims.
-- **Screenshot hygiene:** When UI/browser testing creates screenshots, save them under `.ai/screenshots/<feature-slug>/`, where `<feature-slug>` names the feature currently being developed. Do not dump screenshots directly into `.ai/screenshots/`.
+- **Screenshot hygiene:** When UI/browser testing creates screenshots, save them under `.ai/screenshots/YYYY-MM-DD-<feature-slug>/`, where the date is when the work happens and `<feature-slug>` names the feature currently being developed. Do not dump screenshots directly into `.ai/screenshots/`, and do not omit the date prefix.
 
 ## Data Hub API Requests
 
