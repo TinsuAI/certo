@@ -12,6 +12,10 @@ Phase 5 (no-header files): parser `positional_override` (0-based col index
 gains a "— Không có header —" option (value 0) → route maps by column
 position and skips the per-shape cache. Solves the headerless case where
 the first data row was previously eaten as a header (1 of N rows lost).
+When the chosen header row matches NO known field (`suggest_no_header`),
+the picker AUTO-SELECTS "Không có header" and JS relabels the column cells
+to "Cột N" — the operator no longer has to notice and switch manually.
+Screenshots regenerated from REAL johnson-vn BCCT rows (not placeholders).
 
 ## Problem / incident
 

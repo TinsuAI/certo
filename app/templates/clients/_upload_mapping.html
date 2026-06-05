@@ -61,15 +61,21 @@
       <label for="header_row_override"><strong>Dòng header:</strong></label>
       <select name="header_row_override" id="header_row_override">
         {% for r_no, n_filled in candidate_header_rows %}
-        <option value="{{ r_no }}" {% if r_no == default_header_row_no %}selected{% endif %}>
+        <option value="{{ r_no }}"
+                {% if not suggest_no_header and r_no == default_header_row_no %}selected{% endif %}>
           Dòng {{ r_no }} ({{ n_filled }} ô có dữ liệu)
         </option>
         {% endfor %}
-        <option value="0">— Không có header (dữ liệu từ dòng 1) —</option>
+        <option value="0" {% if suggest_no_header %}selected{% endif %}>— Không có header (dữ liệu từ dòng 1) —</option>
       </select>
       <span class="meta">Mặc định = dòng Hub đoán là header. Đổi nếu file có
         banner/legend phía trên. Chọn <em>Không có header</em> nếu file không
         có dòng tiêu đề — cột sẽ map theo vị trí và dòng 1 được giữ làm dữ liệu.</span>
+      {% if suggest_no_header %}
+      <span class="meta" style="color: var(--warn, #c97a00);">
+        Hub không nhận diện được dòng header — đã chọn sẵn <em>Không có header</em>.
+      </span>
+      {% endif %}
     </div>
 
     <div class="form-row">
@@ -93,7 +99,9 @@
       <tbody>
         {% for col in column_map %}
         <tr>
-          <td><code>{{ col.header or '(cột '+ col.index|string +')' }}</code></td>
+          <td><code class="col-name" data-index="{{ col.index }}"
+                     data-header="{{ col.header or '(cột '+ col.index|string +')' }}"
+            >{{ col.header or '(cột '+ col.index|string +')' }}</code></td>
           <td class="meta">→</td>
           <td>
             <select name="col_{{ col.index }}__field" data-header="{{ col.header }}"
@@ -154,5 +162,31 @@
   .mapping-config-table .field-hint { color: var(--warn, #c97a00); margin-left: 0.4rem; }
   .form-row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; padding: 0.4rem 0; }
 </style>
+
+<script>
+  // No-header mode: when the header-row picker is set to "Không có header"
+  // (value 0), relabel the column cells to "Cột N" (position) — their real
+  // text is data, not a header — and drop the misleading header-row
+  // highlight in the preview. Restores on switching back to a real row.
+  (function () {
+    var picker = document.getElementById('header_row_override');
+    if (!picker) return;
+    var names = document.querySelectorAll('.col-name');
+    var headerRows = document.querySelectorAll('.mapping-raw-table .row-as-header');
+    function sync() {
+      var noHeader = picker.value === '0';
+      names.forEach(function (el) {
+        var idx = parseInt(el.getAttribute('data-index'), 10);
+        el.textContent = noHeader ? ('Cột ' + (idx + 1)) : el.getAttribute('data-header');
+      });
+      headerRows.forEach(function (tr) {
+        tr.style.background = noHeader ? '' : '';
+        tr.classList.toggle('row-as-header', !noHeader);
+      });
+    }
+    picker.addEventListener('change', sync);
+    sync();
+  })();
+</script>
 
 {% endblock %}

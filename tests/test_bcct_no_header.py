@@ -99,6 +99,33 @@ def test_no_header_flow_keeps_all_rows(tmp_path, monkeypatch):
             cur.execute("delete from hub.users where user_id=%s", (uid,))
 
 
+def test_headerless_file_suggests_no_header():
+    from app.routes._mapping_flow import _build_mapping_context
+    from app.routes.bcct import BCCT_MAPPING_CFG
+    blob = _xlsx([
+        ("308400001", "1", "E11", "2026-05-18", "PE-1", "Poly", "100", "kg", "250", "USD"),
+        ("308400002", "1", "E11", "2026-05-18", "PE-2", "PP", "80", "kg", "200", "USD"),
+    ])
+    ctx = _build_mapping_context(
+        client_id="no-such-client", upload_id="u", cfg=BCCT_MAPPING_CFG,
+        blob=blob, file_signature=None, extra={}, rigid_only=True)
+    assert ctx["suggest_no_header"] is True
+
+
+def test_standard_header_file_does_not_suggest_no_header():
+    from app.routes._mapping_flow import _build_mapping_context
+    from app.routes.bcct import BCCT_MAPPING_CFG
+    blob = _xlsx([
+        ("Số tờ khai", "Dòng", "Mã loại hình", "Ngày đăng ký", "Mã NPL/SP",
+         "Tên hàng", "Tổng số lượng", "ĐVT", "Trị giá", "Nguyên tệ"),
+        ("308400001", 1, "E11", "2026-05-18", "PE-1", "Poly", 100, "kg", 250, "USD"),
+    ])
+    ctx = _build_mapping_context(
+        client_id="no-such-client", upload_id="u", cfg=BCCT_MAPPING_CFG,
+        blob=blob, file_signature=None, extra={}, rigid_only=True)
+    assert ctx["suggest_no_header"] is False
+
+
 def test_positional_skips_identifierless_row():
     # A row with no declaration_no AND no customs_code is skipped, not parsed.
     blob = _xlsx([

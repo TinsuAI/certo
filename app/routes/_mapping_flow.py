@@ -556,6 +556,12 @@ def _build_mapping_context(
             "proposed": proposed,
         })
 
+    # If the chosen "header" row matches NO known field, it's almost
+    # certainly a data row (the file has no header). Suggest the no-header
+    # / positional option by default so row 1 isn't consumed as a header.
+    n_proposed = sum(1 for c in column_map if c["proposed"])
+    suggest_no_header = bool(column_map) and n_proposed == 0
+
     return {
         "upload_id": upload_id,
         "module": cfg.name,
@@ -564,6 +570,7 @@ def _build_mapping_context(
         "raw_rows": raw_rows,
         "candidate_header_rows": candidate_header_rows,
         "default_header_row_no": default_header_row_no,
+        "suggest_no_header": suggest_no_header,
         "column_map": column_map,
         "logical_fields": list(cfg.logical_fields),
         "min_identifier_fields": sorted(cfg.min_identifier_fields),
