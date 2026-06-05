@@ -60,13 +60,29 @@ def origin_lock_actor(request: Request) -> dict[str, str]:
         "email": user.email,
     }
 def origin_case_revision(case: dict) -> str:
+    # Optimistic-concurrency token over USER-EDITABLE case state only.
+    #
+    # It must NOT include source_snapshot / bom_snapshot / origin_snapshot: those
+    # are DERIVED data recomputed on every render (co_case_context recomputes
+    # source_snapshot via attach_case_source_summary_snapshot, plus bom/origin
+    # snapshots via attach_*). source_snapshot in particular carries live source
+    # metadata (bcct_reviewed_row_count, correction_candidate_count, catalog
+    # version ids) that drifts continuously on prod as customs data flows. Routes
+    # that persist before re-rendering (e.g. lock persists, then rebuilds the
+    # source context for the response) therefore rendered a revision that no
+    # longer matched the persisted one, so the NEXT action falsely 409'd with
+    # "Origin case state changed; reload before saving" — forcing an F5 between
+    # every sheet. Hashing only user intent keeps the token stable across benign
+    # source refreshes while still catching real concurrent edits (reorder,
+    # sheet status transitions, BOM version overrides).
+    sheet_statuses = {
+        str(code): (state.get("status") if isinstance(state, dict) else str(state or ""))
+        for code, state in (case.get("origin_sheet_states") or {}).items()
+    }
     payload = json_safe(
         {
-            "source_snapshot": case.get("source_snapshot", {}),
-            "bom_snapshot": case.get("bom_snapshot", {}),
-            "origin_snapshot": case.get("origin_snapshot", {}),
             "origin_product_order": origin_product_order(case),
-            "origin_sheet_states": case.get("origin_sheet_states", {}),
+            "origin_sheet_statuses": sheet_statuses,
             "bom_product_artifact_overrides": case.get("bom_product_artifact_overrides", {}),
         }
     )
