@@ -124,6 +124,27 @@ templates = Jinja2Templates(directory=ROOT / "templates", context_processors=[te
 app.state.templates = templates
 
 
+@app.middleware("http")
+async def _no_store_sensitive(request: Request, call_next):
+    """Forbid CDN/browser caching of the sister-app API and any document
+    download.
+
+    Cloudflare fronts prod and caches responses by file extension
+    (.pdf/.zip) unless the origin forbids it. Without this, a single
+    anonymous 200 (e.g. before bearer enforcement) gets cached at the
+    edge and keeps serving customs documents to anonymous callers even
+    after app-level auth is enforced — the exact secondary leak in
+    `.ai/api-requests/2026-06-06-declarations-download-unauthenticated-leak.md`.
+    `no-store` makes Cloudflare bypass cache for these paths.
+    """
+    response = await call_next(request)
+    cd = response.headers.get("content-disposition", "")
+    if request.url.path.startswith("/v1/hub") or "attachment" in cd.lower():
+        response.headers["Cache-Control"] = "no-store, private"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
+
 def safe_next_path(value: str | None, default: str = "/clients") -> str:
     if not value:
         return default
