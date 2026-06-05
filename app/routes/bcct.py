@@ -366,72 +366,94 @@ async def mapping_parse(request: Request, client_id: str, upload_id: str):
         raise HTTPException(404, "Client not found")
     blob, file_signature, _extra = _load_unmapped(upload_id, module="bcct")
     form = await request.form()
-
-    column_map: dict[str, str] = {}
-    for key, value in form.items():
-        if key.startswith("col_") and key.endswith("__field"):
-            idx = key[len("col_"):-len("__field")]
-            field = (value or "").strip()
-            if not field:
-                continue
-            header_value = (form.get(f"col_{idx}__header") or "").strip()
-            if header_value:
-                column_map[header_value] = field
-
-    mapped_logical = set(column_map.values())
-    missing_mapped = BCCT_REQUIRED_MAPPED - mapped_logical
-    if missing_mapped:
-        raise HTTPException(
-            400,
-            "Thiếu mapping cho các trường bắt buộc: " +
-            ", ".join(sorted(missing_mapped)),
-        )
-
     header_row_override_str = (form.get("header_row_override") or "").strip()
-    header_row_override = (
-        int(header_row_override_str) if header_row_override_str.isdigit() else None
-    )
+    # Sentinel "0" from the header-row picker = file has NO header row.
+    no_header = header_row_override_str == "0"
     extra_required_str = (form.get("extra_required_fields") or "").strip()
     extra_required = (
         [s.strip() for s in extra_required_str.split(",") if s.strip()]
         if extra_required_str else None
     )
 
-    try:
-        rows, _skipped = parse_bcct_workbook(
-            blob, mapping_override=column_map,
-            header_row_override=header_row_override,
-            extra_required_fields=extra_required,
-            return_skipped=True,
-        )
-    except BcctParseError as e:
-        raise HTTPException(400, f"Parse error: {e}") from e
+    def _missing_required(mapped: set[str]) -> None:
+        missing = BCCT_REQUIRED_MAPPED - mapped
+        if missing:
+            raise HTTPException(
+                400,
+                "Thiếu mapping cho các trường bắt buộc: " +
+                ", ".join(sorted(missing)),
+            )
 
-    # Persist this confirmed mapping to the cache so the next upload of
-    # the same shape skips the mapping page.
-    try:
-        if file_signature:
-            with connect() as conn, conn.cursor() as cur:
-                cur.execute(
-                    """
-                    insert into hub.parser_mappings
-                      (client_id, module, file_signature, mapping, sample_headers,
-                       proposed_by, confirmed_by, confirmed_at)
-                    values (%s, 'bcct', %s, %s::jsonb, %s::jsonb,
-                            'manual', %s, now())
-                    on conflict (client_id, module, file_signature) do update set
-                      mapping = excluded.mapping,
-                      proposed_by = excluded.proposed_by,
-                      confirmed_by = excluded.confirmed_by,
-                      confirmed_at = excluded.confirmed_at
-                    """,
-                    (client_id, file_signature,
-                     json.dumps(column_map, ensure_ascii=False),
-                     json.dumps(list(column_map.keys()), ensure_ascii=False),
-                     user.user_id),
-                )
-    except Exception:  # noqa: BLE001 — cache write is best-effort
-        pass
+    if no_header:
+        # No header row → map by 0-based column position; data from row 1
+        # (the first data row is NOT consumed as a header). Headerless files
+        # have no stable per-shape signature, so the cache is skipped.
+        positional: dict[int, str] = {}
+        for key, value in form.items():
+            if key.startswith("col_") and key.endswith("__field"):
+                idx = key[len("col_"):-len("__field")]
+                field = (value or "").strip()
+                if field and idx.isdigit():
+                    positional[int(idx)] = field
+        _missing_required(set(positional.values()))
+        try:
+            rows, _skipped = parse_bcct_workbook(
+                blob, positional_override=positional,
+                extra_required_fields=extra_required, return_skipped=True,
+            )
+        except BcctParseError as e:
+            raise HTTPException(400, f"Parse error: {e}") from e
+    else:
+        column_map: dict[str, str] = {}
+        for key, value in form.items():
+            if key.startswith("col_") and key.endswith("__field"):
+                idx = key[len("col_"):-len("__field")]
+                field = (value or "").strip()
+                if not field:
+                    continue
+                header_value = (form.get(f"col_{idx}__header") or "").strip()
+                if header_value:
+                    column_map[header_value] = field
+        _missing_required(set(column_map.values()))
+
+        header_row_override = (
+            int(header_row_override_str) if header_row_override_str.isdigit() else None
+        )
+        try:
+            rows, _skipped = parse_bcct_workbook(
+                blob, mapping_override=column_map,
+                header_row_override=header_row_override,
+                extra_required_fields=extra_required,
+                return_skipped=True,
+            )
+        except BcctParseError as e:
+            raise HTTPException(400, f"Parse error: {e}") from e
+
+        # Persist this confirmed mapping to the cache so the next upload of
+        # the same shape skips the mapping page.
+        try:
+            if file_signature:
+                with connect() as conn, conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        insert into hub.parser_mappings
+                          (client_id, module, file_signature, mapping, sample_headers,
+                           proposed_by, confirmed_by, confirmed_at)
+                        values (%s, 'bcct', %s, %s::jsonb, %s::jsonb,
+                                'manual', %s, now())
+                        on conflict (client_id, module, file_signature) do update set
+                          mapping = excluded.mapping,
+                          proposed_by = excluded.proposed_by,
+                          confirmed_by = excluded.confirmed_by,
+                          confirmed_at = excluded.confirmed_at
+                        """,
+                        (client_id, file_signature,
+                         json.dumps(column_map, ensure_ascii=False),
+                         json.dumps(list(column_map.keys()), ensure_ascii=False),
+                         user.user_id),
+                    )
+        except Exception:  # noqa: BLE001 — cache write is best-effort
+            pass
 
     # Mark file_uploads as parsed (clears mapping_pending status from
     # _stash_unmapped) and route into the existing classify pipeline.

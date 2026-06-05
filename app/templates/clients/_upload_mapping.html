@@ -65,8 +65,11 @@
           Dòng {{ r_no }} ({{ n_filled }} ô có dữ liệu)
         </option>
         {% endfor %}
+        <option value="0">— Không có header (dữ liệu từ dòng 1) —</option>
       </select>
-      <span class="meta">Mặc định = dòng Hub đoán là header. Đổi nếu file có banner/legend phía trên.</span>
+      <span class="meta">Mặc định = dòng Hub đoán là header. Đổi nếu file có
+        banner/legend phía trên. Chọn <em>Không có header</em> nếu file không
+        có dòng tiêu đề — cột sẽ map theo vị trí và dòng 1 được giữ làm dữ liệu.</span>
     </div>
 
     <div class="form-row">

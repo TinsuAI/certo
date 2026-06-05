@@ -3,9 +3,15 @@
 Status: ALL PHASES SHIPPED (2026-06-05). Phase 0 hotfix (cache fix +
 pending discard, dev DB) · Phase 2 anomaly net `f58c42a` · Phase 1
 auto-map `81adc4b` · Phase 4 LLM prompt `834ac99` · Phase 3 per-client
-column config + admin UI + mig 075 `21f2a23`. Full suite 1333 passed.
-Not yet deployed to prod; mapping-page UX fix (_upload_mapping.html) still
-pending user eyeball on dev.
+column config + admin UI + mig 075 `21f2a23` · screenshots `121c0a4` ·
+Phase 5 no-header positional mapping (this commit). Full suite 1336 passed.
+Not yet deployed to prod.
+
+Phase 5 (no-header files): parser `positional_override` (0-based col index
+→ field, data from row 1, no row consumed as header); mapping page picker
+gains a "— Không có header —" option (value 0) → route maps by column
+position and skips the per-shape cache. Solves the headerless case where
+the first data row was previously eaten as a header (1 of N rows lost).
 
 ## Problem / incident
 

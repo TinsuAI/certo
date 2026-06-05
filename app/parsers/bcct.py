@@ -158,6 +158,7 @@ def parse_bcct_workbook(
     *,
     mapping_override: dict[str, str] | None = None,
     header_row_override: int | None = None,
+    positional_override: dict[int, str] | None = None,
     extra_required_fields: list[str] | None = None,
     return_skipped: bool = False,
 ):
@@ -167,6 +168,10 @@ def parse_bcct_workbook(
     the rigid alias-based discovery.
     `header_row_override`: 1-indexed row to treat as the header row
     (slice-4 flexible-flow override).
+    `positional_override`: optional dict[0-based col index → logical_field]
+    for files with NO header row — data starts at sheet row 1 and columns
+    are mapped by position, so no data row is consumed as a header. Takes
+    precedence over `mapping_override`/`header_row_override`.
     `extra_required_fields`: rows missing any of these go to skipped_rows[].
     `return_skipped`: when True, returns `(rows, skipped_rows)` tuple
     (slice-4 flexible-flow contract). Default False keeps backward-compat
@@ -182,19 +187,27 @@ def parse_bcct_workbook(
     any_sheet_had_required_cols = False
 
     for ws in wb.worksheets:
-        if header_row_override is not None:
-            header_idx, headers = _read_header_at_row(ws, header_row_override)
-            if not headers:
-                continue
+        if positional_override is not None:
+            # No header row: data starts at sheet row 1; columns mapped by
+            # 0-based position so no data row is consumed as a header.
+            n_cols = (max(positional_override) + 1) if positional_override else 0
+            headers = [f"Cột {i + 1}" for i in range(n_cols)]
+            header_idx = 0
+            cols = {field: idx for idx, field in positional_override.items()}
         else:
-            hdr = header_row(ws, aliases=ALIASES, max_scan=20)
-            if not hdr:
-                continue
-            header_idx, headers = hdr
-        if mapping_override:
-            cols = _cols_from_mapping(headers, mapping_override)
-        else:
-            cols = index_headers(headers, ALIASES)
+            if header_row_override is not None:
+                header_idx, headers = _read_header_at_row(ws, header_row_override)
+                if not headers:
+                    continue
+            else:
+                hdr = header_row(ws, aliases=ALIASES, max_scan=20)
+                if not hdr:
+                    continue
+                header_idx, headers = hdr
+            if mapping_override:
+                cols = _cols_from_mapping(headers, mapping_override)
+            else:
+                cols = index_headers(headers, ALIASES)
         # BCCT requires both declaration_no (Số tờ khai) AND a date column. BOM
         # files have neither; settlement workbooks (RVC/LVC summary sheets) may
         # cite a declaration_no but lack the date, so the AND keeps them out.

@@ -135,8 +135,16 @@ async def main():
         ("308400002", 1, "E11", "2026-05-18", "PE-CLEAN", "Polyethylene",
          100.0, "kg", 250.0, "USD"),
     ]))
+    # Headerless file → mapping page exposes the "Không có header" option.
+    noheader_url = _upload_get_location(sid, _xlsx([
+        ("308400001", "1", "E11", "2026-05-18", "PE-1", "Polyethylene",
+         "100", "kg", "250", "USD"),
+        ("308400002", "1", "E11", "2026-05-18", "PE-2", "PP resin",
+         "80", "kg", "200", "USD"),
+    ]))
     print("  mapping_url ->", mapping_url)
     print("  preview_url ->", preview_url)
+    print("  noheader_url ->", noheader_url)
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
@@ -161,6 +169,10 @@ async def main():
 
             await page.goto(f"{BASE}/clients/{CLIENT}/column-aliases?module=bcct")
             await _shot(page, "05_column_aliases")
+
+            await page.goto(f"{BASE}{noheader_url}")
+            # open the header-row picker so the "Không có header" option shows
+            await _shot(page, "06_no_header_mapping")
 
             await browser.close()
     finally:
