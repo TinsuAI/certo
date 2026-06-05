@@ -224,21 +224,39 @@ async def upload_submit(request: Request, client_id: str,
                 "adapter mới, hoặc chọn parser thủ công ở dropdown.",
             )
         products, used_adapter = result
-        pending_id = _stash_pending(
-            client_id=client_id, upload_id=upload_id, products=products,
-            profile=used_adapter, created_by=user.user_id,
-            proposed_by=f"parser_auto:{used_adapter}",
-        )
-        total_rows = sum(len(rows) for rows in products.values())
-        with connect() as conn, conn.cursor() as cur:
-            cur.execute(
-                "update hub.file_uploads set parse_status='pending_preview', "
-                "row_count=%s, parsed_at=now() where upload_id=%s",
-                (total_rows, upload_id))
-        return RedirectResponse(
-            url=f"/clients/{client_id}/bom/preview/{pending_id}",
-            status_code=303,
-        )
+        # Tree adapters (single-rooted explosion: sap_indented_walk,
+        # multi_sheet_per_root — emits_intermediate_btp_versions=False) must
+        # land as raw_graph artifacts so the post-ingest materialize hook
+        # derives shallow/full_flat. The flat-rows stash below persists them
+        # as manual_flat/not_applicable and silently skips flattening (the
+        # MPL0100-39 bug). Re-route those to the technical_raw raw-edges path
+        # when a raw-edge parser also matches; if none does, keep the flat
+        # path (no regression vs. prior behaviour).
+        detected = bom_adapters.resolve(used_adapter)
+        if (detected is not None
+                and not getattr(detected, "emits_intermediate_btp_versions", True)):
+            try:
+                parse_raw_edges_with_fallback(blob, root_code=root_hint)
+            except BomParseError:
+                pass
+            else:
+                profile = "technical_raw"  # fall through to the raw-edges block
+        if profile == "auto":
+            pending_id = _stash_pending(
+                client_id=client_id, upload_id=upload_id, products=products,
+                profile=used_adapter, created_by=user.user_id,
+                proposed_by=f"parser_auto:{used_adapter}",
+            )
+            total_rows = sum(len(rows) for rows in products.values())
+            with connect() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "update hub.file_uploads set parse_status='pending_preview', "
+                    "row_count=%s, parsed_at=now() where upload_id=%s",
+                    (total_rows, upload_id))
+            return RedirectResponse(
+                url=f"/clients/{client_id}/bom/preview/{pending_id}",
+                status_code=303,
+            )
 
     if profile == "technical_raw":
         from pathlib import Path as _Path

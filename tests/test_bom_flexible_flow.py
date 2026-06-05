@@ -300,6 +300,59 @@ def test_auto_profile_routes_layout_driven_to_preview(http):
     assert "/bom/upload/mapping/" not in loc, loc
 
 
+def test_auto_profile_tree_adapter_lands_as_raw_graph(http):
+    """Regression (MPL0100-39): profile=auto on a single-rooted explosion
+    tree (multi_sheet_per_root, emits_intermediate_btp_versions=False) must
+    become a raw_graph so shallow/full_flat get materialized — NOT a flat
+    manual_flat/not_applicable artifact that silently skips flattening."""
+    wb = Workbook()
+    wb.remove(wb.active)
+    for title, rows in {
+        "整机": [("工厂", "成品物料", "组件物料", "单位", "标准用量"),
+                ("6180", "TP-AUTO-TREE", "BTP-AT", "ST", 2)],
+        "B700": [("工厂", "成品物料", "组件物料", "单位", "标准用量"),
+                ("6180", "BTP-AT", "NVL-AT", "KG", 3)],
+    }.items():
+        ws = wb.create_sheet(title)
+        for r in rows:
+            ws.append(list(r))
+    buf = io.BytesIO()
+    wb.save(buf)
+    blob = buf.getvalue()
+
+    r = _upload(http, blob, profile="auto", filename="TP-AUTO-TREE.xlsx")
+    assert r.status_code == 303, r.text
+    pending_id = _extract_pending_id(r.headers["location"])
+    conf = http.post(
+        f"/clients/{CLIENT}/bom/preview/{pending_id}/confirm",
+        follow_redirects=False,
+    )
+    assert conf.status_code == 303, conf.text
+
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select source_bom_kind, flatten_status from hub.bom_artifacts "
+            "where client_id=%s and product_code=%s and tombstoned_at is null",
+            (CLIENT, "TP-AUTO-TREE"),
+        )
+        kinds = cur.fetchall()
+    assert kinds, "no artifact created for the root product"
+    # Root product must be a raw_graph, not a flat manual_flat dump.
+    assert any(k[0] == "technical_raw" for k in kinds), kinds
+    assert not any(
+        k[0] == "manual_flat" and k[1] == "not_applicable" for k in kinds
+    ), kinds
+    # The materialize hook must have derived at least one flat shape.
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select count(*) from hub.bom_artifacts where client_id=%s "
+            "and product_code=%s and source_bom_kind='technical_flattened' "
+            "and tombstoned_at is null",
+            (CLIENT, "TP-AUTO-TREE"),
+        )
+        assert cur.fetchone()[0] >= 1, "no flat shape materialized from raw_graph"
+
+
 def test_auto_profile_400_when_no_adapter_matches(http):
     """profile=auto on garbage bytes → 400, error message mentions
     no suitable parser."""
