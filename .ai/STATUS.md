@@ -1,39 +1,46 @@
 # Project Status
 
-**Date:** 2026-06-04 — Fixed the declarations **download.zip "manifest-only" defect**
-(reported as a CO Bearer-route bug). Real root cause was NOT route divergence: johnson-vn
-landed in prod **metadata-only** — 3221 `customs_declaration_files` rows with no blob on
-disk — and the shared builder silently swallowed the FileNotFoundError. Restored all 3221
-blobs (sha256-matched) on **prod + nightly**, and hardened the builder to surface missing
-blobs instead of dropping them. See `.ai/sessions/2026-06-04-declaration-blob-backfill.md`.
-Prior 2026-06-01 work: **BOM product search by NVL/component code** (deployed, see
-`.ai/sessions/2026-06-01-bom-search-nvl.md`).
+**Date:** 2026-06-05 — **BCCT upload mapping-flow overhaul, shipped to prod.**
+Auto-map skips the manual mapping page for standard files; no-header files map
+by position (with value-pattern pre-fill + auto-selected "Không có header");
+per-client column aliases (admin UI, `mig 075`); sharper LLM prompt; the price-
+column-inversion check is now advisory (was a hard gate). Also: BOM `depth=full`
+filter + `is_shallow` for CO's picker; LLM swapped to OpenRouter (sgnai endpoint
+was down). Full feature: `.ai/features/2026-06-05-bcct-mapping-flow-overhaul/`,
+session log `.ai/sessions/2026-06-05-bcct-mapping-flow-overhaul.md`.
 
 ## Current State
 
-**Branch:** `main`, last commit `ce15574`. **Tests:** 1306 passed, 15 skipped
-(`uv run pytest -q`). **Migrations:** 074 — no new migration (query/route/data only).
+**Branch:** `main`, last commit `1c9a014` (pushed + **deployed to prod**).
+**Tests:** 1340 passed, 15 skipped (`uv run pytest -q`). **Migrations:** **075**
+(`hub.client_column_aliases`) — additive, auto-applied on prod via container
+restart (verified `mig075=true`).
 
-**Recent commits (pushed to `main`):**
-- `ce15574` — chore(scripts): `backfill_declaration_blobs.py` (sha256-matched, dry-run
-  default, idempotent ops tool).
-- `db7ae88` — fix(declarations): surface registered-but-missing blobs (manifest count +
-  `[THIẾU NỘI DUNG]` annotation + `FILE_THIEU_NOI_DUNG.txt` marker; shared builder so
-  cookie≡Bearer). `tests/test_declarations_zip_missing_blob.py` (3 tests).
-- `fd7a742` / `388c17f` / `57564a5` — BOM search by NVL/component (2026-06-01).
+**This session's commits (pushed to `main`, live on prod):**
+- `1c9a014` — no-header value inference + demote anomaly to advisory.
+- `f621bd6` — real-data flow smoke + full 9-stage screenshot set.
+- `45f6c47` / `56fcd1d` — Phase 5 no-header positional mapping + auto-suggest.
+- `21f2a23` — Phase 3 per-client column aliases (`mig 075`) + admin UI.
+- `834ac99` — Phase 4 sharper LLM prompt + fill-only-unresolved merge.
+- `81adc4b` — Phase 1 auto-map confident uploads (skip mapping page).
+- `f58c42a` — Phase 2 price-inversion check (now advisory).
+- `a8a3816` — BOM `depth=full` filter + `is_shallow` (CO picker).
 
-**Declaration blob backfill (2026-06-04, both environments):**
-- Cause: johnson-vn was metadata-only; `backend.get(backend_key)` raised FileNotFoundError
-  for all 3221 rows; growatt-vn was fine (4038/4038 present). Cookie route had the SAME
-  symptom — not Bearer-specific (the report's premise was wrong).
-- Prod `:8754`: ran `backfill_declaration_blobs.py --apply` in container, source = repo
-  `data/source_inventory/johnson-vn/.../TKN|TKX/` (scp'd in). 3221 put, 0 failed.
-- Nightly `:8764`: backend_keys identical to prod (DB snapshot), so stream-copied the blob
-  dir container→container (`docker cp prod:- | docker cp - nightly:`). 3221 files.
-- Verified both: resolve_ok=3221, missing=0, sha_mismatch=0; download.zip for
-  107271918940 (import, 1.18MB .xls) + 308189816340 (export, 138KB .xls) now embed files.
-- Blobs live in volume `data-hub_appfiles` — survive container recreate/redeploy.
-- Deploy of the code fix: CI run `26932326139` green; (B) live on prod + nightly.
+**Deploy (2026-06-05, prod `ttdatahub.tinsu.ai`):** `git pull` (ce15574 →
+`1c9a014`) + `docker compose up -d --build` → migration 075 auto-applied.
+Verified live: health 200 (public + internal), `client_column_aliases` table
+exists, new `/column-aliases` route reachable (401 unauth, not 404), new modules
+import OK, **real-data smoke ALL FLOWS PASS on prod** (temp client self-cleaned).
+
+**LLM endpoint:** sgnai `codex-lb-demo.sgnai.dev` was **down** (Cloudflare 1033
+tunnel error). Swapped `hub.app_settings` LLM config (dev + prod) to **OpenRouter
+`openai/gpt-4o-mini`** (key borrowed from `growatt-item-master/.env`).
+**Temporary** — restore sgnai when back, or get a dedicated key. Old config
+backed up to gitignored `data/files/.{,prod_}llm_settings_backup.*`.
+
+**Johnson "diff loạn" root cause:** a human manually mis-confirmed a cached
+mapping that swapped the two đơn-giá columns; the preview correctly blocked the
+corrupting re-ingest. Hotfixed the cache (dev); auto-map now prevents recurrence.
 
 **Dev server:** default now `--workers 1 --reload` on `:8754` (user pref 2026-06-04;
 auto-reload, no manual restart). Use `--workers 4` only to test real concurrency. Restart
@@ -48,16 +55,35 @@ browser SSO redirect stay public `https://ttdatahub.tinsu.ai`. **That networking
 is fully closed (verified both sides 2026-06-01).**
 
 ## Recent Changes
+- 2026-06-05: BCCT mapping-flow overhaul (auto-map, no-header positional + inference,
+  per-client column aliases `mig 075`, LLM prompt, anomaly→advisory) + BOM `depth=full`
+  + LLM→OpenRouter; **deployed to prod, real-data smoke PASS**.
 - 2026-06-04: declaration-blob backfill (prod + nightly) + download.zip missing-blob
-  hardening (see Current State + session log).
+  hardening (see session log).
 - 2026-06-01: BOM search component matching.
 
 ## Next Steps
+0. **LLM is on a TEMPORARY OpenRouter key** (borrowed from `growatt-item-master/.env`).
+   Restore sgnai `codex-lb-demo.sgnai.dev` when its Cloudflare tunnel is back, OR provision
+   a dedicated data-hub OpenRouter key. Old config in `data/files/.prod_llm_settings_backup.tsv`.
+0b. No-header value inference can't resolve bare-digit SAP customs codes (johnson `1000…`) —
+    left for the operator. Possible follow-on: cross-column heuristic (customs_code = prefix
+    of goods_name before `#&`) or a saved positional template per client.
 1. ~~Backfill johnson-vn declaration blobs + harden download.zip~~ **DONE 2026-06-04**
    (prod + nightly, 3221 each verified; commits `db7ae88` / `ce15574`). CO can re-run its
-   container probe to confirm end-to-end. **Open question for next session:** why did
-   johnson land metadata-only? (which ingest path registered rows but skipped `backend.put`
-   — fix it so future ingests don't repeat the gap). growatt-vn was unaffected.
+   container probe to confirm end-to-end. ~~**Open question:** why did johnson land
+   metadata-only?~~ **ROOT-CAUSED 2026-06-04 (no code change needed):** NOT an ingest path
+   skipping `backend.put` — both clients used `import_declaration_archive.py` which always
+   puts. The cause was the `DATA_HUB_FILES_DIR`/`DATA_HUB_FILES_ROOT` env-name mismatch
+   (fixed `b19c88e` 2026-05-28): blobs landed on the ephemeral container layer
+   `/app/data/files`, not the `appfiles` volume. Johnson (uploaded 2026-05-11) was wiped by
+   a CI `up -d --build` recreate during the 17-day window before the fix; growatt (uploaded
+   2026-05-28, same day as the fix) was rescued via `cp -a` within 8h. Pure timing, same
+   ingest path. Bug already fixed; data already restored. **Latent gap left open (not what
+   hit johnson, same failure class):** `app/data_promotion.py` export/import has no
+   referential-integrity check between SQL rows and the blob set — a rows-only bundle
+   imported onto a healthy target would `_purge_client_files` then move nothing → silent
+   metadata-only. User deferred fixing it for now.
 2. ~~Commit + deploy the BOM search change~~ **DONE 2026-06-01** (commits `57564a5` /
    `388c17f`, live on `:8754` + `:8764`). Back-compatible: `q` on `/v1/hub/products` is
    optional; CO could adopt it for component reverse-lookup but needs no change.
@@ -79,9 +105,19 @@ is fully closed (verified both sides 2026-06-01).**
   `technical_exploded`, `purchased_btp_as_leaf`, `self_produced_btp_exploded`,
   `mixed_confirmed`, `no_strategy`}; `flatten_status` ∈ {`flattened`, `non_flattened`,
   `not_applicable`}. Useful when hand-building test fixtures.
+- **BCCT mapping flow:** `try_auto_map` (`_mapping_flow.py`) skips the mapping page when
+  rigid match resolves all required fields with no ambiguity. No-header = picker value `0`
+  → `positional_override` in `parse_bcct_workbook`. Anomaly check (`bcct_validate.py`) is
+  **ADVISORY** (not a gate); covers ONLY VND↔nguyên-tệ price/value inversion;
+  `has_blocking_anomaly()` still exists but is no longer used for gating.
+- **Admin user_id is `u_31151f0497094109`** (admin@data-hub.local) on BOTH dev and prod —
+  `scripts/smoke_bcct_flows.py` hardcodes it. Run smoke in prod container with
+  `docker exec -e PYTHONPATH=/app data-hub-app-1 python scripts/smoke_bcct_flows.py`.
+- **Remote `psql` over ssh:** bash eats `$$` (→ PID); pipe SQL via a quoted heredoc to
+  `psql` stdin, not `-c "...$$..."`.
 - **Screenshot creds:** `admin@data-hub.local` / `admin123` (per `scripts/screenshot.py`).
-  growatt-vn is auto-seeded with full data; real shared NVL `005.0001100` is in 479 BOMs,
-  `001.0033100` in 8 (good for a readable demo).
+  `scripts/screenshot_bcct_mapping_flow.py` uses a session cookie instead + real johnson-vn
+  rows; uploads via httpx then `goto` (browser form-submit didn't navigate reliably).
 - **Use Windows `ssh.exe`** (`/mnt/c/Windows/System32/OpenSSH/ssh.exe`) for the box.
 - Untracked pre-existing files (NOT this session, repo-hygiene later): `.ai/sessions/
   2026-05-15*`/`-25*`/`-28*`/`-29*`, `scripts/generate_training_input_scenarios.py`,
