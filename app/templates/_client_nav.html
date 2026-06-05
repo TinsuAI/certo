@@ -48,5 +48,7 @@
   {% if can_edit_technical(client.client_id) %}
   <a class="tab-link {{ 'tab-link-active' if active_tab == 'parser_rules' else '' }}"
      href="/clients/{{ client.client_id }}/parser-rules">Parser rules</a>
+  <a class="tab-link {{ 'tab-link-active' if active_tab == 'column_aliases' else '' }}"
+     href="/clients/{{ client.client_id }}/column-aliases">Cấu hình cột</a>
   {% endif %}
 </nav>

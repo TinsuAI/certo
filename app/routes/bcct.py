@@ -232,7 +232,7 @@ async def upload_submit(request: Request, client_id: str,
         from app.routes._mapping_flow import (
             try_auto_map, _stash_unmapped as _flow_stash_unmapped,
         )
-        auto = try_auto_map(blob, BCCT_MAPPING_CFG)
+        auto = try_auto_map(blob, BCCT_MAPPING_CFG, client_id=client_id)
         if auto:
             try:
                 rows = parse_bcct_workbook(blob, mapping_override=auto)

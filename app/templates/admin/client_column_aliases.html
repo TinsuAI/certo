@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Cấu hình cột · {{ client.name }} · {{ t('app.brand') }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Cấu hình ánh xạ cột (theo client)</h2>
+      <p class="meta">
+        Thêm tên cột (header) riêng của client cho từng trường dữ liệu. Các
+        alias này được cộng thêm vào danh sách mặc định của hệ thống, giúp
+        upload tự nhận diện cột mà không cần map tay. Để trống = dùng mặc định.
+      </p>
+    </div>
+  </div>
+
+  <div class="form-row" style="margin-bottom: 1rem;">
+    <strong>Module:</strong>
+    {% for m in modules %}
+    <a class="btn-secondary {% if m == module %}btn-active{% endif %}"
+       href="/clients/{{ client.client_id }}/column-aliases?module={{ m }}">{{ m }}</a>
+    {% endfor %}
+  </div>
+
+  {% if aliases %}
+  <table class="dh-table">
+    <thead>
+      <tr><th>Trường</th><th>Alias (tên cột)</th><th>Trạng thái</th><th>Tạo lúc</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for a in aliases %}
+      <tr>
+        <td><code>{{ a.field }}</code></td>
+        <td>{{ a.alias }}</td>
+        <td>
+          <form method="post"
+                action="/clients/{{ client.client_id }}/column-aliases/{{ a.id }}/toggle"
+                class="inline-form">
+            <input type="hidden" name="module" value="{{ module }}">
+            <input type="hidden" name="enabled" value="{{ 'off' if a.enabled else 'on' }}">
+            <button type="submit" class="btn-secondary">
+              {{ 'Đang bật — tắt' if a.enabled else 'Đang tắt — bật' }}
+            </button>
+          </form>
+        </td>
+        <td class="meta">{{ a.created_at }}</td>
+        <td>
+          <form method="post"
+                action="/clients/{{ client.client_id }}/column-aliases/{{ a.id }}/delete"
+                class="inline-form">
+            <input type="hidden" name="module" value="{{ module }}">
+            <button type="submit" class="btn-danger">Xóa</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta">Chưa có alias riêng cho module <code>{{ module }}</code>. Đang dùng mặc định hệ thống.</p>
+  {% endif %}
+
+  <h3 style="margin-top: 1.5rem;">Thêm alias</h3>
+  <form method="post" action="/clients/{{ client.client_id }}/column-aliases/add"
+        class="form-row">
+    <input type="hidden" name="module" value="{{ module }}">
+    <label>Trường:
+      <select name="field" required>
+        {% for f in fields %}<option value="{{ f }}">{{ f }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Alias (tên cột trong file):
+      <input type="text" name="alias" required placeholder="vd: Đơn giá HĐ">
+    </label>
+    <button type="submit" class="btn-primary">Thêm</button>
+  </form>
+</section>
+{% endblock %}

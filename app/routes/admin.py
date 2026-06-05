@@ -551,6 +551,88 @@ async def staff_remove(
     return RedirectResponse(url=f"/clients/{client_id}/staff", status_code=303)
 
 
+# ── Per-client column-alias config (Phase 3 mapping overhaul) ─────────────
+
+_COLUMN_ALIAS_MODULES = ("bcct", "catalog", "bqd", "bom")
+
+
+def _column_alias_fields(module: str) -> list[str]:
+    from app.llm import _TARGET_FIELDS_BY_MODULE
+    return list(_TARGET_FIELDS_BY_MODULE.get(module, ()))
+
+
+def _column_alias_redirect(client_id: str, module: str) -> RedirectResponse:
+    return RedirectResponse(
+        url=f"/clients/{client_id}/column-aliases?module={module}",
+        status_code=303,
+    )
+
+
+@router.get("/clients/{client_id}/column-aliases", response_class=HTMLResponse)
+async def column_aliases_view(request: Request, client_id: str,
+                              module: str = "bcct"):
+    actor = auth.require_user(request)
+    auth.require_can_edit_client(actor, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    if module not in _COLUMN_ALIAS_MODULES:
+        raise HTTPException(400, "invalid_module")
+    from app.stores import column_aliases as ca
+    return request.app.state.templates.TemplateResponse(
+        request, "admin/client_column_aliases.html",
+        {"client": client, "stats": stats_for_client(client_id),
+         "module": module, "modules": _COLUMN_ALIAS_MODULES,
+         "aliases": ca.list_aliases(client_id, module),
+         "fields": _column_alias_fields(module),
+         "active_root": "clients", "active_tab": "column_aliases"},
+    )
+
+
+@router.post("/clients/{client_id}/column-aliases/add")
+async def column_aliases_add(
+    request: Request, client_id: str,
+    module: str = Form(...), field: str = Form(...), alias: str = Form(...),
+):
+    actor = auth.require_user(request)
+    auth.require_can_edit_client(actor, client_id)
+    if module not in _COLUMN_ALIAS_MODULES:
+        raise HTTPException(400, "invalid_module")
+    if field not in _column_alias_fields(module):
+        raise HTTPException(400, "invalid_field")
+    from app.stores import column_aliases as ca
+    try:
+        ca.add_alias(client_id=client_id, module=module, field=field,
+                     alias=alias, created_by=actor.user_id)
+    except ValueError:
+        raise HTTPException(400, "field_and_alias_required")
+    return _column_alias_redirect(client_id, module)
+
+
+@router.post("/clients/{client_id}/column-aliases/{alias_id}/toggle")
+async def column_aliases_toggle(
+    request: Request, client_id: str, alias_id: int,
+    module: str = Form(...), enabled: str = Form(...),
+):
+    actor = auth.require_user(request)
+    auth.require_can_edit_client(actor, client_id)
+    from app.stores import column_aliases as ca
+    ca.set_alias_enabled(alias_id, enabled == "on", client_id=client_id)
+    return _column_alias_redirect(client_id, module)
+
+
+@router.post("/clients/{client_id}/column-aliases/{alias_id}/delete")
+async def column_aliases_delete(
+    request: Request, client_id: str, alias_id: int,
+    module: str = Form(...),
+):
+    actor = auth.require_user(request)
+    auth.require_can_edit_client(actor, client_id)
+    from app.stores import column_aliases as ca
+    ca.delete_alias(alias_id, client_id=client_id)
+    return _column_alias_redirect(client_id, module)
+
+
 @router.post("/clients/{client_id}/staff/scope")
 async def staff_scope(
     request: Request, client_id: str,

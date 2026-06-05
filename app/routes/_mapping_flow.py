@@ -34,6 +34,7 @@ from app.parsers._excel import (
     header_row,
     load_xlsx,
 )
+from app.stores.column_aliases import resolved_aliases
 from app.routes._llm_fallback import (
     cache_confirmed_mapping,
     headers_per_sheet,
@@ -541,9 +542,10 @@ def _build_mapping_context(
             "File không có sheet nào có header. Vui lòng kiểm tra lại.",
         )
 
-    # Rigid auto-match for each header. Each module has its own ALIASES;
-    # we look it up via the parser module so this stays generic.
-    aliases_by_module = _module_aliases(cfg.name)
+    # Rigid auto-match for each header. Code ALIASES + this client's
+    # enabled column-alias overrides (Phase 3), so local header variants
+    # pre-fill without a code change.
+    aliases_by_module = resolved_aliases(client_id, cfg.name)
 
     column_map: list[dict] = []
     for i, h in enumerate(headers):
@@ -609,7 +611,8 @@ def _rigid_match_header(header: str, aliases: dict[str, list[str]]) -> str:
     return ""
 
 
-def try_auto_map(blob: bytes, cfg: "ModuleConfig") -> dict[str, str] | None:
+def try_auto_map(blob: bytes, cfg: "ModuleConfig",
+                 client_id: str | None = None) -> dict[str, str] | None:
     """Phase 1: confident rigid auto-map.
 
     Returns a header→logical_field mapping when the rigid ALIAS match
@@ -618,13 +621,18 @@ def try_auto_map(blob: bytes, cfg: "ModuleConfig") -> dict[str, str] | None:
     mapping page and go straight to the preview. Returns None when not
     confident — caller shows the mapping page. The preview's diff +
     anomaly net stay the safety check (decision: skip even on first-ever
-    upload when confident). Module-agnostic — driven by `cfg`.
+    upload when confident). Module-agnostic — driven by `cfg`. When
+    `client_id` is given, the client's column-alias overrides (Phase 3)
+    are layered on top of the code ALIASES.
     """
     try:
         wb = load_xlsx(blob)
     except Exception:  # noqa: BLE001 — best-effort; caller falls back
         return None
-    aliases = _module_aliases(cfg.name)
+    aliases = (
+        resolved_aliases(client_id, cfg.name) if client_id
+        else _module_aliases(cfg.name)
+    )
     headers: list[str] | None = None
     for ws in wb.worksheets:
         hdr = header_row(ws, aliases=aliases)

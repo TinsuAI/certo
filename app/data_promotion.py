@@ -149,6 +149,10 @@ EXCLUDED_CLIENT_SCOPED_TABLES = frozenset({
     # a view, picked up automatically by schema replay.
     "client_parser_rules",
     "v_material_roles",
+    # Per-deployment column-alias overrides for the upload mapping flow
+    # (Phase 3). Same treatment as client_parser_rules: ingest-tuning
+    # config managed per deployment, layered on top of code ALIASES.
+    "client_column_aliases",
 })
 
 
