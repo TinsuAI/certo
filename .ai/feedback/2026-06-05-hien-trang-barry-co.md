@@ -23,9 +23,11 @@ Legend: ✅ DONE · 🔧 fixed this session · ⬜ open · ⚠️ partial/đang 
 
 ## Đã làm session này
 - **#9 fixed + deployed lên prod** (TinsuAI/co `9bb855c`, CI xanh, app healthy), verify đúng luồng 2 TP trên dữ liệu Johnson thật → hết "Origin case state changed", không phải F5. Regression test: `tests/test_origin_case_revision.py`.
+- **#7 + #8 fixed + deployed prod** (`1c7f5b6`). #7: tooltip `title=` + tên xuống 2 dòng. #8: toggle "Chỉ hiện mã đủ tồn" (feasibility, fallback live `total_remaining_qty>0`). Verify Playwright local. Trên prod đã render link CSS versioned + phục vụ đúng style mới.
 
 ## Phát hiện thêm (không nằm trong feedback)
+- **Deploy hygiene — static asset không cache-bust (FIXED `925654d`):** `base.html` link `/static/css/app.css` phẳng → Cloudflare cache 4h → user thấy CSS cũ tới 4h sau mỗi deploy. Fix: helper Jinja `asset_url()` (content-hash sha1[:8]) áp cho mọi static asset; phải đăng ký cả `portfolio_templates` (instance Jinja riêng) nếu không base.html qua portfolio sẽ `UndefinedError`. **Lưu ý:** trang login là SSO của **Data Hub** (redirect 303), CSS riêng — ngoài phạm vi CO.
 - **Bug phụ — `origin_calculation_lock` không nhả:** `/evaluate` + `/calculate` acquire khóa per-client (60-min TTL) nhưng không release (chỉ close/reopen/origin-lock-release nhả). Chặn tính **hồ sơ khác cùng khách** tới 60 phút. Cùng-hồ-sơ thì OK (idempotent). Severity thấp–trung, tự lành. **Chưa tái hiện sống**, chưa fix. Xem audit `.ai/audits/2026-05-28-case-sheet-stock-state-machine.md` Gap 4.
 
 ## Đề xuất thứ tự session sau
-1. #7 + #8 (sửa nhanh, cải thiện rõ) → 2. #12 → 3. #14 → 4. #13 (cần discover) → 5. #4 (đẩy Data Hub) → 6. cân nhắc fix bug lock.
+1. ~~#7 + #8~~ ✅ done → 2. **#12** (số tồn tổng) → 3. #14 (BOM mặc định) → 4. #13 (cần discover) → 5. #4 (đẩy Data Hub) → 6. cân nhắc fix bug lock.
