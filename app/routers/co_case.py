@@ -1182,14 +1182,12 @@ async def export_co_case_dossier_zip(client_id: str, case_id: str):
             "filename": row.get("filename", "supporting.bin"),
             "content": path.read_bytes(),
         })
-    declaration_archives = _try_fetch_declaration_archives(client, case, summary)
     declaration_pdfs = _try_fetch_declaration_pdfs(client, case, summary)
     content = create_dossier_zip(
         case,
         supporting_files,
         summary,
         data_hub_base_url=data_hub_link_settings().data_hub_base_url,
-        declaration_archives=declaration_archives,
         declaration_pdfs=declaration_pdfs,
     )
     filename = safe_filename(f"{case.get('case_code') or 'co-case'}-dossier.zip")
@@ -1198,46 +1196,6 @@ async def export_co_case_dossier_zip(client_id: str, case_id: str):
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
-def _try_fetch_declaration_archives(client: dict, case: dict, tkx_tkn_summary: dict) -> dict[str, bytes]:
-    """Probe Data Hub's Bearer-aware download.zip endpoint.
-
-    Until DH ships the endpoint per
-    `.ai/api-requests/2026-05-28-bcct-declarations-download-bearer.md`,
-    any error (404 / 401 / network) silently falls back to manifest-only
-    mode. The dossier ZIP renderer detects the empty dict and only writes
-    the README + MANIFEST entries; once DH deploys, this function returns
-    populated bytes and create_dossier_zip embeds them directly.
-
-    Keyed by archive path inside the dossier ZIP:
-        `TKX/<filename>.zip` and `TKN/<filename>.zip`.
-    """
-    data_hub = getattr(portfolio_service, "data_hub", None)
-    if data_hub is None or not hasattr(data_hub, "download_declarations_zip"):
-        return {}
-    case_code = (case.get("case_code") or "co-case").strip() or "co-case"
-    archives: dict[str, bytes] = {}
-
-    def _fetch(direction: str, entries: list[dict], archive_label: str) -> None:
-        nos = sorted({
-            str(entry.get("declaration_no") or "").strip()
-            for entry in (entries or [])
-            if str(entry.get("declaration_no") or "").strip()
-        })
-        if not nos:
-            return
-        filename = safe_filename(f"{archive_label}_{case_code}.zip")
-        try:
-            blob = data_hub.download_declarations_zip(
-                client["id"], direction=direction, declaration_nos=nos, filename=filename,
-            )
-        except Exception:  # noqa: BLE001 — fall back to manifest-only on any failure
-            return
-        if isinstance(blob, (bytes, bytearray)) and blob:
-            archives[f"{archive_label}/{filename}"] = bytes(blob)
-
-    _fetch("export", tkx_tkn_summary.get("tkx") or [], "TKX")
-    _fetch("import", tkx_tkn_summary.get("tkn") or [], "TKN")
-    return archives
 
 
 def _try_fetch_declaration_pdfs(client: dict, case: dict, tkx_tkn_summary: dict) -> dict[str, bytes]:

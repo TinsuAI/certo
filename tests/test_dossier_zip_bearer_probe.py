@@ -38,46 +38,24 @@ def _summary():
     }
 
 
-def test_dossier_zip_falls_back_to_manifest_when_no_archives():
-    """When Data Hub hasn't shipped the Bearer download yet,
-    declaration_archives is empty → MANIFEST.md exists, no TKX/TKN
-    blobs embedded, README says blobs are pending."""
+def test_dossier_zip_falls_back_to_manifest_when_no_pdfs():
+    """When the merged-PDF fetch yields nothing (DH down / no declarations),
+    MANIFEST.md exists, no merged PDFs embedded, README says they're pending."""
     blob = create_dossier_zip(_case(), [], _summary())
     archive = zipfile.ZipFile(io.BytesIO(blob))
     names = archive.namelist()
     assert "03-to-khai/MANIFEST.md" in names
-    assert not any(n.startswith("03-to-khai/TKX/") for n in names)
-    assert not any(n.startswith("03-to-khai/TKN/") for n in names)
+    assert not any("ghep.pdf" in n for n in names)
     manifest = archive.read("03-to-khai/MANIFEST.md").decode("utf-8")
     assert "chưa được nhúng" in manifest
     readme = archive.read("00-README.md").decode("utf-8")
-    assert "sẽ tự nhúng khi Data Hub bật" in readme
-
-
-def test_dossier_zip_embeds_declaration_archives_when_provided():
-    """Once DH ships the Bearer endpoint, the CO endpoint pre-fetches the
-    bytes and passes them in via declaration_archives. The dossier ZIP
-    embeds them under 03-to-khai/<direction>/<filename>."""
-    archives = {
-        "TKX/TKX_CO-TEST.zip": b"PKfake-tkx-bytes",
-        "TKN/TKN_CO-TEST.zip": b"PKfake-tkn-bytes",
-    }
-    blob = create_dossier_zip(_case(), [], _summary(), declaration_archives=archives)
-    archive = zipfile.ZipFile(io.BytesIO(blob))
-    names = archive.namelist()
-    assert "03-to-khai/TKX/TKX_CO-TEST.zip" in names
-    assert "03-to-khai/TKN/TKN_CO-TEST.zip" in names
-    assert archive.read("03-to-khai/TKX/TKX_CO-TEST.zip") == b"PKfake-tkx-bytes"
-    manifest = archive.read("03-to-khai/MANIFEST.md").decode("utf-8")
-    assert "đã được nhúng" in manifest
-    readme = archive.read("00-README.md").decode("utf-8")
-    assert "đã nhúng sẵn" in readme
+    assert "Tờ khai ghép chưa nhúng được" in readme
 
 
 def test_readme_states_embedded_status_correctly():
     readme_not_embedded = build_dossier_readme(_case(), _summary())
     readme_embedded = build_dossier_readme(_case(), _summary(), embedded_declaration_archives=True)
-    assert "sẽ tự nhúng" in readme_not_embedded
+    assert "chưa nhúng được" in readme_not_embedded
     assert "đã nhúng sẵn" in readme_embedded
 
 

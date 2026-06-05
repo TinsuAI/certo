@@ -950,7 +950,6 @@ def create_dossier_zip(
     tkx_tkn_summary: dict,
     *,
     data_hub_base_url: str = "",
-    declaration_archives: dict[str, bytes] | None = None,
     declaration_pdfs: dict[str, bytes] | None = None,
 ) -> bytes:
     """Bundle the full C/O dossier into a single .zip an operator can hand
@@ -964,20 +963,18 @@ def create_dossier_zip(
                                                   HQ reviewer sees groups
                                                   (BL, Invoice, Packing, ...).
         03-to-khai/MANIFEST.md                  — list of every TKX/TKN with
-                                                  Data Hub download URLs (until
-                                                  the Bearer-aware download API
-                                                  ships per .ai/api-requests/
-                                                  2026-05-28-bcct-declarations-
-                                                  download-bearer.md).
-        03-to-khai/{direction}/{filename}       — actual blobs when
-                                                  declaration_archives carries
-                                                  pre-fetched bytes (future).
+                                                  Data Hub download URLs for
+                                                  reference.
+        03-to-khai/TKX-ghep.pdf,                — merged "tờ khai ghép" PDFs
+        03-to-khai/TKN-ghep.pdf                   when declaration_pdfs carries
+                                                  pre-fetched bytes (.ai/api-
+                                                  requests/2026-06-05-
+                                                  declarations-merged-pdf.md).
     """
     import zipfile
     case_code = (case.get("case_code") or "co-case").strip() or "co-case"
-    archives = declaration_archives or {}
     pdfs = declaration_pdfs or {}
-    embedded = bool(archives) or bool(pdfs)
+    embedded = bool(pdfs)
     stream = BytesIO()
     with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(
@@ -1003,14 +1000,11 @@ def create_dossier_zip(
                 embedded=embedded,
             ),
         )
-        # Merged TKX/TKN PDFs (the customer's "tờ khai ghép") sit at the top of
+        # Merged TKX/TKN PDFs (the customer's "tờ khai ghép") at the top of
         # 03-to-khai/ so the operator sees them first.
         for name, blob in pdfs.items():
             if isinstance(blob, (bytes, bytearray)):
                 zf.writestr(f"03-to-khai/{name}", bytes(blob))
-        for archive_path, blob in archives.items():
-            if isinstance(blob, (bytes, bytearray)):
-                zf.writestr(f"03-to-khai/{archive_path}", bytes(blob))
     return stream.getvalue()
 
 
@@ -1100,7 +1094,7 @@ def build_dossier_readme(
     declaration_section = (
         "- `03-to-khai/TKX-ghep.pdf`, `03-to-khai/TKN-ghep.pdf` — Tờ khai ghép (PDF chuẩn) đã nhúng sẵn."
         if embedded_declaration_archives
-        else "- `03-to-khai/<direction>/…` — File tờ khai (sẽ tự nhúng khi Data Hub bật endpoint Bearer-aware)."
+        else "- Tờ khai ghép chưa nhúng được (Data Hub không khả dụng hoặc hồ sơ không có tờ khai) — xem `03-to-khai/MANIFEST.md`."
     )
     lines = [
         f"# Hồ sơ C/O — {case.get('case_code', '')}",
