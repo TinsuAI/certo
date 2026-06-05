@@ -1,7 +1,11 @@
 # Feature: Upload mapping flow overhaul (BCCT-first, shared)
 
-Status: discovery. Phase 0 hotfix already shipped (swapped-cache fix +
-pending discard, dev DB). Phases 1–4 below.
+Status: ALL PHASES SHIPPED (2026-06-05). Phase 0 hotfix (cache fix +
+pending discard, dev DB) · Phase 2 anomaly net `f58c42a` · Phase 1
+auto-map `81adc4b` · Phase 4 LLM prompt `834ac99` · Phase 3 per-client
+column config + admin UI + mig 075 `21f2a23`. Full suite 1333 passed.
+Not yet deployed to prod; mapping-page UX fix (_upload_mapping.html) still
+pending user eyeball on dev.
 
 ## Problem / incident
 
