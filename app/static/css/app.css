@@ -4302,10 +4302,12 @@ body.co-stock-history-modal-open { overflow: hidden; }
 }
 
 .origin-substitute-item-name {
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
   color: var(--foreground-soft);
+  word-break: break-word;
 }
 
 .origin-substitute-item-meta {
@@ -4658,6 +4660,32 @@ body.co-stock-history-modal-open { overflow: hidden; }
 .origin-substitute-filter input {
   padding: 0.35rem 0.5rem;
   font-size: 0.9rem;
+}
+
+.origin-substitute-filter-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.origin-substitute-filter-row .origin-substitute-filter {
+  flex: 1 1 14rem;
+}
+
+.origin-substitute-stockonly {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  margin-bottom: 0.6rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.origin-substitute-stockonly input {
+  margin: 0;
 }
 
 .origin-substitute-mode {

@@ -1722,9 +1722,15 @@
     </div>
     <div class="origin-substitute-modal-body">
       <section class="origin-substitute-section" data-origin-substitute-tab-panel="recommended">
-        <label class="origin-substitute-filter">Lọc nhanh
-          <input type="search" data-origin-substitute-recommended-filter placeholder="Mã, tên, HS — lọc ngay khi gõ">
-        </label>
+        <div class="origin-substitute-filter-row">
+          <label class="origin-substitute-filter">Lọc nhanh
+            <input type="search" data-origin-substitute-recommended-filter placeholder="Mã, tên, HS — lọc ngay khi gõ">
+          </label>
+          <label class="origin-substitute-stockonly">
+            <input type="checkbox" data-origin-substitute-stock-only>
+            Chỉ hiện mã đủ tồn
+          </label>
+        </div>
         <ul class="origin-substitute-list" data-origin-substitute-list="recommended"></ul>
         <p class="empty-cell" data-origin-substitute-empty="recommended" hidden>Chưa có khuyến nghị từ Data Hub.</p>
         <p class="empty-cell" data-origin-substitute-filter-empty hidden>Không có khuyến nghị khớp bộ lọc.</p>
@@ -3050,6 +3056,7 @@
     const searchEmpty = modal.querySelector('[data-origin-substitute-empty="search"]');
     const recommendedFilterInput = modal.querySelector("[data-origin-substitute-recommended-filter]");
     const recommendedFilterEmpty = modal.querySelector("[data-origin-substitute-filter-empty]");
+    const stockOnlyToggle = modal.querySelector("[data-origin-substitute-stock-only]");
     let activeTab = "recommended";
 
     const foldText = (value) => String(value == null ? "" : value)
@@ -3080,24 +3087,37 @@
       return tokens.every((tok) => folded.some((f) =>
         f.includes(tok) || (tokenAllowsSubseq(tok) && subseqEligible(f) && isSubsequence(tok, f))));
     };
+    // "Đủ tồn" = feasibility says no shortage (needs ĐM); when feasibility is not
+    // yet computable (no norm / no qty) fall back to any remaining stock > 0.
+    // Read the live candidate (stock is filled in async by mergeLazyStock), not a
+    // build-time snapshot.
+    const hasEnoughStock = (li) => {
+      const f = li.__candidateFeasibility;
+      if (f && f.alloc) return !f.alloc.shortage;
+      const cand = latestCandidatesByCode.get(li.dataset.materialCode);
+      const qty = Number(cand?.stock?.total_remaining_qty);
+      return Number.isFinite(qty) && qty > 0;
+    };
     const applyRecommendedFilter = () => {
       const query = recommendedFilterInput?.value || "";
+      const stockOnly = !!stockOnlyToggle?.checked;
       const items = recommendedList.querySelectorAll("li.origin-substitute-item");
       let visible = 0;
       items.forEach((li) => {
         const code = li.querySelector(".origin-substitute-item-code")?.textContent || "";
         const name = li.querySelector(".origin-substitute-item-name")?.textContent || "";
         const hs = li.querySelector(".origin-substitute-item-meta .mono")?.textContent || "";
-        const show = matchesTokens(query, [code, name, hs]);
+        const show = matchesTokens(query, [code, name, hs]) && (!stockOnly || hasEnoughStock(li));
         li.hidden = !show;
         if (show) visible += 1;
       });
       if (recommendedFilterEmpty) {
         const hasItems = items.length > 0;
-        recommendedFilterEmpty.hidden = !(hasItems && visible === 0 && query.trim());
+        recommendedFilterEmpty.hidden = !(hasItems && visible === 0 && (query.trim() || stockOnly));
       }
     };
     recommendedFilterInput?.addEventListener("input", applyRecommendedFilter);
+    stockOnlyToggle?.addEventListener("change", applyRecommendedFilter);
 
     const activateTab = (name) => {
       activeTab = name === "search" ? "search" : "recommended";
@@ -3374,6 +3394,7 @@
         if (!candidate) return;
         renderFeasibilityCell(li, computeFeasibility(candidate), candidate);
       });
+      applyRecommendedFilter();
     };
 
     let latestCandidatesByCode = new Map();
@@ -3388,7 +3409,7 @@
       li.innerHTML = `
         <button type="button" class="origin-substitute-item-head" data-toggle>
           <span class="origin-substitute-item-code mono">${item.material_code}</span>
-          <span class="origin-substitute-item-name">${item.name || ""}</span>
+          <span class="origin-substitute-item-name" title="${escapeHtml(item.name || "")}">${item.name || ""}</span>
           <span class="origin-substitute-item-meta">
             <span class="mono">${item.hs_code || ""}</span>
             ${score ? `<span class="origin-substitute-score">score ${score}</span>` : ""}
@@ -3784,6 +3805,9 @@
               }
             });
           });
+          // Stock just loaded — re-run the filter so "chỉ hiện mã đủ tồn" reflects
+          // the now-known stock instead of the empty build-time state.
+          applyRecommendedFilter();
         })
         .catch(() => {});
     };
