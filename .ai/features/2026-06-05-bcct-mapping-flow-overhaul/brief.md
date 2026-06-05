@@ -128,6 +128,17 @@ urgent. Each phase: tests first → implement → `/rev` → commit. UI proof
 (mapping page skip, preview warnings, admin config) committed under this
 feature folder's `screenshots/`.
 
+## Verification
+
+- `scripts/smoke_bcct_flows.py` — real-data (johnson-vn) end-to-end smoke
+  over all flows (auto-map→apply, anomaly block→ack→apply, no-header
+  positional keeps all rows, non-std→manual→cache-hit); asserts ingested
+  outcomes; non-zero exit on failure. ALL FLOWS PASS.
+- `scripts/screenshot_bcct_mapping_flow.py` — full 9-stage screenshot set
+  (real data) under `screenshots/`: upload, clean preview, list-after-apply,
+  anomaly gate, no-header mapping, no-header preview, non-std mapping,
+  cache-hit preview, column-alias config.
+
 ## Done criteria
 
 - Uniform BCCT re-upload with a known shape never shows the mapping page;
