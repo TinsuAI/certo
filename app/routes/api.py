@@ -2306,6 +2306,44 @@ async def api_download_declarations_zip(
     )
 
 
+@router.get("/clients/{client_id}/declarations/download.pdf")
+async def api_download_declarations_pdf(
+    client_id: str,
+    direction: str | None = None,
+    declaration_nos: str | None = None,
+    filename: str | None = None,
+    sort: str | None = None,
+    authorization: str | None = Header(None),
+):
+    """Bearer-auth mirror of the operator cookie route at
+    `/clients/{cid}/declarations/download.pdf`. Merges every uploaded
+    declaration file for (client, direction, declaration_no IN nos) into
+    ONE print-standard "tờ khai ghép" PDF for CO's dossier builder.
+
+    Auth: user JWT or service token with `hub:read` scope (read-only
+    render, no mutation). Response carries X-Declarations-{Requested,
+    Included,Missing,Missing-Nos} + X-Render-Version so CO can warn the
+    operator about declarations with no file.
+
+    Source-document case B (the stored .xls IS the ECUS print form;
+    rendered to PDF via LibreOffice) — see
+    `.ai/features/2026-06-06-declarations-merged-pdf/brief.md`.
+    """
+    from app.routes.declarations import (
+        _build_declarations_pdf_response, _parse_pdf_query,
+    )
+    claims = _require_token(authorization)  # default scope hub:read
+    _require_can_view_client(claims, client_id)
+    decl_nos, sort = _parse_pdf_query(direction, declaration_nos, sort)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    return _build_declarations_pdf_response(
+        client_id=client_id, direction=direction,
+        requested=decl_nos, sort=sort, filename=filename,
+    )
+
+
 @router.get("/healthz")
 async def api_healthz():
     return _json({"status": "ok"})

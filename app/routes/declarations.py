@@ -7,6 +7,8 @@ See `.ai/features/2026-05-10-johnson-onboarding/brief.md` Feature 6.
 """
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import (
     HTMLResponse, JSONResponse, RedirectResponse, Response,
@@ -41,6 +43,7 @@ from app.uploads.declaration_zip import (
 
 
 router = APIRouter()
+logger = logging.getLogger("app.routes.declarations")
 
 
 # ── Web pages ───────────────────────────────────────────────────────
@@ -214,6 +217,44 @@ async def download_declarations_zip(
     )
 
 
+@router.get("/clients/{client_id}/declarations/download.pdf")
+async def download_declarations_pdf(
+    request: Request, client_id: str,
+    direction: str | None = None,
+    declaration_nos: str | None = None,
+    filename: str | None = None,
+    sort: str | None = None,
+):
+    """Merge every uploaded declaration file for (client, direction,
+    declaration_no IN nos) into ONE print-standard PDF — the "tờ khai
+    ghép" operators file with HQ, built server-side instead of by hand.
+
+    Cookie-session operator route (mirrors download.zip): unauthenticated
+    callers bounce to `/login?next=…`. The Bearer mirror for CO's
+    server-to-server dossier builder lives at
+    `/v1/hub/clients/{cid}/declarations/download.pdf`.
+
+    Must be registered BEFORE `/{declaration_no}` so FastAPI's first-match
+    rule doesn't swallow `download.pdf` as a declaration_no.
+    """
+    user = auth.current_user(request)
+    if user is None:
+        query = str(request.url.query)
+        target = str(request.url.path) + (f"?{query}" if query else "")
+        return RedirectResponse(
+            url=f"/login?next={_q(target)}", status_code=303,
+        )
+    auth.require_can_view_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    decl_nos, sort = _parse_pdf_query(direction, declaration_nos, sort)
+    return _build_declarations_pdf_response(
+        client_id=client_id, direction=direction,
+        requested=decl_nos, sort=sort, filename=filename,
+    )
+
+
 @router.get(
     "/clients/{client_id}/declarations/{declaration_no}",
     response_class=HTMLResponse,
@@ -315,6 +356,22 @@ async def upload_declaration_file(
         sha256=sha, size_bytes=stored.size_bytes,
         uploaded_by=user.user_id,
     )
+    # Pre-render the print-standard PDF into the render cache so the merge
+    # endpoint (download.pdf) just concatenates cached PDFs. Best-effort:
+    # the merge endpoint renders lazily on a cache miss, so a failure here
+    # is non-fatal (bulk-ZIP commits skip this and rely on the backfill
+    # script + lazy path to avoid slowing the commit).
+    if created and file_kind == "xls":
+        try:
+            from app.declarations_pdf import ensure_pdf_for_file
+            rec = get_declaration_file(fid)
+            if rec is not None:
+                ensure_pdf_for_file(rec, get_backend())
+        except Exception:
+            logger.warning(
+                "declaration PDF pre-render failed (file id=%s); "
+                "merge endpoint will render lazily", fid, exc_info=True,
+            )
     suffix = "uploaded=1" if created else "deduped=1"
     return RedirectResponse(
         url=(f"/clients/{client_id}/declarations/{final_decl_no}?{suffix}"),
@@ -701,6 +758,129 @@ def _build_manifest_text(
         lines.append("(none)")
     lines.append("")
     return "\n".join(lines)
+
+
+# ── PDF merge download helpers (shared by cookie + Bearer routes) ───
+
+
+_DECLARATIONS_PDF_MAX_NOS = 500
+
+
+def _safe_pdf_filename(value: str | None, *, fallback: str) -> str:
+    """Sanitize an operator/CO-supplied PDF filename for the Content-
+    Disposition header. Same hardening as the ZIP variant: strip path
+    separators + reserved chars, refuse `..`, force a `.pdf` suffix."""
+    name = (value or "").strip()
+    if not name:
+        return fallback
+    cleaned = "".join(
+        c for c in name if c.isalnum() or c in "._- ()[]"
+    ).strip(" .")
+    if not cleaned or ".." in cleaned:
+        return fallback
+    if not cleaned.lower().endswith(".pdf"):
+        cleaned += ".pdf"
+    return cleaned[:120]
+
+
+def _parse_pdf_query(
+    direction: str | None, declaration_nos: str | None, sort: str | None,
+) -> tuple[list[str], str]:
+    """Validate query params, returning (declaration_nos, sort). Raises
+    coded 400s matching the download.zip contract."""
+    if direction not in ("import", "export"):
+        raise HTTPException(400, "invalid_direction")
+    decl_nos = _parse_zip_declaration_nos(declaration_nos)
+    if not decl_nos:
+        raise HTTPException(400, "declaration_nos_required")
+    if len(decl_nos) > _DECLARATIONS_PDF_MAX_NOS:
+        raise HTTPException(400, "too_many_declaration_nos")
+    sort = sort or "declaration_no"
+    if sort not in ("declaration_no", "registration_date"):
+        raise HTTPException(400, "invalid_sort")
+    return decl_nos, sort
+
+
+def _order_declarations(
+    client_id: str, requested: list[str], direction: str, sort: str,
+) -> list[str]:
+    """Deterministic body order. `declaration_no` (default) sorts the
+    requested nos ascending. `registration_date` orders by each
+    declaration's earliest BCCT registration date (nulls last),
+    tie-broken by declaration_no."""
+    if sort != "registration_date":
+        return sorted(requested)
+    from datetime import date
+    summaries = list_declarations_with_status(
+        client_id, direction=direction, declaration_nos=requested,
+        limit=len(requested) + 1, offset=0,
+    )
+    date_by = {s.declaration_no: s.earliest_bcct_date for s in summaries}
+    return sorted(
+        requested,
+        key=lambda d: (date_by.get(d) is None, date_by.get(d) or date.min, d),
+    )
+
+
+def _build_declarations_pdf_response(
+    *, client_id: str, direction: str, requested: list[str],
+    sort: str, filename: str | None,
+):
+    """Render + merge the requested declarations into one PDF and stream
+    it from a temp file (bounded memory), with the X-Declarations-*
+    gap-reporting headers CO uses to warn the operator."""
+    import shutil
+    import tempfile
+    from pathlib import Path
+
+    from starlette.background import BackgroundTask
+    from fastapi.responses import FileResponse
+
+    from app.declarations_pdf import RENDER_VERSION, build_merged_pdf
+
+    files = list_files_for_declarations(
+        client_id, requested, direction=direction,
+    )
+    files_by_decl: dict[str, list] = {d: [] for d in requested}
+    for f in files:
+        files_by_decl.setdefault(f.declaration_no, []).append(f)
+    decl_order = _order_declarations(client_id, requested, direction, sort)
+
+    tmpdir = Path(tempfile.mkdtemp(prefix="dh_pdf_"))
+    try:
+        result = build_merged_pdf(
+            requested=requested, decl_order=decl_order,
+            files_by_decl=files_by_decl, backend=get_backend(),
+            dest_dir=tmpdir,
+        )
+    except Exception:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        raise
+
+    out_name = _safe_pdf_filename(
+        filename, fallback=f"declarations_{client_id}_{direction}.pdf",
+    )
+    # Header values are latin-1 encoded by Starlette; declaration_nos are
+    # user-supplied, so coerce the echoed list to a safe encoding rather
+    # than risk a 500 on an exotic character.
+    missing_hdr = ",".join(result.missing_nos[:50]).encode(
+        "latin-1", "replace",
+    ).decode("latin-1")
+    headers = {
+        "content-disposition": f'attachment; filename="{out_name}"',
+        "X-Declarations-Requested": str(result.requested),
+        "X-Declarations-Included": str(result.included),
+        "X-Declarations-Missing": str(len(result.missing_nos)),
+        "X-Declarations-Missing-Nos": missing_hdr,
+        "X-Render-Version": RENDER_VERSION,
+    }
+    return FileResponse(
+        path=str(result.pdf_path), media_type="application/pdf",
+        headers=headers,
+        background=BackgroundTask(
+            shutil.rmtree, str(tmpdir), ignore_errors=True,
+        ),
+    )
 
 
 def _build_declarations_zip(

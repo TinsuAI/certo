@@ -8,8 +8,16 @@ ENV PYTHONUNBUFFERED=1 \
     UV_PROJECT_ENVIRONMENT=/app/.venv \
     PATH=/app/.venv/bin:/usr/local/bin:/usr/bin:/bin
 
+# libreoffice-calc renders the stored declaration .xls (the ECUS print
+# form) to the print-standard PDF for the declarations download.pdf merge
+# endpoint. --no-install-recommends skips the JRE (Calc→PDF export does
+# not need Java). Liberation/DejaVu fonts give faithful Vietnamese glyphs
+# + Arial/Times metric compatibility for the official tờ khai layout.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && apt-get install -y --no-install-recommends \
+        curl ca-certificates \
+        libreoffice-calc \
+        fonts-liberation fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /usr/local/bin/uv

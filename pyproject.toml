@@ -19,6 +19,7 @@ dependencies = [
     "pyjwt[crypto]>=2.10",
     "pyyaml>=6.0.3",
     "google-re2>=1.1.20251105",
+    "pypdf>=5.1",
 ]
 
 [dependency-groups]
