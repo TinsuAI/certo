@@ -18,6 +18,7 @@ from app.material_search import rank_matches
 from app.demo_data import get_client as seed_get_client
 from app.demo_data import get_clients as seed_get_clients
 from app.source_index_store import get_source_index_store, rebuild_source_index_if_configured
+from app.web.templating import asset_url
 from app.source_postgres_store import get_source_write_store
 from app.source_store import (
     _safe_customs_fx_rows,
@@ -44,6 +45,7 @@ def theme_context(request: Request) -> dict[str, str]:
 
 
 portfolio_templates = Jinja2Templates(directory=ROOT / "templates", context_processors=[theme_context])
+portfolio_templates.env.globals["asset_url"] = asset_url
 
 
 class PortfolioService:
