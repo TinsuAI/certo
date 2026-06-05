@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+from functools import lru_cache
 from pathlib import Path
 
 from fastapi import Request
@@ -9,9 +11,38 @@ from app import co_auth
 
 
 APP_ROOT = Path(__file__).resolve().parent.parent
+STATIC_ROOT = APP_ROOT / "static"
 
 THEME_COOKIE = "co_theme"
 SUPPORTED_THEMES = {"light", "dark"}
+
+
+@lru_cache(maxsize=None)
+def _asset_version(rel_path: str) -> str:
+    """Short content hash of a static file, for cache-busting.
+
+    Cached for the process lifetime — prod restarts on deploy and the dev
+    server restarts on file change (--reload watches *.css), so the hash is
+    always recomputed when the file actually changes.
+    """
+    try:
+        data = (STATIC_ROOT / rel_path).read_bytes()
+    except OSError:
+        return ""
+    return hashlib.sha1(data).hexdigest()[:8]
+
+
+def asset_url(path: str) -> str:
+    """Versioned URL for a static asset: ``/static/<path>?v=<hash>``.
+
+    Append the content hash so CDN/browser caches fetch the new file the
+    moment its contents change, instead of serving a stale copy.
+    """
+    rel = path.lstrip("/")
+    if rel.startswith("static/"):
+        rel = rel[len("static/"):]
+    version = _asset_version(rel)
+    return f"/static/{rel}?v={version}" if version else f"/static/{rel}"
 
 
 def normalize_theme(value: str | None) -> str:
@@ -33,3 +64,4 @@ def theme_context(request: Request) -> dict[str, str]:
 
 
 templates = Jinja2Templates(directory=APP_ROOT / "templates", context_processors=[theme_context])
+templates.env.globals["asset_url"] = asset_url
