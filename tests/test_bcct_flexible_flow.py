@@ -119,9 +119,11 @@ def _extract_upload_id(redirect_url: str) -> str:
     return m.group(1)
 
 
-# ── Cache miss → mapping page ────────────────────────────────────────────
+# ── Cache miss → Phase 1 auto-map (standard headers skip mapping page) ─────
 
-def test_bcct_upload_routes_to_mapping_page_on_cache_miss(http):
+def test_standard_headers_auto_map_to_preview_on_cache_miss(http):
+    # Standard BCCT headers resolve all required fields with no ambiguity →
+    # auto-map skips the manual mapping page and lands on the preview.
     blob = _xlsx([
         ("Số tờ khai", "Dòng", "Mã loại hình", "Ngày đăng ký", "Mã NPL/SP",
          "Tên hàng", "Tổng số lượng", "ĐVT", "Trị giá", "Nguyên tệ"),
@@ -130,16 +132,19 @@ def test_bcct_upload_routes_to_mapping_page_on_cache_miss(http):
     ])
     r = _upload(http, blob)
     assert r.status_code == 303
-    assert "/bcct/upload/mapping/" in r.headers["location"]
-    upload_id = _extract_upload_id(r.headers["location"])
+    assert "/bcct/upload/mapping/" not in r.headers["location"]
+    assert "/bcct/upload/preview/" in r.headers["location"]
 
-    g = http.get(f"/clients/{CLIENT}/bcct/upload/mapping/{upload_id}")
-    assert g.status_code == 200
-    body = g.text
-    assert "Số tờ khai" in body
-    assert "declaration_no" in body
-    assert "registration_date" in body
-    assert "customs_code" in body
+
+def test_non_standard_headers_still_route_to_mapping_page(http):
+    # Required fields can't be rigid-resolved → fall back to mapping page.
+    blob = _xlsx([
+        ("DocNo", "RegDate", "Code"),
+        (TXN_PREFIX + "NS", "2025-03-15", "X-1"),
+    ])
+    r = _upload(http, blob)
+    assert r.status_code == 303
+    assert "/bcct/upload/mapping/" in r.headers["location"]
 
 
 def test_mapping_form_rejects_when_required_unmapped(http):
@@ -203,31 +208,34 @@ def test_mapping_happy_path_runs_typed_column_coercion(http):
 
 
 def test_second_upload_with_same_shape_is_cache_hit(http):
-    """First upload populates parser_mappings via mapping page POST.
-    Second upload of the same shape should NOT route to mapping page."""
+    """First upload (non-standard headers → mapping page) populates
+    parser_mappings via the mapping POST. Second upload of the same shape
+    should NOT route to mapping page (cache hit)."""
+    # Non-standard headers so the first upload can't auto-map and must go
+    # through the manual mapping page (which writes the cache).
     blob = _xlsx([
-        ("Số tờ khai", "Dòng", "Mã loại hình", "Ngày đăng ký", "Mã NPL/SP",
-         "Tên hàng", "Tổng số lượng", "ĐVT", "Trị giá", "Nguyên tệ"),
+        ("DocNo", "LineNo", "Type", "RegDate", "Code", "Goods",
+         "Qty", "U", "Value", "Cur"),
         (TXN_PREFIX + "CH1", 1, "E11", "2025-03-15", "PE-CH",
          "PE-CH#&PE", 100.0, "kg", 250.0, "USD"),
     ])
     r = _upload(http, blob)
+    assert "/bcct/upload/mapping/" in r.headers["location"]
     upload_id = _extract_upload_id(r.headers["location"])
-    # Submit mapping with rigid auto-match values (same as defaults).
     parse = http.post(
         f"/clients/{CLIENT}/bcct/upload/mapping/{upload_id}/parse",
         data={
             "header_row_override": "1",
-            "col_0__field": "declaration_no",      "col_0__header": "Số tờ khai",
-            "col_1__field": "line_no",              "col_1__header": "Dòng",
-            "col_2__field": "declaration_type",     "col_2__header": "Mã loại hình",
-            "col_3__field": "registration_date",    "col_3__header": "Ngày đăng ký",
-            "col_4__field": "customs_code",         "col_4__header": "Mã NPL/SP",
-            "col_5__field": "goods_name",           "col_5__header": "Tên hàng",
-            "col_6__field": "quantity",             "col_6__header": "Tổng số lượng",
-            "col_7__field": "unit",                 "col_7__header": "ĐVT",
-            "col_8__field": "total_value",          "col_8__header": "Trị giá",
-            "col_9__field": "currency_nt",          "col_9__header": "Nguyên tệ",
+            "col_0__field": "declaration_no",      "col_0__header": "DocNo",
+            "col_1__field": "line_no",              "col_1__header": "LineNo",
+            "col_2__field": "declaration_type",     "col_2__header": "Type",
+            "col_3__field": "registration_date",    "col_3__header": "RegDate",
+            "col_4__field": "customs_code",         "col_4__header": "Code",
+            "col_5__field": "goods_name",           "col_5__header": "Goods",
+            "col_6__field": "quantity",             "col_6__header": "Qty",
+            "col_7__field": "unit",                 "col_7__header": "U",
+            "col_8__field": "total_value",          "col_8__header": "Value",
+            "col_9__field": "currency_nt",          "col_9__header": "Cur",
         },
         follow_redirects=False,
     )
@@ -235,8 +243,8 @@ def test_second_upload_with_same_shape_is_cache_hit(http):
 
     # Second upload: same shape → cache HIT → bypass mapping page.
     blob2 = _xlsx([
-        ("Số tờ khai", "Dòng", "Mã loại hình", "Ngày đăng ký", "Mã NPL/SP",
-         "Tên hàng", "Tổng số lượng", "ĐVT", "Trị giá", "Nguyên tệ"),
+        ("DocNo", "LineNo", "Type", "RegDate", "Code", "Goods",
+         "Qty", "U", "Value", "Cur"),
         (TXN_PREFIX + "CH2", 1, "E11", "2025-04-15", "PE-CH",
          "PE-CH#&PE", 80.0, "kg", 200.0, "USD"),
     ])

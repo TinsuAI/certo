@@ -598,6 +598,52 @@ def _rigid_match_header(header: str, aliases: dict[str, list[str]]) -> str:
     return ""
 
 
+def try_auto_map(blob: bytes, cfg: "ModuleConfig") -> dict[str, str] | None:
+    """Phase 1: confident rigid auto-map.
+
+    Returns a header→logical_field mapping when the rigid ALIAS match
+    resolves the module's required fields with NO ambiguity (no logical
+    field claimed by 2+ headers), so the caller can skip the manual
+    mapping page and go straight to the preview. Returns None when not
+    confident — caller shows the mapping page. The preview's diff +
+    anomaly net stay the safety check (decision: skip even on first-ever
+    upload when confident). Module-agnostic — driven by `cfg`.
+    """
+    try:
+        wb = load_xlsx(blob)
+    except Exception:  # noqa: BLE001 — best-effort; caller falls back
+        return None
+    aliases = _module_aliases(cfg.name)
+    headers: list[str] | None = None
+    for ws in wb.worksheets:
+        hdr = header_row(ws, aliases=aliases)
+        if hdr:
+            _, headers = hdr
+            break
+    if not headers:
+        return None
+    mapping: dict[str, str] = {}
+    field_counts: dict[str, int] = {}
+    for h in headers:
+        if not h:
+            continue
+        fld = _rigid_match_header(h, aliases)
+        if fld:
+            mapping[h] = fld
+            field_counts[fld] = field_counts.get(fld, 0) + 1
+    mapped = set(mapping.values())
+    # All required fields must resolve.
+    if cfg.required_mapped_fields - mapped:
+        return None
+    # At least one identifier when the module defines a min set.
+    if cfg.min_identifier_fields and not (cfg.min_identifier_fields & mapped):
+        return None
+    # Ambiguity: a logical field claimed by 2+ headers needs a human.
+    if any(c > 1 for c in field_counts.values()):
+        return None
+    return mapping
+
+
 def _stash_unmapped(
     *,
     upload_id: str,

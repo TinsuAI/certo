@@ -224,11 +224,26 @@ async def upload_submit(request: Request, client_id: str,
     except Exception:  # noqa: BLE001 — best-effort; falls through to rigid
         pass
 
-    # Slice 4: cache miss → unified mapping page (replaces old rigid → LLM
-    # bespoke cascade). Cache hit still parses inline for the no-friction
-    # repeat-upload case.
+    # Cache miss → Phase 1 confident rigid auto-map skips the manual mapping
+    # page and goes straight to the preview (BCCT columns are uniform; the
+    # preview diff + price-anomaly net are the safety check). The mapping
+    # page only appears when auto-map is not confident or its parse fails.
     if cached_mapping is None:
-        from app.routes._mapping_flow import _stash_unmapped as _flow_stash_unmapped
+        from app.routes._mapping_flow import (
+            try_auto_map, _stash_unmapped as _flow_stash_unmapped,
+        )
+        auto = try_auto_map(blob, BCCT_MAPPING_CFG)
+        if auto:
+            try:
+                rows = parse_bcct_workbook(blob, mapping_override=auto)
+            except BcctParseError:
+                rows = None
+            if rows:
+                request.state.user = user
+                return _ingest_rows(
+                    client_id=client_id, client=client,
+                    rows=rows, upload_id=upload_id, request=request,
+                )
         _flow_stash_unmapped(
             upload_id=upload_id, file_signature=file_signature, extra={},
         )
