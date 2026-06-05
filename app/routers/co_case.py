@@ -1183,12 +1183,14 @@ async def export_co_case_dossier_zip(client_id: str, case_id: str):
             "content": path.read_bytes(),
         })
     declaration_archives = _try_fetch_declaration_archives(client, case, summary)
+    declaration_pdfs = _try_fetch_declaration_pdfs(client, case, summary)
     content = create_dossier_zip(
         case,
         supporting_files,
         summary,
         data_hub_base_url=data_hub_link_settings().data_hub_base_url,
         declaration_archives=declaration_archives,
+        declaration_pdfs=declaration_pdfs,
     )
     filename = safe_filename(f"{case.get('case_code') or 'co-case'}-dossier.zip")
     return StreamingResponse(
@@ -1236,6 +1238,52 @@ def _try_fetch_declaration_archives(client: dict, case: dict, tkx_tkn_summary: d
     _fetch("export", tkx_tkn_summary.get("tkx") or [], "TKX")
     _fetch("import", tkx_tkn_summary.get("tkn") or [], "TKN")
     return archives
+
+
+def _try_fetch_declaration_pdfs(client: dict, case: dict, tkx_tkn_summary: dict) -> dict[str, bytes]:
+    """Fetch the merged TKX/TKN declaration PDFs from Data Hub and key them for
+    the dossier ("tờ khai ghép").
+
+    Contract: `.ai/api-requests/2026-06-05-declarations-merged-pdf.md`. Each
+    direction's declarations are rendered to the official tờ khai layout and
+    concatenated into one PDF. Any error (endpoint missing / network / non-200)
+    falls back to {} and the dossier keeps manifest mode. A direction whose
+    merged PDF includes zero real files is skipped — its absence is already
+    reported in MANIFEST.md.
+
+    Keyed by the filename written under `03-to-khai/`: `TKX-ghep.pdf` /
+    `TKN-ghep.pdf`.
+    """
+    data_hub = getattr(portfolio_service, "data_hub", None)
+    if data_hub is None or not hasattr(data_hub, "download_declarations_pdf"):
+        return {}
+    case_code = (case.get("case_code") or "co-case").strip() or "co-case"
+    pdfs: dict[str, bytes] = {}
+
+    def _fetch(direction: str, entries: list[dict], label: str) -> None:
+        nos = sorted({
+            str(entry.get("declaration_no") or "").strip()
+            for entry in (entries or [])
+            if str(entry.get("declaration_no") or "").strip()
+        })
+        if not nos:
+            return
+        filename = safe_filename(f"{label}_{case_code}.pdf")
+        try:
+            result = data_hub.download_declarations_pdf(
+                client["id"], direction=direction, declaration_nos=nos, filename=filename,
+            )
+        except Exception:  # noqa: BLE001 — fall back to manifest mode on any failure
+            return
+        content = result.get("content") if isinstance(result, dict) else result
+        included = result.get("included") if isinstance(result, dict) else None
+        # Skip the info-only PDF Data Hub returns when no declaration has a file.
+        if isinstance(content, (bytes, bytearray)) and content and included != 0:
+            pdfs[f"{label}-ghep.pdf"] = bytes(content)
+
+    _fetch("export", tkx_tkn_summary.get("tkx") or [], "TKX")
+    _fetch("import", tkx_tkn_summary.get("tkn") or [], "TKN")
+    return pdfs
 @router.post("/clients/{client_id}/co-case/{case_id}/close")
 async def close_co_case(request: Request, client_id: str, case_id: str):
     """Mark the case as completed. Pre-conditions:

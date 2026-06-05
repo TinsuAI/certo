@@ -951,6 +951,7 @@ def create_dossier_zip(
     *,
     data_hub_base_url: str = "",
     declaration_archives: dict[str, bytes] | None = None,
+    declaration_pdfs: dict[str, bytes] | None = None,
 ) -> bytes:
     """Bundle the full C/O dossier into a single .zip an operator can hand
     straight to HQ.
@@ -975,11 +976,13 @@ def create_dossier_zip(
     import zipfile
     case_code = (case.get("case_code") or "co-case").strip() or "co-case"
     archives = declaration_archives or {}
+    pdfs = declaration_pdfs or {}
+    embedded = bool(archives) or bool(pdfs)
     stream = BytesIO()
     with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(
             "00-README.md",
-            build_dossier_readme(case, tkx_tkn_summary, embedded_declaration_archives=bool(archives)),
+            build_dossier_readme(case, tkx_tkn_summary, embedded_declaration_archives=embedded),
         )
         zf.writestr(
             f"01-bang-ke/{case_code}-bang-ke-HQ.xlsx",
@@ -997,9 +1000,14 @@ def create_dossier_zip(
             "03-to-khai/MANIFEST.md",
             _build_declarations_manifest(
                 case, tkx_tkn_summary, data_hub_base_url,
-                embedded=bool(archives),
+                embedded=embedded,
             ),
         )
+        # Merged TKX/TKN PDFs (the customer's "tờ khai ghép") sit at the top of
+        # 03-to-khai/ so the operator sees them first.
+        for name, blob in pdfs.items():
+            if isinstance(blob, (bytes, bytearray)):
+                zf.writestr(f"03-to-khai/{name}", bytes(blob))
         for archive_path, blob in archives.items():
             if isinstance(blob, (bytes, bytearray)):
                 zf.writestr(f"03-to-khai/{archive_path}", bytes(blob))
@@ -1025,8 +1033,8 @@ def _build_declarations_manifest(
     if embedded:
         intro = [
             "Danh sách TKX (xuất) và TKN (nhập) tham chiếu trong hồ sơ.",
-            "Bộ file tờ khai thực đã được nhúng trong thư mục `03-to-khai/TKX/`",
-            "và `03-to-khai/TKN/`. Bảng kê dưới đây để đối chiếu nhanh.",
+            "Tờ khai ghép (PDF chuẩn) đã được nhúng tại `03-to-khai/TKX-ghep.pdf`",
+            "và `03-to-khai/TKN-ghep.pdf`. Bảng kê dưới đây để đối chiếu nhanh.",
         ]
     else:
         intro = [
@@ -1090,7 +1098,7 @@ def build_dossier_readme(
     tkn_count = len(summary.get("tkn") or [])
     missing = len(summary.get("missing_tkx") or []) + len(summary.get("missing_tkn") or [])
     declaration_section = (
-        "- `03-to-khai/TKX/…zip`, `03-to-khai/TKN/…zip` — File tờ khai đã nhúng sẵn."
+        "- `03-to-khai/TKX-ghep.pdf`, `03-to-khai/TKN-ghep.pdf` — Tờ khai ghép (PDF chuẩn) đã nhúng sẵn."
         if embedded_declaration_archives
         else "- `03-to-khai/<direction>/…` — File tờ khai (sẽ tự nhúng khi Data Hub bật endpoint Bearer-aware)."
     )

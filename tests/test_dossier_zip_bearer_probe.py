@@ -81,6 +81,79 @@ def test_readme_states_embedded_status_correctly():
     assert "đã nhúng sẵn" in readme_embedded
 
 
+def test_dossier_zip_embeds_merged_declaration_pdfs():
+    """Once DH ships the merged-PDF endpoint, the CO endpoint pre-fetches the
+    TKX/TKN merged PDFs and passes them via declaration_pdfs. The dossier ZIP
+    embeds them at 03-to-khai/<name> (prominent, no subfolder).
+    Contract: .ai/api-requests/2026-06-05-declarations-merged-pdf.md."""
+    pdfs = {"TKX-ghep.pdf": b"%PDF-fake-tkx", "TKN-ghep.pdf": b"%PDF-fake-tkn"}
+    blob = create_dossier_zip(_case(), [], _summary(), declaration_pdfs=pdfs)
+    archive = zipfile.ZipFile(io.BytesIO(blob))
+    names = archive.namelist()
+    assert "03-to-khai/TKX-ghep.pdf" in names
+    assert "03-to-khai/TKN-ghep.pdf" in names
+    assert archive.read("03-to-khai/TKN-ghep.pdf") == b"%PDF-fake-tkn"
+
+
+def test_download_declarations_pdf_builds_request_and_parses_headers(monkeypatch):
+    from app.data_hub_client import DataHubClient
+
+    client = DataHubClient(base_url="http://test", token="t")
+    captured: dict = {}
+
+    class FakeResp:
+        status_code = 200
+        content = b"%PDF-merged"
+        headers = {
+            "X-Declarations-Requested": "3",
+            "X-Declarations-Included": "2",
+            "X-Declarations-Missing": "1",
+            "X-Declarations-Missing-Nos": "999, 888",
+        }
+
+        def raise_for_status(self):
+            return None
+
+    def fake_get(path, params=None, headers=None):
+        captured["path"] = path
+        captured["params"] = params
+        return FakeResp()
+
+    monkeypatch.setattr(client._client, "get", fake_get)
+    res = client.download_declarations_pdf(
+        "johnson-vn", direction="import", declaration_nos=["a", "b", "c"],
+        sort="registration_date",
+    )
+    assert captured["path"].endswith("/declarations/download.pdf")
+    assert captured["params"]["direction"] == "import"
+    assert captured["params"]["declaration_nos"] == "a,b,c"
+    assert captured["params"]["sort"] == "registration_date"
+    assert res["content"] == b"%PDF-merged"
+    assert res["requested"] == 3
+    assert res["included"] == 2
+    assert res["missing"] == 1
+    assert res["missing_nos"] == ["999", "888"]
+    client.close()
+
+
+def test_download_declarations_pdf_validates_inputs():
+    from app.data_hub_client import DataHubClient
+
+    client = DataHubClient(base_url="http://test", token="t")
+    for bad in (
+        {"direction": "wrong", "declaration_nos": ["x"]},
+        {"direction": "import", "declaration_nos": []},
+        {"direction": "import", "declaration_nos": ["x"], "sort": "nope"},
+    ):
+        try:
+            client.download_declarations_pdf("c", **bad)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"expected validation for {bad}")
+    client.close()
+
+
 def test_data_hub_client_download_declarations_validates_inputs():
     """Adapter rejects obviously bad params before hitting the network."""
     from app.data_hub_client import DataHubClient

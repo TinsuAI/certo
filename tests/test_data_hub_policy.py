@@ -26,6 +26,8 @@ APPROVED_DATA_HUB_ENDPOINTS = {
     "/v1/hub/clients/{hub_path_part(client_id)}/bcct/by-codes",
     "/v1/hub/clients/{hub_path_part(client_id)}/declarations",
     "/v1/hub/clients/{hub_path_part(client_id)}/declarations/download.zip",
+    # Merged TKX/TKN PDF — .ai/api-requests/2026-06-05-declarations-merged-pdf.md
+    "/v1/hub/clients/{hub_path_part(client_id)}/declarations/download.pdf",
 }
 
 

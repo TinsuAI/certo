@@ -168,6 +168,62 @@ class DataHubClient:
         response.raise_for_status()
         return response.content
 
+    def download_declarations_pdf(
+        self,
+        client_id: str,
+        *,
+        direction: str,
+        declaration_nos: list[str],
+        filename: str = "",
+        sort: str = "declaration_no",
+    ) -> dict:
+        """Bearer-aware merged declarations PDF — every TKX/TKN of a direction
+        rendered to the official tờ khai layout and concatenated into one PDF
+        (the customer's "tờ khai ghép").
+
+        Contract: `barry-CO-main/.ai/api-requests/2026-06-05-declarations-merged-pdf.md`.
+
+        Returns `{content, requested, included, missing, missing_nos}` — the
+        `X-Declarations-*` headers let the caller warn the operator about
+        declarations with no file. Raises httpx.HTTPStatusError on non-200;
+        callers fall back to manifest/zip dossier mode on any failure."""
+        if direction not in ("import", "export"):
+            raise ValueError("direction must be 'import' or 'export'")
+        if not declaration_nos:
+            raise ValueError("declaration_nos is required")
+        if sort not in ("declaration_no", "registration_date"):
+            raise ValueError("sort must be 'declaration_no' or 'registration_date'")
+        path = f"/v1/hub/clients/{hub_path_part(client_id)}/declarations/download.pdf"
+        params = {
+            "direction": direction,
+            "declaration_nos": ",".join(list(declaration_nos)[:500]),
+            "sort": sort,
+        }
+        if filename:
+            params["filename"] = filename
+        response = self._client.get(path, params=params, headers=self._auth_headers())
+        response.raise_for_status()
+        headers = response.headers
+
+        def _int(name: str) -> int:
+            try:
+                return int(headers.get(name) or 0)
+            except (TypeError, ValueError):
+                return 0
+
+        missing_nos = [
+            part.strip()
+            for part in (headers.get("X-Declarations-Missing-Nos") or "").split(",")
+            if part.strip()
+        ]
+        return {
+            "content": response.content,
+            "requested": _int("X-Declarations-Requested"),
+            "included": _int("X-Declarations-Included"),
+            "missing": _int("X-Declarations-Missing"),
+            "missing_nos": missing_nos,
+        }
+
     def list_products(self, client_id: str) -> list[dict]:
         return self._get_all("/v1/hub/products", {"client_id": client_id})
 
