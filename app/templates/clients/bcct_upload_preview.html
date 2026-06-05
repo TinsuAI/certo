@@ -50,6 +50,43 @@
 
   <form id="confirm-form" method="post" action="/clients/{{ client.client_id }}/bcct/upload/preview/{{ pending_id }}/confirm">
     {% include "clients/_uom_drift_banner.html" ignore missing %}
+    {% if anomalies %}
+    <div class="zone mini-panel anomaly-panel" style="margin-bottom: 1rem;">
+      <strong>⚠ Cảnh báo bất thường dữ liệu</strong>
+      <ul style="margin: 0.5rem 0 0 1.2rem;">
+        {% for a in anomalies %}
+        <li style="margin-bottom: 0.4rem;">
+          <span class="badge {% if a.severity == 'block' %}badge-danger{% else %}badge-warn{% endif %}">
+            {{ 'CHẶN' if a.severity == 'block' else 'lưu ý' }}
+          </span>
+          {{ a.message }}
+          {% if a.samples %}
+          <details>
+            <summary class="meta">ví dụ ({{ a.affected_rows }}/{{ a.comparable_rows }} dòng)</summary>
+            <table class="dh-table" style="margin-top: 0.3rem; font-size: 0.85rem;">
+              <thead><tr><th>Số TK</th><th>Dòng</th><th>NT</th><th>Tỷ giá</th>
+                {% for f in a.field_pair %}<th>{{ f }}</th>{% endfor %}</tr></thead>
+              <tbody>
+                {% for s in a.samples %}
+                <tr><td><code>{{ s.decl_no }}</code></td><td>{{ s.line_no }}</td>
+                  <td>{{ s.currency_nt }}</td><td>{{ s.exchange_rate }}</td>
+                  {% for f in a.field_pair %}<td>{{ s[f] }}</td>{% endfor %}</tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </details>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% if anomaly_blocks_confirm %}
+      <label class="checkbox-label" style="margin-top: 0.5rem;">
+        <input type="checkbox" name="confirm_anomalies" id="confirm_anomalies">
+        <span>Đã kiểm tra ánh xạ cột là đúng — vẫn ghi đè bất chấp cảnh báo.</span>
+      </label>
+      {% endif %}
+    </div>
+    {% endif %}
     {% if summary.diff %}
     <h3 style="margin-top: 1.5rem;">Thay đổi giá trị ({{ summary.diff|length }} dòng)</h3>
     <table class="dh-table">
@@ -122,4 +159,16 @@
     {% endif %}
   </form>
 </section>
+{% if anomaly_blocks_confirm %}
+<script>
+  (function () {
+    var ack = document.getElementById('confirm_anomalies');
+    var btn = document.querySelector('#confirm-form button[type=submit]');
+    if (!ack || !btn) return;
+    function sync() { btn.disabled = !ack.checked; }
+    ack.addEventListener('change', sync);
+    sync();
+  })();
+</script>
+{% endif %}
 {% endblock %}

@@ -777,6 +777,14 @@ async def upload_preview_view(request: Request, client_id: str, pending_id: str)
         if isinstance(r, dict)
     ]
     uom_drifts = compute_uom_drifts(client_id, drift_input)
+    # Phase 2: price/value column-inversion anomaly net. Computed from the
+    # stashed parsed rows; a clear inversion is a hard gate (needs ack).
+    from app.parsers.bcct_validate import (
+        detect_price_anomalies, has_blocking_anomaly,
+    )
+    anomalies = detect_price_anomalies(
+        [r for r in (parsed_rows or []) if isinstance(r, dict)]
+    )
     return request.app.state.templates.TemplateResponse(
         request, "clients/bcct_upload_preview.html",
         {
@@ -787,6 +795,8 @@ async def upload_preview_view(request: Request, client_id: str, pending_id: str)
             "active_root": "clients", "active_tab": "bcct",
             "uom_drifts": uom_drifts,
             "uom_drift_blocks_confirm": has_blocking_drift(uom_drifts),
+            "anomalies": anomalies,
+            "anomaly_blocks_confirm": has_blocking_anomaly(anomalies),
         },
     )
 
@@ -914,6 +924,29 @@ async def upload_preview_confirm(request: Request, client_id: str, pending_id: s
     form = await request.form()
     confirm_diffs = form.get("confirm_diffs") == "on"
     confirm_orphans = form.get("confirm_orphans") == "on"
+    confirm_anomalies = form.get("confirm_anomalies") == "on"
+
+    # Phase 2 hard gate: a clear price/value column inversion must be
+    # explicitly acked before commit. Re-detect from the stashed rows
+    # (server-side, not UI-only) so a forged POST can't bypass it. Peek
+    # without consuming the pending row, so an unacked block leaves the
+    # upload recoverable.
+    if not confirm_anomalies:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "select parsed_rows from hub.upload_pending "
+                    "where pending_id = %s and client_id = %s and module = 'bcct'",
+                    (pending_id, client_id),
+                )
+                peek = cur.fetchone()
+        if peek:
+            from app.parsers.bcct_validate import (
+                detect_price_anomalies, has_blocking_anomaly,
+            )
+            peek_rows = [r for r in (peek[0] or []) if isinstance(r, dict)]
+            if has_blocking_anomaly(detect_price_anomalies(peek_rows)):
+                raise HTTPException(400, "anomaly_ack_required")
 
     # Single-use: DELETE in same tx as load. Double-click → second click 404s.
     with connect() as conn:
