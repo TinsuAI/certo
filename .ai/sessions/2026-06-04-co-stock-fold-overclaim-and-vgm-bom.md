@@ -88,11 +88,14 @@ wired it (commit `72cc10d`, deployed `tinsu/main`):
   is shallow shows "❗ Chưa có BOM khai triển đầy đủ" instead of the 2-row stub.
 - 13 picker tests (incl. an end-to-end fallback test where DH omits `depth`).
 
-**Verified on prod:** VGM0121-05 picker now offers only the 223-row full BOM; the shallow #2
-is gone. Notably `is_shallow=None` in the prod response → the demo's **DH instance hasn't
-deployed the `depth`/`is_shallow` echo yet**, so CO's client-side fallback is what's dropping
-the shallow — i.e. the back-compat path is proven live. NOTE: this is the picker only; it does
-NOT fix the VGM shortfall (the full BOM v5 still has SAP-stub materials → still needs Mẫu-16).
+**Verified on prod (data + UI):** VGM0121-05 picker now offers only the 223-row full BOM;
+the shallow #2 is gone. Confirmed both at the data layer and on the real UI via Playwright
+(`.ai/screenshots/2026-06-05-bom-picker-verify/01-vgm-picker.png` — dropdown shows only
+`#5 · 223 dòng`). Notably `is_shallow=None` in the prod response → the demo's **DH instance
+hasn't deployed the `depth`/`is_shallow` echo yet**, so CO's client-side fallback is what's
+dropping the shallow — i.e. the back-compat path is proven live. NOTE: this is the picker
+only; it does NOT fix the VGM shortfall (the full BOM v5 still has SAP-stub materials → still
+needs Mẫu-16).
 
 ## Decisions Made
 - **Fold the static trừ-lùi layer into the snapshot** (vs read-time overlay everywhere):
