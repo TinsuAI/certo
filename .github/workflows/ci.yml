@@ -103,7 +103,15 @@ jobs:
             fi
             sleep 2
           done
-          docker compose exec -T app sh -c 'curl -fsS -m 12 "$DATA_HUB_API_BASE_URL/v1/hub/dncxs" >/tmp/co-data-hub-smoke.json'
+          # Connectivity smoke: co-app must reach Data Hub. Since DH now enforces
+          # auth on all /v1/hub/* endpoints, an unauthenticated probe returns 401
+          # — that still proves reachability. Only a connection/timeout failure
+          # (http_code 000) is a real problem.
+          docker compose exec -T app sh -c '
+            code=$(curl -sS -m 12 -o /tmp/co-data-hub-smoke.json -w "%{http_code}" "$DATA_HUB_API_BASE_URL/v1/hub/dncxs" || echo 000)
+            echo "Data Hub smoke: HTTP $code"
+            [ "$code" != "000" ] || { echo "Data Hub unreachable"; exit 1; }
+          '
 
       - name: Refresh nightly stack (CO)
         continue-on-error: true
