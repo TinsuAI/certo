@@ -131,6 +131,12 @@ def _params():
 def test_anonymous_is_401(seeded, url_tmpl):
     r = _client().get(url_tmpl.format(cid=seeded), params=_params())
     assert r.status_code == 401, f"{url_tmpl} leaked: {r.status_code}"
+    # Standard FastAPI HTTPException shape — the exact contract CO checks.
+    assert r.json() == {"detail": "bearer token required"}
+    # Whatever the status, an unauthenticated response must never carry
+    # document bytes.
+    assert not r.content.startswith(b"%PDF")
+    assert not r.content.startswith(b"PK\x03\x04")
 
 
 @pytest.mark.parametrize("url_tmpl", [PDF_URL, ZIP_URL, META_URL])
@@ -149,6 +155,11 @@ def test_wrong_client_bearer_is_403(seeded, url_tmpl):
         url_tmpl.format(cid=seeded), params=_params(), headers=_auth(tok),
     )
     assert r.status_code == 403
+    # Cross-tenant guard: a token for client A must get NO file bytes of
+    # client B — the body is the JSON error, not a document.
+    assert r.headers.get("content-type", "").startswith("application/json")
+    assert not r.content.startswith(b"%PDF")
+    assert not r.content.startswith(b"PK\x03\x04")
 
 
 def test_authorized_bearer_gets_pdf_and_zip(seeded):

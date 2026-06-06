@@ -106,11 +106,47 @@ jobs:
           docker compose -f /home/tinsu/data-hub/docker-compose.yml logs --tail=80 app
           exit 1
 
-      - name: Smoke API consumer endpoint
+      - name: Smoke - origin enforces auth (required)
+        # Regression gate for the 2026-06-06 leak: the sister-app API must
+        # reject anonymous callers. (The old smoke here curl'd /v1/hub/dncxs
+        # WITHOUT a token expecting 200 — it relied on the permissive hole
+        # and would now mask a regression. Replaced with anon -> 401.)
         run: |
-          curl -fsS http://127.0.0.1:8754/v1/hub/dncxs > /tmp/dncxs.json
-          test "$(jq '.items | length' /tmp/dncxs.json)" -ge 1 \
-            && echo "/v1/hub/dncxs returned $(jq '.items | length' /tmp/dncxs.json) items"
+          set -e
+          base=http://127.0.0.1:8754
+          for path in \
+            "/v1/hub/dncxs" \
+            "/v1/hub/clients/johnson-vn/declarations/download.pdf?direction=import&declaration_nos=107271918940" \
+            "/v1/hub/clients/johnson-vn/declarations/download.zip?direction=import&declaration_nos=107271918940"; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$base$path")
+            [ "$code" = "401" ] || { echo "LEAK: expected 401 for $path, got $code"; exit 1; }
+            echo "OK anon->401  $path"
+          done
+          # Authenticated data sanity (best-effort: needs the service-token file).
+          if [ -f /home/tinsu/sister_tokens_2026-06-06.json ]; then
+            tok=$(jq -r '."co-prod" // empty' /home/tinsu/sister_tokens_2026-06-06.json)
+            if [ -n "$tok" ]; then
+              curl -fsS -H "authorization: Bearer $tok" "$base/v1/hub/dncxs" > /tmp/dncxs.json
+              test "$(jq '.items | length' /tmp/dncxs.json)" -ge 1 \
+                && echo "authed /v1/hub/dncxs OK ($(jq '.items | length' /tmp/dncxs.json) items)"
+            fi
+          fi
+
+      - name: Smoke - public surface enforces auth (required)
+        # The incident was a dev-passes / prod-leaks gap, and Cloudflare
+        # caching .pdf/.zip made it worse. This probes the REAL public URL
+        # (through Cloudflare) so a misconfigured deploy or a cached-200
+        # leak fails the deploy fast instead of silently leaking.
+        working-directory: /home/tinsu/data-hub
+        env:
+          DATA_HUB_SMOKE_BASE: https://ttdatahub.tinsu.ai
+          DATA_HUB_SMOKE_CLIENT: johnson-vn
+          DATA_HUB_SMOKE_DECL: "107271918940"
+        run: |
+          if [ -f /home/tinsu/sister_tokens_2026-06-06.json ]; then
+            export DATA_HUB_SMOKE_TOKEN=$(jq -r '."co-prod" // empty' /home/tinsu/sister_tokens_2026-06-06.json)
+          fi
+          uv run python scripts/smoke_public_auth.py
 
       - name: Smoke LLM /models (best effort)
         working-directory: /home/tinsu/data-hub
