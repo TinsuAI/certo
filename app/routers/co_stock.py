@@ -316,6 +316,13 @@ async def refresh_co_stock_endpoint(client_id: str):
     # paths see the same fresh data.
     _CO_CASE_SOURCE_CACHE.clear()
     return JSONResponse({"ok": not summary.get("errors"), **summary})
+@router.get("/clients/{client_id}/co-stock/summary")
+async def co_stock_summary_endpoint(client_id: str, date_from: str = "", date_to: str = ""):
+    """Free-remaining CO stock value (VND) + code/lot counts, optionally within
+    a registration-date window. Backs the Tồn CO overview strip + its date
+    filter on the làm-CO page (feedback #12)."""
+    client = resolve_client(client_id)
+    return JSONResponse(co_stock_materializer.co_stock_summary(client["id"], date_from, date_to))
 @router.get("/clients/{client_id}/co-stock/lot-history")
 async def co_stock_lot_history(
     client_id: str,

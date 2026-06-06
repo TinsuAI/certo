@@ -2661,6 +2661,14 @@ def co_case_context(client_id: str, case_id: str = "", current_step: str = "inde
     context["origin_calculation_lock"] = origin_lock
     context["origin_calculation_lock_owned"] = origin_lock_owned
     context["origin_calculation_lock_blocked"] = origin_lock_blocked
+    # Tồn CO overview strip on the làm-CO list page (feedback #12). Cheap SQL
+    # aggregate (~ms even on 60k-row clients); skip on detail/step pages where
+    # the strip isn't shown.
+    if current_step == "index":
+        try:
+            context["co_stock_summary"] = co_stock_materializer.co_stock_summary(client_id)
+        except Exception:  # noqa: BLE001
+            context["co_stock_summary"] = None
     return context
 def co_case_workflow_steps(
     client_id: str,

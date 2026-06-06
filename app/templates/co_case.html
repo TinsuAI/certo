@@ -231,6 +231,136 @@
 {% include "_client_nav.html" %}
 
 {% if co_case_active_step == "index" %}
+{% set _ss = co_stock_summary %}
+{# Only show the overview once there's a materialized snapshot with free stock.
+   A zeroed strip on a not-yet-refreshed client would read as "hết tồn" when it
+   actually means "chưa pull snapshot" (the Tồn CO page prompts the refresh). #}
+{% if _ss and _ss.lot_count and _ss.lot_count > 0 %}
+<section class="zone co-stock-overview"
+         data-co-stock-overview
+         data-co-stock-value="{{ _ss.total_value_vnd }}"
+         data-co-stock-qty="{{ _ss.total_qty }}"
+         data-co-stock-codes="{{ _ss.code_count }}"
+         data-co-stock-lots="{{ _ss.lot_count }}"
+         aria-label="Tổng quan tồn CO">
+  <div class="co-stock-overview-head">
+    <div>
+      <span class="eyebrow">Tồn CO để kiểm soát</span>
+      <h2 data-co-stock-value-big>—</h2>
+      <p class="meta" data-co-stock-value-full>—</p>
+    </div>
+    <p class="meta co-stock-overview-formula">Tổng giá trị = Σ(còn lại − phần hồ sơ khác đang giữ) × đơn giá, quy VNĐ.</p>
+  </div>
+  <div class="co-stock-overview-metrics">
+    <div class="co-stock-metric">
+      <em>Tổng số lượng tồn</em>
+      <strong data-co-stock-qty-out>—</strong>
+      <small>gộp mọi đơn vị tính (tham khảo)</small>
+    </div>
+    <div class="co-stock-metric">
+      <em>Số mã còn tồn</em>
+      <strong data-co-stock-codes-out>—</strong>
+    </div>
+    <div class="co-stock-metric">
+      <em>Số dòng lot còn tồn</em>
+      <strong data-co-stock-lots-out>—</strong>
+    </div>
+  </div>
+  <div class="co-stock-overview-filter">
+    <label>Từ ngày ĐK tờ khai nhập
+      <input type="date" data-co-stock-from>
+    </label>
+    <label>Đến ngày
+      <input type="date" data-co-stock-to>
+    </label>
+    <button type="button" data-co-stock-apply>Lọc theo thời gian</button>
+    <button type="button" class="btn-secondary" data-co-stock-clear hidden>Bỏ lọc</button>
+    <span class="meta" data-co-stock-range-note></span>
+  </div>
+</section>
+<script>
+(() => {
+  const root = document.querySelector("[data-co-stock-overview]");
+  if (!root) return;
+  const clientId = window.location.pathname.split("/")[2] || "";
+  const bigEl = root.querySelector("[data-co-stock-value-big]");
+  const fullEl = root.querySelector("[data-co-stock-value-full]");
+  const qtyEl = root.querySelector("[data-co-stock-qty-out]");
+  const codesEl = root.querySelector("[data-co-stock-codes-out]");
+  const lotsEl = root.querySelector("[data-co-stock-lots-out]");
+  const fromEl = root.querySelector("[data-co-stock-from]");
+  const toEl = root.querySelector("[data-co-stock-to]");
+  const applyBtn = root.querySelector("[data-co-stock-apply]");
+  const clearBtn = root.querySelector("[data-co-stock-clear]");
+  const note = root.querySelector("[data-co-stock-range-note]");
+
+  // Group thousands on the raw integer string (avoids Number precision loss on
+  // very large totals).
+  const groupInt = (s) => String(s || "0").replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  const fmtBig = (s) => {
+    const n = Number(s) || 0;
+    if (n >= 1e12) return `≈ ${(n / 1e12).toLocaleString("vi-VN", {maximumFractionDigits: 3})} nghìn tỷ ₫`;
+    if (n >= 1e9) return `≈ ${(n / 1e9).toLocaleString("vi-VN", {maximumFractionDigits: 1})} tỷ ₫`;
+    if (n >= 1e6) return `≈ ${(n / 1e6).toLocaleString("vi-VN", {maximumFractionDigits: 1})} triệu ₫`;
+    return `${groupInt(s)} ₫`;
+  };
+  const fmtCount = (n) => (Number(n) || 0).toLocaleString("vi-VN");
+  const fmtQty = (n) => (Number(n) || 0).toLocaleString("vi-VN", {maximumFractionDigits: 2});
+
+  const render = (data) => {
+    bigEl.textContent = fmtBig(data.total_value_vnd);
+    fullEl.textContent = `${groupInt(data.total_value_vnd)} ₫`;
+    qtyEl.textContent = fmtQty(data.total_qty);
+    codesEl.textContent = fmtCount(data.code_count);
+    lotsEl.textContent = fmtCount(data.lot_count);
+    const filtered = !!(data.date_from || data.date_to);
+    clearBtn.hidden = !filtered;
+    if (filtered) {
+      note.textContent = `Lọc: ${data.date_from || "…"} → ${data.date_to || "…"}`;
+    } else {
+      note.textContent = "Toàn bộ tồn";
+    }
+  };
+
+  // Initial render from server-injected data attributes (all-time).
+  render({
+    total_value_vnd: root.dataset.coStockValue,
+    total_qty: root.dataset.coStockQty,
+    code_count: root.dataset.coStockCodes,
+    lot_count: root.dataset.coStockLots,
+  });
+
+  const fetchSummary = async () => {
+    const params = new URLSearchParams();
+    if (fromEl.value) params.set("date_from", fromEl.value);
+    if (toEl.value) params.set("date_to", toEl.value);
+    applyBtn.disabled = true;
+    const original = applyBtn.textContent;
+    applyBtn.textContent = "Đang tính…";
+    try {
+      const r = await fetch(`/clients/${encodeURIComponent(clientId)}/co-stock/summary?${params}`,
+        {headers: {Accept: "application/json"}});
+      const data = await r.json().catch(() => null);
+      if (!r.ok || !data) { note.textContent = `Lỗi ${r.status}`; return; }
+      render(data);
+    } catch (err) {
+      note.textContent = `Lỗi mạng: ${err}`;
+    } finally {
+      applyBtn.disabled = false;
+      applyBtn.textContent = original;
+    }
+  };
+
+  applyBtn.addEventListener("click", fetchSummary);
+  clearBtn.addEventListener("click", () => {
+    fromEl.value = "";
+    toEl.value = "";
+    fetchSummary();
+  });
+})();
+</script>
+{% endif %}
+
 <section class="zone co-command-bar" aria-label="Luồng làm C/O">
   <div>
     <span class="eyebrow">Làm hồ sơ C/O</span>

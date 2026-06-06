@@ -571,6 +571,191 @@ def row_count(client_id: str) -> int:
         return 0
 
 
+_NUMERIC_RE = r"^-?\d+(\.\d+)?$"
+
+
+def _summary_decimal(value) -> "Decimal | None":
+    from decimal import Decimal, InvalidOperation
+
+    text = str(value if value is not None else "").strip()
+    if not text:
+        return None
+    try:
+        return Decimal(text)
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _summary_in_range(reg_date, date_from: str, date_to: str) -> bool:
+    """ISO YYYY-MM-DD string comparison. A row without a registration date is
+    excluded whenever a bound is set (can't place it in the period)."""
+    text = str(reg_date if reg_date is not None else "").strip()
+    if date_from:
+        if not text or text < date_from:
+            return False
+    if date_to:
+        if not text or text > date_to:
+            return False
+    return True
+
+
+def _empty_stock_summary(date_from: str = "", date_to: str = "") -> dict:
+    return {
+        "code_count": 0,
+        "lot_count": 0,
+        "total_qty": "0",
+        "total_value_vnd": "0",
+        "currency": "VND",
+        "date_from": date_from,
+        "date_to": date_to,
+        "filtered": bool(date_from or date_to),
+    }
+
+
+def summarize_stock_value_rows(
+    rows,
+    claimed_by_source_row: dict | None = None,
+    *,
+    date_from: str = "",
+    date_to: str = "",
+) -> dict:
+    """Pure aggregation of free-remaining CO stock value (VND) + counts.
+
+    Free remaining per lot = folded `remaining_qty` − live locked claims for
+    that `source_row` (matches the Tồn CO table + substitute panel, which both
+    overlay the ledger). Only eligible, allocation-resolved lots with positive
+    free remaining count. Value = free × unit_value × exchange_rate_to_vnd
+    (fx defaults to 1 — missing/non-positive — so all-VND clients are exact and
+    foreign-currency lots still convert). `date_from`/`date_to` filter on the
+    import declaration's `registration_date` (ISO YYYY-MM-DD).
+
+    This is the testable reference for the SQL in `co_stock_summary`; keep the
+    two in sync.
+    """
+    from decimal import Decimal, ROUND_HALF_UP
+
+    claimed_by_source_row = claimed_by_source_row or {}
+    total = Decimal("0")
+    total_qty = Decimal("0")
+    codes: set[str] = set()
+    lot_count = 0
+    for row in rows:
+        if str(row.get("eligibility_status") or "") == "inactive":
+            continue
+        if str(row.get("allocation_code_status") or "") != "resolved":
+            continue
+        if not _summary_in_range(row.get("registration_date"), date_from, date_to):
+            continue
+        remaining = _summary_decimal(row.get("remaining_qty"))
+        if remaining is None:
+            continue
+        claimed = claimed_by_source_row.get(str(row.get("source_row") or "")) or Decimal("0")
+        free = remaining - claimed
+        if free <= 0:
+            continue
+        lot_count += 1
+        total_qty += free
+        code = str(row.get("allocation_code") or row.get("material_code") or "").strip()
+        if code:
+            codes.add(code)
+        unit_value = _summary_decimal(row.get("unit_value")) or Decimal("0")
+        fx = _summary_decimal(row.get("exchange_rate_to_vnd"))
+        if fx is None or fx <= 0:
+            fx = Decimal("1")
+        total += free * unit_value * fx
+    return {
+        "code_count": len(codes),
+        "lot_count": lot_count,
+        # Raw sum of free remaining across ALL units of measure (kg + cái + m …).
+        # Unit-agnostic by design — a rough scale figure, not a physical total.
+        # 6-dp matches the stored qty precision so SQL and this reference agree.
+        "total_qty": format(total_qty.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP), "f"),
+        # VND has no minor unit — round to whole đồng. This also erases the
+        # sub-10^-15 tail where Python Decimal and Postgres numeric disagree,
+        # keeping this reference and the SQL path byte-identical.
+        "total_value_vnd": format(total.quantize(Decimal("1"), rounding=ROUND_HALF_UP), "f"),
+        "currency": "VND",
+        "date_from": date_from,
+        "date_to": date_to,
+        "filtered": bool(date_from or date_to),
+    }
+
+
+def co_stock_summary(client_id: str, date_from: str = "", date_to: str = "") -> dict:
+    """Free-remaining CO stock value (VND) + code/lot counts for one client,
+    optionally restricted to a registration-date window.
+
+    SQL aggregate (single indexed scan on `client_id`) so the làm-CO page and
+    its date filter stay fast even on 60k-row clients. Mirrors
+    `summarize_stock_value_rows`; returns a zeroed summary when no DB is
+    configured or the client has no materialized snapshot.
+    """
+    date_from = str(date_from or "").strip()
+    date_to = str(date_to or "").strip()
+    if not _store_available():
+        return _empty_stock_summary(date_from, date_to)
+    num = _NUMERIC_RE
+    sql = f"""
+        with claims as (
+            select source_row, sum(claimed_qty) as claimed
+            from co_stock_claims
+            where client_id = %s and status = 'locked'
+            group by source_row
+        ),
+        lots as (
+            select
+                nullif(coalesce(nullif(r.allocation_code, ''),
+                                nullif(r.payload->>'material_code', '')), '') as code,
+                greatest(
+                    r.remaining_qty::numeric - coalesce(c.claimed, 0), 0
+                ) as free,
+                case when r.payload->>'unit_value' ~ '{num}'
+                     then (r.payload->>'unit_value')::numeric else 0 end as unit_value,
+                case when r.payload->>'exchange_rate_to_vnd' ~ '{num}'
+                          and (r.payload->>'exchange_rate_to_vnd')::numeric > 0
+                     then (r.payload->>'exchange_rate_to_vnd')::numeric else 1 end as fx
+            from co_stock_rows r
+            left join claims c on c.source_row = r.source_row
+            where r.client_id = %s
+              and r.eligibility_status <> 'inactive'
+              and coalesce(r.payload->>'allocation_code_status', '') = 'resolved'
+              and r.remaining_qty ~ '{num}'
+              and (%s = '' or (r.payload->>'registration_date') >= %s)
+              and (%s = '' or (r.payload->>'registration_date') <= %s)
+        )
+        select
+            count(*) filter (where free > 0) as lot_count,
+            count(distinct code) filter (where free > 0) as code_count,
+            coalesce(sum(case when free > 0 then free else 0 end), 0) as total_qty,
+            coalesce(sum(case when free > 0 then free * unit_value * fx else 0 end), 0) as total_value
+        from lots
+    """
+    params = [client_id, client_id, date_from, date_from, date_to, date_to]
+    try:
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute(sql, params)
+            lot_count, code_count, total_qty, total_value = cur.fetchone()
+        from decimal import Decimal, ROUND_HALF_UP
+
+        total = Decimal(str(total_value or "0")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        qty = Decimal(str(total_qty or "0")).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+        return {
+            "code_count": int(code_count or 0),
+            "lot_count": int(lot_count or 0),
+            "total_qty": format(qty, "f"),
+            "total_value_vnd": format(total, "f"),
+            "currency": "VND",
+            "date_from": date_from,
+            "date_to": date_to,
+            "filtered": bool(date_from or date_to),
+        }
+    except DatabaseUnavailable:
+        return _empty_stock_summary(date_from, date_to)
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning("co_stock_summary failed for %s: %s", client_id, exc)
+        return _empty_stock_summary(date_from, date_to)
+
+
 def registration_dates_for_source_rows(client_id: str, source_rows: list[str]) -> dict[str, str]:
     """Batch lookup `payload->>'registration_date'` for a set of source_row ids.
 
