@@ -855,41 +855,21 @@ shipped; below are nice-to-haves deferred:
 Programmatic data-ops scripts driven by client onboarding + clean-up
 needs.
 
-## F.1 Growatt programmatic bulk re-ingest
+## F.1 Growatt programmatic bulk re-ingest — SHIPPED 2026-05-28 + 2026-05-29
 
-**Captured 2026-05-13** (carry-over from Johnson F.1, now shipped —
-see "Shipped" section below). Memory `project_reingest_pending.md`
-still lists Growatt as pending.
+Both halves delivered (see "Shipped" section for the full record):
+- **BCCT** — Growatt onboard session 2026-05-28 (`ccbb3ad`), incremental
+  ingest.
+- **BOM** — wipe + re-ingest 2026-05-29 (`03e9c4b`): 57 TP raws from 3
+  source batches → 212 BTP raw_graphs derived → 269 raw_graphs × 3 shapes
+  = 807 published artifacts, + 16 manual_flat restored from snapshot
+  (no XLSX source to replay) = 823 artifacts on local + demo. 1260 tests
+  pass. Session log: `.ai/sessions/2026-05-29-growatt-bom-wipe-reingest.md`.
 
-**Plan:** apply the same pattern Johnson followed (commits `11ea9bd`
-+ `dcc6216` + `cac2bcb` + `e7578bf`) — wipe + re-ingest BCCT + BOM
-from source XLSX via existing scripts, then run post-ingest hooks.
-
-**Pre-requisites:**
-- ✓ Phase 2 UoM conversion shipped.
-- ✓ Adapter post-ingest hooks (derive_btp_shallows + materialize_shapes)
-  registered for `multi_sheet_per_root` + `sap_indented_walk`.
-- Growatt source XLSX inventory complete (already on disk per Phase 0
-  Johnson playbook; verify path).
-- `client_uom_overrides` factors for Growatt (if any cross-family cases).
-- pg_dump backup before wipe.
-
-**Procedure (mirror Johnson):**
-1. `scripts/setup_clients_for_reingest.py --client growatt-vn` —
-   cascade DELETE.
-2. BCCT ingest via `scripts/ingest_*.py` equivalent (or write a
-   `ingest_growatt_real.py` parallel to `ingest_johnson_real.py`).
-3. BOM ingest via `scripts/ingest_technical_raw_batch.py`.
-4. Post-BOM catalog fixup if needed (similar to
-   `fixup_johnson_btp_sx_after_bom.py`).
-5. Verify Growatt v1 ≡ v2 lvl-1 rollup invariant (memory
-   `project_growatt_bom_v1_v2_equivalence.md`).
-
-**Effort:** ~0.5-1 day (most infra already exists; adapt Johnson
-scripts).
-
-**Generalize:** after Growatt, fold both into a single
-`scripts/bulk_reingest.py --client <id>` with `--client` arg.
+The `scripts/bulk_reingest.py --client <id>` generalization (fold Johnson
++ Growatt into one tool) was **not** built — both ran via the existing
+per-step scripts. Capture as a fresh item if a third client makes the
+duplication worth abstracting.
 
 ---
 
@@ -1079,7 +1059,24 @@ in session 2026-05-11 via 4 existing scripts rather than a single
   not registered in `bom_adapters._REGISTRY`. Fixed via
   `_LEGACY_ALIASES` mapping → silent no-op hooks now fire.
 
-**Growatt remains pending** — see F.1 in open backlog.
+## Growatt programmatic bulk re-ingest — SHIPPED 2026-05-28 + 2026-05-29
+
+Closes open F.1. Same playbook as Johnson, run via existing per-step
+scripts (no single `bulk_reingest.py` tool).
+
+- **BCCT** — onboard session 2026-05-28, commit `ccbb3ad`
+  (`docs(handoff): Growatt 2026-05 onboarding + volume bug fix + backup
+  pipeline session`). Incremental ingest.
+- **BOM** — wipe + re-ingest 2026-05-29, commit `03e9c4b`. 57 TP raws /
+  3 source batches → 212 BTP raw_graphs derived → 269 raw_graphs × 3
+  shapes = 807 published + 16 manual_flat restored from snapshot
+  (`agency_rescued_only_gom` + `TEST_TP_DRIFT`, no XLSX to replay) = 823
+  artifacts on local + demo. Johnson dedup fix (`7552c64`) already in
+  place → clean BTP count (212 vs old 427). 1260 tests pass. Session log:
+  `.ai/sessions/2026-05-29-growatt-bom-wipe-reingest.md`. Memory:
+  `project_reingest_pending.md` (Growatt marked SHIPPED),
+  `feedback_wipe_enumerate_unreplayable.md` (lesson on enumerating
+  unreplayable buckets pre-wipe).
 
 ---
 
