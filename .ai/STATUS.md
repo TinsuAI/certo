@@ -39,8 +39,20 @@
   no-token → 401 → deploy exit 22 after DH enforced auth).
 
 ## Next Steps (priority order)
-1. **#12** số tồn tổng — SUM aggregate ở CO-stock / panel thay thế.
-2. **#14** BOM mặc định theo mã — persist `bom_product_artifact_overrides` làm default (quyết
+1. **AUDIT — trừ-lùi không được là biến số của logic.** Rà toàn codebase tìm logic CÒN dựa
+   vào workbook trừ-lùi/adjustment kiểu "đáng nhẽ không nên có mà lại có". Nguyên tắc (chốt
+   2026-06-06): workbook trừ-lùi chỉ là **snapshot tồn để sync/điều chỉnh về thực tế**, KHÔNG
+   được điều khiển logic hệ thống. Bối cảnh: vừa phát hiện bug đơn vị (workbook kg vs BCCT
+   metric-tons → giá trị ×1000) — đã sửa bằng cách coi là **lỗi DATA** (`scripts/fix_trului_unit.py`),
+   `fold_baseline` giữ "dumb" (đã revert phương án nhét quy đổi vào fold). Audit xem còn chỗ
+   nào khác lỡ để adjustment ảnh hưởng logic (vd quy đổi/đoán đơn vị, phụ thuộc field workbook,
+   nhánh xử lý đặc biệt theo adjustment). Cân nhắc thêm cảnh báo lúc import khi đơn vị workbook
+   ≠ đơn vị BCCT (chưa làm). Xem memory `trului-unit-mismatch-fold`, `co-stock-folded-remaining-model`.
+2. ~~**#12** số tồn tổng~~ ✅ DONE + DEPLOYED (commits `3bbcfe8`/`f0efe05`). Strip "Tồn CO để
+   kiểm soát" đầu trang làm CO: tổng giá trị tồn tự do (VNĐ) + tổng số lượng (gộp đơn vị) + số
+   mã + số dòng lot, filter theo ngày ĐK tờ khai nhập. Bug đơn vị dây hàn đã fix data trên
+   PROD + DEMO (1.929 tỷ → 520,1 tỷ). Verify prod OK.
+3. **#14** BOM mặc định theo mã — persist `bom_product_artifact_overrides` làm default (quyết
    per-client vs global).
 3. **#13** chốt BOM hàng loạt → chạy tồn 1 lần → tổng hợp mã thiếu — luồng mới, `/discover` trước.
 4. **#4** mã thay thế chưa phù hợp — đẩy DH ranking qua `.ai/api-requests/`.
