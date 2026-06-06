@@ -82,6 +82,24 @@ PREVIEW_SAMPLE_PRODUCTS = 5
 PREVIEW_SAMPLE_ROWS_PER_PRODUCT = 4
 
 
+def _render_parse_error(request: Request, client: dict, message: str, *,
+                        profile: str | None = None) -> HTMLResponse:
+    """Render a friendly HTML error page for a BOM parse failure (B.3).
+
+    Replaces the raw FastAPI ``{"detail": ...}`` JSON that bare
+    ``HTTPException(400)`` produced on the upload path. Status stays 400
+    so callers/tests keep treating it as a client error, but staff get a
+    template with recovery options instead of unstyled JSON.
+    """
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/bom_upload_error.html",
+        {"client": client, "message": message, "profile": profile,
+         "profiles": BOM_PROFILES,
+         "active_root": "clients", "active_tab": "bom"},
+        status_code=400,
+    )
+
+
 BOM_SORT_WHITELIST = {
     # Default — non_flattened first, then last_published.
     "last_published": "a.last_published",
@@ -218,11 +236,12 @@ async def upload_submit(request: Request, client_id: str,
                     "update hub.file_uploads set parse_status='error', "
                     "parse_error=%s, parsed_at=now() where upload_id=%s",
                     ("Không có parser phù hợp với file này", upload_id))
-            raise HTTPException(
-                400,
+            return _render_parse_error(
+                request, client,
                 "Không có parser phù hợp. File có thể có format ngoài "
                 "5 shape Data Hub hỗ trợ. Liên hệ Tinsu AI để thêm "
                 "adapter mới, hoặc chọn parser thủ công ở dropdown.",
+                profile=profile,
             )
         products, used_adapter = result
         # Tree adapters (single-rooted explosion: sap_indented_walk,
@@ -273,7 +292,8 @@ async def upload_submit(request: Request, client_id: str,
                         "update hub.file_uploads set parse_status='error', parse_error=%s, parsed_at=now() where upload_id=%s",
                         (str(e), upload_id),
                     )
-            raise HTTPException(400, f"Parse error: {e}") from e
+            return _render_parse_error(
+                request, client, f"Lỗi parse: {e}", profile=profile)
         products = _raw_edges_to_preview_products(raw_edges)
         pending_id = _stash_pending(
             client_id=client_id, upload_id=upload_id, products=products,
@@ -368,7 +388,8 @@ async def upload_submit(request: Request, client_id: str,
                     cur.execute(
                         "update hub.file_uploads set parse_status='error', parse_error=%s, parsed_at=now() where upload_id=%s",
                         (rigid_error, upload_id))
-            raise HTTPException(400, f"Parse error: {rigid_error}")
+            return _render_parse_error(
+                request, client, f"Lỗi parse: {rigid_error}", profile=profile)
         try:
             mapping, _headers, _sample, file_sig = request_llm_mapping(
                 client_id=client_id, module="bom", blob=blob,
@@ -381,7 +402,11 @@ async def upload_submit(request: Request, client_id: str,
                         "update hub.file_uploads set parse_status='error', parse_error=%s, parsed_at=now() where upload_id=%s",
                         (f"{rigid_error}; LLM: {type(e).__name__}: {e}", upload_id),
                     )
-            raise HTTPException(400, str(e))
+            return _render_parse_error(
+                request, client,
+                f"Không tự đọc được file và LLM không khả dụng: {e}. "
+                "Hãy tải lại và dùng trang ánh xạ cột thủ công.",
+                profile=profile)
         try:
             products = parse_bom_workbook(blob, profile="manual_flat", mapping_override=mapping)
         except BomParseError as e:
@@ -391,7 +416,11 @@ async def upload_submit(request: Request, client_id: str,
                         "update hub.file_uploads set parse_status='error', parse_error=%s, parsed_at=now() where upload_id=%s",
                         (f"LLM mapping unparseable: {e}", upload_id),
                     )
-            raise HTTPException(400, f"LLM mapping rejected by parser: {e}")
+            return _render_parse_error(
+                request, client,
+                f"Ánh xạ cột do LLM đề xuất không hợp lệ: {e}. "
+                "Hãy tải lại và dùng trang ánh xạ cột thủ công.",
+                profile=profile)
         used_mapping = mapping
         file_signature = file_sig
         proposed_by = "llm_proposed"
@@ -476,6 +505,11 @@ async def preview_view(request: Request, client_id: str, pending_id: str):
     for prod_rows in (products.values() if isinstance(products, dict) else []):
         flat_rows.extend(prod_rows)
     uom_drifts = compute_uom_drifts(client_id, flat_rows)
+    # Multi-role warning (B.2.5): component codes in this upload that were
+    # already EXPORTED in BCCT → adding them as BTP is a multi-role hint.
+    # Advisory only (does not block confirm).
+    from app.stores.bom_multirole import compute_multirole_warnings
+    multirole_warnings = compute_multirole_warnings(client_id, products)
     # Destination banner: tell staff up-front what confirming produces.
     # technical_raw → raw_graph that auto-derives shallow/full_flat;
     # anything else → stored flat as-provided (no flattening).
@@ -514,6 +548,7 @@ async def preview_view(request: Request, client_id: str, pending_id: str):
             "active_root": "clients", "active_tab": "bom",
             "uom_drifts": uom_drifts,
             "uom_drift_blocks_confirm": has_blocking_drift(uom_drifts),
+            "multirole_warnings": multirole_warnings,
         },
     )
 

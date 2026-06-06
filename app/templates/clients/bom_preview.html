@@ -20,6 +20,23 @@
   (hoặc để <code>Tự động phát hiện</code>).
 </div>
 {% endif %}
+{% if multirole_warnings %}
+<div class="toast toast-error" style="margin-bottom: 1rem;">
+  ⚠ <strong>Cảnh báo đa vai trò.</strong> {{ multirole_warnings|length }} mã trong
+  file đã từng được <strong>xuất khẩu</strong> trong BCCT nhưng ở đây đang được
+  dùng làm <strong>thành phần (BTP)</strong> trong BOM — tạo tình huống một mã vừa
+  là thành phẩm vừa là bán thành phẩm. Hãy xác nhận đây là chủ đích.
+  <ul style="margin: 0.5rem 0 0 1.2rem;">
+    {% for w in multirole_warnings[:10] %}
+    <li><code>{{ w.code }}</code> — đã xuất khẩu {{ w.export_count }} dòng
+      ({{ w.export_declarations }} tờ khai)</li>
+    {% endfor %}
+    {% if multirole_warnings|length > 10 %}
+    <li class="meta">… và {{ multirole_warnings|length - 10 }} mã khác.</li>
+    {% endif %}
+  </ul>
+</div>
+{% endif %}
 <div class="zone mini-panel" style="margin-bottom: 1rem;">
   <strong>Tổng quan ({{ profile }}):</strong>
   <ul style="margin: 0.5rem 0 0 1.2rem;">

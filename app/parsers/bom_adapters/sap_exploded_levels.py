@@ -32,6 +32,28 @@ class SapExplodedLevelsAdapter:
     supports_mapping_override = False
     emits_intermediate_btp_versions = True
 
+    def detect(self, blob: bytes, *,
+               root_code: str | None = None) -> float | None:
+        """High-precision: positive only when a sheet exposes BOTH a
+        material_code column AND an explicit Level column. That Level
+        column is what distinguishes a multi-level SAP explosion from a
+        generic manual_flat sheet — without this score, manual_flat (a
+        more permissive adapter registered earlier) would grab the file
+        and silently flatten the tree. Abstain otherwise."""
+        try:
+            wb = load_xlsx(blob)
+        except Exception:  # noqa: BLE001
+            return None
+        for ws in wb.worksheets:
+            hdr = header_row(ws, aliases=_SAP_ALIASES)
+            if not hdr:
+                continue
+            _idx, headers = hdr
+            cols = index_headers(headers, _SAP_ALIASES)
+            if "material_code" in cols and "level" in cols:
+                return 0.9
+        return None
+
     def parse(self, blob: bytes, *,
               mapping_override: dict[str, str] | None = None,
               ) -> dict[str, list[dict]]:

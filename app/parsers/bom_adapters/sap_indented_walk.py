@@ -74,6 +74,35 @@ class SapIndentedWalkAdapter:
     supports_mapping_override = False
     emits_intermediate_btp_versions = False
 
+    def detect(self, blob: bytes, *,
+               root_code: str | None = None) -> float | None:
+        """High-precision: positive only when the first row has a Level +
+        Component column AND no product_code column (the same markers
+        parse() keys on). Scored slightly above sap_exploded_levels so an
+        indented Johnson-style workbook prefers this walker. Abstain on
+        anything else (e.g. a file with a product_code column → that's
+        sap_exploded_levels' job)."""
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(
+                io.BytesIO(blob), data_only=True, read_only=True)
+        except Exception:  # noqa: BLE001
+            return None
+        try:
+            ws = wb.worksheets[0]
+            first = next(ws.iter_rows(values_only=True), None)
+        finally:
+            wb.close()
+        if not first:
+            return None
+        header = [str(c or "").strip() for c in first]
+        if _col_index(header, _PRODUCT_CODE_ALIASES) is not None:
+            return None
+        if (_col_index(header, _LEVEL_ALIASES) is not None
+                and _col_index(header, _COMPONENT_ALIASES) is not None):
+            return 0.95
+        return None
+
     def parse(self, blob: bytes, *,
               mapping_override: dict[str, str] | None = None,
               root_code: str | None = None,

@@ -321,11 +321,16 @@ Treat each supplier shape as a pluggable adapter / add-on.
 1. **Adapter interface** — formalize the contract: `detect(file) →
    match_score`, `parse(file) → list[bom_version_payload]`,
    `post_ingest_hooks → [...]`. New supplier shapes drop in as a
-   registered adapter under `app/parsers/bom/adapters/` with no
-   core-code changes. *(Partial — `bom_adapters` registry exists with
-   `parse_with_fallback` + `auto` profile shipped 2026-05-13; the
-   `detect → match_score` ranking and the post_ingest_hooks unification
-   remain.)*
+   registered adapter under `app/parsers/bom_adapters/` with no
+   core-code changes. *(Mostly SHIPPED — `bom_adapters` registry +
+   `parse_with_fallback` + `auto` profile (2026-05-13); post_ingest_hooks
+   wired; **`detect → match_score` ranking SHIPPED 2026-06-07** — optional
+   `detect(blob, root_code) → float|None` on the Protocol; abstain (None)
+   preserves registration order = no regression; positive scores tried
+   first. `detect` implemented on `sap_indented_walk` (0.95) +
+   `sap_exploded_levels` (0.9) so deep-tree files no longer get grabbed
+   + flattened by the more permissive `manual_flat`. Other adapters abstain;
+   add `detect` as needed.)*
 2. **`derive_btp_shallows.py`** — post-ingest hook for Johnson-shape
    adapter (and any future deep-tree shape). For each intermediate
    `parent_code` in `bom_edges` that is classified `btp_sx`,
@@ -386,25 +391,41 @@ B.1 (modular adapters) and Phase 3c (post_ingest_hooks).
    Add a header banner showing "This upload will create a `raw_graph`
    BOM" / "`manual_flat`" / "`shallow`" / "`full_flat`" so staff confirm
    with intent. Use `bom_shape()` helper (4-shape post-2026-05-13).
-5. **Multi-role warning at upload** — if any code in the upload also
-   appears in `bcct_rows.direction='export'` for this client AND the
-   upload would categorize the code as `btp_sx`, surface a warning:
-   "Code PV01.0104300 has been exported in BCCT — adding it as BTP
-   here creates a multi-role situation. Confirm intent." Reference
-   `project_bom_code_multirole.md` memory for context.
+5. **Multi-role warning at upload** — *SHIPPED 2026-06-07.*
+   `app/stores/bom_multirole.py::compute_multirole_warnings(client_id,
+   products)` flags upload component codes that already appear in
+   `bcct_rows.direction='export'` for this client. Advisory panel in
+   `bom_preview.html` (non-blocking, like `multi_level_flat`); wired into
+   `preview_view`. Matches on `customs_code` only — shares the A.5
+   paren-code blind spot (acceptable for an advisory). Reference
+   `project_bom_code_multirole.md`.
 6. **Per-client policy gate** — `clients.auto_derive_shallow_from_raw`
    (`disabled` / `draft_only` / `publish`) should gate auto-materialize
    step. UI upload should respect the value: in `draft_only`, derived
    shallow/full_flat insert as `status='draft'` not `published`.
 7. **Tests + docs** — Playwright E2E that drives upload → mapping →
    parse → preview → confirm and asserts shape + materialize side
-   effects. Unit tests for the new auto-trigger functions.
+   effects. Unit tests for the new auto-trigger functions. *(Partial —
+   pytest regression `tests/test_bom_ingest_followups.py` (2026-06-07)
+   covers auto upload→preview→confirm + the new detect ranking +
+   multi-role warning + friendly parse-error. No browser-level Playwright
+   E2E yet.)*
 
 **Estimated effort**: 4-6h for items 1-6, +2-3h for tests + docs (item 7).
 
-## B.3 BOM/BQD/Catalog parse-error UX
+## B.3 BOM/BQD/Catalog parse-error UX — BOM side SHIPPED 2026-06-07
 
-**Partial.** Phase 2 universal preview-confirm pattern surfaces parsed
+**BOM side SHIPPED 2026-06-07.** The 5 parse-error `HTTPException(400)`
+sites in `bom.py::upload_submit` (auto no-match, technical_raw, rigid,
+LLM-unavailable, LLM-mapping-rejected) now return
+`_render_parse_error()` → `clients/bom_upload_error.html` (status stays
+400, body is friendly HTML with recovery options + re-upload link) instead
+of raw FastAPI `{"detail": ...}` JSON. The `Invalid profile` validation
+guard intentionally stays a bare 400. **BQD/Catalog parse-error paths NOT
+yet converted** — same treatment still open for them.
+
+Original note (kept for the BQD/Catalog remainder):
+Phase 2 universal preview-confirm pattern surfaces parsed
 rows nicely when parsing succeeds. But when the parser rejects the file
 outright (no LLM available, or LLM also fails), `app/routes/bom.py`
 still raises `HTTPException(400, ...)` which the browser renders as raw

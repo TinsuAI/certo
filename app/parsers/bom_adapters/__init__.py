@@ -69,6 +69,16 @@ class BomAdapter(Protocol):
               mapping_override: dict[str, str] | None = None
               ) -> dict[str, list[dict]]: ...
 
+    # Optional. A confidence in [0, 1] that THIS adapter is the right one
+    # for `blob`, or None to abstain. Used by parse_with_fallback to rank
+    # candidates ahead of plain registration order: adapters that return a
+    # positive score are tried before abstaining ones. High-precision only
+    # — return a positive score solely on unambiguous structural markers
+    # (e.g. an explicit Level column). Adapters that don't implement detect
+    # (or return None) keep registration order, so omitting it is a no-op.
+    # def detect(self, blob: bytes, *, root_code: str | None = None
+    #            ) -> float | None: ...
+
 
 _REGISTRY: dict[str, BomAdapter] = {}
 _LEGACY_ALIASES: dict[str, str] = {
@@ -119,12 +129,54 @@ def parse_with(
                          mapping_override=mapping_override, root_code=root_code)
 
 
+def _safe_detect(adapter: BomAdapter, blob: bytes,
+                 root_code: str | None) -> float | None:
+    """Call adapter.detect() defensively. Missing method or any error →
+    None (abstain). Pass root_code only if the signature accepts it."""
+    import inspect
+    fn = getattr(adapter, "detect", None)
+    if not callable(fn):
+        return None
+    try:
+        kwargs: dict = {}
+        if "root_code" in inspect.signature(fn).parameters:
+            kwargs["root_code"] = root_code
+        score = fn(blob, **kwargs)
+    except Exception:  # noqa: BLE001
+        return None
+    if score is None:
+        return None
+    try:
+        return float(score)
+    except (TypeError, ValueError):
+        return None
+
+
+def _ranked_adapters(blob: bytes, root_code: str | None) -> list[BomAdapter]:
+    """Order adapters for fallback: those returning a positive detect()
+    score first (highest score wins; registration order breaks ties),
+    then every abstaining adapter in registration order. When no adapter
+    scores, the result equals registration order — i.e. a no-op vs. the
+    prior behaviour."""
+    scored: list[tuple[float, int, BomAdapter]] = []
+    rest: list[tuple[int, BomAdapter]] = []
+    for idx, adapter in enumerate(_REGISTRY.values()):
+        score = _safe_detect(adapter, blob, root_code)
+        if score is not None and score > 0:
+            scored.append((score, idx, adapter))
+        else:
+            rest.append((idx, adapter))
+    scored.sort(key=lambda t: (-t[0], t[1]))
+    return [a for _, _, a in scored] + [a for _, a in rest]
+
+
 def parse_with_fallback(
     blob: bytes, *,
     root_code: str | None = None,
 ) -> tuple[dict[str, list[dict]], str] | None:
-    """Try every adapter in registration order. Return (products, name)
-    of the first one that yields a non-empty parse, or None.
+    """Try adapters in detect-ranked order (see _ranked_adapters). Return
+    (products, name) of the first one that yields a non-empty parse, or
+    None.
 
     `root_code` is an optional hint (typically the filename stem) used by
     adapters whose source format doesn't carry the root product code in
@@ -132,7 +184,7 @@ def parse_with_fallback(
     care about it ignore the kwarg.
     """
     last_err: Exception | None = None
-    for adapter in _REGISTRY.values():
+    for adapter in _ranked_adapters(blob, root_code):
         try:
             products = _call_adapter(adapter, blob, root_code=root_code)
             if products:
