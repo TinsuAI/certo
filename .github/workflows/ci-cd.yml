@@ -40,6 +40,15 @@ jobs:
           version: "0.5.11"
       - name: Sync dependencies
         run: uv sync --frozen
+      - name: Install LibreOffice
+        # The declaration merge-PDF feature renders the stored .xls (the
+        # ECUS print form) via LibreOffice headless; the prod image ships
+        # libreoffice-calc, so CI must too or those render tests fail with
+        # "soffice binary not found".
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libreoffice-calc fonts-liberation fonts-dejavu-core
       - name: Run pytest
         # Two test files need a pre-populated dev DB and don't
         # self-seed, so they're deselected on clean CI:

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import shutil
 import tempfile
 from io import BytesIO
 from pathlib import Path
@@ -32,6 +33,14 @@ from app.database import connect
 from app.main import app
 from app.storage import get_backend, sha256_bytes
 from app.stores import service_accounts as sa_store
+
+# These exercise the real LibreOffice render path. soffice is a declared
+# dependency (Dockerfile + CI install it); skip rather than hard-fail on a
+# machine that doesn't have it, so the suite stays portable.
+pytestmark = pytest.mark.skipif(
+    shutil.which("soffice") is None,
+    reason="LibreOffice (soffice) not installed",
+)
 
 URL_TMPL = "/v1/hub/clients/{cid}/declarations/download.pdf"
 
