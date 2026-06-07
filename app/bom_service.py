@@ -102,10 +102,22 @@ class LocalBomService:
     def template(self, client: dict) -> bytes:
         return create_bom_template_workbook(client)
 
+    def list_products(self, client: dict) -> list[dict]:
+        """Cheap finished-product list (no per-product line fetch)."""
+        composition = self.workspace(client).get("product_composition", [])
+        return [{"product_code": code} for code in sorted(
+            {str(r.get("product_code", "")) for r in composition if r.get("product_code")}
+        )]
+
 
 class DataHubBomService:
     def __init__(self, data_hub: DataHubClient):
         self.data_hub = data_hub
+
+    def list_products(self, client: dict) -> list[dict]:
+        """Cheap finished-product list: one paginated /products call, no
+        per-product artifact/line fetch (which workspace() would do)."""
+        return self.data_hub.list_bom_products(client["id"])
 
     def workspace(self, client: dict, product_codes: list[str] | None = None, *, case_id: str = "") -> dict:
         cache_key = data_hub_bom_workspace_cache_key(self.data_hub, client["id"], product_codes, case_id)

@@ -3,6 +3,7 @@
 
 {% block content %}
 {% include "_client_nav.html" %}
+{% include "_source_stats.html" %}
 
 {% if message %}
 <div class="toast">{{ message }}</div>
@@ -19,7 +20,7 @@
       <p class="meta">BOM canonical được upload, flatten và publish trong Data Hub; CO chỉ đọc artifact đã publish để bind vào hồ sơ C/O.</p>
     </div>
     <div class="chip-row">
-      <span class="chip">{{ client.counts.bom_lines }} dòng BOM</span>
+      {% if client.counts.bom_lines %}<span class="chip">{{ client.counts.bom_lines }} dòng BOM</span>{% endif %}
       <a class="chip" href="/clients/{{ client.id }}/co-case">Dùng trong hồ sơ C/O</a>
       <span class="chip">Data Hub</span>
     </div>

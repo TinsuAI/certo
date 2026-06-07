@@ -8,7 +8,7 @@ from app.co_stock_template import CoStockTemplateError, read_standard_co_stock, 
 from app.data_hub_settings import data_hub_link_settings
 from app.portfolio import portfolio_service
 from app.table_view import build_table_view
-from app.web.client_context import client_context, resolve_client
+from app.web.client_context import client_context, resolve_client, source_stats
 from app.web.co_case_context import _CO_CASE_SOURCE_CACHE, _refresh_co_stock_delta_or_full
 from app.web.templating import templates
 from datetime import date
@@ -58,11 +58,16 @@ def _co_stock_lean_client_context(client_id: str, co_stock_row_count: int | None
     }
     client = {**client, "counts": counts}
     sync_status = co_stock_materializer.compute_sync_status(client["id"], bcct_row_count)
+    try:
+        stock_summary = co_stock_materializer.co_stock_summary(client["id"], "", "")
+    except Exception:  # noqa: BLE001
+        stock_summary = {}
     return {
         "client": client,
         "active": "co-stock",
         "source_backend": source_backend,
         "client_config": client_config,
+        "source_stats": source_stats("co-stock", counts=client.get("counts", {}), stock_summary=stock_summary),
         "source_workspace": {
             "client_config": client_config,
             "bcct": {"latest_version": source_summary.get("bcct", {}).get("latest_version") or {},

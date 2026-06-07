@@ -138,6 +138,114 @@ def source_workspace_for_client(client: dict) -> tuple[dict, str]:
     return portfolio_service.source_workspace(client)
 
 
+def _fmt_int(value) -> str:
+    try:
+        return f"{int(float(str(value))):,}".replace(",", ".")
+    except (TypeError, ValueError):
+        return str(value or 0)
+
+
+def _fmt_vnd_short(value) -> str:
+    """Compact VND for a metric card: 520238927370 -> '520,2 tỷ'."""
+    try:
+        n = float(str(value))
+    except (TypeError, ValueError):
+        return "0"
+    for unit, size in (("tỷ", 1_000_000_000), ("tr", 1_000_000), ("ng", 1_000)):
+        if abs(n) >= size:
+            return f"{n / size:,.1f}".replace(",", "X").replace(".", ",").replace("X", ".") + " " + unit
+    return _fmt_int(n)
+
+
+def source_stats(
+    active: str,
+    *,
+    counts: dict | None = None,
+    summary: dict | None = None,
+    workspace: dict | None = None,
+    stock_summary: dict | None = None,
+    bom_products: int | None = None,
+    bom_lines: int | None = None,
+) -> dict | None:
+    """Per-data-page dashboard: metric cards from whatever is cheaply available.
+
+    Pass `summary` (Data Hub source_summary) or `workspace` (file-mode
+    source_workspace); `stock_summary` for the Tồn CO page (materializer
+    co_stock_summary). All inputs are cheap — no full-row pagination. BCCT keeps
+    only summary-level metrics (no 65k-row scan).
+    """
+    if active not in {"catalog", "bom", "bcct", "co-stock"}:
+        return None
+    counts = counts or {}
+    src = summary if summary is not None else (workspace or {})
+
+    def version(module: str):
+        v = ((src.get(module) or {}).get("latest_version") or {}).get("version_no")
+        return f"v{v}" if v else None
+
+    def bcct_meta(key: str) -> int:
+        node = (summary or workspace or {}).get("bcct") or {}
+        if key == "correction" and workspace is not None:
+            return len(node.get("correction_candidates") or [])
+        return int(node.get(f"{key}_row_count" if key != "correction" else "correction_candidate_count") or 0)
+
+    if active == "catalog":
+        return {"cards": [
+            {"value": _fmt_int(counts.get("materials", 0)), "label": "NVL", "sub": version("material_catalog")},
+            {"value": _fmt_int(counts.get("products", 0)), "label": "TP", "sub": version("product_catalog")},
+        ]}
+    if active == "bcct":
+        corrections = bcct_meta("correction")
+        cards = [
+            {"value": _fmt_int(counts.get("bcct", 0)), "label": "dòng giao dịch", "sub": version("bcct")},
+            {"value": _fmt_int(bcct_meta("reviewed")), "label": "đã review"},
+        ]
+        cards.append({"value": _fmt_int(corrections), "label": "cần soát", "tone": "warn" if corrections else None})
+        return {"cards": cards}
+    if active == "bom":
+        # Preferred: Data Hub `bom` block on source-summary (shipped 2026-06-07,
+        # see .ai/api-requests/2026-06-07-products-total-count.md). Headline is
+        # the export trio scoped to codes we issue C/O for — NOT product_count
+        # (which includes BTP sub-assemblies). exported_without_bom is the
+        # C/O-readiness gap, an approximation (blind to NB codes in goods_name),
+        # never a "non-compliant" count.
+        bom = (summary or {}).get("bom")
+        if bom:
+            exported_total = bom.get("exported_total") or 0
+            with_bom = bom.get("exported_with_bom") or 0
+            without = bom.get("exported_without_bom") or 0
+            cards = [
+                {"value": f"{_fmt_int(with_bom)}/{_fmt_int(exported_total)}", "label": "mã XK đã có BOM", "tone": "primary"},
+                {"value": _fmt_int(without), "label": "mã XK chưa có BOM", "tone": "warn" if without else None},
+                {"value": _fmt_int(bom.get("product_count", 0)), "label": "mã có BOM (gồm BTP)"},
+            ]
+            note_bits = []
+            if bom.get("last_published_at"):
+                note_bits.append(f"cập nhật {str(bom['last_published_at'])[:10]}")
+            if bom.get("stale_count"):
+                note_bits.append(f"{_fmt_int(bom['stale_count'])} mã BOM cũ")
+            return {"cards": cards, "note": " · ".join(note_bits)}
+        # File mode: real local workspace counts injected by bom_context.
+        if bom_products is not None or bom_lines is not None:
+            cards = []
+            if bom_products is not None:
+                cards.append({"value": _fmt_int(bom_products), "label": "thành phẩm có BOM"})
+            if bom_lines is not None:
+                cards.append({"value": _fmt_int(bom_lines), "label": "dòng định mức"})
+            return {"cards": cards}
+        # Older Data Hub without the bom block: qualitative card, never a
+        # fabricated/50-capped number.
+        return {"cards": [{"value": "—", "label": "BOM theo từng thành phẩm (xem Data Hub)"}]}
+    # co-stock
+    s = stock_summary or {}
+    return {"cards": [
+        {"value": _fmt_vnd_short(s.get("total_value_vnd", 0)), "label": "giá trị tồn (₫)", "tone": "primary"},
+        {"value": _fmt_int(s.get("total_qty", 0)), "label": "tổng số lượng"},
+        {"value": _fmt_int(s.get("code_count", 0)), "label": "số mã"},
+        {"value": _fmt_int(s.get("lot_count", 0)), "label": "số lô tồn"},
+    ]}
+
+
 def _data_hub_overview_context(
     client_id: str,
     active: str,
@@ -189,6 +297,7 @@ def _data_hub_overview_context(
         "source_backend": source_backend,
         "client_config": client_config,
         "source_summary": source_summary,
+        "source_stats": source_stats(active, counts=counts, summary=source_summary),
         "data_hub_base_url": dh_base,
     }
     # Only emit a target URL when there is a real DH page to deep-link to.
@@ -251,5 +360,6 @@ def client_context(client_id: str, active: str, **extra):
         "criteria_rows": extra.pop("criteria_rows", []),
         "source_notes": SOURCE_NOTES,
         "source_backend": source_backend,
+        "source_stats": source_stats(active, counts=client.get("counts", {}), workspace=source_workspace),
         **extra,
     }

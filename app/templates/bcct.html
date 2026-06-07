@@ -3,6 +3,7 @@
 
 {% block content %}
 {% include "_client_nav.html" %}
+{% include "_source_stats.html" %}
 
 <section class="zone" id="bcct">
   <div class="zone-head">
@@ -43,7 +44,7 @@
   </section>
   {% if data_hub_target_url %}
   <p>
-    <a class="btn-primary" href="{{ data_hub_target_url }}" target="_blank" rel="noopener">
+    <a class="btn-secondary" href="{{ data_hub_target_url }}" target="_blank" rel="noopener">
       Mở BCCT trên Data Hub →
     </a>
   </p>

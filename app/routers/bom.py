@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from app.bom_service import bom_service
 from app.table_view import build_table_view
-from app.web.client_context import _data_hub_overview_context, client_context, resolve_client
+from app.web.client_context import _data_hub_overview_context, client_context, resolve_client, source_stats
 from app.web.deps import require_local_source_writes
 from app.web.templating import templates
 from fastapi import File, Form, HTTPException, Request, UploadFile
@@ -33,12 +33,21 @@ BOM_LINE_COLUMNS = [
 def bom_context(request: Request, client_id: str, **extra) -> dict:
     lean = _data_hub_overview_context(client_id, "bom", dh_path="bom")
     if lean is not None and not extra.get("message") and not extra.get("error"):
-        # DH mode: BOM is read-only; CO renders summary + link rather than
-        # paginating the full bom_workspace (which fetches every product
-        # version + line over HTTP from Data Hub).
+        # DH mode: BOM is read-only and per-finished-product. The real BOM
+        # metric comes from the Data Hub `bom` block on source-summary (shipped
+        # 2026-06-07) — source_stats reads summary["bom"] and renders the export
+        # trio. When that block is absent (older Data Hub) it falls back to a
+        # qualitative card; CO never fabricates a count from the page-capped
+        # products endpoint. See .ai/api-requests/2026-06-07-products-total-count.md.
         return lean
     context = client_context(client_id, "bom", **extra)
     workspace = context["bom_workspace"]
+    context["source_stats"] = source_stats(
+        "bom",
+        counts=context["client"].get("counts", {}),
+        bom_products=len({str(r.get("product_code", "")) for r in workspace.get("product_composition", []) if r.get("product_code")}),
+        bom_lines=len(workspace.get("latest_rows", [])),
+    )
     selected_product = selected_bom_product(workspace, request.query_params.get("product", ""))
     product_rows = bom_product_table_rows(workspace, client_id, selected_product)
     line_rows = [
