@@ -131,8 +131,9 @@
 6. ~~Chụp 1 lượt dossier export THẬT có PDF ghép~~ ✅ DONE 2026-06-07 — HTTP 200 thật trên
    `johnson-vn/co-case-ec000d03522e`: zip 22MB có cả TKX (8 trang) + TKN (5668 trang, 194 tờ
    khai). Screenshots panel `.ai/screenshots/2026-06-07-background-dossier-export/`.
-7. **Push + deploy `dc1b582`** (background dossier export) — chưa push. Sau khi push, smoke nút
-   "Xuất hồ sơ" trên prod (job nền → poll → tải).
+7. ~~**Push + deploy** background dossier export + smoke nút "Xuất hồ sơ" trên prod~~ ✅ DONE
+   2026-06-07 — đã deploy (rode `a33eaae` trước đó); smoke prod qua demo login OK:
+   `johnson-vn/co-case-0e829a5368ab` Xuất lại → running → done ~88s → tải zip 9.50 MB hợp lệ.
 8. (tùy) Bug phụ `origin_calculation_lock` không nhả — tái hiện trước rồi mới fix.
 
 ## Notes for Next AI Session

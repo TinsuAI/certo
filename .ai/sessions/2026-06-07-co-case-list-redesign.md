@@ -62,8 +62,21 @@ Brief: `.ai/features/2026-06-07-co-case-list-redesign.md`. All in `co_case.html`
   2 seed cases; screenshots (list, create modal, stat band, open row menu) under
   `.ai/screenshots/2026-06-07-co-case-list-redesign/`.
 
+## Shipped + verified on prod
+- Commits `ee70a4b` (feat: code+tests) + `03355d5` (docs) + `3281b12` (docs, `[skip ci]`),
+  pushed `origin/main` (TinsuAI/co). CI run **27089129326**: tests 484✓ → build✓ → deploy on
+  tinsu✓ → nightly refresh✓. Prod `barry-co.tinsu.ai` + demo `demo-co.tinsu.ai` healthz 200.
+- **Dossier export smoke on prod (demo login `claude-check@local`):** opened closed case
+  `johnson-vn/co-case-0e829a5368ab` (2 bảng kê, 1 TKX·73 TKN) → review panel state `done`
+  (cached) → clicked **Xuất lại** → `running` → polled → `done` in **~88s** → downloaded
+  HTTP 200 `application/zip` **9.50 MB**, magic `504b` (valid PK). Background submit→poll→
+  download confirmed live; btn-primary download subtext legible (no contrast regression).
+  Screenshots `prod-export-{before,after}.png`. Did NOT touch reopen/close.
+
 ## Open items
-- Not committed / not deployed — user hasn't asked to commit.
 - Dead CSS for removed `co-flow-mini`/`co-overview-create`/`co-case-index-layout` (+ their
   `@media` refs) left in place; safe to delete later.
-- johnson-vn cases are seed/in-memory on HTTP → archive won't persist there; growatt (PG) does.
+- johnson-vn cases are seed/in-memory on HTTP **local** → archive won't persist there; growatt
+  + prod johnson-vn (PG) persist. (Archive verified by store unit test, not yet click-tested
+  on prod — low risk, route is trivial.)
+- Backlog (STATUS Next Steps): audit delete-case → release-stock → CO-stock ledger/history.
