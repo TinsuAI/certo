@@ -80,6 +80,60 @@ def test_uom_drift_critical(client_id):
     assert a.has_critical is True
 
 
+def test_uom_drift_alias_equivalent_downgraded_to_info(client_id):
+    """A.4.4: pcs vs pieces are alias-equivalent — two valid declaration
+    habits, NOT an inconsistency. Must downgrade critical→info."""
+    _insert_bcct(client_id, **{
+        "100001-1": {"unit": "pcs"},
+        "100002-1": {"unit": "pieces", "declaration_no": "100002"},
+    })
+    a = analyze_material_bcct(client_id=client_id, material_code="X1")
+    unit = next(d for d in a.drifts if d.field == "unit")
+    assert unit.severity == "info"
+    assert unit.convertible is True
+    assert a.has_critical is False
+
+
+def test_uom_drift_same_family_convertible_downgraded(client_id):
+    """A.4.4: g vs kg convert cleanly (same family) → info, not critical."""
+    _insert_bcct(client_id, **{
+        "100001-1": {"unit": "g"},
+        "100002-1": {"unit": "kg", "declaration_no": "100002"},
+    })
+    a = analyze_material_bcct(client_id=client_id, material_code="X1")
+    unit = next(d for d in a.drifts if d.field == "unit")
+    assert unit.severity == "info"
+    assert unit.convertible is True
+
+
+def test_uom_drift_incompatible_stays_critical(client_id):
+    """A.4.4: pcs vs kg (count↔mass) genuinely can't convert — stays
+    critical. This is the case the cry-wolf downgrade must NOT hide."""
+    _insert_bcct(client_id, **{
+        "100001-1": {"unit": "pcs"},
+        "100002-1": {"unit": "kg", "declaration_no": "100002"},
+    })
+    a = analyze_material_bcct(client_id=client_id, material_code="X1")
+    unit = next(d for d in a.drifts if d.field == "unit")
+    assert unit.severity == "critical"
+    assert unit.convertible is False
+    assert a.has_critical is True
+
+
+def test_uom_drift_mixed_one_incompatible_stays_critical(client_id):
+    """Dominant pcs + convertible pieces + incompatible kg → any
+    incompatible-vs-dominant keeps the whole drift critical."""
+    _insert_bcct(client_id, **{
+        "100001-1": {"unit": "pcs"},
+        "100002-1": {"unit": "pcs", "declaration_no": "100002"},
+        "100003-1": {"unit": "pieces", "declaration_no": "100003"},
+        "100004-1": {"unit": "kg", "declaration_no": "100004"},
+    })
+    a = analyze_material_bcct(client_id=client_id, material_code="X1")
+    unit = next(d for d in a.drifts if d.field == "unit")
+    assert unit.severity == "critical"
+
+
 def test_hs_drift_warn(client_id):
     _insert_bcct(client_id, **{
         "100001-1": {"hs_code": "12345678"},

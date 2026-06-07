@@ -103,6 +103,49 @@ def test_warns_on_uom_drift():
     assert uom is not None
 
 
+def test_uom_drift_incompatible_stays_warn():
+    """A.4.4: PIECES vs KG (count↔mass) can't convert → severity warn."""
+    from app.stores.catalog_warnings import compute_warnings
+    _seed_bcct([
+        ("D1", "WIDGET", "85369012", "PIECES", "VN", "import"),
+        ("D2", "WIDGET", "85369012", "KG", "VN", "import"),
+    ])
+    uom = next((x for x in compute_warnings(CLIENT, "WIDGET")
+                if x["kind"] == "uom_drift"), None)
+    assert uom is not None
+    assert uom["severity"] == "warn"
+
+
+def test_uom_drift_same_family_convertible_is_info():
+    """A.4.4: g vs kg convert cleanly → still surfaced but info, not warn."""
+    from app.stores.catalog_warnings import compute_warnings
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("update hub.materials set uom='kg' where client_id=%s "
+                    "and material_code='WIDGET'", (CLIENT,))
+    _seed_bcct([
+        ("D1", "WIDGET", "85369012", "g", "VN", "import"),
+        ("D2", "WIDGET", "85369012", "kg", "VN", "import"),
+    ])
+    uom = next((x for x in compute_warnings(CLIENT, "WIDGET")
+                if x["kind"] == "uom_drift"), None)
+    assert uom is not None
+    assert uom["severity"] == "info"
+
+
+def test_uom_drift_tier_a_unconfirmed_stays_warn():
+    """A.4.4: SETS vs PIECES is tier-A 1:1 (a guess) → needs confirmation,
+    so it stays warn, consistent with the panel's amber chip."""
+    from app.stores.catalog_warnings import compute_warnings
+    _seed_bcct([
+        ("D1", "WIDGET", "85369012", "PIECES", "VN", "import"),
+        ("D2", "WIDGET", "85369012", "SETS", "VN", "import"),
+    ])
+    uom = next((x for x in compute_warnings(CLIENT, "WIDGET")
+                if x["kind"] == "uom_drift"), None)
+    assert uom is not None
+    assert uom["severity"] == "warn"
+
+
 def test_no_warning_for_uom_synonyms():
     """PCS / PIECE / ST all resolve to canonical 'pcs' → no drift warning."""
     from app.stores.catalog_warnings import compute_warnings

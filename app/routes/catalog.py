@@ -1184,25 +1184,15 @@ async def catalog_detail(request: Request, client_id: str, material_code: str):
         )
         uom_bom = [{"uom": u, "n_edges": ne} for u, ne in cur.fetchall()]
 
-    from app.stores.uom_standards import are_equivalent
-    uom_official = material.get("uom")
-    # Alias-aware divergence: a token diverges only if it resolves to a
-    # DIFFERENT canonical than the official UoM, so SETS↔SET / ST↔Stück and
-    # other seeded aliases don't false-positive. Severity + the actual
-    # conversion factor are owned by /uom-factors (linked from each chip).
-    def _diverges(tok):
-        return bool(uom_official) and not are_equivalent(tok, uom_official)
-    for o in uom_bcct:
-        o["diverges"] = _diverges(o["unit"])
-    for o in uom_bom:
-        o["diverges"] = _diverges(o["uom"])
-    uom_panel = {
-        "official": uom_official,
-        "bcct": uom_bcct,
-        "bom": uom_bom,
-        "has_divergence": any(o["diverges"] for o in uom_bcct)
-                          or any(o["diverges"] for o in uom_bom),
-    }
+    # A.4.4 convertibility-aware divergence: each chip is classified
+    # equivalent / convertible / unconfirmed (tier-A 1:1) / incompatible
+    # via the shared UoM cascade, so same-family-convertible and
+    # override-resolved units no longer false-positive as "lệch".
+    from app.stores.catalog_uom_panel import build_uom_panel
+    uom_panel = build_uom_panel(
+        client_id=client_id, material_code=material_code,
+        official=material.get("uom"), uom_bcct=uom_bcct, uom_bom=uom_bom,
+    )
 
     from app.stores.catalog_warnings import compute_warnings
     from app.stores.catalog_audit import audit_diff

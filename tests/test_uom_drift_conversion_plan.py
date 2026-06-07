@@ -106,6 +106,43 @@ def test_tier_a_severity_stays_warn_when_unconfirmed_default():
     assert drifts[0]["conversion"]["source"] == "unconfirmed_default"
 
 
+def test_drift_entry_carries_unified_relation():
+    """A.4.4: every drift entry exposes the classifier's `relation` so all
+    surfaces share one vocabulary. Same-family → convertible; tier-A 1:1 →
+    convertible but unconfirmed; cross-family no-path → incompatible."""
+    same = compute_uom_drifts(CLIENT, [{"material_code": "M_MASS", "uom": "g"}])
+    assert same[0]["relation"] == "convertible"
+    assert same[0]["relation_confirmed"] is True
+
+    tier_a = compute_uom_drifts(CLIENT, [{"material_code": "M_TIER_A", "uom": "EA"}])
+    assert tier_a[0]["relation"] == "convertible"
+    assert tier_a[0]["relation_confirmed"] is False  # 1:1 is a guess
+
+    tier_b = compute_uom_drifts(CLIENT, [{"material_code": "M_TIER_B", "uom": "EA"}])
+    assert tier_b[0]["relation"] == "incompatible"
+
+
+def test_drift_relation_matches_classifier_directly():
+    """The derived `relation` must agree with classify_uom_relation called
+    directly — the guard against the two implementations diverging."""
+    from app.stores.uom import classify_uom_relation
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "insert into hub.client_uom_overrides "
+            "(client_id, material_code, from_uom, to_uom, factor, source) "
+            "values (%s, 'M_TIER_B', 'EA', 'KG', 0.5, 'supplier_data')",
+            (CLIENT,))
+    for code, src, cat in [("M_MASS", "g", "kg"), ("M_TIER_A", "EA", "SETS"),
+                           ("M_TIER_B", "EA", "KG"),
+                           ("M_MASS", "kilogram", "kg"),  # alias → equivalent
+                           ("M_MASS", "ZZZ", "kg")]:      # unknown → incompatible
+        drifts = compute_uom_drifts(CLIENT, [{"material_code": code, "uom": src}])
+        expected = classify_uom_relation(
+            src, cat, client_id=CLIENT, material_code=code).relation
+        assert drifts[0]["relation"] == expected, (
+            f"{code}: derived {drifts[0]['relation']!r} != classifier {expected!r}")
+
+
 def test_has_blocking_drift_respects_conversion_path():
     """has_blocking_drift only blocks when there's no conversion path.
     Tier-B without override → blocks. Tier-A default → allows. Override

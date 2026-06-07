@@ -93,17 +93,40 @@ def _uom_drift(client_id: str, material_code: str) -> dict | None:
     if len(canonical_set) <= 1:
         return None
 
+    # A.4.4: a UoM difference is only `warn` if it can't be resolved.
+    # Classify each value against the catalog UoM (or, lacking one, a
+    # deterministic anchor); convertible-and-confirmed differences are
+    # `info` ("quy đổi được"), while incompatible OR tier-A-unconfirmed
+    # (a 1:1 guess that needs sign-off) stay `warn` — same threshold as
+    # the detail-page chip panel's `needs_attention`.
+    from app.stores.uom import classify_uom_relation
+    anchor = next(iter(sources["catalog"])) if "catalog" in sources \
+        else sorted(all_values)[0]
+    needs_attention = False
+    for v in all_values:
+        if v == anchor:
+            continue
+        rel = classify_uom_relation(
+            v, anchor, client_id=client_id, material_code=material_code)
+        if rel.relation == "incompatible" or (
+                rel.relation == "convertible" and not rel.confirmed):
+            needs_attention = True
+            break
+    severity = "warn" if needs_attention else "info"
+
     evidence = [
         {"value": f"{src}: {','.join(sorted(vals))}", "n": len(vals)}
         for src, vals in sources.items()
     ]
+    note = ("có đơn vị chưa quy đổi được" if severity == "warn"
+            else "quy đổi được")
     return {
         "kind": "uom_drift",
-        "severity": "warn",
+        "severity": severity,
         "count": len(canonical_set),
         "evidence": evidence,
         "message": (f"UoM khác nhau giữa các nguồn "
-                    f"({len(canonical_set)} đơn vị canonical)"),
+                    f"({len(canonical_set)} đơn vị canonical) — {note}"),
     }
 
 

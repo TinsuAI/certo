@@ -87,17 +87,24 @@
 
   {# ── Đơn vị tính: chính thức (catalog) + quan sát được ở các nguồn ── #}
   <h3 style="margin-top: 1rem;">Đơn vị tính</h3>
-  {% macro uom_chip(token, count, official, diverges, count_title) %}
-    {% if diverges %}
-      <a class="uom-chip uom-chip-diff"
-         href="/clients/{{ client.client_id }}/uom-factors?prefill_material_code={{ material.material_code|urlencode }}&prefill_from_uom={{ token|urlencode }}&prefill_to_uom={{ official|urlencode }}#add-factor-form"
-         title="{{ count_title }} — đặt hệ số quy đổi {{ token }} → {{ official }}">
-        <span class="mono">{{ token }}</span><small class="meta">×{{ count }}</small><span class="uom-chip-cog">⚙</span>
-      </a>
-    {% else %}
-      <span class="uom-chip" title="{{ count_title }}">
+  {% macro uom_chip(o, token, count, official, count_title) %}
+    {% set state = o.state %}
+    {% if state == 'equivalent' %}
+      <span class="uom-chip" title="{{ count_title }} — cùng ĐVT chính thức">
         <span class="mono">{{ token }}</span><small class="meta">×{{ count }}</small>
       </span>
+    {% elif state == 'convertible' %}
+      <span class="uom-chip uom-chip-conv" title="{{ count_title }} — quy đổi được về {{ official }} (×{{ o.factor }})">
+        <span class="mono">{{ token }}</span><small class="meta">×{{ count }}</small><small class="uom-chip-factor">→{{ official }}</small>
+      </span>
+    {% else %}
+      {# unconfirmed (tier-A 1:1) or incompatible → actionable chip #}
+      {% set add_alias = o.remediation == 'add_alias' %}
+      <a class="uom-chip {{ 'uom-chip-unconf' if state == 'unconfirmed' else 'uom-chip-bad' }}"
+         href="{% if add_alias %}/admin/uom{% else %}/clients/{{ client.client_id }}/uom-factors?prefill_material_code={{ material.material_code|urlencode }}&prefill_from_uom={{ token|urlencode }}&prefill_to_uom={{ official|urlencode }}#add-factor-form{% endif %}"
+         title="{{ count_title }} — {% if state == 'unconfirmed' %}tạm quy đổi 1:1, cần xác nhận hệ số{% elif add_alias %}ĐVT lạ, chưa khai alias{% else %}không quy đổi được, cần đặt hệ số{% endif %} ({{ token }} → {{ official }})">
+        <span class="mono">{{ token }}</span><small class="meta">×{{ count }}</small><span class="uom-chip-cog">{% if state == 'unconfirmed' %}?{% else %}⚙{% endif %}</span>
+      </a>
     {% endif %}
   {% endmacro %}
   <div class="uom-panel">
@@ -113,7 +120,7 @@
         <span class="uom-label">Quan sát ở BCCT</span>
         {% if uom_panel.bcct %}
           {% for o in uom_panel.bcct %}
-            {{ uom_chip(o.unit, o.n_rows, uom_panel.official, o.diverges, o.n_rows ~ ' dòng · ' ~ o.n_decls ~ ' tờ khai') }}
+            {{ uom_chip(o, o.unit, o.n_rows, uom_panel.official, o.n_rows ~ ' dòng · ' ~ o.n_decls ~ ' tờ khai') }}
           {% endfor %}
         {% else %}<span class="meta">— không có</span>{% endif %}
       </div>
@@ -121,18 +128,22 @@
         <span class="uom-label">Quan sát ở BOM</span>
         {% if uom_panel.bom %}
           {% for o in uom_panel.bom %}
-            {{ uom_chip(o.uom, o.n_edges, uom_panel.official, o.diverges, o.n_edges ~ ' dòng BOM (dùng làm thành phần)') }}
+            {{ uom_chip(o, o.uom, o.n_edges, uom_panel.official, o.n_edges ~ ' dòng BOM (dùng làm thành phần)') }}
           {% endfor %}
         {% else %}<span class="meta">— không có</span>{% endif %}
       </div>
     </div>
   </div>
-  {% if uom_panel.has_divergence %}
+  {% if uom_panel.needs_attention %}
   <p class="meta" style="margin: .4rem 0 0; color: #b45309;">
-    ⚠ ĐVT quan sát được khác với ĐVT chính thức (đã đối chiếu qua chuẩn alias).
-    Bấm chip ⚙ để đặt hệ số quy đổi tại
-    <a href="/clients/{{ client.client_id }}/uom-factors">/uom-factors</a>,
-    hoặc xem mục "Phân tích từ BCCT" bên dưới để rõ mức độ.
+    ⚠ Có ĐVT chưa quy đổi được về ĐVT chính thức. Bấm chip để đặt hệ số tại
+    <a href="/clients/{{ client.client_id }}/uom-factors">/uom-factors</a>
+    (hoặc bổ sung alias tại <a href="/admin/uom">/admin/uom</a> nếu ĐVT lạ),
+    hoặc xem "Phân tích từ BCCT" bên dưới để rõ mức độ.
+  </p>
+  {% elif uom_panel.has_divergence %}
+  <p class="meta" style="margin: .4rem 0 0; color: #0e7490;">
+    ✓ ĐVT quan sát khác ĐVT chính thức nhưng quy đổi được — không cần xử lý.
   </p>
   {% endif %}
 

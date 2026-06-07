@@ -72,6 +72,29 @@ def _classify(source_uom: str | None, target_uom: str | None) -> tuple[str, dict
     return "warn_cross_family", details
 
 
+def _relation_from(severity: str, conversion: dict | None) -> tuple[str, bool]:
+    """A.4.4: collapse this surface's family-severity + conversion plan
+    into the shared `(relation, confirmed)` taxonomy. Derived (no extra DB
+    call) and pinned to `classify_uom_relation` by a consistency test.
+
+    `severity` stays family-based for the upload gate's banner; `relation`
+    is the cross-surface vocabulary (equivalent/convertible/incompatible).
+    """
+    if severity == "info_alias":
+        return "equivalent", True
+    if severity == "info_family":
+        return "convertible", True
+    if severity == "warn_cross_family":
+        # Cross-family is convertible iff a path exists (override row or
+        # tier-A 1:1). tier-A's 1:1 is unconfirmed → confirmed=False.
+        if conversion and not conversion.get("would_block"):
+            confirmed = conversion.get("source") != "unconfirmed_default"
+            return "convertible", confirmed
+        return "incompatible", False
+    # info_unknown (alias not resolvable) and any other → incompatible.
+    return "incompatible", False
+
+
 def compute_uom_drifts(client_id: str, rows: list[dict]) -> list[dict]:
     """Return UoM drift entries for parsed upload rows.
 
@@ -192,6 +215,8 @@ def compute_uom_drifts(client_id: str, rows: list[dict]) -> list[dict]:
             and conversion.get("source") in (
                 "client_specific", "client_wide", "global", "alias"))
 
+        relation, relation_confirmed = _relation_from(severity, conversion)
+
         out.append({
             "material_code": code,
             "source_uom": src_uom,
@@ -202,6 +227,8 @@ def compute_uom_drifts(client_id: str, rows: list[dict]) -> list[dict]:
             "catalog_dim": dimension_of(cat_uom),
             "bcct_uoms": bcct_uoms,
             "severity": severity,
+            "relation": relation,
+            "relation_confirmed": relation_confirmed,
             "resolved_by_override": resolved_by_override,
             "message": _format_message(severity, code, src_uom,
                                        comparator, details,

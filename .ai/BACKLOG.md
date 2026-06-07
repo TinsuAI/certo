@@ -830,6 +830,36 @@ tables. Touches every mutable hub table.
 - Operational tables (sessions, llm_usage, notifications,
   upload_pending) don't need this — they're transient.
 
+## D.2 BOM staleness rework — fingerprint model (replace trigger-push)
+
+**Captured 2026-06-07** during A.4.4 discovery. User dissatisfied with
+current staleness model; no solution settled yet. Revives the
+never-written `.ai/features/2026-05-27-stale-rebuild/` brief.
+
+**Problem:** current model is trigger-push + binary flag — D1–D9 plpgsql
+triggers set `is_stale`/`has_uom_drift` on every source change. Two
+structural faults: (1) whack-a-mole false positives — mig 069/070/071
+were three successive narrowings of the same leak; (2) `is_stale`
+conflates "an input changed" with "the output is now wrong" (a
+convertible UoM change doesn't make the published `full_flat` wrong —
+flatten converts at materialize time).
+
+**Proposed:** input-fingerprint, derive-on-read. Store
+`input_fingerprint` on the artifact at materialize time = hash over
+*normalized* inputs (component canonical UoM + resolved factor via
+`classify_uom_relation`, + category/sourcing). Staleness =
+`current_fingerprint != stored`, computed on read / cheap cron, no
+triggers. Benign (alias/same-family/override/tier-A) changes produce the
+same hash → no false staleness; only incompatible change or a
+math-altering factor change flips it. Retires the trigger zoo.
+
+**Depends on A.4.4** — `classify_uom_relation` is the keystone that makes
+the fingerprint benign-change-immune. Do A.4.4 first. Migration is
+incremental (add column → backfill → run derive-on-read beside the flag →
+compare → drop triggers at parity), not big-bang. Full direction in
+`.ai/features/2026-06-07-convertibility-aware-uom/brief.md` →
+"BOM staleness — rework direction". **Next-session work.**
+
 ---
 
 # E. Architectural follow-ups

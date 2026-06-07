@@ -3006,8 +3006,24 @@ input[type="submit"].btn-primary { padding: 0.5rem 0.95rem; }
   border-color: #f59e0b;
   background: #fff8e1;
 }
+/* A.4.4 — 4-state convertibility chips. */
+.uom-chip-conv {            /* converts cleanly via a confirmed factor */
+  border-color: #0891b2;
+  background: #ecfeff;
+}
+.uom-chip-unconf {          /* tier-A 1:1 assumption — needs confirmation */
+  border-color: #f59e0b;
+  background: #fff8e1;
+}
+.uom-chip-bad {             /* incompatible — no factor */
+  border-color: #ef4444;
+  background: #fef2f2;
+}
+.uom-chip-factor { font-size: 0.72rem; opacity: 0.75; }
 a.uom-chip { text-decoration: none; color: inherit; }
 a.uom-chip.uom-chip-diff:hover { border-color: #d97706; background: #fef3c7; }
+a.uom-chip.uom-chip-unconf:hover { border-color: #d97706; background: #fef3c7; }
+a.uom-chip.uom-chip-bad:hover { border-color: #dc2626; background: #fee2e2; }
 .uom-chip-cog { font-size: 0.78rem; opacity: 0.7; }
 
 .audit-feed { list-style: none; padding: 0; margin: 0; }

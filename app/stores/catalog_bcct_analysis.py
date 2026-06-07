@@ -32,6 +32,8 @@ class FieldDrift:
     values: list[tuple[str | None, int]]  # [(value, occurrences), ...] desc
     common_prefix_len: int = 0     # longest shared prefix across distinct vals
     common_suffix_len: int = 0     # longest shared suffix
+    convertible: bool = False      # A.4.4: unit values all convert to the
+                                   # dominant one → drift downgraded to info
 
 
 @dataclass(frozen=True)
@@ -163,6 +165,24 @@ def _common_affixes(values: list[str]) -> tuple[int, int]:
     return p, s
 
 
+def _classify_unit_drift(
+    client_id: str, material_code: str, units: list[str | None],
+) -> tuple[str, bool]:
+    """A.4.4: severity for `unit` drift. `units` is desc by frequency, so
+    units[0] is the dominant declaration habit. Returns
+    ('info', True) when every other unit converts to the dominant one,
+    else ('critical', False)."""
+    from app.stores.uom import classify_uom_relation
+    dominant = units[0]
+    for u in units[1:]:
+        rel = classify_uom_relation(
+            u, dominant, client_id=client_id, material_code=material_code,
+        )
+        if rel.relation == "incompatible":
+            return "critical", False
+    return "info", True
+
+
 def analyze_material_bcct(
     *, client_id: str, material_code: str,
 ) -> CatalogBcctAnalysis:
@@ -256,10 +276,20 @@ def analyze_material_bcct(
             distinct = len(values)
             if distinct >= 2:
                 p_len, s_len = _common_affixes([v for v, _ in values])
+                row_severity, convertible = severity, False
+                if field == "unit":
+                    # A.4.4: a UoM difference is only critical if the
+                    # values can't convert. Classify each against the
+                    # dominant (most-frequent) unit; all convertible →
+                    # info ("đã quy đổi"), any incompatible → stay critical.
+                    row_severity, convertible = _classify_unit_drift(
+                        client_id, material_code, [v for v, _ in values],
+                    )
                 drifts.append(FieldDrift(
-                    field=field, label=label, severity=severity,
+                    field=field, label=label, severity=row_severity,
                     distinct_count=distinct, values=values,
                     common_prefix_len=p_len, common_suffix_len=s_len,
+                    convertible=convertible,
                 ))
 
     return CatalogBcctAnalysis(
