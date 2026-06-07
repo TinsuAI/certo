@@ -46,9 +46,12 @@
    material row index). User asked for this. Own `/discover` first.
 3. **Phase 3 — clean Tồn CO lot-history noise** (chốt+mở-chốt both logged → noisy). Keep data,
    change display (net per case / draft-vs-committed). Pair with delete-case audit R1/R2/R3.
-4. Feedback backlog: #14 (BOM default per code), #13 (batch chốt BOM, /discover), #4 (DH substitute
+4. **UI backlog (`.ai/BACKLOG.md`):** B1 "Đổi công ty"/"Đổi hồ sơ" → modal; B2 review workflow
+   step-status display (overlaps Phase 2); B3 bảng kê column layout (select clipped, STT too wide,
+   Mã NVL too wide / tên NVL too narrow); B4 full-width case UI (drop 2-side border).
+5. Feedback backlog: #14 (BOM default per code), #13 (batch chốt BOM, /discover), #4 (DH substitute
    ranking via api-request).
-5. Backlog audit follow-ups: delete-case GAP A/B/C (case identity on events, soft-delete/tombstone,
+6. Backlog audit follow-ups: delete-case GAP A/B/C (case identity on events, soft-delete/tombstone,
    case_delete event); F1 trừ-lùi import unit-guard (`.ai/audits/2026-06-07-trului-...`); DH
    regression route-guard test confirmation.
 
