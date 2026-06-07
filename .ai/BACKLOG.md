@@ -175,6 +175,78 @@ naive implementation as fallback for clients without pg_trgm.
 
 **Effort**: ~0.5-1 day after pg_trgm available.
 
+## A.4.4 Convertibility-aware UoM divergence (accept convertible, flag only incompatible)
+
+**Captured 2026-06-07** during catalog-detail redesign + UoM panel wiring.
+User: *"Thiết kế lại flow ĐVT khác biệt, cùng họ, convertible các thứ.
+Nếu convertable thì BOM chấp nhận khác với BCCT, BCCT chấp nhận khác với
+nhau, chỉ cần convert về nhau được → cần design thật hợp lý và thông minh."*
+
+**Core principle:** a UoM difference is only a *problem* if the two units
+are **not convertible**. If a factor exists (same canonical, same family
+via `base_factor`, or a `client_uom_overrides` row), then BOM≠BCCT and
+BCCT-row≠BCCT-row are **acceptable** — surface them as info ("quy đổi
+được ×N"), never as an error/block. Reserve warn/block for genuinely
+incompatible pairs with no factor.
+
+**Current state (fragmented, inconsistent severity):**
+- Catalog detail UoM panel (shipped 2026-06-07): divergence cue uses
+  `uom_standards.are_equivalent()` → flags anything that isn't the *same
+  canonical*. Over-flags same-family-different-canonical (m vs cm) and
+  cross-family-with-override (SETS→PCS factor exists) as "lệch" even
+  though both convert cleanly.
+- `catalog_bcct_analysis.py`: `unit` drift hard-coded **CRITICAL** on any
+  distinct-value count ≥2 — doesn't consult the conversion engine at all.
+- BOM staleness (mig 069/071): the *most* correct surface — `is_uom_aligned`
+  + `client_uom_overrides` precedence check before marking stale. This is
+  the model the others should follow.
+- Ingest-time UoM drift gate ([[project_uom_drift_gate]]): 3-tier severity,
+  ack-required for cross-family — partially convertibility-aware already.
+
+So four surfaces answer "is this UoM difference OK?" four different ways.
+
+**Desired design — one classifier, used everywhere:**
+- Single helper `classify_uom_relation(a, b, *, client_id, material_code)`
+  → `{relation: equivalent | convertible | incompatible, factor, via}`
+  where `via ∈ {alias, same_family_base_factor, client_override,
+  tier_a_default}`. Derive it from the existing 6-tier `make_uom_lookup`
+  cascade — do NOT reinvent factor logic.
+- Acceptance rule (the whole point): `equivalent`/`convertible` ⇒ accept
+  silently or as info; `incompatible` ⇒ the only state that warns/blocks
+  and prompts an override at `/uom-factors`.
+- Rewire all four surfaces onto it: catalog panel chip color, bcct_analysis
+  drift severity (downgrade convertible `unit` drift from CRITICAL→info),
+  BOM staleness (already close), ingest gate.
+
+**Smart cases to get right:**
+- **Cross-row BCCT drift**: 100 rows in PCS + 14 in SETS for the same code
+  — if SETS→PCS convertible, this is *not* an inconsistency, it's two
+  valid declaration habits. Timeline/RLE still shows the change (data
+  visibility) but no alarm.
+- **Per-client factors**: convertibility is client-scoped — a SETS→PCS
+  factor for Johnson doesn't make Growatt's SETS convertible. Classifier
+  must take `client_id` (+ optional `material_code` for material-specific
+  overrides).
+- **Directionality**: acceptance is symmetric, but the displayed factor is
+  directional — show both the factor and which canonical it normalizes to.
+- **Unknown tokens**: alias not in `uom_aliases` → cannot prove
+  convertible → treat as `incompatible` (conservative) but offer "thêm
+  alias" at `/admin/uom`, not just "thêm factor".
+- **Tier-A vs Tier-B** (from mig 021 §9): Tier-A cross-family default
+  (count/assembly ↔ 1.0) is "convertible-by-assumption" — surface as
+  convertible-unconfirmed (distinct shade), Tier-B hard-block stays
+  incompatible.
+
+**Why it matters:** the current over-flagging trains users to ignore the
+warning (cry-wolf), and a CRITICAL on convertible `unit` drift is a false
+alarm that hides the genuinely-incompatible cases. Convertibility is the
+correct gate, and the engine to compute it already exists — this is a
+*unification + severity-rationalization* task, not new infra.
+
+**Effort:** ~1-1.5 day (classifier + 4 surface rewires + severity tests).
+Relates to [[shipped: BOM UoM conversion engine]], A.4 (drift panel),
+A.4.3 (smarter similarity — same "stop flagging noise" spirit).
+
 ## A.5 v_material_roles paren-aware (replace material_observations workaround)
 
 **Captured 2026-05-09** (Mã chờ duyệt v3 review). Issue surfaced when
