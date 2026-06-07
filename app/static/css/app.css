@@ -46,6 +46,12 @@ body[data-theme="light"] {
   --info-soft: rgba(31,111,235,0.1);
   --shadow-md: 0 1px 0 rgba(31,35,40,0.04);
   --shadow-lg: 0 8px 24px rgba(31,35,40,0.12);
+  /* App-identity brand chrome ONLY (monogram/topnav border/viewport frame) so CO
+     is instantly distinct from Data Hub (green). NOT an action accent — links,
+     buttons, active states stay on --primary (blue). Must not be green or the
+     shared primary blue. */
+  --brand: #8250df;
+  --brand-foreground: #ffffff;
 }
 
 body[data-theme="dark"] {
@@ -81,6 +87,9 @@ body[data-theme="dark"] {
   --info-soft: rgba(88,166,255,0.15);
   --shadow-md: 0 0 0 1px rgba(1,4,9,0.0);
   --shadow-lg: 0 16px 40px rgba(1,4,9,0.5);
+  /* App-identity brand chrome (see light block). Dark-tuned purple. */
+  --brand: #a371f7;
+  --brand-foreground: #ffffff;
 }
 * {
   box-sizing: border-box;
@@ -191,7 +200,7 @@ small,
   gap: 1.4rem;
   min-height: 56px;
   padding: 0.55rem 1.2rem;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 2px solid color-mix(in srgb, var(--brand) 35%, var(--border));
   background: var(--menu-surface);
 }
 
@@ -207,13 +216,24 @@ small,
   place-items: center;
   width: 1.85rem;
   height: 1.85rem;
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--brand) 55%, transparent);
   border-radius: 0.45rem;
-  background: var(--surface-subtle);
+  background: var(--brand);
+  color: var(--brand-foreground);
   font-family: var(--mono);
   font-size: 0.7rem;
   font-weight: 800;
   letter-spacing: 0.08em;
+}
+
+/* Full-viewport app-identity frame: overlay only — never blocks clicks or shifts
+   layout. The top edge replaces any topnav border-top (none here). */
+.app-frame {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+  border: 3px solid var(--brand);
 }
 
 .topnav-links {
