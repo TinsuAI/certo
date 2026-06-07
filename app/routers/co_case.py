@@ -1568,7 +1568,7 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
             case_id,
             current_step="origin",
             case=case,
-            message=f"Đã load BOM vào bảng kê {product_code}.",
+            message=f"Đã tính bảng kê {product_code}.",
             preserve_origin_products=True,
             cached_case_context=True,
         )
@@ -1580,7 +1580,7 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
             case_id,
             current_step="origin",
             case=case,
-            message=f"Đã load BOM vào bảng kê {product_code}.",
+            message=f"Đã tính bảng kê {product_code}.",
             preserve_origin_products=True,
             force_source_refresh=True,
         )

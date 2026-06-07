@@ -1954,8 +1954,8 @@
     }
     const title = notice.querySelector("strong");
     const detail = notice.querySelector("span:last-child");
-    if (title) title.textContent = `Đang load BOM vào bảng kê${productCode ? ` ${productCode}` : ""}`;
-    if (detail) detail.textContent = "Đang tính lại tồn CO và cập nhật sheet, vui lòng giữ trang này mở.";
+    if (title) title.textContent = `Đang tính bảng kê${productCode ? ` ${productCode}` : ""}`;
+    if (detail) detail.textContent = "Đang phân bổ tồn CO và tính LVC, vui lòng giữ trang này mở.";
   };
 
   const replaceCaseShellFromResponse = async (response, fallbackMessage = "", options = {}) => {

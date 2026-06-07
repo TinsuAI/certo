@@ -2300,7 +2300,7 @@ def test_co_case_origin_builds_and_persists_invoice_bom_snapshot():
     persisted = client.get(f"{location}/origin")
 
     assert calculated.status_code == 200
-    assert "Đã load BOM vào bảng kê PV00.0048500" in calculated.text
+    assert "Đã tính bảng kê PV00.0048500" in calculated.text
     assert 'name="product_0_material_0_material_code" value="DEMO-NPL-001"' in calculated.text
     assert calculated_form["product_0_material_0_consumed_qty"] == "3"
     assert calculated_form["product_0_material_0_unit_value"] == "10"
@@ -5369,7 +5369,7 @@ def test_origin_sheet_calculate_accepts_compact_json_from_fresh_origin_page():
     record = get_case_record(get_client("growatt"), case_id)
 
     assert response.status_code == 200
-    assert "Đã load BOM vào bảng kê PV00.0048500" in response.text
+    assert "Đã tính bảng kê PV00.0048500" in response.text
     assert record["products"][0]["materials"]
     assert record["origin_sheet_states"]["PV00.0048500"]["status"] == "calculated"
 
@@ -5944,7 +5944,7 @@ def test_co_case_origin_round_trips_multi_lot_allocation_to_export_workbook():
     assert blocked_export.status_code == 409
     assert "Chưa thể export" in blocked_export.text
     assert calculated.status_code == 200
-    assert "Đã load BOM vào bảng kê PV00.0048500" in calculated.text
+    assert "Đã tính bảng kê PV00.0048500" in calculated.text
     assert hidden_form_data(calculated.text)["product_0_origin_sheet_status"] == "calculated"
     assert locked.status_code == 200
     assert "Đã chốt bảng kê PV00.0048500" in locked.text
