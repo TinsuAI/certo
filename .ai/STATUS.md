@@ -1,6 +1,25 @@
 # Project Status
 
 ## Current State
+- **CO-case LIST page redesign — DONE + VERIFIED LOCAL, NOT committed/deployed.** Replaced the
+  bulky `co-command-bar` + wrong 4-step mini-flow with a slim header + clickable **summary stat
+  band** (Tổng/Đang xử lý/Đã chốt/Có vấn đề/Đã xuất); moved the spacy create panel into a
+  `+ Tạo hồ sơ` **modal** (reused all existing form macros/JS); redesigned the dossier table to
+  show **real workflow status** (badge `Đã chốt`/`Đang xử lý`/`Có vấn đề` + `✓ Đã xuất` +
+  `X/Y bảng kê chốt` progress bar + inline issue chips), real status filter, and per-row `⋯`
+  menu (Mở / Lưu trữ / Xoá). Added **archive**: `archived` flag (round-trips file-mode +
+  PG-payload, no migration), `set_case_archived` store fn (bypasses close-gate on purpose),
+  archive/unarchive routes, hidden-by-default + `Hiện đã lưu trữ (N)` toggle. Status derivation
+  is one shared cheap helper `co_case_status_view` (no source-context calls); `pages.py`
+  dashboard now delegates to it. Brief `.ai/features/2026-06-07-co-case-list-redesign.md`;
+  screenshots `.ai/screenshots/2026-06-07-co-case-list-redesign/`. Tests **484 passed**
+  (+ new `tests/test_co_case_list_status.py`; 3 `test_co_demo` assertions updated for the new
+  markup). **Two CSS contrast/clip fixes during review:** (1) `.co-stat` is a `<button>` so the
+  un-classed "Tổng" number inherited the UA button color and vanished → set explicit
+  `color: var(--foreground)` (recurring bug, memory `css-no-opacity-muted-text` updated with this
+  second mechanism); (2) `.dossier-list{overflow:hidden}` clipped the `⋯` dropdown → scoped
+  `overflow:visible` to `.co-dossier-list`. **Next:** push/deploy when ready; consider deleting
+  dead CSS (`co-flow-mini`/`co-overview-create`/`co-case-index-layout`).
 - **UX/UI redesign — GitHub Primer "operations console" — DONE + DEPLOYED PROD + DEMO
   (`a33eaae`).** Full visual+IA overhaul: neutral Primer palette (slate + single blue accent
   `#1f6feb` + status colors, flat/solid-border, both themes, WCAG AA) via token-value swap so
@@ -94,6 +113,14 @@
    kiểm soát" đầu trang làm CO: tổng giá trị tồn tự do (VNĐ) + tổng số lượng (gộp đơn vị) + số
    mã + số dòng lot, filter theo ngày ĐK tờ khai nhập. Bug đơn vị dây hàn đã fix data trên
    PROD + DEMO (1.929 tỷ → 520,1 tỷ). Verify prod OK.
+3. **BACKLOG — AUDIT: xoá hồ sơ đang giữ tồn → nhả tồn, lịch sử tồn CO ghi nhận thế nào?**
+   Modal xác nhận xoá hiện: "Hồ sơ đang giữ N dòng tồn trên M lot. Xác nhận xoá sẽ nhả toàn bộ
+   tồn về kho. Thao tác không thể hoàn tác." Audit flow `delete_case_record(..., release_claims=
+   True)` (`app/co_case_store.py`) + `co_stock_ledger`: khi nhả claim (status→'released',
+   `claim_release` events) rồi xoá case row — **lịch sử/ledger tồn CO được ghi nhận ra sao** (còn
+   truy được hồ sơ nào từng giữ lot đó không, hay mất dấu khi case_id biến mất?), và **đánh giá
+   có hợp lý không** (audit trail, khả năng truy vết, có nên soft-delete/giữ lịch sử thay vì xoá
+   cứng). Liên quan audit gap "silent Tồn CO leak HIGH #2".
 3. **#14** BOM mặc định theo mã — persist `bom_product_artifact_overrides` làm default (quyết
    per-client vs global).
 3. **#13** chốt BOM hàng loạt → chạy tồn 1 lần → tổng hợp mã thiếu — luồng mới, `/discover` trước.
