@@ -2891,7 +2891,18 @@ def _refresh_co_stock_delta_or_full(client: dict) -> dict:
     state = co_stock_materializer.read_refresh_state(client["id"]) or {}
     last_server_time = state.get("last_bcct_server_time", "") if state else ""
     data_hub = getattr(portfolio_service, "data_hub", None)
-    if last_server_time and data_hub is not None and hasattr(data_hub, "list_bcct_with_envelope"):
+    # A delta only makes sense ON TOP of an existing snapshot. If co_stock_rows is
+    # empty but refresh_state still carries a server_time (DB reset, or a first
+    # full-pull that recorded server_time without persisting rows), a delta-since
+    # finds nothing new and the snapshot stays stranded empty forever. Force a
+    # full pull whenever the snapshot is empty.
+    snapshot_count = co_stock_materializer.row_count(client["id"])
+    if (
+        last_server_time
+        and snapshot_count > 0
+        and data_hub is not None
+        and hasattr(data_hub, "list_bcct_with_envelope")
+    ):
         delta_summary = _try_delta_refresh(client, data_hub, last_server_time)
         if delta_summary is not None:
             return delta_summary
