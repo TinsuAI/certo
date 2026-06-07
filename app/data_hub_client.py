@@ -23,6 +23,10 @@ HUB_BOM_ARTIFACTS_PATH = "/v1/hub/products/{product_code}/bom/artifacts"
 HUB_BOM_ARTIFACTS_BATCH_PATH = "/v1/hub/products/bom/artifacts:batch"
 HUB_PROPOSAL_PATH = "/v1/hub/proposals/{proposal_id}"
 
+# Merged declarations PDF ("tờ khai ghép") render can run to thousands of pages;
+# it needs a far longer read budget than the default per-request timeout.
+MERGED_DECLARATIONS_PDF_TIMEOUT_SECONDS = 180
+
 
 class DataHubBomVariantConflict(RuntimeError):
     def __init__(self, product_code: str, payload: dict):
@@ -201,7 +205,17 @@ class DataHubClient:
         }
         if filename:
             params["filename"] = filename
-        response = self._client.get(path, params=params, headers=self._auth_headers())
+        # Merged-PDF render is heavy: a single import direction can be thousands
+        # of pages (hundreds of declarations). The default ~20s client timeout
+        # trips on large dossiers, the caller swallows the timeout, and the
+        # operator silently gets a dossier missing the import "tờ khai ghép".
+        # Give this one call a much longer read budget.
+        response = self._client.get(
+            path,
+            params=params,
+            headers=self._auth_headers(),
+            timeout=MERGED_DECLARATIONS_PDF_TIMEOUT_SECONDS,
+        )
         response.raise_for_status()
         headers = response.headers
 

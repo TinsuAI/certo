@@ -1,0 +1,65 @@
+{# Dossier export job state — polled by the review page (vanilla JS, no htmx). #}
+{% set base = "/clients/" ~ client.id ~ "/co-case/" ~ case_id ~ "/export-dossier-zip" %}
+<div class="dossier-export-state" data-export-status="{{ export.status }}" data-export-stale="{{ '1' if export.stale else '0' }}">
+  {% if export.status == 'running' %}
+  <div class="review-action-static" aria-busy="true">
+    <span class="review-action-icon" aria-hidden="true"><span class="dossier-export-spinner"></span></span>
+    <span class="review-action-body">
+      <strong>Đang tạo hồ sơ .zip…</strong>
+      <small>Có thể mất tới ~1 phút với hồ sơ nhiều tờ khai. Bạn có thể rời trang — file sẽ được lưu lại.</small>
+    </span>
+  </div>
+
+  {% elif export.status == 'done' and not export.stale %}
+  <a class="btn-primary review-action-link" href="{{ base }}/download">
+    <span class="review-action-icon" aria-hidden="true">⬇️</span>
+    <span class="review-action-body">
+      <strong>Tải hồ sơ .zip</strong>
+      <small>{{ export.filename }}</small>
+    </span>
+  </a>
+  {% if export.warnings %}
+  <p class="meta dossier-export-warning">
+    ⚠️ Chưa nhúng được tờ khai ghép cho:
+    {% for w in export.warnings %}{{ w.label }} ({{ w.declaration_count }} tờ khai){{ ", " if not loop.last }}{% endfor %}.
+    Xem <code>03-to-khai/MANIFEST.md</code> trong file để tải tay từ Data Hub.
+  </p>
+  {% endif %}
+  <form method="post" action="{{ base }}" hx-boost="false">
+    <button type="submit" class="btn-secondary dossier-export-rerun-btn">🔄 Xuất lại</button>
+  </form>
+
+  {% elif export.status == 'done' and export.stale %}
+  <form class="review-action-primary" method="post" action="{{ base }}" hx-boost="false">
+    <button type="submit" class="btn-primary">
+      <span class="review-action-icon" aria-hidden="true">🔄</span>
+      <span class="review-action-body">
+        <strong>Xuất lại hồ sơ .zip</strong>
+        <small>Hồ sơ đã thay đổi từ lần xuất trước — tạo lại file mới.</small>
+      </span>
+    </button>
+  </form>
+
+  {% elif export.status == 'failed' %}
+  <form class="review-action-primary" method="post" action="{{ base }}" hx-boost="false">
+    <button type="submit" class="btn-primary">
+      <span class="review-action-icon" aria-hidden="true">⚠️</span>
+      <span class="review-action-body">
+        <strong>Xuất lại hồ sơ .zip</strong>
+        <small>Lần trước lỗi: {{ export.error or 'không rõ' }}. Thử lại.</small>
+      </span>
+    </button>
+  </form>
+
+  {% else %}
+  <form class="review-action-primary" method="post" action="{{ base }}" hx-boost="false">
+    <button type="submit" class="btn-primary">
+      <span class="review-action-icon" aria-hidden="true">📦</span>
+      <span class="review-action-body">
+        <strong>Xuất hồ sơ .zip</strong>
+        <small>Bảng kê C/O + chứng từ + tờ khai ghép (TKX/TKN)</small>
+      </span>
+    </button>
+  </form>
+  {% endif %}
+</div>

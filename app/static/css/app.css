@@ -5268,9 +5268,56 @@ body.co-stock-history-modal-open { overflow: hidden; }
   font-size: 0.95rem;
 }
 
+/* De-emphasis is a COLOR choice, never `opacity`: opacity blends text toward
+   whatever is behind it, so faint text turns unreadable on filled (primary/
+   colored) surfaces. Default to a muted token on light surfaces; on a filled
+   primary button keep the full primary foreground (it is the readable one). */
 .review-action-body small {
   font-size: 0.75rem;
-  opacity: 0.85;
+  color: var(--foreground-muted);
+}
+
+.btn-primary .review-action-body small {
+  color: var(--primary-foreground);
+}
+
+/* Background dossier-export panel (one grid cell, may stack multiple rows). */
+.dossier-export-state {
+  display: grid;
+  gap: 0.6rem;
+  align-content: start;
+}
+.review-action-link,
+.review-action-static {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  width: 100%;
+  padding: 1rem 1.2rem;
+  border-radius: var(--radius-md);
+  text-align: left;
+  text-decoration: none;
+}
+.review-action-static {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  color: inherit;
+}
+.dossier-export-warning {
+  margin: 0;
+  font-size: 0.8rem;
+}
+.dossier-export-rerun-btn {
+  justify-self: start;
+}
+.dossier-export-spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: origin-spin 0.7s linear infinite;
 }
 
 .review-check-grid {

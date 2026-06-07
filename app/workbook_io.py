@@ -951,6 +951,7 @@ def create_dossier_zip(
     *,
     data_hub_base_url: str = "",
     declaration_pdfs: dict[str, bytes] | None = None,
+    declaration_pdf_failures: list[dict] | None = None,
 ) -> bytes:
     """Bundle the full C/O dossier into a single .zip an operator can hand
     straight to HQ.
@@ -965,21 +966,27 @@ def create_dossier_zip(
         03-to-khai/MANIFEST.md                  — list of every TKX/TKN with
                                                   Data Hub download URLs for
                                                   reference.
-        03-to-khai/TKX-ghep.pdf,                — merged "tờ khai ghép" PDFs
-        03-to-khai/TKN-ghep.pdf                   when declaration_pdfs carries
+        03-to-khai/{case_code}-to-khai-xuat.pdf — merged "tờ khai ghép" PDFs
+        03-to-khai/{case_code}-to-khai-nhap.pdf   when declaration_pdfs carries
                                                   pre-fetched bytes (.ai/api-
                                                   requests/2026-06-05-
                                                   declarations-merged-pdf.md).
+                                                  Keys are the archive filenames.
     """
     import zipfile
     case_code = (case.get("case_code") or "co-case").strip() or "co-case"
     pdfs = declaration_pdfs or {}
-    embedded = bool(pdfs)
+    failures = declaration_pdf_failures or []
+    embedded_names = sorted(pdfs.keys())
     stream = BytesIO()
     with zipfile.ZipFile(stream, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(
             "00-README.md",
-            build_dossier_readme(case, tkx_tkn_summary, embedded_declaration_archives=embedded),
+            build_dossier_readme(
+                case, tkx_tkn_summary,
+                embedded_pdf_names=embedded_names,
+                embed_failures=failures,
+            ),
         )
         zf.writestr(
             f"01-bang-ke/{case_code}-bang-ke-HQ.xlsx",
@@ -997,11 +1004,12 @@ def create_dossier_zip(
             "03-to-khai/MANIFEST.md",
             _build_declarations_manifest(
                 case, tkx_tkn_summary, data_hub_base_url,
-                embedded=embedded,
+                embedded_pdf_names=embedded_names,
+                embed_failures=failures,
             ),
         )
         # Merged TKX/TKN PDFs (the customer's "tờ khai ghép") at the top of
-        # 03-to-khai/ so the operator sees them first.
+        # 03-to-khai/ so the operator sees them first. Keys are archive filenames.
         for name, blob in pdfs.items():
             if isinstance(blob, (bytes, bytearray)):
                 zf.writestr(f"03-to-khai/{name}", bytes(blob))
@@ -1019,16 +1027,20 @@ def _build_declarations_manifest(
     summary: dict,
     data_hub_base_url: str,
     *,
-    embedded: bool = False,
+    embedded_pdf_names: list[str] | None = None,
+    embed_failures: list[dict] | None = None,
 ) -> str:
     from urllib.parse import quote
     case_code = case.get("case_code") or case.get("id") or "co-case"
     client_id = case.get("client_id") or ""
-    if embedded:
+    embedded_pdf_names = embedded_pdf_names or []
+    embed_failures = embed_failures or []
+    if embedded_pdf_names:
+        embedded_list = " và ".join(f"`03-to-khai/{name}`" for name in embedded_pdf_names)
         intro = [
             "Danh sách TKX (xuất) và TKN (nhập) tham chiếu trong hồ sơ.",
-            "Tờ khai ghép (PDF chuẩn) đã được nhúng tại `03-to-khai/TKX-ghep.pdf`",
-            "và `03-to-khai/TKN-ghep.pdf`. Bảng kê dưới đây để đối chiếu nhanh.",
+            f"Tờ khai ghép (PDF chuẩn) đã được nhúng tại {embedded_list}.",
+            "Bảng kê dưới đây để đối chiếu nhanh.",
         ]
     else:
         intro = [
@@ -1042,6 +1054,16 @@ def _build_declarations_manifest(
         *intro,
         "",
     ]
+    if embed_failures:
+        lines.append("> ⚠️ **Chưa nhúng được tờ khai ghép cho:** "
+                     + ", ".join(
+                         f"{f.get('label', '?')} ({f.get('declaration_count', 0)} tờ khai)"
+                         for f in embed_failures
+                     )
+                     + ".")
+        lines.append("> Data Hub render quá hạn hoặc lỗi tạm thời. Thử xuất lại hồ sơ,")
+        lines.append("> hoặc tải tờ khai trực tiếp từ Data Hub qua các link bên dưới.")
+        lines.append("")
 
     def _block(title: str, entries: list[dict], direction: str) -> list[str]:
         out = [f"## {title} ({len(entries)})", ""]
@@ -1085,17 +1107,29 @@ def build_dossier_readme(
     case: dict,
     tkx_tkn_summary: dict | None = None,
     *,
-    embedded_declaration_archives: bool = False,
+    embedded_pdf_names: list[str] | None = None,
+    embed_failures: list[dict] | None = None,
 ) -> str:
     summary = tkx_tkn_summary or {}
     tkx_count = len(summary.get("tkx") or [])
     tkn_count = len(summary.get("tkn") or [])
     missing = len(summary.get("missing_tkx") or []) + len(summary.get("missing_tkn") or [])
-    declaration_section = (
-        "- `03-to-khai/TKX-ghep.pdf`, `03-to-khai/TKN-ghep.pdf` — Tờ khai ghép (PDF chuẩn) đã nhúng sẵn."
-        if embedded_declaration_archives
-        else "- Tờ khai ghép chưa nhúng được (Data Hub không khả dụng hoặc hồ sơ không có tờ khai) — xem `03-to-khai/MANIFEST.md`."
-    )
+    embedded_pdf_names = embedded_pdf_names or []
+    embed_failures = embed_failures or []
+    if embedded_pdf_names:
+        embedded_list = ", ".join(f"`03-to-khai/{name}`" for name in embedded_pdf_names)
+        declaration_section = f"- {embedded_list} — Tờ khai ghép (PDF chuẩn) đã nhúng sẵn."
+    else:
+        declaration_section = "- Tờ khai ghép chưa nhúng được (Data Hub không khả dụng hoặc hồ sơ không có tờ khai) — xem `03-to-khai/MANIFEST.md`."
+    if embed_failures:
+        failed_desc = ", ".join(
+            f"{f.get('label', '?')} ({f.get('declaration_count', 0)} tờ khai)"
+            for f in embed_failures
+        )
+        declaration_section += (
+            f"\n- ⚠️ Chưa nhúng được: **{failed_desc}** — Data Hub render quá hạn/lỗi. "
+            "Xuất lại hồ sơ hoặc tải tờ khai từ Data Hub (xem `03-to-khai/MANIFEST.md`)."
+        )
     lines = [
         f"# Hồ sơ C/O — {case.get('case_code', '')}",
         "",

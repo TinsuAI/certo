@@ -11,12 +11,14 @@ from app.bom_store import attach_case_bom_snapshot
 from app.co_case_store import CaseHasActiveClaimsError, MAX_SUPPORTING_FILE_BYTES, acquire_origin_calculation_lock, active_origin_calculation_lock, build_case_criteria_rows, case_from_record, co_case_is_completed, create_case_record, create_case_workbook, declaration_refs, delete_case_record, get_case_record, get_supporting_file, invoice_keys, json_safe, release_origin_calculation_lock, safe_filename, save_supporting_file, update_case_record
 from app.co_form_config_store import load_co_form_config
 from app.co_forms import prioritized_form_lanes, recommended_form_lane
+from app.data_hub_client import current_data_hub_token
 from app.data_hub_settings import data_hub_link_settings
 from app.demo_data import attach_results, update_products_from_form
+from app.dossier_export_service import dossier_export_result_path, dossier_export_status, submit_dossier_export
 from app.portfolio import portfolio_service
 from app.source_store import co_stock_rows_from_bcct
 from app.web.client_context import default_client_case, effective_min_gap_days, resolve_client, source_workspace_for_client
-from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, attach_origin_sheet_states, case_allocation_pool, case_tkx_tkn_summary, co_case_context, co_case_source_context, co_case_source_context_cached, co_stock_is_usable, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, origin_case_revision, origin_lock_actor, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
+from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, attach_origin_sheet_states, case_allocation_pool, case_tkx_tkn_summary, co_case_context, co_case_source_context, co_case_source_context_cached, co_stock_is_usable, dossier_content_revision, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, origin_case_revision, origin_lock_actor, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
 from app.web.deps import large_request_form
 from app.web.templating import templates
 from app.workbook_io import create_dossier_zip, create_hq_bang_ke_workbook
@@ -932,10 +934,24 @@ async def export_co_case_bang_ke_workbook_get(request: Request, client_id: str, 
 async def co_case_step(request: Request, client_id: str, case_id: str, step: str):
     if step not in CO_CASE_WORKFLOW_STEP_KEYS:
         raise HTTPException(status_code=404)
+    context = co_case_context(client_id, case_id, step)
+    if step == "review":
+        # Server-render the current export state into the page so the panel shows
+        # it immediately — no "Đang tải trạng thái…" placeholder + extra round-trip
+        # on load. The JS only polls when the state is actually `running`.
+        client = resolve_client(client_id)
+        try:
+            record = get_case_record(client, case_id)
+        except KeyError:
+            record = None
+        if record is not None:
+            context["export"] = dossier_export_status(
+                client, case_id, current_revision=dossier_content_revision(record)
+            )
     return templates.TemplateResponse(
         request=request,
         name="co_case.html",
-        context=co_case_context(client_id, case_id, step),
+        context=context,
     )
 @router.get("/clients/{client_id}/co-case/{case_id}/origin/calculation-payload")
 async def co_case_origin_calculation_payload(client_id: str, case_id: str):
@@ -1148,6 +1164,34 @@ async def export_co_case_dossier_zip(client_id: str, case_id: str):
         else:
             detail = "Đóng hồ sơ trước khi xuất file tổng hợp (cần khoá để chốt danh sách TKX/TKN)."
         raise HTTPException(status_code=409, detail=detail)
+    # The build (source context + DH merged-PDF render) runs ~45s on a large
+    # dossier; do it in a background job instead of blocking the request. The
+    # saved zip is keyed to the case content-revision so a later reopen+edit
+    # marks it stale (see app/dossier_export_service.py).
+    record = get_case_record(client, case_id)
+    revision = dossier_content_revision(record)
+    filename = safe_filename(f"{case.get('case_code') or 'co-case'}-dossier.zip")
+    submit_dossier_export(
+        client,
+        case_id,
+        token=current_data_hub_token(),
+        current_revision=revision,
+        filename=filename,
+        builder=lambda: _build_dossier_zip(client, case),
+    )
+    return RedirectResponse(
+        f"/clients/{client_id}/co-case/{case_id}/review",
+        status_code=303,
+    )
+
+
+def _build_dossier_zip(client: dict, case: dict) -> tuple[bytes, list[dict]]:
+    """Heavy dossier build — runs in the export worker thread.
+
+    Returns `(zip_bytes, embed_failures)`. `embed_failures` are the directions
+    whose merged tờ khai PDF could not be embedded (surfaced as dossier
+    warnings)."""
+    case_id = case.get("persisted_case_id") or case.get("id") or ""
     source_context = co_case_source_context(client, case)
     stock_rows = source_context.get("stock_rows") or []
     # The heavy recompute derives invoice_matches from a live shipment reference
@@ -1182,43 +1226,86 @@ async def export_co_case_dossier_zip(client_id: str, case_id: str):
             "filename": row.get("filename", "supporting.bin"),
             "content": path.read_bytes(),
         })
-    declaration_pdfs = _try_fetch_declaration_pdfs(client, case, summary)
+    declaration_pdfs, declaration_pdf_failures = _try_fetch_declaration_pdfs(client, case, summary)
     content = create_dossier_zip(
         case,
         supporting_files,
         summary,
         data_hub_base_url=data_hub_link_settings().data_hub_base_url,
         declaration_pdfs=declaration_pdfs,
+        declaration_pdf_failures=declaration_pdf_failures,
     )
-    filename = safe_filename(f"{case.get('case_code') or 'co-case'}-dossier.zip")
-    return StreamingResponse(
-        iter([content]),
+    return content, declaration_pdf_failures
+
+
+@router.get("/clients/{client_id}/co-case/{case_id}/export-dossier-zip/status", response_class=HTMLResponse)
+async def export_co_case_dossier_zip_status(request: Request, client_id: str, case_id: str):
+    """htmx poll target for the review page — current export job state."""
+    client = resolve_client(client_id)
+    try:
+        record = get_case_record(client, case_id)
+    except KeyError:
+        raise HTTPException(status_code=404) from None
+    export = dossier_export_status(client, case_id, current_revision=dossier_content_revision(record))
+    return templates.TemplateResponse(
+        request=request,
+        name="_dossier_export_status.html",
+        context={"client": client, "case_id": case_id, "export": export},
+    )
+
+
+@router.get("/clients/{client_id}/co-case/{case_id}/export-dossier-zip/download")
+async def download_co_case_dossier_zip(client_id: str, case_id: str):
+    client = resolve_client(client_id)
+    try:
+        record = get_case_record(client, case_id)
+    except KeyError:
+        raise HTTPException(status_code=404) from None
+    export = dossier_export_status(client, case_id, current_revision=dossier_content_revision(record))
+    if not export.get("can_download"):
+        # Stale (case changed) or not finished — don't hand back an outdated zip.
+        raise HTTPException(
+            status_code=409,
+            detail="File hồ sơ chưa sẵn sàng hoặc đã lỗi thời — bấm 'Xuất hồ sơ' để tạo lại.",
+        )
+    result = dossier_export_result_path(client, case_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy file hồ sơ đã xuất.")
+    path, filename = result
+    return FileResponse(
+        path,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        filename=filename,
     )
 
 
-def _try_fetch_declaration_pdfs(client: dict, case: dict, tkx_tkn_summary: dict) -> dict[str, bytes]:
+def _try_fetch_declaration_pdfs(
+    client: dict, case: dict, tkx_tkn_summary: dict
+) -> tuple[dict[str, bytes], list[dict]]:
     """Fetch the merged TKX/TKN declaration PDFs from Data Hub and key them for
     the dossier ("tờ khai ghép").
 
     Contract: `.ai/api-requests/2026-06-05-declarations-merged-pdf.md`. Each
     direction's declarations are rendered to the official tờ khai layout and
-    concatenated into one PDF. Any error (endpoint missing / network / non-200)
-    falls back to {} and the dossier keeps manifest mode. A direction whose
-    merged PDF includes zero real files is skipped — its absence is already
-    reported in MANIFEST.md.
+    concatenated into one PDF. A direction whose merged PDF includes zero real
+    files is skipped — its absence is already reported in MANIFEST.md.
 
-    Keyed by the filename written under `03-to-khai/`: `TKX-ghep.pdf` /
-    `TKN-ghep.pdf`.
+    Returns `(pdfs, failures)`:
+    - `pdfs` is keyed by the filename written under `03-to-khai/`, matching the
+      ZIP/bảng-kê naming: `{case_code}-to-khai-xuat.pdf` / `…-to-khai-nhap.pdf`.
+    - `failures` lists directions that *had* declarations to embed but whose
+      fetch raised (e.g. a render timeout on a large import dossier). The dossier
+      surfaces these in README/MANIFEST instead of silently shipping an
+      incomplete bundle.
     """
     data_hub = getattr(portfolio_service, "data_hub", None)
     if data_hub is None or not hasattr(data_hub, "download_declarations_pdf"):
-        return {}
+        return {}, []
     case_code = (case.get("case_code") or "co-case").strip() or "co-case"
     pdfs: dict[str, bytes] = {}
+    failures: list[dict] = []
 
-    def _fetch(direction: str, entries: list[dict], label: str) -> None:
+    def _fetch(direction: str, entries: list[dict], label: str, vi_slug: str) -> None:
         nos = sorted({
             str(entry.get("declaration_no") or "").strip()
             for entry in (entries or [])
@@ -1226,22 +1313,27 @@ def _try_fetch_declaration_pdfs(client: dict, case: dict, tkx_tkn_summary: dict)
         })
         if not nos:
             return
-        filename = safe_filename(f"{label}_{case_code}.pdf")
+        filename = safe_filename(f"{case_code}-to-khai-{vi_slug}.pdf")
         try:
             result = data_hub.download_declarations_pdf(
                 client["id"], direction=direction, declaration_nos=nos, filename=filename,
             )
-        except Exception:  # noqa: BLE001 — fall back to manifest mode on any failure
+        except Exception:  # noqa: BLE001 — record the gap; don't silently drop it
+            failures.append({
+                "label": label,
+                "filename": filename,
+                "declaration_count": len(nos),
+            })
             return
         content = result.get("content") if isinstance(result, dict) else result
         included = result.get("included") if isinstance(result, dict) else None
         # Skip the info-only PDF Data Hub returns when no declaration has a file.
         if isinstance(content, (bytes, bytearray)) and content and included != 0:
-            pdfs[f"{label}-ghep.pdf"] = bytes(content)
+            pdfs[filename] = bytes(content)
 
-    _fetch("export", tkx_tkn_summary.get("tkx") or [], "TKX")
-    _fetch("import", tkx_tkn_summary.get("tkn") or [], "TKN")
-    return pdfs
+    _fetch("export", tkx_tkn_summary.get("tkx") or [], "TKX", "xuat")
+    _fetch("import", tkx_tkn_summary.get("tkn") or [], "TKN", "nhap")
+    return pdfs, failures
 @router.post("/clients/{client_id}/co-case/{case_id}/close")
 async def close_co_case(request: Request, client_id: str, case_id: str):
     """Mark the case as completed. Pre-conditions:

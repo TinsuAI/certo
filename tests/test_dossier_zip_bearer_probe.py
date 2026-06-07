@@ -54,23 +54,42 @@ def test_dossier_zip_falls_back_to_manifest_when_no_pdfs():
 
 def test_readme_states_embedded_status_correctly():
     readme_not_embedded = build_dossier_readme(_case(), _summary())
-    readme_embedded = build_dossier_readme(_case(), _summary(), embedded_declaration_archives=True)
+    readme_embedded = build_dossier_readme(
+        _case(), _summary(),
+        embedded_pdf_names=["CO-TEST-to-khai-xuat.pdf", "CO-TEST-to-khai-nhap.pdf"],
+    )
     assert "chưa nhúng được" in readme_not_embedded
     assert "đã nhúng sẵn" in readme_embedded
+    assert "CO-TEST-to-khai-nhap.pdf" in readme_embedded
+
+
+def test_readme_warns_on_embed_failure():
+    """A direction that had declarations to embed but failed (e.g. a render
+    timeout) is surfaced loudly rather than silently dropped."""
+    readme = build_dossier_readme(
+        _case(), _summary(),
+        embedded_pdf_names=["CO-TEST-to-khai-xuat.pdf"],
+        embed_failures=[{"label": "TKN", "filename": "CO-TEST-to-khai-nhap.pdf", "declaration_count": 194}],
+    )
+    assert "Chưa nhúng được" in readme
+    assert "TKN" in readme and "194" in readme
 
 
 def test_dossier_zip_embeds_merged_declaration_pdfs():
     """Once DH ships the merged-PDF endpoint, the CO endpoint pre-fetches the
-    TKX/TKN merged PDFs and passes them via declaration_pdfs. The dossier ZIP
-    embeds them at 03-to-khai/<name> (prominent, no subfolder).
+    TKX/TKN merged PDFs and passes them via declaration_pdfs, keyed by the
+    archive filename. The dossier ZIP embeds them at 03-to-khai/<name>.
     Contract: .ai/api-requests/2026-06-05-declarations-merged-pdf.md."""
-    pdfs = {"TKX-ghep.pdf": b"%PDF-fake-tkx", "TKN-ghep.pdf": b"%PDF-fake-tkn"}
+    pdfs = {
+        "CO-TEST-to-khai-xuat.pdf": b"%PDF-fake-tkx",
+        "CO-TEST-to-khai-nhap.pdf": b"%PDF-fake-tkn",
+    }
     blob = create_dossier_zip(_case(), [], _summary(), declaration_pdfs=pdfs)
     archive = zipfile.ZipFile(io.BytesIO(blob))
     names = archive.namelist()
-    assert "03-to-khai/TKX-ghep.pdf" in names
-    assert "03-to-khai/TKN-ghep.pdf" in names
-    assert archive.read("03-to-khai/TKN-ghep.pdf") == b"%PDF-fake-tkn"
+    assert "03-to-khai/CO-TEST-to-khai-xuat.pdf" in names
+    assert "03-to-khai/CO-TEST-to-khai-nhap.pdf" in names
+    assert archive.read("03-to-khai/CO-TEST-to-khai-nhap.pdf") == b"%PDF-fake-tkn"
 
 
 def test_download_declarations_pdf_builds_request_and_parses_headers(monkeypatch):
@@ -92,9 +111,10 @@ def test_download_declarations_pdf_builds_request_and_parses_headers(monkeypatch
         def raise_for_status(self):
             return None
 
-    def fake_get(path, params=None, headers=None):
+    def fake_get(path, params=None, headers=None, timeout=None):
         captured["path"] = path
         captured["params"] = params
+        captured["timeout"] = timeout
         return FakeResp()
 
     monkeypatch.setattr(client._client, "get", fake_get)
@@ -111,6 +131,9 @@ def test_download_declarations_pdf_builds_request_and_parses_headers(monkeypatch
     assert res["included"] == 2
     assert res["missing"] == 1
     assert res["missing_nos"] == ["999", "888"]
+    # Heavy render gets the extended timeout, not the default ~20s.
+    from app.data_hub_client import MERGED_DECLARATIONS_PDF_TIMEOUT_SECONDS
+    assert captured["timeout"] == MERGED_DECLARATIONS_PDF_TIMEOUT_SECONDS
     client.close()
 
 

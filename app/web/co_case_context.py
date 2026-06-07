@@ -87,6 +87,38 @@ def origin_case_revision(case: dict) -> str:
         }
     )
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+
+
+# Fields recomputed on every render — they drift continuously on prod (live
+# customs/source metadata) and must not flip the dossier-export staleness key.
+# Same rationale as origin_case_revision's snapshot exclusions.
+_DOSSIER_REVISION_SKIP_KEYS = frozenset({
+    "updated_at",
+    "created_at",
+    "source_snapshot",
+    "bom_snapshot",
+    "origin_snapshot",
+    "source_invoice_matches",
+})
+
+
+def dossier_content_revision(record: dict) -> str:
+    """Opaque content-revision token for a case's dossier export.
+
+    Hashes everything in the persisted case record that affects the exported
+    .zip (bảng kê / products, chứng từ, shipment declarations, close-state) and
+    excludes derived snapshots that drift on every render. A saved export whose
+    token no longer matches the current case is stale and must be regenerated —
+    see `app/dossier_export_service.py`.
+    """
+    payload = json_safe({
+        key: value
+        for key, value in (record or {}).items()
+        if key not in _DOSSIER_REVISION_SKIP_KEYS
+    })
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()[:16]
 CO_CASE_WORKFLOW_STEPS = [
     {
         "key": "shipment",

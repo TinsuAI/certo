@@ -3629,11 +3629,28 @@ def test_origin_sheet_locked_rejects_material_and_norm_mutations():
     )
 
 
+class _InlineExecutor:
+    """Runs the dossier-export job synchronously so the route test can POST then
+    immediately download (the real app uses a background ThreadPoolExecutor)."""
+
+    def submit(self, fn, *args, **kwargs):
+        from concurrent.futures import Future
+
+        fut = Future()
+        try:
+            fut.set_result(fn(*args, **kwargs))
+        except Exception as exc:  # pragma: no cover
+            fut.set_exception(exc)
+        return fut
+
+
 def test_export_dossier_zip_bundles_chung_tu_tkx_tkn_and_hq_bang_ke(monkeypatch):
     import io
     import zipfile
     from openpyxl import load_workbook
+    from app import dossier_export_service
 
+    monkeypatch.setattr(dossier_export_service, "_EXECUTOR", _InlineExecutor())
     client = TestClient(app)
     created = client.post(
         "/clients/growatt/co-case/create",
@@ -3673,7 +3690,11 @@ def test_export_dossier_zip_bundles_chung_tu_tkx_tkn_and_hq_bang_ke(monkeypatch)
     # Dossier export requires case closed (sheets locked + case marked completed).
     update_case_record(get_client("growatt"), {"persisted_case_id": case_id, "status": "completed"})
 
-    response = client.post(f"/clients/growatt/co-case/{case_id}/export-dossier-zip")
+    submit = client.post(
+        f"/clients/growatt/co-case/{case_id}/export-dossier-zip", follow_redirects=False
+    )
+    assert submit.status_code == 303, submit.text
+    response = client.get(f"/clients/growatt/co-case/{case_id}/export-dossier-zip/download")
     assert response.status_code == 200, response.text
     assert response.headers["content-type"] == "application/zip"
 
@@ -3863,7 +3884,13 @@ def test_export_dossier_zip_keeps_tkx_from_persisted_matches_when_heavy_empty(mo
         },
     )
 
-    response = client.post(f"/clients/growatt/co-case/{case_id}/export-dossier-zip")
+    from app import dossier_export_service
+    monkeypatch.setattr(dossier_export_service, "_EXECUTOR", _InlineExecutor())
+    submit = client.post(
+        f"/clients/growatt/co-case/{case_id}/export-dossier-zip", follow_redirects=False
+    )
+    assert submit.status_code == 303, submit.text
+    response = client.get(f"/clients/growatt/co-case/{case_id}/export-dossier-zip/download")
     assert response.status_code == 200, response.text
     archive = zipfile.ZipFile(io.BytesIO(response.content))
     manifest = archive.read("03-to-khai/MANIFEST.md").decode("utf-8")
@@ -3956,6 +3983,45 @@ def test_export_dossier_zip_blocks_open_case_with_partial_locks():
     body = response.json()["detail"]
     assert "TP-B" in body
     assert "chưa chốt" in body
+
+
+def test_review_page_server_renders_export_state_no_placeholder(monkeypatch):
+    """The review page renders the current export state inline so the panel shows
+    it immediately — no "Đang tải trạng thái…" placeholder that depends on a JS
+    round-trip (which could hang/never fire)."""
+    from app import dossier_export_service
+    monkeypatch.setattr(dossier_export_service, "_EXECUTOR", _InlineExecutor())
+
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "SR", "case_code": "CO-SR", "destination_market": "Ấn Độ", "invoice_no": "INV-SR"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(get_client("growatt"), {
+        "persisted_case_id": case_id, "case_code": "CO-SR", "title": "SR", "destination_market": "Ấn Độ",
+        "shipment": {"invoice_no": "INV-SR"},
+        "products": [{"code": "TP-SR", "name": "SR", "quantity": "1", "unit": "PCS", "fob": "100", "currency": "USD",
+                      "materials": [{"material_code": "M", "uom": "PCS", "bom_qty_per": "1", "unit_value": "1",
+                                     "material_value": "1", "origin_status": "non_origin", "consumed_qty": "1"}]}],
+        "origin_sheet_states": {"TP-SR": {"status": "locked", "status_label": "Chốt"}},
+    })
+    update_case_record(get_client("growatt"), {"persisted_case_id": case_id, "status": "completed"})
+
+    # Before any export: review shows the idle "Xuất hồ sơ" action inline.
+    page = client.get(f"/clients/growatt/co-case/{case_id}/review")
+    assert page.status_code == 200
+    assert 'data-export-status="idle"' in page.text
+    assert "Đang tải trạng thái" not in page.text
+
+    # After a (synchronous) export: review shows the done state + download inline.
+    submit = client.post(f"/clients/growatt/co-case/{case_id}/export-dossier-zip", follow_redirects=False)
+    assert submit.status_code == 303
+    page = client.get(f"/clients/growatt/co-case/{case_id}/review")
+    assert 'data-export-status="done"' in page.text
+    assert "Tải hồ sơ" in page.text
+    assert "Đang tải trạng thái" not in page.text
 
 
 def test_origin_sheet_lock_records_cross_case_stock_ledger_claims():
