@@ -55,6 +55,12 @@ Both UoM admin surfaces had bad UX:
   `→ 1 ROLL = 1 PIECES` readout in the edit drawer (confirmed against
   `app/flatten/uom.py:62` → `q * match.factor`).
 - **Cross-link** to the system-wide standards (`/admin/uom`, admin-gated).
+- **Client-side pagination** (50/page, selector 25/50/100/all): johnson-vn has
+  537 rows — too long to scroll. Search / cross-family filter / column sort run
+  over the *full* set, then the matching+sorted rows are windowed to the current
+  page (`1–50 / 537 · trang 1/11`, prev/next). Kept client-side on purpose:
+  server paging would only search the current page and would lose page position
+  on every edit/add/delete POST-redirect.
 
 ## Backend (scope: reskin + edit/delete canonical)
 - `uom_standards.format_factor()` — clean factor display (no trailing zeros).

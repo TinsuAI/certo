@@ -3227,6 +3227,18 @@ a.uom-chip.uom-chip-bad:hover { border-color: #dc2626; background: #fee2e2; }
 }
 .uom-dir-hint code { font-size: 0.92em; }
 .uom-editor-readout { color: var(--primary); font-size: 0.84rem; }
+.uom-pager {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--border);
+}
+.uom-pager .uom-pageinfo { font-variant-numeric: tabular-nums; }
+.uom-pager .uom-pagesize { margin-left: auto; display: inline-flex; align-items: center; gap: 0.35rem; }
+.uom-pager .uom-pagesize select { padding: 0.2rem 0.4rem; border: 1px solid var(--border); border-radius: var(--radius-md); }
+.uom-pager button[disabled] { opacity: 0.45; cursor: default; }
 
 .uom-fromto { white-space: nowrap; }
 .uom-arrow { color: var(--foreground-muted); margin: 0 0.3rem; }

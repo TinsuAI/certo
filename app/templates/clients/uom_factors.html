@@ -106,6 +106,19 @@
     </tbody>
   </table>
   <p class="meta uom-fnoresults" hidden>Không có hệ số nào khớp.</p>
+  <div class="uom-pager" id="uomf-pager" hidden>
+    <button type="button" class="btn-secondary btn-sm" id="uomf-prev">← Trước</button>
+    <span class="uom-pageinfo meta" id="uomf-pageinfo"></span>
+    <button type="button" class="btn-secondary btn-sm" id="uomf-next">Sau →</button>
+    <label class="uom-pagesize meta">Mỗi trang
+      <select id="uomf-pagesize">
+        <option value="25">25</option>
+        <option value="50" selected>50</option>
+        <option value="100">100</option>
+        <option value="0">Tất cả</option>
+      </select>
+    </label>
+  </div>
   {% else %}
   <p class="muted">Chưa có hệ số nào.{% if can_edit %} Thêm dòng đầu tiên (nút “＋ Thêm hệ số”) hoặc import file bên dưới.{% endif %}</p>
   {% endif %}
@@ -237,28 +250,67 @@
     if (efi) efi.addEventListener("input", edReadout);
   }
 
-  // ── Search + cross-only filter ───────────────────────────────────
-  function applyFilter() {
+  // ── Filter + sort + pagination (all client-side) ─────────────────
+  // Search / cross-only filter and column sort operate over the FULL row
+  // set; pagination then windows the matching, sorted rows. Keeping it
+  // client-side preserves instant search across every row (server paging
+  // would only search the current page).
+  var pageSize = 50, currentPage = 1;
+  var pager = document.getElementById("uomf-pager"),
+      prevBtn = document.getElementById("uomf-prev"),
+      nextBtn = document.getElementById("uomf-next"),
+      pageInfo = document.getElementById("uomf-pageinfo"),
+      sizeSel = document.getElementById("uomf-pagesize");
+
+  function matches(r) {
     var q = (search ? search.value : "").trim().toLowerCase();
     var crossOnly = crossCb && crossCb.checked;
-    var shown = 0;
-    rows.forEach(function (r) {
-      var hit = (!q || r.dataset.search.toLowerCase().indexOf(q) !== -1) &&
-                (!crossOnly || r.dataset.cross === "1");
-      r.hidden = !hit;
-      var s = slotFor(r);
-      if (s && !hit) s.hidden = true;
-      if (hit) shown++;
-      else if (r.classList.contains("is-editing")) closeEditor();
-    });
-    if (countEl) countEl.textContent = shown < total ? (shown + " / " + total + " hiển thị") : (total + " hệ số");
-    if (noRes) noRes.hidden = shown > 0;
+    return (!q || r.dataset.search.toLowerCase().indexOf(q) !== -1) &&
+           (!crossOnly || r.dataset.cross === "1");
   }
-  if (search) search.addEventListener("input", applyFilter);
-  if (crossCb) crossCb.addEventListener("change", applyFilter);
-  applyFilter();
 
-  // ── Column sort ──────────────────────────────────────────────────
+  function rerender() {
+    var matched = rows.filter(matches);
+    var totalMatched = matched.length;
+    var size = pageSize > 0 ? pageSize : (totalMatched || 1);
+    var pages = Math.max(1, Math.ceil(totalMatched / size));
+    if (currentPage > pages) currentPage = pages;
+    if (currentPage < 1) currentPage = 1;
+    var start = (currentPage - 1) * size, end = start + size;
+
+    rows.forEach(function (r) {
+      r.hidden = true;
+      var s = slotFor(r);
+      if (s) s.hidden = true;
+    });
+    for (var i = start; i < end && i < totalMatched; i++) matched[i].hidden = false;
+    if (activeRow) {
+      if (!activeRow.hidden) { var as = slotFor(activeRow); if (as) as.hidden = false; }
+      else closeEditor();
+    }
+
+    if (countEl) countEl.textContent = totalMatched === total
+      ? (total + " hệ số") : (totalMatched + " / " + total + " khớp");
+    if (noRes) noRes.hidden = totalMatched > 0;
+    if (pager) {
+      pager.hidden = total === 0;
+      var fromN = totalMatched ? start + 1 : 0, toN = Math.min(end, totalMatched);
+      if (pageInfo) pageInfo.textContent = totalMatched
+        ? (fromN + "–" + toN + " / " + totalMatched + "  ·  trang " + currentPage + "/" + pages)
+        : "0 kết quả";
+      if (prevBtn) prevBtn.disabled = currentPage <= 1;
+      if (nextBtn) nextBtn.disabled = currentPage >= pages;
+    }
+  }
+
+  function resetPage() { currentPage = 1; rerender(); }
+  if (search) search.addEventListener("input", resetPage);
+  if (crossCb) crossCb.addEventListener("change", resetPage);
+  if (prevBtn) prevBtn.addEventListener("click", function () { currentPage--; rerender(); window.scrollTo(0, 0); });
+  if (nextBtn) nextBtn.addEventListener("click", function () { currentPage++; rerender(); window.scrollTo(0, 0); });
+  if (sizeSel) sizeSel.addEventListener("change", function () { pageSize = parseInt(sizeSel.value, 10) || 0; resetPage(); });
+
+  // Column sort — reorders the full set, then re-windows.
   function val(r, k) {
     if (k === "mc") return (r.dataset.mc || "￿").toLowerCase();
     if (k === "fromto") return (r.dataset.from + ">" + r.dataset.to).toLowerCase();
@@ -281,8 +333,11 @@
         return 0;
       });
       rows.forEach(function (r) { tbody.appendChild(r); var s = slotFor(r); if (s) tbody.appendChild(s); });
+      resetPage();
     });
   });
+
+  rerender();
 
   // ── Add panel: toggle + live conversion preview ──────────────────
   var panel = document.getElementById("add-factor-panel");
