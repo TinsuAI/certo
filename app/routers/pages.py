@@ -4,11 +4,11 @@ from __future__ import annotations
 from fastapi import APIRouter
 from app import co_auth, co_stock_eligibility, co_stock_materializer
 from app.app_state_store import get_app_state_store
-from app.co_case_store import acquire_origin_calculation_lock, co_case_is_completed, co_case_status_view, get_case_workspace, update_case_record
+from app.co_case_store import co_case_is_completed, co_case_status_view, get_case_workspace, update_case_record
 from app.demo_data import update_products_from_form
 from app.portfolio import portfolio_service
 from app.web.client_context import _data_hub_overview_context, client_case, client_context, resolve_client
-from app.web.co_case_context import co_case_context, enrich_client_with_source_summary, origin_lock_actor
+from app.web.co_case_context import co_case_context, enrich_client_with_source_summary
 from app.web.deps import large_request_form, require_local_source_writes
 from app.web.templating import templates
 from app.workbook_io import WorkbookParseError, create_evidence_workbook, create_input_workbook, parse_input_workbook
@@ -193,24 +193,6 @@ async def save_client_config_route(request: Request, client_id: str):
 async def evaluate(request: Request, client_id: str):
     form = await large_request_form(request)
     case = update_products_from_form({key: str(value) for key, value in form.items()})
-    case_id = case.get("persisted_case_id", "")
-    if case_id:
-        client = resolve_client(client_id)
-        lock_result = acquire_origin_calculation_lock(client, case_id, origin_lock_actor(request))
-        if not lock_result["acquired"]:
-            return templates.TemplateResponse(
-                request=request,
-                name="co_case.html",
-                status_code=409,
-                context=co_case_context(
-                    client_id,
-                    case=case,
-                    current_step="origin",
-                    error=f"Chưa thể tính lại: hồ sơ {lock_result['lock'].get('case_code') or lock_result['lock'].get('case_id')} đang giữ phiên tính tồn cho khách hàng này.",
-                    origin_calculation_blocked=True,
-                    preserve_origin_products=True,
-                ),
-            )
     context = co_case_context(
         client_id,
         case=case,

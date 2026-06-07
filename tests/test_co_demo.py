@@ -5951,112 +5951,11 @@ def test_co_case_origin_round_trips_multi_lot_allocation_to_export_workbook():
     assert hidden_form_data(locked.text)["product_0_origin_sheet_status"] == "locked"
 
 
-def test_origin_calculation_lock_blocks_parallel_cases_for_same_client():
-    client = TestClient(app)
-    client.post(
-        "/clients/growatt/bcct/upload",
-        files={
-            "file": (
-                "bcct.xlsx",
-                bcct_workbook([
-                    {
-                        "direction": "import",
-                        "declaration_type": "E11",
-                        "declaration_no": "NK-LOCK",
-                        "line_no": "1",
-                        "item_code": "DEMO-NPL-001",
-                        "description": "Main control board",
-                        "hs_code": "8542.39",
-                        "quantity": "20",
-                        "unit": "PCE",
-                        "customs_value": "200",
-                        "currency": "VND",
-                    },
-                    {
-                        "direction": "export",
-                        "declaration_type": "E42",
-                        "declaration_no": "XK-LOCK-1",
-                        "line_no": "1",
-                        "item_code": "PV00.0048500",
-                        "description": "Growatt inverter",
-                        "hs_code": "850440",
-                        "quantity": "1",
-                        "unit": "PCS",
-                        "customs_value": "1000",
-                        "currency": "VND",
-                        "invoice_ref": "INV-LOCK-1",
-                    },
-                    {
-                        "direction": "export",
-                        "declaration_type": "E42",
-                        "declaration_no": "XK-LOCK-2",
-                        "line_no": "1",
-                        "item_code": "PV00.0048500",
-                        "description": "Growatt inverter",
-                        "hs_code": "850440",
-                        "quantity": "1",
-                        "unit": "PCS",
-                        "customs_value": "1000",
-                        "currency": "VND",
-                        "invoice_ref": "INV-LOCK-2",
-                    },
-                ]),
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-        },
-    )
-    first = client.post(
-        "/clients/growatt/co-case/create",
-        data={"title": "Lock one", "case_code": "CO-LOCK-1", "destination_market": "Ấn Độ", "invoice_no": "INV-LOCK-1"},
-        follow_redirects=False,
-    )
-    second = client.post(
-        "/clients/growatt/co-case/create",
-        data={"title": "Lock two", "case_code": "CO-LOCK-2", "destination_market": "Ấn Độ", "invoice_no": "INV-LOCK-2"},
-        follow_redirects=False,
-    )
-    first_origin = client.get(f"{first.headers['location']}/origin")
-    second_origin = client.get(f"{second.headers['location']}/origin")
-
-    first_recalculate = client.post("/clients/growatt/evaluate", data=hidden_form_data(first_origin.text))
-    blocked_recalculate = client.post("/clients/growatt/evaluate", data=hidden_form_data(second_origin.text))
-    blocked_export = client.post(f"{second.headers['location']}/export", data=hidden_form_data(second_origin.text))
-    index = client.get("/clients/growatt/co-case")
-
-    assert first_recalculate.status_code == 200
-    assert "Hồ sơ này đang giữ phiên tính tồn" in first_recalculate.text
-    assert blocked_recalculate.status_code == 409
-    assert "Chưa thể tính lại" in blocked_recalculate.text
-    assert "CO-LOCK-1" in blocked_recalculate.text
-    assert blocked_export.status_code == 409
-    assert "Chưa thể export" in blocked_export.text
-    assert "Nhả phiên" in index.text
-    assert "Đang giữ tồn" in index.text
-    assert "Phiên tính tồn đang mở" in index.text
-
-    released = client.post(
-        f"{first.headers['location']}/origin-lock/release",
-        data={"next_url": "/clients/growatt/co-case"},
-        follow_redirects=False,
-    )
-    second_recalculate = client.post("/clients/growatt/evaluate", data=hidden_form_data(second_origin.text))
-
-    assert released.status_code == 303
-    assert released.headers["location"] == "/clients/growatt/co-case"
-    assert second_recalculate.status_code == 200
-    assert "Hồ sơ này đang giữ phiên tính tồn" in second_recalculate.text
-
-
 def test_co_case_delete_only_allows_draft_unlocked_cases():
     client = TestClient(app)
     draft = client.post(
         "/clients/growatt/co-case/create",
         data={"title": "Delete draft", "case_code": "CO-DELETE-DRAFT", "destination_market": "Ấn Độ", "invoice_no": "INV-DELETE-DRAFT"},
-        follow_redirects=False,
-    )
-    locked = client.post(
-        "/clients/growatt/co-case/create",
-        data={"title": "Delete locked", "case_code": "CO-DELETE-LOCK", "destination_market": "Ấn Độ", "invoice_no": "INV-DELETE-LOCK"},
         follow_redirects=False,
     )
     completed = client.post(
@@ -6073,11 +5972,8 @@ def test_co_case_delete_only_allows_draft_unlocked_cases():
             "shipment": {"invoice_no": "INV-DELETE-DONE", "bill_of_lading_no": ""},
         },
     )
-    locked_origin = client.get(f"{locked.headers['location']}/origin")
-    client.post("/clients/growatt/evaluate", data=hidden_form_data(locked_origin.text))
     index = client.get("/clients/growatt/co-case")
 
-    blocked_locked = client.post(f"{locked.headers['location']}/delete")
     blocked_completed = client.post(f"{completed.headers['location']}/delete")
     deleted_draft = client.post(f"{draft.headers['location']}/delete", follow_redirects=False)
     after_delete = client.get("/clients/growatt/co-case")
@@ -6086,10 +5982,7 @@ def test_co_case_delete_only_allows_draft_unlocked_cases():
     assert "Xoá" in index.text
     assert "data-delete-case-modal" in index.text
     assert "return confirm(" not in index.text
-    assert "Hồ sơ đang giữ phiên tính tồn" in index.text
     assert "Hồ sơ đã hoàn tất" in index.text
-    assert blocked_locked.status_code == 409
-    assert "Hồ sơ đang giữ phiên tính tồn" in blocked_locked.text
     assert blocked_completed.status_code == 409
     assert "Hồ sơ đã hoàn tất" in blocked_completed.text
     assert deleted_draft.status_code == 303

@@ -8,7 +8,7 @@ import re
 from fastapi import APIRouter
 from app import co_auth, co_stock_eligibility, co_stock_ledger, co_stock_materializer, material_search
 from app.bom_store import attach_case_bom_snapshot
-from app.co_case_store import CaseHasActiveClaimsError, MAX_SUPPORTING_FILE_BYTES, acquire_origin_calculation_lock, active_origin_calculation_lock, build_case_criteria_rows, case_from_record, co_case_is_completed, create_case_record, create_case_workbook, declaration_refs, delete_case_record, get_case_record, get_supporting_file, invoice_keys, json_safe, release_origin_calculation_lock, safe_filename, save_supporting_file, set_case_archived, update_case_record
+from app.co_case_store import CaseHasActiveClaimsError, MAX_SUPPORTING_FILE_BYTES, build_case_criteria_rows, case_from_record, co_case_is_completed, create_case_record, create_case_workbook, declaration_refs, delete_case_record, get_case_record, get_supporting_file, invoice_keys, json_safe, safe_filename, save_supporting_file, set_case_archived, update_case_record
 from app.co_form_config_store import load_co_form_config
 from app.co_forms import prioritized_form_lanes, recommended_form_lane
 from app.data_hub_client import current_data_hub_token
@@ -18,7 +18,7 @@ from app.dossier_export_service import dossier_export_result_path, dossier_expor
 from app.portfolio import portfolio_service
 from app.source_store import co_stock_rows_from_bcct
 from app.web.client_context import default_client_case, effective_min_gap_days, resolve_client, source_workspace_for_client
-from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, attach_origin_sheet_states, case_allocation_pool, case_tkx_tkn_summary, co_case_context, co_case_source_context, co_case_source_context_cached, co_stock_is_usable, dossier_content_revision, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, origin_case_revision, origin_lock_actor, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
+from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, attach_origin_sheet_states, case_allocation_pool, case_tkx_tkn_summary, co_case_context, co_case_source_context, co_case_source_context_cached, co_stock_is_usable, dossier_content_revision, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, origin_case_revision, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
 from app.web.deps import large_request_form
 from app.web.templating import templates
 from app.workbook_io import create_dossier_zip, create_hq_bang_ke_workbook
@@ -1060,22 +1060,6 @@ async def export_co_case_workbook(request: Request, client_id: str, case_id: str
             posted_case = update_products_from_form({key: str(value) for key, value in form.items()})
             posted_case["persisted_case_id"] = posted_case.get("persisted_case_id") or case_id
     client = resolve_client(client_id)
-    lock_result = acquire_origin_calculation_lock(client, case_id, origin_lock_actor(request))
-    if not lock_result["acquired"]:
-        return templates.TemplateResponse(
-            request=request,
-            name="co_case.html",
-            status_code=409,
-            context=co_case_context(
-                client_id,
-                case_id,
-                current_step="origin",
-                case=posted_case,
-                origin_demo_allowed=False,
-                origin_calculation_blocked=True,
-                error=f"Chưa thể export: hồ sơ {lock_result['lock'].get('case_code') or lock_result['lock'].get('case_id')} đang giữ phiên tính tồn cho khách hàng này.",
-            ),
-        )
     context = co_case_context(
         client_id,
         case_id,
@@ -1405,13 +1389,6 @@ async def close_co_case(request: Request, client_id: str, case_id: str):
         update_case_record(client, {"id": case_id, "persisted_case_id": case_id, "status": "completed"})
     except KeyError:
         raise HTTPException(status_code=404) from None
-    # Best-effort lock release: don't fail the close if no lock is held.
-    try:
-        existing_lock = active_origin_calculation_lock(client)
-        if existing_lock and existing_lock.get("case_id") == case_id:
-            release_origin_calculation_lock(client, case_id)
-    except Exception:  # noqa: BLE001 — lock release is housekeeping
-        pass
     return RedirectResponse(
         f"/clients/{client_id}/co-case/{case_id}/review",
         status_code=303,
@@ -1428,19 +1405,6 @@ async def reopen_co_case(request: Request, client_id: str, case_id: str):
         f"/clients/{client_id}/co-case/{case_id}/review",
         status_code=303,
     )
-@router.post("/clients/{client_id}/co-case/{case_id}/origin-lock/release")
-async def release_co_case_origin_lock(client_id: str, case_id: str, next_url: str = Form("")):
-    client = resolve_client(client_id)
-    try:
-        record = get_case_record(client, case_id)
-        case = case_from_record(default_client_case(client), client, record)
-        case = mark_origin_sheets_stale(case, 0)
-        update_case_record(client, case)
-    except KeyError:
-        pass
-    release_origin_calculation_lock(client, case_id)
-    redirect_url = next_url if next_url.startswith(f"/clients/{client_id}/co-case") else f"/clients/{client_id}/co-case/{case_id}/origin"
-    return RedirectResponse(redirect_url, status_code=303)
 @router.post("/clients/{client_id}/co-case/{case_id}/origin/save")
 async def save_co_case_origin(request: Request, client_id: str, case_id: str):
     client = resolve_client(client_id)
@@ -1508,22 +1472,6 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
                 error=action_error,
                 preserve_origin_products=True,
                 fast_origin_context=True,
-            ),
-        )
-    lock_result = acquire_origin_calculation_lock(client, case_id, origin_lock_actor(request))
-    if not lock_result["acquired"]:
-        return templates.TemplateResponse(
-            request=request,
-            name="co_case.html",
-            status_code=409,
-            context=co_case_context(
-                client_id,
-                case_id,
-                current_step="origin",
-                case=case,
-                error=f"Chưa thể load BOM vào bảng kê: hồ sơ {lock_result['lock'].get('case_code') or lock_result['lock'].get('case_id')} đang giữ phiên tính tồn cho khách hàng này.",
-                origin_calculation_blocked=True,
-                preserve_origin_products=True,
             ),
         )
     # Fast path: delta-refresh the materialized stock snapshot (1-2s when

@@ -6,10 +6,10 @@ import logging
 import re
 import threading
 
-from app import co_auth, co_stock_adjustments_store, co_stock_eligibility, co_stock_ledger, co_stock_materializer
+from app import co_stock_adjustments_store, co_stock_eligibility, co_stock_ledger, co_stock_materializer
 from app.bom_service import bom_service
 from app.bom_store import attach_case_bom_snapshot
-from app.co_case_store import active_origin_calculation_lock, build_case_criteria_rows, case_from_record, co_case_delete_block_reason, co_case_status_view, declaration_refs, get_case_record, get_case_workspace, json_safe, load_state
+from app.co_case_store import build_case_criteria_rows, case_from_record, co_case_delete_block_reason, co_case_status_view, declaration_refs, get_case_record, get_case_workspace, json_safe, load_state
 from app.co_form_config_store import load_co_form_config
 from app.co_forms import COMMON_MARKET_PRESETS, common_market_guidance, criteria_preview_for_hs, form_candidates_for_market, prioritized_form_lanes, recommended_form_lane
 from app.co_market_hints import infer_market_from_invoice_matches
@@ -23,7 +23,6 @@ from app.source_store import co_stock_rows_from_bcct
 from app.web.client_context import case_finished_hs_codes, client_case, resolve_client
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
-from fastapi import Request
 
 
 _CO_CASE_SOURCE_CACHE: dict[tuple[str, str], tuple[float, dict]] = {}
@@ -49,16 +48,6 @@ def durable_sheet_status(status) -> str:
     """
     text = str(status or "").strip()
     return "stale" if text == "calculating" else text
-def origin_lock_actor(request: Request) -> dict[str, str]:
-    user = co_auth.current_user(request)
-    if not user:
-        return {"id": "local", "label": "Local user"}
-    return {
-        "id": user.user_id,
-        "label": user.name or user.email or user.user_id,
-        "name": user.name,
-        "email": user.email,
-    }
 def origin_case_revision(case: dict) -> str:
     # Optimistic-concurrency token over USER-EDITABLE case state only.
     #
@@ -213,12 +202,11 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
         bom_workspace = minimal_bom_workspace()
     origin_demo_allowed = extra.pop("origin_demo_allowed", True)
     preserve_origin_products = extra.pop("preserve_origin_products", False)
-    origin_calculation_blocked = bool(extra.get("origin_calculation_blocked", False))
     client = enrich_client_with_source_summary(client, source_summary)
     case = attach_case_source_summary_snapshot(case, source_summary)
     if not use_cached_context:
         case["source_invoice_matches"] = json_safe(invoice_matches)
-    if current_step == "origin" and not origin_calculation_blocked and not use_cached_context:
+    if current_step == "origin" and not use_cached_context:
         selected_lane = recommended_form_lane(
             prioritized_form_lanes(case.get("destination_market", ""), co_case_hs_codes(case, invoice_matches))
         )
@@ -2661,10 +2649,9 @@ def co_case_context(client_id: str, case_id: str = "", current_step: str = "inde
     if not force_source_refresh and case.get("source_snapshot"):
         extra.setdefault("cached_case_context", True)
     extra["force_source_refresh"] = force_source_refresh
-    origin_lock = active_origin_calculation_lock(client)
     export_states = (load_state(client_id).get("dossier_exports") or {}) if current_step == "index" else {}
     for dossier in workspace["cases"]:
-        dossier["delete_block_reason"] = co_case_delete_block_reason(dossier, origin_lock)
+        dossier["delete_block_reason"] = co_case_delete_block_reason(dossier)
         try:
             dossier["delete_claims_summary"] = co_stock_ledger.claims_summary_for_case(
                 client_id, dossier.get("case_id", "")
@@ -2674,15 +2661,6 @@ def co_case_context(client_id: str, case_id: str = "", current_step: str = "inde
         if current_step == "index":
             exported = (export_states.get(dossier.get("case_id", "")) or {}).get("status") == "done"
             dossier["status_view"] = co_case_status_view(dossier, exported=exported)
-    current_case_id = case.get("persisted_case_id") or effective_case_id
-    origin_lock_owned = bool(origin_lock and current_case_id and origin_lock.get("case_id") == current_case_id)
-    origin_lock_blocked = bool(origin_lock and current_case_id and origin_lock.get("case_id") != current_case_id)
-    if current_step == "origin" and origin_lock_blocked:
-        extra["origin_calculation_blocked"] = True
-        extra.setdefault(
-            "error",
-            f"Khách hàng này đang có hồ sơ {origin_lock.get('case_code') or origin_lock.get('case_id')} giữ phiên tính tồn.",
-        )
     form_candidates = form_candidates_for_market(case.get("destination_market", ""))
     criteria_rows = build_case_criteria_rows(case, form_candidates)
     context = co_case_light_context(
@@ -2694,9 +2672,6 @@ def co_case_context(client_id: str, case_id: str = "", current_step: str = "inde
         criteria_rows=criteria_rows,
         **extra,
     )
-    context["origin_calculation_lock"] = origin_lock
-    context["origin_calculation_lock_owned"] = origin_lock_owned
-    context["origin_calculation_lock_blocked"] = origin_lock_blocked
     # Tồn CO overview strip on the làm-CO list page (feedback #12). Cheap SQL
     # aggregate (~ms even on 60k-row clients); skip on detail/step pages where
     # the strip isn't shown.

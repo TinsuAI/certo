@@ -412,22 +412,6 @@
       </label>
       {% endif %}
     </div>
-    {% if origin_calculation_lock %}
-    <div class="case-stock-lock-summary">
-      <div>
-        <span class="eyebrow">Phiên tính tồn đang mở</span>
-        <strong>{{ origin_calculation_lock.case_code or origin_calculation_lock.case_id }}</strong>
-        <small>{{ origin_calculation_lock.actor_label }} · hết hạn {{ origin_calculation_lock.expires_at[:16].replace('T', ' ') if origin_calculation_lock.expires_at else 'n/a' }}</small>
-      </div>
-      <div class="case-stock-lock-actions">
-        <a class="btn-secondary" href="/clients/{{ client.id }}/co-case/{{ origin_calculation_lock.case_id }}/origin">Mở hồ sơ giữ tồn</a>
-        <form method="post" action="/clients/{{ client.id }}/co-case/{{ origin_calculation_lock.case_id }}/origin-lock/release">
-          <input type="hidden" name="next_url" value="/clients/{{ client.id }}/co-case">
-          <button type="submit" class="btn-secondary">Nhả phiên</button>
-        </form>
-      </div>
-    </div>
-    {% endif %}
     <div class="case-result-meta" data-case-result-count>{{ summary.total or 0 }} hồ sơ</div>
     <div class="dossier-list co-dossier-list">
       <div class="dossier-list-head" aria-hidden="true">
@@ -451,7 +435,6 @@
       {% endif %}
       {% for dossier in case_workspace.cases %}
       {% set v = dossier.status_view %}
-      {% set holds_lock = origin_calculation_lock and origin_calculation_lock.case_id == dossier.case_id %}
       <div class="dossier-row co-dossier-row{% if v.archived %} is-archived{% endif %}"
         data-case-row
         data-case-search="{{ (dossier.case_code ~ ' ' ~ dossier.title ~ ' ' ~ dossier.shipment.invoice_no ~ ' ' ~ dossier.shipment.export_declaration_nos|join(' ') ~ ' ' ~ dossier.destination_market ~ ' ' ~ dossier.co_form_type ~ ' ' ~ dossier.shipment.bill_of_lading_no)|lower }}"
@@ -482,7 +465,6 @@
           {% else %}
           <strong class="muted">Chưa có bảng kê</strong>
           {% endif %}
-          {% if holds_lock %}<small class="stock-lock-active">● Đang giữ tồn</small>{% endif %}
         </div>
         <div class="dossier-status">
           <span>Trạng thái</span>
@@ -623,24 +605,6 @@
 </section>
 {% endif %}
 
-{% if origin_calculation_lock %}
-{% set current_case_holds_origin_lock = origin_calculation_lock.case_id == case.persisted_case_id %}
-<section class="callout {{ 'callout-success' if current_case_holds_origin_lock else 'callout-info' }}">
-  <span class="callout-icon">i</span>
-  <div>
-    <div class="callout-title">{{ 'Hồ sơ này đang giữ phiên tính tồn' if current_case_holds_origin_lock else 'Khách hàng đang có hồ sơ khác giữ phiên tính tồn' }}</div>
-    <span>
-      {{ origin_calculation_lock.case_code or origin_calculation_lock.case_id }} ·
-      {{ origin_calculation_lock.actor_label }} ·
-      hết hạn {{ origin_calculation_lock.expires_at[:16].replace('T', ' ') if origin_calculation_lock.expires_at else 'n/a' }}.
-      {% if not current_case_holds_origin_lock and origin_calculation_lock.case_id %}
-      Bạn vẫn có thể chuẩn bị thông tin/chứng từ, nhưng chưa thể tính lại tồn hoặc export bảng kê chính thức.
-      <a href="/clients/{{ client.id }}/co-case/{{ origin_calculation_lock.case_id }}/origin">Mở hồ sơ đang giữ tồn</a>
-      {% endif %}
-    </span>
-  </div>
-</section>
-{% endif %}
 
 {% if co_case_active_step == "shipment" %}
 <section class="zone source-panel">
@@ -959,9 +923,6 @@
   </div>
 </section>
 
-{% if origin_calculation_lock_owned %}
-<form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin-lock/release" id="origin-lock-release"></form>
-{% endif %}
 <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export-bang-ke" id="origin-export-bang-ke" hx-boost="false"></form>
 
 <form method="post" action="/clients/{{ client.id }}/evaluate" id="co-case" class="origin-workspace">
@@ -992,14 +953,10 @@
   <input type="hidden" name="document_{{ doc_index }}_status" value="{{ doc.status }}">
   {% endfor %}
 
-  {% set origin_actions_blocked = origin_calculation_lock_blocked %}
   <section class="origin-workbar-compact" aria-label="Điều khiển bảng kê xuất xứ">
     <span class="origin-workbar-sequence-dirty" data-origin-sequence-dirty hidden>Thứ tự sheet đã đổi — cần tính lại</span>
     <div class="origin-workbar-actions">
-      {% if origin_calculation_lock_owned %}
-      <button type="submit" form="origin-lock-release" class="btn-secondary" title="Nhả phiên tính tồn cho hồ sơ khác">Nhả phiên tính tồn</button>
-      {% endif %}
-      <button type="submit" form="origin-export-bang-ke" data-origin-export-action {% if origin_actions_blocked %}disabled title="Khách hàng đang có hồ sơ khác giữ phiên tính tồn"{% endif %}>Xuất bảng kê HQ</button>
+      <button type="submit" form="origin-export-bang-ke" data-origin-export-action>Xuất bảng kê HQ</button>
     </div>
   </section>
 
@@ -1175,9 +1132,9 @@
               </div>
               {% endif %}
               <div class="origin-sheet-actions">
-                <button type="submit" data-origin-sheet-calculate formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/calculate" formmethod="post" {% if origin_actions_blocked or not product.origin_can_calculate %}disabled title="{{ 'Khách hàng đang có hồ sơ khác giữ phiên tính tồn' if origin_actions_blocked else product.origin_calculate_block_reason }}"{% else %}title="Nạp BOM artifact đang chọn vào bảng kê (ghi đè chỉnh sửa client-side chưa lưu)"{% endif %}>Load BOM</button>
+                <button type="submit" data-origin-sheet-calculate formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/calculate" formmethod="post" {% if not product.origin_can_calculate %}disabled title="{{ product.origin_calculate_block_reason }}"{% else %}title="Nạp BOM artifact đang chọn vào bảng kê (ghi đè chỉnh sửa client-side chưa lưu)"{% endif %}>Load BOM</button>
                 {% if product.origin_sheet_status == 'locked' %}
-                <button type="submit" class="btn-secondary" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/reopen" formmethod="post" {% if origin_actions_blocked or not product.origin_can_reopen %}disabled title="{{ 'Khách hàng đang có hồ sơ khác giữ phiên tính tồn' if origin_actions_blocked else product.origin_reopen_block_reason }}"{% endif %}>Mở chốt</button>
+                <button type="submit" class="btn-secondary" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/reopen" formmethod="post" {% if not product.origin_can_reopen %}disabled title="{{ product.origin_reopen_block_reason }}"{% endif %}>Mở chốt</button>
                 {% if product.origin_sheet_material_diff_total %}
                 <button type="button" class="btn-primary"
                         data-origin-propose-bom
@@ -1188,7 +1145,7 @@
                 </button>
                 {% endif %}
                 {% else %}
-                <button type="submit" class="btn-secondary" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/lock" formmethod="post" {% if origin_actions_blocked or not product.origin_can_lock %}disabled title="{{ 'Khách hàng đang có hồ sơ khác giữ phiên tính tồn' if origin_actions_blocked else product.origin_lock_block_reason }}"{% endif %}>Chốt</button>
+                <button type="submit" class="btn-secondary" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/lock" formmethod="post" {% if not product.origin_can_lock %}disabled title="{{ product.origin_lock_block_reason }}"{% endif %}>Chốt</button>
                 {% endif %}
               </div>
             </div>
@@ -1810,7 +1767,7 @@
         <span class="review-action-icon" aria-hidden="true">✅</span>
         <span class="review-action-body">
           <strong>Đóng hồ sơ</strong>
-          <small>{% if _ready_to_close %}Khoá mọi thay đổi, tự nhả phiên tồn{% elif _no_products %}Chưa có bảng kê{% else %}Cần chốt {{ _unlocked_count }} bảng kê còn lại{% endif %}</small>
+          <small>{% if _ready_to_close %}Khoá mọi thay đổi{% elif _no_products %}Chưa có bảng kê{% else %}Cần chốt {{ _unlocked_count }} bảng kê còn lại{% endif %}</small>
         </span>
       </button>
     </form>
@@ -2040,7 +1997,6 @@
     if (/calculate$/.test(action)) return "Đã load BOM vào bảng kê.";
     if (/shipment$/.test(action)) return "Đã lưu shipment.";
     if (/supporting-files$/.test(action)) return "Đã tải chứng từ.";
-    if (/origin-lock\/release$/.test(action)) return "Đã nhả phiên giữ tồn; các bảng kê cần tính lại.";
     return text ? `Đã ${text.toLowerCase()}.` : "Đã lưu.";
   };
 

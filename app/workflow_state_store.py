@@ -310,7 +310,7 @@ class PostgresCoCaseStateStore:
         the legacy `co_case_states.payload.cases` blob.
 
         co_case_states.payload keeps everything that isn't per-case:
-        origin_calculation_lock, schema_version, etc. The cases array
+        dossier_exports, schema_version, etc. The cases array
         is rebuilt from co_cases ordered by updated_at desc to preserve
         the case-list UI order. supporting_files come from
         co_supporting_files joined on case_id.

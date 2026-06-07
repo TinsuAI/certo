@@ -10,7 +10,7 @@ import shutil
 import tempfile
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from pathlib import Path
@@ -24,7 +24,6 @@ from app.workflow_state_store import get_co_case_state_store
 
 MAX_SUPPORTING_FILE_BYTES = 20 * 1024 * 1024
 ALLOWED_SUPPORTING_SUFFIXES = {".pdf", ".xlsx", ".xls", ".xlsm", ".doc", ".docx", ".jpg", ".jpeg", ".png"}
-ORIGIN_CALCULATION_LOCK_TTL_MINUTES = 60
 COMPLETED_CASE_STATUSES = {"completed", "done", "finished", "submitted", "closed"}
 
 
@@ -231,7 +230,7 @@ def delete_case_record(client: dict, case_id: str, *, release_claims: bool = Fal
         record = next((row for row in state["cases"] if row["case_id"] == case_id), None)
         if record is None:
             raise KeyError(case_id)
-        block_reason = co_case_delete_block_reason(record, state.get("origin_calculation_lock") or {})
+        block_reason = co_case_delete_block_reason(record)
         if block_reason:
             raise ValueError(block_reason)
         summary = co_stock_ledger.claims_summary_for_case(client["id"], case_id)
@@ -251,9 +250,7 @@ def delete_case_record(client: dict, case_id: str, *, release_claims: bool = Fal
     return result
 
 
-def co_case_delete_block_reason(case: dict, origin_lock: dict | None = None) -> str:
-    if origin_lock and origin_calculation_lock_is_active(origin_lock) and origin_lock.get("case_id") == case.get("case_id"):
-        return "Hồ sơ đang giữ phiên tính tồn. Hãy nhả phiên trước khi xoá."
+def co_case_delete_block_reason(case: dict) -> str:
     if co_case_is_completed(case):
         return "Hồ sơ đã hoàn tất nên không thể xoá."
     return ""
@@ -349,65 +346,6 @@ def set_case_archived(client: dict, case_id: str, archived: bool) -> dict:
         save_state(client["id"], state)
         _persist_case_row(client["id"], record)
         return dict(record)
-
-
-def active_origin_calculation_lock(client: dict) -> dict:
-    lock = load_state(client["id"]).get("origin_calculation_lock") or {}
-    return dict(lock) if origin_calculation_lock_is_active(lock) else {}
-
-
-def acquire_origin_calculation_lock(client: dict, case_id: str, actor: dict | None = None) -> dict:
-    actor = actor or {}
-    with case_lock(client["id"]):
-        state = load_state(client["id"])
-        existing = state.get("origin_calculation_lock") or {}
-        if not origin_calculation_lock_is_active(existing):
-            existing = {}
-        if existing and existing.get("case_id") != case_id:
-            return {"acquired": False, "lock": dict(existing)}
-
-        case_record = next((row for row in state["cases"] if row["case_id"] == case_id), {})
-        now = datetime.now(timezone.utc).replace(microsecond=0)
-        lock = {
-            "status": "active",
-            "client_id": client["id"],
-            "client_name": client.get("name", client["id"]),
-            "case_id": case_id,
-            "case_code": case_record.get("case_code", case_id),
-            "case_title": case_record.get("title", ""),
-            "invoice_no": (case_record.get("shipment") or {}).get("invoice_no", ""),
-            "export_declaration_nos": declaration_refs((case_record.get("shipment") or {}).get("export_declaration_nos")),
-            "actor_id": clean_text(actor.get("id") or actor.get("user_id") or "local"),
-            "actor_label": clean_text(actor.get("label") or actor.get("name") or actor.get("email") or "Local user"),
-            "acquired_at": existing.get("acquired_at") or now.isoformat(),
-            "renewed_at": now.isoformat(),
-            "expires_at": (now + timedelta(minutes=ORIGIN_CALCULATION_LOCK_TTL_MINUTES)).isoformat(),
-        }
-        state["origin_calculation_lock"] = lock
-        save_state(client["id"], state)
-        return {"acquired": True, "lock": dict(lock)}
-
-
-def release_origin_calculation_lock(client: dict, case_id: str) -> dict:
-    with case_lock(client["id"]):
-        state = load_state(client["id"])
-        existing = state.get("origin_calculation_lock") or {}
-        if existing.get("case_id") != case_id:
-            return {"released": False, "lock": dict(existing) if origin_calculation_lock_is_active(existing) else {}}
-        state["origin_calculation_lock"] = {
-            **existing,
-            "status": "released",
-            "released_at": now_iso(),
-        }
-        save_state(client["id"], state)
-        return {"released": True, "lock": {}}
-
-
-def origin_calculation_lock_is_active(lock: dict) -> bool:
-    if not lock or lock.get("status") != "active":
-        return False
-    expires_at = parse_timestamp(lock.get("expires_at"))
-    return bool(expires_at and expires_at > datetime.now(timezone.utc))
 
 
 def case_from_record(base_case: dict, client: dict, record: dict) -> dict:

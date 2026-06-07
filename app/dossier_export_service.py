@@ -19,8 +19,7 @@ Design notes:
   zip was built from, the export is stale → regenerate. The service treats the
   token as opaque, so the key strategy lives with the dossier, not here.
 - **State home.** Per-case entries live in the client state under
-  `state["dossier_exports"]`, exactly like `origin_calculation_lock` — side-state
-  that does NOT bump the case revision.
+  `state["dossier_exports"]` — side-state that does NOT bump the case revision.
 - **Single worker** (`--workers 1` deploy), one heavy job at a time.
 """
 from __future__ import annotations
