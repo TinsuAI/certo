@@ -40,3 +40,25 @@ content container max-width (`.shell` `app.css:448` / các `max-width`). Xác mi
 bên trên trang hồ sơ rồi cho full-width **chỉ** ở context hồ sơ (đừng phá brand frame toàn cục nếu
 đó là chủ đích identity). `/discover` nhẹ trước khi sửa.
 Added: 2026-06-07.
+
+## Tồn CO / Data Hub refresh
+
+### D1 — Audit KỸ logic delta vs full + "refresh from Data Hub"
+Đã vá 1 lỗ (`039baeb`): snapshot rỗng + `refresh_state.last_bcct_server_time` còn sót ⇒ delta no-op,
+bảng tồn kẹt rỗng (repro johnson-vn: DH 65846 dòng BCCT / 60173 lô nhưng trang trống). Đó mới là 1
+triệu chứng — cần audit **toàn bộ** `_refresh_co_stock_delta_or_full` / `_try_delta_refresh` /
+`_full_refresh` / `record_refresh_state` (`co_case_context.py:2887+`) + `co_stock_materializer`
+refresh_state. Góc cần soi:
+- **Desync `refresh_state` ↔ `co_stock_rows`:** còn vector nào khác khiến delta âm thầm under/over-apply
+  (qty đổi, dòng xoá không qua tombstone, lô bị block-by-claims rồi bỏ qua)? Snapshot-empty chỉ là 1.
+- **Parity delta vs full:** chạy full rồi delta liên tiếp trên cùng dữ liệu phải ra cùng `co_stock_rows`.
+  Cần test/parity-check định kỳ; nghi delta lệch khỏi full theo thời gian.
+- **`bcct_row_count_at_refresh` ghi = tổng source count (65846) kể cả khi delta** → số liệu gây hiểu lầm,
+  có thể che drift. Xem lại ý nghĩa field này.
+- **Tombstone path:** `tombstone_source_rows` hash transaction_key → có khớp `source_row` materializer
+  dùng để xoá không? Xoá hụt = tồn ảo.
+- **UX tín hiệu:** refresh trả `ok:true, rows:0` không phân biệt "không có gì mới" vs "snapshot lỗi" —
+  operator không biết. Cân nhắc surface mode/lý do (full vì rỗng, delta N thay đổi…).
+- **`_probe_server_time` best-effort fail** → server_time trống → full mãi (chậm ~12s/lần Johnson).
+Rủi ro: SAI TỒN (over/under-claim downstream). `/discover` + viết test parity trước khi sửa.
+Added: 2026-06-07.
