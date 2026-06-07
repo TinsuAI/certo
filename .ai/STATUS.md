@@ -1,8 +1,23 @@
 # Project Status
 
 ## Current State
-- **CO-stock state-machine detangle — Phase 1 DONE on branch `co-stock-detangle-phase1`
-  (NOT pushed/merged/deployed).** Two concerns the giữ-tồn/chốt/đóng machine tangled:
+- **CO-stock detangle Phase 1 + Phase 2 + co-stock refresh fix — MERGED to `main` + DEPLOYED
+  (prod + nightly demo, 2026-06-07).** Fast-forward merge of `co-stock-detangle-phase2` → `main`
+  → pushed `TinsuAI/co` (HEAD `11dbff8`). The push tip was `[skip ci]` so the CI deploy was
+  skipped; re-triggered via `gh workflow run ci.yml --ref main` → tests/build/deploy all green
+  (see memory `deploy-remote-tinsu-co` for the `[skip ci]` gotcha). No DB migration. Prod +
+  demo both 303 (SSO) after deploy.
+  - **Phase 2 (`074e926`, `bd8607a`):** split "Load BOM" (structure-only, `allocate=False`, new
+    status `bom_loaded`, no stock touch) from "Tính bảng kê" (`/calculate`, allocation). New
+    endpoint `/origin/sheet/{code}/load-bom`; `/calculate` now PRESERVES material overrides (routes
+    via `recalculate_origin_sheet_edits` when overrides exist) instead of wiping → Load BOM → sửa
+    NVL → Tính keeps edits. `origin_not_calculated` marker stops a bogus 100% LVC at `bom_loaded`.
+    Brief `.ai/features/2026-06-07-co-load-bom-tinh-bang-ke-split.md`; 15 new tests.
+  - **co-stock refresh fix (`039baeb`):** `_refresh_co_stock_delta_or_full` took delta whenever
+    `refresh_state.last_bcct_server_time` existed, ignoring an EMPTY snapshot → johnson-vn stranded
+    empty (DH had 65846 BCCT rows). Now gates delta on `row_count > 0`; empty ⇒ full pull (verified:
+    johnson-vn refresh persists 60173 rows). Audit follow-up logged as BACKLOG D1.
+- **Phase 1 (`9e59711`, `83eeedc`)** — now deployed. Two concerns the giữ-tồn/chốt/đóng machine tangled:
   - **Removed mutex A** (`origin_calculation_lock`, per-client 60-min lock that 409-blocked
     sibling cases and never auto-released). It was **orthogonal to the Tồn CO invariant** —
     sheet-lock claim-write never held it; stock safety lives in `record_sheet_lock`'s over-claim
@@ -37,13 +52,13 @@
   `co_stock_events` (no FK) survives. Earlier "claims survive" claim was wrong.
 
 ## Next Steps (priority order)
-1. **Push + deploy Phase 1** when ready: branch → PR/merge to `main` (TinsuAI/co runner
-   auto-deploys ~1-2min). Smoke: chốt a sheet, confirm no lock banner; chốt over-claim still 409s.
-2. **Phase 2 — split "Load BOM" (structure only) from "Tính bảng kê" (allocation).** Currently the
-   "Load BOM" button hits `/calculate` which does both + cascade + (was) A. Split → `bom_loaded`
-   status. `prepare_case_origin_sheet` (`co_case_context.py:939`) is separable but needs refactor
-   (BOM-expansion fused with allocation in `origin_material_from_bom_row`; overrides keyed by
-   material row index). User asked for this. Own `/discover` first.
+1. **Prod smoke (Phase 1+2, post-deploy):** when an authed prod session is available, confirm a
+   case shows BOTH "Load BOM" + "Tính bảng kê" buttons; Load BOM → `bom_loaded` (no lock banner,
+   no stock claim); Tính bảng kê → calculated; over-claim chốt still 409s. (Local + CI green;
+   prod auth is DH SSO so left as a manual check.)
+2. **BACKLOG D1 — audit delta-vs-full / Data Hub refresh thoroughly.** The empty-snapshot strand
+   (`039baeb`) was one symptom; audit the whole refresh_state↔co_stock_rows desync surface +
+   delta/full parity. `/discover` + parity tests first.
 3. **Phase 3 — clean Tồn CO lot-history noise** (chốt+mở-chốt both logged → noisy). Keep data,
    change display (net per case / draft-vs-committed). Pair with delete-case audit R1/R2/R3.
 4. **UI backlog (`.ai/BACKLOG.md`):** B1 "Đổi công ty"/"Đổi hồ sơ" → modal; B2 review workflow
