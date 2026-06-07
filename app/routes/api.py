@@ -33,6 +33,7 @@ from app.stores.bom import (
     ProposalNotFound,
     ProposalNotPending,
     ResolverError,
+    company_bom_summary,
     get_proposal,
     get_artifact_with_rows,
     is_shallow_flatten,
@@ -395,6 +396,7 @@ async def api_source_summary(client_id: str, authorization: str | None = Header(
             )
             n_bcct, n_exports = cur.fetchone()
     cfg_row = client_config_store.get_or_default(client_id)
+    bom_summary = company_bom_summary(client_id)
     return _json({
         "client_config": client_config_store.to_api_payload(cfg_row),
         "material_catalog": _module_summary("material_catalog", int(n_materials or 0)),
@@ -403,6 +405,15 @@ async def api_source_summary(client_id: str, authorization: str | None = Header(
             **_module_summary("bcct", int(n_bcct or 0)),
             "reviewed_row_count": int(n_bcct or 0),
             "export_row_count": int(n_exports or 0),
+        },
+        "bom": {
+            "exported_with_bom": bom_summary["exported_with_bom"],
+            "exported_without_bom": bom_summary["exported_without_bom"],
+            "exported_total": bom_summary["exported_total"],
+            "product_count": bom_summary["product_count"],
+            "stale_count": bom_summary["stale_count"],
+            "multi_version_count": bom_summary["multi_version_count"],
+            "last_published_at": bom_summary["last_published_at"],
         },
     })
 

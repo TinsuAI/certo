@@ -270,9 +270,39 @@ Example:
     "published_row_count": 1000,
     "reviewed_row_count": 1000,
     "export_row_count": 300
+  },
+  "bom": {
+    "exported_with_bom": 130,
+    "exported_without_bom": 43,
+    "exported_total": 173,
+    "product_count": 171,
+    "stale_count": 8,
+    "multi_version_count": 65,
+    "last_published_at": "2026-05-29T03:21:00+00:00"
   }
 }
 ```
+
+The `bom` block (added 2026-06-07) rolls up company-level BOM signals over **alive** (non-tombstoned) artifacts.
+
+**Headline — CO readiness** (over distinct BCCT export `customs_code`s, i.e. the products CO issues C/O for; independent of catalog category):
+
+| Field | Meaning |
+|---|---|
+| `exported_total` | Distinct `customs_code`s declared as export in BCCT. |
+| `exported_with_bom` | Of those, how many have a BOM keyed to the same code — ready to certify. |
+| `exported_without_bom` | Of those, how many have **no** BOM — the C/O readiness gap. |
+
+`exported_with_bom + exported_without_bom == exported_total`. **Caveat:** all three are exact-`customs_code` matches → blind to NB codes living inside `goods_name` parens (see Data Hub backlog A.5). Treat as a close approximation, not an absolute count.
+
+**Secondary — internal BOM coverage / freshness:**
+
+| Field | Meaning |
+|---|---|
+| `product_count` | Distinct codes (any kind) with a BOM rooted at them — TP finished products **plus** BTP sub-assemblies (Johnson derives a BOM per intermediate BTP). An internal coverage metric, **not** a finished-product count. |
+| `stale_count` | Products with ≥1 `is_stale` artifact (Track D) — BOM may be out of date. |
+| `multi_version_count` | Products with >1 distinct `lineage_root_id` (more than one logical BOM version). |
+| `last_published_at` | `max(published_at)` across alive artifacts, or `null`. |
 
 ### Materials
 

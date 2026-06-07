@@ -281,12 +281,126 @@ def test_client_config_and_source_summary_endpoints(strict_mode_on):
         assert sbody["client_config"]["client_id"] == client_id
         assert sbody["client_config"]["fiscal_year_start_month"] == 1
         assert "co_stock" not in sbody["client_config"]
+        # bom block (no BOM artifacts seeded here → all-zero, but the
+        # exported product P-SUM-1 has no BOM → exported_without_bom == 1).
+        bom = sbody["bom"]
+        assert bom["exported_total"] == 1
+        assert bom["exported_with_bom"] == 0
+        assert bom["exported_without_bom"] == 1
+        assert bom["product_count"] == 0
+        assert bom["stale_count"] == 0
+        assert bom["multi_version_count"] == 0
+        assert bom["last_published_at"] is None
     finally:
         with connect() as conn:
             with conn.cursor() as cur:
                 cur.execute("delete from hub.bcct_rows where client_id = %s", (client_id,))
                 cur.execute("delete from hub.materials where client_id = %s", (client_id,))
                 cur.execute("delete from hub.client_config where client_id = %s", (client_id,))
+                cur.execute("delete from hub.clients where client_id = %s", (client_id,))
+
+
+def _insert_bom_artifact(cur, *, client_id, artifact_id, product_code,
+                          lineage_root_id, flatten_status="flattened",
+                          is_stale=False, published_at="2026-01-01",
+                          tombstoned=False):
+    cur.execute(
+        "insert into hub.bom_artifacts (artifact_id, client_id, "
+        "product_code, artifact_no, status, actor, intent, context, "
+        "normalized_hash, row_count, source_bom_kind, flatten_status, "
+        "flatten_strategy, source_channel, bom_variant_id, lineage, "
+        "flatten_method, flatten_method_version, published_at, is_stale, "
+        "stale_reasons, lineage_root_id, tombstoned_at) values "
+        "(%s, %s, %s, 1, 'published', 'agency_staff', 'asserted_technical', "
+        "'{}', %s, 0, 'technical_flattened', %s, 'technical_exploded', "
+        "'staff_form', 'default', '{}', 'as_provided', 'v1', %s, %s, "
+        "'[]'::jsonb, %s, %s)",
+        (artifact_id, client_id, product_code, f"h_{artifact_id}",
+         flatten_status, published_at, is_stale, lineage_root_id,
+         "2026-04-01" if tombstoned else None),
+    )
+
+
+def test_source_summary_bom_block_aggregates(strict_mode_on):
+    """`bom` block rolls up company-level BOM signals for CO."""
+    client_id = "read-api-bom-summary"
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "insert into hub.clients (client_id, name) values (%s, 'BOM Summary') on conflict (client_id) do nothing",
+                (client_id,),
+            )
+            cur.execute(
+                """
+                insert into hub.materials (client_id, material_code, name, category, status)
+                values (%s, 'P1', 'Prod 1', 'tp', 'active'),
+                       (%s, 'P2', 'Prod 2', 'tp', 'active'),
+                       (%s, 'P3', 'Prod 3', 'tp', 'active'),
+                       (%s, 'B1', 'Btp 1', 'btp_sx', 'active')
+                on conflict do nothing
+                """,
+                (client_id, client_id, client_id, client_id),
+            )
+            # P1: two alive flattened artifacts, distinct lineage roots
+            #     → multi-version; latest published 2026-03-01.
+            _insert_bom_artifact(cur, client_id=client_id, artifact_id="ba_p1a",
+                                 product_code="P1", lineage_root_id="L1a",
+                                 flatten_status="flattened", published_at="2026-01-01")
+            _insert_bom_artifact(cur, client_id=client_id, artifact_id="ba_p1b",
+                                 product_code="P1", lineage_root_id="L1b",
+                                 flatten_status="flattened", published_at="2026-03-01")
+            # P2: non_flattened + stale.
+            _insert_bom_artifact(cur, client_id=client_id, artifact_id="ba_p2",
+                                 product_code="P2", lineage_root_id="L2",
+                                 flatten_status="non_flattened", is_stale=True,
+                                 published_at="2026-02-01")
+            # B1 (btp): flattened — counts in product_count, NOT tp_with_bom.
+            _insert_bom_artifact(cur, client_id=client_id, artifact_id="ba_b1",
+                                 product_code="B1", lineage_root_id="LB1",
+                                 flatten_status="flattened", published_at="2026-01-15")
+            # P3: tombstoned → excluded everywhere.
+            _insert_bom_artifact(cur, client_id=client_id, artifact_id="ba_p3",
+                                 product_code="P3", lineage_root_id="L3",
+                                 flatten_status="flattened", tombstoned=True)
+            # Exports: P1 (has BOM) + PX (no BOM) → exported_without_bom == 1.
+            cur.execute(
+                """
+                insert into hub.bcct_rows
+                  (client_id, transaction_key, line_no, declaration_no, declaration_type,
+                   direction, registration_date, customs_code, goods_name, payload)
+                values
+                  (%s, 'BS_X1', '1', 'SX1', 'E42', 'export', '2025-01-02', 'P1', 'Prod 1', '{}'::jsonb),
+                  (%s, 'BS_X2', '1', 'SX2', 'E42', 'export', '2025-01-03', 'PX', 'No Bom', '{}'::jsonb)
+                on conflict do nothing
+                """,
+                (client_id, client_id),
+            )
+    try:
+        token = jwt_issuer.make_token(
+            user_id="u_bomsum", email="bomsum@test.local", role="admin",
+            display_name="BOM Sum",
+        )["access_token"]
+        r = _client().get(
+            f"/v1/hub/dncxs/{client_id}/source-summary",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        assert r.status_code == 200
+        bom = r.json()["bom"]
+        # Headline over BCCT export codes: P1 (has BOM) + PX (no BOM).
+        assert bom["exported_total"] == 2
+        assert bom["exported_with_bom"] == 1      # P1
+        assert bom["exported_without_bom"] == 1   # PX
+        # Secondary internal-coverage metrics.
+        assert bom["product_count"] == 3          # P1, P2, B1 (P3 tombstoned)
+        assert bom["stale_count"] == 1            # P2
+        assert bom["multi_version_count"] == 1    # P1 has 2 lineage roots
+        assert bom["last_published_at"].startswith("2026-03-01")
+    finally:
+        with connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("delete from hub.bom_artifacts where client_id = %s", (client_id,))
+                cur.execute("delete from hub.bcct_rows where client_id = %s", (client_id,))
+                cur.execute("delete from hub.materials where client_id = %s", (client_id,))
                 cur.execute("delete from hub.clients where client_id = %s", (client_id,))
 
 

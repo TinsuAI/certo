@@ -29,6 +29,7 @@ header.
 | 2026-05-28 | `2026-05-28-bom-artifacts-picker-filter-available.md` | `lifecycle`/`shape`/`intents`/`latest_per_variant`/`case_id` filters on `/bom/artifacts` for CO picker; `filter_applied` echo for support detection | — |
 | 2026-05-28 | `2026-05-28-bom-vocab-v1-aliases-removed.md` | **Breaking.** BOM vocab v1 URL aliases (`/bom/version/{id}`, `/bom/{p}/versions`, `/v1/hub/.../bom/versions`) now return 404 instead of 308. Canonical `/artifact*` URLs unchanged | — |
 | 2026-05-29 | `2026-05-29-service-account-admin-ui-and-1y-tokens.md` | Service-account admin UI (`/admin/service-accounts`); default token TTL 30d → 1y; **CO action: set `DATA_HUB_SERVICE_TOKEN` (not `DATA_HUB_API_TOKEN`)**. Non-breaking | 073-074 |
+| 2026-06-07 | `2026-06-07-bom-summary-block-available.md` | Additive `bom` block on `/source-summary` (headline = `exported_with_bom`/`exported_without_bom`/`exported_total`; secondary `product_count`/`stale_count`/`multi_version_count`/`last_published_at`). Companion `/products` `total`+pagination deferred (backlog C.4) | — |
 
 ## Read order if starting fresh today (2026-05-13)
 

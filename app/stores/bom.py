@@ -687,6 +687,85 @@ def count_products_with_bom(client_id: str, *, q: str | None = None,
     return n
 
 
+def company_bom_summary(client_id: str) -> dict:
+    """Company-level BOM aggregates for the source-summary `bom` block.
+
+    Consumed by sister apps (CO) to render a per-company BOM overview.
+    All counts are over alive (non-tombstoned) artifacts.
+
+    Headline (CO readiness — over distinct BCCT export `customs_code`s,
+    the population CO issues C/O for; independent of catalog category):
+      exported_total:       distinct export customs_codes.
+      exported_with_bom:    those that have a BOM keyed to the same code.
+      exported_without_bom: those with NO BOM (the C/O readiness gap).
+      These three are exact-`customs_code` matches → blind to NB codes
+      living inside goods_name parens (see backlog A.5). Treat as a close
+      approximation, not an absolute count.
+
+    Secondary:
+      product_count:       distinct codes (any kind) with a BOM rooted at
+                           them — TP finished products PLUS BTP
+                           sub-assemblies (Johnson derives a BOM per
+                           intermediate BTP). An internal BOM-coverage
+                           metric, NOT a finished-product count.
+      stale_count:         # products with >=1 is_stale artifact (Track D)
+                           — BOM may be out of date.
+      multi_version_count: # products with >1 distinct lineage_root_id
+                           (more than one logical BOM version).
+      last_published_at:   max(published_at) across alive artifacts, or None.
+    """
+    summary_sql = """
+        with prod as (
+            select ba.product_code,
+                   bool_or(ba.is_stale) as any_stale,
+                   count(distinct ba.lineage_root_id) as n_logical,
+                   max(ba.published_at) as last_pub
+            from hub.bom_artifacts ba
+            where ba.client_id = %s and ba.tombstoned_at is null
+            group by ba.product_code
+        )
+        select
+            count(*) as product_count,
+            count(*) filter (where any_stale) as stale_count,
+            count(*) filter (where n_logical > 1) as multi_version_count,
+            max(last_pub) as last_published_at
+        from prod
+    """
+    exported_sql = """
+        select
+            count(*) as exported_total,
+            count(*) filter (where exists (
+                select 1 from hub.bom_artifacts ba
+                where ba.client_id = %s and ba.tombstoned_at is null
+                  and ba.product_code = e.customs_code
+            )) as exported_with_bom
+        from (
+            select distinct customs_code
+            from hub.bcct_rows
+            where client_id = %s and direction = 'export'
+              and customs_code is not null and customs_code <> ''
+        ) e
+    """
+    with connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(summary_sql, (client_id,))
+            cols = [d[0] for d in cur.description]
+            row = dict(zip(cols, cur.fetchone()))
+            cur.execute(exported_sql, (client_id, client_id))
+            exported_total, exported_with_bom = cur.fetchone()
+    exported_total = int(exported_total or 0)
+    exported_with_bom = int(exported_with_bom or 0)
+    return {
+        "exported_with_bom": exported_with_bom,
+        "exported_without_bom": exported_total - exported_with_bom,
+        "exported_total": exported_total,
+        "product_count": int(row["product_count"] or 0),
+        "stale_count": int(row["stale_count"] or 0),
+        "multi_version_count": int(row["multi_version_count"] or 0),
+        "last_published_at": row["last_published_at"],
+    }
+
+
 def list_artifacts_for_products(*, client_id: str,
                                 product_codes: list[str]) -> dict[str, list[dict]]:
     """Fan-in sibling of list_artifacts_for_product: artifact history for

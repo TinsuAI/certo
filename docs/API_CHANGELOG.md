@@ -14,6 +14,26 @@ Only `Breaking:` headings trigger notifications to `dev`/`admin` users (CO + BCQ
 
 ## Entries
 
+## 2026-06-07 — Additive: `bom` block on `/source-summary`
+
+**New optional block** on `GET /v1/hub/dncxs/{client_id}/source-summary`, alongside the existing `material_catalog` / `product_catalog` / `bcct` blocks. Company-level BOM aggregates over alive (non-tombstoned) artifacts, for per-company BOM dashboards:
+
+```json
+"bom": {
+  "exported_with_bom": 130, "exported_without_bom": 43, "exported_total": 173,
+  "product_count": 171, "stale_count": 8, "multi_version_count": 65,
+  "last_published_at": "2026-05-29T..+00:00"
+}
+```
+
+Field semantics in `docs/API_CONTRACT.md` (Source Summary section). Notes for consumers:
+- **Headline is the export trio.** `exported_with_bom` / `exported_without_bom` / `exported_total` are over distinct BCCT export `customs_code`s — the products CO certifies — and are independent of catalog category. `with + without == total`. They are exact-`customs_code` matches → blind to NB codes inside `goods_name` parens; treat as a close approximation, not an absolute count.
+- `product_count` is a **secondary** internal coverage metric: distinct codes with a BOM including BTP sub-assemblies (Johnson derives a BOM per intermediate BTP). It is NOT a finished-product count — do not show it as "# thành phẩm có BOM".
+- `stale_count` counts products with an `is_stale` BOM (Track D), `multi_version_count` products with >1 logical version, `last_published_at` is the most recent publish.
+- No new round-trip: CO reads this in the source-summary call it already makes.
+
+Motivation: CO API request `barry-CO-main/.ai/api-requests/2026-06-07-products-total-count.md`. The companion ask — real `total` + cursor pagination on `GET /v1/hub/products` — is deferred (Data Hub backlog C.4); CO does not need product enumeration yet.
+
 ## 2026-06-05 — Additive: `depth` filter + `is_shallow` field on BOM artifacts
 
 **New optional query param** on `GET /v1/hub/products/{p}/bom/artifacts` and `POST /v1/hub/products/bom/artifacts:batch`:

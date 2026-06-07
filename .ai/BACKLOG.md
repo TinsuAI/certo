@@ -645,6 +645,46 @@ deleted, the 3 redirect tests in `tests/test_bom_vocab_rename.py`
 removed (schema + ID-prefix tests retained), `docs/API_CONTRACT.md`
 alias section removed, `docs/API_CHANGELOG.md` Breaking entry added.
 
+## C.4 `/v1/hub/products` — real `total` + cursor pagination (DEFERRED)
+
+**Captured 2026-06-07** from CO API request
+`barry-CO-main/.ai/api-requests/2026-06-07-products-total-count.md`.
+
+`GET /v1/hub/products` is hard-capped at 50 with `total_estimate: null`
+and no `next_cursor` — the route (`app/routes/api.py:1631`) calls
+`list_products_with_bom(client_id, q=q)` with default `limit=50,
+offset=0`, never honors a `cursor`/`limit`, never calls the existing
+`count_products_with_bom()`. So any consumer that enumerates products
+is silently truncated.
+
+**The store layer already supports it** — `list_products_with_bom`
+takes `limit`/`offset`, and `count_products_with_bom` returns an exact
+count. The fix is route-wiring only:
+1. Accept `cursor` + `limit` query params (validate → `400 invalid_cursor`
+   / `400 invalid_limit`; server max e.g. 1000). Reuse the `_page_args`
+   offset-cursor idiom already in the file.
+2. Fetch `limit+1` to detect a next page; emit `next_cursor` (offset
+   string) when more remain, else null.
+3. Add `total = count_products_with_bom(client_id, q=q)`; keep
+   `total_estimate` populated with the same value for back-compat.
+4. Add `server_time`. Item payload unchanged.
+5. Provider tests: exact `total` across pages, `next_cursor` non-null
+   until last page, `sum(len(items)) == total` no dups, `limit` honored,
+   negative cases (bad cursor/limit, scope/client 403), edge cases
+   (0 products, exactly page-size, > page-size).
+
+**Population note:** `/products` enumerates BOTH tp + btp products with
+an alive (non-tombstoned) BOM artifact — `total` must match that
+population (sum of `len(items)`). If CO specifically wants "# thành
+phẩm (tp) có BOM" that is the `bom.product_count` in source-summary
+(see the source-summary `bom` block work, shipped separately).
+
+**Status: DEFERRED 2026-06-07.** CO does not need product enumeration
+this way yet — its BOM dashboard headline is served by the
+`source-summary.bom` block instead. Pull this out when a consumer
+actually needs to page the full product list, or when the silent 50-cap
+bites someone. ~2-3h (route + validation + tests).
+
 ---
 
 # D. Aggregate data history
