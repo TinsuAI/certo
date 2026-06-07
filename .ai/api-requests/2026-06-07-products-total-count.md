@@ -206,3 +206,8 @@ Data Hub commit:
 Data Hub changelog `2026-06-07 — Additive: bom block on /source-summary`; coordination note
 `.ai/sister-app-notes/2026-06-07-bom-summary-block-available.md` (data-hub repo). Exact commit
 hash: TBD (fill from data-hub repo).
+
+**Deployed to PROD — confirmed 2026-06-07** via in-container probe
+(`docker exec co-app-1` → `portfolio_service.source_summary`): the `bom` block is present on
+prod DH for johnson-vn (574/651, last_published 2026-06-05) and growatt-vn (20/63). CO consumer
+is deployed (`a33eaae`), so the prod BOM dashboard renders the real export trio end-to-end.

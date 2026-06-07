@@ -72,10 +72,10 @@
   no-token → 401 → deploy exit 22 after DH enforced auth).
 
 ## Next Steps (priority order)
-0. **Confirm Data Hub deployed the `bom` block to prod/demo.** The BOM dashboard shows real
-   numbers only where `/source-summary` carries `bom`; otherwise it (safely) shows a qualitative
-   card. Verify on prod after DH deploys; then fill the exact DH commit hash in the Approval
-   section of `.ai/api-requests/2026-06-07-products-total-count.md`.
+0. ~~**Confirm Data Hub deployed the `bom` block to prod.**~~ ✅ DONE 2026-06-07 — confirmed
+   via in-container probe (johnson 574/651, growatt 20/63); prod BOM dashboard now renders the
+   real export trio end-to-end. Only loose end: fill the exact DH commit hash in the Approval
+   section of `.ai/api-requests/2026-06-07-products-total-count.md` (from the data-hub repo).
 0b. (optional) Live UI smoke on prod with demo login `claude-check@local` / `claude-temp-2026`
    to screenshot the real authed pages (dashboard/data dashboards) — local verified, prod CSS
    confirmed but authed pages not yet screenshotted.
