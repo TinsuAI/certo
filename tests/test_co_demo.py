@@ -284,9 +284,9 @@ def test_client_navigation_hides_data_modules_inside_co_workflow():
     response = client.get("/clients/growatt/co-case")
 
     assert response.status_code == 200
-    assert 'aria-label="Luồng làm C/O"' in response.text
+    assert 'aria-label="Hồ sơ C/O"' in response.text
     assert 'aria-label="Dữ liệu nền công ty"' not in response.text
-    assert "Làm hồ sơ C/O" in response.text
+    assert "+ Tạo hồ sơ" in response.text
     assert 'href="/clients/growatt/co-case">Hồ sơ C/O</a>' not in response.text
     assert "Overview" not in response.text
     assert "Danh mục mã hàng" not in response.text
@@ -430,8 +430,8 @@ def test_catalog_bom_stock_bcct_are_data_views_and_co_case_is_workflow_entry():
     assert "Tỷ giá hải quan" in customs_fx_response.text
     assert "app-level" in customs_fx_response.text
     assert "Refresh tỷ giá" in customs_fx_response.text
-    assert "Quy trình làm C/O" in co_case_response.text
-    assert "Tạo hoặc mở hồ sơ" in co_case_response.text
+    assert "Tạo hồ sơ C/O" in co_case_response.text
+    assert "+ Tạo hồ sơ" in co_case_response.text
     assert "Danh sách hồ sơ C/O" in co_case_response.text
     assert "Các bước xử lý" not in co_case_response.text
     assert "Dữ liệu nền đang sẵn sàng" not in co_case_response.text
@@ -6032,7 +6032,7 @@ def test_origin_calculation_lock_blocks_parallel_cases_for_same_client():
     assert "Chưa thể export" in blocked_export.text
     assert "Nhả phiên" in index.text
     assert "Đang giữ tồn" in index.text
-    assert "Chỉ chuẩn bị" in index.text
+    assert "Phiên tính tồn đang mở" in index.text
 
     released = client.post(
         f"{first.headers['location']}/origin-lock/release",

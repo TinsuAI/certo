@@ -267,6 +267,90 @@ def co_case_is_completed(case: dict) -> bool:
     return snapshot_status in COMPLETED_CASE_STATUSES
 
 
+def co_case_status_view(case: dict, *, exported: bool = False) -> dict:
+    """Cheap per-case status for the list page + company dashboard.
+
+    Derives everything from the persisted record only — no source-context or
+    Data Hub calls. `exported` is the dossier-export "done" flag (read by the
+    caller from `state["dossier_exports"]`). Shared single source of truth so
+    the list and the dashboard never disagree on a case's status.
+    """
+    shipment = case.get("shipment") or {}
+    invoice_no = clean_text(shipment.get("invoice_no"))
+    declarations = shipment.get("export_declaration_nos") or []
+    bill_no = clean_text(shipment.get("bill_of_lading_no"))
+    products = case.get("products") or []
+    sheets_total = len(products)
+    sheets_locked = sum(
+        1 for product in products
+        if clean_text(product.get("origin_sheet_status")).lower() == "locked"
+    )
+    completed = co_case_is_completed(case)
+
+    issues: list[str] = []
+    if not invoice_no and not declarations:
+        issues.append("Thiếu invoice/tờ khai")
+    if not bill_no:
+        issues.append("Thiếu B/L")
+    if not products:
+        issues.append("Chưa có bảng kê")
+    elif sheets_locked < sheets_total:
+        issues.append(f"{sheets_total - sheets_locked} bảng kê chưa chốt")
+
+    if completed:
+        status_key, status_label = "done", "Đã chốt"
+    elif not invoice_no and not declarations:
+        status_key, status_label = "attention", "Có vấn đề"
+    elif not bill_no:
+        status_key, status_label = "attention", "Có vấn đề"
+    elif not products:
+        status_key, status_label = "attention", "Có vấn đề"
+    else:
+        status_key, status_label = "progress", "Đang xử lý"
+
+    if invoice_no:
+        reference = f"Invoice {invoice_no}"
+    elif declarations:
+        reference = "Tờ khai " + ", ".join(str(d) for d in declarations)
+    else:
+        reference = "Chưa nhập tham chiếu"
+
+    return {
+        "case_id": case.get("case_id"),
+        "case_code": case.get("case_code") or case.get("case_id"),
+        "title": case.get("title") or "",
+        "destination_market": case.get("destination_market") or "",
+        "co_form_type": case.get("co_form_type") or "",
+        "reference": reference,
+        "status_key": status_key,
+        "status_label": status_label,
+        "completed": completed,
+        "exported": bool(exported),
+        "archived": bool(case.get("archived")),
+        "sheets_total": sheets_total,
+        "sheets_locked": sheets_locked,
+        "issues": [] if completed else issues,
+        "updated_at": case.get("updated_at") or "",
+    }
+
+
+def set_case_archived(client: dict, case_id: str, archived: bool) -> dict:
+    """Flip a case's `archived` flag. Bypasses the `update_case_record`
+    close-gate on purpose: archiving a *completed* case is the common path,
+    and archive state is orthogonal to the edit/close lifecycle."""
+    case_id = clean_text(case_id)
+    with case_lock(client["id"]):
+        state = load_state(client["id"])
+        record = next((row for row in state["cases"] if row["case_id"] == case_id), None)
+        if record is None:
+            raise KeyError(case_id)
+        record["archived"] = bool(archived)
+        record["updated_at"] = now_iso()
+        save_state(client["id"], state)
+        _persist_case_row(client["id"], record)
+        return dict(record)
+
+
 def active_origin_calculation_lock(client: dict) -> dict:
     lock = load_state(client["id"]).get("origin_calculation_lock") or {}
     return dict(lock) if origin_calculation_lock_is_active(lock) else {}

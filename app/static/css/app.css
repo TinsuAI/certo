@@ -822,20 +822,233 @@ small,
   gap: 0.85rem;
 }
 
-.co-command-bar {
+/* --- CO-case index: header + stat band + status cells --- */
+.co-case-index {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, auto);
-  align-items: end;
-  gap: 1.1rem;
-  border-color: var(--border-strong);
-  border-left: 3px solid var(--primary);
-  padding: 0.85rem 1rem 0.95rem;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--primary) 4%, var(--card)), var(--card) 48%);
-  box-shadow: none;
+  gap: 0.7rem;
 }
 
-.co-command-bar h2 {
-  font-size: 1.12rem;
+.co-case-index-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.co-case-index-head h2 {
+  margin: 0;
+  font-size: 1.18rem;
+}
+
+.co-case-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.co-stat {
+  display: grid;
+  gap: 0.1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.7rem;
+  background: var(--card);
+  /* explicit color token — a <button> does NOT inherit --foreground, so an
+     un-classed number (e.g. "Tổng") would otherwise render in the UA default
+     color and vanish on the card. Recurring low-contrast bug. */
+  color: var(--foreground);
+  text-align: left;
+  cursor: pointer;
+}
+
+button.co-stat:hover {
+  border-color: var(--border-strong);
+}
+
+.co-stat[aria-pressed="true"] {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.co-stat strong {
+  color: var(--foreground);
+  font-size: 1.3rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.co-stat span {
+  color: var(--foreground-muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.co-stat.is-progress strong { color: var(--primary); }
+.co-stat.is-done strong { color: var(--success, var(--primary)); }
+.co-stat.is-attention strong { color: var(--warning); }
+.co-stat.is-muted { cursor: default; }
+
+/* status badge + tags */
+.co-status {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0.08rem 0.5rem;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.co-status-done {
+  background: color-mix(in srgb, var(--success, var(--primary)) 16%, transparent);
+  color: var(--success, var(--primary));
+}
+
+.co-status-progress {
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary);
+}
+
+.co-status-attention {
+  background: color-mix(in srgb, var(--warning) 18%, transparent);
+  color: var(--warning);
+}
+
+.dossier-status .co-tag {
+  display: inline-block;
+  margin-top: 0.22rem;
+  margin-right: 0.22rem;
+  border-radius: var(--radius-sm);
+  padding: 0.04rem 0.36rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  white-space: normal;
+  overflow: visible;
+}
+
+.co-tag-ok { color: var(--success, var(--primary)); }
+.co-tag-warn {
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  color: var(--warning);
+}
+
+/* progress cell */
+.dossier-progress .progress-bar {
+  margin-top: 0.28rem;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.dossier-progress .progress-bar i {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+}
+
+.dossier-progress strong.muted {
+  color: var(--foreground-muted);
+  font-weight: 700;
+}
+
+.dossier-progress .stock-lock-active {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--warning);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+/* archived rows */
+.dossier-row.is-archived {
+  background: var(--surface-subtle);
+}
+
+.dossier-row.is-archived .dossier-title strong {
+  color: var(--foreground-muted);
+}
+
+/* per-row ⋯ menu */
+.dossier-action {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.row-menu {
+  position: relative;
+}
+
+.row-menu > summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--foreground-soft);
+  font-weight: 800;
+  cursor: pointer;
+  list-style: none;
+}
+
+.row-menu > summary::-webkit-details-marker { display: none; }
+
+.row-menu[open] > summary {
+  border-color: var(--border-strong);
+}
+
+.row-menu-panel {
+  position: absolute;
+  right: 0;
+  z-index: 20;
+  min-width: 9rem;
+  margin-top: 0.3rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  box-shadow: var(--shadow-md, 0 4px 14px rgba(0,0,0,0.12));
+}
+
+.row-menu-item {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  padding: 0.5rem 0.7rem;
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.row-menu-item:hover { background: var(--surface-subtle); }
+.row-menu-item:disabled { color: var(--foreground-muted); cursor: not-allowed; }
+.row-menu-danger { color: var(--danger, var(--warning)); }
+
+/* create-case modal */
+.co-create-modal {
+  width: min(540px, 94vw);
+  max-height: 90vh;
+  overflow-y: auto;
+  text-align: left;
+}
+
+.co-create-modal .co-create-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.7rem;
+  align-items: stretch;
+}
+
+.co-create-modal .co-create-flow > * {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.co-create-modal .confirm-modal-actions {
+  margin-top: 0.2rem;
 }
 
 .co-stock-overview {
@@ -1512,10 +1725,23 @@ small,
 
 .case-filter-bar {
   display: grid;
-  grid-template-columns: minmax(220px, 1.35fr) minmax(140px, 0.7fr) minmax(140px, 0.7fr) minmax(140px, 0.7fr);
+  grid-template-columns: minmax(220px, 1.6fr) minmax(140px, 0.7fr) minmax(140px, 0.7fr) auto;
   gap: 0.48rem;
   align-items: end;
   margin: 0.15rem 0 0.62rem;
+}
+
+.case-filter-bar .filter-archived {
+  flex-direction: row;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.case-filter-bar .filter-archived input {
+  width: auto;
 }
 
 .case-filter-bar label {
@@ -1582,7 +1808,17 @@ small,
 
 .co-dossier-list .dossier-list-head,
 .co-dossier-list .dossier-row {
-  grid-template-columns: minmax(160px, 1.35fr) minmax(116px, 0.78fr) minmax(104px, 0.68fr) minmax(104px, 0.68fr) minmax(104px, 0.68fr) 42px 82px minmax(118px, 0.82fr) minmax(112px, auto);
+  grid-template-columns: minmax(150px, 1.3fr) minmax(130px, 1fr) minmax(120px, 0.9fr) minmax(140px, 1fr) minmax(130px, 1fr) 96px 96px;
+}
+
+/* base .dossier-list clips with overflow:hidden (rounded corners); that would
+   cut off the per-row ⋯ dropdown on the last rows. Scope visible to this list. */
+.co-dossier-list {
+  overflow: visible;
+}
+
+.co-dossier-list .dossier-list-head {
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
 }
 
 .co-dossier-row small {

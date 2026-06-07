@@ -361,84 +361,56 @@
 </script>
 {% endif %}
 
-<section class="zone co-command-bar" aria-label="Luồng làm C/O">
-  <div>
-    <span class="eyebrow">Làm hồ sơ C/O</span>
-    <h2>Tạo hồ sơ từ invoice hoặc tờ khai</h2>
-    <p class="meta">Quy trình làm C/O: nhập invoice hoặc số tờ khai xuất, chọn thị trường; hệ thống gợi ý form, thông tư và tiêu chí HS sau khi đối chiếu BCCT xuất khẩu.</p>
+{% set summary = co_case_summary or {} %}
+<section class="co-case-index" aria-label="Hồ sơ C/O">
+  <header class="co-case-index-head">
+    <div>
+      <span class="eyebrow">Hồ sơ C/O</span>
+      <h2>{{ client.name }}</h2>
+    </div>
+    <button type="button" class="btn-primary" data-create-case-open>+ Tạo hồ sơ</button>
+  </header>
+
+  <div class="co-case-stats" data-case-stats>
+    <button type="button" class="co-stat" data-stat-filter="" aria-pressed="true">
+      <strong>{{ summary.total or 0 }}</strong><span>Tổng</span>
+    </button>
+    <button type="button" class="co-stat is-progress" data-stat-filter="progress">
+      <strong>{{ summary.progress or 0 }}</strong><span>Đang xử lý</span>
+    </button>
+    <button type="button" class="co-stat is-done" data-stat-filter="done">
+      <strong>{{ summary.done or 0 }}</strong><span>Đã chốt</span>
+    </button>
+    <button type="button" class="co-stat is-attention" data-stat-filter="attention">
+      <strong>{{ summary.attention or 0 }}</strong><span>Có vấn đề</span>
+    </button>
+    <div class="co-stat is-muted" aria-hidden="true">
+      <strong>{{ summary.exported or 0 }}</strong><span>Đã xuất</span>
+    </div>
   </div>
-  <ol class="co-flow-mini">
-    <li><strong>1</strong><span>Invoice</span></li>
-    <li><strong>2</strong><span>Thị trường</span></li>
-    <li><strong>3</strong><span>Form + thông tư</span></li>
-    <li><strong>4</strong><span>HS + tiêu chí</span></li>
-  </ol>
-</section>
 
-<section class="co-case-index-layout">
-  <section class="zone source-panel co-case-list-panel" aria-label="Danh sách hồ sơ C/O">
-    <div class="co-overview-create">
-      <div>
-        <span class="eyebrow">Tạo hồ sơ</span>
-        <h2>Tạo hoặc mở hồ sơ</h2>
-        <p class="meta">Chỉ cần invoice hoặc số tờ khai xuất và thị trường để bắt đầu. Form ưu tiên: B, CPTPP, EUR.1, AI.</p>
-      </div>
-      <form method="post" action="/clients/{{ client.id }}/co-case/create" class="co-create-form co-create-flow" hx-boost="false">
-        {{ invoice_lookup("create-invoice-no", case.shipment.invoice_no, false) }}
-        <label>Số tờ khai xuất
-          <input name="export_declaration_nos" placeholder="Có thể nhập nhiều số, cách nhau dấu phẩy" value="{{ case.shipment.export_declaration_nos|join(', ') }}" data-export-declaration-input>
-        </label>
-        {{ shipment_reference_warning_box() }}
-        {{ market_picker("create-destination-market", "" if case.destination_market == "Chưa nhập" else case.destination_market) }}
-        <input type="hidden" name="co_form_type" value="{{ recommended_form_lane.display_name if case.destination_market != 'Chưa nhập' else '' }}" data-selected-form>
-        <input type="hidden" name="agreement" value="{{ recommended_form_lane.agreement if case.destination_market != 'Chưa nhập' else '' }}" data-selected-agreement>
-        <input type="hidden" name="rule" value="{{ recommended_form_lane.rule_lookup_label if case.destination_market != 'Chưa nhập' else '' }}" data-selected-rule>
-        <div class="co-form-preview" data-form-preview>
-          <span>Form gợi ý</span>
-          <strong data-preview-form>{{ recommended_form_lane.display_name if case.destination_market != 'Chưa nhập' else 'Chọn thị trường' }}</strong>
-          <small data-preview-instrument>{{ recommended_form_lane.instrument if case.destination_market != 'Chưa nhập' else 'Thông tư sẽ hiện sau khi chọn thị trường' }}</small>
-        </div>
-        <details class="co-optional-fields">
-          <summary>Thông tin thêm</summary>
-          <label>Tên hồ sơ
-            <input name="title" placeholder="Tên hồ sơ" value="{{ case.title }}">
-          </label>
-          <label>Mã hồ sơ
-            <input name="case_code" placeholder="Tự sinh nếu bỏ trống" value="">
-          </label>
-          <label>Số B/L
-            <input name="bill_of_lading_no" placeholder="Tùy chọn" value="{{ case.shipment.bill_of_lading_no }}">
-          </label>
-        </details>
-        <button type="submit">Tạo hồ sơ</button>
-      </form>
-    </div>
-
-    <div class="zone-head">
-      <div>
-        <h2>Danh sách hồ sơ C/O</h2>
-        <p class="meta">{{ case_workspace.cases|length }} hồ sơ đang lưu. Lọc nhanh theo invoice, thị trường, form, B/L hoặc trạng thái dữ liệu.</p>
-      </div>
-    </div>
+  <section class="zone co-case-list-panel" aria-label="Danh sách hồ sơ C/O">
     <div class="case-filter-bar" data-case-filter>
-      <label>Tìm kiếm
+      <label class="filter-search">Tìm kiếm
         <input class="table-search" type="search" placeholder="Invoice, mã hồ sơ, tên hồ sơ, B/L..." data-case-search>
       </label>
       <label>Trạng thái
         <select data-case-status-filter>
           <option value="">Tất cả</option>
-          <option value="missing-invoice">Thiếu invoice</option>
-          <option value="missing-bill">Thiếu B/L</option>
-          <option value="has-products">Có snapshot xuất xứ</option>
-          <option value="needs-origin">Chưa có snapshot xuất xứ</option>
+          <option value="progress">Đang xử lý</option>
+          <option value="done">Đã chốt</option>
+          <option value="attention">Có vấn đề</option>
         </select>
       </label>
       <label>Thị trường
         <input placeholder="Ví dụ: United States" data-case-market-filter>
       </label>
-      <label>Form
-        <input placeholder="Ví dụ: Form B" data-case-form-filter>
+      {% if summary.archived %}
+      <label class="filter-archived">
+        <input type="checkbox" data-case-archived-toggle>
+        Hiện đã lưu trữ ({{ summary.archived }})
       </label>
+      {% endif %}
     </div>
     {% if origin_calculation_lock %}
     <div class="case-stock-lock-summary">
@@ -456,17 +428,15 @@
       </div>
     </div>
     {% endif %}
-    <div class="case-result-meta" data-case-result-count>{{ case_workspace.cases|length }} hồ sơ</div>
+    <div class="case-result-meta" data-case-result-count>{{ summary.total or 0 }} hồ sơ</div>
     <div class="dossier-list co-dossier-list">
       <div class="dossier-list-head" aria-hidden="true">
         <span>Hồ sơ</span>
-        <span>Invoice</span>
-        <span>Thị trường</span>
-        <span>Form</span>
-        <span>B/L</span>
-        <span>TP</span>
+        <span>Tham chiếu</span>
+        <span>Thị trường / Form</span>
+        <span>Tiến độ</span>
+        <span>Trạng thái</span>
         <span>Cập nhật</span>
-        <span>Tồn C/O</span>
         <span></span>
       </div>
       {% if request.cookies.get("co_flash") %}
@@ -480,64 +450,67 @@
       </script>
       {% endif %}
       {% for dossier in case_workspace.cases %}
-      {% set dossier_reference = ('Tờ khai ' ~ dossier.shipment.export_declaration_nos|join(', ')) if dossier.shipment.export_declaration_nos else ('Invoice ' ~ dossier.shipment.invoice_no if dossier.shipment.invoice_no else 'Chưa nhập') %}
-      {% set dossier_status = 'missing-invoice' if not dossier.shipment.invoice_no and not dossier.shipment.export_declaration_nos else 'missing-bill' if not dossier.shipment.bill_of_lading_no else 'has-products' if dossier.products else 'needs-origin' %}
-      <div class="dossier-row co-dossier-row"
+      {% set v = dossier.status_view %}
+      {% set holds_lock = origin_calculation_lock and origin_calculation_lock.case_id == dossier.case_id %}
+      <div class="dossier-row co-dossier-row{% if v.archived %} is-archived{% endif %}"
         data-case-row
         data-case-search="{{ (dossier.case_code ~ ' ' ~ dossier.title ~ ' ' ~ dossier.shipment.invoice_no ~ ' ' ~ dossier.shipment.export_declaration_nos|join(' ') ~ ' ' ~ dossier.destination_market ~ ' ' ~ dossier.co_form_type ~ ' ' ~ dossier.shipment.bill_of_lading_no)|lower }}"
-        data-case-status="{{ dossier_status }}"
+        data-case-status="{{ v.status_key }}"
         data-case-market="{{ dossier.destination_market|lower }}"
-        data-case-form="{{ (dossier.co_form_type or '')|lower }}">
+        data-case-form="{{ (dossier.co_form_type or '')|lower }}"
+        data-case-archived="{{ '1' if v.archived else '0' }}">
         <div class="dossier-title">
           <span>Hồ sơ</span>
           <strong>{{ dossier.title }}</strong>
-          <small class="mono">{{ dossier.case_code }}</small>
+          <small class="mono">{{ dossier.case_code }}{% if v.archived %} · đã lưu trữ{% endif %}</small>
         </div>
         <div>
-          <span>Invoice</span>
-          <strong class="mono">{{ dossier_reference }}</strong>
+          <span>Tham chiếu</span>
+          <strong class="mono">{{ v.reference }}</strong>
+          <small>{{ dossier.shipment.bill_of_lading_no or 'Chưa có B/L' }}</small>
         </div>
         <div>
-          <span>Thị trường</span>
+          <span>Thị trường / Form</span>
           <strong>{{ dossier.destination_market }}</strong>
+          <small>{{ dossier.co_form_type or 'Chưa chọn form' }}</small>
         </div>
-        <div>
-          <span>Form</span>
-          <strong>{{ dossier.co_form_type or 'Chưa chọn form' }}</strong>
+        <div class="dossier-progress">
+          <span>Tiến độ</span>
+          {% if v.sheets_total %}
+          <strong>{{ v.sheets_locked }}/{{ v.sheets_total }} bảng kê chốt</strong>
+          <div class="progress-bar" aria-hidden="true"><i style="width: {{ (v.sheets_locked / v.sheets_total * 100)|round }}%"></i></div>
+          {% else %}
+          <strong class="muted">Chưa có bảng kê</strong>
+          {% endif %}
+          {% if holds_lock %}<small class="stock-lock-active">● Đang giữ tồn</small>{% endif %}
         </div>
-        <div>
-          <span>B/L</span>
-          <strong class="mono">{{ dossier.shipment.bill_of_lading_no or 'Chưa có B/L' }}</strong>
-        </div>
-        <div>
-          <span>TP</span>
-          <strong>{{ dossier.products|length }}</strong>
+        <div class="dossier-status">
+          <span>Trạng thái</span>
+          <strong class="co-status co-status-{{ v.status_key }}">{{ v.status_label }}</strong>
+          {% if v.exported %}<small class="co-tag co-tag-ok">✓ Đã xuất</small>{% endif %}
+          {% for issue in v.issues %}<small class="co-tag co-tag-warn">{{ issue }}</small>{% endfor %}
         </div>
         <div>
           <span>Cập nhật</span>
           <strong>{{ dossier.updated_at[:10] if dossier.updated_at else 'n/a' }}</strong>
         </div>
-        <div class="dossier-stock-lock">
-          <span>Tồn C/O</span>
-          {% if origin_calculation_lock and origin_calculation_lock.case_id == dossier.case_id %}
-          <strong class="stock-lock-active">Đang giữ tồn</strong>
-          <small>{{ origin_calculation_lock.actor_label }}</small>
-          {% elif origin_calculation_lock %}
-          <strong>Chỉ chuẩn bị</strong>
-          <small>Chờ hồ sơ giữ tồn nhả phiên</small>
-          {% else %}
-          <strong>Sẵn sàng</strong>
-          <small>Chưa có phiên tính tồn</small>
-          {% endif %}
-        </div>
         <div class="dossier-action">
           <a class="btn-secondary" href="/clients/{{ client.id }}/co-case/{{ dossier.case_id }}">Mở</a>
-          {% if can_delete_co_cases %}
-          <form method="post" action="/clients/{{ client.id }}/co-case/{{ dossier.case_id }}/delete" data-delete-case-form data-case-code="{{ dossier.case_code }}" data-case-title="{{ dossier.title }}" data-claims-count="{{ (dossier.delete_claims_summary or {}).count or 0 }}" data-lots-count="{{ (dossier.delete_claims_summary or {}).lots or 0 }}">
-            <input type="hidden" name="confirm_release_claims" value="1">
-            <button type="submit" class="btn-secondary btn-danger" data-delete-case-trigger {% if dossier.delete_block_reason %}disabled title="{{ dossier.delete_block_reason }}"{% endif %}>Xoá</button>
-          </form>
-          {% endif %}
+          <details class="row-menu">
+            <summary aria-label="Thao tác">⋯</summary>
+            <div class="row-menu-panel">
+              <form method="post" action="/clients/{{ client.id }}/co-case/{{ dossier.case_id }}/archive">
+                <input type="hidden" name="archived" value="{{ '0' if v.archived else '1' }}">
+                <button type="submit" class="row-menu-item">{{ 'Bỏ lưu trữ' if v.archived else 'Lưu trữ' }}</button>
+              </form>
+              {% if can_delete_co_cases %}
+              <form method="post" action="/clients/{{ client.id }}/co-case/{{ dossier.case_id }}/delete" data-delete-case-form data-case-code="{{ dossier.case_code }}" data-case-title="{{ dossier.title }}" data-claims-count="{{ (dossier.delete_claims_summary or {}).count or 0 }}" data-lots-count="{{ (dossier.delete_claims_summary or {}).lots or 0 }}">
+                <input type="hidden" name="confirm_release_claims" value="1">
+                <button type="submit" class="row-menu-item row-menu-danger" data-delete-case-trigger {% if dossier.delete_block_reason %}disabled title="{{ dossier.delete_block_reason }}"{% endif %}>Xoá hồ sơ</button>
+              </form>
+              {% endif %}
+            </div>
+          </details>
         </div>
       </div>
       {% else %}
@@ -546,6 +519,48 @@
     </div>
   </section>
 </section>
+
+<div class="modal-backdrop" data-create-case-modal hidden>
+  <section class="confirm-modal co-create-modal" role="dialog" aria-modal="true" aria-labelledby="create-case-title">
+    <div class="confirm-modal-head">
+      <span class="eyebrow">Tạo hồ sơ</span>
+      <h2 id="create-case-title">Tạo hồ sơ C/O</h2>
+      <p class="meta">Chỉ cần invoice hoặc số tờ khai xuất và thị trường để bắt đầu. Form ưu tiên: B, CPTPP, EUR.1, AI.</p>
+    </div>
+    <form method="post" action="/clients/{{ client.id }}/co-case/create" class="co-create-form co-create-flow" hx-boost="false">
+      {{ invoice_lookup("create-invoice-no", case.shipment.invoice_no, false) }}
+      <label>Số tờ khai xuất
+        <input name="export_declaration_nos" placeholder="Có thể nhập nhiều số, cách nhau dấu phẩy" value="{{ case.shipment.export_declaration_nos|join(', ') }}" data-export-declaration-input>
+      </label>
+      {{ shipment_reference_warning_box() }}
+      {{ market_picker("create-destination-market", "" if case.destination_market == "Chưa nhập" else case.destination_market) }}
+      <input type="hidden" name="co_form_type" value="{{ recommended_form_lane.display_name if case.destination_market != 'Chưa nhập' else '' }}" data-selected-form>
+      <input type="hidden" name="agreement" value="{{ recommended_form_lane.agreement if case.destination_market != 'Chưa nhập' else '' }}" data-selected-agreement>
+      <input type="hidden" name="rule" value="{{ recommended_form_lane.rule_lookup_label if case.destination_market != 'Chưa nhập' else '' }}" data-selected-rule>
+      <div class="co-form-preview" data-form-preview>
+        <span>Form gợi ý</span>
+        <strong data-preview-form>{{ recommended_form_lane.display_name if case.destination_market != 'Chưa nhập' else 'Chọn thị trường' }}</strong>
+        <small data-preview-instrument>{{ recommended_form_lane.instrument if case.destination_market != 'Chưa nhập' else 'Thông tư sẽ hiện sau khi chọn thị trường' }}</small>
+      </div>
+      <details class="co-optional-fields">
+        <summary>Thông tin thêm</summary>
+        <label>Tên hồ sơ
+          <input name="title" placeholder="Tên hồ sơ" value="{{ case.title }}">
+        </label>
+        <label>Mã hồ sơ
+          <input name="case_code" placeholder="Tự sinh nếu bỏ trống" value="">
+        </label>
+        <label>Số B/L
+          <input name="bill_of_lading_no" placeholder="Tùy chọn" value="{{ case.shipment.bill_of_lading_no }}">
+        </label>
+      </details>
+      <div class="confirm-modal-actions">
+        <button type="button" class="btn-secondary" data-create-case-cancel>Huỷ</button>
+        <button type="submit" class="btn-primary">Tạo hồ sơ</button>
+      </div>
+    </form>
+  </section>
+</div>
 
 {% if can_delete_co_cases %}
 <div class="modal-backdrop" data-delete-case-modal hidden>
@@ -2749,33 +2764,57 @@
       search: filter.querySelector("[data-case-search]"),
       status: filter.querySelector("[data-case-status-filter]"),
       market: filter.querySelector("[data-case-market-filter]"),
-      form: filter.querySelector("[data-case-form-filter]"),
+      archived: filter.querySelector("[data-case-archived-toggle]"),
     };
+    const statButtons = Array.from(document.querySelectorAll("[data-stat-filter]"));
     const applyFilter = () => {
       const search = normalize(controls.search?.value || "");
       const status = controls.status?.value || "";
       const market = normalize(controls.market?.value || "");
-      const form = normalize(controls.form?.value || "");
+      const showArchived = !!controls.archived?.checked;
       let visible = 0;
+      let eligible = 0;
       rows.forEach((row) => {
+        const archived = row.dataset.caseArchived === "1";
+        if (archived && !showArchived) { row.hidden = true; return; }
+        eligible += 1;
         const rowSearch = normalize(row.dataset.caseSearch || "");
         const matches = (!search || rowSearch.includes(search))
           && (!status || row.dataset.caseStatus === status)
-          && (!market || normalize(row.dataset.caseMarket || "").includes(market))
-          && (!form || normalize(row.dataset.caseForm || "").includes(form));
+          && (!market || normalize(row.dataset.caseMarket || "").includes(market));
         row.hidden = !matches;
         if (matches) visible += 1;
       });
       if (resultCount) {
-        resultCount.textContent = `${visible} / ${rows.length} hồ sơ`;
+        resultCount.textContent = `${visible} / ${eligible} hồ sơ`;
       }
+      statButtons.forEach((btn) => {
+        btn.setAttribute("aria-pressed", (btn.dataset.statFilter || "") === status ? "true" : "false");
+      });
     };
     Object.values(controls).forEach((control) => {
       control?.addEventListener("input", applyFilter);
       control?.addEventListener("change", applyFilter);
     });
+    statButtons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (controls.status) controls.status.value = btn.dataset.statFilter || "";
+        applyFilter();
+      });
+    });
     applyFilter();
   });
+
+  (function () {
+    const modal = document.querySelector("[data-create-case-modal]");
+    if (!modal) return;
+    const open = () => { modal.hidden = false; modal.querySelector("input, select, button")?.focus(); };
+    const close = () => { modal.hidden = true; };
+    document.querySelector("[data-create-case-open]")?.addEventListener("click", open);
+    modal.querySelector("[data-create-case-cancel]")?.addEventListener("click", close);
+    modal.addEventListener("click", (event) => { if (event.target === modal) close(); });
+    document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !modal.hidden) close(); });
+  })();
 
   document.querySelectorAll("[data-origin-workbook]").forEach((workbook) => {
     const form = workbook.closest("form");

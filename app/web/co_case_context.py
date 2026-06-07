@@ -9,7 +9,7 @@ import threading
 from app import co_auth, co_stock_adjustments_store, co_stock_eligibility, co_stock_ledger, co_stock_materializer
 from app.bom_service import bom_service
 from app.bom_store import attach_case_bom_snapshot
-from app.co_case_store import active_origin_calculation_lock, build_case_criteria_rows, case_from_record, co_case_delete_block_reason, declaration_refs, get_case_record, get_case_workspace, json_safe
+from app.co_case_store import active_origin_calculation_lock, build_case_criteria_rows, case_from_record, co_case_delete_block_reason, co_case_status_view, declaration_refs, get_case_record, get_case_workspace, json_safe, load_state
 from app.co_form_config_store import load_co_form_config
 from app.co_forms import COMMON_MARKET_PRESETS, common_market_guidance, criteria_preview_for_hs, form_candidates_for_market, prioritized_form_lanes, recommended_form_lane
 from app.co_market_hints import infer_market_from_invoice_matches
@@ -2662,6 +2662,7 @@ def co_case_context(client_id: str, case_id: str = "", current_step: str = "inde
         extra.setdefault("cached_case_context", True)
     extra["force_source_refresh"] = force_source_refresh
     origin_lock = active_origin_calculation_lock(client)
+    export_states = (load_state(client_id).get("dossier_exports") or {}) if current_step == "index" else {}
     for dossier in workspace["cases"]:
         dossier["delete_block_reason"] = co_case_delete_block_reason(dossier, origin_lock)
         try:
@@ -2670,6 +2671,9 @@ def co_case_context(client_id: str, case_id: str = "", current_step: str = "inde
             )
         except Exception:  # noqa: BLE001
             dossier["delete_claims_summary"] = {"count": 0, "lots": 0}
+        if current_step == "index":
+            exported = (export_states.get(dossier.get("case_id", "")) or {}).get("status") == "done"
+            dossier["status_view"] = co_case_status_view(dossier, exported=exported)
     current_case_id = case.get("persisted_case_id") or effective_case_id
     origin_lock_owned = bool(origin_lock and current_case_id and origin_lock.get("case_id") == current_case_id)
     origin_lock_blocked = bool(origin_lock and current_case_id and origin_lock.get("case_id") != current_case_id)
@@ -2701,6 +2705,19 @@ def co_case_context(client_id: str, case_id: str = "", current_step: str = "inde
             context["co_stock_summary"] = co_stock_materializer.co_stock_summary(client_id)
         except Exception:  # noqa: BLE001
             context["co_stock_summary"] = None
+        active_views = [
+            dossier["status_view"]
+            for dossier in workspace["cases"]
+            if not dossier["status_view"]["archived"]
+        ]
+        context["co_case_summary"] = {
+            "total": len(active_views),
+            "progress": sum(1 for view in active_views if view["status_key"] == "progress"),
+            "done": sum(1 for view in active_views if view["status_key"] == "done"),
+            "attention": sum(1 for view in active_views if view["status_key"] == "attention"),
+            "exported": sum(1 for view in active_views if view["exported"]),
+            "archived": sum(1 for dossier in workspace["cases"] if dossier["status_view"]["archived"]),
+        }
     return context
 def co_case_workflow_steps(
     client_id: str,

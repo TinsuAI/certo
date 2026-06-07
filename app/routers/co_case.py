@@ -8,7 +8,7 @@ import re
 from fastapi import APIRouter
 from app import co_auth, co_stock_eligibility, co_stock_ledger, co_stock_materializer, material_search
 from app.bom_store import attach_case_bom_snapshot
-from app.co_case_store import CaseHasActiveClaimsError, MAX_SUPPORTING_FILE_BYTES, acquire_origin_calculation_lock, active_origin_calculation_lock, build_case_criteria_rows, case_from_record, co_case_is_completed, create_case_record, create_case_workbook, declaration_refs, delete_case_record, get_case_record, get_supporting_file, invoice_keys, json_safe, release_origin_calculation_lock, safe_filename, save_supporting_file, update_case_record
+from app.co_case_store import CaseHasActiveClaimsError, MAX_SUPPORTING_FILE_BYTES, acquire_origin_calculation_lock, active_origin_calculation_lock, build_case_criteria_rows, case_from_record, co_case_is_completed, create_case_record, create_case_workbook, declaration_refs, delete_case_record, get_case_record, get_supporting_file, invoice_keys, json_safe, release_origin_calculation_lock, safe_filename, save_supporting_file, set_case_archived, update_case_record
 from app.co_form_config_store import load_co_form_config
 from app.co_forms import prioritized_form_lanes, recommended_form_lane
 from app.data_hub_client import current_data_hub_token
@@ -885,6 +885,25 @@ async def delete_co_case(request: Request, client_id: str, case_id: str):
     redirect = RedirectResponse(f"/clients/{client_id}/co-case", status_code=303)
     # Cookies are latin-1 only; URL-encode the Vietnamese flash text and
     # decode in the template (request.cookies.get(...) | urldecode).
+    redirect.set_cookie(
+        "co_flash",
+        quote(flash, safe=""),
+        max_age=15,
+        path=f"/clients/{client_id}/co-case",
+    )
+    return redirect
+@router.post("/clients/{client_id}/co-case/{case_id}/archive", response_class=HTMLResponse)
+async def archive_co_case(request: Request, client_id: str, case_id: str):
+    client = resolve_client(client_id)
+    form = await request.form()
+    archived = str(form.get("archived") or "1").strip() != "0"
+    try:
+        set_case_archived(client, case_id, archived)
+    except KeyError:
+        raise HTTPException(status_code=404) from None
+    flash = "Đã lưu trữ hồ sơ." if archived else "Đã bỏ lưu trữ hồ sơ."
+    next_url = str(form.get("next_url") or f"/clients/{client_id}/co-case")
+    redirect = RedirectResponse(next_url, status_code=303)
     redirect.set_cookie(
         "co_flash",
         quote(flash, safe=""),

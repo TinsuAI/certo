@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from app import co_auth, co_stock_eligibility, co_stock_materializer
 from app.app_state_store import get_app_state_store
-from app.co_case_store import acquire_origin_calculation_lock, co_case_is_completed, get_case_workspace, update_case_record
+from app.co_case_store import acquire_origin_calculation_lock, co_case_is_completed, co_case_status_view, get_case_workspace, update_case_record
 from app.demo_data import update_products_from_form
 from app.portfolio import portfolio_service
 from app.web.client_context import _data_hub_overview_context, client_case, client_context, resolve_client
@@ -77,39 +77,9 @@ async def workspace(request: Request, client_id: str):
         context=client_overview_context(client_id),
     )
 def _dashboard_case_view(case: dict) -> dict:
-    """Cheap per-case status for the dashboard (mirrors co_case.html dossier_status)."""
-    shipment = case.get("shipment") or {}
-    invoice_no = (shipment.get("invoice_no") or "").strip()
-    declarations = shipment.get("export_declaration_nos") or []
-    bill_no = (shipment.get("bill_of_lading_no") or "").strip()
-    completed = co_case_is_completed(case)
-    if completed:
-        status_key, label = "done", "Hoàn tất"
-    elif not invoice_no and not declarations:
-        status_key, label = "attention", "Thiếu invoice/tờ khai"
-    elif not bill_no:
-        status_key, label = "attention", "Thiếu B/L"
-    elif not (case.get("products") or []):
-        status_key, label = "attention", "Cần tính xuất xứ"
-    else:
-        status_key, label = "progress", "Đang xử lý"
-    if invoice_no:
-        reference = f"Invoice {invoice_no}"
-    elif declarations:
-        reference = "Tờ khai " + ", ".join(str(d) for d in declarations)
-    else:
-        reference = "Chưa nhập tham chiếu"
-    return {
-        "case_id": case.get("case_id"),
-        "case_code": case.get("case_code") or case.get("case_id"),
-        "title": case.get("title") or "",
-        "destination_market": case.get("destination_market") or "",
-        "reference": reference,
-        "status_key": status_key,
-        "status_label": label,
-        "completed": completed,
-        "updated_at": case.get("updated_at") or "",
-    }
+    """Cheap per-case status for the dashboard. Shares `co_case_status_view`
+    with the co-case list page so both surfaces agree on a case's status."""
+    return co_case_status_view(case)
 
 
 def client_overview_context(client_id: str) -> dict:
