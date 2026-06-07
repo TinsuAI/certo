@@ -1,6 +1,15 @@
 # Project Status
 
 ## Current State
+- **App-identity brand chrome — DONE + DEPLOYED PROD+DEMO (`1f2b6dd`, run 27089894162).**
+  CO + Data Hub share Primer → looked identical; added a CO brand signal mirroring Data Hub's
+  green (`dbd85fb`): `--brand` = **purple** (light `#8250df`/dark `#a371f7`, user-confirmed) on a
+  filled monogram badge, a `2px` topnav bottom border, and a `3px` full-viewport `.app-frame`
+  overlay (`pointer-events:none`). Identity chrome ONLY — `--primary` (blue) still drives
+  links/buttons/active; no surfaces tinted; light+dark first-class. Hard rule: not green (DH),
+  not primary blue. Verified live on prod via computed styles (--brand=#8250df). Session
+  `.ai/sessions/2026-06-07-co-app-identity-brand.md`. (Bare `/static/css/app.css` shows stale CF
+  cache; the hashed `asset_url()` serves the new CSS — see `static-asset-cache-busting`.)
 - **CO-case LIST page redesign — DONE + DEPLOYED PROD + DEMO (`ee70a4b`, run 27089129326).**
   Prod `barry-co.tinsu.ai` + demo `demo-co.tinsu.ai` healthz 200 post-deploy. Replaced the
   bulky `co-command-bar` + wrong 4-step mini-flow with a slim header + clickable **summary stat
