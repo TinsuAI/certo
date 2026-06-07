@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from app import auth
 from app.routes.clients import get_client, stats_for_client
 from app.stores import client_uom_overrides as factors
+from app.stores import uom_standards
 
 router = APIRouter()
 
@@ -29,6 +30,8 @@ async def list_view(request: Request, client_id: str,
     if not client:
         raise HTTPException(404, "client not found")
     rows = factors.list_factors(client_id)
+    for r in rows:
+        r["factor_disp"] = uom_standards.format_factor(r["factor"])
     summary = factors.stats(client_id)
     can_edit = auth.can_edit_client(user, client_id)
     return request.app.state.templates.TemplateResponse(
@@ -41,6 +44,7 @@ async def list_view(request: Request, client_id: str,
          "prefill_from_uom": prefill_from_uom or "",
          "prefill_to_uom": prefill_to_uom or "",
          "can_edit": can_edit,
+         "uom_admin_link": auth.can_manage_users(user),
          "active_root": "clients", "active_tab": "uom-factors"},
     )
 

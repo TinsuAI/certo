@@ -3026,6 +3026,242 @@ a.uom-chip.uom-chip-unconf:hover { border-color: #d97706; background: #fef3c7; }
 a.uom-chip.uom-chip-bad:hover { border-color: #dc2626; background: #fee2e2; }
 .uom-chip-cog { font-size: 0.78rem; opacity: 0.7; }
 
+/* ── UoM admin pages (global standards + per-client factors) ──────── */
+.uom-search {
+  width: 260px;
+  max-width: 100%;
+  padding: 0.38rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-input);
+  color: var(--foreground);
+  font-size: 0.86rem;
+}
+.uom-search:focus { outline: none; border-color: var(--primary); }
+
+.uom-chip-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.05rem 0.4rem;
+  margin: 0.1rem 0.15rem 0.1rem 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--card-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+.uom-code { font-weight: 600; }
+/* The base `button` style is filled-blue and `.btn-ghost` is only defined
+   scoped to pagers — re-style our ghost/danger actions explicitly. */
+.uom-edit-btn,
+.uom-editor-cancel {
+  background: var(--card);
+  color: var(--foreground-soft);
+  border: 1px solid var(--border);
+  font-weight: 500;
+}
+.uom-edit-btn:hover,
+.uom-editor-cancel:hover { background: var(--surface-hover); }
+.uom-danger {
+  background: var(--card);
+  color: var(--error);
+  border: 1px solid var(--border);
+  font-weight: 500;
+}
+.uom-danger:hover { background: #fef2f2; border-color: var(--error); }
+
+/* Global standards page */
+.uom-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.uom-toolbar-title h2 { margin: 0; }
+.uom-toolbar-meta { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.uom-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: 0.9rem 0 0.6rem;
+}
+.uom-addform {
+  margin: 0 0 0.8rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-lg);
+  background: var(--card-muted);
+}
+.uom-addform-head { font-weight: 600; margin-bottom: 0.5rem; }
+.uom-addform-row { display: flex; gap: 0.6rem; align-items: flex-end; flex-wrap: wrap; }
+.uom-addform label,
+.uom-addgrid label,
+.uom-editor-form label,
+.uom-import-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+  color: var(--foreground-muted);
+}
+.uom-addform input, .uom-addform select { min-width: 8rem; }
+.uom-addform .meta { margin-top: 0.45rem; }
+
+.uom-table th.uom-exp-h, .uom-table .uom-exp { width: 1.6rem; padding-right: 0; }
+.uom-row { cursor: pointer; }
+.uom-exp-btn {
+  display: inline-block;
+  color: var(--foreground-muted);
+  transition: transform 0.12s ease;
+}
+.uom-row.is-open .uom-exp-btn { transform: rotate(90deg); }
+.uom-row.is-open > td { background: var(--surface-subtle); }
+.uom-base-badge { margin-left: 0.35rem; }
+.uom-alias-cell { max-width: 22rem; }
+
+.uom-detail > td { background: var(--surface-subtle); padding: 0.4rem 0.8rem 0.9rem; }
+.uom-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(16rem, 1fr) minmax(16rem, 2fr);
+  gap: 1.2rem;
+}
+.uom-detail-block { display: flex; flex-direction: column; gap: 0.45rem; min-width: 0; }
+.uom-edit-actions { display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap; }
+.uom-inline-form { display: inline-flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
+.uom-inline-form input[type="text"], .uom-inline-form input[type="number"] {
+  width: 8rem;
+  padding: 0.25rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.uom-inline-form select { padding: 0.25rem 0.4rem; }
+.uom-code-fixed { padding: 0.15rem 0.4rem; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.uom-chips { display: flex; flex-wrap: wrap; gap: 0.15rem; }
+.uom-chip-del { padding-right: 0.2rem; }
+.uom-chip-x {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--foreground-muted);
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0 0.1rem;
+}
+.uom-chip-x:hover { color: var(--error); }
+.uom-no-results, .uom-fnoresults { margin-top: 0.6rem; }
+
+/* Legend + family grouping (global standards) */
+.uom-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.3rem;
+  margin: 0.2rem 0 0.7rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--foreground-soft);
+}
+.uom-legend code { font-size: 0.92em; }
+.uom-legend b { color: var(--foreground); }
+.uom-legend-x { flex-basis: 100%; padding-top: 0.2rem; border-top: 1px dashed var(--border); }
+
+.uom-fam-head > td { background: var(--surface-subtle); border-top: 2px solid var(--border-strong); padding: 0.4rem 0.65rem; }
+.uom-fam-head { cursor: default; }
+.uom-fam-name { font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.8rem; }
+.uom-fam-note { margin-left: 0.6rem; color: var(--foreground-muted); font-size: 0.78rem; }
+.uom-fam-count { float: right; color: var(--foreground-muted); font-size: 0.75rem; }
+.uom-conv { font-size: 0.84rem; }
+.uom-mini { display: inline-flex; flex-direction: column; gap: 0.15rem; font-size: 0.72rem; color: var(--foreground-muted); text-align: left; }
+.uom-mini small { font-weight: 400; opacity: 0.85; }
+
+/* Per-client factors page */
+.uom-subbar .uom-h1 { font-size: 1.25rem; margin: 0; white-space: nowrap; }
+.uom-addpanel { margin-bottom: 0.9rem; }
+.uom-prefill { border-color: var(--primary); background: var(--card-muted); }
+.uom-prefill-tag { color: var(--primary); font-weight: 500; }
+.uom-addgrid {
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.uom-addgrid input, .uom-addgrid select {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.uom-addgrid input[name="material_code"] { width: 9rem; }
+.uom-addgrid input[name="from_uom"], .uom-addgrid input[name="to_uom"] { width: 5rem; }
+.uom-addgrid input[name="factor"] { width: 6rem; }
+.uom-addnotes { flex: 1 1 12rem; }
+.uom-addnotes input { width: 100%; }
+.uom-preview {
+  display: inline-block;
+  margin: 0.7rem 0 0;
+  padding: 0.25rem 0.6rem;
+  border-radius: var(--radius-md);
+  background: #ecfeff;
+  border: 1px solid #0891b2;
+  font-family: var(--mono);
+  font-size: 0.84rem;
+}
+
+.uom-fcontrols { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.7rem; flex-wrap: wrap; }
+.uom-crossonly { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.84rem; color: var(--foreground-soft); cursor: pointer; }
+.uom-fcount { margin-left: auto; }
+.uom-dir-hint {
+  margin: 0 0 0.7rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--primary);
+  background: var(--card-muted);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  font-size: 0.82rem;
+  color: var(--foreground-soft);
+}
+.uom-dir-hint code { font-size: 0.92em; }
+.uom-editor-readout { color: var(--primary); font-size: 0.84rem; }
+
+.uom-fromto { white-space: nowrap; }
+.uom-arrow { color: var(--foreground-muted); margin: 0 0.3rem; }
+.uom-note { color: var(--foreground-soft); max-width: 16rem; overflow: hidden; text-overflow: ellipsis; }
+.uom-rowact { text-align: right; white-space: nowrap; }
+
+.uom-sortable { cursor: pointer; user-select: none; }
+.uom-sortable:hover { color: var(--foreground); }
+.uom-sortable.sort-asc::after { content: " ▲"; font-size: 0.7em; }
+.uom-sortable.sort-desc::after { content: " ▼"; font-size: 0.7em; }
+
+.uom-frow.is-cross > td:first-child { box-shadow: inset 3px 0 0 var(--warning); }
+.uom-frow.is-editing > td { background: #eef4ff; }
+.uom-eslot > td { background: #eef4ff; padding: 0; }
+.uom-editor { padding: 0.7rem 0.9rem; display: flex; flex-direction: column; gap: 0.55rem; }
+.uom-editor-ctx { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.uom-editor-form { display: flex; gap: 0.7rem; align-items: flex-end; flex-wrap: wrap; }
+.uom-editor-form input, .uom-editor-form select {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.uom-editor-form input[name="factor"] { width: 7rem; }
+.uom-editor-notes { flex: 1 1 12rem; }
+.uom-editor-notes input { width: 100%; }
+.uom-editor-del { margin-top: -0.3rem; }
+
+.uom-import { margin-top: 0.9rem; }
+.uom-import > summary { cursor: pointer; font-weight: 600; }
+.uom-import-form { display: flex; gap: 0.7rem; align-items: flex-end; flex-wrap: wrap; margin-top: 0.6rem; }
+
+@media (max-width: 720px) {
+  .uom-detail-grid { grid-template-columns: 1fr; }
+}
+
 .audit-feed { list-style: none; padding: 0; margin: 0; }
 .audit-item {
   border-left: 3px solid var(--border-strong, #d1d5db);

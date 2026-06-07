@@ -17,8 +17,18 @@ dst.base_factor)`. Cross-family conversions return None.
 from __future__ import annotations
 
 import threading
+from decimal import Decimal, InvalidOperation
 
 from app.database import connect
+
+
+def format_factor(value) -> str:
+    """Render a base_factor without trailing zeros / scientific notation.
+    1.000000000 → '1', 0.001 → '0.001', 1000.0 → '1000'."""
+    try:
+        return format(Decimal(str(value)).normalize(), "f")
+    except (InvalidOperation, ValueError, TypeError):
+        return str(value)
 
 
 _LOCK = threading.Lock()
@@ -174,6 +184,47 @@ def create_canonical(*, uom_code: str, family: str, base_factor: float) -> None:
             "values (%s, %s) on conflict do nothing",
             (code, code),
         )
+    clear_cache()
+
+
+def update_canonical(*, uom_code: str, family: str, base_factor: float) -> None:
+    """Edit an existing canonical's family + base_factor. Code is immutable
+    (it's the PK + referenced by aliases/data); to rename, delete + recreate."""
+    code = (uom_code or "").strip().lower()
+    if not code:
+        raise UomStandardsError("uom_code required")
+    if family not in VALID_FAMILIES:
+        raise UomStandardsError(
+            f"invalid family: {family!r}; must be one of {sorted(VALID_FAMILIES)}"
+        )
+    try:
+        bf = float(base_factor)
+    except (TypeError, ValueError) as e:
+        raise UomStandardsError(f"invalid base_factor: {base_factor!r}") from e
+    if bf <= 0:
+        raise UomStandardsError("base_factor must be > 0")
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "update hub.uom_canonical set family=%s, base_factor=%s "
+            "where uom_code=%s",
+            (family, bf, code),
+        )
+        if cur.rowcount == 0:
+            raise UomStandardsError(f"unknown uom_code: {code!r}")
+    clear_cache()
+
+
+def delete_canonical(uom_code: str) -> None:
+    """Delete a canonical. Its aliases cascade (FK on delete cascade).
+    Override rows referencing the code by text are left intact — the code
+    simply reverts to an unknown alias until re-added."""
+    code = (uom_code or "").strip().lower()
+    if not code:
+        raise UomStandardsError("uom_code required")
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("delete from hub.uom_canonical where uom_code=%s", (code,))
+        if cur.rowcount == 0:
+            raise UomStandardsError(f"unknown uom_code: {code!r}")
     clear_cache()
 
 

@@ -164,3 +164,78 @@ def test_create_alias_clears_resolver_cache(setup):
     )
     # Resolver should now know this alias
     assert resolve_canonical("zzz_test_alias") == "pcs"
+
+
+def test_update_canonical(setup):
+    from app.stores.uom_standards import dimension_of
+    c = _c(setup["session"])
+    c.post("/admin/uom/canonical/new",
+           data={"uom_code": "zzz_test_canon", "family": "mass",
+                 "base_factor": "1"}, follow_redirects=False)
+    r = c.post("/admin/uom/canonical/zzz_test_canon/update",
+               data={"family": "length", "base_factor": "0.5"},
+               follow_redirects=False)
+    assert r.status_code == 303
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("select family, base_factor from hub.uom_canonical "
+                    "where uom_code='zzz_test_canon'")
+        family, bf = cur.fetchone()
+    assert family == "length"
+    assert float(bf) == 0.5
+    # Resolver cache reflects the new family without restart.
+    assert dimension_of("zzz_test_canon") == "length"
+
+
+def test_update_canonical_invalid_family_rejected(setup):
+    c = _c(setup["session"])
+    c.post("/admin/uom/canonical/new",
+           data={"uom_code": "zzz_test_canon", "family": "mass",
+                 "base_factor": "1"}, follow_redirects=False)
+    r = c.post("/admin/uom/canonical/zzz_test_canon/update",
+               data={"family": "bogus", "base_factor": "1"},
+               follow_redirects=False)
+    assert r.status_code == 303
+    assert "error=" in r.headers.get("location", "")
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("select family from hub.uom_canonical "
+                    "where uom_code='zzz_test_canon'")
+        assert cur.fetchone() == ("mass",)  # unchanged
+
+
+def test_delete_canonical_cascades_aliases(setup):
+    from app.stores.uom_standards import resolve_canonical
+    c = _c(setup["session"])
+    c.post("/admin/uom/canonical/new",
+           data={"uom_code": "zzz_test_canon", "family": "mass",
+                 "base_factor": "1"}, follow_redirects=False)
+    c.post("/admin/uom/aliases/new",
+           data={"alias_norm": "zzz_test_alias", "uom_code": "zzz_test_canon"},
+           follow_redirects=False)
+    r = c.post("/admin/uom/canonical/zzz_test_canon/delete",
+               follow_redirects=False)
+    assert r.status_code == 303
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("select 1 from hub.uom_canonical "
+                    "where uom_code='zzz_test_canon'")
+        assert cur.fetchone() is None
+        # Alias cascaded away with the canonical.
+        cur.execute("select 1 from hub.uom_aliases "
+                    "where alias_norm='zzz_test_alias'")
+        assert cur.fetchone() is None
+    assert resolve_canonical("zzz_test_alias") is None
+
+
+def test_delete_canonical_unknown_redirects_error(setup):
+    c = _c(setup["session"])
+    r = c.post("/admin/uom/canonical/zzz_no_such/delete",
+               follow_redirects=False)
+    assert r.status_code == 303
+    assert "error=" in r.headers.get("location", "")
+
+
+def test_format_factor():
+    from app.stores.uom_standards import format_factor
+    assert format_factor("1.000000000") == "1"
+    assert format_factor("0.001") == "0.001"
+    assert format_factor("1000.0") == "1000"
+    assert format_factor(0.000001) == "0.000001"

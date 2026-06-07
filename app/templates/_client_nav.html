@@ -19,7 +19,7 @@
 </section>
 
 {% set data_tabs = ['catalog', 'bqd', 'bcct', 'declarations', 'bom', 'proposals'] %}
-{% set config_tabs = ['config', 'parser_rules', 'column_aliases', 'staff'] %}
+{% set config_tabs = ['config', 'parser_rules', 'column_aliases', 'uom-factors', 'staff'] %}
 <nav class="tabs client-tabs" aria-label="Client workspace tabs">
   <a class="tab-link {{ 'tab-link-active' if active_tab == 'overview' else '' }}"
      href="/clients/{{ client.client_id }}">{{ t('tabs.overview') }}</a>
@@ -58,6 +58,8 @@
     <div class="nav-menu-panel">
       <a class="{{ 'is-active' if active_tab == 'config' else '' }}"
          href="/clients/{{ client.client_id }}/edit">{{ t('tabs.config') }}</a>
+      <a class="{{ 'is-active' if active_tab == 'uom-factors' else '' }}"
+         href="/clients/{{ client.client_id }}/uom-factors">Hệ số UoM</a>
       {% if can_edit_technical(client.client_id) %}
       <a class="{{ 'is-active' if active_tab == 'parser_rules' else '' }}"
          href="/clients/{{ client.client_id }}/parser-rules">Parser rules</a>

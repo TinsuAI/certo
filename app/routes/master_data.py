@@ -205,13 +205,49 @@ async def uom_view(request: Request, error: str | None = None,
     user = auth.require_user(request)
     if not auth.can_manage_users(user):
         raise HTTPException(403, "forbidden")
+    from collections import defaultdict
     from app.stores import uom_standards
+    from app.stores.uom import _TIER_A_FAMILIES
     canonicals = uom_standards.list_canonicals_with_alias_count()
     aliases = uom_standards.list_aliases()
+
+    # Group synonym aliases under their canonical (skip the self-alias).
+    syn_by_code: dict[str, list[str]] = defaultdict(list)
+    for a in aliases:
+        if a["alias_norm"] != a["uom_code"]:
+            syn_by_code[a["uom_code"]].append(a["alias_norm"])
+
+    for c in canonicals:
+        c["aliases"] = syn_by_code.get(c["uom_code"], [])
+        c["factor_disp"] = uom_standards.format_factor(c["base_factor"])
+        c["is_base"] = float(c["base_factor"]) == 1.0
+
+    # Group canonicals by family. A family is either "scaled" (real
+    # numeric conversion via base_factor: mass/length/area/volume) or
+    # "count" (discrete units, all base_factor 1, treated 1:1 in-family —
+    # count/count_packaging/assembly). The two are presented differently.
+    fam_map: dict[str, list[dict]] = defaultdict(list)
+    for c in canonicals:
+        fam_map[c["family"]].append(c)
+    families = []
+    # Scaled families first (they carry the conversion teaching value),
+    # then count-like families; alpha within each group.
+    for fam in sorted(fam_map, key=lambda f: (f in _TIER_A_FAMILIES, f)):
+        items = sorted(fam_map[fam], key=lambda c: (not c["is_base"], c["uom_code"]))
+        base_unit = next((c["uom_code"] for c in items if c["is_base"]), None)
+        families.append({
+            "name": fam,
+            "is_count": fam in _TIER_A_FAMILIES,
+            "base_unit": base_unit,
+            "canonicals": items,
+            "n": len(items),
+        })
+
     return request.app.state.templates.TemplateResponse(
         request, "admin/uom.html",
-        {"canonicals": canonicals, "aliases": aliases,
+        {"families": families, "canonicals": canonicals, "aliases": aliases,
          "valid_families": sorted(uom_standards.VALID_FAMILIES),
+         "n_families": len(families),
          "error": error, "saved": saved,
          "active_root": "admin"},
     )
@@ -236,6 +272,39 @@ async def uom_canonical_new(
         return RedirectResponse(
             url=f"/admin/uom?error={exc}", status_code=303,
         )
+    return RedirectResponse(url="/admin/uom?saved=1", status_code=303)
+
+
+@router.post("/admin/uom/canonical/{uom_code}/update")
+async def uom_canonical_update(
+    request: Request,
+    uom_code: str,
+    family: str = Form(...),
+    base_factor: str = Form("1"),
+):
+    user = auth.require_user(request)
+    if not auth.can_manage_users(user):
+        raise HTTPException(403, "forbidden")
+    from app.stores import uom_standards
+    try:
+        uom_standards.update_canonical(
+            uom_code=uom_code, family=family, base_factor=base_factor,
+        )
+    except uom_standards.UomStandardsError as exc:
+        return RedirectResponse(url=f"/admin/uom?error={exc}", status_code=303)
+    return RedirectResponse(url="/admin/uom?saved=1", status_code=303)
+
+
+@router.post("/admin/uom/canonical/{uom_code}/delete")
+async def uom_canonical_delete(request: Request, uom_code: str):
+    user = auth.require_user(request)
+    if not auth.can_manage_users(user):
+        raise HTTPException(403, "forbidden")
+    from app.stores import uom_standards
+    try:
+        uom_standards.delete_canonical(uom_code)
+    except uom_standards.UomStandardsError as exc:
+        return RedirectResponse(url=f"/admin/uom?error={exc}", status_code=303)
     return RedirectResponse(url="/admin/uom?saved=1", status_code=303)
 
 
