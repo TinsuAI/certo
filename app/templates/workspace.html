@@ -4,60 +4,106 @@
 {% block content %}
 {% include "_client_nav.html" %}
 
-<section class="hero hero-primary client-snapshot" aria-label="Tóm tắt workspace">
-  <div>
-    <div class="hero-headline">Workspace theo công ty, C/O là luồng chính.</div>
-    <p class="hero-meta">Case đang mở: <span class="mono">{{ case.case_code }}</span>. Dữ liệu nền được chuẩn bị trước để hồ sơ C/O dùng lại theo từng shipment.</p>
+<section class="dash-hero">
+  <div class="dash-hero-text">
+    {% if co_cases %}
+      <div class="dash-hero-headline">
+        {{ co_open_count }} hồ sơ C/O đang mở{% if co_attention_count %} <span class="dash-hero-attention">· {{ co_attention_count }} cần xử lý</span>{% endif %}
+      </div>
+      <p class="dash-hero-sub">{{ co_cases|length }} hồ sơ tổng cho {{ client.name }}. Tiếp tục hồ sơ đang làm hoặc mở hồ sơ mới.</p>
+    {% else %}
+      <div class="dash-hero-headline">Chưa có hồ sơ C/O nào</div>
+      <p class="dash-hero-sub">Workspace này phục vụ việc làm C/O. Bắt đầu bằng hồ sơ đầu tiên cho {{ client.name }}.</p>
+    {% endif %}
   </div>
-  <div class="hero-divider"></div>
-  <div class="hero-stat">
-    <span class="hero-stat-value">{{ case.summary.passed_products }}/{{ case.summary.product_count }}</span>
-    <span class="hero-stat-label">Mã đạt</span>
-  </div>
-  <div class="hero-stat">
-    <span class="hero-stat-value">{{ case.summary.min_rvc }}%</span>
-    <span class="hero-stat-label">RVC thấp nhất</span>
-  </div>
+  <a class="btn-primary dash-hero-cta" href="/clients/{{ client.id }}/co-case">
+    {{ 'Làm hồ sơ C/O' if co_cases else 'Tạo hồ sơ C/O đầu tiên' }} →
+  </a>
 </section>
 
-<section class="zone workflow-home">
-  <div class="zone-head">
-    <div>
-      <h2>Luồng làm C/O</h2>
-      <p class="meta">Bắt đầu từ hồ sơ lô hàng, sau đó đi qua chứng từ, tờ khai xuất, form/PSR, đánh giá xuất xứ và review dossier.</p>
+<div class="dash-grid">
+  <section class="zone dash-zone-cases">
+    <div class="zone-head">
+      <div>
+        <h2>Hồ sơ C/O gần đây</h2>
+        <p class="meta">Lô hàng, chứng từ, đánh giá xuất xứ và xuất dossier.</p>
+      </div>
+      {% if co_cases %}<a class="btn-secondary" href="/clients/{{ client.id }}/co-case">Tất cả hồ sơ</a>{% endif %}
     </div>
-    <a class="btn-secondary" href="/clients/{{ client.id }}/co-case">Làm hồ sơ C/O</a>
-  </div>
-</section>
 
-<section class="zone">
-  <div class="zone-head">
-    <div>
-      <h2>Dữ liệu nền công ty</h2>
-      <p class="meta">Các view này chuẩn bị và kiểm tra nguồn dữ liệu mà workflow C/O sẽ tiêu thụ.</p>
+    {% if co_recent %}
+    <div class="dash-case-list">
+      {% for case in co_recent %}
+      <a class="dash-case" href="/clients/{{ client.id }}/co-case/{{ case.case_id }}">
+        <div class="dash-case-main">
+          <strong class="mono">{{ case.case_code }}</strong>
+          <div class="meta">{{ case.reference }}{% if case.destination_market and case.destination_market != 'Chưa nhập' %} · {{ case.destination_market }}{% endif %}</div>
+        </div>
+        <span class="status-pill status-{{ case.status_key }}">{{ case.status_label }}</span>
+      </a>
+      {% endfor %}
     </div>
-  </div>
-  <div class="module-grid">
-    <a class="module-tile module-link" href="/clients/{{ client.id }}/catalog">
-      <strong>Danh mục mã hàng</strong>
-      <span>{{ client.counts.products }} TP · {{ client.counts.materials }} NVL · mã HQ = mã nội bộ trong demo đơn giản.</span>
-    </a>
-    <a class="module-tile module-link" href="/clients/{{ client.id }}/bom">
-      <strong>BOM</strong>
-      <span>{{ client.counts.bom_lines }} dòng định mức seed để đối chiếu nguyên liệu theo thành phẩm.</span>
-    </a>
-    <a class="module-tile module-link" href="/clients/{{ client.id }}/co-stock">
-      <strong>Tồn CO</strong>
-      <span>{{ client.counts.co_stock }} bucket theo tờ khai nhập, STT hàng và mã NVL.</span>
-    </a>
-    <a class="module-tile module-link" href="/clients/{{ client.id }}/bcct">
-      <strong>BCCT</strong>
-      <span>{{ client.counts.bcct }} dòng nhập khẩu/xuất khẩu để đối chiếu với tồn và hồ sơ C/O.</span>
-    </a>
-    <a class="module-tile module-link" href="/customs-exchange-rates">
-      <strong>Tỷ giá hải quan</strong>
-      <span>Dữ liệu app-level dùng chung để chuẩn hóa trị giá theo ngày tờ khai.</span>
-    </a>
-  </div>
-</section>
+    {% else %}
+    <div class="dash-empty">
+      <p class="dash-empty-title">Hồ sơ C/O là trung tâm của workspace này.</p>
+      <p class="meta">Mỗi hồ sơ gom invoice/tờ khai, chứng từ, đánh giá RVC/CTSH và xuất bộ dossier nộp.</p>
+      <a class="btn-primary" href="/clients/{{ client.id }}/co-case">Tạo hồ sơ C/O đầu tiên →</a>
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="zone dash-zone-data">
+    <div class="zone-head">
+      <div>
+        <h2>Tình trạng dữ liệu</h2>
+        <p class="meta">Dữ liệu nền {{ 'từ Data Hub' if source_backend == 'data-hub' else 'cục bộ' }} mà luồng C/O tiêu thụ.</p>
+      </div>
+    </div>
+
+    <div class="dash-data-list">
+      <a class="dash-data" href="/clients/{{ client.id }}/catalog">
+        <div class="dash-data-main">
+          <span class="dash-data-label">Danh mục mã hàng</span>
+          <span class="dash-data-meta">{{ client.counts.products }} TP · {{ client.counts.materials }} NVL{% if source_versions.material_catalog.version_no %} · v{{ source_versions.material_catalog.version_no }}{% endif %}</span>
+        </div>
+        <span class="dash-data-state {{ 'is-ok' if client.counts.materials else 'is-empty' }}">{{ 'sẵn sàng' if client.counts.materials else 'chưa có' }}</span>
+      </a>
+
+      <a class="dash-data" href="/clients/{{ client.id }}/bom">
+        <div class="dash-data-main">
+          <span class="dash-data-label">BOM</span>
+          <span class="dash-data-meta">Định mức nguyên liệu theo thành phẩm</span>
+        </div>
+        <span class="dash-data-state">mở →</span>
+      </a>
+
+      <a class="dash-data" href="/clients/{{ client.id }}/co-stock">
+        <div class="dash-data-main">
+          <span class="dash-data-label">Tồn CO</span>
+          <span class="dash-data-meta">
+            {{ client.counts.co_stock }} bucket{% if co_stock_last_refresh_at %} · cập nhật {{ co_stock_last_refresh_at[:10] }}{% endif %}
+          </span>
+        </div>
+        {% set sync = co_stock_sync_status or {} %}
+        {% if sync.status == 'in_sync' %}
+          <span class="dash-data-state is-ok">đồng bộ</span>
+        {% elif sync.status == 'stale' %}
+          <span class="dash-data-state is-warn">lệch {{ sync.delta }} dòng</span>
+        {% elif sync.status == 'no_snapshot' %}
+          <span class="dash-data-state is-warn">chưa snapshot</span>
+        {% else %}
+          <span class="dash-data-state">mở →</span>
+        {% endif %}
+      </a>
+
+      <a class="dash-data" href="/clients/{{ client.id }}/bcct">
+        <div class="dash-data-main">
+          <span class="dash-data-label">BCCT</span>
+          <span class="dash-data-meta">{{ client.counts.bcct }} dòng giao dịch{% if source_versions.bcct.version_no %} · v{{ source_versions.bcct.version_no }}{% endif %}</span>
+        </div>
+        <span class="dash-data-state {{ 'is-ok' if client.counts.bcct else 'is-empty' }}">{{ 'sẵn sàng' if client.counts.bcct else 'chưa có' }}</span>
+      </a>
+    </div>
+  </section>
+</div>
 {% endblock %}

@@ -1,6 +1,8 @@
 <section class="page-bar">
-  <h1>{{ client.name }}</h1>
-  <span class="page-tagline">{{ client.code }} · MST: {{ client.tax_code }}{% if client.counts %} · {{ client.counts.products }} TP · {{ client.counts.materials }} NVL · {{ client.counts.bom_lines }} dòng BOM · {{ client.counts.co_stock }} dòng Tồn CO · {{ client.counts.bcct }} dòng BCCT{% endif %}</span>
+  <div>
+    <h1>{{ client.name }}</h1>
+    <span class="page-tagline">{% if client.code %}<span class="mono">{{ client.code }}</span> · {% endif %}MST {{ client.tax_code if client.tax_code and client.tax_code != 'Chưa nhập' else '—' }}</span>
+  </div>
   <div class="page-actions">
     <span class="badge badge-{{ 'success' if client.status == 'active' else 'warning' }}">{{ client.status }}</span>
     <a class="btn-secondary" href="/clients">Đổi công ty</a>
@@ -8,24 +10,30 @@
 </section>
 
 {% if active != "co-case" %}
-<nav class="workflow-primary" aria-label="Luồng làm C/O">
-  <a class="workflow-primary-link {{ 'workflow-primary-link-active' if active == 'co-case' else '' }}" href="/clients/{{ client.id }}/co-case">
-    <span>Luồng chính</span>
-    <strong>Làm hồ sơ C/O</strong>
-    <small>Tạo shipment, gom chứng từ, đối chiếu BCCT, kiểm tra xuất xứ và xuất dossier.</small>
-  </a>
-</nav>
-{% endif %}
+  {% set data_active = active in ['catalog', 'bom', 'co-stock', 'bcct'] %}
+  {% set config_active = active in ['config', 'cost-allocation'] %}
+  <nav class="tabs client-tabs" aria-label="Khu làm việc công ty">
+    <a class="tab-link {{ 'tab-link-active' if active == 'overview' else '' }}" href="/clients/{{ client.id }}">Tổng quan</a>
+    <a class="tab-link tab-link-primary" href="/clients/{{ client.id }}/co-case">Hồ sơ C/O</a>
+    <span class="tab-sep" aria-hidden="true"></span>
 
-{% if active != "co-case" %}
-  <nav class="tabs" aria-label="Dữ liệu nền công ty">
-    <a class="tab-link {{ 'tab-link-active' if active == 'overview' else '' }}" href="/clients/{{ client.id }}">Overview</a>
-    <a class="tab-link {{ 'tab-link-active' if active == 'catalog' else '' }}" href="/clients/{{ client.id }}/catalog">Danh mục mã hàng</a>
-    <a class="tab-link {{ 'tab-link-active' if active == 'bom' else '' }}" href="/clients/{{ client.id }}/bom">BOM</a>
-    <a class="tab-link {{ 'tab-link-active' if active == 'co-stock' else '' }}" href="/clients/{{ client.id }}/co-stock">Tồn CO</a>
-    <a class="tab-link {{ 'tab-link-active' if active == 'bcct' else '' }}" href="/clients/{{ client.id }}/bcct">BCCT</a>
-    <a class="tab-link {{ 'tab-link-active' if active == 'cost-allocation' else '' }}" href="/clients/{{ client.id }}/cost-allocation">Hệ số phân bổ</a>
-    <a class="tab-link {{ 'tab-link-active' if active == 'config' else '' }}" href="/clients/{{ client.id }}/config">Config</a>
+    <details class="nav-menu">
+      <summary class="tab-link nav-menu-trigger {{ 'tab-link-active' if data_active else '' }}">Dữ liệu</summary>
+      <div class="nav-menu-panel">
+        <a class="{{ 'is-active' if active == 'catalog' else '' }}" href="/clients/{{ client.id }}/catalog">Danh mục mã hàng</a>
+        <a class="{{ 'is-active' if active == 'bom' else '' }}" href="/clients/{{ client.id }}/bom">BOM</a>
+        <a class="{{ 'is-active' if active == 'co-stock' else '' }}" href="/clients/{{ client.id }}/co-stock">Tồn CO</a>
+        <a class="{{ 'is-active' if active == 'bcct' else '' }}" href="/clients/{{ client.id }}/bcct">BCCT</a>
+      </div>
+    </details>
+
+    <details class="nav-menu">
+      <summary class="tab-link nav-menu-trigger {{ 'tab-link-active' if config_active else '' }}">Cấu hình</summary>
+      <div class="nav-menu-panel">
+        <a class="{{ 'is-active' if active == 'config' else '' }}" href="/clients/{{ client.id }}/config">Cấu hình công ty</a>
+        <a class="{{ 'is-active' if active == 'cost-allocation' else '' }}" href="/clients/{{ client.id }}/cost-allocation">Hệ số phân bổ</a>
+      </div>
+    </details>
   </nav>
 {% endif %}
 

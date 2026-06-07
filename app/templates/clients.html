@@ -1,56 +1,76 @@
 {% extends "base.html" %}
 {% block title %}Công ty - Barry CO{% endblock %}
 
-{% macro module_state(state) -%}
-  {%- if state == "seeded" -%}Có seed{%- elif state == "active" -%}Đang chạy{%- elif state == "planned" -%}Chưa nạp{%- else -%}{{ state }}{%- endif -%}
+{% macro dot(label, count) -%}
+  <span class="rd-dot {{ 'rd-on' if count else 'rd-off' }}" title="{{ label }}: {{ count or 0 }}">
+    <i></i>{{ label }} <b>{{ count if count else '—' }}</b>
+  </span>
 {%- endmacro %}
 
 {% block content %}
-<section class="page-bar">
-  <h1>Danh mục công ty</h1>
-  <span class="page-tagline">{{ clients|length }} công ty · catalog TP/NVL · BOM · Tồn CO · BCCT · hồ sơ C/O</span>
-</section>
-
-<section class="zone">
-  <div class="zone-head">
-    <div>
-      <h2>Danh sách công ty</h2>
-      <p class="meta">Chọn công ty trước, rồi xử lý dữ liệu nền và từng hồ sơ C/O trong workspace riêng.</p>
+<section class="clients-hero">
+  <div>
+    <h1>Công ty</h1>
+    <p class="page-tagline">Chọn một công ty để vào luồng làm C/O.</p>
+  </div>
+  {% if portfolio_summary %}
+  <div class="clients-hero-stats">
+    <div class="che-stat">
+      <span class="che-value">{{ portfolio_summary.clients }}</span>
+      <span class="che-label">công ty</span>
+    </div>
+    <div class="che-stat">
+      <span class="che-value">{{ portfolio_summary.open }}</span>
+      <span class="che-label">hồ sơ C/O đang mở</span>
+    </div>
+    <div class="che-stat {{ 'che-warn' if portfolio_summary.attention else '' }}">
+      <span class="che-value">{{ portfolio_summary.attention }}</span>
+      <span class="che-label">công ty cần xử lý</span>
     </div>
   </div>
-  <div class="rowlist">
-    {% for client in clients %}
-    <a class="rowitem client-row stripe-{{ loop.index }}" href="/clients/{{ client.id }}">
-      <div class="rowitem-main">
-        <strong>{{ client.name }}</strong>
-        <div class="meta">{{ client.contact }} · <span class="mono">{{ client.code }}</span> · MST: {{ client.tax_code }}</div>
-      </div>
-      <div class="rowitem-side">
-        <span class="badge badge-{{ 'success' if client.counts.products else 'warning' }}">TP {{ client.counts.products }}</span>
-        <span class="badge badge-{{ 'success' if client.counts.materials else 'warning' }}">NVL {{ client.counts.materials }}</span>
-        <span class="badge badge-{{ 'success' if client.counts.bom_lines else 'warning' }}">BOM {{ client.counts.bom_lines }}</span>
-        <span class="badge badge-{{ 'success' if client.counts.co_stock else 'warning' }}">Tồn CO {{ client.counts.co_stock }}</span>
-        <span class="badge badge-{{ 'success' if client.counts.bcct else 'warning' }}">BCCT {{ client.counts.bcct }}</span>
-      </div>
-    </a>
-    {% endfor %}
-  </div>
+  {% endif %}
 </section>
 
-<section class="zone zone-muted">
-  <div class="zone-head">
-    <div>
-      <h2>Bộ dữ liệu nền cho từng công ty</h2>
-      <p class="meta">Demo hiện tách catalog mã hàng, BOM, tồn CO và hồ sơ C/O thành các view riêng.</p>
+<section class="client-grid">
+  {% for client in clients %}
+  {% set co = client.co_summary or {} %}
+  <a class="client-card {{ 'has-attention' if co.open else '' }}" href="/clients/{{ client.id }}">
+    <div class="client-card-head">
+      <span class="client-mono">{{ client.monogram }}</span>
+      <div class="client-card-id-block">
+        <strong class="client-card-name">{{ client.name }}</strong>
+        <div class="client-card-id">MST {{ client.tax_code if client.tax_code and client.tax_code != 'Chưa nhập' else '—' }}{% if client.code %} · <span class="mono">{{ client.code }}</span>{% endif %}</div>
+      </div>
+      <span class="source-tag source-tag-{{ client.source_backend }}">{{ client.source_backend }}</span>
     </div>
-  </div>
-  <div class="module-grid">
-    <div class="module-tile"><strong>Danh mục TP</strong><span>Mã sản phẩm, HS thành phẩm, quy tắc áp dụng</span></div>
-    <div class="module-tile"><strong>Danh mục NVL</strong><span>Mã HQ, mã nội bộ, HS, xuất xứ mặc định</span></div>
-    <div class="module-tile"><strong>BOM</strong><span>Dòng định mức/evidence theo thành phẩm</span></div>
-    <div class="module-tile"><strong>Tồn CO</strong><span>Tồn theo dòng nhập khẩu, không chỉ theo mã tổng</span></div>
-    <div class="module-tile"><strong>BCCT</strong><span>Dòng nhập khẩu, xuất khẩu, hóa đơn và tờ khai</span></div>
-    <div class="module-tile"><strong>Hồ sơ C/O</strong><span>Lô hàng, checklist, đánh giá RVC/CTSH, output</span></div>
-  </div>
+
+    <div class="client-card-co">
+      {% if co.total %}
+        <div class="ccc-primary">
+          <span class="ccc-count">{{ co.open }}</span>
+          <span class="ccc-label">hồ sơ C/O đang mở</span>
+        </div>
+        <div class="ccc-side">
+          {% if co.open %}<span class="badge badge-warning">cần xử lý</span>{% else %}<span class="badge badge-success">tất cả xong</span>{% endif %}
+          <span class="ccc-done">{{ co.done }} đã xong · {{ co.total }} tổng</span>
+        </div>
+      {% else %}
+        <div class="ccc-primary ccc-empty">
+          <span class="ccc-count">0</span>
+          <span class="ccc-label">Chưa có hồ sơ C/O — bấm để tạo</span>
+        </div>
+      {% endif %}
+    </div>
+
+    <div class="client-card-foot">
+      <span class="rd-title">Dữ liệu nền</span>
+      <div class="readiness-row" aria-label="Sẵn sàng dữ liệu nền">
+        {{ dot('NVL', client.counts.materials) }}
+        {{ dot('TP', client.counts.products) }}
+        {{ dot('BCCT', client.counts.bcct) }}
+      </div>
+    </div>
+  </a>
+  {% endfor %}
 </section>
 {% endblock %}
