@@ -77,6 +77,8 @@ Brief: `.ai/features/2026-06-07-co-case-list-redesign.md`. All in `co_case.html`
 - Dead CSS for removed `co-flow-mini`/`co-overview-create`/`co-case-index-layout` (+ their
   `@media` refs) left in place; safe to delete later.
 - johnson-vn cases are seed/in-memory on HTTP **local** → archive won't persist there; growatt
-  + prod johnson-vn (PG) persist. (Archive verified by store unit test, not yet click-tested
-  on prod — low risk, route is trivial.)
+  + prod johnson-vn (PG) persist. **Archive click-tested on prod** (demo login): archive
+  `co-case-0605189d5eea` → flash + row hidden + stat 5→4 + toggle "(1)"; show-toggle reveals
+  "· đã lưu trữ"; unarchive restores 5/5. Round-trips through PG across clean reloads. Prod
+  restored to original. Screenshots `prod-archive-{hidden,shown,restored}.png`.
 - Backlog (STATUS Next Steps): audit delete-case → release-stock → CO-stock ledger/history.
