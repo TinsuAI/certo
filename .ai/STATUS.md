@@ -1,7 +1,8 @@
 # Project Status
 
 ## Current State
-- **CO-case LIST page redesign — DONE + VERIFIED LOCAL, NOT committed/deployed.** Replaced the
+- **CO-case LIST page redesign — DONE + DEPLOYED PROD + DEMO (`ee70a4b`, run 27089129326).**
+  Prod `barry-co.tinsu.ai` + demo `demo-co.tinsu.ai` healthz 200 post-deploy. Replaced the
   bulky `co-command-bar` + wrong 4-step mini-flow with a slim header + clickable **summary stat
   band** (Tổng/Đang xử lý/Đã chốt/Có vấn đề/Đã xuất); moved the spacy create panel into a
   `+ Tạo hồ sơ` **modal** (reused all existing form macros/JS); redesigned the dossier table to
