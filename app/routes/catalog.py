@@ -1153,6 +1153,57 @@ async def catalog_detail(request: Request, client_id: str, material_code: str):
         bom_cols = [d[0] for d in cur.description]
         bom_artifacts = [dict(zip(bom_cols, r)) for r in cur.fetchall()]
 
+        # Observed UoM elsewhere: official lives on the catalog (materials.uom);
+        # these are the distinct units actually seen for this code in BCCT
+        # declarations and in BOM edges (where the code is a component).
+        cur.execute(
+            """
+            select unit, count(*) as n_rows,
+                   count(distinct declaration_no) as n_decls
+            from hub.bcct_rows
+            where client_id = %s and customs_code = %s
+              and unit is not null and unit <> ''
+            group by unit
+            order by n_rows desc
+            """,
+            (client_id, material_code),
+        )
+        uom_bcct = [{"unit": u, "n_rows": nr, "n_decls": nd}
+                    for u, nr, nd in cur.fetchall()]
+        cur.execute(
+            """
+            select e.uom, count(*) as n_edges
+            from hub.bom_edges e
+            join hub.bom_artifacts a on a.artifact_id = e.artifact_id
+            where a.client_id = %s and e.child_code = %s
+              and e.uom is not null and e.uom <> ''
+            group by e.uom
+            order by n_edges desc
+            """,
+            (client_id, material_code),
+        )
+        uom_bom = [{"uom": u, "n_edges": ne} for u, ne in cur.fetchall()]
+
+    from app.stores.uom_standards import are_equivalent
+    uom_official = material.get("uom")
+    # Alias-aware divergence: a token diverges only if it resolves to a
+    # DIFFERENT canonical than the official UoM, so SETS↔SET / ST↔Stück and
+    # other seeded aliases don't false-positive. Severity + the actual
+    # conversion factor are owned by /uom-factors (linked from each chip).
+    def _diverges(tok):
+        return bool(uom_official) and not are_equivalent(tok, uom_official)
+    for o in uom_bcct:
+        o["diverges"] = _diverges(o["unit"])
+    for o in uom_bom:
+        o["diverges"] = _diverges(o["uom"])
+    uom_panel = {
+        "official": uom_official,
+        "bcct": uom_bcct,
+        "bom": uom_bom,
+        "has_divergence": any(o["diverges"] for o in uom_bcct)
+                          or any(o["diverges"] for o in uom_bom),
+    }
+
     from app.stores.catalog_warnings import compute_warnings
     from app.stores.catalog_audit import audit_diff
     warnings = compute_warnings(client_id, material_code)
@@ -1239,6 +1290,7 @@ async def catalog_detail(request: Request, client_id: str, material_code: str):
          "substitutes_active": substitutes_active,
          "substitutes_rejected": substitutes_rejected,
          "bom_artifacts": bom_artifacts,
+         "uom_panel": uom_panel,
          "warnings": warnings,
          "mapping_panel": mapping_panel,
          "self_loop_mapping": self_loop_count > 0,
