@@ -1,19 +1,20 @@
 # Project Status
 
 ## Current State
-- **UX/UI redesign — GitHub Primer "operations console" — DONE on branch
-  `feat/ux-redesign-primer`, PUSHED, NOT merged/deployed.** Full visual+IA overhaul: neutral
-  Primer palette (slate + single blue accent + status colors, flat/solid-border, both themes,
-  WCAG AA) via token-value swap so `co_case.html` inherits it untouched; CO-centric company
-  dashboard + richer company-list cards; grouped per-client nav (Dữ liệu/Cấu hình dropdowns);
-  per-data-page metric dashboards (cheap sources only — Tồn CO via materializer SQL); config
-  grouped company-vs-system (FX moved to Settings). Consumes Data Hub's new `bom` block on
-  `/source-summary` for the BOM dashboard (export trio; fulfils
-  `.ai/api-requests/2026-06-07-products-total-count.md`). Tests 209 passed. Session summary
-  `.ai/sessions/2026-06-07-ux-redesign-primer.md`; memories `ui-design-direction-primer`,
-  `dh-products-endpoint-50-cap`. **Open:** merge to `main` to deploy (push main = prod deploy);
-  BOM dashboard shows real numbers only where Data Hub has deployed the `bom` block (degrades
-  to a qualitative card elsewhere — safe).
+- **UX/UI redesign — GitHub Primer "operations console" — DONE + DEPLOYED PROD + DEMO
+  (`a33eaae`).** Full visual+IA overhaul: neutral Primer palette (slate + single blue accent
+  `#1f6feb` + status colors, flat/solid-border, both themes, WCAG AA) via token-value swap so
+  `co_case.html` inherits it untouched; CO-centric company dashboard + richer company-list
+  cards; grouped per-client nav (Dữ liệu/Cấu hình dropdowns); per-data-page metric dashboards
+  (cheap sources only — Tồn CO via materializer SQL); config grouped company-vs-system (FX
+  moved to Settings). Consumes Data Hub's `bom` block on `/source-summary` for the BOM
+  dashboard (export trio `exported_with_bom/exported_total`; fulfils
+  `.ai/api-requests/2026-06-07-products-total-count.md`). Verified live: prod
+  `barry-co.tinsu.ai` + demo `demo-co.tinsu.ai` both serve `--primary:#1f6feb`, healthz 200.
+  Tests 477 passed. Memories `ui-design-direction-primer`, `dh-products-endpoint-50-cap`.
+  **Caveat:** BOM dashboard shows real numbers only where Data Hub has deployed the `bom`
+  block; degrades to a qualitative card otherwise (safe) — confirm DH deployed it to prod.
+  This deploy also shipped the prior `dc1b582` background-dossier-export (was pending deploy).
 - **Customer feedback "HIỆN TRẠNG BARRY CO" (2026-06-05)** tracked in
   `.ai/feedback/2026-06-05-hien-trang-barry-co.md`. Done+deployed: #9 (F5 BOM race), #7 (tên
   hàng cắt → tooltip + 2-dòng), #8 (toggle "chỉ hiện mã đủ tồn"). Still open: #12 (số tồn
@@ -48,13 +49,15 @@
 - App healthy on prod (`barry-co.tinsu.ai`, container Up/healthy), CI green, nightly refreshed.
 
 ## Recent Changes (latest first)
-- **branch `feat/ux-redesign-primer`** (2026-06-07, 8 commits, pushed, not merged): Primer
-  design system (`app.css` tokens); CO dashboard + company cards + grouped nav; per-data-page
-  metric dashboards + DH `bom`-summary consumer; config grouping; tests; API-request doc;
-  carry-over of prior handoffs. NOT deployed (merge to main triggers prod deploy).
+- **UX redesign `3090f76`..`a33eaae`** (2026-06-07, merged to `main`, **deployed prod+demo**):
+  Primer design system (`app.css` tokens); CO dashboard + company cards + grouped nav;
+  per-data-page metric dashboards + DH `bom`-summary consumer; config grouping; tests;
+  API-request doc; carry-over of prior handoffs. `a33eaae` = post-push CI fix (a stale
+  `test_data_hub_integration` assertion the local file-mode subset missed; deploy was correctly
+  gated/skipped on the first push so prod never broke). CI/CD on tinsu runner: tests → build →
+  deploy-on-tinsu + nightly refresh.
 - `dc1b582` feat(co-case): background dossier export + fix missing import TKN PDF (2026-06-07).
-  13 files, dossier-only (split cleanly from a large pre-existing uncommitted work stream still
-  in the tree — see Notes). **Committed, not pushed.**
+  13 files, dossier-only. **Now pushed + deployed** (rode along the UX-redesign deploy `a33eaae`).
 - `1c7f5b6` feat: #7 tooltip+2-line name, #8 stock-only toggle (`co_case.html`, `app.css`).
 - `a394d32`+`925654d` feat: `asset_url()` content-hash cache-busting; registered on BOTH Jinja
   instances (`templating.py`, `portfolio.py`) — portfolio uses its own instance.
@@ -69,6 +72,13 @@
   no-token → 401 → deploy exit 22 after DH enforced auth).
 
 ## Next Steps (priority order)
+0. **Confirm Data Hub deployed the `bom` block to prod/demo.** The BOM dashboard shows real
+   numbers only where `/source-summary` carries `bom`; otherwise it (safely) shows a qualitative
+   card. Verify on prod after DH deploys; then fill the exact DH commit hash in the Approval
+   section of `.ai/api-requests/2026-06-07-products-total-count.md`.
+0b. (optional) Live UI smoke on prod with demo login `claude-check@local` / `claude-temp-2026`
+   to screenshot the real authed pages (dashboard/data dashboards) — local verified, prod CSS
+   confirmed but authed pages not yet screenshotted.
 1. ~~**AUDIT — trừ-lùi không được là biến số của logic.**~~ ✅ DONE 2026-06-07
    (`.ai/audits/2026-06-07-trului-not-a-logic-variable-audit.md`). Verdict: runtime logic
    CLEAN — chỉ `opening_qty_override`+`used_qty` vào logic qua `fold_baseline` (qty-only);

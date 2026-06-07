@@ -6,7 +6,10 @@ confusing, data pages only linked to Data Hub, config was scattered. Make CO the
 flow; reorganize data + config; give data pages real overview info.
 
 ## What was done
-Branch `feat/ux-redesign-primer` (8 commits, pushed, NOT merged/deployed).
+Branch `feat/ux-redesign-primer` (8 commits) → fast-forward merged to `main` → **deployed to
+prod + demo** (`a33eaae`). Commits `3090f76`(design system) `b7e5b4d`(dashboard+cards+nav)
+`88a905b`(data dashboards + bom consumer) `adfa5f1`(config) `791c5af`(tests) `367d08c`(API
+request) `f433af6`(prior handoffs) `cec7934`(STATUS+summary) `a33eaae`(post-push CI test fix).
 
 - **Design system (Primer "operations console").** Rejected 4 bolder palettes (indigo/blue/
   ink/teal) after user feedback; landed on neutral slate + single blue accent + semantic status
@@ -47,16 +50,28 @@ Branch `feat/ux-redesign-primer` (8 commits, pushed, NOT merged/deployed).
   client-specific: johnson 574/651, growatt 20/63).
 
 ## Verification
-- Tests: 209 passed, 6 skipped (`test_co_demo`, `test_source_stats`, `test_data_hub_policy`,
-  `test_cost_allocation_routes`, `test_source_backend_guard`). DH-policy guardrail green.
+- Tests: full suite **477 passed, 8 skipped** locally (matching CI). DH-policy guardrail green.
+- CI/CD on tinsu runner (run 27087848485): tests ✓ → docker build ✓ → deploy-on-tinsu ✓ →
+  nightly refresh ✓.
+- Live: prod `barry-co.tinsu.ai` + demo `demo-co.tinsu.ai` both serve `--primary:#1f6feb`
+  (Primer), healthz 200.
 - Browser screenshots (light+dark) under `.ai/screenshots/2026-06-07-ux-redesign/` (gitignored):
   clients, dashboard, co-case before/after gate, data-page dashboards, nav dropdown.
 - Local dev `127.0.0.1:8001` (file/DH mode); growatt-vn + johnson-vn DH-backed via local DH.
 
+## Deploy notes (learned)
+- Push to `main` = prod+demo auto-deploy via the tinsu runner; deploy is GATED on the test job
+  (a test failure → deploy skipped, prod untouched). This saved us: the first push failed CI on
+  a stale `test_data_hub_integration` assertion not in the local file-mode subset, so nothing
+  bad shipped. **Run the FULL `uv run pytest` (not a hand-picked subset) before pushing to
+  main** — the file-mode subset misses `test_data_hub_integration` etc.
+
 ## Open items
-- Merge `feat/ux-redesign-primer` → `main` to deploy (push main = prod auto-deploy via runner
-  `tinsu-co`). Not done — awaiting user.
-- BOM dashboard real numbers depend on Data Hub deploying the `bom` block to dev/demo/prod;
-  until then CO shows the qualitative fallback (safe).
-- Fill the exact Data Hub commit hash in the API-request artifact's Approval section.
-- Pre-existing open items unchanged (feedback #13/#14/#4; dossier bg push+deploy from dc1b582).
+- ✅ Merged + deployed to prod + demo (`a33eaae`). Also shipped the pending `dc1b582`
+  background-dossier-export.
+- BOM dashboard real numbers depend on Data Hub deploying the `bom` block to prod/demo; until
+  then CO shows the qualitative fallback (safe). **Confirm DH deployed it**, then fill the exact
+  DH commit hash in the API-request artifact's Approval section.
+- (optional) Authed live UI smoke on prod (`claude-check@local`) — only the public CSS was
+  verified on prod, not the logged-in pages.
+- Pre-existing open items unchanged (feedback #13/#14/#4).
