@@ -78,6 +78,14 @@
 - App healthy on prod (`barry-co.tinsu.ai`, container Up/healthy), CI green, nightly refreshed.
 
 ## Recent Changes (latest first)
+- **App-identity brand chrome `1f2b6dd`** (2026-06-07, deployed prod+demo, run 27089894162):
+  purple `--brand` (#8250df/#a371f7) on monogram + topnav border + 3px `.app-frame`; mirrors
+  Data Hub `dbd85fb`. Prod-verified via computed styles. Session `…co-app-identity-brand.md`.
+- **CO-case list redesign `ee70a4b`** (2026-06-07, deployed prod+demo, run 27089129326): stat
+  band + status badges/progress/chips + archive + create modal + per-row ⋯; shared
+  `co_case_status_view`. Tests 484✓. Dossier-export smoke + archive click-test verified on prod.
+  Session `…co-case-list-redesign.md`. Memory `css-no-opacity-muted-text` updated (button-color
+  inheritance contrast). Backlog: delete→stock-release ledger audit (Next Steps #3).
 - **UX redesign `3090f76`..`a33eaae`** (2026-06-07, merged to `main`, **deployed prod+demo**):
   Primer design system (`app.css` tokens); CO dashboard + company cards + grouped nav;
   per-data-page metric dashboards + DH `bom`-summary consumer; config grouping; tests;
@@ -159,16 +167,9 @@
 - **Playwright:** `PWDIR=$(dirname "$(ls -d ~/.npm/_npx/*/node_modules/playwright|head -1)"); NODE_PATH=$PWDIR node script.js`. Demo login prod: `claude-check@local` / `claude-temp-2026`.
 - **Deploy:** push `TinsuAI/co main` → CI. Health-check 401-sau-`{"status":"ok"}` = DH smoke
   (đã fix). Memory `deploy-remote-tinsu-co`, `dh-auth-enforced-co-token-model`.
-- **Git:** `60f8ced` (docs) chưa push — gom lần deploy sau. `.ai/sessions/2026-06-05-*.md` (2
-  file) còn untracked từ phiên trước.
-- **⚠️ Cây làm việc còn ~900 dòng pre-existing CHƯA COMMIT từ một luồng việc KHÁC** (không phải
-  dossier): `clients.html`, `workspace.html`, `routers/pages.py`, `web/client_context.py`,
-  `bom_service.py`, `routers/bom.py`, `routers/co_stock.py`, nhiều template, + phần lớn `app.css`
-  và một số test trong `test_co_demo.py`; untracked `app/templates/_source_stats.html`,
-  `.ai/api-requests/2026-06-07-products-total-count.md`, `.ai/audits/...trului...`,
-  `.ai/sessions/2026-06-07-trului-logic-audit.md`. `dc1b582` đã được tách sạch chỉ-dossier khỏi
-  đống này (dùng `git apply --cached` từng hunk cho 2 file trộn). **Đừng gộp đại** — luồng kia
-  cần chủ nhân của nó review/commit riêng. STATUS.md + session log này cũng đang unstaged.
+- **Git:** working tree **CLEAN**, `origin/main` (TinsuAI/co) up to date through `0cc33bc`. The
+  old "~900-line pre-existing uncommitted flow" warning from earlier sessions no longer applies
+  — that work was committed/resolved; nothing stray on disk now.
 - **Dossier export note:** htmx KHÔNG được load trong app (mọi `hx-boost` là no-op) → poll bằng
   vanilla JS; staleness key là content-hash `dossier_content_revision` (KHÔNG dùng
   `co_cases.revision` vì nó null ở file-mode); job mồ côi sau restart phát hiện qua `_FUTURES`
