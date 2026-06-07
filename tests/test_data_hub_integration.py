@@ -181,7 +181,7 @@ def test_auth_required_allows_valid_data_hub_session(monkeypatch):
     response = client.get("/clients")
 
     assert response.status_code == 200
-    assert "Danh mục công ty" in response.text
+    assert "client-grid" in response.text
 
 
 def test_auth_required_rejects_client_outside_jwt_acl(monkeypatch):
