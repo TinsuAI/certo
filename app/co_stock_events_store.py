@@ -235,6 +235,104 @@ def events_for_case(client_id: str, case_id: str, *, limit: int = 500) -> list[d
         return []
 
 
+CLAIM_EVENT_TYPES = {"claim_lock", "claim_release"}
+
+
+def _event_effect(ev: dict) -> Decimal:
+    """One event's effect on remaining tồn, matching the modal's display
+    convention: a Lock consumes the lot (−qty), a Release returns it (+qty),
+    an adjustment moves it by Δopening − Δused. Mirrors the raw modal's
+    `effectOf` so folded net and per-event walk stay consistent.
+    """
+    if ev.get("event_type") in CLAIM_EVENT_TYPES:
+        return -(_decimal_or_none(ev.get("qty_delta")) or Decimal("0"))
+    opening_after = _decimal_or_none(ev.get("opening_qty_after")) or Decimal("0")
+    opening_before = _decimal_or_none(ev.get("opening_qty_before")) or Decimal("0")
+    qty_delta = _decimal_or_none(ev.get("qty_delta")) or Decimal("0")
+    return (opening_after - opening_before) - qty_delta
+
+
+def fold_lot_events(events: list[dict]) -> list[dict]:
+    """Collapse a lot's raw event log (newest-first) into one row per claim
+    stream — keyed by (case_id, sheet_product_code) — so the
+    chốt→mở-chốt→chốt churn reads as a single net holding instead of N noisy
+    rows.
+
+    Each claim group nets the per-event effects: a still-holding stream shows a
+    negative net (= held qty, status "holding"); a fully released one nets to 0
+    (status "released"). Non-claim events (manual workbook adjustments) carry no
+    case identity and are passed through as singleton groups so their detail
+    survives. Order follows newest activity first, matching the raw modal.
+
+    Display-only: the underlying `co_stock_events` rows are untouched — the raw
+    log is still served via the same response for the "Chi tiết" toggle.
+    """
+    groups: dict = {}
+    order: list = []
+    for ev in events:
+        etype = ev.get("event_type") or ""
+        case_id = (ev.get("case_id") or "").strip()
+        sheet = (ev.get("sheet_product_code") or "").strip()
+        if etype in CLAIM_EVENT_TYPES and case_id:
+            key = ("claim", case_id, sheet)
+        else:
+            # Adjustments / un-attributed events keep one row each.
+            key = ("event", ev.get("event_id") or len(order))
+        grp = groups.get(key)
+        if grp is None:
+            grp = {
+                "kind": "claim" if key[0] == "claim" else etype,
+                "case_id": case_id,
+                "sheet_product_code": sheet,
+                "_net": Decimal("0"),
+                "event_count": 0,
+                "lock_count": 0,
+                "release_count": 0,
+                "latest_at": ev.get("recorded_at") or "",
+                "earliest_at": ev.get("recorded_at") or "",
+                "actor": ev.get("actor") or "",
+                "notes": ev.get("notes") or "",
+                "source_file_ref": ev.get("source_file_ref") or "",
+                "batch_id": ev.get("batch_id") or "",
+            }
+            groups[key] = grp
+            order.append(key)
+        grp["_net"] += _event_effect(ev)
+        grp["event_count"] += 1
+        if etype == "claim_lock":
+            grp["lock_count"] += 1
+        elif etype == "claim_release":
+            grp["release_count"] += 1
+        recorded = ev.get("recorded_at") or ""
+        if recorded:
+            if not grp["latest_at"] or recorded > grp["latest_at"]:
+                grp["latest_at"] = recorded
+            if not grp["earliest_at"] or recorded < grp["earliest_at"]:
+                grp["earliest_at"] = recorded
+    out = []
+    for key in order:
+        grp = groups[key]
+        net = grp.pop("_net")
+        if grp["kind"] == "claim":
+            if net < 0:
+                grp["status"] = "holding"
+                grp["held_qty"] = str(-net)
+            elif net == 0:
+                grp["status"] = "released"
+                grp["held_qty"] = "0"
+            else:
+                # Net positive shouldn't happen (more released than locked); flag
+                # rather than hide it.
+                grp["status"] = "anomaly"
+                grp["held_qty"] = "0"
+        else:
+            grp["status"] = ""
+            grp["held_qty"] = ""
+        grp["net_delta"] = str(net)
+        out.append(grp)
+    return out
+
+
 def _row_to_dict(cols: list[str], row: tuple) -> dict:
     out: dict = {}
     for col, value in zip(cols, row):

@@ -362,6 +362,9 @@ async def co_stock_lot_history(
             "customs_code": customs_code,
             **anchor,
         },
+        # Default modal view folds the chốt/mở-chốt churn into one net row per
+        # (case, sheet); `events` keeps the raw log for the "Chi tiết" toggle.
+        "groups": co_stock_events_store.fold_lot_events(events),
         "events": events,
         "count": len(events),
     })

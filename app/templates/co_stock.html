@@ -94,17 +94,20 @@
         <h2 id="co-stock-history-title" data-co-stock-history-target>—</h2>
         <p class="meta" data-co-stock-history-summary>—</p>
       </div>
-      <button type="button" class="btn-secondary" data-co-stock-history-close aria-label="Đóng">×</button>
+      <div class="co-stock-history-modal-actions">
+        <button type="button" class="btn-secondary" data-co-stock-history-toggle aria-pressed="false">Chi tiết</button>
+        <button type="button" class="btn-secondary" data-co-stock-history-close aria-label="Đóng">×</button>
+      </div>
     </header>
     <div class="co-stock-history-modal-body">
       <table class="table co-stock-history-table">
         <thead>
-          <tr>
-            <th>Thời điểm</th>
-            <th>Loại</th>
-            <th class="num">Δ tồn</th>
-            <th class="num">Tồn sau</th>
-            <th>Hồ sơ / Batch</th>
+          <tr data-co-stock-history-head>
+            <th>Hoạt động cuối</th>
+            <th>Trạng thái</th>
+            <th>Hồ sơ / Sheet</th>
+            <th class="num">Δ tồn ròng</th>
+            <th>Sự kiện</th>
             <th>Actor</th>
             <th>Ghi chú</th>
           </tr>
@@ -210,6 +213,147 @@
   };
 
   const clientId = window.location.pathname.split("/")[2] || "";
+  const headRow = modal.querySelector("[data-co-stock-history-head]");
+  const toggleBtn = modal.querySelector("[data-co-stock-history-toggle]");
+  // "grouped" (default) folds the chốt/mở-chốt churn into one net row per
+  // (case, sheet); "raw" shows every underlying co_stock_events row.
+  let mode = "grouped";
+  let lastData = null;
+
+  const numOf = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+  const tsOf = (v) => (v || "").slice(0, 19).replace("T", " ");
+  // One event's effect on remaining tồn (display convention): a Lock consumes
+  // the lot (−qty), a Release returns it (+qty), an adjustment moves it by
+  // Δopening − Δused. Server folds the same way (co_stock_events_store).
+  const effectOf = (ev) => {
+    if (ev.event_type === "claim_lock" || ev.event_type === "claim_release") {
+      return -numOf(ev.qty_delta);
+    }
+    return (numOf(ev.opening_qty_after) - numOf(ev.opening_qty_before)) - numOf(ev.qty_delta);
+  };
+  const deltaCell = (n) => n === 0
+    ? `<td class="num">—</td>`
+    : `<td class="num ${n > 0 ? "qty-pos" : "qty-neg"}">${(n > 0 ? "+" : "−") + fmtNum(Math.abs(n))}</td>`;
+
+  const HEADS = {
+    grouped: [
+      {label: "Hoạt động cuối"}, {label: "Trạng thái"}, {label: "Hồ sơ / Sheet"},
+      {label: "Δ tồn ròng", num: true}, {label: "Sự kiện"}, {label: "Actor"}, {label: "Ghi chú"},
+    ],
+    raw: [
+      {label: "Thời điểm"}, {label: "Loại"}, {label: "Δ tồn", num: true},
+      {label: "Tồn sau", num: true}, {label: "Hồ sơ / Batch"}, {label: "Actor"}, {label: "Ghi chú"},
+    ],
+  };
+  const STATUS_BADGE = {
+    holding: `<span class="badge co-stock-event-claim_lock">Đang giữ</span>`,
+    released: `<span class="badge co-stock-event-claim_release">Đã nhả</span>`,
+    anomaly: `<span class="badge co-stock-event-adjustment_void">⚠ Bất thường</span>`,
+  };
+
+  function setSummary(data) {
+    const base = mode === "grouped"
+      ? `${(data.groups || []).length} mục · gộp ${data.count} sự kiện`
+      : `${data.count} sự kiện`;
+    summary.textContent = data.lot?.overclaim
+      ? `${base} · mới nhất trước · ⚠ vượt tồn (còn ${fmtNum(data.lot.remaining_qty)})`
+      : `${base} · mới nhất trước`;
+  }
+
+  function renderRaw(data) {
+    // SAU = remaining tồn right after each event. Anchor at the lot's current
+    // effective remaining and walk backward, so it stays correct even when
+    // older events fall outside the fetch limit.
+    const hasAnchor = data.lot?.remaining_qty !== undefined && data.lot?.remaining_qty !== null && data.lot?.remaining_qty !== "";
+    const sau = new Array(data.events.length).fill(null);
+    if (hasAnchor) {
+      let running = numOf(data.lot.remaining_qty);
+      for (let i = 0; i < data.events.length; i++) {
+        if (i > 0) running -= effectOf(data.events[i - 1]);
+        sau[i] = running;
+      }
+    }
+    tbody.innerHTML = "";
+    data.events.forEach((ev, i) => {
+      const refs = [];
+      if (ev.case_id) refs.push(`case ${ev.case_id}`);
+      if (ev.sheet_product_code) refs.push(`sheet ${ev.sheet_product_code}`);
+      if (ev.source_file_ref) refs.push(`file ${ev.source_file_ref}`);
+      if (ev.batch_id) refs.push(`batch ${ev.batch_id}`);
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="mono">${tsOf(ev.recorded_at)}</td>
+        <td><span class="badge co-stock-event-${ev.event_type}">${labelFor[ev.event_type] || ev.event_type}</span></td>
+        ${deltaCell(effectOf(ev))}
+        <td class="num ${sau[i] !== null && sau[i] < 0 ? "qty-neg" : ""}">${sau[i] === null ? "—" : fmtNum(sau[i])}</td>
+        <td><span class="meta">${refs.join(" · ") || "—"}</span></td>
+        <td class="mono">${ev.actor || ""}</td>
+        <td><span class="meta">${ev.notes || ""}</span></td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function renderGrouped(data) {
+    const groups = data.groups || [];
+    tbody.innerHTML = "";
+    groups.forEach((g) => {
+      let statusCell, refsCell, countCell, noteCell;
+      if (g.kind === "claim") {
+        statusCell = STATUS_BADGE[g.status] || g.status || "—";
+        const refs = [];
+        if (g.case_id) refs.push(`case ${g.case_id}`);
+        if (g.sheet_product_code) refs.push(`sheet ${g.sheet_product_code}`);
+        refsCell = refs.join(" · ") || "—";
+        const churn = g.lock_count > 0 && g.release_count > 0
+          ? ` <span class="meta">(${g.lock_count} chốt · ${g.release_count} mở)</span>`
+          : "";
+        countCell = `${g.event_count}${churn}`;
+        noteCell = g.status === "holding" ? `còn giữ ${fmtNum(g.held_qty)}` : (g.notes || "");
+      } else {
+        statusCell = `<span class="badge co-stock-event-${g.kind}">${labelFor[g.kind] || g.kind}</span>`;
+        const refs = [];
+        if (g.source_file_ref) refs.push(`file ${g.source_file_ref}`);
+        if (g.batch_id) refs.push(`batch ${g.batch_id}`);
+        refsCell = refs.join(" · ") || "—";
+        countCell = `${g.event_count}`;
+        noteCell = g.notes || "";
+      }
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="mono">${tsOf(g.latest_at)}</td>
+        <td>${statusCell}</td>
+        <td><span class="meta">${refsCell}</span></td>
+        ${deltaCell(numOf(g.net_delta))}
+        <td>${countCell}</td>
+        <td class="mono">${g.actor || ""}</td>
+        <td><span class="meta">${noteCell}</span></td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function render() {
+    if (!lastData) return;
+    if (headRow) headRow.innerHTML = HEADS[mode].map((h) => `<th${h.num ? ' class="num"' : ""}>${h.label}</th>`).join("");
+    if (toggleBtn) {
+      toggleBtn.textContent = mode === "grouped" ? "Chi tiết" : "Gộp";
+      toggleBtn.setAttribute("aria-pressed", mode === "raw" ? "true" : "false");
+    }
+    setSummary(lastData);
+    if (!lastData.events?.length) {
+      tbody.innerHTML = `<tr><td colspan="7" class="empty-cell">Chưa có sự kiện nào cho lot này.</td></tr>`;
+      return;
+    }
+    if (mode === "grouped") renderGrouped(lastData); else renderRaw(lastData);
+  }
+
+  if (toggleBtn) {
+    toggleBtn.addEventListener("click", () => {
+      mode = mode === "grouped" ? "raw" : "grouped";
+      render();
+    });
+  }
 
   document.body.addEventListener("click", async (event) => {
     const btn = event.target.closest?.("[data-co-stock-history-btn]");
@@ -221,6 +365,8 @@
     title.textContent = `${decl} / dòng ${line} / ${code}`;
     summary.textContent = "Đang tải…";
     tbody.innerHTML = `<tr><td colspan="7" class="empty-cell">Đang tải…</td></tr>`;
+    lastData = null;
+    mode = "grouped"; // each open resets to the clean folded view
     modal.hidden = false;
     document.body.classList.add("co-stock-history-modal-open");
     const params = new URLSearchParams({declaration_no: decl, line_no: line, customs_code: code});
@@ -232,59 +378,8 @@
         tbody.innerHTML = `<tr><td colspan="7" class="empty-cell">—</td></tr>`;
         return;
       }
-      const data = await r.json();
-      summary.textContent = data.lot?.overclaim
-        ? `${data.count} sự kiện · mới nhất trước · ⚠ vượt tồn (còn ${fmtNum(data.lot.remaining_qty)})`
-        : `${data.count} sự kiện · mới nhất trước`;
-      if (!data.events?.length) {
-        tbody.innerHTML = `<tr><td colspan="7" class="empty-cell">Chưa có sự kiện nào cho lot này.</td></tr>`;
-        return;
-      }
-      // Each event's effect on remaining tồn (display convention): a Lock CO
-      // *consumes* the lot, so it shows as −qty; a Release returns it (+qty).
-      // Adjustments move remaining by Δopening − Δused.
-      const numOf = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
-      const effectOf = (ev) => {
-        if (ev.event_type === "claim_lock" || ev.event_type === "claim_release") {
-          return -numOf(ev.qty_delta);
-        }
-        return (numOf(ev.opening_qty_after) - numOf(ev.opening_qty_before)) - numOf(ev.qty_delta);
-      };
-      // SAU = remaining tồn right after each event. Anchor at the lot's current
-      // effective remaining (= newest event's "after") and walk backward, so the
-      // column stays correct even when older events fall outside the fetch limit.
-      const hasAnchor = data.lot?.remaining_qty !== undefined && data.lot?.remaining_qty !== null && data.lot?.remaining_qty !== "";
-      const sau = new Array(data.events.length).fill(null);
-      if (hasAnchor) {
-        let running = numOf(data.lot.remaining_qty);
-        for (let i = 0; i < data.events.length; i++) {
-          if (i > 0) running -= effectOf(data.events[i - 1]);
-          sau[i] = running;
-        }
-      }
-      tbody.innerHTML = "";
-      data.events.forEach((ev, i) => {
-        const refs = [];
-        if (ev.case_id) refs.push(`case ${ev.case_id}`);
-        if (ev.sheet_product_code) refs.push(`sheet ${ev.sheet_product_code}`);
-        if (ev.source_file_ref) refs.push(`file ${ev.source_file_ref}`);
-        if (ev.batch_id) refs.push(`batch ${ev.batch_id}`);
-        const eff = effectOf(ev);
-        const deltaCell = eff === 0
-          ? `<td class="num">—</td>`
-          : `<td class="num ${eff > 0 ? "qty-pos" : "qty-neg"}">${(eff > 0 ? "+" : "−") + fmtNum(Math.abs(eff))}</td>`;
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td class="mono">${(ev.recorded_at || "").slice(0, 19).replace("T", " ")}</td>
-          <td><span class="badge co-stock-event-${ev.event_type}">${labelFor[ev.event_type] || ev.event_type}</span></td>
-          ${deltaCell}
-          <td class="num ${sau[i] !== null && sau[i] < 0 ? "qty-neg" : ""}">${sau[i] === null ? "—" : fmtNum(sau[i])}</td>
-          <td><span class="meta">${refs.join(" · ") || "—"}</span></td>
-          <td class="mono">${ev.actor || ""}</td>
-          <td><span class="meta">${ev.notes || ""}</span></td>
-        `;
-        tbody.appendChild(tr);
-      });
+      lastData = await r.json();
+      render();
     } catch (err) {
       summary.textContent = `Lỗi mạng: ${err}`;
       tbody.innerHTML = `<tr><td colspan="7" class="empty-cell">—</td></tr>`;

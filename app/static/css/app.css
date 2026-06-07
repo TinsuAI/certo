@@ -4595,6 +4595,7 @@ body.co-stock-history-modal-open { overflow: hidden; }
   display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;
 }
 .co-stock-history-modal-head h2 { margin: 0.1rem 0; font-size: 1.05rem; }
+.co-stock-history-modal-actions { display: flex; gap: 0.5rem; align-items: center; flex-shrink: 0; }
 .co-stock-history-modal-body {
   padding: 0.75rem 1.25rem 1rem;
   overflow-y: auto;
