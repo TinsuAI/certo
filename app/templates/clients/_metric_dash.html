@@ -1,0 +1,14 @@
+{# Reusable per-page metric band. `cards` = list of dicts:
+   {value, label, sub?, tone?}  tone ∈ primary|warn|bad. #}
+{% macro metric_dash(cards) %}
+{% if cards %}
+<div class="data-dash">
+  {% for c in cards %}
+  <div class="data-dash-card {% if c.tone %}is-{{ c.tone }}{% endif %}">
+    <span class="ddc-value">{{ c.value }}</span>
+    <span class="ddc-label">{{ c.label }}{% if c.sub %} · {{ c.sub }}{% endif %}</span>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endmacro %}

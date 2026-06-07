@@ -210,11 +210,23 @@ async def list_view(
     def _sort_link(col: str) -> str:
         return sort_link(request=request, column=col, current_sort=sort)
     conflict_counts = _conflict_counts(client_id)
+    dash_cards = [{"value": prov_counts["total"], "label": "Tổng mã",
+                   "tone": "primary"}]
+    for _cat in CATEGORIES:
+        _n = counts.get(_cat, 0)
+        if _n:
+            dash_cards.append({"value": _n, "label": _cat.replace("_", " ").upper()})
+    if unregistered_bcct:
+        dash_cards.append({"value": unregistered_bcct,
+                           "label": "Chưa đăng ký HQ", "tone": "warn"})
+    if unresolved_bom:
+        dash_cards.append({"value": unresolved_bom,
+                           "label": "Chưa resolve BOM", "tone": "warn"})
     return request.app.state.templates.TemplateResponse(
         request, "clients/catalog.html",
         {
             "client": client, "stats": stats_for_client(client_id),
-            "items": items, "categories": CATEGORIES,
+            "items": items, "categories": CATEGORIES, "dash_cards": dash_cards,
             "active_category": category, "q": q or "", "counts": counts,
             "active_provenance": provenance,
             "prov_counts": prov_counts,

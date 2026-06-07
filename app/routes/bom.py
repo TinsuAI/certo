@@ -40,6 +40,7 @@ from app.routes._paging import (
 from app.storage import save_upload, sha256_bytes
 from app.stores.staleness import freshness_for_template
 from app.stores.bom import (
+    company_bom_summary,
     count_products_with_bom,
     create_flattened_artifact_set,
     create_raw_artifact,
@@ -141,6 +142,21 @@ async def list_view(request: Request, client_id: str,
         limit=page_params.page_size, offset=page_params.offset,
     )
     total = count_products_with_bom(client_id, q=q, kind=kind)
+    summary = company_bom_summary(client_id)
+    stats = stats_for_client(client_id)
+    dash_cards = [
+        {"value": summary["product_count"], "label": "Sản phẩm có BOM",
+         "tone": "primary"},
+        {"value": stats["bom"], "label": "Phiên bản BOM"},
+        {"value": summary["stale_count"], "label": "Cần làm mới",
+         "tone": "warn" if summary["stale_count"] else None},
+        {"value": summary["multi_version_count"], "label": "Đa phiên bản"},
+        {"value": summary["exported_with_bom"], "label": "XK có BOM",
+         "sub": "/%s mã" % summary["exported_total"]},
+    ]
+    if q or kind:
+        dash_cards.insert(1, {"value": total, "label": "Kết quả lọc",
+                              "tone": "warn"})
     paging_ctx = pagination_context(
         request=request, page_params=page_params, total=total,
     )
@@ -165,7 +181,7 @@ async def list_view(request: Request, client_id: str,
 
     return request.app.state.templates.TemplateResponse(
         request, "clients/bom.html",
-        {"client": client, "stats": stats_for_client(client_id),
+        {"client": client, "stats": stats, "dash_cards": dash_cards,
          "products": products, "q": q or "", "kind": kind or "",
          "paging": paging_ctx, "sort": sort, "sort_link": _sort_link,
          "kind_link": _kind_link,

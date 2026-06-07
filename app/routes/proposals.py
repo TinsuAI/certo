@@ -28,10 +28,20 @@ async def list_view(request: Request, client_id: str, status: str | None = None)
         raise HTTPException(404, "Client not found")
     items = _list_proposals(client_id, status_filter=status)
     counts = _count_by_status(client_id)
+    stats = stats_for_client(client_id)
+    _labels = {"pending": "Chờ duyệt", "approved": "Đã duyệt",
+               "rejected": "Từ chối", "applied": "Đã áp dụng",
+               "auto_applied": "Tự áp dụng", "superseded": "Thay thế"}
+    dash_cards = [{"value": stats["proposals"], "label": "Tổng đề xuất",
+                   "tone": "primary"}]
+    for _st, _n in sorted(counts.items()):
+        dash_cards.append({"value": _n, "label": _labels.get(_st, _st),
+                           "tone": "warn" if _st == "pending" else None})
     return request.app.state.templates.TemplateResponse(
         request, "clients/proposals.html",
-        {"client": client, "stats": stats_for_client(client_id),
+        {"client": client, "stats": stats,
          "items": items, "status": status, "counts": counts,
+         "dash_cards": dash_cards,
          "can_approve": auth.can_approve_proposal(user, client_id),
          "active_root": "clients", "active_tab": "proposals"},
     )

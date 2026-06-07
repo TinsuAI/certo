@@ -149,6 +149,16 @@ async def list_view(request: Request, client_id: str,
             it["material_identity"] = resolve_material_identity(it, ctx=ctx)
     total = _count_bcct(client_id, year, direction, q)
     years = _years(client_id)
+    stats = stats_for_client(client_id)
+    n_import = _count_bcct(client_id, None, "import", None)
+    n_export = _count_bcct(client_id, None, "export", None)
+    dash_cards = [{"value": stats["bcct"], "label": "Tổng dòng", "tone": "primary"},
+                  {"value": n_import, "label": "Nhập khẩu"},
+                  {"value": n_export, "label": "Xuất khẩu"},
+                  {"value": len(years), "label": "Số năm dữ liệu"}]
+    if year or direction or q:
+        dash_cards.insert(1, {"value": total, "label": "Kết quả lọc",
+                              "tone": "warn"})
     upload_summary = None
     if ingested is not None:
         upload_summary = {
@@ -165,8 +175,8 @@ async def list_view(request: Request, client_id: str,
         return sort_link(request=request, column=col, current_sort=sort)
     return request.app.state.templates.TemplateResponse(
         request, "clients/bcct.html",
-        {"client": client, "stats": stats_for_client(client_id),
-         "items": items, "years": years,
+        {"client": client, "stats": stats,
+         "items": items, "years": years, "dash_cards": dash_cards,
          "year": year, "direction": direction, "q": q or "",
          "upload_summary": upload_summary,
          "paging": paging_ctx, "sort": sort, "sort_link": _sort_link,

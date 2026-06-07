@@ -18,37 +18,56 @@
   </div>
 </section>
 
-<nav class="tabs" aria-label="Client workspace tabs">
+{% set data_tabs = ['catalog', 'bqd', 'bcct', 'declarations', 'bom', 'proposals'] %}
+{% set config_tabs = ['config', 'parser_rules', 'column_aliases', 'staff'] %}
+<nav class="tabs client-tabs" aria-label="Client workspace tabs">
   <a class="tab-link {{ 'tab-link-active' if active_tab == 'overview' else '' }}"
      href="/clients/{{ client.client_id }}">{{ t('tabs.overview') }}</a>
-  <a class="tab-link {{ 'tab-link-active' if active_tab == 'catalog' else '' }}"
-     href="/clients/{{ client.client_id }}/catalog">{{ t('tabs.catalog') }}</a>
-  <a class="tab-link {{ 'tab-link-active' if active_tab == 'bqd' else '' }}"
-     href="/clients/{{ client.client_id }}/bqd">{{ t('tabs.bqd') }}</a>
-  <a class="tab-link {{ 'tab-link-active' if active_tab == 'bcct' else '' }}"
-     href="/clients/{{ client.client_id }}/bcct">{{ t('tabs.bcct') }}</a>
-  <a class="tab-link {{ 'tab-link-active' if active_tab == 'declarations' else '' }}"
-     href="/clients/{{ client.client_id }}/declarations">Tờ khai</a>
-  <a class="tab-link {{ 'tab-link-active' if active_tab == 'bom' else '' }}"
-     href="/clients/{{ client.client_id }}/bom">{{ t('tabs.bom') }}</a>
-  <a class="tab-link {{ 'tab-link-active' if active_tab == 'proposals' else '' }}"
-     href="/clients/{{ client.client_id }}/proposals">{{ t('tabs.proposals') }}</a>
+
+  <span class="tab-sep" aria-hidden="true"></span>
+
+  <details class="nav-menu">
+    <summary class="tab-link {{ 'tab-link-active' if active_tab in data_tabs else '' }}">Dữ liệu</summary>
+    <div class="nav-menu-panel">
+      <a class="{{ 'is-active' if active_tab == 'catalog' else '' }}"
+         href="/clients/{{ client.client_id }}/catalog">{{ t('tabs.catalog') }}</a>
+      <a class="{{ 'is-active' if active_tab == 'bqd' else '' }}"
+         href="/clients/{{ client.client_id }}/bqd">{{ t('tabs.bqd') }}</a>
+      <a class="{{ 'is-active' if active_tab == 'bcct' else '' }}"
+         href="/clients/{{ client.client_id }}/bcct">{{ t('tabs.bcct') }}</a>
+      <a class="{{ 'is-active' if active_tab == 'declarations' else '' }}"
+         href="/clients/{{ client.client_id }}/declarations">Tờ khai</a>
+      <a class="{{ 'is-active' if active_tab == 'bom' else '' }}"
+         href="/clients/{{ client.client_id }}/bom">{{ t('tabs.bom') }}</a>
+      <a class="{{ 'is-active' if active_tab == 'proposals' else '' }}"
+         href="/clients/{{ client.client_id }}/proposals">{{ t('tabs.proposals') }}</a>
+    </div>
+  </details>
+
+  <a class="tab-link {{ 'tab-link-active' if active_tab == 'uploads' else '' }}"
+     href="/clients/{{ client.client_id }}/uploads">{{ t('tabs.uploads') }}</a>
   {% if chat_agent_enabled %}
   <a class="tab-link {{ 'tab-link-active' if active_tab == 'agent' else '' }}"
      href="/clients/{{ client.client_id }}/agent">{{ t('tabs.agent') }}</a>
   {% endif %}
-  <a class="tab-link {{ 'tab-link-active' if active_tab == 'uploads' else '' }}"
-     href="/clients/{{ client.client_id }}/uploads">{{ t('tabs.uploads') }}</a>
-  {% if can_manage_staff(client.client_id) %}
-  <a class="tab-link {{ 'tab-link-active' if active_tab == 'staff' else '' }}"
-     href="/clients/{{ client.client_id }}/staff">{{ t('tabs.staff') }}</a>
-  {% endif %}
-  <a class="tab-link {{ 'tab-link-active' if active_tab == 'config' else '' }}"
-     href="/clients/{{ client.client_id }}/edit">{{ t('tabs.config') }}</a>
-  {% if can_edit_technical(client.client_id) %}
-  <a class="tab-link {{ 'tab-link-active' if active_tab == 'parser_rules' else '' }}"
-     href="/clients/{{ client.client_id }}/parser-rules">Parser rules</a>
-  <a class="tab-link {{ 'tab-link-active' if active_tab == 'column_aliases' else '' }}"
-     href="/clients/{{ client.client_id }}/column-aliases">Cấu hình cột</a>
-  {% endif %}
+
+  <span class="tab-sep" aria-hidden="true"></span>
+
+  <details class="nav-menu">
+    <summary class="tab-link {{ 'tab-link-active' if active_tab in config_tabs else '' }}">Cấu hình</summary>
+    <div class="nav-menu-panel">
+      <a class="{{ 'is-active' if active_tab == 'config' else '' }}"
+         href="/clients/{{ client.client_id }}/edit">{{ t('tabs.config') }}</a>
+      {% if can_edit_technical(client.client_id) %}
+      <a class="{{ 'is-active' if active_tab == 'parser_rules' else '' }}"
+         href="/clients/{{ client.client_id }}/parser-rules">Parser rules</a>
+      <a class="{{ 'is-active' if active_tab == 'column_aliases' else '' }}"
+         href="/clients/{{ client.client_id }}/column-aliases">Cấu hình cột</a>
+      {% endif %}
+      {% if can_manage_staff(client.client_id) %}
+      <a class="{{ 'is-active' if active_tab == 'staff' else '' }}"
+         href="/clients/{{ client.client_id }}/staff">{{ t('tabs.staff') }}</a>
+      {% endif %}
+    </div>
+  </details>
 </nav>

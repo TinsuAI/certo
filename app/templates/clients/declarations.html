@@ -3,6 +3,8 @@
 {% block title %}Tờ khai · {{ client.name }}{% endblock %}
 {% block content %}
 {% include "_client_nav.html" %}
+{% from "clients/_metric_dash.html" import metric_dash %}
+{{ metric_dash(dash_cards) }}
 
 <section class="zone">
   <div class="zone-head">

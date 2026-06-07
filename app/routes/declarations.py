@@ -86,6 +86,18 @@ async def declarations_index(
     paging_ctx = pagination_context(
         request=request, page_params=page_params, total=total,
     )
+    decl_total = count_declarations_with_status(client_id)
+    decl_with = count_declarations_with_status(client_id, has_files=True)
+    decl_without = count_declarations_with_status(client_id, has_files=False)
+    dash_cards = [
+        {"value": decl_total, "label": "Tổng tờ khai", "tone": "primary"},
+        {"value": decl_with, "label": "Có file"},
+        {"value": decl_without, "label": "Thiếu file",
+         "tone": "warn" if decl_without else None},
+    ]
+    if direction or has_files_filter is not None or q:
+        dash_cards.insert(1, {"value": total, "label": "Kết quả lọc",
+                              "tone": "warn"})
     bulk_toast = None
     if bulk_inserted is not None or bulk_deduped is not None:
         bulk_toast = {
@@ -101,6 +113,7 @@ async def declarations_index(
             "client": client,
             "stats": stats_for_client(client_id),
             "summaries": summaries,
+            "dash_cards": dash_cards,
             "direction": direction,
             "has_files": has_files,
             "q": q or "",
