@@ -22,21 +22,40 @@ policy.
 
 - **Scheme**: SemVer 0.x while pre-MVP. Promote to `1.0.0` at first
   paying customer go-live.
-- **Current version**: `0.1.0` (in `pyproject.toml`). Has not been
-  bumped since project init. Bumping policy: increment on each tag.
-- **Tags**: none yet. First tag will be cut at the next milestone
-  (MVP scope freeze) — likely `v0.2.0`.
-- **`/version` endpoint**: NOT implemented. Tracked in
-  [open items](#open-items) below. Until it lands, the source of
-  truth for "what is running on demo" is the GitHub Actions deploy
-  job log + `git rev-parse HEAD` on the deploy host.
+- **Current version**: `0.13.0` (in `pyproject.toml`). Bumping policy:
+  increment on each tag. The jump from `0.1.0` reflects ~12 feature
+  waves backfilled into `CHANGELOG.md` from git history + session
+  notes (no tags were cut during the untagged pre-MVP period).
+- **Tags**: first tag `v0.13.0` cut alongside the app-versioning
+  feature (footer badge + `/version` + changelog page).
+- **`/version` endpoint**: **DONE** (`app/main.py`). Returns
+  `{app, version, git_sha, build_time, source}`; unauthenticated like
+  `/healthz`. `source ∈ {build,dev,unknown}` flags whether the
+  identity was baked at build time. Resolver: `app/version.py`,
+  precedence env > `pyproject.toml` + `git rev-parse` > `unknown`.
+- **UI surface**: footer badge on every logged-in page → `/whats-new`
+  ("Có gì mới") page rendering curated `CHANGELOG.md` (Keep a
+  Changelog; parser `app/changelog.py`, no markdown dep).
 - **Image tags**: build-on-host, no registry. Workflow builds
-  `data-hub-app:<unspecified>` directly on the deploy runner via
-  `docker compose up -d --build`. Switching to GHCR is deferred
-  until a second deploy host enters the picture.
-- **`pyproject.toml.version` ↔ deployed app**: not yet wired. After
-  `/version` lands, the Dockerfile will pass `VERSION` and
-  `GIT_SHA` as build args and the app will read them at startup.
+  directly on the deploy runner via `docker compose up -d --build`.
+  Switching to GHCR is deferred until a second deploy host enters the
+  picture.
+- **`pyproject.toml.version` ↔ deployed app**: **wired**. Dockerfile
+  takes `VERSION`/`GIT_SHA`/`BUILD_TIME` build args → bakes to
+  `DATA_HUB_*` env; `docker-compose.yml` passes them; CI deploy step
+  exports them (version from `pyproject.toml`, sha from
+  `git rev-parse --short HEAD`, build time UTC) before the compose
+  build.
+
+### Release process (per release)
+
+1. Bump `version` in `pyproject.toml`.
+2. Add a dated section to `CHANGELOG.md` (move `[Unreleased]` items
+   down under the new `## [x.y.z] — YYYY-MM-DD`). Sections are
+   user-facing Vietnamese: **Mới / Cải tiến / Sửa lỗi**. Omit
+   internal-only churn (refactors, test plumbing).
+3. Commit, tag `vX.Y.Z`, push `main` → auto-deploy bakes the new
+   identity into the image.
 
 ## 2. Branching
 
@@ -211,8 +230,8 @@ policy §5 (post-Tier-2 action).
 
 | # | Question | Owner | Decide by / trigger | Default if undecided |
 |---|----------|-------|---------------------|----------------------|
-| P1 | Implement `GET /version` + Docker build args (`VERSION`, `GIT_SHA`) | Maintainer | Before standing up Tier S (policy §1 makes it a hard requirement at S/P) | Skip; rely on deploy log |
-| P2 | Bump `pyproject.toml.version` from `0.1.0` to `0.2.0` and start tagging | Maintainer | Same trigger as P1 | Stay at `0.1.0` |
+| ~~P1~~ | ~~Implement `GET /version` + Docker build args~~ | — | **DONE** 2026-06-07 (§1) | — |
+| ~~P2~~ | ~~Bump `pyproject.toml.version` to `0.2.0` and start tagging~~ | — | **DONE** 2026-06-07 — bumped to 0.13.0; tag `v0.13.0` at this release | — |
 | P3 | Push image to GHCR | Maintainer | When deploying to a second host | Build on host (status quo) |
 | P4 | Reconcile `deploy/runbook.md` to drop the systemd-era flow | Maintainer | Done in 2026-05-04 commit; verify no fragments left | n/a |
 | P5 | Off-site backup (Tier-2 uplift) | Maintainer | Before first paying-customer go-live | Tier 1 (status quo) |

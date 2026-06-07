@@ -90,6 +90,17 @@
     {% if error %}<div class="toast toast-error">{{ error }}</div>{% endif %}
     {% block content %}{% endblock %}
   </main>
+  {% if user %}
+  <footer class="app-footer">
+    <span class="app-footer-brand" aria-hidden="true"></span>
+    <a href="/whats-new" class="app-footer-link">
+      {{ t('app.brand') }} · v{{ app_version.version }}
+      <span class="mono">{{ app_version.git_sha }}</span>
+      {% if app_version.source != 'build' %}<span class="app-footer-dev">({{ app_version.source }})</span>{% endif %}
+    </a>
+    <a href="/whats-new" class="app-footer-whatsnew">{{ t('nav.whats_new') }} →</a>
+  </footer>
+  {% endif %}
   {% if user and chat_agent_enabled %}
     {% include "_chat_widget.html" %}
   {% endif %}

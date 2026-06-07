@@ -99,7 +99,12 @@ jobs:
 
       - name: Compose up (build + recreate)
         working-directory: /home/tinsu/data-hub
-        run: docker compose up -d --build
+        run: |
+          export DATA_HUB_VERSION=$(grep -m1 '^version' pyproject.toml | cut -d'"' -f2)
+          export DATA_HUB_GIT_SHA=$(git rev-parse --short HEAD)
+          export DATA_HUB_BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "building v$DATA_HUB_VERSION ($DATA_HUB_GIT_SHA) at $DATA_HUB_BUILD_TIME"
+          docker compose up -d --build
 
       - name: Wait for /healthz
         run: |

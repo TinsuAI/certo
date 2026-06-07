@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app import auth, i18n, settings_store
+from app import auth, changelog, i18n, settings_store, version as appver
 from app.database import apply_migrations, close_pool
 from app.seed_master_data import seed_master_data_if_empty
 from app.routes import admin, agent, api, auth_api, bcct, bom, bqd, catalog, catalog_candidates, client_config_ui, client_uom_factors, clients, declarations, jobs as job_routes, master_data, notifications as notif_routes, proposals, substitutes, uploads
@@ -71,6 +71,7 @@ def template_context(request: Request) -> dict:
         "user": user,
         "can_manage_staff": lambda client_id: auth.can_assign_staff_to_client(user, client_id),
         "can_edit_technical": lambda client_id: auth.can_edit_client_technical(user, client_id),
+        "app_version": appver.version_info(),
         "notif_unread_count": notif_unread,
         "notif_recent": notif_recent,
         "chat_agent_enabled": chat_agent_enabled,
@@ -197,12 +198,27 @@ async def healthz():
     return {"status": "ok"}
 
 
+@app.get("/version")
+async def version():
+    return {"app": "data-hub", **appver.version_info()}
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     user = auth.current_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
     return RedirectResponse(url="/clients", status_code=302)
+
+
+@app.get("/whats-new", response_class=HTMLResponse)
+async def whats_new(request: Request):
+    if not auth.current_user(request):
+        return RedirectResponse(url="/login?next=/whats-new", status_code=302)
+    return templates.TemplateResponse(
+        request, "whats-new.html",
+        {"releases": changelog.load_changelog(), "active_root": "settings"},
+    )
 
 
 @app.get("/login", response_class=HTMLResponse)

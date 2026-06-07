@@ -2889,3 +2889,39 @@ input[type="submit"].btn-primary { padding: 0.5rem 0.95rem; }
   margin-left: .25rem;
   font-size: .85em;
 }
+
+/* App footer — version badge + what's new link (all logged-in pages) */
+.app-footer {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  padding: .7rem 1.4rem;
+  margin-top: 2rem;
+  border-top: 1px solid var(--border);
+  font-size: .8rem;
+  color: var(--foreground-muted);
+}
+.app-footer-brand {
+  width: .6rem;
+  height: .6rem;
+  border-radius: 50%;
+  background: var(--brand);
+  flex: 0 0 auto;
+}
+.app-footer-link {
+  color: var(--foreground-muted);
+  text-decoration: none;
+}
+.app-footer-link:hover { color: var(--foreground); }
+.app-footer-link .mono { margin-left: .35rem; }
+.app-footer-dev {
+  margin-left: .35rem;
+  font-style: italic;
+  color: var(--foreground-soft);
+}
+.app-footer-whatsnew {
+  margin-left: .5rem;
+  color: var(--primary, var(--brand));
+  text-decoration: none;
+}
+.app-footer-whatsnew:hover { text-decoration: underline; }
