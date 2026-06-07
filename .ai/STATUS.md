@@ -1,16 +1,39 @@
 # Project Status
 
 ## Current State
+- **UX/UI redesign — GitHub Primer "operations console" — DONE on branch
+  `feat/ux-redesign-primer`, PUSHED, NOT merged/deployed.** Full visual+IA overhaul: neutral
+  Primer palette (slate + single blue accent + status colors, flat/solid-border, both themes,
+  WCAG AA) via token-value swap so `co_case.html` inherits it untouched; CO-centric company
+  dashboard + richer company-list cards; grouped per-client nav (Dữ liệu/Cấu hình dropdowns);
+  per-data-page metric dashboards (cheap sources only — Tồn CO via materializer SQL); config
+  grouped company-vs-system (FX moved to Settings). Consumes Data Hub's new `bom` block on
+  `/source-summary` for the BOM dashboard (export trio; fulfils
+  `.ai/api-requests/2026-06-07-products-total-count.md`). Tests 209 passed. Session summary
+  `.ai/sessions/2026-06-07-ux-redesign-primer.md`; memories `ui-design-direction-primer`,
+  `dh-products-endpoint-50-cap`. **Open:** merge to `main` to deploy (push main = prod deploy);
+  BOM dashboard shows real numbers only where Data Hub has deployed the `bom` block (degrades
+  to a qualitative card elsewhere — safe).
 - **Customer feedback "HIỆN TRẠNG BARRY CO" (2026-06-05)** tracked in
   `.ai/feedback/2026-06-05-hien-trang-barry-co.md`. Done+deployed: #9 (F5 BOM race), #7 (tên
   hàng cắt → tooltip + 2-dòng), #8 (toggle "chỉ hiện mã đủ tồn"). Still open: #12 (số tồn
   tổng), #13 (chốt BOM hàng loạt — cần /discover), #14 (BOM mặc định theo mã), #4 (mã thay
   thế — đẩy DH ranking).
 - **Dossier "tờ khai ghép" (merged TKX/TKN PDF) — DONE + DEPLOYED PROD.** DH renders the
-  official tờ khai layout and merges per direction; CO embeds `03-to-khai/TKX-ghep.pdf` /
-  `TKN-ghep.pdf` during dossier export. Merged-PDF-ONLY (raw `.xls` download.zip path dropped).
-  Contract `.ai/api-requests/2026-06-05-declarations-merged-pdf.md`. Memory
-  `dossier-merged-declaration-pdf`.
+  official tờ khai layout and merges per direction; CO embeds them during dossier export.
+  Merged-PDF-ONLY (raw `.xls` download.zip path dropped). Contract
+  `.ai/api-requests/2026-06-05-declarations-merged-pdf.md`. Memory `dossier-merged-declaration-pdf`.
+- **Dossier export = background job — DONE + COMMITTED `dc1b582`, NOT pushed/deployed yet.**
+  Was a sync ~45s request that silently dropped the import TKN PDF on a slow DH render. Now:
+  download.pdf gets a 180s timeout + loud README/MANIFEST warning on failure; embedded PDFs
+  renamed `{case_code}-to-khai-xuat/nhap.pdf`; the build runs off-request in
+  `app/dossier_export_service.py` (in-process thread, JWT via `copy_context`), status+zip
+  persisted per case keyed to `dossier_content_revision` (reopen+edit → stale → "Xuất lại");
+  review page server-renders state + polls only while running. Live-verified on
+  `johnson-vn/co-case-ec000d03522e` (real 194-TKN import PDF). Brief
+  `.ai/features/2026-06-07-background-dossier-export.md`; memories `background-dossier-export`,
+  `css-no-opacity-muted-text`. **Open follow-up:** push + deploy; consider ProcessPool only if
+  GIL-starvation appears under real load (measured fine — DH render is I/O).
 - **DH security: declarations-download leak — found, fixed by DH, verified closed.** Public
   `download.pdf`/`download.zip`/`declarations` were served with NO auth (enumerable customs
   files). DH now enforces auth on **all** `/v1/hub/*` → no-auth = 401. Verified on prod.
@@ -24,7 +47,14 @@
   CSS after deploys. Memory `static-asset-cache-busting`.
 - App healthy on prod (`barry-co.tinsu.ai`, container Up/healthy), CI green, nightly refreshed.
 
-## Recent Changes (this session, commits `1c7f5b6`..`60f8ced`)
+## Recent Changes (latest first)
+- **branch `feat/ux-redesign-primer`** (2026-06-07, 8 commits, pushed, not merged): Primer
+  design system (`app.css` tokens); CO dashboard + company cards + grouped nav; per-data-page
+  metric dashboards + DH `bom`-summary consumer; config grouping; tests; API-request doc;
+  carry-over of prior handoffs. NOT deployed (merge to main triggers prod deploy).
+- `dc1b582` feat(co-case): background dossier export + fix missing import TKN PDF (2026-06-07).
+  13 files, dossier-only (split cleanly from a large pre-existing uncommitted work stream still
+  in the tree — see Notes). **Committed, not pushed.**
 - `1c7f5b6` feat: #7 tooltip+2-line name, #8 stock-only toggle (`co_case.html`, `app.css`).
 - `a394d32`+`925654d` feat: `asset_url()` content-hash cache-busting; registered on BOTH Jinja
   instances (`templating.py`, `portfolio.py`) — portfolio uses its own instance.
@@ -39,15 +69,17 @@
   no-token → 401 → deploy exit 22 after DH enforced auth).
 
 ## Next Steps (priority order)
-1. **AUDIT — trừ-lùi không được là biến số của logic.** Rà toàn codebase tìm logic CÒN dựa
-   vào workbook trừ-lùi/adjustment kiểu "đáng nhẽ không nên có mà lại có". Nguyên tắc (chốt
-   2026-06-06): workbook trừ-lùi chỉ là **snapshot tồn để sync/điều chỉnh về thực tế**, KHÔNG
-   được điều khiển logic hệ thống. Bối cảnh: vừa phát hiện bug đơn vị (workbook kg vs BCCT
-   metric-tons → giá trị ×1000) — đã sửa bằng cách coi là **lỗi DATA** (`scripts/fix_trului_unit.py`),
-   `fold_baseline` giữ "dumb" (đã revert phương án nhét quy đổi vào fold). Audit xem còn chỗ
-   nào khác lỡ để adjustment ảnh hưởng logic (vd quy đổi/đoán đơn vị, phụ thuộc field workbook,
-   nhánh xử lý đặc biệt theo adjustment). Cân nhắc thêm cảnh báo lúc import khi đơn vị workbook
-   ≠ đơn vị BCCT (chưa làm). Xem memory `trului-unit-mismatch-fold`, `co-stock-folded-remaining-model`.
+1. ~~**AUDIT — trừ-lùi không được là biến số của logic.**~~ ✅ DONE 2026-06-07
+   (`.ai/audits/2026-06-07-trului-not-a-logic-variable-audit.md`). Verdict: runtime logic
+   CLEAN — chỉ `opening_qty_override`+`used_qty` vào logic qua `fold_baseline` (qty-only);
+   guard + mọi read path dùng folded `remaining_qty`+ledger; không field giá/đơn vị nào điều
+   khiển logic; không heuristic quy đổi kg↔tấn trong `app/`. **Việc CÒN LẠI cần làm = F1
+   (MEDIUM):** import KHÔNG kiểm đơn vị workbook ≠ đơn vị BCCT → workbook lệch đơn vị vẫn âm
+   thầm hỏng snapshot (×1000 + over-alloc), hiện chỉ chữa hậu-kỳ bằng `scripts/fix_trului_unit.py`.
+   Fix: thêm cảnh báo lúc import ở `routers/co_stock.import_co_stock_workbook` (door guard,
+   KHÔNG auto-convert — fold giữ dumb). Minor (low): dead flags `adjustment_applied`/
+   `opening_qty_adjusted`, deprecated `apply_adjustments` + docstring cũ, 8 field workbook
+   lưu-mà-không-đọc (latent). Memory `trului-unit-mismatch-fold`.
 2. ~~**#12** số tồn tổng~~ ✅ DONE + DEPLOYED (commits `3bbcfe8`/`f0efe05`). Strip "Tồn CO để
    kiểm soát" đầu trang làm CO: tổng giá trị tồn tự do (VNĐ) + tổng số lượng (gộp đơn vị) + số
    mã + số dòng lot, filter theo ngày ĐK tờ khai nhập. Bug đơn vị dây hàn đã fix data trên
@@ -58,10 +90,12 @@
 4. **#4** mã thay thế chưa phù hợp — đẩy DH ranking qua `.ai/api-requests/`.
 5. Đòi DH confirm đã wire **regression route-guard test + post-deploy public smoke** (mục 4
    của regression prompt) — nếu chưa, leak có thể tái diễn ở deploy lỗi config.
-6. (tùy) Chụp 1 lượt dossier export THẬT có PDF ghép khi có case prod đã-đóng-có-tờ-khai (hiện
-   mới chứng minh bắc cầu; chưa có 1 HTTP 200 nào kèm PDF nhúng vì case local/seed đóng được thì
-   0 tờ khai).
-7. (tùy) Bug phụ `origin_calculation_lock` không nhả — tái hiện trước rồi mới fix.
+6. ~~Chụp 1 lượt dossier export THẬT có PDF ghép~~ ✅ DONE 2026-06-07 — HTTP 200 thật trên
+   `johnson-vn/co-case-ec000d03522e`: zip 22MB có cả TKX (8 trang) + TKN (5668 trang, 194 tờ
+   khai). Screenshots panel `.ai/screenshots/2026-06-07-background-dossier-export/`.
+7. **Push + deploy `dc1b582`** (background dossier export) — chưa push. Sau khi push, smoke nút
+   "Xuất hồ sơ" trên prod (job nền → poll → tải).
+8. (tùy) Bug phụ `origin_calculation_lock` không nhả — tái hiện trước rồi mới fix.
 
 ## Notes for Next AI Session
 - **Local dev:** `npm run co:serve` → `127.0.0.1:8001` (auth off, `--reload` watches app/**.py,
@@ -79,6 +113,18 @@
   (đã fix). Memory `deploy-remote-tinsu-co`, `dh-auth-enforced-co-token-model`.
 - **Git:** `60f8ced` (docs) chưa push — gom lần deploy sau. `.ai/sessions/2026-06-05-*.md` (2
   file) còn untracked từ phiên trước.
+- **⚠️ Cây làm việc còn ~900 dòng pre-existing CHƯA COMMIT từ một luồng việc KHÁC** (không phải
+  dossier): `clients.html`, `workspace.html`, `routers/pages.py`, `web/client_context.py`,
+  `bom_service.py`, `routers/bom.py`, `routers/co_stock.py`, nhiều template, + phần lớn `app.css`
+  và một số test trong `test_co_demo.py`; untracked `app/templates/_source_stats.html`,
+  `.ai/api-requests/2026-06-07-products-total-count.md`, `.ai/audits/...trului...`,
+  `.ai/sessions/2026-06-07-trului-logic-audit.md`. `dc1b582` đã được tách sạch chỉ-dossier khỏi
+  đống này (dùng `git apply --cached` từng hunk cho 2 file trộn). **Đừng gộp đại** — luồng kia
+  cần chủ nhân của nó review/commit riêng. STATUS.md + session log này cũng đang unstaged.
+- **Dossier export note:** htmx KHÔNG được load trong app (mọi `hx-boost` là no-op) → poll bằng
+  vanilla JS; staleness key là content-hash `dossier_content_revision` (KHÔNG dùng
+  `co_cases.revision` vì nó null ở file-mode); job mồ côi sau restart phát hiện qua `_FUTURES`
+  rỗng (không TTL).
 - **Đừng làm lại:** toggle #8 uncheck "không khôi phục" — test cạn 25+ trigger local + prod,
   KHÔNG tái hiện; logic đúng, nghi cache trình duyệt phía khách. Service token: đã quyết KHÔNG
   làm (operator-JWT chặt hơn).
