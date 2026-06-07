@@ -251,7 +251,8 @@ def test_workspace_renders_interactive_controls():
     assert "/clients/growatt/co-stock" in response.text
     assert "/clients/growatt/bcct" in response.text
     assert "/clients/growatt/co-case" in response.text
-    assert "Workspace theo công ty" in response.text
+    # CO-centric dashboard: data-readiness panel always renders
+    assert "Tình trạng dữ liệu" in response.text
 
 
 def test_theme_toggle_persists_dark_theme_cookie():
@@ -309,7 +310,7 @@ def test_client_navigation_hides_data_modules_inside_co_workflow():
     catalog = client.get("/clients/growatt/catalog")
 
     assert catalog.status_code == 200
-    assert 'aria-label="Dữ liệu nền công ty"' in catalog.text
+    assert 'aria-label="Khu làm việc công ty"' in catalog.text
     assert "Danh mục mã hàng" in catalog.text
 
 
@@ -649,13 +650,14 @@ def test_clients_page_is_entry_point():
     response = client.get("/clients")
 
     assert response.status_code == 200
-    assert "Danh sách công ty" in response.text
+    assert "client-grid" in response.text
+    assert "Chọn một công ty" in response.text
     assert "Growatt" in response.text
     assert "Johnson" in response.text
-    assert "Danh mục TP" in response.text
-    assert "Danh mục NVL" in response.text
-    assert "BOM" in response.text
-    assert "Tồn CO" in response.text
+    # Company cards: data-readiness chips + CO-centric signal (replaces the old
+    # decorative module grid)
+    assert "client-card" in response.text
+    assert "hồ sơ C/O" in response.text
     assert "BTP" not in response.text
 
 
@@ -6551,7 +6553,13 @@ def test_co_case_page_uses_postgres_source_index_when_available(monkeypatch):
     assert response.status_code == 200
     assert "XK-PG" in response.text
     assert "TP-PG" in response.text
-    assert "20 dòng BCCT" in response.text
+
+    # The postgres source_summary published_row_count (20) flows to the
+    # CO-centric dashboard's data-readiness panel (the per-client nav header
+    # no longer prints raw counts post-redesign).
+    dashboard = client.get("/clients/growatt")
+    assert dashboard.status_code == 200
+    assert "20 dòng giao dịch" in dashboard.text
 
 
 def test_postgres_source_index_signature_check_does_not_swallow_type_errors(monkeypatch):
