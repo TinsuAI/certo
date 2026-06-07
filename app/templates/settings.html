@@ -3,25 +3,42 @@
 
 {% block content %}
 <section class="page-bar">
-  <h1>Settings</h1>
-  <span class="page-tagline">User session · workspace preferences · technical runtime config</span>
+  <div>
+    <h1>Cài đặt hệ thống</h1>
+    <span class="page-tagline">Tài khoản · cấu hình dùng chung toàn app (khác với cấu hình theo công ty)</span>
+  </div>
 </section>
 
 <section class="zone">
   <div class="zone-head">
     <div>
-      <h2>User</h2>
+      <h2>Tài khoản &amp; phiên</h2>
       <p class="meta">Thông tin phiên đăng nhập và quyền truy cập hiện tại.</p>
     </div>
   </div>
   <div class="module-grid">
     <a class="module-tile module-link" href="/user">
-      <strong>User Account</strong>
+      <strong>Tài khoản</strong>
       <span>Login, logout và xem role/claim từ Data Hub session.</span>
     </a>
+  </div>
+</section>
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Cấu hình dùng chung</h2>
+      <p class="meta">Áp dụng cho mọi công ty — không phải cấu hình riêng của một công ty.</p>
+    </div>
+  </div>
+  <div class="module-grid">
     <a class="module-tile module-link" href="/settings/co-forms">
-      <strong>C/O Form Index</strong>
-      <span>Quản lý market aliases, form priority và nguồn pháp lý đang dùng để gợi ý form.</span>
+      <strong>Bộ form C/O</strong>
+      <span>Market aliases, thứ tự ưu tiên form và nguồn pháp lý để gợi ý form.</span>
+    </a>
+    <a class="module-tile module-link" href="/customs-exchange-rates">
+      <strong>Tỷ giá hải quan</strong>
+      <span>Tỷ giá dùng chung để chuẩn hóa trị giá theo ngày tờ khai (đầu vào tính tồn/xuất xứ).</span>
     </a>
     {% if can_view_technical_settings %}
     <a class="module-tile module-link" href="/settings/technical">
