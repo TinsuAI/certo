@@ -19,6 +19,7 @@ from app.demo_data import get_client as seed_get_client
 from app.demo_data import get_clients as seed_get_clients
 from app.source_index_store import get_source_index_store, rebuild_source_index_if_configured
 from app.web.templating import asset_url
+from app import version as appver
 from app.source_postgres_store import get_source_write_store
 from app.source_store import (
     _safe_customs_fx_rows,
@@ -41,7 +42,11 @@ THEME_COOKIE = "co_theme"
 def theme_context(request: Request) -> dict[str, str]:
     theme = request.cookies.get(THEME_COOKIE)
     theme = theme if theme in {"light", "dark"} else "light"
-    return {"theme": theme, "next_theme": "light" if theme == "dark" else "dark"}
+    return {
+        "theme": theme,
+        "next_theme": "light" if theme == "dark" else "dark",
+        "app_version": appver.version_info(),
+    }
 
 
 portfolio_templates = Jinja2Templates(directory=ROOT / "templates", context_processors=[theme_context])

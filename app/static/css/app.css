@@ -6152,3 +6152,42 @@ body.co-stock-history-modal-open { overflow: hidden; }
 .source-stat-dh:hover { text-decoration: underline; }
 .inline-link { color: var(--primary); font-weight: 600; }
 .inline-link:hover { text-decoration: underline; }
+
+/* App footer — version badge + what's new link (every page).
+   Width/centering mirrors .shell so the border aligns with page content. */
+.app-footer {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  flex-wrap: wrap;
+  width: min(1480px, calc(100vw - 32px));
+  margin: 1.4rem auto 1.6rem;
+  padding: .8rem 0;
+  border-top: 1px solid var(--border);
+  font-size: .8rem;
+  color: var(--foreground-muted);
+}
+.app-footer-brand {
+  width: .6rem;
+  height: .6rem;
+  border-radius: 50%;
+  background: var(--brand);
+  flex: 0 0 auto;
+}
+.app-footer-link {
+  color: var(--foreground-muted);
+  text-decoration: none;
+}
+.app-footer-link:hover { color: var(--foreground); }
+.app-footer-link .mono { margin-left: .35rem; }
+.app-footer-dev {
+  margin-left: .35rem;
+  font-style: italic;
+  color: var(--foreground-soft);
+}
+.app-footer-whatsnew {
+  margin-left: .5rem;
+  color: var(--primary, var(--brand));
+  text-decoration: none;
+}
+.app-footer-whatsnew:hover { text-decoration: underline; }

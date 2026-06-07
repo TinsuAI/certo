@@ -94,5 +94,14 @@
   <main class="shell">
     {% block content %}{% endblock %}
   </main>
+  <footer class="app-footer">
+    <span class="app-footer-brand" aria-hidden="true"></span>
+    <a href="/whats-new" class="app-footer-link">
+      Barry CO · v{{ app_version.version }}
+      <span class="mono">{{ app_version.git_sha }}</span>
+      {% if app_version.source != 'build' %}<span class="app-footer-dev">({{ app_version.source }})</span>{% endif %}
+    </a>
+    <a href="/whats-new" class="app-footer-whatsnew">Có gì mới →</a>
+  </footer>
 </body>
 </html>

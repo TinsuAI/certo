@@ -2,7 +2,8 @@ from __future__ import annotations
 
 
 from fastapi import APIRouter
-from app import co_auth, co_stock_eligibility, co_stock_materializer
+from app import changelog, co_auth, co_stock_eligibility, co_stock_materializer
+from app import version as appver
 from app.app_state_store import get_app_state_store
 from app.co_case_store import co_case_is_completed, co_case_status_view, get_case_workspace, update_case_record
 from app.demo_data import update_products_from_form
@@ -21,6 +22,20 @@ router = APIRouter()
 @router.get("/healthz")
 async def healthz() -> dict[str, str]:
     return {"status": "ok"}
+@router.get("/version")
+async def version() -> dict[str, str]:
+    # Unauthenticated like /healthz (leaks nothing sensitive) — sister apps +
+    # monitoring poll it to assert which CO build they're talking to.
+    return {"app": "barry-co", **appver.version_info()}
+@router.get("/whats-new", response_class=HTMLResponse)
+async def whats_new(request: Request):
+    # Auth-gated in prod via co_auth.should_guard_path; open in local/no-auth
+    # mode. Renders the curated CHANGELOG.md + the running version.
+    return templates.TemplateResponse(
+        request=request,
+        name="whats-new.html",
+        context={"releases": changelog.load_changelog()},
+    )
 def config_context(client_id: str, **extra) -> dict:
     # /config only renders client identity + client_config knobs. It does NOT
     # need source_workspace / bom_workspace, so skip the full pagination that

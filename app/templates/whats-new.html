@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Có gì mới · Barry CO{% endblock %}
+{% block content %}
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Có gì mới</h2>
+      <p class="meta">Nhật ký thay đổi của Barry CO qua từng phiên bản.</p>
+    </div>
+  </div>
+
+  <p class="meta" style="margin-bottom: 1.2rem;">
+    Đang chạy phiên bản:
+    <span class="badge badge-info">v{{ app_version.version }}</span>
+    <span class="mono">{{ app_version.git_sha }}</span>
+    {% if app_version.source != 'build' %}
+      <span class="badge">{{ app_version.source }}</span>
+    {% endif %}
+  </p>
+
+  {% if releases %}
+    {% for r in releases if r.sections %}
+    <article class="changelog-release" style="margin-bottom: 1.4rem;">
+      <h3 style="margin: 0 0 .3rem 0;">
+        {% if r.unreleased %}
+          <span class="badge">Chưa phát hành</span>
+        {% else %}
+          <span class="badge badge-info">v{{ r.version }}</span>
+        {% endif %}
+        {% if r.date %}<span class="mono meta">{{ r.date }}</span>{% endif %}
+      </h3>
+      {% for s in r.sections %}
+      <div style="margin: .4rem 0 .2rem 0;">
+        <strong>{{ s.title }}</strong>
+        <ul style="margin: .2rem 0 .2rem 1.1rem;">
+          {% for item in s.entries %}
+          <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endfor %}
+    </article>
+    {% endfor %}
+  {% else %}
+  <p class="meta">Chưa có mục nhật ký nào.</p>
+  {% endif %}
+</section>
+{% endblock %}

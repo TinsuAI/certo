@@ -8,6 +8,7 @@ from fastapi import Request
 from fastapi.templating import Jinja2Templates
 
 from app import co_auth
+from app import version as appver
 
 
 APP_ROOT = Path(__file__).resolve().parent.parent
@@ -55,6 +56,7 @@ def theme_context(request: Request) -> dict[str, str]:
     return {
         "theme": theme,
         "next_theme": "light" if theme == "dark" else "dark",
+        "app_version": appver.version_info(),
         "co_user": user,
         "auth_required": co_auth.auth_required(),
         "show_login": (co_auth.auth_required() or co_auth.data_hub_source_mode_enabled()) and request.url.path != "/auth/logout",
