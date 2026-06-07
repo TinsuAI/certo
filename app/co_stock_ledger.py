@@ -201,7 +201,20 @@ def record_sheet_lock(
                 )
                 snapshot_exists = bool(cur.fetchone()[0])
                 if snapshot_exists:
-                    source_rows = list(new_by_lot.keys())
+                    source_rows = sorted(new_by_lot.keys())
+                    # Lock the lot rows for this transaction BEFORE reading
+                    # availability, so a concurrent record_sheet_lock for the same
+                    # lot — or the materializer rewriting remaining_qty — serializes
+                    # here instead of both passing the check and over-claiming.
+                    # Separate statement because the availability query below uses
+                    # GROUP BY (FOR UPDATE is not allowed with GROUP BY). Sorted
+                    # source_rows give a stable lock order across writers.
+                    cur.execute(
+                        "select 1 from co_stock_rows "
+                        "where client_id = %s and source_row = any(%s) "
+                        "order by source_row for update",
+                        (client_id, source_rows),
+                    )
                     cur.execute(
                         r"""select s.source_row,
                                    case when s.remaining_qty ~ '^-?\d+(\.\d+)?$'

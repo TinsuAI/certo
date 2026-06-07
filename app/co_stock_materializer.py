@@ -184,6 +184,10 @@ def refold_adjustment_lots(client_id: str, keys) -> int:
                     (str(payload.get("remaining_qty", "")), Jsonb(payload), client_id, source_row)
                 )
             if to_update:
+                # Lock rows in source_row order to match record_sheet_lock's
+                # `... order by source_row for update`, so a concurrent claim
+                # and this refresh can't deadlock on overlapping lots.
+                to_update.sort(key=lambda row: row[3])
                 cur.executemany(
                     """update co_stock_rows
                        set remaining_qty = %s, payload = %s, indexed_at = now()
@@ -274,6 +278,10 @@ def _payload_for_diff(payload: dict) -> dict:
 def _upsert_records(cur, records: list[dict]) -> None:
     if not records:
         return
+    # Acquire row locks in source_row order to match record_sheet_lock's
+    # `... order by source_row for update`, avoiding a deadlock when a refresh
+    # and a concurrent sheet-lock touch overlapping lots.
+    records = sorted(records, key=lambda row: row["source_row"])
     cur.executemany(
         """insert into co_stock_rows (
             client_id, source_row, transaction_key, import_declaration_no,
