@@ -1448,6 +1448,86 @@ async def autosave_co_case_origin(request: Request, client_id: str, case_id: str
         "origin_product_order": origin_product_order(case),
         "origin_sheet_states": json_safe(case.get("origin_sheet_states", {})),
     }
+@router.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/load-bom", response_class=HTMLResponse)
+async def load_bom_co_case_origin_sheet(request: Request, client_id: str, case_id: str, product_code: str):
+    """Nạp công thức BOM (CẤU TRÚC) vào bảng kê mà KHÔNG phân bổ tồn (Phase 2).
+
+    Khác `/calculate`: không refresh/đọc tồn (nhanh), không phân bổ, không
+    cascade-stale các sheet sau. Khai triển NVL để xem/sửa trước khi "Tính bảng
+    kê". status → `bom_loaded`. Nạp lại = reset về BOM artifact ⇒ bỏ override cũ.
+    """
+    client = resolve_client(client_id)
+    case, _payload = await origin_case_from_request(request, client, case_id)
+    try:
+        persisted = get_case_record(client, case_id)
+        if persisted.get("origin_sheet_states"):
+            case["origin_sheet_states"] = dict(persisted.get("origin_sheet_states") or {})
+    except KeyError:
+        pass
+    target_state = (case.get("origin_sheet_states") or {}).get(product_code) or {}
+    if str(target_state.get("status") or "").strip() == "locked":
+        return templates.TemplateResponse(
+            request=request,
+            name="co_case.html",
+            status_code=409,
+            context=co_case_context(
+                client_id,
+                case_id,
+                current_step="origin",
+                case=case,
+                error=f"Bảng kê {product_code} đã chốt; mở chốt trước khi nạp lại BOM.",
+                preserve_origin_products=True,
+                fast_origin_context=True,
+            ),
+        )
+    context = co_case_context(
+        client_id,
+        case_id,
+        current_step="origin",
+        case=case,
+        message=f"Đã nạp BOM (cấu trúc) vào bảng kê {product_code}; bấm Tính bảng kê để phân bổ tồn.",
+        preserve_origin_products=True,
+        cached_case_context=True,
+    )
+    source_context = context.get("origin_source_context", {})
+    try:
+        client_config_for_rule = (
+            portfolio_service.get_client_config(client)
+            if hasattr(portfolio_service, "get_client_config") else {}
+        )
+    except Exception:  # noqa: BLE001
+        client_config_for_rule = {}
+    min_gap_days = effective_min_gap_days(client, client_config_for_rule)
+    context["case"] = prepare_case_origin_sheet(
+        context["case"],
+        product_code,
+        source_context.get("invoice_matches", []),
+        context.get("bom_workspace", minimal_bom_workspace()),
+        context.get("recommended_form_lane", {}),
+        source_context.get("material_rows", []),
+        [],  # stock_rows — Load BOM không đụng tồn
+        min_gap_days=min_gap_days,
+        allocate=False,
+    )
+    context["case"] = attach_case_bom_snapshot(context["case"], context.get("bom_workspace", minimal_bom_workspace()))
+    context["case"] = attach_origin_bom_product_codes(
+        context["case"],
+        context.get("bom_workspace", minimal_bom_workspace()),
+    )
+    context["case"] = attach_origin_readiness(context["case"])
+    context["case"] = attach_results(context["case"])
+    context["case"] = attach_origin_sheet_states(context["case"])
+    # Nạp lại cấu trúc = reset về BOM artifact ⇒ bỏ chỉnh sửa client-side cũ (override).
+    states = dict(context["case"].get("origin_sheet_states") or {})
+    previous = states.get(product_code) if isinstance(states.get(product_code), dict) else {}
+    if previous.get("material_overrides"):
+        states[product_code] = {**previous, "material_overrides": {}}
+        context["case"]["origin_sheet_states"] = states
+    context["case"] = set_origin_sheet_status(context["case"], product_code, "bom_loaded")
+    context["criteria_rows"] = build_case_criteria_rows(context["case"], context.get("form_candidates", []))
+    if context["case"].get("persisted_case_id") and not context.get("origin_demo_active"):
+        update_case_record(client, context["case"])
+    return templates.TemplateResponse(request=request, name="co_case.html", context=context)
 @router.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/calculate", response_class=HTMLResponse)
 async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_id: str, product_code: str):
     client = resolve_client(client_id)
@@ -1514,16 +1594,27 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
     except Exception:  # noqa: BLE001
         client_config_for_rule = {}
     min_gap_days = effective_min_gap_days(client, client_config_for_rule)
-    context["case"] = prepare_case_origin_sheet(
-        context["case"],
-        product_code,
-        source_context.get("invoice_matches", []),
-        context.get("bom_workspace", minimal_bom_workspace()),
-        context.get("recommended_form_lane", {}),
-        source_context.get("material_rows", []),
-        stock_rows,
-        min_gap_days=min_gap_days,
-    )
+    target_overrides = (
+        (context["case"].get("origin_sheet_states") or {}).get(product_code) or {}
+    ).get("material_overrides")
+    if target_overrides:
+        # DU1 — GIỮ chỉnh sửa NVL: tính lại từ override (như đường "Lưu") thay vì
+        # khai triển tươi từ BOM artifact (sẽ vứt chỉnh sửa). Hỗ trợ luồng
+        # Load BOM → sửa NVL → Tính bảng kê.
+        context["case"] = recalculate_origin_sheet_edits(
+            client, context["case"], product_code, min_gap_days=min_gap_days
+        )
+    else:
+        context["case"] = prepare_case_origin_sheet(
+            context["case"],
+            product_code,
+            source_context.get("invoice_matches", []),
+            context.get("bom_workspace", minimal_bom_workspace()),
+            context.get("recommended_form_lane", {}),
+            source_context.get("material_rows", []),
+            stock_rows,
+            min_gap_days=min_gap_days,
+        )
     context["case"] = attach_case_bom_snapshot(context["case"], context.get("bom_workspace", minimal_bom_workspace()))
     context["case"] = attach_origin_bom_product_codes(
         context["case"],
@@ -1544,12 +1635,6 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
     if target_index >= 0:
         context["case"] = mark_origin_sheets_stale(context["case"], target_index + 1)
         context["case"] = set_origin_sheet_status(context["case"], product_code, "calculated")
-        states = dict(context["case"].get("origin_sheet_states") or {})
-        previous = states.get(product_code) if isinstance(states.get(product_code), dict) else {}
-        if previous.get("material_overrides"):
-            states[product_code] = {**previous, "material_overrides": {}}
-            context["case"]["origin_sheet_states"] = states
-            context["case"] = attach_origin_sheet_states(context["case"])
     context["criteria_rows"] = build_case_criteria_rows(context["case"], context.get("form_candidates", []))
     if context["case"].get("persisted_case_id") and not context.get("origin_demo_active"):
         update_case_record(client, context["case"])

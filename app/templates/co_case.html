@@ -1132,7 +1132,10 @@
               </div>
               {% endif %}
               <div class="origin-sheet-actions">
-                <button type="submit" data-origin-sheet-calculate formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/calculate" formmethod="post" {% if not product.origin_can_calculate %}disabled title="{{ product.origin_calculate_block_reason }}"{% else %}title="Nạp BOM artifact đang chọn vào bảng kê (ghi đè chỉnh sửa client-side chưa lưu)"{% endif %}>Load BOM</button>
+                {% if product.origin_sheet_status != 'locked' %}
+                <button type="submit" class="btn-secondary" data-origin-sheet-load-bom formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/load-bom" formmethod="post" title="Nạp công thức NVL (cấu trúc BOM artifact đang chọn) vào bảng kê để xem/sửa — chưa phân bổ tồn (ghi đè chỉnh sửa client-side chưa lưu)">Load BOM</button>
+                {% endif %}
+                <button type="submit" data-origin-sheet-calculate formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/calculate" formmethod="post" {% if not product.origin_can_calculate %}disabled title="{{ product.origin_calculate_block_reason }}"{% else %}title="Phân bổ tồn CO + tính LVC từ BOM đã nạp"{% endif %}>Tính bảng kê</button>
                 {% if product.origin_sheet_status == 'locked' %}
                 <button type="submit" class="btn-secondary" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/reopen" formmethod="post" {% if not product.origin_can_reopen %}disabled title="{{ product.origin_reopen_block_reason }}"{% endif %}>Mở chốt</button>
                 {% if product.origin_sheet_material_diff_total %}
@@ -1994,7 +1997,8 @@
     const action = submitter?.getAttribute("formaction") || form?.getAttribute("action") || "";
     if (/lock$/.test(action)) return text.includes("Mở") ? "Đã mở chốt." : "Đã chốt.";
     if (/reopen$/.test(action)) return "Đã mở chốt.";
-    if (/calculate$/.test(action)) return "Đã load BOM vào bảng kê.";
+    if (/load-bom$/.test(action)) return "Đã nạp BOM (cấu trúc) vào bảng kê.";
+    if (/calculate$/.test(action)) return "Đã tính bảng kê.";
     if (/shipment$/.test(action)) return "Đã lưu shipment.";
     if (/supporting-files$/.test(action)) return "Đã tải chứng từ.";
     return text ? `Đã ${text.toLowerCase()}.` : "Đã lưu.";
@@ -2131,7 +2135,7 @@
     if (!action || /\/export$|\/delete$|supporting-files\/[^/]+$/.test(action)) return;
     event.preventDefault();
     const method = (submitter?.getAttribute("formmethod") || form.dataset.ajaxSubmitMethod || form.getAttribute("method") || "GET").toUpperCase();
-    const isOriginSheetAction = /\/origin\/sheet\/[^/]+\/(calculate|lock|reopen)$/.test(action);
+    const isOriginSheetAction = /\/origin\/sheet\/[^/]+\/(calculate|load-bom|lock|reopen)$/.test(action);
     const isOriginSheetCalculate = /\/origin\/sheet\/[^/]+\/calculate$/.test(action);
     const activeOriginProductCode = isOriginSheetAction
       ? (submitter?.closest("[data-origin-sheet-panel]")?.dataset.productCode || "")

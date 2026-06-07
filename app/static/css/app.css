@@ -3207,6 +3207,12 @@ button.co-stat:hover {
   color: var(--success);
 }
 
+.origin-sheet-status-pill.origin-sheet-state-bom_loaded {
+  border-color: color-mix(in srgb, var(--info) 45%, var(--border));
+  background: var(--info-soft);
+  color: var(--info);
+}
+
 .origin-sheet-status-pill.origin-sheet-state-locked {
   border-color: color-mix(in srgb, var(--success) 65%, var(--border));
   background: var(--success-soft);

@@ -31,6 +31,7 @@ _co_stock_refresh_inflight: set[str] = set()
 
 ORIGIN_SHEET_STATUS_LABELS = {
     "draft": "Chưa tính",
+    "bom_loaded": "Đã nạp BOM",
     "calculating": "Đang tính",
     "calculated": "Đã tính",
     "locked": "Chốt",
@@ -934,6 +935,7 @@ def prepare_case_origin_sheet(
     stock_rows: list[dict],
     *,
     min_gap_days: int | None = None,
+    allocate: bool = True,
 ) -> dict:
     target_code = str(product_code or "").strip()
     if not target_code:
@@ -947,7 +949,7 @@ def prepare_case_origin_sheet(
     target_match = None
     target_sequence = 0
     products_by_code = {str(product.get("code") or product.get("product_code") or "").strip(): product for product in case.get("products", [])}
-    stock_pool = case_allocation_pool(case, ordered_invoice_matches, stock_rows, min_gap_days=min_gap_days)
+    stock_pool = case_allocation_pool(case, ordered_invoice_matches, stock_rows, min_gap_days=min_gap_days) if allocate else {}
     for sequence, match in enumerate(ordered_invoice_matches, start=1):
         match_code = str(match.get("item_code") or match.get("product_code") or "").strip()
         if match_code == target_code:
@@ -955,7 +957,7 @@ def prepare_case_origin_sheet(
             target_sequence = sequence
             break
         existing_product = products_by_code.get(match_code)
-        if existing_product:
+        if existing_product and allocate:
             apply_existing_origin_product_consumption(existing_product, stock_pool)
     if not target_match:
         return case
@@ -975,6 +977,7 @@ def prepare_case_origin_sheet(
         stock_pool,
         product_sequence=target_sequence,
         bom_product_code=bom_product_code,
+        allocate=allocate,
     )
     products = []
     changed = False
@@ -1337,7 +1340,7 @@ def origin_sheet_export_blockers(case: dict) -> list[str]:
     blockers = []
     for product in attach_origin_sheet_states(case).get("products", []):
         status = product.get("origin_sheet_status")
-        if status in {"draft", "stale", "calculating"}:
+        if status in {"draft", "bom_loaded", "stale", "calculating"}:
             blockers.append(str(product.get("code") or "sheet"))
     return blockers
 def origin_sheet_action_error(case: dict, product_code: str, action: str) -> str:
@@ -1731,6 +1734,7 @@ def origin_product_from_invoice_match(
     *,
     product_sequence: int | None = None,
     bom_product_code: str = "",
+    allocate: bool = True,
 ) -> dict:
     product_code = str(match.get("item_code", "")).strip()
     bom_product_code = str(bom_product_code or product_code).strip()
@@ -1751,18 +1755,25 @@ def origin_product_from_invoice_match(
             product_code=product_code,
             product_name=match.get("description") or product_code,
             material_sequence=material_sequence,
+            allocate=allocate,
         )
         for material_sequence, row in enumerate(bom_rows, start=1)
     ]
-    vnm = sum(
-        decimal_value(material.get("non_origin_cif_value"))
-        for material in materials
-    )
-    missing_material_values = any(
-        material.get("unit_value_missing") or material.get("allocation_status") == "shortage"
-        for material in materials
-    )
-    lvc = calculate_lvc_result(fob, vnm, threshold, missing_material_values, missing_bom_materials=not materials)
+    if allocate:
+        vnm = sum(
+            decimal_value(material.get("non_origin_cif_value"))
+            for material in materials
+        )
+        missing_material_values = any(
+            material.get("unit_value_missing") or material.get("allocation_status") == "shortage"
+            for material in materials
+        )
+        lvc = calculate_lvc_result(fob, vnm, threshold, missing_material_values, missing_bom_materials=not materials)
+    else:
+        # Load BOM (cấu trúc): chưa phân bổ tồn ⇒ chưa có VNM/LVC. enrich_origin_product
+        # tôn trọng origin_not_calculated để KHÔNG bịa LVC 100% từ vnm=0.
+        vnm = Decimal("0")
+        lvc = {"percentage": "", "status": "not_calculated", "status_label": "Chưa tính"}
     product = {
         "code": product_code,
         "bom_product_code": bom_product_code,
@@ -1780,14 +1791,15 @@ def origin_product_from_invoice_match(
         "source_line_no": match.get("line_no", ""),
         "invoice_ref": match.get("invoice_ref", ""),
         "fob": decimal_text(fob) if fob is not None else "",
-        "non_origin_value": decimal_text(vnm) if materials else "",
+        "non_origin_value": decimal_text(vnm) if (allocate and materials) else "",
         "rvc_threshold": decimal_text(threshold) if threshold is not None else "",
         "documented_result": criterion,
+        "origin_not_calculated": not allocate,
         "lvc_percentage": lvc["percentage"],
         "lvc_status": lvc["status"],
         "lvc_status_label": lvc["status_label"],
         "lvc_threshold": decimal_text(threshold) if threshold is not None else "",
-        "vnm_value": decimal_text(vnm) if materials else "",
+        "vnm_value": decimal_text(vnm) if (allocate and materials) else "",
         "bom_product_artifact_id": first_non_empty(row.get("product_artifact_id") or row.get("product_version_id", "") for row in bom_rows),
         "bom_product_artifact_no": first_non_empty(row.get("product_artifact_no") or row.get("product_version_no", "") for row in bom_rows),
         "bom_product_version_id": first_non_empty(row.get("product_artifact_id") or row.get("product_version_id", "") for row in bom_rows),
@@ -1821,6 +1833,85 @@ def origin_product_value(match: dict) -> dict:
         if value not in (None, ""):
             return {"value": decimal_value(value), "currency": currency, "source": source}
     return {"value": None, "currency": "", "source": ""}
+def origin_material_structure_only(
+    row: dict,
+    material: dict,
+    material_code: str,
+    qty_per: Decimal,
+    consumed_qty: Decimal,
+    *,
+    material_sequence: int | None = None,
+) -> dict:
+    """Khai triển một dòng NVL theo CẤU TRÚC BOM, KHÔNG phân bổ tồn.
+
+    Dùng cho "Load BOM" (Phase 2): nạp công thức NVL vào bảng kê để xem/sửa
+    trước khi "Tính bảng kê". Field cấu trúc (mã, định mức, lượng dùng, xuất xứ,
+    mô tả, đơn giá BOM/danh mục) đầy đủ; field phân bổ để TRUNG TÍNH (không dòng
+    phân bổ, trị giá rỗng, không cảnh báo thiếu tồn). Cùng shape dict với
+    origin_material_from_bom_row để template + sheet_edit_bom_rows + override
+    dùng được không đổi.
+    """
+    origin_details = origin_status_details_from_material(material)
+    material_description = row.get("material_name") or material.get("name", "")
+    hs_code = row.get("hs_code") or material.get("hs_code", "")
+    fallback_unit_value, fallback_unit_value_source = first_decimal_source(
+        ("bom", row.get("unit_value")),
+        ("bom", row.get("unit_price")),
+        ("material_catalog", material.get("unit_price")),
+        ("material_catalog", material.get("taxable_unit_price")),
+    )
+    unit_value_text = decimal_text(fallback_unit_value) if fallback_unit_value is not None else ""
+    warnings = []
+    if origin_details["source"] == "default_conservative":
+        warnings.append(f"{material_code}: chưa có phân loại xuất xứ, đang tính bảo thủ là không xuất xứ.")
+    if not material_description:
+        warnings.append(f"{material_code}: thiếu tên NVL từ BOM, danh mục NVL và BCCT nhập.")
+    return {
+        "source_row": f"BOM:{row.get('source', '')}",
+        "import_declaration_no": "",
+        "import_declaration_date": "",
+        "import_line_no": "",
+        "material_code": material_code,
+        "material_sequence": str(material_sequence or ""),
+        "customs_material_code": material.get("customs_code") or material_code,
+        "internal_material_code": material.get("internal_code") or material_code,
+        "material_description": material_description,
+        "material_name_missing": not bool(material_description),
+        "hs_code": hs_code,
+        "origin_status": origin_details["status"],
+        "origin_status_label": origin_details["label"],
+        "origin_status_source": origin_details["source"],
+        "origin_status_note": origin_details["note"],
+        "available_qty": "",
+        "consumed_qty": consumed_qty,
+        "unit_value": unit_value_text,
+        "currency": material.get("value_currency") or material.get("currency", ""),
+        "material_value": "",
+        "material_value_native": "",
+        "material_value_vnd": "",
+        "non_origin_cif_value": "",
+        "non_origin_cif_value_vnd": "",
+        "exchange_rate_source": "",
+        "unit_value_missing": not unit_value_text,
+        "valuation_status": "not_calculated",
+        "valuation_status_label": valuation_status_label("not_calculated"),
+        "valuation_source": fallback_unit_value_source,
+        "valuation_source_label": valuation_source_label(fallback_unit_value_source),
+        "data_status_label": "Chưa tính bảng kê",
+        "allocation_status": "pending",
+        "allocation_shortage_qty": "",
+        "allocation_shortage_trace": "",
+        "allocation_lines": [],
+        "allocation_summary": "",
+        "material_warnings": warnings,
+        "material_warnings_text": " | ".join(warnings),
+        "bom_qty_per": decimal_text(qty_per),
+        "bom_scrap_rate": row.get("scrap_rate", ""),
+        "bom_source": row.get("source", ""),
+        "bom_row_class": row.get("row_class", ""),
+        "uom": row.get("uom", ""),
+        "source_document_ref": row.get("source") or row.get("product_version_id", ""),
+    }
 def origin_material_from_bom_row(
     row: dict,
     export_quantity: Decimal,
@@ -1831,11 +1922,21 @@ def origin_material_from_bom_row(
     product_code: str = "",
     product_name: str = "",
     material_sequence: int | None = None,
+    allocate: bool = True,
 ) -> dict:
     material_code = str(row.get("material_code", "")).strip()
     material = material_index.get(material_code, {})
     qty_per = decimal_value(row.get("qty_per", "0"))
     consumed_qty = export_quantity * qty_per
+    if not allocate:
+        return origin_material_structure_only(
+            row,
+            material,
+            material_code,
+            qty_per,
+            consumed_qty,
+            material_sequence=material_sequence,
+        )
     stock_candidates = stock_candidates_for_material(stock_pool, material_code)
     stock = stock_candidates[0] if stock_candidates else {}
     allocation_context = {
@@ -2202,6 +2303,7 @@ def valuation_status_label(status: str) -> str:
         "missing_unit_value": "Thiếu đơn giá NVL",
         "partial_allocation": "Thiếu tồn CO",
         "partial_valuation": "Tạm tính trị giá",
+        "not_calculated": "Chưa tính",
     }.get(status, "Cần bổ sung evidence")
 def origin_status_from_material(material: dict) -> str:
     return origin_status_details_from_material(material)["status"]
@@ -2272,7 +2374,12 @@ def enrich_origin_product(product: dict) -> dict:
     missing_unit_material_count = sum(1 for material in materials if material.get("valuation_status") == "missing_unit_value")
     shortage_material_count = sum(1 for material in materials if material.get("allocation_status") == "shortage")
     incomplete_material_count = missing_unit_material_count + shortage_material_count
-    lvc = normalized_lvc_result(enriched, materials, criterion, incomplete_material_count > 0)
+    if enriched.get("origin_not_calculated"):
+        # Load BOM (cấu trúc): chưa phân bổ tồn ⇒ vnm=0 sẽ ra LVC 100% giả.
+        # Giữ "Chưa tính" cho tới khi bấm "Tính bảng kê".
+        lvc = {"percentage": "", "status": "not_calculated", "status_label": "Chưa tính"}
+    else:
+        lvc = normalized_lvc_result(enriched, materials, criterion, incomplete_material_count > 0)
     enriched["lvc_percentage"] = lvc["percentage"]
     enriched["lvc_status"] = lvc["status"]
     enriched["lvc_status_label"] = lvc["status_label"]
