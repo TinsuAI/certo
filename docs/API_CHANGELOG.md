@@ -14,6 +14,25 @@ Only `Breaking:` headings trigger notifications to `dev`/`admin` users (CO + BCQ
 
 ## Entries
 
+## 2026-06-09 — Additive: SAP Material Group + non-declarable BOM-row exclusion (mig 078)
+
+Silent / opt-in; no consumer code change required.
+
+- `GET /v1/hub/materials` (and per-material) gain three additive fields:
+  `material_group` (raw SAP code), `item_category` (derived nature),
+  `customs_relevance` (`excluded_non_material` | `declarable` |
+  `declarable_unmatched` | `review` | null). Derived from
+  `hub.client_material_group_map` × BCCT-import evidence.
+- `POST /v1/hub/products/bom/artifacts:batch` accepts body
+  `exclude_non_declarable` (bool, default **false**); single-artifact GET
+  `/products/{product_code}/bom/artifacts/{artifact_id}` accepts it as a query
+  param. When true, drops rows soft-excluded as non-declarable ("rác":
+  drawing/document/label/phantom). Echoed in `filter_applied.exclude_non_declarable`.
+- BOM artifact-row `payload` now also carries `material_group`, `phantom`, `bulk`.
+- Default-off everywhere → existing CO/BCQT calls unchanged. CO opts in for
+  johnson-vn after verification. Full note:
+  `.ai/sister-app-notes/2026-06-09-bom-row-exclusion-and-material-group.md`.
+
 ## 2026-06-08 — Cosmetic: staleness flags are convertibility-aware (fewer false positives)
 
 No shape change, no consumer code impact. The staleness predicate behind

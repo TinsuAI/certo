@@ -328,6 +328,9 @@ Response item fields:
 - `unit` — **deprecated alias of `uom`**, grace window through **2026-05-25**, then removed. New consumers must read `uom`.
 - `hs_code`
 - `updated_at`
+- `material_group` — raw SAP Material Group (e.g. `RD21`), or null if the code never appeared in a technical-BOM source (mig 078).
+- `item_category` — derived physical nature: `drawing|document|label|packaging|metal|hardware|plastic|consumable|assembly_set|finished|other`, or null.
+- `customs_relevance` — derived declarability: `excluded_non_material` (drawing/document/label — exclude from bảng kê) · `declarable` (physical material with a BCCT import match) · `declarable_unmatched` (physical, no import match — **do not silently drop**; reconcile) · `review` (has a Material Group but no client map row) · `null` (no Material Group). Derived from `hub.client_material_group_map` × BCCT-import evidence.
 
 #### `GET /v1/hub/materials/{customs_code}`
 
@@ -619,6 +622,8 @@ Response always echoes `filter_applied` so consumers can detect server-side supp
 ```
 
 Each item carries a server-computed `is_shallow` boolean (`true` iff the artifact is a shallow/partial flatten) so consumers need not re-encode the strategy→depth mapping. Present on this list endpoint, the `:batch` endpoint, and the single-artifact GET.
+
+**Non-declarable row exclusion (mig 078).** The `POST /v1/hub/products/bom/artifacts:batch` body accepts `exclude_non_declarable` (boolean, default **false**) and the single-artifact GET `/v1/hub/products/{product_code}/bom/artifacts/{artifact_id}` accepts the same as a query param. When `true`, rows soft-excluded as non-declarable ("rác": drawing/document/label/phantom — see `customs_relevance` under Materials) are dropped from each artifact's `rows`. The batch echoes the choice in `filter_applied.exclude_non_declarable`. Default-off preserves existing behavior; the filter is **not** wired into this list endpoint or `GET .../bom` (pinned). Per-row `payload` now also carries `material_group`, `phantom`, and `bulk` from the SAP source, and each row carries top-level `excluded_at` / `exclusion_reason` (non-null on rác rows; a consumer may mark instead of filtering by leaving `exclude_non_declarable=false` and reading these).
 
 Errors:
 - `400 invalid_lifecycle` / `invalid_shape` / `invalid_depth` / `invalid_intents` / `invalid_boolean` — bad enum or non-`true`/`false` for `latest_per_variant`.
