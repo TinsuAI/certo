@@ -23,6 +23,7 @@ keys
 
 *.md
 !README.md
+!CHANGELOG.md
 *.dump
 *.zip
 
