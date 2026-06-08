@@ -34,7 +34,7 @@ def _select_dirty(client_id: str, limit: int | None,
     rows with no vector at all. Compute hash in app code (template can
     drift independently of materials, so SQL-side hashing is fragile)."""
     sql = """
-        select material_code, name, hs_code, unit, category, notes,
+        select material_code, name, hs_code, uom as unit, category, notes,
                provenance,
                description_embedding is null as needs_initial,
                embedding_text_hash, embedding_model

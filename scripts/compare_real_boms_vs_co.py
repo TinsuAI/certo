@@ -83,7 +83,7 @@ def _graph_pure_ctx(parsed: ParsedBom, client_id: str = "compare") -> FlattenCon
             return None    # has its own BOM → not a leaf
         return CatalogEntry(
             material_code=material_code,
-            category="nvl", status="active", unit=None,
+            category="nvl", status="active", uom=None,
         )
 
     return FlattenContext(
