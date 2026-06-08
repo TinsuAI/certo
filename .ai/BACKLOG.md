@@ -24,12 +24,13 @@ Added: 2026-06-07.
 </details>
 
 ### B2 — Review trạng thái các bước workflow của 1 hồ sơ (hiển thị chưa make sense)
-**DISCOVERED 2026-06-08 → `.ai/features/2026-06-08-workflow-step-status-display.md`.** Phát hiện
-chính: **Phase 2 đã ship** (`/load-bom` + `bom_loaded` tách khỏi `/calculate`) nên B2 KHÔNG còn phải
-chờ. Lỗi lõi: stepper bước 3 không bao giờ phản ánh chốt-sheet (best state = "Cận soát" cả khi đã
-chốt hết); "Preview" nhãn tiếng Anh; review/preview trùng màu; `step.wip` dead code; `todo` mờ bằng
-opacity (vi phạm rule). Đề xuất: derive bước 3 từ `origin_sheet_states` + hợp nhất với
-`co_case_status_view`; tập trạng thái mới done/in_progress/attention/todo. Next: `/tdd`.
+**DONE 2026-06-08 (`0374edb`, `/tdd`).** Brief `.ai/features/2026-06-08-workflow-step-status-display.md`.
+`co_case_step_status` giờ trả `{status, label}`; tập trạng thái mới **done/in_progress/attention/todo**
+với nhãn theo ngữ cảnh từng bước. Bước 3 derive từ `products[].origin_sheet_status` (cùng nguồn
+`co_case_status_view`) ⇒ chốt hết → `done` "Đã chốt N/N" (hết kẹt ở "Cần soát"). Bỏ "Preview" +
+dead `wip` (class+badge+CSS); `todo` mute bằng color token (không opacity); thêm `in_progress` (xanh
+dương) tách khỏi `attention` (vàng). Test `tests/test_co_case_step_status.py` (20 case). Verified:
+544 passed + live render (done=green, attention=amber, todo=grey readable).
 
 <details><summary>Ghi chú gốc</summary>
 
@@ -107,12 +108,18 @@ Added: 2026-06-07.
 ## Performance
 
 ### P1 — "Tạo hồ sơ" → mở "Bảng kê C/O" lần đầu chậm
-**DISCOVERED 2026-06-08 → `.ai/features/2026-06-08-origin-cold-load-perf.md`.** Chẩn đoán ban đầu
-("full BCCT pull ~40s") SAI: fetch DH đã hẹp (11ms). Thủ phạm thật = `origin_source_context` đọc
-TOÀN BỘ 60k-lô snapshot tồn (`read_co_stock_rows_cached` 2.6s cold + copy/apply 540ms) ở tab-render,
-nhưng tồn đó KHÔNG dùng lúc render (shells không nhận stock_rows; đường warm đã trả `stock_rows:[]`).
-Sửa phẫu thuật: cho cold path trả `stock_rows:[]` như warm → cold 3.5s→~0.1s. Tách khỏi D1.
-`/tdd` parity test (`/calculate`+lock ra tồn y hệt) trước khi sửa. Chi tiết + scope ở brief.
+**DONE 2026-06-08 (origin cold-load) — merged + deployed `a1ac2ed`.** Brief
+`.ai/features/2026-06-08-origin-cold-load-perf.md`. Chẩn đoán ban đầu ("full BCCT pull ~40s") SAI:
+fetch DH đã hẹp (11ms). Thủ phạm thật = `origin_source_context` đọc TOÀN BỘ 60k-lô snapshot tồn
+(`read_co_stock_rows_cached` 2.6s cold + copy/apply 540ms) ở tab-render, nhưng tồn đó KHÔNG dùng lúc
+render (shells không nhận stock_rows; đường warm đã trả `stock_rows:[]`). Sửa phẫu thuật: cho cold
+path trả `stock_rows:[]` như warm → **cold 3.5s→~0.1s**. Parity test `/calculate`+lock ra tồn y hệt.
+Tách khỏi D1.
+
+**Residual (vẫn open):**
+- **Index (case list) 4.27s johnson-vn** — N+1 `co_stock_ledger.claims_summary_for_case`
+  (`co_case_context.py:2760-2767`) per-case + `co_stock_summary` + source context. Batch/đổi 1 query.
+- **(Optional) `/calculate` lot-scoping** — scope stock theo lô của sản phẩm (~540ms/calc).
 
 <details><summary>Triệu chứng + đo gốc (giữ lại)</summary>
 
@@ -142,3 +149,14 @@ Lưu ý: P/A 1+2 chồng lấn **D1** (cùng `co_case_source_context` / source r
 </details>
 
 Added: 2026-06-08. Discovered: 2026-06-08.
+
+## Testing / Infra
+
+### T1 — Cô lập DB cho test (ngừng tích cruft vào DB dev)
+**DISCOVERED 2026-06-08 → `.ai/features/2026-06-08-test-db-isolation.md`.** Test chạy có `.env`
+(DB-backed) gọi endpoint thật vào Postgres dev dùng chung, luôn dùng seed client growatt/johnson,
+**không dọn** → tích 845 case growatt (+ `bom_*`/`source_*` cruft) trong ~4 tuần; lòi ra ở picker
+"Đổi hồ sơ". Đã purge growatt (backup `data/local/backups/growatt-cases-purge-2026-06-08.json`).
+Đề xuất: conftest schema-isolation (`BARRY_DATABASE_SCHEMA=co_test_<worker>`, migrate + drop cascade
+teardown) + guard chặn ghi vào schema `co`. Cần `/discover`: phân loại test tạo-vs-đọc-seed trước
+khi sửa. Added: 2026-06-08.
