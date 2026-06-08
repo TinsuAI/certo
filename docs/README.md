@@ -3,6 +3,7 @@
 Shared project documentation for business logic, data analysis, and regulatory context.
 
 ## Documents
+- [CO Stock Architecture](./co-stock-architecture.md) — xương sống tồn CO: sở hữu, identity, 3 tầng, vòng đời, rủi ro
 - [BOM Builder Foundation](./bom-builder-foundation.md)
 - [BOM Builder Implementation Plan](./bom-builder-implementation-plan.md)
 - [Company BOM Source Lessons](./company-bom-source-lessons.md)
