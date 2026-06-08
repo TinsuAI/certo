@@ -587,9 +587,9 @@
   </div>
   <nav class="workflow-stepper" aria-label="Các bước làm C/O" data-case-tab-nav>
     {% for step in co_case_steps %}
-    <a class="workflow-step {{ 'workflow-step-active' if step.active else '' }} workflow-step-{{ step.status }} {{ 'workflow-step-wip' if step.wip else '' }}" href="{{ step.href }}" title="{{ step.description or '' }}" data-case-tab-link>
+    <a class="workflow-step {{ 'workflow-step-active' if step.active else '' }} workflow-step-{{ step.status }}" href="{{ step.href }}" title="{{ step.description or '' }}" data-case-tab-link>
       <span>{{ step.short_label }}</span>
-      <strong>{{ step.label }}{% if step.wip %} <em class="workflow-step-wip-badge">W.I.P</em>{% endif %}</strong>
+      <strong>{{ step.label }}</strong>
       <em>{{ step.status_label }}</em>
       <span class="workflow-step-spinner" aria-hidden="true"></span>
     </a>

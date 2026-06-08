@@ -2506,26 +2506,34 @@ button.co-stat:hover {
   color: var(--foreground);
 }
 
-.workflow-step-ready {
+.workflow-step-done {
   border-color: color-mix(in srgb, var(--success) 36%, var(--border));
 }
 
-.workflow-step-ready em {
+.workflow-step-done em {
   color: var(--success);
 }
 
-.workflow-step-review,
-.workflow-step-preview {
+.workflow-step-in_progress {
+  border-color: color-mix(in srgb, var(--primary) 36%, var(--border));
+}
+
+.workflow-step-in_progress em {
+  color: var(--primary);
+}
+
+.workflow-step-attention {
   border-color: color-mix(in srgb, var(--warning) 34%, var(--border));
 }
 
-.workflow-step-review em,
-.workflow-step-preview em {
+.workflow-step-attention em {
   color: var(--warning);
 }
 
-.workflow-step-todo {
-  opacity: 0.78;
+/* `todo` = not started. Mute with a color token, never opacity (opacity makes
+   the label unreadable; project rule — see CSS no-opacity-muted-text). */
+.workflow-step-todo em {
+  color: var(--foreground-muted);
 }
 
 .workflow-step-card {
@@ -4341,10 +4349,6 @@ button.co-stat:hover {
 
 /* PR1: workflow W.I.P + documents checklist + per-sheet recommendation override */
 
-.workflow-step-wip {
-  border-style: dashed;
-}
-
 /* Case tab navigation loading feedback (so click is felt instantly). */
 
 .workflow-step {
@@ -4478,21 +4482,6 @@ button.co-stat:hover {
 
 .origin-bom-missing {
   margin: 0.5rem 0;
-}
-
-.workflow-step-wip-badge {
-  display: inline-block;
-  margin-left: 0.35rem;
-  padding: 0.05rem 0.4rem;
-  border-radius: 4px;
-  background: var(--warning-soft);
-  color: var(--warning);
-  font-size: 0.65rem;
-  font-style: normal;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  vertical-align: middle;
 }
 
 .callout-warning {

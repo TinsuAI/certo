@@ -1897,8 +1897,8 @@ def test_co_case_auto_generates_case_code_and_step_status_labels():
     assert "CO-GROWATT-INV-AUTO-" in detail.text
     assert "CO-GROWATT-INV-AUTO-" in index.text
     assert "Chưa nhập · Auto code" not in index.text
-    assert "Đủ" in detail.text
-    assert "Cần soát" in detail.text
+    assert "Đủ" in detail.text  # shipment step: invoice + market present
+    assert "Thiếu tờ khai" in detail.text  # TKX/TKN step: no matched declarations yet
 
 
 def test_co_case_detail_is_split_into_workflow_step_views():

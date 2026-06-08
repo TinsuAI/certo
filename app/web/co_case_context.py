@@ -9,7 +9,7 @@ import threading
 from app import co_stock_adjustments_store, co_stock_eligibility, co_stock_ledger, co_stock_materializer
 from app.bom_service import bom_service
 from app.bom_store import attach_case_bom_snapshot
-from app.co_case_store import build_case_criteria_rows, case_from_record, co_case_delete_block_reason, co_case_status_view, declaration_refs, get_case_record, get_case_workspace, json_safe, load_state
+from app.co_case_store import build_case_criteria_rows, case_from_record, co_case_delete_block_reason, co_case_is_completed, co_case_status_view, declaration_refs, get_case_record, get_case_workspace, json_safe, load_state
 from app.co_form_config_store import load_co_form_config
 from app.co_forms import COMMON_MARKET_PRESETS, common_market_guidance, criteria_preview_for_hs, form_candidates_for_market, prioritized_form_lanes, recommended_form_lane
 from app.co_market_hints import infer_market_from_invoice_matches
@@ -142,12 +142,6 @@ CO_CASE_WORKFLOW_STEPS = [
     },
 ]
 CO_CASE_WORKFLOW_STEP_KEYS = {step["key"] for step in CO_CASE_WORKFLOW_STEPS}
-CO_CASE_STEP_STATUS_LABELS = {
-    "ready": "Đủ",
-    "todo": "Thiếu",
-    "review": "Cần soát",
-    "preview": "Preview",
-}
 def co_case_light_context(client_id: str, case: dict, current_step: str, **extra) -> dict:
     client = resolve_client(client_id)
     fast_origin_context = bool(extra.pop("fast_origin_context", False))
@@ -2825,8 +2819,8 @@ def co_case_workflow_steps(
             **step,
             "href": href,
             "active": current_step == step["key"],
-            "status": status,
-            "status_label": CO_CASE_STEP_STATUS_LABELS.get(status, status),
+            "status": status["status"],
+            "status_label": status["label"],
         })
     return steps
 def co_case_step_status(
@@ -2836,52 +2830,77 @@ def co_case_step_status(
     criteria_rows: list[dict] | None = None,
     origin_demo_active: bool = False,
     tkx_tkn_summary: dict | None = None,
-) -> str:
+) -> dict:
+    """Per-step status for the case stepper → {"status", "label"}.
+
+    `status` ∈ {done, in_progress, attention, todo}; `label` is contextual per
+    step (each step reads in its own terms, not one generic Đủ/Thiếu/Cần soát).
+    Step 3 (origin) derives from `products[].origin_sheet_status` — the same
+    signal `co_case_status_view` uses for the list page — so the stepper and the
+    list never disagree, and a fully-locked case reaches `done` instead of being
+    stuck on the old `review`/"Cần soát" forever.
+    """
     invoice_matches = invoice_matches or []
     criteria_rows = criteria_rows or []
     shipment = case.get("shipment", {})
     has_reference = has_shipment_reference(shipment)
     has_market = bool(case.get("destination_market") and case.get("destination_market") != "Chưa nhập")
-    has_products = bool(case.get("products") or criteria_rows)
-    has_bom_snapshot = bool(case.get("bom_snapshot", {}).get("composition"))
+    products = case.get("products") or []
+    has_products = bool(products or criteria_rows)
     if step_key == "shipment":
-        # Partial = invoice OR market but not both. Avoids misleading "thiếu"
-        # when operator has filled the invoice but hasn't yet set the market.
+        # Partial = invoice OR market but not both. Name which half is missing
+        # instead of a generic "thiếu".
         if has_reference and has_market:
-            return "ready"
-        if has_reference or has_market:
-            return "review"
-        return "todo"
+            return {"status": "done", "label": "Đủ"}
+        if has_reference:
+            return {"status": "attention", "label": "Thiếu thị trường"}
+        if has_market:
+            return {"status": "attention", "label": "Thiếu invoice"}
+        return {"status": "todo", "label": "Chưa nhập"}
     if step_key == "documents":
-        return "ready" if case.get("supporting_files") else "todo"
-    if step_key == "exports":
-        if not has_reference:
-            return "todo"
-        if not invoice_matches:
-            return "review"
-        # "ready" only when actual declaration files are uploaded — matching
-        # the inner page's truth instead of just BCCT row presence. Falls
-        # back to "review" when summary isn't available (caller didn't pass).
-        if tkx_tkn_summary is not None:
-            missing_tkx = tkx_tkn_summary.get("missing_tkx") or []
-            missing_tkn = tkx_tkn_summary.get("missing_tkn") or []
-            if missing_tkx or missing_tkn:
-                return "review"
-            return "ready"
-        return "review"
+        if case.get("supporting_files"):
+            return {"status": "done", "label": "Đã tải"}
+        return {"status": "todo", "label": "Chưa tải"}
     if step_key == "origin":
         if origin_demo_active:
-            return "preview"
-        if invoice_matches and has_products and has_bom_snapshot:
-            return "review"
-        if has_products or invoice_matches:
-            return "preview"
-        return "todo"
+            return {"status": "in_progress", "label": "Xem thử"}
+        total = len(products)
+        if not total:
+            return {"status": "todo", "label": "Chưa có NVL"}
+        locked = sum(
+            1 for product in products
+            if str(product.get("origin_sheet_status") or "").strip().lower() == "locked"
+        )
+        if locked == total:
+            return {"status": "done", "label": f"Đã chốt {locked}/{total}"}
+        worked = any(
+            str(product.get("origin_sheet_status") or "").strip().lower() not in ("", "draft")
+            for product in products
+        )
+        if locked or worked:
+            return {"status": "in_progress", "label": f"Đang làm · {locked}/{total} chốt"}
+        return {"status": "todo", "label": "Chưa tính"}
+    if step_key == "exports":
+        if not has_reference:
+            return {"status": "todo", "label": "Chưa có"}
+        if not invoice_matches:
+            return {"status": "attention", "label": "Thiếu tờ khai"}
+        # "done" only when actual declaration files are present — matching the
+        # inner page's truth, not just BCCT row presence. Treat a missing summary
+        # (caller didn't pass) as still-needs-attention.
+        if tkx_tkn_summary is not None:
+            missing = (tkx_tkn_summary.get("missing_tkx") or []) or (tkx_tkn_summary.get("missing_tkn") or [])
+            if missing:
+                return {"status": "attention", "label": "Thiếu tờ khai"}
+            return {"status": "done", "label": "Đủ"}
+        return {"status": "attention", "label": "Thiếu tờ khai"}
     if step_key == "review":
+        if co_case_is_completed(case):
+            return {"status": "done", "label": "Đã xuất"}
         if has_reference and invoice_matches and has_products:
-            return "ready"
-        return "preview" if has_products else "todo"
-    return "todo"
+            return {"status": "in_progress", "label": "Sẵn sàng"}
+        return {"status": "todo", "label": "Chưa sẵn sàng"}
+    return {"status": "todo", "label": "Chưa nhập"}
 def _refresh_co_stock_delta_or_full(client: dict) -> dict:
     """Pick delta vs full refresh and run it. Records refresh state so the
     next call can decide again. Errors fall back to full on the spot so a
