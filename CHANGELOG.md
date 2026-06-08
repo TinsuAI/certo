@@ -11,6 +11,15 @@ phiên bản theo [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.13.1] — 2026-06-08
+### Mới
+- Thiết kế lại trang chuẩn ĐVT toàn cục + trang hệ số quy đổi theo từng khách hàng; bảng hệ số có phân trang.
+- Panel "lệch ĐVT" trên trang chi tiết vật tư: phân loại tương đương / quy đổi được / cần xác nhận / không quy đổi được.
+
+### Cải tiến
+- Cảnh báo lệch ĐVT nhận biết khả năng quy đổi: BOM khác BCCT, hay các dòng BCCT khác nhau, đều được chấp nhận nếu quy đổi về nhau được (cùng họ đơn vị, có hệ số khách hàng, hoặc alias) — chỉ báo khi thật sự không quy đổi được. Hết báo động giả cho kg/g, m/cm, SETS/PCS.
+- Cờ "BOM cũ" (staleness) chỉ bật khi ĐVT giữa BOM và danh mục không quy đổi được. Sửa ĐVT danh mục theo kiểu quy-đổi-được (ví dụ kg→g) không còn báo nhầm BOM cũ; số lượng cần xử lý giảm, sát thực tế hơn.
+
 ## [0.13.0] — 2026-06-07
 ### Mới
 - Trang "Có gì mới" hiển thị nhật ký thay đổi cho mọi người dùng.
