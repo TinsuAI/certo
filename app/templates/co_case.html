@@ -1296,6 +1296,15 @@
               <span class="origin-metric-chip" title="{{ product.origin_formula }}"><em>Phương pháp</em> <strong>{{ product.origin_method_label }}</strong></span>
               {% endif %}
             </div>
+            {% if product.origin_sheet_status != 'locked' %}
+            <div data-origin-edit-toolbar data-origin-dirty-banner class="origin-dirty-banner origin-dirty-banner-clean">
+              <span data-origin-dirty-msg>✓ Đã lưu</span>
+              <button type="button" class="btn-secondary" data-origin-history-undo title="Lùi (Ctrl+Z)" disabled>Lùi</button>
+              <button type="button" class="btn-secondary" data-origin-history-redo title="Tiến (Ctrl+Y)" disabled>Tiến</button>
+              <button type="button" class="btn-primary" data-origin-save-now disabled>Lưu bảng kê</button>
+              <button type="button" class="btn-secondary" data-origin-discard disabled>Bỏ thay đổi</button>
+            </div>
+            {% endif %}
             <details class="cost-buildup-block">
               <summary>
                 <span class="cost-buildup-summary-label">Chi phí xuất xưởng (LVC/RVC)</span>
@@ -4501,7 +4510,7 @@
     const save = banner.querySelector("[data-origin-save-now]");
     if (undo) undo.disabled = history.past.length === 0;
     if (redo) redo.disabled = history.future.length === 0;
-    if (save && !save.dataset.saving) save.disabled = pendingOpsCount(panel.__pendingOps) === 0;
+    if (save && !save.dataset.saving) save.disabled = !hasUnsavedEdits(panel);
   };
 
   const restoreSheetSnapshot = (panel, snapshot) => {
@@ -4578,38 +4587,25 @@
     else delete ops.normEdits[rowIndex];
   };
 
+  // The edit toolbar (status + Lùi/Tiến + Lưu + Bỏ) is server-rendered and ALWAYS
+  // visible per unlocked sheet (survives shell swaps); we only flip its state here.
   const markSheetDirty = (panel, label) => {
     if (!panel) return;
     panel.classList.add("origin-sheet-panel-dirty");
-    let banner = panel.querySelector("[data-origin-dirty-banner]");
-    if (!banner) {
-      banner = document.createElement("div");
-      banner.dataset.originDirtyBanner = "1";
-      banner.className = "origin-dirty-banner";
-      banner.innerHTML = `
-        <span data-origin-dirty-msg>Bảng kê đã thay đổi (chưa lưu)</span>
-        <button type="button" class="btn-secondary" data-origin-history-undo title="Lùi một trạng thái">Lùi</button>
-        <button type="button" class="btn-secondary" data-origin-history-redo title="Tiến một trạng thái">Tiến</button>
-        <button type="button" class="btn-primary" data-origin-save-now>Lưu bảng kê</button>
-        <button type="button" class="btn-secondary" data-origin-discard>Bỏ thay đổi</button>
-      `;
-      const strip = panel.querySelector("[data-origin-strip]");
-      strip?.parentNode?.insertBefore(banner, strip.nextSibling);
-      banner.querySelector("[data-origin-history-undo]")?.addEventListener("click", () => undoSheetEdit(panel));
-      banner.querySelector("[data-origin-history-redo]")?.addEventListener("click", () => redoSheetEdit(panel));
-      banner.querySelector("[data-origin-save-now]")?.addEventListener("click", () => triggerSave(panel));
-      banner.querySelector("[data-origin-discard]")?.addEventListener("click", () => {
-        if (!confirm("Bỏ tất cả thay đổi chưa lưu trên sheet này?")) return;
-        window.location.assign(currentOriginUrl() || window.location.pathname);
-      });
-    }
-    const ops = panel.__pendingOps;
-    const msg = banner.querySelector("[data-origin-dirty-msg]");
-    if (msg) {
-      const count = pendingOpsCount(ops);
-      msg.textContent = label || `Bảng kê đã thay đổi · ${count} thao tác chưa lưu`;
+    const banner = panel.querySelector("[data-origin-edit-toolbar]");
+    if (banner) {
+      banner.classList.remove("origin-dirty-banner-clean");
+      const ops = panel.__pendingOps;
+      const msg = banner.querySelector("[data-origin-dirty-msg]");
+      if (msg) {
+        const count = pendingOpsCount(ops);
+        msg.textContent = label || `● Chưa lưu · ${count} thao tác · tự lưu khi ngừng…`;
+      }
+      const discard = banner.querySelector("[data-origin-discard]");
+      if (discard) discard.disabled = false;
     }
     updateSheetHistoryButtons(panel);
+    scheduleAutoSave(panel);
   };
 
   // Stage a single material row for deletion (client-side) the same way the
@@ -4705,17 +4701,72 @@
 
   const clearSheetDirty = (panel) => {
     if (!panel) return;
+    window.clearTimeout(panel.__autoSaveTimer);
     panel.classList.remove("origin-sheet-panel-dirty");
     panel.__pendingOps = {replaces: {}, adds: [], deletes: {}, normEdits: {}};
     panel.__sheetHistory = {past: [], future: [], applying: false};
-    const banner = panel.querySelector("[data-origin-dirty-banner]");
-    if (banner) banner.remove();
+    const banner = panel.querySelector("[data-origin-edit-toolbar]");
+    if (banner) {
+      banner.classList.add("origin-dirty-banner-clean");
+      const msg = banner.querySelector("[data-origin-dirty-msg]");
+      if (msg) msg.textContent = "✓ Đã lưu";
+      const discard = banner.querySelector("[data-origin-discard]");
+      if (discard) discard.disabled = true;
+    }
+    updateSheetHistoryButtons(panel);
   };
 
-  const triggerSave = async (panel) => {
+  // Toolbar buttons are server-rendered, so bind them by delegation (works after
+  // every shell swap without re-wiring). type="button" → not caught by the form
+  // submit handler.
+  document.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-co-case-shell] [data-origin-edit-toolbar] button");
+    if (!btn || btn.disabled) return;
+    const panel = btn.closest("[data-origin-sheet-panel]");
+    if (!panel) return;
+    if (btn.matches("[data-origin-history-undo]")) undoSheetEdit(panel);
+    else if (btn.matches("[data-origin-history-redo]")) redoSheetEdit(panel);
+    else if (btn.matches("[data-origin-save-now]")) triggerSave(panel);
+    else if (btn.matches("[data-origin-discard]")) {
+      if (confirm("Bỏ tất cả thay đổi chưa lưu trên sheet này?")) window.location.assign(currentOriginUrl() || window.location.pathname);
+    }
+  });
+
+  // Debounced auto-save: after the operator pauses, staged NVL edits persist on
+  // their own — "thay NVL" no longer needs a manual Lưu. Batched on purpose so a
+  // bulk delete + thay re-allocates ONCE (not per row), and it never yanks focus
+  // mid-edit nor overlaps an in-flight save (it re-arms instead).
+  const AUTO_SAVE_DELAY_MS = 2000;
+  // Staged substitute/add/delete live in __pendingOps; ĐM edits only land there
+  // at save-time (sweep), so also treat a diverged norm input as unsaved.
+  const hasUnsavedEdits = (panel) => {
+    if (pendingOpsCount(panel.__pendingOps || {}) > 0) return true;
+    return Array.from(panel.querySelectorAll("[data-origin-norm-edit]")).some((input) =>
+      input.dataset.rowIndex && (input.value || "").trim() !== (input.dataset.originalValue || "").trim()
+    );
+  };
+  const scheduleAutoSave = (panel) => {
+    if (!panel) return;
+    window.clearTimeout(panel.__autoSaveTimer);
+    if (!hasUnsavedEdits(panel)) return;
+    panel.__autoSaveTimer = window.setTimeout(() => maybeAutoSave(panel), AUTO_SAVE_DELAY_MS);
+  };
+  const maybeAutoSave = (panel) => {
+    if (!panel || !panel.isConnected) return;
+    if (!hasUnsavedEdits(panel)) return;
+    const active = document.activeElement;
+    const editingHere = active && panel.contains(active) && active.matches?.("input, select, textarea");
+    if (editingHere || panel.__originSaveInFlight) {
+      panel.__autoSaveTimer = window.setTimeout(() => maybeAutoSave(panel), AUTO_SAVE_DELAY_MS);
+      return;
+    }
+    triggerSave(panel, {auto: true});
+  };
+
+  const triggerSave = async (panel, opts = {}) => {
     if (!panel) return;
     if (panel.__originSaveInFlight) {
-      toast("Đang lưu bảng kê, vui lòng chờ.", "info");
+      if (!opts.auto) toast("Đang lưu bảng kê, vui lòng chờ.", "info");
       return;
     }
     const ops = ensurePendingOps(panel);
@@ -4759,7 +4810,7 @@
       const response = await fetch(url, {
         method: "POST",
         signal: controller.signal,
-        headers: {"Content-Type": "application/json", "Accept": "application/json"},
+        headers: {"Content-Type": "application/json", "Accept": "text/html"},
         body: JSON.stringify({
           ...workbookPayload,
           replaces: ops.replaces,
@@ -4771,7 +4822,7 @@
       if (!response.ok) {
         const text = await response.text();
         let detail = "";
-        try { detail = JSON.parse(text).detail || ""; } catch (_e) { detail = text.slice(0, 200); }
+        try { detail = JSON.parse(text).detail || ""; } catch (_e) { detail = text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 220); }
         toast(detail || `Lưu thất bại (HTTP ${response.status}).`, "error");
         if (saveBtn) {
           delete saveBtn.dataset.saving;
@@ -4780,14 +4831,12 @@
         }
         return;
       }
-      const saved = await response.json();
-      const workbook = panel.closest("[data-origin-workbook]");
-      if (saved.revision && workbook) workbook.dataset.originRevision = saved.revision;
-      toast("Đã lưu bảng kê. Đang tải lại…", "success");
-      if (saveBtn) saveBtn.textContent = "Đã lưu, đang tải lại…";
+      // Swap the re-rendered case shell in-place (same path as Tính bảng kê /
+      // Chốt) so the saved sheet shows the new allocation + status=calculated
+      // and "Chốt" enables — no full page reload / F5.
       clearSheetDirty(panel);
       navigatingAfterSave = true;
-      window.location.assign(currentOriginUrl() || window.location.pathname);
+      await replaceCaseShellFromResponse(response, "Đã lưu bảng kê.", {activeOriginProductCode: productCode});
     } catch (err) {
       const message = err?.name === "AbortError"
         ? "Lưu bảng kê quá lâu, đã dừng chờ. Kiểm tra Data Hub/source rồi thử lại."

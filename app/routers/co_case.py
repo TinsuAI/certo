@@ -527,24 +527,34 @@ def recalculate_origin_sheet_edits(client: dict, case: dict, product_code: str, 
         if str(row.get("material_code") or "").strip()
     })
     source_context = {"material_rows": [], "stock_rows": []}
-    stock_rows: list[dict] = []
-    try:
-        narrow_rows = portfolio_service.list_bcct_by_codes(client.get("id", ""), material_codes, direction="import")
-    except Exception:  # noqa: BLE001
-        narrow_rows = []
-    if narrow_rows:
+    # Stock MUST come from the same trừ-lùi-FOLDED + live-ledger snapshot the
+    # sheet-lock validates against (co_stock_ledger.record_sheet_lock). The
+    # narrow list_bcct_by_codes pull below returns RAW BCCT remaining
+    # (remaining_qty == quantity, un-folded, blind to other-case claims), so
+    # allocating from it over-states tồn — and the subsequent "Chốt" then fails
+    # with a spurious "vượt tồn ở N lot" on every lot carrying a trừ-lùi
+    # baseline. Mirror the non-override /calculate path so calculate and lock
+    # agree; fall back to the raw pull only on a cold/empty snapshot (no fold
+    # exists yet there anyway).
+    stock_rows: list[dict] = _calculate_stock_rows_from_snapshot(client) or []
+    if not stock_rows:
         try:
-            client_config = portfolio_service.get_client_config(client) if hasattr(portfolio_service, "get_client_config") else {}
-            stock_rows = co_stock_rows_from_bcct(narrow_rows, client_config)
+            narrow_rows = portfolio_service.list_bcct_by_codes(client.get("id", ""), material_codes, direction="import")
         except Exception:  # noqa: BLE001
-            stock_rows = []
-    if not stock_rows and not co_auth.data_hub_source_mode_enabled():
-        try:
-            source_context = co_case_source_context_cached(client, prepared)
-            stock_rows = source_context.get("stock_rows") or []
-        except Exception:  # noqa: BLE001
-            source_context = {"material_rows": [], "stock_rows": []}
-            stock_rows = []
+            narrow_rows = []
+        if narrow_rows:
+            try:
+                client_config = portfolio_service.get_client_config(client) if hasattr(portfolio_service, "get_client_config") else {}
+                stock_rows = co_stock_rows_from_bcct(narrow_rows, client_config)
+            except Exception:  # noqa: BLE001
+                stock_rows = []
+        if not stock_rows and not co_auth.data_hub_source_mode_enabled():
+            try:
+                source_context = co_case_source_context_cached(client, prepared)
+                stock_rows = source_context.get("stock_rows") or []
+            except Exception:  # noqa: BLE001
+                source_context = {"material_rows": [], "stock_rows": []}
+                stock_rows = []
     material_index = material_catalog_index(source_context.get("material_rows") or [])
     cached_matches = case.get("source_invoice_matches") if isinstance(case.get("source_invoice_matches"), list) else []
     stock_pool = case_allocation_pool(prepared, cached_matches, stock_rows, min_gap_days=min_gap_days)
@@ -2477,6 +2487,24 @@ async def co_case_origin_sheet_save(
     case = set_origin_sheet_status(case, product_code, "calculated")
     case = mark_origin_sheets_stale(case, target_index + 1)
     update_case_record(client, case)
+    # Content-negotiate: the browser asks for text/html so it can swap the
+    # re-rendered case shell in-place (same path as /calculate + /lock), so
+    # "Lưu bảng kê" updates the sheet — and enables "Chốt" — without a full
+    # page reload. API/test callers (default Accept) still get the JSON below.
+    if "text/html" in (request.headers.get("accept", "") or ""):
+        return templates.TemplateResponse(
+            request=request,
+            name="co_case.html",
+            context=co_case_context(
+                client_id,
+                case_id,
+                current_step="origin",
+                case=case,
+                message=f"Đã lưu bảng kê {product_code}.",
+                preserve_origin_products=True,
+                fast_origin_context=True,
+            ),
+        )
     return JSONResponse({
         "ok": True,
         "product_code": product_code,

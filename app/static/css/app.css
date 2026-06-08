@@ -5403,6 +5403,17 @@ body.co-stock-history-modal-open { overflow: hidden; }
   color: var(--warning);
 }
 
+/* Always-visible toolbar: calm "saved" state (no amber alarm when clean). */
+.origin-dirty-banner.origin-dirty-banner-clean {
+  background: var(--surface-subtle);
+  border-color: var(--border);
+  color: var(--success);
+}
+.origin-dirty-banner [data-origin-dirty-msg] {
+  margin-right: auto;
+  font-weight: 600;
+}
+
 .origin-dirty-banner button {
   background: var(--warning);
   color: var(--primary-foreground);

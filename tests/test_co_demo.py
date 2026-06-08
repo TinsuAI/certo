@@ -4846,6 +4846,45 @@ def test_origin_sheet_save_batches_replaces_adds_deletes_and_norm_edits():
     assert {overrides[k]["material_code"] for k in added} == {"M-ADD", "M-ADD2"}
 
 
+def test_origin_sheet_save_returns_swappable_shell_for_html_accept():
+    """Browser asks for text/html so 'Lưu bảng kê' can swap the case shell
+    in-place (no full reload). Default Accept still gets JSON (API/tests)."""
+    client = TestClient(app)
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Save html", "case_code": "CO-SAVE-HTML", "destination_market": "Ấn Độ", "invoice_no": "INV-SAVEH"},
+        follow_redirects=False,
+    )
+    case_id = created.headers["location"].rstrip("/").split("/")[-1]
+    update_case_record(
+        get_client("growatt"),
+        {
+            "persisted_case_id": case_id,
+            "case_code": "CO-SAVE-HTML",
+            "title": "Save html",
+            "destination_market": "Ấn Độ",
+            "shipment": {"invoice_no": "INV-SAVEH"},
+            "products": [{
+                "code": "TP-HTML", "name": "Html prod", "quantity": "1", "unit": "PCS",
+                "fob": "100", "currency": "USD", "materials": [],
+            }],
+        },
+    )
+    response = client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-HTML/save",
+        headers={"Accept": "text/html"},
+        json={"adds": [{"new_material_code": "M-ADD", "new_norm_per_unit": "0.5"}]},
+    )
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    # The re-rendered shell the frontend swaps in-place.
+    assert "data-co-case-shell" in response.text
+    # The save still ran: the override persisted.
+    saved = get_case_record(get_client("growatt"), case_id)
+    overrides = saved["origin_sheet_states"]["TP-HTML"]["material_overrides"]
+    assert any(v.get("material_code") == "M-ADD" for v in overrides.values())
+
+
 def test_origin_sheet_save_merges_full_workbook_state_before_recompute():
     client = TestClient(app)
     created = client.post(
