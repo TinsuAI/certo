@@ -358,29 +358,27 @@ def origin_source_context(client: dict, case: dict) -> dict:
 
     Replaces the heavy co_case_source_context — whose dominant cost is the full
     list_bcct pull (~40s for Johnson) — with:
-      - stock_rows from the materialized CO-stock snapshot (the same source the
-        /calculate path uses, net of the ledger), so the preview matches the
-        computed result;
+      - stock_rows = [] — the tab render shows per-product SHELLS only
+        (prepare_case_origin_product_shells takes no stock_rows; allocation/tồn
+        happen later in prepare_case_origin_sheet at Load BOM/Tính). Reading the
+        full ~60k-row co_stock snapshot here cost 2.6s cold + 540ms/load on
+        Johnson for data nothing at render consumes, so it is dropped; /calculate
+        reads tồn independently via _calculate_stock_rows_from_snapshot.
       - invoice_matches from a narrow Data Hub fetch (per-declaration / by-codes
         export), persisted on the case downstream for the warm path to reuse;
       - material_rows = [] (unused at tab render; the substitute modal self-fetches).
 
     This is the COLD path: the warm reuse of case["source_invoice_matches"]
     lives upstream in cached_origin_source_context (gated on use_cached_context).
-    We always re-fetch here so a force_source_refresh actually refreshes — never
-    serve possibly-stale cached matches when the caller asked to bypass the cache.
+    We always re-fetch invoice_matches here so a force_source_refresh actually
+    refreshes — never serve possibly-stale cached matches when the caller asked
+    to bypass the cache.
 
-    Falls back to the legacy full pull when the snapshot is unusable (no DB /
-    empty for this client) so an operator never sees an empty stock preview.
+    Brief: .ai/features/2026-06-08-origin-cold-load-perf.md
     """
-    # The converged snapshot path is a Data-Hub-mode optimization: stock comes
-    # from the materialized co_stock snapshot built off Data Hub BCCT. In
-    # file-store mode (tests / offline dev) there is no such snapshot, so use
-    # the cheap in-memory heavy path directly and never touch the materializer.
+    # In file-store mode (tests / offline dev) there is no materialized snapshot
+    # and no Data Hub adapter, so use the cheap in-memory heavy path directly.
     if getattr(portfolio_service, "data_hub", None) is None:
-        return co_case_source_context(client, case)
-    snapshot_stock = _calculate_stock_rows_from_snapshot(client)
-    if snapshot_stock is None:
         return co_case_source_context(client, case)
 
     source_summary, source_backend = portfolio_service.source_summary(client)
@@ -397,7 +395,7 @@ def origin_source_context(client: dict, case: dict) -> dict:
         "source_summary": source_summary,
         "invoice_matches": invoice_matches,
         "material_rows": [],
-        "stock_rows": snapshot_stock,
+        "stock_rows": [],
         "declaration_file_counts": declaration_file_counts,
     }
 def declaration_file_count(

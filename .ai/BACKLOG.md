@@ -62,3 +62,42 @@ refresh_state. Góc cần soi:
 - **`_probe_server_time` best-effort fail** → server_time trống → full mãi (chậm ~12s/lần Johnson).
 Rủi ro: SAI TỒN (over/under-claim downstream). `/discover` + viết test parity trước khi sửa.
 Added: 2026-06-07.
+
+## Performance
+
+### P1 — "Tạo hồ sơ" → mở "Bảng kê C/O" lần đầu chậm
+**DISCOVERED 2026-06-08 → `.ai/features/2026-06-08-origin-cold-load-perf.md`.** Chẩn đoán ban đầu
+("full BCCT pull ~40s") SAI: fetch DH đã hẹp (11ms). Thủ phạm thật = `origin_source_context` đọc
+TOÀN BỘ 60k-lô snapshot tồn (`read_co_stock_rows_cached` 2.6s cold + copy/apply 540ms) ở tab-render,
+nhưng tồn đó KHÔNG dùng lúc render (shells không nhận stock_rows; đường warm đã trả `stock_rows:[]`).
+Sửa phẫu thuật: cho cold path trả `stock_rows:[]` như warm → cold 3.5s→~0.1s. Tách khỏi D1.
+`/tdd` parity test (`/calculate`+lock ra tồn y hệt) trước khi sửa. Chi tiết + scope ở brief.
+
+<details><summary>Triệu chứng + đo gốc (giữ lại)</summary>
+
+**Triệu chứng (user 2026-06-08):** tạo hồ sơ thấy "chạy lâu lắm".
+
+**Đo thực tế (local, johnson-vn = 65846 dòng BCCT):**
+- POST `/co-case/create` → **0.13s** (nhanh).
+- Trang landing sau tạo (tab Vận đơn / shipment) → **~0.3s** (nhanh).
+- **Mở "Bảng kê C/O" (origin) LẦN ĐẦU cho hồ sơ mới → 3.5s local; code tự ghi ~21–40s cho client lớn ở prod** (full BCCT + materials pagination từ Data Hub).
+- Origin lần 2 (đã có snapshot) → ~0.3–1.1s.
+- Phụ: trang DANH SÁCH hồ sơ (index) johnson-vn = **4.27s** (chỉ 3 hồ sơ); growatt 0.85s.
+
+**Nguyên nhân:** bản thân hành động "tạo" nhanh. Độ trễ nằm ở **lần đầu build origin source-context** cho hồ sơ mới — đường `force_source_refresh=True` kéo TOÀN BỘ catalog BCCT + materials. Hồ sơ cũ nhanh vì dùng `origin_source_context` (snapshot CO-stock đã materialize + invoice_matches hẹp), không phải full pull.
+- `app/routers/co_case.py:830` `create_co_case` (POST, nhanh) → 303 → `co_case_detail` (`:933`) bắn `preload_co_case_origin_context` (`:271`) trong executor (nền).
+- `app/web/co_case_context.py:151` `co_case_light_context`: nhánh origin snapshot (`:162`, nhanh) vs non-origin skip-heavy (`:167`) vs `force_source_refresh` full pull (preload + lần đầu).
+- Preload chỉ là best-effort: (a) bấm origin TRƯỚC khi preload xong → nuốt nguyên full pull đồng bộ; (b) preload không giảm khối lượng ~40s, chỉ dời khỏi response thread; (c) mỗi lần preload là một `force_source_refresh` full mới.
+- Phụ — index 4.27s: vòng lặp per-case `co_stock_ledger.claims_summary_for_case` (`co_case_context.py:2760-2767`, N+1) + `co_stock_summary` + source context.
+
+**Phương án (chưa chọn):**
+1. **Lần đầu origin cũng dựa vào snapshot CO-stock + invoice_matches hẹp** thay vì full-catalog pagination (giống path hồ sơ cũ). Win lớn nhất nhưng đụng đúng máy refresh nguồn → **gắn chặt D1**.
+2. **Thu hẹp pull theo declaration/invoice của hồ sơ** — hồ sơ mới chỉ cần materials cho invoice/TKX đã chọn, không cần cả catalog.
+3. **Preload tin cậy + có tiến trình:** bắn preload ngay lúc POST tạo (không chỉ lúc GET shipment); tab origin hiển thị trạng thái "đang nạp dữ liệu nguồn…" + poll (pattern background dossier export) thay vì request treo ~40s.
+4. **Warm cache theo client** (nightly / lần truy cập đầu) để origin đầu của mọi hồ sơ mới tái dùng.
+
+Lưu ý: P/A 1+2 chồng lấn **D1** (cùng `co_case_source_context` / source refresh). Cân nhắc gộp discovery. `/discover` trước.
+
+</details>
+
+Added: 2026-06-08. Discovered: 2026-06-08.

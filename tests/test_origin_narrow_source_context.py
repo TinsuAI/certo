@@ -3,9 +3,10 @@
 The origin tab-load used to call the heavy co_case_source_context, whose
 dominant cost is list_bcct(include_material_identity=true) paginating the
 client's entire customs history (65k+ rows / ~40s for Johnson). Every consumer
-has a narrow/snapshot replacement:
+has a narrow/empty replacement:
 
-- stock_rows -> materialized co_stock snapshot (same source /calculate uses)
+- stock_rows -> [] (P1: tab render shows shells only; tồn is read at /calculate.
+  Brief: .ai/features/2026-06-08-origin-cold-load-perf.md)
 - invoice_matches (invoice case) -> invoice_matches endpoint + narrow by-codes
 - invoice_matches (export-decl case) -> per-declaration list_bcct(declaration_no=)
 - material_rows -> [] (unused at tab render; substitute modal self-fetches)
@@ -163,31 +164,6 @@ class _FakePortfolio:
         return {"export": {}, "import": {}}
 
 
-def test_origin_source_context_cold_reads_snapshot_and_narrow_matches(monkeypatch):
-    import app.main as main
-
-    snapshot = [{"material_code": "MAT-1", "remaining_qty": "10"}]
-    calls: dict = {}
-    monkeypatch.setattr(main, "_calculate_stock_rows_from_snapshot", lambda client: snapshot)
-    monkeypatch.setattr("app.web.co_case_context._calculate_stock_rows_from_snapshot", lambda client: snapshot)
-    _fake_pf = _FakePortfolio(calls, narrow_matches=[{"item_code": "MAT-1", "declaration_no": "EX-1"}])
-    monkeypatch.setattr(main, "portfolio_service", _fake_pf)
-    monkeypatch.setattr("app.web.client_context.portfolio_service", _fake_pf)
-    monkeypatch.setattr("app.web.co_case_context.portfolio_service", _fake_pf)
-    _fail_heavy = lambda *a, **k: pytest.fail("heavy full-BCCT path must not run when snapshot exists")
-    monkeypatch.setattr(main, "co_case_source_context", _fail_heavy)
-    monkeypatch.setattr("app.web.co_case_context.co_case_source_context", _fail_heavy)
-
-    ctx = main.origin_source_context({"id": "johnson-vn"}, {"shipment": {"invoice_no": "INV-1"}})
-
-    assert ctx["stock_rows"] == snapshot          # netted snapshot, not a live full pull
-    assert ctx["material_rows"] == []             # unused at tab render
-    assert ctx["invoice_matches"] == [{"item_code": "MAT-1", "declaration_no": "EX-1"}]
-    assert ctx["source_backend"] == "data-hub"
-    assert ctx["declaration_file_counts"] == {"export": {}, "import": {}}
-    assert calls["origin_invoice_matches"] == 1   # cold load did the narrow fetch
-
-
 def test_origin_source_context_cold_always_refetches_not_stale_case_matches(monkeypatch):
     import app.main as main
 
@@ -195,10 +171,7 @@ def test_origin_source_context_cold_always_refetches_not_stale_case_matches(monk
     # handled upstream (cached_origin_source_context). Reaching origin_source_context
     # with cached matches present means force_source_refresh bypassed the cache,
     # so the operator asked for fresh data — re-fetch, don't serve the stale list.
-    snapshot = [{"material_code": "MAT-1", "remaining_qty": "10"}]
     calls: dict = {}
-    monkeypatch.setattr(main, "_calculate_stock_rows_from_snapshot", lambda client: snapshot)
-    monkeypatch.setattr("app.web.co_case_context._calculate_stock_rows_from_snapshot", lambda client: snapshot)
     _fake_pf = _FakePortfolio(calls, narrow_matches=[{"item_code": "FRESH", "declaration_no": "EX-1"}])
     monkeypatch.setattr(main, "portfolio_service", _fake_pf)
     monkeypatch.setattr("app.web.client_context.portfolio_service", _fake_pf)
@@ -211,41 +184,66 @@ def test_origin_source_context_cold_always_refetches_not_stale_case_matches(monk
     ctx = main.origin_source_context({"id": "johnson-vn"}, case)
 
     assert ctx["invoice_matches"] == [{"item_code": "FRESH", "declaration_no": "EX-1"}]
-    assert ctx["stock_rows"] == snapshot
+    assert ctx["stock_rows"] == []                # tab render reads no tồn
     assert calls["origin_invoice_matches"] == 1   # cold path always re-fetches
 
 
-def test_origin_source_context_falls_back_to_heavy_when_snapshot_unusable(monkeypatch):
+def test_origin_source_context_skips_full_snapshot_read_at_tab_render(monkeypatch):
+    """P1: tab-render (shells) never consumes stock_rows, so the cold origin path
+    must NOT read the full ~60k-row co_stock snapshot (2.6s + 540ms for Johnson)
+    and must NOT fall back to the ~40s full BCCT pull. Returns stock_rows=[] like
+    the warm path; tồn is read independently at /calculate.
+    Brief: .ai/features/2026-06-08-origin-cold-load-perf.md"""
     import app.main as main
 
-    monkeypatch.setattr(main, "_calculate_stock_rows_from_snapshot", lambda client: None)
-    monkeypatch.setattr("app.web.co_case_context._calculate_stock_rows_from_snapshot", lambda client: None)
-    sentinel = {
-        "source_backend": "data-hub",
-        "source_summary": {},
-        "invoice_matches": [],
-        "material_rows": [],
-        "stock_rows": [{"legacy_full_pull": True}],
-        "declaration_file_counts": {"export": {}, "import": {}},
-    }
-    called: dict = {}
+    def _must_not_read(client):
+        pytest.fail("origin tab-render must not read the full co_stock snapshot")
 
-    def fake_heavy(client, case, **kwargs):
-        called["heavy"] = True
-        return sentinel
-
-    monkeypatch.setattr(main, "co_case_source_context", fake_heavy)
-    monkeypatch.setattr("app.web.co_case_context.co_case_source_context", fake_heavy)
-    monkeypatch.setattr(main, "portfolio_service", _FakePortfolio({}, narrow_matches=[]))
-    monkeypatch.setattr("app.web.client_context.portfolio_service", _FakePortfolio({}, narrow_matches=[]))
-    monkeypatch.setattr("app.web.co_case_context.portfolio_service", _FakePortfolio({}, narrow_matches=[]))
+    monkeypatch.setattr(main, "_calculate_stock_rows_from_snapshot", _must_not_read)
+    monkeypatch.setattr("app.web.co_case_context._calculate_stock_rows_from_snapshot", _must_not_read)
+    _fail_heavy = lambda *a, **k: pytest.fail("tab-render must never run the heavy full-BCCT pull")
+    monkeypatch.setattr(main, "co_case_source_context", _fail_heavy)
+    monkeypatch.setattr("app.web.co_case_context.co_case_source_context", _fail_heavy)
+    calls: dict = {}
+    _fake_pf = _FakePortfolio(calls, narrow_matches=[{"item_code": "MAT-1", "declaration_no": "EX-1"}])
+    monkeypatch.setattr(main, "portfolio_service", _fake_pf)
+    monkeypatch.setattr("app.web.client_context.portfolio_service", _fake_pf)
+    monkeypatch.setattr("app.web.co_case_context.portfolio_service", _fake_pf)
 
     ctx = main.origin_source_context({"id": "johnson-vn"}, {"shipment": {"invoice_no": "INV-1"}})
 
-    # Empty/unusable snapshot must never serve an empty stock preview — it
-    # falls back to the legacy full pull so the operator always sees real data.
-    assert called.get("heavy") is True
-    assert ctx is sentinel
+    assert ctx["stock_rows"] == []                # no snapshot read at tab render
+    assert ctx["material_rows"] == []             # unused at tab render
+    assert ctx["invoice_matches"] == [{"item_code": "MAT-1", "declaration_no": "EX-1"}]
+    assert ctx["source_backend"] == "data-hub"
+    assert ctx["declaration_file_counts"] == {"export": {}, "import": {}}
+    assert calls["origin_invoice_matches"] == 1   # narrow fetch still happens
+
+
+def test_origin_source_context_no_full_pull_even_when_snapshot_empty(monkeypatch):
+    """Regression: a fresh/never-materialized client (empty co_stock snapshot,
+    the D1 condition) used to fall back to the ~40s full BCCT pull at tab render.
+    The tab render shows shells only, so it must stay cheap — stock_rows=[],
+    narrow matches still fetched, heavy pull NEVER run."""
+    import app.main as main
+
+    # Snapshot read is gone entirely; even if it were called it would report empty.
+    monkeypatch.setattr(main, "_calculate_stock_rows_from_snapshot", lambda client: None)
+    monkeypatch.setattr("app.web.co_case_context._calculate_stock_rows_from_snapshot", lambda client: None)
+    _fail_heavy = lambda *a, **k: pytest.fail("empty snapshot must NOT trigger the ~40s full pull at tab render")
+    monkeypatch.setattr(main, "co_case_source_context", _fail_heavy)
+    monkeypatch.setattr("app.web.co_case_context.co_case_source_context", _fail_heavy)
+    calls: dict = {}
+    _fake_pf = _FakePortfolio(calls, narrow_matches=[{"item_code": "MAT-1", "declaration_no": "EX-1"}])
+    monkeypatch.setattr(main, "portfolio_service", _fake_pf)
+    monkeypatch.setattr("app.web.client_context.portfolio_service", _fake_pf)
+    monkeypatch.setattr("app.web.co_case_context.portfolio_service", _fake_pf)
+
+    ctx = main.origin_source_context({"id": "johnson-vn"}, {"shipment": {"invoice_no": "INV-1"}})
+
+    assert ctx["stock_rows"] == []
+    assert ctx["invoice_matches"] == [{"item_code": "MAT-1", "declaration_no": "EX-1"}]
+    assert calls["origin_invoice_matches"] == 1
 
 
 # --- real-Johnson parity e2e (opt-in) ---------------------------------------
@@ -289,13 +287,11 @@ def test_origin_parity_e2e_converged_matches_full_pull_on_real_johnson():
     # Export side (the high-risk parity): byte-identical invoice_matches.
     assert _norm(new["invoice_matches"]) == _norm(old["invoice_matches"])
 
-    # Stock: the snapshot is the materialized output of the same derivation the
-    # full pull runs live, so material coverage is identical (netting aside).
-    old_codes = {str(r.get("material_code") or "") for r in old["stock_rows"]}
-    new_codes = {str(r.get("material_code") or "") for r in new["stock_rows"]}
-    assert new_codes == old_codes
-    assert new["stock_rows"]                                   # never an empty preview
-    assert new["material_rows"] == []                         # dropped (unused at tab render)
+    # Tab render shows shells only — stock_rows/material_rows are dropped here
+    # (P1). Tồn parity now belongs to /calculate, which reads the snapshot
+    # directly via _calculate_stock_rows_from_snapshot.
+    assert new["stock_rows"] == []
+    assert new["material_rows"] == []
 
     # Signature stability across reloads (Risk #3): same inputs -> same hash.
     sig1 = main.origin_build_signature(new["invoice_matches"], {}, new["material_rows"], new["stock_rows"], {})
