@@ -965,13 +965,17 @@ shipped; below are nice-to-haves deferred:
    (brief R2 belt-and-suspenders). Save-time would require user to
    have run preview within last N minutes against the same pattern.
    Defer until first real-world misconfig surfaces.
-4. **CI workflow: soft-fail LLM `/models` smoke step**. Currently
-   `Smoke LLM /models (best effort)` uses `bash -e` which propagates
-   curl exit 22 (401 from upstream `codex-lb-demo.sgnai.dev`).
-   Fix in `.github/workflows/<workflow>.yml`: add
-   `continue-on-error: true` OR rewrite the step to gracefully
-   handle non-2xx without exit. Today the workflow shows red on
-   GitHub even when actual deploy + tests + API smoke pass.
+4. **CI workflow: soft-fail LLM `/models` smoke step** — ✅ DONE
+   (verified 2026-06-08). The `Smoke LLM /models (best effort)` step in
+   `.github/workflows/ci-cd.yml` already carries `continue-on-error: true`
+   AND wraps the probe in `if curl ...; then ... else echo non-blocking; fi`,
+   so a `/models` 401/timeout can no longer redden the run. Both fixes the
+   item asked for are in place. Note: the recent red CI runs (2026-06-08)
+   were NOT this step — they were a genuine Docker build failure
+   (`COPY CHANGELOG.md` blocked by `.dockerignore *.md`, fixed in `00ab911`).
+   The self-hosted runner does `git reset --hard origin/main`, so a run
+   builds whatever is latest on main at execution time, not the triggering
+   commit — which is why those failures looked mis-attributed.
 5. **Memory updates** — pending verification across sessions:
    - `internal_code` + `material_identity` columns gone; live via
      runtime helpers.
