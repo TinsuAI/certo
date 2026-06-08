@@ -41,6 +41,7 @@ COPY app ./app
 COPY db ./db
 COPY scripts ./scripts
 COPY data ./data
+COPY CHANGELOG.md ./
 
 EXPOSE 8754
 
