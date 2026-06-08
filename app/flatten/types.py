@@ -127,6 +127,11 @@ class FlattenedRow:
     conversion_evidence: dict | None = None    # ConversionMatch.as_evidence() per hop applied
     original_qty: Decimal | None = None
     original_uom: str | None = None
+    # SAP item-type provenance (carried through to payload; drives the
+    # derived item_category / customs_relevance — see migration 078).
+    material_group: str | None = None
+    phantom: bool = False
+    bulk: bool = False
 
 
 @dataclass

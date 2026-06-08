@@ -155,10 +155,25 @@ def derive(raw_artifact_id: str, product_code: str, client_id: str,
                 "artifact_id": raw_artifact_id,
                 "product_code": product_code,
             })
-            return [
+            rows = [
                 {"material_code": r[0], "qty_per_unit": float(r[1]), "uom": r[2]}
                 for r in cur.fetchall()
             ]
+            # Attach raw material_group provenance (migration 078) so
+            # re-materialized shapes carry it into payload for the derived
+            # item_category / customs_relevance.
+            codes = [r["material_code"] for r in rows]
+            if codes:
+                cur.execute(
+                    "select material_code, material_group from hub.materials "
+                    "where client_id=%s and material_code = any(%s)",
+                    (client_id, codes),
+                )
+                mg = dict(cur.fetchall())
+                for r in rows:
+                    if mg.get(r["material_code"]) is not None:
+                        r["material_group"] = mg[r["material_code"]]
+            return rows
 
 
 def list_raw_artifacts_missing_shapes(client_id: str) -> list[tuple]:

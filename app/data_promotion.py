@@ -90,6 +90,7 @@ TABLES: tuple[TableSpec, ...] = (
     TableSpec("code_mappings",         sql.SQL("client_id = %s"),                                              order=40),
     TableSpec("materials",             sql.SQL("client_id = %s"),                                              order=50),
     TableSpec("client_uom_overrides",  sql.SQL("client_id = %s"),                                              order=58),
+    TableSpec("client_material_group_map", sql.SQL("client_id = %s"),                                          order=59),
     TableSpec("bcct_rows",             sql.SQL("client_id = %s"),                                              order=60),
     TableSpec("bcct_material_identity_review", sql.SQL("client_id = %s"),                                       order=65),
     TableSpec("bom_artifacts",          sql.SQL("client_id = %s"),                                              order=70),
@@ -149,6 +150,8 @@ EXCLUDED_CLIENT_SCOPED_TABLES = frozenset({
     # a view, picked up automatically by schema replay.
     "client_parser_rules",
     "v_material_roles",
+    "v_material_classification",  # derived view (mig 078); schema replay
+    # picks it up. The raw material_group it reads ships on hub.materials.
     # Per-deployment column-alias overrides for the upload mapping flow
     # (Phase 3). Same treatment as client_parser_rules: ingest-tuning
     # config managed per deployment, layered on top of code ALIASES.

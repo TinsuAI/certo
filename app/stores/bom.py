@@ -896,7 +896,9 @@ def list_artifact_meta_for_products(*, client_id: str,
             return out
 
 
-def get_artifact_with_rows(artifact_id: str) -> dict | None:
+def get_artifact_with_rows(
+    artifact_id: str, *, exclude_non_declarable: bool = False,
+) -> dict | None:
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -913,11 +915,16 @@ def get_artifact_with_rows(artifact_id: str) -> dict | None:
                 artifact.get("flatten_status") or "",
                 artifact.get("flatten_strategy") or "",
             )
+            # `exclude_non_declarable` drops rows soft-excluded as
+            # non-declarable ("rác": drawing/document/label/phantom — mig 078).
+            # Default off so existing consumers see every row unchanged.
+            excl_clause = (" and excluded_at is null"
+                           if exclude_non_declarable else "")
             cur.execute(
-                """
+                f"""
                 select row_index, material_code, bom_code, bom_variant_id,
-                       qty_per_unit, uom, payload
-                from hub.bom_artifact_rows where artifact_id = %s
+                       qty_per_unit, uom, payload, excluded_at, exclusion_reason
+                from hub.bom_artifact_rows where artifact_id = %s{excl_clause}
                 order by row_index
                 """,
                 (artifact_id,),
@@ -1578,6 +1585,9 @@ def create_flattened_artifact_set(
                     "conversion_evidence": r.conversion_evidence,
                     "original_qty": str(r.original_qty) if r.original_qty is not None else None,
                     "original_uom": r.original_uom,
+                    "material_group": r.material_group,
+                    "phantom": r.phantom,
+                    "bulk": r.bulk,
                 } for r in v.rows]
                 artifact_id = create_artifact(
                     client_id=client_id,
@@ -1902,21 +1912,29 @@ def get_decisions_for_version(artifact_id: str) -> list[dict]:
             return [dict(zip(cols, r)) for r in cur.fetchall()]
 
 
-def get_rows_for_artifacts(artifact_ids: list[str]) -> dict[str, list[dict]]:
+def get_rows_for_artifacts(
+    artifact_ids: list[str], *, exclude_non_declarable: bool = False,
+) -> dict[str, list[dict]]:
     """Batched sibling of the row fetch inside get_artifact_with_rows: rows
     for many artifacts in ONE query. Returns {artifact_id: [row, ...]} in
     row_index order. Per-row dicts are byte-identical to get_artifact_with_rows
-    (artifact_id is popped, not emitted)."""
+    (artifact_id is popped, not emitted).
+
+    `exclude_non_declarable` drops rows soft-excluded as non-declarable
+    ("rác" — mig 078); default off (every row returned)."""
     if not artifact_ids:
         return {}
+    excl_clause = (" and excluded_at is null"
+                   if exclude_non_declarable else "")
     with connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
+                f"""
                 select artifact_id, row_index, material_code, bom_code,
-                       bom_variant_id, qty_per_unit, uom, payload
+                       bom_variant_id, qty_per_unit, uom, payload,
+                       excluded_at, exclusion_reason
                 from hub.bom_artifact_rows
-                where artifact_id = any(%s)
+                where artifact_id = any(%s){excl_clause}
                 order by artifact_id, row_index
                 """,
                 (list(artifact_ids),),

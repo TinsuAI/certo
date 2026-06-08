@@ -641,6 +641,7 @@ def _query_materials(*, client_id: str, category: str | None,
                m.status, m.uom, m.uom as unit, m.hs_code, m.updated_at, m.provenance,
                m.btp_sourcing, m.source, m.hq_registered, m.code_kind,
                m.promoted_to_declared_at, m.promoted_by,
+               m.material_group, vmc.item_category, vmc.customs_relevance,
                (m.hq_registered = true) as is_registered,
                (m.source = 'bcct_observed') as is_seen_in_bcct,
                (m.source = 'client_declared') as is_user_added,
@@ -658,6 +659,9 @@ def _query_materials(*, client_id: str, category: str | None,
         left join hub.v_material_roles vmr
                on vmr.client_id = m.client_id
               and vmr.material_code = m.material_code
+        left join hub.v_material_classification vmc
+               on vmc.client_id = m.client_id
+              and vmc.material_code = m.material_code
         {where}
         order by {order_by}
         limit %s offset %s
@@ -802,6 +806,9 @@ def _query_conflicts(*, client_id: str, conflict_type: str,
         left join hub.v_material_roles vmr
                on vmr.client_id = m.client_id
               and vmr.material_code = m.material_code
+        left join hub.v_material_classification vmc
+               on vmc.client_id = m.client_id
+              and vmc.material_code = m.material_code
         {where}
         order by {order_by}
         limit %s offset %s

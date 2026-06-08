@@ -332,6 +332,9 @@ def _resolve_version(
                 conversion_evidence=conv_match.as_evidence() if conv_match else None,
                 original_qty=row_qty,
                 original_uom=row_uom,
+                material_group=row.get("material_group"),
+                phantom=bool(row.get("phantom")),
+                bulk=bool(row.get("bulk")),
             ))
             continue
 
@@ -560,6 +563,9 @@ def _explode(
                 conversion_evidence=conv_match.as_evidence() if conv_match else None,
                 original_qty=gc_qty,
                 original_uom=gc_uom,
+                material_group=grandchild.get("material_group"),
+                phantom=bool(grandchild.get("phantom")),
+                bulk=bool(grandchild.get("bulk")),
             ))
             continue
 

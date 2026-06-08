@@ -232,17 +232,29 @@
       <th>{{ t('bom.uom') }}</th>
       <th>{{ t('bom.bom_code') }}</th>
       <th>{{ t('bom.bom_variant') }}</th>
+      <th title="SAP Material Group (mig 078)">Nhóm SAP</th>
+      <th title="Trạng thái trên bảng kê C/O">Bảng kê</th>
       <th>Nguồn</th>
     </tr></thead>
     <tbody>
       {% for r in rows %}
-      <tr>
+      <tr{% if r.excluded_at %} style="opacity:.5" title="Loại khỏi bảng kê C/O ({{ r.exclusion_reason }})"{% endif %}>
         <td>{{ r.row_index }}</td>
         <td class="mono">{{ r.material_code }}</td>
         <td class="mono">{{ '%.6f'|format(r.qty_per_unit) if r.qty_per_unit else '0' }}</td>
         <td class="mono">{{ r.uom or '' }}</td>
         <td class="mono">{{ r.bom_code or '' }}</td>
         <td class="mono">{{ r.bom_variant_id or '' }}</td>
+        <td class="mono">{{ r.payload.material_group or '—' }}{% if r.payload.phantom %} <span class="badge badge-warn" style="font-size:.7em" title="SAP phantom item">phantom</span>{% endif %}</td>
+        <td>
+          {% if r.excluded_at %}
+            <span class="badge badge-error" style="font-size:.72em" title="Không phải vật tư khai báo — đã loại khỏi bảng kê khi exclude_non_declarable=true">🗑 {{ r.exclusion_reason|replace('rac:','') }}</span>
+          {% elif not r.has_nk %}
+            <span class="badge badge-warn" style="font-size:.72em" title="Vật tư khai-được nhưng chưa khớp tờ khai nhập — cần đối soát">⚠ chưa khớp</span>
+          {% else %}
+            <span class="badge badge-success" style="font-size:.72em" title="Khai được — có khớp tờ khai nhập">✓</span>
+          {% endif %}
+        </td>
         <td>
           {% if r.has_nk %}
             <span class="badge" title="Có dòng nhập khẩu trong BCCT">NK</span>
