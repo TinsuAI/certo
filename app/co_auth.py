@@ -181,6 +181,7 @@ def should_guard_path(path: str) -> bool:
     return (
         path == "/"
         or path == "/clients"
+        or path == "/clients-picker"
         or path.startswith("/clients/")
         or path == "/portfolio"
         or path.startswith("/portfolio/")

@@ -28,7 +28,7 @@
   <div class="page-actions">
     <span class="badge badge-{{ 'success' if client.status == 'active' else 'warning' }}">{{ client.status }}</span>
     <button type="button" class="btn-secondary" data-picker-open
-            data-picker-url="/clients/picker?current={{ client.id }}"
+            data-picker-url="/clients-picker?current={{ client.id }}"
             data-picker-target="client-picker-modal">Đổi công ty</button>
   </div>
 </section>

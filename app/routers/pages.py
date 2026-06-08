@@ -81,11 +81,13 @@ def _client_co_case_summary(client: dict) -> dict:
     total = len(cases)
     open_count = sum(1 for case in cases if not co_case_is_completed(case))
     return {"total": total, "open": open_count, "done": total - open_count}
-@router.get("/clients/picker", response_class=HTMLResponse)
+@router.get("/clients-picker", response_class=HTMLResponse)
 async def clients_picker(request: Request, current: str = ""):
-    # Lazy-loaded fragment for the "Đổi công ty" modal switcher. Registered
-    # before /clients/{client_id} so the literal path wins. Guarded by
-    # should_guard_path (under /clients/).
+    # Lazy-loaded fragment for the "Đổi công ty" modal switcher. NOT under
+    # /clients/ on purpose: guard_response would read /clients/<x> as a single
+    # client_id and 403 it against the user's visible set. This is a cross-client
+    # resource; it is auth-guarded via the explicit /clients-picker entry in
+    # co_auth.should_guard_path, and the handler filters to visible clients.
     clients = portfolio_service.clients()
     if co_auth.auth_required():
         clients = co_auth.filter_visible_clients(clients, co_auth.current_user(request))
