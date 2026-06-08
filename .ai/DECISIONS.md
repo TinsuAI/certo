@@ -379,6 +379,61 @@ code's `DATA_HUB_SERVICE_TOKEN`), so CO prod has no service token in effect
 
 ---
 
+## 2026-06-08 — Convertibility-aware staleness (`has_drift_remaining` mirrors the classifier)
+
+**Context:** Track D flagged a BOM artifact stale/drift on *any* BOM-vs-catalog
+UoM difference the SQL `hub.has_drift_remaining` couldn't resolve. It only knew
+alias-align + a single exact per-material override, so it over-flagged
+convertible pairs (same-family g↔kg, tier-A count↔assembly, client-wide and
+reverse-direction overrides). Migrations 069→070→071 were three hand-narrowings
+of this one false-positive leak. A.4.4 (2026-06-07) had already built the
+canonical convertibility classifier `classify_uom_relation`; the SQL check
+never adopted it.
+
+**Decision:** Widen `has_drift_remaining` (mig 077) to mirror the classifier's
+full acceptance — a pair is "drift remaining" only when genuinely
+**incompatible** (no factor / unknown token). Same-canonical, same-family
+`base_factor`, override (either direction, per-material or client-wide), and
+tier-A 1:1 all resolve → not stale. A shared parity-test corpus
+(`test_has_drift_remaining_parity`) pins the SQL to the Python classifier so the
+two renderings can't diverge again (the drift guard). Narrow fix (scope A),
+chosen over a larger fingerprint / derive-on-read rebuild (scope B) after a
+critic review found the rebuild over-built and a DB-trigger→app-hook guarantee
+downgrade.
+
+**Two sub-decisions:**
+- **tier-A (unconfirmed 1:1) = not stale.** The "cần xác nhận" surface comes
+  from the materialize-time `unconfirmed_default_1to1` reason (→ `needs_input`),
+  not the trigger. Accepted consequence: a post-hoc catalog edit that *newly*
+  creates a tier-A pair on an already-aligned artifact goes silent (clean) —
+  output stays numerically correct (1:1); the confirm-prompt is not re-raised.
+- **No churn on convertible edits.** A convertible catalog UoM edit (kg→g) no
+  longer re-derives published rows; they keep their materialize-time unit
+  (`2.5 kg`, physically == `2500 g`, self-describing). Order-invariance is
+  byte-identical for upload ordering, physical-equivalent for post-hoc
+  convertible edits (see `project_ingest_order_invariance` memory).
+
+**Alternatives considered:**
+- **Fingerprint / derive-on-read rebuild (scope B)** — store an
+  `input_fingerprint`, drop the trigger zoo, recompute staleness in Python.
+  Deferred: needs a family-canonical normalizer that doesn't exist yet, a real
+  job queue (fan-out cost), and trades the triggers' universal cheap
+  write-observation for an app-hook guarantee downgrade. Kept as a future
+  direction in the brief.
+- **Keep tier-A as drift** (so it re-surfaces `needs_input` on every edit) —
+  rejected: diverges from the classifier (tier-A IS convertible) and
+  re-introduces the churn A.4.4 removed.
+
+**Consequences:** Staleness counts (`stale_count`, per-artifact `state`) drop —
+fewer false positives. **No sister-app code change:** CO does not gate any
+certificate computation on Data Hub staleness flags (verified) and already
+reads each BOM row's own `uom`, so the no-churn behavior is safe for it. The
+scope-B float-hash risk does not apply here — the check is family/factor-
+existence only, no arithmetic. Cross-repo: changelog `Cosmetic` entry +
+sister-app note `2026-06-08-staleness-convertibility-aware.md`.
+
+---
+
 ## Decisions to add post-discovery
 
 (Placeholder — entries to be written during/after M9 discovery sprint)

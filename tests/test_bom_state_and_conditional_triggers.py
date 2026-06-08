@@ -535,3 +535,97 @@ def test_reconcile_caps_at_50_defers_rest():
                 "where artifact_id=%s", (aid,))
     result = reconcile_for_material(CLIENT, "M_CAP", cap=50)
     assert result["deferred"] == 10
+
+
+# ─── Mig 077: has_drift_remaining mirrors classify_uom_relation ──────────
+# Same-family base_factor + tier-A now resolve (no drift), so the D7 trigger
+# stops re-flagging them on a benign catalog edit. tier-B still flags
+# (covered by test_d7_still_flags_when_uom_not_aligned: EA→kg).
+
+
+def test_d7_skips_flag_when_same_family_base_factor():
+    """Catalog g → kg, BOM rows in g. Same mass family → base_factor
+    converts → no drift. Pre-mig-077 (alias-only) flagged this."""
+    with connect() as conn, conn.cursor() as cur:
+        _seed_material(cur, "M_SF", uom="g")
+        _insert_artifact(cur, "ba_sf", "P_SF", "technical_exploded",
+                          source_kind="technical_flattened",
+                          rows=[("M_SF", 1.0, "g")])
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "update hub.materials set uom='kg' "
+            "where client_id=%s and material_code='M_SF'", (CLIENT,))
+        cur.execute(
+            "select is_stale, state from hub.bom_artifacts "
+            "where artifact_id='ba_sf'")
+        is_stale, state = cur.fetchone()
+        assert is_stale is False
+        assert state == "clean"
+
+
+def test_d7_skips_flag_when_tier_a_cross_family():
+    """Catalog SETS → EA, BOM rows in SETS. assembly↔count is tier-A
+    (1:1 convertible-by-assumption) → no drift flag on edit."""
+    with connect() as conn, conn.cursor() as cur:
+        _seed_material(cur, "M_TA", uom="SETS")
+        _insert_artifact(cur, "ba_ta", "P_TA", "technical_exploded",
+                          source_kind="technical_flattened",
+                          rows=[("M_TA", 1.0, "SETS")])
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "update hub.materials set uom='EA' "
+            "where client_id=%s and material_code='M_TA'", (CLIENT,))
+        cur.execute(
+            "select is_stale, state from hub.bom_artifacts "
+            "where artifact_id='ba_ta'")
+        is_stale, state = cur.fetchone()
+        assert is_stale is False
+        assert state == "clean"
+
+
+def test_reconcile_clears_same_family_false_positive():
+    """Backfill spirit at runtime: a raw_graph pre-flagged with materials_uom
+    drift clears once has_drift_remaining (widened) sees the same-family
+    pair as convertible — no override needed."""
+    from app.stores.bom_staleness import reconcile_for_material
+    with connect() as conn, conn.cursor() as cur:
+        _seed_material(cur, "M_SF_REC", uom="kg")
+        _insert_artifact(cur, "ba_sf_rec", "P_SF_REC", "no_strategy",
+                          source_kind="technical_raw")
+        _insert_edge(cur, "ba_sf_rec", "P_SF_REC", "M_SF_REC", 1.0, "g")
+        cur.execute(
+            "update hub.bom_artifacts set has_uom_drift=true, "
+            "uom_drift_reasons='[{\"dim\":\"materials_uom\"}]'::jsonb "
+            "where artifact_id='ba_sf_rec'")
+    result = reconcile_for_material(CLIENT, "M_SF_REC")
+    assert result["cleared"] == 1
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select has_uom_drift, state from hub.bom_artifacts "
+            "where artifact_id='ba_sf_rec'")
+        drift, state = cur.fetchone()
+        assert drift is False
+        assert state == "clean"
+
+
+def test_tier_a_needs_input_preserved_despite_convertible():
+    """Decision 2 non-regression: widening has_drift_remaining must NOT
+    erase the 'cần xác nhận' surface. A tier-A artifact carrying the
+    materialize-time `unconfirmed_default_1to1` reason still reports
+    needs_input, even though the (now widened) drift check calls the pair
+    convertible. Staleness and resolution-quality are decoupled."""
+    with connect() as conn, conn.cursor() as cur:
+        _seed_material(cur, "M_TA_NI", uom="EA")
+        _insert_artifact(cur, "ba_ta_ni", "P_TA_NI", "technical_exploded",
+                          source_kind="technical_flattened",
+                          rows=[("M_TA_NI", 1.0, "SETS")])
+        cur.execute(
+            "update hub.bom_artifacts set is_stale=true, "
+            "stale_reasons='[{\"dim\":\"unconfirmed_default_1to1\"}]'::jsonb "
+            "where artifact_id='ba_ta_ni'")
+        # The widened drift check sees SETS↔EA as convertible (tier-A)...
+        cur.execute("select hub.has_drift_remaining(%s, %s, 'SETS')",
+                     (CLIENT, "M_TA_NI"))
+        assert cur.fetchone()[0] is False
+        # ...yet the artifact still surfaces needs_input from its reason.
+        assert _read_state(cur, "ba_ta_ni") == "needs_input"

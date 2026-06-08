@@ -300,7 +300,7 @@ The `bom` block (added 2026-06-07) rolls up company-level BOM signals over **ali
 | Field | Meaning |
 |---|---|
 | `product_count` | Distinct codes (any kind) with a BOM rooted at them — TP finished products **plus** BTP sub-assemblies (Johnson derives a BOM per intermediate BTP). An internal coverage metric, **not** a finished-product count. |
-| `stale_count` | Products with ≥1 `is_stale` artifact (Track D) — BOM may be out of date. |
+| `stale_count` | Products with ≥1 `is_stale` artifact (Track D) — BOM may be out of date. **Convertibility-aware (mig 077, 2026-06-08):** a BOM-vs-catalog UoM difference no longer counts as stale when the units convert cleanly (same canonical / same-family / client override / tier-A 1:1); only genuinely incompatible or math-altering changes flag. Counts dropped accordingly — a correctness improvement, no consumer action. |
 | `multi_version_count` | Products with >1 distinct `lineage_root_id` (more than one logical BOM version). |
 | `last_published_at` | `max(published_at)` across alive artifacts, or `null`. |
 
@@ -558,6 +558,17 @@ Latest logic — hardened 2026-05-03 with BOM flattening shipping:
 `has_uom_drift` + the reasons JSONB. Sister apps SHOULD bind UI badges
 to this field; the legacy `is_stale`/`has_uom_drift` booleans remain
 for backward compatibility and are not deprecated.
+
+**Convertibility-aware staleness (mig 077, 2026-06-08).** A BOM-vs-catalog
+UoM difference only drives `needs_refresh`/`needs_input` when the units are
+genuinely *incompatible* (no factor). Same-canonical (alias), same-family
+`base_factor` (g↔kg), client overrides (either direction), and tier-A 1:1
+(count/assembly) pairs are accepted silently. Consequently a *convertible*
+catalog UoM edit (e.g. kg→g) does **not** re-derive already-published rows —
+they keep their materialize-time unit (`2.5 kg` stays `2.5 kg`, not re-labeled
+to `2500 g`). **Consumers MUST read each row's own `uom`** and never assume
+`row.uom == the catalog's current uom`; published rows are self-describing and
+physically correct in whatever unit they carry.
 
 Calculation consumers SHOULD treat `state="needs_input"` similarly to
 `flatten_status="non_flattened"` — refuse silent consumption,

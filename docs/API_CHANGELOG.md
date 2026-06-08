@@ -14,6 +14,26 @@ Only `Breaking:` headings trigger notifications to `dev`/`admin` users (CO + BCQ
 
 ## Entries
 
+## 2026-06-08 — Cosmetic: staleness flags are convertibility-aware (fewer false positives)
+
+No shape change, no consumer code impact. The staleness predicate behind
+`is_stale` / `has_uom_drift` / `state` / `stale_count` (Track D) now mirrors
+the UoM convertibility classifier: a BOM-vs-catalog unit difference is flagged
+only when the units are genuinely **incompatible** (no factor). Same-canonical
+(alias), same-family `base_factor` (g↔kg), client overrides (either direction),
+and tier-A 1:1 (count/assembly) pairs are accepted silently.
+
+Effect for consumers (CO / BCQT):
+- `stale_count` (source-summary `bom` block) and per-artifact `state` show
+  **fewer** flagged items — false positives on convertible UoM diffs are gone.
+  Values drop; this is a correctness improvement, not a contract change.
+- **No code change needed.** Standing-contract reminder: read each BOM row's
+  own `uom`. A convertible catalog edit no longer re-normalizes already-
+  published rows, so `row.uom` may differ from the catalog's current uom while
+  staying physically correct.
+
+Data Hub mig 077; brief `.ai/features/2026-06-08-bom-staleness-fingerprint/`.
+
 ## 2026-06-07 — Additive: `bom` block on `/source-summary`
 
 **New optional block** on `GET /v1/hub/dncxs/{client_id}/source-summary`, alongside the existing `material_catalog` / `product_catalog` / `bcct` blocks. Company-level BOM aggregates over alive (non-tombstoned) artifacts, for per-company BOM dashboards:

@@ -102,7 +102,10 @@ def test_d9_marks_derived_artifact_stale_on_catalog_insert():
 
 
 def test_d9_marks_manual_flat_uom_drift_when_uom_set():
-    """manual_flat artifact + catalog INSERT with uom set → has_uom_drift."""
+    """manual_flat artifact + catalog INSERT with an INCOMPATIBLE uom →
+    has_uom_drift. BOM kg (mass) vs catalog ea (count) is tier-B — no
+    factor → genuine drift. (A same-family/tier-A pair would convert and
+    skip per mig 077; see test_has_drift_remaining_parity.)"""
     with connect() as conn, conn.cursor() as cur:
         _insert_artifact(cur, "ba_d9_mf", "P_MF", "manual_flat_as_provided",
                           source_kind="technical_flattened",
@@ -111,7 +114,7 @@ def test_d9_marks_manual_flat_uom_drift_when_uom_set():
         cur.execute(
             "insert into hub.materials (client_id, material_code, name, "
             "category, status, uom) values (%s, 'M_MF', 'M_MF', "
-            "'nvl', 'active', 'g')", (CLIENT,))
+            "'nvl', 'active', 'ea')", (CLIENT,))
     with connect() as conn, conn.cursor() as cur:
         cur.execute("select has_uom_drift from hub.bom_artifacts "
                     "where artifact_id='ba_d9_mf'")
@@ -140,7 +143,8 @@ def test_d9_skips_catalog_insert_with_null_uom_for_source():
 
 def test_d9_marks_raw_graph_artifact_via_bom_edges():
     """raw_graph artifact (rows in bom_edges, not bom_artifact_rows) +
-    catalog INSERT → has_uom_drift via bom_edges.child_code path."""
+    catalog INSERT with an INCOMPATIBLE uom → has_uom_drift via
+    bom_edges.child_code path. BOM kg vs catalog ea = tier-B, no factor."""
     with connect() as conn, conn.cursor() as cur:
         _insert_artifact(cur, "ba_d9_raw", "P_RAW", "no_strategy",
                           source_kind="technical_raw",
@@ -149,7 +153,7 @@ def test_d9_marks_raw_graph_artifact_via_bom_edges():
         cur.execute(
             "insert into hub.materials (client_id, material_code, name, "
             "category, status, uom) values (%s, 'M_RAW_LATE', 'M_RAW_LATE', "
-            "'nvl', 'active', 'g')", (CLIENT,))
+            "'nvl', 'active', 'ea')", (CLIENT,))
     with connect() as conn, conn.cursor() as cur:
         cur.execute("select has_uom_drift from hub.bom_artifacts "
                     "where artifact_id='ba_d9_raw'")

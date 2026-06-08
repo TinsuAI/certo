@@ -276,14 +276,21 @@ def test_cross_group_all_six_byte_identical():
 # ── Test 2: external context change (catalog UoM edit mid-flow) ─────────
 
 
-def test_context_change_post_convergence_propagates():
-    """Apply edit AFTER initial convergence; verify second convergence
-    reflects the edit. Not strictly about ordering — exercises the
-    D7→stale→refresh chain (mig 053+057) on top of a converged state.
+def test_convertible_context_change_does_not_churn_published_rows():
+    """Convertibility-aware staleness (mig 077, D.2-A): a catalog UoM edit
+    that is CONVERTIBLE (same family: kg↔g) does NOT re-derive the published
+    rows. The materialized `2.5 kg` is physically identical to `2500 g` and
+    self-describing (row carries its own uom), so flatten's output is not
+    "wrong" — D7 correctly skips the stale flag and nothing churns.
 
-    Initial events: bcct + catalog(kg) + bom_TP1 (any order) → state A.
-    Edit event: catalog uom kg→g → state B with qty=2500g (raw kept,
-    catalog now matches raw uom)."""
+    Pre-mig-077 this edit re-derived to `2500 g` (the old re-derive-on-any-
+    unit-change behavior). That was the cry-wolf churn A.4.4/D.2 set out to
+    remove. Byte-identity still holds for upload ordering (the permutation
+    tests above); only post-hoc convertible edits no longer propagate a
+    cosmetic relabel.
+
+    Initial events: bcct + catalog(kg) + bom_TP1 → published `2.5 kg`.
+    Edit event: catalog uom kg→g (convertible) → published rows UNCHANGED."""
     cid = CLIENT_PREFIX + "post"
     _teardown(cid)
     _seed(cid)
@@ -299,15 +306,21 @@ def test_context_change_post_convergence_propagates():
         assert derived_a[4] == "kg"  # uom
         assert float(derived_a[3]) == pytest.approx(2.5)
 
-        # Apply edit (UPDATE, not INSERT) → triggers D7.
+        # Apply benign convertible edit (kg→g) → D7 must NOT flag stale.
         evt_catalog_M_X_uom_to_g(cid)
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "select bool_or(is_stale) from hub.bom_artifacts "
+                "where client_id=%s and flatten_strategy='technical_exploded' "
+                "and tombstoned_at is null", (cid,))
+            assert cur.fetchone()[0] is False, (
+                "convertible kg→g edit must not mark derived stale")
         _refresh_until_stable(cid)
         state_b = _final_state(cid)
         derived_b = [r for r in state_b["rows"]
                       if r[1] == "technical_exploded"][0]
-        # Catalog now 'g'; raw uom 'g'; same-canonical → factor=1
-        # alias path; qty 2500 g.
-        assert derived_b[4] == "g"
-        assert float(derived_b[3]) == pytest.approx(2500.0)
+        # No churn: published row stays `2.5 kg` (physically == 2500 g).
+        assert derived_b[4] == "kg"
+        assert float(derived_b[3]) == pytest.approx(2.5)
     finally:
         _teardown(cid)
