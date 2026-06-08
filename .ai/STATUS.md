@@ -1,109 +1,88 @@
 # Project Status
 
-**Date:** 2026-06-07 (PM) — **BOM summary block on `/source-summary`
-(CO request) — implemented + tested, NOT yet committed.** Also closed
-backlog F.1 (Growatt re-ingest) as already-shipped.
+**Date:** 2026-06-08 — **D.2-A shipped & committed to `main`** (convertibility-
+aware staleness, narrow fix). Backlog review → `/discover` → critic → `/tdd` →
+`/rev` → commit → docs → handoff.
 
 ## Current State
 
-**Branch:** `main`, HEAD `d16743c` (F.1 backlog-close commit, pushed).
-**Tests:** 1390 passed, 16 skipped (`uv run pytest -q`). **Migrations:**
-latest **076** (unchanged — no schema change this session).
+**Branch:** `main`, HEAD **`f17e405`** — committed, **NOT pushed** (user didn't
+ask). **Tests:** full suite **1447 passed / 16 skipped** (run twice). **Migrations:**
+latest **077** (`077_drift_remaining_classifier_parity.sql`).
 
-**⚠️ Uncommitted working tree** — the `bom` summary block feature is
-done + green but NOT committed. Staged-equivalent changes:
-- `app/stores/bom.py` — new `company_bom_summary(client_id)` (2 queries:
-  per-product summary + BCCT-export coverage).
-- `app/routes/api.py` — `bom` block wired into `api_source_summary`.
-- `tests/test_read_api_auth.py` — empty-case assertions + new seeded test
-  `test_source_summary_bom_block_aggregates` (+1 test).
-- `docs/API_CONTRACT.md` + `docs/API_CHANGELOG.md` — Additive entry +
-  field semantics + caveats.
-- `.ai/BACKLOG.md` — F.1 closed (committed) + **C.4 added (DEFERRED)** for
-  the `/products` total+pagination fix.
-- `.ai/sister-app-notes/2026-06-07-bom-summary-block-available.md` +
-  `INDEX.md` — outbound coordination note for CO.
+**Dev server:** the `:8754` process from the prior session may still be running;
+restart if gone: `uv run uvicorn app.main:app --host 127.0.0.1 --port 8754
+--workers 1 --reload`.
 
-**Suggested commit:** `feat(api): bom summary block on /source-summary
-(export-coverage headline)`.
+**Working tree:** clean except pre-existing untracked files NOT from this session
+(`.ai/sessions/*.md` from older sessions, `docs/training/`,
+`scripts/generate_training_input_scenarios.py`, `scripts/uom_drift_report.py`) —
+left for repo hygiene, not mine to commit. This session's STATUS.md edit + the
+new session log are the only tracked changes after the commit.
 
-**What the `bom` block does** — `GET /v1/hub/dncxs/{client_id}/source-summary`
-now returns a `bom` block (additive, same call CO already makes):
-```json
-"bom": {
-  "exported_with_bom": 20, "exported_without_bom": 43, "exported_total": 63,
-  "product_count": 171, "stale_count": 168, "multi_version_count": 65,
-  "last_published_at": "2026-05-29T01:12:10+00:00"
-}
-```
-- **Headline = export trio** (over distinct BCCT export `customs_code`s —
-  the products CO certifies; category-independent). `with + without ==
-  total`. Real data: Growatt 20/63, Johnson 574/651.
-- `product_count` is **secondary** (distinct codes with a BOM incl BTP
-  sub-assemblies — Johnson 3605 = 574 TP + 3031 BTP). NOT a finished-
-  product count; documented as such.
+This session's commit:
+- **`f17e405`** `feat(uom)`: widen `has_drift_remaining` to mirror
+  `classify_uom_relation` (D.2-A). 10 files, +717/-18. Migration + parity test
+  + 3 test updates + brief + 4 docs.
 
-## Recent Changes
-- 2026-06-07 PM: `bom` summary block (this session, uncommitted). Closed
-  F.1 (`d16743c`). Session log:
-  `.ai/sessions/2026-06-07-bom-summary-block.md`.
-- 2026-06-07 AM: BOM ingest follow-ups (B.1.5/B.2.5/B.3/B.2.7) — shipped +
-  deployed to prod (`f161f12`). Session log:
-  `.ai/sessions/2026-06-07-bom-ingest-followups.md` (if present).
-- 2026-06-06: declarations merged-PDF + CRITICAL auth-leak fix. Deployed.
+Full detail: `.ai/sessions/2026-06-08-staleness-convertibility-narrow-fix.md`.
+Brief: `.ai/features/2026-06-08-bom-staleness-fingerprint/brief.md`.
+
+## Recent Changes (this session)
+
+D.2 started as a big fingerprint/derive-on-read rebuild (scope B); a **critic
+review** found it over-built (non-existent family-canonical primitive,
+DB-trigger→app-hook guarantee downgrade, fan-out cost, no job queue). Pivoted to
+the **narrow fix (scope A)**: widen the SQL `hub.has_drift_remaining` to mirror
+A.4.4's `classify_uom_relation` acceptance.
+
+- **Mig 077** — `has_drift_remaining` returns "drift remaining" only for
+  genuinely **incompatible** pairs. Now also accepts (→ no drift): same-family
+  `base_factor` (g↔kg), tier-A 1:1 (count/assembly), client-wide override,
+  reverse-direction override — not just alias + exact per-material override.
+  `create or replace` only → D7/D9 triggers + `reconcile_for_material` pick up
+  the new body. Backfill clears residual false-positives.
+- **Parity guard** (`test_has_drift_remaining_parity.py`, 12 cases) — pins SQL
+  `has_drift_remaining` ⇔ Python `classify_uom_relation` (absolute + cross-check).
+  The drift guard (brief R1). Wrote failing first (6 red on old SQL).
+- **Behavior change accepted by user:** convertible catalog edit (kg→g) no
+  longer re-derives published rows — they keep their materialize-time unit
+  (`2.5 kg`, physically == `2500 g`, self-describing). Updated the
+  order-invariance test + 2 D9 tests (retargeted to incompatible kg↔ea pairs).
+- **Docs:** API_CONTRACT (`stale_count`/`state` convertibility-aware + "read
+  `row.uom`"), API_CHANGELOG (Cosmetic, silent), DECISIONS 2026-06-08,
+  sister-app note. CO impact = **none** (verified CO doesn't gate on DH
+  staleness flags + already reads `row.uom`).
 
 ## Next Steps
-1. **Commit the `bom` block** (see suggested message above). Then push =
-   prod deploy via CI. CO can't see the field until then.
-2. **Hand the CO-side prompt to `barry-CO-main`.** A ready-to-paste prompt
-   for the CO consumer was produced this session (in the conversation —
-   regenerate from the sister-app note if lost). It wires
-   `app/data_hub_client.py` + `app/web/client_context.py:_data_hub_overview_context`
-   + `app/routers/bom.py:bom_context` to read `summary["bom"]`, headline
-   `exported_with_bom / exported_total`, feature-detect fallback. **Do NOT
-   write code into `barry-CO-main` from this repo** (audit-only rule) —
-   coordinate via the sister-app note only.
-3. **Backlog C.4 (DEFERRED):** `/v1/hub/products` real `total` + cursor
-   pagination. Store layer already supports it (`list_products_with_bom`
-   takes limit/offset; `count_products_with_bom` exists); route-wiring
-   only, ~2-3h. Pull out when a consumer needs to page the full product
-   list. Not needed now.
-4. **Sister-app cutover — BCQT remainder** (carry-over). `bcqt-prod`
-   service token minted but not wired; decide revoke vs keep.
-5. **C.1.a soak test** — BCCT `by-codes` under real CO load. Awaiting CO
-   consumer ship.
-6. **Repo hygiene** — pre-existing untracked files not from any feature:
-   `docs/training/`, `scripts/generate_training_input_scenarios.py`,
-   `scripts/uom_drift_report.py`, older `.ai/sessions/2026-05-*` +
-   `2026-06-06-declarations-*.md` logs. Commit when convenient.
+
+1. **(Optional) Push** `f17e405` to demo if you want it live (prior A.4.4
+   session stopped at local commit too; this one likewise local-only).
+2. **D.2-B (deferred)** — the fingerprint/derive-on-read rebuild. Only revisit if
+   the trigger-push model causes *real* maintenance pain, and only after a job
+   queue exists. Full why-deferred + critic blockers in the brief's "Deferred: B"
+   section. Not scheduled.
+3. **Other open backlog** (from this session's review): A.5 (v_material_roles
+   paren-aware — list page shows wrong observed_count), D.1 (aggregate-data
+   git-history, regulatory), A.3 (catalog edit form), C.1/C.2 (sister-app JWT →
+   strict auth). See `.ai/BACKLOG.md`.
 
 ## Notes for Next AI Session
-- **The `bom` headline is the export trio, by deliberate design.** We
-  rejected `product_count` and `tp_with_bom` as headlines after checking
-  real data: `product_count` is inflated by BTP (Johnson 3605 vs 574 TP);
-  strict `category='tp'` undercounts (Growatt catalog tags finished-ish
-  codes `btp_sx` → only 7). The export trio (BCCT export codes ∩ BOM) is
-  category-independent and matches what CO actually certifies. If asked to
-  "show # thành phẩm có BOM", do NOT just count tp — re-read this.
-- **Export trio caveat:** exact `customs_code` match → blind to NB codes
-  inside `goods_name` parens (Growatt-shape, backlog A.5). It is an
-  approximation, not an absolute count. Told CO not to render it as a hard
-  compliance number.
-- **`stale_count` Growatt = 168/171** is truthful state (no refresh run
-  since upstream catalog edits), not a bug.
-- **Backlog still lags HEAD.** F.1 was shipped 2026-05-28/29 (`ccbb3ad` +
-  `03e9c4b`) but listed open until this session. Trust git + code +
-  memory `project_reingest_pending.md`; ground-truth before claiming open.
-- **CRITICAL prod config (NOT in git):** DB setting `api_auth_strict=true`
-  is THE enforcement switch; prod `.env` has `DATA_HUB_API_AUTH_DISABLED=0`
-  — NEVER set to 1 in prod. CO service token at
-  `/var/lib/barry-co/runtime/data-hub-link.json`; minted tokens at
-  `/home/tinsu/sister_tokens_2026-06-06.json` (chmod 600).
-- **Box (`100.84.189.87`):** prod DH `:8754` + CO `:8755` = Docker. Edge =
-  Cloudflare tunnel `ttdatahub.tinsu.ai`. CI deploy = self-hosted runner
-  on the box. **Push to `main` = prod deploy.** `.env` gitignored.
-- **Cloudflare caches `.pdf`/`.zip`** unless origin sends `no-store`
-  (`_no_store_sensitive` in `app/main.py`).
-- **Regression guard:** `tests/test_v1_hub_auth_coverage.py` fails if a new
-  `/v1/hub` route lacks auth.
-- Dev server was `--workers 1 --reload` on `:8754` this session.
+
+- **tier-A semantic choice (important):** tier-A 1:1 = "not stale" (mirrors
+  classifier). The "cần xác nhận" surface comes from the materialize-time
+  `unconfirmed_default_1to1` reason, NOT the trigger. Accepted consequence: a
+  post-hoc edit that *newly* creates a tier-A pair on an aligned artifact goes
+  silent (clean). Don't "fix" this as a bug — it's a deliberate decision
+  (DECISIONS 2026-06-08).
+- **Parity test is non-optional infra** — if you touch `has_drift_remaining` SQL,
+  `test_has_drift_remaining_parity` guards against re-diverging from the Python
+  classifier. Keep it green.
+- **SQL vs Python normalization gap (minor, known):** `has_drift_remaining` /
+  `is_uom_aligned` use `lower(trim())`; the classifier uses `normalize_uom_alias`
+  (NFC + collapse-whitespace). Identical for all real ASCII uom tokens; a
+  multi-word/NFC token could diverge and the corpus wouldn't catch it. Deferred
+  (no real token triggers it).
+- **`project_ingest_order_invariance` memory updated** with the convertible-edit
+  nuance (byte-identity for uploads, physical-equivalence for convertible edits).
+- Port **8754** pinned (CO JWT issuer). Don't change it.
