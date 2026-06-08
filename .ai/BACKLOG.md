@@ -6,6 +6,14 @@ are captured, not yet scoped. Add `/discover` before non-trivial ones.
 ## UI / UX
 
 ### B1 — "Đổi công ty" / "Đổi hồ sơ" → modal, không redirect
+**DONE 2026-06-08.** Cả hai giờ là modal picker lazy-fetch fragment (không redirect). Endpoint
+`GET /clients/picker` (`pages.py`, đăng ký trước `/clients/{client_id}`) + `GET /clients/{id}/co-case-picker`
+(`co_case.py`); template `_picker_clients.html` / `_picker_cases.html`; JS picker chung trong
+`base.html` (`[data-picker-open]` → fetch → inject); CSS `.picker-*`. Highlight mục đang xem. Verified
+local (johnson-vn) + screenshots `.ai/screenshots/2026-06-08-ui-backlog-b/`.
+
+<details><summary>Ghi chú gốc</summary>
+
 Hiện cả hai là link redirect sang trang khác:
 - `Đổi công ty` — `app/templates/_client_nav.html:8` → `href="/clients"`.
 - `Đổi hồ sơ` — `app/templates/co_case.html:583` → `href="/clients/{id}/co-case"`.
@@ -13,7 +21,18 @@ Hiện cả hai là link redirect sang trang khác:
 đã có (create-case modal trong case-list redesign `ee70a4b`).
 Added: 2026-06-07.
 
+</details>
+
 ### B2 — Review trạng thái các bước workflow của 1 hồ sơ (hiển thị chưa make sense)
+**DISCOVERED 2026-06-08 → `.ai/features/2026-06-08-workflow-step-status-display.md`.** Phát hiện
+chính: **Phase 2 đã ship** (`/load-bom` + `bom_loaded` tách khỏi `/calculate`) nên B2 KHÔNG còn phải
+chờ. Lỗi lõi: stepper bước 3 không bao giờ phản ánh chốt-sheet (best state = "Cận soát" cả khi đã
+chốt hết); "Preview" nhãn tiếng Anh; review/preview trùng màu; `step.wip` dead code; `todo` mờ bằng
+opacity (vi phạm rule). Đề xuất: derive bước 3 từ `origin_sheet_states` + hợp nhất với
+`co_case_status_view`; tập trạng thái mới done/in_progress/attention/todo. Next: `/tdd`.
+
+<details><summary>Ghi chú gốc</summary>
+
 Per-step status hiện hiển thị không hợp lý. Liên quan trực tiếp tới state-machine detangle đang làm
 (`.ai/features/2026-06-07-co-stock-state-machine-detangle.md`) — đặc biệt **Phase 2** (tách Load BOM
 / Tính bảng kê → thêm trạng thái `bom_loaded`) sẽ định nghĩa lại trạng thái sheet. Step keys:
@@ -22,7 +41,17 @@ calculated/locked/stale). Cần audit riêng: bước nào → trạng thái nà
 Nên gộp/đồng bộ với Phase 2. `/discover` trước.
 Added: 2026-06-07.
 
+</details>
+
 ### B3 — Bảng kê (origin-material-table): lỗi layout cột
+**DONE 2026-06-08.** Nguyên nhân: cột `select` chèn thành cột 1 nhưng width vẫn dùng
+`th:nth-child(N)` đánh số cho layout 11-cột cũ → lệch 1 cột (STT/Mã NVL phình, Tên NVL bị bóp).
+Sửa: chuyển width sang selector `[data-origin-column]` (bền với chèn/đổi cột); cột select đổi
+`width: 1%`→`2.6rem` (1% co lại dưới `table-layout: fixed` ⇒ clip checkbox = phần i). Verified:
+johnson-vn 138 dòng — name 485px (rộng nhất), code 159, STT 68, select 57 + checkbox không clip.
+
+<details><summary>Ghi chú gốc</summary>
+
 Bảng `.origin-material-table` (`co_case.html:1388`; cột định danh qua `data-origin-column`).
 - i) Cột chứa ô **select** bị che (clip). Nghi `overflow:hidden` ở container (giống bug
   `⋯`-dropdown bị clip đã sửa ở case-list — scope `overflow:visible`). Kiểm cột select + wrapper.
@@ -33,13 +62,25 @@ Bảng `.origin-material-table` (`co_case.html:1388`; cột định danh qua `da
   / `[data-origin-column]`). Lưu ý feedback #7 đã cho tên xuống 2 dòng + tooltip — kết hợp.
 Added: 2026-06-07.
 
+</details>
+
 ### B4 — UI trong từng hồ sơ: mở full-width thay vì 2 bên border
+**DONE 2026-06-08.** Lề 2 bên = `.shell { width: min(1480px, …) }` (không phải `.app-frame` —
+frame chỉ là overlay fixed). Sửa: thêm `{% block shell_modifier %}` vào `<main class="shell …">`
+(base.html); co_case.html set `shell-wide` khi `co_case_active_step != "index"` (chỉ trang chi tiết
+hồ sơ, không phải list/catalog/…); CSS `.shell-wide { width: calc(100vw - 32px); max-width: none }`.
+Verified: detail = `shell shell-wide`, list + catalog = `shell` thường.
+
+<details><summary>Ghi chú gốc</summary>
+
 Trang chi tiết hồ sơ nên full-width. "2 bên border" hiện tại — cần xác định nguồn: hoặc
 `.app-frame` (viền brand 3px full-viewport, `app.css:231`, từ app-identity `1f2b6dd`) hoặc
 content container max-width (`.shell` `app.css:448` / các `max-width`). Xác minh cái nào tạo lề 2
 bên trên trang hồ sơ rồi cho full-width **chỉ** ở context hồ sơ (đừng phá brand frame toàn cục nếu
 đó là chủ đích identity). `/discover` nhẹ trước khi sửa.
 Added: 2026-06-07.
+
+</details>
 
 ## Tồn CO / Data Hub refresh
 
