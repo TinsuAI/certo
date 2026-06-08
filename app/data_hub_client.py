@@ -104,6 +104,15 @@ class DataHubClient:
                 params["include_tombstones"] = "true"
         return self._get_all_envelope("/v1/hub/bcct", params)
 
+    def bcct_server_time(self, client_id: str) -> str:
+        """Cheap high-water-mark probe — fetch ONLY page 1 of the BCCT endpoint to
+        read server_time, without paginating the full corpus. Used by the
+        full-refresh path to capture the delta cursor before the heavy pull; the
+        envelope variant with an empty since would re-paginate ~60k rows just to
+        discard them. Returns an empty string on the old contract (no server_time)."""
+        payload = self._get("/v1/hub/bcct", {"client_id": client_id, "limit": 1})
+        return str(payload.get("server_time") or "") if isinstance(payload, dict) else ""
+
     def list_bcct_by_codes(
         self,
         client_id: str,

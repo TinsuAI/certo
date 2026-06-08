@@ -111,13 +111,22 @@ def refresh_co_stock_for_client(
         with connect() as conn, conn.cursor() as cur:
             old_payloads, old_lot_keys = _load_existing_snapshot(cur, client_id)
             added, updated, identical = _classify_changes(new_by_key, old_payloads)
+            removed, abort_wipe = _plan_removed_keys(
+                mode,
+                new_keys=set(new_by_key.keys()),
+                old_keys=set(old_payloads.keys()),
+                tombstone_source_rows=tombstone_source_rows,
+            )
+            if abort_wipe:
+                # Suspicious empty full pull over a populated snapshot — almost
+                # certainly a transient upstream/pagination failure, not a real
+                # mass deletion. Preserve the snapshot and let the caller skip
+                # advancing refresh_state / server_time.
+                summary["aborted_empty_full_pull"] = True
+                summary["errors"].append("empty full pull over non-empty snapshot; snapshot preserved")
+                summary["rows_persisted"] = len(old_payloads)
+                return summary
             _upsert_records(cur, records)
-            if mode == "delta":
-                # Delta mode: derive callback returned ONLY changed rows. Removed
-                # rows must be explicit (from Data Hub tombstones); never sweep.
-                removed = {k for k in (tombstone_source_rows or []) if k in old_payloads}
-            else:
-                removed = set(old_payloads.keys()) - set(new_by_key.keys())
             blocked = _claims_blocking_removal(cur, client_id, removed)
             removable = sorted(removed - blocked)
             if removable:
@@ -316,6 +325,32 @@ def _upsert_records(cur, records: list[dict]) -> None:
             for row in records
         ],
     )
+
+
+def _plan_removed_keys(
+    mode: str,
+    *,
+    new_keys: set[str],
+    old_keys: set[str],
+    tombstone_source_rows: list[str] | None,
+) -> tuple[set[str], bool]:
+    """Decide which snapshot keys to delete, and whether to ABORT the refresh.
+
+    Returns `(removed, abort_wipe)`.
+
+    - delta: removed = explicit tombstones that exist in the snapshot. The derive
+      callback returned ONLY changed rows; untracked rows are never swept. Never
+      aborts (an empty delta is normal — nothing changed upstream).
+    - full: removed = old_keys - new_keys (anything missing is presumed deleted
+      upstream). BUT an empty full pull over a NON-empty snapshot is treated as a
+      transient failure, not a mass deletion — `abort_wipe=True` so the caller
+      preserves the snapshot. Empty-over-empty is a legit no-op (abort_wipe=False).
+    """
+    if mode == "delta":
+        return ({k for k in (tombstone_source_rows or []) if k in old_keys}, False)
+    if not new_keys and old_keys:
+        return (set(), True)
+    return (old_keys - new_keys, False)
 
 
 def _claims_blocking_removal(cur, client_id: str, removed_keys: set[str]) -> set[str]:

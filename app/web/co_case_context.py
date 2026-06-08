@@ -2914,8 +2914,16 @@ def _refresh_co_stock_delta_or_full(client: dict) -> dict:
     # finds nothing new and the snapshot stays stranded empty forever. Force a
     # full pull whenever the snapshot is empty.
     snapshot_count = co_stock_materializer.row_count(client["id"])
+    # Delta is only sound when one BCCT import row maps to one co_stock lot with a
+    # stable per-row `source_row`. Under aggregate_by_declaration_and_allocation_code
+    # the lot's `source_row` is a comma-joined set, so per-import-row tombstones
+    # never match (phantom stock) and a changed row inserts a duplicate aggregate
+    # (double-count). Force full for that policy until delta is aggregate-aware.
+    lot_policy = portfolio_service.get_client_config(client).get("co_stock", {}).get("lot_policy", "line_level")
+    delta_safe = lot_policy != "aggregate_by_declaration_and_allocation_code"
     if (
-        last_server_time
+        delta_safe
+        and last_server_time
         and snapshot_count > 0
         and data_hub is not None
         and hasattr(data_hub, "list_bcct_with_envelope")
@@ -2972,15 +2980,24 @@ def _try_delta_refresh(client: dict, data_hub, last_server_time: str) -> dict | 
     summary["tombstones_received"] = len(tombstones)
     return summary
 def _full_refresh(client: dict) -> dict:
+    # Capture the high-water mark BEFORE the data pull. Probing AFTER would record
+    # a server_time ahead of the data we persist, so any row created during the
+    # pull window (after the snapshot, before the probe) lands in neither this
+    # full set nor the next delta (since=that-later-mark) — lost forever. A mark
+    # taken before is conservative: the next delta re-pulls the window, and the
+    # UPSERT is idempotent. Best-effort — blank when the deployment lacks
+    # server_time support, leaving _refresh_co_stock_delta_or_full on full.
+    server_time = _probe_server_time(client)
     workspace, _backend = portfolio_service.source_workspace(client)
     summary = co_stock_materializer.refresh_co_stock_for_client(
         client, lambda: workspace.get("co_stock_rows") or [],
     )
+    if summary.get("aborted_empty_full_pull"):
+        # The pull came back empty over a populated snapshot — snapshot preserved.
+        # Do NOT advance refresh_state / server_time: marking the high-water mark
+        # over rows we never pulled would strand them out of the next delta.
+        return summary
     source_summary, _ = portfolio_service.source_summary(client)
-    # Best-effort: probe a quick server_time so subsequent refreshes can go
-    # delta. If the deployment doesn't carry server_time yet, leave it blank
-    # — _refresh_co_stock_delta_or_full will keep trying full each time.
-    server_time = _probe_server_time(client)
     co_stock_materializer.record_refresh_state(
         client["id"],
         snapshot_row_count=summary.get("rows_persisted", 0),
@@ -2992,14 +3009,19 @@ def _full_refresh(client: dict) -> dict:
     return summary
 def _probe_server_time(client: dict) -> str:
     data_hub = getattr(portfolio_service, "data_hub", None)
-    if data_hub is None or not hasattr(data_hub, "list_bcct_with_envelope"):
+    if data_hub is None:
         return ""
     try:
-        # Empty `since` returns full set + server_time. We discard items here
-        # because the full path already pulled them via source_workspace; the
+        # Cheap path: page-1-only probe. Avoids re-paginating the whole BCCT
+        # corpus (the full path already pulled it via source_workspace); the
         # only goal is to capture the high-water mark.
-        envelope = data_hub.list_bcct_with_envelope(client["id"], since="", include_tombstones=False)
-        return envelope.get("server_time") or ""
+        if hasattr(data_hub, "bcct_server_time"):
+            return data_hub.bcct_server_time(client["id"]) or ""
+        # Fallback for backends/fakes without the cheap probe — discards items.
+        if hasattr(data_hub, "list_bcct_with_envelope"):
+            envelope = data_hub.list_bcct_with_envelope(client["id"], since="", include_tombstones=False)
+            return envelope.get("server_time") or ""
+        return ""
     except Exception:  # noqa: BLE001
         return ""
 CALCULATE_SNAPSHOT_FRESHNESS_SECONDS = 30
