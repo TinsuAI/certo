@@ -1,96 +1,112 @@
 # Project Status
 
 ## Current State
-- **B2 stepper status + picker search/cap — COMMITTED + PUSHED (deploy in flight),
-  2026-06-08.** Two clean commits on `main`:
-  - **B2 (`0374edb`)** — `co_case_step_status` → `{status,label}`; tập trạng thái
-    done/in_progress/attention/todo, nhãn theo bước; bước 3 derive từ
-    `products[].origin_sheet_status` ⇒ chốt hết = `done` "Đã chốt N/N" (hết kẹt
-    "Cần soát"); bỏ Preview/dead `wip`/opacity-mute. Test `test_co_case_step_status.py`
-    (20). Brief `.ai/features/2026-06-08-workflow-step-status-display.md`.
-  - **Picker (`69e1de2`)** — modal "Đổi công ty"/"Đổi hồ sơ" hết **tràn** khi nhiều
-    mục: fix scroll (grid `minmax(0,1fr)` + `min-height:0` + `.picker-row[hidden]`),
-    cap 8 + "Hiện tất cả (N)", search client-side accent-insensitive (đ→d, NFD-fold).
-    Verified puppeteer trên case 845 hồ sơ.
-  - **Dev DB cleanup:** growatt có **845 hồ sơ rác test** (DB-backed test ghi vào DB
-    dev dùng chung, không dọn). Đã purge (backup `data/local/backups/`), giờ 0. Gốc =
-    test không cô lập → backlog **T1** + brief `.ai/features/2026-06-08-test-db-isolation.md`.
-    Memory [[co-case-store-db-json-reseed]] (purge phải clear cả DB lẫn `cases.json` fallback).
-- **UI backlog B (B1/B3/B4) + breadcrumb nav — MERGED + DEPLOYED + PROD-VERIFIED
-  (prod + demo, 2026-06-08, HEAD `7253412`).**
-  - **B1** — "Đổi công ty" / "Đổi hồ sơ" giờ là **lazy-fetch modal picker** (không
-    redirect). Fragment endpoints `GET /clients-picker` (cross-client) +
-    `GET /clients/{id}/co-case-picker` (per-client); template `_picker_clients.html`
-    / `_picker_cases.html`; JS picker chung trong `base.html`
-    (`[data-picker-open]` + `data-picker-url` + `data-picker-target` → fetch →
-    inject); CSS `.picker-*`. Highlight mục đang xem.
-  - **B3** — width bảng kê origin keyed theo `[data-origin-column]` thay vì
-    `th:nth-child(N)` (cột `select` chèn vào làm lệch 1 cột → STT/Mã NVL phình, Tên
-    NVL bị bóp). Cột select `width:1%`→`2.6rem` (1% co lại dưới `table-layout:fixed`
-    ⇒ clip checkbox = phần i).
-  - **B4** — trang chi tiết hồ sơ full-width qua `{% block shell_modifier %}`
-    (`.shell-wide`), scope chỉ khi `co_case_active_step != "index"` (không đụng
-    list/catalog/…).
-  - **Breadcrumb** — `Công ty › {công ty} › Hồ sơ C/O › {mã hồ sơ}` trong
-    `_client_nav.html` (partial included mọi trang client + case). Các cấp trên là
-    link để quay lại; adapt theo `active` + `co_case_active_step`.
-  - **Prod-only auth fix (phát hiện lúc verify):** client picker trả **403** vì
-    `guard_response` đọc segment-2 của `/clients/picker` thành `client_id="picker"`
-    rồi chặn theo visible-set. Local auth OFF nên không repro. Sửa: dời sang
-    top-level `/clients-picker` (`client_id_from_path`→"") + thêm vào
-    `should_guard_path` + regression test `tests/test_co_auth_path_guard.py`.
-    Memory [[cross-client-fragment-route-403]].
-  - **Verified:** file-mode **521 passed / 9 skipped**; prod browser test (login
-    `claude-check@local`) — breadcrumb 4 cấp, case picker 6 dòng, client picker 2
-    dòng (đúng visible-set), crumb-nav quay về list, **0 console error**.
-- **B2 — DISCOVERED only** → brief `.ai/features/2026-06-08-workflow-step-status-display.md`.
-  Phát hiện chính: **Phase 2 (Load BOM / Tính split, `bom_loaded`) ĐÃ ship** (endpoint
-  `/load-bom` riêng) ⇒ B2 hết phụ thuộc Phase 2. Lỗi lõi: stepper bước 3 không phản
-  ánh chốt-sheet (best state luôn "Cần soát"), "Preview" nhãn tiếng Anh, review/preview
-  trùng màu, `step.wip` dead code, `todo` mờ bằng opacity. Next = `/tdd`.
-- **Deployed baseline (prod `barry-co.tinsu.ai` :8755 + demo `demo-co.tinsu.ai` :8765,
-  all on `main`):** P1 origin cold-load perf (`a1ac2ed`), CO-stock detangle Phase 1+2+3
-  (Load BOM split + over-claim FOR UPDATE + lot-history fold), app versioning + changelog,
-  background dossier export, merged TKX/TKN PDF, content-hash cache-busting, CO→DH
-  operator-JWT auth. CI green.
+- **CO-stock recalc/lock parity bug — FIXED, fully verified on real Johnson, NOT committed.**
+  An edited origin sheet (thay/xoá/thêm NVL) could not be "Chốt" — failed with
+  `không chốt được bảng kê … vì vượt tồn ở N lot` (johnson `co-case-a4e1dbbdb0f5` /
+  `MFW0507-39` = 47 lot). Root cause: `recalculate_origin_sheet_edits` (the override path used
+  by both "Lưu" and post-edit "Tính bảng kê") allocated tồn from `list_bcct_by_codes` → **raw
+  BCCT** (`remaining_qty == quantity`, un-folded, ignores other-case claims), while
+  `co_stock_ledger.record_sheet_lock` validates against the **trừ-lùi-FOLDED** snapshot − other
+  claims. Every folded lot over-claimed. Regression from fold commit `66fe311` (2026-06-04);
+  widened by `074e926` routing the normal "Tính bảng kê" through that raw path after an edit.
+  **Fix:** recalc now sources stock from `_calculate_stock_rows_from_snapshot` (same folded+ledger
+  snapshot the lock checks), raw narrow pull only on cold/empty snapshot. `app/routers/co_case.py`.
+- **Bảng kê save UX reworked — in-place + debounced auto-save, NOT committed.**
+  - **In-place save:** `/save` now content-negotiates — `Accept: text/html` returns the re-rendered
+    `co_case.html` shell (default Accept still JSON for API/tests); the save JS routes through the
+    existing `replaceCaseShellFromResponse` (same path as /calculate, /lock) → **no full reload / F5**.
+  - **Auto-save (debounced 2s):** `markSheetDirty` → `scheduleAutoSave` (per-panel timer). After the
+    operator pauses ~2s it auto-persists (batched: bulk delete+thay recalc ONCE), never yanks focus
+    mid-edit, re-arms while a save is in flight, detects diverged ĐM inputs (norm edits land in
+    pendingOps only at save-time). Manual "Lưu bảng kê" still works.
+  - **Persistent edit toolbar (Excel-like, step 1):** the toolbar (status + Lùi/Tiến + Lưu + Bỏ) is now
+    **server-rendered & always visible** per unlocked sheet (`data-origin-edit-toolbar` after
+    `data-origin-strip`), survives shell swaps, shows **✓ Đã lưu / ● Chưa lưu · N thao tác** and no
+    longer hides after save. `markSheetDirty`/`clearSheetDirty` flip state (don't create/remove);
+    buttons bound by delegation; `updateSheetHistoryButtons` gates Lưu on `hasUnsavedEdits`. CSS
+    `.origin-dirty-banner-clean` (calm, no amber when clean).
+- **PENDING user decision (deferred via /handoff): the bảng kê save model** — needed to finish the
+  Excel-like work. Conflicts with the 2s auto-save (commits too fast → kills undo window). Options:
+  (a) manual Ctrl+S + strong undo, drop 2s auto-save [rec]; (b) auto-save on leave-sheet/~30s idle;
+  (c) keep 2s. **Persistent toolbar is DONE**; remaining Excel work (Ctrl+Z/Y shortcuts, undo that
+  SURVIVES a save [shell swap currently wipes `__sheetHistory`], unsaved-leave warning) is gated on
+  this choice. Memory [[bangke-excel-like-dirty-undo]].
+- **Inherited (prior session, committed + deployed):** D1 CO-stock refresh hardening (`2c856da`,
+  pushed+deployed prod+demo) + backbone doc (`4f567ff`, **unpushed**). See the D1 section in Next Steps.
 
 ## Recent Changes (latest first)
-- **`69e1de2`** feat(co-case): picker search + capped list (no overflow).
-- **`0374edb`** feat(co-case): B2 — rework stepper per-step status.
-- **`7253412`** fix(auth): client picker 403 prod fix (`/clients/picker`→`/clients-picker`
-  + guard whitelist + regression test).
-- **`e3f26a2`** docs(backlog): mark B1/B3/B4 done + B2 discovery brief.
+- **(uncommitted)** Persistent always-visible edit toolbar (`app/templates/co_case.html`,
+  `app/static/css/app.css`) — no longer hides after save; shows saved/dirty state.
+- **(uncommitted)** Bảng kê save UX: `/save` HTML negotiation + in-place swap; debounced auto-save
+  (`app/routers/co_case.py`, `app/templates/co_case.html`). +1 test (`/save` HTML shell).
+- **(uncommitted)** Fix recalc/lock tồn parity (`app/routers/co_case.py`). +2 tests
+  (`tests/test_recalc_stock_source_parity.py`, `tests/test_recalc_lock_parity_db.py` [DB-gated]).
+- **`4f567ff`** docs(co-stock): backbone architecture reference. **Unpushed.**
+- **`2c856da`** fix(co-stock): harden delta/full refresh (D1). Pushed + deployed prod+demo.
 
 ## Next Steps (priority order)
-1. **BACKLOG D1 — audit delta-vs-full / Data Hub refresh.** Vẫn là item rủi ro cao nhất
-   (SAI TỒN). `/discover` + parity tests. See `.ai/BACKLOG.md` D1.
-2. **BACKLOG T1 — test DB isolation.** Test chạy `.env` ghi vào DB dev dùng chung, không dọn
-   (845 case growatt = rác, đã purge). `/discover` conftest schema-isolation. See brief.
-3. **Index page (case list) 4.27s** johnson-vn — N+1 `claims_summary_for_case`
-   (`co_case_context.py:2760-2767`).
-4. **(Optional) P1 follow-up:** scope `/calculate` stock theo lô của sản phẩm (~540ms/calc).
-5. **DH reciprocal cleanup (cần user OK):** DH demo `/version` còn `0.0.0`; DH prod thiếu
-   `COPY CHANGELOG.md`.
-6. Feedback backlog: #14 (BOM default per code), #13 (batch chốt BOM), #4 (DH substitute ranking).
-7. Phase 3 leftover: delete-case audit R1/R2/R3 (`.ai/audits/2026-06-07-delete-case-stock-history-audit.md`).
+1. **DECIDE the bảng kê save model** (blocks the rest of the Excel-like work). I asked; user deferred.
+   Options: (a) manual Ctrl+S + strong undo, drop the 2s auto-save [my rec]; (b) auto-save on
+   leave-sheet / ~30s idle so undo survives; (c) keep 2s auto-save (undo ~2s). **Persistent toolbar is
+   already done.** Remaining once decided: Ctrl+Z/Y; undo that SURVIVES a save (the shell swap on save
+   wipes `__sheetHistory` — needs either save-without-swap or re-hydrating history after swap);
+   unsaved-leave warning. Undo plumbing: `__sheetHistory` + `snapshotSheet`/`undo`/`redo` (`co_case.html`).
+   Memory [[bangke-excel-like-dirty-undo]].
+2. **Commit + (ask before) push this session's work.** All 3 changes (parity fix + 2 save-UX changes)
+   are coherent but distinct — consider 2–3 commits: `fix(co-stock): recalc allocates from folded
+   snapshot`, `feat(co-case): in-place save`, `feat(co-case): debounced auto-save`. Push auto-deploys.
+3. **D1 leftover — confirm `transaction_key` stability with Data Hub** (biggest latent risk). Sign-off
+   still BLANK (`.ai/api-requests/2026-05-28-bcct-incremental-since-filter.md`).
+4. **D1 — fix C (claim-blocked tombstone never retried).** Fork: C1 persist+retry vs C2 full-reconcile
+   backstop. + **E/F** (sync-status axis, refresh-mode UX) + delta-vs-full parity harness (needs T1).
+5. **BACKLOG T1 — test DB isolation** (`/discover` brief exists). Tests with `.env` write shared dev DB.
+6. **Index 4.27s johnson-vn** — N+1 `claims_summary_for_case` (`co_case_context.py:2760-2767`).
+7. DH reciprocal cleanup (demo `/version` 0.0.0; prod missing `COPY CHANGELOG.md`) — needs user OK.
+8. Feedback backlog: #14 (BOM default per code), #13 (batch chốt BOM), #4 (DH substitute ranking).
+
+## Blockers
+- Excel-like undo work is blocked on the save-model decision (#1).
 
 ## Notes for Next AI Session
-- **Branch/deploy:** `main` HEAD `69e1de2` (B2 + picker) = pushed, deploy in flight. Push
-  `TinsuAI/co main` → runner auto-deploys ~1-2min (NO `[skip ci]` on tip or deploy skips;
-  re-trigger `gh workflow run ci.yml --ref main`). `origin` + `tinsu` đều = TinsuAI/co.
-- **Working tree:** chỉ còn 2 untracked session log đời trước (`2026-06-08-co-app-versioning-changelog.md`,
-  `2026-06-08-origin-cold-load-perf.md`) — leave or commit at will; không phải việc session này.
-- **Auth gotcha (MỚI — memory [[cross-client-fragment-route-403]]):** auth chỉ active khi auth ON
-  ⇒ **phải browser-test PROD** cho mọi thay đổi liên quan route-guard/auth; local auth OFF che 403.
-  Cross-client fragment phải là path top-level; per-client thì dưới `/clients/{id}/...`.
-- **Picker pattern:** lazy modal = trigger `[data-picker-open data-picker-url data-picker-target]`
-  → JS chung trong `base.html` fetch fragment → inject vào `[data-picker-body]`. Reuse cho picker mới.
-- **Local dev:** `npm run co:serve` → `127.0.0.1:8001` (auth OFF, `--reload` watch app/**). Server
-  đang chạy session này.
-- **Tests:** file-mode `PYTHONPATH=. uv run python -m pytest` (NO .env) = 521 passed. DB co_stock +
-  real-Johnson parity e2e cần `.env` (memory [[test-env-filemode-vs-datahub]]). Mới:
-  `tests/test_co_auth_path_guard.py`.
-- **Prod browser test recipe:** script `/tmp/prod_verify.js` (Playwright via `NODE_PATH=$PWDIR`),
-  login `claude-check@local` / `claude-temp-2026` (manager, growatt-vn + johnson-vn), client id phải
-  dạng `-vn`. Memory [[browser-test-recipe]] + [[demo-test-account]].
-- **Screenshots:** `.ai/screenshots/2026-06-08-ui-backlog-b/` (local `01..07` + `prod-01..03`).
+- **NOTHING from this session is committed.** `git status`: M `app/routers/co_case.py`,
+  M `app/templates/co_case.html`, M `tests/test_co_demo.py`; new tests + `.ai/scripts/*` + screenshots.
+- **Verification (this session):**
+  - Real-Johnson read-only before/after (edited `MFW0506-39`): PRE-FIX raw path = **37 over-claim lots**,
+    POST-FIX folded path = **0** → Chốt clean. Same mechanism as the reported 47-lot case.
+  - Playwright on live server + real Johnson: Chốt succeeds (HTTP 200, "Đã chốt", no "vượt tồn");
+    in-place save (no reload, status calculated); auto-save (no reload, banner clears, 0 JS errors);
+    persistent toolbar (visible+clean on load → dirty on edit → still visible+"Đã lưu" after save).
+    Scripts: `.ai/scripts/pw_johnson_lock_repro.py`, `pw_save_inplace.py`, `pw_autosave.py`,
+    `pw_toolbar.py` (each does full backup→test→restore of the dev case + ledger). Screenshots in
+    `.ai/screenshots/2026-06-08-co-stock-recalc-folded-parity/` (1-before … 5-toolbar-persists).
+  - Full file-mode suite: **560 passed / 11 skipped** (DB-gated parity tests skip without `.env`).
+- **Local data reality (important):** the reported case `co-case-a4e1dbbdb0f5` is **prod-only** (not in
+  local store). But johnson IS fully local — snapshot **60,173 rows** + ledger + **3 loadable cases**
+  (`co-case-1643bb515a6a`, `co-case-ec000d03522e`, `co-case-4e9f5a3b1e9c`) + **25,727 usable+folded
+  "trap" lots**. Reproductions used `co-case-ec000d03522e / MFW0506-39`. My raw `psql` earlier hit a
+  wrong search_path (showed johnson=0); the app's `app.database.connect()` /
+  `co_stock_materializer.row_count()` are authoritative.
+- **⚠ Dev-data drift on `co-case-ec000d03522e`:** repeated Playwright tests (backup→restore against the
+  SHARED mutable dev case) drifted its state — `MFW0506-39` got locked by a test then un-locked back to
+  `calculated` (current: 7 locked + 1 calculated, overrides=0), and case claims drifted **545 → 524**
+  (~21 lost across lock/reopen/failed-restore cycles). Case is SANE + usable; exact pristine state lost.
+  NOT a code/tồn issue — test-data noise; this is why **T1 (test DB isolation)** exists. Lesson: don't
+  loop browser tests over shared dev data; restore via `save_case_record` (NOT `save_state`, which only
+  writes the top-level blob, not per-case `co_cases` rows) and WAIT for in-flight saves before restoring.
+- **Save-path architecture (for the undo work):** origin tab is server-rendered; /calculate, /lock,
+  /load-bom, /reopen all swap in-place via `replaceCaseShellFromResponse` (parses returned HTML, replaces
+  `[data-co-case-shell]`, `refreshCaseShellInteractions()` re-binds). A shell swap REPLACES the panel →
+  client undo history (`__sheetHistory`) is lost. That's the core tension with "undo thoải mái".
+- **Local dev:** `npm run co:serve` → `127.0.0.1:8001` (auth OFF, `--reload` watch app/**). Server was
+  running all session and has ALL uncommitted changes loaded. DH dev on `:8754`.
+- **Tests:** file-mode `PYTHONPATH=. uv run python -m pytest` (NO .env). DB parity test
+  `tests/test_recalc_lock_parity_db.py` needs `.env` (seeds a folded lot, asserts raw-claim rejected /
+  folded-claim accepted against the real ledger). Memory [[test-env-filemode-vs-datahub]].
+- **Branch/deploy unchanged:** `main` HEAD `4f567ff`; `4f567ff` (docs) committed but NOT pushed.
+  `origin` + `tinsu` both = TinsuAI/co; push auto-deploys ~1-2min.
+- **Memory updated:** [[co-stock-recalc-folded-parity]] (the fix), [[bangke-excel-like-dirty-undo]] (pending feature).
+- **Inherited D1 mental-model notes** (still relevant): App CO OWNS tồn CO (claims+adjustments are
+  unrecoverable crown jewels); lot identity = `direction‖declaration‖line‖item_code` (customs ITEM code,
+  not hs_code); over-claim DB guard is SKIPPED when no snapshot → tồn correctness needs a fresh snapshot.
+  See `docs/co-stock-architecture.md`.
