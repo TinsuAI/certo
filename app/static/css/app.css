@@ -456,6 +456,46 @@ small,
   gap: 0.72rem;
 }
 
+/* Case detail (any step except the case list) uses the full viewport width
+   minus a small gutter instead of the centered 1480px column — the C/O bảng kê
+   table needs the room. Scoped via the shell_modifier block in co_case.html. */
+.shell-wide {
+  width: calc(100vw - 32px);
+  max-width: none;
+}
+
+.breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.3rem;
+  font-size: 0.82rem;
+  color: var(--foreground-muted);
+}
+
+.breadcrumb a {
+  border-radius: var(--radius-sm);
+  padding: 0.08rem 0.28rem;
+  color: var(--foreground-muted);
+  text-decoration: none;
+  transition: background 0.12s, color 0.12s;
+}
+
+.breadcrumb a:hover {
+  color: var(--primary);
+  background: var(--surface-hover);
+}
+
+.breadcrumb-sep {
+  color: var(--border-strong);
+}
+
+.breadcrumb-current {
+  color: var(--foreground);
+  font-weight: 700;
+}
+
 .page-bar {
   display: flex;
   align-items: center;
@@ -1935,6 +1975,117 @@ button.co-stat:hover {
   display: flex;
   justify-content: flex-end;
   gap: 0.48rem;
+}
+
+/* Lazy modal pickers ("Đổi công ty" / "Đổi hồ sơ"). */
+.picker-modal {
+  width: min(100%, 34rem);
+  max-height: min(80vh, 40rem);
+  gap: 0.6rem;
+}
+
+.picker-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.picker-modal-body {
+  overflow-y: auto;
+  margin: 0 -0.25rem;
+}
+
+.picker-loading {
+  padding: 1rem 0.25rem;
+  color: var(--foreground-muted);
+  font-size: 0.86rem;
+}
+
+.picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0 0.25rem;
+}
+
+.picker-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.7rem;
+  background: var(--card);
+  color: var(--foreground);
+  text-decoration: none;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.picker-row:hover,
+.picker-row:focus-visible {
+  background: var(--surface-hover);
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+}
+
+.picker-row.is-current {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+  background: color-mix(in srgb, var(--primary) 7%, var(--card));
+}
+
+.picker-monogram {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-subtle);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.picker-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.picker-main strong {
+  overflow: hidden;
+  font-size: 0.92rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-main small {
+  color: var(--foreground-muted);
+  font-size: 0.76rem;
+}
+
+.picker-side {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 0.4rem;
+}
+
+.picker-current-tag {
+  color: var(--primary);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.picker-row-all {
+  justify-content: center;
+  border-style: dashed;
+  color: var(--primary);
 }
 
 .guidance-summary {
@@ -3623,35 +3774,40 @@ button.co-stat:hover {
   white-space: normal;
 }
 
-.origin-material-table th:nth-child(1) {
+/* Column widths keyed by data-origin-column so they survive the leading
+   select column (and any future reorder). Previously these were nth-child
+   rules numbered for the pre-select 11-column layout; the inserted select
+   column shifted every width by one — STT/Mã NVL ballooned and Tên NVL got
+   squeezed. */
+.origin-material-table th[data-origin-column="row"] {
   width: 3.1rem;
 }
 
-.origin-material-table th:nth-child(2) {
+.origin-material-table th[data-origin-column="code"] {
   width: 7.2rem;
 }
 
-.origin-material-table th:nth-child(3) {
+.origin-material-table th[data-origin-column="name"] {
   width: 22rem;
 }
 
-.origin-material-table th:nth-child(4) {
+.origin-material-table th[data-origin-column="hs"] {
   width: 6rem;
 }
 
-.origin-material-table th:nth-child(5),
-.origin-material-table th:nth-child(6),
-.origin-material-table th:nth-child(7),
-.origin-material-table th:nth-child(8),
-.origin-material-table th:nth-child(10) {
+.origin-material-table th[data-origin-column="bom"],
+.origin-material-table th[data-origin-column="consumed"],
+.origin-material-table th[data-origin-column="unit-value"],
+.origin-material-table th[data-origin-column="material-value"],
+.origin-material-table th[data-origin-column="non-origin"] {
   width: 6.6rem;
 }
 
-.origin-material-table th:nth-child(9) {
+.origin-material-table th[data-origin-column="origin"] {
   width: 7.7rem;
 }
 
-.origin-material-table th:nth-child(11) {
+.origin-material-table th[data-origin-column="source"] {
   width: 11rem;
 }
 
@@ -5264,10 +5420,12 @@ body.co-stock-history-modal-open { overflow: hidden; }
   accent-color: var(--primary);
 }
 
-/* Dedicated select column: keep it tight and centered, separate from STT. */
+/* Dedicated select column: keep it tight and centered, separate from STT.
+   Needs a real rem width — `width: 1%` collapses under table-layout: fixed and
+   clips the checkbox. */
 .origin-material-table th.origin-col-select,
 .origin-material-table td.origin-col-select {
-  width: 1%;
+  width: 2.6rem;
   text-align: center;
   padding-left: 0.4rem;
   padding-right: 0.4rem;

@@ -1,3 +1,25 @@
+{% set breadcrumb_sections = {'catalog': 'Danh mục mã hàng', 'bom': 'BOM', 'co-stock': 'Tồn CO', 'bcct': 'BCCT', 'config': 'Cấu hình công ty', 'cost-allocation': 'Hệ số phân bổ', 'co-case': 'Hồ sơ C/O'} %}
+{% set on_case_detail = active == 'co-case' and co_case_active_step is defined and co_case_active_step not in ['index', none] %}
+<nav class="breadcrumb" aria-label="Đường dẫn">
+  <a href="/clients">Công ty</a>
+  <span class="breadcrumb-sep" aria-hidden="true">›</span>
+  {% if active == 'overview' %}
+  <span class="breadcrumb-current" aria-current="page">{{ client.name }}</span>
+  {% else %}
+  <a href="/clients/{{ client.id }}">{{ client.name }}</a>
+  {% endif %}
+  {% if active in breadcrumb_sections %}
+  <span class="breadcrumb-sep" aria-hidden="true">›</span>
+  {% if on_case_detail %}
+  <a href="/clients/{{ client.id }}/co-case">{{ breadcrumb_sections[active] }}</a>
+  <span class="breadcrumb-sep" aria-hidden="true">›</span>
+  <span class="breadcrumb-current" aria-current="page">{{ case.case_code }}</span>
+  {% else %}
+  <span class="breadcrumb-current" aria-current="page">{{ breadcrumb_sections[active] }}</span>
+  {% endif %}
+  {% endif %}
+</nav>
+
 <section class="page-bar">
   <div>
     <h1>{{ client.name }}</h1>
@@ -5,9 +27,26 @@
   </div>
   <div class="page-actions">
     <span class="badge badge-{{ 'success' if client.status == 'active' else 'warning' }}">{{ client.status }}</span>
-    <a class="btn-secondary" href="/clients">Đổi công ty</a>
+    <button type="button" class="btn-secondary" data-picker-open
+            data-picker-url="/clients/picker?current={{ client.id }}"
+            data-picker-target="client-picker-modal">Đổi công ty</button>
   </div>
 </section>
+
+<div class="modal-backdrop" id="client-picker-modal" data-picker-modal hidden>
+  <section class="confirm-modal picker-modal" role="dialog" aria-modal="true" aria-labelledby="client-picker-title">
+    <div class="confirm-modal-head picker-modal-head">
+      <div>
+        <span class="eyebrow">Chuyển công ty</span>
+        <h2 id="client-picker-title">Đổi công ty</h2>
+      </div>
+      <button type="button" class="btn-secondary" data-picker-close aria-label="Đóng">×</button>
+    </div>
+    <div class="picker-modal-body" data-picker-body>
+      <p class="picker-loading">Đang tải…</p>
+    </div>
+  </section>
+</div>
 
 {% if active != "co-case" %}
   {% set data_active = active in ['catalog', 'bom', 'co-stock', 'bcct'] %}

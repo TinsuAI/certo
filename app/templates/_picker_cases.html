@@ -1,0 +1,22 @@
+<div class="picker-list" role="list">
+  {% for case in cases %}
+  {% set v = case.status_view %}
+  <a class="picker-row{% if case.case_id == current_case_id %} is-current{% endif %}"
+     role="listitem"
+     href="/clients/{{ client.id }}/co-case/{{ case.case_id }}">
+    <span class="picker-main">
+      <strong>{{ case.title }}</strong>
+      <small><span class="mono">{{ case.case_code }}</span> · {{ v.reference or 'Chưa có tham chiếu' }} · {{ case.destination_market }}</small>
+    </span>
+    <span class="picker-side">
+      <span class="co-status co-status-{{ v.status_key }}">{{ v.status_label }}</span>
+      {% if case.case_id == current_case_id %}<span class="picker-current-tag">Đang mở</span>{% endif %}
+    </span>
+  </a>
+  {% else %}
+  <p class="empty-cell">Chưa có hồ sơ nào cho công ty này.</p>
+  {% endfor %}
+  <a class="picker-row picker-row-all" href="/clients/{{ client.id }}/co-case">
+    <span class="picker-main"><strong>Xem tất cả hồ sơ →</strong></span>
+  </a>
+</div>

@@ -91,7 +91,7 @@
       {% endif %}
     </div>
   </header>
-  <main class="shell">
+  <main class="shell {% block shell_modifier %}{% endblock %}">
     {% block content %}{% endblock %}
   </main>
   <footer class="app-footer">
@@ -103,5 +103,42 @@
     </a>
     <a href="/whats-new" class="app-footer-whatsnew">Có gì mới →</a>
   </footer>
+  <script>
+    // Lazy modal pickers ("Đổi công ty" / "Đổi hồ sơ"): fetch the list fragment
+    // on open instead of rendering it into every page. Trigger = [data-picker-open]
+    // with data-picker-url + data-picker-target (modal id).
+    (function () {
+      const openers = document.querySelectorAll("[data-picker-open]");
+      if (!openers.length) return;
+      let lastFocused = null;
+      function close(modal) {
+        modal.hidden = true;
+        if (lastFocused) { lastFocused.focus(); lastFocused = null; }
+      }
+      function open(opener) {
+        const modal = document.getElementById(opener.dataset.pickerTarget);
+        if (!modal) return;
+        const body = modal.querySelector("[data-picker-body]");
+        lastFocused = opener;
+        modal.hidden = false;
+        if (!body) return;
+        body.innerHTML = '<p class="picker-loading">Đang tải…</p>';
+        fetch(opener.dataset.pickerUrl, { headers: { "X-Requested-With": "fetch" } })
+          .then((r) => { if (!r.ok) throw new Error(r.status); return r.text(); })
+          .then((html) => { body.innerHTML = html; body.querySelector("a")?.focus(); })
+          .catch(() => { body.innerHTML = '<p class="empty-cell">Không tải được danh sách. Thử lại.</p>'; });
+      }
+      openers.forEach((opener) =>
+        opener.addEventListener("click", (e) => { e.preventDefault(); open(opener); }));
+      document.querySelectorAll("[data-picker-modal]").forEach((modal) =>
+        modal.addEventListener("click", (e) => {
+          if (e.target === modal || e.target.closest("[data-picker-close]")) close(modal);
+        }));
+      document.addEventListener("keydown", (e) => {
+        if (e.key !== "Escape") return;
+        document.querySelectorAll("[data-picker-modal]:not([hidden])").forEach(close);
+      });
+    })();
+  </script>
 </body>
 </html>

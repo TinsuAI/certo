@@ -1,0 +1,16 @@
+<div class="picker-list" role="list">
+  {% for client in clients %}
+  <a class="picker-row{% if client.id == current_client_id %} is-current{% endif %}"
+     role="listitem"
+     href="/clients/{{ client.id }}">
+    <span class="picker-monogram" aria-hidden="true">{{ client.monogram }}</span>
+    <span class="picker-main">
+      <strong>{{ client.name }}</strong>
+      <small>{% if client.code %}<span class="mono">{{ client.code }}</span> · {% endif %}MST {{ client.tax_code if client.tax_code and client.tax_code != 'Chưa nhập' else '—' }}</small>
+    </span>
+    {% if client.id == current_client_id %}<span class="picker-current-tag">Đang xem</span>{% endif %}
+  </a>
+  {% else %}
+  <p class="empty-cell">Không có công ty nào.</p>
+  {% endfor %}
+</div>

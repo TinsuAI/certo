@@ -81,6 +81,21 @@ def _client_co_case_summary(client: dict) -> dict:
     total = len(cases)
     open_count = sum(1 for case in cases if not co_case_is_completed(case))
     return {"total": total, "open": open_count, "done": total - open_count}
+@router.get("/clients/picker", response_class=HTMLResponse)
+async def clients_picker(request: Request, current: str = ""):
+    # Lazy-loaded fragment for the "Đổi công ty" modal switcher. Registered
+    # before /clients/{client_id} so the literal path wins. Guarded by
+    # should_guard_path (under /clients/).
+    clients = portfolio_service.clients()
+    if co_auth.auth_required():
+        clients = co_auth.filter_visible_clients(clients, co_auth.current_user(request))
+    for client in clients:
+        client["monogram"] = _client_monogram(client.get("name", ""))
+    return templates.TemplateResponse(
+        request=request,
+        name="_picker_clients.html",
+        context={"clients": clients, "current_client_id": current},
+    )
 @router.get("/clients/{client_id}", response_class=HTMLResponse)
 async def workspace(request: Request, client_id: str):
     # Workspace overview only renders client.counts tiles. Avoid the full

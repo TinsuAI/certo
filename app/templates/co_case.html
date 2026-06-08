@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Hồ sơ C/O - {{ client.name }}{% endblock %}
+{% block shell_modifier %}{% if co_case_active_step != "index" %}shell-wide{% endif %}{% endblock %}
 
 {% macro result_badge(passed, skipped=False) -%}
   {%- if skipped -%}
@@ -580,7 +581,9 @@
       <h2>{{ case.case_code }}</h2>
       <p class="meta">{{ case.title }} · {{ case.destination_market }} · {{ case.shipment_reference_label }} · B/L: {{ case.shipment.bill_of_lading_no or 'n/a' }}</p>
     </div>
-    <a class="btn-secondary" href="/clients/{{ client.id }}/co-case">Đổi hồ sơ</a>
+    <button type="button" class="btn-secondary" data-picker-open
+            data-picker-url="/clients/{{ client.id }}/co-case-picker?current={{ case.persisted_case_id }}"
+            data-picker-target="case-picker-modal">Đổi hồ sơ</button>
   </div>
   <nav class="workflow-stepper" aria-label="Các bước làm C/O" data-case-tab-nav>
     {% for step in co_case_steps %}
@@ -594,6 +597,21 @@
   </nav>
   <div class="case-tab-progress" data-case-tab-progress aria-hidden="true"></div>
 </section>
+
+<div class="modal-backdrop" id="case-picker-modal" data-picker-modal hidden>
+  <section class="confirm-modal picker-modal" role="dialog" aria-modal="true" aria-labelledby="case-picker-title">
+    <div class="confirm-modal-head picker-modal-head">
+      <div>
+        <span class="eyebrow">Chuyển hồ sơ</span>
+        <h2 id="case-picker-title">Đổi hồ sơ</h2>
+      </div>
+      <button type="button" class="btn-secondary" data-picker-close aria-label="Đóng">×</button>
+    </div>
+    <div class="picker-modal-body" data-picker-body>
+      <p class="picker-loading">Đang tải…</p>
+    </div>
+  </section>
+</div>
 
 {% if case.status in ['completed', 'closed', 'done', 'submitted', 'finished'] %}
 <section class="callout callout-info">

@@ -8,7 +8,7 @@ import re
 from fastapi import APIRouter
 from app import co_auth, co_stock_eligibility, co_stock_ledger, co_stock_materializer, material_search
 from app.bom_store import attach_case_bom_snapshot
-from app.co_case_store import CaseHasActiveClaimsError, MAX_SUPPORTING_FILE_BYTES, build_case_criteria_rows, case_from_record, co_case_is_completed, create_case_record, create_case_workbook, declaration_refs, delete_case_record, get_case_record, get_supporting_file, invoice_keys, json_safe, safe_filename, save_supporting_file, set_case_archived, update_case_record
+from app.co_case_store import CaseHasActiveClaimsError, MAX_SUPPORTING_FILE_BYTES, build_case_criteria_rows, case_from_record, co_case_is_completed, co_case_status_view, create_case_record, create_case_workbook, declaration_refs, delete_case_record, get_case_record, get_case_workspace, get_supporting_file, invoice_keys, json_safe, safe_filename, save_supporting_file, set_case_archived, update_case_record
 from app.co_form_config_store import load_co_form_config
 from app.co_forms import prioritized_form_lanes, recommended_form_lane
 from app.data_hub_client import current_data_hub_token
@@ -822,6 +822,20 @@ async def co_case(request: Request, client_id: str):
         request=request,
         name="co_case.html",
         context=co_case_context(client_id),
+    )
+@router.get("/clients/{client_id}/co-case-picker", response_class=HTMLResponse)
+async def co_case_picker(request: Request, client_id: str, current: str = ""):
+    # Lazy-loaded fragment for the "Đổi hồ sơ" modal switcher. Distinct literal
+    # second segment so it never collides with /co-case/{case_id}. Light: only
+    # the case state (no Data Hub pull) + a status view per case.
+    client = resolve_client(client_id)
+    cases = get_case_workspace(client, "").get("cases", [])
+    for case in cases:
+        case["status_view"] = co_case_status_view(case)
+    return templates.TemplateResponse(
+        request=request,
+        name="_picker_cases.html",
+        context={"client": client, "cases": cases, "current_case_id": current},
     )
 @router.get("/clients/{client_id}/co-case/invoice-preview")
 async def co_case_invoice_preview(client_id: str, invoice_no: str = "", q: str = "", export_declaration_nos: str = ""):
