@@ -1982,6 +1982,10 @@ button.co-stat:hover {
   width: min(100%, 34rem);
   max-height: min(80vh, 40rem);
   gap: 0.6rem;
+  /* head + search stay their natural height; the body takes the rest and
+     scrolls. minmax(0, 1fr) lets that track shrink below its content so
+     overflow-y actually engages instead of the body spilling past max-height. */
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .picker-modal-head {
@@ -1993,13 +1997,62 @@ button.co-stat:hover {
 
 .picker-modal-body {
   overflow-y: auto;
+  /* Grid items default to min-height:auto and refuse to shrink below their
+     content, so overflow-y never engaged and a long list pushed the modal past
+     its max-height (it "tràn"). min-height:0 lets the body become the scroll
+     area instead. */
+  min-height: 0;
   margin: 0 -0.25rem;
+}
+
+.picker-search-wrap {
+  padding: 0 0.25rem;
+}
+
+.picker-search {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.7rem;
+  background: var(--surface-subtle);
+  color: var(--foreground);
+  font-size: 0.88rem;
+}
+
+.picker-search:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+  background: var(--card);
+}
+
+.picker-search:disabled {
+  opacity: 0.6;
 }
 
 .picker-loading {
   padding: 1rem 0.25rem;
   color: var(--foreground-muted);
   font-size: 0.86rem;
+}
+
+.picker-show-more {
+  margin: 0.1rem 0 0;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem;
+  background: transparent;
+  color: var(--primary);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.picker-show-more:hover {
+  background: var(--surface-hover);
+}
+
+.picker-empty {
+  padding: 0.9rem 0.25rem;
 }
 
 .picker-list {
@@ -2020,6 +2073,12 @@ button.co-stat:hover {
   color: var(--foreground);
   text-decoration: none;
   transition: background 0.12s, border-color 0.12s;
+}
+
+/* `.picker-row` sets display:flex, which outranks the UA `[hidden]{display:none}`
+   — without this the cap/search would set .hidden but rows stayed visible. */
+.picker-row[hidden] {
+  display: none;
 }
 
 .picker-row:hover,

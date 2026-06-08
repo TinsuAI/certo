@@ -2,7 +2,8 @@
   {% for case in cases %}
   {% set v = case.status_view %}
   <a class="picker-row{% if case.case_id == current_case_id %} is-current{% endif %}"
-     role="listitem"
+     role="listitem" data-picker-item
+     data-search="{{ (case.title ~ ' ' ~ case.case_code ~ ' ' ~ (v.reference or '') ~ ' ' ~ (case.destination_market or ''))|lower }}"
      href="/clients/{{ client.id }}/co-case/{{ case.case_id }}">
     <span class="picker-main">
       <strong>{{ case.title }}</strong>

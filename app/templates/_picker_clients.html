@@ -1,7 +1,8 @@
 <div class="picker-list" role="list">
   {% for client in clients %}
   <a class="picker-row{% if client.id == current_client_id %} is-current{% endif %}"
-     role="listitem"
+     role="listitem" data-picker-item
+     data-search="{{ (client.name ~ ' ' ~ (client.code or '') ~ ' ' ~ (client.tax_code or ''))|lower }}"
      href="/clients/{{ client.id }}">
     <span class="picker-monogram" aria-hidden="true">{{ client.monogram }}</span>
     <span class="picker-main">
