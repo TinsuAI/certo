@@ -33,6 +33,20 @@ roles, candidate feed, candidate richness). Phase 2 + supporting items
 remain open. Identity-resolution items (parser-rules, paren-extract)
 sit here too because they share the catalog data graph.
 
+## A.0 ⚠ REVIEW: Material Group + declarability (mig 078) — IMPLEMENTED, UNREVIEWED
+
+**Captured 2026-06-09.** Shipped on branch `feat/bom-material-group-declarability`
+(NOT merged, NOT pushed; backfill applied to local dev DB only). Owner not yet
+confident — needs a `/rev` pass before prod / demo backfill / CO adoption.
+Risk areas to scrutinise: (1) rác classification correctness (RD12 label = rác?);
+(2) `declarable_unmatched` never silently dropped; (3) `customs_relevance` inline
+CASE in api.py+catalog.py vs the `v_material_classification` view — add a parity
+test; (4) ~8,150 row soft-exclude — re-verify before demo/prod; (5) cross-client
+no-op (Growatt verified); (6) coverage limited to `sap_indented_walk` adapter.
+Full detail in `.ai/features/2026-06-08-leaf-nvl-declarability/brief.md` (STATUS block).
+Also gates C.x (CO `customs_relevance` adoption — see
+`.ai/sister-app-notes/2026-06-09-co-consumer-spec-declarability.md`).
+
 ## A.1 Phase 2 catalog — CLOSED 2026-05-28 (dead-code drop, not refactor)
 
 **Captured 2026-05-09**. Original plan: replace single-value `category`

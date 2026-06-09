@@ -1,5 +1,31 @@
 # Discovery: declarability of "only-in-technical-BOM" leaf NVL (johnson-vn)
 
+> ## ⚠ STATUS 2026-06-09 — IMPLEMENTED, **NOT YET REVIEWED** (review before prod / CO adoption)
+>
+> Built on branch `feat/bom-material-group-declarability` (commits feat/test/docs/perf),
+> full suite green (1454 passed), backfill applied to **local dev DB only**. The
+> owner is not yet confident — **needs a `/rev` pass before pushing to prod, before
+> applying the backfill to demo/prod, and before CO flips `exclude_non_declarable` on.**
+>
+> Reviewer should specifically scrutinise:
+> 1. **Classification correctness** — is RD12 `label` → rác the right call? Is the
+>    rác set {RD07,RD08,RD12,phantom} complete + not over-broad? Spot-check the
+>    `client_material_group_map` seed against real items.
+> 2. **`declarable_unmatched` handling** — confirm these are never silently dropped
+>    (steel/welding variants must stay visible for reconciliation). Validate the
+>    CO consumer spec's export-exclude-but-flag behavior is actually safe.
+> 3. **Inline CASE duplication** — `customs_relevance` is computed inline in
+>    `api.py` + `catalog.py` AND in the `v_material_classification` view. Drift risk.
+>    Consider a parity test (like `test_has_drift_remaining_parity`) locking
+>    inline ⇔ view.
+> 4. **Backfill data mutation** — ~8,150 live johnson rows soft-excluded; re-verify
+>    counts + that no real material was wrongly excluded before running on demo/prod.
+> 5. **Cross-client safety** — verified Growatt = all-null/no-op; re-confirm after review.
+> 6. **Coverage gap** — only `sap_indented_walk` emits `material_group`; other
+>    adapters → null/no-op (no benefit). Acceptable? Or extend.
+>
+> Tracked in `.ai/BACKLOG.md` (A.x — declarability review).
+
 **Date:** 2026-06-08 · **Type:** investigation / API-contract scoping (no code shipped)
 **Driver:** CO consumes flattened BOM artifacts and turns each row into a
 candidate line on the customs origin sheet (bảng kê). ~26/86 rows per product
