@@ -432,8 +432,17 @@ _MATERIALS_SELECT_WITH_ROLES = """
            m.hs_code, m.updated_at,
            m.btp_sourcing,
            m.material_group,
-           vmc.item_category,
-           vmc.customs_relevance,
+           mgmap.item_category,
+           -- customs_relevance computed inline (mirrors hub.v_material_classification,
+           -- which is the canonical def + parity-tested) to avoid re-joining the
+           -- heavy v_material_roles aggregation a second time via the view.
+           case
+             when m.material_group is null then null
+             when mgmap.material_group is null then 'review'
+             when mgmap.is_declarable = false then 'excluded_non_material'
+             when coalesce(vmr.has_imports, false) then 'declarable'
+             else 'declarable_unmatched'
+           end as customs_relevance,
            coalesce(vmr.has_imports, false) as has_imports,
            coalesce(vmr.has_exports, false) as has_exports,
            coalesce(vmr.is_consumed_in_bom, false) as is_consumed_in_bom,
@@ -445,9 +454,9 @@ _MATERIALS_SELECT_WITH_ROLES = """
     left join hub.v_material_roles vmr
            on vmr.client_id = m.client_id
           and vmr.material_code = m.material_code
-    left join hub.v_material_classification vmc
-           on vmc.client_id = m.client_id
-          and vmc.material_code = m.material_code
+    left join hub.client_material_group_map mgmap
+           on mgmap.client_id = m.client_id
+          and mgmap.material_group = m.material_group
 """
 
 
