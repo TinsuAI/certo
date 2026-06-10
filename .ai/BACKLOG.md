@@ -105,6 +105,28 @@ refresh_state. Góc cần soi:
 Rủi ro: SAI TỒN (over/under-claim downstream). `/discover` + viết test parity trước khi sửa.
 Added: 2026-06-07.
 
+## BOM / Propose (Data Hub)
+
+### M1 — Propose BOM mới: trạng thái không sync + nút "Đã propose" propose lại
+Flow Propose BOM mới: đã **duyệt bên Data Hub** nhưng bảng kê CO vẫn hiển thị **"pending"/submitted**;
+và nút **"Đã propose ✓"** bấm vào lại **propose lần nữa** (tạo proposal trùng). Hai lỗi tách biệt:
+
+- **Status không refresh từ DH:** CO ghi `origin_sheet_proposed_status` lúc propose = `'submitted'`
+  (`co_case.html:1206` `… or 'submitted'`) và **không bao giờ đọc lại** trạng thái proposal từ Data Hub
+  → DH duyệt xong, CO vẫn kẹt "pending". Cần: CO đọc trạng thái proposal hiện tại từ DH (poll / lúc
+  render origin) và khi `approved` thì phản ánh đúng (có thể adopt artifact đã duyệt làm BOM của sheet).
+  Theo guardrail Data Hub: kiểm `app/data_hub_client.py` trước — nếu hợp đồng hiện tại chưa có endpoint
+  đọc trạng thái proposal thì cần **API request artifact** (`.ai/api-requests/…`) trước khi build CO.
+- **Nút "Đã propose" vẫn propose lại:** label đổi theo `product.origin_sheet_proposed_artifact_id`
+  ("Đã propose ✓" vs "Lưu BOM mới", `co_case.html:1169`) nhưng handler `initOriginProposeBom`
+  (`co_case.html:4902`) **không disable/neutralize** nút khi đã proposed → click lại POST
+  `…/origin/sheet/{code}/propose-bom` lần nữa. Cần: khi đã proposed, đổi nút thành trạng thái/link
+  (không re-POST), hoặc disable + chỉ cho "Lưu BOM mới" khi BOM thực sự đổi.
+
+Pointers: template `co_case.html:1165-1206` (nút + dòng "Đã propose: <artifact> · trạng thái …"),
+JS `initOriginProposeBom` (`co_case.html:4902`), endpoint `…/origin/sheet/{product_code}/propose-bom`.
+`/discover` trước (đụng hợp đồng Data Hub). Added: 2026-06-08.
+
 ## Performance
 
 ### P1 — "Tạo hồ sơ" → mở "Bảng kê C/O" lần đầu chậm
