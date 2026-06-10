@@ -4639,6 +4639,8 @@
   // so claims/lock semantics and the single Save flow are unchanged; the quick
   // button targets rows with no CO-stock allocation (no BCCT match).
   const wireSheetBulkDelete = (panel) => {
+    if (panel.__bulkDeleteWired) return;
+    panel.__bulkDeleteWired = true;
     const bar = panel.querySelector("[data-origin-bulk-bar]");
     if (!bar) return;
     const selectAll = panel.querySelector("[data-origin-rows-select-all]");
@@ -4697,7 +4699,12 @@
     });
     refresh();
   };
-  document.querySelectorAll("[data-origin-sheet-panel]").forEach(wireSheetBulkDelete);
+  // Re-run after every shell swap (save/calculate/lock route through
+  // replaceCaseShellFromResponse, which replaces the panel DOM). The per-panel
+  // guard above keeps a re-scan idempotent for already-wired nodes.
+  const initSheetBulkDelete = (root = document) => {
+    root.querySelectorAll("[data-origin-sheet-panel]").forEach(wireSheetBulkDelete);
+  };
 
   const clearSheetDirty = (panel) => {
     if (!panel) return;
@@ -5136,6 +5143,7 @@
     initOriginWarningSummaries(root);
     initOriginColumnControls(root);
     initOriginAllocationToggles(root);
+    initSheetBulkDelete(root);
     initOriginRecommendationOverrides(root);
     initOriginSubstituteModal();
     initOriginProposeBom(root);
