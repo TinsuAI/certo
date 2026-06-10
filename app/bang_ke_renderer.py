@@ -18,6 +18,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from app.origin_material_filters import is_bom_technical_noise
+
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = ROOT / "config" / "bang-ke-forms"
 
@@ -254,7 +256,7 @@ def _write_body(ws, body_cfg: dict, product: dict) -> tuple[int, dict]:
     use_vnd = currency_mode == "vnd"
     for index, material in enumerate(materials):
         override = overrides.get(str(index)) if isinstance(overrides.get(str(index)), dict) else {}
-        if override.get("deleted"):
+        if override.get("deleted") or is_bom_technical_noise(material):
             continue
         material_code = override.get("material_code") or material.get("material_code", "")
         material_name = override.get("name") or material.get("material_description", "")

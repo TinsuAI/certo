@@ -21,6 +21,8 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
+from app.origin_material_filters import is_bom_technical_noise
+
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
@@ -386,7 +388,7 @@ def _render_sheet(ws, cfg: BangKeConfig, form: FormSpec, case: dict, product: di
     counter = 1
     for index, material in enumerate(materials):
         override = overrides.get(str(index)) if isinstance(overrides.get(str(index)), dict) else {}
-        if override.get("deleted"):
+        if override.get("deleted") or is_bom_technical_noise(material):
             continue
         values, origin_value, non_origin_value = _build_material_row(material, override, product, counter)
         sum_origin += origin_value

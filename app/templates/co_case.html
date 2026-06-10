@@ -1528,6 +1528,8 @@
                       <span class="mono">{{ substitute_label }}</span>
                       {% if row_override and row_override.material_code and row_override.material_code != substitute_label %}<small class="origin-material-code-override-mark">→ {{ row_override.material_code }}</small>{% endif %}
                       {% if row_override and row_override.deleted %}<small class="origin-material-code-override-mark">(đã xoá)</small>{% endif %}
+                      {% if material.declarable_unmatched %}<small class="origin-material-code-override-mark" title="NVL thật nhưng chưa khớp tờ khai nhập (chưa có HS/CIF) — cần đối soát trước khi phát hành C/O">⚠ chưa khớp · cần đối soát</small>
+                      {% elif material.bom_technical_noise %}<small class="origin-material-code-override-mark" title="Phi vật tư (bản vẽ/nhãn/tài liệu) — không xuất ra bảng kê">(phi vật tư · không xuất)</small>{% endif %}
                     </button>
                   </td>
                   <td data-origin-column="name" class="{{ 'origin-cell-warning' if material.material_name_missing else '' }}" title="{{ material.material_warnings_text if material.material_name_missing else material.material_description }}">

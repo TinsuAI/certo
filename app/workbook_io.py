@@ -9,6 +9,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.utils import get_column_letter
 
 from app.bang_ke_renderer import load_form_config, render_into_sheet
+from app.origin_material_filters import is_bom_technical_noise
 from app.bang_ke_xml_generator import render_case as render_case_via_xml
 from app.demo_data import attach_results, get_demo_case
 
@@ -607,7 +608,7 @@ def write_hq_sheet_materials(ws, product: dict, start_row: int, *, legacy_export
 
     for index, material in enumerate(materials):
         override = overrides.get(str(index)) if isinstance(overrides.get(str(index)), dict) else {}
-        if override.get("deleted"):
+        if override.get("deleted") or is_bom_technical_noise(material):
             continue
         material_code = override.get("material_code") or material.get("material_code", "")
         material_name = override.get("name") or material.get("material_description", "")

@@ -11,6 +11,7 @@ from app.bom_service import bom_service
 from app.bom_store import attach_case_bom_snapshot
 from app.co_case_store import build_case_criteria_rows, case_from_record, co_case_delete_block_reason, co_case_is_completed, co_case_status_view, declaration_refs, get_case_record, get_case_workspace, json_safe, load_state
 from app.co_form_config_store import load_co_form_config
+from app.origin_material_filters import is_bom_technical_noise, is_declarable_unmatched
 from app.co_forms import COMMON_MARKET_PRESETS, common_market_guidance, criteria_preview_for_hs, form_candidates_for_market, prioritized_form_lanes, recommended_form_lane
 from app.co_market_hints import infer_market_from_invoice_matches
 from app.customs_fx_store import CUSTOMS_FX_CLIENT_ID, get_customs_fx_store
@@ -1901,6 +1902,9 @@ def origin_material_structure_only(
         "bom_scrap_rate": row.get("scrap_rate", ""),
         "bom_source": row.get("source", ""),
         "bom_row_class": row.get("row_class", ""),
+        "customs_relevance": material.get("customs_relevance", ""),
+        "item_category": material.get("item_category", ""),
+        "material_group": material.get("material_group", ""),
         "uom": row.get("uom", ""),
         "source_document_ref": row.get("source") or row.get("product_version_id", ""),
     }
@@ -2074,6 +2078,9 @@ def origin_material_from_bom_row(
         "bom_scrap_rate": row.get("scrap_rate", ""),
         "bom_source": row.get("source", ""),
         "bom_row_class": row.get("row_class", ""),
+        "customs_relevance": material.get("customs_relevance", ""),
+        "item_category": material.get("item_category", ""),
+        "material_group": material.get("material_group", ""),
         "uom": row.get("uom", ""),
         "source_document_ref": allocation_document_ref(allocation_lines) or row.get("source") or row.get("product_version_id", ""),
     }
@@ -2463,6 +2470,8 @@ def enrich_origin_material(material: dict) -> dict:
     for allocation in enriched["allocation_lines"]:
         if not allocation.get("opening_qty"):
             allocation["opening_qty"] = allocation.get("available_qty", "")
+    enriched["bom_technical_noise"] = is_bom_technical_noise(enriched)
+    enriched["declarable_unmatched"] = is_declarable_unmatched(enriched)
     enriched["allocation_status"] = enriched.get("allocation_status") or ("covered" if enriched["allocation_lines"] else "")
     enriched["allocation_summary"] = enriched.get("allocation_summary") or allocation_summary(
         enriched["allocation_lines"],
@@ -2510,7 +2519,29 @@ def origin_warning_summary(product: dict, materials: list[dict], warnings: list[
             "LVC đang tạm tính từ phần tồn CO đã phân bổ được.",
         ))
     summary.extend(material_issue_summary(materials, "default_conservative", "origin_status_source", "Chưa phân loại xuất xứ", "Đang tạm tính bảo thủ là không xuất xứ."))
-    missing_name_materials = [material for material in materials if material.get("material_name_missing")]
+    non_material_rows = [
+        material for material in materials
+        if material.get("bom_technical_noise") and not material.get("declarable_unmatched")
+    ]
+    if non_material_rows:
+        summary.append(material_summary_row(
+            non_material_rows,
+            "excluded_non_material",
+            "Đã loại phi vật tư",
+            "Bản vẽ/tài liệu/nhãn (phi vật tư), không phải NVL khai — đã loại khỏi bảng kê và bản xuất.",
+        ))
+    declarable_unmatched_rows = [material for material in materials if material.get("declarable_unmatched")]
+    if declarable_unmatched_rows:
+        summary.append(material_summary_row(
+            declarable_unmatched_rows,
+            "declarable_unmatched",
+            "Vật tư chưa khớp tờ khai — cần đối soát",
+            "NVL thật nhưng chưa khớp tờ khai nhập (chưa có HS/CIF), chưa xuất được — cần đối soát trước khi phát hành C/O.",
+        ))
+    missing_name_materials = [
+        material for material in materials
+        if material.get("material_name_missing") and not material.get("bom_technical_noise")
+    ]
     if missing_name_materials:
         summary.append(material_summary_row(
             missing_name_materials,
