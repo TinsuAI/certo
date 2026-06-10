@@ -330,7 +330,7 @@ Response item fields:
 - `updated_at`
 - `material_group` — raw SAP Material Group (e.g. `RD21`), or null if the code never appeared in a technical-BOM source (mig 078).
 - `item_category` — derived physical nature: `drawing|document|label|packaging|metal|hardware|plastic|consumable|assembly_set|finished|other`, or null.
-- `customs_relevance` — derived declarability: `excluded_non_material` (drawing/document/label — exclude from bảng kê) · `declarable` (physical material with a BCCT import match) · `declarable_unmatched` (physical, no import match — **do not silently drop**; reconcile) · `review` (has a Material Group but no client map row) · `null` (no Material Group). Derived from `hub.client_material_group_map` × BCCT-import evidence.
+- `customs_relevance` — derived declarability: `excluded_non_material` (non-imported document/label — exclude from bảng kê) · `declarable` (has a BCCT import match) · `declarable_unmatched` (physical material/drawing/set, no import match — **do not silently drop**; reconcile) · `review` (has a Material Group but no client map row) · `null` (no Material Group). Derived from `hub.client_material_group_map` × BCCT-import evidence. **Import wins (mig 079):** a material with an import line is always `declarable`, regardless of Material Group — a genuinely-imported material is never classified rác.
 
 #### `GET /v1/hub/materials/{customs_code}`
 

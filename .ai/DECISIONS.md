@@ -61,6 +61,16 @@ verification. `declarable_unmatched` (welding-rod variant, bulk-decomposed
 steel) must NOT be auto-dropped — flagged for catalog↔customs reconciliation
 (future Phase 2). Cross-link in `BCQT-System/.ai/DECISIONS.md` pending.
 
+**Correction (mig 079, same day, post-`/rev`):** mig-078's view classified by
+Material Group alone, ignoring import evidence → dropped 205 imported HS-bearing
+materials (incl. steel weight-plates mislabeled under RD07, which is SAP "Set/
+Semi-Assy", not "drawing"). Fixed: (a) **import wins** — `has_imports → declarable`
+before the rác check; (b) RD07 remapped drawing→assembly_set; (c) backfill Phase D
+rewritten to derive from the view (set + **clear**), import-aware for phantom, so
+map/view edits propagate and re-runs are idempotent. Lesson: a Material-Group
+heuristic must never override hard import evidence; verify a classifier against the
+actual data before trusting the mapping (RD07 ≠ drawing).
+
 ## 2026-05-07 BOM vocab rename — version → artifact, profile → preset
 
 **Context:** GLOSSARY locked the canonical 4-tier ontology

@@ -1,30 +1,34 @@
 # Discovery: declarability of "only-in-technical-BOM" leaf NVL (johnson-vn)
 
-> ## ⚠ STATUS 2026-06-09 — IMPLEMENTED, **NOT YET REVIEWED** (review before prod / CO adoption)
+> ## STATUS 2026-06-09 — REVIEWED (`/rev`) + FIXED (mig 079); branch unmerged/unpushed
 >
-> Built on branch `feat/bom-material-group-declarability` (commits feat/test/docs/perf),
-> full suite green (1454 passed), backfill applied to **local dev DB only**. The
-> owner is not yet confident — **needs a `/rev` pass before pushing to prod, before
-> applying the backfill to demo/prod, and before CO flips `exclude_non_declarable` on.**
+> Branch `feat/bom-material-group-declarability`, full suite green (**1456 passed**),
+> backfill applied to **local dev DB only**. A `/rev` pass found a **Critical** bug
+> in mig 078 — now fixed by **mig 079**. Still needs final owner sign-off before
+> push / demo-prod backfill / CO adoption, but the substantive risks are resolved.
 >
-> Reviewer should specifically scrutinise:
-> 1. **Classification correctness** — is RD12 `label` → rác the right call? Is the
->    rác set {RD07,RD08,RD12,phantom} complete + not over-broad? Spot-check the
->    `client_material_group_map` seed against real items.
-> 2. **`declarable_unmatched` handling** — confirm these are never silently dropped
->    (steel/welding variants must stay visible for reconciliation). Validate the
->    CO consumer spec's export-exclude-but-flag behavior is actually safe.
-> 3. **Inline CASE duplication** — `customs_relevance` is computed inline in
->    `api.py` + `catalog.py` AND in the `v_material_classification` view. Drift risk.
->    Consider a parity test (like `test_has_drift_remaining_parity`) locking
->    inline ⇔ view.
-> 4. **Backfill data mutation** — ~8,150 live johnson rows soft-excluded; re-verify
->    counts + that no real material was wrongly excluded before running on demo/prod.
-> 5. **Cross-client safety** — verified Growatt = all-null/no-op; re-confirm after review.
-> 6. **Coverage gap** — only `sap_indented_walk` emits `material_group`; other
->    adapters → null/no-op (no benefit). Acceptable? Or extend.
->
-> Tracked in `.ai/BACKLOG.md` (A.x — declarability review).
+> **What `/rev` found + fixed (mig 079):**
+> 1. **CRITICAL — import-blind override.** mig-078's view marked a material
+>    `excluded_non_material` purely on Material Group, ignoring import evidence →
+>    **205 imported, HS-bearing materials dropped** (142 labels + 63 mislabeled
+>    "drawings/docs" that are really steel weight-plates/grips). **Fix:** a real
+>    import wins — `has_imports → declarable` before the rác check. Verified: **0**
+>    `declarable` materials now have excluded rows.
+> 2. **RD07 overloaded.** It's the SAP "Set/Semi-Assy" grouping (Packaging/Pad/
+>    Frame/Screw set), not "drawing" — mig-078 wrongly excluded ~753 real sets.
+>    **Fix:** remap `RD07 → assembly_set` (declarable). Genuine RD07 drawings now
+>    surface as `declarable_unmatched` (kept + flagged for review), never dropped.
+>    Auto-hiding drawings precisely needs name-level classification (catalog_candidates
+>    lacks a name for ~704 of these) → deferred follow-up.
+> 3. **Backfill drift → made re-runnable.** Phase D now derives exclusion FROM the
+>    view (set + **clear** stale) and is import-aware for phantom too, so map/view
+>    edits propagate. Idempotent (re-run = 0). Final exclusions: `rac:label` 4777 +
+>    `rac:phantom` 1867 + `rac:document` 1305; **no `rac:drawing`, no imported rows.**
+> 4. **Parity test added** (`test_customs_relevance_parity.py`) locking the inline
+>    api/catalog CASE ⇔ the view (incl. the import guard).
+> 5. **Minor:** `exclude_non_declarable` now rejects the string `"false"`.
+> 6. Cross-client no-op re-confirmed (Growatt all-null); coverage still
+>    `sap_indented_walk`-only (known, acceptable).
 
 **Date:** 2026-06-08 · **Type:** investigation / API-contract scoping (no code shipped)
 **Driver:** CO consumes flattened BOM artifacts and turns each row into a

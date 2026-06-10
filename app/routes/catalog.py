@@ -643,12 +643,13 @@ def _query_materials(*, client_id: str, category: str | None,
                m.promoted_to_declared_at, m.promoted_by,
                m.material_group, mgmap.item_category,
                -- inline (mirrors hub.v_material_classification) to avoid a 2nd
-               -- v_material_roles aggregation on this hot list path.
+               -- v_material_roles aggregation on this hot list path. has_imports
+               -- precedes the rác check: a real import wins over MG (mig 079).
                case
                  when m.material_group is null then null
+                 when coalesce(vmr.has_imports, false) then 'declarable'
                  when mgmap.material_group is null then 'review'
                  when mgmap.is_declarable = false then 'excluded_non_material'
-                 when coalesce(vmr.has_imports, false) then 'declarable'
                  else 'declarable_unmatched'
                end as customs_relevance,
                (m.hq_registered = true) as is_registered,

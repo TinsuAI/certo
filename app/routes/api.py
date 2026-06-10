@@ -436,11 +436,13 @@ _MATERIALS_SELECT_WITH_ROLES = """
            -- customs_relevance computed inline (mirrors hub.v_material_classification,
            -- which is the canonical def + parity-tested) to avoid re-joining the
            -- heavy v_material_roles aggregation a second time via the view.
+           -- has_imports precedes the rác check: a real import wins over the MG
+           -- heuristic (mig 079).
            case
              when m.material_group is null then null
+             when coalesce(vmr.has_imports, false) then 'declarable'
              when mgmap.material_group is null then 'review'
              when mgmap.is_declarable = false then 'excluded_non_material'
-             when coalesce(vmr.has_imports, false) then 'declarable'
              else 'declarable_unmatched'
            end as customs_relevance,
            coalesce(vmr.has_imports, false) as has_imports,
@@ -1458,11 +1460,13 @@ async def api_bom_artifacts_batch(
     latest = True if latest_raw is None else bool(latest_raw)
     include_rows_raw = body.get("include_rows")
     include_rows = True if include_rows_raw is None else bool(include_rows_raw)
-    # Drop rows soft-excluded as non-declarable ("rác": drawing/document/label/
-    # phantom — mig 078). Default off so the contract is unchanged until a
-    # consumer opts in (per-client rollout). Echoed in filter_applied so CO can
-    # detect server support and not double-filter.
-    exclude_non_declarable = bool(body.get("exclude_non_declarable") or False)
+    # Drop rows soft-excluded as non-declarable ("rác" — mig 078). Default off so
+    # the contract is unchanged until a consumer opts in (per-client rollout).
+    # Echoed in filter_applied so CO can detect server support and not double-filter.
+    # Accept JSON true OR the string "true"; everything else (incl. the string
+    # "false") is false.
+    _excl_raw = body.get("exclude_non_declarable")
+    exclude_non_declarable = _excl_raw is True or str(_excl_raw).strip().lower() == "true"
     case_id = body.get("case_id")
 
     raw_intents = body.get("intents")

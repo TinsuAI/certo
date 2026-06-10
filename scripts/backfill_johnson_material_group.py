@@ -184,32 +184,73 @@ def run(client: str, source_dir: str, apply: bool) -> int:
                 (client,))
             print(f"Phase C: bom_artifact_rows.payload updated: {cur.rowcount}")
 
-            # Phase D1 — exclude rows whose material_group is non-declarable.
+            # Phase D — materialize the exclusion FROM the canonical view
+            # (hub.v_material_classification). Set + clear so the backfill is
+            # re-runnable and map/view edits propagate (a code reclassified out
+            # of 'excluded_non_material' gets un-excluded on the next run). The
+            # view's import-aware logic means imported materials are never
+            # excluded here (mig 079).
+            # D1 — exclude (and (re)label) rows the view marks
+            # excluded_non_material. Re-labels stale reasons so the row's reason
+            # always reflects its current item_category (idempotent).
             cur.execute(
                 "update hub.bom_artifact_rows r "
-                "set excluded_at = now(), "
-                "    exclusion_reason = 'rac:' || map.item_category "
-                "from hub.bom_artifacts a, hub.materials m, "
-                "     hub.client_material_group_map map "
+                "set excluded_at = coalesce(r.excluded_at, now()), "
+                "    exclusion_reason = 'rac:' || v.item_category "
+                "from hub.bom_artifacts a, hub.v_material_classification v "
                 "where r.artifact_id = a.artifact_id and a.client_id=%s "
-                "  and m.client_id = a.client_id and m.material_code = r.material_code "
-                "  and map.client_id = m.client_id "
-                "  and map.material_group = m.material_group "
-                "  and map.is_declarable = false "
-                "  and r.excluded_at is null",
+                "  and v.client_id = a.client_id and v.material_code = r.material_code "
+                "  and v.customs_relevance = 'excluded_non_material' "
+                "  and (r.excluded_at is null "
+                "       or r.exclusion_reason is distinct from 'rac:' || v.item_category)",
                 (client,))
-            print(f"Phase D1: rows excluded (non-declarable MG): {cur.rowcount}")
+            print(f"Phase D1: rows excluded/relabeled (excluded_non_material): {cur.rowcount}")
 
-            # Phase D2 — exclude phantom rows (independent of MG).
+            # D2 — exclude (and (re)label) phantom rows that are NOT already an
+            # excluded_non_material type (independent axis; not in the view).
             cur.execute(
                 "update hub.bom_artifact_rows r "
-                "set excluded_at = now(), exclusion_reason = 'rac:phantom' "
+                "set excluded_at = coalesce(r.excluded_at, now()), "
+                "    exclusion_reason = 'rac:phantom' "
                 "from hub.bom_artifacts a "
                 "where r.artifact_id = a.artifact_id and a.client_id=%s "
                 "  and (r.payload->>'phantom') = 'true' "
-                "  and r.excluded_at is null",
+                "  and (r.excluded_at is null "
+                "       or r.exclusion_reason is distinct from 'rac:phantom') "
+                # Skip phantoms that are excluded_non_material (D1 labels those)
+                # AND skip imported phantoms ('declarable' — import wins over the
+                # phantom structural flag; an imported unit is a real material).
+                "  and not exists ("
+                "    select 1 from hub.v_material_classification v "
+                "    where v.client_id = a.client_id and v.material_code = r.material_code "
+                "      and v.customs_relevance in ('excluded_non_material','declarable'))",
                 (client,))
-            print(f"Phase D2: rows excluded (phantom): {cur.rowcount}")
+            print(f"Phase D2: rows excluded/relabeled (phantom): {cur.rowcount}")
+
+            # D3 — CLEAR stale exclusions: rows previously excluded that the view
+            # no longer marks excluded_non_material AND are not phantom. This is
+            # what makes a map/view edit (e.g. RD07 un-rác, or import-aware
+            # rescue) actually propagate to already-materialized rows.
+            # A row stays excluded iff excluded_non_material OR (phantom AND not
+            # imported). Clear everything else — including imported phantoms
+            # (now 'declarable') and RD07 sets/drawings (now declarable_unmatched).
+            cur.execute(
+                "update hub.bom_artifact_rows r "
+                "set excluded_at = null, exclusion_reason = null "
+                "from hub.bom_artifacts a "
+                "where r.artifact_id = a.artifact_id and a.client_id=%s "
+                "  and r.excluded_at is not null "
+                "  and not exists ("
+                "    select 1 from hub.v_material_classification v "
+                "    where v.client_id = a.client_id and v.material_code = r.material_code "
+                "      and v.customs_relevance = 'excluded_non_material') "
+                "  and ( (r.payload->>'phantom') is distinct from 'true' "
+                "        or exists ("
+                "          select 1 from hub.v_material_classification v "
+                "          where v.client_id = a.client_id and v.material_code = r.material_code "
+                "            and v.customs_relevance = 'declarable') )",
+                (client,))
+            print(f"Phase D3: stale exclusions cleared: {cur.rowcount}")
 
             # Phase E — one audit event per artifact not yet audited.
             cur.execute(

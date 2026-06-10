@@ -32,6 +32,11 @@ Silent / opt-in; no consumer code change required.
 - Default-off everywhere → existing CO/BCQT calls unchanged. CO opts in for
   johnson-vn after verification. Full note:
   `.ai/sister-app-notes/2026-06-09-bom-row-exclusion-and-material-group.md`.
+- **mig 079 (same-day correction):** `customs_relevance` is **import-aware** — a
+  material with a BCCT import line is always `declarable`, never rác (regardless of
+  Material Group). `excluded_non_material` is now non-imported document/label only;
+  RD07 (SAP "Set/Semi-Assy", not "drawing") → declarable, its drawings →
+  `declarable_unmatched`. No shape change; same enum.
 
 ## 2026-06-08 — Cosmetic: staleness flags are convertibility-aware (fewer false positives)
 

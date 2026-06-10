@@ -39,13 +39,20 @@ Per BOM row (batch/single), additive: `excluded_at`, `exclusion_reason`, and
 payload `material_group`/`phantom`/`bulk`. CO's decision is **material-level**
 (`customs_relevance`), so the row fields are optional/diagnostic.
 
+**Import wins (mig 079):** any material with a BCCT import line is `declarable`
+regardless of Material Group — DH never classifies a genuinely-imported material
+as rác. So `excluded_non_material` = **non-imported documents + labels** (+ phantom
+rows). Drawings live in the overloaded SAP group RD07 (mixed with real "Set/Semi-
+Assy"); they are **not** auto-excluded — a non-imported drawing surfaces as
+`declarable_unmatched` for review (precise drawing auto-hide is a DH follow-up).
+
 Meaning → required CO behavior:
 
 | `customs_relevance` | what it is | bảng kê EXPORT | web sheet |
 |---|---|---|---|
-| `excluded_non_material` | drawing / document / label / phantom (rác) | **exclude** (LVC-neutral) | collapse/flag "phi vật tư" |
-| `declarable` | physical material **with** a BCCT import match | **emit** normally | normal |
-| `declarable_unmatched` | physical material, **no** import match (steel cut-piece, welding variant) | **exclude from export BUT flag** — cannot emit a no-HS/no-CIF line | **⚠ "cần đối soát"** review bucket — distinct from noise |
+| `excluded_non_material` | non-imported document / label (+ phantom rows via `excluded_at`) | **exclude** (LVC-neutral) | collapse/flag "phi vật tư" |
+| `declarable` | material **with** a BCCT import match (import wins over MG) | **emit** normally | normal |
+| `declarable_unmatched` | physical material / drawing / set, **no** import match (steel cut-piece, welding variant, RD07 drawings & sets) | **exclude from export BUT flag** — cannot emit a no-HS/no-CIF line | **⚠ "cần đối soát"** review bucket — distinct from noise |
 | `review` / `null` | unmapped MG / not classified | treat as needs-attention | flag; never silently drop |
 
 The behavior change vs today: `declarable_unmatched` must be shown as a
