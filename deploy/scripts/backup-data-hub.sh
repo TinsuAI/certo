@@ -19,7 +19,12 @@ APP_SERVICE="${APP_SERVICE:-app}"
 DB_NAME="${DB_NAME:-data_hub}"
 DB_USER="${DB_USER:-hub}"
 BACKUP_ROOT="${BACKUP_ROOT:-/home/tinsu/backups/data-hub}"
-RETAIN_DAYS="${RETAIN_DAYS:-14}"
+# GFS retention: keep N most-recent dailies, then one-per-week (Sundays) for
+# GFS_WEEKLY weeks, then one-per-month (day 01) for GFS_MONTHLY months. Decision
+# is purely date-based from the filename, so it is stateless and idempotent.
+GFS_DAILY="${GFS_DAILY:-7}"
+GFS_WEEKLY="${GFS_WEEKLY:-8}"
+GFS_MONTHLY="${GFS_MONTHLY:-6}"
 
 today=$(date +%F)
 status_file="${BACKUP_ROOT}/status-${today}.txt"
@@ -94,12 +99,36 @@ backup_volume() {
 backup_volume "$appfiles_vol" appfiles "./render_cache"
 backup_volume "$appkeys_vol" appkeys
 
-# --- Step 4: Prune -----------------------------------------------------------
-log "prune older than ${RETAIN_DAYS} days"
-find "$BACKUP_ROOT" -maxdepth 1 \
-    \( -name 'db-*.dump' -o -name 'appfiles-*.tar.zst' \
-       -o -name 'appkeys-*.tar.zst' -o -name 'status-*.txt' \) \
-    -mtime "+${RETAIN_DAYS}" -delete
+# --- Step 4: Prune (GFS) -----------------------------------------------------
+# A dated artifact is KEPT when any tier claims it:
+#   daily   : age <= GFS_DAILY days
+#   weekly  : age <= GFS_WEEKLY weeks   AND it is a Sunday   (dow=7)
+#   monthly : age <= GFS_MONTHLY months AND it is day-of-month 01
+# Everything else is deleted. db dumps are tiny (~300M) so the long monthly
+# tail is cheap; appfiles tars shrink further once R2 incremental is live.
+now_epoch=$(date +%s)
+gfs_verdict() {  # arg: YYYY-MM-DD -> echoes "keep" | "drop"
+    local d="$1" epoch age_days dow dom
+    epoch=$(date -d "$d" +%s 2>/dev/null) || { echo keep; return; }  # unparsable → keep
+    age_days=$(( (now_epoch - epoch) / 86400 ))
+    dow=$(date -d "$d" +%u 2>/dev/null)   # 1..7, 7=Sunday
+    dom=$(date -d "$d" +%d 2>/dev/null)   # 01..31
+    if [ "$age_days" -le "$GFS_DAILY" ]; then echo keep; return; fi
+    if [ "$age_days" -le $(( GFS_WEEKLY * 7 )) ] && [ "$dow" = "7" ]; then echo keep; return; fi
+    if [ "$age_days" -le $(( GFS_MONTHLY * 31 )) ] && [ "$dom" = "01" ]; then echo keep; return; fi
+    echo drop
+}
+log "prune (GFS ${GFS_DAILY}d/${GFS_WEEKLY}w/${GFS_MONTHLY}m)"
+for f in "$BACKUP_ROOT"/db-*.dump "$BACKUP_ROOT"/appfiles-*.tar.zst \
+         "$BACKUP_ROOT"/appkeys-*.tar.zst "$BACKUP_ROOT"/status-*.txt \
+         "$BACKUP_ROOT"/drill-*.txt; do
+    [ -e "$f" ] || continue
+    d=$(printf '%s\n' "$f" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)
+    [ -n "$d" ] || continue
+    if [ "$(gfs_verdict "$d")" = "drop" ]; then
+        rm -f "$f" && log "  pruned $(basename "$f")"
+    fi
+done
 
 # --- Step 5: Write status ---------------------------------------------------
 if [ "${#errors[@]}" -eq 0 ]; then
