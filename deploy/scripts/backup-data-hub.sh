@@ -19,7 +19,7 @@ APP_SERVICE="${APP_SERVICE:-app}"
 DB_NAME="${DB_NAME:-data_hub}"
 DB_USER="${DB_USER:-hub}"
 BACKUP_ROOT="${BACKUP_ROOT:-/home/tinsu/backups/data-hub}"
-RETAIN_DAYS="${RETAIN_DAYS:-30}"
+RETAIN_DAYS="${RETAIN_DAYS:-14}"
 
 today=$(date +%F)
 status_file="${BACKUP_ROOT}/status-${today}.txt"
@@ -59,16 +59,24 @@ fi
 # Mount the named volume read-only into a throwaway alpine container and
 # stream tar | zstd back to the host. No app downtime: docker handles
 # concurrent read of the volume contents.
+#
+# appfiles excludes render_cache/: it is a content-addressed cache of
+# LibreOffice-rendered declaration PDFs, fully regenerable on demand from
+# the source .xls in customs_declarations/ (a cache miss re-renders — see
+# app/declarations_pdf.py). Backing it up daily wasted ~24G; the source
+# .xls IS captured, so a restore loses nothing but a warm cache.
 backup_volume() {
-    local vol="$1" label="$2"
+    local vol="$1" label="$2" exclude="${3:-}"
     local target="${BACKUP_ROOT}/${label}-${today}.tar.zst"
-    log "tar volume $vol → $target"
+    local excl_flag=""
+    [ -n "$exclude" ] && excl_flag="--exclude=${exclude}"
+    log "tar volume $vol → $target${exclude:+ (excluding ${exclude})}"
     if docker run --rm \
             -v "${vol}:/source:ro" \
             -v "${BACKUP_ROOT}:/out" \
             alpine:3.20 \
             sh -c "apk add --quiet --no-cache zstd tar >/dev/null && \
-                   tar -C /source -cf - . | zstd -q -3 -o /out/${label}-${today}.tar.zst.tmp" \
+                   tar -C /source ${excl_flag} -cf - . | zstd -q -3 -o /out/${label}-${today}.tar.zst.tmp" \
             >/dev/null 2>&1; then
         mv "${target}.tmp" "$target"
         # Verify the zstd stream
@@ -83,7 +91,7 @@ backup_volume() {
     fi
 }
 
-backup_volume "$appfiles_vol" appfiles
+backup_volume "$appfiles_vol" appfiles "./render_cache"
 backup_volume "$appkeys_vol" appkeys
 
 # --- Step 4: Prune -----------------------------------------------------------
