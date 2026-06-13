@@ -71,9 +71,13 @@ create table if not exists hub.client_material_group_map (
 --    files (verified 0-conflict per code). rác = drawing/document/label.
 --    Phantom-sets are excluded via the `phantom` flag (independent axis),
 --    NOT via item_category, so assembly_set stays is_declarable=true.
+--    Guarded by `where exists (… hub.clients …)`: a fresh DB (CI) applies
+--    migrations before clients are seeded, so the seed is skipped there and
+--    applies only on installs that already have johnson-vn (matches mig 036/037).
 insert into hub.client_material_group_map
   (client_id, material_group, item_category, is_declarable, source, notes)
-values
+select v.client_id, v.material_group, v.item_category, v.is_declarable, v.source, v.notes
+from (values
   ('johnson-vn','RD07','drawing',      false,'seed','rác: rendering/blueprint/diagram (leaves)'),
   ('johnson-vn','RD08','document',     false,'seed','rác: checklist/manual'),
   ('johnson-vn','RD12','label',        false,'seed','rác: EN/warning/barcode/serial label, decal'),
@@ -102,6 +106,8 @@ values
   ('johnson-vn','RD05','assembly_set', true ,'seed','*-Extrawork sets (rework)'),
   ('johnson-vn','RD31','other',        true ,'seed','permanent magnet'),
   ('johnson-vn','RD03','finished',     true ,'seed','finished treadmill deck')
+) as v(client_id, material_group, item_category, is_declarable, source, notes)
+where exists (select 1 from hub.clients c where c.client_id = v.client_id)
 on conflict (client_id, material_group) do nothing;
 
 -- ────────────────────────────────────────────────────────────────────────
