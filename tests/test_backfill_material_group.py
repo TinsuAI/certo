@@ -114,6 +114,55 @@ def test_backfill_excludes_and_is_idempotent(cid, tmp_path):
         assert cur.fetchone()[0] == 1
 
 
+def _seed_artifact_with_mg(cid):
+    """Seed as if a prior FULL backfill ran: materials.material_group set
+    (so v_material_classification can classify) + a non-phantom artifact."""
+    with connect() as conn, conn.cursor() as cur:
+        for code, mg in (("STEEL-1", "RD21"), ("DRAW-1", "RD07")):
+            cur.execute(
+                "insert into hub.materials (client_id, material_code, name, "
+                "category, material_group) values (%s,%s,%s,'nvl',%s)",
+                (cid, code, code, mg))
+        aid = create_artifact(
+            client_id=cid, product_code="PROD-A",
+            rows=[{"material_code": "STEEL-1", "qty_per_unit": 1, "uom": "EA"},
+                  {"material_code": "DRAW-1", "qty_per_unit": 1, "uom": "EA"}],
+            actor="agency_staff", intent="asserted_technical",
+            parent_artifact_id=None,
+            context={}, source_upload_id=None, cursor=cur,
+        )
+    return aid
+
+
+def _excluded_codes(aid):
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("select material_code from hub.bom_artifact_rows "
+                    "where artifact_id=%s and excluded_at is not null", (aid,))
+        return {r[0] for r in cur.fetchall()}
+
+
+def test_exclusions_only_runs_from_view_without_source(cid):
+    """--exclusions-only re-derives exclusions from v_material_classification
+    (live map) with NO source-dir parse, is idempotent, and a map edit
+    propagates (un-rác clears the stale exclusion via Phase D3)."""
+    aid = _seed_artifact_with_mg(cid)
+
+    # No source_dir needed: derive purely from the view.
+    run(client=cid, source_dir=None, apply=True, exclusions_only=True)
+    assert _excluded_codes(aid) == {"DRAW-1"}  # RD07 drawing, not declarable
+
+    # Idempotent re-run.
+    run(client=cid, source_dir=None, apply=True, exclusions_only=True)
+    assert _excluded_codes(aid) == {"DRAW-1"}
+
+    # Staff edits the map: RD07 becomes declarable → re-run must un-exclude.
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("update hub.client_material_group_map set is_declarable=true "
+                    "where client_id=%s and material_group='RD07'", (cid,))
+    run(client=cid, source_dir=None, apply=True, exclusions_only=True)
+    assert _excluded_codes(aid) == set()
+
+
 def test_get_rows_filter_omits_excluded(cid, tmp_path):
     src = _write_source(tmp_path)
     aid = _seed_artifact(cid)

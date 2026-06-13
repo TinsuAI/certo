@@ -69,15 +69,16 @@ class BomAdapter(Protocol):
               mapping_override: dict[str, str] | None = None
               ) -> dict[str, list[dict]]: ...
 
-    # Optional. A confidence in [0, 1] that THIS adapter is the right one
-    # for `blob`, or None to abstain. Used by parse_with_fallback to rank
-    # candidates ahead of plain registration order: adapters that return a
-    # positive score are tried before abstaining ones. High-precision only
-    # — return a positive score solely on unambiguous structural markers
-    # (e.g. an explicit Level column). Adapters that don't implement detect
-    # (or return None) keep registration order, so omitting it is a no-op.
-    # def detect(self, blob: bytes, *, root_code: str | None = None
-    #            ) -> float | None: ...
+    # A confidence in [0, 1] that THIS adapter is the right one for `blob`,
+    # or None to abstain. Used by parse_with_fallback to rank candidates ahead
+    # of plain registration order: adapters that return a positive score are
+    # tried before abstaining ones. High-precision only — return a positive
+    # score solely on unambiguous structural markers (e.g. an explicit Level
+    # column). A new adapter SHOULD implement detect() as its extension point;
+    # an explicit `return None` abstains (keeps registration order). The runner
+    # (_safe_detect) also tolerates a missing method for backward-compat.
+    def detect(self, blob: bytes, *, root_code: str | None = None
+               ) -> float | None: ...
 
 
 _REGISTRY: dict[str, BomAdapter] = {}
@@ -114,6 +115,31 @@ def adapter_names() -> list[str]:
 
 def adapters() -> Iterator[BomAdapter]:
     return iter(_REGISTRY.values())
+
+
+def registry_info() -> list[dict]:
+    """Describe registered adapters for the read-only admin registry view (B.0).
+    Pure metadata read — no parsing. Order = registration order = the fallback
+    order used by parse_with_fallback when no detect() score discriminates."""
+    legacy: dict[str, list[str]] = {}
+    for old, new in _LEGACY_ALIASES.items():
+        legacy.setdefault(new, []).append(old)
+    out: list[dict] = []
+    for idx, a in enumerate(_REGISTRY.values()):
+        out.append({
+            "name": a.name,
+            "order": idx,
+            "label_key": getattr(a, "label_key", ""),
+            "description_key": getattr(a, "description_key", ""),
+            "supports_mapping_override":
+                bool(getattr(a, "supports_mapping_override", False)),
+            "emits_intermediate_btp_versions":
+                bool(getattr(a, "emits_intermediate_btp_versions", False)),
+            "post_ingest_hooks": list(getattr(a, "post_ingest_hooks", []) or []),
+            "has_detect": callable(getattr(a, "detect", None)),
+            "legacy_aliases": sorted(legacy.get(a.name, [])),
+        })
+    return out
 
 
 def parse_with(

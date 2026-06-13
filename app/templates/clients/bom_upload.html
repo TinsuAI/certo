@@ -13,17 +13,19 @@
   </div>
   <form method="post" action="/clients/{{ client.client_id }}/bom/upload"
         enctype="multipart/form-data" class="zone mini-panel" style="max-width: 700px;">
+    {% set default_adapter = default_adapter or 'auto' %}
     <label class="field">
       <span class="field-label">{{ t('bom.upload_profile') }}</span>
       <select name="profile">
-        <option value="auto" selected>Tự động phát hiện (recommended)</option>
+        <option value="auto" {{ 'selected' if default_adapter == 'auto' }}>Tự động phát hiện (recommended)</option>
         {% for p in profiles %}
-        <option value="{{ p }}">{{ t('bom.adapter.' ~ p ~ '.label') }} ({{ p }})</option>
+        <option value="{{ p }}" {{ 'selected' if default_adapter == p }}>{{ t('bom.adapter.' ~ p ~ '.label') }} ({{ p }})</option>
         {% endfor %}
       </select>
       <p class="meta" style="font-size:.85em; color:#888; margin-top:.3em;">
-        Mặc định <strong>Tự động</strong> — hệ thống thử lần lượt 5 parser
-        và chọn cái phù hợp. Chọn parser cụ thể nếu auto chọn sai.
+        Mặc định client:
+        <strong>{{ 'Tự động' if default_adapter == 'auto' else default_adapter }}</strong>.
+        Hệ thống thử lần lượt các parser và chọn cái phù hợp. Chọn parser cụ thể nếu auto chọn sai.
       </p>
     </label>
     <div class="upload-zone">
@@ -31,6 +33,18 @@
       <p class="meta">{{ t('bom.upload_profile_help') }}</p>
     </div>
     <button type="submit" class="btn-primary">{{ t('common.upload_btn') }}</button>
+  </form>
+
+  <form method="post" action="/clients/{{ client.client_id }}/bom/default-adapter"
+        class="form-row" style="max-width: 700px; margin-top: .75rem;">
+    <span class="field-label">Đặt parser mặc định cho client:</span>
+    <select name="profile">
+      <option value="auto" {{ 'selected' if default_adapter == 'auto' }}>Tự động phát hiện</option>
+      {% for p in profiles %}
+      <option value="{{ p }}" {{ 'selected' if default_adapter == p }}>{{ p }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn-secondary">Lưu mặc định</button>
   </form>
 </section>
 {% endblock %}

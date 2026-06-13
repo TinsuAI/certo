@@ -34,6 +34,13 @@ class ManualFlatAdapter:
     supports_mapping_override = True
     emits_intermediate_btp_versions = True
 
+    def detect(self, blob: bytes, *, root_code: str | None = None
+               ) -> float | None:
+        # Generic flat layout — no unambiguous structural marker. Abstain so
+        # parse_with_fallback keeps registration order (tried after the
+        # high-precision SAP detectors).
+        return None
+
     def parse(self, blob: bytes, *,
               mapping_override: dict[str, str] | None = None,
               header_row_override: int | None = None,

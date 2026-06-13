@@ -19,6 +19,12 @@ class SheetPerProductAdapter:
     supports_mapping_override = False  # layout-driven, not column-driven
     emits_intermediate_btp_versions = True
 
+    def detect(self, blob: bytes, *, root_code: str | None = None
+               ) -> float | None:
+        # No unambiguous structural marker; abstain (registration-order
+        # fallback). See parse_with_fallback / _ranked_adapters.
+        return None
+
     def parse(self, blob: bytes, *,
               mapping_override: dict[str, str] | None = None,
               ) -> dict[str, list[dict]]:
