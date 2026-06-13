@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Bản đồ Material Group · {{ client.name }} · {{ t('app.brand') }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Bản đồ Material Group (theo client)</h2>
+      <p class="meta">
+        Ánh xạ mã <code>Material Group</code> của SAP sang loại vật tư + cờ
+        <strong>khai báo được</strong>. Đánh dấu <em>không khai báo</em> với các
+        nhóm rác (bản vẽ / tài liệu / nhãn). Không có dòng = mã đó để mặc định
+        <code>declarable_unmatched</code> (cần review), không bao giờ tự sai.
+      </p>
+    </div>
+  </div>
+
+  <div class="callout callout-info" style="margin-bottom: 1rem;">
+    <strong>Lưu ý hai bước.</strong> Sửa bản đồ cập nhật <em>phân loại</em>
+    (<code>customs_relevance</code>) ngay lập tức. Nhưng việc <em>loại trừ khỏi
+    bảng kê</em> dựa trên cờ đã lưu trên từng dòng BOM — cần chạy lại backfill
+    cho client này để áp dụng thay đổi.
+    <form method="post" action="/clients/{{ client.client_id }}/jobs/start"
+          class="inline-form" style="margin-top: .5rem;">
+      <input type="hidden" name="kind" value="material_group_backfill">
+      <button type="submit" class="btn-secondary" {{ 'disabled' if backfill_active }}>
+        {{ 'Đang chạy backfill…' if backfill_active else 'Chạy lại backfill cho client này' }}
+      </button>
+    </form>
+  </div>
+
+  {% if rows %}
+  <table class="dh-table">
+    <thead>
+      <tr><th>Material Group</th><th>Loại vật tư</th><th>Khai báo được</th>
+          <th>Nguồn</th><th>Ghi chú</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td><code>{{ r.material_group }}</code></td>
+        <td>{{ r.item_category }}</td>
+        <td>{{ 'Có' if r.is_declarable else 'Không (rác)' }}</td>
+        <td class="meta">{{ r.source }}</td>
+        <td class="meta">{{ r.notes or '' }}</td>
+        <td>
+          <form method="post"
+                action="/clients/{{ client.client_id }}/material-group-map/delete"
+                class="inline-form">
+            <input type="hidden" name="material_group" value="{{ r.material_group }}">
+            <button type="submit" class="btn-danger">Xóa</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta">Chưa có bản đồ riêng cho client này. Mọi mã Material Group sẽ
+    để mặc định <code>declarable_unmatched</code>.</p>
+  {% endif %}
+
+  <h3 style="margin-top: 1.5rem;">Thêm / cập nhật dòng</h3>
+  <p class="meta">Nhập lại một Material Group đã có để cập nhật (ghi đè).</p>
+  <form method="post" action="/clients/{{ client.client_id }}/material-group-map/add"
+        class="form-row">
+    <label>Material Group:
+      <input type="text" name="material_group" required placeholder="vd: RD07"
+             style="text-transform: uppercase;">
+    </label>
+    <label>Loại vật tư:
+      <select name="item_category" required>
+        {% for c in item_categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="inline-check">
+      <input type="checkbox" name="is_declarable" checked> Khai báo được
+    </label>
+    <label>Ghi chú:
+      <input type="text" name="notes" placeholder="(tùy chọn)">
+    </label>
+    <button type="submit" class="btn-primary">Lưu</button>
+  </form>
+</section>
+{% endblock %}

@@ -197,12 +197,30 @@ async def upload_view(request: Request, client_id: str):
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
+    from app.stores import adapter_binding
     return request.app.state.templates.TemplateResponse(
         request, "clients/bom_upload.html",
         {"client": client, "stats": stats_for_client(client_id),
          "profiles": BOM_PROFILES,
+         "default_adapter": adapter_binding.get_default_adapter(client_id),
          "active_root": "clients", "active_tab": "bom"},
     )
+
+
+@router.post("/clients/{client_id}/bom/default-adapter")
+async def set_default_adapter(request: Request, client_id: str,
+                              profile: str = Form(...)):
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+    from app.stores import adapter_binding
+    try:
+        adapter_binding.set_default_adapter(client_id, profile)
+    except ValueError:
+        raise HTTPException(400, "invalid_adapter")
+    return RedirectResponse(
+        url=f"/clients/{client_id}/bom/upload", status_code=303)
 
 
 @router.post("/clients/{client_id}/bom/upload")

@@ -290,6 +290,23 @@ async def users_view(request: Request, error: str | None = None):
     )
 
 
+@router.get("/admin/bom-adapters", response_class=HTMLResponse)
+async def bom_adapters_view(request: Request):
+    """Read-only BOM adapter registry (B.0) — visibility, not code upload.
+    Lists registered adapters + the per-client default-adapter binding matrix."""
+    user = auth.require_user(request)
+    if not auth.can_manage_users(user):
+        raise HTTPException(403, "forbidden")
+    from app.parsers import bom_adapters
+    from app.stores import adapter_binding
+    return request.app.state.templates.TemplateResponse(
+        request, "admin/bom_adapters.html",
+        {"adapters": bom_adapters.registry_info(),
+         "bindings": adapter_binding.list_bindings(),
+         "active_root": "admin"},
+    )
+
+
 @router.post("/admin/users/new")
 async def users_create(
     request: Request,
@@ -631,6 +648,65 @@ async def column_aliases_delete(
     from app.stores import column_aliases as ca
     ca.delete_alias(alias_id, client_id=client_id)
     return _column_alias_redirect(client_id, module)
+
+
+# ── Per-client SAP Material Group map (B.0) ──────────────────────────────
+
+
+def _mg_map_redirect(client_id: str) -> RedirectResponse:
+    return RedirectResponse(
+        url=f"/clients/{client_id}/material-group-map", status_code=303)
+
+
+@router.get("/clients/{client_id}/material-group-map", response_class=HTMLResponse)
+async def material_group_map_view(request: Request, client_id: str):
+    actor = auth.require_user(request)
+    auth.require_can_edit_client(actor, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    from app import jobs
+    from app.stores import material_group_map as mgm
+    return request.app.state.templates.TemplateResponse(
+        request, "admin/client_material_group_map.html",
+        {"client": client, "stats": stats_for_client(client_id),
+         "rows": mgm.list_map(client_id),
+         "item_categories": mgm.ITEM_CATEGORIES,
+         "backfill_active": jobs.has_active(client_id, "material_group_backfill"),
+         "active_root": "clients", "active_tab": "material_group_map"},
+    )
+
+
+@router.post("/clients/{client_id}/material-group-map/add")
+async def material_group_map_add(
+    request: Request, client_id: str,
+    material_group: str = Form(...), item_category: str = Form(...),
+    is_declarable: str = Form(""), notes: str = Form(""),
+):
+    actor = auth.require_user(request)
+    auth.require_can_edit_client(actor, client_id)
+    from app.stores import material_group_map as mgm
+    try:
+        mgm.upsert(
+            client_id=client_id, material_group=material_group,
+            item_category=item_category,
+            is_declarable=is_declarable.lower() in ("on", "1", "true", "yes"),
+            notes=notes,
+        )
+    except ValueError:
+        raise HTTPException(400, "invalid_material_group_map_row")
+    return _mg_map_redirect(client_id)
+
+
+@router.post("/clients/{client_id}/material-group-map/delete")
+async def material_group_map_delete(
+    request: Request, client_id: str, material_group: str = Form(...),
+):
+    actor = auth.require_user(request)
+    auth.require_can_edit_client(actor, client_id)
+    from app.stores import material_group_map as mgm
+    mgm.delete(client_id=client_id, material_group=material_group)
+    return _mg_map_redirect(client_id)
 
 
 @router.post("/clients/{client_id}/staff/scope")

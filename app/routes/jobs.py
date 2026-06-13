@@ -49,6 +49,11 @@ _JOB_RECIPES: dict[str, dict] = {
         "script": "backfill_declaration_pdfs.py",
         "extra_args": [],
     },
+    "material_group_backfill": {
+        "label_template": "Cập nhật loại trừ theo bản đồ Material Group ({client_id})",
+        "script": "backfill_johnson_material_group.py",
+        "extra_args": ["--exclusions-only", "--apply"],
+    },
 }
 
 

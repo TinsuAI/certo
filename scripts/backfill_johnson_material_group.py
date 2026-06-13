@@ -123,66 +123,71 @@ def parse_code_info(source_dir: str) -> dict[str, dict]:
     return info
 
 
-def run(client: str, source_dir: str, apply: bool) -> int:
-    print(f"== Backfill material_group — client={client} apply={apply} ==")
-    print(f"Phase A: parsing {source_dir} ...")
-    info = parse_code_info(source_dir)
-    print(f"  {len(info)} distinct codes with a Material Group "
-          f"({sum(1 for v in info.values() if v['phantom'])} phantom).")
-
-    items = [(c, v["material_group"], v["phantom"]) for c, v in info.items()]
+def run(client: str, source_dir: str, apply: bool,
+        exclusions_only: bool = False) -> int:
+    print(f"== Backfill material_group — client={client} apply={apply}"
+          f"{' exclusions-only' if exclusions_only else ''} ==")
+    if not exclusions_only:
+        print(f"Phase A: parsing {source_dir} ...")
+        info = parse_code_info(source_dir)
+        print(f"  {len(info)} distinct codes with a Material Group "
+              f"({sum(1 for v in info.values() if v['phantom'])} phantom).")
+        items = [(c, v["material_group"], v["phantom"]) for c, v in info.items()]
 
     with connect() as conn:
         with conn.cursor() as cur:
             # Verify the client map is seeded (else everything would be 'review'
             # and nothing would be excluded — fail loudly rather than no-op).
+            # In exclusions-only mode an empty map is allowed: it means staff
+            # cleared the map, so Phase D3 should clear stale exclusions.
             cur.execute(
                 "select count(*) from hub.client_material_group_map "
                 "where client_id=%s", (client,))
             n_map = cur.fetchone()[0]
-            if n_map == 0:
+            if n_map == 0 and not exclusions_only:
                 sys.exit(f"ABORT: hub.client_material_group_map empty for "
                          f"{client}; seed it first (migration 078).")
             print(f"  client_material_group_map rows: {n_map}")
 
-            cur.execute(
-                "create temp table _mg (code text primary key, "
-                "material_group text not null, phantom boolean not null) "
-                "on commit drop")
-            cur.executemany(
-                "insert into _mg (code, material_group, phantom) "
-                "values (%s, %s, %s)", items)
+            if not exclusions_only:
+                cur.execute(
+                    "create temp table _mg (code text primary key, "
+                    "material_group text not null, phantom boolean not null) "
+                    "on commit drop")
+                cur.executemany(
+                    "insert into _mg (code, material_group, phantom) "
+                    "values (%s, %s, %s)", items)
 
-            # Phase B — materials + catalog_candidates (idempotent guard).
-            cur.execute(
-                "update hub.materials m set material_group = g.material_group "
-                "from _mg g where m.client_id=%s and m.material_code=g.code "
-                "and m.material_group is distinct from g.material_group",
-                (client,))
-            print(f"Phase B: materials.material_group updated: {cur.rowcount}")
-            cur.execute(
-                "update hub.catalog_candidates c "
-                "set material_group = g.material_group "
-                "from _mg g where c.client_id=%s and c.code=g.code "
-                "and c.material_group is distinct from g.material_group",
-                (client,))
-            print(f"         catalog_candidates.material_group updated: "
-                  f"{cur.rowcount}")
+                # Phase B — materials + catalog_candidates (idempotent guard).
+                cur.execute(
+                    "update hub.materials m set material_group = g.material_group "
+                    "from _mg g where m.client_id=%s and m.material_code=g.code "
+                    "and m.material_group is distinct from g.material_group",
+                    (client,))
+                print(f"Phase B: materials.material_group updated: {cur.rowcount}")
+                cur.execute(
+                    "update hub.catalog_candidates c "
+                    "set material_group = g.material_group "
+                    "from _mg g where c.client_id=%s and c.code=g.code "
+                    "and c.material_group is distinct from g.material_group",
+                    (client,))
+                print(f"         catalog_candidates.material_group updated: "
+                      f"{cur.rowcount}")
 
-            # Phase C — merge into bom_artifact_rows.payload (johnson artifacts
-            # only; guard on material_group so re-run is a no-op).
-            cur.execute(
-                "update hub.bom_artifact_rows r "
-                "set payload = r.payload "
-                "  || jsonb_build_object('material_group', g.material_group, "
-                "                        'phantom', g.phantom) "
-                "from _mg g, hub.bom_artifacts a "
-                "where a.artifact_id = r.artifact_id and a.client_id=%s "
-                "  and r.material_code = g.code "
-                "  and coalesce(r.payload->>'material_group','') "
-                "      is distinct from g.material_group",
-                (client,))
-            print(f"Phase C: bom_artifact_rows.payload updated: {cur.rowcount}")
+                # Phase C — merge into bom_artifact_rows.payload (johnson
+                # artifacts only; guard on material_group so re-run is a no-op).
+                cur.execute(
+                    "update hub.bom_artifact_rows r "
+                    "set payload = r.payload "
+                    "  || jsonb_build_object('material_group', g.material_group, "
+                    "                        'phantom', g.phantom) "
+                    "from _mg g, hub.bom_artifacts a "
+                    "where a.artifact_id = r.artifact_id and a.client_id=%s "
+                    "  and r.material_code = g.code "
+                    "  and coalesce(r.payload->>'material_group','') "
+                    "      is distinct from g.material_group",
+                    (client,))
+                print(f"Phase C: bom_artifact_rows.payload updated: {cur.rowcount}")
 
             # Phase D — materialize the exclusion FROM the canonical view
             # (hub.v_material_classification). Set + clear so the backfill is
@@ -297,8 +302,13 @@ def main() -> int:
     ap.add_argument("--source-dir", default=DEFAULT_SOURCE_DIR)
     ap.add_argument("--apply", action="store_true",
                     help="write changes (default: dry-run)")
+    ap.add_argument("--exclusions-only", action="store_true",
+                    help="skip source parse (Phase A/B/C); only re-materialize "
+                         "row exclusions from hub.v_material_classification "
+                         "(Phase D/E). Use after editing the material-group map.")
     args = ap.parse_args()
-    return run(args.client, args.source_dir, args.apply)
+    return run(args.client, args.source_dir, args.apply,
+               exclusions_only=args.exclusions_only)
 
 
 if __name__ == "__main__":

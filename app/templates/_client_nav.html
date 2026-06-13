@@ -19,7 +19,7 @@
 </section>
 
 {% set data_tabs = ['catalog', 'bqd', 'bcct', 'declarations', 'bom', 'proposals'] %}
-{% set config_tabs = ['config', 'parser_rules', 'column_aliases', 'uom-factors', 'staff'] %}
+{% set config_tabs = ['config', 'parser_rules', 'column_aliases', 'material_group_map', 'uom-factors', 'staff'] %}
 <nav class="tabs client-tabs" aria-label="Client workspace tabs">
   <a class="tab-link {{ 'tab-link-active' if active_tab == 'overview' else '' }}"
      href="/clients/{{ client.client_id }}">{{ t('tabs.overview') }}</a>
@@ -65,6 +65,8 @@
          href="/clients/{{ client.client_id }}/parser-rules">Parser rules</a>
       <a class="{{ 'is-active' if active_tab == 'column_aliases' else '' }}"
          href="/clients/{{ client.client_id }}/column-aliases">Cấu hình cột</a>
+      <a class="{{ 'is-active' if active_tab == 'material_group_map' else '' }}"
+         href="/clients/{{ client.client_id }}/material-group-map">Bản đồ Material Group</a>
       {% endif %}
       {% if can_manage_staff(client.client_id) %}
       <a class="{{ 'is-active' if active_tab == 'staff' else '' }}"
