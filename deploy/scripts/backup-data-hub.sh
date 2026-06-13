@@ -96,7 +96,18 @@ backup_volume() {
     fi
 }
 
-backup_volume "$appfiles_vol" appfiles "./render_cache"
+# appfiles is immutable/append-only, so a daily tar is ~identical to the
+# previous day. R2 holds the current set incrementally (offsite); this local
+# tar is the accidental-deletion / corruption safety net, for which weekly
+# granularity suffices. Tar only on Sundays (dow=7); FORCE_APPFILES=1 overrides
+# (manual runs / first seed). db dump + appkeys stay daily.
+if [ "$(date +%u)" = "7" ] || [ "${FORCE_APPFILES:-0}" = "1" ]; then
+    backup_volume "$appfiles_vol" appfiles "./render_cache"
+    appfiles_status="$(du -h "${BACKUP_ROOT}/appfiles-${today}.tar.zst" 2>/dev/null | cut -f1)"
+else
+    log "skip appfiles tar (weekly: Sundays only); R2 holds current set"
+    appfiles_status="skipped(weekly)"
+fi
 backup_volume "$appkeys_vol" appkeys
 
 # --- Step 4: Prune (GFS) -----------------------------------------------------
@@ -136,7 +147,7 @@ if [ "${#errors[@]}" -eq 0 ]; then
         echo "PASS"
         echo "date=${today}"
         echo "db=$(du -h "$db_target" 2>/dev/null | cut -f1 || echo missing)"
-        echo "appfiles=$(du -h "${BACKUP_ROOT}/appfiles-${today}.tar.zst" 2>/dev/null | cut -f1 || echo missing)"
+        echo "appfiles=${appfiles_status:-missing}"
         echo "appkeys=$(du -h "${BACKUP_ROOT}/appkeys-${today}.tar.zst" 2>/dev/null | cut -f1 || echo missing)"
     } > "$status_file"
     log "PASS"
