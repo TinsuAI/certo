@@ -24,6 +24,31 @@ That entry covers:
 - M9 umbrella milestone covering 3-app extraction + hybrid engine migration + deployment + SSO.
 - Naming caveat: "Data Hub" is provisional.
 
+## 2026-06-09 Principle — format/client extensibility lives in adapters + data, never in core
+
+**Context:** concern that BOM + declarability work over-fits Johnson and these SAP
+technical BOMs → new formats/customers force per-case rework and a chaotic codebase.
+
+**Decision (principle, to guide future work — see BACKLOG B.0 / B.0b):**
+- **Core is format- and client-agnostic.** The engine, routes, and declarability
+  logic must never import a specific adapter or branch on `client_id`. Per-format
+  parsing lives in `app/parsers/bom_adapters/*` behind the `BomAdapter` Protocol
+  (a real plugin registry); per-client knowledge lives in DATA tables
+  (`client_material_group_map`, `client_column_aliases`, presets), never code.
+- **Declarability is two layers:** (1) correctness = import evidence (BCCT) —
+  general, config-free, works for every client/format by default; (2) Material-Group
+  rác classification = OPTIONAL per-client noise-suppression. A new client with no
+  config is correct-by-default (declarable / declarable_unmatched), never broken.
+- **New format = a new adapter (1 module + tests + deploy), git/CI-governed.** NOT a
+  runtime-uploaded `.py` plugin — that is RCE-by-design, bypasses CI, and increases
+  the very chaos it appears to solve. The governed registry is the anti-chaos pattern.
+
+**Consequences:** "in the same repo" ≠ "coupled to core" — adapters are isolated
+modules selected by `detect()` score. Future: a read-only adapter-registry admin
+view (visibility + per-client binding, no code upload); rename `material_group` →
+neutral token; generalize the map key only when a 2nd format/signal appears. Defer
+dynamic/boot-time package loading until a real forcing function exists.
+
 ## 2026-06-09 Re-ingest SAP Material Group + non-declarable BOM-row exclusion (mig 078)
 
 **Context:** johnson-vn BOM leaf-NVL collapsed to `category='nvl'` because the
