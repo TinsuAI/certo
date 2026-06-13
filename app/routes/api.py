@@ -431,6 +431,20 @@ _MATERIALS_SELECT_WITH_ROLES = """
            m.uom, m.uom as unit,
            m.hs_code, m.updated_at,
            m.btp_sourcing,
+           m.material_group,
+           mgmap.item_category,
+           -- customs_relevance computed inline (mirrors hub.v_material_classification,
+           -- which is the canonical def + parity-tested) to avoid re-joining the
+           -- heavy v_material_roles aggregation a second time via the view.
+           -- has_imports precedes the rác check: a real import wins over the MG
+           -- heuristic (mig 079).
+           case
+             when m.material_group is null then null
+             when coalesce(vmr.has_imports, false) then 'declarable'
+             when mgmap.material_group is null then 'review'
+             when mgmap.is_declarable = false then 'excluded_non_material'
+             else 'declarable_unmatched'
+           end as customs_relevance,
            coalesce(vmr.has_imports, false) as has_imports,
            coalesce(vmr.has_exports, false) as has_exports,
            coalesce(vmr.is_consumed_in_bom, false) as is_consumed_in_bom,
@@ -442,6 +456,9 @@ _MATERIALS_SELECT_WITH_ROLES = """
     left join hub.v_material_roles vmr
            on vmr.client_id = m.client_id
           and vmr.material_code = m.material_code
+    left join hub.client_material_group_map mgmap
+           on mgmap.client_id = m.client_id
+          and mgmap.material_group = m.material_group
 """
 
 
@@ -1443,6 +1460,13 @@ async def api_bom_artifacts_batch(
     latest = True if latest_raw is None else bool(latest_raw)
     include_rows_raw = body.get("include_rows")
     include_rows = True if include_rows_raw is None else bool(include_rows_raw)
+    # Drop rows soft-excluded as non-declarable ("rác" — mig 078). Default off so
+    # the contract is unchanged until a consumer opts in (per-client rollout).
+    # Echoed in filter_applied so CO can detect server support and not double-filter.
+    # Accept JSON true OR the string "true"; everything else (incl. the string
+    # "false") is false.
+    _excl_raw = body.get("exclude_non_declarable")
+    exclude_non_declarable = _excl_raw is True or str(_excl_raw).strip().lower() == "true"
     case_id = body.get("case_id")
 
     raw_intents = body.get("intents")
@@ -1476,6 +1500,7 @@ async def api_bom_artifacts_batch(
         "intents": sorted(intents_set) if intents_set is not None else None,
         "latest_per_variant": latest,
         "case_id": case_id,
+        "exclude_non_declarable": exclude_non_declarable,
     }
 
     # ONE artifact query for every requested product (fan-in), in the full
@@ -1531,7 +1556,8 @@ async def api_bom_artifacts_batch(
             for pc in page_products for it in filtered_by_product[pc]
         ]
         if page_aids:
-            rows_by_aid = get_rows_for_artifacts(page_aids)
+            rows_by_aid = get_rows_for_artifacts(
+                page_aids, exclude_non_declarable=exclude_non_declarable)
             unresolved_by_aid = get_unresolved_for_artifacts(page_aids)
             decisions_by_aid = get_decisions_for_artifacts(page_aids)
 
@@ -1561,6 +1587,7 @@ async def api_bom_artifacts_batch(
 @router.get("/products/{product_code}/bom/artifacts/{artifact_id}")
 async def api_bom_artifact_single(
     product_code: str, artifact_id: str, client_id: str,
+    exclude_non_declarable: bool = False,
     authorization: str | None = Header(None),
 ):
     """Single artifact (full shape) + rows/edges/unresolved/decisions,
@@ -1569,10 +1596,14 @@ async def api_bom_artifact_single(
     The `artifact` object returned here is the canonical rich shape that the
     batch endpoint's items[*] mirror field-for-field (ARTIFACT FIELD PARITY).
     404 when the id does not exist or belongs to another client/product.
+
+    `exclude_non_declarable=true` drops rows soft-excluded as non-declarable
+    ("rác" — mig 078); default off.
     """
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
-    data = get_artifact_with_rows(artifact_id)
+    data = get_artifact_with_rows(
+        artifact_id, exclude_non_declarable=exclude_non_declarable)
     if not data or data["artifact"]["client_id"] != client_id \
             or data["artifact"]["product_code"] != product_code:
         raise HTTPException(404, "artifact not found")

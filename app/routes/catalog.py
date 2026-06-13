@@ -641,6 +641,17 @@ def _query_materials(*, client_id: str, category: str | None,
                m.status, m.uom, m.uom as unit, m.hs_code, m.updated_at, m.provenance,
                m.btp_sourcing, m.source, m.hq_registered, m.code_kind,
                m.promoted_to_declared_at, m.promoted_by,
+               m.material_group, mgmap.item_category,
+               -- inline (mirrors hub.v_material_classification) to avoid a 2nd
+               -- v_material_roles aggregation on this hot list path. has_imports
+               -- precedes the rác check: a real import wins over MG (mig 079).
+               case
+                 when m.material_group is null then null
+                 when coalesce(vmr.has_imports, false) then 'declarable'
+                 when mgmap.material_group is null then 'review'
+                 when mgmap.is_declarable = false then 'excluded_non_material'
+                 else 'declarable_unmatched'
+               end as customs_relevance,
                (m.hq_registered = true) as is_registered,
                (m.source = 'bcct_observed') as is_seen_in_bcct,
                (m.source = 'client_declared') as is_user_added,
@@ -658,6 +669,9 @@ def _query_materials(*, client_id: str, category: str | None,
         left join hub.v_material_roles vmr
                on vmr.client_id = m.client_id
               and vmr.material_code = m.material_code
+        left join hub.client_material_group_map mgmap
+               on mgmap.client_id = m.client_id
+              and mgmap.material_group = m.material_group
         {where}
         order by {order_by}
         limit %s offset %s
@@ -802,6 +816,9 @@ def _query_conflicts(*, client_id: str, conflict_type: str,
         left join hub.v_material_roles vmr
                on vmr.client_id = m.client_id
               and vmr.material_code = m.material_code
+        left join hub.client_material_group_map mgmap
+               on mgmap.client_id = m.client_id
+              and mgmap.material_group = m.material_group
         {where}
         order by {order_by}
         limit %s offset %s

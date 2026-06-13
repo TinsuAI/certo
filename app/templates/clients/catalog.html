@@ -312,6 +312,11 @@
             {% if m.declared_observed_conflict %}
               <span class="badge badge-error" title="Khai báo không khớp dữ liệu quan sát. Xem cột Vai trò quan sát." style="font-size:.75em">⚠ Xét lại</span>
             {% endif %}
+            {% if m.customs_relevance == 'excluded_non_material' %}
+              <span class="badge badge-error" title="Không phải vật tư khai báo ({{ m.item_category }}, SAP {{ m.material_group }}) — loại khỏi bảng kê C/O" style="font-size:.7em">🗑 {{ m.item_category }}</span>
+            {% elif m.customs_relevance == 'declarable_unmatched' %}
+              <span class="badge badge-warning" title="Vật tư khai-được nhưng chưa khớp tờ khai nhập ({{ m.item_category }}, SAP {{ m.material_group }}) — cần đối soát" style="font-size:.7em">⚠ chưa khớp</span>
+            {% endif %}
           </div>
         </td>
         <td class="cell-observed" data-col="observed_roles" style="vertical-align: middle; text-align: center;">

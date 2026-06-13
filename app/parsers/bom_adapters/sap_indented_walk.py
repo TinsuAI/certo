@@ -46,6 +46,16 @@ _DESCRIPTION_ALIASES = [
     "component description", "tên hàng", "ten hang", "mô tả", "mo ta",
     "物料描述", "物料名称",
 ]
+# SAP item-type / flags. Material Group is the deterministic item-type key
+# (RD07 drawing, RD12 label, RD21 steel, ...); Phantom/Bulk are SAP master
+# flags. Captured as raw provenance so item_category can be derived
+# downstream (see migration 078 + hub.v_material_classification).
+_MATERIAL_GROUP_ALIASES = [
+    "material group", "matl group", "mat. group", "material_group",
+    "nhóm vật tư", "nhom vat tu", "物料组",
+]
+_PHANTOM_ALIASES = ["phantom item", "phantom"]
+_BULK_ALIASES = ["bulk material", "bulk"]
 # If any of these alias-as-product-code matches, this is NOT a Johnson-style
 # indented file — defer to a different adapter.
 _PRODUCT_CODE_ALIASES = ["成品物料", "product code", "mã sp", "ma sp",
@@ -134,6 +144,9 @@ class SapIndentedWalkAdapter:
         c_qty = _col_index(header, _QTY_ALIASES)
         c_unit = _col_index(header, _UNIT_ALIASES)
         c_desc = _col_index(header, _DESCRIPTION_ALIASES)
+        c_mg = _col_index(header, _MATERIAL_GROUP_ALIASES)
+        c_phantom = _col_index(header, _PHANTOM_ALIASES)
+        c_bulk = _col_index(header, _BULK_ALIASES)
         if c_level is None or c_comp is None or c_qty is None:
             raise BomParseError("Missing Level / Component / Qty columns")
 
@@ -177,6 +190,12 @@ class SapIndentedWalkAdapter:
                     and c_unit < len(r) and r[c_unit] else None)
             desc = (str(r[c_desc]).strip() if c_desc is not None
                     and c_desc < len(r) and r[c_desc] else None)
+            mg = (str(r[c_mg]).strip() if c_mg is not None
+                  and c_mg < len(r) and r[c_mg] else None)
+            phantom = self._is_flag(r[c_phantom]) if c_phantom is not None \
+                and c_phantom < len(r) else False
+            bulk = self._is_flag(r[c_bulk]) if c_bulk is not None \
+                and c_bulk < len(r) else False
 
             # Pop ancestors deeper than this row's level.
             while len(parent_stack) > level:
@@ -192,6 +211,9 @@ class SapIndentedWalkAdapter:
                 "qty_cumulative": cumulative_qty,
                 "uom": unit,
                 "description": desc,
+                "material_group": mg,
+                "phantom": phantom,
+                "bulk": bulk,
                 "parent_code": parent_code,
                 "ancestor_chain": [pc for pc, _ in parent_stack],
             })
@@ -224,6 +246,9 @@ class SapIndentedWalkAdapter:
                 "qty_per_unit": float(row["qty_cumulative"]),
                 "uom": row["uom"],
                 "description": row["description"],
+                "material_group": row["material_group"],
+                "phantom": row["phantom"],
+                "bulk": row["bulk"],
                 "bom_code": None,
                 "bom_variant_id": None,
                 # Tells the engine "do not recurse, this IS a leaf".
@@ -238,6 +263,11 @@ class SapIndentedWalkAdapter:
             raise BomParseError("No leaf rows detected after indented walk")
 
         return {root: leaf_rows}
+
+    @staticmethod
+    def _is_flag(v) -> bool:
+        """SAP boolean flag column ('X' set, blank unset)."""
+        return str(v or "").strip().upper() == "X"
 
     @staticmethod
     def _to_int(v) -> int | None:

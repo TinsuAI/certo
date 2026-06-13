@@ -24,6 +24,78 @@ That entry covers:
 - M9 umbrella milestone covering 3-app extraction + hybrid engine migration + deployment + SSO.
 - Naming caveat: "Data Hub" is provisional.
 
+## 2026-06-09 Principle — format/client extensibility lives in adapters + data, never in core
+
+**Context:** concern that BOM + declarability work over-fits Johnson and these SAP
+technical BOMs → new formats/customers force per-case rework and a chaotic codebase.
+
+**Decision (principle, to guide future work — see BACKLOG B.0 / B.0b):**
+- **Core is format- and client-agnostic.** The engine, routes, and declarability
+  logic must never import a specific adapter or branch on `client_id`. Per-format
+  parsing lives in `app/parsers/bom_adapters/*` behind the `BomAdapter` Protocol
+  (a real plugin registry); per-client knowledge lives in DATA tables
+  (`client_material_group_map`, `client_column_aliases`, presets), never code.
+- **Declarability is two layers:** (1) correctness = import evidence (BCCT) —
+  general, config-free, works for every client/format by default; (2) Material-Group
+  rác classification = OPTIONAL per-client noise-suppression. A new client with no
+  config is correct-by-default (declarable / declarable_unmatched), never broken.
+- **New format = a new adapter (1 module + tests + deploy), git/CI-governed.** NOT a
+  runtime-uploaded `.py` plugin — that is RCE-by-design, bypasses CI, and increases
+  the very chaos it appears to solve. The governed registry is the anti-chaos pattern.
+
+**Consequences:** "in the same repo" ≠ "coupled to core" — adapters are isolated
+modules selected by `detect()` score. Future: a read-only adapter-registry admin
+view (visibility + per-client binding, no code upload); rename `material_group` →
+neutral token; generalize the map key only when a 2nd format/signal appears. Defer
+dynamic/boot-time package loading until a real forcing function exists.
+
+## 2026-06-09 Re-ingest SAP Material Group + non-declarable BOM-row exclusion (mig 078)
+
+**Context:** johnson-vn BOM leaf-NVL collapsed to `category='nvl'` because the
+SAP `Material Group` column (the deterministic item-type key: RD07 drawing,
+RD12 label, RD21 steel, …) was parsed then discarded at ingest. CO could not
+tell a drawing from an unmatched steel bar when building the customs bảng kê.
+Investigation: `.ai/features/2026-06-08-leaf-nvl-declarability/brief.md`.
+
+**Decision:**
+- Re-ingest `material_group` (+ `phantom`/`bulk`) as **raw provenance** — stored
+  on `hub.materials`, `hub.catalog_candidates`, and `bom_artifact_rows.payload`;
+  threaded through the parser → `FlattenedRow` → engine → `version_rows`.
+- `item_category` + `customs_relevance` are **derived in a VIEW**
+  (`hub.v_material_classification`), never stored on `materials` (no-derived-in-
+  source). `customs_relevance` is a single declarability axis:
+  `excluded_non_material | declarable | declarable_unmatched | review | null`.
+- The (material_group → item_category, is_declarable) map is **per-client,
+  DB-configurable** (`hub.client_material_group_map`), seeded for johnson-vn.
+  Rác = drawing/document/label + phantom flag.
+- Non-declarable rows are **soft-excluded** via `bom_artifact_rows.excluded_at`
+  /`exclusion_reason` — tagged, never deleted (BOM-immutable). Served behind an
+  **opt-in** `exclude_non_declarable` flag (default off) on the BOM batch +
+  single-by-id endpoints; echoed in `filter_applied`.
+
+**Alternatives:** (a) boolean `is_declarable` on materials — rejected: conflates
+~388 safe-exclude with ~428 declarable-unmatched physical materials. (b) extend
+`materials.category` enum with drawing/label — rejected: pollutes the customs
+taxonomy with a procurement axis. (c) re-materialize artifact versions to drop
+rác — rejected: mass lineage churn + breaks CO's pinned artifact_id refs;
+per-row soft-exclude is reversible and composes with re-ingest.
+
+**Consequences:** Cross-repo additive change (API_CHANGELOG 2026-06-09).
+CO/BCQT calls unchanged at default-off; CO opts in for johnson-vn after
+verification. `declarable_unmatched` (welding-rod variant, bulk-decomposed
+steel) must NOT be auto-dropped — flagged for catalog↔customs reconciliation
+(future Phase 2). Cross-link in `BCQT-System/.ai/DECISIONS.md` pending.
+
+**Correction (mig 079, same day, post-`/rev`):** mig-078's view classified by
+Material Group alone, ignoring import evidence → dropped 205 imported HS-bearing
+materials (incl. steel weight-plates mislabeled under RD07, which is SAP "Set/
+Semi-Assy", not "drawing"). Fixed: (a) **import wins** — `has_imports → declarable`
+before the rác check; (b) RD07 remapped drawing→assembly_set; (c) backfill Phase D
+rewritten to derive from the view (set + **clear**), import-aware for phantom, so
+map/view edits propagate and re-runs are idempotent. Lesson: a Material-Group
+heuristic must never override hard import evidence; verify a classifier against the
+actual data before trusting the mapping (RD07 ≠ drawing).
+
 ## 2026-05-07 BOM vocab rename — version → artifact, profile → preset
 
 **Context:** GLOSSARY locked the canonical 4-tier ontology

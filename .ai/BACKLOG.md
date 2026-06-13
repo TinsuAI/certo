@@ -33,6 +33,23 @@ roles, candidate feed, candidate richness). Phase 2 + supporting items
 remain open. Identity-resolution items (parser-rules, paren-extract)
 sit here too because they share the catalog data graph.
 
+## A.0 Material Group + declarability (mig 078+079) — SIGNED OFF 2026-06-13; pushed; demo/prod backfill + CO adoption pending
+
+**Captured 2026-06-09.** Branch `feat/bom-material-group-declarability` (pushed
+2026-06-13; mig 078+079 applied on local dev DB only — demo/prod NOT yet). `/rev` done → found a Critical import-blind
+bug, fixed by **mig 079** (import wins over MG; RD07 drawing→assembly_set; backfill
+made re-runnable/import-aware; parity test added). Suite 1456 passed; verified 0
+imported materials excluded. Remaining:
+- **Owner signed off 2026-06-13** → branch rebased on main + pushed. Demo/prod
+  mig-apply + backfill and CO adoption remain (gated, deliberate).
+- **Follow-up (deferred):** precise drawing auto-hide — RD07 drawings currently
+  surface as `declarable_unmatched` (review), not auto-excluded, because the SAP
+  group is overloaded and ~704 lack a name in catalog_candidates. Needs name-level
+  classification at ingest.
+- Gates C.x (CO `customs_relevance` adoption —
+  `.ai/sister-app-notes/2026-06-09-co-consumer-spec-declarability.md`).
+Detail: `.ai/features/2026-06-08-leaf-nvl-declarability/brief.md` (STATUS).
+
 ## A.1 Phase 2 catalog — CLOSED 2026-05-28 (dead-code drop, not refactor)
 
 **Captured 2026-05-09**. Original plan: replace single-value `category`
@@ -367,6 +384,51 @@ A.5 (same root cause).
 Cluster around the BOM upload flow: UX polish, parser robustness,
 adapter framework. Auto-detect default + manual_flat 4-shape SHIPPED
 2026-05-13; remaining items below.
+
+## B.0 Adapter "module management" + format-variant-as-data (captured 2026-06-09)
+
+**Driver:** concern that the BOM/declarability work over-fits Johnson + these
+SAP technical BOMs, and that new formats/customers force per-case rework → a
+messy, hard-to-control codebase. Investigation showed the worry is mostly
+addressed already (`app/parsers/bom_adapters/__init__.py` is a real plugin
+registry: `BomAdapter` Protocol + `register()` + detect-ranked `parse_with_fallback`
++ pluggable `HOOKS`; core/engine/routes import NO specific adapter). "In the repo"
+≠ "coupled to core". Do these, in order:
+
+1. **Read-only "Adapter registry" admin view** — list registered adapters,
+   per-client default binding, and what signals each emits (rows / material_group
+   / phantom). This is the safe "module management" the user wants — *visibility +
+   binding*, NOT runtime code upload.
+2. **Format-variant → DATA, not code.** Same structural shape, different column
+   names → `client_column_aliases` (mig 075, exists) + `client_material_group_map`.
+   Most "new format from an existing customer" should need ZERO code.
+3. **Tighten + document the adapter contract** as THE extension point: make
+   `detect()` mandatory; add capability metadata. New structural format = 1 adapter
+   file + tests + deploy (git/CI-governed). Document this onboarding flow.
+4. **DO NOT build runtime .py upload** ("dev a module, upload it, hot-add"). It is
+   RCE-by-design, bypasses CI, crash blast-radius, ungoverned versioning — it
+   *increases* the chaos. Defer entry-point/package-based boot-time loading until
+   a real forcing function (non-Tinsu adapter authors, or >10 formats added often).
+   Decision recorded in DECISIONS 2026-06-09.
+
+## B.0b Declarability generalization follow-ups (captured 2026-06-09)
+
+From the mig 078/079 work + overfit discussion (see A.0,
+`.ai/features/2026-06-08-leaf-nvl-declarability/brief.md`, DECISIONS 2026-06-09):
+- **Two-layer model is the principle:** correctness = import evidence (general,
+  config-free, every client); Material-Group rác classification = OPTIONAL
+  per-client noise-suppression. A new client/format with no map = correct-by-default
+  (declarable/declarable_unmatched), just noisier — never "redo everything".
+- **Rename `material_group` → a neutral `item_type_token`** (it's a SAP-ism; the
+  column is really "an ingested item-type token an adapter populates"). Cosmetic but
+  removes the misleading coupling.
+- **Generalize the map key** `(client_id, material_group)` → `(client_id, signal_kind,
+  signal_value)` ONLY when a 2nd format/signal appears (YAGNI now — generalizing
+  before the 2nd case risks the wrong abstraction).
+- **Precise drawing auto-hide** (deferred from A.0): RD07 drawings surface as
+  `declarable_unmatched` (review) not auto-hidden, because RD07 is overloaded +
+  ~704 codes lack a name in catalog_candidates. Needs name-level classification at
+  ingest if auto-hiding drawings is wanted.
 
 ## B.1 Modular BOM ingest adapters (per supplier shape)
 
