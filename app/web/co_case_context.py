@@ -2057,6 +2057,9 @@ def origin_material_from_bom_row(
     allocation_import_declarations = unique_texts(line.get("import_declaration_no", "") for line in allocation_lines)
     allocation_import_lines = unique_texts(line.get("import_line_no", "") for line in allocation_lines)
     allocation_import_dates = unique_texts(line.get("import_declaration_date", "") for line in allocation_lines)
+    # The customs item code (mã HQ) of the matched lots — the bảng kê / HQ export
+    # must show this, NOT the internal allocation/BOM code (which is lookup-only).
+    allocation_customs_codes = unique_texts(line.get("customs_material_code", "") for line in allocation_lines)
     available_qty = allocation_available_qty(allocation_lines, stock_candidates)
     currency = allocation_currency_summary(allocation_lines)
     if not currency:
@@ -2074,7 +2077,7 @@ def origin_material_from_bom_row(
         "import_line_no": ", ".join(allocation_import_lines) or stock.get("line_no", ""),
         "material_code": material_code,
         "material_sequence": str(material_sequence or ""),
-        "customs_material_code": material.get("customs_code") or material_code,
+        "customs_material_code": ", ".join(allocation_customs_codes) or material.get("customs_code") or material_code,
         "internal_material_code": material.get("internal_code") or material_code,
         "material_description": material_description,
         "material_name_missing": not bool(material_description),

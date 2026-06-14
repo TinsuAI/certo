@@ -611,6 +611,10 @@ def write_hq_sheet_materials(ws, product: dict, start_row: int, *, legacy_export
         if override.get("deleted") or is_bom_technical_noise(material):
             continue
         material_code = override.get("material_code") or material.get("material_code", "")
+        # The HQ bảng kê shows the customs item code (mã HQ); the internal
+        # allocation/BOM code is lookup-only. Fall back to material_code when a
+        # row has no matched-lot customs code (e.g. unmatched NVL).
+        hq_code = override.get("customs_material_code") or material.get("customs_material_code") or material_code
         material_name = override.get("name") or material.get("material_description", "")
         norm = override.get("norm_per_unit") or material.get("bom_qty_per", "0")
         required_qty = decimal_value(material.get("consumed_qty") or norm)
@@ -628,7 +632,7 @@ def write_hq_sheet_materials(ws, product: dict, start_row: int, *, legacy_export
 
         put(row_index, "stt", counter)
         put(row_index, "name", material_name)
-        put(row_index, "mat_code", material_code)
+        put(row_index, "mat_code", hq_code)
         put(row_index, "hs", material.get("hs_code", ""))
         put(row_index, "uom", material.get("uom", ""))
         put(row_index, "norm", str(norm))

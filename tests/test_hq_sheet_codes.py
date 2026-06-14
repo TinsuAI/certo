@@ -1,8 +1,38 @@
-from app.workbook_io import hq_sheet_codes_for_product
+from app.workbook_io import hq_sheet_codes_for_product, write_hq_sheet_materials, _hq_layout_for
 
 
 def _product(**fields):
     return fields
+
+
+def test_hq_export_writes_customs_code_not_internal():
+    """The HQ bảng kê must show the customs item code (mã HQ from the matched
+    lot), not the internal allocation/BOM code (lookup-only). Growatt diverges:
+    HQ 'DAYTINHIEU' vs internal '012.0002700'."""
+    from openpyxl import Workbook
+    mat = {
+        "material_code": "012.0002700",           # internal — lookup only
+        "customs_material_code": "DAYTINHIEU",     # mã HQ — matched lot's customs_item_code
+        "internal_material_code": "012.0002700",
+        "material_description": "Dây tín hiệu", "hs_code": "85339000", "uom": "ST",
+        "bom_qty_per": "1", "consumed_qty": "368", "unit_value": "6708",
+        "material_value": "2468835.82", "origin_status": "non_origin",
+    }
+    for sheet_code in ("LVC", "PL_VII"):
+        col = _hq_layout_for(sheet_code)["cols"]["mat_code"]
+        wb = Workbook(); ws = wb.active
+        write_hq_sheet_materials(ws, {"materials": [mat]}, 5, sheet_code=sheet_code)
+        assert ws.cell(row=5, column=col).value == "DAYTINHIEU", sheet_code
+
+
+def test_hq_export_falls_back_to_material_code_when_no_customs_code():
+    """Unmatched NVL has no matched-lot customs code → fall back to material_code."""
+    from openpyxl import Workbook
+    mat = {"material_code": "INT-1", "material_description": "x", "origin_status": "non_origin"}
+    col = _hq_layout_for("LVC")["cols"]["mat_code"]
+    wb = Workbook(); ws = wb.active
+    write_hq_sheet_materials(ws, {"materials": [mat]}, 5, sheet_code="LVC")
+    assert ws.cell(row=5, column=col).value == "INT-1"
 
 
 def test_eur1_with_lvc_override_picks_lvc_sheet():
