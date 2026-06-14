@@ -13,10 +13,12 @@ from fastapi.responses import RedirectResponse, Response
 from app import auth
 from app.parsers import inventory_adapters
 from app.parsers.inventory_adapters._common import variance
+from app.routes._paging import pagination_context, parse_page_params
 from app.routes.clients import get_client, stats_for_client
 from app.storage import get_backend, save_upload, sha256_bytes
 from app.stores import inventory_snapshots as inv_store
 from app.stores import settlement_adapter_binding as binding
+from app.stores.materials import known_material_codes
 from app.stores.uploads import get_upload, record_upload, set_upload_status
 
 router = APIRouter()
@@ -78,7 +80,8 @@ async def list_view(request: Request, client_id: str,
 # ── Upload ─────────────────────────────────────────────────────────────────
 
 @router.get("/clients/{client_id}/inventory-snapshots/upload")
-async def upload_view(request: Request, client_id: str):
+async def upload_view(request: Request, client_id: str,
+                      error: str | None = None):
     user = auth.require_user(request)
     auth.require_can_edit_client(user, client_id)
     client = get_client(client_id)
@@ -89,6 +92,7 @@ async def upload_view(request: Request, client_id: str):
         {"client": client, "stats": stats_for_client(client_id),
          "adapters": inventory_adapters.adapter_names(),
          "default_adapter": binding.get_default_adapter(client_id, MODULE),
+         "error": error,
          "active_root": "clients", "active_tab": "inventory"},
     )
 
@@ -117,6 +121,13 @@ async def upload_submit(request: Request, client_id: str,
     auth.require_can_edit_client(user, client_id)
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
+
+    # The stocktake is a point in time and required (thời điểm chốt).
+    if _as_date(snapshot_date) is None:
+        return RedirectResponse(
+            url=f"/clients/{client_id}/inventory-snapshots/upload"
+                "?error=Cần nhập ngày chốt hợp lệ",
+            status_code=303)
 
     blob = await file.read()
     sha = sha256_bytes(blob)
@@ -247,3 +258,29 @@ async def preview_reject(request: Request, client_id: str, upload_id: str):
     return RedirectResponse(
         url=f"/clients/{client_id}/inventory-snapshots?saved=Đã bỏ qua",
         status_code=303)
+
+
+# ── Detail (browse ingested lines; cross-link mã → Catalog) ──────────────
+
+@router.get("/clients/{client_id}/inventory-snapshots/{snapshot_id}")
+async def detail_view(request: Request, client_id: str, snapshot_id: str):
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    meta = inv_store.get_snapshot_meta(snapshot_id)
+    if not meta or meta["client_id"] != client_id:
+        raise HTTPException(404, "Snapshot not found")
+    page_params = parse_page_params(query_params=request.query_params)
+    lines = inv_store.list_lines(
+        snapshot_id, limit=page_params.page_size, offset=page_params.offset)
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/inventory_snapshot_detail.html",
+        {"client": client, "stats": stats_for_client(client_id),
+         "snapshot": meta, "lines": lines,
+         "known_codes": known_material_codes(client_id),
+         "paging": pagination_context(
+             request=request, page_params=page_params, total=meta["n_lines"]),
+         "active_root": "clients", "active_tab": "inventory"},
+    )

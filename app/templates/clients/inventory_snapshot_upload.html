@@ -14,6 +14,8 @@
     </div>
   </div>
 
+  {% if error %}<div class="toast toast-error">{{ error }}</div>{% endif %}
+
   <form method="post" action="/clients/{{ client.client_id }}/inventory-snapshots/upload"
         enctype="multipart/form-data" class="zone mini-panel" style="max-width: 700px;">
     <div class="upload-zone">
@@ -22,8 +24,8 @@
     </div>
 
     <div class="field-row" style="display:flex; gap:1rem; margin:.5rem 0; flex-wrap:wrap;">
-      <label>Ngày chốt
-        <input type="date" name="snapshot_date"></label>
+      <label>Ngày chốt <span style="color:#b00">*</span>
+        <input type="date" name="snapshot_date" required></label>
       <label>Adapter
         <select name="adapter">
           <option value="auto" {{ 'selected' if default_adapter == 'auto' else '' }}>auto — tự nhận diện</option>

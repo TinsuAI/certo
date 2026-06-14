@@ -14,6 +14,17 @@ Only `Breaking:` headings trigger notifications to `dev`/`admin` users (CO + BCQ
 
 ## Entries
 
+## 2026-06-14 — Additive: NXT `period_year` field (mig 087)
+
+Silent / opt-in. NXT artifacts are now keyed by settlement year (kỳ quyết toán
+theo năm); a re-upload supersedes the prior current artifact for the same
+`(client_id, period_year)` rather than the same `period_to` date.
+
+- `GET /v1/hub/dncxs/{client_id}/nxt` and `…/nxt/{artifact_id}` items gain
+  `period_year` (smallint, e.g. `2025`). Backfilled from `period_to` for prior
+  rows; required for all new uploads. `period_from` / `period_to` stay optional.
+- No change to `inventory-snapshots` or `period-end-link` shapes.
+
 ## 2026-06-14 — Additive: NXT + year-end inventory tier read endpoints (mig 082-086)
 
 Silent / opt-in; no consumer code change required. Five new read endpoints for

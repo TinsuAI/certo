@@ -903,8 +903,10 @@ under) — resolve the authoritative NVL/TP/BTP class from the catalog.
 #### `GET /v1/hub/dncxs/{client_id}/nxt`
 
 List current NXT (Nhập-Xuất-Tồn) artifacts (metadata):
-`{ "items": [ { id, period_from, period_to, source_kind, adapter_name,
-created_at, n_lines } ] }`.
+`{ "items": [ { id, period_year, period_from, period_to, source_kind,
+adapter_name, created_at, n_lines } ] }`. `period_year` (smallint) is the
+settlement year and the supersede key — one current artifact per
+`(client_id, period_year)`.
 
 #### `GET /v1/hub/dncxs/{client_id}/nxt/{artifact_id}`
 

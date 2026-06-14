@@ -9,7 +9,8 @@
       <h2>Xem trước Nhập-Xuất-Tồn</h2>
       <p class="meta">
         Adapter <span class="mono">{{ adapter_name }}</span>
-        · Kỳ {{ period_from or '—' }} → {{ period_to or '—' }}
+        · Năm {{ period_year or '—' }}
+        {% if period_from or period_to %}· Kỳ {{ period_from or '—' }} → {{ period_to or '—' }}{% endif %}
       </p>
     </div>
   </div>

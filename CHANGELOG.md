@@ -11,6 +11,15 @@ phiên bản theo [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-06-14
+### Mới
+- **NXT theo năm quyết toán:** mỗi khách hàng một bảng NXT cho mỗi năm; bắt buộc nhập "Năm quyết toán" khi tải lên, tải lại cùng năm sẽ thay thế bản cũ. Chốt tồn kho bắt buộc nhập "Ngày chốt".
+- **Xem dữ liệu đã ingest:** trang chi tiết cho từng bảng NXT và từng bản chốt tồn kho — xem toàn bộ dòng (có phân trang), tồn cuối suy ra / chênh lệch (sổ sách vs thực đếm) được tô khi lệch; click cả hàng ở danh sách để mở chi tiết. Danh sách NXT thêm cột "Năm".
+- **Liên kết sang Danh Mục:** mã trong bảng NXT / chốt tồn kho link sang trang chi tiết của mã đó ở Danh Mục (khi mã có trong danh mục).
+
+### API
+- `/v1/hub` NXT (danh sách + chi tiết) thêm trường `period_year`. Chi tiết: `docs/API_CHANGELOG.md` (2026-06-14, Additive).
+
 ## [0.16.0] — 2026-06-14
 ### Mới
 - Quản lý dữ liệu **Nhập-Xuất-Tồn (NXT)** và **Chốt tồn kho cuối kỳ**: nhóm "Quyết toán" mới trong view khách hàng, luồng tải lên → xem trước → xác nhận cho cả hai loại; tồn cuối / chênh lệch (sổ sách vs thực đếm) tự tính khi xem.

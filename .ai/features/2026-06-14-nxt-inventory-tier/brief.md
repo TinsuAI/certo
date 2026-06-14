@@ -300,3 +300,39 @@ in `docs/API_CONTRACT.md`; bump `API_CHANGELOG.md`.
   for v1 (manual entry).
 - Material identity: NXT `internal_code`/`customs_code` must resolve against the
   existing catalog (reuse `bcct_material_identity` resolver) for cross-linking.
+
+## Follow-up slice (2026-06-14 PM): year-keyed period + browse-detail + cross-link
+
+Three user requirements on top of the shipped tier:
+
+1. **NXT keyed by settlement year; inventory by a required point in time.**
+   - `period_year smallint` added (mig 087), backfilled from `period_to`,
+     **required** on upload (`Năm quyết toán`). Supersede key moved from
+     `(client, period_to)` → `(client, period_year)`: one current NXT artifact
+     per client per year (aligns with "one consolidated file per year"). Column
+     stays nullable at the DB for deploy-safety on legacy no-period rows; the app
+     enforces required, and the store derives year from `period_to` when omitted.
+   - `snapshot_date` is now **required** on inventory upload (no schema change;
+     it was already the supersede key).
+2. **Browse the ingested rows like the other data tables.** New detail views:
+   - `GET /clients/{id}/nxt/{artifact_id}` → `nxt_detail.html`
+   - `GET /clients/{id}/inventory-snapshots/{snapshot_id}` → `inventory_snapshot_detail.html`
+   - Header card + paginated lines (`_paging` infra; lines queried with
+     LIMIT/OFFSET via `list_lines`, so a 20k-line MB5B artifact never loads in
+     full). closing_implied / variance derived per line; mismatch/variance
+     highlighted. List rows are now clickable (`data-row-href`); NXT list gains a
+     `Năm` column.
+3. **Cross-link a line's mã to its Catalog detail.** `internal_code` /
+   `customs_code` (NXT) and `code` (inventory) link to
+   `/clients/{id}/catalog/{code}/detail` **when the code resolves in the
+   catalog** (`hub.materials`); otherwise plain text. Resolvable codes get a
+   `.xlink` (primary-color) affordance. The catalog-code set is one query per
+   page (`stores.materials.known_material_codes`).
+
+Note: real ingested NXT/inventory codes often don't match catalog `material_code`
+yet (the lossy best-effort join, I2) — the cross-link renders only for codes that
+do resolve. Screenshots 09/10 use a self-contained demo client to show it live.
+
+API: `/v1/hub` NXT list/get gain `period_year` (additive; `API_CHANGELOG`
+2026-06-14). Tests: +6 (year supersede, required-field rejection, detail view +
+cross-link render, cross-client 404). Screenshots 09–10 added.
