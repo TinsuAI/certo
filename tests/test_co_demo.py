@@ -4598,121 +4598,14 @@ def test_origin_sheet_add_row_appends_added_override():
     assert rejected.status_code == 400
 
 
-def test_co_stock_import_upserts_adjustments_and_clears_cache():
-    from app import co_stock_adjustments_store
-    from app.co_stock_template import write_standard_co_stock
-    from app.database import database_url
-    from decimal import Decimal
-
-    if not database_url():
-        pytest.skip("co_stock_adjustments requires BARRY_DATABASE_URL")
-    # Clean slate for this test client.
-    try:
-        with co_stock_adjustments_store.connect() as conn, conn.cursor() as cur:
-            cur.execute("delete from co_stock_adjustments where client_id = %s", ("growatt",))
-    except Exception:  # noqa: BLE001
-        pytest.skip("co_stock_adjustments table missing — apply migrations first")
-
-    xlsx = write_standard_co_stock([
-        {"declaration_no": "D1", "line_no": "1", "customs_code": "M-A", "opening_qty": Decimal("500"), "used_qty": Decimal("11.489"), "source_co_no": "VNG-001"},
-        {"declaration_no": "D1", "line_no": "2", "customs_code": "M-B", "opening_qty": Decimal("200"), "used_qty": Decimal("80")},
-    ])
-    test_client = TestClient(app)
-    response = test_client.post(
-        "/clients/growatt/co-stock/import",
-        files={"file": ("test.xlsx", xlsx, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
-    )
-    assert response.status_code == 200
-    body = response.json()
-    assert body["ok"] is True
-    assert body["parsed_rows"] == 2
-    assert body["upsert"]["inserted"] == 2
-    assert body["upsert"]["updated"] == 0
-    assert body["batch_id"].startswith("batch_")
-
-    # Re-upload same content → all rows updated (not inserted).
-    response2 = test_client.post(
-        "/clients/growatt/co-stock/import",
-        files={"file": ("test.xlsx", xlsx, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
-    )
-    assert response2.status_code == 200
-    body2 = response2.json()
-    assert body2["upsert"]["inserted"] == 0
-    assert body2["upsert"]["updated"] == 2
-    assert body2["batch_id"] == body["batch_id"]  # identical content → identical batch_id
-
-    # Adjustments are visible via the aggregation helper.
-    agg = co_stock_adjustments_store.aggregate_by_lookup_key("growatt")
-    assert ("D1", "1", "M-A") in agg
-    assert agg[("D1", "1", "M-A")]["used_qty"] == Decimal("11.489")
-
-
-def test_co_stock_import_emits_audit_events_with_diff():
-    from app import co_stock_adjustments_store, co_stock_events_store
-    from app.co_stock_template import write_standard_co_stock
-    from app.database import database_url
-    from decimal import Decimal
-
-    if not database_url():
-        pytest.skip("co_stock_adjustments requires BARRY_DATABASE_URL")
-    # Clean slate.
-    try:
-        with co_stock_adjustments_store.connect() as conn, conn.cursor() as cur:
-            cur.execute("delete from co_stock_adjustments where client_id = %s", ("growatt",))
-            cur.execute("delete from co_stock_events where client_id = %s", ("growatt",))
-    except Exception:
-        pytest.skip("co_stock_adjustments / co_stock_events table missing")
-    test_client = TestClient(app)
-
-    # First upload: insert events expected.
-    xlsx_v1 = write_standard_co_stock([
-        {"declaration_no": "D-EVT", "line_no": "1", "customs_code": "M-EVT", "opening_qty": Decimal("100"), "used_qty": Decimal("20")},
-    ])
-    r1 = test_client.post(
-        "/clients/growatt/co-stock/import",
-        files={"file": ("v1.xlsx", xlsx_v1, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
-    )
-    assert r1.status_code == 200
-    assert r1.json()["upsert"]["events"] == 1
-
-    # Re-upload same values: no events (no diff).
-    r2 = test_client.post(
-        "/clients/growatt/co-stock/import",
-        files={"file": ("v1-again.xlsx", xlsx_v1, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
-    )
-    assert r2.status_code == 200
-    assert r2.json()["upsert"]["events"] == 0
-
-    # Upload with bumped used_qty: one update event with positive delta.
-    xlsx_v2 = write_standard_co_stock([
-        {"declaration_no": "D-EVT", "line_no": "1", "customs_code": "M-EVT", "opening_qty": Decimal("100"), "used_qty": Decimal("55")},
-    ])
-    r3 = test_client.post(
-        "/clients/growatt/co-stock/import",
-        files={"file": ("v2.xlsx", xlsx_v2, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
-    )
-    assert r3.status_code == 200
-    assert r3.json()["upsert"]["events"] == 1
-
-    events = co_stock_events_store.events_for_lot("growatt", "D-EVT", "1", "M-EVT")
-    assert len(events) == 2
-    # Newest first.
-    assert events[0]["event_type"] == "adjustment_import_update"
-    assert Decimal(events[0]["qty_delta"]) == Decimal("35")
-    assert Decimal(events[0]["qty_before"]) == Decimal("20")
-    assert Decimal(events[0]["qty_after"]) == Decimal("55")
-    assert events[1]["event_type"] == "adjustment_import_insert"
-    assert Decimal(events[1]["qty_after"]) == Decimal("20")
-
-
 def test_co_stock_lot_history_endpoint_returns_chronological_events():
-    from app import co_stock_adjustments_store, co_stock_events_store
-    from app.database import database_url
+    from app import co_stock_events_store
+    from app.database import connect, database_url
 
     if not database_url():
         pytest.skip("requires BARRY_DATABASE_URL")
     try:
-        with co_stock_adjustments_store.connect() as conn, conn.cursor() as cur:
+        with connect() as conn, conn.cursor() as cur:
             cur.execute("delete from co_stock_events where client_id = %s", ("growatt",))
     except Exception:
         pytest.skip("co_stock_events table missing")
@@ -4746,7 +4639,7 @@ def test_co_stock_lot_history_endpoint_returns_chronological_events():
 def test_co_stock_import_rejects_malformed_workbook():
     test_client = TestClient(app)
     response = test_client.post(
-        "/clients/growatt/co-stock/import",
+        "/clients/growatt/co-stock/import-snapshot",
         files={"file": ("garbage.xlsx", b"this is not a workbook", "application/octet-stream")},
     )
     assert response.status_code == 400
@@ -4766,7 +4659,7 @@ def test_co_stock_import_rejects_missing_key_columns():
     wb.save(payload)
     test_client = TestClient(app)
     response = test_client.post(
-        "/clients/growatt/co-stock/import",
+        "/clients/growatt/co-stock/import-snapshot",
         files={"file": ("bad.xlsx", payload.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
     )
     assert response.status_code == 400

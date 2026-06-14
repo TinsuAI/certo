@@ -6,7 +6,7 @@ import logging
 import re
 import threading
 
-from app import co_stock_adjustments_store, co_stock_eligibility, co_stock_ledger, co_stock_materializer
+from app import co_stock_eligibility, co_stock_ledger, co_stock_materializer
 from app.bom_service import bom_service
 from app.bom_store import attach_case_bom_snapshot
 from app.co_case_store import build_case_criteria_rows, case_from_record, co_case_delete_block_reason, co_case_is_completed, co_case_status_view, declaration_refs, get_case_record, get_case_workspace, json_safe, load_state
@@ -344,14 +344,12 @@ def co_case_source_context_cached(client: dict, case: dict) -> dict:
     # can be imported any time, but be defensive in case caller bypasses).
     client_id = client.get("id", "")
     used_by_lot = co_stock_ledger.used_qty_by_lot(client_id)
-    adjustments = co_stock_adjustments_store.aggregate_by_lookup_key(client_id)
     if context.get("stock_rows"):
         # Don't mutate the cached list in place if someone else holds a reference;
-        # snapshot a new list. Fold the static trừ-lùi (idempotent — safe whether
-        # rows are materialized-and-folded or freshly derived) then overlay the
-        # live cross-case ledger.
+        # snapshot a new list, then overlay the live cross-case ledger. The static
+        # off-app baseline (`baseline_used_qty`) is already baked into each row at
+        # materialize time (BCCT = zero baseline; workbook snapshot bakes its own).
         rows = [dict(row) for row in context["stock_rows"]]
-        co_stock_adjustments_store.fold_baseline(rows, adjustments or {})
         rows = co_stock_ledger.apply_used_qty(rows, used_by_lot)
         context = {**context, "stock_rows": rows}
     return context
@@ -2059,6 +2057,9 @@ def origin_material_from_bom_row(
     allocation_import_declarations = unique_texts(line.get("import_declaration_no", "") for line in allocation_lines)
     allocation_import_lines = unique_texts(line.get("import_line_no", "") for line in allocation_lines)
     allocation_import_dates = unique_texts(line.get("import_declaration_date", "") for line in allocation_lines)
+    # The customs item code (mã HQ) of the matched lots — the bảng kê / HQ export
+    # must show this, NOT the internal allocation/BOM code (which is lookup-only).
+    allocation_customs_codes = unique_texts(line.get("customs_material_code", "") for line in allocation_lines)
     available_qty = allocation_available_qty(allocation_lines, stock_candidates)
     currency = allocation_currency_summary(allocation_lines)
     if not currency:
@@ -2076,7 +2077,7 @@ def origin_material_from_bom_row(
         "import_line_no": ", ".join(allocation_import_lines) or stock.get("line_no", ""),
         "material_code": material_code,
         "material_sequence": str(material_sequence or ""),
-        "customs_material_code": material.get("customs_code") or material_code,
+        "customs_material_code": ", ".join(allocation_customs_codes) or material.get("customs_code") or material_code,
         "internal_material_code": material.get("internal_code") or material_code,
         "material_description": material_description,
         "material_name_missing": not bool(material_description),

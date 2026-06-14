@@ -7,7 +7,7 @@ expects exactly these columns.
 
 Row identity: (declaration_no, line_no, customs_code) — re-import with the
 same triplet overwrites prior values (snapshot model). See
-app/co_stock_adjustments_store.py for the persistence layer.
+app/co_stock_materializer.py (persists co_stock_rows).
 """
 from __future__ import annotations
 

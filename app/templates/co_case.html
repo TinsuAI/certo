@@ -1494,7 +1494,7 @@
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_bom_scrap_rate" value="{{ material.bom_scrap_rate }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_bom_source" value="{{ material.bom_source }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_bom_row_class" value="{{ material.bom_row_class }}">
-                    {% set substitute_label = material.internal_material_code or material.material_code or 'n/a' %}
+                    {% set substitute_label = material.customs_material_code or material.internal_material_code or material.material_code or 'n/a' %}
                     {% set row_override = product.origin_sheet_material_overrides.get(material_index|string) if product.origin_sheet_material_overrides else none %}
                     {% set _sheet_locked = product.origin_sheet_status == 'locked' %}
                     <button type="button"
@@ -1509,6 +1509,8 @@
                             data-current-hs="{{ material.hs_code }}"
                             {% if _sheet_locked %}disabled title="Sheet đã chốt — nhả chốt để sửa NVL"{% else %}title="{% if row_override %}Đã thay sang {{ row_override.material_code }}{% else %}Click để thay NVL{% endif %}"{% endif %}>
                       <span class="mono">{{ substitute_label }}</span>
+                      {% set _internal_code = material.internal_material_code or material.material_code %}
+                      {% if _internal_code and _internal_code != substitute_label %}<small class="meta" title="Mã nội bộ — dùng để tra cứu/khớp tồn, không xuất ra bảng kê HQ">nội bộ: {{ _internal_code }}</small>{% endif %}
                       {% if row_override and row_override.material_code and row_override.material_code != substitute_label %}<small class="origin-material-code-override-mark">→ {{ row_override.material_code }}</small>{% endif %}
                       {% if row_override and row_override.deleted %}<small class="origin-material-code-override-mark">(đã xoá)</small>{% endif %}
                       {% if material.declarable_unmatched %}<small class="origin-material-code-override-mark" title="NVL thật nhưng chưa khớp tờ khai nhập (chưa có HS/CIF) — cần đối soát trước khi phát hành C/O">⚠ chưa khớp · cần đối soát</small>

@@ -58,31 +58,31 @@
 
   <section class="zone" data-co-stock-section>
     <div class="subsection-head">
-      <h3>Điều chỉnh thủ công</h3>
+      <h3>Nạp tồn CO (chốt snapshot)</h3>
       <p class="meta">
-        Layer ghi đè <code>opening_qty</code> + cộng dồn <code>used_qty</code> trên tồn derived từ BCCT (sau cross-case ledger).
-        Snapshot model: re-import cùng key <code>(declaration_no, line_no, customs_code)</code> sẽ overwrite.
-        Nhận xlsx đã theo template chuẩn. Nếu có workbook trừ-lùi <code>.xlsm</code> gốc (Johnson/Growatt),
+        Nạp tồn CO từ template chuẩn: set thẳng <code>remaining_qty</code> off-app cho từng lô (snapshot độc lập).
+        Re-import cùng key <code>(declaration_no, line_no, customs_code)</code> sẽ thay snapshot.
+        Nếu có workbook trừ-lùi <code>.xlsm</code> gốc (Johnson/Growatt),
         dùng <a href="/clients/{{ client.id }}/co-stock/workbook-tool"><strong>công cụ Nạp tồn từ workbook</strong></a>
-        (trang riêng) để convert + nạp snapshot.
+        (trang riêng) để convert + nạp.
       </p>
     </div>
     <div class="split-balanced">
-      <form data-co-stock-import method="post" action="/clients/{{ client.id }}/co-stock/import" enctype="multipart/form-data" class="mini-panel" hx-boost="false">
+      <form data-co-stock-import method="post" action="/clients/{{ client.id }}/co-stock/import-snapshot" enctype="multipart/form-data" class="mini-panel" hx-boost="false">
         <div class="subsection-head">
-          <h4>Import tồn CO</h4>
+          <h4>Nạp snapshot tồn CO</h4>
           <p class="meta">Xlsx theo standard template (sheet <code>co_stock</code>, 19 cột). Bắt buộc 3 cột key: <code>declaration_no</code>, <code>line_no</code>, <code>customs_code</code>.</p>
         </div>
         <div class="stack-form">
           <input type="file" name="file" accept=".xlsx" required>
-          <button type="submit">Upload &amp; điều chỉnh</button>
+          <button type="submit">Upload &amp; nạp snapshot</button>
         </div>
         <div data-co-stock-import-result class="meta" hidden></div>
       </form>
       <section class="mini-panel">
         <div class="subsection-head">
           <h4>Export tồn CO</h4>
-          <p class="meta">Dump trạng thái hiện tại (opening BCCT + used từ ledger + adjustments) ra standard template, header tiếng Việt cho người đọc.</p>
+          <p class="meta">Dump trạng thái hiện tại (opening BCCT + baseline off-app + used từ ledger) ra standard template, header tiếng Việt cho người đọc.</p>
         </div>
         <div class="chip-row">
           <a class="chip" href="/clients/{{ client.id }}/co-stock/export.xlsx">Tải tồn CO (.xlsx)</a>
@@ -138,7 +138,7 @@
     event.preventDefault();
     if (!result) return;
     result.hidden = false;
-    result.textContent = "Đang upload và đối chiếu…";
+    result.textContent = "Đang nạp snapshot…";
     const data = new FormData(form);
     try {
       const response = await fetch(form.action, {method: "POST", body: data});
@@ -147,12 +147,14 @@
         result.textContent = `Lỗi: ${payload.detail || response.status}`;
         return;
       }
-      const upsert = payload.upsert || {};
-      const errors = (payload.parse_errors || []).concat(upsert.errors || []);
+      const errors = (payload.parse_errors || []).concat(payload.errors || []);
       const lines = [
-        `Batch ${payload.batch_id || ""} — file: ${payload.filename || ""}`,
-        `Parsed: ${payload.parsed_rows} dòng · Inserted: ${upsert.inserted || 0} · Updated: ${upsert.updated || 0} · Skipped: ${upsert.skipped || 0}`,
+        `File: ${payload.filename || ""}`,
+        `Ingested: ${payload.rows_ingested || 0} dòng · Snapshot: ${payload.rows_persisted || 0} (thêm ${payload.rows_added || 0} · gỡ ${payload.rows_removed || 0})`,
       ];
+      if (payload.rows_blocked_by_claims) {
+        lines.push(`${payload.rows_blocked_by_claims} lô giữ lại do đang có claim`);
+      }
       if (errors.length) {
         lines.push(`⚠ ${errors.length} lỗi: ${errors.slice(0, 3).join("; ")}${errors.length > 3 ? "…" : ""}`);
       }
@@ -219,6 +221,9 @@
     "adjustment_void": "Void",
     "claim_lock": "Lock CO",
     "claim_release": "Release CO",
+    "snapshot_row_added": "Nguồn: +lô",
+    "snapshot_row_updated": "Nguồn: cập nhật",
+    "snapshot_row_removed": "Nguồn: −lô",
   };
 
   const clientId = window.location.pathname.split("/")[2] || "";
@@ -247,7 +252,9 @@
   const HEADS = {
     grouped: [
       {label: "Hoạt động cuối"}, {label: "Trạng thái"}, {label: "Hồ sơ / Sheet"},
-      {label: "Δ tồn ròng", num: true}, {label: "Sự kiện"}, {label: "Actor"}, {label: "Ghi chú"},
+      {label: "Δ tồn ròng", num: true, hint: "Tác động ròng lên tồn. Sự kiện hệ thống (refresh nguồn) không đổi tồn → hiển thị —."},
+      {label: "Sự kiện", hint: "Số sự kiện đã gộp. Hồ sơ: (N chốt · M mở). Hệ thống: (thêm · cập nhật · gỡ) qua các lần refresh nguồn."},
+      {label: "Actor"}, {label: "Ghi chú"},
     ],
     raw: [
       {label: "Thời điểm"}, {label: "Loại"}, {label: "Δ tồn", num: true},
@@ -319,6 +326,17 @@
           : "";
         countCell = `${g.event_count}${churn}`;
         noteCell = g.status === "holding" ? `còn giữ ${fmtNum(g.held_qty)}` : (g.notes || "");
+      } else if (g.kind === "system") {
+        statusCell = `<span class="badge co-stock-event-system">Hệ thống · nguồn</span>`;
+        refsCell = "—";
+        const parts = [];
+        if (g.added_count) parts.push(`thêm ${g.added_count}`);
+        if (g.updated_count) parts.push(`cập nhật ${g.updated_count}`);
+        if (g.removed_count) parts.push(`gỡ ${g.removed_count}`);
+        countCell = `${g.event_count}${parts.length ? ` <span class="meta">(${parts.join(" · ")})</span>` : ""}`;
+        noteCell = `<span class="meta">${g.readded
+          ? "lô từng bị gỡ khỏi snapshot rồi nạp lại khi refresh nguồn — không phải dòng trùng"
+          : "cập nhật snapshot khi refresh từ nguồn"}</span>`;
       } else {
         statusCell = `<span class="badge co-stock-event-${g.kind}">${labelFor[g.kind] || g.kind}</span>`;
         const refs = [];
@@ -329,6 +347,7 @@
         noteCell = g.notes || "";
       }
       const tr = document.createElement("tr");
+      if (g.kind) tr.dataset.kind = g.kind;
       tr.innerHTML = `
         <td class="mono">${tsOf(g.latest_at)}</td>
         <td>${statusCell}</td>
@@ -344,7 +363,7 @@
 
   function render() {
     if (!lastData) return;
-    if (headRow) headRow.innerHTML = HEADS[mode].map((h) => `<th${h.num ? ' class="num"' : ""}>${h.label}</th>`).join("");
+    if (headRow) headRow.innerHTML = HEADS[mode].map((h) => `<th${h.num ? ' class="num"' : ""}${h.hint ? ` title="${h.hint.replace(/"/g, "&quot;")}"` : ""}>${h.label}</th>`).join("");
     if (toggleBtn) {
       toggleBtn.textContent = mode === "grouped" ? "Chi tiết" : "Gộp";
       toggleBtn.setAttribute("aria-pressed", mode === "raw" ? "true" : "false");

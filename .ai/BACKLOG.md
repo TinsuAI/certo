@@ -9,7 +9,7 @@ Rà lại toàn luồng 5 bước (Lô hàng → Chứng từ → Bảng kê C/O
 trương redesign từng bước. Ba điểm đã nêu trong phiên mở màn:
 
 ### RD1 — Bước 1: "chọn form" hầu như KHÔNG ảnh hưởng outcome (đã xác nhận bằng code 2026-06-14)
-**DONE 2026-06-14 (uncommitted→local).** User chọn phương án (a): bỏ form khỏi bước 1, chỉ giữ
+**DONE 2026-06-14 (committed `09509ae`).** User chọn phương án (a): bỏ form khỏi bước 1, chỉ giữ
 market. Đã bỏ block "Form gợi ý" (modal tạo + Lô hàng), macro chết `form_lane_matrix()`, và 3 thẻ
 form-lanes trong preview invoice (server + JS) — giữ "Gợi ý thị trường" + nút "Dùng thị trường";
 `co_form_type` vẫn auto-suy ngầm từ market. Dọn CSS mồ côi (`.form-lane*`/`.mini-rule-list*`/
@@ -32,7 +32,7 @@ và hiển thị ở list/header. **Không vào calc bảng kê, không chọn t
 `effective_form`). Hiện trạng "lưng chừng" (set nhưng không bind) chính là lý do thấy vô nghĩa.
 
 ### RD2 — Bước 2: redesign UI upload chứng từ ("nhìn cứ sao sao")
-**DONE 2026-06-14 (uncommitted→local).** Dropzone async toàn diện: 7 slot card (kéo-thả + multi-file),
+**DONE 2026-06-14 (committed `09509ae`).** Dropzone async toàn diện: 7 slot card (kéo-thả + multi-file),
 upload XHR có progress bar không reload, chip file (ext·tên·size·×), xoá inline, counter "Bắt buộc
 N/3 · Bổ sung N"; bỏ ô invoice/BL lặp. Backend: `delete_supporting_file` + route DELETE + POST
 content-negotiate JSON khi async (giữ 303 no-JS). CSS Primer `.doc-*` thay sạch `.document-*`/
@@ -47,7 +47,9 @@ shipment, chỉ hỏi khi override), checklist tiến độ rõ (vd "2/3 bắt b
 Bám design Primer [[ui-design-direction-primer]], tránh opacity-muted text [[css-no-opacity-muted-text]].
 
 ### RD3 — Bước 3: bảng kê C/O — THAY ĐỔI LỚN (chi tiết phiên sau)
-User báo sẽ có thay đổi lớn ở bảng kê. **Nội dung chưa chốt — note để phiên sau khai thác.** Vùng
+**PARTIAL — redesign overlay đã ship** (`2464797` Review dashboard ⇄ sheet Excel-like, deployed 0.14.0
+`97dca73`; memory [[rd3-bangke-sheet-overlay]]). User báo còn **thay đổi lớn** nữa ở bảng kê — **nội
+dung đó chưa chốt, note để phiên sau khai thác.** Vùng
 liên quan đang mở: save-model decision [[bangke-excel-like-dirty-undo]] (Excel-like dirty/undo),
 DC3 (hành vi rác/đã-xoá qua Chốt/BOM/Xuất/Tính), declarability [[technical-flattened-export-noise]].
 Khi vào việc: `/discover` trước, đây là bước nặng nhất của luồng.
@@ -163,6 +165,10 @@ refresh_state. Góc cần soi:
 - **UX tín hiệu:** refresh trả `ok:true, rows:0` không phân biệt "không có gì mới" vs "snapshot lỗi" —
   operator không biết. Cân nhắc surface mode/lý do (full vì rỗng, delta N thay đổi…).
 - **`_probe_server_time` best-effort fail** → server_time trống → full mãi (chậm ~12s/lần Johnson).
+- **Vân tay wipe âm thầm (từ [[CS1]] 2026-06-14):** johnson-vn có lô mang cả `snapshot_row_added` (mới) lẫn
+  `snapshot_row_updated` (cũ) mà KHÔNG có `snapshot_row_removed` → row bị xoá bởi đường không-emit-removed
+  (nghi empty/partial-pull wipe trước guard `039baeb`, hoặc đường DELETE khác). **Query phát hiện drift:** bất
+  kỳ lô nào `added` newer-than `updated`/`removed` đều là dấu re-derive → soi đường xoá còn sót.
 Rủi ro: SAI TỒN (over/under-claim downstream). `/discover` + viết test parity trước khi sửa.
 Added: 2026-06-07.
 
@@ -234,7 +240,15 @@ Liên quan [[DC1]] (gốc DH). Added: 2026-06-09.
 ## Bug — Bảng kê (origin)
 
 ### BG1 — Xoá 1 dòng NVL làm mất 2 dòng + fold count không tăng
-**REPORTED 2026-06-14 (user).** Repro `growatt-vn/co-case-e44fe2065b62` → `/origin`:
+**DONE 2026-06-14 (`60e55a1` + `1e089e9`, deployed 0.14.0 `97dca73`).** Gốc rễ: override map theo
+**row-index hiển thị**; xoá **hard-remove** dòng khỏi `materials` → index dồn → recalc corrupt dòng kế
+bên + fold-summary chỉ đếm override `deleted` mới nhất. Fix: **soft-delete** (giữ dòng, gắn cờ
+`deleted`), calc chạy trên `active_materials` (`co_case_context.py:1774`); kèm unify UX xoá + Tính
+contextual + cảnh báo Load BOM ghi đè. Memory [[bangke-soft-delete-index-model]].
+
+<details><summary>Repro + giả thuyết gốc</summary>
+
+Repro `growatt-vn/co-case-e44fe2065b62` → `/origin`:
 1. Load BOM
 2. Tính bảng kê (gốc **122 dòng**)
 3. Xoá 1 dòng → tự lưu → view còn **120** (đáng lẽ **121**). Fold: "**1 dòng đã xoá**".
@@ -244,6 +258,8 @@ Liên quan [[DC1]] (gốc DH). Added: 2026-06-09.
 **Triệu chứng:** mỗi lần xoá 1 dòng, view giảm **2** dòng (122→120→118→116) thay vì 1; fold "đã xoá" **kẹt ở 1**, không cộng dồn. Tổng bảo toàn (view + fold) = 121 → 119 → 117 < 122 ⇒ **mất dòng thật** (1, rồi 3, rồi 5 dòng biến mất hẳn), không chỉ lỗi hiển thị. Nghiêm trọng: bảng kê thiếu NVL → sai LVC/VNM + sai BOM khi chốt.
 
 **Giả thuyết (chưa điều tra):** staged-delete map sai index dòng (off-by-one giữa row-index hiển thị và override key), hoặc recalc/refold sau auto-save loại thêm 1 dòng (vd nhầm dòng kế bên là folded), hoặc fold-summary chỉ đếm override `deleted` mới-nhất thay vì cộng dồn. Cần soi `co_case_origin_sheet_save` + `sheet_edit_bom_rows` (recalc) + fold-summary render + JS `initSheetBulkDelete`/staged ops. Liên quan [[DC3]] (hành vi dòng đã-xoá), [[bangke-bulk-row-delete]].
+
+</details>
 
 Added: 2026-06-14.
 
@@ -306,7 +322,21 @@ khi sửa. Added: 2026-06-08.
 ## Tồn CO — Lịch sử lot (UI)
 
 ### CS1 — Modal "Lịch sử lot tồn CO" khó hiểu + nghi duplicate dữ liệu
-**REPORTED 2026-06-14 (user).** Modal lot history (vd lot `107709127630 / dòng 7 / 1000490420`) header
+**REDESIGN DONE + INVESTIGATED 2026-06-14 (local, chưa commit).**
+- **Điều tra — KHÔNG phải trùng:** events query theo lot-tuple `(decl,line,customs)`; materializer gắn
+  `notes:materializer:<source_row>`. `_classify_changes` chỉ gán `added` khi row vắng trong snapshot → cùng
+  1 source_row vừa `updated` (05-29) vừa `added` (06-07, *muộn hơn*) ⇒ row bị **xoá rồi nạp lại** giữa hai
+  lần, không phải duplicate. Trên johnson-vn added mới hơn updated mà **không có** `snapshot_row_removed` ⇒
+  xoá bởi đường KHÔNG emit removed = **vân tay wipe snapshot âm thầm** (thuộc [[D1]], đã vá một phần `039baeb`).
+- **Redesign:** `fold_lot_events` gộp mọi `snapshot_row_*` thành **1 dòng "Hệ thống · nguồn"** (đếm
+  thêm/cập-nhật/gỡ, cờ `readded`, net 0), **ghim cuối**, mờ bằng color token (không opacity); template thêm
+  nhãn raw + hint header "Sự kiện"/"Δ". Verified data thật johnson-vn (3 sk→2 nhóm, readded=True) + screenshots
+  `.ai/screenshots/2026-06-14-cs1-lot-history-modal/`, 0 console error. Test fold 14/14.
+- **Còn lại:** root-cause churn (vì sao row bị xoá không-removed) = việc của [[D1]]; phần UI CS1 đã xong.
+
+<details><summary>Báo cáo gốc (user)</summary>
+
+Modal lot history (vd lot `107709127630 / dòng 7 / 1000490420`) header
 "4 mục · gộp 20 sự kiện" nhưng bảng khó đọc đến mức chính dev cũng không hiểu:
 - 2 dòng `system` cùng `materializer:import-row-a92652654de1f873` — một `snapshot_row_added`
   (2026-06-07) và một `snapshot_row_updated` (2026-05-29) — trông như **trùng**. Cần làm rõ vì sao
@@ -320,6 +350,9 @@ khi sửa. Added: 2026-06-08.
 Việc: (1) điều tra vì sao materializer ghi cả added+updated cho cùng import-row (thật sự duplicate
 hay không); (2) redesign bảng cho operator đọc được — tách/ẩn dòng hệ thống, diễn giải cột "Sự kiện",
 Δ rõ ràng. Vùng: modal `co-stock-history-*` + nguồn lot history (co_stock ledger/materializer).
+
+</details>
+
 Added: 2026-06-14.
 
 ## Review Tồn CO — GỘP (consolidated 2026-06-14)
@@ -331,6 +364,21 @@ status `bom_loaded` + endpoint `/load-bom`; memory [[co-stock-lock-orthogonal-ov
 finding C dưới) · CS1 (lịch sử lot = Phase 3 cũ) · DC3 (rác qua Chốt/Xuất).
 
 ### CS3 — Review TỔNG flow tồn CO: 3 nguồn (DH / import workbook / thay đổi từ CO cases)
+**REVIEWED 2026-06-14 — brief `.ai/features/2026-06-14-cs3-costock-three-sources/brief.md`.** Kết luận:
+KHÔNG có "nguồn tồn của client" tường minh — source-mode ngầm per-row (`payload.co_stock_source='workbook_snapshot'`)
++ `is_workbook_sourced()` EXISTS-1-dòng chặn TOÀN BỘ DH refresh; schema không cấm trạng thái lẫn (**R1 = SAI TỒN
+tiềm tàng**). Claims orphan-safe (tốt, trực giao). **Hướng (user chỉ đạo 2026-06-14): TRUNG HOÀ cả 3 nguồn
+per-lot — KHÔNG ép về 1 nguồn.** **Mô hình CHỐT:** 3 nguồn sở hữu 3 đại lượng riêng (DH=opening lô mới · workbook **ghi remaining
+THẲNG**, off-app, `fold=False` · CO=tiêu hao), `tồn = remaining_import − CO_claims`; workbook off-app-only nên
+CO trừ tiếp không trùng; khoá lô `(decl,line,customs)`. **Đường import standalone ĐÃ làm đúng model — KHÔNG
+dùng `fold_baseline`, KHÔNG dính CS2 §A** (đừng lẫn 2 cơ chế: ① import standalone `fold=False` vs ② DH-overlay
+cũ `fold_baseline` ôm P0). **Trạng thái 2026-06-15: LEGACY FOLD ĐÃ GỠ HẲN** (CS2 §A-E + bảng `co_stock_adjustments`
+drop mig 017; full suite 591 pass) → còn một model duy nhất, hết nhầm fold-vs-direct. **CÒN PARK** (chưa cần):
+(1) rule re-import configurable, (2) nới `is_workbook_sourced` cho DH thêm opening **lô mới** trên client đã chốt
+workbook (hiện guard chặn DH toàn bộ). `/tdd` khi làm. Chi tiết: brief + [[cs3-costock-harmonize-model]].
+
+<details><summary>Scoping gốc CS3</summary>
+
 **REQUESTED 2026-06-14 (user).** Giờ tồn CO có **3 nguồn ghi vào `co_stock_rows`** — cần review hợp nhất,
 tránh chồng/đè/loạn:
 1. **Data Hub** — `_refresh_co_stock_delta_or_full` derive từ BCCT (fold=True, allocation per config).
@@ -347,7 +395,9 @@ thì collision (không xảy ra với NK2 per-lot, đã verify (decl,line) uniqu
 (c) `convert-workbook` route `except Exception` trả raw exc cho operator (info-leak nhẹ, operator-only).
 `/discover` trước. Added: 2026-06-14.
 
-### CS2 — Review trừ-lùi + convert tool + decouple — REVIEW XONG (3-agent 2026-06-14)
+</details>
+
+### CS2 — Review trừ-lùi + convert tool + decouple — REVIEW XONG (3-agent 2026-06-14); FOLD GỠ HẲN 2026-06-15
 **Discovery cho CS2 coi như xong — findings dưới thay cho `/discover`.** 3 agent: sweep dependency +
 review correctness fold + review convert tool.
 
@@ -369,10 +419,15 @@ Memory [[co-stock-workbook-converter]].
 (Đã thử rồi GỠ đường ingest-standalone `import_standard_snapshot`/`/co-stock/import-snapshot`/
 materializer `fold=False` theo chỉ đạo "đừng đụng DB" — đừng thêm lại nếu không được yêu cầu.)
 
-**CÒN LẠI (deferred): gỡ fold nhúng ở đường Data Hub overlay** (5 file lõi, findings A-E dưới) — KHÔNG
-khẩn vì tool snapshot đã né fold. 2 bug P0 (A) vẫn sống cho client DÙNG đường DH-overlay (`/co-stock/import`
-cũ + refresh). Khi nào đụng đường đó thì vá/decouple theo plan E + parity test. Bước tiếp nếu làm = viết
-parity test RỒI mới gỡ fold.
+**DONE 2026-06-15 — FOLD GỠ HẲN** (user chỉ đạo "bỏ code legacy"; data test bỏ được nên KHÔNG cần parity net).
+Xoá `fold_baseline`/`apply_adjustments`/`aggregate_by_lookup_key`/`refold_*`, bảng `co_stock_adjustments`
+(mig 008 → drop **mig 017**), route `/co-stock/import` overlay (form co_stock.html repoint → `/import-snapshot`),
+`app/co_stock_adjustments_store.py`, `scripts/fix_trului_unit.py`, test `test_co_stock_fold.py`. Off-app baseline
+giờ CHỈ vào qua workbook import (`baseline_used_qty` bake thẳng); DH refresh = opening-only; read overlay
+`apply_used_qty` giữ nguyên. Full suite **591 pass**; legacy route → 404; bảng dropped. **2 bug P0 (A) + findings
+B-E dưới giờ MOOT** (không còn fold). [[co-stock-folded-remaining-model]] [[cs3-costock-harmonize-model]].
+
+*(Findings A-E dưới đã MOOT sau khi gỡ fold 2026-06-15 — giữ lại làm lịch sử.)*
 
 **A. Hai bug SAI TỒN trong fold HIỆN TẠI (chưa decouple đã sai):**
 - **P0-1 — aggregate-policy fold double-count/phantom.** `refold_adjustment_lots`
