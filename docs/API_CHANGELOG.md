@@ -14,6 +14,29 @@ Only `Breaking:` headings trigger notifications to `dev`/`admin` users (CO + BCQ
 
 ## Entries
 
+## 2026-06-14 — Additive: NXT + year-end inventory tier read endpoints (mig 082-086)
+
+Silent / opt-in; no consumer code change required. Five new read endpoints for
+the settlement-input tier Data Hub now owns (NXT = Nhập-Xuất-Tồn period flow;
+year-end inventory snapshot = chốt tồn kho). BCQT computes Mẫu 15/15a from these.
+
+- `GET /v1/hub/dncxs/{client_id}/nxt` — list current NXT artifacts (metadata).
+- `GET /v1/hub/dncxs/{client_id}/nxt/{artifact_id}` — one artifact with `lines[]`:
+  `internal_code, customs_code, name, uom, reported_role, opening, inbound_total,
+  out_tai_xuat, out_chuyen_mdsd, out_xuat_sx, out_xuat_khac, outbound_total,
+  closing_reported, closing_implied`. `reported_role` is provenance only (resolve
+  authoritative NVL/TP/BTP from the catalog); `closing_implied` is derived.
+- `GET /v1/hub/dncxs/{client_id}/inventory-snapshots` — list snapshots (metadata).
+- `GET /v1/hub/dncxs/{client_id}/inventory-snapshots/{snapshot_id}` — one snapshot
+  with `lines[]`: `code, name, uom, warehouse, batch, qty_book, qty_physical,
+  variance` (variance derived).
+- `GET /v1/hub/dncxs/{client_id}/period-end-link?date=YYYY-MM-DD` — per-code
+  reconciliation: NXT closing ↔ next-period opening ↔ snapshot book/physical.
+  Best-effort code join (NXT `coalesce(internal_code, customs_code)` vs snapshot
+  `code`); aggregates current artifacts only (re-upload supersedes prior).
+- All under existing `hub:read` scope + per-client visibility. Full contract:
+  `docs/API_CONTRACT.md` → "Settlement inputs (NXT + year-end inventory)".
+
 ## 2026-06-09 — Additive: SAP Material Group + non-declarable BOM-row exclusion (mig 078)
 
 Silent / opt-in; no consumer code change required.
