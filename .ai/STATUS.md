@@ -1,23 +1,26 @@
 # Project Status
 
-**Date:** 2026-06-14 — **v0.14.0 cut**; UI redesign + Vietnamese sweep + admin
-nav + adapter-binding fix bundled in **PR #4** (`feat/ui-redesign-vi-sweep`),
-merging to `main` (→ auto-deploys prod). Plus an important correction to the
-prod/declarability state recorded below.
+**Date:** 2026-06-14 — **v0.14.0 RELEASED & live on prod.** UI redesign +
+Vietnamese sweep + admin nav + adapter-binding fix shipped via **PR #4**, merged
+to `main` (`ec3f0ab`), auto-deployed to prod, tagged `v0.14.0` + GitHub Release.
+Plus an important correction to the prod/declarability state recorded below.
 
 ## Current State
 
-**Release 0.14.0** (`pyproject` bumped 0.13.1 → 0.14.0). CHANGELOG `[0.14.0]`
-folds in everything live-but-unreleased since 0.13.1: PR #2 (declarability,
-mig 078/079), PR #3 (adapter module-mgmt, mig 080/081), and this session's
-PR #4 work.
+**v0.14.0 SHIPPED** (`pyproject` 0.14.0). Prod (`https://ttdatahub.tinsu.ai`) is
+**live on v0.14.0** — verified `/version` → `{"version":"0.14.0","git_sha":"ec3f0ab"}`;
+nightly demo refreshed. Tag `v0.14.0` → merge commit `ec3f0ab`; GitHub Release
+published from the CHANGELOG `[0.14.0]` section. CHANGELOG `[0.14.0]` folds in
+everything live-but-unreleased since 0.13.1: PR #2 (declarability, mig 078/079),
+PR #3 (adapter module-mgmt, mig 080/081), and PR #4.
 
-**PR #4 — `feat/ui-redesign-vi-sweep`** (4 commits): G.2 adapter-binding fix
-(tree adapters via binding/dropdown now route through raw_graph, not flat-stash),
+**PR #4 — `feat/ui-redesign-vi-sweep`** (merged, branch deleted): G.2 adapter-binding
+fix (tree adapters via binding/dropdown now route through raw_graph, not flat-stash),
 G.1 shared grouped admin sub-nav, clients-page search + top-nav user menu +
 Vietnamese sweep of high-visibility surfaces, docs. Suite **1480 passed / 16
-skipped**. Briefs + screenshots under `.ai/features/2026-06-14-nav-redesign/` and
-`.ai/features/2026-06-14-clients-topnav-vi-sweep/`.
+skipped**; PR CI green; prod **Deploy** job green (both auth smoke gates incl. the
+public `ttdatahub.tinsu.ai` check). Briefs + screenshots under
+`.ai/features/2026-06-14-nav-redesign/` and `.ai/features/2026-06-14-clients-topnav-vi-sweep/`.
 
 **⚠️ Correction — CD deploys PROD, and prod ALREADY has mig 078–081.** The
 earlier STATUS claim that 078/079 were "gated, not yet applied to prod" was
@@ -37,24 +40,22 @@ earlier STATUS claim that 078/079 were "gated, not yet applied to prod" was
   (`scripts/backfill_johnson_material_group.py --apply`) is **not** a migration and
   has **not** run on prod yet.
 
-**PR #4 adds NO new migrations** (latest is 081, already on main) → merging it
-applies nothing new to the prod DB; only UI/i18n/bom-routing code ships.
+**PR #4 added NO new migrations** (latest is 081, already on main) → the deploy
+applied nothing new to the prod DB; only UI/i18n/bom-routing code shipped.
 
 ## Next Steps
 
-1. **Merge PR #4** → `main` push → CI **Deploy** redeploys prod (v0.14.0). Watch
-   the deploy job to green. Optionally tag `v0.14.0` on the merge commit.
-2. **Declarability rollout — decide on the backfill** (schema already on prod,
+1. **Declarability rollout — decide on the backfill** (schema already on prod,
    default-OFF): whether/when to run `backfill_johnson_material_group.py --apply`
    on prod (idempotent, import-aware; key check after: rows with
    `excluded_at is not null and customs_relevance='declarable'` **must be 0**).
    Then **CO adoption** (swap `is_bom_technical_noise` → DH `customs_relevance`,
    `.ai/sister-app-notes/2026-06-09-co-consumer-spec-declarability.md`); only after
    CO is on it, flip `exclude_non_declarable` for johnson-vn.
-3. **Outage ops follow-up:** after ~**20/06** confirm pre-fix appfiles tars pruned
+2. **Outage ops follow-up:** after ~**20/06** confirm pre-fix appfiles tars pruned
    via GFS (`~/logs/verify-old-tars.log` self-removes when clean; raises
    `ALARM-PRUNE-CHECK` if GFS failed).
-4. **Backlog, unblocked:** B.0b rename `material_group` → `item_type_token`;
+3. **Backlog, unblocked:** B.0b rename `material_group` → `item_type_token`;
    A.0 RD07 drawing name-level auto-hide; D.2 BOM staleness fingerprint (needs
    A.4.4 `classify_uom_relation` first). Language follow-up: deep BOM-flatten
    vocabulary + admin-staff sentences (see clients-topnav-vi-sweep brief).
