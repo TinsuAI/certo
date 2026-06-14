@@ -11,6 +11,10 @@ phiên bản theo [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.18.0] — 2026-06-14
+### API
+- **Đọc NXT / chốt tồn kho theo trang + lọc:** thêm endpoint `/v1/hub` lấy danh sách dòng có phân trang cho từng bảng NXT và từng bản chốt tồn kho (phục vụ artifact lớn như SAP MB5B ~20k dòng), kèm lọc theo mã / vai trò / kho và tổng số dòng chính xác. Lọc danh sách NXT theo năm quyết toán, danh sách chốt tồn kho theo năm. Hai endpoint trả toàn bộ dòng cũ giữ nguyên (additive). Chi tiết: `docs/API_CHANGELOG.md` (2026-06-14, Additive).
+
 ## [0.17.0] — 2026-06-14
 ### Mới
 - **NXT theo năm quyết toán:** mỗi khách hàng một bảng NXT cho mỗi năm; bắt buộc nhập "Năm quyết toán" khi tải lên, tải lại cùng năm sẽ thay thế bản cũ. Chốt tồn kho bắt buộc nhập "Ngày chốt".
