@@ -126,6 +126,8 @@ def parse_with_fallback(blob: bytes) -> tuple[list[dict], str] | None:
 # detect() score discriminates; high-precision (distinctive sheet/header) first.
 from app.parsers.nxt_adapters.ezsoft_3tsoft import Ezsoft3TSoftAdapter  # noqa: E402
 from app.parsers.nxt_adapters.system_template import SystemTemplateNxtAdapter  # noqa: E402
+from app.parsers.nxt_adapters.manual_generic import ManualGenericNxtAdapter  # noqa: E402
 
-register(Ezsoft3TSoftAdapter())     # distinctive "EZSOFT - 3TSoft" sheet
+register(Ezsoft3TSoftAdapter())       # distinctive "EZSOFT - 3TSoft" sheet
 register(SystemTemplateNxtAdapter())  # canonical NVL/TP/BTP template
+register(ManualGenericNxtAdapter())   # last-resort alias/override fallback

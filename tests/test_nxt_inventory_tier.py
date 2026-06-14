@@ -374,3 +374,55 @@ def test_nxt_set_default_adapter_route():
     from app.stores import settlement_adapter_binding as b
     assert b.get_default_adapter(CLIENT, "nxt") == "system_template"
     b.set_default_adapter(CLIENT, "nxt", "auto")  # reset
+
+
+# ── manual_generic adapter (alias auto-match + mapping_override) ─────────
+
+def _build_generic_nxt(headers: list[str], row: list) -> bytes:
+    import io
+    from openpyxl import Workbook
+    wb = Workbook(); ws = wb.active; ws.title = "Sheet1"
+    for ci, h in enumerate(headers, 1):
+        ws.cell(1, ci, h)
+    for ci, v in enumerate(row, 1):
+        ws.cell(2, ci, v)
+    out = io.BytesIO(); wb.save(out)
+    return out.getvalue()
+
+
+def test_manual_generic_alias_automatch():
+    from app.parsers.nxt_adapters.manual_generic import ManualGenericNxtAdapter
+    blob = _build_generic_nxt(
+        ["Mã nội bộ", "Tên", "ĐVT", "Tồn đầu kỳ", "Nhập trong kỳ", "Xuất", "Tồn cuối kỳ"],
+        ["X1", "Vật tư X", "KG", 100, 50, 30, 120])
+    a = ManualGenericNxtAdapter()
+    assert a.detect(blob) is None  # abstains
+    lines = a.parse(blob)
+    assert len(lines) == 1
+    ln = lines[0]
+    assert ln["internal_code"] == "X1" and ln["uom"] == "KG"
+    assert ln["opening"] == 100 and ln["inbound_total"] == 50
+    assert ln["outbound_total"] == 30  # single "Xuất" → outbound_total
+    assert ln["closing_reported"] == 120
+    # fallback routes here when no high-precision adapter matches
+    _lines, name = nxt_adapters.parse_with_fallback(blob)
+    assert name == "manual_generic"
+
+
+def test_manual_generic_mapping_override():
+    from app.parsers.nxt_adapters import NxtParseError
+    from app.parsers.nxt_adapters.manual_generic import ManualGenericNxtAdapter
+    blob = _build_generic_nxt(
+        ["Code", "Name", "Begin", "In", "Out", "End"],
+        ["Y1", "Item Y", 10, 5, 2, 13])
+    a = ManualGenericNxtAdapter()
+    # Unknown headers → alias auto-match can't identify code/qty → raises.
+    with pytest.raises(NxtParseError):
+        a.parse(blob)
+    # With a confirmed mapping override it parses.
+    override = {"Code": "internal_code", "Name": "name", "Begin": "opening",
+                "In": "inbound_total", "Out": "outbound_total", "End": "closing_reported"}
+    lines = a.parse(blob, mapping_override=override)
+    assert len(lines) == 1
+    assert lines[0]["internal_code"] == "Y1"
+    assert lines[0]["outbound_total"] == 2 and lines[0]["closing_reported"] == 13

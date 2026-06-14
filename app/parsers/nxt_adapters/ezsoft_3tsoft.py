@@ -29,14 +29,11 @@ def _find_col(cells: list[str], *needles: str) -> int | None:
 
 
 def _target_sheet(wb):
-    """Prefer a sheet titled ezsoft/3tsoft; else the first sheet carrying the
-    bilingual NXT header band."""
-    titled = [ws for ws in wb.worksheets
-              if "ezsoft" in ws.title.lower() or "3tsoft" in ws.title.lower()]
-    if titled:
-        return titled[0]
+    """The ezsoft/3tsoft-titled sheet, or None. Keyed on the title (same signal
+    as detect()) so this adapter never greedily claims a generic NXT file that
+    merely happens to have Tồn đầu/Tồn cuối headers — that's manual_generic's job."""
     for ws in wb.worksheets:
-        if _header_row(ws) is not None:
+        if "ezsoft" in ws.title.lower() or "3tsoft" in ws.title.lower():
             return ws
     return None
 

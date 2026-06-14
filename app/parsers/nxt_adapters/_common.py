@@ -54,6 +54,11 @@ ALIASES: dict[str, list[str]] = {
         "Xuất kho SX", "Xuất kho để sản xuất", "Xuất SX", "xuat_sx",
     ],
     "out_xuat_khac": ["Xuất kho khác", "Xuất khác", "xuat_khac"],
+    # Single lumped Xuất column (ERP exports that don't split into 4 buckets).
+    "outbound_total": [
+        "Xuất", "Tổng xuất", "Xuất kho", "Xuất trong kỳ", "Tổng xuất kho",
+        "total_issue_qty", "輸出", "输出", "出庫",
+    ],
     "closing_reported": [
         "Tồn cuối kỳ", "Cuối kỳ", "Tồn cuối",
         "Lượng NL, VT nhập khẩu tồn kho cuối kỳ",

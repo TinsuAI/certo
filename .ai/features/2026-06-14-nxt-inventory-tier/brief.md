@@ -10,8 +10,14 @@
   per-client adapter binding (mig 085 + `settlement_adapter_binding` store + upload
   selector + "set default"); admin registry view `/admin/settlement-adapters`.
   Validated on the real Growatt file (2936 lines, btp 150/tp 68/nvl 2718, 0 closing
-  mismatch). **Remaining slice 2:** `manual_generic` + LLM column-mapping flow.
-Tests: 20 in this feature + full suite 1514 passed. UI proof in `screenshots/`.
+  mismatch).
+- **Slice 2c**: `manual_generic` adapter — last-resort fallback that alias-auto-matches
+  any reasonably-headed NXT file (zero interaction) and honours a `mapping_override`
+  (header→field) for headers outside the alias list. New `outbound_total` alias for a
+  lumped Xuất column. **Remaining slice 2:** the interactive mapping-page UI (LLM
+  suggest + staff confirm + parser_mappings cache) that *captures* an override for
+  truly-unknown headers — the engine (mapping_override) is done.
+Tests: 22 in this feature + full suite 1516 passed. UI proof in `screenshots/`.
 Slices 3-4 pending.
 **Owner:** Data Hub
 
