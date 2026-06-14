@@ -153,6 +153,13 @@ def resolve_conversion(cur, client_id: str, material_code: str | None,
     return None
 
 
+# Override sources are directional rows staff enter by hand; canonical /
+# alias / tier-A resolution is already symmetric so a reverse lookup of
+# those would just re-derive the same factor. Only these get the
+# reverse-and-invert treatment below.
+_OVERRIDE_SOURCES = frozenset({"client_specific", "client_wide"})
+
+
 def make_uom_lookup(client_id: str) -> UomLookup:
     """Build a closure that takes (material_code, from_uom, to_uom) and
     returns a ConversionMatch | None."""
@@ -164,9 +171,27 @@ def make_uom_lookup(client_id: str) -> UomLookup:
         if not from_uom or not to_uom:
             return None
         with connect() as conn, conn.cursor() as cur:
-            return resolve_conversion(
+            match = resolve_conversion(
                 cur, client_id, material_code, from_uom, to_uom,
             )
+            if match is not None:
+                return match
+            # Symmetric override acceptance (parity with
+            # classify_uom_relation): a staff-entered override may only
+            # exist for the reverse direction. If so the pair IS
+            # convertible — invert the factor for from→to. Without this the
+            # catalog panel / drift gate report "convertible" while flatten
+            # still emits uom_conversion_missing.
+            rev = resolve_conversion(
+                cur, client_id, material_code, to_uom, from_uom,
+            )
+            if rev is not None and rev.source in _OVERRIDE_SOURCES and rev.factor:
+                return ConversionMatch(
+                    factor=Decimal(1) / rev.factor,
+                    from_uom=from_uom, to_uom=to_uom,
+                    source=rev.source,
+                )
+            return None
     return lookup
 
 
