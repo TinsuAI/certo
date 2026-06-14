@@ -160,6 +160,32 @@ Scale rigor to the change. Inherits from BCQT-System conventions:
 - **Verify before claiming done:** no "done" without running tests/lint and confirming the change works. Evidence, not claims.
 - **Cross-repo coordination:** changes that affect Data Hub schema (consumed by BCQT/CO) need to update BCQT-System + CO repos accordingly. Document schema changes in `.ai/DECISIONS.md` here AND cross-link from sister repos.
 
+### UI proof & screenshots (two-tier — do not mix)
+
+Any change that touches a UI surface needs visual proof. There are **exactly
+two** screenshot locations; never invent a third.
+
+1. **Committed proof** → `.ai/features/<YYYY-MM-DD-slug>/screenshots/*.png`,
+   alongside `brief.md` and the `ui_smoke.py` that produced them. This is the
+   deliverable. The smoke script lives **in** the feature folder and writes to
+   **its own** folder:
+   ```python
+   OUT = Path(__file__).resolve().parent / "screenshots"
+   ```
+   Run it with the dev server up on :8754:
+   `uv run python .ai/features/<slug>/ui_smoke.py`. If it needs `app` imports,
+   bootstrap sys.path to repo root (`sys.path.insert(0, str(Path(__file__).resolve().parents[3]))`).
+2. **Scratch / throwaway** → `data/screenshots/` (gitignored). Ad-hoc checks
+   during dev only, e.g. the broad walk in `scripts/screenshot.py`. Never
+   committed, never the deliverable.
+
+Rules:
+- Never write deliverable screenshots into `data/screenshots/`, and never create
+  ad-hoc screenshot subfolders anywhere else (no `data/screenshots/<feature>/`,
+  no repo-root dumps). One feature = one `.ai/features/<slug>/` — reuse the slug.
+- New UI features always use the folder layout; the flat `.ai/features/*.md`
+  files are legacy and stay as-is.
+
 ## Skills
 
 All available via user-level `~/.claude/skills/`:
@@ -181,11 +207,10 @@ No project-local skills needed currently. If the project develops Data-Hub-speci
 - `.ai/GLOSSARY.md` — domain-specific terms (customs compliance vocabulary)
 - `.ai/sessions/` — dated session summaries and primary handoff artifacts
 - `.ai/features/<YYYY-MM-DD-slug>/` — per-feature folder: `brief.md` +
-  committed `screenshots/*.png` from the UI smoke + optional
-  `ui_smoke.py`. Use this layout for new features with UI surface; the
-  flat `.ai/features/*.md` files are legacy and stay as-is. UI proof
-  goes here, not in `data/screenshots/` (which is gitignored build
-  output).
+  committed `screenshots/*.png` + optional `ui_smoke.py`. Canonical home for
+  UI proof — see **"UI proof & screenshots"** under How We Work for the
+  two-tier rule (committed here vs gitignored `data/screenshots/` scratch).
+  Flat `.ai/features/*.md` files are legacy and stay as-is.
 - `docs/release-engineering.md` — Data Hub instance of the
   TinsuAI release-engineering policy. Versioning, branching,
   deployment shapes, seed taxonomy, backup/restore — all mapped
