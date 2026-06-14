@@ -10,7 +10,11 @@ phiên bản theo [SemVer](https://semver.org/).
 > hành đã đóng gói tại thời điểm đó.
 
 ## [Unreleased]
+
+## [0.14.0] — 2026-06-14
 ### Mới
+- Phân loại "khả năng khai báo" (`customs_relevance`) cho từng dòng leaf của BOM — declarable / declarable_unmatched / non-declarable — theo mô hình hai lớp: (1) bằng chứng nhập khẩu từ BCCT (tổng quát, không cần cấu hình); (2) bản đồ Material Group theo từng khách hàng (tùy chọn, để gom rác). Cho phép lọc mềm dòng non-declarable khỏi bảng kê bằng cờ `exclude_non_declarable` theo từng khách hàng (mặc-định-OFF, không xóa gì — BOM bất biến). (mig 078/079)
+- Quản lý "module" adapter BOM: trang Adapter BOM (registry) chỉ-xem liệt kê các parser đã đăng ký + tín hiệu mỗi adapter phát ra; UI bản đồ Material Group theo khách hàng; gán adapter mặc định theo từng khách hàng. (mig 080/081)
 - Trang Khách hàng: ô tìm kiếm tức thì (lọc theo tên · mã · MST), badge chế độ khớp mã bằng tiếng Việt, lưới module thu gọn thành dải chip.
 - Thanh điều hướng admin gom nhóm dùng chung mọi trang admin (Người dùng · Dữ liệu tham chiếu · Adapter BOM · Hệ thống), tự sáng mục đang mở; trang "Cài đặt embedding" trước đây mồ côi nay đã có lối vào.
 
