@@ -357,3 +357,37 @@ cần fix**.
 standard CO stock qua `convert_co_stock.py`), **bỏ fold nhúng** (`fold_baseline` + re-fold ở materializer/
 ledger/context/recalc/import), hệ thống chỉ dùng standard CO stock. Phạm vi lớn, đụng lõi tồn → `/discover`
 kỹ + viết parity test trước khi gỡ fold (rủi ro SAI TỒN). AUDIT/HARDEN bị loại. Added: 2026-06-14.
+
+## Bảng kê — Xuất xứ NVL
+
+### XX1 — Input NVL CÓ xuất xứ (phụ lục X) → nhánh "có xuất xứ" của bảng kê (ảnh hưởng LVC/RVC)
+**REPORTED 2026-06-14 (user).** Hiện **đa số NVL = không xuất xứ** (mặc định bảo thủ
+`origin_status='non_origin'`, source `default_conservative`). Nhưng có **lô nhập khẩu CÓ xuất xứ**
+(kèm **phụ lục X** làm chứng từ). Cần:
+1. **Cách input** dữ liệu xuất xứ: đánh dấu lô/NVL là `origin` (per-lot theo tờ khai nhập, hoặc per-material),
+   gắn tham chiếu chứng từ phụ lục X.
+2. Khi **tính bảng kê**: NVL đó vào **nhánh có xuất xứ** (`origin_status='origin'`) → **KHÔNG cộng vào VNM**
+   (xem `origin_material_from_bom_row`: `vnm_value = material_value if origin_status=='non_origin'`) → **tăng
+   LVC / giảm phần KXX** tương ứng (`calculate_lvc_result`).
+3. **Nguồn dữ liệu:** ưu tiên Data Hub (BCCT/customs có field xuất xứ?) — theo guardrail DH, kiểm
+   `app/data_hub_client.py` trước; nếu hợp đồng chưa có field origin per-lot thì viết API request artifact.
+   Fallback: input tay trên CO + lưu override per-material (giống `material_overrides`).
+
+Vùng: `origin_status_details_from_material` (phân loại xuất xứ), `material_overrides` (nếu input tay),
+template cột "Xuất xứ" + chứng từ phụ lục X. Liên quan [[technical-flattened-export-noise]] (customs_relevance
+là trục KHÁC — declarability, không phải origin). `/discover` trước. Added: 2026-06-14.
+
+### LK1 — Review logic "Chốt" (lock) bảng kê: khi nào lock-able?
+**REQUESTED 2026-06-14 (user).** Rà soát điều kiện sheet **lock-able** và đảm bảo nút + endpoint "Chốt"
+CHỈ thao tác được khi lock-able (giống đã làm cho "Tính bảng kê" contextual). Hiện trạng (code):
+`origin_can_lock = code and status=='calculated' and not sequence_reason` (`co_case_context.py:1295`);
+endpoint lock guard qua `origin_sheet_action_error` + `reject_if_sheet_locked`. Điểm cần soi:
+- Chỉ `calculated` mới chốt được — nhưng sheet đang có **chỉnh sửa chưa lưu** (pending ops client) thì
+  sao? Chốt khi đang dirty = chốt dữ liệu cũ → cần buộc lưu/tính trước.
+- `sequence_reason` (phải chốt theo thứ tự sheet trước→sau): đúng/đủ chưa?
+- Sheet `stale` (cần tính lại) KHÔNG chốt được (đúng) — UI có chặn rõ + giải thích không.
+- Còn dòng `declarable_unmatched` / chưa khớp tồn → có nên **chặn cứng** chốt (Spec Edit 5, [[DC3]])?
+  Hiện mới cảnh báo, chưa chặn.
+- Endpoint có thật sự **reject** khi không lock-able, hay chỉ disable nút client (bypass được)?
+Vùng: `origin_can_lock` / `origin_sheet_action_error` (`co_case_context.py`), lock endpoint (`co_case.py`),
+nút Chốt (`co_case.html`). Liên quan [[DC3]]. `/discover` trước. Added: 2026-06-14.
