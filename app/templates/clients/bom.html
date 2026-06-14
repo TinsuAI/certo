@@ -125,7 +125,7 @@
       {% set has_nflat = p.n_non_flattened > 0 %}
       {% set has_flat = p.n_flattened > 0 %}
       {% set row_class = 'flat-only' if has_flat and not has_nflat else ('nflat-only' if has_nflat and not has_flat else 'mixed') %}
-      <tr data-status="{{ row_class }}">
+      <tr data-status="{{ row_class }}" data-row-href="/clients/{{ client.client_id }}/bom/{{ p.product_code }}/artifacts" tabindex="0">
         <td class="mono">{{ p.product_code }}</td>
         <td>
           {% if p.product_kind == 'btp' %}

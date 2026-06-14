@@ -292,7 +292,7 @@
     </thead>
     <tbody>
       {% for m in items %}
-      <tr>
+      <tr data-row-href="/clients/{{ client.client_id }}/catalog/{{ m.material_code }}/detail" tabindex="0">
         <td class="mono" data-col="material_code">
           <a href="/clients/{{ client.client_id }}/catalog/{{ m.material_code }}/detail"
              title="Xem chi tiết">{{ m.material_code }}</a>
