@@ -18,6 +18,9 @@ phiên bản theo [SemVer](https://semver.org/).
 - Điều hướng trong view khách hàng gom lại thành 3 nhóm domain (Danh mục · Hải quan · BOM); "Đề xuất" chuyển vào nhóm BOM cùng Định mức / Cần xử lý / Hệ số quy đổi.
 - Trang Tải lên: thêm cột "Người tải" và Việt hoá nhãn trạng thái.
 
+### Sửa lỗi
+- Trang hệ số quy đổi UoM: ô xem trước không còn hiện ra thành một ô trống vô duyên khi chưa nhập đủ "Từ UoM / Sang UoM / Hệ số" (CSS `display` đè lên thuộc tính `hidden`).
+
 ## [0.14.0] — 2026-06-14
 ### Mới
 - Phân loại "khả năng khai báo" (`customs_relevance`) cho từng dòng leaf của BOM — declarable / declarable_unmatched / non-declarable — theo mô hình hai lớp: (1) bằng chứng nhập khẩu từ BCCT (tổng quát, không cần cấu hình); (2) bản đồ Material Group theo từng khách hàng (tùy chọn, để gom rác). Cho phép lọc mềm dòng non-declarable khỏi bảng kê bằng cờ `exclude_non_declarable` theo từng khách hàng (mặc-định-OFF, không xóa gì — BOM bất biến). (mig 078/079)
