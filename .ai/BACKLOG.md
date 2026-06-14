@@ -132,6 +132,18 @@ Added: 2026-06-07.
 
 </details>
 
+### B5 — Flash/toast notification khó nhìn + quá nhanh
+**DONE 2026-06-14.** Gốc rễ "trong suốt": `.ui-toast` dùng `background: var(--surface)` — **token không tồn tại** → nền transparent. Fix: nền `var(--card)` (đặc), chuyển `.ui-toast-stack` xuống **góc dưới-phải**, viền trái 4px theo kind (success/error), font 0.9rem line-height 1.35, timeout **2600ms→5000ms**, keyframe trượt từ dưới lên. Vùng: `co_case.html` `toast()` + CSS `.ui-toast*` (`app.css`).
+
+### B6 — Logic "nguyên tệ" (native currency) cần review kỹ
+**REPORTED 2026-06-14 (user).** Các hồ sơ sofar **chỉ thấy hiển thị VND**, chưa lần nào thấy đơn vị tiền tệ khác → nghi `currency_mode='native'` / cột đơn giá-trị giá luôn rơi về VND. Cần review: nguồn `product.currency`/`fob_currency`/`unit_value_native` vs `unit_value_vnd`, đường FX (bcct_declared/customs_lookup), và `currency_mode` toggle có thực sự đổi hiển thị không. Vùng: `co_case_context` (đính giá/FX) + template cột đơn giá/trị giá + `_display_currency`. Added: 2026-06-14.
+
+### B8 — Sheet đã chốt cần dễ nhận diện hơn (body + tabs)
+**DONE 2026-06-14.** Thêm 🔒 vào status pill (toolbar + review row); tab đáy sheet locked: nền `--success-soft` + 🔒 + chữ status xanh; tab locked active viền/accent xanh (success) thay vì xanh primary; product-line panel locked viền dưới xanh. Vùng: `co_case.html` (pill + bottom-tab class) + CSS `.origin-sheet-tab-locked` / `[data-origin-sheet-locked]`.
+
+### B7 — Dropdown "chỉ tiêu" (criteria) nền đen — làm elegant hơn
+**REPORTED 2026-06-14 (user).** Ô "Tiêu chí" (`<input list="origin-criteria-options">` datalist trong ⚙ modal) bung dropdown **nền đen vô duyên**. Datalist native khó style cross-browser → cân nhắc thay bằng `<select>`/combobox tự dựng có style Primer, hoặc chỉnh token. Vùng: `co_case.html` `origin-criteria-options` + `[data-origin-recommendation-criteria]` + CSS. Added: 2026-06-14.
+
 ## Tồn CO / Data Hub refresh
 
 ### D1 — Audit KỸ logic delta vs full + "refresh from Data Hub"
@@ -218,6 +230,22 @@ Soi code 2026-06-09. Bảng hành vi (dòng **đã-xoá** | dòng **rác** DH-cl
   summary "cần đối soát"), **chưa chặn cứng** lúc Chốt/Xuất. Cân nhắc block phát hành C/O.
 
 Liên quan [[DC1]] (gốc DH). Added: 2026-06-09.
+
+## Bug — Bảng kê (origin)
+
+### BG1 — Xoá 1 dòng NVL làm mất 2 dòng + fold count không tăng
+**REPORTED 2026-06-14 (user).** Repro `growatt-vn/co-case-e44fe2065b62` → `/origin`:
+1. Load BOM
+2. Tính bảng kê (gốc **122 dòng**)
+3. Xoá 1 dòng → tự lưu → view còn **120** (đáng lẽ **121**). Fold: "**1 dòng đã xoá**".
+4. Xoá dòng nữa → còn **118** (đáng lẽ **120**). Fold vẫn "**1** dòng đã xoá" (đáng lẽ **2**).
+5. Xoá dòng nữa → còn **116** (đáng lẽ **119**). Fold vẫn "**1** dòng đã xoá" (đáng lẽ **3**).
+
+**Triệu chứng:** mỗi lần xoá 1 dòng, view giảm **2** dòng (122→120→118→116) thay vì 1; fold "đã xoá" **kẹt ở 1**, không cộng dồn. Tổng bảo toàn (view + fold) = 121 → 119 → 117 < 122 ⇒ **mất dòng thật** (1, rồi 3, rồi 5 dòng biến mất hẳn), không chỉ lỗi hiển thị. Nghiêm trọng: bảng kê thiếu NVL → sai LVC/VNM + sai BOM khi chốt.
+
+**Giả thuyết (chưa điều tra):** staged-delete map sai index dòng (off-by-one giữa row-index hiển thị và override key), hoặc recalc/refold sau auto-save loại thêm 1 dòng (vd nhầm dòng kế bên là folded), hoặc fold-summary chỉ đếm override `deleted` mới-nhất thay vì cộng dồn. Cần soi `co_case_origin_sheet_save` + `sheet_edit_bom_rows` (recalc) + fold-summary render + JS `initSheetBulkDelete`/staged ops. Liên quan [[DC3]] (hành vi dòng đã-xoá), [[bangke-bulk-row-delete]].
+
+Added: 2026-06-14.
 
 ## Performance
 

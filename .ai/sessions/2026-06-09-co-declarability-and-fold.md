@@ -78,3 +78,32 @@ Three commits on `main` + one uncommitted feature, all on the origin bảng kê.
 - **Untracked:** the DH note copy in `data-hub/.ai/sister-app-notes/` (user said copy, not commit).
 - **Dev data:** growatt `co-case-e44fe2065b62 / SD00.0010600` restored from seed (128 mat). Johnson
   `co-case-ec000d03522e` verified clean. Screenshots in `.ai/screenshots/2026-06-09-declarability/` (gitignored).
+
+## Addendum — session close (committed, pushed, deployed)
+
+After the first handoff write, the rest of the session:
+
+- **Committed + pushed all 5 commits** (`a9770bc`, `46ab586`, `b951182`, `8970250`, `0ba4ec3`) to
+  `origin`/`main` (TinsuAI/co). **Deployed to prod** — `barry-co.tinsu.ai` = `0.13.0`, git_sha `0ba4ec3`;
+  CI/CD run all green (Docker build + Python tests + Deploy).
+- **Verified rác/deleted behavior across the full workflow (→ BACKLOG DC3):**
+  - **Chốt → update BOM via DH** (`build_bom_proposal_rows:2224`): strips `deleted`, **KEEPS rác** — by
+    design (BOM = product structure; `customs_relevance` only governs the customs bảng kê). Open decision:
+    should update-BOM strip rác too (`or is_bom_technical_noise`)?
+  - **Export**: both `deleted` and rác excluded (3 export paths gate on `override.deleted or
+    is_bom_technical_noise`).
+  - **Calc (LVC/VNM/tồn)**: `deleted` removed from recalc (`sheet_edit_bom_rows:594`); rác has no
+    allocation → 0 value → LVC-neutral, no tồn claim (`record_sheet_lock_claims` only claims from
+    `allocation_lines`).
+  - **Caveat:** export/calc rác handling only works when materials carry `customs_relevance`. A
+    pre-`customs_relevance` calculated sheet leaks rác into export/BOM until re-calculated.
+  - **`declarable_unmatched` sums 0 → inflates LVC** (missing non-origin value because unmatched); only a
+    visible review warning exists, no hard Chốt/Xuất block (spec Edit 5). → DC3.
+- **Added BACKLOG DC1–DC3** (Declarability section) + updated STATUS.
+
+## Open Items (final)
+
+- **DH must finish Material Group re-ingest for `bom_observed`** (DC1) — unblocks Johnson rác auto-fold/exclude.
+- **DC3 decisions** (update-BOM strip rác? force re-calc before Chốt/Xuất? hard-block on `declarable_unmatched`?).
+- **DC2** (CO technical-BOM name source), **M1** (Propose BOM sync), save-model decision, D1 leftovers.
+- The handoff-doc updates from this addendum are **uncommitted** (STATUS + this session log).
