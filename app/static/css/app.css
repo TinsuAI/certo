@@ -466,7 +466,7 @@ small,
 }
 
 /* Grouped client nav — primary workflow flat, secondary areas in dropdowns */
-.client-tabs { align-items: center; overflow: visible; }
+.client-tabs, .admin-tabs { align-items: center; overflow: visible; }
 .tab-sep {
   width: 1px;
   align-self: stretch;

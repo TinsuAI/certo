@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Adapter BOM · {{ t('app.brand') }}{% endblock %}
 {% block content %}
-
+{% include "_admin_nav.html" %}
 <section class="zone">
   <div class="zone-head">
     <div>
@@ -12,9 +12,6 @@
         <code>detect()</code> rồi tới thứ tự đăng ký. Thêm định dạng mới = thêm
         một adapter (qua git/CI) — <strong>không</strong> upload code lúc chạy.
       </p>
-    </div>
-    <div class="btn-row">
-      <a class="btn-secondary" href="/admin/users">Người dùng</a>
     </div>
   </div>
 

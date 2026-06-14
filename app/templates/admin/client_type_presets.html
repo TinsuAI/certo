@@ -1,13 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Preset loại hình DNCX · {{ t('app.brand') }}{% endblock %}
 {% block content %}
+{% include "_admin_nav.html" %}
 <section class="page-bar">
   <h1>Preset loại hình DNCX</h1>
   <span class="page-tagline">Profiles loại hình hoạt động (DNCX, SXXK, gia công, ...). Snapshot vào client lúc apply, không cascade.</span>
-  <div class="page-actions">
-    <a class="btn-secondary" href="/admin/declaration-types">← Mã loại hình</a>
-    <a class="btn-secondary" href="/admin/users">Quản lý user</a>
-  </div>
 </section>
 
 {% if saved %}

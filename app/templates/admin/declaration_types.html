@@ -1,13 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Mã loại hình tờ khai · {{ t('app.brand') }}{% endblock %}
 {% block content %}
+{% include "_admin_nav.html" %}
 <section class="page-bar">
   <h1>Mã loại hình tờ khai</h1>
   <span class="page-tagline">Catalog mã HQ — staff thêm/sửa/disable. Seed lần đầu từ data/seeds/declaration_types.yaml.</span>
-  <div class="page-actions">
-    <a class="btn-secondary" href="/admin/users">← Quản lý user</a>
-    <a class="btn-secondary" href="/admin/client-type-presets">Preset loại hình →</a>
-  </div>
 </section>
 
 {% if saved %}
