@@ -1759,16 +1759,19 @@ def origin_product_from_invoice_match(
         )
         for material_sequence, row in enumerate(bom_rows, start=1)
     ]
+    # Dòng soft-deleted vẫn nằm trong `materials` (để index ổn định + fold) nhưng
+    # KHÔNG được tính vào VNM/LVC/cờ thiếu giá. Lọc theo cờ `deleted`.
+    active_materials = [material for material in materials if not material.get("deleted")]
     if allocate:
         vnm = sum(
             decimal_value(material.get("non_origin_cif_value"))
-            for material in materials
+            for material in active_materials
         )
         missing_material_values = any(
             material.get("unit_value_missing") or material.get("allocation_status") == "shortage"
-            for material in materials
+            for material in active_materials
         )
-        lvc = calculate_lvc_result(fob, vnm, threshold, missing_material_values, missing_bom_materials=not materials)
+        lvc = calculate_lvc_result(fob, vnm, threshold, missing_material_values, missing_bom_materials=not active_materials)
     else:
         # Load BOM (cấu trúc): chưa phân bổ tồn ⇒ chưa có VNM/LVC. enrich_origin_product
         # tôn trọng origin_not_calculated để KHÔNG bịa LVC 100% từ vnm=0.
@@ -1791,7 +1794,7 @@ def origin_product_from_invoice_match(
         "source_line_no": match.get("line_no", ""),
         "invoice_ref": match.get("invoice_ref", ""),
         "fob": decimal_text(fob) if fob is not None else "",
-        "non_origin_value": decimal_text(vnm) if (allocate and materials) else "",
+        "non_origin_value": decimal_text(vnm) if (allocate and active_materials) else "",
         "rvc_threshold": decimal_text(threshold) if threshold is not None else "",
         "documented_result": criterion,
         "origin_not_calculated": not allocate,
@@ -1931,6 +1934,20 @@ def origin_material_from_bom_row(
     material = material_index.get(material_code, {})
     qty_per = decimal_value(row.get("qty_per", "0"))
     consumed_qty = export_quantity * qty_per
+    if row.get("deleted"):
+        # Dòng xoá (soft delete): giữ trong materials để index ổn định + template
+        # fold, nhưng TRUNG TÍNH — không phân bổ tồn, trị giá rỗng, không cảnh báo,
+        # và origin_product_from_invoice_match loại nó khỏi VNM/LVC theo cờ `deleted`.
+        deleted_material = origin_material_structure_only(
+            row, material, material_code, qty_per, consumed_qty,
+            material_sequence=material_sequence,
+        )
+        deleted_material["deleted"] = True
+        deleted_material["unit_value_missing"] = False
+        deleted_material["material_warnings"] = []
+        deleted_material["material_warnings_text"] = ""
+        deleted_material["data_status_label"] = "Đã xoá khỏi bảng kê"
+        return deleted_material
     if not allocate:
         return origin_material_structure_only(
             row,

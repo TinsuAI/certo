@@ -1427,9 +1427,10 @@
                 {% set norm_override = product.origin_sheet_material_overrides.get(material_index|string) if product.origin_sheet_material_overrides else none %}
                 {% set effective_norm = (norm_override.norm_per_unit if norm_override and norm_override.norm_per_unit) or material.bom_qty_per %}
                 {% set _row_non_origin_base = material.non_origin_cif_value or (material.material_value if material.origin_status != 'origin' else '0') or '0' %}
-                {% set _row_folded = (norm_override and norm_override.deleted) or (material.bom_technical_noise and not material.declarable_unmatched) %}
-                <tr class="{{ 'origin-row-warning' if material.material_warnings else '' }}{{ ' origin-row-foldable' if _row_folded else '' }}"
-                    {% if _row_folded %}data-origin-fold-kind="{{ 'deleted' if (norm_override and norm_override.deleted) else 'non-material' }}"{% endif %}
+                {% set _row_deleted = material.deleted or (norm_override and norm_override.deleted) %}
+                {% set _row_folded = _row_deleted or (material.bom_technical_noise and not material.declarable_unmatched) %}
+                <tr class="{{ 'origin-row-warning' if material.material_warnings else '' }}{{ ' origin-row-foldable' if _row_folded else '' }}{{ ' origin-row-deleted-folded' if _row_deleted else '' }}"
+                    {% if _row_folded %}data-origin-fold-kind="{{ 'deleted' if _row_deleted else 'non-material' }}"{% endif %}
                     data-origin-material-row
                     data-allocation-group="{{ allocation_group }}"
                     data-row-no-stock="{{ '1' if allocation_count == 0 else '0' }}"

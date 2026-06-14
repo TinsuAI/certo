@@ -5691,7 +5691,8 @@ body.co-stock-history-modal-open { overflow: hidden; }
   margin-left: auto;
 }
 
-.origin-row-deleted {
+.origin-row-deleted,
+.origin-row-deleted-folded {
   opacity: 0.5;
   text-decoration: line-through;
 }

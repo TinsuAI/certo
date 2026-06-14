@@ -592,6 +592,23 @@ def sheet_edit_bom_rows(product: dict, overrides: dict) -> list[dict]:
     for index, material in enumerate(materials):
         override = overrides.get(str(index)) if isinstance(overrides.get(str(index)), dict) else {}
         if override.get("deleted"):
+            # Soft delete: GIỮ dòng trong output (gắn cờ `deleted`) để materials
+            # KHÔNG co lại — index ổn định, override các lần xoá sau không lệch
+            # sang dòng kế bên (gốc BG1). Phần tính (VNM/LVC/phân bổ) loại trừ
+            # theo cờ này; template fold dòng deleted.
+            deleted_code = str(material.get("material_code") or material.get("internal_material_code") or "").strip()
+            rows.append({
+                "product_code": product.get("bom_product_code") or product.get("code") or "",
+                "material_code": deleted_code,
+                "qty_per": str(material.get("bom_qty_per") or "0"),
+                "uom": str(material.get("uom") or ""),
+                "material_name": str(material.get("material_description") or ""),
+                "hs_code": str(material.get("hs_code") or ""),
+                "source": material.get("bom_source") or material.get("source_document_ref") or "sheet_edit",
+                "row_class": material.get("bom_row_class") or "",
+                "unit_value": material.get("unit_value", ""),
+                "deleted": True,
+            })
             continue
         replacement_code = str(override.get("material_code") or "").strip()
         original_code = str(material.get("material_code") or material.get("internal_material_code") or "").strip()
@@ -2259,7 +2276,7 @@ def build_bom_proposal_rows(product: dict, overrides: dict) -> list[dict]:
     output: list[dict] = []
     for index, material in enumerate(materials):
         override = overrides.get(str(index)) if isinstance(overrides.get(str(index)), dict) else {}
-        if override.get("deleted"):
+        if override.get("deleted") or material.get("deleted"):
             continue
         material_code = override.get("material_code") or material.get("material_code") or material.get("internal_material_code")
         qty = override.get("norm_per_unit") or material.get("bom_qty_per") or "0"
