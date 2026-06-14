@@ -1,0 +1,48 @@
+{# Global admin sub-nav — single source of truth for the admin section.
+   Included at the top of every /admin page; self-highlights via the request
+   path so routes need not pass an active marker. Mirrors the per-client
+   _client_nav.html grouped-<details> idiom. Reference data + Adapter BOM are
+   open to all admins; the Hệ thống group is dev-only (its pages 403 otherwise). #}
+{% set p = request.url.path %}
+<nav class="tabs admin-tabs" aria-label="Admin navigation">
+  <a class="tab-link {{ 'tab-link-active' if p == '/admin/users' or p.startswith('/admin/users/') else '' }}"
+     href="/admin/users">Người dùng</a>
+
+  <span class="tab-sep" aria-hidden="true"></span>
+
+  {% set ref_active = p.startswith('/admin/declaration-types')
+                      or p.startswith('/admin/client-type-presets')
+                      or p.startswith('/admin/uom') %}
+  <details class="nav-menu">
+    <summary class="tab-link {{ 'tab-link-active' if ref_active else '' }}">Dữ liệu tham chiếu</summary>
+    <div class="nav-menu-panel">
+      <a class="{{ 'is-active' if p.startswith('/admin/declaration-types') else '' }}"
+         href="/admin/declaration-types">Mã loại hình</a>
+      <a class="{{ 'is-active' if p.startswith('/admin/client-type-presets') else '' }}"
+         href="/admin/client-type-presets">Preset DNCX</a>
+      <a class="{{ 'is-active' if p.startswith('/admin/uom') else '' }}"
+         href="/admin/uom">Chuẩn ĐVT</a>
+    </div>
+  </details>
+
+  <a class="tab-link {{ 'tab-link-active' if p.startswith('/admin/bom-adapters') else '' }}"
+     href="/admin/bom-adapters">Adapter BOM</a>
+
+  {% if user.role == 'dev' %}
+  <span class="tab-sep" aria-hidden="true"></span>
+
+  {% set sys_active = p.startswith('/admin/service-accounts')
+                      or p.startswith('/admin/settings') %}
+  <details class="nav-menu">
+    <summary class="tab-link {{ 'tab-link-active' if sys_active else '' }}">Hệ thống</summary>
+    <div class="nav-menu-panel">
+      <a class="{{ 'is-active' if p.startswith('/admin/service-accounts') else '' }}"
+         href="/admin/service-accounts">Service tokens</a>
+      <a class="{{ 'is-active' if p.startswith('/admin/settings/technical') else '' }}"
+         href="/admin/settings/technical">Cài đặt kỹ thuật</a>
+      <a class="{{ 'is-active' if p.startswith('/admin/settings/embedding') else '' }}"
+         href="/admin/settings/embedding">Embedding</a>
+    </div>
+  </details>
+  {% endif %}
+</nav>

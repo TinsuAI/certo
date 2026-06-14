@@ -1,19 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ t('admin.title') }} · {{ t('app.brand') }}{% endblock %}
 {% block content %}
+{% include "_admin_nav.html" %}
 <section class="page-bar">
   <h1>{{ t('admin.title') }}</h1>
   <span class="page-tagline">{{ t('admin.subtitle') }}</span>
-  <span style="margin-left:auto;">
-    <a class="btn-secondary" href="/admin/declaration-types">Mã loại hình</a>
-    <a class="btn-secondary" href="/admin/client-type-presets">Preset DNCX</a>
-    <a class="btn-secondary" href="/admin/uom">UoM standards</a>
-    <a class="btn-secondary" href="/admin/bom-adapters">Adapter BOM</a>
-    {% if user.role == 'dev' %}
-    <a class="btn-secondary" href="/admin/service-accounts">Service tokens</a>
-    <a class="btn-secondary" href="/admin/settings/technical">Cài đặt kỹ thuật</a>
-    {% endif %}
-  </span>
 </section>
 
 {% if error == 'duplicate_email' %}

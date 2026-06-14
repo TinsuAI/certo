@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}UoM standards · {{ t('app.brand') }}{% endblock %}
 {% block content %}
-
+{% include "_admin_nav.html" %}
 <section class="zone uom-admin">
   <div class="uom-toolbar">
     <div class="uom-toolbar-title">
@@ -15,7 +15,6 @@
       <span class="badge badge-neutral">{{ n_families }} family</span>
       <span class="badge badge-neutral">{{ canonicals|length }} canonical</span>
       <span class="badge badge-neutral">{{ aliases|length }} alias</span>
-      <a class="btn-secondary btn-sm" href="/admin">← Admin</a>
     </div>
   </div>
 
