@@ -1,67 +1,55 @@
 # Project Status
 
 ## Current State
-- **Branch `feat/rd3-bangke-split` (NOT merged, pushed to origin).** This session shipped **RD3 — redesign
-  the "Bảng kê C/O" (origin) step** plus a string of UX fixes. 4 commits on top of `main` HEAD `09509ae`
-  (`fb3267d` picker, `2464797` RD3 redesign, `24d456c` live-reload doc, `a311cfd` backlog+carry-over).
-  Pushed to `origin/feat/rd3-bangke-split` (feature branch → **no auto-deploy**; only `main`→TinsuAI/co
-  deploys). **No PR opened yet.**
-- **RD3 shipped (origin step split into a drill-in):**
-  - **Review dashboard** (default landing of step 3): per-sheet status matrix (status pill +🔒, BOM summary,
-    effective config read-only, metric chips, ⚠ count, drill chevron) + case toolbar (reorder, Xuất bảng kê HQ).
-  - **Sheet view** (drill-in, `?sheet=<code>`): **full-screen `position:fixed` overlay** — covers topnav/case
-    chrome, only "‹ Tổng quan" back. Grid is the single scroller (frozen thead, **bottom Excel tabs** pinned,
-    strong active + 🔒 green tint for locked). **⚙ modal** holds config overrides + cost-buildup + column
-    toggles (moved off-grid). Save-status = always-visible compact icon cluster (✓/● + ↶ ↷ Lưu ✕) on the
-    metrics row. Warnings collapse to one inline row. Grid ≈ **63% @900px / 69% @1080px** of viewport.
-  - **Routing**: `?sheet=` GET → `origin_view` (server, `co_case_context.py`); client restores view across
-    shell-swaps + syncs URL on tab-click; **view-state never enters `origin_case_revision`**.
-- **Live reload mandate added** to `AGENTS.md` Session Start (dev server `npm run co:serve` → `127.0.0.1:8001`,
-  uvicorn `--reload`, every session).
-- **Dev server running** locally on `:8001` (background task; auth OFF, .env loaded).
-- **Mid-flight: nothing.** All committed + pushed. STATUS + new session log are the only uncommitted docs
-  (this handoff).
+- **On `main`, deployed to PROD.** `main` = `origin/main` = **`79edb05`**; prod `barry-co.tinsu.ai/version`
+  confirms `0.14.0` / git_sha `79edb05` / source `build`. CI/CD run `27493638101` = success (Deploy on
+  tinsu + demo + nightly). Tree clean. Branch `feat/rd3-bangke-split` is **fully merged** into main (can delete).
+- **Released 0.14.0** — bundles the prior session's **RD3 "Bảng kê C/O" drill-in redesign** with this
+  session's **BG1 data-loss fix + bảng kê edit-flow UX**. CHANGELOG + `pyproject`/`uv.lock` bumped;
+  `/whats-new` (auth-gated in prod) renders it.
+- **BG1 (xoá NVL mất dòng) FIXED** via soft-delete: deleted rows stay in `materials` (flagged), index
+  stays stable, excluded from VNM/LVC. See [[bangke-soft-delete-index-model]].
+- **Dev server** running locally on `:8001` (`.env` loaded → local `/version` shows 0.13.0 because `.env`
+  sets `CO_VERSION`; prod bakes from `pyproject` 0.14.0 — not a bug).
+- **Mid-flight: nothing.** All committed, merged, pushed, deployed.
 
 ## Recent Changes (this session, latest first)
-- **`a311cfd`** docs: BACKLOG **BG1** (delete-NVL data loss) + **B5–B8** UX items; carry-over prev-session docs.
-- **`24d456c`** docs: AGENTS.md — start dev server with live reload at session start.
-- **`2464797`** feat: RD3 bảng kê redesign (co_case.html +379, app.css +304, co_case_context.py, co_case.py,
-  new `.ai/scripts/e2e_bangke_split.cjs`). Includes invoice-facts overlap fix + toast redesign (B5).
-- **`fb3267d`** fix: delegate case picker ("Đổi hồ sơ") so it survives shell swap.
+- **`79edb05`** docs(backlog): XX1 (NVL có xuất xứ/phụ lục X → LVC/RVC) + LK1 (review logic "Chốt" lock-able).
+- **`97dca73`** chore(release): 0.14.0 — CHANGELOG (Vietnamese, single-line bullets) + pyproject/uv.lock bump.
+- **`cad2890`** docs(backlog): CS1 (tồn lot-history modal confusing) + CS2 (trừ-lùi review/convert/**DECOUPLE**).
+- **`1e089e9`** feat(co-case): **P1-P3** — unify delete UX (single delete no confirm, bulk confirms),
+  contextual "Tính bảng kê" (label "Tính lại" when stale, disabled when calculated), Load BOM overwrite warning.
+- **`60e55a1`** fix(co-case): **P0** — soft-delete bảng kê NVL rows to stop data loss (BG1).
 
 ## Next Steps (priority order)
-1. **BG1 — Xoá NVL mất dòng (DATA LOSS, deferred to here).** Repro `growatt-vn/co-case-e44fe2065b62`/origin:
-   delete 1 row → view drops by **2** (122→120→118), fold "đã xoá" stuck at **1** → real rows vanish (wrong
-   LVC/VNM + wrong BOM on Chốt). User-confirmed next task. Soi `co_case_origin_sheet_save` + `sheet_edit_bom_rows`
-   (recalc) + fold-summary render + JS `initSheetBulkDelete`/staged ops. `/fix` it. (BACKLOG › Bug — Bảng kê › BG1.)
-2. **Open PR for `feat/rd3-bangke-split`** (or merge to main when user approves → that auto-deploys prod).
-3. **B6** — review "nguyên tệ" (native currency): all cases show only VND, suspect `currency_mode` / FX path.
-4. **B7** — "Tiêu chí" datalist dropdown has an ugly black background → elegant (Primer combobox or token).
-5. Older backlog: DC1/DC3, M1, D1 parity, P1 index N+1, T1 test-DB isolation.
+1. **CS2 — trừ-lùi DECOUPLE (user-chosen strategy).** Big: turn trừ-lùi into one-time data convert
+   (`scripts/convert_co_stock.py` already exists) and **remove the embedded fold** (`fold_baseline` +
+   re-fold across materializer/ledger/context/recalc/import). `/discover` + write parity tests first
+   (risk: SAI TỒN). Enumerated dependency surface is in BACKLOG › CS2.
+2. **XX1 — NVL có xuất xứ (phụ lục X).** Input origin for imported lots → `origin_status='origin'` →
+   excluded from VNM → affects LVC/RVC. Check Data Hub for an origin field first (DH guardrail); else CO override.
+3. **LK1 — review "Chốt" lock-able logic** (analogous to the contextual-Tính work): only allow lock when
+   truly lock-able; consider blocking lock on unsaved edits / `declarable_unmatched` ([[DC3]]).
+4. **CS1** — tồn lot-history modal redesign + investigate suspected duplicate system rows.
+5. **B6** (native currency only-VND), **B7** (criteria datalist dark dropdown) — small UX.
+6. Older: M1 (propose-BOM status sync), D1 (delta refresh audit — overlaps CS2), DC1/DC3, P1 index N+1, T1 test-DB isolation.
 
 ## Notes for Next AI Session
-- **⚠ DEV-FLOW (user mandate):** every feature/fix → run **Playwright e2e + screenshot + EVALUATE the images**
-  (not just code asserts) before claiming done. Memory [[dev-flow-e2e-screenshot-eval]].
-- **Reusable e2e:** `.ai/scripts/e2e_bangke_split.cjs` (24/24: review→drill→sheet→⚙ modal→back→deep-link→
-  multi-tab switch). Run: `PWDIR=$(dirname "$(ls -d ~/.npm/_npx/*/node_modules/playwright|head -1)"); NODE_PATH="$PWDIR" node <script>`.
-  Scratch shots → `.ai/screenshots/2026-06-14-bangke-split/` (gitignored). Multi-product test case: `co-case-be691b9dceec`.
-- **RD3 architecture (read before touching sheet view):**
-  - Sheet view is a **full-screen fixed overlay** (`.origin-view-sheet [data-origin-sheet-workspace]` →
-    `position:fixed; inset:0; z-index:50`) + `body:has(.origin-view-sheet){overflow:hidden}`. The grid
-    (`.origin-table-scroll`, has `overflow-x`) is **forced** to be the vertical scroller (sticky thead needs it)
-    → to enlarge the grid you must **shrink/relocate chrome rows above it**, not the page.
-  - **⚙ settings modal** content is **moved by JS** (`initOriginSettingsModal`, in `refreshCaseShellInteractions`)
-    from the panel into `[data-origin-settings-body]` — DOM-move preserves listeners; re-runs each shell swap.
-  - View helpers in co_case.html: `captureOriginView`/`applyOriginView`/`setOriginUrlSheet`; drill/back/tab-click
-    handlers are **document-delegated** (survive shell swap). `replaceCaseShellFromResponse` captures view before
-    swap, restores after (POST preserves prevView; GET workflow-step nav passes `serverNav:true`).
-  - **Any new origin control must be document-delegated or registered in `refreshCaseShellInteractions`** or it
-    dies after a Tính/Chốt swap. [[origin-wiring-must-survive-shell-swap]].
-- **Toast** now `.ui-toast` bg `var(--card)` (was broken `var(--surface)` → transparent), bottom-right, 5s.
-- **CSS uses `:has()`** (modern browsers) for `body:has(.origin-view-sheet)` lock. Fine for staff browsers.
-- **Local dev:** `npm run co:serve` (already running). File-mode tests: `PYTHONPATH=. uv run python -m pytest`
-  (NO `.env`) [[test-env-filemode-vs-datahub]]. This session: 137 targeted backend pass.
-- **Design pass** (start of session) produced the drill-in + inverted content split (config lives WITH the grid,
-  not in Review) via critic + Plan agents — captured in the session log. Don't re-litigate.
-- **Commit-split caveat:** co_case.html/app.css mix RD3 + fixes in interleaved hunks, env has no `git add -p`
-  → grouped by file (chủ ý). base.html picker fix is its own commit.
+- **Old corrupted data won't auto-heal.** Cases that were deleted-from under the OLD buggy code have a
+  shrunken `materials` (e.g. repro case `growatt-vn/co-case-e44fe2065b62` showed 116 active, not 122).
+  Fix is fix-forward: re-**Load BOM** or re-**Tính** rebuilds full materials. No migration written.
+- **⚠ DEV-FLOW (user mandate):** every feature/fix → Playwright e2e + screenshot + **EVALUATE the images**.
+  New reusable e2e this session: `.ai/scripts/e2e_bangke_bg1_fix.cjs` (soft-delete fold, Load BOM confirm,
+  contextual Tính, single-delete-no-confirm). Plus existing `e2e_bangke_split.cjs` (24/24).
+  Run: `PWDIR=$(dirname "$(ls -d ~/.npm/_npx/*/node_modules/playwright|head -1)"); NODE_PATH="$PWDIR" node <script>`.
+- **Test split:** file-mode (NO `.env`) `PYTHONPATH=. uv run python -m pytest` = 576 pass; **DB tests need
+  `.env`** (`set -a; . ./.env; set +a`) — recalc/fold/parity 45 pass [[test-env-filemode-vs-datahub]].
+- **Soft-delete invariants (don't regress):** never shrink `product.materials`; all calc must filter
+  `deleted` (VNM/LVC, allocation, export, `build_bom_proposal_rows`). [[bangke-soft-delete-index-model]].
+- **Bảng kê edit auto-recalcs** via `/save` → `recalculate_origin_sheet_edits` (allocate=True); that's why
+  "Tính bảng kê" is contextual now. Any new origin control must survive shell-swap
+  [[origin-wiring-must-survive-shell-swap]].
+- **Deploy:** push `origin main` (= TinsuAI/co) → runner `tinsu-co` auto-deploys ~2min (prod+demo+nightly).
+  Watch: `gh run watch <id> --exit-status`. Prod check: `curl -s https://barry-co.tinsu.ai/version`.
+  Version is baked from `pyproject` at build; bump both CHANGELOG + pyproject for a release. **CHANGELOG
+  parser (`app/changelog.py`) does NOT join wrapped bullets → write each bullet on ONE line.**
