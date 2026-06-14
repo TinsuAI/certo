@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Tải lên chốt tồn kho · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Tải lên chốt tồn kho cuối kỳ</h2>
+      <p class="meta">Hỗ trợ mẫu chuẩn hệ thống (sheet "Tồn kho") và các định dạng kiểm kê đã hỗ trợ. <a href="/templates/inventory-snapshot.xlsx">Tải mẫu chuẩn</a>.</p>
+    </div>
+    <div>
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/inventory-snapshots">Hủy</a>
+    </div>
+  </div>
+
+  <form method="post" action="/clients/{{ client.client_id }}/inventory-snapshots/upload"
+        enctype="multipart/form-data" class="zone mini-panel" style="max-width: 700px;">
+    <div class="upload-zone">
+      <input type="file" name="file" accept=".xlsx,.xls" required>
+      <p class="meta">File Excel (.xlsx / .xls). Nếu mỗi kho một sheet, để trống cột Kho — hệ thống lấy tên sheet làm kho.</p>
+    </div>
+
+    <div class="field-row" style="margin:.5rem 0;">
+      <label>Ngày chốt
+        <input type="date" name="snapshot_date"></label>
+    </div>
+
+    <button type="submit" class="btn-primary">Tải lên & xem trước</button>
+  </form>
+</section>
+{% endblock %}

@@ -104,6 +104,18 @@ TABLES: tuple[TableSpec, ...] = (
     TableSpec("bom_change_requests",   sql.SQL("client_id = %s"),                                              order=85),
     TableSpec("customs_declaration_files", sql.SQL("client_id = %s"),                                          order=90),
     TableSpec("material_substitutes",  sql.SQL("client_id = %s"),                                              order=95),
+    TableSpec("nxt_artifacts",         sql.SQL("client_id = %s"),                                              order=100, null_columns=("created_by", "superseded_by")),
+    TableSpec(
+        "nxt_lines",
+        sql.SQL("artifact_id in (select id from hub.nxt_artifacts where client_id = %s)"),
+        order=102,
+    ),
+    TableSpec("inventory_snapshots",   sql.SQL("client_id = %s"),                                              order=104, null_columns=("created_by", "superseded_by")),
+    TableSpec(
+        "inventory_snapshot_lines",
+        sql.SQL("snapshot_id in (select id from hub.inventory_snapshots where client_id = %s)"),
+        order=106,
+    ),
 )
 
 

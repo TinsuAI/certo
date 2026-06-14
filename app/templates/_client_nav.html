@@ -23,6 +23,7 @@
 
 {% set catalog_tabs = ['catalog', 'bqd'] %}
 {% set customs_tabs = ['bcct', 'declarations'] %}
+{% set settlement_tabs = ['nxt', 'inventory'] %}
 {% set bom_tabs = ['bom', 'proposals', 'uom-factors'] %}
 {% set config_tabs = ['config', 'parser_rules', 'column_aliases', 'material_group_map', 'staff'] %}
 <nav class="tabs client-tabs" aria-label="Client workspace tabs">
@@ -48,6 +49,16 @@
          href="/clients/{{ client.client_id }}/bcct">{{ t('tabs.bcct') }}</a>
       <a class="{{ 'is-active' if active_tab == 'declarations' else '' }}"
          href="/clients/{{ client.client_id }}/declarations">{{ t('tabs.declarations') }}</a>
+    </div>
+  </details>
+
+  <details class="nav-menu">
+    <summary class="tab-link {{ 'tab-link-active' if active_tab in settlement_tabs else '' }}">{{ t('navgrp.settlement') }}</summary>
+    <div class="nav-menu-panel">
+      <a class="{{ 'is-active' if active_tab == 'nxt' else '' }}"
+         href="/clients/{{ client.client_id }}/nxt">{{ t('navgrp.settlement.nxt') }}</a>
+      <a class="{{ 'is-active' if active_tab == 'inventory' else '' }}"
+         href="/clients/{{ client.client_id }}/inventory-snapshots">{{ t('navgrp.settlement.inventory') }}</a>
     </div>
   </details>
 

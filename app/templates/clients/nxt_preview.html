@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Xem trước NXT · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Xem trước Nhập-Xuất-Tồn</h2>
+      <p class="meta">
+        Adapter <span class="mono">{{ adapter_name }}</span>
+        · Kỳ {{ period_from or '—' }} → {{ period_to or '—' }}
+      </p>
+    </div>
+  </div>
+
+  <div class="page-actions" style="gap:.5rem; margin:.5rem 0;">
+    <span class="badge badge-neutral">{{ summary.total }} dòng</span>
+    {% for role, n in summary.by_role.items() %}
+      <span class="badge badge-info">{{ role|upper }}: {{ n }}</span>
+    {% endfor %}
+    {% if summary.mismatches %}
+      <span class="badge badge-warning">{{ summary.mismatches }} lệch tồn cuối</span>
+    {% else %}
+      <span class="badge badge-success">Tồn cuối khớp</span>
+    {% endif %}
+  </div>
+
+  <div style="display:flex; gap:.5rem; margin:.5rem 0 1rem;">
+    <form method="post" action="/clients/{{ client.client_id }}/nxt/preview/{{ upload_id }}/confirm">
+      <button type="submit" class="btn-primary">Xác nhận lưu</button>
+    </form>
+    <form method="post" action="/clients/{{ client.client_id }}/nxt/preview/{{ upload_id }}/reject">
+      <button type="submit" class="btn-secondary">Bỏ qua</button>
+    </form>
+  </div>
+
+  <p class="meta">Hiển thị {{ n_shown }} dòng đầu.</p>
+  <table class="dh-table" style="margin-top:.5rem; font-size:.85rem;">
+    <thead>
+      <tr>
+        <th>Loại</th><th>Mã NB</th><th>Mã HQ</th><th>Tên</th><th>ĐVT</th>
+        <th class="num">Tồn đầu</th><th class="num">Nhập</th>
+        <th class="num">Tái xuất</th><th class="num">Chuyển MĐSD</th>
+        <th class="num">Xuất SX</th><th class="num">Xuất khác</th>
+        <th class="num">Tồn cuối</th><th class="num">Tồn cuối (tính)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ln in lines %}
+      {% set mismatch = ln.closing_implied is not none and ln.closing_reported is not none and (ln.closing_implied - ln.closing_reported)|abs > 1e-6 %}
+      <tr{% if mismatch %} class="row-warn"{% endif %}>
+        <td>{{ (ln.reported_role or '')|upper }}</td>
+        <td class="mono">{{ ln.internal_code or '' }}</td>
+        <td class="mono">{{ ln.customs_code or '' }}</td>
+        <td>{{ ln.name or '' }}</td>
+        <td>{{ ln.uom or '' }}</td>
+        <td class="num">{{ ln.opening if ln.opening is not none else '' }}</td>
+        <td class="num">{{ ln.inbound_total if ln.inbound_total is not none else '' }}</td>
+        <td class="num">{{ ln.out_tai_xuat if ln.out_tai_xuat is not none else '' }}</td>
+        <td class="num">{{ ln.out_chuyen_mdsd if ln.out_chuyen_mdsd is not none else '' }}</td>
+        <td class="num">{{ ln.out_xuat_sx if ln.out_xuat_sx is not none else '' }}</td>
+        <td class="num">{{ ln.out_xuat_khac if ln.out_xuat_khac is not none else '' }}</td>
+        <td class="num">{{ ln.closing_reported if ln.closing_reported is not none else '' }}</td>
+        <td class="num"{% if mismatch %} style="font-weight:600"{% endif %}>{{ ln.closing_implied if ln.closing_implied is not none else '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
