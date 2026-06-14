@@ -302,3 +302,58 @@ Added: 2026-06-08. Discovered: 2026-06-08.
 Đề xuất: conftest schema-isolation (`BARRY_DATABASE_SCHEMA=co_test_<worker>`, migrate + drop cascade
 teardown) + guard chặn ghi vào schema `co`. Cần `/discover`: phân loại test tạo-vs-đọc-seed trước
 khi sửa. Added: 2026-06-08.
+
+## Tồn CO — Lịch sử lot (UI)
+
+### CS1 — Modal "Lịch sử lot tồn CO" khó hiểu + nghi duplicate dữ liệu
+**REPORTED 2026-06-14 (user).** Modal lot history (vd lot `107709127630 / dòng 7 / 1000490420`) header
+"4 mục · gộp 20 sự kiện" nhưng bảng khó đọc đến mức chính dev cũng không hiểu:
+- 2 dòng `system` cùng `materializer:import-row-a92652654de1f873` — một `snapshot_row_added`
+  (2026-06-07) và một `snapshot_row_updated` (2026-05-29) — trông như **trùng**. Cần làm rõ vì sao
+  1 import-row sinh cả added lẫn updated, 2 dòng này nghĩa gì với operator (có thực sự duplicate
+  hay chỉ gộp/hiển thị nhầm).
+- Cột "Δ tồn ròng" = "—" cho dòng system; cột "Sự kiện" hiện số đếm thô (1 / 17 (9 chốt·8 mở) / 1 / 1)
+  không kèm giải thích → user không biết "17 sự kiện" nghĩa là gì.
+- Trộn **sự kiện hệ thống** (materializer/snapshot) với **sự kiện nghiệp vụ** (import, claim_lock)
+  trong cùng bảng, không phân tầng → nhiễu.
+
+Việc: (1) điều tra vì sao materializer ghi cả added+updated cho cùng import-row (thật sự duplicate
+hay không); (2) redesign bảng cho operator đọc được — tách/ẩn dòng hệ thống, diễn giải cột "Sự kiện",
+Δ rõ ràng. Vùng: modal `co-stock-history-*` + nguồn lot history (co_stock ledger/materializer).
+Added: 2026-06-14.
+
+## Tồn CO — Trừ-lùi: review + convert tool + decouple
+
+### CS2 — Review KỸ logic+code trừ-lùi, tool convert workbook→CO, sweep mọi dependency
+**REQUESTED 2026-06-14 (user).** Ba việc gộp; cần `/discover` trước (rủi ro: SAI TỒN downstream).
+
+**(1) Review thật kỹ mô hình "folded-remaining".** `remaining = opening_qty (BCCT hoặc trừ-lùi
+override) − baseline_used_qty ("Đã xuất" off-app) − live ledger`; fold tại materialize (refresh/import),
+overlay ledger lúc read ([[co-stock-folded-remaining-model]]). Hàm gốc: `co_stock_adjustments_store.fold_baseline`
+(`:349`, remaining SIGNED, idempotent re-fold từ `bcct_qty`). Điểm soi:
+- **Dấu/đơn vị:** remaining âm hợp lệ? đơn vị kg vs metric-ton 1000× ([[trului-unit-mismatch-fold]], đã có
+  `scripts/fix_trului_unit.py` — PROD/DEMO đã chạy chưa?).
+- **Idempotency + parity delta-vs-full** (chồng [[D1]]): re-fold/re-import có hội tụ không, delta có lệch full theo thời gian.
+- **NK2 vs Save:** Save = event log (sum-of-events) → overclaim risk; NK2 = reconciled per-lot. Logic chọn nguồn.
+- **`apply_adjustments` DEPRECATED** (`:396`) còn dùng ở file-mode/tests — có nên dọn.
+
+**(2) Tool convert workbook trừ-lùi → CO format — ĐÃ TỒN TẠI: `scripts/convert_co_stock.py`** (NK2/Save
+của `tru-lui-co-template.xlsm` → standard CO stock template `app/co_stock_template.py` → import endpoint
+`routers/co_stock.py`). Việc KHÔNG phải dựng mới mà: review/validate khớp workbook agency thật, harden
+(missing key → `.errors.log`, `Đã_xuất=0` skip, `--include-zero-used`, consolidation triplet), tài liệu hoá
+pipeline `workbook → convert → import → fold → materialize`. **Quyết:** có cần UI upload+convert in-app thay
+script CLI không.
+
+**(3) Sweep dependency trừ-lùi (đã liệt kê — `command grep -rniE "trừ.?lùi|tru[_-]?lui|trului"`):**
+`co_stock_adjustments_store.py` (fold_baseline + deprecated apply_adjustments), `co_stock_materializer.py`
+(:99/:158/:216/:536 fold + re-fold + backfill), `co_stock_ledger.py` (:183/:574-577 folded tồn),
+`web/co_case_context.py` (:350/:3162 fold idempotent), `routers/co_case.py` (:530-539 recalc PHẢI từ snapshot
+folded — [[co-stock-recalc-folded-parity]]), `routers/co_stock.py` (:156/:285/:395/:429 import+overlay),
+`co_stock_template.py`, `workbook_io.py` (:722-723 HQ templates `tru-lui-co-output-template.xlsx`/`.xlsm`),
+`scripts/fix_trului_unit.py`. Phân loại từng chỗ: **"embedded model" (cố ý, an toàn)** vs **landmine/ad-hoc
+cần fix**.
+
+**Hướng CHIẾN LƯỢC (user chốt 2026-06-14): DECOUPLE** — trừ-lùi thành data convert 1 lần (workbook →
+standard CO stock qua `convert_co_stock.py`), **bỏ fold nhúng** (`fold_baseline` + re-fold ở materializer/
+ledger/context/recalc/import), hệ thống chỉ dùng standard CO stock. Phạm vi lớn, đụng lõi tồn → `/discover`
+kỹ + viết parity test trước khi gỡ fold (rủi ro SAI TỒN). AUDIT/HARDEN bị loại. Added: 2026-06-14.
