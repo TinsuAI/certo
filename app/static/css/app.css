@@ -4883,6 +4883,11 @@ body.co-stock-history-modal-open { overflow: hidden; }
 .co-stock-event-adjustment_void { background: var(--error-soft); color: var(--error); }
 .co-stock-history-table .qty-pos { color: var(--success); font-weight: 700; }
 .co-stock-history-table .qty-neg { color: var(--error); font-weight: 700; }
+/* System provenance (refresh churn) — de-emphasized via color tokens, never
+   opacity (unreadable text). Pinned last by fold_lot_events. */
+.co-stock-event-system { background: var(--surface-subtle); color: var(--foreground-muted); }
+.co-stock-history-table tr[data-kind="system"] td { background: var(--card-muted); color: var(--foreground-muted); }
+.co-stock-history-table tr[data-kind="system"] .meta { color: var(--foreground-muted); }
 
 .origin-substitute-norm-label {
   display: grid;

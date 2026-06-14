@@ -179,13 +179,14 @@ def record_sheet_lock(
     try:
         with _connect() as conn, conn.cursor() as cur:
             # Availability pre-check: for each distinct source_row we're about
-            # to claim, look up the materialized remaining_qty — which is now
-            # the trừ-lùi-FOLDED tồn (opening − agency "Đã xuất"), not raw BCCT —
-            # and subtract all OTHER active claims (excluding this case+sheet
-            # since we replace those below). Abort if any lot would go negative.
-            # Folding the adjustment baseline into remaining_qty is what closes
-            # the old gap where a lot the agency marked fully-consumed could
-            # still be over-claimed here.
+            # to claim, look up the materialized remaining_qty — the persisted
+            # snapshot tồn (opening − baked off-app baseline_used; BCCT rows carry
+            # a zero baseline, a workbook snapshot bakes its own) — and subtract
+            # all OTHER active claims (excluding this case+sheet since we replace
+            # those below). Abort if any lot would go negative. Reading the
+            # materialized remaining_qty (not raw BCCT) is what closes the old gap
+            # where a lot the agency already consumed off-app could still be
+            # over-claimed here.
             #
             # If the client has NO materialized snapshot at all (e.g. a fresh
             # workspace or a unit test that bypasses /refresh), we can't

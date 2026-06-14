@@ -143,3 +143,45 @@ def test_claim_without_case_id_falls_back_to_singletons():
     assert len(groups) == 1
     # No case identity → not folded as a claim stream.
     assert groups[0]["kind"] == "claim_lock"
+
+
+def test_system_events_fold_into_one_row_with_counts():
+    groups = fold_lot_events([
+        _ev("snapshot_row_added", "0", event_id="s2", recorded_at="2026-06-07T08:00:00",
+            notes="materializer:import-row-abc"),
+        _ev("snapshot_row_updated", "0", event_id="s1", recorded_at="2026-05-29T08:00:00",
+            notes="materializer:import-row-abc"),
+    ])
+    assert len(groups) == 1
+    g = groups[0]
+    assert g["kind"] == "system"
+    assert g["event_count"] == 2
+    assert (g["added_count"], g["updated_count"], g["removed_count"]) == (1, 1, 0)
+    assert g["net_delta"] == "0"  # system events never move tồn
+    assert g["latest_at"] == "2026-06-07T08:00:00"
+
+
+def test_added_with_updated_flags_readded_not_duplicate():
+    # CS1 symptom: one lot shows added (later) + updated (earlier) ⇒ dropped from
+    # a pull and re-derived in a later one, NOT a duplicate row.
+    groups = fold_lot_events([
+        _ev("snapshot_row_added", "0", recorded_at="2026-06-07T08:00:00"),
+        _ev("snapshot_row_updated", "0", recorded_at="2026-05-29T08:00:00"),
+    ])
+    assert groups[0]["readded"] is True
+
+
+def test_plain_updated_only_is_not_readded():
+    groups = fold_lot_events([
+        _ev("snapshot_row_updated", "0", recorded_at="2026-05-29T08:00:00"),
+    ])
+    assert groups[0]["kind"] == "system"
+    assert groups[0]["readded"] is False
+
+
+def test_system_row_pinned_after_business_events():
+    groups = fold_lot_events([
+        _ev("snapshot_row_added", "0", recorded_at="2026-06-07T08:00:00"),
+        _ev("claim_lock", "10", case_id="C1", sheet="P1", recorded_at="2026-06-05T10:00:00"),
+    ])
+    assert [g["kind"] for g in groups] == ["claim", "system"]

@@ -12,11 +12,12 @@ SQL selects (sub-second on 60k+ rows). Refresh is explicit — operator
 clicks "Refresh từ Data Hub" or it runs lazily on first page load when
 the table is empty for the client.
 
-The STATIC trừ-lùi adjustments (`co_stock_adjustments`) are FOLDED into the
-snapshot here, so `remaining_qty` is the true tồn-after-reconciliation. Only
-the LIVE cross-case ledger (`co_stock_claims`, changes per case lock) is still
-overlaid at query time via `co_stock_ledger.apply_used_qty`. Re-fold on every
-refresh and on adjustment import/void keeps the snapshot authoritative.
+Each derived row carries its own `baseline_used_qty` (off-app consumption):
+BCCT-derived rows carry a zero baseline; the standalone workbook-snapshot
+import bakes its own (`baseline_used = opening − "còn lại"`). The LIVE
+cross-case ledger (`co_stock_claims`) is overlaid at query time via
+`co_stock_ledger.apply_used_qty` → `remaining = opening − baseline_used −
+ledger`. (The legacy fold / `co_stock_adjustments` layer was removed 2026-06-15.)
 """
 from __future__ import annotations
 
@@ -43,15 +44,13 @@ def refresh_co_stock_for_client(
     *,
     mode: str = "full",
     tombstone_source_rows: list[str] | None = None,
-    fold: bool = True,
 ) -> dict:
     """Incremental refresh of co_stock_rows from a derivation callable.
 
-    `fold=False` skips the static trừ-lùi fold — used by the standalone
-    workbook-snapshot import (`co_stock_workbook.import_standard_snapshot`),
-    whose derive callable already produces final `opening_qty`/`baseline_used_qty`/
-    `remaining_qty`. Folding there would reset the baseline for lots with no
-    `co_stock_adjustments` entry (= SAI TỒN).
+    The derive callable produces final rows (`opening_qty` / `baseline_used_qty` /
+    `remaining_qty`): BCCT-derived rows carry a zero baseline; the standalone
+    workbook-snapshot import bakes its own off-app `baseline_used_qty`. The
+    read-time overlay `co_stock_ledger.apply_used_qty` subtracts live claims.
 
     Replaces the legacy DELETE+INSERT wipe with an UPSERT + targeted DELETE
     pattern (option B per `.ai/features/2026-05-28-co-stock-refresh-audit.md`):
@@ -103,15 +102,6 @@ def refresh_co_stock_for_client(
         LOGGER.warning("co_stock refresh derive failed for %s: %s", client_id, exc)
         summary["errors"].append(f"derive: {exc}")
         return summary
-    # Fold the static trừ-lùi layer into the freshly-derived rows so the
-    # persisted `remaining_qty` is the true tồn-after-reconciliation. In delta
-    # mode only changed rows are present; their adjustments still fold here, and
-    # untouched lots keep the fold from their last refresh / import re-fold.
-    if fold:
-        from app import co_stock_adjustments_store
-
-        adjustments = co_stock_adjustments_store.aggregate_by_lookup_key(client_id)
-        co_stock_adjustments_store.fold_baseline(rows, adjustments or {})
     records = build_co_stock_index_records(client_id, rows)
     new_by_key = {row["source_row"]: row for row in records}
 
@@ -160,76 +150,6 @@ def refresh_co_stock_for_client(
     summary["took_seconds"] = round(time.time() - t0, 2)
     summary["last_refresh_at"] = datetime.utcnow().isoformat()
     return summary
-
-
-def refold_adjustment_lots(client_id: str, keys) -> int:
-    """Re-fold the trừ-lùi layer for specific lots without a full BCCT refresh.
-
-    Call after an adjustment import (the touched lookup keys) or a void (the
-    voided keys — fold then reverts opening to `bcct_qty` and baseline to 0,
-    since those keys are no longer in the active aggregate). Bounded: only the
-    matching `co_stock_rows` are recomputed and re-persisted. Returns the count
-    of rows updated.
-    """
-    if not _store_available():
-        return 0
-    keyset = {(str(k[0]), str(k[1]), str(k[2])) for k in keys}
-    if not keyset:
-        return 0
-    from app import co_stock_adjustments_store
-
-    adjustments = co_stock_adjustments_store.aggregate_by_lookup_key(client_id)
-    decls = sorted({k[0] for k in keyset})
-    try:
-        with connect() as conn, conn.cursor() as cur:
-            cur.execute(
-                """select source_row, payload from co_stock_rows
-                   where client_id = %s and import_declaration_no = any(%s)""",
-                (client_id, decls),
-            )
-            to_update = []
-            for source_row, payload in cur.fetchall():
-                key = (
-                    str(payload.get("import_declaration_no") or ""),
-                    str(payload.get("line_no") or ""),
-                    str(payload.get("customs_item_code") or ""),
-                )
-                if key not in keyset:
-                    continue
-                co_stock_adjustments_store.fold_baseline([payload], adjustments or {})
-                to_update.append(
-                    (str(payload.get("remaining_qty", "")), Jsonb(payload), client_id, source_row)
-                )
-            if to_update:
-                # Lock rows in source_row order to match record_sheet_lock's
-                # `... order by source_row for update`, so a concurrent claim
-                # and this refresh can't deadlock on overlapping lots.
-                to_update.sort(key=lambda row: row[3])
-                cur.executemany(
-                    """update co_stock_rows
-                       set remaining_qty = %s, payload = %s, indexed_at = now()
-                       where client_id = %s and source_row = %s""",
-                    to_update,
-                )
-    except DatabaseUnavailable:
-        return 0
-    except Exception as exc:  # noqa: BLE001
-        LOGGER.warning("co_stock refold failed for %s: %s", client_id, exc)
-        return 0
-    invalidate_co_stock_rows_cache(client_id)
-    return len(to_update)
-
-
-def refold_all_adjustments(client_id: str) -> int:
-    """Backfill: re-fold every lot that currently has an active trừ-lùi
-    adjustment. Run once after deploying the fold change so existing snapshots
-    stop carrying the legacy `remaining_qty == opening` value."""
-    from app import co_stock_adjustments_store
-
-    adjustments = co_stock_adjustments_store.aggregate_by_lookup_key(client_id)
-    if not adjustments:
-        return 0
-    return refold_adjustment_lots(client_id, list(adjustments.keys()))
 
 
 def _load_existing_snapshot(cur, client_id: str) -> tuple[dict, dict]:

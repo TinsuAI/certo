@@ -236,6 +236,10 @@ def events_for_case(client_id: str, case_id: str, *, limit: int = 500) -> list[d
 
 
 CLAIM_EVENT_TYPES = {"claim_lock", "claim_release"}
+# Materializer provenance — emitted by every refresh that adds/changes/drops a
+# lot's snapshot row. These never move tồn; they're audit context, folded into
+# one de-emphasized row so refresh churn doesn't drown the business events.
+SYSTEM_EVENT_TYPES = {"snapshot_row_added", "snapshot_row_updated", "snapshot_row_removed"}
 
 
 def _event_effect(ev: dict) -> Decimal:
@@ -253,16 +257,22 @@ def _event_effect(ev: dict) -> Decimal:
 
 
 def fold_lot_events(events: list[dict]) -> list[dict]:
-    """Collapse a lot's raw event log (newest-first) into one row per claim
-    stream — keyed by (case_id, sheet_product_code) — so the
-    chốt→mở-chốt→chốt churn reads as a single net holding instead of N noisy
-    rows.
+    """Collapse a lot's raw event log (newest-first) into readable groups.
 
-    Each claim group nets the per-event effects: a still-holding stream shows a
-    negative net (= held qty, status "holding"); a fully released one nets to 0
-    (status "released"). Non-claim events (manual workbook adjustments) carry no
-    case identity and are passed through as singleton groups so their detail
-    survives. Order follows newest activity first, matching the raw modal.
+    Three tiers, so the tồn-moving business activity isn't drowned by system
+    noise:
+
+    - CLAIM streams — one net row per (case_id, sheet_product_code). A
+      still-holding stream nets negative (= held qty, status "holding"); a fully
+      released one nets to 0 ("released"). Folds the chốt→mở-chốt→chốt churn.
+    - ADJUSTMENTS / un-attributed events — one row each (they move tồn and carry
+      distinct detail).
+    - SYSTEM provenance (`snapshot_row_added/updated/removed`) — ALL of a lot's
+      materializer refresh events fold into ONE row with per-kind counts. These
+      never move tồn (net 0). A lot that shows BOTH `added` and `updated`/`removed`
+      was dropped from one BCCT pull and re-derived in a later one (`readded`):
+      the source of the "looks like a duplicate" confusion (CS1) — surfaced, not
+      hidden. The system row is pinned to the bottom.
 
     Display-only: the underlying `co_stock_events` rows are untouched — the raw
     log is still served via the same response for the "Chi tiết" toggle.
@@ -275,19 +285,24 @@ def fold_lot_events(events: list[dict]) -> list[dict]:
         sheet = (ev.get("sheet_product_code") or "").strip()
         if etype in CLAIM_EVENT_TYPES and case_id:
             key = ("claim", case_id, sheet)
+        elif etype in SYSTEM_EVENT_TYPES:
+            key = ("system",)  # one row for the whole lot's refresh provenance
         else:
             # Adjustments / un-attributed events keep one row each.
             key = ("event", ev.get("event_id") or len(order))
         grp = groups.get(key)
         if grp is None:
             grp = {
-                "kind": "claim" if key[0] == "claim" else etype,
+                "kind": "claim" if key[0] == "claim" else ("system" if key[0] == "system" else etype),
                 "case_id": case_id,
                 "sheet_product_code": sheet,
                 "_net": Decimal("0"),
                 "event_count": 0,
                 "lock_count": 0,
                 "release_count": 0,
+                "added_count": 0,
+                "updated_count": 0,
+                "removed_count": 0,
                 "latest_at": ev.get("recorded_at") or "",
                 "earliest_at": ev.get("recorded_at") or "",
                 "actor": ev.get("actor") or "",
@@ -303,6 +318,12 @@ def fold_lot_events(events: list[dict]) -> list[dict]:
             grp["lock_count"] += 1
         elif etype == "claim_release":
             grp["release_count"] += 1
+        elif etype == "snapshot_row_added":
+            grp["added_count"] += 1
+        elif etype == "snapshot_row_updated":
+            grp["updated_count"] += 1
+        elif etype == "snapshot_row_removed":
+            grp["removed_count"] += 1
         recorded = ev.get("recorded_at") or ""
         if recorded:
             if not grp["latest_at"] or recorded > grp["latest_at"]:
@@ -329,7 +350,16 @@ def fold_lot_events(events: list[dict]) -> list[dict]:
             grp["status"] = ""
             grp["held_qty"] = ""
         grp["net_delta"] = str(net)
+        if grp["kind"] == "system":
+            # added co-existing with updated/removed ⇒ the lot was dropped and
+            # re-derived across refreshes (not a duplicate row).
+            grp["readded"] = grp["added_count"] > 0 and (
+                grp["updated_count"] > 0 or grp["removed_count"] > 0
+            )
         out.append(grp)
+    # System provenance is context, not activity — pin it last (stable sort keeps
+    # the newest-first business order intact).
+    out.sort(key=lambda g: 1 if g["kind"] == "system" else 0)
     return out
 
 

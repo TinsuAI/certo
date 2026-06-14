@@ -5,7 +5,6 @@ import hashlib
 
 from fastapi import APIRouter
 from app import (
-    co_stock_adjustments_store,
     co_stock_events_store,
     co_stock_ledger,
     co_stock_materializer,
@@ -275,51 +274,6 @@ async def co_stock_workbook_tool_page(request: Request, client_id: str):
         name="co_stock_workbook_tool.html",
         context=_co_stock_lean_client_context(client_id),
     )
-@router.post("/clients/{client_id}/co-stock/import")
-async def import_co_stock_workbook(client_id: str, file: UploadFile = File(...)):
-    """Upload a standard CO stock template xlsx. Overwrites prior snapshot
-    rows for the same (declaration_no, line_no, customs_code) keys; preserves
-    rows untouched by this upload (so a partial upload only updates what it
-    covers).
-
-    Run scripts/convert_co_stock.py first if uploading from the agency
-    `tru-lui-co-template.xlsm` workbook.
-    """
-    client = resolve_client(client_id)
-    content = await file.read()
-    try:
-        rows, parse_errors = read_standard_co_stock(content)
-    except CoStockTemplateError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    batch_id = "batch_" + hashlib.sha1(content).hexdigest()[:16]
-    summary = co_stock_adjustments_store.upsert_batch(
-        client["id"],
-        rows,
-        batch_id=batch_id,
-        source_file_ref=file.filename or "co_stock.xlsx",
-    )
-    # Fold the new trừ-lùi values straight into the materialized snapshot so
-    # remaining_qty (and the lock guard, which reads it) are immediately
-    # authoritative — without waiting for the next BCCT refresh.
-    keys = [
-        (str(r.get("declaration_no") or ""), str(r.get("line_no") or ""), str(r.get("customs_code") or ""))
-        for r in rows
-        if r.get("declaration_no") and r.get("line_no") and r.get("customs_code")
-    ]
-    refolded = co_stock_materializer.refold_adjustment_lots(client["id"], keys)
-    summary = {**summary, "lots_refolded": refolded}
-    # Invalidate the cached source context so the next case page reflects the
-    # new adjustments. The cache is process-local so this is cheap.
-    _CO_CASE_SOURCE_CACHE.clear()
-    return JSONResponse({
-        "ok": not summary.get("errors"),
-        "client_id": client["id"],
-        "batch_id": batch_id,
-        "filename": file.filename or "",
-        "parsed_rows": len(rows),
-        "parse_errors": parse_errors,
-        "upsert": summary,
-    })
 @router.post("/clients/{client_id}/co-stock/convert-workbook")
 async def convert_co_stock_workbook(
     client_id: str,
@@ -512,11 +466,9 @@ async def export_co_stock_workbook(client_id: str):
     workspace, _backend = portfolio_service.source_workspace(client)
     stock_rows = [dict(row) for row in workspace.get("co_stock_rows") or []]
     client_id_value = client.get("id", "")
-    # Export may run against fresh-derived rows (not the materialized snapshot),
-    # so fold the static trừ-lùi here too (idempotent) before overlaying the
-    # live ledger — keeping export identical to what the Tồn CO table shows.
-    adjustments = co_stock_adjustments_store.aggregate_by_lookup_key(client_id_value)
-    co_stock_adjustments_store.fold_baseline(stock_rows, adjustments or {})
+    # The static off-app baseline (`baseline_used_qty`) is already baked into each
+    # row at materialize time; overlay only the live ledger so export matches the
+    # Tồn CO table.
     used_by_lot = co_stock_ledger.used_qty_by_lot(client_id_value)
     stock_rows = co_stock_ledger.apply_used_qty(stock_rows, used_by_lot)
     rows_for_template = []

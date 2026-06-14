@@ -394,7 +394,7 @@ def stock_rows_from_standard(standard_rows: list[dict], config: dict) -> list[di
 def import_standard_snapshot(client: dict, content: bytes, *, config: dict | None = None, filename: str = "") -> dict:
     """Ingest a STANDARD CO stock template as the client's STANDALONE snapshot.
 
-    Sets `co_stock_rows` directly (full-mode, `fold=False`) — remaining baked,
+    Sets `co_stock_rows` directly (full-mode) — remaining baked,
     allocation resolved per config, NO overlay-onto-BCCT, NO key-match. Re-import
     REPLACES the snapshot (lots with active claims stay). For onboarding clients
     running the Excel trừ-lùi in parallel — the workbook is the truth.
@@ -408,7 +408,7 @@ def import_standard_snapshot(client: dict, content: bytes, *, config: dict | Non
     standard_rows, parse_errors = read_standard_co_stock(content)
     stock_rows = stock_rows_from_standard(standard_rows, config)
     materialize = co_stock_materializer.refresh_co_stock_for_client(
-        client, lambda: stock_rows, mode="full", fold=False
+        client, lambda: stock_rows, mode="full"
     )
     if not materialize.get("errors"):
         co_stock_materializer.record_refresh_state(

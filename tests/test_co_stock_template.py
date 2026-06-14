@@ -1,4 +1,4 @@
-"""Tests for the standard CO stock template + converter + apply_adjustments
+"""Tests for the standard CO stock template + converter
 (no Postgres required for the pure-logic paths)."""
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook
 
-from app.co_stock_adjustments_store import apply_adjustments
 from app.co_stock_template import (
     CO_STOCK_COLUMNS,
     CO_STOCK_HEADER_LABELS,
@@ -179,43 +178,14 @@ def test_standard_template_rejects_missing_required_columns():
     assert "customs_code" in str(exc_info.value)
 
 
-def test_apply_adjustments_overrides_opening_and_adds_used():
-    rows = [
-        {"import_declaration_no": "D1", "line_no": "1", "customs_item_code": "M-A",
-         "available_qty": "500", "used_qty": "10"},
-        {"import_declaration_no": "D2", "line_no": "1", "customs_item_code": "M-B",
-         "available_qty": "200", "used_qty": "0"},
-        {"import_declaration_no": "D3", "line_no": "1", "customs_item_code": "M-C",
-         "available_qty": "100", "used_qty": "20"},
-    ]
-    adjustments = {
-        ("D1", "1", "M-A"): {"opening_qty_override": Decimal("600"), "used_qty": Decimal("50")},
-        ("D2", "1", "M-B"): {"opening_qty_override": None, "used_qty": Decimal("250")},  # over
-    }
-    out = apply_adjustments(rows, adjustments)
-    # D1: opening overridden to 600, used = 10 + 50 = 60, remaining = 540
-    assert out[0]["available_qty"] == "600"
-    assert out[0]["used_qty"] == "60"
-    assert out[0]["remaining_qty"] == "540"
-    assert out[0]["adjustment_applied"] is True
-    assert out[0].get("adjustment_overclaim") is None
-    assert out[0].get("opening_qty_adjusted") is True
-    # D2: opening untouched, used = 0 + 250 = 250 > 200 → overclaim, remaining clamped 0
-    assert out[1]["available_qty"] == "200"
-    assert out[1]["used_qty"] == "250"
-    assert out[1]["remaining_qty"] == "0"
-    assert out[1]["adjustment_overclaim"] is True
-    # D3: no adjustment → untouched
-    assert out[2]["available_qty"] == "100"
-    assert out[2]["used_qty"] == "20"
-    assert "adjustment_applied" not in out[2]
-
-
-def test_apply_adjustments_no_op_when_empty():
-    rows = [{"import_declaration_no": "D1", "line_no": "1", "customs_item_code": "M-A",
-             "available_qty": "100", "used_qty": "5"}]
-    out = apply_adjustments(rows, {})
-    assert out[0] == rows[0]
+def test_standard_template_roundtrip_smoke():
+    rows = [{"declaration_no": "D1", "line_no": "1", "customs_code": "M-A",
+             "opening_qty": Decimal("100"), "used_qty": Decimal("5")}]
+    xlsx = write_standard_co_stock(rows)
+    parsed, errors = read_standard_co_stock(xlsx)
+    assert not errors
+    assert parsed[0]["declaration_no"] == "D1"
+    assert parsed[0]["customs_code"] == "M-A"
 
 
 def test_converter_save_sheet_consolidates_duplicate_keys_sums_used_qty(tmp_path: Path):
