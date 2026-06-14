@@ -10,6 +10,8 @@ phiên bản theo [SemVer](https://semver.org/).
 > hành đã đóng gói tại thời điểm đó.
 
 ## [Unreleased]
+
+## [0.15.0] — 2026-06-14
 ### Mới
 - Trang chi tiết cho từng lần tải lên: metadata đầy đủ (người tải, SHA-256, kích thước, số dòng, kết quả parse), nút tải lại file gốc, và xem trước nội dung file (50 dòng đầu của xlsx/xls/csv) ngay trên trình duyệt.
 - Bảng dữ liệu: click vào cả hàng để mở trang chi tiết (BCCT, Danh mục, BOM, Đề xuất, Tờ khai, Tải lên) thay vì phải bấm icon nhỏ ở cuối hàng.
