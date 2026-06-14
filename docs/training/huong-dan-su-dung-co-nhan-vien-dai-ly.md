@@ -303,21 +303,3 @@ chờ trên trang.
 | Bấm **Load BOM** xong mất hết chỉnh sửa | Load BOM ghi đè bảng kê từ BOM gốc | Chỉ Load lại khi muốn làm mới hoàn toàn; nếu chỉ muốn cập nhật, dùng **Tính bảng kê** |
 | Mở bảng kê lần đầu rất chậm | Đang nạp dữ liệu nguồn từ Data Hub | Chờ hoặc làm việc khác; các lần sau nhanh hơn |
 | Xuất dossier "đứng" | Đang chạy nền | Để chạy nền; hệ thống báo khi xong |
-
----
-
-## 15. Bài tập thực hành
-
-Gợi ý một lượt làm quen end-to-end (sau khi dữ liệu công ty đã sẵn ở Data Hub):
-
-1. **Tạo hồ sơ C/O** cho một lô hàng; nhập số hóa đơn, B/L, thị trường (bước 1).
-2. Upload đủ **3 chứng từ bắt buộc** (B/L, Invoice, Packing) ở bước 2.
-3. Vào **Bảng kê C/O**: **Load BOM** → **Tính bảng kê** cho sheet đầu; đọc LVC và cột tồn.
-4. Thử **thay thế** một vật tư hoặc **xóa** một dòng, **Tính bảng kê** lại, quan sát LVC đổi.
-5. **Chốt** sheet đầu; sang sheet kế và làm tương tự.
-6. Sang **Review & Xuất**, **xuất dossier .zip** và mở ra xem các thành phần.
-
-Tài liệu liên quan:
-
-- *Hướng dẫn sử dụng Data Hub cho nhân viên đại lý* — chuẩn bị dữ liệu nguồn (danh mục,
-  BOM, BCCT, tồn) trước khi làm C/O: `huong-dan-su-dung-nhan-vien-dai-ly.md`.
