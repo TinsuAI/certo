@@ -2400,20 +2400,25 @@ def _parse_iso_date(s: str | None):
 
 
 @router.get("/dncxs/{client_id}/nxt")
-async def api_list_nxt(client_id: str, authorization: str | None = Header(None)):
-    """List NXT (Nhập-Xuất-Tồn) artifacts (metadata) for a client."""
+async def api_list_nxt(client_id: str, period_year: int | None = None,
+                       authorization: str | None = Header(None)):
+    """List NXT (Nhập-Xuất-Tồn) artifacts (metadata) for a client.
+    Optional `period_year` filters to one settlement year."""
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
     from app.stores import nxt as nxt_store
-    return _json({"items": nxt_store.list_artifacts(client_id)})
+    return _json({"items": nxt_store.list_artifacts(
+        client_id, period_year=period_year)})
 
 
 @router.get("/dncxs/{client_id}/nxt/{artifact_id}")
 async def api_get_nxt(client_id: str, artifact_id: str,
                       authorization: str | None = Header(None)):
-    """One NXT artifact with its lines (closing_implied derived per line)."""
+    """One NXT artifact with all its lines (closing_implied derived per line).
+    Convenience for small artifacts; for large ones (SAP MB5B ~20k lines)
+    prefer the paged `…/nxt/{artifact_id}/lines`."""
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
     from app.stores import nxt as nxt_store
@@ -2423,22 +2428,57 @@ async def api_get_nxt(client_id: str, artifact_id: str,
     return _json(art)
 
 
+@router.get("/dncxs/{client_id}/nxt/{artifact_id}/lines")
+async def api_get_nxt_lines(
+    client_id: str, artifact_id: str,
+    cursor: str | None = None, limit: int = 200,
+    code: str | None = None, role: str | None = None,
+    authorization: str | None = Header(None),
+):
+    """Paged + filtered lines for one NXT artifact — the scalable path for
+    consumers (BCQT Mẫu 15/15a). Filters: `code` (matches internal_code or
+    customs_code, case-insensitive), `role` (reported_role exact). Returns
+    `items`, exact filtered `total`, offset-cursor `next_cursor`, and
+    `server_time`. `closing_implied` is derived per line."""
+    from datetime import datetime, timezone
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
+    from app.stores import nxt as nxt_store
+    meta = nxt_store.get_artifact_meta(artifact_id)
+    if not meta or meta["client_id"] != client_id:
+        raise HTTPException(404, "NXT artifact not found")
+    offset, safe_limit = _page_args(cursor, limit)
+    rows = nxt_store.list_lines(
+        artifact_id, limit=safe_limit + 1, offset=offset, code=code, role=role)
+    has_next = len(rows) > safe_limit
+    return _json({
+        "artifact_id": artifact_id,
+        "items": rows[:safe_limit],
+        "total": nxt_store.count_lines(artifact_id, code=code, role=role),
+        "next_cursor": str(offset + safe_limit) if has_next else None,
+        "server_time": datetime.now(timezone.utc),
+    })
+
+
 @router.get("/dncxs/{client_id}/inventory-snapshots")
-async def api_list_inventory(client_id: str,
+async def api_list_inventory(client_id: str, year: int | None = None,
                              authorization: str | None = Header(None)):
-    """List year-end inventory snapshots (metadata) for a client."""
+    """List year-end inventory snapshots (metadata) for a client.
+    Optional `year` filters by snapshot_date calendar year."""
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
     from app.stores import inventory_snapshots as inv_store
-    return _json({"items": inv_store.list_snapshots(client_id)})
+    return _json({"items": inv_store.list_snapshots(client_id, year=year)})
 
 
 @router.get("/dncxs/{client_id}/inventory-snapshots/{snapshot_id}")
 async def api_get_inventory(client_id: str, snapshot_id: str,
                             authorization: str | None = Header(None)):
-    """One inventory snapshot with its lines (variance derived per line)."""
+    """One inventory snapshot with all its lines (variance derived per line).
+    Convenience for small snapshots; for large ones prefer the paged
+    `…/inventory-snapshots/{snapshot_id}/lines`."""
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
     from app.stores import inventory_snapshots as inv_store
@@ -2446,6 +2486,38 @@ async def api_get_inventory(client_id: str, snapshot_id: str,
     if not snap or snap["client_id"] != client_id:
         raise HTTPException(404, "Snapshot not found")
     return _json(snap)
+
+
+@router.get("/dncxs/{client_id}/inventory-snapshots/{snapshot_id}/lines")
+async def api_get_inventory_lines(
+    client_id: str, snapshot_id: str,
+    cursor: str | None = None, limit: int = 200,
+    code: str | None = None, warehouse: str | None = None,
+    authorization: str | None = Header(None),
+):
+    """Paged + filtered lines for one inventory snapshot — the scalable path
+    for consumers. Filters: `code` (case-insensitive), `warehouse` (exact).
+    Returns `items`, exact filtered `total`, offset-cursor `next_cursor`, and
+    `server_time`. `variance` is derived per line."""
+    from datetime import datetime, timezone
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
+    from app.stores import inventory_snapshots as inv_store
+    meta = inv_store.get_snapshot_meta(snapshot_id)
+    if not meta or meta["client_id"] != client_id:
+        raise HTTPException(404, "Snapshot not found")
+    offset, safe_limit = _page_args(cursor, limit)
+    rows = inv_store.list_lines(
+        snapshot_id, limit=safe_limit + 1, offset=offset,
+        code=code, warehouse=warehouse)
+    has_next = len(rows) > safe_limit
+    return _json({
+        "snapshot_id": snapshot_id,
+        "items": rows[:safe_limit],
+        "total": inv_store.count_lines(snapshot_id, code=code, warehouse=warehouse),
+        "next_cursor": str(offset + safe_limit) if has_next else None,
+        "server_time": datetime.now(timezone.utc),
+    })
 
 
 @router.get("/dncxs/{client_id}/period-end-link")
