@@ -1286,12 +1286,22 @@ def attach_origin_sheet_states(case: dict) -> dict:
             sequence_reason = f"Cần chốt các bước trước: {', '.join(previous_unlocked[:5])}."
         elif later_locked:
             sequence_reason = f"Cần mở chốt các bước sau trước: {', '.join(later_locked[:5])}."
-        product["origin_can_calculate"] = bool(code and status != "locked" and not sequence_reason)
-        product["origin_calculate_block_reason"] = (
-            f"Bảng kê {code} đã chốt; cần mở chốt trước khi tính lại."
-            if status == "locked"
-            else sequence_reason
-        )
+        # Contextual: chỉ bật khi CÓ việc thật để tính. Sửa bảng kê (xoá/thêm/ĐM/
+        # thay thế) đã auto-recalc qua /save ⇒ sheet `calculated` (và không stale)
+        # bấm "Tính" lại = no-op ⇒ disable. Còn việc thật ở: draft/bom_loaded (tính
+        # lần đầu) + stale (tính lại do sheet trước ăn tồn chung / refresh tồn).
+        calculable = status in {"draft", "bom_loaded", "stale"}
+        product["origin_can_calculate"] = bool(code and calculable and not sequence_reason)
+        if status == "locked":
+            calc_reason = f"Bảng kê {code} đã chốt; cần mở chốt trước khi tính lại."
+        elif sequence_reason:
+            calc_reason = sequence_reason
+        elif status == "calculated":
+            calc_reason = "Đã tính — sửa bảng kê sẽ tự tính lại."
+        else:
+            calc_reason = ""
+        product["origin_calculate_block_reason"] = calc_reason
+        product["origin_calculate_label"] = "Tính lại" if status == "stale" else "Tính bảng kê"
         product["origin_can_lock"] = bool(code and status == "calculated" and not sequence_reason)
         product["origin_lock_block_reason"] = (
             "" if product["origin_can_lock"] else sequence_reason or f"Chỉ chốt được bảng kê {code} sau khi đã tính."
@@ -1802,7 +1812,7 @@ def origin_product_from_invoice_match(
         "lvc_status": lvc["status"],
         "lvc_status_label": lvc["status_label"],
         "lvc_threshold": decimal_text(threshold) if threshold is not None else "",
-        "vnm_value": decimal_text(vnm) if (allocate and materials) else "",
+        "vnm_value": decimal_text(vnm) if (allocate and active_materials) else "",
         "bom_product_artifact_id": first_non_empty(row.get("product_artifact_id") or row.get("product_version_id", "") for row in bom_rows),
         "bom_product_artifact_no": first_non_empty(row.get("product_artifact_no") or row.get("product_version_no", "") for row in bom_rows),
         "bom_product_version_id": first_non_empty(row.get("product_artifact_id") or row.get("product_version_id", "") for row in bom_rows),

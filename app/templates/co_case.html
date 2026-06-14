@@ -1120,7 +1120,7 @@
                 {% if product.origin_sheet_status != 'locked' %}
                 <button type="submit" class="btn-secondary" data-origin-sheet-load-bom formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/load-bom" formmethod="post" title="Nạp công thức NVL (cấu trúc BOM artifact đang chọn) vào bảng kê để xem/sửa — chưa phân bổ tồn (ghi đè chỉnh sửa client-side chưa lưu)">Load BOM</button>
                 {% endif %}
-                <button type="submit" data-origin-sheet-calculate formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/calculate" formmethod="post" {% if not product.origin_can_calculate %}disabled title="{{ product.origin_calculate_block_reason }}"{% else %}title="Phân bổ tồn CO + tính LVC từ BOM đã nạp"{% endif %}>Tính bảng kê</button>
+                <button type="submit" data-origin-sheet-calculate formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/calculate" formmethod="post" {% if not product.origin_can_calculate %}disabled title="{{ product.origin_calculate_block_reason }}"{% else %}title="Phân bổ tồn CO + tính LVC từ BOM đã nạp"{% endif %}>{{ product.origin_calculate_label or 'Tính bảng kê' }}</button>
                 {% if product.origin_sheet_status == 'locked' %}
                 <button type="submit" class="btn-secondary" formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/reopen" formmethod="post" {% if not product.origin_can_reopen %}disabled title="{{ product.origin_reopen_block_reason }}"{% endif %}>Mở chốt</button>
                 {% if product.origin_sheet_material_diff_total %}
@@ -2199,6 +2199,19 @@
     const activeOriginProductCode = isOriginSheetAction
       ? (submitter?.closest("[data-origin-sheet-panel]")?.dataset.productCode || "")
       : "";
+    // P3 — Load BOM GHI ĐÈ: nạp lại cấu trúc từ BOM artifact xoá sạch material_overrides
+    // (mọi chỉnh sửa đã lưu) trên server. Cảnh báo khi sheet đã có dữ liệu/chỉnh sửa.
+    if (/\/origin\/sheet\/[^/]+\/load-bom$/.test(action)) {
+      const panel = submitter?.closest("[data-origin-sheet-panel]");
+      const hasRows = !!panel && panel.querySelectorAll("[data-origin-material-row]").length > 0;
+      const ops = panel && panel.__pendingOps;
+      const hasPending = !!ops && typeof pendingOpsCount === "function" && pendingOpsCount(ops) > 0;
+      if ((hasRows || hasPending) && !window.confirm(
+        "Load BOM sẽ nạp lại cấu trúc NVL từ BOM artifact và GHI ĐÈ bảng kê hiện tại — mọi chỉnh sửa (xoá / thêm / thay thế / định mức), kể cả đã lưu, sẽ bị bỏ. Tiếp tục?"
+      )) {
+        return;
+      }
+    }
     const payload = method === "GET"
       ? {body: null, headers: {"Accept": "text/html"}}
       : isOriginSheetAction
@@ -4036,7 +4049,8 @@
 
     const removeRow = () => {
       if (!state.row) return;
-      if (!confirm(`Xoá dòng NVL ${state.materialLabel || state.materialCode}?`)) return;
+      // Xoá lẻ = không cảnh báo (soft-delete: dòng fold + Ctrl+Z khôi phục được).
+      // Modal cảnh báo chỉ áp cho xoá hàng loạt (wireSheetBulkDelete).
       const panel = state.row.closest("[data-origin-sheet-panel]");
       pushSheetHistory(panel);
       const deletedMaterialCode = stageRowDeletion(panel, state.row, state.rowIndex);
@@ -4812,7 +4826,7 @@
     deleteBtn?.addEventListener("click", () => {
       const rows = checkedBoxes().map((cb) => cb.closest("tr")).filter(Boolean);
       if (!rows.length) return;
-      if (!confirm(`Xoá ${rows.length} dòng NVL đã chọn khỏi bảng kê?`)) return;
+      if (!confirm(`Xoá ${rows.length} dòng NVL đã chọn khỏi bảng kê? (Các dòng sẽ được gập lại — có thể khôi phục bằng Ctrl+Z trước khi lưu.)`)) return;
       pushSheetHistory(panel);
       const codes = [];
       rows.forEach((row) => {
