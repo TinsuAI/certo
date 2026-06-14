@@ -17,9 +17,13 @@ phiên bản theo [SemVer](https://semver.org/).
 ### Cải tiến
 - Điều hướng trong view khách hàng gom lại thành 3 nhóm domain (Danh mục · Hải quan · BOM); "Đề xuất" chuyển vào nhóm BOM cùng Định mức / Cần xử lý / Hệ số quy đổi.
 - Trang Tải lên: thêm cột "Người tải" và Việt hoá nhãn trạng thái.
+- Làm rõ chiều hệ số quy đổi UoM ở mọi nơi staff nhìn: gợi ý trên trang hệ số, tooltip cột, và sheet "Hướng dẫn" của template import. Quy ước: hệ số = 1 đơn vị "Từ" quy ra bao nhiêu đơn vị "Sang"; số lượng (Sang) = số lượng (Từ) × hệ số.
+- Bước materialize BOM cảnh báo khi một mã leaf nhận nhiều đơn vị quy về canonical khác nhau (vd g và kg), tránh cộng số lượng khác đơn vị trước khi quy đổi.
 
 ### Sửa lỗi
 - Trang hệ số quy đổi UoM: ô xem trước không còn hiện ra thành một ô trống vô duyên khi chưa nhập đủ "Từ UoM / Sang UoM / Hệ số" (CSS `display` đè lên thuộc tính `hidden`).
+- Quy đổi UoM: khi chỉ khai hệ số một chiều (vd B→A), bước làm phẳng BOM nay tự suy chiều ngược (lấy nghịch đảo) — trước đây panel danh mục/cảnh báo báo "quy đổi được" nhưng làm phẳng vẫn báo thiếu hệ số.
+- Template import hệ số UoM: sửa dòng mẫu bị ngược (EA→SETS hệ số 4 ⇒ nay là SETS→EA hệ số 4, khớp ghi chú "1 SETS = 4 EA").
 
 ## [0.14.0] — 2026-06-14
 ### Mới

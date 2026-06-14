@@ -248,8 +248,8 @@ def render_template_xlsx() -> bytes:
         c.alignment = Alignment(vertical="center")
     # Sample rows.
     samples = [
-        ["M_EXAMPLE_1", "EA", "KG", "0.5", "1 chiếc nặng 0.5 kg (per supplier)"],
-        ["M_EXAMPLE_2", "EA", "SETS", "4", "1 SETS gồm 4 EA"],
+        ["M_EXAMPLE_1", "EA", "KG", "0.5", "1 EA = 0.5 KG (1 chiếc nặng 0.5 kg)"],
+        ["M_EXAMPLE_2", "SETS", "EA", "4", "1 SETS = 4 EA (SL theo EA = SL theo SETS × 4)"],
         ["", "g", "kg", "0.001", "client-wide: 1 g = 0.001 kg (cùng họ — thường không cần điền)"],
     ]
     for ri, sample in enumerate(samples, start=2):
@@ -268,6 +268,9 @@ def render_template_xlsx() -> bytes:
         "Cột tùy chọn: notes",
         "",
         "Quy ước:",
+        "• Chiều hệ số: 1 đơn vị from_uom = factor đơn vị to_uom.",
+        "  → Số lượng theo to_uom = Số lượng theo from_uom × factor.",
+        "  Ví dụ: from=SETS, to=EA, factor=4 ⇒ 1 SETS = 4 EA (10 SETS = 40 EA).",
         "• material_code để TRỐNG = client-wide override (áp cho mọi mã trong client).",
         "• factor: số dương > 0. Hệ thống tự đổi sang Decimal.",
         "• Mỗi dòng = 1 cặp (material_code, from_uom, to_uom).",

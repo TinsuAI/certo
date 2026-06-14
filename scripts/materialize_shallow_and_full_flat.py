@@ -135,6 +135,49 @@ from leaves group by child_code order by child_code
 """
 
 
+def _group_offenders(edge_uoms, resolve_canonical):
+    """Pure core of the multi-canonical-leaf guard. `edge_uoms` is an
+    iterable of (child_code, raw_uom); `resolve_canonical(uom)` returns the
+    canonical code (or None). Returns [(child_code, sorted_canonicals)] for
+    any child whose edges span >1 distinct canonical.
+
+    Why it matters: the WALK does `sum(cum_qty), max(uom)` per child BEFORE
+    UoM conversion, so a child reached via paths in different canonicals has
+    its raw quantities summed across incompatible units. Alias-equivalent
+    units collapse to one canonical (PCS/ST/EA → 'pcs') and are NOT flagged;
+    genuinely different magnitudes (g vs kg) ARE."""
+    by_child: dict[str, set] = {}
+    for child, uom in edge_uoms:
+        token = (uom or "").strip().lower()
+        if not token:
+            continue
+        canon = resolve_canonical(uom) or token
+        by_child.setdefault(child, set()).add(canon)
+    return [(c, sorted(s)) for c, s in sorted(by_child.items()) if len(s) > 1]
+
+
+def detect_multi_canonical_leaves(artifact_id: str):
+    """DB-backed wrapper around `_group_offenders` for one raw artifact's
+    edges. Returns offenders the materialize caller warns on."""
+    from app.stores.uom import _alias_to_canonical
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select child_code, uom from hub.bom_edges "
+            "where artifact_id = %s and uom is not null and trim(uom) <> ''",
+            (artifact_id,),
+        )
+        edges = cur.fetchall()
+        cache: dict[str, str | None] = {}
+
+        def resolve(uom):
+            key = (uom or "").strip().lower()
+            if key not in cache:
+                cache[key] = _alias_to_canonical(cur, uom)
+            return cache[key]
+
+        return _group_offenders(edges, resolve)
+
+
 def fetch_client_policy(client_id: str) -> str:
     with connect() as conn:
         with conn.cursor() as cur:
@@ -223,6 +266,15 @@ def materialize_one(
     counters = {"shallow_inserted": 0, "shallow_dedup": 0,
                 "full_flat_inserted": 0, "full_flat_dedup": 0,
                 "shallow_empty": 0, "full_flat_empty": 0}
+    # Guard: the WALK sums raw qty + picks max(uom) per child before UoM
+    # conversion. A child reached via paths in different canonicals would be
+    # summed across incompatible units (alias-equivalent like PCS/ST is fine).
+    # Surface it loudly instead of silently producing a wrong flat.
+    for child, canons in detect_multi_canonical_leaves(raw_id):
+        print(f"  WARNING multi-canonical leaf {child} in artifact {raw_id}: "
+              f"source UoMs resolve to {canons} — summed qty may be physically "
+              f"wrong (WALK sums raw qty before UoM conversion)",
+              file=sys.stderr)
     for kind, sql, strategy in [
         ("shallow", SHALLOW_WALK_SQL, "purchased_btp_as_leaf"),
         ("full_flat", FULL_FLAT_WALK_SQL, "technical_exploded"),
