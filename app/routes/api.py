@@ -2386,6 +2386,85 @@ async def api_download_declarations_pdf(
     )
 
 
+# ── NXT + year-end inventory tier (settlement inputs for BCQT) ──────────
+
+def _parse_iso_date(s: str | None):
+    from datetime import datetime
+    s = (s or "").strip()
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(400, "date must be YYYY-MM-DD")
+
+
+@router.get("/dncxs/{client_id}/nxt")
+async def api_list_nxt(client_id: str, authorization: str | None = Header(None)):
+    """List NXT (Nhập-Xuất-Tồn) artifacts (metadata) for a client."""
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+    from app.stores import nxt as nxt_store
+    return _json({"items": nxt_store.list_artifacts(client_id)})
+
+
+@router.get("/dncxs/{client_id}/nxt/{artifact_id}")
+async def api_get_nxt(client_id: str, artifact_id: str,
+                      authorization: str | None = Header(None)):
+    """One NXT artifact with its lines (closing_implied derived per line)."""
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
+    from app.stores import nxt as nxt_store
+    art = nxt_store.get_artifact(artifact_id)
+    if not art or art["client_id"] != client_id:
+        raise HTTPException(404, "NXT artifact not found")
+    return _json(art)
+
+
+@router.get("/dncxs/{client_id}/inventory-snapshots")
+async def api_list_inventory(client_id: str,
+                             authorization: str | None = Header(None)):
+    """List year-end inventory snapshots (metadata) for a client."""
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+    from app.stores import inventory_snapshots as inv_store
+    return _json({"items": inv_store.list_snapshots(client_id)})
+
+
+@router.get("/dncxs/{client_id}/inventory-snapshots/{snapshot_id}")
+async def api_get_inventory(client_id: str, snapshot_id: str,
+                            authorization: str | None = Header(None)):
+    """One inventory snapshot with its lines (variance derived per line)."""
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
+    from app.stores import inventory_snapshots as inv_store
+    snap = inv_store.get_snapshot(snapshot_id)
+    if not snap or snap["client_id"] != client_id:
+        raise HTTPException(404, "Snapshot not found")
+    return _json(snap)
+
+
+@router.get("/dncxs/{client_id}/period-end-link")
+async def api_period_end_link(client_id: str, date: str | None = None,
+                              authorization: str | None = Header(None)):
+    """Per-code reconciliation at `date`: NXT closing ↔ next-period opening ↔
+    snapshot book/physical. Requires ?date=YYYY-MM-DD."""
+    claims = _require_token(authorization)
+    _require_can_view_client(claims, client_id)
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+    on_date = _parse_iso_date(date)
+    if on_date is None:
+        raise HTTPException(400, "date query param required (YYYY-MM-DD)")
+    from app.stores import settlement_link
+    return _json({"date": date, "items": settlement_link.period_end_link(
+        client_id, on_date)})
+
+
 @router.get("/healthz")
 async def api_healthz():
     return _json({"status": "ok"})

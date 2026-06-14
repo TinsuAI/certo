@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Chốt tồn kho · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Chốt tồn kho cuối kỳ</h2>
+      <p class="meta">Số lượng sổ sách vs thực đếm tại thời điểm chốt, theo kho.</p>
+    </div>
+    <div class="page-actions">
+      <a class="btn-secondary btn-sm" href="/templates/inventory-snapshot.xlsx">Tải mẫu chuẩn</a>
+      {% if can_edit %}<a class="btn-primary btn-sm" href="/clients/{{ client.client_id }}/inventory-snapshots/upload">＋ Tải lên</a>{% endif %}
+    </div>
+  </div>
+
+  {% if saved %}<div class="toast toast-success">{{ saved }}</div>{% endif %}
+  {% if error %}<div class="toast toast-error">{{ error }}</div>{% endif %}
+
+  {% if snapshots %}
+  <table class="dh-table" style="margin-top:.75rem">
+    <thead>
+      <tr><th>Ngày chốt</th><th>Nguồn</th><th>Adapter</th><th class="num">Số dòng</th><th>Tạo lúc</th></tr>
+    </thead>
+    <tbody>
+      {% for s in snapshots %}
+      <tr>
+        <td>{{ s.snapshot_date or '—' }}</td>
+        <td>{{ s.source_kind }}</td>
+        <td class="mono">{{ s.adapter_name or '—' }}</td>
+        <td class="num">{{ s.n_lines }}</td>
+        <td>{{ s.created_at.strftime('%Y-%m-%d %H:%M') if s.created_at else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta" style="margin-top:1rem">Chưa có dữ liệu chốt tồn. Tải mẫu chuẩn, điền vào rồi tải lên.</p>
+  {% endif %}
+</section>
+{% endblock %}

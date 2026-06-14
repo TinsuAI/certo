@@ -307,6 +307,24 @@ async def bom_adapters_view(request: Request):
     )
 
 
+@router.get("/admin/settlement-adapters", response_class=HTMLResponse)
+async def settlement_adapters_view(request: Request):
+    """Read-only NXT + inventory adapter registry — visibility, not code upload.
+    Lists both registries + the per-client default-adapter binding matrix."""
+    user = auth.require_user(request)
+    if not auth.can_manage_users(user):
+        raise HTTPException(403, "forbidden")
+    from app.parsers import inventory_adapters, nxt_adapters
+    from app.stores import settlement_adapter_binding
+    return request.app.state.templates.TemplateResponse(
+        request, "admin/settlement_adapters.html",
+        {"nxt_adapters": nxt_adapters.registry_info(),
+         "inventory_adapters": inventory_adapters.registry_info(),
+         "bindings": settlement_adapter_binding.list_bindings(),
+         "active_root": "admin"},
+    )
+
+
 @router.post("/admin/users/new")
 async def users_create(
     request: Request,

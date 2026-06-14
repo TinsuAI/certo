@@ -28,6 +28,9 @@
   <a class="tab-link {{ 'tab-link-active' if p.startswith('/admin/bom-adapters') else '' }}"
      href="/admin/bom-adapters">Adapter BOM</a>
 
+  <a class="tab-link {{ 'tab-link-active' if p.startswith('/admin/settlement-adapters') else '' }}"
+     href="/admin/settlement-adapters">Adapter Quyết toán</a>
+
   {% if user.role == 'dev' %}
   <span class="tab-sep" aria-hidden="true"></span>
 

@@ -385,7 +385,7 @@ Cluster around the BOM upload flow: UX polish, parser robustness,
 adapter framework. Auto-detect default + manual_flat 4-shape SHIPPED
 2026-05-13; remaining items below.
 
-## B.0 Adapter "module management" + format-variant-as-data (captured 2026-06-09)
+## B.0 Adapter "module management" + format-variant-as-data — items 1+2 SHIPPED 2026-06-14; item 3 open
 
 **Driver:** concern that the BOM/declarability work over-fits Johnson + these
 SAP technical BOMs, and that new formats/customers force per-case rework → a
@@ -393,18 +393,23 @@ messy, hard-to-control codebase. Investigation showed the worry is mostly
 addressed already (`app/parsers/bom_adapters/__init__.py` is a real plugin
 registry: `BomAdapter` Protocol + `register()` + detect-ranked `parse_with_fallback`
 + pluggable `HOOKS`; core/engine/routes import NO specific adapter). "In the repo"
-≠ "coupled to core". Do these, in order:
+≠ "coupled to core". Status per item:
 
-1. **Read-only "Adapter registry" admin view** — list registered adapters,
-   per-client default binding, and what signals each emits (rows / material_group
-   / phantom). This is the safe "module management" the user wants — *visibility +
-   binding*, NOT runtime code upload.
-2. **Format-variant → DATA, not code.** Same structural shape, different column
-   names → `client_column_aliases` (mig 075, exists) + `client_material_group_map`.
-   Most "new format from an existing customer" should need ZERO code.
+1. **Read-only "Adapter registry" admin view** — ✅ SHIPPED (`fc48a96`, PR #3).
+   `GET /admin/bom-adapters` (`app/routes/admin.py:293`) renders
+   `bom_adapters.registry_info()` + `adapter_binding.list_bindings()`; linked from
+   `_admin_nav.html` ("Adapter BOM"). Visibility + per-client binding matrix, no
+   runtime code upload — exactly as scoped.
+2. **Format-variant → DATA, not code.** — ✅ SHIPPED (`fc48a96`). `client_column_aliases`
+   (mig 075) + group-map UI + per-client default-adapter binding (`POST
+   /clients/{id}/bom/default-adapter`, `bom.py:210`). Tree-adapter binding path also
+   fixed to land as raw_graph (`017c4ea`, see G.2). Most "new format from an existing
+   customer" now needs ZERO code.
 3. **Tighten + document the adapter contract** as THE extension point: make
    `detect()` mandatory; add capability metadata. New structural format = 1 adapter
-   file + tests + deploy (git/CI-governed). Document this onboarding flow.
+   file + tests + deploy (git/CI-governed). Document this onboarding flow. **OPEN** —
+   `detect()` ranking exists (`f161f12`, B.1) but stays optional/abstain (not
+   mandatory) and there is no capability metadata yet. Only remaining B.0 work.
 4. **DO NOT build runtime .py upload** ("dev a module, upload it, hot-add"). It is
    RCE-by-design, bypasses CI, crash blast-radius, ungoverned versioning — it
    *increases* the chaos. Defer entry-point/package-based boot-time loading until

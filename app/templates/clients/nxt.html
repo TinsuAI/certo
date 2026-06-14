@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Nhập-Xuất-Tồn · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Nhập-Xuất-Tồn (NXT)</h2>
+      <p class="meta">Bảng tổng hợp đầu kỳ / nhập / xuất / cuối kỳ theo kỳ báo cáo, phục vụ quyết toán.</p>
+    </div>
+    <div class="page-actions">
+      <a class="btn-secondary btn-sm" href="/templates/nxt.xlsx">Tải mẫu chuẩn</a>
+      {% if can_edit %}<a class="btn-primary btn-sm" href="/clients/{{ client.client_id }}/nxt/upload">＋ Tải lên</a>{% endif %}
+    </div>
+  </div>
+
+  {% if saved %}<div class="toast toast-success">{{ saved }}</div>{% endif %}
+  {% if error %}<div class="toast toast-error">{{ error }}</div>{% endif %}
+
+  {% if artifacts %}
+  <table class="dh-table" style="margin-top:.75rem">
+    <thead>
+      <tr><th>Kỳ</th><th>Nguồn</th><th>Adapter</th><th class="num">Số dòng</th><th>Tạo lúc</th></tr>
+    </thead>
+    <tbody>
+      {% for a in artifacts %}
+      <tr>
+        <td>{{ a.period_from or '—' }} → {{ a.period_to or '—' }}</td>
+        <td>{{ a.source_kind }}</td>
+        <td class="mono">{{ a.adapter_name or '—' }}</td>
+        <td class="num">{{ a.n_lines }}</td>
+        <td>{{ a.created_at.strftime('%Y-%m-%d %H:%M') if a.created_at else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="meta" style="margin-top:1rem">Chưa có dữ liệu NXT. Tải mẫu chuẩn, điền vào rồi tải lên.</p>
+  {% endif %}
+</section>
+{% endblock %}

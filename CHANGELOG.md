@@ -11,6 +11,16 @@ phiên bản theo [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-06-14
+### Mới
+- Quản lý dữ liệu **Nhập-Xuất-Tồn (NXT)** và **Chốt tồn kho cuối kỳ**: nhóm "Quyết toán" mới trong view khách hàng, luồng tải lên → xem trước → xác nhận cho cả hai loại; tồn cuối / chênh lệch (sổ sách vs thực đếm) tự tính khi xem.
+- Mẫu chuẩn hệ thống tải về cho NXT (3 sheet NVL/TP/BTP) và chốt tồn kho.
+- Parser linh hoạt nhận nhiều định dạng ERP có sẵn: EZSOFT/3TSoft (Growatt), SAP MB5B (Johnson), MISA "Cân đối tồn kho" (Hồng Phúc/An), kiểm kê đa-kho (DKE) — tự nhận diện định dạng. Định dạng lạ: gán cột qua giao diện (có gợi ý bằng LLM), hệ thống ghi nhớ cho các lần sau.
+- Trang quản trị "Adapter Quyết toán": xem các parser đã đăng ký và đặt parser mặc định theo từng khách hàng.
+
+### API
+- Thêm endpoint đọc cho hệ thống quyết toán (BCQT): danh sách/chi tiết NXT, danh sách/chi tiết chốt tồn kho, và đối chiếu tồn-cuối ↔ đầu-kỳ ↔ kiểm kê theo từng mã. Chi tiết: `docs/API_CHANGELOG.md` (2026-06-14, Additive).
+
 ## [0.15.0] — 2026-06-14
 ### Mới
 - Trang chi tiết cho từng lần tải lên: metadata đầy đủ (người tải, SHA-256, kích thước, số dòng, kết quả parse), nút tải lại file gốc, và xem trước nội dung file (50 dòng đầu của xlsx/xls/csv) ngay trên trình duyệt.
