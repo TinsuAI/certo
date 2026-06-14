@@ -1,9 +1,19 @@
 # Project Status
 
 ## Current State
-- **On `main` = `origin/main` = `a295a7d`** (Merge PR #2). **MERGED + DEPLOYED to prod.**
-  prod `barry-co.tinsu.ai/version` = `0.14.0` / git_sha `a295a7d` / build 2026-06-14T18:40 / source `build`.
-  CI/CD run `27508328877` success (prod + demo + nightly); migration 017 ran clean. Tree clean.
+- **On `main` = `origin/main` = `d80863e`**. **DEPLOYED to prod.**
+  prod `barry-co.tinsu.ai/version` = `0.14.0` / git_sha `d80863e` / build 2026-06-14T19:46 / source `build`.
+  CI/CD run `27510005484` success (prod + demo + nightly). Tree clean.
+- **2026-06-15 session:**
+  1. **VERIFIED Growatt data CO-ready** — stock 38287 lô (all remaining>0), config `description_regex` v2
+     refresh hôm nay; BOM↔tồn match **99%** (e44 100%/LVC 49.92% locked). **Re-calc proof:** stale case
+     94feac BIENTAN.17 `0%→99.6%`, LVC `100%(ảo)→19.67% partial_fail`. Landmine: stale calc giấu LVC-fail sau
+     pass 100% giả. [[growatt-allocation-strategy-bom-match]].
+  2. **FULL PURGE cases + claims (dev + prod, mọi client)** — user reset stale test data. dev 170 cases/949
+     claims→0, prod 7/1215→0; **stock GIỮ** (dev 98462, prod 104232). Backup `data/local/backups/full-purge-20260615-032608/`(+`/prod`).
+  3. **Code fix `d80863e` (committed + DEPLOYED):** `co_case_store.load_state` — gỡ json re-seed; DB mode KHÔNG
+     còn đọc/reseed `cases.json` (chống zombie cases). json chỉ còn dùng ở file-mode (test). Dev `cases.json` xoá hẳn.
+     File-mode suite **594 pass**. [[co-case-store-db-json-reseed]].
 - **SHIPPED this session (3 things, all live on the test-data prod):**
   1. **Gỡ legacy CO-stock fold** — `fold_baseline`/`co_stock_adjustments`/`refold_*` xoá hẳn; bảng
      `co_stock_adjustments` dropped (**mig 017**); route `/co-stock/import` overlay bỏ (form → `/import-snapshot`).
@@ -12,7 +22,7 @@
   3. **CS1** — redesign modal lịch sử lot (gộp sự kiện hệ thống + cờ `readded`).
 - **Dev server:** background task `b0bzczccq` on `:8001` (`npm run co:serve`, --reload). Sau khi checkout về
   `main` nó serve `a295a7d`. Kiểm còn sống / restart nếu cần.
-- **Mid-flight: nothing.** Tất cả đã merge + deploy + verify live.
+- **Mid-flight: nothing.** Code fix committed + deployed (`d80863e`); data purge dev+prod done + verified live (prod cases 0, stock 104232 intact). Demo/nightly NOT purged (separate stacks, still have old cases).
 
 ## Recent Changes (this session, latest first)
 - **`a295a7d`** Merge PR #2 `refactor/co-stock-remove-legacy-fold` → main.
