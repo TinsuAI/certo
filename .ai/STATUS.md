@@ -1,81 +1,92 @@
 # Project Status
 
-**Date:** 2026-06-14 — **v0.14.0 RELEASED & live on prod.** UI redesign +
-Vietnamese sweep + admin nav + adapter-binding fix shipped via **PR #4**, merged
-to `main` (`ec3f0ab`), auto-deployed to prod, tagged `v0.14.0` + GitHub Release.
-Plus an important correction to the prod/declarability state recorded below.
+**Date:** 2026-06-14 (PM) — **v0.16.0: NXT + year-end inventory data tier merged
+to `main` + released** (PR #8). CD redeploys `https://ttdatahub.tinsu.ai` and
+applies mig 082–086 at boot. Tag `v0.16.0`.
 
 ## Current State
 
-**v0.14.0 SHIPPED** (`pyproject` 0.14.0). Prod (`https://ttdatahub.tinsu.ai`) is
-**live on v0.14.0** — verified `/version` → `{"version":"0.14.0","git_sha":"ec3f0ab"}`;
-nightly demo refreshed. Tag `v0.14.0` → merge commit `ec3f0ab`; GitHub Release
-published from the CHANGELOG `[0.14.0]` section. CHANGELOG `[0.14.0]` folds in
-everything live-but-unreleased since 0.13.1: PR #2 (declarability, mig 078/079),
-PR #3 (adapter module-mgmt, mig 080/081), and PR #4.
+**v0.16.0 SHIPPED** via **PR #8** (`feat/nxt-inventory-tier` → `main`, merge
+commit; release commit bumps CHANGELOG + pyproject 0.15.0→0.16.0). New shared
+data tier for two BCQT settlement *inputs* Data
+Hub did not own: **NXT** (Nhập-Xuất-Tồn period flow) + **year-end inventory
+snapshot** (chốt tồn kho). Data-tier only — parse/store/read; BCQT computes
+Mẫu 15/15a. Brief + 8 screenshots: `.ai/features/2026-06-14-nxt-inventory-tier/`.
 
-**PR #4 — `feat/ui-redesign-vi-sweep`** (merged, branch deleted): G.2 adapter-binding
-fix (tree adapters via binding/dropdown now route through raw_graph, not flat-stash),
-G.1 shared grouped admin sub-nav, clients-page search + top-nav user menu +
-Vietnamese sweep of high-visibility surfaces, docs. Suite **1480 passed / 16
-skipped**; PR CI green; prod **Deploy** job green (both auth smoke gates incl. the
-public `ttdatahub.tinsu.ai` check). Briefs + screenshots under
-`.ai/features/2026-06-14-nav-redesign/` and `.ai/features/2026-06-14-clients-topnav-vi-sweep/`.
+**What's in it (slices 1–4):**
+- **Schema** (mig 082–086): `nxt_artifacts/nxt_lines` + `inventory_snapshots/
+  inventory_snapshot_lines`, immutable (edit = new artifact; **supersede prior**
+  per `(client, period_to)` / `(client, snapshot_date)`); `outbound_total`;
+  `default_nxt/inventory_adapter` bindings; widened `chk_module` +
+  `parser_mappings.module`. All additive/DDL-only, no client seed.
+- **7 modular adapters** (clone of BOM registry: Protocol + detect-ranked
+  fallback; each layout adapter gates parse on a distinctive signal so it never
+  grabs a generic file). NXT: `ezsoft_3tsoft`, `sap_mb5b`, `misa_can_doi_ton`,
+  `system_template`, `manual_generic`. Inventory: `kiem_ke_multi_kho`,
+  `system_template`. Validated on real files (Growatt 2936 / Johnson MB5B 20064 /
+  Hồng Phúc MISA 123 / DKE stocktake 727 across 6 kho).
+- **Web-UI adapter mgmt** — admin registry `/admin/settlement-adapters` +
+  per-client default-adapter binding (respects B.0: no runtime code upload).
+- **Smart ingest** — alias auto-match → interactive column-mapping page (rigid +
+  LLM suggest + confirm → `parser_mappings` cache). Unknown format = 0 code.
+- **System-standard templates** (`/templates/nxt.xlsx`,
+  `/templates/inventory-snapshot.xlsx`) — render == parse.
+- **Upload→preview→confirm UI** both modules + "Quyết toán" nav group. Derived
+  `closing_implied`/`variance` shown, never stored. `reported_role` = provenance
+  only (authoritative class from catalog).
+- **Read API `/v1/hub`** (additive — `docs/API_CHANGELOG.md` 2026-06-14):
+  list/get NXT, list/get inventory snapshots, `period-end-link?date=` (per-code
+  NXT closing ↔ next-period opening ↔ snapshot book/physical, best-effort code
+  join). `data_promotion` exports the 4 tables.
 
-**⚠️ Correction — CD deploys PROD, and prod ALREADY has mig 078–081.** The
-earlier STATUS claim that 078/079 were "gated, not yet applied to prod" was
-**wrong**. Facts (verified 2026-06-14):
-- `docs/release-engineering.md:84`: prod = `https://ttdatahub.tinsu.ai` =
-  the `/home/tinsu/data-hub` docker stack the CI **Deploy** job rebuilds.
-- The `deploy` job fires on **push to `main`** (i.e. after every PR merge) — the
-  `runs-on: data-hub-demo` label is the runner's name, NOT the target; it deploys
-  **prod** (and then best-effort refreshes the `tinsu-deploy` nightly *demo* stack).
-- `app/main.py:89` runs `apply_migrations()` at app boot → each deploy applies
-  pending migrations to the **prod DB**.
-- The PR #2 and PR #3 merges (2026-06-13) both ran `Deploy to tinsu: **success**`
-  → **prod already applied mig 078–081** that day.
-- ⇒ Declarability schema + johnson `client_material_group_map` seed + classification
-  are **live on prod**. User-facing impact is still **zero** because
-  `exclude_non_declarable` is **default-OFF**. The separate backfill
-  (`scripts/backfill_johnson_material_group.py --apply`) is **not** a migration and
-  has **not** run on prod yet.
+**Review (3-agent + self-verify) done; fixes in PR:** Critical re-upload
+double-count → supersede-on-confirm + `mapping_parse` guard; Important
+`preview_reject` now client-scoped; Minor override dup-target → first-wins;
+best-effort join documented. **Tests: 30 in-feature + full suite 1524 passed.**
 
-**PR #4 added NO new migrations** (latest is 081, already on main) → the deploy
-applied nothing new to the prod DB; only UI/i18n/bom-routing code shipped.
+Working tree: branch `feat/nxt-inventory-tier` (pushed). Pre-existing `uv.lock`
+modification still uncommitted (NOT this session). Dev server restarted on :8754
+this session (`--workers 1 --reload`).
 
 ## Next Steps
 
-1. **Declarability rollout — decide on the backfill** (schema already on prod,
-   default-OFF): whether/when to run `backfill_johnson_material_group.py --apply`
-   on prod (idempotent, import-aware; key check after: rows with
-   `excluded_at is not null and customs_relevance='declarable'` **must be 0**).
-   Then **CO adoption** (swap `is_bom_technical_noise` → DH `customs_relevance`,
-   `.ai/sister-app-notes/2026-06-09-co-consumer-spec-declarability.md`); only after
-   CO is on it, flip `exclude_non_declarable` for johnson-vn.
-2. **Outage ops follow-up:** after ~**20/06** confirm pre-fix appfiles tars pruned
-   via GFS (`~/logs/verify-old-tars.log` self-removes when clean; raises
-   `ALARM-PRUNE-CHECK` if GFS failed).
-3. **Backlog, unblocked:** B.0b rename `material_group` → `item_type_token`;
-   A.0 RD07 drawing name-level auto-hide; D.2 BOM staleness fingerprint (needs
-   A.4.4 `classify_uom_relation` first). Language follow-up: deep BOM-flatten
-   vocabulary + admin-staff sentences (see clients-topnav-vi-sweep brief).
+1. **Post-deploy verify (v0.16.0)** — confirm prod `/version` →
+   `{"version":"0.16.0", git_sha=main HEAD}`, `/healthz`, both auth smoke gates,
+   nightly refresh. Tag `v0.16.0` + `gh release create` on the merge commit.
+2. **Cross-link BCQT-System** to consume the new `/v1/hub` read API (settlement
+   reconciliation lives in BCQT, not here). Write a sister-app note.
+3. **UoM review P4 (CO side, deferred)** — guard CO stock allocation against UoM
+   mismatch. Spec: `.ai/sister-app-notes/2026-06-14-co-allocation-unit-match-guard.md`.
+   Apply on a clean CO branch after `barry-CO-main` `feat/rd3-bangke-split` lands.
+4. **Declarability rollout** (open since v0.14.0) — mig 078–081 live on prod,
+   `exclude_non_declarable` default-OFF. Decide prod backfill
+   (`backfill_johnson_material_group.py --apply`), then CO adoption, then flip
+   the flag for johnson-vn.
+5. **Outage ops follow-up** — after ~**20/06** confirm pre-fix appfiles tars
+   pruned via GFS (`~/logs/verify-old-tars.log` self-removes when clean).
+6. **Backlog, unblocked:** B.0b rename `material_group` → `item_type_token`;
+   A.0 RD07 drawing name-level auto-hide; B.0 item 3 (mandatory `detect()` +
+   capability metadata). NXT-tier deferred minors (in feature brief): broad
+   `except` in `parse_with_fallback`; mapping_parse 3× workbook load;
+   outbound≠Σbucket preview warning; MISA column-order fragility.
 
 ## Notes for Next AI Session
 
-- **CD = prod deploy.** Any merge to `main` redeploys `https://ttdatahub.tinsu.ai`
-  and applies pending migrations at boot. Treat every merge as a prod release:
-  per the standing rule, **update `CHANGELOG.md`** (and `docs/API_CHANGELOG.md`
-  if the `/v1/hub` surface changed) and bump `pyproject` version when cutting one.
-  The nightly **demo** stack (`/home/tinsu/tinsu-deploy`, DH :8764) is refreshed as
-  a secondary best-effort step in the same job.
-- **Migration gotcha:** any client-specific seed in a migration that FKs to
-  `hub.clients` MUST be guarded `where exists (select 1 from hub.clients …)` —
-  CI/fresh installs apply migrations before clients are seeded. Precedent:
-  mig 036/037 (growatt), 078 (johnson).
-- **Throwaway-DB repro** (CI's fresh DB): `sudo -u postgres createdb -O vp <db>`;
-  pre-create `vector` + `pg_trgm` as `postgres`; then
-  `DATA_HUB_DATABASE_URL=postgresql:///<db> uv run python -c "from app.database
-  import apply_migrations; apply_migrations()"`. `psql` does NOT read
-  `DATA_HUB_DATABASE_URL` — pass the dbname explicitly.
-- **Branch convention:** `main` uses **merge commits** for PRs (PR #1–#4);
-  `delete_branch_on_merge` is **off** (delete manually).
+- **CD = prod deploy.** Any push to `main` redeploys prod + applies pending
+  migrations at boot. Every merge is a prod release — update `CHANGELOG.md`
+  (+ `API_CHANGELOG.md` if `/v1/hub` changed), bump `pyproject` + tag + release.
+- **STATUS/BACKLOG lag HEAD** — trust `git log` + code over the docs.
+- **Branch flow:** `main` uses merge commits; `delete_branch_on_merge` off
+  (delete branch manually after merge). One repo dir = dev server shows only the
+  checked-out branch; prefer fewer switches while the user reviews live.
+- **NXT supersede semantics:** one period = one consolidated file (the real
+  sources are). A re-upload supersedes the prior artifact for that period; the
+  model does NOT support piecewise per-class uploads of the same period.
+- **Adapter pattern:** layout-specific adapters MUST gate `parse()` on the same
+  distinctive signal as `detect()` (title/sheet/Chinese marker), else they
+  greedily claim generic files (this bit ezsoft, misa, kiem_ke during the build).
+- **Screenshots:** two-tier rule — committed proof → `.ai/features/<slug>/
+  screenshots/`; scratch → gitignored `data/screenshots/`. Never mix.
+- **uv.lock** shows modified but is pre-existing — don't commit without reason.
+- **Migration gotcha:** client-specific seed FK→`hub.clients` must be guarded
+  `where exists (select 1 from hub.clients …)`.
