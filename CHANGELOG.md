@@ -10,6 +10,8 @@ phiên bản theo [SemVer](https://semver.org/).
 > hành đã đóng gói tại thời điểm đó.
 
 ## [Unreleased]
+### Sửa lỗi
+- Trang hệ số quy đổi UoM: ô xem trước không còn hiện ra thành một ô trống vô duyên khi chưa nhập đủ "Từ UoM / Sang UoM / Hệ số" (CSS `display` đè lên thuộc tính `hidden`).
 
 ## [0.14.0] — 2026-06-14
 ### Mới
