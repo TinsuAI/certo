@@ -5,6 +5,18 @@ Nhật ký thay đổi của Barry CO dành cho người dùng. Định dạng t
 hưởng tới người dùng (bỏ qua refactor nội bộ, hạ tầng test). Phiên bản theo
 [SemVer](https://semver.org/lang/vi/).
 
+## [0.14.0] — 2026-06-14
+### Mới
+- Thiết kế lại bước "Bảng kê C/O": bảng tổng quan các sheet (trạng thái, tóm tắt BOM, cấu hình, số cảnh báo); bấm vào một sheet để mở chế độ xem toàn màn hình kiểu Excel với tab sheet ở dưới, dấu 🔒 cho sheet đã chốt, và cấu hình gom vào nút ⚙.
+### Cải tiến
+- "Đổi công ty" / "Đổi hồ sơ" mở ngay tại chỗ bằng cửa sổ chọn, không rời trang.
+- "Tính bảng kê" chỉ bật khi cần (chưa tính hoặc cần tính lại); khi đã tính thì làm mờ kèm nhắc "sửa bảng kê sẽ tự tính lại", và đổi nhãn thành "Tính lại" khi cần.
+- "Load BOM" cảnh báo trước khi ghi đè một bảng kê đang có dữ liệu hoặc chỉnh sửa.
+- Xoá NVL: xoá lẻ không hỏi lại (dòng được gập lại, hoàn tác bằng Ctrl+Z); chỉ khi xoá hàng loạt mới xác nhận.
+- Thông báo (toast) dễ đọc hơn: nền đặc, ở góc dưới-phải, hiển thị lâu hơn.
+### Sửa lỗi
+- Sửa lỗi nghiêm trọng khi xoá NVL trên bảng kê: trước đây xoá 1 dòng có thể làm mất thêm dòng khác và đếm "đã xoá" sai (mất dữ liệu → sai LVC/VNM); nay xoá đúng số dòng đã chọn, dòng đã xoá được gập lại và khôi phục được.
+
 ## [0.13.0] — 2026-06-07
 ### Mới
 - Trang "Có gì mới" và hiển thị phiên bản ứng dụng ở chân trang mọi màn hình.
