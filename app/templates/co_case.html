@@ -861,18 +861,95 @@
   <option value="AIFTA 35% FOB + CTSH"></option>
   <option value="Tra PSR theo Phụ lục"></option>
 </datalist>
-<section class="origin-page-bar" aria-label="Tóm tắt bảng kê C/O">
-  <div class="origin-page-strip">
-    <span><em>Tham chiếu</em> <strong class="mono">{{ case.shipment_reference_label }}</strong></span>
-    <span><em>{{ 'Demo' if origin_demo_active else 'BCCT' }}</em> <strong>{{ case.products|length ~ ' TP mẫu' if origin_demo_active else invoice_matches|length ~ ' dòng' }}</strong></span>
-    <span><em>Form</em> <strong>{{ recommended_form_lane.display_name or case.co_form_type }}</strong></span>
-    <span><em>BOM</em> <strong>{{ origin_demo_material_count ~ ' NVL mẫu' if origin_demo_active else case.bom_snapshot.composition|length ~ ' TP' }}</strong></span>
-    <span><em>Trạng thái</em> <strong>{{ case.origin_snapshot.readiness_label or 'Chưa tính' }}</strong></span>
-    {% if origin_demo_active %}<span class="origin-page-demo-badge" title="Hồ sơ chưa có BCCT/BOM thật — đang nạp 2 TP mẫu để minh họa.">Demo</span>{% endif %}
-  </div>
-</section>
+<div class="origin-step-root origin-view-{{ origin_view }}"
+     data-origin-view="{{ origin_view }}"
+     data-origin-active-sheet="{{ active_sheet_code or '' }}"
+     data-origin-product-count="{{ case.products|length }}">
 
 <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export-bang-ke" id="origin-export-bang-ke" hx-boost="false"></form>
+
+<section class="origin-review" data-origin-review aria-label="Tổng quan & cấu hình bảng kê">
+  <div class="origin-page-bar">
+    <div class="origin-page-strip">
+      <span><em>Tham chiếu</em> <strong class="mono">{{ case.shipment_reference_label }}</strong></span>
+      <span><em>{{ 'Demo' if origin_demo_active else 'BCCT' }}</em> <strong>{{ case.products|length ~ ' TP mẫu' if origin_demo_active else invoice_matches|length ~ ' dòng' }}</strong></span>
+      <span><em>Form</em> <strong>{{ recommended_form_lane.display_name or case.co_form_type }}</strong></span>
+      <span><em>BOM</em> <strong>{{ origin_demo_material_count ~ ' NVL mẫu' if origin_demo_active else case.bom_snapshot.composition|length ~ ' TP' }}</strong></span>
+      <span><em>Trạng thái</em> <strong>{{ case.origin_snapshot.readiness_label or 'Chưa tính' }}</strong></span>
+      {% if origin_demo_active %}<span class="origin-page-demo-badge" title="Hồ sơ chưa có BCCT/BOM thật — đang nạp 2 TP mẫu để minh họa.">Demo</span>{% endif %}
+    </div>
+  </div>
+
+  <div class="origin-review-toolbar">
+    {% if case.products|length > 1 %}
+    <button type="button" class="btn-secondary" data-origin-reorder-open>Đổi thứ tự sheet</button>
+    <span class="origin-sheet-tabs-hint">Thứ tự quyết định sheet nào trừ tồn trước.</span>
+    {% endif %}
+    <span class="origin-workbar-sequence-dirty" data-origin-sequence-dirty hidden>Thứ tự sheet đã đổi — cần tính lại</span>
+    <span class="origin-review-toolbar-spacer"></span>
+    <button type="submit" form="origin-export-bang-ke" data-origin-export-action class="btn-secondary">Xuất bảng kê HQ</button>
+  </div>
+
+  {% if case.products %}
+  <div class="origin-review-table">
+    <div class="origin-review-row origin-review-head" aria-hidden="true">
+      <span class="orr-step">Bước</span>
+      <span class="orr-code">Sản phẩm</span>
+      <span class="orr-status">Trạng thái</span>
+      <span class="orr-bom">BOM</span>
+      <span class="orr-config">Cấu hình hiệu lực</span>
+      <span class="orr-metrics">Số liệu</span>
+      <span class="orr-drill"></span>
+    </div>
+    {% for product in case.products %}
+    {% set _eff_thr = product.origin_sheet_effective_lvc_threshold or product.origin_sheet_effective_rvc_threshold %}
+    {% set _warn_count = product.origin_warning_summary|length if product.origin_warning_summary else 0 %}
+    {% set _has_override = product.origin_sheet_form_override or product.origin_sheet_criteria_override or product.origin_sheet_lvc_threshold_override or product.origin_sheet_rvc_threshold_override or (product.origin_sheet_currency_mode and product.origin_sheet_currency_mode != 'native') or (product.origin_sheet_optimization_mode and product.origin_sheet_optimization_mode != 'max_lvc') %}
+    <button type="button" class="origin-review-row origin-review-drill"
+            data-origin-drill
+            data-product-code="{{ product.code }}"
+            data-origin-sheet-target="origin-sheet-{{ loop.index0 }}"
+            title="Mở bảng kê {{ product.code }}">
+      <span class="orr-step">{{ product.allocation_sequence or loop.index }}</span>
+      <span class="orr-code"><strong class="mono">{{ product.code }}</strong><small>{{ product.name }}</small></span>
+      <span class="orr-status"><span class="origin-sheet-status-pill origin-sheet-state-{{ product.origin_sheet_status or 'draft' }}">{% if product.origin_sheet_status == 'locked' %}🔒 {% endif %}{{ product.origin_sheet_status_label or 'Chưa tính' }}</span></span>
+      <span class="orr-bom">
+        {% if product.materials %}<strong>{{ product.materials|length }}</strong> dòng{% if product.bom_product_artifact_no or product.bom_product_version_no %} · #{{ product.bom_product_artifact_no or product.bom_product_version_no }}{% endif %}
+        {% elif product.bom_product_artifact_id or product.bom_product_version_id %}có BOM (chưa nạp)
+        {% else %}<span class="orr-missing">❗ chưa có BOM</span>{% endif %}
+        {% if product.origin_sheet_material_diff_total %}<span class="origin-bom-diff-replaced">↔{{ product.origin_sheet_material_diff_total }}</span>{% endif %}
+      </span>
+      <span class="orr-config">
+        {{ product.origin_sheet_effective_form_code or '—' }} · {{ product.origin_sheet_effective_criteria_text or '—' }}{% if _eff_thr %} · {{ _eff_thr }}%{% endif %}
+        {% if _has_override %}<span class="orr-override">override</span>{% endif %}
+      </span>
+      <span class="orr-metrics">
+        <span class="origin-metric-chip"><em>HS</em> <strong class="mono">{{ product.finished_hs }}</strong></span>
+        <span class="origin-metric-chip"><em>FOB</em> <strong class="num">{{ product.fob|number if product.fob else '—' }}</strong></span>
+        <span class="origin-metric-chip"><em>LVC</em> <strong class="num">{{ product.lvc_percentage ~ '%' if product.lvc_percentage else '—' }}</strong></span>
+        {% if _warn_count %}<span class="origin-metric-chip origin-metric-warning"><em>⚠</em> <strong>{{ _warn_count }}</strong></span>{% endif %}
+      </span>
+      <span class="orr-drill" aria-hidden="true">›</span>
+    </button>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty-cell">Chưa có sản phẩm trong case C/O này.</p>
+  {% endif %}
+</section>
+
+<div class="modal-backdrop" data-origin-reorder-modal hidden>
+  <div class="confirm-modal origin-reorder-modal" role="dialog" aria-modal="true" aria-labelledby="origin-reorder-title">
+    <h3 id="origin-reorder-title">Đổi thứ tự sheet (bước tính tồn)</h3>
+    <p class="meta">Dùng nút lên/xuống để sắp lại. Thứ tự quyết định sheet nào trừ tồn CO trước.</p>
+    <ol class="origin-reorder-list" data-origin-reorder-list></ol>
+    <div class="confirm-modal-warning">Đổi thứ tự sẽ khiến các bảng kê liên quan cần tính lại.</div>
+    <div class="confirm-modal-actions">
+      <button type="button" class="btn-secondary" data-origin-reorder-cancel>Huỷ</button>
+      <button type="button" class="btn-primary" data-origin-reorder-apply>Áp dụng</button>
+    </div>
+  </div>
+</div>
 
 <form method="post" action="/clients/{{ client.id }}/evaluate" id="co-case" class="origin-workspace">
   <input type="hidden" name="case_id" value="{{ case.id }}">
@@ -902,14 +979,7 @@
   <input type="hidden" name="document_{{ doc_index }}_status" value="{{ doc.status }}">
   {% endfor %}
 
-  <section class="origin-workbar-compact" aria-label="Điều khiển bảng kê xuất xứ">
-    <span class="origin-workbar-sequence-dirty" data-origin-sequence-dirty hidden>Thứ tự sheet đã đổi — cần tính lại</span>
-    <div class="origin-workbar-actions">
-      <button type="submit" form="origin-export-bang-ke" data-origin-export-action>Xuất bảng kê HQ</button>
-    </div>
-  </section>
-
-  <section class="workspace-main full-width">
+  <section class="workspace-main full-width" data-origin-sheet-workspace>
     <div
       class="product-stack origin-workbook"
       data-origin-workbook
@@ -918,44 +988,9 @@
       data-origin-payload-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/calculation-payload"
       data-origin-revision="{{ origin_case_revision(case) if cached_case_context else '' }}">
       {% if case.products %}
-        {% if case.products|length > 1 %}
-        <div class="origin-sheet-tabs-toolbar">
-          <button type="button" class="btn-secondary" data-origin-reorder-open>Đổi thứ tự sheet</button>
-          <span class="origin-sheet-tabs-hint">Thứ tự quyết định sheet nào trừ tồn trước.</span>
-        </div>
-        {% endif %}
-        <div class="origin-sheet-tabs" role="tablist" aria-label="Sheet sản phẩm trong bảng kê">
-          {% for product in case.products %}
-          {% set tab_has_bom = (product.materials|length > 0) or (product.bom_product_artifact_id or product.bom_product_version_id) %}
-          <div
-            class="origin-sheet-tab {{ 'origin-sheet-tab-active' if loop.first else '' }} {{ 'origin-sheet-tab-no-bom' if not tab_has_bom else '' }}"
-            id="origin-sheet-tab-{{ loop.index0 }}"
-            role="tab"
-            tabindex="{{ '0' if loop.first else '-1' }}"
-            aria-controls="origin-sheet-{{ loop.index0 }}"
-            aria-selected="{{ 'true' if loop.first else 'false' }}"
-            data-product-code="{{ product.code }}"
-            data-origin-sequence-index="{{ loop.index0 }}"
-            data-origin-sheet-tab
-            data-origin-sheet-target="origin-sheet-{{ loop.index0 }}"
-            title="{% if not tab_has_bom %}TP {{ product.code }} chưa có BOM trên Data Hub{% endif %}">
-            <span>Bước <span data-origin-sequence-label>{{ product.allocation_sequence or loop.index }}</span></span>
-            <strong class="mono">{{ product.code }} {% if not tab_has_bom %}<em class="origin-sheet-tab-no-bom-mark">⚠ no BOM</em>{% endif %}</strong>
-            <small>{{ product.origin_sheet_status_label or 'Chưa tính' }} · {{ product.materials|length }} NVL</small>
-          </div>
-          {% endfor %}
-        </div>
-        <div class="modal-backdrop" data-origin-reorder-modal hidden>
-          <div class="confirm-modal origin-reorder-modal" role="dialog" aria-modal="true" aria-labelledby="origin-reorder-title">
-            <h3 id="origin-reorder-title">Đổi thứ tự sheet (bước tính tồn)</h3>
-            <p class="meta">Dùng nút lên/xuống để sắp lại. Thứ tự quyết định sheet nào trừ tồn CO trước.</p>
-            <ol class="origin-reorder-list" data-origin-reorder-list></ol>
-            <div class="confirm-modal-warning">Đổi thứ tự sẽ khiến các bảng kê liên quan cần tính lại.</div>
-            <div class="confirm-modal-actions">
-              <button type="button" class="btn-secondary" data-origin-reorder-cancel>Huỷ</button>
-              <button type="button" class="btn-primary" data-origin-reorder-apply>Áp dụng</button>
-            </div>
-          </div>
+        <div class="origin-sheet-topbar" data-origin-sheet-topbar>
+          <button type="button" class="btn-secondary origin-back-to-review" data-origin-back-to-review>‹ Tổng quan</button>
+          <span class="origin-sheet-topbar-hint">Bảng kê — số liệu &amp; phép tính. Chọn sheet ở thanh dưới cùng.</span>
         </div>
         {% endif %}
         <div class="origin-sheet-panels">
@@ -1048,7 +1083,7 @@
           {% for option in bom_options %}{% if (option.product_artifact_id or option.product_version_id) == selected_bom_artifact_id %}{% set selected_bom_option.value = option %}{% endif %}{% endfor %}
           <div class="origin-sheet-toolbar">
             <div class="origin-sheet-toolbar-main">
-              <strong class="origin-sheet-status-pill origin-sheet-state-{{ product.origin_sheet_status or 'draft' }}" title="Trạng thái sheet">{{ product.origin_sheet_status_label or 'Chưa tính' }}</strong>
+              <strong class="origin-sheet-status-pill origin-sheet-state-{{ product.origin_sheet_status or 'draft' }}" title="Trạng thái sheet">{% if product.origin_sheet_status == 'locked' %}🔒 {% endif %}{{ product.origin_sheet_status_label or 'Chưa tính' }}</strong>
               <label class="product-bom-picker {% if not bom_options %}product-bom-picker-missing{% endif %}" title="TP artifact (BOM)">
                 <select name="product_{{ product_index }}_bom_product_artifact_id" data-bom-version-select data-origin-step-input data-origin-step-index="{{ product_index }}">
                   {% for option in bom_options %}
@@ -1081,6 +1116,7 @@
               </div>
               {% endif %}
               <div class="origin-sheet-actions">
+                <button type="button" class="btn-secondary origin-settings-btn" data-origin-settings-open title="Cấu hình bảng kê + cột hiển thị" aria-label="Cấu hình bảng kê">⚙</button>
                 {% if product.origin_sheet_status != 'locked' %}
                 <button type="submit" class="btn-secondary" data-origin-sheet-load-bom formaction="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/load-bom" formmethod="post" title="Nạp công thức NVL (cấu trúc BOM artifact đang chọn) vào bảng kê để xem/sửa — chưa phân bổ tồn (ghi đè chỉnh sửa client-side chưa lưu)">Load BOM</button>
                 {% endif %}
@@ -1160,6 +1196,11 @@
                data-product-code="{{ product.code }}"
                data-product-currency="{{ product.currency }}"
                data-override-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/recommendation-override">
+            <details class="origin-config-disclosure">
+              <summary class="origin-config-summary">
+                <span class="origin-config-summary-label">Cấu hình</span>
+                <small>form <strong>{{ effective_form or '—' }}</strong> · {{ effective_criteria or '—' }}{% if displayed_threshold %} · ngưỡng <strong>{{ displayed_threshold }}%</strong>{% endif %}{% if has_any_override %} · <em class="origin-config-override-mark">đã override</em>{% endif %}</small>
+              </summary>
             <div class="origin-config-controls">
               <label class="origin-config-pill" title="Khuyến nghị: {{ rec_form_label or rec_form or 'n/a' }}">
                 <span>Form</span>
@@ -1208,6 +1249,7 @@
                 </small>
               </div>
             </div>
+            </details>
             <div class="origin-config-metrics" data-origin-strip>
               <span class="origin-metric-chip"><em>Bước</em> <strong>{{ product.allocation_sequence or loop.index }}</strong></span>
               <span class="origin-metric-chip"><em>HS</em> <strong class="mono">{{ product.finished_hs }}</strong></span>
@@ -1226,10 +1268,10 @@
             {% if product.origin_sheet_status != 'locked' %}
             <div data-origin-edit-toolbar data-origin-dirty-banner class="origin-dirty-banner origin-dirty-banner-clean">
               <span data-origin-dirty-msg>✓ Đã lưu</span>
-              <button type="button" class="btn-secondary" data-origin-history-undo title="Lùi (Ctrl+Z)" disabled>Lùi</button>
-              <button type="button" class="btn-secondary" data-origin-history-redo title="Tiến (Ctrl+Y)" disabled>Tiến</button>
-              <button type="button" class="btn-primary" data-origin-save-now disabled>Lưu bảng kê</button>
-              <button type="button" class="btn-secondary" data-origin-discard disabled>Bỏ thay đổi</button>
+              <button type="button" class="btn-secondary" data-origin-history-undo title="Lùi (Ctrl+Z)" aria-label="Lùi" disabled>↶</button>
+              <button type="button" class="btn-secondary" data-origin-history-redo title="Tiến (Ctrl+Y)" aria-label="Tiến" disabled>↷</button>
+              <button type="button" class="btn-primary" data-origin-save-now title="Lưu bảng kê" disabled>Lưu</button>
+              <button type="button" class="btn-secondary" data-origin-discard title="Bỏ thay đổi" aria-label="Bỏ thay đổi" disabled>✕</button>
             </div>
             {% endif %}
             <details class="cost-buildup-block">
@@ -1306,19 +1348,34 @@
             </details>
           </div>
 
-          {% if product.origin_warning_summary %}
-          <div class="origin-warning-summary" data-origin-warning-summary>
-            {% for warning in product.origin_warning_summary %}
-            <button type="button" class="origin-warning-item origin-warning-{{ warning.kind }}" data-origin-warning-filter="{{ warning.kind }}" aria-pressed="false" title="{{ warning.detail }}{% if warning.examples %} Ví dụ: {{ warning.examples }}{% endif %}">
-              <strong>{{ warning.label }}</strong>
-              {% if warning.count %}<span>{{ warning.count }} dòng</span>{% endif %}
-              <small>{{ warning.detail }}</small>
-            </button>
-            {% endfor %}
-            <button type="button" class="origin-warning-clear" data-origin-warning-clear hidden>Tất cả dòng</button>
+          <div class="modal-backdrop origin-settings-modal" data-origin-settings-modal hidden>
+            <div class="confirm-modal origin-settings-dialog" role="dialog" aria-modal="true" aria-label="Cấu hình bảng kê">
+              <div class="origin-settings-head">
+                <h3>Cấu hình bảng kê</h3>
+                <button type="button" class="btn-secondary" data-origin-settings-close aria-label="Đóng">×</button>
+              </div>
+              <div class="origin-settings-body" data-origin-settings-body></div>
+            </div>
           </div>
-          <div class="origin-warning-filter-empty" data-origin-warning-empty hidden>Không có dòng NVL khớp cảnh báo đang chọn.</div>
-          {% endif %}
+
+          <div class="origin-grid-toolbar">
+            {% if product.origin_warning_summary %}
+            <div class="origin-warning-summary" data-origin-warning-summary>
+              {% for warning in product.origin_warning_summary %}
+              <button type="button" class="origin-warning-item origin-warning-{{ warning.kind }}" data-origin-warning-filter="{{ warning.kind }}" aria-pressed="false" title="{{ warning.detail }}{% if warning.examples %} Ví dụ: {{ warning.examples }}{% endif %}">
+                <strong>{{ warning.label }}</strong>
+                {% if warning.count %}<span>{{ warning.count }} dòng</span>{% endif %}
+                <small>{{ warning.detail }}</small>
+              </button>
+              {% endfor %}
+              <button type="button" class="origin-warning-clear" data-origin-warning-clear hidden>Tất cả dòng</button>
+            </div>
+            <div class="origin-warning-filter-empty" data-origin-warning-empty hidden>Không có dòng NVL khớp cảnh báo đang chọn.</div>
+            {% endif %}
+            {% if product.origin_sheet_status != 'locked' %}
+            <button type="button" class="btn-secondary origin-rowselect-btn" data-origin-bulk-missing aria-label="Chọn dòng không tồn/BCCT" title="Chọn nhanh các dòng NVL không khớp tồn CO / không có trong BCCT để xoá hàng loạt">⊘ Lọc dòng lỗi</button>
+            {% endif %}
+          </div>
 
           <div class="origin-column-controls" data-origin-column-controls aria-label="Ẩn hiện cột bảng NVL">
             <span>Cột</span>
@@ -1334,10 +1391,6 @@
           </div>
 
           {% if product.origin_sheet_status != 'locked' %}
-          <div class="origin-rowselect-tools">
-            <button type="button" class="btn-secondary" data-origin-bulk-missing>Chọn dòng không có tồn/BCCT</button>
-            <span class="origin-rowselect-hint">Tick ô đầu mỗi dòng để xoá nhiều NVL cùng lúc (ví dụ NVL không khớp tồn CO / không có trong BCCT).</span>
-          </div>
           <div class="origin-bulk-bar" data-origin-bulk-bar hidden>
             <span>Đã chọn <strong data-origin-bulk-count>0</strong> dòng NVL</span>
             <button type="button" class="btn-secondary btn-danger" data-origin-bulk-delete>Xoá dòng đã chọn</button>
@@ -1641,9 +1694,33 @@
         <p class="empty-cell">Chưa có sản phẩm trong case C/O này.</p>
         {% endfor %}
         </div>
+        {% if case.products %}
+        <div class="origin-sheet-tabs origin-sheet-tabs-bottom" role="tablist" aria-label="Sheet sản phẩm trong bảng kê">
+          {% for product in case.products %}
+          {% set tab_has_bom = (product.materials|length > 0) or (product.bom_product_artifact_id or product.bom_product_version_id) %}
+          <button type="button"
+            class="origin-sheet-tab {{ 'origin-sheet-tab-active' if loop.first else '' }} {{ 'origin-sheet-tab-no-bom' if not tab_has_bom else '' }} {{ 'origin-sheet-tab-locked' if product.origin_sheet_status == 'locked' else '' }}"
+            id="origin-sheet-tab-{{ loop.index0 }}"
+            role="tab"
+            tabindex="{{ '0' if loop.first else '-1' }}"
+            aria-controls="origin-sheet-{{ loop.index0 }}"
+            aria-selected="{{ 'true' if loop.first else 'false' }}"
+            data-product-code="{{ product.code }}"
+            data-origin-sequence-index="{{ loop.index0 }}"
+            data-origin-sheet-tab
+            data-origin-sheet-target="origin-sheet-{{ loop.index0 }}"
+            title="{% if not tab_has_bom %}TP {{ product.code }} chưa có BOM trên Data Hub{% endif %}">
+            <span class="origin-sheet-tab-seq">Bước <span data-origin-sequence-label>{{ product.allocation_sequence or loop.index }}</span></span>
+            <strong class="mono">{{ product.code }} {% if not tab_has_bom %}<em class="origin-sheet-tab-no-bom-mark">⚠</em>{% endif %}</strong>
+            <small>{{ product.origin_sheet_status_label or 'Chưa tính' }} · {{ product.materials|length }} NVL</small>
+          </button>
+          {% endfor %}
+        </div>
+        {% endif %}
       </div>
   </section>
 </form>
+</div>
 {% endif %}
 
 {% if co_case_active_step == "review" %}
@@ -1877,8 +1954,8 @@
     stack.appendChild(item);
     window.setTimeout(() => {
       item.classList.add("ui-toast-hide");
-      window.setTimeout(() => item.remove(), 220);
-    }, 2600);
+      window.setTimeout(() => item.remove(), 240);
+    }, 5000);
   };
 
   const flashMessageFromDocument = (doc) => {
@@ -1948,6 +2025,7 @@
       window.location.assign(response.url || window.location.href);
       return;
     }
+    const prevOriginView = captureOriginView();
     currentShell.replaceWith(document.importNode(nextShell, true));
     refreshCaseShellInteractions();
     if (options.activeOriginProductCode) {
@@ -1955,9 +2033,19 @@
         .find((tab) => (tab.dataset.productCode || "") === options.activeOriginProductCode);
       if (activeTab) activateOriginTab(activeTab);
     }
+    // Restore the origin sub-view (Review ⇄ sheet) across the in-place swap.
+    // GET navigations (serverNav) trust the server-rendered view; POST mutations
+    // keep the user on the sheet they were editing instead of bouncing to Review.
+    let originSheetUrlHandled = false;
+    if (!options.serverNav && prevOriginView && prevOriginView.view === "sheet") {
+      const stayCode = prevOriginView.code || options.activeOriginProductCode || "";
+      applyOriginView({view: "sheet", code: stayCode});
+      setOriginUrlSheet(stayCode);
+      originSheetUrlHandled = true;
+    }
     const flash = flashMessageFromDocument(doc);
     toast(flash.message || fallbackMessage, response.ok && flash.kind !== "error" ? "success" : "error");
-    if (options.replaceHistory !== false && response.url) {
+    if (!originSheetUrlHandled && options.replaceHistory !== false && response.url) {
       window.history.replaceState({}, "", response.url);
     }
   };
@@ -2090,7 +2178,7 @@
     event.preventDefault();
     try {
       const response = await fetch(link.href, {headers: {"Accept": "text/html"}});
-      await replaceCaseShellFromResponse(response);
+      await replaceCaseShellFromResponse(response, "", {serverNav: true});
     } catch (_error) {
       toast("Không tải được bước hồ sơ; thử lại hoặc tải lại trang.", "error");
     }
@@ -2169,7 +2257,7 @@
   };
   const persistOriginOrder = (workbook, staleFromIndex) => {
     syncOriginSequence(workbook);
-    const dirty = workbook.querySelector("[data-origin-sequence-dirty]");
+    const dirty = originStepRoot(workbook)?.querySelector("[data-origin-sequence-dirty]");
     if (dirty) {
       dirty.textContent = "Đã đổi thứ tự sheet; bảng kê bị ảnh hưởng cần tính lại.";
       dirty.hidden = false;
@@ -2187,9 +2275,118 @@
     }
   };
 
+  // Drill-in sub-view: Review dashboard ⇄ one sheet's grid. View state lives on
+  // [data-origin-view] (origin-step-root); the URL carries ?sheet=<code> so F5 /
+  // deep-link reproduce the sheet. Pure VIEW state — never touches revision.
+  const originStepRoot = (node) =>
+    node?.closest?.("[data-origin-view]") || document.querySelector("[data-origin-view]");
+  const captureOriginView = () => {
+    const root = document.querySelector("[data-origin-view]");
+    if (!root) return null;
+    if (root.dataset.originView !== "sheet") return {view: "review"};
+    const active = root.querySelector("[data-origin-sheet-panel].origin-sheet-panel-active")
+      || root.querySelector("[data-origin-sheet-panel]:not([hidden])");
+    return {view: "sheet", code: active?.dataset.productCode || ""};
+  };
+  const originStepUrl = () => {
+    const wb = document.querySelector("[data-origin-workbook]");
+    const save = wb?.dataset.originSaveUrl || "";
+    return save.replace(/\/save$/, "") || window.location.pathname;
+  };
+  const setOriginUrlSheet = (code) => {
+    const base = originStepUrl();
+    window.history.replaceState({}, "", code ? `${base}?sheet=${encodeURIComponent(code)}` : base);
+  };
+  // Sheet view renders as a full-screen fixed overlay (CSS) so the grid gets the
+  // whole viewport — the topnav/case chrome are covered, page scroll is locked,
+  // and the only scroller is the grid (thead frozen, bottom tabs pinned).
+  const applyOriginView = (state) => {
+    const root = document.querySelector("[data-origin-view]");
+    if (!root || !state) return;
+    if (state.view === "sheet" && state.code) {
+      const tab = Array.from(root.querySelectorAll("[data-origin-sheet-tab]"))
+        .find((t) => (t.dataset.productCode || "") === state.code);
+      if (!tab) { applyOriginView({view: "review"}); return; }
+      activateOriginTab(tab);
+      root.dataset.originView = "sheet";
+      root.dataset.originActiveSheet = state.code;
+      root.classList.remove("origin-view-review");
+      root.classList.add("origin-view-sheet");
+    } else {
+      root.dataset.originView = "review";
+      root.dataset.originActiveSheet = "";
+      root.classList.remove("origin-view-sheet");
+      root.classList.add("origin-view-review");
+    }
+  };
+
+  // Drill into a sheet from the Review dashboard row.
+  document.addEventListener("click", (event) => {
+    const drill = event.target.closest?.("[data-origin-drill]");
+    if (!drill) return;
+    event.preventDefault();
+    const code = drill.dataset.productCode || "";
+    applyOriginView({view: "sheet", code});
+    setOriginUrlSheet(code);
+    document.querySelector("[data-origin-workbook]")?.scrollIntoView({block: "start"});
+  });
+  // Back to the Review dashboard from a sheet. A pending autosave that lands
+  // afterwards preserves the (now Review) view via captureOriginView, so no yank.
+  document.addEventListener("click", (event) => {
+    const back = event.target.closest?.("[data-origin-back-to-review]");
+    if (!back) return;
+    event.preventDefault();
+    applyOriginView({view: "review"});
+    setOriginUrlSheet("");
+  });
+
+  // Settings modal (⚙): move config overrides + cost-buildup + column toggles off
+  // the sheet into a modal so the grid keeps the space. Moving DOM nodes keeps
+  // their listeners; re-runs per shell swap (panel is re-rendered fresh).
+  const initOriginSettingsModal = (root = document) => {
+    root.querySelectorAll("[data-origin-sheet-panel]").forEach((panel) => {
+      const body = panel.querySelector("[data-origin-settings-body]");
+      if (!body || body.dataset.filled) return;
+      [".origin-config-disclosure", ".cost-buildup-block", ".origin-column-controls"].forEach((sel) => {
+        const block = panel.querySelector(sel);
+        if (block && !body.contains(block)) {
+          if (block.tagName === "DETAILS") block.open = true;
+          body.appendChild(block);
+        }
+      });
+      body.dataset.filled = "1";
+    });
+  };
+  document.addEventListener("click", (event) => {
+    const opener = event.target.closest?.("[data-origin-settings-open]");
+    if (opener) {
+      opener.closest("[data-origin-sheet-panel]")
+        ?.querySelector("[data-origin-settings-modal]")?.removeAttribute("hidden");
+      return;
+    }
+    const modal = event.target.closest?.("[data-origin-settings-modal]");
+    if (modal && (event.target === modal || event.target.closest("[data-origin-settings-close]"))) {
+      modal.setAttribute("hidden", "");
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    document.querySelectorAll("[data-origin-settings-modal]:not([hidden])")
+      .forEach((m) => m.setAttribute("hidden", ""));
+  });
+
   document.addEventListener("click", (event) => {
     const tab = event.target.closest?.("[data-origin-sheet-tab]");
-    if (tab) activateOriginTab(tab);
+    if (!tab) return;
+    activateOriginTab(tab);
+    // Switching sheets in sheet view must update ?sheet= so F5 / deep-link / back
+    // stay on the chosen sheet.
+    const root = document.querySelector("[data-origin-view]");
+    if (root && root.dataset.originView === "sheet") {
+      const code = tab.dataset.productCode || "";
+      root.dataset.originActiveSheet = code;
+      setOriginUrlSheet(code);
+    }
   });
 
   // Sheet-order modal — deliberate reorder with up/down + an explicit Apply,
@@ -2237,7 +2434,7 @@
     document.addEventListener("click", (event) => {
       const opener = event.target.closest?.("[data-origin-reorder-open]");
       if (!opener) return;
-      const workbook = originWorkbookFor(opener);
+      const workbook = originWorkbookFor(opener) || originStepRoot(opener)?.querySelector("[data-origin-workbook]");
       if (workbook) openReorder(workbook);
     });
     reorderModal.querySelector("[data-origin-reorder-cancel]")?.addEventListener("click", closeReorder);
@@ -2740,9 +2937,9 @@
     const form = workbook.closest("form");
     const input = form?.querySelector("[data-origin-product-order]");
     const tabList = workbook.querySelector(".origin-sheet-tabs");
-    const dirty = workbook.querySelector("[data-origin-sequence-dirty]");
+    const dirty = originStepRoot(workbook)?.querySelector("[data-origin-sequence-dirty]");
     const panels = Array.from(workbook.querySelectorAll("[data-origin-sheet-panel]"));
-    const exportButton = form?.querySelector("[data-origin-export-action]");
+    const exportButton = originStepRoot(workbook)?.querySelector("[data-origin-export-action]");
     if (!input || !tabList) return;
 
     const autosave = async (fromIndex = 0) => {
@@ -4762,7 +4959,7 @@
         toast(detail || `Lưu thất bại (HTTP ${response.status}).`, "error");
         if (saveBtn) {
           delete saveBtn.dataset.saving;
-          saveBtn.textContent = "Lưu bảng kê";
+          saveBtn.textContent = "Lưu";
           updateSheetHistoryButtons(panel);
         }
         return;
@@ -5274,8 +5471,18 @@
     initCostBuildupHint(root);
     initCostBuildupApply(root);
     initDocumentUploads(root);
+    initOriginSettingsModal(root);
   };
   refreshCaseShellInteractions();
+
+  // Deep-link / F5 on /origin?sheet=X: server renders sheet view, but panels
+  // default to the first product — activate the requested sheet's panel + tab.
+  (() => {
+    const root = document.querySelector("[data-origin-view]");
+    if (root && root.dataset.originView === "sheet" && root.dataset.originActiveSheet) {
+      applyOriginView({view: "sheet", code: root.dataset.originActiveSheet});
+    }
+  })();
 
 })();
 </script>

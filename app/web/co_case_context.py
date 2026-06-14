@@ -198,6 +198,9 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
         bom_workspace = minimal_bom_workspace()
     origin_demo_allowed = extra.pop("origin_demo_allowed", True)
     preserve_origin_products = extra.pop("preserve_origin_products", False)
+    # Drill-in sub-view of the origin step: review dashboard (default) vs one
+    # sheet's grid. Pure VIEW state — must never feed origin_case_revision.
+    requested_sheet = extra.pop("requested_sheet", None)
     client = enrich_client_with_source_summary(client, source_summary)
     case = attach_case_source_summary_snapshot(case, source_summary)
     if not use_cached_context:
@@ -283,6 +286,11 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
         **extra,
     }
     context["co_case_active_step"] = current_step
+    _origin_product_codes = {p.get("code") for p in (context["case"].get("products") or [])}
+    context["origin_view"] = (
+        "sheet" if (current_step == "origin" and requested_sheet in _origin_product_codes) else "review"
+    )
+    context["active_sheet_code"] = requested_sheet if context["origin_view"] == "sheet" else None
     context["co_case_steps"] = co_case_workflow_steps(
         client_id,
         context["case"],

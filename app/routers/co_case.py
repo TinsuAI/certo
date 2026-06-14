@@ -977,7 +977,9 @@ async def export_co_case_bang_ke_workbook_get(request: Request, client_id: str, 
 async def co_case_step(request: Request, client_id: str, case_id: str, step: str):
     if step not in CO_CASE_WORKFLOW_STEP_KEYS:
         raise HTTPException(status_code=404)
-    context = co_case_context(client_id, case_id, step)
+    context = co_case_context(
+        client_id, case_id, step, requested_sheet=request.query_params.get("sheet")
+    )
     if step == "review":
         # Server-render the current export state into the page so the panel shows
         # it immediately — no "Đang tải trạng thái…" placeholder + extra round-trip
