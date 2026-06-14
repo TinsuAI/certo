@@ -14,11 +14,16 @@
 - **Slice 2c**: `manual_generic` adapter — last-resort fallback that alias-auto-matches
   any reasonably-headed NXT file (zero interaction) and honours a `mapping_override`
   (header→field) for headers outside the alias list. New `outbound_total` alias for a
-  lumped Xuất column. **Remaining slice 2:** the interactive mapping-page UI (LLM
-  suggest + staff confirm + parser_mappings cache) that *captures* an override for
-  truly-unknown headers — the engine (mapping_override) is done.
-Tests: 22 in this feature + full suite 1516 passed. UI proof in `screenshots/`.
-Slices 3-4 pending.
+  lumped Xuất column.
+- **Slice 2d (closes slice 2)**: interactive column-mapping page (mig 086 widens
+  parser_mappings.module). Unknown headers → `/nxt/upload/mapping/{id}`: rigid
+  pre-fill + "Gợi ý bằng LLM" + per-column dropdowns + sample-row preview. Confirm
+  → caches mapping in `parser_mappings` (keyed by file_signature) → re-upload of the
+  same shape skips the page (cache hit). "Format lạ = 0 code, confirm qua UI." The
+  mapping_override travels into preview/confirm so the immutable artifact re-parses
+  identically.
+**Slice 2 COMPLETE.** Tests: 23 in this feature + full suite 1517 passed.
+UI proof in `screenshots/` (08 = mapping page). Slices 3-4 pending.
 **Owner:** Data Hub
 
 ## Goal

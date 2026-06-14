@@ -426,3 +426,51 @@ def test_manual_generic_mapping_override():
     assert len(lines) == 1
     assert lines[0]["internal_code"] == "Y1"
     assert lines[0]["outbound_total"] == 2 and lines[0]["closing_reported"] == 13
+
+
+def test_nxt_mapping_page_flow_and_cache(isolated_files_dir):
+    c = _dev_client()
+    # Hermetic: drop any cached mapping for this client from prior runs (the DB
+    # persists across pytest invocations).
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("delete from hub.parser_mappings where client_id=%s "
+                    "and module='nxt'", (CLIENT,))
+    blob = _build_generic_nxt(
+        ["Code", "Name", "Begin", "In", "Out", "End"],
+        ["Z1", "Item Z", 10, 5, 2, 13])
+
+    # Unknown headers → no adapter parses → routed to the mapping page.
+    r = c.post(f"/clients/{CLIENT}/nxt/upload",
+               files={"file": ("weird.xlsx", blob, "application/vnd.ms-excel")},
+               data={"period_to": "2025-12-31"}, follow_redirects=False)
+    assert r.status_code == 303
+    assert "/nxt/upload/mapping/" in r.headers["location"]
+    upload_id = r.headers["location"].rstrip("/").split("/")[-1]
+
+    mp = c.get(f"/clients/{CLIENT}/nxt/upload/mapping/{upload_id}")
+    assert mp.status_code == 200 and "Code" in mp.text
+
+    form = {
+        "col_0__header": "Code", "col_0__field": "internal_code",
+        "col_1__header": "Name", "col_1__field": "name",
+        "col_2__header": "Begin", "col_2__field": "opening",
+        "col_3__header": "In", "col_3__field": "inbound_total",
+        "col_4__header": "Out", "col_4__field": "outbound_total",
+        "col_5__header": "End", "col_5__field": "closing_reported",
+    }
+    pr = c.post(f"/clients/{CLIENT}/nxt/upload/mapping/{upload_id}/parse",
+                data=form, follow_redirects=False)
+    assert pr.status_code == 303 and "/nxt/preview/" in pr.headers["location"]
+    pid = pr.headers["location"].rstrip("/").split("/")[-1]
+    cf = c.post(f"/clients/{CLIENT}/nxt/preview/{pid}/confirm", follow_redirects=False)
+    assert cf.status_code == 303
+    adapters = {nxt_store.get_artifact(a["id"])["adapter_name"]
+                for a in nxt_store.list_artifacts(CLIENT)}
+    assert "manual_generic" in adapters
+
+    # Re-upload the same shape → cached mapping → straight to preview (no map page).
+    r2 = c.post(f"/clients/{CLIENT}/nxt/upload",
+                files={"file": ("weird2.xlsx", blob, "application/vnd.ms-excel")},
+                follow_redirects=False)
+    assert r2.status_code == 303
+    assert "/nxt/preview/" in r2.headers["location"]

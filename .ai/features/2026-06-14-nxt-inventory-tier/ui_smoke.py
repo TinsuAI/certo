@@ -42,6 +42,19 @@ def _write(name: str, blob: bytes) -> str:
     return str(p)
 
 
+def _build_weird_nxt() -> bytes:
+    """A file with headers outside the alias list → routes to the mapping page."""
+    import io
+    import openpyxl
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Sheet1"
+    for ci, h in enumerate(["Code", "Name", "Unit", "Begin", "In", "Out", "End"], 1):
+        ws.cell(1, ci, h)
+    ws.append(["MAT-01", "Thép tấm", "KG", 1000, 500, 300, 1200])
+    ws.append(["MAT-02", "Ốc vít", "PCE", 5000, 2000, 1500, 5500])
+    out = io.BytesIO(); wb.save(out)
+    return out.getvalue()
+
+
 async def shot(page, slug: str):
     await page.wait_for_load_state("networkidle")
     await page.screenshot(path=str(OUT / f"{slug}.png"), full_page=True)
@@ -93,6 +106,14 @@ async def main():
         # ── Admin adapter registry (Web-UI management) ──
         await page.goto(f"{BASE}/admin/settlement-adapters")
         await shot(page, "07_admin_adapter_registry")
+
+        # ── Column-mapping page (unknown headers → manual_generic) ──
+        weird = _write("weird-nxt.xlsx", _build_weird_nxt())
+        await page.goto(f"{BASE}/clients/{CLIENT}/nxt/upload")
+        await page.set_input_files('input[name="file"]', weird)
+        await page.click('button:has-text("Tải lên & xem trước")')
+        await page.wait_for_url("**/nxt/upload/mapping/**", timeout=8000)
+        await shot(page, "08_nxt_column_mapping")
 
         await browser.close()
 

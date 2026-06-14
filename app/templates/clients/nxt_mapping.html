@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Gán cột NXT · {{ client.name }}{% endblock %}
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Gán cột — Nhập-Xuất-Tồn</h2>
+      <p class="meta">
+        File có header chưa nhận diện tự động. Gán mỗi cột tới một trường, hệ thống
+        sẽ ghi nhớ cho các lần sau (cùng cấu trúc file = không hỏi lại).
+        Bắt buộc: một mã (nội bộ/hải quan) + ít nhất một cột số (tồn đầu/cuối…).
+      </p>
+    </div>
+    <div>
+      <a class="btn-secondary" href="/clients/{{ client.client_id }}/nxt">Hủy</a>
+    </div>
+  </div>
+
+  {% if llm_error %}<div class="toast toast-error">{{ llm_error }}</div>{% endif %}
+
+  <form method="post" action="/clients/{{ client.client_id }}/nxt/upload/mapping/{{ upload_id }}/llm"
+        style="margin:.5rem 0;">
+    <button type="submit" class="btn-secondary btn-sm">Gợi ý bằng LLM</button>
+    <span class="meta">— tự đề xuất gán cột, vẫn cần xác nhận bên dưới.</span>
+  </form>
+
+  <form method="post" action="/clients/{{ client.client_id }}/nxt/upload/mapping/{{ upload_id }}/parse">
+    <table class="dh-table">
+      <thead><tr><th>Cột trong file</th><th>Gán tới trường</th></tr></thead>
+      <tbody>
+        {% for c in columns %}
+        <tr>
+          <td><code>{{ c.header }}</code></td>
+          <td>
+            <input type="hidden" name="col_{{ c.idx }}__header" value="{{ c.header }}">
+            <select name="col_{{ c.idx }}__field">
+              <option value="">(bỏ qua)</option>
+              {% for f, label in fields %}
+              <option value="{{ f }}" {{ 'selected' if c.suggested == f else '' }}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <button type="submit" class="btn-primary" style="margin-top:.5rem;">Parse & xem trước</button>
+  </form>
+
+  {% if sample_rows %}
+  <h3 style="margin-top:1rem;">Dữ liệu mẫu</h3>
+  <table class="dh-table" style="font-size:.85rem;">
+    <thead><tr>{% for c in columns %}<th>{{ c.header }}</th>{% endfor %}</tr></thead>
+    <tbody>
+      {% for row in sample_rows %}
+      <tr>{% for v in row %}<td>{{ '' if v is none else v }}</td>{% endfor %}</tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+{% endblock %}
