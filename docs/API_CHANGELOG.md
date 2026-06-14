@@ -14,6 +14,24 @@ Only `Breaking:` headings trigger notifications to `dev`/`admin` users (CO + BCQ
 
 ## Entries
 
+## 2026-06-14 — Additive: NXT + inventory paged/filtered line endpoints + list filters
+
+Silent / opt-in; no consumer code change required. Adds the scalable read path
+for large settlement-input artifacts (SAP MB5B ~20k lines) — the existing
+full-artifact GETs are unchanged.
+
+- New `GET /v1/hub/dncxs/{client_id}/nxt/{artifact_id}/lines` — paged + filtered
+  lines: `cursor`, `limit` (default 200, max 1000), `code` (internal_code OR
+  customs_code, case-insensitive), `role` (reported_role exact). Returns
+  `{ artifact_id, items[], total, next_cursor, server_time }` with exact filtered
+  `total` and per-line derived `closing_implied`.
+- New `GET /v1/hub/dncxs/{client_id}/inventory-snapshots/{snapshot_id}/lines` —
+  same shape; filters `code` (case-insensitive) + `warehouse` (exact); per-line
+  derived `variance`.
+- `GET …/nxt` gains optional `?period_year=`; `GET …/inventory-snapshots` gains
+  optional `?year=` (by snapshot_date calendar year).
+- Both line endpoints: `400` on bad cursor, `404` on unknown / cross-client id.
+
 ## 2026-06-14 — Additive: NXT `period_year` field (mig 087)
 
 Silent / opt-in. NXT artifacts are now keyed by settlement year (kỳ quyết toán

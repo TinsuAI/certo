@@ -906,23 +906,47 @@ List current NXT (Nhập-Xuất-Tồn) artifacts (metadata):
 `{ "items": [ { id, period_year, period_from, period_to, source_kind,
 adapter_name, created_at, n_lines } ] }`. `period_year` (smallint) is the
 settlement year and the supersede key — one current artifact per
-`(client_id, period_year)`.
+`(client_id, period_year)`. Optional `?period_year=` filters to one year.
 
 #### `GET /v1/hub/dncxs/{client_id}/nxt/{artifact_id}`
 
 One artifact with `lines[]`: `internal_code, customs_code, name, uom,
 reported_role, opening, inbound_total, out_tai_xuat, out_chuyen_mdsd,
 out_xuat_sx, out_xuat_khac, outbound_total, closing_reported, closing_implied`.
+Returns **all** lines in one payload — convenience for small artifacts. For
+large ones (SAP MB5B ~20k lines) use the paged `…/lines` below.
+
+#### `GET /v1/hub/dncxs/{client_id}/nxt/{artifact_id}/lines`
+
+Paged + filtered lines — the scalable path for consumers (BCQT Mẫu 15/15a).
+Query params: `cursor` (offset string), `limit` (default 200, max 1000),
+`code` (matches `internal_code` OR `customs_code`, case-insensitive), `role`
+(`reported_role` exact). Response: `{ artifact_id, items[], total, next_cursor,
+server_time }` where `total` is the **exact filtered** line count, `next_cursor`
+is the offset string for the next page (null on the last page), and each line
+carries the same fields as the full GET incl. derived `closing_implied`.
+`400 invalid cursor` on a non-numeric/negative cursor; `404` if the artifact
+does not exist or belongs to another client.
 
 #### `GET /v1/hub/dncxs/{client_id}/inventory-snapshots`
 
 List current year-end inventory snapshots (metadata): `{ "items": [ { id,
-snapshot_date, source_kind, adapter_name, created_at, n_lines } ] }`.
+snapshot_date, source_kind, adapter_name, created_at, n_lines } ] }`. Optional
+`?year=` filters by `snapshot_date` calendar year.
 
 #### `GET /v1/hub/dncxs/{client_id}/inventory-snapshots/{snapshot_id}`
 
-One snapshot with `lines[]`: `code, name, uom, warehouse, batch, qty_book,
-qty_physical, variance`.
+One snapshot with **all** `lines[]`: `code, name, uom, warehouse, batch,
+qty_book, qty_physical, variance`. Convenience for small snapshots; for large
+ones use the paged `…/lines` below.
+
+#### `GET /v1/hub/dncxs/{client_id}/inventory-snapshots/{snapshot_id}/lines`
+
+Paged + filtered lines. Query params: `cursor`, `limit` (default 200, max
+1000), `code` (case-insensitive), `warehouse` (exact). Response:
+`{ snapshot_id, items[], total, next_cursor, server_time }` with exact filtered
+`total` and per-line derived `variance`. Same `400` / `404` semantics as the
+NXT lines endpoint.
 
 #### `GET /v1/hub/dncxs/{client_id}/period-end-link?date=YYYY-MM-DD`
 

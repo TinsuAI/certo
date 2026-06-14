@@ -104,7 +104,8 @@ def get_snapshot(snapshot_id: str) -> dict | None:
     return snap
 
 
-def list_snapshots(client_id: str, *, include_superseded: bool = False) -> list[dict]:
+def list_snapshots(client_id: str, *, include_superseded: bool = False,
+                   year: int | None = None) -> list[dict]:
     sql = (
         "select s.id, s.snapshot_date, s.source_kind, s.adapter_name, "
         "       s.created_at, s.superseded_by, count(l.id) as n_lines "
@@ -112,13 +113,17 @@ def list_snapshots(client_id: str, *, include_superseded: bool = False) -> list[
         "left join hub.inventory_snapshot_lines l on l.snapshot_id = s.id "
         "where s.client_id=%s "
     )
+    params: list = [client_id]
     if not include_superseded:
         sql += "and s.superseded_by is null "
+    if year is not None:
+        sql += "and extract(year from s.snapshot_date) = %s "
+        params.append(year)
     sql += ("group by s.id, s.snapshot_date, s.source_kind, s.adapter_name, "
             "s.created_at, s.superseded_by "
             "order by s.snapshot_date desc nulls last, s.created_at desc")
     with connect() as conn, conn.cursor() as cur:
-        cur.execute(sql, (client_id,))
+        cur.execute(sql, params)
         cols = ("id", "snapshot_date", "source_kind", "adapter_name",
                 "created_at", "superseded_by", "n_lines")
         return [dict(zip(cols, r)) for r in cur.fetchall()]
@@ -149,18 +154,36 @@ def get_snapshot_meta(snapshot_id: str) -> dict | None:
     return dict(zip(cols, row))
 
 
-def list_lines(snapshot_id: str, *, limit: int, offset: int) -> list[dict]:
+def _line_filter_sql(code: str | None, warehouse: str | None) -> tuple[str, list]:
+    """Optional WHERE fragment (and params) shared by list/count. `code`
+    matches case-insensitively; `warehouse` matches exactly. Fragments are
+    literal — values stay bound."""
+    sql = ""
+    params: list = []
+    if code:
+        sql += " and upper(code) = upper(%s)"
+        params.append(code)
+    if warehouse:
+        sql += " and warehouse = %s"
+        params.append(warehouse)
+    return sql, params
+
+
+def list_lines(snapshot_id: str, *, limit: int, offset: int,
+               code: str | None = None,
+               warehouse: str | None = None) -> list[dict]:
     cols = ("line_no", "code", "name", "uom", "warehouse", "batch",
             "qty_book", "qty_physical", "note")
+    where, fparams = _line_filter_sql(code, warehouse)
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            """
+            f"""
             select line_no, code, name, uom, warehouse, batch,
                    qty_book, qty_physical, note
-            from hub.inventory_snapshot_lines where snapshot_id=%s
+            from hub.inventory_snapshot_lines where snapshot_id=%s{where}
             order by line_no limit %s offset %s
             """,
-            (snapshot_id, limit, offset),
+            (snapshot_id, *fparams, limit, offset),
         )
         lines = []
         for r in cur.fetchall():
@@ -171,3 +194,15 @@ def list_lines(snapshot_id: str, *, limit: int, offset: int) -> list[dict]:
             line["variance"] = variance(line)
             lines.append(line)
     return lines
+
+
+def count_lines(snapshot_id: str, *, code: str | None = None,
+                warehouse: str | None = None) -> int:
+    where, fparams = _line_filter_sql(code, warehouse)
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select count(*) from hub.inventory_snapshot_lines "
+            f"where snapshot_id=%s{where}",
+            (snapshot_id, *fparams),
+        )
+        return cur.fetchone()[0]

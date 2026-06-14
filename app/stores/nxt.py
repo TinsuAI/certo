@@ -135,7 +135,8 @@ def get_artifact(artifact_id: str) -> dict | None:
     return art
 
 
-def list_artifacts(client_id: str, *, include_superseded: bool = False) -> list[dict]:
+def list_artifacts(client_id: str, *, include_superseded: bool = False,
+                   period_year: int | None = None) -> list[dict]:
     sql = (
         "select a.id, a.period_year, a.period_from, a.period_to, a.source_kind, "
         "       a.adapter_name, a.created_at, a.superseded_by, "
@@ -144,14 +145,18 @@ def list_artifacts(client_id: str, *, include_superseded: bool = False) -> list[
         "left join hub.nxt_lines l on l.artifact_id = a.id "
         "where a.client_id=%s "
     )
+    params: list = [client_id]
     if not include_superseded:
         sql += "and a.superseded_by is null "
+    if period_year is not None:
+        sql += "and a.period_year=%s "
+        params.append(period_year)
     sql += ("group by a.id, a.period_year, a.period_from, a.period_to, "
             "a.source_kind, a.adapter_name, a.created_at, a.superseded_by "
             "order by a.period_year desc nulls last, a.period_to desc nulls last, "
             "a.created_at desc")
     with connect() as conn, conn.cursor() as cur:
-        cur.execute(sql, (client_id,))
+        cur.execute(sql, params)
         cols = ("id", "period_year", "period_from", "period_to", "source_kind",
                 "adapter_name", "created_at", "superseded_by", "n_lines")
         return [dict(zip(cols, r)) for r in cur.fetchall()]
@@ -183,22 +188,40 @@ def get_artifact_meta(artifact_id: str) -> dict | None:
     return dict(zip(cols, row))
 
 
-def list_lines(artifact_id: str, *, limit: int, offset: int) -> list[dict]:
+def _line_filter_sql(code: str | None, role: str | None) -> tuple[str, list]:
+    """Build the optional WHERE fragment (and params) shared by list/count.
+    `code` matches internal_code OR customs_code case-insensitively; `role`
+    matches reported_role exactly. Fragments are literal — values stay bound."""
+    sql = ""
+    params: list = []
+    if code:
+        sql += (" and (upper(internal_code) = upper(%s) "
+                "or upper(customs_code) = upper(%s))")
+        params.extend([code, code])
+    if role:
+        sql += " and reported_role = %s"
+        params.append(role)
+    return sql, params
+
+
+def list_lines(artifact_id: str, *, limit: int, offset: int,
+               code: str | None = None, role: str | None = None) -> list[dict]:
     cols = ("line_no", "internal_code", "customs_code", "name", "uom",
             "reported_role", "opening", "inbound_total", "out_tai_xuat",
             "out_chuyen_mdsd", "out_xuat_sx", "out_xuat_khac", "outbound_total",
             "closing_reported", "note")
+    where, fparams = _line_filter_sql(code, role)
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            """
+            f"""
             select line_no, internal_code, customs_code, name, uom,
                    reported_role, opening, inbound_total, out_tai_xuat,
                    out_chuyen_mdsd, out_xuat_sx, out_xuat_khac, outbound_total,
                    closing_reported, note
-            from hub.nxt_lines where artifact_id=%s
+            from hub.nxt_lines where artifact_id=%s{where}
             order by line_no limit %s offset %s
             """,
-            (artifact_id, limit, offset),
+            (artifact_id, *fparams, limit, offset),
         )
         lines = []
         for r in cur.fetchall():
@@ -209,3 +232,14 @@ def list_lines(artifact_id: str, *, limit: int, offset: int) -> list[dict]:
             line["closing_implied"] = closing_implied(line)
             lines.append(line)
     return lines
+
+
+def count_lines(artifact_id: str, *, code: str | None = None,
+                role: str | None = None) -> int:
+    where, fparams = _line_filter_sql(code, role)
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"select count(*) from hub.nxt_lines where artifact_id=%s{where}",
+            (artifact_id, *fparams),
+        )
+        return cur.fetchone()[0]
