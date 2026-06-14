@@ -223,6 +223,27 @@ async def set_default_adapter(request: Request, client_id: str,
         url=f"/clients/{client_id}/bom/upload", status_code=303)
 
 
+def _tree_adapter_needs_raw_edges(blob: bytes, adapter_name: str | None,
+                                  root_hint: str | None) -> bool:
+    """True when `adapter_name` is a single-root tree adapter
+    (emits_intermediate_btp_versions=False) AND a raw-edge parser also
+    accepts `blob`. Such an adapter's walked leaves MUST go through the
+    technical_raw raw-edges path (a non_flattened raw_graph + the post-ingest
+    materialize hook that derives shallow/full_flat). The flat-rows stash
+    persists them as manual_flat/not_applicable and silently skips flattening
+    (MPL0100-39). Returning False keeps the explicit path unchanged — no
+    regression when the file isn't raw-edge-parseable."""
+    adapter = bom_adapters.resolve(adapter_name) if adapter_name else None
+    if adapter is None or getattr(
+            adapter, "emits_intermediate_btp_versions", True):
+        return False
+    try:
+        parse_raw_edges_with_fallback(blob, root_code=root_hint)
+    except BomParseError:
+        return False
+    return True
+
+
 @router.post("/clients/{client_id}/bom/upload")
 async def upload_submit(request: Request, client_id: str,
                         profile: str = Form("manual_flat"),
@@ -257,6 +278,18 @@ async def upload_submit(request: Request, client_id: str,
         mime_type=file.content_type, uploader_user_id=user.user_id,
     )
 
+    # A pinned tree adapter (per-client default-adapter binding, or a manual
+    # dropdown pick) takes the explicit-profile path below, which — unlike
+    # `auto` — has no raw-edges reroute. Its walked leaves would stash as
+    # manual_flat/not_applicable and flatten would silently skip (MPL0100-39).
+    # Mirror the auto reroute here so any tree-adapter selection lands as
+    # raw_graph.
+    if profile not in ("auto", "technical_raw", "technical_flatten"):
+        from pathlib import Path as _Path
+        _root_hint = _Path(file.filename or "").stem if file.filename else None
+        if _tree_adapter_needs_raw_edges(blob, profile, _root_hint):
+            profile = "technical_raw"
+
     if profile == "auto":
         # Auto-detect adapter: walk parse_with_fallback, accept the first
         # adapter that yields a non-empty parse. No mapping page; staff can
@@ -278,23 +311,11 @@ async def upload_submit(request: Request, client_id: str,
                 profile=profile,
             )
         products, used_adapter = result
-        # Tree adapters (single-rooted explosion: sap_indented_walk,
-        # multi_sheet_per_root — emits_intermediate_btp_versions=False) must
-        # land as raw_graph artifacts so the post-ingest materialize hook
-        # derives shallow/full_flat. The flat-rows stash below persists them
-        # as manual_flat/not_applicable and silently skips flattening (the
-        # MPL0100-39 bug). Re-route those to the technical_raw raw-edges path
-        # when a raw-edge parser also matches; if none does, keep the flat
-        # path (no regression vs. prior behaviour).
-        detected = bom_adapters.resolve(used_adapter)
-        if (detected is not None
-                and not getattr(detected, "emits_intermediate_btp_versions", True)):
-            try:
-                parse_raw_edges_with_fallback(blob, root_code=root_hint)
-            except BomParseError:
-                pass
-            else:
-                profile = "technical_raw"  # fall through to the raw-edges block
+        # Tree adapters (sap_indented_walk / multi_sheet_per_root) must land
+        # as raw_graph via the raw-edges path, not the flat-rows stash — same
+        # reroute as the explicit-profile path above (see helper docstring).
+        if _tree_adapter_needs_raw_edges(blob, used_adapter, root_hint):
+            profile = "technical_raw"  # fall through to the raw-edges block
         if profile == "auto":
             pending_id = _stash_pending(
                 client_id=client_id, upload_id=upload_id, products=products,

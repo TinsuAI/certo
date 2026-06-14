@@ -82,6 +82,19 @@ def _save_xlsx(rows: list[tuple], title="BOM") -> bytes:
     return buf.getvalue()
 
 
+# A SAP-indented tree workbook: Level + Component columns, no product_code.
+# sap_indented_walk.detect() scores 0.95 and parse_sap_indented_raw_edges
+# also matches it — i.e. a genuine tree shape that MUST land as raw_graph.
+_INDENTED_TREE = [
+    ("Level", "Component number", "Comp. Qty (CUn)", "Component unit",
+     "Object description"),
+    (1, "BTP-SUB", 2, "PCS", "sub-assembly"),
+    (2, "NVL-A",   3, "KG",  "raw A"),
+    (2, "NVL-B",   1, "PCS", "raw B"),
+    (1, "NVL-C",   5, "KG",  "raw C"),
+]
+
+
 def _upload(c, blob, *, profile="auto", filename="bom.xlsx"):
     return c.post(
         f"/clients/{CLIENT}/bom/upload",
@@ -218,6 +231,54 @@ def test_parse_error_renders_html_not_json(http):
     # Recovery affordances from the template.
     assert "Tải lại file" in r.text
     assert f"/clients/{CLIENT}/bom/upload" in r.text
+
+
+# ───────── G.2 explicit tree-adapter binding reroutes to raw_graph ────────
+
+def test_tree_adapter_reroute_helper():
+    """The reroute predicate fires only for a tree adapter (emits_intermediate
+    _btp_versions=False) whose blob a raw-edge parser also accepts."""
+    from app.routes.bom import _tree_adapter_needs_raw_edges
+    tree = _save_xlsx(_INDENTED_TREE, title="TREE-TP")
+    flat = _save_xlsx(_PLAIN_FLAT)
+    # tree adapter + raw-edge-parseable file → reroute.
+    assert _tree_adapter_needs_raw_edges(tree, "sap_indented_walk", "TREE-TP") is True
+    # flat adapter → never reroute (preserves manual_flat behaviour) even
+    # though this flat file IS raw-edge-parseable (parent/child columns).
+    assert _tree_adapter_needs_raw_edges(flat, "manual_flat", None) is False
+    # tree adapter but file isn't raw-edge-parseable → no reroute (no regression
+    # vs. keeping the explicit flat path when the raw parser can't read it).
+    assert _tree_adapter_needs_raw_edges(b"not an xlsx", "sap_indented_walk", None) is False
+    # unknown adapter → no reroute.
+    assert _tree_adapter_needs_raw_edges(tree, "nope", "TREE-TP") is False
+
+
+def test_explicit_tree_adapter_lands_as_raw_graph(http):
+    """Pinning a tree adapter (e.g. via per-client default binding) must take
+    the raw-edges path — a non_flattened raw_graph artifact — not stash the
+    walked leaves as a manual_flat/not_applicable flat artifact (MPL0100-39)."""
+    blob = _save_xlsx(_INDENTED_TREE, title="Sheet1")
+    r = _upload(http, blob, profile="sap_indented_walk", filename="TREE-TP.xlsx")
+    assert r.status_code == 303, r.text
+    loc = r.headers["location"]
+    assert "/preview/" in loc, loc
+    pending_id = loc.rsplit("/", 1)[-1].split("?")[0]
+
+    conf = http.post(
+        f"/clients/{CLIENT}/bom/preview/{pending_id}/confirm",
+        follow_redirects=False,
+    )
+    assert conf.status_code == 303, conf.text
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select flatten_status from hub.bom_artifacts "
+            "where client_id=%s and product_code=%s",
+            (CLIENT, "TREE-TP"),
+        )
+        statuses = [row[0] for row in cur.fetchall()]
+    # The reroute produces a raw_graph (non_flattened). The bug produced
+    # only a not_applicable flat stash.
+    assert "non_flattened" in statuses, statuses
 
 
 # ─────────────────── B.2.7 end-to-end upload regression ──────────────────
