@@ -1007,18 +1007,22 @@ def validate_supporting_file(content: bytes, filename: str) -> None:
 def load_state(client_id: str) -> dict:
     store = get_co_case_state_store()
     if store:
+        # DB is the single source of truth: when a database is configured we
+        # never read from — nor re-seed back into the DB from — the legacy
+        # cases.json file store (doing so resurrected deleted cases). A missing
+        # DB row means an empty case list, not a fallback to disk.
         state = store.get_state(client_id)
-        if state is not None:
-            return normalize_state(client_id, state)
+        if state is None:
+            state = {"schema_version": 1, "client_id": client_id, "cases": []}
+        return normalize_state(client_id, state)
+    # File-mode only (no BARRY_DATABASE_URL): the on-disk cases.json store used
+    # by the file-mode test suite and DB-less runs.
     path = state_path(client_id)
     if not path.exists():
         state = {"schema_version": 1, "client_id": client_id, "cases": []}
     else:
         state = json.loads(path.read_text())
-    state = normalize_state(client_id, state)
-    if store:
-        store.save_state(client_id, state)
-    return state
+    return normalize_state(client_id, state)
 
 
 def normalize_state(client_id: str, state: dict) -> dict:
