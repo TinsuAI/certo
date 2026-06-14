@@ -474,3 +474,73 @@ def test_nxt_mapping_page_flow_and_cache(isolated_files_dir):
                 follow_redirects=False)
     assert r2.status_code == 303
     assert "/nxt/preview/" in r2.headers["location"]
+
+
+# ── sap_mb5b adapter (SAP MB5B per-material detail) ──────────────────────
+
+def _build_mb5b_xlsx() -> bytes:
+    import io
+    from openpyxl import Workbook
+    wb = Workbook(); ws = wb.active; ws.title = "Sheet1"
+    ws.append(["material", "material_description", "gl_account", "valuation_class",
+               "base_unit", "opening_stock_qty", "total_receipt_qty",
+               "total_issue_qty", "closing_stock_qty"])
+    ws.append(["0000080692", "磁控連接線", "12150000", "3000", "EA", 0, 720, 0, 720])
+    ws.append(["0000080058", "橡膠", "12150000", "3000", "EA", 100, 50, 30, 120])
+    out = io.BytesIO(); wb.save(out)
+    return out.getvalue()
+
+
+def test_sap_mb5b_adapter():
+    from app.parsers.nxt_adapters._common import closing_implied
+    from app.parsers.nxt_adapters.sap_mb5b import SapMb5bAdapter
+    blob = _build_mb5b_xlsx()
+    assert SapMb5bAdapter().detect(blob) == pytest.approx(0.93)
+    lines, name = nxt_adapters.parse_with_fallback(blob)
+    assert name == "sap_mb5b"
+    assert len(lines) == 2
+    a = lines[1]
+    assert a["internal_code"] == "0000080058" and a["uom"] == "EA"
+    assert a["opening"] == 100 and a["inbound_total"] == 50
+    assert a["outbound_total"] == 30 and a["closing_reported"] == 120
+    assert a["reported_role"] is None  # GL→role is per-client, not in adapter
+    assert closing_implied(a) == pytest.approx(120.0)
+
+
+# ── misa_can_doi_ton adapter (merged header + warehouse section breaks) ──
+
+def _build_misa_xlsx() -> bytes:
+    import io
+    from openpyxl import Workbook
+    wb = Workbook(); ws = wb.active; ws.title = "Page1"
+    ws.cell(4, 1, "CÂN ĐỐI TỒN KHO")
+    ws.cell(5, 1, "Từ ngày: 01/01/2024 - Đến ngày: 31/12/2024")
+    # row 7 (code/name/uom) + row 8 (qty sub-cols) at scattered columns
+    ws.cell(7, 1, "STT"); ws.cell(7, 2, "Mã Hàng"); ws.cell(7, 6, "Tên Hàng")
+    ws.cell(7, 10, "ĐVT"); ws.cell(7, 11, "Số Lượng")
+    ws.cell(8, 11, "Đầu Kỳ"); ws.cell(8, 13, "Nhập"); ws.cell(8, 17, "Xuất")
+    ws.cell(8, 19, "Cuối Kỳ")
+    ws.cell(9, 1, "Kho hàng: KHO-NK")  # section break — no code → skipped
+    ws.cell(10, 1, 1); ws.cell(10, 2, "NK-DAYG"); ws.cell(10, 6, "Dây giầy")
+    ws.cell(10, 10, "Đôi"); ws.cell(10, 11, 41913); ws.cell(10, 17, 1912)
+    ws.cell(10, 19, 40001)
+    ws.cell(11, 1, 2); ws.cell(11, 2, "NK-CK"); ws.cell(11, 6, "Chỉ khâu")
+    ws.cell(11, 10, "Mét"); ws.cell(11, 11, 100); ws.cell(11, 13, 20)
+    ws.cell(11, 17, 30); ws.cell(11, 19, 90)
+    out = io.BytesIO(); wb.save(out)
+    return out.getvalue()
+
+
+def test_misa_can_doi_ton_adapter():
+    from app.parsers.nxt_adapters.misa_can_doi_ton import MisaCanDoiTonAdapter
+    blob = _build_misa_xlsx()
+    assert MisaCanDoiTonAdapter().detect(blob) == pytest.approx(0.9)
+    lines, name = nxt_adapters.parse_with_fallback(blob)
+    assert name == "misa_can_doi_ton"
+    assert len(lines) == 2  # the "Kho hàng:" section break row is skipped
+    dayg = lines[0]
+    assert dayg["internal_code"] == "NK-DAYG" and dayg["uom"] == "Đôi"
+    assert dayg["opening"] == 41913 and dayg["outbound_total"] == 1912
+    assert dayg["closing_reported"] == 40001
+    ck = lines[1]
+    assert ck["inbound_total"] == 20 and ck["closing_reported"] == 90

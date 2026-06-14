@@ -23,7 +23,18 @@
   mapping_override travels into preview/confirm so the immutable artifact re-parses
   identically.
 **Slice 2 COMPLETE.** Tests: 23 in this feature + full suite 1517 passed.
-UI proof in `screenshots/` (08 = mapping page). Slices 3-4 pending.
+UI proof in `screenshots/` (08 = mapping page).
+- **Slice 3 COMPLETE**: two more real-ERP NXT adapters.
+  - `sap_mb5b` — SAP MB5B per-material detail (Johnson). Clean snake_case row-1
+    headers, lumped issue → outbound_total, reported_role null (GL→role is per-client
+    config, not in the shared adapter). Validated: 20064 lines on the real file.
+  - `misa_can_doi_ton` — MISA "CÂN ĐỐI TỒN KHO" (Hồng Phúc/An). Two-row merged
+    header at scattered columns (combined + substring-matched, like ezsoft) +
+    "Kho hàng:" warehouse section breaks skipped. Gated on the report title so it
+    never greedily claims a generic file. Validated: 123 lines on the real file.
+  NXT registry now has 5 adapters. Tests: 25 in-feature + full suite 1519 passed.
+**Remaining: slice 4** — inventory `kiem_ke_multi_kho` (DKE multi-warehouse
+physical count) + closing↔opening↔snapshot link + `/v1/hub` read API for BCQT.
 **Owner:** Data Hub
 
 ## Goal

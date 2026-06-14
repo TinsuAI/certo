@@ -125,9 +125,13 @@ def parse_with_fallback(blob: bytes) -> tuple[list[dict], str] | None:
 # Eager import + register builtin adapters. Order = fallback order when no
 # detect() score discriminates; high-precision (distinctive sheet/header) first.
 from app.parsers.nxt_adapters.ezsoft_3tsoft import Ezsoft3TSoftAdapter  # noqa: E402
+from app.parsers.nxt_adapters.sap_mb5b import SapMb5bAdapter  # noqa: E402
+from app.parsers.nxt_adapters.misa_can_doi_ton import MisaCanDoiTonAdapter  # noqa: E402
 from app.parsers.nxt_adapters.system_template import SystemTemplateNxtAdapter  # noqa: E402
 from app.parsers.nxt_adapters.manual_generic import ManualGenericNxtAdapter  # noqa: E402
 
 register(Ezsoft3TSoftAdapter())       # distinctive "EZSOFT - 3TSoft" sheet
+register(SapMb5bAdapter())            # SAP MB5B snake_case header signature
+register(MisaCanDoiTonAdapter())      # MISA "CÂN ĐỐI TỒN KHO" merged header
 register(SystemTemplateNxtAdapter())  # canonical NVL/TP/BTP template
 register(ManualGenericNxtAdapter())   # last-resort alias/override fallback
