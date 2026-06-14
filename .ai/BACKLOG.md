@@ -9,7 +9,7 @@ Rà lại toàn luồng 5 bước (Lô hàng → Chứng từ → Bảng kê C/O
 trương redesign từng bước. Ba điểm đã nêu trong phiên mở màn:
 
 ### RD1 — Bước 1: "chọn form" hầu như KHÔNG ảnh hưởng outcome (đã xác nhận bằng code 2026-06-14)
-**DONE 2026-06-14 (uncommitted→local).** User chọn phương án (a): bỏ form khỏi bước 1, chỉ giữ
+**DONE 2026-06-14 (committed `09509ae`).** User chọn phương án (a): bỏ form khỏi bước 1, chỉ giữ
 market. Đã bỏ block "Form gợi ý" (modal tạo + Lô hàng), macro chết `form_lane_matrix()`, và 3 thẻ
 form-lanes trong preview invoice (server + JS) — giữ "Gợi ý thị trường" + nút "Dùng thị trường";
 `co_form_type` vẫn auto-suy ngầm từ market. Dọn CSS mồ côi (`.form-lane*`/`.mini-rule-list*`/
@@ -32,7 +32,7 @@ và hiển thị ở list/header. **Không vào calc bảng kê, không chọn t
 `effective_form`). Hiện trạng "lưng chừng" (set nhưng không bind) chính là lý do thấy vô nghĩa.
 
 ### RD2 — Bước 2: redesign UI upload chứng từ ("nhìn cứ sao sao")
-**DONE 2026-06-14 (uncommitted→local).** Dropzone async toàn diện: 7 slot card (kéo-thả + multi-file),
+**DONE 2026-06-14 (committed `09509ae`).** Dropzone async toàn diện: 7 slot card (kéo-thả + multi-file),
 upload XHR có progress bar không reload, chip file (ext·tên·size·×), xoá inline, counter "Bắt buộc
 N/3 · Bổ sung N"; bỏ ô invoice/BL lặp. Backend: `delete_supporting_file` + route DELETE + POST
 content-negotiate JSON khi async (giữ 303 no-JS). CSS Primer `.doc-*` thay sạch `.document-*`/
@@ -47,7 +47,9 @@ shipment, chỉ hỏi khi override), checklist tiến độ rõ (vd "2/3 bắt b
 Bám design Primer [[ui-design-direction-primer]], tránh opacity-muted text [[css-no-opacity-muted-text]].
 
 ### RD3 — Bước 3: bảng kê C/O — THAY ĐỔI LỚN (chi tiết phiên sau)
-User báo sẽ có thay đổi lớn ở bảng kê. **Nội dung chưa chốt — note để phiên sau khai thác.** Vùng
+**PARTIAL — redesign overlay đã ship** (`2464797` Review dashboard ⇄ sheet Excel-like, deployed 0.14.0
+`97dca73`; memory [[rd3-bangke-sheet-overlay]]). User báo còn **thay đổi lớn** nữa ở bảng kê — **nội
+dung đó chưa chốt, note để phiên sau khai thác.** Vùng
 liên quan đang mở: save-model decision [[bangke-excel-like-dirty-undo]] (Excel-like dirty/undo),
 DC3 (hành vi rác/đã-xoá qua Chốt/BOM/Xuất/Tính), declarability [[technical-flattened-export-noise]].
 Khi vào việc: `/discover` trước, đây là bước nặng nhất của luồng.
@@ -234,7 +236,15 @@ Liên quan [[DC1]] (gốc DH). Added: 2026-06-09.
 ## Bug — Bảng kê (origin)
 
 ### BG1 — Xoá 1 dòng NVL làm mất 2 dòng + fold count không tăng
-**REPORTED 2026-06-14 (user).** Repro `growatt-vn/co-case-e44fe2065b62` → `/origin`:
+**DONE 2026-06-14 (`60e55a1` + `1e089e9`, deployed 0.14.0 `97dca73`).** Gốc rễ: override map theo
+**row-index hiển thị**; xoá **hard-remove** dòng khỏi `materials` → index dồn → recalc corrupt dòng kế
+bên + fold-summary chỉ đếm override `deleted` mới nhất. Fix: **soft-delete** (giữ dòng, gắn cờ
+`deleted`), calc chạy trên `active_materials` (`co_case_context.py:1774`); kèm unify UX xoá + Tính
+contextual + cảnh báo Load BOM ghi đè. Memory [[bangke-soft-delete-index-model]].
+
+<details><summary>Repro + giả thuyết gốc</summary>
+
+Repro `growatt-vn/co-case-e44fe2065b62` → `/origin`:
 1. Load BOM
 2. Tính bảng kê (gốc **122 dòng**)
 3. Xoá 1 dòng → tự lưu → view còn **120** (đáng lẽ **121**). Fold: "**1 dòng đã xoá**".
@@ -244,6 +254,8 @@ Liên quan [[DC1]] (gốc DH). Added: 2026-06-09.
 **Triệu chứng:** mỗi lần xoá 1 dòng, view giảm **2** dòng (122→120→118→116) thay vì 1; fold "đã xoá" **kẹt ở 1**, không cộng dồn. Tổng bảo toàn (view + fold) = 121 → 119 → 117 < 122 ⇒ **mất dòng thật** (1, rồi 3, rồi 5 dòng biến mất hẳn), không chỉ lỗi hiển thị. Nghiêm trọng: bảng kê thiếu NVL → sai LVC/VNM + sai BOM khi chốt.
 
 **Giả thuyết (chưa điều tra):** staged-delete map sai index dòng (off-by-one giữa row-index hiển thị và override key), hoặc recalc/refold sau auto-save loại thêm 1 dòng (vd nhầm dòng kế bên là folded), hoặc fold-summary chỉ đếm override `deleted` mới-nhất thay vì cộng dồn. Cần soi `co_case_origin_sheet_save` + `sheet_edit_bom_rows` (recalc) + fold-summary render + JS `initSheetBulkDelete`/staged ops. Liên quan [[DC3]] (hành vi dòng đã-xoá), [[bangke-bulk-row-delete]].
+
+</details>
 
 Added: 2026-06-14.
 
