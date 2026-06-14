@@ -122,7 +122,10 @@ def parse_with_fallback(blob: bytes) -> tuple[list[dict], str] | None:
     return None
 
 
-# Eager import + register builtin adapters.
+# Eager import + register builtin adapters. Order = fallback order when no
+# detect() score discriminates; high-precision (distinctive sheet/header) first.
+from app.parsers.nxt_adapters.ezsoft_3tsoft import Ezsoft3TSoftAdapter  # noqa: E402
 from app.parsers.nxt_adapters.system_template import SystemTemplateNxtAdapter  # noqa: E402
 
-register(SystemTemplateNxtAdapter())
+register(Ezsoft3TSoftAdapter())     # distinctive "EZSOFT - 3TSoft" sheet
+register(SystemTemplateNxtAdapter())  # canonical NVL/TP/BTP template

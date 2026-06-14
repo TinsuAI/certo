@@ -44,10 +44,10 @@ def create_artifact(
                 insert into hub.nxt_lines
                   (artifact_id, line_no, internal_code, customs_code, name, uom,
                    reported_role, opening, inbound_total, out_tai_xuat,
-                   out_chuyen_mdsd, out_xuat_sx, out_xuat_khac, closing_reported,
-                   note, raw)
+                   out_chuyen_mdsd, out_xuat_sx, out_xuat_khac, outbound_total,
+                   closing_reported, note, raw)
                 values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s::jsonb)
+                        %s, %s, %s::jsonb)
                 """,
                 (
                     artifact_id, i,
@@ -56,6 +56,7 @@ def create_artifact(
                     line.get("opening"), line.get("inbound_total"),
                     line.get("out_tai_xuat"), line.get("out_chuyen_mdsd"),
                     line.get("out_xuat_sx"), line.get("out_xuat_khac"),
+                    line.get("outbound_total"),
                     line.get("closing_reported"), line.get("note"),
                     json.dumps(line.get("raw"), ensure_ascii=False, default=str)
                     if line.get("raw") is not None else None,
@@ -88,8 +89,8 @@ def get_artifact(artifact_id: str) -> dict | None:
             """
             select line_no, internal_code, customs_code, name, uom,
                    reported_role, opening, inbound_total, out_tai_xuat,
-                   out_chuyen_mdsd, out_xuat_sx, out_xuat_khac, closing_reported,
-                   note
+                   out_chuyen_mdsd, out_xuat_sx, out_xuat_khac, outbound_total,
+                   closing_reported, note
             from hub.nxt_lines where artifact_id=%s order by line_no
             """,
             (artifact_id,),
@@ -97,7 +98,7 @@ def get_artifact(artifact_id: str) -> dict | None:
         cols = ("line_no", "internal_code", "customs_code", "name", "uom",
                 "reported_role", "opening", "inbound_total", "out_tai_xuat",
                 "out_chuyen_mdsd", "out_xuat_sx", "out_xuat_khac",
-                "closing_reported", "note")
+                "outbound_total", "closing_reported", "note")
         lines = []
         for r in cur.fetchall():
             line = dict(zip(cols, r))

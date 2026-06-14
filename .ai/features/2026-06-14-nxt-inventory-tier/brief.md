@@ -1,10 +1,18 @@
 # Feature: NXT (Nhập-Xuất-Tồn) + Year-end Inventory tier
 
 **Slug:** `2026-06-14-nxt-inventory-tier`
-**Status:** Slice 1 SHIPPED on branch `feat/nxt-inventory-tier` (schema, 2 adapter
-registries + system_template, system templates, stores, data_promotion wiring,
-upload→preview→confirm UI for both modules, "Quyết toán" nav group). Tests:
-13 new + full suite 1507 passed. UI proof in `screenshots/`. Slices 2-4 pending.
+**Status:** branch `feat/nxt-inventory-tier`.
+- **Slice 1 SHIPPED** (commit `aeb9df0`): schema, 2 adapter registries +
+  system_template, system templates, stores, data_promotion wiring,
+  upload→preview→confirm UI both modules, "Quyết toán" nav group.
+- **Slice 2 in progress**: `ezsoft_3tsoft` adapter (real Growatt EZSOFT/3TSoft —
+  bilingual, group-row roles, lumped Xuất → new `outbound_total` col, mig 084);
+  per-client adapter binding (mig 085 + `settlement_adapter_binding` store + upload
+  selector + "set default"); admin registry view `/admin/settlement-adapters`.
+  Validated on the real Growatt file (2936 lines, btp 150/tp 68/nvl 2718, 0 closing
+  mismatch). **Remaining slice 2:** `manual_generic` + LLM column-mapping flow.
+Tests: 20 in this feature + full suite 1514 passed. UI proof in `screenshots/`.
+Slices 3-4 pending.
 **Owner:** Data Hub
 
 ## Goal

@@ -15,7 +15,7 @@ import io
 from app.parsers._excel import (
     cell_num, cell_str, header_row, index_headers, load_xlsx,
 )
-from app.parsers.nxt_adapters._common import ALIASES, NUMERIC_FIELDS
+from app.parsers.nxt_adapters._common import ALIASES, NUMERIC_FIELDS, OUT_BUCKETS
 
 # Canonical column order: (header text written into the template, logical field).
 CANONICAL_COLUMNS: list[tuple[str, str]] = [
@@ -44,15 +44,24 @@ class SystemTemplateNxtAdapter:
     supports_mapping_override = False
 
     def detect(self, blob: bytes) -> float | None:
-        """High precision: a workbook with NVL/TP/BTP-named sheets carrying the
-        canonical headers is unambiguously ours. Abstain otherwise."""
+        """High precision: a NVL/TP/BTP-named sheet that actually carries our
+        canonical headers (opening + closing + a code column) is unambiguously
+        ours. Checking headers — not just the sheet name — avoids claiming an
+        agency's own bilingual NVL/TP/BTP sheets (handled by ezsoft_3tsoft)."""
         try:
             wb = load_xlsx(blob)
         except Exception:
             return None
-        titles = {ws.title.strip().upper() for ws in wb.worksheets}
-        if titles & set(SHEET_ROLES):
-            return 0.95
+        for ws in wb.worksheets:
+            if ws.title.strip().upper() not in SHEET_ROLES:
+                continue
+            hdr = header_row(ws, aliases=ALIASES)
+            if not hdr:
+                continue
+            cols = index_headers(hdr[1], ALIASES)
+            if ("opening" in cols and "closing_reported" in cols
+                    and ("internal_code" in cols or "customs_code" in cols)):
+                return 0.95
         return None
 
     def parse(self, blob: bytes, *,
@@ -108,6 +117,12 @@ def _row_to_line(raw, cols: dict[str, int], role: str) -> dict | None:
     }
     for f in NUMERIC_FIELDS:
         line[f] = cell_num(raw, cols.get(f))
+    # Canonical total = sum of the 4 regulatory buckets the template carries.
+    buckets = [line.get(f) for f in OUT_BUCKETS]
+    line["outbound_total"] = (
+        sum(b or 0.0 for b in buckets) if any(b is not None for b in buckets)
+        else None
+    )
     return line
 
 

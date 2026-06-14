@@ -90,6 +90,10 @@ async def main():
         await page.wait_for_url(f"{BASE}/clients/{CLIENT}/inventory-snapshots**", timeout=8000)
         await shot(page, "06_inventory_list")
 
+        # ── Admin adapter registry (Web-UI management) ──
+        await page.goto(f"{BASE}/admin/settlement-adapters")
+        await shot(page, "07_admin_adapter_registry")
+
         await browser.close()
 
 

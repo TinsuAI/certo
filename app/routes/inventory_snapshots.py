@@ -16,6 +16,7 @@ from app.parsers.inventory_adapters._common import variance
 from app.routes.clients import get_client, stats_for_client
 from app.storage import get_backend, save_upload, sha256_bytes
 from app.stores import inventory_snapshots as inv_store
+from app.stores import settlement_adapter_binding as binding
 from app.stores.uploads import get_upload, record_upload, set_upload_status
 
 router = APIRouter()
@@ -86,14 +87,32 @@ async def upload_view(request: Request, client_id: str):
     return request.app.state.templates.TemplateResponse(
         request, "clients/inventory_snapshot_upload.html",
         {"client": client, "stats": stats_for_client(client_id),
+         "adapters": inventory_adapters.adapter_names(),
+         "default_adapter": binding.get_default_adapter(client_id, MODULE),
          "active_root": "clients", "active_tab": "inventory"},
     )
+
+
+@router.post("/clients/{client_id}/inventory-snapshots/default-adapter")
+async def set_default_adapter(request: Request, client_id: str,
+                              adapter: str = Form(...)):
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+    try:
+        binding.set_default_adapter(client_id, MODULE, adapter)
+    except ValueError:
+        raise HTTPException(400, "invalid_adapter")
+    return RedirectResponse(
+        url=f"/clients/{client_id}/inventory-snapshots/upload", status_code=303)
 
 
 @router.post("/clients/{client_id}/inventory-snapshots/upload")
 async def upload_submit(request: Request, client_id: str,
                         file: UploadFile = File(...),
-                        snapshot_date: str = Form("")):
+                        snapshot_date: str = Form(""),
+                        adapter: str = Form("auto")):
     user = auth.require_user(request)
     auth.require_can_edit_client(user, client_id)
     if not get_client(client_id):
@@ -110,14 +129,26 @@ async def upload_submit(request: Request, client_id: str,
         mime_type=file.content_type, uploader_user_id=user.user_id,
     )
 
-    result = inventory_adapters.parse_with_fallback(blob)
-    if result is None:
-        set_upload_status(upload_id, "error",
-                          parse_error="No inventory adapter recognized this file.")
-        return RedirectResponse(
-            url=f"/clients/{client_id}/inventory-snapshots?error=Không nhận diện được định dạng tồn kho",
-            status_code=303)
-    lines, adapter_name = result
+    chosen = (adapter or "auto").strip()
+    if chosen == "auto":
+        chosen = binding.get_default_adapter(client_id, MODULE)
+    lines: list[dict] | None = None
+    adapter_name: str | None = None
+    if chosen != "auto" and inventory_adapters.resolve(chosen):
+        try:
+            lines = inventory_adapters.parse_with(blob, name=chosen)
+            adapter_name = chosen
+        except Exception:  # noqa: BLE001
+            lines = None
+    if lines is None:
+        result = inventory_adapters.parse_with_fallback(blob)
+        if result is None:
+            set_upload_status(upload_id, "error",
+                              parse_error="No inventory adapter recognized this file.")
+            return RedirectResponse(
+                url=f"/clients/{client_id}/inventory-snapshots?error=Không nhận diện được định dạng tồn kho",
+                status_code=303)
+        lines, adapter_name = result
     set_upload_status(upload_id, "pending_preview", row_count=len(lines),
                       result={"snapshot_date": snapshot_date or None,
                               "adapter_name": adapter_name})

@@ -242,3 +242,135 @@ def test_nxt_nav_tab_present():
     assert r.status_code == 200
     assert "Nhập-Xuất-Tồn" in r.text
     assert "Quyết toán" in r.text  # settlement nav group
+
+
+# ── ezsoft_3tsoft adapter (bilingual, group-row roles, lumped Xuất) ──────
+
+def _build_ezsoft_xlsx() -> bytes:
+    """Synthetic EZSOFT/3TSoft NXT sheet: title block + bilingual header band
+    (category row + sub-rows) + group rows that set role + data rows."""
+    import io
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "EZSOFT - 3TSoft"
+    ws["A1"] = "Công ty ABC"
+    ws["A3"] = "TỔNG HỢP NHẬP - XUẤT - TỒN"
+    ws["A4"] = "Từ ngày 01/01/2025"
+    ws.cell(6, 1, "Vật tư - 物資")
+    ws.cell(6, 5, "Tồn đầu - 期初庫存"); ws.cell(6, 6, "Nhập - 入庫")
+    ws.cell(6, 7, "Xuất - 輸出"); ws.cell(6, 8, "Tồn cuối - 期末庫存")
+    ws.cell(7, 1, "Mã 代碼"); ws.cell(7, 2, "Tên - 名稱"); ws.cell(7, 4, "Đvt 單位")
+    for col in (5, 6, 7, 8):
+        ws.cell(7, col, "Số lượng 數量")
+    ws.cell(8, 2, "Tiếng Việt 越文"); ws.cell(8, 3, "Tiếng Hoa 中文")
+    # group BTP (subtotal row — skipped, sets role)
+    ws.cell(9, 1, "BTP"); ws.cell(9, 2, "Nhóm bán thành phẩm")
+    ws.cell(9, 5, 150); ws.cell(9, 8, 150)
+    ws.cell(10, 1, "100.001"); ws.cell(10, 2, "Bo mạch"); ws.cell(10, 4, "Cái")
+    ws.cell(10, 5, 100); ws.cell(10, 6, 50); ws.cell(10, 7, 30); ws.cell(10, 8, 120)
+    # group NVL
+    ws.cell(11, 1, "NVL"); ws.cell(11, 2, "Nhóm nguyên vật liệu")
+    ws.cell(12, 1, "001.002"); ws.cell(12, 2, "Nhựa"); ws.cell(12, 4, "KG")
+    ws.cell(12, 5, 1000); ws.cell(12, 6, 500); ws.cell(12, 7, 300); ws.cell(12, 8, 1200)
+    out = io.BytesIO(); wb.save(out)
+    return out.getvalue()
+
+
+def test_ezsoft_adapter_parse():
+    from app.parsers.nxt_adapters.ezsoft_3tsoft import Ezsoft3TSoftAdapter
+    blob = _build_ezsoft_xlsx()
+    a = Ezsoft3TSoftAdapter()
+    assert a.detect(blob) == pytest.approx(0.97)
+    lines = a.parse(blob)
+    assert len(lines) == 2  # 2 data rows; the 2 group rows are skipped
+    btp, nvl = lines
+    assert btp["reported_role"] == "btp"
+    assert btp["internal_code"] == "100.001"
+    assert btp["uom"] == "Cái"
+    assert btp["opening"] == 100 and btp["inbound_total"] == 50
+    assert btp["outbound_total"] == 30  # lumped Xuất → outbound_total
+    assert btp["out_xuat_sx"] is None   # not split into buckets
+    assert btp["closing_reported"] == 120
+    assert nvl["reported_role"] == "nvl"
+    assert nvl["internal_code"] == "001.002"
+
+
+def test_ezsoft_outranks_system_template_and_closing_implied():
+    from app.parsers.nxt_adapters._common import closing_implied
+    from app.parsers.nxt_adapters.system_template import SystemTemplateNxtAdapter
+    blob = _build_ezsoft_xlsx()
+    # system_template must abstain (no canonical NVL/TP/BTP sheets).
+    assert SystemTemplateNxtAdapter().detect(blob) is None
+    lines, name = nxt_adapters.parse_with_fallback(blob)
+    assert name == "ezsoft_3tsoft"
+    btp = lines[0]
+    # closing_implied = opening + inbound − outbound_total = 100 + 50 − 30 = 120
+    assert closing_implied(btp) == pytest.approx(120.0)
+
+
+def test_ezsoft_store_roundtrip_preserves_outbound_total(isolated_files_dir):
+    from app.parsers.nxt_adapters.ezsoft_3tsoft import Ezsoft3TSoftAdapter
+    lines = Ezsoft3TSoftAdapter().parse(_build_ezsoft_xlsx())
+    aid = nxt_store.create_artifact(
+        client_id=CLIENT, lines=lines, source_kind="ezsoft_3tsoft",
+        adapter_name="ezsoft_3tsoft")
+    art = nxt_store.get_artifact(aid)
+    btp = next(l for l in art["lines"] if l["reported_role"] == "btp")
+    assert btp["outbound_total"] == pytest.approx(30.0)
+    assert btp["closing_implied"] == pytest.approx(120.0)
+
+
+# ── Per-client adapter binding + admin registry view ────────────────────
+
+def test_settlement_adapter_binding_roundtrip():
+    from app.stores import settlement_adapter_binding as b
+    assert b.get_default_adapter(CLIENT, "nxt") == "auto"
+    b.set_default_adapter(CLIENT, "nxt", "ezsoft_3tsoft")
+    assert b.get_default_adapter(CLIENT, "nxt") == "ezsoft_3tsoft"
+    # Unknown adapter rejected; unknown module rejected.
+    with pytest.raises(ValueError):
+        b.set_default_adapter(CLIENT, "nxt", "nope")
+    with pytest.raises(ValueError):
+        b.set_default_adapter(CLIENT, "bogus", "auto")
+    rows = {r["client_id"]: r for r in b.list_bindings()}
+    assert rows[CLIENT]["nxt"] == "ezsoft_3tsoft"
+    assert rows[CLIENT]["inventory"] == "auto"
+    b.set_default_adapter(CLIENT, "nxt", "auto")  # reset
+
+
+def test_settlement_adapters_admin_view():
+    c = _dev_client()
+    r = c.get("/admin/settlement-adapters")
+    assert r.status_code == 200
+    assert "ezsoft_3tsoft" in r.text
+    assert "system_template" in r.text
+    assert "Adapter Quyết toán" in r.text  # nav link present
+
+
+def test_nxt_upload_explicit_adapter_pick(isolated_files_dir):
+    c = _dev_client()
+    files = {"file": ("ez.xlsx", _build_ezsoft_xlsx(),
+                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+    r = c.post(f"/clients/{CLIENT}/nxt/upload",
+               files=files, data={"adapter": "ezsoft_3tsoft"},
+               follow_redirects=False)
+    assert r.status_code == 303
+    preview_url = r.headers["location"]
+    upload_id = preview_url.rstrip("/").split("/")[-1]
+    cf = c.post(f"/clients/{CLIENT}/nxt/preview/{upload_id}/confirm",
+                follow_redirects=False)
+    assert cf.status_code == 303
+    adapters = {nxt_store.get_artifact(a["id"])["adapter_name"]
+                for a in nxt_store.list_artifacts(CLIENT)}
+    assert "ezsoft_3tsoft" in adapters
+
+
+def test_nxt_set_default_adapter_route():
+    c = _dev_client()
+    r = c.post(f"/clients/{CLIENT}/nxt/default-adapter",
+               data={"adapter": "system_template"}, follow_redirects=False)
+    assert r.status_code == 303
+    from app.stores import settlement_adapter_binding as b
+    assert b.get_default_adapter(CLIENT, "nxt") == "system_template"
+    b.set_default_adapter(CLIENT, "nxt", "auto")  # reset

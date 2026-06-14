@@ -21,14 +21,35 @@
       <p class="meta">File Excel (.xlsx / .xls). Tên sheet NVL/TP/BTP quyết định loại; phân loại chính thức vẫn lấy từ Danh Mục.</p>
     </div>
 
-    <div class="field-row" style="display:flex; gap:1rem; margin:.5rem 0;">
+    <div class="field-row" style="display:flex; gap:1rem; margin:.5rem 0; flex-wrap:wrap;">
       <label>Kỳ từ ngày
         <input type="date" name="period_from"></label>
       <label>Đến ngày
         <input type="date" name="period_to"></label>
+      <label>Adapter
+        <select name="adapter">
+          <option value="auto" {{ 'selected' if default_adapter == 'auto' else '' }}>auto — tự nhận diện</option>
+          {% for a in adapters %}
+          <option value="{{ a }}" {{ 'selected' if default_adapter == a else '' }}>{{ a }}</option>
+          {% endfor %}
+        </select></label>
     </div>
 
     <button type="submit" class="btn-primary">Tải lên & xem trước</button>
+  </form>
+
+  <form method="post" action="/clients/{{ client.client_id }}/nxt/default-adapter"
+        class="mini-panel" style="max-width:700px; margin-top:.5rem;">
+    <p class="meta">Adapter mặc định cho client này (áp khi chọn <span class="mono">auto</span>):</p>
+    <div style="display:flex; gap:.5rem; align-items:center;">
+      <select name="adapter">
+        <option value="auto" {{ 'selected' if default_adapter == 'auto' else '' }}>auto</option>
+        {% for a in adapters %}
+        <option value="{{ a }}" {{ 'selected' if default_adapter == a else '' }}>{{ a }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn-secondary btn-sm">Lưu mặc định</button>
+    </div>
   </form>
 </section>
 {% endblock %}

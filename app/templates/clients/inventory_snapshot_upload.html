@@ -21,12 +21,33 @@
       <p class="meta">File Excel (.xlsx / .xls). Nếu mỗi kho một sheet, để trống cột Kho — hệ thống lấy tên sheet làm kho.</p>
     </div>
 
-    <div class="field-row" style="margin:.5rem 0;">
+    <div class="field-row" style="display:flex; gap:1rem; margin:.5rem 0; flex-wrap:wrap;">
       <label>Ngày chốt
         <input type="date" name="snapshot_date"></label>
+      <label>Adapter
+        <select name="adapter">
+          <option value="auto" {{ 'selected' if default_adapter == 'auto' else '' }}>auto — tự nhận diện</option>
+          {% for a in adapters %}
+          <option value="{{ a }}" {{ 'selected' if default_adapter == a else '' }}>{{ a }}</option>
+          {% endfor %}
+        </select></label>
     </div>
 
     <button type="submit" class="btn-primary">Tải lên & xem trước</button>
+  </form>
+
+  <form method="post" action="/clients/{{ client.client_id }}/inventory-snapshots/default-adapter"
+        class="mini-panel" style="max-width:700px; margin-top:.5rem;">
+    <p class="meta">Adapter mặc định cho client này (áp khi chọn <span class="mono">auto</span>):</p>
+    <div style="display:flex; gap:.5rem; align-items:center;">
+      <select name="adapter">
+        <option value="auto" {{ 'selected' if default_adapter == 'auto' else '' }}>auto</option>
+        {% for a in adapters %}
+        <option value="{{ a }}" {{ 'selected' if default_adapter == a else '' }}>{{ a }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn-secondary btn-sm">Lưu mặc định</button>
+    </div>
   </form>
 </section>
 {% endblock %}

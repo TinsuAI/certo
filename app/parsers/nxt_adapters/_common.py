@@ -63,21 +63,30 @@ ALIASES: dict[str, list[str]] = {
     "note": ["Ghi chú", "note", "備註", "备注"],
 }
 
+OUT_BUCKETS = ("out_tai_xuat", "out_chuyen_mdsd", "out_xuat_sx", "out_xuat_khac")
+
 NUMERIC_FIELDS = (
-    "opening", "inbound_total", "out_tai_xuat", "out_chuyen_mdsd",
-    "out_xuat_sx", "out_xuat_khac", "closing_reported",
+    "opening", "inbound_total", *OUT_BUCKETS, "outbound_total", "closing_reported",
 )
 
 
+def outbound_value(line: dict) -> float | None:
+    """Canonical total xuất. Prefers the explicit outbound_total; falls back to
+    the sum of the 4 regulatory buckets when present."""
+    total = line.get("outbound_total")
+    if total is not None:
+        return total
+    buckets = [line.get(f) for f in OUT_BUCKETS]
+    if all(b is None for b in buckets):
+        return None
+    return sum(b or 0.0 for b in buckets)
+
+
 def closing_implied(line: dict) -> float | None:
-    """Tồn cuối kỳ ngụ ý = đầu kỳ + nhập − Σ xuất. Derived at runtime
+    """Tồn cuối kỳ ngụ ý = đầu kỳ + nhập − tổng xuất. Derived at runtime
     (never stored). Returns None when opening and inbound are both absent."""
     opening = line.get("opening")
     inbound = line.get("inbound_total")
     if opening is None and inbound is None:
         return None
-    out = sum(
-        (line.get(f) or 0.0)
-        for f in ("out_tai_xuat", "out_chuyen_mdsd", "out_xuat_sx", "out_xuat_khac")
-    )
-    return (opening or 0.0) + (inbound or 0.0) - out
+    return (opening or 0.0) + (inbound or 0.0) - (outbound_value(line) or 0.0)
