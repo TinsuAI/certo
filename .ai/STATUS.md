@@ -1,112 +1,87 @@
 # Project Status
 
 ## Current State
-- **CO-stock recalc/lock parity bug — FIXED, fully verified on real Johnson, NOT committed.**
-  An edited origin sheet (thay/xoá/thêm NVL) could not be "Chốt" — failed with
-  `không chốt được bảng kê … vì vượt tồn ở N lot` (johnson `co-case-a4e1dbbdb0f5` /
-  `MFW0507-39` = 47 lot). Root cause: `recalculate_origin_sheet_edits` (the override path used
-  by both "Lưu" and post-edit "Tính bảng kê") allocated tồn from `list_bcct_by_codes` → **raw
-  BCCT** (`remaining_qty == quantity`, un-folded, ignores other-case claims), while
-  `co_stock_ledger.record_sheet_lock` validates against the **trừ-lùi-FOLDED** snapshot − other
-  claims. Every folded lot over-claimed. Regression from fold commit `66fe311` (2026-06-04);
-  widened by `074e926` routing the normal "Tính bảng kê" through that raw path after an edit.
-  **Fix:** recalc now sources stock from `_calculate_stock_rows_from_snapshot` (same folded+ledger
-  snapshot the lock checks), raw narrow pull only on cold/empty snapshot. `app/routers/co_case.py`.
-- **Bảng kê save UX reworked — in-place + debounced auto-save, NOT committed.**
-  - **In-place save:** `/save` now content-negotiates — `Accept: text/html` returns the re-rendered
-    `co_case.html` shell (default Accept still JSON for API/tests); the save JS routes through the
-    existing `replaceCaseShellFromResponse` (same path as /calculate, /lock) → **no full reload / F5**.
-  - **Auto-save (debounced 2s):** `markSheetDirty` → `scheduleAutoSave` (per-panel timer). After the
-    operator pauses ~2s it auto-persists (batched: bulk delete+thay recalc ONCE), never yanks focus
-    mid-edit, re-arms while a save is in flight, detects diverged ĐM inputs (norm edits land in
-    pendingOps only at save-time). Manual "Lưu bảng kê" still works.
-  - **Persistent edit toolbar (Excel-like, step 1):** the toolbar (status + Lùi/Tiến + Lưu + Bỏ) is now
-    **server-rendered & always visible** per unlocked sheet (`data-origin-edit-toolbar` after
-    `data-origin-strip`), survives shell swaps, shows **✓ Đã lưu / ● Chưa lưu · N thao tác** and no
-    longer hides after save. `markSheetDirty`/`clearSheetDirty` flip state (don't create/remove);
-    buttons bound by delegation; `updateSheetHistoryButtons` gates Lưu on `hasUnsavedEdits`. CSS
-    `.origin-dirty-banner-clean` (calm, no amber when clean).
-- **PENDING user decision (deferred via /handoff): the bảng kê save model** — needed to finish the
-  Excel-like work. Conflicts with the 2s auto-save (commits too fast → kills undo window). Options:
-  (a) manual Ctrl+S + strong undo, drop 2s auto-save [rec]; (b) auto-save on leave-sheet/~30s idle;
-  (c) keep 2s. **Persistent toolbar is DONE**; remaining Excel work (Ctrl+Z/Y shortcuts, undo that
-  SURVIVES a save [shell swap currently wipes `__sheetHistory`], unsaved-leave warning) is gated on
-  this choice. Memory [[bangke-excel-like-dirty-undo]].
-- **Inherited (prior session, committed + deployed):** D1 CO-stock refresh hardening (`2c856da`,
-  pushed+deployed prod+demo) + backbone doc (`4f567ff`, **unpushed**). See the D1 section in Next Steps.
+- **Bảng kê declarability via DH `customs_relevance` — DONE + committed (`46ab586`).**
+  CO reads DH (mig 078) per-material `customs_relevance` to exclude non-declarable rows from every
+  C/O export (`workbook_io`, `bang_ke_renderer`, `bang_ke_xml_generator`): `excluded_non_material`
+  (rác) + `declarable_unmatched` (real material, no import match → kept out of export but shown as a
+  "cần đối soát" review queue). **NO client-specific heuristic** (option B) — anything DH leaves
+  `null`/`review` is KEPT, so an unmapped client (growatt = 100% null) loses nothing. The earlier
+  `technical_flattened` heuristic over-fit Johnson (would have dropped 94% of growatt). `customs_relevance`/
+  `item_category`/`material_group` now flow through the origin material build; warning summary + web
+  badges split rác vs review. New `app/origin_material_filters.py` + `tests/test_technical_noise_filter.py`.
+- **Bulk row-select shell-swap fix — DONE + committed (`a9770bc`).** `wireSheetBulkDelete` was wired
+  once at load (not in `refreshCaseShellInteractions`, not delegated) → select-all / "Chọn dòng không có
+  tồn/BCCT" / clear / delete went dead after any in-place shell swap. Now idempotent + re-run on refresh.
+- **Collapse removed/non-material rows ("gộp dòng đã xoá / phi vật tư") — DONE but UNCOMMITTED.**
+  `app/templates/co_case.html` + `app/static/css/app.css` (working tree). Folds persisted-deleted rows
+  + DH `excluded_non_material` (rác) into one "▸ Hiện N dòng đã loại" toggle; keeps `declarable_unmatched`
+  visible (review). Visible rows renumber contiguous; folded show "–". `initOriginFoldRows` in
+  `refreshCaseShellInteractions` (idempotent). Verified: headless DOM test 12/12 + live growatt demo
+  (deleted 4 rows via real `/save` → folds correctly). Screenshots `.ai/screenshots/2026-06-09-declarability/`.
+- **KEY FINDING — why Johnson rác doesn't auto-fold yet (DH gap, NOT a CO bug):** Johnson's rác
+  (drawings/checklists/labels) are `bom_observed` codes with `customs_relevance=null`; option B (correctly)
+  keeps them, so nothing folds/excludes automatically until DH classifies them. Root cause is DH-side
+  (SAP Material Group dropped at BOM ingest; mig 078 re-ingest incomplete for `bom_observed`). See
+  BACKLOG **DC1**; DH request sent (`.ai/api-requests/2026-06-09-johnson-bom-material-group-gap.md`).
+- **Inherited, still PENDING (prior session):** the **bảng kê save-model decision** (Excel-like undo) —
+  remaining Ctrl+Z/Y + undo-that-survives-a-save is gated on it. Memory [[bangke-excel-like-dirty-undo]].
+  Plus D1 CO-stock refresh leftovers (transaction_key sign-off, fix C).
 
 ## Recent Changes (latest first)
-- **(uncommitted)** Persistent always-visible edit toolbar (`app/templates/co_case.html`,
-  `app/static/css/app.css`) — no longer hides after save; shows saved/dirty state.
-- **(uncommitted)** Bảng kê save UX: `/save` HTML negotiation + in-place swap; debounced auto-save
-  (`app/routers/co_case.py`, `app/templates/co_case.html`). +1 test (`/save` HTML shell).
-- **(uncommitted)** Fix recalc/lock tồn parity (`app/routers/co_case.py`). +2 tests
-  (`tests/test_recalc_stock_source_parity.py`, `tests/test_recalc_lock_parity_db.py` [DB-gated]).
-- **`4f567ff`** docs(co-stock): backbone architecture reference. **Unpushed.**
-- **`2c856da`** fix(co-stock): harden delta/full refresh (D1). Pushed + deployed prod+demo.
+- **(uncommitted)** Collapse removed/non-material rows (`app/templates/co_case.html`, `app/static/css/app.css`).
+- **`b951182`** docs(backlog): M1 — Propose BOM status not syncing / re-propose.
+- **`46ab586`** feat(co-origin): bảng kê declarability via DH `customs_relevance` (+ new filter module + tests + DH note).
+- **`a9770bc`** fix(co-origin): re-bind bulk row-select after in-place shell swap.
+- **`f4b32fd`** (prior session) docs(ai): handoff — bảng kê recalc parity + save UX. Already committed.
 
 ## Next Steps (priority order)
-1. **DECIDE the bảng kê save model** (blocks the rest of the Excel-like work). I asked; user deferred.
-   Options: (a) manual Ctrl+S + strong undo, drop the 2s auto-save [my rec]; (b) auto-save on
-   leave-sheet / ~30s idle so undo survives; (c) keep 2s auto-save (undo ~2s). **Persistent toolbar is
-   already done.** Remaining once decided: Ctrl+Z/Y; undo that SURVIVES a save (the shell swap on save
-   wipes `__sheetHistory` — needs either save-without-swap or re-hydrating history after swap);
-   unsaved-leave warning. Undo plumbing: `__sheetHistory` + `snapshotSheet`/`undo`/`redo` (`co_case.html`).
-   Memory [[bangke-excel-like-dirty-undo]].
-2. **Commit + (ask before) push this session's work.** All 3 changes (parity fix + 2 save-UX changes)
-   are coherent but distinct — consider 2–3 commits: `fix(co-stock): recalc allocates from folded
-   snapshot`, `feat(co-case): in-place save`, `feat(co-case): debounced auto-save`. Push auto-deploys.
-3. **D1 leftover — confirm `transaction_key` stability with Data Hub** (biggest latent risk). Sign-off
-   still BLANK (`.ai/api-requests/2026-05-28-bcct-incremental-since-filter.md`).
-4. **D1 — fix C (claim-blocked tombstone never retried).** Fork: C1 persist+retry vs C2 full-reconcile
-   backstop. + **E/F** (sync-status axis, refresh-mode UX) + delta-vs-full parity harness (needs T1).
-5. **BACKLOG T1 — test DB isolation** (`/discover` brief exists). Tests with `.env` write shared dev DB.
-6. **Index 4.27s johnson-vn** — N+1 `claims_summary_for_case` (`co_case_context.py:2760-2767`).
-7. DH reciprocal cleanup (demo `/version` 0.0.0; prod missing `COPY CHANGELOG.md`) — needs user OK.
-8. Feedback backlog: #14 (BOM default per code), #13 (batch chốt BOM), #4 (DH substitute ranking).
+1. **Commit the fold feature** — `feat(co-origin): collapse removed/non-material rows` (`co_case.html` +
+   `app.css`). Then (ask before) push — push auto-deploys TinsuAI/co main ~1–2min.
+2. **DH-side: finish Material Group re-ingest for `bom_observed`** (BACKLOG DC1) — unblocks Johnson rác
+   auto-fold/exclude. CO needs NO change once DH lands it (already reads the field); re-calculate the
+   Johnson sheet afterward to bake `customs_relevance` into saved materials.
+3. **DECIDE the bảng kê save-model** (still open from prior session) — blocks Excel-like undo work.
+   Options: (a) manual Ctrl+S + strong undo, drop 2s auto-save [rec]; (b) auto-save on leave/idle; (c) keep 2s.
+4. **BACKLOG DC2** — confirm where CO sources the technical-BOM `material_description` (DH brief flags
+   `bom_artifact_rows.payload={}`). Read-only, low urgency.
+4b. **BACKLOG DC3 — rác/đã-xoá behavior across Chốt/BOM/Xuất/Tính (decide + patch).** Verified 2026-06-09:
+   update-BOM (`build_bom_proposal_rows:2224`) strips only `deleted`, KEEPS rác (BOM = structure — decide
+   if it should strip rác too). Export + calc exclude/neutralize rác BUT only when materials carry
+   `customs_relevance` — a pre-`customs_relevance` calculated sheet leaks rác into export/BOM until
+   re-calculated (risk: issue a C/O with rác on old sheets). `declarable_unmatched` sums 0 → inflates LVC;
+   only a visible warning exists, no hard Chốt/Xuất block (spec Edit 5). See BACKLOG DC3.
+5. D1 leftovers: transaction_key stability sign-off; fix C (claim-blocked tombstone retry); parity harness.
+6. BACKLOG T1 (test DB isolation), Index 4.27s N+1 (`co_case_context.py:2760-2767`), feedback backlog.
 
 ## Blockers
-- Excel-like undo work is blocked on the save-model decision (#1).
+- Johnson rác auto-fold/exclude is blocked on DH (DC1 — Material Group re-ingest). CO side is complete.
+- Excel-like undo is blocked on the save-model decision (#3).
 
 ## Notes for Next AI Session
-- **NOTHING from this session is committed.** `git status`: M `app/routers/co_case.py`,
-  M `app/templates/co_case.html`, M `tests/test_co_demo.py`; new tests + `.ai/scripts/*` + screenshots.
-- **Verification (this session):**
-  - Real-Johnson read-only before/after (edited `MFW0506-39`): PRE-FIX raw path = **37 over-claim lots**,
-    POST-FIX folded path = **0** → Chốt clean. Same mechanism as the reported 47-lot case.
-  - Playwright on live server + real Johnson: Chốt succeeds (HTTP 200, "Đã chốt", no "vượt tồn");
-    in-place save (no reload, status calculated); auto-save (no reload, banner clears, 0 JS errors);
-    persistent toolbar (visible+clean on load → dirty on edit → still visible+"Đã lưu" after save).
-    Scripts: `.ai/scripts/pw_johnson_lock_repro.py`, `pw_save_inplace.py`, `pw_autosave.py`,
-    `pw_toolbar.py` (each does full backup→test→restore of the dev case + ledger). Screenshots in
-    `.ai/screenshots/2026-06-08-co-stock-recalc-folded-parity/` (1-before … 5-toolbar-persists).
-  - Full file-mode suite: **560 passed / 11 skipped** (DB-gated parity tests skip without `.env`).
-- **Local data reality (important):** the reported case `co-case-a4e1dbbdb0f5` is **prod-only** (not in
-  local store). But johnson IS fully local — snapshot **60,173 rows** + ledger + **3 loadable cases**
-  (`co-case-1643bb515a6a`, `co-case-ec000d03522e`, `co-case-4e9f5a3b1e9c`) + **25,727 usable+folded
-  "trap" lots**. Reproductions used `co-case-ec000d03522e / MFW0506-39`. My raw `psql` earlier hit a
-  wrong search_path (showed johnson=0); the app's `app.database.connect()` /
-  `co_stock_materializer.row_count()` are authoritative.
-- **⚠ Dev-data drift on `co-case-ec000d03522e`:** repeated Playwright tests (backup→restore against the
-  SHARED mutable dev case) drifted its state — `MFW0506-39` got locked by a test then un-locked back to
-  `calculated` (current: 7 locked + 1 calculated, overrides=0), and case claims drifted **545 → 524**
-  (~21 lost across lock/reopen/failed-restore cycles). Case is SANE + usable; exact pristine state lost.
-  NOT a code/tồn issue — test-data noise; this is why **T1 (test DB isolation)** exists. Lesson: don't
-  loop browser tests over shared dev data; restore via `save_case_record` (NOT `save_state`, which only
-  writes the top-level blob, not per-case `co_cases` rows) and WAIT for in-flight saves before restoring.
-- **Save-path architecture (for the undo work):** origin tab is server-rendered; /calculate, /lock,
-  /load-bom, /reopen all swap in-place via `replaceCaseShellFromResponse` (parses returned HTML, replaces
-  `[data-co-case-shell]`, `refreshCaseShellInteractions()` re-binds). A shell swap REPLACES the panel →
-  client undo history (`__sheetHistory`) is lost. That's the core tension with "undo thoải mái".
-- **Local dev:** `npm run co:serve` → `127.0.0.1:8001` (auth OFF, `--reload` watch app/**). Server was
-  running all session and has ALL uncommitted changes loaded. DH dev on `:8754`.
-- **Tests:** file-mode `PYTHONPATH=. uv run python -m pytest` (NO .env). DB parity test
-  `tests/test_recalc_lock_parity_db.py` needs `.env` (seeds a folded lot, asserts raw-claim rejected /
-  folded-claim accepted against the real ledger). Memory [[test-env-filemode-vs-datahub]].
-- **Branch/deploy unchanged:** `main` HEAD `4f567ff`; `4f567ff` (docs) committed but NOT pushed.
-  `origin` + `tinsu` both = TinsuAI/co; push auto-deploys ~1-2min.
-- **Memory updated:** [[co-stock-recalc-folded-parity]] (the fix), [[bangke-excel-like-dirty-undo]] (pending feature).
-- **Inherited D1 mental-model notes** (still relevant): App CO OWNS tồn CO (claims+adjustments are
-  unrecoverable crown jewels); lot identity = `direction‖declaration‖line‖item_code` (customs ITEM code,
-  not hs_code); over-claim DB guard is SKIPPED when no snapshot → tồn correctness needs a fresh snapshot.
-  See `docs/co-stock-architecture.md`.
+- **Uncommitted = ONLY the fold feature** (`app/templates/co_case.html`, `app/static/css/app.css`). Everything
+  else this session is committed (`a9770bc`, `46ab586`, `b951182`). Screenshots are gitignored (local only).
+- **⚠ Dev-data mutation is a real trap (re-learned the hard way this session):** state lives in TWO stores —
+  bulk `co_case_store.save_state` AND the per-row `co_cases` table via `_persist_case_row`. Restoring a test
+  case via `save_state` ALONE does NOT revert (the per-row table keeps the change). Also: a SAVED delete on a
+  calculated sheet **permanently reduces `product.materials`** (not just override-hides), and `/calculate` does
+  NOT rebuild the full set. I deleted rows on growatt `co-case-e44fe2065b62 / SD00.0010600` during the fold
+  demo, which dropped 128→124→122; **restored from the `cases.json` seed** (128 mat, 1 override, calculated) via
+  `save_state` + `_persist_case_row`. Johnson `co-case-ec000d03522e` verified clean (overrides=0, locked).
+  **Lesson: don't loop browser/`/save` tests over shared dev data; if you must, restore through BOTH stores
+  (or re-seed from `cases.json`), not `save_state` alone.** (Same trap noted in prior session.)
+- **Declarability data reality:** DH `customs_relevance` lives on the MATERIAL (`/v1/hub/materials`). Johnson's
+  only-in-technical-BOM rác codes are NOT registered materials (bare stub, name=code) → field is `null`. The
+  classification DH *can* derive (RD07/RD08/RD12) lives at BOM-row level, but the spec told CO to read
+  material-level — so these rác slip through as `null`. The render of a **calculated** sheet uses SAVED
+  materials (pre-`customs_relevance`), so a re-calculate is needed to refresh the field.
+- **Local dev:** `npm run co:serve` → `127.0.0.1:8001` (auth OFF, `--reload`). **Start it via a harness
+  background task (no trailing `&` inside the tool call) or it gets reaped.** DH dev on `:8754` (flaky — died
+  a couple times this session; restart in `client/data-hub` if `customs_relevance` queries connection-refuse).
+- **Verify the fold visually:** Johnson sheets are all locked + have no DH-classified rác, so nothing folds
+  there. To see it: an UNLOCKED *calculated* sheet + delete rows via the real `/save` (busts cache; direct
+  state injection does NOT reach the render). growatt `co-case-e44fe2065b62 / SD00.0010600` works.
+- **Loose ends:** the johnson↔DH note copy is UNTRACKED in `data-hub` repo (user said copy, not commit).
+- **Tests:** file-mode `PYTHONPATH=. uv run python -m pytest` (NO `.env`). The 25-code DH note + DC1/DC2 are
+  the declarability follow-ups. Memory: [[technical-flattened-export-noise]], [[origin-wiring-must-survive-shell-swap]].
+- **Branch/deploy:** `main` HEAD `b951182`; nothing pushed this session. `origin`+`tinsu` = TinsuAI/co; push auto-deploys.

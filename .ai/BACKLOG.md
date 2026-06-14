@@ -127,6 +127,49 @@ Pointers: template `co_case.html:1165-1206` (nút + dòng "Đã propose: <artifa
 JS `initOriginProposeBom` (`co_case.html:4902`), endpoint `…/origin/sheet/{product_code}/propose-bom`.
 `/discover` trước (đụng hợp đồng Data Hub). Added: 2026-06-08.
 
+## Declarability (DH customs_relevance)
+
+### DC1 — Johnson "rác" chưa tự loại/gộp: DH thiếu nhãn (gốc = ingest bỏ Material Group)
+CO đã đọc `customs_relevance` + bỏ heuristic (phương án B) → chỉ loại/gộp dòng DH gắn
+`excluded_non_material`. Nhưng rác thật của johnson (bản vẽ/checklist/nhãn — nhóm
+`bom_observed`, 1.207 mã) đang `customs_relevance=null` → CO **giữ** (đúng B) → **không có gì
+để gộp/loại tự động**. Vì vậy fold + auto-exclude hiện trống trên sheet johnson; chỉ chạy khi
+operator **xoá tay** (đã hoạt động — xem screenshots) hoặc DH gắn nhãn xong.
+**Gốc rễ (brief DH `data-hub/.ai/features/2026-06-08-leaf-nvl-declarability/brief.md`):** adapter
+ingest (`sap_indented_walk.py`) chỉ giữ level/qty/unit/description, **vứt cột SAP `Material Group`
++ cờ `Phantom`/`Bulk`**; `customs_relevance` suy từ Material Group nên null. mig 078 re-ingest MG
+(decode đúng: RD07=drawings, RD08=documents, RD12=labels) **nhưng chưa phủ hết nhóm
+`bom_observed`-only** cho johnson. Đã gửi note sang DH liệt kê 25 mã:
+`.ai/api-requests/2026-06-09-johnson-bom-material-group-gap.md` (+ copy ở
+`data-hub/.ai/sister-app-notes/`). **Việc cần (DH):** chạy nốt re-ingest Material Group cho
+`bom_observed`, KHÔNG map tay từng mã. CO không cần đổi code (đã đọc field). Added: 2026-06-09.
+
+### DC2 — Xác nhận CO lấy tên NVL kỹ thuật từ đâu (brief DH cảnh báo)
+Brief DH (Finding 2) lưu: `hub.bom_artifact_rows.payload` = `{}` cho mọi mã `bom_observed`; tên thật
+("Tube;Round;45#…", "Rendering;Semi-Assy") chỉ nằm trong `hub.catalog_candidates.sample_text`.
+"Nếu CO đang hiển thị các tên này thì KHÔNG lấy từ payload dòng phẳng — cần xác nhận phía CO."
+CO hiện có hiển thị các tên đó (thấy trong cases.json `material_description`). **Việc:** truy CO lấy
+`material_description` từ field/endpoint nào cho mã `bom_observed`; nếu nguồn đó mất/đổi thì tên NVL
+sẽ trống. Read-only điều tra, chưa khẩn. Added: 2026-06-09.
+
+### DC3 — Hành vi dòng rác/đã-xoá qua Chốt/BOM/Xuất/Tính (cần chốt + vá)
+Soi code 2026-06-09. Bảng hành vi (dòng **đã-xoá** | dòng **rác** DH-classified):
+
+- **Update BOM qua DH (propose-bom, `co_case.py:build_bom_proposal_rows:2224`):** loại `deleted`
+  | **GIỮ rác.** Cố ý: BOM = cấu trúc sản phẩm, rác là thành phần BOM thật, `customs_relevance` chỉ
+  chi phối bảng kê. **Quyết định cần user chốt:** có muốn update-BOM cũng strip rác không? Nếu có,
+  thêm `or is_bom_technical_noise(...)` ở `build_bom_proposal_rows` (và cân nhắc `sheet_edit_bom_rows`).
+- **Xuất + Tính (LVC/VNM/tồn):** loại đã-xoá (`sheet_edit_bom_rows:594` bỏ khỏi recalc), rác trung-tính
+  (không phân bổ → trị giá 0, không claim tồn) | **NHƯNG chỉ đúng khi materials có `customs_relevance`.**
+  Sheet **đã-tính-từ-trước** lưu materials KHÔNG có field → `is_bom_technical_noise=False` → **rác LỌT
+  vào export + vào BOM** tới khi "Tính bảng kê" lại. **Rủi ro:** phát hành C/O có rác trên sheet cũ.
+  Cần: bắt buộc re-calc trước chốt/xuất, HOẶC render-time rebuild materials kèm `customs_relevance`.
+- **`declarable_unmatched` cộng 0 → thổi LVC** (thiếu trị giá không-xuất-xứ vì chưa khớp tồn). Spec Edit 5
+  đề xuất **chặn/cảnh báo phát hành** khi còn dòng chưa khớp; hiện mới có **cảnh báo hiển thị** (badge +
+  summary "cần đối soát"), **chưa chặn cứng** lúc Chốt/Xuất. Cân nhắc block phát hành C/O.
+
+Liên quan [[DC1]] (gốc DH). Added: 2026-06-09.
+
 ## Performance
 
 ### P1 — "Tạo hồ sơ" → mở "Bảng kê C/O" lần đầu chậm
