@@ -91,7 +91,7 @@
     </thead>
     <tbody>
       {% for s in summaries %}
-      <tr>
+      <tr data-row-href="/clients/{{ client.client_id }}/declarations/{{ s.declaration_no }}" tabindex="0">
         <td class="mono">
           <a href="/clients/{{ client.client_id }}/declarations/{{ s.declaration_no }}">
             {{ s.declaration_no }}

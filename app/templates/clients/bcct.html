@@ -109,7 +109,7 @@
     </thead>
     <tbody>
       {% for r in items %}
-      <tr>
+      <tr data-row-href="/clients/{{ client.client_id }}/bcct/history/{{ r.transaction_key }}/{{ r.line_no }}" tabindex="0">
         <td class="mono" data-col="declaration_no">{{ r.declaration_no or '' }}</td>
         <td data-col="line_no">{{ r.line_no }}</td>
         <td class="mono" data-col="declaration_type">{{ r.declaration_type or '' }}</td>

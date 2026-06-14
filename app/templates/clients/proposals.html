@@ -48,7 +48,7 @@
     </tr></thead>
     <tbody>
       {% for p in items %}
-      <tr>
+      <tr data-row-href="/clients/{{ client.client_id }}/proposals/{{ p.proposal_id }}" tabindex="0">
         <td class="mono">{{ p.proposal_id[:14] }}…</td>
         <td class="mono">{{ p.product_code }}</td>
         <td><span class="badge">{{ p.actor }}</span></td>

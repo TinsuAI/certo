@@ -42,18 +42,21 @@ def test_default_page_is_50_rows(authed_client):
     # Simpler heuristic: count occurrences of badge marker for direction.
     # 50 rows × max 1 badge per row → ≤ 50.
     body = r.text
-    # Crude row count via the per-row history-link path
-    assert body.count(f"/clients/{CLIENT_ID}/bcct/history/") == 50, (
-        "expected exactly 50 history links == 50 rows"
+    # Crude row count via the per-row clickable-row attribute (exactly one
+    # `data-row-href` per <tr>; the inspect <a> also links to the same path,
+    # so count the attribute, not the bare path).
+    assert body.count(f'data-row-href="/clients/{CLIENT_ID}/bcct/history/') == 50, (
+        "expected exactly 50 clickable rows == 50 rows"
     )
 
 
 def test_page_size_param_clamps_and_changes_count(authed_client):
+    marker = f'data-row-href="/clients/{CLIENT_ID}/bcct/history/'
     r = authed_client.get(f"/clients/{CLIENT_ID}/bcct?page_size=25")
-    assert r.text.count(f"/clients/{CLIENT_ID}/bcct/history/") == 25
+    assert r.text.count(marker) == 25
     r = authed_client.get(f"/clients/{CLIENT_ID}/bcct?page_size=9999")
     # Clamped to MAX_PAGE_SIZE = 200
-    assert r.text.count(f"/clients/{CLIENT_ID}/bcct/history/") == 200
+    assert r.text.count(marker) == 200
 
 
 def test_page_2_returns_different_rows(authed_client):

@@ -1,4 +1,7 @@
-{# Per-client header + tab nav, included by every workspace page. #}
+{# Per-client header + tab nav, included by every workspace page.
+   Three domain groups (Danh mục / Hải quan / BOM) keep the bar to a few
+   top-level entries; each <details> groups its related pages. Đề xuất lives
+   under BOM (it is a BOM-change queue). Self-highlights via active_tab. #}
 <section class="page-bar">
   <h1>{{ client.name }}</h1>
   <span class="page-tagline">
@@ -18,8 +21,10 @@
   </div>
 </section>
 
-{% set data_tabs = ['catalog', 'bqd', 'bcct', 'declarations', 'bom', 'proposals'] %}
-{% set config_tabs = ['config', 'parser_rules', 'column_aliases', 'material_group_map', 'uom-factors', 'staff'] %}
+{% set catalog_tabs = ['catalog', 'bqd'] %}
+{% set customs_tabs = ['bcct', 'declarations'] %}
+{% set bom_tabs = ['bom', 'proposals', 'uom-factors'] %}
+{% set config_tabs = ['config', 'parser_rules', 'column_aliases', 'material_group_map', 'staff'] %}
 <nav class="tabs client-tabs" aria-label="Client workspace tabs">
   <a class="tab-link {{ 'tab-link-active' if active_tab == 'overview' else '' }}"
      href="/clients/{{ client.client_id }}">{{ t('tabs.overview') }}</a>
@@ -27,20 +32,35 @@
   <span class="tab-sep" aria-hidden="true"></span>
 
   <details class="nav-menu">
-    <summary class="tab-link {{ 'tab-link-active' if active_tab in data_tabs else '' }}">Dữ liệu</summary>
+    <summary class="tab-link {{ 'tab-link-active' if active_tab in catalog_tabs else '' }}">{{ t('navgrp.catalog') }}</summary>
     <div class="nav-menu-panel">
       <a class="{{ 'is-active' if active_tab == 'catalog' else '' }}"
-         href="/clients/{{ client.client_id }}/catalog">{{ t('tabs.catalog') }}</a>
+         href="/clients/{{ client.client_id }}/catalog">{{ t('navgrp.catalog.item') }}</a>
       <a class="{{ 'is-active' if active_tab == 'bqd' else '' }}"
          href="/clients/{{ client.client_id }}/bqd">{{ t('tabs.bqd') }}</a>
+    </div>
+  </details>
+
+  <details class="nav-menu">
+    <summary class="tab-link {{ 'tab-link-active' if active_tab in customs_tabs else '' }}">{{ t('navgrp.customs') }}</summary>
+    <div class="nav-menu-panel">
       <a class="{{ 'is-active' if active_tab == 'bcct' else '' }}"
          href="/clients/{{ client.client_id }}/bcct">{{ t('tabs.bcct') }}</a>
       <a class="{{ 'is-active' if active_tab == 'declarations' else '' }}"
-         href="/clients/{{ client.client_id }}/declarations">Tờ khai</a>
+         href="/clients/{{ client.client_id }}/declarations">{{ t('tabs.declarations') }}</a>
+    </div>
+  </details>
+
+  <details class="nav-menu">
+    <summary class="tab-link {{ 'tab-link-active' if active_tab in bom_tabs else '' }}">{{ t('tabs.bom') }}</summary>
+    <div class="nav-menu-panel">
       <a class="{{ 'is-active' if active_tab == 'bom' else '' }}"
-         href="/clients/{{ client.client_id }}/bom">{{ t('tabs.bom') }}</a>
+         href="/clients/{{ client.client_id }}/bom">{{ t('navgrp.bom.list') }}</a>
       <a class="{{ 'is-active' if active_tab == 'proposals' else '' }}"
          href="/clients/{{ client.client_id }}/proposals">{{ t('tabs.proposals') }}</a>
+      <a href="/clients/{{ client.client_id }}/bom/needs-action">{{ t('navgrp.bom.needs_action') }}</a>
+      <a class="{{ 'is-active' if active_tab == 'uom-factors' else '' }}"
+         href="/clients/{{ client.client_id }}/uom-factors">{{ t('navgrp.bom.uom') }}</a>
     </div>
   </details>
 
@@ -54,19 +74,17 @@
   <span class="tab-sep" aria-hidden="true"></span>
 
   <details class="nav-menu">
-    <summary class="tab-link {{ 'tab-link-active' if active_tab in config_tabs else '' }}">Cấu hình</summary>
+    <summary class="tab-link {{ 'tab-link-active' if active_tab in config_tabs else '' }}">{{ t('tabs.config') }}</summary>
     <div class="nav-menu-panel">
       <a class="{{ 'is-active' if active_tab == 'config' else '' }}"
-         href="/clients/{{ client.client_id }}/edit">{{ t('tabs.config') }}</a>
-      <a class="{{ 'is-active' if active_tab == 'uom-factors' else '' }}"
-         href="/clients/{{ client.client_id }}/uom-factors">Hệ số UoM</a>
+         href="/clients/{{ client.client_id }}/edit">{{ t('navgrp.config.general') }}</a>
       {% if can_edit_technical(client.client_id) %}
       <a class="{{ 'is-active' if active_tab == 'parser_rules' else '' }}"
-         href="/clients/{{ client.client_id }}/parser-rules">Parser rules</a>
+         href="/clients/{{ client.client_id }}/parser-rules">{{ t('navgrp.config.parser_rules') }}</a>
       <a class="{{ 'is-active' if active_tab == 'column_aliases' else '' }}"
-         href="/clients/{{ client.client_id }}/column-aliases">Cấu hình cột</a>
+         href="/clients/{{ client.client_id }}/column-aliases">{{ t('navgrp.config.column_aliases') }}</a>
       <a class="{{ 'is-active' if active_tab == 'material_group_map' else '' }}"
-         href="/clients/{{ client.client_id }}/material-group-map">Bản đồ Material Group</a>
+         href="/clients/{{ client.client_id }}/material-group-map">{{ t('navgrp.config.material_group_map') }}</a>
       {% endif %}
       {% if can_manage_staff(client.client_id) %}
       <a class="{{ 'is-active' if active_tab == 'staff' else '' }}"

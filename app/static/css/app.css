@@ -2274,6 +2274,21 @@ table.dh-table th, table.dh-table td { padding: .6rem .8rem; text-align: left; b
 table.dh-table th { background: var(--surface-alt, #f7f8fc); font-weight: 600; color: var(--text-soft, #5b6478); font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
 table.dh-table tr:hover td { background: var(--surface-hover, #f5f6fa); }
 table.dh-table .mono { font-family: 'IBM Plex Mono', monospace; font-size: .85rem; }
+/* Whole-row click → detail (see static/js/row-link.js). The row stays a
+   normal table row; only the cursor + a slightly stronger hover hint that
+   it is clickable. Inner links/buttons keep their own behaviour. */
+tr[data-row-href] { cursor: pointer; }
+tr[data-row-href]:hover td { background: var(--surface-hover, #f5f6fa); }
+tr[data-row-href]:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+
+/* Upload detail — metadata grid + faithful first-rows file preview. */
+.upload-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .7rem 1.6rem; margin-top: 1rem; }
+.upload-meta > div { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
+.upload-meta dt { font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-soft, #5b6478); }
+.upload-meta dd { margin: 0; font-size: .9rem; }
+.upload-result-json { margin-top: .5rem; padding: .8rem 1rem; background: var(--surface-alt, #f7f8fc); border: 1px solid var(--border, #e3e6ee); border-radius: 6px; font-family: 'IBM Plex Mono', monospace; font-size: .8rem; overflow-x: auto; max-height: 24rem; }
+.preview-table td { white-space: nowrap; max-width: 280px; overflow: hidden; text-overflow: ellipsis; }
+.preview-table .preview-rownum { color: var(--text-soft, #8a93a6); text-align: right; user-select: none; width: 2.5rem; }
 
 .empty-state { padding: 3rem 2rem; text-align: center; color: var(--text-soft, #5b6478); background: var(--surface-alt, #f7f8fc); border-radius: 12px; }
 .empty-state p { margin: 0 0 1rem; }

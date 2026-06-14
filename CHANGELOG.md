@@ -10,6 +10,13 @@ phiên bản theo [SemVer](https://semver.org/).
 > hành đã đóng gói tại thời điểm đó.
 
 ## [Unreleased]
+### Mới
+- Trang chi tiết cho từng lần tải lên: metadata đầy đủ (người tải, SHA-256, kích thước, số dòng, kết quả parse), nút tải lại file gốc, và xem trước nội dung file (50 dòng đầu của xlsx/xls/csv) ngay trên trình duyệt.
+- Bảng dữ liệu: click vào cả hàng để mở trang chi tiết (BCCT, Danh mục, BOM, Đề xuất, Tờ khai, Tải lên) thay vì phải bấm icon nhỏ ở cuối hàng.
+
+### Cải tiến
+- Điều hướng trong view khách hàng gom lại thành 3 nhóm domain (Danh mục · Hải quan · BOM); "Đề xuất" chuyển vào nhóm BOM cùng Định mức / Cần xử lý / Hệ số quy đổi.
+- Trang Tải lên: thêm cột "Người tải" và Việt hoá nhãn trạng thái.
 
 ## [0.14.0] — 2026-06-14
 ### Mới
