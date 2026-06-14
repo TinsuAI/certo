@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}Công cụ nạp tồn từ workbook - {{ client.name }}{% endblock %}
+
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Công cụ: Nạp tồn CO từ workbook trừ-lùi</h2>
+      <p class="meta">Convert workbook trừ-lùi <code>.xlsm</code> → template chuẩn → nạp snapshot tồn CO. Tách riêng khỏi trang Tồn CO.</p>
+    </div>
+    <div class="chip-row">
+      <a class="chip" href="/clients/{{ client.id }}/co-stock">← Về Tồn CO</a>
+    </div>
+  </div>
+
+  <section class="zone" data-co-stock-snapshot>
+    <div class="subsection-head">
+      <h3>Nạp tồn CO từ workbook trừ-lùi (snapshot)</h3>
+      <p class="meta">
+        Cho client đang chạy workbook Excel trừ-lùi song song. Upload <code>.xlsm</code> → hệ thống
+        convert sang <strong>template chuẩn</strong> (xem trước + tải về kiểm) → <strong>Nạp snapshot</strong>
+        ghi thẳng tồn CO theo cột <strong>"Tồn"</strong> mỗi lô (remaining = opening − Đã xuất).
+        Mỗi lần nạp là một snapshot mới <strong>ghi đè</strong> toàn bộ tồn cũ (lô đang bị hồ sơ giữ vẫn giữ lại).
+        Client đã nạp snapshot sẽ KHÔNG bị "Refresh từ Data Hub" ghi đè.
+      </p>
+    </div>
+    <form data-co-stock-snapshot-form class="mini-panel" hx-boost="false">
+      <div class="stack-form">
+        <input type="file" name="file" accept=".xlsm,.xlsb,.xlsx" required data-snapshot-file>
+        <select name="sheet" data-snapshot-sheet>
+          <option value="NK2" selected>Sheet NK2 — snapshot per lot (đã reconcile)</option>
+          <option value="Save">Sheet Save — event log (legacy)</option>
+        </select>
+        <label class="meta" style="display:flex; align-items:center; gap:8px; align-self:flex-start;"><input type="checkbox" data-snapshot-skip-zero style="width:auto; margin:0;"> <span>Bỏ qua lot <code>Đã xuất = 0</code> — mặc định nạp tất cả lot</span></label>
+        <button type="submit" data-snapshot-convert>Convert + xem trước</button>
+      </div>
+      <div data-snapshot-result class="meta" hidden></div>
+      <div data-snapshot-preview-wrap hidden>
+        <div class="subsection-head"><h4>Xem trước template chuẩn</h4></div>
+        <div style="overflow:auto; max-height:340px;">
+          <table class="table">
+            <thead><tr>
+              <th>Tờ khai</th><th>STT</th><th>Mã</th><th>Tên hàng</th><th>ĐVT</th>
+              <th class="num">Tồn đầu</th><th class="num">Đã xuất</th><th class="num">Còn lại</th>
+            </tr></thead>
+            <tbody data-snapshot-preview-rows></tbody>
+          </table>
+        </div>
+        <div class="chip-row">
+          <button type="button" class="chip" data-snapshot-download>Tải template chuẩn (.xlsx)</button>
+          <button type="button" class="chip chip-action" data-snapshot-ingest>Nạp snapshot vào tồn CO</button>
+        </div>
+      </div>
+    </form>
+  </section>
+</section>
+
+<script>
+// Workbook trừ-lùi → standard template (convert/preview) → standalone snapshot (ingest).
+(() => {
+  const form = document.querySelector("[data-co-stock-snapshot-form]");
+  if (!form) return;
+  const clientId = {{ client.id | tojson }};
+  const fileInput = form.querySelector("[data-snapshot-file]");
+  const sheetSelect = form.querySelector("[data-snapshot-sheet]");
+  const skipZero = form.querySelector("[data-snapshot-skip-zero]");
+  const resultBox = form.querySelector("[data-snapshot-result]");
+  const previewWrap = form.querySelector("[data-snapshot-preview-wrap]");
+  const previewRows = form.querySelector("[data-snapshot-preview-rows]");
+  const downloadBtn = form.querySelector("[data-snapshot-download]");
+  const ingestBtn = form.querySelector("[data-snapshot-ingest]");
+  const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  let converted = null; // {b64, filename}
+
+  const show = (msg) => { resultBox.hidden = false; resultBox.textContent = msg; };
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>]/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;"}[c]));
+  const b64ToBlob = (b64, type) => {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], {type});
+  };
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!fileInput.files || !fileInput.files[0]) { show("Chọn file workbook trước."); return; }
+    converted = null;
+    previewWrap.hidden = true;
+    show("Đang convert sang template chuẩn…");
+    const fd = new FormData();
+    fd.append("file", fileInput.files[0]);
+    fd.append("sheet", sheetSelect.value);
+    fd.append("include_zero_used", skipZero.checked ? "false" : "true");
+    try {
+      const r = await fetch(`/clients/${encodeURIComponent(clientId)}/co-stock/convert-workbook`, {method: "POST", body: fd});
+      const data = await r.json().catch(() => null);
+      if (!r.ok || !data) { show(`Lỗi ${r.status}: ${(data && data.detail) || "convert thất bại"}`); return; }
+      converted = {b64: data.standard_template_b64, filename: data.standard_filename};
+      const skipMsg = data.rows_skipped_zero_used ? ` · bỏ ${data.rows_skipped_zero_used} lot Đã xuất=0` : "";
+      const dropMsg = data.rows_dropped ? ` · bỏ ${data.rows_dropped} dòng thiếu key` : "";
+      const tonMsg = data.ton_mismatch ? ` · ⚠ ${data.ton_mismatch} lô lệch cột "Tồn"` : "";
+      show(`✓ Đã convert ${data.rows_unique} lô từ sheet ${data.sheet}${skipMsg}${dropMsg}${tonMsg}. Kiểm tra preview rồi bấm “Nạp snapshot vào tồn CO” (hoặc tải template chuẩn về kiểm).`);
+      previewRows.innerHTML = (data.preview || []).map((p) =>
+        `<tr><td class="mono">${esc(p.declaration_no)}</td><td class="mono">${esc(p.line_no)}</td>` +
+        `<td class="mono">${esc(p.customs_code)}</td><td>${esc(p.goods_name)}</td><td>${esc(p.unit)}</td>` +
+        `<td class="num">${esc(p.opening_qty)}</td><td class="num">${esc(p.used_qty)}</td><td class="num">${esc(p.remaining_qty)}</td></tr>`
+      ).join("") || `<tr><td colspan="8" class="empty-cell">Không có dòng nào.</td></tr>`;
+      previewWrap.hidden = false;
+    } catch (err) {
+      show(`Lỗi mạng: ${err}`);
+    }
+  });
+
+  downloadBtn?.addEventListener("click", () => {
+    if (!converted) return;
+    const url = URL.createObjectURL(b64ToBlob(converted.b64, XLSX_MIME));
+    const a = document.createElement("a");
+    a.href = url; a.download = converted.filename || "co-stock-standard.xlsx";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+
+  ingestBtn?.addEventListener("click", async () => {
+    if (!converted) return;
+    if (!confirm("Nạp snapshot này sẽ GHI ĐÈ toàn bộ tồn CO hiện tại của client (lô đang bị hồ sơ giữ vẫn được giữ lại). Tiếp tục?")) return;
+    show("Đang nạp snapshot vào tồn CO…");
+    ingestBtn.disabled = true;
+    const fd = new FormData();
+    fd.append("file", b64ToBlob(converted.b64, XLSX_MIME), converted.filename || "co-stock-standard.xlsx");
+    try {
+      const r = await fetch(`/clients/${encodeURIComponent(clientId)}/co-stock/import-snapshot`, {method: "POST", body: fd});
+      const data = await r.json().catch(() => null);
+      if (!r.ok || !data || !data.ok) {
+        const detail = data && (data.detail || (data.errors || []).join("; ") || (data.parse_errors || []).join("; "));
+        show(`Nạp lỗi: ${detail || ("HTTP " + r.status)}`);
+        ingestBtn.disabled = false;
+        return;
+      }
+      const blocked = data.rows_blocked_by_claims ? ` · ${data.rows_blocked_by_claims} lô giữ bởi hồ sơ` : "";
+      show(`✓ Đã nạp snapshot: ${data.rows_persisted} lô (thêm ${data.rows_added}, sửa ${data.rows_updated}, xoá ${data.rows_removed})${blocked}. Đang chuyển về Tồn CO…`);
+      setTimeout(() => { window.location.href = `/clients/${encodeURIComponent(clientId)}/co-stock`; }, 1400);
+    } catch (err) {
+      show(`Lỗi mạng: ${err}`);
+      ingestBtn.disabled = false;
+    }
+  });
+})();
+</script>
+{% endblock %}

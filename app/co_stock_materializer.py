@@ -43,8 +43,15 @@ def refresh_co_stock_for_client(
     *,
     mode: str = "full",
     tombstone_source_rows: list[str] | None = None,
+    fold: bool = True,
 ) -> dict:
     """Incremental refresh of co_stock_rows from a derivation callable.
+
+    `fold=False` skips the static trừ-lùi fold — used by the standalone
+    workbook-snapshot import (`co_stock_workbook.import_standard_snapshot`),
+    whose derive callable already produces final `opening_qty`/`baseline_used_qty`/
+    `remaining_qty`. Folding there would reset the baseline for lots with no
+    `co_stock_adjustments` entry (= SAI TỒN).
 
     Replaces the legacy DELETE+INSERT wipe with an UPSERT + targeted DELETE
     pattern (option B per `.ai/features/2026-05-28-co-stock-refresh-audit.md`):
@@ -100,10 +107,11 @@ def refresh_co_stock_for_client(
     # persisted `remaining_qty` is the true tồn-after-reconciliation. In delta
     # mode only changed rows are present; their adjustments still fold here, and
     # untouched lots keep the fold from their last refresh / import re-fold.
-    from app import co_stock_adjustments_store
+    if fold:
+        from app import co_stock_adjustments_store
 
-    adjustments = co_stock_adjustments_store.aggregate_by_lookup_key(client_id)
-    co_stock_adjustments_store.fold_baseline(rows, adjustments or {})
+        adjustments = co_stock_adjustments_store.aggregate_by_lookup_key(client_id)
+        co_stock_adjustments_store.fold_baseline(rows, adjustments or {})
     records = build_co_stock_index_records(client_id, rows)
     new_by_key = {row["source_row"]: row for row in records}
 
@@ -612,6 +620,24 @@ def row_count(client_id: str) -> int:
             return int(cur.fetchone()[0])
     except Exception:  # noqa: BLE001
         return 0
+
+
+def is_workbook_sourced(client_id: str) -> bool:
+    """True if the client's snapshot was loaded standalone from a workbook
+    (`co_stock_workbook.import_standard_snapshot`). A Data Hub refresh would
+    re-derive from BCCT and clobber it, so the refresh endpoint skips these."""
+    if not _store_available():
+        return False
+    try:
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "select 1 from co_stock_rows where client_id = %s "
+                "and payload->>'co_stock_source' = 'workbook_snapshot' limit 1",
+                (client_id,),
+            )
+            return cur.fetchone() is not None
+    except Exception:  # noqa: BLE001
+        return False
 
 
 _NUMERIC_RE = r"^-?\d+(\.\d+)?$"

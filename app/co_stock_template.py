@@ -40,6 +40,7 @@ CO_STOCK_COLUMNS: list[str] = [
     "invoice_date",
     "exchange_rate",
     "used_qty",
+    "remaining_qty",
     "source_co_no",
     "transaction_key",
 ]
@@ -68,6 +69,7 @@ CO_STOCK_HEADER_LABELS: dict[str, str] = {
     "invoice_date": "Ngày hóa đơn",
     "exchange_rate": "Tỷ giá thanh toán",
     "used_qty": "SL đã sử dụng",
+    "remaining_qty": "Còn lại",
     "source_co_no": "Số CO",
     "transaction_key": "Khóa giao dịch",
 }
@@ -81,6 +83,7 @@ _DECIMAL_COLUMNS = {
     "exchange_rate",
     "opening_qty",
     "used_qty",
+    "remaining_qty",
 }
 _DATE_COLUMNS = {"registration_date", "invoice_date"}
 

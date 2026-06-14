@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 
 from fastapi import APIRouter
-from app import co_stock_adjustments_store, co_stock_events_store, co_stock_ledger, co_stock_materializer
+from app import (
+    co_stock_adjustments_store,
+    co_stock_events_store,
+    co_stock_ledger,
+    co_stock_materializer,
+    co_stock_workbook,
+)
 from app.co_stock_template import CoStockTemplateError, read_standard_co_stock, write_standard_co_stock
 from app.data_hub_settings import data_hub_link_settings
 from app.portfolio import portfolio_service
@@ -12,7 +19,7 @@ from app.web.client_context import client_context, resolve_client, source_stats
 from app.web.co_case_context import _CO_CASE_SOURCE_CACHE, _refresh_co_stock_delta_or_full
 from app.web.templating import templates
 from datetime import date
-from fastapi import File, HTTPException, Request, UploadFile
+from fastapi import File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 
@@ -259,6 +266,15 @@ async def co_stock(request: Request, client_id: str):
         name="co_stock.html",
         context=co_stock_table_context(request, client_id),
     )
+@router.get("/clients/{client_id}/co-stock/workbook-tool", response_class=HTMLResponse)
+async def co_stock_workbook_tool_page(request: Request, client_id: str):
+    """Standalone page for the trừ-lùi workbook → snapshot tool (kept off the
+    Tồn CO table page)."""
+    return templates.TemplateResponse(
+        request=request,
+        name="co_stock_workbook_tool.html",
+        context=_co_stock_lean_client_context(client_id),
+    )
 @router.post("/clients/{client_id}/co-stock/import")
 async def import_co_stock_workbook(client_id: str, file: UploadFile = File(...)):
     """Upload a standard CO stock template xlsx. Overwrites prior snapshot
@@ -304,6 +320,70 @@ async def import_co_stock_workbook(client_id: str, file: UploadFile = File(...))
         "parse_errors": parse_errors,
         "upsert": summary,
     })
+@router.post("/clients/{client_id}/co-stock/convert-workbook")
+async def convert_co_stock_workbook(
+    client_id: str,
+    file: UploadFile = File(...),
+    sheet: str = Form("NK2"),
+    include_zero_used: bool = Form(True),
+):
+    """Stage 1 of the workbook snapshot pipeline: agency trừ-lùi `.xlsm` →
+    the system's STANDARD CO stock template. Returns a preview + the standard
+    template (base64) so the operator can download/inspect it before ingesting.
+    No DB write."""
+    client = resolve_client(client_id)
+    content = await file.read()
+    try:
+        xlsx_bytes, summary, preview = co_stock_workbook.convert_to_standard_template(
+            content, sheet=sheet, include_zero_used=include_zero_used
+        )
+    except co_stock_workbook.CoStockWorkbookError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001 — surface parse failures to the operator
+        raise HTTPException(status_code=400, detail=f"Không đọc được workbook: {exc}")
+    return JSONResponse({
+        "ok": summary["rows_unique"] > 0,
+        "client_id": client["id"],
+        "filename": file.filename or "",
+        "sheet": summary["sheet"],
+        "rows_in": summary["rows_in"],
+        "rows_unique": summary["rows_unique"],
+        "rows_dropped": summary["rows_dropped"],
+        "rows_skipped_zero_used": summary["rows_skipped_zero_used"],
+        "duplicates_merged": summary["duplicates_merged"],
+        "ton_mismatch": summary.get("ton_mismatch", 0),
+        "dropped_sample": summary["dropped"][:10],
+        "preview": preview,
+        "standard_template_b64": base64.b64encode(xlsx_bytes).decode("ascii"),
+        "standard_filename": f"{client['id']}-co-stock-standard.xlsx",
+    })
+@router.post("/clients/{client_id}/co-stock/import-snapshot")
+async def import_co_stock_snapshot(client_id: str, file: UploadFile = File(...)):
+    """Ingest a STANDARD CO stock template as the client's STANDALONE snapshot
+    (workbook-snapshot model): set co_stock_rows directly (remaining baked,
+    allocation per client_config), no fold, no BCCT overlay. Re-import REPLACES
+    the snapshot. For clients running the Excel trừ-lùi in parallel."""
+    client = resolve_client(client_id)
+    content = await file.read()
+    try:
+        result = co_stock_workbook.import_standard_snapshot(client, content, filename=file.filename or "")
+    except CoStockTemplateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    mat = result.get("materialize", {})
+    return JSONResponse({
+        "ok": not mat.get("errors"),
+        "client_id": client["id"],
+        "filename": result.get("filename", ""),
+        "rows_ingested": result.get("rows_ingested", 0),
+        "rows_persisted": mat.get("rows_persisted", 0),
+        "rows_added": mat.get("rows_added", 0),
+        "rows_updated": mat.get("rows_updated", 0),
+        "rows_removed": mat.get("rows_removed", 0),
+        "rows_blocked_by_claims": mat.get("rows_blocked_by_claims", 0),
+        "aborted_empty_full_pull": mat.get("aborted_empty_full_pull", False),
+        "parse_errors": result.get("parse_errors", []),
+        "errors": mat.get("errors", []),
+    })
 @router.post("/clients/{client_id}/co-stock/refresh")
 async def refresh_co_stock_endpoint(client_id: str):
     """Materialize the derived stock pool for one client into CO's
@@ -316,6 +396,13 @@ async def refresh_co_stock_endpoint(client_id: str):
     of a client, or when Data Hub is on an older contract.
     """
     client = resolve_client(client_id)
+    # Don't let a Data Hub re-derive clobber a workbook-loaded snapshot.
+    if co_stock_materializer.is_workbook_sourced(client["id"]):
+        return JSONResponse({
+            "ok": True, "skipped": "workbook_sourced",
+            "message": "Tồn của client này nạp từ workbook (snapshot độc lập) — bỏ qua refresh Data Hub để không ghi đè. Nạp lại bằng 'Nạp snapshot' nếu cần.",
+            "rows_persisted": co_stock_materializer.row_count(client["id"]),
+        })
     summary = _refresh_co_stock_delta_or_full(client)
     # Invalidate the case-source cache so the substitute modal / sheet calc
     # paths see the same fresh data.

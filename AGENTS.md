@@ -40,6 +40,22 @@ Key directories and their purposes.
 - `data/` — local-only agency source material and extracted working files
 - `.ai/` — project state, decisions, and discovery reports
 
+### Related sibling folders (under `../`) — avoid confusion
+Active work is on **this repo only** (`barry-CO-main`). Sibling folders in
+`/home/vp/workspace/client/`:
+- **`barry-CO`** — git WORKTREE PARENT of this repo (`barry-CO-main/.git` points into
+  `barry-CO/.git/worktrees/`). **Do not move/delete — git here breaks.** (It's the old
+  predecessor checkout, but it also holds this worktree's git dir.)
+- **`barry-CO-bom-data`** — LIVE app data; `data/` here is a symlink to it
+  (co-cases, client-config, hq-templates incl. the agency trừ-lùi workbooks,
+  co-stock-ledger). **Do not move/delete — the app breaks.**
+- **`barry-CO-data`** — real agency CO source data (3.5G, **no git** → deleting
+  loses it): trừ-lùi workbooks (Growatt + Johnson), CO dossiers, source archives.
+- **`data-hub`** — sister app this app consumes (Data Hub). Active.
+- **`_archive/`** — retired predecessors moved 2026-06-14 (barry-CO-bom-builder,
+  barry-google-app, barry); git-backed, recoverable.
+- Other dirs (`Johnson`, `cases`, `bcqt-*`, …) are separate projects — leave alone.
+
 ## Build & Run
 Commands to build, run dev server, run tests, lint.
 - `npm run extract:rars`

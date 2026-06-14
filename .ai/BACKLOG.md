@@ -322,9 +322,107 @@ hay không); (2) redesign bảng cho operator đọc được — tách/ẩn dò
 Δ rõ ràng. Vùng: modal `co-stock-history-*` + nguồn lot history (co_stock ledger/materializer).
 Added: 2026-06-14.
 
-## Tồn CO — Trừ-lùi: review + convert tool + decouple
+## Review Tồn CO — GỘP (consolidated 2026-06-14)
 
-### CS2 — Review KỸ logic+code trừ-lùi, tool convert workbook→CO, sweep mọi dependency
+Umbrella gom mọi việc tồn CO. **State-machine khoá/đua = ĐÃ XONG** (Phase 1 bỏ mutex A + Phase 2 tách
+Load BOM/Tính — verified: `grep origin_calculation_lock app/`=0; `FOR UPDATE` `co_stock_ledger.py:215`;
+status `bom_loaded` + endpoint `/load-bom`; memory [[co-stock-lock-orthogonal-overclaim-race]]).
+**Còn mở = review mô hình SỐ LIỆU tồn:** CS2 (decouple trừ-lùi, dưới) · D1 (delta-vs-full parity, chồng
+finding C dưới) · CS1 (lịch sử lot = Phase 3 cũ) · DC3 (rác qua Chốt/Xuất).
+
+### CS3 — Review TỔNG flow tồn CO: 3 nguồn (DH / import workbook / thay đổi từ CO cases)
+**REQUESTED 2026-06-14 (user).** Giờ tồn CO có **3 nguồn ghi vào `co_stock_rows`** — cần review hợp nhất,
+tránh chồng/đè/loạn:
+1. **Data Hub** — `_refresh_co_stock_delta_or_full` derive từ BCCT (fold=True, allocation per config).
+2. **Import workbook (mới)** — `import_standard_snapshot` standalone, set thẳng (fold=False, remaining baked).
+   Guard `is_workbook_sourced` chặn DH-refresh đè. [[co-stock-workbook-converter]].
+3. **Thay đổi từ CO cases** — claim/lock/release (`co_stock_ledger`) overlay ở read; recalc/Chốt.
+Câu hỏi: 3 nguồn này tương tác thế nào trên cùng 1 client? (vd client vừa có snapshot workbook vừa muốn
+claim từ hồ sơ — ledger overlay đúng chưa; re-import có reset ledger không; client chuyển từ workbook
+sang DH thì sao). Cần state model rõ "nguồn tồn hiện tại của client là gì".
+**Minor từ /rev 2026-06-14 (gộp vào đây):** (a) `stock_rows_from_standard` source_row key theo (decl,line)
+nhưng `parse_workbook` consolidate theo triplet (decl,line,customs_code) — nếu 1 (decl,line) có 2 prefix
+thì collision (không xảy ra với NK2 per-lot, đã verify (decl,line) unique — nhưng nên đồng bộ khoá);
+(b) workbook-sourced client KHÔNG DH-refresh được (by design, có message) — cân nhắc nút "chuyển sang DH";
+(c) `convert-workbook` route `except Exception` trả raw exc cho operator (info-leak nhẹ, operator-only).
+`/discover` trước. Added: 2026-06-14.
+
+### CS2 — Review trừ-lùi + convert tool + decouple — REVIEW XONG (3-agent 2026-06-14)
+**Discovery cho CS2 coi như xong — findings dưới thay cho `/discover`.** 3 agent: sweep dependency +
+review correctness fold + review convert tool.
+
+**SHIPPED 2026-06-14 — CONVERTER add-on tool (user scoped: KHÔNG đụng DB).** Upload workbook trừ-lùi
+`.xlsm` → convert sang **template chuẩn** (`co_stock_template`) → tải về. Ingest là việc user TỰ upload
+template đó vào "Import tồn CO" sẵn có (convert ⊥ ingest). `co_stock_workbook.py`
+(`parse_workbook`+`convert_to_standard_template`, no DB); route `POST /co-stock/convert-workbook`
+(preview+base64, no write); UI panel "Chuyển đổi workbook trừ-lùi → template chuẩn" trên co_stock.html;
+CLI `convert_co_stock.py` thành thin wrapper. **Deal được cả 2 client** (validated trên file thật:
+Growatt 30.923 lô, Johnson 51.095 lô, 0 read error) — cùng layout NK2/Save.
+**Hệ mã khác nhau (đã AUDIT + xử đúng):** converter key theo **prefix "#&" của tên hàng** (= BCCT
+`customs_item_code` = khoá lô hệ thống), KHÔNG phải cột Mã NPL/SP. **Audit DB:** trừ-lùi name-prefix ==
+BCCT customs_item_code 1500/1500; Mã NPL/SP == BCCT **0/1500** (Growatt) → nếu key theo Mã NPL/SP thì
+overlay khớp 0 lô, "Đã xuất" không áp = SAI TỒN. Johnson prefix=Mã NPL/SP (trùng); Growatt prefix=category
+"DIOT", Mã NPL/SP="008.x" là mã nội bộ/BOM (=allocation_code, không phải khoá lô). `matching_code()` =
+split "#&" → prefix, fallback cột khi không có "#&". Validated: converted customs_code == BCCT 2000/2000
+cả 2 client. Tests `test_co_stock_workbook.py` (file-mode), e2e `e2e_costock_workbook_snapshot.cjs` 11/11.
+Memory [[co-stock-workbook-converter]].
+(Đã thử rồi GỠ đường ingest-standalone `import_standard_snapshot`/`/co-stock/import-snapshot`/
+materializer `fold=False` theo chỉ đạo "đừng đụng DB" — đừng thêm lại nếu không được yêu cầu.)
+
+**CÒN LẠI (deferred): gỡ fold nhúng ở đường Data Hub overlay** (5 file lõi, findings A-E dưới) — KHÔNG
+khẩn vì tool snapshot đã né fold. 2 bug P0 (A) vẫn sống cho client DÙNG đường DH-overlay (`/co-stock/import`
+cũ + refresh). Khi nào đụng đường đó thì vá/decouple theo plan E + parity test. Bước tiếp nếu làm = viết
+parity test RỒI mới gỡ fold.
+
+**A. Hai bug SAI TỒN trong fold HIỆN TẠI (chưa decouple đã sai):**
+- **P0-1 — aggregate-policy fold double-count/phantom.** `refold_adjustment_lots`
+  (`co_stock_materializer.py:177-191`) khớp adjustment ↔ snapshot row bằng key per-import-row
+  `(import_declaration_no, line_no, customs_item_code)`. Với `lot_policy=aggregate_by_declaration_and_allocation_code`,
+  `co_stock_rows` là LÔ GỘP (`line_no` "3,7,11", `bcct_qty`=SUM) → key không khớp → (a) adjustment
+  KHÔNG fold (tồn ẢO: agency đã trừ, CO vẫn full) hoặc (b) khớp 1 segment → opening 1-dòng đè lên lô
+  gộp → hỏng opening cả lô. Delta đã force-disable cho aggregate (`co_case_context.py:2987`) nhưng
+  **import/refold KHÔNG có guard.** Lock guard đọc remaining lô gộp → mis-gate Chốt.
+- **P0-2 — `bcct_qty` sticky invariant.** `fold_baseline` (`co_stock_adjustments_store.py:370-372`)
+  idempotent CHỈ khi `bcct_qty` đúng (`bcct = bcct_qty or available_qty`). Path nào sửa `available_qty`
+  TRƯỚC fold đầu → `bcct_qty` sai vĩnh viễn (re-fold không tự lành; chỉ full BCCT refresh cứu, delta thì
+  không). Latent, chưa cháy.
+- **P1:** `stock_available_qty` fallback `remaining_qty=="" → available_qty` (= full opening) =
+  over-claim trap (`co_case_context.py:1718`); `void_batch` không tự refold
+  (`co_stock_adjustments_store.py:330`); aggregate delta drift. **P2:** fold unit-blind (không guard kg
+  vs MT — dựa `fix_trului_unit.py` vá data); deprecated `apply_adjustments` clamp 0 (sign khác model).
+
+**B. DECOUPLE XOÁ P0-1, P0-2, P1(void), P1(delta-fold-drift), P2(sign) — đúng hướng, không chỉ là dọn.**
+Còn trực giao (giữ nguyên dù decouple): P1 empty-fallback, P2 unit, race FOR UPDATE.
+
+**C. Blast radius (verified line numbers) — 5 file lõi + scripts/tests:**
+- `co_stock_adjustments_store.py` — XOÁ `fold_baseline:349-393`; deprecate/xoá `apply_adjustments:396-447`.
+- `co_stock_materializer.py` — bỏ fold call `:106`, xoá `refold_adjustment_lots:157-212` + `refold_all_adjustments:215-224`.
+- `co_stock_ledger.py` — REWRITE `apply_used_qty:570-601` (bỏ `+ baseline_used` → remaining = opening − ledger).
+- `routers/co_stock.py` — REWRITE import `:262-306` (bỏ upsert+refold `:279/:293`), persist remaining thẳng.
+- `web/co_case_context.py` — bỏ fold call `:347-356`.
+- An toàn (plain consumer, không sửa logic): `co_stock_template.py`, `workbook_io.py:722`,
+  `co_stock_events_store.py`, `routers/co_case.py:530` (chỉ sửa comment).
+- Scripts: `fix_trului_unit.py` obsolete sau decouple (phụ thuộc BCCT join + refold); test `test_co_stock_fold.py`.
+
+**D. Convert tool `scripts/convert_co_stock.py` CHƯA ĐỦ — KHÔNG dựng mới mà phải mở rộng.** Template chuẩn
+(`co_stock_template.py`, 19 cột) KHÔNG có cột `remaining_qty`; phép trừ `opening − used` nằm HOÀN TOÀN
+trong fold runtime. **Gỡ fold mà không sửa tool → `remaining = opening` (đúng bug tiền-fold = SAI TỒN).**
+Cần (concrete):
+  1. Thêm cột `remaining_qty` vào template + convert tính `remaining = opening − used` (signed; chốt policy âm=overclaim).
+  2. Import persist remaining thẳng vào `co_stock_rows` (bỏ đường `co_stock_adjustments` + fold).
+  3. Import MỌI lô — lật mặc-định skip zero-used (`convert.py:187`) vì BCCT không còn backfill opening.
+  4. Chuyển chuẩn-hoá đơn vị (kg↔MT) VÀO convert (canonical unit lúc convert) — thay `fix_trului_unit.py` + `refold_all_adjustments`.
+  5. Harden Save: sort event/lô trước consolidate (`_merge` lấy first-seen K, không sort) — hoặc chỉ hỗ trợ NK2.
+  6. **Parity test BẮT BUỘC trước khi xoá fold:** workbook → convert → import → table, remaining == output fold cũ
+     (real DB + workbook thật; file-mode = false green [[test-env-filemode-vs-datahub]]).
+  7. UI upload+convert in-app (CS2 open) — hiện CLI-only; form `co_stock.html:56-72` chỉ nhận template đã-convert.
+
+**E. Sequencing đề xuất (parity net TRƯỚC khi xoá lõi):** Stage 1 = template+convert+import tự-chứa
+remaining + parity test xanh (GIỮ fold, fold chỉ xác nhận lại số) → Stage 2 = xoá fold 5 file lõi sau khi
+parity chạy trên data thật PROD/DEMO. Tránh gutting lõi tồn chỉ với data test local.
+
+<details><summary>Scoping gốc CS2 (giữ lại)</summary>
+
 **REQUESTED 2026-06-14 (user).** Ba việc gộp; cần `/discover` trước (rủi ro: SAI TỒN downstream).
 
 **(1) Review thật kỹ mô hình "folded-remaining".** `remaining = opening_qty (BCCT hoặc trừ-lùi
@@ -357,6 +455,8 @@ cần fix**.
 standard CO stock qua `convert_co_stock.py`), **bỏ fold nhúng** (`fold_baseline` + re-fold ở materializer/
 ledger/context/recalc/import), hệ thống chỉ dùng standard CO stock. Phạm vi lớn, đụng lõi tồn → `/discover`
 kỹ + viết parity test trước khi gỡ fold (rủi ro SAI TỒN). AUDIT/HARDEN bị loại. Added: 2026-06-14.
+
+</details>
 
 ## Bảng kê — Xuất xứ NVL
 

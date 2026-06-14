@@ -47,15 +47,24 @@
   </div>
   {% endif %}
 
+  <div class="callout callout-info">
+    <span class="callout-icon">i</span>
+    <div>
+      <div class="callout-title">Nạp tồn từ workbook trừ-lùi</div>
+      Client đang chạy workbook Excel trừ-lùi song song? Dùng công cụ riêng (convert → snapshot):
+      <a href="/clients/{{ client.id }}/co-stock/workbook-tool"><strong>Nạp tồn CO từ workbook trừ-lùi →</strong></a>
+    </div>
+  </div>
+
   <section class="zone" data-co-stock-section>
     <div class="subsection-head">
       <h3>Điều chỉnh thủ công</h3>
       <p class="meta">
         Layer ghi đè <code>opening_qty</code> + cộng dồn <code>used_qty</code> trên tồn derived từ BCCT (sau cross-case ledger).
         Snapshot model: re-import cùng key <code>(declaration_no, line_no, customs_code)</code> sẽ overwrite.
-        Workbook gốc agency (<code>tru-lui-co-template.xlsm</code>) cần convert qua template chuẩn trước:
-        <code>uv run python scripts/convert_co_stock.py &lt;input.xlsm&gt; &lt;output.xlsx&gt;</code>
-        (mặc định dùng sheet <code>NK2</code> — snapshot per lot đã reconcile; <code>--sheet Save</code> cho event log legacy).
+        Nhận xlsx đã theo template chuẩn. Nếu có workbook trừ-lùi <code>.xlsm</code> gốc (Johnson/Growatt),
+        dùng <a href="/clients/{{ client.id }}/co-stock/workbook-tool"><strong>công cụ Nạp tồn từ workbook</strong></a>
+        (trang riêng) để convert + nạp snapshot.
       </p>
     </div>
     <div class="split-balanced">
@@ -387,4 +396,5 @@
   });
 })();
 </script>
+
 {% endblock %}
