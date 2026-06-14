@@ -10,6 +10,16 @@ phiên bản theo [SemVer](https://semver.org/).
 > hành đã đóng gói tại thời điểm đó.
 
 ## [Unreleased]
+### Mới
+- Trang Khách hàng: ô tìm kiếm tức thì (lọc theo tên · mã · MST), badge chế độ khớp mã bằng tiếng Việt, lưới module thu gọn thành dải chip.
+- Thanh điều hướng admin gom nhóm dùng chung mọi trang admin (Người dùng · Dữ liệu tham chiếu · Adapter BOM · Hệ thống), tự sáng mục đang mở; trang "Cài đặt embedding" trước đây mồ côi nay đã có lối vào.
+
+### Cải tiến
+- Việt hoá giao diện: nhãn tab (Tổng quan / Tải lên / Đề xuất / Cấu hình), chế độ khớp mã + chế độ duyệt hiển thị bằng tiếng Việt thay cho mã enum thô (batch_aggregate_resolution → "Gộp theo lô", …), bỏ tiếng Anh lẫn lộn trong mô tả module + đề xuất + tải lên.
+- Top nav dọn gọn: nav khu vực dạng chữ bên trái (Khách hàng · Quản trị), bên phải gộp tên/vai trò/đổi ngôn ngữ/đăng xuất vào một menu avatar; bỏ breadcrumb (tên khách hàng đã nằm ở tiêu đề trang).
+
+### Sửa lỗi
+- BOM: chọn adapter dạng cây (sap_indented_walk / multi_sheet_per_root) qua binding theo khách hàng hoặc dropdown thủ công nay đi đúng đường raw_graph + materialize; trước đây bị lưu phẳng (manual_flat) và bỏ qua flatten (MPL0100-39).
 
 ## [0.13.1] — 2026-06-08
 ### Mới

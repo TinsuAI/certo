@@ -1085,8 +1085,49 @@ duplication worth abstracting.
 
 Smaller items not yet themed into a cluster.
 
-(Currently empty — items pending classification go here as they
-arise. As of 2026-05-13, nothing here.)
+## G.1 Redesign navigation menu — SHIPPED 2026-06-14 (admin bar)
+
+**Captured 2026-06-14.** User: *"Thiết kế lại menu điều hướng các thứ cho
+chuẩn."* The admin button-bar was an ad-hoc pile — `admin/users.html` had a
+6-link `btn-secondary` row; the other 6 admin pages each hand-rolled a
+*different* "← prev / next →" set; `/admin/settings/embedding` was orphaned.
+
+**Shipped:** one shared `app/templates/_admin_nav.html` with **grouped
+dropdowns** (user pick, mirrors the per-client `_client_nav.html` `<details>`
+idiom): Người dùng · Dữ liệu tham chiếu(▾ Mã loại hình / Preset DNCX / UoM) ·
+Adapter BOM · Hệ thống(▾ Service tokens / Cài đặt kỹ thuật / Embedding, dev-only).
+Self-highlights from `request.url.path`; reuses `.tabs`/`.nav-menu` CSS (only
+add: `.admin-tabs` to the `overflow:visible` override). Wired into all 8 admin
+templates, divergent link rows removed, orphaned Embedding page now linked.
+3 tests (`tests/test_admin_nav.py`), 1480 passed. Brief + screenshots:
+`.ai/features/2026-06-14-nav-redesign/`.
+
+**Not touched (didn't need it):** per-client nav already grouped; global topnav
+already separates the Admin chip from the client tab bar. If a future admin
+surface lands, add one `<a>` to `_admin_nav.html` (promote Adapter BOM into a
+"Nhập liệu" dropdown when a 2nd ingest-config surface appears).
+
+## G.2 Per-client adapter binding — explicit-path tree-adapter gap — SHIPPED 2026-06-14
+
+**Captured 2026-06-14** during B.0 review. The tree-adapter → raw-edges reroute
+(`90ba345`) lived ONLY in the `if profile == "auto"` branch, so pinning a tree
+adapter (`sap_indented_walk` / `multi_sheet_per_root`) via the per-client binding
+or manual dropdown took the explicit-profile path → flat-stash, flatten silently
+skipped (MPL0100-39) — *worse* than `auto`.
+
+**Fixed (option a):** extracted `_tree_adapter_needs_raw_edges(blob, adapter,
+root_hint)` in `app/routes/bom.py` (tree adapter AND a raw-edge parser also
+matches → reroute to `technical_raw`). Applied to the explicit-profile path
+(before the `auto` block) AND refactored the `auto` block to share it, so any
+tree-adapter selection — auto, bound, or hand-picked — lands as raw_graph with
+the materialize hook. No-regression: returns False when the file isn't
+raw-edge-parseable. 2 tests in `tests/test_bom_ingest_followups.py` (helper unit
++ end-to-end confirm → `non_flattened` artifact). 1480 passed.
+
+**Still open (minor, deferred):** binding is a UI pre-select only —
+`upload_submit` server default stays `manual_flat` and programmatic/API ingest
+ignores the binding. Low impact (the form always submits the chosen profile);
+fold into a future binding-hardening pass if it bites.
 
 ---
 
