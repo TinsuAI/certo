@@ -19,36 +19,15 @@
       <span>{{ t('app.brand') }}</span>
     </a>
     {% if user %}
-    <nav class="topnav-breadcrumb" aria-label="Breadcrumb">
-      {% if active_root == 'clients' and not client %}
-        <span class="breadcrumb-current">{{ t('nav.clients') }}</span>
-      {% else %}
-        <a href="/clients">{{ t('nav.clients') }}</a>
-      {% endif %}
-      {% if client %}
-        <span class="breadcrumb-sep">/</span>
-        <span class="breadcrumb-current">{{ client.name }}</span>
+    <nav class="topnav-nav" aria-label="{{ t('nav.clients') }}">
+      <a class="topnav-navlink {% if active_root == 'clients' %}topnav-navlink-active{% endif %}"
+         href="/clients">{{ t('nav.clients') }}</a>
+      {% if user.role in ('dev', 'admin') %}
+      <a class="topnav-navlink {% if active_root == 'admin' %}topnav-navlink-active{% endif %}"
+         href="/admin/users">{{ t('nav.admin') }}</a>
       {% endif %}
     </nav>
     <div class="topnav-meta">
-      {% if user.role in ('dev', 'admin') %}
-      <a class="topnav-chip topnav-chip-link {% if active_root == 'admin' %}topnav-chip-active{% endif %}"
-         href="/admin/users" title="{{ t('nav.admin') }}">
-        {{ t('nav.admin') }}
-      </a>
-      {% endif %}
-      {# Notification bell tạm tắt — bật lại bằng cách bỏ comment khi tính năng hoàn thiện. #}
-      {# {% include "notifications/_bell.html" ignore missing %} #}
-      <span class="topnav-user" title="{{ user.role }}">{{ user.display_name }}</span>
-      <form method="post" action="/settings/lang" class="topnav-toggle-form">
-        <input type="hidden" name="lang" value="{{ next_lang }}">
-        <input type="hidden" name="next_url" value="{{ request.url.path }}">
-        <button type="submit" class="topnav-chip topnav-chip-button"
-                title="{{ t('ui.lang.toggle') }} ({{ next_lang|upper }})"
-                aria-label="{{ t('ui.lang.toggle') }}">
-          <span style="font-size: 0.78rem; font-weight: 700;">{{ lang|upper }}</span>
-        </button>
-      </form>
       <form method="post" action="/settings/theme" class="topnav-toggle-form">
         <input type="hidden" name="theme" value="{{ next_theme }}">
         <input type="hidden" name="next_url" value="{{ request.url.path }}">
@@ -71,17 +50,28 @@
           {% endif %}
         </button>
       </form>
-      <form method="post" action="/logout" class="topnav-toggle-form">
-        <button type="submit" class="topnav-chip topnav-chip-button" title="{{ t('auth.logout') }}" aria-label="{{ t('auth.logout') }}">
-          <svg class="topnav-chip-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-               fill="none" stroke="currentColor" stroke-width="1.7"
-               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-            <polyline points="16 17 21 12 16 7"/>
-            <line x1="21" y1="12" x2="9" y2="12"/>
-          </svg>
-        </button>
-      </form>
+      {# Notification bell tạm tắt — bật lại bằng cách bỏ comment khi tính năng hoàn thiện. #}
+      {# {% include "notifications/_bell.html" ignore missing %} #}
+      <details class="nav-menu user-menu">
+        <summary class="user-avatar" title="{{ user.display_name }} · {{ user.role }}">
+          <span class="user-avatar-mark">{{ user.display_name[:1]|upper }}</span>
+          <span class="user-avatar-name">{{ user.display_name }}</span>
+        </summary>
+        <div class="nav-menu-panel user-menu-panel">
+          <div class="user-menu-head">
+            <strong>{{ user.display_name }}</strong>
+            <span class="meta">{{ user.role }}</span>
+          </div>
+          <form method="post" action="/settings/lang" class="user-menu-form">
+            <input type="hidden" name="lang" value="{{ next_lang }}">
+            <input type="hidden" name="next_url" value="{{ request.url.path }}">
+            <button type="submit" class="user-menu-item">{{ t('ui.lang.toggle') }} · {{ next_lang|upper }}</button>
+          </form>
+          <form method="post" action="/logout" class="user-menu-form">
+            <button type="submit" class="user-menu-item user-menu-item-danger">{{ t('auth.logout') }}</button>
+          </form>
+        </div>
+      </details>
     </div>
     {% endif %}
   </header>

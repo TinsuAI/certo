@@ -4,7 +4,7 @@
   <span class="page-tagline">
     <span class="mono">{{ client.client_id }}</span>
     {% if client.tax_code %} · {{ t('clients.row.tax') }} <span class="mono">{{ client.tax_code }}</span>{% endif %}
-    · <span class="badge badge-info">{{ client.code_resolution_mode }}</span>
+    · <span class="badge badge-info">{{ t('clients.mode.' + client.code_resolution_mode + '.short') }}</span>
     {% if stats %}
       · {{ stats.materials }} {{ t('workspace.stat.catalog')|lower }}
       · {{ stats.mappings }} {{ t('workspace.stat.bqd')|lower }}

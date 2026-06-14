@@ -17,17 +17,24 @@
       <h2>{{ t('clients.list_heading') }}</h2>
       <p class="meta">{{ t('clients.list_meta') }}</p>
     </div>
+    {% if items %}
+    <input type="search" id="client-filter" class="client-filter"
+           placeholder="{{ t('clients.search_placeholder') }}"
+           aria-label="{{ t('clients.search_placeholder') }}" autocomplete="off">
+    {% endif %}
   </div>
   {% if items %}
-  <div class="rowlist">
+  <div class="rowlist" id="client-rowlist">
     {% for c in items %}
-    <a class="rowitem client-row stripe-{{ loop.index }}" href="/clients/{{ c.client_id }}">
+    <a class="rowitem client-row stripe-{{ loop.index }}"
+       href="/clients/{{ c.client_id }}"
+       data-search="{{ (c.name ~ ' ' ~ c.client_id ~ ' ' ~ (c.tax_code or ''))|lower }}">
       <div class="rowitem-main">
         <strong>{{ c.name }}</strong>
         <div class="meta">
           <span class="mono">{{ c.client_id }}</span>
-          {% if c.tax_code %} · MST <span class="mono">{{ c.tax_code }}</span>{% endif %}
-          · <span class="badge badge-info">{{ c.code_resolution_mode }}</span>
+          {% if c.tax_code %} · {{ t('clients.row.tax') }} <span class="mono">{{ c.tax_code }}</span>{% endif %}
+          · <span class="badge badge-info">{{ t('clients.mode.' + c.code_resolution_mode + '.short') }}</span>
         </div>
       </div>
       <div class="rowitem-side">
@@ -40,6 +47,7 @@
     </a>
     {% endfor %}
   </div>
+  <p class="meta client-filter-empty" id="client-filter-empty" style="display:none">{{ t('clients.search_empty') }}</p>
   {% else %}
   <div class="empty-state">
     <p>{{ t('clients.empty') }}</p>
@@ -50,20 +58,34 @@
   {% endif %}
 </section>
 
-<section class="zone zone-muted">
-  <div class="zone-head">
-    <div>
-      <h2>{{ t('clients.module_grid_heading') }}</h2>
-      <p class="meta">{{ t('clients.module_grid_meta') }}</p>
-    </div>
-  </div>
-  <div class="module-grid">
-    <div class="module-tile"><strong>{{ t('tabs.catalog') }}</strong><span>{{ t('catalog.subtitle') }}</span></div>
-    <div class="module-tile"><strong>{{ t('tabs.bqd') }}</strong><span>{{ t('bqd.subtitle') }}</span></div>
-    <div class="module-tile"><strong>{{ t('tabs.bcct') }}</strong><span>{{ t('bcct.subtitle') }}</span></div>
-    <div class="module-tile"><strong>{{ t('tabs.bom') }}</strong><span>{{ t('bom.subtitle') }}</span></div>
-    <div class="module-tile"><strong>{{ t('tabs.proposals') }}</strong><span>{{ t('proposals.subtitle') }}</span></div>
-    <div class="module-tile"><strong>{{ t('tabs.uploads') }}</strong><span>{{ t('workspace.module.uploads_meta') }}</span></div>
-  </div>
-</section>
+<p class="meta module-legend">
+  {{ t('clients.module_grid_heading') }}:
+  <span class="badge badge-neutral">{{ t('tabs.catalog') }}</span>
+  <span class="badge badge-neutral">{{ t('tabs.bqd') }}</span>
+  <span class="badge badge-neutral">BCCT</span>
+  <span class="badge badge-neutral">BOM</span>
+  <span class="badge badge-neutral">{{ t('tabs.proposals') }}</span>
+  <span class="badge badge-neutral">{{ t('tabs.uploads') }}</span>
+</p>
+
+{% if items %}
+<script>
+  (function () {
+    var inp = document.getElementById('client-filter');
+    if (!inp) return;
+    var rows = [].slice.call(document.querySelectorAll('#client-rowlist .client-row'));
+    var empty = document.getElementById('client-filter-empty');
+    inp.addEventListener('input', function () {
+      var q = inp.value.trim().toLowerCase();
+      var shown = 0;
+      rows.forEach(function (r) {
+        var hit = !q || r.getAttribute('data-search').indexOf(q) >= 0;
+        r.style.display = hit ? '' : 'none';
+        if (hit) shown++;
+      });
+      if (empty) empty.style.display = shown > 0 ? 'none' : '';
+    });
+  })();
+</script>
+{% endif %}
 {% endblock %}
