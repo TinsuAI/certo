@@ -21,10 +21,12 @@ from app.routes._llm_fallback import (
     cache_confirmed_mapping, headers_per_sheet, lookup_cached_mapping,
     record_mapping_use, request_llm_mapping, sample_rows_first_sheet,
 )
+from app.routes._paging import pagination_context, parse_page_params
 from app.routes.clients import get_client, stats_for_client
 from app.storage import get_backend, save_upload, sha256_bytes
 from app.stores import nxt as nxt_store
 from app.stores import settlement_adapter_binding as binding
+from app.stores.materials import known_material_codes
 from app.stores.uploads import get_upload, record_upload, set_upload_status
 
 router = APIRouter()
@@ -113,7 +115,8 @@ async def list_view(request: Request, client_id: str,
 # ── Upload ─────────────────────────────────────────────────────────────────
 
 @router.get("/clients/{client_id}/nxt/upload")
-async def upload_view(request: Request, client_id: str):
+async def upload_view(request: Request, client_id: str,
+                      error: str | None = None):
     user = auth.require_user(request)
     auth.require_can_edit_client(user, client_id)
     client = get_client(client_id)
@@ -124,6 +127,7 @@ async def upload_view(request: Request, client_id: str):
         {"client": client, "stats": stats_for_client(client_id),
          "adapters": nxt_adapters.adapter_names(),
          "default_adapter": binding.get_default_adapter(client_id, MODULE),
+         "error": error,
          "active_root": "clients", "active_tab": "nxt"},
     )
 
@@ -143,9 +147,18 @@ async def set_default_adapter(request: Request, client_id: str,
         url=f"/clients/{client_id}/nxt/upload", status_code=303)
 
 
+def _parse_year(s: str | None) -> int | None:
+    s = (s or "").strip()
+    if not s.isdigit():
+        return None
+    y = int(s)
+    return y if 2000 <= y <= 2100 else None
+
+
 @router.post("/clients/{client_id}/nxt/upload")
 async def upload_submit(request: Request, client_id: str,
                         file: UploadFile = File(...),
+                        period_year: str = Form(""),
                         period_from: str = Form(""),
                         period_to: str = Form(""),
                         adapter: str = Form("auto")):
@@ -153,6 +166,13 @@ async def upload_submit(request: Request, client_id: str,
     auth.require_can_edit_client(user, client_id)
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
+
+    # The settlement period is annual and required (kỳ quyết toán theo năm).
+    year = _parse_year(period_year)
+    if year is None:
+        return RedirectResponse(
+            url=f"/clients/{client_id}/nxt/upload?error=Cần nhập năm quyết toán hợp lệ",
+            status_code=303)
 
     blob = await file.read()
     sha = sha256_bytes(blob)
@@ -164,7 +184,8 @@ async def upload_submit(request: Request, client_id: str,
         stored_path=stored.path, content_sha256=sha, size_bytes=len(blob),
         mime_type=file.content_type, uploader_user_id=user.user_id,
     )
-    meta = {"period_from": period_from or None, "period_to": period_to or None}
+    meta = {"period_year": year,
+            "period_from": period_from or None, "period_to": period_to or None}
 
     # 1. Cached confirmed mapping for this workbook shape → manual_generic.
     sig = _file_signature(client_id, blob)
@@ -327,7 +348,7 @@ async def mapping_parse(request: Request, client_id: str, upload_id: str):
                 request, client_id, upload_id, blob)["columns"]],
             confirmed_by_user_id=user.user_id, proposed_by="manual")
     meta = {k: (upload.get("result") or {}).get(k)
-            for k in ("period_from", "period_to")}
+            for k in ("period_year", "period_from", "period_to")}
     return _stash_and_preview(client_id, upload_id, lines, "manual_generic", meta,
                               mapping_override=override)
 
@@ -381,6 +402,7 @@ async def preview_view(request: Request, client_id: str, upload_id: str):
         request, "clients/nxt_preview.html",
         {"client": client, "stats": stats_for_client(client_id),
          "upload_id": upload_id, "adapter_name": adapter_name,
+         "period_year": meta.get("period_year") or "",
          "period_from": meta.get("period_from") or "",
          "period_to": meta.get("period_to") or "",
          "summary": _summarize(lines), "lines": lines[:200],
@@ -406,6 +428,7 @@ async def preview_confirm(request: Request, client_id: str, upload_id: str):
     meta = upload.get("result") or {}
     nxt_store.create_artifact(
         client_id=client_id, lines=lines,
+        period_year=meta.get("period_year"),
         period_from=_as_date(meta.get("period_from")),
         period_to=_as_date(meta.get("period_to")),
         source_kind=adapter_name, adapter_name=adapter_name,
@@ -428,3 +451,30 @@ async def preview_reject(request: Request, client_id: str, upload_id: str):
     set_upload_status(upload_id, "rejected")
     return RedirectResponse(url=f"/clients/{client_id}/nxt?saved=Đã bỏ qua",
                             status_code=303)
+
+
+# ── Detail (browse ingested lines; cross-link mã → Catalog) ──────────────
+
+@router.get("/clients/{client_id}/nxt/{artifact_id}")
+async def detail_view(request: Request, client_id: str, artifact_id: str):
+    user = auth.require_user(request)
+    auth.require_can_view_client(user, client_id)
+    client = get_client(client_id)
+    if not client:
+        raise HTTPException(404, "Client not found")
+    meta = nxt_store.get_artifact_meta(artifact_id)
+    if not meta or meta["client_id"] != client_id:
+        raise HTTPException(404, "Artifact not found")
+    page_params = parse_page_params(query_params=request.query_params)
+    total = meta["n_lines"]
+    lines = nxt_store.list_lines(
+        artifact_id, limit=page_params.page_size, offset=page_params.offset)
+    return request.app.state.templates.TemplateResponse(
+        request, "clients/nxt_detail.html",
+        {"client": client, "stats": stats_for_client(client_id),
+         "artifact": meta, "lines": lines,
+         "known_codes": known_material_codes(client_id),
+         "paging": pagination_context(
+             request=request, page_params=page_params, total=total),
+         "active_root": "clients", "active_tab": "nxt"},
+    )

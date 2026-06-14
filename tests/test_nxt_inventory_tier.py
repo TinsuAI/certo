@@ -188,7 +188,8 @@ def test_nxt_upload_preview_confirm_flow(isolated_files_dir):
                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
     r = c.post(f"/clients/{CLIENT}/nxt/upload",
                files=files,
-               data={"period_from": "2025-01-01", "period_to": "2025-12-31"},
+               data={"period_year": "2025", "period_from": "2025-01-01",
+                     "period_to": "2025-12-31"},
                follow_redirects=False)
     assert r.status_code == 303
     preview_url = r.headers["location"]
@@ -206,6 +207,7 @@ def test_nxt_upload_preview_confirm_flow(isolated_files_dir):
     arts = nxt_store.list_artifacts(CLIENT)
     assert arts and arts[0]["n_lines"] == 3
     art = nxt_store.get_artifact(arts[0]["id"])
+    assert art["period_year"] == 2025
     assert art["period_to"] == date(2025, 12, 31)
     assert art["adapter_name"] == "system_template"
 
@@ -353,7 +355,7 @@ def test_nxt_upload_explicit_adapter_pick(isolated_files_dir):
     files = {"file": ("ez.xlsx", _build_ezsoft_xlsx(),
                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
     r = c.post(f"/clients/{CLIENT}/nxt/upload",
-               files=files, data={"adapter": "ezsoft_3tsoft"},
+               files=files, data={"period_year": "2025", "adapter": "ezsoft_3tsoft"},
                follow_redirects=False)
     assert r.status_code == 303
     preview_url = r.headers["location"]
@@ -442,7 +444,8 @@ def test_nxt_mapping_page_flow_and_cache(isolated_files_dir):
     # Unknown headers → no adapter parses → routed to the mapping page.
     r = c.post(f"/clients/{CLIENT}/nxt/upload",
                files={"file": ("weird.xlsx", blob, "application/vnd.ms-excel")},
-               data={"period_to": "2025-12-31"}, follow_redirects=False)
+               data={"period_year": "2025", "period_to": "2025-12-31"},
+               follow_redirects=False)
     assert r.status_code == 303
     assert "/nxt/upload/mapping/" in r.headers["location"]
     upload_id = r.headers["location"].rstrip("/").split("/")[-1]
@@ -471,7 +474,7 @@ def test_nxt_mapping_page_flow_and_cache(isolated_files_dir):
     # Re-upload the same shape → cached mapping → straight to preview (no map page).
     r2 = c.post(f"/clients/{CLIENT}/nxt/upload",
                 files={"file": ("weird2.xlsx", blob, "application/vnd.ms-excel")},
-                follow_redirects=False)
+                data={"period_year": "2025"}, follow_redirects=False)
     assert r2.status_code == 303
     assert "/nxt/preview/" in r2.headers["location"]
 
@@ -560,7 +563,7 @@ def test_nxt_reject_is_client_scoped(isolated_files_dir):
     r = c.post(f"/clients/{CLIENT}/nxt/upload",
                files={"file": ("t.xlsx", render_nxt(),
                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
-               follow_redirects=False)
+               data={"period_year": "2025"}, follow_redirects=False)
     upload_id = r.headers["location"].rstrip("/").split("/")[-1]
     # Reject via a DIFFERENT client must 404 (upload belongs to CLIENT).
     bad = c.post(f"/clients/growatt-vn/nxt/preview/{upload_id}/reject",
@@ -607,7 +610,8 @@ def test_v1_hub_read_api_and_period_end_link(monkeypatch):
 
     r = c.get(f"/v1/hub/dncxs/{cid}/nxt", headers=h)
     assert r.status_code == 200
-    assert any(a["id"] == aid for a in r.json()["items"])
+    item = next(a for a in r.json()["items"] if a["id"] == aid)
+    assert item["period_year"] == 2025  # additive: derived from period_to
 
     r = c.get(f"/v1/hub/dncxs/{cid}/nxt/{aid}", headers=h)
     assert r.status_code == 200
@@ -684,3 +688,139 @@ def test_misa_can_doi_ton_adapter():
     assert dayg["closing_reported"] == 40001
     ck = lines[1]
     assert ck["inbound_total"] == 20 and ck["closing_reported"] == 90
+
+
+# ── period_year: required + supersede-by-year (kỳ quyết toán theo năm) ───
+
+def test_nxt_supersede_keyed_by_year():
+    import secrets
+    cid = "nxt-yr-" + secrets.token_hex(4)
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("insert into hub.clients (client_id, name) values (%s, %s)",
+                    (cid, "year supersede"))
+
+    def _line(close):
+        return {"internal_code": "M1", "opening": 0, "inbound_total": close,
+                "outbound_total": 0, "closing_reported": close}
+
+    a25a = nxt_store.create_artifact(client_id=cid, period_year=2025, lines=[_line(1)])
+    a25b = nxt_store.create_artifact(client_id=cid, period_year=2025, lines=[_line(2)])
+    a24 = nxt_store.create_artifact(client_id=cid, period_year=2024, lines=[_line(3)])
+
+    current = {a["id"]: a for a in nxt_store.list_artifacts(cid)}
+    # Re-upload of 2025 supersedes the prior 2025; 2024 is a different year → kept.
+    assert set(current) == {a25b, a24}
+    assert a25a not in current
+    assert current[a25b]["period_year"] == 2025
+    assert current[a24]["period_year"] == 2024
+    assert len(nxt_store.list_artifacts(cid, include_superseded=True)) == 3
+
+
+def test_nxt_upload_requires_year(isolated_files_dir):
+    c = _dev_client()
+    r = c.post(f"/clients/{CLIENT}/nxt/upload",
+               files={"file": ("t.xlsx", render_nxt(),
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+               follow_redirects=False)  # no period_year
+    assert r.status_code == 303
+    assert "/nxt/upload?error=" in r.headers["location"]
+
+
+def test_inventory_upload_requires_date(isolated_files_dir):
+    c = _dev_client()
+    r = c.post(f"/clients/{CLIENT}/inventory-snapshots/upload",
+               files={"file": ("t.xlsx", render_inv(),
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+               follow_redirects=False)  # no snapshot_date
+    assert r.status_code == 303
+    assert "/inventory-snapshots/upload?error=" in r.headers["location"]
+
+
+# ── Detail views: browse ingested lines + cross-link mã → Catalog ───────
+
+def _seed_material(cid: str, code: str):
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "insert into hub.materials (client_id, material_code, name, "
+            "category, status, uom) values (%s, %s, %s, 'nvl', 'active', 'kg') "
+            "on conflict do nothing",
+            (cid, code, code))
+
+
+def test_nxt_detail_view_lines_and_catalog_crosslink():
+    import secrets
+    cid = "nxt-det-" + secrets.token_hex(4)
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("insert into hub.clients (client_id, name) values (%s, %s)",
+                    (cid, "detail test"))
+    _seed_material(cid, "IN-CAT")  # only this code is in the catalog
+    aid = nxt_store.create_artifact(
+        client_id=cid, period_year=2025, source_kind="system_template",
+        adapter_name="system_template",
+        lines=[{"internal_code": "IN-CAT", "opening": 0, "inbound_total": 10,
+                "outbound_total": 0, "closing_reported": 10, "reported_role": "nvl"},
+               {"internal_code": "NOT-CAT", "opening": 1, "inbound_total": 0,
+                "outbound_total": 0, "closing_reported": 1, "reported_role": "nvl"}])
+    c = _dev_client()
+    r = c.get(f"/clients/{cid}/nxt/{aid}")
+    assert r.status_code == 200
+    assert "Kỳ quyết toán 2025" in r.text
+    # Known code links to its catalog detail; unknown code is plain text.
+    assert f"/clients/{cid}/catalog/IN-CAT/detail" in r.text
+    assert f"/clients/{cid}/catalog/NOT-CAT/detail" not in r.text
+    assert "NOT-CAT" in r.text  # still shown, just not a link
+
+
+def test_inventory_detail_view_lines_and_catalog_crosslink():
+    import secrets
+    cid = "inv-det-" + secrets.token_hex(4)
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("insert into hub.clients (client_id, name) values (%s, %s)",
+                    (cid, "inv detail test"))
+    _seed_material(cid, "INV-IN")
+    sid = inv_store.create_snapshot(
+        client_id=cid, snapshot_date=date(2025, 12, 31),
+        source_kind="system_template", adapter_name="system_template",
+        lines=[{"code": "INV-IN", "qty_book": 10, "qty_physical": 9},
+               {"code": "INV-OUT", "qty_book": 5, "qty_physical": 5}])
+    c = _dev_client()
+    r = c.get(f"/clients/{cid}/inventory-snapshots/{sid}")
+    assert r.status_code == 200
+    assert "Chốt tồn kho" in r.text
+    assert f"/clients/{cid}/catalog/INV-IN/detail" in r.text
+    assert f"/clients/{cid}/catalog/INV-OUT/detail" not in r.text
+
+
+def test_nxt_detail_view_cross_client_404():
+    import secrets
+    cid = "nxt-x-" + secrets.token_hex(4)
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("insert into hub.clients (client_id, name) values (%s, %s)",
+                    (cid, "xclient"))
+    aid = nxt_store.create_artifact(
+        client_id=cid, period_year=2025,
+        lines=[{"internal_code": "M1", "closing_reported": 1}])
+    c = _dev_client()
+    # Same artifact id under a different client must 404.
+    assert c.get(f"/clients/{CLIENT}/nxt/{aid}").status_code == 404
+
+
+def test_nxt_year_only_upload_stays_visible_to_period_end_link():
+    """A year-only NXT artifact (no explicit dates) must default its period to
+    the calendar year so the date-keyed period_end_link (BCQT) still finds it."""
+    import secrets
+    from app.stores import settlement_link
+    cid = "nxt-yo-" + secrets.token_hex(4)
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("insert into hub.clients (client_id, name) values (%s, %s)",
+                    (cid, "year-only"))
+    nxt_store.create_artifact(
+        client_id=cid, period_year=2025,  # no period_from / period_to
+        lines=[{"internal_code": "M-YO", "opening": 10, "inbound_total": 0,
+                "outbound_total": 0, "closing_reported": 10}])
+    art = nxt_store.list_artifacts(cid)[0]
+    assert art["period_from"] == date(2025, 1, 1)
+    assert art["period_to"] == date(2025, 12, 31)
+    link = {r["code"]: r
+            for r in settlement_link.period_end_link(cid, date(2025, 12, 31))}
+    assert link["M-YO"]["nxt_closing"] == 10

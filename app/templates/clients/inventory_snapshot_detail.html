@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% from "_format.html" import format_number, format_date %}
+{% block title %}Chốt tồn {{ snapshot.snapshot_date or '' }} · {{ client.name }}{% endblock %}
+
+{% macro code_cell(code) %}
+{%- if code and code in known_codes -%}
+  <a class="xlink" href="/clients/{{ client.client_id }}/catalog/{{ code }}/detail"
+     title="Xem mã trong Danh Mục">{{ code }}</a>
+{%- elif code -%}
+  <span title="Mã không có trong Danh Mục">{{ code }}</span>
+{%- else -%}—{%- endif -%}
+{% endmacro %}
+
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Chốt tồn kho — {{ snapshot.snapshot_date or '—' }}</h2>
+      <p class="meta">
+        Nguồn: <span class="mono">{{ snapshot.source_kind }}</span> ·
+        Adapter: <span class="mono">{{ snapshot.adapter_name or '—' }}</span> ·
+        {{ snapshot.n_lines }} dòng ·
+        Tạo lúc {{ format_date(snapshot.created_at, '%Y-%m-%d %H:%M') }}
+        {% if snapshot.superseded_by %}· <span class="badge badge-warn">đã bị thay thế</span>{% endif %}
+      </p>
+    </div>
+    <div class="page-actions">
+      <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/inventory-snapshots">← Danh sách chốt tồn</a>
+    </div>
+  </div>
+
+  {% if lines %}
+  <table class="dh-table" style="margin-top:.75rem">
+    <thead>
+      <tr>
+        <th class="num">#</th>
+        <th>Mã</th>
+        <th>Tên</th>
+        <th>Kho</th>
+        <th>ĐVT</th>
+        <th>Lô</th>
+        <th class="num">Sổ sách</th>
+        <th class="num">Thực đếm</th>
+        <th class="num">Lệch</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for l in lines %}
+      {% set off = l.variance is not none and l.variance|abs > 1e-6 %}
+      <tr>
+        <td class="num meta">{{ l.line_no }}</td>
+        <td class="mono">{{ code_cell(l.code) }}</td>
+        <td>{{ l.name or '—' }}</td>
+        <td>{{ l.warehouse or '—' }}</td>
+        <td>{{ l.uom or '—' }}</td>
+        <td class="meta">{{ l.batch or '—' }}</td>
+        <td class="num">{{ format_number(l.qty_book, decimals=2, lang=lang) }}</td>
+        <td class="num">{{ format_number(l.qty_physical, decimals=2, lang=lang) }}</td>
+        <td class="num"
+            {% if off %}style="color:#b54708;font-weight:600" title="Lệch sổ-thực"{% endif %}>
+          {{ format_number(l.variance, decimals=2, lang=lang) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% include "clients/_pagination.html" %}
+  {% else %}
+  <p class="meta" style="margin-top:1rem">Bản chốt này không có dòng dữ liệu.</p>
+  {% endif %}
+</section>
+{% endblock %}

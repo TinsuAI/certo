@@ -21,12 +21,13 @@
   {% if artifacts %}
   <table class="dh-table" style="margin-top:.75rem">
     <thead>
-      <tr><th>Kỳ</th><th>Nguồn</th><th>Adapter</th><th class="num">Số dòng</th><th>Tạo lúc</th></tr>
+      <tr><th>Năm</th><th>Khoảng kỳ</th><th>Nguồn</th><th>Adapter</th><th class="num">Số dòng</th><th>Tạo lúc</th></tr>
     </thead>
     <tbody>
       {% for a in artifacts %}
-      <tr>
-        <td>{{ a.period_from or '—' }} → {{ a.period_to or '—' }}</td>
+      <tr data-row-href="/clients/{{ client.client_id }}/nxt/{{ a.id }}" tabindex="0">
+        <td><a href="/clients/{{ client.client_id }}/nxt/{{ a.id }}"><strong>{{ a.period_year or '—' }}</strong></a></td>
+        <td class="meta">{% if a.period_from or a.period_to %}{{ a.period_from or '—' }} → {{ a.period_to or '—' }}{% else %}—{% endif %}</td>
         <td>{{ a.source_kind }}</td>
         <td class="mono">{{ a.adapter_name or '—' }}</td>
         <td class="num">{{ a.n_lines }}</td>

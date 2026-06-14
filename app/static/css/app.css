@@ -2488,6 +2488,10 @@ input[type="submit"].btn-primary { padding: 0.5rem 0.95rem; }
 .actions-cell { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
 .dh-table .actions-cell { padding-top: 0.3rem; padding-bottom: 0.3rem; }
 .dh-table td.mono.small { font-size: 0.82rem; color: var(--text-soft, #5b6478); }
+/* Cross-link from one data view to another (e.g. NXT/inventory mã → Catalog).
+   Base links inherit text color; give resolvable codes a clickable affordance. */
+a.xlink { color: var(--primary, #1f6feb); }
+a.xlink:hover { text-decoration: underline; }
 
 .topnav-chip-link {
   display: inline-flex; align-items: center; padding: 0.32rem 0.7rem;

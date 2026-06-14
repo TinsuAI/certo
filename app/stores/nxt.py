@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import secrets
+from datetime import date
 
 from app.database import connect
 from app.parsers.nxt_adapters._common import NUMERIC_FIELDS, closing_implied
@@ -21,33 +22,45 @@ _LINE_FIELDS = (
 
 def create_artifact(
     *, client_id: str, lines: list[dict],
-    period_from=None, period_to=None,
+    period_year: int | None = None, period_from=None, period_to=None,
     source_kind: str = "manual", adapter_name: str | None = None,
     file_sha256: str | None = None, file_path: str | None = None,
     note: str | None = None, created_by: str | None = None,
 ) -> str:
+    # The settlement period is annual: year is the dedup key. Derive it from
+    # period_to when a caller omits it so legacy call sites still supersede.
+    if period_year is None and period_to is not None:
+        period_year = period_to.year
+    # Date-keyed consumers (settlement_link.period_end_link → BCQT) join on
+    # period_from/period_to, not period_year. Default the exact range to the
+    # calendar year so a year-only upload stays visible to them; the form still
+    # lets the user override for off-calendar fiscal years.
+    if period_year is not None:
+        period_from = period_from or date(period_year, 1, 1)
+        period_to = period_to or date(period_year, 12, 31)
     artifact_id = "nxt_" + secrets.token_urlsafe(12)
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             """
             insert into hub.nxt_artifacts
-              (id, client_id, period_from, period_to, source_kind,
+              (id, client_id, period_year, period_from, period_to, source_kind,
                adapter_name, file_sha256, file_path, note, created_by)
-            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
-            (artifact_id, client_id, period_from, period_to, source_kind,
-             adapter_name, file_sha256, file_path, note, created_by),
+            (artifact_id, client_id, period_year, period_from, period_to,
+             source_kind, adapter_name, file_sha256, file_path, note,
+             created_by),
         )
-        # Supersede the prior current artifact for this (client, period): a
-        # year-end NXT is one consolidated file per period, so a re-upload
+        # Supersede the prior current artifact for this (client, year): a
+        # year-end NXT is one consolidated file per year, so a re-upload
         # replaces it. Without this, period_end_link would sum across both.
-        # period_to is the dedup key; skip when absent (can't dedup ambiguously).
-        if period_to is not None:
+        # period_year is the dedup key; skip when absent (can't dedup).
+        if period_year is not None:
             cur.execute(
                 "update hub.nxt_artifacts set superseded_by=%s "
-                "where client_id=%s and period_to=%s and superseded_by is null "
+                "where client_id=%s and period_year=%s and superseded_by is null "
                 "and id<>%s",
-                (artifact_id, client_id, period_to, artifact_id),
+                (artifact_id, client_id, period_year, artifact_id),
             )
         for i, line in enumerate(lines, start=1):
             cur.execute(
@@ -80,9 +93,9 @@ def get_artifact(artifact_id: str) -> dict | None:
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             """
-            select id, client_id, period_from, period_to, source_kind,
-                   adapter_name, file_sha256, file_path, note, created_at,
-                   superseded_by
+            select id, client_id, period_year, period_from, period_to,
+                   source_kind, adapter_name, file_sha256, file_path, note,
+                   created_at, superseded_by
             from hub.nxt_artifacts where id=%s
             """,
             (artifact_id,),
@@ -91,10 +104,10 @@ def get_artifact(artifact_id: str) -> dict | None:
         if not row:
             return None
         art = {
-            "id": row[0], "client_id": row[1], "period_from": row[2],
-            "period_to": row[3], "source_kind": row[4], "adapter_name": row[5],
-            "file_sha256": row[6], "file_path": row[7], "note": row[8],
-            "created_at": row[9], "superseded_by": row[10],
+            "id": row[0], "client_id": row[1], "period_year": row[2],
+            "period_from": row[3], "period_to": row[4], "source_kind": row[5],
+            "adapter_name": row[6], "file_sha256": row[7], "file_path": row[8],
+            "note": row[9], "created_at": row[10], "superseded_by": row[11],
         }
         cur.execute(
             """
@@ -124,19 +137,75 @@ def get_artifact(artifact_id: str) -> dict | None:
 
 def list_artifacts(client_id: str, *, include_superseded: bool = False) -> list[dict]:
     sql = (
-        "select a.id, a.period_from, a.period_to, a.source_kind, a.adapter_name, "
-        "       a.created_at, a.superseded_by, count(l.id) as n_lines "
+        "select a.id, a.period_year, a.period_from, a.period_to, a.source_kind, "
+        "       a.adapter_name, a.created_at, a.superseded_by, "
+        "       count(l.id) as n_lines "
         "from hub.nxt_artifacts a "
         "left join hub.nxt_lines l on l.artifact_id = a.id "
         "where a.client_id=%s "
     )
     if not include_superseded:
         sql += "and a.superseded_by is null "
-    sql += ("group by a.id, a.period_from, a.period_to, a.source_kind, "
-            "a.adapter_name, a.created_at, a.superseded_by "
-            "order by a.period_to desc nulls last, a.created_at desc")
+    sql += ("group by a.id, a.period_year, a.period_from, a.period_to, "
+            "a.source_kind, a.adapter_name, a.created_at, a.superseded_by "
+            "order by a.period_year desc nulls last, a.period_to desc nulls last, "
+            "a.created_at desc")
     with connect() as conn, conn.cursor() as cur:
         cur.execute(sql, (client_id,))
-        cols = ("id", "period_from", "period_to", "source_kind", "adapter_name",
-                "created_at", "superseded_by", "n_lines")
+        cols = ("id", "period_year", "period_from", "period_to", "source_kind",
+                "adapter_name", "created_at", "superseded_by", "n_lines")
         return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+# ── Header + paged lines (detail view; avoid loading 20k lines per page) ──
+
+def get_artifact_meta(artifact_id: str) -> dict | None:
+    """Artifact header without its lines, plus the line count."""
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            select a.id, a.client_id, a.period_year, a.period_from, a.period_to,
+                   a.source_kind, a.adapter_name, a.file_sha256, a.note,
+                   a.created_at, a.superseded_by, count(l.id) as n_lines
+            from hub.nxt_artifacts a
+            left join hub.nxt_lines l on l.artifact_id = a.id
+            where a.id=%s
+            group by a.id
+            """,
+            (artifact_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    cols = ("id", "client_id", "period_year", "period_from", "period_to",
+            "source_kind", "adapter_name", "file_sha256", "note", "created_at",
+            "superseded_by", "n_lines")
+    return dict(zip(cols, row))
+
+
+def list_lines(artifact_id: str, *, limit: int, offset: int) -> list[dict]:
+    cols = ("line_no", "internal_code", "customs_code", "name", "uom",
+            "reported_role", "opening", "inbound_total", "out_tai_xuat",
+            "out_chuyen_mdsd", "out_xuat_sx", "out_xuat_khac", "outbound_total",
+            "closing_reported", "note")
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            select line_no, internal_code, customs_code, name, uom,
+                   reported_role, opening, inbound_total, out_tai_xuat,
+                   out_chuyen_mdsd, out_xuat_sx, out_xuat_khac, outbound_total,
+                   closing_reported, note
+            from hub.nxt_lines where artifact_id=%s
+            order by line_no limit %s offset %s
+            """,
+            (artifact_id, limit, offset),
+        )
+        lines = []
+        for r in cur.fetchall():
+            line = dict(zip(cols, r))
+            for f in NUMERIC_FIELDS:
+                if line[f] is not None:
+                    line[f] = float(line[f])
+            line["closing_implied"] = closing_implied(line)
+            lines.append(line)
+    return lines

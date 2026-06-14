@@ -25,8 +25,8 @@
     </thead>
     <tbody>
       {% for s in snapshots %}
-      <tr>
-        <td>{{ s.snapshot_date or '—' }}</td>
+      <tr data-row-href="/clients/{{ client.client_id }}/inventory-snapshots/{{ s.id }}" tabindex="0">
+        <td><a href="/clients/{{ client.client_id }}/inventory-snapshots/{{ s.id }}"><strong>{{ s.snapshot_date or '—' }}</strong></a></td>
         <td>{{ s.source_kind }}</td>
         <td class="mono">{{ s.adapter_name or '—' }}</td>
         <td class="num">{{ s.n_lines }}</td>

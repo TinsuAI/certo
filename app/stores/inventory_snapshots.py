@@ -122,3 +122,52 @@ def list_snapshots(client_id: str, *, include_superseded: bool = False) -> list[
         cols = ("id", "snapshot_date", "source_kind", "adapter_name",
                 "created_at", "superseded_by", "n_lines")
         return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+# ── Header + paged lines (detail view) ──────────────────────────────────
+
+def get_snapshot_meta(snapshot_id: str) -> dict | None:
+    """Snapshot header without its lines, plus the line count."""
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            select s.id, s.client_id, s.snapshot_date, s.source_kind,
+                   s.adapter_name, s.file_sha256, s.note, s.created_at,
+                   s.superseded_by, count(l.id) as n_lines
+            from hub.inventory_snapshots s
+            left join hub.inventory_snapshot_lines l on l.snapshot_id = s.id
+            where s.id=%s
+            group by s.id
+            """,
+            (snapshot_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    cols = ("id", "client_id", "snapshot_date", "source_kind", "adapter_name",
+            "file_sha256", "note", "created_at", "superseded_by", "n_lines")
+    return dict(zip(cols, row))
+
+
+def list_lines(snapshot_id: str, *, limit: int, offset: int) -> list[dict]:
+    cols = ("line_no", "code", "name", "uom", "warehouse", "batch",
+            "qty_book", "qty_physical", "note")
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            select line_no, code, name, uom, warehouse, batch,
+                   qty_book, qty_physical, note
+            from hub.inventory_snapshot_lines where snapshot_id=%s
+            order by line_no limit %s offset %s
+            """,
+            (snapshot_id, limit, offset),
+        )
+        lines = []
+        for r in cur.fetchall():
+            line = dict(zip(cols, r))
+            for f in NUMERIC_FIELDS:
+                if line[f] is not None:
+                    line[f] = float(line[f])
+            line["variance"] = variance(line)
+            lines.append(line)
+    return lines
