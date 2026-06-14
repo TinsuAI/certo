@@ -1,14 +1,16 @@
 # Project Status
 
-**Date:** 2026-06-14 (later PM) — **NXT year-keyed period + browsable detail
-views + Catalog cross-link** built on top of v0.16.0. Branch
-`feat/nxt-period-year-detail-views` (`6385ec2`), **PR #9 open against `main` (not
-merged yet)**. Prior: v0.16.0 shipped earlier same day (PR #8, tag `v0.16.0`,
-prod `https://ttdatahub.tinsu.ai`, mig 082–086 applied at boot).
+**Date:** 2026-06-14 (later PM) — **v0.17.0 SHIPPED + DEPLOYED**: NXT year-keyed
+period + browsable detail views + Catalog cross-link (PR #9, merge `8921ebe`,
+tag `v0.17.0`). Prod `https://ttdatahub.tinsu.ai` verified on `git_sha=ccfc482`
+(docs commit), `/version`=0.17.0, `/healthz` 200, mig 087 applied at boot. Prior
+same day: v0.16.0 (PR #8) shipped the NXT/inventory tier itself.
 
 ## Current State
 
-**PR #9 OPEN (awaiting merge)** — follow-up to the NXT/inventory tier:
+**v0.17.0 SHIPPED via PR #9** (merge `8921ebe` → release commit `e9d11cf` bumps
+CHANGELOG + pyproject 0.16.0→0.17.0 → tag `v0.17.0` + GitHub release → prod CD
+green). Follow-up to the NXT/inventory tier:
 1. **NXT keyed by settlement year** — `period_year` (mig 087), required on upload,
    supersede key `(client_id, period_year)`; `period_from/to` default to the
    calendar year so date-keyed `period_end_link` (BCQT) still matches year-only
@@ -66,9 +68,15 @@ this session (`--workers 1 --reload`).
 
 ## Next Steps
 
-1. **Merge PR #9** (`feat/nxt-period-year-detail-views`). On merge (CD = prod
-   deploy, mig 087 applies at boot): bump `CHANGELOG.md` (VN) + `pyproject` + tag
-   + `gh release create`. Then confirm `/healthz` + `/version`.
+1. **API for NXT + chốt tồn kho** (user ask, next session). A **read** API
+   already exists (`/v1/hub/dncxs/{id}/nxt`, `…/nxt/{aid}`,
+   `…/inventory-snapshots`, `…/inventory-snapshots/{sid}`, `…/period-end-link`,
+   Bearer/sister-app). So scope first — likely one of: (a) **write/ingest API**
+   so a sister app pushes NXT/inventory programmatically (vs the current
+   UI-only upload); (b) **`/api/v1/*` cookie-UI JSON** mirror for the web
+   frontend (per `project_api_routing_convention` — mirror, don't dual-auth a
+   cookie route); (c) **richer/paged read endpoints** (lines pagination, filters).
+   Confirm which with the user at session start.
 2. **I2 code-join resolver** — real NXT/inventory codes don't match catalog
    `material_code` (e.g. `001.002` vs `001.0001100`), so cross-links +
    `period_end_link` don't fire on real data. Resolve both sides through

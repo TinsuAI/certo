@@ -2,9 +2,9 @@
 
 **Date:** 2026-06-14 (later PM, same day as v0.16.0 ship)
 **Outcome:** Two follow-up requirements on the just-shipped NXT + year-end
-inventory tier, built + reviewed + committed. Branch
-`feat/nxt-period-year-detail-views` (commit `6385ec2`) pushed; **PR #9** open
-against `main` (not merged). Dev DB test/demo clutter cleaned up.
+inventory tier — built, reviewed, **merged (PR #9, `8921ebe`), released
+`v0.17.0`, deployed to prod** (`/version`=0.17.0, `/healthz` 200, mig 087 at
+boot; prod now on docs commit `ccfc482`). Dev DB test/demo clutter cleaned up.
 **Feature folder:** `.ai/features/2026-06-14-nxt-inventory-tier/` (brief gained a
 "Follow-up slice" section; screenshots 09–10 added; `ui_smoke.py` updated).
 
@@ -91,9 +91,24 @@ against `main` (not merged). Dev DB test/demo clutter cleaned up.
   superseded other same-year current artifacts (all template junk here, so moot —
   but be aware on clients with real same-year artifacts).
 
+## Release / deploy (done this session)
+- `pyproject` 0.16.0→0.17.0 + `CHANGELOG.md` [0.17.0] (VN) on the branch
+  (`e9d11cf`); merged PR #9 (`8921ebe`); tag `v0.17.0` + GitHub release; prod CD
+  green; verified `/version`=0.17.0, `/healthz` 200. Handoff docs committed
+  (`ccfc482`) + pushed → prod now on `ccfc482`.
+- **Gotcha:** `gh pr merge --delete-branch` did the remote merge fine but then
+  tried to switch the LOCAL checkout to `main` and failed on the uncommitted
+  handoff docs (repo has `pull.rebase=true`), leaving local `main` 3 behind.
+  Recovered with `git merge --ff-only origin/main` (preserves uncommitted work).
+  **Lesson:** with a dirty tree, run `gh pr merge` *without* `--delete-branch`,
+  then `git fetch && git merge --ff-only`.
+
 ## Open / next
-1. **PR #9 review + merge.** On merge (CD = prod deploy, mig 087 applies at boot):
-   bump `CHANGELOG.md` (VN, client-facing) + `pyproject` + tag + GitHub release.
+1. **API for NXT + chốt tồn kho** (user ask, next session). Read API already
+   exists (`/v1/hub` list/get/period-end-link, Bearer/sister-app) — scope first:
+   (a) write/ingest API for programmatic push, (b) `/api/v1/*` cookie-UI JSON
+   mirror for the web frontend (mirror per `project_api_routing_convention`, don't
+   dual-auth a cookie route), or (c) richer/paged read endpoints. Confirm at start.
 2. **I2 code-join resolver** — resolve NXT/inventory codes ↔ catalog through
    `code_mappings`/catalog so cross-links + `period_end_link` fire on real data.
    Could also make `period_end_link` year-aware directly (now coherent via the
