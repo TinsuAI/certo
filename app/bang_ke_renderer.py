@@ -259,6 +259,10 @@ def _write_body(ws, body_cfg: dict, product: dict) -> tuple[int, dict]:
         if override.get("deleted") or is_bom_technical_noise(material):
             continue
         material_code = override.get("material_code") or material.get("material_code", "")
+        # Bảng kê hiện mã HQ (customs_item_code của lô khớp); mã allocation/nội bộ
+        # chỉ để tra cứu/khớp tồn (giữ cho decl_mat_key). Fallback nội bộ khi NVL
+        # chưa khớp lô.
+        hq_code = override.get("customs_material_code") or material.get("customs_material_code") or material_code
         material_name = override.get("name") or material.get("material_description", "")
         norm = override.get("norm_per_unit") or material.get("bom_qty_per", "0")
         consumed_qty = _decimal(material.get("consumed_qty") or norm)
@@ -272,7 +276,7 @@ def _write_body(ws, body_cfg: dict, product: dict) -> tuple[int, dict]:
 
         put("stt", counter)
         put("name", material_name)
-        put("material_code", material_code)
+        put("material_code", hq_code)
         put("hs", material.get("hs_code", ""))
         put("uom", material.get("uom", ""))
         put("norm", _text(norm))

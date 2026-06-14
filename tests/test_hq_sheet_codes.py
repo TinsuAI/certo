@@ -35,6 +35,25 @@ def test_hq_export_falls_back_to_material_code_when_no_customs_code():
     assert ws.cell(row=5, column=col).value == "INT-1"
 
 
+def test_config_renderer_material_column_uses_customs_hq_code():
+    """The config-driven renderer is the ACTIVE export path (write_hq_sheet_materials
+    is only the legacy fallback). It too must put the customs item code (mã HQ) in
+    the material column, not the internal allocation code."""
+    from openpyxl import Workbook
+    from app.bang_ke_renderer import load_form_config, render_into_sheet
+    cfg = load_form_config("LVC")
+    wb = Workbook(); ws = wb.active
+    product = {"code": "P1", "materials": [{
+        "material_code": "012.0002700", "customs_material_code": "DAYTINHIEU",
+        "internal_material_code": "012.0002700", "material_description": "Dây tín hiệu",
+        "origin_status": "non_origin", "hs_code": "85339000", "uom": "ST",
+        "bom_qty_per": "1", "consumed_qty": "1", "unit_value": "1", "material_value": "1",
+    }]}
+    render_into_sheet(ws, cfg, case={"case_code": "C", "products": [product]}, product=product, sheet_title="P1")
+    col, start = cfg["body"]["columns"]["material_code"], cfg["body"]["start_row"]
+    assert ws[f"{col}{start}"].value == "DAYTINHIEU"
+
+
 def test_eur1_with_lvc_override_picks_lvc_sheet():
     product = _product(
         origin_sheet_effective_form_code="EUR.1",
