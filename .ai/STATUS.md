@@ -1,17 +1,33 @@
 # Project Status
 
-**Date:** 2026-06-14 (PM) — **v0.16.0: NXT + year-end inventory data tier merged
-to `main` + released** (PR #8). CD redeploys `https://ttdatahub.tinsu.ai` and
-applies mig 082–086 at boot. Tag `v0.16.0`.
+**Date:** 2026-06-14 (later PM) — **NXT year-keyed period + browsable detail
+views + Catalog cross-link** built on top of v0.16.0. Branch
+`feat/nxt-period-year-detail-views` (`6385ec2`), **PR #9 open against `main` (not
+merged yet)**. Prior: v0.16.0 shipped earlier same day (PR #8, tag `v0.16.0`,
+prod `https://ttdatahub.tinsu.ai`, mig 082–086 applied at boot).
 
 ## Current State
 
-**v0.16.0 SHIPPED** via **PR #8** (`feat/nxt-inventory-tier` → `main`, merge
-commit; release commit bumps CHANGELOG + pyproject 0.15.0→0.16.0). New shared
-data tier for two BCQT settlement *inputs* Data
-Hub did not own: **NXT** (Nhập-Xuất-Tồn period flow) + **year-end inventory
-snapshot** (chốt tồn kho). Data-tier only — parse/store/read; BCQT computes
-Mẫu 15/15a. Brief + 8 screenshots: `.ai/features/2026-06-14-nxt-inventory-tier/`.
+**PR #9 OPEN (awaiting merge)** — follow-up to the NXT/inventory tier:
+1. **NXT keyed by settlement year** — `period_year` (mig 087), required on upload,
+   supersede key `(client_id, period_year)`; `period_from/to` default to the
+   calendar year so date-keyed `period_end_link` (BCQT) still matches year-only
+   uploads. Inventory `snapshot_date` now required.
+2. **Browse-detail views** — `GET …/nxt/{id}` + `…/inventory-snapshots/{id}`:
+   paginated line tables, derived closing_implied/variance with mismatch
+   highlight, clickable list rows, `Năm` column on the NXT list.
+3. **Cross-link** — line mã → `/catalog/{code}/detail` when it resolves in
+   `hub.materials` (`.xlink` affordance). Real ingested codes mostly DON'T resolve
+   yet (I2 lossy join) — links fire only for resolvable codes; demo client used
+   for the live screenshots (09/10).
+`/v1/hub` nxt gains `period_year` (additive). `/rev` done: fixed the
+`period_end_link`-vs-year gap (Important) + customs_code mislink (Minor).
+**Full suite 1531 passed, 16 skipped.** Session summary:
+`.ai/sessions/2026-06-14-nxt-period-year-detail-crosslink.md`.
+
+**Prior — v0.16.0 SHIPPED** via PR #8: NXT (Nhập-Xuất-Tồn) + year-end inventory
+snapshot (chốt tồn kho) data tier — parse/store/read; BCQT computes Mẫu 15/15a.
+Brief: `.ai/features/2026-06-14-nxt-inventory-tier/`.
 
 **What's in it (slices 1–4):**
 - **Schema** (mig 082–086): `nxt_artifacts/nxt_lines` + `inventory_snapshots/
@@ -50,21 +66,26 @@ this session (`--workers 1 --reload`).
 
 ## Next Steps
 
-1. **Post-deploy verify (v0.16.0)** — confirm prod `/version` →
-   `{"version":"0.16.0", git_sha=main HEAD}`, `/healthz`, both auth smoke gates,
-   nightly refresh. Tag `v0.16.0` + `gh release create` on the merge commit.
-2. **Cross-link BCQT-System** to consume the new `/v1/hub` read API (settlement
-   reconciliation lives in BCQT, not here). Write a sister-app note.
-3. **UoM review P4 (CO side, deferred)** — guard CO stock allocation against UoM
+1. **Merge PR #9** (`feat/nxt-period-year-detail-views`). On merge (CD = prod
+   deploy, mig 087 applies at boot): bump `CHANGELOG.md` (VN) + `pyproject` + tag
+   + `gh release create`. Then confirm `/healthz` + `/version`.
+2. **I2 code-join resolver** — real NXT/inventory codes don't match catalog
+   `material_code` (e.g. `001.002` vs `001.0001100`), so cross-links +
+   `period_end_link` don't fire on real data. Resolve both sides through
+   `code_mappings`/catalog to a canonical code; optionally make `period_end_link`
+   year-aware directly (now coherent via the Dec-31 default).
+3. **Cross-link BCQT-System** to consume the `/v1/hub` read API (NXT, inventory,
+   period-end-link; settlement reconciliation lives in BCQT). Write a sister note.
+4. **UoM review P4 (CO side, deferred)** — guard CO stock allocation against UoM
    mismatch. Spec: `.ai/sister-app-notes/2026-06-14-co-allocation-unit-match-guard.md`.
    Apply on a clean CO branch after `barry-CO-main` `feat/rd3-bangke-split` lands.
-4. **Declarability rollout** (open since v0.14.0) — mig 078–081 live on prod,
+5. **Declarability rollout** (open since v0.14.0) — mig 078–081 live on prod,
    `exclude_non_declarable` default-OFF. Decide prod backfill
    (`backfill_johnson_material_group.py --apply`), then CO adoption, then flip
    the flag for johnson-vn.
-5. **Outage ops follow-up** — after ~**20/06** confirm pre-fix appfiles tars
+6. **Outage ops follow-up** — after ~**20/06** confirm pre-fix appfiles tars
    pruned via GFS (`~/logs/verify-old-tars.log` self-removes when clean).
-6. **Backlog, unblocked:** B.0b rename `material_group` → `item_type_token`;
+7. **Backlog, unblocked:** B.0b rename `material_group` → `item_type_token`;
    A.0 RD07 drawing name-level auto-hide; B.0 item 3 (mandatory `detect()` +
    capability metadata). NXT-tier deferred minors (in feature brief): broad
    `except` in `parse_with_fallback`; mapping_parse 3× workbook load;
@@ -79,9 +100,17 @@ this session (`--workers 1 --reload`).
 - **Branch flow:** `main` uses merge commits; `delete_branch_on_merge` off
   (delete branch manually after merge). One repo dir = dev server shows only the
   checked-out branch; prefer fewer switches while the user reviews live.
-- **NXT supersede semantics:** one period = one consolidated file (the real
-  sources are). A re-upload supersedes the prior artifact for that period; the
-  model does NOT support piecewise per-class uploads of the same period.
+- **NXT supersede semantics (post-PR #9):** keyed by **`period_year`** — one
+  consolidated NXT per client per year; a re-upload for the same year supersedes
+  the prior. `period_from/to` default to the calendar year. Model does NOT support
+  piecewise per-class or sub-annual uploads of the same year.
+- **Cross-link is best-effort:** NXT/inventory mã links to Catalog only when the
+  code is in `hub.materials`. Real ingested codes mostly DON'T match catalog
+  `material_code` yet (I2 lossy join) — needs a `code_mappings`/catalog resolver.
+- **Dev DB has no NXT/inventory data** (cleaned this session — was all test/smoke
+  junk; real NXT lives in the BCQT repos, not data-hub). Re-seed to demo: see
+  `.ai/sessions/2026-06-14-nxt-period-year-detail-crosslink.md` (demo client used
+  real Growatt codes so cross-links resolve).
 - **Adapter pattern:** layout-specific adapters MUST gate `parse()` on the same
   distinctive signal as `detect()` (title/sheet/Chinese marker), else they
   greedily claim generic files (this bit ezsoft, misa, kiem_ke during the build).
