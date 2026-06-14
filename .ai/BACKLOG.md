@@ -3,6 +3,55 @@
 Durable backlog (survives handoffs — STATUS.md Next Steps is the prioritized slice). Items below
 are captured, not yet scoped. Add `/discover` before non-trivial ones.
 
+## Redesign luồng làm CO (khởi động 2026-06-14)
+
+Rà lại toàn luồng 5 bước (Lô hàng → Chứng từ → Bảng kê C/O → TKX/TKN → Review & Xuất). User chủ
+trương redesign từng bước. Ba điểm đã nêu trong phiên mở màn:
+
+### RD1 — Bước 1: "chọn form" hầu như KHÔNG ảnh hưởng outcome (đã xác nhận bằng code 2026-06-14)
+**DONE 2026-06-14 (uncommitted→local).** User chọn phương án (a): bỏ form khỏi bước 1, chỉ giữ
+market. Đã bỏ block "Form gợi ý" (modal tạo + Lô hàng), macro chết `form_lane_matrix()`, và 3 thẻ
+form-lanes trong preview invoice (server + JS) — giữ "Gợi ý thị trường" + nút "Dùng thị trường";
+`co_form_type` vẫn auto-suy ngầm từ market. Dọn CSS mồ côi (`.form-lane*`/`.mini-rule-list*`/
+`.invoice-form-hints*`) + context key `form_lanes`. Verified e2e (form-preview=0, form-hints=0).
+
+`co_form_type` cấp-case (set ở bước Lô hàng) là **label trang trí**: chỉ lưu trên case
+(`co_case_store`/`workflow_state_store`), round-trip trong workbook nội bộ (`workbook_io.py:112/187`),
+và hiển thị ở list/header. **Không vào calc bảng kê, không chọn template export HQ.** Bằng chứng:
+- Form thực sự chi phối outcome là **per-sheet** `origin_sheet_effective_form_code` ở **bước 3** =
+  `form_override (config bar) or sheet_form_recommendation(market, finished_hs)`
+  (`co_case_context.py:1190, 1179`). Recommendation suy từ **destination_market** + finished_hs —
+  KHÔNG đọc `co_form_type`.
+- Template export HQ rẽ nhánh theo per-sheet form (`workbook_io.py:441`: EUR.1 → Phụ lục VII/PSR;
+  còn lại → LVC). Tiêu chí/ngưỡng calc cũng per-sheet (`effective_criteria` + LVC/RVC threshold).
+- Ở bước 1, form chỉ là **preview** của recommendation: hidden input auto-fill từ
+  `recommended_form_lane.display_name` (`co_case.html:520/655/958`), không có picker bind downstream.
+  Input bước 1 thật sự có nghĩa = **destination_market**.
+**Quyết định cần chốt:** (a) bỏ hẳn "chọn form" ở bước 1 — chỉ chọn market, để form nổi lên như gợi
+ý/đối tượng override ở bước 3; HOẶC (b) cho form bước 1 thành default THẬT cho sheet (bind vào
+`effective_form`). Hiện trạng "lưng chừng" (set nhưng không bind) chính là lý do thấy vô nghĩa.
+
+### RD2 — Bước 2: redesign UI upload chứng từ ("nhìn cứ sao sao")
+**DONE 2026-06-14 (uncommitted→local).** Dropzone async toàn diện: 7 slot card (kéo-thả + multi-file),
+upload XHR có progress bar không reload, chip file (ext·tên·size·×), xoá inline, counter "Bắt buộc
+N/3 · Bổ sung N"; bỏ ô invoice/BL lặp. Backend: `delete_supporting_file` + route DELETE + POST
+content-negotiate JSON khi async (giữ 303 no-JS). CSS Primer `.doc-*` thay sạch `.document-*`/
+`.upload-form-inline`. e2e `.ai/scripts/e2e_documents_flow.cjs` 13/13 pass, no console error.
+
+Hiện trạng (`co_case.html:672-765`): 7 slot (3 bắt buộc BL/Invoice/Packing + 4 bổ sung), **mỗi slot
+là một `<form multipart>` riêng, page-reload mỗi lần upload** (`hx-boost="false"`), 1 file/lần, không
+drag-drop, không progress. Mỗi slot bắt buộc còn lặp lại 2 ô `invoice_no`/`bill_of_lading_no` (trùng
+dữ liệu shipment đã có trên case) → nhiễu. Hướng đề xuất: dropzone gom drag-drop + multi-file +
+upload async (không reload, theo pattern background export đã có), bỏ ô invoice/BL lặp (lấy từ
+shipment, chỉ hỏi khi override), checklist tiến độ rõ (vd "2/3 bắt buộc"), list file có icon/size/xoá.
+Bám design Primer [[ui-design-direction-primer]], tránh opacity-muted text [[css-no-opacity-muted-text]].
+
+### RD3 — Bước 3: bảng kê C/O — THAY ĐỔI LỚN (chi tiết phiên sau)
+User báo sẽ có thay đổi lớn ở bảng kê. **Nội dung chưa chốt — note để phiên sau khai thác.** Vùng
+liên quan đang mở: save-model decision [[bangke-excel-like-dirty-undo]] (Excel-like dirty/undo),
+DC3 (hành vi rác/đã-xoá qua Chốt/BOM/Xuất/Tính), declarability [[technical-flattened-export-noise]].
+Khi vào việc: `/discover` trước, đây là bước nặng nhất của luồng.
+
 ## UI / UX
 
 ### B1 — "Đổi công ty" / "Đổi hồ sơ" → modal, không redirect

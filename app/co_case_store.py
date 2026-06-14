@@ -475,6 +475,33 @@ def get_supporting_file(client: dict, case_id: str, upload_id: str) -> tuple[dic
     return dict(file_row), path
 
 
+def delete_supporting_file(client: dict, case_id: str, upload_id: str) -> dict:
+    with case_lock(client["id"]):
+        state = load_state(client["id"])
+        record = next((case for case in state["cases"] if case["case_id"] == case_id), None)
+        if record is None:
+            raise KeyError(case_id)
+        files = record.get("supporting_files", [])
+        index = next((i for i, row in enumerate(files) if row.get("upload_id") == upload_id), None)
+        if index is None:
+            raise KeyError(upload_id)
+        removed = files.pop(index)
+        stored_path = clean_text(removed.get("stored_path"))
+        if stored_path:
+            root = case_root(client["id"]).resolve()
+            target = (root / stored_path).resolve()
+            if target.is_file() and target.is_relative_to(root):
+                try:
+                    target.unlink()
+                except OSError:
+                    pass
+        record["updated_at"] = now_iso()
+        save_state(client["id"], state)
+        _persist_case_row(client["id"], record)
+        _persist_case_supporting_files(client["id"], record)
+        return dict(removed)
+
+
 def match_case_bcct_exports(case: dict, source_workspace: dict, client_config: dict) -> list[dict]:
     shipment = case.get("shipment", {})
     invoice_no = clean_text(shipment.get("invoice_no"))

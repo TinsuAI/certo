@@ -1574,13 +1574,7 @@ button.co-stat:hover {
 }
 
 .invoice-facts,
-.invoice-form-hints {
-  display: grid;
-  gap: 0.34rem;
-}
-
-.invoice-facts span,
-.invoice-form-hints div {
+.invoice-facts span {
   min-width: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -1589,32 +1583,6 @@ button.co-stat:hover {
   color: var(--foreground-soft);
   font-size: 0.75rem;
   font-weight: 700;
-}
-
-.invoice-form-hints div {
-  display: grid;
-  gap: 0.1rem;
-}
-
-.invoice-form-hints .is-recommended {
-  border-color: color-mix(in srgb, var(--primary) 42%, var(--border));
-  background: var(--primary-soft);
-}
-
-.invoice-form-hints span {
-  color: var(--foreground-muted);
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.invoice-form-hints strong,
-.invoice-form-hints small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .invoice-market-hint {
@@ -2416,81 +2384,6 @@ button.co-stat:hover {
 
 .origin-row-filtered {
   display: none;
-}
-
-.form-lane-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0;
-  margin-bottom: 0.65rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-}
-
-.form-lane {
-  min-width: 0;
-  border-right: 1px solid var(--border);
-  border-radius: 0;
-  padding: 0.48rem 0.55rem;
-  background: transparent;
-}
-
-.form-lane:last-child {
-  border-right: 0;
-}
-
-.form-lane-recommended {
-  box-shadow: inset 0 3px 0 var(--primary);
-  background: color-mix(in srgb, var(--primary) 5%, transparent);
-}
-
-.form-lane-head {
-  display: grid;
-  gap: 0.22rem;
-  align-items: start;
-}
-
-.form-lane-head .eyebrow {
-  margin: 0;
-}
-
-.form-lane-head strong {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  line-height: 1.25;
-}
-
-.form-lane-head .badge {
-  justify-self: start;
-}
-
-.mini-rule-list {
-  display: grid;
-  gap: 0.28rem;
-  margin-top: 0.38rem;
-}
-
-.mini-rule-list div {
-  display: grid;
-  grid-template-columns: 4.6rem minmax(0, 1fr);
-  gap: 0.45rem;
-  align-items: baseline;
-  border-top: 1px solid var(--border);
-  padding-top: 0.28rem;
-}
-
-.mini-rule-list span {
-  color: var(--foreground-muted);
-  font-size: 0.75rem;
-  font-weight: 800;
-}
-
-.mini-rule-list strong {
-  min-width: 0;
-  color: var(--foreground-soft);
-  font-size: 0.76rem;
-  line-height: 1.35;
 }
 
 .market-chip-row {
@@ -4141,7 +4034,6 @@ button.co-stat:hover {
   .co-create-form,
   .co-overview-create,
   .case-filter-bar,
-  .form-lane-grid,
   .co-flow-mini,
   .guidance-summary,
   .origin-source-strip,
@@ -4603,87 +4495,259 @@ button.co-stat:hover {
   font-weight: 700;
 }
 
-.document-checklist {
-  display: grid;
-  gap: 0.65rem;
-  margin: 0.75rem 0 1.25rem;
+/* Document upload (chứng từ) — dropzone redesign */
+.doc-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
-.document-checklist h3 {
-  margin: 0 0 0.35rem;
-  font-size: 0.85rem;
+.doc-summary {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.doc-summary-pill {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  color: var(--foreground-soft);
+  background: var(--surface-subtle);
+}
+
+.doc-summary-pill.is-complete {
+  border-color: var(--success);
+  color: var(--success);
+  background: var(--success-soft);
+}
+
+.doc-summary-pill-muted {
+  color: var(--foreground-muted);
+}
+
+.doc-group-title {
+  margin: 1.1rem 0 0.5rem;
+  font-size: 0.78rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--foreground-muted);
 }
 
-.document-slot {
+.doc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.75rem;
+}
+
+.doc-slot {
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.6rem 0.75rem;
-  background: var(--surface-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
 }
 
-.document-slot-ready {
+.doc-slot-ready {
   border-color: var(--success);
-  background: var(--success-soft);
 }
 
-.document-slot-missing {
+.doc-slot-missing {
   border-color: var(--error);
+}
+
+.doc-slot-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.doc-slot-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.doc-slot-req {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  color: var(--foreground-muted);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  padding: 0.05rem 0.4rem;
+}
+
+.doc-slot-status {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--foreground-muted);
+}
+
+.doc-slot-ready .doc-slot-status {
+  color: var(--success);
+}
+
+.doc-slot-missing .doc-slot-status {
+  color: var(--error);
+}
+
+.doc-dropzone {
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+  padding: 1rem 0.75rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.doc-dropzone:hover,
+.doc-dropzone-over {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.doc-dropzone-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  pointer-events: none;
+}
+
+.doc-dropzone-strong {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--foreground-soft);
+}
+
+.doc-dropzone-sub {
+  font-size: 0.75rem;
+  color: var(--foreground-muted);
+}
+
+.doc-browse {
+  pointer-events: auto;
+  background: none;
+  border: none;
+  color: var(--primary);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.doc-file-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.doc-file-list.is-empty {
+  display: none;
+}
+
+.doc-file {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+  font-size: 0.8rem;
+}
+
+.doc-file-ext {
+  flex: none;
+  min-width: 2.6rem;
+  text-align: center;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--foreground-muted);
+  background: var(--card-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.1rem 0.25rem;
+}
+
+.doc-file-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.doc-file-name:hover {
+  text-decoration: underline;
+}
+
+.doc-file-size {
+  flex: none;
+  font-size: 0.7rem;
+  color: var(--foreground-muted);
+}
+
+.doc-file-remove {
+  flex: none;
+  background: none;
+  border: none;
+  color: var(--foreground-muted);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 0.25rem;
+  border-radius: var(--radius-sm);
+}
+
+.doc-file-remove:hover {
+  color: var(--error);
   background: var(--error-soft);
 }
 
-.document-slot-optional {
-  border-style: dashed;
-  background: var(--card);
+.doc-file.is-pending .doc-file-name {
+  color: var(--foreground-soft);
 }
 
-.document-slot-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 0.5rem;
-  margin-bottom: 0.4rem;
+.doc-file-progress {
+  flex: 0 0 80px;
+  height: 4px;
+  background: var(--surface-hover);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
 }
 
-.document-slot-status {
-  font-size: 0.75rem;
-  color: var(--foreground-muted);
+.doc-file-progress-bar {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--primary);
+  transition: width 0.1s ease;
 }
 
-.upload-form-inline {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  align-items: center;
+.doc-file.is-error {
+  border-color: var(--error);
 }
 
-.upload-form-inline input[type="text"],
-.upload-form-inline input[type="file"],
-.upload-form-inline input:not([type]) {
-  font-size: 0.85rem;
-  padding: 0.25rem 0.4rem;
-}
-
-.document-slot-files {
-  list-style: none;
-  padding: 0;
-  margin: 0.4rem 0 0;
-  display: grid;
-  gap: 0.2rem;
-  font-size: 0.85rem;
-}
-
-.document-slot-files li {
-  display: flex;
-  gap: 0.5rem;
-  align-items: baseline;
-}
-
-.document-slot-files .meta {
-  color: var(--foreground-muted);
-  font-size: 0.75rem;
+.doc-file.is-error .doc-file-name {
+  color: var(--error);
+  white-space: normal;
 }
 
 .origin-recommendation-overridden {

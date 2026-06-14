@@ -254,7 +254,6 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
         "client_config": source_summary["client_config"],
         "case_workspace": case_workspace,
         "form_candidates": form_candidates,
-        "form_lanes": form_lanes,
         "recommended_form_lane": selected_form_lane,
         "invoice_lookup_preview": invoice_lookup_preview,
         "common_market_presets": COMMON_MARKET_PRESETS,

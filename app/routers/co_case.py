@@ -8,7 +8,7 @@ import re
 from fastapi import APIRouter
 from app import co_auth, co_stock_eligibility, co_stock_ledger, co_stock_materializer, material_search
 from app.bom_store import attach_case_bom_snapshot
-from app.co_case_store import CaseHasActiveClaimsError, MAX_SUPPORTING_FILE_BYTES, build_case_criteria_rows, case_from_record, co_case_is_completed, co_case_status_view, create_case_record, create_case_workbook, declaration_refs, delete_case_record, get_case_record, get_case_workspace, get_supporting_file, invoice_keys, json_safe, safe_filename, save_supporting_file, set_case_archived, update_case_record
+from app.co_case_store import CaseHasActiveClaimsError, MAX_SUPPORTING_FILE_BYTES, build_case_criteria_rows, case_from_record, co_case_is_completed, co_case_status_view, create_case_record, create_case_workbook, declaration_refs, delete_case_record, delete_supporting_file, get_case_record, get_case_workspace, get_supporting_file, invoice_keys, json_safe, safe_filename, save_supporting_file, set_case_archived, update_case_record
 from app.co_form_config_store import load_co_form_config
 from app.co_forms import prioritized_form_lanes, recommended_form_lane
 from app.data_hub_client import current_data_hub_token
@@ -1025,6 +1025,24 @@ async def co_case_origin_calculation_payload(client_id: str, case_id: str):
             "stock_rows": json_safe(source_context.get("stock_rows", [])),
         },
     }
+def _wants_json(request: Request) -> bool:
+    return "application/json" in request.headers.get("accept", "")
+
+
+def _supporting_file_view(client_id: str, case_id: str, row: dict) -> dict:
+    upload_id = row.get("upload_id") or ""
+    return {
+        "upload_id": upload_id,
+        "slot": row.get("slot") or "other",
+        "name": row.get("original_filename") or row.get("filename") or "supporting-file",
+        "size_bytes": row.get("size_bytes") or 0,
+        "file_ext": (row.get("file_ext") or "").lstrip("."),
+        "mime_type": row.get("mime_type") or "",
+        "uploaded_at": row.get("uploaded_at") or "",
+        "download_url": f"/clients/{client_id}/co-case/{case_id}/supporting-files/{upload_id}",
+    }
+
+
 @router.post("/clients/{client_id}/co-case/{case_id}/supporting-files")
 async def upload_co_case_supporting_file(
     request: Request,
@@ -1040,13 +1058,13 @@ async def upload_co_case_supporting_file(
     # check it explicitly here so closed cases also reject uploads.
     record = get_case_record(client, case_id)
     if record and co_case_is_completed(record):
-        raise HTTPException(
-            status_code=409,
-            detail="Hồ sơ đã đóng — bấm 'Mở lại hồ sơ' ở tab Review & Xuất trước khi upload chứng từ.",
-        )
+        message = "Hồ sơ đã đóng — bấm 'Mở lại hồ sơ' ở tab Review & Xuất trước khi upload chứng từ."
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "error": message}, status_code=409)
+        raise HTTPException(status_code=409, detail=message)
     content = await file.read(MAX_SUPPORTING_FILE_BYTES + 1)
     try:
-        save_supporting_file(
+        saved = save_supporting_file(
             client,
             case_id,
             content,
@@ -1056,13 +1074,31 @@ async def upload_co_case_supporting_file(
             bill_of_lading_no,
         )
     except ValueError as exc:
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
         return templates.TemplateResponse(
             request=request,
             name="co_case.html",
             status_code=400,
             context=co_case_context(client_id, case_id, "documents", error=str(exc)),
         )
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "file": _supporting_file_view(client_id, case_id, saved)})
     return RedirectResponse(f"/clients/{client_id}/co-case/{case_id}/documents", status_code=303)
+@router.delete("/clients/{client_id}/co-case/{case_id}/supporting-files/{upload_id}")
+async def delete_co_case_supporting_file(client_id: str, case_id: str, upload_id: str):
+    client = resolve_client(client_id)
+    record = get_case_record(client, case_id)
+    if record and co_case_is_completed(record):
+        raise HTTPException(
+            status_code=409,
+            detail="Hồ sơ đã đóng — không thể xoá chứng từ.",
+        )
+    try:
+        delete_supporting_file(client, case_id, upload_id)
+    except KeyError:
+        raise HTTPException(status_code=404) from None
+    return JSONResponse({"ok": True})
 @router.get("/clients/{client_id}/co-case/{case_id}/supporting-files/{upload_id}")
 async def download_co_case_supporting_file(client_id: str, case_id: str, upload_id: str):
     try:

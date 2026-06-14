@@ -59,54 +59,6 @@
   </div>
 {%- endmacro %}
 
-{% macro form_lane_matrix() -%}
-  <div class="form-lane-grid">
-    {% for lane in form_lanes %}
-    <article class="form-lane {{ 'form-lane-recommended' if lane.recommended else '' }}">
-      <div class="form-lane-head">
-        <span class="eyebrow">Priority {{ lane.priority }}</span>
-        <strong>{{ lane.display_name }}</strong>
-        <span class="badge {{ 'badge-ok' if lane.recommended else 'badge-neutral' }}">{{ 'Gợi ý' if lane.recommended else 'Chọn thủ công' }}</span>
-      </div>
-      <div class="mini-rule-list">
-        {% for rule in lane.criteria_preview[:1] %}
-        <div>
-          <span class="mono">{{ rule.hs_code }}</span>
-          <strong>{{ rule.criteria }}</strong>
-        </div>
-        {% endfor %}
-      </div>
-    </article>
-    {% endfor %}
-  </div>
-  <div class="table-scroll compact-table">
-    <table class="table">
-      <thead>
-        <tr>
-          <th>Form</th>
-          <th>HS</th>
-          <th>Tiêu chí preview</th>
-          <th>Trạng thái</th>
-          <th>Ghi chú</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for lane in form_lanes %}
-        {% for rule in lane.criteria_preview %}
-        <tr>
-          <td>{{ lane.display_name }}</td>
-          <td class="mono">{{ rule.hs_code }}</td>
-          <td>{{ rule.criteria }}</td>
-          <td><span class="badge badge-info">{{ 'Chưa lắp' if rule.status == 'coming soon' else rule.status }}</span></td>
-          <td>{{ rule.note }}</td>
-        </tr>
-        {% endfor %}
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-{%- endmacro %}
-
 {% macro market_picker(input_id, value) -%}
   <div class="market-combobox" data-market-combobox>
     <label for="{{ input_id }}">Thị trường</label>
@@ -167,17 +119,6 @@
       </button>
       {% endif %}
     </div>
-    {% if preview.suggested_forms %}
-    <div class="invoice-form-hints">
-      {% for lane in preview.suggested_forms[:3] %}
-      <div class="{{ 'is-recommended' if lane.recommended else '' }}">
-        <span>{{ 'Form nên dùng nếu chọn thị trường này' if lane.recommended else 'Form tham khảo' }}</span>
-        <strong>{{ lane.display_name }}</strong>
-        <small>{{ lane.instrument }}</small>
-      </div>
-      {% endfor %}
-    </div>
-    {% endif %}
     {% if preview.matches %}
     <div class="invoice-preview-lines">
       {% for row in preview.matches[:4] %}
@@ -508,7 +449,7 @@
     <div class="confirm-modal-head">
       <span class="eyebrow">Tạo hồ sơ</span>
       <h2 id="create-case-title">Tạo hồ sơ C/O</h2>
-      <p class="meta">Chỉ cần invoice hoặc số tờ khai xuất và thị trường để bắt đầu. Form ưu tiên: B, CPTPP, EUR.1, AI.</p>
+      <p class="meta">Chỉ cần invoice hoặc số tờ khai xuất và thị trường để bắt đầu. Form C/O tự suy theo thị trường và được chốt ở bước Bảng kê.</p>
     </div>
     <form method="post" action="/clients/{{ client.id }}/co-case/create" class="co-create-form co-create-flow" hx-boost="false">
       {{ invoice_lookup("create-invoice-no", case.shipment.invoice_no, false) }}
@@ -520,11 +461,6 @@
       <input type="hidden" name="co_form_type" value="{{ recommended_form_lane.display_name if case.destination_market != 'Chưa nhập' else '' }}" data-selected-form>
       <input type="hidden" name="agreement" value="{{ recommended_form_lane.agreement if case.destination_market != 'Chưa nhập' else '' }}" data-selected-agreement>
       <input type="hidden" name="rule" value="{{ recommended_form_lane.rule_lookup_label if case.destination_market != 'Chưa nhập' else '' }}" data-selected-rule>
-      <div class="co-form-preview" data-form-preview>
-        <span>Form gợi ý</span>
-        <strong data-preview-form>{{ recommended_form_lane.display_name if case.destination_market != 'Chưa nhập' else 'Chọn thị trường' }}</strong>
-        <small data-preview-instrument>{{ recommended_form_lane.instrument if case.destination_market != 'Chưa nhập' else 'Thông tư sẽ hiện sau khi chọn thị trường' }}</small>
-      </div>
       <details class="co-optional-fields">
         <summary>Thông tin thêm</summary>
         <label>Tên hồ sơ
@@ -658,11 +594,6 @@
       <label>Số B/L
         <input name="bill_of_lading_no" value="{{ case.shipment.bill_of_lading_no }}">
       </label>
-      <div class="co-form-preview" data-form-preview>
-        <span>Form gợi ý</span>
-        <strong data-preview-form>{{ recommended_form_lane.display_name or case.co_form_type }}</strong>
-        <small data-preview-instrument>{{ recommended_form_lane.instrument or 'Thông tư sẽ hiện sau khi chọn thị trường' }}</small>
-      </div>
       <button type="submit">Lưu lô hàng</button>
     </form>
   </div>
@@ -670,11 +601,54 @@
 {% endif %}
 
 {% if co_case_active_step == "documents" %}
-<section class="zone source-panel">
-  <div class="zone-head">
+{% macro doc_slot_card(client_id, case_id, slot, files, required) -%}
+<article class="doc-slot {{ 'doc-slot-ready' if files else ('doc-slot-missing' if required else 'doc-slot-empty') }}"
+         data-doc-slot="{{ slot.slot }}" data-doc-required="{{ '1' if required else '0' }}">
+  <header class="doc-slot-head">
+    <div class="doc-slot-title">
+      <strong>{{ slot.label }}</strong>
+      {% if required %}<span class="doc-slot-req">Bắt buộc</span>{% endif %}
+    </div>
+    <span class="doc-slot-status" data-doc-slot-status>{{ files|length ~ ' file' if files else ('Chưa upload' if required else 'Tùy chọn') }}</span>
+  </header>
+  <form class="doc-dropzone" method="post"
+        action="/clients/{{ client_id }}/co-case/{{ case_id }}/supporting-files"
+        enctype="multipart/form-data" hx-boost="false" data-doc-form>
+    <input type="hidden" name="document_slot" value="{{ slot.slot }}">
+    <input type="file" name="file" class="doc-file-input" data-doc-input multiple hidden>
+    <div class="doc-dropzone-prompt" data-doc-prompt>
+      <span class="doc-dropzone-strong">Kéo thả file vào đây</span>
+      <span class="doc-dropzone-sub">hoặc <button type="button" class="doc-browse" data-doc-browse>chọn từ máy</button></span>
+    </div>
+    <noscript>
+      <input type="file" name="file" required>
+      <button type="submit" class="btn-secondary">Upload</button>
+    </noscript>
+  </form>
+  <ul class="doc-file-list {{ '' if files else 'is-empty' }}" data-doc-files>
+    {% for f in files %}
+    <li class="doc-file" data-doc-file="{{ f.upload_id }}">
+      <span class="doc-file-ext">{{ (f.file_ext or '')|replace('.', '')|upper or 'FILE' }}</span>
+      {% if f.upload_id %}
+      <a class="doc-file-name" href="/clients/{{ client_id }}/co-case/{{ case_id }}/supporting-files/{{ f.upload_id }}">{{ f.original_filename or f.filename }}</a>
+      {% else %}<span class="doc-file-name">{{ f.original_filename or f.filename }}</span>{% endif %}
+      <span class="doc-file-size" data-size-bytes="{{ f.size_bytes or 0 }}"></span>
+      {% if f.upload_id %}<button type="button" class="doc-file-remove" data-doc-remove="{{ f.upload_id }}" aria-label="Xoá file">×</button>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</article>
+{%- endmacro %}
+
+<section class="zone source-panel doc-panel" data-documents-panel>
+  <div class="zone-head doc-panel-head">
     <div>
       <h2>Chứng từ hồ sơ</h2>
-      <p class="meta">Chia 2 nhóm: <strong>Bắt buộc</strong> (BL, Invoice/Packing) và <strong>Bổ sung</strong> (chứng từ khác). Bảng TKX không upload ở đây — sẽ được query từ Data Hub sau khi chốt bảng kê (xem tab "TKX/TKN").</p>
+      <p class="meta">Kéo thả hoặc chọn file cho từng loại chứng từ. <strong>Bắt buộc</strong>: B/L, Invoice, Packing list. TKX không upload ở đây — query từ Data Hub sau khi chốt bảng kê.</p>
+    </div>
+    <div class="doc-summary" data-doc-summary>
+      <span class="doc-summary-pill" data-doc-required-summary>Bắt buộc 0/3</span>
+      <span class="doc-summary-pill doc-summary-pill-muted" data-doc-optional-summary>Bổ sung 0</span>
     </div>
   </div>
   {% set required_slots = [
@@ -693,64 +667,17 @@
     {% set _ = slot_files.setdefault(f.slot, []).append(f) %}
   {% endfor %}
 
-  <div class="document-checklist document-checklist-required">
-    <h3>Bắt buộc</h3>
+  <h3 class="doc-group-title">Bắt buộc</h3>
+  <div class="doc-grid">
     {% for slot in required_slots %}
-    {% set files = slot_files.get(slot.slot, []) %}
-    <div class="document-slot {{ 'document-slot-ready' if files else 'document-slot-missing' }}">
-      <div class="document-slot-head">
-        <strong>{{ slot.label }}</strong>
-        <span class="document-slot-status">{{ files|length ~ ' file' if files else 'Chưa upload' }}</span>
-      </div>
-      <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/supporting-files" enctype="multipart/form-data" class="upload-form upload-form-inline" hx-boost="false">
-        <input type="hidden" name="document_slot" value="{{ slot.slot }}">
-        <input name="invoice_no" value="{{ case.shipment.invoice_no }}" placeholder="Số invoice (tùy chọn)">
-        <input name="bill_of_lading_no" value="{{ case.shipment.bill_of_lading_no }}" placeholder="Số B/L (tùy chọn)">
-        <input type="file" name="file" required>
-        <button type="submit">Upload</button>
-      </form>
-      {% if files %}
-      <ul class="document-slot-files">
-        {% for f in files %}
-        <li>
-          {% if f.upload_id %}
-          <a href="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/supporting-files/{{ f.upload_id }}">{{ f.filename }}</a>
-          {% else %}{{ f.filename }}{% endif %}
-          <span class="meta">invoice {{ f.invoice_no or 'n/a' }} · B/L {{ f.bill_of_lading_no or 'n/a' }}</span>
-        </li>
-        {% endfor %}
-      </ul>
-      {% endif %}
-    </div>
+      {{ doc_slot_card(client.id, case.persisted_case_id, slot, slot_files.get(slot.slot, []), true) }}
     {% endfor %}
   </div>
 
-  <div class="document-checklist document-checklist-optional">
-    <h3>Bổ sung</h3>
+  <h3 class="doc-group-title">Bổ sung</h3>
+  <div class="doc-grid">
     {% for slot in optional_slots %}
-    {% set files = slot_files.get(slot.slot, []) %}
-    <div class="document-slot document-slot-optional">
-      <div class="document-slot-head">
-        <strong>{{ slot.label }}</strong>
-        <span class="document-slot-status">{{ files|length ~ ' file' if files else 'Tùy chọn' }}</span>
-      </div>
-      <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/supporting-files" enctype="multipart/form-data" class="upload-form upload-form-inline" hx-boost="false">
-        <input type="hidden" name="document_slot" value="{{ slot.slot }}">
-        <input type="file" name="file" required>
-        <button type="submit">Upload</button>
-      </form>
-      {% if files %}
-      <ul class="document-slot-files">
-        {% for f in files %}
-        <li>
-          {% if f.upload_id %}
-          <a href="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/supporting-files/{{ f.upload_id }}">{{ f.filename }}</a>
-          {% else %}{{ f.filename }}{% endif %}
-        </li>
-        {% endfor %}
-      </ul>
-      {% endif %}
-    </div>
+      {{ doc_slot_card(client.id, case.persisted_case_id, slot, slot_files.get(slot.slot, []), false) }}
     {% endfor %}
   </div>
 
@@ -2424,15 +2351,17 @@
   const updatePreview = (input, option) => {
     const form = input.closest("form");
     const scope = form || document;
+    // Form is derived from market (no step-1 picker) — keep the hidden co_form_type/
+    // agreement/rule inputs in sync so downstream displays stay correct.
+    scope.querySelector("[data-selected-form]")?.setAttribute("value", option?.dataset.formName || "");
+    scope.querySelector("[data-selected-agreement]")?.setAttribute("value", option?.dataset.agreement || "");
+    scope.querySelector("[data-selected-rule]")?.setAttribute("value", option ? "Cần tra cứu PSR theo HS" : "");
     const preview = scope.querySelector("[data-form-preview]");
     if (!preview) return;
     const formName = option?.dataset.formName || "Chọn thị trường";
     const instrument = option?.dataset.instrument || "Thông tư sẽ hiện sau khi chọn thị trường";
-    preview.querySelector("[data-preview-form]").textContent = formName;
-    preview.querySelector("[data-preview-instrument]").textContent = instrument;
-    scope.querySelector("[data-selected-form]")?.setAttribute("value", option?.dataset.formName || "");
-    scope.querySelector("[data-selected-agreement]")?.setAttribute("value", option?.dataset.agreement || "");
-    scope.querySelector("[data-selected-rule]")?.setAttribute("value", option ? "Cần tra cứu PSR theo HS" : "");
+    preview.querySelector("[data-preview-form]")?.replaceChildren(document.createTextNode(formName));
+    preview.querySelector("[data-preview-instrument]")?.replaceChildren(document.createTextNode(instrument));
   };
 
   const escapeHtml = (value) => (value || "")
@@ -2504,17 +2433,6 @@
         ${escapeHtml(inference.action_label)}
       </button>
     ` : "";
-    const formHints = forms.length ? `
-      <div class="invoice-form-hints">
-        ${forms.slice(0, 3).map((lane) => `
-          <div class="${lane.recommended ? "is-recommended" : ""}">
-            <span>${lane.recommended ? "Form nên dùng nếu chọn thị trường này" : "Form tham khảo"}</span>
-            <strong>${escapeHtml(lane.display_name)}</strong>
-            <small>${escapeHtml(lane.instrument)}</small>
-          </div>
-        `).join("")}
-      </div>
-    ` : "";
     const previewLines = matches.length ? `
       <div class="invoice-preview-lines">
         ${matches.slice(0, 4).map((row) => `
@@ -2541,7 +2459,6 @@
           <p>${escapeHtml(inference.explanation)}</p>
           ${marketButton}
         </div>
-        ${formHints}
         ${previewLines}
       </div>
     `;
@@ -5193,6 +5110,155 @@
     });
   };
 
+  const initDocumentUploads = (root = document) => {
+    const panel = root.querySelector("[data-documents-panel]");
+    if (!panel || panel.dataset.docInit === "1") return;
+    panel.dataset.docInit = "1";
+
+    const formatBytes = (n) => {
+      n = Number(n) || 0;
+      if (n < 1024) return `${n} B`;
+      if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+      return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+    };
+
+    panel.querySelectorAll(".doc-file-size[data-size-bytes]").forEach((el) => {
+      el.textContent = formatBytes(el.dataset.sizeBytes);
+    });
+
+    const realCount = (slot) => slot.querySelectorAll(".doc-file:not(.is-pending)").length;
+
+    const syncSlot = (slot) => {
+      const list = slot.querySelector("[data-doc-files]");
+      const status = slot.querySelector("[data-doc-slot-status]");
+      const required = slot.dataset.docRequired === "1";
+      const count = realCount(slot);
+      list?.classList.toggle("is-empty", count === 0);
+      slot.classList.toggle("doc-slot-ready", count > 0);
+      slot.classList.toggle("doc-slot-missing", required && count === 0);
+      slot.classList.toggle("doc-slot-empty", !required && count === 0);
+      if (status) status.textContent = count ? `${count} file` : (required ? "Chưa upload" : "Tùy chọn");
+    };
+
+    const syncSummary = () => {
+      const slots = [...panel.querySelectorAll("[data-doc-slot]")];
+      const required = slots.filter((s) => s.dataset.docRequired === "1");
+      const reqReady = required.filter((s) => realCount(s) > 0).length;
+      const optFiles = slots.filter((s) => s.dataset.docRequired !== "1").reduce((acc, s) => acc + realCount(s), 0);
+      const reqEl = panel.querySelector("[data-doc-required-summary]");
+      const optEl = panel.querySelector("[data-doc-optional-summary]");
+      if (reqEl) {
+        reqEl.textContent = `Bắt buộc ${reqReady}/${required.length}`;
+        reqEl.classList.toggle("is-complete", reqReady === required.length && required.length > 0);
+      }
+      if (optEl) optEl.textContent = `Bổ sung ${optFiles}`;
+    };
+
+    const fileChip = (file) => {
+      const li = document.createElement("li");
+      li.className = "doc-file";
+      li.dataset.docFile = file.upload_id;
+      const ext = (file.file_ext || "").replace(".", "").toUpperCase() || "FILE";
+      li.innerHTML = `<span class="doc-file-ext">${escapeHtml(ext)}</span>`
+        + `<a class="doc-file-name" href="${escapeHtml(file.download_url)}">${escapeHtml(file.name)}</a>`
+        + `<span class="doc-file-size">${escapeHtml(formatBytes(file.size_bytes))}</span>`
+        + `<button type="button" class="doc-file-remove" data-doc-remove="${escapeHtml(file.upload_id)}" aria-label="Xoá file">×</button>`;
+      return li;
+    };
+
+    const pendingChip = (name) => {
+      const li = document.createElement("li");
+      li.className = "doc-file is-pending";
+      li.innerHTML = `<span class="doc-file-ext">…</span>`
+        + `<span class="doc-file-name">${escapeHtml(name)}</span>`
+        + `<span class="doc-file-progress"><span class="doc-file-progress-bar" data-bar></span></span>`;
+      return li;
+    };
+
+    const failChip = (chip, slot, message) => {
+      chip.classList.add("is-error");
+      const nameEl = chip.querySelector(".doc-file-name");
+      if (nameEl) nameEl.textContent = message;
+      setTimeout(() => { chip.remove(); syncSlot(slot); syncSummary(); }, 4000);
+    };
+
+    const uploadOne = (slot, file) => {
+      const form = slot.querySelector("[data-doc-form]");
+      const list = slot.querySelector("[data-doc-files]");
+      if (!form || !list) return;
+      const chip = pendingChip(file.name);
+      list.classList.remove("is-empty");
+      list.appendChild(chip);
+      const bar = chip.querySelector("[data-bar]");
+      const data = new FormData();
+      data.append("document_slot", form.querySelector("[name=document_slot]")?.value || "other");
+      data.append("file", file);
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", form.action);
+      xhr.setRequestHeader("Accept", "application/json");
+      xhr.upload.addEventListener("progress", (e) => {
+        if (e.lengthComputable && bar) bar.style.width = `${Math.round((e.loaded / e.total) * 100)}%`;
+      });
+      xhr.addEventListener("load", () => {
+        let payload = {};
+        try { payload = JSON.parse(xhr.responseText || "{}"); } catch (_) { payload = {}; }
+        if (xhr.status >= 200 && xhr.status < 300 && payload.ok && payload.file) {
+          chip.replaceWith(fileChip(payload.file));
+        } else {
+          failChip(chip, slot, `${file.name} — ${payload.error || "Upload thất bại"}`);
+        }
+        syncSlot(slot);
+        syncSummary();
+      });
+      xhr.addEventListener("error", () => failChip(chip, slot, `${file.name} — lỗi mạng`));
+      xhr.send(data);
+    };
+
+    const uploadFiles = (slot, files) => [...files].forEach((file) => uploadOne(slot, file));
+
+    panel.querySelectorAll("[data-doc-slot]").forEach((slot) => {
+      const input = slot.querySelector("[data-doc-input]");
+      const dropzone = slot.querySelector("[data-doc-form]");
+      slot.querySelector("[data-doc-browse]")?.addEventListener("click", () => input?.click());
+      dropzone?.addEventListener("click", (e) => {
+        if (e.target.closest("[data-doc-browse]") || e.target.closest("a") || e.target.closest("button")) return;
+        input?.click();
+      });
+      input?.addEventListener("change", () => {
+        if (input.files?.length) uploadFiles(slot, input.files);
+        input.value = "";
+      });
+      ["dragenter", "dragover"].forEach((evt) => dropzone?.addEventListener(evt, (e) => {
+        e.preventDefault();
+        dropzone.classList.add("doc-dropzone-over");
+      }));
+      ["dragleave", "dragend", "drop"].forEach((evt) => dropzone?.addEventListener(evt, (e) => {
+        e.preventDefault();
+        dropzone.classList.remove("doc-dropzone-over");
+      }));
+      dropzone?.addEventListener("drop", (e) => {
+        if (e.dataTransfer?.files?.length) uploadFiles(slot, e.dataTransfer.files);
+      });
+    });
+
+    panel.addEventListener("click", (e) => {
+      const remove = e.target.closest("[data-doc-remove]");
+      if (!remove) return;
+      e.preventDefault();
+      const slot = remove.closest("[data-doc-slot]");
+      const chip = remove.closest(".doc-file");
+      const form = slot?.querySelector("[data-doc-form]");
+      const uploadId = remove.dataset.docRemove;
+      if (!uploadId || !form || !chip) return;
+      remove.disabled = true;
+      fetch(`${form.action}/${uploadId}`, { method: "DELETE", headers: { "Accept": "application/json" } })
+        .then((r) => { if (!r.ok) throw new Error(); chip.remove(); syncSlot(slot); syncSummary(); })
+        .catch(() => { remove.disabled = false; });
+    });
+
+    syncSummary();
+  };
+
   refreshCaseShellInteractions = (root = document) => {
     initOriginWarningSummaries(root);
     initOriginColumnControls(root);
@@ -5207,6 +5273,7 @@
     initCaseCreatedBanner(root);
     initCostBuildupHint(root);
     initCostBuildupApply(root);
+    initDocumentUploads(root);
   };
   refreshCaseShellInteractions();
 
