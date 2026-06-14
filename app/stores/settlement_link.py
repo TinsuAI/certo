@@ -19,7 +19,15 @@ def _agg(cur, sql: str, params: tuple) -> dict[str, float]:
 
 def period_end_link(client_id: str, on_date) -> list[dict]:
     """Per-code {code, nxt_closing, next_opening, snapshot_book,
-    snapshot_physical} joined on the material code, for `on_date`."""
+    snapshot_physical} joined on the material code, for `on_date`.
+
+    Join is BEST-EFFORT on the raw code: NXT collapses to
+    coalesce(internal_code, customs_code) while the snapshot uses its single
+    `code` column. When the two sides carry different code systems they won't
+    match and a code appears with values on only one side. A future pass can
+    resolve both through the catalog / code_mappings to a canonical code.
+    Aggregates only current (superseded_by is null) artifacts; create_artifact
+    supersedes the prior upload per period so re-uploads don't double-count."""
     code_expr = "coalesce(nullif(l.internal_code,''), l.customs_code)"
     with connect() as conn, conn.cursor() as cur:
         closing = _agg(cur, f"""

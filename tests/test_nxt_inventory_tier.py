@@ -531,6 +531,57 @@ def _build_misa_xlsx() -> bytes:
     return out.getvalue()
 
 
+def test_nxt_reupload_supersedes_and_no_double_count():
+    import secrets
+    cid = "nxt-sup-" + secrets.token_hex(4)
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("insert into hub.clients (client_id, name) values (%s, %s)",
+                    (cid, "supersede test"))
+    d = date(2025, 12, 31)
+
+    def _line(close):
+        return {"internal_code": "MAT-X", "opening": 0, "inbound_total": close,
+                "outbound_total": 0, "closing_reported": close, "reported_role": "nvl"}
+
+    a1 = nxt_store.create_artifact(client_id=cid, period_to=d, lines=[_line(500)])
+    a2 = nxt_store.create_artifact(client_id=cid, period_to=d, lines=[_line(600)])
+    # Re-upload of the same period supersedes the prior; only one stays current.
+    arts = nxt_store.list_artifacts(cid)
+    assert [a["id"] for a in arts] == [a2]
+    assert len(nxt_store.list_artifacts(cid, include_superseded=True)) == 2
+    # period_end_link sums only the current artifact → 600, not 500+600.
+    from app.stores import settlement_link
+    link = {r["code"]: r for r in settlement_link.period_end_link(cid, d)}
+    assert link["MAT-X"]["nxt_closing"] == 600
+
+
+def test_nxt_reject_is_client_scoped(isolated_files_dir):
+    c = _dev_client()
+    r = c.post(f"/clients/{CLIENT}/nxt/upload",
+               files={"file": ("t.xlsx", render_nxt(),
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+               follow_redirects=False)
+    upload_id = r.headers["location"].rstrip("/").split("/")[-1]
+    # Reject via a DIFFERENT client must 404 (upload belongs to CLIENT).
+    bad = c.post(f"/clients/growatt-vn/nxt/preview/{upload_id}/reject",
+                 follow_redirects=False)
+    assert bad.status_code == 404
+    # Correct client succeeds.
+    ok = c.post(f"/clients/{CLIENT}/nxt/preview/{upload_id}/reject",
+                follow_redirects=False)
+    assert ok.status_code == 303
+
+
+def test_manual_generic_override_duplicate_target_first_wins():
+    from app.parsers.nxt_adapters.manual_generic import ManualGenericNxtAdapter
+    blob = _build_generic_nxt(["A", "B", "C", "D"], ["Z1", "x", 10, 20])
+    # C and D both mapped to closing_reported → first column (C=10) wins.
+    override = {"A": "internal_code", "C": "closing_reported",
+                "D": "closing_reported"}
+    lines = ManualGenericNxtAdapter().parse(blob, mapping_override=override)
+    assert lines[0]["closing_reported"] == 10
+
+
 def test_v1_hub_read_api_and_period_end_link(monkeypatch):
     import secrets
     monkeypatch.setenv("DATA_HUB_API_AUTH_DISABLED", "1")

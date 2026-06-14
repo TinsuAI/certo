@@ -38,6 +38,17 @@ def create_artifact(
             (artifact_id, client_id, period_from, period_to, source_kind,
              adapter_name, file_sha256, file_path, note, created_by),
         )
+        # Supersede the prior current artifact for this (client, period): a
+        # year-end NXT is one consolidated file per period, so a re-upload
+        # replaces it. Without this, period_end_link would sum across both.
+        # period_to is the dedup key; skip when absent (can't dedup ambiguously).
+        if period_to is not None:
+            cur.execute(
+                "update hub.nxt_artifacts set superseded_by=%s "
+                "where client_id=%s and period_to=%s and superseded_by is null "
+                "and id<>%s",
+                (artifact_id, client_id, period_to, artifact_id),
+            )
         for i, line in enumerate(lines, start=1):
             cur.execute(
                 """

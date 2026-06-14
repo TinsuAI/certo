@@ -293,6 +293,10 @@ async def mapping_parse(request: Request, client_id: str, upload_id: str):
     upload = get_upload(upload_id, client_id=client_id)
     if not upload or upload["module"] != MODULE:
         raise HTTPException(404, "Upload not found")
+    if upload["parse_status"] in ("done", "rejected"):
+        return RedirectResponse(
+            url=f"/clients/{client_id}/nxt?error=Upload đã được xử lý",
+            status_code=303)
     blob = get_backend().get(upload["stored_path"])
     form = await request.form()
 
@@ -418,6 +422,9 @@ async def preview_confirm(request: Request, client_id: str, upload_id: str):
 async def preview_reject(request: Request, client_id: str, upload_id: str):
     user = auth.require_user(request)
     auth.require_can_edit_client(user, client_id)
+    upload = get_upload(upload_id, client_id=client_id)
+    if not upload or upload["module"] != MODULE:
+        raise HTTPException(404, "Upload not found")
     set_upload_status(upload_id, "rejected")
     return RedirectResponse(url=f"/clients/{client_id}/nxt?saved=Đã bỏ qua",
                             status_code=303)

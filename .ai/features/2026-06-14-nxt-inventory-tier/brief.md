@@ -45,7 +45,16 @@ UI proof in `screenshots/` (08 = mapping page).
     `…/inventory-snapshots`, `…/inventory-snapshots/{id}`,
     `…/period-end-link?date=`. Documented in `docs/API_CONTRACT.md`.
   Tests: 27 in-feature + full suite 1521 passed.
-**SLICES 1-4 COMPLETE.** Pre-merge: bump API_CHANGELOG, then merge branch → main
+- **Review pass (2026-06-14)**: 3-agent review + self-verify. Fixed: C1 re-upload
+  double-count — `create_artifact`/`create_snapshot` now supersede the prior
+  current artifact per `(client, period_to)` / `(client, snapshot_date)` (the
+  missing half of the immutability design) + `mapping_parse` parse_status guard;
+  I1 `preview_reject` now client-scoped (both modules); M1 override dup-target →
+  first-column-wins; I2 best-effort join documented. Deferred (Minor): parse_with_fallback
+  broad except, mapping_parse 3× workbook load, outbound_value precedence warning,
+  misa col-order fragility, 083 manual-reapply idempotency. Tests: 30 in-feature +
+  full suite 1524 passed.
+**SLICES 1-4 COMPLETE + reviewed.** Pre-merge: bump API_CHANGELOG, then merge branch → main
 + release. (Future: cross-link BCQT-System to consume; BCCT↔NXT settlement
 reconciliation lives in BCQT, not here.)
 **Owner:** Data Hub

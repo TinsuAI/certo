@@ -70,6 +70,8 @@ def parse_inventory_sheets(blob: bytes, *,
             norm = [normalize_header(h) for h in headers]
             out: dict[str, int] = {}
             for header_text, field in mapping_override.items():
+                if field in out:
+                    continue  # two headers → one field: first column wins
                 target = normalize_header(header_text)
                 for i, h in enumerate(norm):
                     if h and h == target and i not in out.values():

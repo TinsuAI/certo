@@ -24,6 +24,8 @@ def cols_from_override(headers: list[str], override: dict[str, str]) -> dict[str
     norm = [normalize_header(h) for h in headers]
     out: dict[str, int] = {}
     for header_text, field in override.items():
+        if field in out:
+            continue  # two headers mapped to one field → first column wins
         target = normalize_header(header_text)
         for i, h in enumerate(norm):
             if h and h == target and i not in out.values():

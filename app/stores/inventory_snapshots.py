@@ -33,6 +33,15 @@ def create_snapshot(
             (snapshot_id, client_id, snapshot_date, source_kind, adapter_name,
              file_sha256, file_path, note, created_by),
         )
+        # Supersede the prior current snapshot at this date (a re-upload of the
+        # period-end stocktake replaces it). snapshot_date is the dedup key.
+        if snapshot_date is not None:
+            cur.execute(
+                "update hub.inventory_snapshots set superseded_by=%s "
+                "where client_id=%s and snapshot_date=%s and superseded_by is null "
+                "and id<>%s",
+                (snapshot_id, client_id, snapshot_date, snapshot_id),
+            )
         for i, line in enumerate(lines, start=1):
             cur.execute(
                 """

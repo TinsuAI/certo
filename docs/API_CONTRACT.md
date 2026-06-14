@@ -927,7 +927,11 @@ qty_physical, variance`.
 Per-code reconciliation at `date` (required): `{ "date", "items": [ { code,
 nxt_closing, next_opening, snapshot_book, snapshot_physical } ] }`. Joins NXT
 closing (period_to == date) ↔ next-period opening (period_from == date) ↔ the
-snapshot (snapshot_date == date) by material code.
+snapshot (snapshot_date == date) by material code. **Best-effort join**: NXT
+keys on `coalesce(internal_code, customs_code)`, the snapshot on its `code`
+column — if a client's two sources use different code systems, a code surfaces
+on only one side. Aggregates current artifacts only (a re-upload of a period
+supersedes the prior one, so values are not double-counted).
 
 ### Health
 
