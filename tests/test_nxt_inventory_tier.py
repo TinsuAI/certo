@@ -531,6 +531,95 @@ def _build_misa_xlsx() -> bytes:
     return out.getvalue()
 
 
+def test_v1_hub_read_api_and_period_end_link(monkeypatch):
+    import secrets
+    monkeypatch.setenv("DATA_HUB_API_AUTH_DISABLED", "1")
+    # Fresh throwaway client — the DB persists across pytest runs, so a shared
+    # client would accumulate artifacts and inflate the period-end aggregates.
+    cid = "nxt-api-" + secrets.token_hex(4)
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("insert into hub.clients (client_id, name) values (%s, %s)",
+                    (cid, "nxt api test"))
+    d = date(2025, 12, 31)
+    aid = nxt_store.create_artifact(
+        client_id=cid, period_to=d, source_kind="system_template",
+        adapter_name="system_template",
+        lines=[{"internal_code": "MAT-LINK", "opening": 0, "inbound_total": 500,
+                "out_xuat_sx": 0, "outbound_total": 0, "closing_reported": 500,
+                "reported_role": "nvl"}])
+    sid = inv_store.create_snapshot(
+        client_id=cid, snapshot_date=d, source_kind="system_template",
+        adapter_name="system_template",
+        lines=[{"code": "MAT-LINK", "qty_book": 500, "qty_physical": 495}])
+    c = TestClient(app)
+    h = {"authorization": "Bearer test"}
+
+    r = c.get(f"/v1/hub/dncxs/{cid}/nxt", headers=h)
+    assert r.status_code == 200
+    assert any(a["id"] == aid for a in r.json()["items"])
+
+    r = c.get(f"/v1/hub/dncxs/{cid}/nxt/{aid}", headers=h)
+    assert r.status_code == 200
+    ln = r.json()["lines"][0]
+    assert ln["internal_code"] == "MAT-LINK" and ln["closing_implied"] == 500
+
+    r = c.get(f"/v1/hub/dncxs/{cid}/inventory-snapshots/{sid}", headers=h)
+    assert r.status_code == 200
+    assert r.json()["lines"][0]["variance"] == -5
+
+    r = c.get(f"/v1/hub/dncxs/{cid}/period-end-link?date=2025-12-31", headers=h)
+    assert r.status_code == 200
+    link = {row["code"]: row for row in r.json()["items"]}
+    assert link["MAT-LINK"]["nxt_closing"] == 500
+    assert link["MAT-LINK"]["snapshot_book"] == 500
+    assert link["MAT-LINK"]["snapshot_physical"] == 495
+
+    # date is required
+    assert c.get(f"/v1/hub/dncxs/{cid}/period-end-link", headers=h).status_code == 400
+
+
+def _build_kiemke_xlsx() -> bytes:
+    import io
+    from openpyxl import Workbook
+    wb = Workbook()
+    wb.remove(wb.active)
+    hdr = ["序号", "物料编码", "物料名称", "批号", "库存主单位",
+           "Số lượng tồn kho (theo đơn vị chính) .库存量(主单位)", "实盘数量"]
+    data = {
+        "Nguyên phụ liệu 主材": [
+            [1, "03.03.11.090", "电子纸", "VRP055", "片", 22, 1],
+            [2, "03.03.11.090", "电子纸", "VRP057", "片", 1505, 1500]],
+        "Thành phẩm 成品仓": [
+            [1, "0105A0101035", "成品A", "B001", "EA", 200, 200]],
+    }
+    for title, rows in data.items():
+        ws = wb.create_sheet(title)
+        ws.cell(1, 1, f"VN{title}仓")
+        for ci, h in enumerate(hdr, 1):
+            ws.cell(2, ci, h)
+        for ri, row in enumerate(rows, start=3):
+            for ci, v in enumerate(row, 1):
+                ws.cell(ri, ci, v)
+    out = io.BytesIO(); wb.save(out)
+    return out.getvalue()
+
+
+def test_kiem_ke_multi_kho_adapter():
+    from app.parsers.inventory_adapters._common import variance
+    from app.parsers.inventory_adapters.kiem_ke_multi_kho import KiemKeMultiKhoAdapter
+    blob = _build_kiemke_xlsx()
+    assert KiemKeMultiKhoAdapter().detect(blob) == pytest.approx(0.93)
+    lines, name = inventory_adapters.parse_with_fallback(blob)
+    assert name == "kiem_ke_multi_kho"  # outranks system_template
+    assert len(lines) == 3
+    nvl = lines[0]
+    assert nvl["code"] == "03.03.11.090" and nvl["uom"] == "片"
+    assert nvl["warehouse"] == "Nguyên phụ liệu 主材"  # sheet title = kho
+    assert nvl["batch"] == "VRP055"
+    assert nvl["qty_book"] == 22 and nvl["qty_physical"] == 1
+    assert variance(nvl) == pytest.approx(-21.0)
+
+
 def test_misa_can_doi_ton_adapter():
     from app.parsers.nxt_adapters.misa_can_doi_ton import MisaCanDoiTonAdapter
     blob = _build_misa_xlsx()

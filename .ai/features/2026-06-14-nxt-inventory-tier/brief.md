@@ -33,8 +33,21 @@ UI proof in `screenshots/` (08 = mapping page).
     "Kho hàng:" warehouse section breaks skipped. Gated on the report title so it
     never greedily claims a generic file. Validated: 123 lines on the real file.
   NXT registry now has 5 adapters. Tests: 25 in-feature + full suite 1519 passed.
-**Remaining: slice 4** — inventory `kiem_ke_multi_kho` (DKE multi-warehouse
-physical count) + closing↔opening↔snapshot link + `/v1/hub` read API for BCQT.
+- **Slice 4 COMPLETE (closes the feature for slices 1-4)**:
+  - `kiem_ke_multi_kho` inventory adapter — DKE multi-warehouse physical stocktake
+    (sheet-per-kho, bilingual concatenated header matched by substring, sheet
+    title → warehouse, 实盘/實盤 = the distinctive signal so it never claims our own
+    template). Validated: 727 lines across 6 warehouses on the real file. Shared
+    `parse_inventory_sheets` extracted; system_template reuses it.
+  - `period_end_link` (`app/stores/settlement_link.py`): per-code NXT closing ↔
+    next-period opening ↔ snapshot book/physical join for a date.
+  - `/v1/hub` read API for BCQT consumer (api.py): `…/nxt`, `…/nxt/{id}`,
+    `…/inventory-snapshots`, `…/inventory-snapshots/{id}`,
+    `…/period-end-link?date=`. Documented in `docs/API_CONTRACT.md`.
+  Tests: 27 in-feature + full suite 1521 passed.
+**SLICES 1-4 COMPLETE.** Pre-merge: bump API_CHANGELOG, then merge branch → main
++ release. (Future: cross-link BCQT-System to consume; BCCT↔NXT settlement
+reconciliation lives in BCQT, not here.)
 **Owner:** Data Hub
 
 ## Goal

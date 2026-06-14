@@ -892,6 +892,43 @@ Errors:
 Contract spec:
 `barry-CO-main/.ai/api-requests/2026-05-28-bcct-declarations-download-bearer.md`.
 
+### Settlement inputs (NXT + year-end inventory)
+
+Data Hub owns these settlement *inputs*; BCQT computes Mẫu 15/15a from them.
+`reported_role` is provenance only (the role the source file declared a line
+under) — resolve the authoritative NVL/TP/BTP class from the catalog.
+`closing_implied` (= opening + inbound − outbound) and `variance`
+(= physical − book) are derived per line, not stored.
+
+#### `GET /v1/hub/dncxs/{client_id}/nxt`
+
+List current NXT (Nhập-Xuất-Tồn) artifacts (metadata):
+`{ "items": [ { id, period_from, period_to, source_kind, adapter_name,
+created_at, n_lines } ] }`.
+
+#### `GET /v1/hub/dncxs/{client_id}/nxt/{artifact_id}`
+
+One artifact with `lines[]`: `internal_code, customs_code, name, uom,
+reported_role, opening, inbound_total, out_tai_xuat, out_chuyen_mdsd,
+out_xuat_sx, out_xuat_khac, outbound_total, closing_reported, closing_implied`.
+
+#### `GET /v1/hub/dncxs/{client_id}/inventory-snapshots`
+
+List current year-end inventory snapshots (metadata): `{ "items": [ { id,
+snapshot_date, source_kind, adapter_name, created_at, n_lines } ] }`.
+
+#### `GET /v1/hub/dncxs/{client_id}/inventory-snapshots/{snapshot_id}`
+
+One snapshot with `lines[]`: `code, name, uom, warehouse, batch, qty_book,
+qty_physical, variance`.
+
+#### `GET /v1/hub/dncxs/{client_id}/period-end-link?date=YYYY-MM-DD`
+
+Per-code reconciliation at `date` (required): `{ "date", "items": [ { code,
+nxt_closing, next_opening, snapshot_book, snapshot_physical } ] }`. Joins NXT
+closing (period_to == date) ↔ next-period opening (period_from == date) ↔ the
+snapshot (snapshot_date == date) by material code.
+
 ### Health
 
 #### `GET /v1/hub/healthz`

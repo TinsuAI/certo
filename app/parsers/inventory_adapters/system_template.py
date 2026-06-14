@@ -8,10 +8,8 @@ from __future__ import annotations
 
 import io
 
-from app.parsers._excel import (
-    cell_num, cell_str, header_row, index_headers, load_xlsx,
-)
-from app.parsers.inventory_adapters._common import ALIASES, NUMERIC_FIELDS
+from app.parsers._excel import header_row, index_headers, load_xlsx
+from app.parsers.inventory_adapters._common import ALIASES, parse_inventory_sheets
 
 # (header text written into the template, logical field). "Chênh lệch" is shown
 # for human convenience but derived on read, so it is NOT a parsed input column.
@@ -50,54 +48,7 @@ class SystemTemplateInventoryAdapter:
 
     def parse(self, blob: bytes, *,
               mapping_override: dict[str, str] | None = None) -> list[dict]:
-        from app.parsers.inventory_adapters import InventoryParseError
-        try:
-            wb = load_xlsx(blob)
-        except Exception as e:
-            raise InventoryParseError(f"Cannot open workbook: {e}") from e
-
-        lines: list[dict] = []
-        for ws in wb.worksheets:
-            hdr = header_row(ws, aliases=ALIASES)
-            if not hdr:
-                continue
-            header_idx, headers = hdr
-            cols = index_headers(headers, ALIASES)
-            if "code" not in cols:
-                continue
-            for raw in _iter_data_rows(ws, header_idx):
-                line = _row_to_line(raw, cols, ws.title)
-                if line is not None:
-                    lines.append(line)
-
-        if not lines:
-            raise InventoryParseError("No inventory rows recognized.")
-        return lines
-
-
-def _iter_data_rows(ws, header_row_idx: int):
-    for row in ws.iter_rows(min_row=header_row_idx + 1, values_only=True):
-        if all(c is None or (isinstance(c, str) and not c.strip()) for c in row):
-            continue
-        yield row
-
-
-def _row_to_line(raw, cols: dict[str, int], sheet_title: str) -> dict | None:
-    code = cell_str(raw, cols.get("code"))
-    if not code:
-        return None
-    line = {
-        "code": code,
-        "name": cell_str(raw, cols.get("name")),
-        "uom": cell_str(raw, cols.get("uom")),
-        # Sheet title is a useful warehouse fallback (DKE = one sheet per kho).
-        "warehouse": cell_str(raw, cols.get("warehouse")) or sheet_title or None,
-        "batch": cell_str(raw, cols.get("batch")),
-        "note": cell_str(raw, cols.get("note")),
-    }
-    for f in NUMERIC_FIELDS:
-        line[f] = cell_num(raw, cols.get(f))
-    return line
+        return parse_inventory_sheets(blob, mapping_override=mapping_override)
 
 
 def render_template_xlsx() -> bytes:

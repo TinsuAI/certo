@@ -108,8 +108,12 @@ def parse_with_fallback(blob: bytes) -> tuple[list[dict], str] | None:
     return None
 
 
+from app.parsers.inventory_adapters.kiem_ke_multi_kho import (  # noqa: E402
+    KiemKeMultiKhoAdapter,
+)
 from app.parsers.inventory_adapters.system_template import (  # noqa: E402
     SystemTemplateInventoryAdapter,
 )
 
-register(SystemTemplateInventoryAdapter())
+register(KiemKeMultiKhoAdapter())          # multi-warehouse stocktake (实盘数量)
+register(SystemTemplateInventoryAdapter())  # canonical + generic fallback
