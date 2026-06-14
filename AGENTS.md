@@ -2,7 +2,7 @@
 
 ## Session Start
 Read `.ai/STATUS.md` and last 3-5 session summaries in `.ai/sessions/` before doing anything.
-After the context refresh, start the development server for the app by default so the workspace is ready for manual checks. Reuse an already-running server when available; otherwise run the project dev command on the default port, or the next available port if the default is busy, and report the URL.
+After the context refresh, start the development server **with live reload** by default so the workspace is ready for manual checks. The dev command is `npm run co:serve` (uvicorn `--reload`, watches `app/` for `*.py`/`*.html`/`*.css`) → `http://127.0.0.1:8001`. Reuse an already-running server when available; otherwise run it on the default port, or the next available port if the default is busy, and report the URL.
 
 ### Context Budget For Getting Up To Date
 Getting up to date must be a low-context refresh, not a repository inventory.
