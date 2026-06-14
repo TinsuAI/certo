@@ -112,8 +112,6 @@
     // longer overflow the modal or force endless scrolling.
     (function () {
       const CAP = 8;
-      const openers = document.querySelectorAll("[data-picker-open]");
-      if (!openers.length) return;
       let lastFocused = null;
       // Fold accents + đ→d so typing "viet" matches "Việt" (operators rarely type
       // diacritics). Lists are small, so folding per keystroke is cheap.
@@ -185,12 +183,15 @@
           })
           .catch(() => { body.innerHTML = '<p class="empty-cell">Không tải được danh sách. Thử lại.</p>'; });
       }
-      openers.forEach((opener) =>
-        opener.addEventListener("click", (e) => { e.preventDefault(); open(opener); }));
-      document.querySelectorAll("[data-picker-modal]").forEach((modal) =>
-        modal.addEventListener("click", (e) => {
-          if (e.target === modal || e.target.closest("[data-picker-close]")) close(modal);
-        }));
+      // Delegated so the trigger + modal survive in-place shell swaps: the case
+      // header (with "Đổi hồ sơ") lives inside [data-co-case-shell], which is
+      // replaced on every step nav / Tính / Chốt — a bound-once listener died.
+      document.addEventListener("click", (e) => {
+        const opener = e.target.closest("[data-picker-open]");
+        if (opener) { e.preventDefault(); open(opener); return; }
+        const modal = e.target.closest("[data-picker-modal]");
+        if (modal && (e.target === modal || e.target.closest("[data-picker-close]"))) close(modal);
+      });
       document.addEventListener("keydown", (e) => {
         if (e.key !== "Escape") return;
         document.querySelectorAll("[data-picker-modal]:not([hidden])").forEach(close);
