@@ -1447,7 +1447,9 @@
                 {% set norm_override = product.origin_sheet_material_overrides.get(material_index|string) if product.origin_sheet_material_overrides else none %}
                 {% set effective_norm = (norm_override.norm_per_unit if norm_override and norm_override.norm_per_unit) or material.bom_qty_per %}
                 {% set _row_non_origin_base = material.non_origin_cif_value or (material.material_value if material.origin_status != 'origin' else '0') or '0' %}
-                <tr class="{{ 'origin-row-warning' if material.material_warnings else '' }}"
+                {% set _row_folded = (norm_override and norm_override.deleted) or (material.bom_technical_noise and not material.declarable_unmatched) %}
+                <tr class="{{ 'origin-row-warning' if material.material_warnings else '' }}{{ ' origin-row-foldable' if _row_folded else '' }}"
+                    {% if _row_folded %}data-origin-fold-kind="{{ 'deleted' if (norm_override and norm_override.deleted) else 'non-material' }}"{% endif %}
                     data-origin-material-row
                     data-allocation-group="{{ allocation_group }}"
                     data-row-no-stock="{{ '1' if allocation_count == 0 else '0' }}"
@@ -1495,10 +1497,10 @@
                     {% if render_allocation_details %}
                     <button type="button" class="allocation-toggle" data-allocation-toggle data-allocation-group="{{ allocation_group }}" aria-expanded="{{ 'true' if allocation_default_expanded else 'false' }}" title="{{ 'Thu gọn dòng tồn' if allocation_default_expanded else 'Mở dòng tồn' }}">
                       <span class="allocation-toggle-icon" aria-hidden="true">▾</span>
-                      <span class="mono">{{ loop.index }}</span>
+                      <span class="mono" data-origin-stt>{{ loop.index }}</span>
                     </button>
                     {% else %}
-                    <span class="mono">{{ loop.index }}</span>
+                    <span class="mono" data-origin-stt>{{ loop.index }}</span>
                     {% endif %}
                   </td>
                   <td data-origin-column="code">
@@ -1685,6 +1687,14 @@
                 </tr>
                 {% endif %}
                 {% endfor %}
+                <tr class="origin-fold-summary" data-origin-fold-summary hidden>
+                  <td colspan="12">
+                    <button type="button" class="origin-fold-toggle" data-origin-fold-toggle aria-expanded="false">
+                      <span class="origin-fold-caret" aria-hidden="true">▸</span>
+                      <span data-origin-fold-label>Hiện <strong>0</strong> dòng đã loại (đã xoá · phi vật tư)</span>
+                    </button>
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -4651,7 +4661,7 @@
     const deleteBtn = panel.querySelector("[data-origin-bulk-delete]");
     const countEl = panel.querySelector("[data-origin-bulk-count]");
     const boxes = () => Array.from(panel.querySelectorAll("[data-origin-row-select]"))
-      .filter((cb) => !cb.disabled && !cb.closest("tr").classList.contains("origin-row-deleted"));
+      .filter((cb) => !cb.disabled && !cb.closest("tr").hidden && !cb.closest("tr").classList.contains("origin-row-deleted"));
     const checkedBoxes = () => boxes().filter((cb) => cb.checked);
     const refresh = () => {
       const picked = checkedBoxes().length;
@@ -5141,11 +5151,54 @@
     });
   };
 
+  // Collapse "removed" rows (operator-deleted + DH-classified phi-vật-tư rác) into
+  // one expandable summary row so the bảng kê isn't cluttered. declarable_unmatched
+  // (real-but-unmatched) is NOT folded — it stays visible as the review queue.
+  // Visible material rows renumber contiguously; folded rows show "–".
+  const initOriginFoldRows = (root = document) => {
+    root.querySelectorAll("[data-origin-sheet-panel] .origin-material-table").forEach((table) => {
+      if (table.dataset.foldWired === "1") return;
+      table.dataset.foldWired = "1";
+      const summary = table.querySelector("[data-origin-fold-summary]");
+      const toggle = summary?.querySelector("[data-origin-fold-toggle]");
+      const label = summary?.querySelector("[data-origin-fold-label]");
+      const caret = summary?.querySelector(".origin-fold-caret");
+      const foldRows = Array.from(table.querySelectorAll("[data-origin-material-row].origin-row-foldable"));
+      const allocFor = (row) => {
+        const g = row.dataset.allocationGroup;
+        return g ? Array.from(table.querySelectorAll(`[data-origin-allocation-row][data-allocation-group="${g}"]`)) : [];
+      };
+      const renumber = () => {
+        let n = 0;
+        table.querySelectorAll("[data-origin-material-row] [data-origin-stt]").forEach((stt) => {
+          const row = stt.closest("[data-origin-material-row]");
+          if (row.classList.contains("origin-row-foldable")) { stt.textContent = "–"; return; }
+          n += 1; stt.textContent = String(n);
+        });
+      };
+      if (!foldRows.length) { if (summary) summary.hidden = true; renumber(); return; }
+      const apply = (folded) => {
+        foldRows.forEach((row) => {
+          row.hidden = folded;
+          allocFor(row).forEach((a) => { if (folded) a.hidden = true; });
+        });
+        toggle?.setAttribute("aria-expanded", folded ? "false" : "true");
+        if (caret) caret.textContent = folded ? "▸" : "▾";
+        if (label) label.innerHTML = `${folded ? "Hiện" : "Ẩn"} <strong>${foldRows.length}</strong> dòng đã loại (đã xoá · phi vật tư)`;
+        renumber();
+      };
+      summary.hidden = false;
+      apply(true);
+      toggle?.addEventListener("click", () => apply(toggle.getAttribute("aria-expanded") === "true"));
+    });
+  };
+
   refreshCaseShellInteractions = (root = document) => {
     initOriginWarningSummaries(root);
     initOriginColumnControls(root);
     initOriginAllocationToggles(root);
     initSheetBulkDelete(root);
+    initOriginFoldRows(root);
     initOriginRecommendationOverrides(root);
     initOriginSubstituteModal();
     initOriginProposeBom(root);

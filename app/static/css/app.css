@@ -5387,6 +5387,33 @@ body.co-stock-history-modal-open { overflow: hidden; }
   border-top: 1px dashed var(--border);
 }
 
+/* Collapsed "removed" rows (deleted + phi-vật-tư) toggle */
+.origin-fold-summary td {
+  padding: 0;
+  background: var(--surface-subtle);
+  border-top: 1px dashed var(--border);
+}
+.origin-fold-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.45rem 0.75rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.82rem;
+  color: var(--foreground-muted);
+}
+.origin-fold-toggle:hover {
+  background: var(--surface-hover);
+  color: var(--foreground);
+}
+.origin-fold-caret {
+  font-size: 0.7rem;
+}
+
 /* Live recompute + autosave banner */
 
 .origin-dirty-banner {
