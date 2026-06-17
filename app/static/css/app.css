@@ -2159,62 +2159,202 @@ button.co-stat:hover {
 
 .origin-config-controls {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem 0.5rem;
+  flex-direction: column;
+  gap: 0.7rem;
   align-items: stretch;
 }
 
-.origin-config-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.18rem 0.45rem 0.18rem 0.55rem;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--card);
-  font-size: 0.78rem;
-  line-height: 1.2;
+.origin-config-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.32rem;
 }
 
-.origin-config-pill > span {
-  color: var(--foreground-muted);
-  font-size: 0.7rem;
+.origin-config-row-label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
+  color: var(--foreground-muted);
 }
 
-.origin-config-pill select,
-.origin-config-pill input {
-  font-size: 0.8rem;
-  padding: 0.15rem 0.3rem;
-  border: 0;
-  background: transparent;
+.origin-config-rec-hint {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--primary);
+}
+
+.origin-config-select,
+.origin-config-input-narrow,
+.criteria-other-input {
+  font-size: 0.85rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-input);
   color: var(--foreground);
-  min-width: 7rem;
 }
 
-.origin-config-pill input[type="number"] {
-  min-width: 4rem;
+.origin-config-input-narrow {
+  width: 7rem;
   text-align: right;
 }
 
-.origin-config-pill-narrow input,
-.origin-config-pill-narrow select {
-  min-width: 4rem;
-}
-
-.origin-config-pill-wide input,
-.origin-config-pill-wide select {
-  min-width: 11rem;
-}
-
-.origin-config-pill select:focus,
-.origin-config-pill input:focus {
+.origin-config-select:focus,
+.origin-config-input-narrow:focus,
+.criteria-other-input:focus {
   outline: 2px solid color-mix(in srgb, var(--primary) 40%, transparent);
   outline-offset: 1px;
-  border-radius: 4px;
+  border-color: var(--primary);
 }
+
+.origin-config-row-split {
+  flex-direction: row;
+  gap: 0.75rem;
+}
+
+.origin-config-inline-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.32rem;
+  flex: 1;
+}
+
+.origin-config-inline-field > span {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--foreground-muted);
+}
+
+/* Segmented criterion picker — replaces the native datalist (B7) */
+.criteria-segments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.criteria-seg {
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.32rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--foreground);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.criteria-seg:hover {
+  background: var(--surface-hover);
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+}
+
+.criteria-seg.is-active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.criteria-seg-other {
+  font-style: italic;
+  color: var(--foreground-muted);
+}
+
+.criteria-seg-other.is-active {
+  background: var(--surface-hover);
+  border-color: var(--primary);
+  color: var(--foreground);
+  font-style: normal;
+}
+
+.criteria-alts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.8rem;
+}
+
+.criteria-alts-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--foreground-muted);
+}
+
+.criteria-alts label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+}
+
+.criteria-other-input { width: 100%; }
+
+/* Inline read-only config summary chip → opens the ⚙ modal */
+.origin-config-summary-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 0.28rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--foreground);
+  cursor: pointer;
+  font-size: 0.8rem;
+  text-align: left;
+}
+
+.origin-config-summary-chip:hover {
+  background: var(--surface-hover);
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+}
+
+.origin-config-summary-eyebrow {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--foreground-muted);
+  white-space: nowrap;
+}
+
+.origin-config-summary-text {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.origin-config-summary-badge {
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+/* Settings modal stacks the moved config panel + cost-buildup + columns */
+.origin-settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.origin-settings-body .origin-config-disclosure { margin-bottom: 0; }
 
 .origin-config-actions {
   display: inline-flex;

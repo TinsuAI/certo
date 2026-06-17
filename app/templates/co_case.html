@@ -1196,45 +1196,65 @@
                data-product-code="{{ product.code }}"
                data-product-currency="{{ product.currency }}"
                data-override-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/recommendation-override">
-            <details class="origin-config-disclosure">
-              <summary class="origin-config-summary">
-                <span class="origin-config-summary-label">Cấu hình</span>
-                <small>form <strong>{{ effective_form or '—' }}</strong> · {{ effective_criteria or '—' }}{% if displayed_threshold %} · ngưỡng <strong>{{ displayed_threshold }}%</strong>{% endif %}{% if has_any_override %} · <em class="origin-config-override-mark">đã override</em>{% endif %}</small>
-              </summary>
+            <div class="origin-config-disclosure origin-config-panel" data-criteria-panel>
             <div class="origin-config-controls">
-              <label class="origin-config-pill" title="Khuyến nghị: {{ rec_form_label or rec_form or 'n/a' }}">
-                <span>Form</span>
-                <select data-origin-recommendation-form>
-                  <option value="">khuyến nghị ({{ rec_form or 'n/a' }})</option>
+              <div class="origin-config-row">
+                <span class="origin-config-row-label">Hiệp định / Form</span>
+                <select class="origin-config-select" data-origin-recommendation-form title="Khuyến nghị: {{ rec_form_label or rec_form or 'n/a' }}">
+                  <option value="">⤷ khuyến nghị ({{ rec_form or 'n/a' }})</option>
                   {% for form in co_form_options %}
                   <option value="{{ form.form_code }}" {% if form_override == form.form_code %}selected{% endif %}>{{ form.display_name or form.form_code }}</option>
                   {% endfor %}
                 </select>
-              </label>
-              <label class="origin-config-pill origin-config-pill-wide" title="Khuyến nghị: {{ rec_criteria or 'n/a' }}">
-                <span>Tiêu chí</span>
-                <input list="origin-criteria-options" data-origin-recommendation-criteria value="{{ criteria_override }}" placeholder="khuyến nghị">
-              </label>
-              <label class="origin-config-pill origin-config-pill-narrow">
-                <span>Ngưỡng %</span>
-                <input type="number" min="0" max="100" step="any" data-origin-recommendation-threshold value="{{ lvc_threshold_override or rvc_threshold_override }}" placeholder="auto">
-              </label>
-              <label class="origin-config-pill">
-                <span>Tiền tệ</span>
-                <select data-origin-recommendation-currency>
-                  <option value="native" {% if currency_mode == 'native' %}selected{% endif %}>Nguyên tệ ({{ product.currency or 'NT' }})</option>
-                  <option value="vnd" {% if currency_mode == 'vnd' %}selected{% endif %}>VND</option>
-                </select>
-              </label>
-              <label class="origin-config-pill">
-                <span>Tối ưu</span>
-                <select data-origin-recommendation-optimization>
-                  <option value="max_lvc" {% if optimization_mode == 'max_lvc' %}selected{% endif %}>↑ LVC/RVC</option>
-                  <option value="min_lvc" {% if optimization_mode == 'min_lvc' %}selected{% endif %}>↓ LVC/RVC</option>
-                </select>
-              </label>
+              </div>
+              <div class="origin-config-row origin-config-row-criteria">
+                <span class="origin-config-row-label">Tiêu chí{% if rec_criteria %} <small class="origin-config-rec-hint" title="Khuyến nghị engine">KN: {{ rec_criteria }}</small>{% endif %}</span>
+                <input type="hidden" data-origin-recommendation-criteria value="{{ criteria_override }}">
+                <div class="criteria-segments" data-criteria-segments role="group" aria-label="Tiêu chí chính">
+                  {% for c in [
+                      {'v':'WO','d':'Xuất xứ thuần tuý'},
+                      {'v':'PE','d':'Sản xuất hoàn toàn'},
+                      {'v':'CC','d':'Chuyển đổi chương (2 số)'},
+                      {'v':'CTH','d':'Chuyển nhóm — CTC 4 số'},
+                      {'v':'CTSH','d':'Chuyển phân nhóm — CTC 6 số'},
+                      {'v':'RVC','d':'Hàm lượng giá trị khu vực'},
+                      {'v':'LVC','d':'Hàm lượng giá trị nội địa'},
+                      {'v':'PSR','d':'Quy tắc cụ thể (Phụ lục)'}
+                    ] %}
+                  <button type="button" class="criteria-seg" data-criteria-seg="{{ c.v }}" title="{{ c.d }}">{{ c.v }}</button>
+                  {% endfor %}
+                  <button type="button" class="criteria-seg criteria-seg-other" data-criteria-other-toggle title="Tiêu chí khác — nhập tay">Khác…</button>
+                </div>
+                <div class="criteria-alts" data-criteria-alts hidden>
+                  <span class="criteria-alts-label">hoặc</span>
+                  <label data-criteria-alt-wrap="CTH"><input type="checkbox" data-criteria-alt="CTH"> CTH</label>
+                  <label data-criteria-alt-wrap="CTSH"><input type="checkbox" data-criteria-alt="CTSH"> CTSH</label>
+                  <label data-criteria-alt-wrap="RVC 40%"><input type="checkbox" data-criteria-alt="RVC 40%"> RVC 40%</label>
+                </div>
+                <input type="text" class="origin-config-select criteria-other-input" data-criteria-other-input hidden placeholder="VD: AIFTA 35% FOB + CTSH" value="">
+              </div>
+              <div class="origin-config-row" data-criteria-threshold-row hidden>
+                <span class="origin-config-row-label">Ngưỡng %</span>
+                <input type="number" min="0" max="100" step="any" class="origin-config-input-narrow" data-origin-recommendation-threshold value="{{ lvc_threshold_override or rvc_threshold_override }}" placeholder="auto">
+              </div>
+              <div class="origin-config-row origin-config-row-split">
+                <label class="origin-config-inline-field">
+                  <span>Tiền tệ</span>
+                  <select class="origin-config-select" data-origin-recommendation-currency>
+                    <option value="native" {% if currency_mode == 'native' %}selected{% endif %}>Nguyên tệ ({{ product.currency or 'NT' }})</option>
+                    <option value="vnd" {% if currency_mode == 'vnd' %}selected{% endif %}>VND</option>
+                  </select>
+                </label>
+                <label class="origin-config-inline-field">
+                  <span>Tối ưu</span>
+                  <select class="origin-config-select" data-origin-recommendation-optimization>
+                    <option value="max_lvc" {% if optimization_mode == 'max_lvc' %}selected{% endif %}>↑ LVC/RVC</option>
+                    <option value="min_lvc" {% if optimization_mode == 'min_lvc' %}selected{% endif %}>↓ LVC/RVC</option>
+                  </select>
+                </label>
+              </div>
               <div class="origin-config-actions">
-                <button type="button" data-origin-recommendation-save>Lưu</button>
+                <button type="button" class="btn-primary" data-origin-recommendation-save>Lưu</button>
                 <button type="button" class="btn-secondary" data-origin-recommendation-reset
                         title="Xóa mọi override và để engine tự khuyến nghị theo thị trường + HS hiện tại."
                         {% if not has_any_override %}disabled{% endif %}>Reset</button>
@@ -1249,7 +1269,13 @@
                 </small>
               </div>
             </div>
-            </details>
+            </div>
+            <button type="button" class="origin-config-summary-chip" data-origin-settings-open data-origin-config-summary
+                    title="Cấu hình bảng kê — bấm để sửa tiêu chí, ngưỡng, chi phí">
+              <span class="origin-config-summary-eyebrow">⚙ Cấu hình</span>
+              <span class="origin-config-summary-text" data-origin-config-summary-text>{{ effective_form or '—' }} · {{ effective_criteria or '—' }}{% if displayed_threshold %} · ngưỡng {{ displayed_threshold }}%{% endif %}</span>
+              {% if has_any_override %}<span class="origin-config-summary-badge" data-origin-config-summary-badge>override</span>{% endif %}
+            </button>
             <div class="origin-config-metrics" data-origin-strip>
               <span class="origin-metric-chip"><em>Bước</em> <strong>{{ product.allocation_sequence or loop.index }}</strong></span>
               <span class="origin-metric-chip"><em>HS</em> <strong class="mono">{{ product.finished_hs }}</strong></span>
@@ -3255,6 +3281,132 @@
     sheetPanel.querySelectorAll("[data-origin-cell-currency]").forEach((el) => {
       if (!el.dataset.originNativeCurrency) el.dataset.originNativeCurrency = el.textContent.trim();
       el.textContent = target;
+    });
+  };
+
+  // Segmented criterion picker over the hidden criteria input. Choosing a
+  // PRIMARY criterion writes it first in the string ("CTH hoặc RVC 40%") so the
+  // server's first-listed sheet selection picks it. Threshold + cost-buildup
+  // reveal only for value-content criteria (RVC/LVC). Runs before the settings
+  // modal move (init order) so captured refs survive reparenting.
+  const CRIT_TOKENS = ["WO", "PE", "CC", "CTSH", "CTH", "RVC", "LVC", "PSR"];
+  const primaryCriterionToken = (text) => {
+    const up = (text || "").toUpperCase();
+    let best = "", bestPos = Infinity;
+    CRIT_TOKENS.forEach((tok) => {
+      const pos = up.indexOf(tok);
+      if (pos !== -1 && pos < bestPos) { bestPos = pos; best = tok; }
+    });
+    return best;
+  };
+  const initCriteriaSegments = (root = document) => {
+    root.querySelectorAll("[data-criteria-panel]").forEach((panel) => {
+      if (panel.dataset.criteriaInit === "1") return;
+      panel.dataset.criteriaInit = "1";
+      const sheetPanel = panel.closest("[data-origin-sheet-panel]") || panel;
+      const hiddenInp = panel.querySelector("[data-origin-recommendation-criteria]");
+      const segs = [...panel.querySelectorAll("[data-criteria-seg]")];
+      const altChecks = [...panel.querySelectorAll("[data-criteria-alt]")];
+      const altsWrap = panel.querySelector("[data-criteria-alts]");
+      const otherToggle = panel.querySelector("[data-criteria-other-toggle]");
+      const otherInput = panel.querySelector("[data-criteria-other-input]");
+      const thresholdRow = panel.querySelector("[data-criteria-threshold-row]");
+      const thresholdInp = panel.querySelector("[data-origin-recommendation-threshold]");
+      const formSel = panel.querySelector("[data-origin-recommendation-form]");
+      const costBlock = sheetPanel.querySelector(".cost-buildup-block");
+      const summaryText = sheetPanel.querySelector("[data-origin-config-summary-text]");
+      if (!hiddenInp || !segs.length) return;
+
+      const activeSeg = () => segs.find((b) => b.classList.contains("is-active"));
+      // Toggle via inline display (beats author CSS that would otherwise override
+      // the [hidden] attribute, e.g. .origin-config-row{display:flex}).
+      const setShown = (el, show) => { if (!el) return; el.hidden = !show; el.style.display = show ? "" : "none"; };
+      const updateSummary = () => {
+        if (!summaryText) return;
+        const formText = (formSel?.selectedOptions?.[0]?.textContent || "—").replace(/^⤷\s*/, "").trim();
+        const crit = (hiddenInp.value || "").trim() || "(khuyến nghị)";
+        const thr = (thresholdInp?.value || "").trim();
+        summaryText.textContent = `${formText} · ${crit}${thr ? " · ngưỡng " + thr + "%" : ""}`;
+      };
+      const compose = () => {
+        if (otherInput && !otherInput.hidden && otherInput.value.trim()) {
+          hiddenInp.value = otherInput.value.trim();
+          return;
+        }
+        const active = activeSeg();
+        if (!active) { hiddenInp.value = ""; return; }
+        const primary = active.dataset.criteriaSeg;
+        const parts = [primary];
+        altChecks.forEach((cb) => {
+          if (cb.checked && primaryCriterionToken(cb.dataset.criteriaAlt) !== primary) parts.push(cb.dataset.criteriaAlt);
+        });
+        hiddenInp.value = parts.join(" hoặc ");
+      };
+      const applyContext = () => {
+        const active = activeSeg();
+        const primary = active ? active.dataset.criteriaSeg : "";
+        const valueBased = primary === "RVC" || primary === "LVC";
+        setShown(thresholdRow, valueBased);
+        setShown(costBlock, valueBased);
+        const combinable = primary && !["WO", "PE"].includes(primary);
+        setShown(altsWrap, combinable);
+        altChecks.forEach((cb) => {
+          const wrap = cb.closest("[data-criteria-alt-wrap]");
+          setShown(wrap, primaryCriterionToken(cb.dataset.criteriaAlt) !== primary);
+        });
+        updateSummary();
+      };
+
+      segs.forEach((btn) => btn.addEventListener("click", () => {
+        if (otherInput) { setShown(otherInput, false); otherInput.value = ""; }
+        otherToggle?.classList.remove("is-active");
+        const wasActive = btn.classList.contains("is-active");
+        segs.forEach((b) => b.classList.remove("is-active"));
+        if (!wasActive) btn.classList.add("is-active");
+        compose(); applyContext();
+      }));
+      altChecks.forEach((cb) => cb.addEventListener("change", () => { compose(); updateSummary(); }));
+      otherToggle?.addEventListener("click", () => {
+        const show = otherInput.hidden;
+        if (show) {
+          segs.forEach((b) => b.classList.remove("is-active"));
+          setShown(otherInput, true);
+          otherToggle.classList.add("is-active");
+          otherInput.value = hiddenInp.value;
+          otherInput.focus();
+        } else {
+          setShown(otherInput, false);
+          otherInput.value = "";
+          otherToggle.classList.remove("is-active");
+        }
+        compose(); applyContext();
+      });
+      otherInput?.addEventListener("input", () => { compose(); updateSummary(); });
+      thresholdInp?.addEventListener("input", updateSummary);
+      formSel?.addEventListener("change", updateSummary);
+
+      // Pre-select from the persisted override string.
+      const raw = (hiddenInp.value || "").trim();
+      if (raw) {
+        const tok = primaryCriterionToken(raw);
+        const segBtn = segs.find((b) => b.dataset.criteriaSeg === tok);
+        if (segBtn) {
+          segBtn.classList.add("is-active");
+          const parts = raw.split(/\s*ho[ặa]c\s*/i);
+          const m = (parts[0] || "").match(/(\d+(?:\.\d+)?)\s*%/);
+          if (m && thresholdInp && !thresholdInp.value) thresholdInp.value = m[1];
+          parts.slice(1).forEach((p) => {
+            const at = primaryCriterionToken(p);
+            const cb = altChecks.find((c) => primaryCriterionToken(c.dataset.criteriaAlt) === at);
+            if (cb) cb.checked = true;
+          });
+        } else if (otherInput && otherToggle) {
+          setShown(otherInput, true);
+          otherInput.value = raw;
+          otherToggle.classList.add("is-active");
+        }
+      }
+      applyContext();
     });
   };
 
@@ -5499,6 +5651,7 @@
     initSheetBulkDelete(root);
     initOriginFoldRows(root);
     initOriginRecommendationOverrides(root);
+    initCriteriaSegments(root);
     initOriginSubstituteModal();
     initOriginProposeBom(root);
     initOriginLiveRecompute(root);
