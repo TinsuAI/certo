@@ -41,11 +41,10 @@ Key directories and their purposes.
 - `.ai/` — project state, decisions, and discovery reports
 
 ### Related sibling folders (under `../`) — avoid confusion
-Active work is on **this repo only** (`barry-CO-main`). Sibling folders in
-`/home/vp/workspace/client/`:
-- **`barry-CO`** — git WORKTREE PARENT of this repo (`barry-CO-main/.git` points into
-  `barry-CO/.git/worktrees/`). **Do not move/delete — git here breaks.** (It's the old
-  predecessor checkout, but it also holds this worktree's git dir.)
+Active work is on **this repo only** (`barry-CO-main`). It is now a **standalone git repo**
+(its own `.git`, remote `origin` = TinsuAI/co). The old `barry-CO` worktree-parent was
+consolidated away 2026-06-17 (re-init from origin + removed) — there is no more worktree
+split. Sibling folders in `/home/vp/workspace/client/`:
 - **`barry-CO-bom-data`** — LIVE app data; `data/` here is a symlink to it
   (co-cases, client-config, hq-templates incl. the agency trừ-lùi workbooks,
   co-stock-ledger). **Do not move/delete — the app breaks.**
