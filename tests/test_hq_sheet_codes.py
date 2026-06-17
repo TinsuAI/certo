@@ -110,3 +110,69 @@ def test_override_wins_over_documented_result():
         documented_result="LVC 30%",
     )
     assert hq_sheet_codes_for_product(product) == {"CTH"}
+
+
+# --- Compound criterion ("X hoặc Y") must follow the ORDER it is listed, not a
+# fixed LVC>RVC>CTSH>CTH precedence. Client report 2026-06-18: a CPTPP dossier
+# whose recommendation is "CTH hoặc RVC 30/40/50 tùy công thức" exported an RVC
+# value-buildup sheet ("tiêu chí tổng") instead of CTH, because RVC was matched
+# before CTH. The first-listed criterion is the primary one. ---
+
+def test_cptpp_recommendation_cth_first_picks_cth():
+    """The real CPTPP recommendation text (co_forms.py) lists CTH first; with no
+    override the bảng kê must be CTH, not RVC."""
+    product = _product(
+        origin_sheet_effective_form_code="CPTPP",
+        origin_sheet_effective_criteria_text="CTH hoặc RVC 30/40/50 tùy công thức",
+    )
+    assert hq_sheet_codes_for_product(product) == {"CTH"}
+
+
+def test_cptpp_recommendation_ctsh_first_picks_ctsh():
+    product = _product(
+        origin_sheet_effective_form_code="CPTPP",
+        origin_sheet_effective_criteria_text="CTSH hoặc RVC 30/40/50 tùy công thức",
+    )
+    assert hq_sheet_codes_for_product(product) == {"CTSH"}
+
+
+def test_compound_rvc_first_still_picks_rvc():
+    """First-listed wins both ways: RVC before CTH stays RVC."""
+    product = _product(origin_sheet_criteria_override="RVC 40% hoặc CTH")
+    assert hq_sheet_codes_for_product(product) == {"RVC"}
+
+
+def test_compound_lvc_first_still_picks_lvc():
+    """Regression: the documented 'LVC 30% hoặc CTH' → LVC must not change."""
+    product = _product(origin_sheet_criteria_override="LVC 30% hoặc CTH")
+    assert hq_sheet_codes_for_product(product) == {"LVC"}
+
+
+def test_cth_before_ctsh_compound_picks_cth():
+    product = _product(origin_sheet_criteria_override="CTH hoặc CTSH")
+    assert hq_sheet_codes_for_product(product) == {"CTH"}
+
+
+def test_ctsh_before_cth_compound_picks_ctsh():
+    product = _product(origin_sheet_criteria_override="CTSH hoặc CTH")
+    assert hq_sheet_codes_for_product(product) == {"CTSH"}
+
+
+def test_override_cth_wins_over_cptpp_compound_documented():
+    """Operator explicitly overrides a CPTPP product to plain CTH → CTH."""
+    product = _product(
+        origin_sheet_effective_form_code="CPTPP",
+        origin_sheet_criteria_override="CTH",
+        documented_result="CTH hoặc RVC 30/40/50 tùy công thức",
+    )
+    assert hq_sheet_codes_for_product(product) == {"CTH"}
+
+
+def test_single_criteria_unchanged():
+    for text, expected in (
+        ("CTH", "CTH"), ("CTSH", "CTSH"), ("RVC 40%", "RVC"),
+        ("LVC 30%", "LVC"), ("Tra PSR theo Phụ lục", "PSR"),
+        ("RVC 40% MaxNOM", "RVC"),
+    ):
+        product = _product(origin_sheet_criteria_override=text)
+        assert hq_sheet_codes_for_product(product) == {expected}, text

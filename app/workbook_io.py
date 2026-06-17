@@ -417,8 +417,8 @@ def hq_sheet_codes_for_product(product: dict) -> set[str]:
     """Pick the ONE HQ template sheet this TP should use.
 
     Per legacy macro flow and user requirement: 1 sheet per TP per dossier.
-    Priority within a single source: LVC > RVC > CTSH > CTH (PSR/EUR1 by form).
-    Returns a set of size 1 (set type kept for caller convenience).
+    For a compound criterion ("X hoặc Y") the FIRST-listed criterion wins
+    (PSR/EUR1 by form). Returns a set of size 1 (set type kept for caller convenience).
 
     Source priority — use the FIRST non-empty source, don't merge:
       1. `origin_sheet_criteria_override` — operator's explicit choice via the
@@ -453,16 +453,22 @@ def hq_sheet_codes_for_product(product: dict) -> set[str]:
             break
     if "PSR" in primary_criterion:
         return {"PSR"}
-    # For "LVC 30% hoặc CTH"-style alternatives, prefer LVC > RVC > CTSH > CTH.
-    # Operator overrides to a single criterion get the matched sheet directly.
-    if "LVC" in primary_criterion:
-        return {"LVC"}
-    if "RVC" in primary_criterion or "MAXNOM" in primary_criterion:
-        return {"RVC"}
-    if "CTSH" in primary_criterion:
-        return {"CTSH"}
-    if "CTH" in primary_criterion:
-        return {"CTH"}
+    # For a compound "X hoặc Y" criterion, the FIRST-listed criterion is the
+    # primary one — pick whichever token appears earliest in the text rather than
+    # a fixed type-precedence. A fixed order (RVC before CTH) wrongly resolved
+    # every CPTPP recommendation "CTH hoặc RVC 30/40/50" to the RVC value-buildup
+    # sheet ("tiêu chí tổng"), shipping the wrong HQ template. Operator overrides
+    # to a single criterion still win via the source chain above.
+    # (".find" is safe here: "CTH" is not a substring of "CTSH".)
+    best_pos: int | None = None
+    best_sheet = ""
+    for token, sheet in (("LVC", "LVC"), ("RVC", "RVC"), ("MAXNOM", "RVC"),
+                         ("CTSH", "CTSH"), ("CTH", "CTH")):
+        pos = primary_criterion.find(token)
+        if pos != -1 and (best_pos is None or pos < best_pos):
+            best_pos, best_sheet = pos, sheet
+    if best_sheet:
+        return {best_sheet}
     # No specific criterion matched. EVFTA defaults to PSR (Phụ lục VII);
     # everything else falls back to LVC for backward compat.
     return {"EUR1"} if is_eur1 else {"LVC"}
