@@ -31,3 +31,13 @@
 **Decision:** Add a small FastAPI/Jinja demo app in this repo for the first C/O preparation surface. This is a demo shell decision, not a final production architecture decision.
 **Alternatives:** Continue with Node-only scripts, or scaffold a larger frontend/backend stack before validating the C/O workflow.
 **Consequences:** The demo can reuse the same operational UI pattern as BCQT-System while keeping the final database/auth/deploy decisions open.
+
+## [2026-06-17] Consolidate worktree split → single standalone repo
+**Context:** Two confusing CO folders under `/home/vp/workspace/client/`: `barry-CO` (the main git working tree that held the canonical `.git`, but was stuck on a stale April branch `case/growatt-rvc-20260421` with uncommitted experiment scripts) and `barry-CO-main` (a linked worktree carrying all active `main` work). The real `.git` lived in the stale folder — backwards and confusing.
+**Decision:** Re-init `barry-CO-main` as a standalone repo from `origin` (TinsuAI/co — `main` was fully pushed), preserving working tree + `.env` + the `data` symlink in place; repoint upstream to `origin/main`; then delete `barry-CO`.
+**Alternatives:** Fresh clone into a new folder (loses local-only `.env`/`data`/uncommitted `.ai`); manual git-pointer surgery (riskier); leave the split.
+**Consequences / RECOVERY POINTERS:**
+- `barry-CO`'s uncommitted experiment scripts → saved on origin branch **`case/growatt-rvc-20260421`** @ `26b6476`. Recover: `git fetch origin case/growatt-rvc-20260421 && git checkout case/growatt-rvc-20260421`.
+- Deleted `barry-CO` was the old predecessor checkout; all committed content is the shared repo history already on origin (same repo) — nothing unique lost beyond the branch above.
+- Earlier this session: **CO cases + claims fully purged (dev + prod, all clients)**. Restorable backups at `barry-CO-bom-data/local/backups/full-purge-20260615-032608/` — dev (`db_cases_claims.sql`, `claim_events.csv`, `db_supporting_files.sql`, `cases-json/`, `uploads-growatt-vn/`) + `prod/` (`db_cases_claims.sql`, `claim_events.csv`, `co-cases-files.tar.gz`). Stock (`co_stock_rows`) was NOT purged. Restore via `psql` (dev local socket; prod `docker exec -i co-db-1 psql -U co -d barry_co`).
+- `barry-CO-main` is now standalone (own `.git`, single remote `origin`); no worktree split remains.
