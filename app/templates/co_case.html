@@ -3430,7 +3430,11 @@
       const f = li.__candidateFeasibility;
       if (f && f.alloc) return !f.alloc.shortage;
       const cand = latestCandidatesByCode.get(li.dataset.materialCode);
-      const qty = Number(cand?.stock?.total_remaining_qty);
+      const st = cand?.stock || {};
+      // Prefer the count of USABLE lots (excludes ineligible/date-gated tồn);
+      // fall back to any remaining qty when the usable count isn't known yet.
+      if (Number.isFinite(Number(st.usable_lot_count))) return Number(st.usable_lot_count) > 0;
+      const qty = Number(st.total_remaining_qty);
       return Number.isFinite(qty) && qty > 0;
     };
     const applyRecommendedFilter = () => {
@@ -3453,6 +3457,19 @@
     };
     recommendedFilterInput?.addEventListener("input", applyRecommendedFilter);
     stockOnlyToggle?.addEventListener("change", applyRecommendedFilter);
+
+    // After async tồn loads, float candidates that actually have usable stock
+    // above the out-of-stock ones (stable within each group by existing score
+    // order). Keeps the top suggestions buy-able — client report 2026-06-18
+    // "vẫn đang đề xuất các mã không đủ tồn". Out-of-stock codes stay visible
+    // below (badged + hideable via the "đủ tồn" filter), never silently dropped.
+    const reorderRecommendedByStock = () => {
+      if (!recommendedList) return;
+      const items = [...recommendedList.querySelectorAll("li.origin-substitute-item")];
+      const inStock = items.filter((li) => hasEnoughStock(li));
+      const outStock = items.filter((li) => !hasEnoughStock(li));
+      [...inStock, ...outStock].forEach((li) => recommendedList.appendChild(li));
+    };
 
     const activateTab = (name) => {
       activeTab = name === "search" ? "search" : "recommended";
@@ -4141,8 +4158,10 @@
               }
             });
           });
-          // Stock just loaded — re-run the filter so "chỉ hiện mã đủ tồn" reflects
-          // the now-known stock instead of the empty build-time state.
+          // Stock just loaded — float in-stock candidates up, then re-run the
+          // filter so "chỉ hiện mã đủ tồn" reflects the now-known stock instead
+          // of the empty build-time state.
+          reorderRecommendedByStock();
           applyRecommendedFilter();
         })
         .catch(() => {});

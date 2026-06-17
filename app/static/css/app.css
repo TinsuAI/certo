@@ -3781,11 +3781,9 @@ button.co-stat:hover {
 }
 
 .origin-material-name {
-  display: -webkit-box;
-  overflow: hidden;
+  /* Show the full original NVL name (client request 2026-06-18); no 2-line clamp.
+     Long codes still wrap via `.origin-material-table td { overflow-wrap }`. */
   line-height: 1.25;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
 }
 
 .origin-material-table td small {
