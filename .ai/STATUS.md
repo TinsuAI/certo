@@ -1,71 +1,74 @@
 # Project Status
 
 ## Current State
-- **`main` = `origin/main` = prod = `30c50f3`** (`barry-co.tinsu.ai/version` git_sha `30c50f3`,
-  v0.14.0). Tree clean. Everything from this session (2026-06-18) is **deployed + verified live**.
-- **DATA STILL PURGED (dev + prod, all clients)** from 2026-06-15 — `co_cases`/`co_case_states`/
-  `co_stock_claims`/`co_supporting_files` = 0. Intentional; empty case lists are NOT a bug. **Stock
-  preserved** (`co_stock_rows`). Backups: `barry-CO-bom-data/local/backups/full-purge-20260615-032608/`.
-- **Data Hub shipped the merged-PDF efficiency endpoint** (render cache, `quality=print|compact`,
-  `max_part_bytes` split) — params are LIVE on the configured DH. CO now consumes them (see below).
+- **`main` = `origin/main` = prod = nightly = `1313ba0`** (`barry-co.tinsu.ai/version` +
+  `demo-co.tinsu.ai/version` both `1313ba0`, v0.14.0). CI green. Tree clean except the prior
+  part's untracked `.ai/sessions/2026-06-18-cost-allocation-bulk-apply.md`.
+- **Mục 6 (client-feedback batch workflow) is DONE + live + e2e-verified.** All 4 slices shipped:
+  - **A (#14) BOM mặc định per-client** — pick a BOM → saved as the client default (pin version);
+    later cases auto-reuse it. Store `bom_default_store` (Postgres `co_bom_product_default` + JSON
+    fallback `config/bom-default/<client>.json`), write-through on pick (diff-guard: only a CHANGED
+    pick writes, so editing an old case can't clobber a newer default), read-time precedence in
+    `selected_bom_rows_by_product` (below per-case override, above aggregate composition default).
+  - **B (#13a) Chạy tồn 1 lần** — "Chạy tồn (tất cả SP)" review-toolbar button → `preview-stock-all`
+    runs stock for ALL products (preview, non-committing) → mã-thiếu summary panel.
+  - **C (#13b) Thay định mức loạt** — each missing material opens the SAME rich sheet substitute
+    modal (ranking/score + per-lot stock + đơn giá + đủ/thiếu) in stage-mode; "Áp thay thế (N)" →
+    `bulk-substitute` (material_override at matched row) → override-aware re-preview.
+  - **D (#13c) Chốt tất cả** — `bulk-lock` locks every sheet in order, commits ledger claims;
+    skip-and-report not-calculated/overclaim; sequential (a skipped sheet blocks the rest).
+- **DATA NOT PURGED.** prod `co-db-1` has 4 real cases (johnson-vn) + 24 Growatt cost-allocation
+  ratios. **Do NOT seed/test against prod; use nightly OR the local dev DB.**
+- **Cost-allocation system mature** (2026-05-27 + Mục 4a): admin `/clients/{id}/cost-allocation`,
+  Excel import, Mode A→B, per-product + bulk "Áp hệ số". Engine: hệ số×FOB → 6 chi tiết.
 
-## Recent Changes (this session 2026-06-18 — 7 feature commits, all live)
-- **`30c50f3`** feat(export): **split merged TKN PDF for Ecosys** (mục 5). Adapter
-  `download_declarations_pdf` gains `quality` (default `print`/lossless) + `max_part_bytes`; handles
-  `application/zip` (split → `parts[]`) vs `application/pdf`. Export embeds each part as
-  `03-to-khai/…-to-khai-nhap-part-NNN.pdf`. New **per-client config UI "Xuất hồ sơ"** (cap in MB,
-  default 2) stored as a **CO-side client overlay `client.export_overrides.tkn_pdf_max_part_mb`**
-  (NOT client_config — see source-mode note). 8 tests; verified vs live DH + full dossier zip.
-- **`afea9db`** fix(bang-ke): blank bảng kê **cột M-N** (origin-doc column) until XX1. Backlog XX1 + EX1.
-- **`cb3504b`** feat(origin): **redesign criterion config** — segmented primary picker + "hoặc Y" alts
-  over a hidden criteria input (B7). Threshold + cost-buildup reveal only for RVC/LVC.
-- **`cf0c192`** fix(origin): full NVL name + substitute modal floats in-stock candidates first (mục 1).
-- **`f4c145a`** fix(bang-ke): **`hq_sheet_codes_for_product` first-listed criterion** — the keystone
-  (compound "CTH hoặc RVC…" → CTH not RVC). +9 tests. Resolves mục 3 + most of mục 4.
-- **`54bbd1f`** docs: DH PDF-efficiency prompt (mục 2 & 5) — DH has since shipped it.
+## Recent Changes (this session — 7 commits, all live on `1313ba0`)
+- `8f85e1f` feat: per-client default BOM pick (#14) — `bom_default_store`, migration 018, precedence.
+- `c9f5183` feat: run stock once for all products + aggregate shortages (#13a).
+- `8195ff9` feat: bulk substitute định mức with the rich sheet picker (#13b) — reuses the sheet's
+  substitute modal in stage-mode; preview made override-aware.
+- `bd09a87` feat: bulk-lock — Chốt tất cả (#13c).
+- `198d70a` test: DB-mode e2e for bulk-lock ledger claims (`.ai/scripts/e2e_bulk_lock_ledger.py`).
+- `edc3b2d` test: in-container e2e for the BOM default (`.ai/scripts/e2e_bom_default_incontainer.py`).
+- `1313ba0` test: substitute→HQ-export correctness (`.ai/scripts/e2e_substitute_export.py`).
+- Feature brief: `.ai/features/2026-06-18-bom-default-batch-flow.md`. Screenshots + scratch browser
+  e2e (`e2e_muc6.cjs/.py`): `.ai/screenshots/2026-06-18-bom-default-batch-flow/` (gitignored).
 
 ## Next Steps (priority order)
-1. **Remaining client-feedback items:**
-   - **Mục 6** — BOM mặc định **per-client** + "Chốt tất cả" + "chạy tồn 1 lần". Per-product override
-     infra exists (`bom_product_artifact_overrides`); missing = client default store + seed-on-create.
-   - **Mục 4a** — auto phân bổ chi phí trực tiếp theo tỷ lệ cố định per-client vào bảng kê RVC.
-   - **`compact` PDF profile** — adapter supports `quality=compact` (lossy, ~smaller) but there's NO UI
-     toggle yet. Opt-in pending **user confirming Ecosys legibility** (gs /ebook 150 DPI). Lossless
-     `print` + 2 MB split already solves the Ecosys size problem without it.
-2. **EX1** — make column-K declaration ref configurable (số vs số/dòng). Form A:N has no visible line
-   column ("dòng hàng" = hidden helper O, outside print_area); kept số-only per template for now.
-3. **XX1** — input NVL CÓ xuất xứ → LVC/RVC. **Cột M-N reserved/blanked**; column **L (Ngày) already
-   auto-fills** from the lot's `registration_date`.
-4. **(Tech-debt, pre-existing)** Config-page POST returns **409 in DH source-mode** for the source
-   fields (lot_policy/allocation) — affects `min_days` + the new PDF cap identically; the CO-side
-   overrides persist BEFORE the guard, but the response is a 409. Clean save UX in source-mode is a
-   separate fix if the user cares.
-5. **Correctness backlog (unchanged):** B6 (currency native→VND), DC3, LK1, D1 — see BACKLOG.md.
+1. **Remaining client feedback (2026-06-05 `HIỆN TRẠNG BARRY CO`):**
+   - **#12** — số tồn **TỔNG** để kiểm soát (hiện chỉ theo lô/mã; add aggregate SUM). Medium.
+   - **#4** — ranking mã thay thế "chưa OK" — **DH-side** (`data_hub_client.py`); needs a
+     `.ai/api-requests/` artifact, not CO code.
+2. **`compact` PDF profile UI toggle** — adapter supports `quality=compact`; no UI toggle; blocked on
+   user confirming Ecosys legibility. Lossless `print` + 2 MB split already solves size.
+3. **EX1** — column-K declaration ref configurable (số vs số/dòng).
+4. **XX1** — NVL CÓ xuất xứ → fill bảng kê cột M-N (currently blanked; column L date auto-fills).
+5. **(Tech-debt)** Config-page POST 409 in DH source-mode for source fields (overrides persist before
+   the guard but response is 409).
+6. **Correctness backlog:** B6 (currency native→VND), DC3, LK1, D1 — see BACKLOG.md.
 
 ## Notes for Next AI Session
-- **DH source-mode is ON** in dev/prod (`.env DATA_HUB_ENABLED=1` + a data_hub config override). This
-  means `require_local_source_writes()` 409s `client_config` saves. **CO-side per-client settings
-  (min_days, the new PDF cap) MUST live on the client overlay** (`app_state_store.upsert_client`,
-  handled before the guard in `pages.save_client_config_route`), NOT in `client_config`. Reads at
-  export time use `client.get("export_overrides")`. `get_app_state_store()` is **Postgres-only** →
-  returns None (no persist) in file-mode; persists in DB-mode.
-- **Adapter contract (verified vs live DH 2026-06-18):** `download_declarations_pdf(...,
-  quality="print"|"compact", max_part_bytes=int|None)` → `{content (None when zip), parts:[{name,
-  content}], content_type, parts_count, oversize_nos, pdf_bytes, quality, render_ms, requested,
-  included, missing, missing_nos}`. Split returns `application/zip`; CO unzips into parts. DH render
-  cache already exists; this only parallelizes cold misses (perf win modest on warm exports).
-- **NEVER write the literal CI-skip token in a commit message** (even negated) — it skips the whole
-  pipeline, prod won't deploy. Recover with an `--allow-empty` re-trigger commit. Memory
+- **Local dev is AUTH-OFF + DB-mode** (`.env`: `CO_AUTH_REQUIRED=0`, `BARRY_DATABASE_URL` → local
+  `barry_co`, `DATA_HUB_ENABLED=1` → local DH `:8754`). This means **headless browser e2e works
+  locally on `:8001`** (no SSO) — a correction to the old "no headless HTTP e2e" note (that applies
+  to prod/nightly which DO require SSO). Dev server `npm run co:serve` = `:8001`.
+- **Local DB has 0 cases** but real stock: `co_stock_rows` for `growatt-vn` (38k) + DH has
+  growatt-vn materials/substitutes (7859). **Demo clients `growatt`/`johnson` HAVE a CO BOM
+  workspace; the `-vn` DH clients do NOT** (0 product versions). So: use **growatt-vn** for
+  run-stock/substitute/lock e2e (real stock + DH substitutes), **growatt** demo for BOM-pick.
+- **Gotcha:** a hand-seeded case product shows "❗ Chưa có BOM" — the BOM picker `<select>` is only
+  wired through the BCCT/invoice match flow, not a bare seed. So Slice A's browser pick isn't
+  stageable from a hand-seed; verify it server-side via `e2e_bom_default_incontainer.py` instead.
+- **e2e harnesses** (run with `.env` sourced, DB-mode): `e2e_bulk_lock_ledger.py` (ledger claims +
+  overclaim + cross-case), `e2e_bom_default_incontainer.py` (Slice A write-through + precedence, run
+  on nightly via `ssh tinsu`+`docker exec`), `e2e_substitute_export.py` (substitute → xlsx export
+  reflects the swap). Scratch browser e2e: `.ai/screenshots/.../e2e_muc6.{cjs,py}` (puppeteer; no
+  playwright installed). All self-clean; isolate on throwaway client/case ids.
+- **DB-mode seed for e2e:** `get_co_case_state_store().save_case_record(client_id, case_dict, 0)`
+  (writes `co_cases`). `co_case_store.save_state` is FILE-mode only — won't reach the DB the server
+  reads. Force the recompute path with `origin_sheet_states[code].material_overrides={"0":{"norm_edit_only":True}}`.
+- **Deploy:** ff-merge to `main` + push → CI deploys BOTH prod + nightly (same image) ~1-2min;
+  verify `…/version` git_sha. **NEVER write the literal CI-skip token** in a commit msg →
   [[ci-skip-token-in-commit-msg]].
-- **Local UI/export e2e recipe** → memory [[co-local-ui-e2e-verify]] (seed demo case into TEMP store
-  `CO_CASE_STORE_ROOT`/`CLIENT_CONFIG_ROOT=/tmp/…`, never the live `data/` symlink; `CO_AUTH_REQUIRED=0`;
-  puppeteer via `NODE_PATH=$(pwd)/node_modules`). Shell: foreground `sleep` BLOCKED (exit 144);
-  `pkill -f "<port>"` self-kills the shell → use `fuser -k <port>/tcp`; servers via `setsid … & disown`.
-- **Bảng kê column truth** (`form-mau-combined.xlsx`): print_area = **A:N**. K=Số TK, L=Ngày
-  (auto from lot registration_date), M-N=C/O ưu đãi (origin, blanked), O+ helper cols HIDDEN.
-- **Test env** [[test-env-filemode-vs-datahub]]: full file-mode (NO `.env`) = **610 pass**. Don't source
-  `.env` then run full suite. DB-backed tests need `.env`, run separately.
-- **Deploy:** push `origin main` (TinsuAI/co) → auto-deploy ~1-2min; verify `…/version` git_sha.
-  `gh run list` to watch CI; CI-skip token in HEAD msg skips deploy.
-- **Open question parked for user:** add 2 cross-project lessons (shell sleep/pkill gotchas + CI-skip
-  token) to `~/dotfiles/ai/knowledge/` — offered, not yet done.
+- **Test env:** full file-mode (NO `.env`) = **656 pass**. DB/in-container e2e need `.env`.
+- Branch `feat/bom-default-pick` is folded into `main` (ff) and can be deleted.
