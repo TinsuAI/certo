@@ -6,7 +6,7 @@ import logging
 import re
 import threading
 
-from app import co_stock_eligibility, co_stock_ledger, co_stock_materializer
+from app import bom_default_store, co_stock_eligibility, co_stock_ledger, co_stock_materializer
 from app.bom_service import bom_service
 from app.bom_store import attach_case_bom_snapshot
 from app.co_case_store import build_case_criteria_rows, case_from_record, co_case_delete_block_reason, co_case_is_completed, co_case_status_view, declaration_refs, get_case_record, get_case_workspace, json_safe, load_state
@@ -1475,7 +1475,10 @@ def compact_origin_signature_row(row: dict, fields: list[str]) -> dict:
 def selected_bom_rows_by_product(
     case: dict,
     bom_workspace: dict,
+    client_defaults: dict[str, str] | None = None,
 ) -> dict[str, list[dict]]:
+    if client_defaults is None:
+        client_defaults = bom_default_store.get_defaults(str(case.get("client_id") or ""))
     selected_version_id = (
         case.get("bom_artifact_id")
         or case.get("bom_version_id")
@@ -1523,6 +1526,8 @@ def selected_bom_rows_by_product(
             or product.get("bom_product_version_id")
             or overrides.get(product_code)
             or overrides.get(bom_product_code)
+            or client_defaults.get(product_code)
+            or client_defaults.get(bom_product_code)
             or composition_by_product.get(bom_product_code, "")
             or composition_by_product.get(product_code, "")
         )

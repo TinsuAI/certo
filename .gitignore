@@ -21,6 +21,7 @@ yarn-error.log*
 /data/
 /temp/
 /config/cost-allocation/
+/config/bom-default/
 /.ai/samples/
 /.ai/screenshots/
 .ai/features/*/screenshots/
