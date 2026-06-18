@@ -82,6 +82,83 @@ def apply_to_fob(row: CostAllocationRow, fob: Decimal) -> dict[str, Decimal]:
     }
 
 
+_DETAIL_KEYS = ("wages", "welfare", "rent", "depreciation", "other_mfg", "transport_storage")
+_RVC_LVC_TOKENS = ("RVC", "LVC")
+
+
+def _has_filled_cost_buildup(cost_buildup) -> bool:
+    """True when any of the 6 detail keys already holds a value (profit excluded —
+    it is derived). Mirrors the per-product 'Áp hệ số' overwrite-confirm check."""
+    if not isinstance(cost_buildup, dict):
+        return False
+    return any(str(cost_buildup.get(key) or "").strip() for key in _DETAIL_KEYS)
+
+
+def _parse_fob(value) -> Decimal | None:
+    text = str(value or "").strip().replace(",", "")
+    if not text:
+        return None
+    try:
+        return Decimal(text)
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def bulk_apply_to_products(products, resolve_ratio, *, overwrite: bool = False) -> dict:
+    """Bulk cost-buildup allocation over a case's products (Mục 4a).
+
+    Pure: does NOT mutate inputs. The caller persists `updates` via the normal
+    cost_buildup merge path. Only products whose effective criterion contains
+    RVC/LVC are in scope (mirrors the template gate:
+    `origin_sheet_effective_criteria_text or documented_result`).
+
+    - `resolve_ratio(code)` → CostAllocationRow | None (Mode A → Mode B fallback;
+      caller binds client_id, e.g. cost_allocation_store.get_ratio).
+    - `overwrite=False` skips SP that already has any detail value (skipped_filled);
+      `True` recomputes and overwrites.
+
+    Returns {applied:[{code,mode}], skipped_no_ratio:[code], skipped_no_fob:[code],
+    skipped_filled:[code], updates:{code:{detail:str}}}.
+    """
+    applied: list[dict] = []
+    skipped_no_ratio: list[str] = []
+    skipped_no_fob: list[str] = []
+    skipped_filled: list[str] = []
+    updates: dict[str, dict] = {}
+    for product in products:
+        criteria = str(
+            product.get("origin_sheet_effective_criteria_text")
+            or product.get("documented_result")
+            or ""
+        ).upper()
+        if not any(token in criteria for token in _RVC_LVC_TOKENS):
+            continue
+        code = str(product.get("code") or "").strip()
+        if not code:
+            continue
+        if not overwrite and _has_filled_cost_buildup(product.get("cost_buildup")):
+            skipped_filled.append(code)
+            continue
+        fob = _parse_fob(product.get("fob"))
+        if fob is None or fob <= 0:
+            skipped_no_fob.append(code)
+            continue
+        row = resolve_ratio(code)
+        if row is None:
+            skipped_no_ratio.append(code)
+            continue
+        details = apply_to_fob(row, fob)
+        updates[code] = {key: str(value) for key, value in details.items()}
+        applied.append({"code": code, "mode": "A" if row.product_code else "B"})
+    return {
+        "applied": applied,
+        "skipped_no_ratio": skipped_no_ratio,
+        "skipped_no_fob": skipped_no_fob,
+        "skipped_filled": skipped_filled,
+        "updates": updates,
+    }
+
+
 def _cell_text(value) -> str:
     if value is None:
         return ""

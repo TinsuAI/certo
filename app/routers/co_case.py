@@ -1553,6 +1553,51 @@ async def autosave_co_case_origin(request: Request, client_id: str, case_id: str
         "origin_product_order": origin_product_order(case),
         "origin_sheet_states": json_safe(case.get("origin_sheet_states", {})),
     }
+@router.post("/clients/{client_id}/co-case/{case_id}/origin/bulk-apply-cost")
+async def bulk_apply_cost_buildup_route(request: Request, client_id: str, case_id: str):
+    """Mục 4a — áp hệ số chi phí (Mode A→B × FOB) cho TẤT CẢ SP RVC/LVC một lần.
+
+    Bọc vòng lặp quanh `cost_allocation_importer.bulk_apply_to_products` (đã test
+    parity với nút per-product `apply_to_fob`). Mặc định chỉ điền SP đang trống;
+    `overwrite=1` ghi đè. Trả summary để UI hiện coverage."""
+    from app import cost_allocation_importer, cost_allocation_store
+
+    client = resolve_client(client_id)
+    form = await request.form()
+    overwrite = str(form.get("overwrite", "") or "").strip().lower() in ("1", "true", "on", "yes")
+    try:
+        record = get_case_record(client, case_id)
+    except KeyError:
+        raise HTTPException(status_code=404) from None
+    case = attach_origin_sheet_states(record)
+    # Read ratios once, resolve in-memory (Mode A → Mode B) instead of one
+    # store round-trip per product.
+    mode_a = {row.product_code: row for row in cost_allocation_store.list_ratios(client_id)}
+    mode_b = cost_allocation_store.get_mode_b_default(client_id)
+    result = cost_allocation_importer.bulk_apply_to_products(
+        case.get("products", []),
+        lambda code: mode_a.get(code) or mode_b,
+        overwrite=overwrite,
+    )
+    if result["updates"]:
+        by_code = {str(p.get("code") or "").strip(): p for p in case.get("products", [])}
+        for code, details in result["updates"].items():
+            product = by_code.get(code)
+            if product is None:
+                continue
+            product["cost_buildup"] = {**(product.get("cost_buildup") or {}), **details}
+        try:
+            update_case_record(client, case)
+        except KeyError:
+            raise HTTPException(status_code=404) from None
+    return {
+        "status": "ok",
+        "applied": result["applied"],
+        "skipped_no_ratio": result["skipped_no_ratio"],
+        "skipped_no_fob": result["skipped_no_fob"],
+        "skipped_filled": result["skipped_filled"],
+        "updates": result["updates"],
+    }
 @router.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/load-bom", response_class=HTMLResponse)
 async def load_bom_co_case_origin_sheet(request: Request, client_id: str, case_id: str, product_code: str):
     """Nạp công thức BOM (CẤU TRÚC) vào bảng kê mà KHÔNG phân bổ tồn (Phase 2).

@@ -6251,6 +6251,30 @@ body.co-stock-history-modal-open { overflow: hidden; }
 .cost-buildup-apply-status[data-state="warning"] { color: var(--warning); }
 .cost-buildup-apply-status[data-state="ok"] { color: var(--success); }
 .cost-buildup-grid .cost-buildup-profit input { background: var(--surface-hover); }
+
+/* Mục 4a — bulk cost-buildup summary banner */
+.bulk-cost-summary {
+  margin: 0.4rem 0 0;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--success);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+}
+.bulk-cost-summary[data-state="warning"] { border-left-color: var(--warning); }
+.bulk-cost-summary .bulk-cost-warn { color: var(--warning); }
+.bulk-cost-summary .bulk-cost-info { color: var(--foreground-muted); }
+.bulk-cost-summary .btn-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--primary);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
 @media (max-width: 768px) {
   .cost-buildup-grid { grid-template-columns: repeat(2, 1fr); }
   .cost-buildup-grid-6 { grid-template-columns: repeat(2, 1fr); }

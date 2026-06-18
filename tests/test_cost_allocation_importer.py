@@ -156,3 +156,118 @@ def test_apply_ratio_to_fob():
         "other_mfg": Decimal("50.00"),
         "transport_storage": Decimal("60.00"),
     }
+
+
+# ---------- Bulk apply across a case (Mục 4a) ----------
+
+
+def _row(code, w="0.01", note=""):
+    from app.cost_allocation_store import CostAllocationRow
+    return CostAllocationRow(
+        product_code=code,
+        coef_wages=Decimal(w),
+        coef_welfare=Decimal("0.02"),
+        coef_rent=Decimal("0.03"),
+        coef_depreciation=Decimal("0.04"),
+        coef_other_mfg=Decimal("0.05"),
+        coef_transport_storage=Decimal("0.06"),
+        note=note,
+    )
+
+
+def _product(code, *, criteria="RVC 35%", fob="1000", cost_buildup=None, documented=""):
+    return {
+        "code": code,
+        "fob": fob,
+        "origin_sheet_effective_criteria_text": criteria,
+        "documented_result": documented,
+        "cost_buildup": cost_buildup or {},
+    }
+
+
+def _resolver(table):
+    """Fake Mode-A→Mode-B resolver. `table` maps product_code → CostAllocationRow.
+    Key '' is the Mode B default. Mirrors cost_allocation_store.get_ratio."""
+    def resolve(code):
+        if code in table:
+            return table[code]
+        return table.get("")  # Mode B default, or None
+    return resolve
+
+
+def test_bulk_applies_mode_a_then_mode_b_fallback():
+    from app.cost_allocation_importer import bulk_apply_to_products
+    products = [_product("P-A"), _product("P-B")]
+    resolver = _resolver({"P-A": _row("P-A"), "": _row("", w="0.005")})  # P-B → Mode B
+    result = bulk_apply_to_products(products, resolver)
+    assert result["applied"] == [
+        {"code": "P-A", "mode": "A"},
+        {"code": "P-B", "mode": "B"},
+    ]
+    assert result["updates"]["P-A"]["wages"] == "10.00"   # 0.01 × 1000
+    assert result["updates"]["P-B"]["wages"] == "5.00"    # 0.005 × 1000 (Mode B)
+    assert result["skipped_no_ratio"] == []
+
+
+def test_bulk_skips_non_rvc_lvc_products():
+    from app.cost_allocation_importer import bulk_apply_to_products
+    products = [_product("CTH-1", criteria="CTH"), _product("RVC-1", criteria="RVC 40%")]
+    resolver = _resolver({"CTH-1": _row("CTH-1"), "RVC-1": _row("RVC-1")})
+    result = bulk_apply_to_products(products, resolver)
+    assert [a["code"] for a in result["applied"]] == ["RVC-1"]
+    # CTH product is out of scope entirely — not applied, not in any skipped bucket.
+    assert "CTH-1" not in result["updates"]
+    assert "CTH-1" not in result["skipped_no_ratio"]
+
+
+def test_bulk_skips_product_without_ratio():
+    from app.cost_allocation_importer import bulk_apply_to_products
+    products = [_product("P-X")]
+    resolver = _resolver({})  # no Mode A, no Mode B
+    result = bulk_apply_to_products(products, resolver)
+    assert result["applied"] == []
+    assert result["skipped_no_ratio"] == ["P-X"]
+    assert result["updates"] == {}
+
+
+def test_bulk_skips_product_missing_fob():
+    from app.cost_allocation_importer import bulk_apply_to_products
+    products = [_product("P-NOFOB", fob=""), _product("P-ZERO", fob="0")]
+    resolver = _resolver({"": _row("")})
+    result = bulk_apply_to_products(products, resolver)
+    assert result["applied"] == []
+    assert set(result["skipped_no_fob"]) == {"P-NOFOB", "P-ZERO"}
+
+
+def test_bulk_skips_already_filled_unless_overwrite():
+    from app.cost_allocation_importer import bulk_apply_to_products
+    filled = {"wages": "999"}
+    products = [_product("P-FILLED", cost_buildup=filled)]
+    resolver = _resolver({"P-FILLED": _row("P-FILLED")})
+    # Default: skip filled, do not touch.
+    result = bulk_apply_to_products(products, resolver)
+    assert result["applied"] == []
+    assert result["skipped_filled"] == ["P-FILLED"]
+    # overwrite=True: recompute and overwrite.
+    result2 = bulk_apply_to_products(products, resolver, overwrite=True)
+    assert result2["applied"] == [{"code": "P-FILLED", "mode": "A"}]
+    assert result2["updates"]["P-FILLED"]["wages"] == "10.00"
+
+
+def test_bulk_criterion_falls_back_to_documented_result():
+    """Mirror the template: criterion = effective_criteria_text or documented_result."""
+    from app.cost_allocation_importer import bulk_apply_to_products
+    products = [_product("P-DOC", criteria="", documented="40.19% RVC")]
+    resolver = _resolver({"P-DOC": _row("P-DOC")})
+    result = bulk_apply_to_products(products, resolver)
+    assert [a["code"] for a in result["applied"]] == ["P-DOC"]
+
+
+def test_bulk_single_product_matches_per_product_apply_to_fob():
+    """Regression: bulk on one SP must equal the per-product 'Áp hệ số' path."""
+    from app.cost_allocation_importer import bulk_apply_to_products, apply_to_fob
+    row = _row("P-1")
+    products = [_product("P-1", fob="100000")]
+    result = bulk_apply_to_products(products, _resolver({"P-1": row}))
+    expected = {k: str(v) for k, v in apply_to_fob(row, Decimal("100000")).items()}
+    assert result["updates"]["P-1"] == expected

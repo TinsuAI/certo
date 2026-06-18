@@ -880,6 +880,11 @@
     </div>
   </div>
 
+  {% set _cost_ns = namespace(has=false) %}
+  {% for product in case.products %}
+    {% set _crit = (product.origin_sheet_effective_criteria_text or product.documented_result or '')|upper %}
+    {% if 'RVC' in _crit or 'LVC' in _crit %}{% set _cost_ns.has = true %}{% endif %}
+  {% endfor %}
   <div class="origin-review-toolbar">
     {% if case.products|length > 1 %}
     <button type="button" class="btn-secondary" data-origin-reorder-open>Đổi thứ tự sheet</button>
@@ -887,8 +892,19 @@
     {% endif %}
     <span class="origin-workbar-sequence-dirty" data-origin-sequence-dirty hidden>Thứ tự sheet đã đổi — cần tính lại</span>
     <span class="origin-review-toolbar-spacer"></span>
+    {% if _cost_ns.has %}
+    <button type="button" class="btn-secondary" data-bulk-cost-apply
+            data-bulk-cost-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/bulk-apply-cost"
+            data-cost-config-url="/clients/{{ client.id }}/cost-allocation"
+            title="Áp hệ số chi phí (Mode A theo Mã SP → Mode B mặc định) × FOB cho mọi SP RVC/LVC. Chỉ điền SP đang trống.">
+      Áp hệ số CP (tất cả SP)
+    </button>
+    {% endif %}
     <button type="submit" form="origin-export-bang-ke" data-origin-export-action class="btn-secondary">Xuất bảng kê HQ</button>
   </div>
+  {% if _cost_ns.has %}
+  <div class="bulk-cost-summary" data-bulk-cost-summary hidden></div>
+  {% endif %}
 
   {% if case.products %}
   <div class="origin-review-table">
@@ -5453,6 +5469,74 @@
     });
   };
 
+  // Mục 4a — bulk "Áp hệ số CP (tất cả SP)". Calls the case bulk endpoint
+  // (Mode A→B × FOB, fills empty SP only), fills the cost-buildup inputs live,
+  // and renders a coverage summary so the user sees what was applied/skipped.
+  const fillProductCostBuildup = (code, details) => {
+    const apply = [...document.querySelectorAll("[data-cost-buildup-apply]")]
+      .find((b) => b.dataset.productCode === code);
+    const block = apply?.closest(".cost-buildup-block");
+    if (!block) return;
+    block.querySelectorAll("[data-cost-buildup-input]").forEach((input) => {
+      const key = input.dataset.costBuildupKey;
+      if (key && key !== "profit" && details[key] !== undefined) {
+        input.value = details[key];
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    });
+  };
+
+  const renderBulkCostSummary = (btn, body) => {
+    const box = document.querySelector("[data-bulk-cost-summary]");
+    if (!box) return;
+    // Escape dynamic values (mã SP can originate from client-uploaded BOM/Excel).
+    const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    const escCodes = (list) => list.map(esc).join(", ");
+    const applied = body.applied || [];
+    const a = applied.filter((x) => x.mode === "A").length;
+    const b = applied.filter((x) => x.mode === "B").length;
+    const noRatio = body.skipped_no_ratio || [];
+    const noFob = body.skipped_no_fob || [];
+    const filled = body.skipped_filled || [];
+    const cfg = esc(btn.dataset.costConfigUrl || "#");
+    const parts = [`<strong>✓ Đã áp hệ số: ${applied.length} SP</strong> (${a} Mode A, ${b} Mode B).`];
+    if (noRatio.length) parts.push(`<span class="bulk-cost-warn">⚠ Chưa có hệ số (bỏ qua): ${escCodes(noRatio)} — <a href="${cfg}">Cấu hình hệ số</a></span>`);
+    if (noFob.length) parts.push(`<span class="bulk-cost-warn">⚠ Thiếu FOB (bỏ qua): ${escCodes(noFob)}</span>`);
+    if (filled.length) parts.push(`<span class="bulk-cost-info">ℹ Đã có số, giữ nguyên: ${escCodes(filled)} — <button type="button" class="btn-link" data-bulk-cost-overwrite>Áp lại &amp; ghi đè</button></span>`);
+    box.innerHTML = parts.map((p) => `<div>${p}</div>`).join("");
+    box.hidden = false;
+    box.dataset.state = (noRatio.length || noFob.length) ? "warning" : "ok";
+    box.querySelector("[data-bulk-cost-overwrite]")?.addEventListener("click", () => runBulkCostApply(btn, true));
+  };
+
+  const runBulkCostApply = async (btn, overwrite) => {
+    const url = btn.dataset.bulkCostUrl;
+    if (!url) return;
+    const box = document.querySelector("[data-bulk-cost-summary]");
+    btn.disabled = true;
+    if (box) { box.hidden = false; box.textContent = "Đang áp hệ số…"; box.removeAttribute("data-state"); }
+    try {
+      const fd = new FormData();
+      if (overwrite) fd.append("overwrite", "1");
+      const resp = await fetch(url, { method: "POST", body: fd, headers: { "Accept": "application/json" } });
+      const body = await resp.json();
+      Object.entries(body.updates || {}).forEach(([code, details]) => fillProductCostBuildup(code, details));
+      renderBulkCostSummary(btn, body);
+    } catch (err) {
+      if (box) { box.textContent = `Lỗi áp hệ số: ${err}`; box.dataset.state = "warning"; }
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
+  const initBulkCostApply = (root = document) => {
+    root.querySelectorAll("[data-bulk-cost-apply]").forEach((btn) => {
+      if (btn.dataset.bound === "1") return;
+      btn.dataset.bound = "1";
+      btn.addEventListener("click", () => runBulkCostApply(btn, false));
+    });
+  };
+
   // Collapse "removed" rows (operator-deleted + DH-classified phi-vật-tư rác) into
   // one expandable summary row so the bảng kê isn't cluttered. declarable_unmatched
   // (real-but-unmatched) is NOT folded — it stays visible as the review queue.
@@ -5659,6 +5743,7 @@
     initCaseCreatedBanner(root);
     initCostBuildupHint(root);
     initCostBuildupApply(root);
+    initBulkCostApply(root);
     initDocumentUploads(root);
     initOriginSettingsModal(root);
   };
