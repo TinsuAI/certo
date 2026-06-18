@@ -656,8 +656,10 @@ def write_hq_sheet_materials(ws, product: dict, start_row: int, *, legacy_export
             or material.get("registration_date")
             or "",
         )
-        put(row_index, "co_no", material.get("source_document_ref", ""))
-        put(row_index, "co_date", material.get("source_document_date", ""))
+        # Cột M-N (C/O ưu đãi nhập khẩu / bản khai báo NCC) — để TRỐNG tạm thời
+        # tới khi làm phần xuất xứ NVL (XX1). Xem app/bang_ke_renderer.py.
+        put(row_index, "co_no", "")
+        put(row_index, "co_date", "")
         # Legacy helper columns — only meaningful on the wide layout.
         if layout["kind"] == "legacy":
             put(row_index, "line_no", material.get("import_line_no", ""))

@@ -293,8 +293,11 @@ def _write_body(ws, body_cfg: dict, product: dict) -> tuple[int, dict]:
             or material.get("registration_date")
             or "",
         )
-        put("co_doc_no", material.get("source_document_ref", ""))
-        put("co_doc_date", material.get("source_document_date", ""))
+        # Cột M-N ("C/O ưu đãi nhập khẩu / Bản khai báo của nhà SX / NCC NVL
+        # trong nước") chỉ dành cho NVL CÓ xuất xứ (đáp ứng LVC/RVC) — tính năng
+        # XX1 chưa làm. Để TRỐNG tạm thời; KHÔNG nhét source_document_ref vào đây.
+        put("co_doc_no", "")
+        put("co_doc_date", "")
         # Legacy helper columns (only present on wide layouts).
         put("import_line_no", material.get("import_line_no", ""))
         put("decl_mat_key", f"{product.get('source_declaration_no', '')}{material_code}")

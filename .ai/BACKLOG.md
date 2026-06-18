@@ -528,6 +528,13 @@ kỹ + viết parity test trước khi gỡ fold (rủi ro SAI TỒN). AUDIT/HAR
    `app/data_hub_client.py` trước; nếu hợp đồng chưa có field origin per-lot thì viết API request artifact.
    Fallback: input tay trên CO + lưu override per-material (giống `material_overrides`).
 
+**Bảng kê cột M-N (note 2026-06-18, user):** cột **M** = "C/O ưu đãi nhập khẩu/ Bản khai báo của nhà
+SX/ NCC NVL trong nước" (số) + **N** = "Ngày" là chỗ khai chứng từ xuất xứ ưu đãi cho **NVL CÓ xuất xứ**.
+Renderer trước đây nhét nhầm `source_document_ref`/`source_document_date` vào đây (demo lòi ra "Seed import
+row 1/3") → **ĐÃ blank tạm** ở cả 2 path: config `app/bang_ke_renderer.py` (`co_doc_no`/`co_doc_date`) +
+legacy `app/workbook_io.py` (`co_no`/`co_date`). **Khi làm XX1:** điền M-N từ chứng từ xuất xứ ưu đãi
+(phụ lục X / C/O nhập / bản khai NCC) của lô NVL `origin` — KHÔNG dùng lại source_document_ref.
+
 Vùng: `origin_status_details_from_material` (phân loại xuất xứ), `material_overrides` (nếu input tay),
 template cột "Xuất xứ" + chứng từ phụ lục X. Liên quan [[technical-flattened-export-noise]] (customs_relevance
 là trục KHÁC — declarability, không phải origin). `/discover` trước. Added: 2026-06-14.
@@ -546,3 +553,17 @@ endpoint lock guard qua `origin_sheet_action_error` + `reject_if_sheet_locked`. 
 - Endpoint có thật sự **reject** khi không lock-able, hay chỉ disable nút client (bypass được)?
 Vùng: `origin_can_lock` / `origin_sheet_action_error` (`co_case_context.py`), lock endpoint (`co_case.py`),
 nút Chốt (`co_case.html`). Liên quan [[DC3]]. `/discover` trước. Added: 2026-06-14.
+
+## Bảng kê — Định dạng cột
+
+### EX1 — Configurable định dạng tham chiếu tờ khai ở cột K (số vs số/dòng)
+**Note 2026-06-18 (user).** Cột **K** bảng kê = "Tờ khai hải quan nhập khẩu/HĐ GTGT" (Số). **AUDIT template**
+(`form-mau-combined.xlsx`, đọc trực tiếp): khối tờ khai = merged **K12:L13** → form chỉ có **K (Số) + L
+(Ngày)**; **"dòng hàng" ở cột O là HELPER ẨN** (`hidden=True`) và **ngoài `print_area` (A:N)** → KHÔNG hiển
+thị/in. Data mẫu template: K = chỉ số TK (`108097982530;`), dòng (`2;`) chỉ ở O ẩn. **Quyết (user): tạm thời
+giữ K = chỉ số tờ khai** (khớp form gốc; export hiện đã đúng vậy — `import_decl_no→K`, dòng ở O ẩn).
+**Về sau: làm CONFIGURABLE** — tuỳ client/form chọn K hiển thị `"số"` hay `"số/dòng"` (vd `108097982530/2`)
+vì form không có cột dòng riêng. Vùng: `bang_ke_renderer.py` (`import_decl_no→K`, có sẵn `import_line_no`),
+config `config/bang-ke-forms/*.json` (cân nhắc field `import_ref_format: number|number_line`); cũng cân nhắc
+dấu nối nhiều TK/dòng (template gốc dùng `;`, renderer hiện dùng `, `). Cột L (Ngày) đã wire sẵn (auto từ
+`registration_date` lô). Added: 2026-06-18.
