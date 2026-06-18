@@ -237,6 +237,8 @@ async def download_declarations_pdf(
     declaration_nos: str | None = None,
     filename: str | None = None,
     sort: str | None = None,
+    quality: str | None = None,
+    max_part_bytes: str | None = None,
 ):
     """Merge every uploaded declaration file for (client, direction,
     declaration_no IN nos) into ONE print-standard PDF — the "tờ khai
@@ -261,10 +263,13 @@ async def download_declarations_pdf(
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
-    decl_nos, sort = _parse_pdf_query(direction, declaration_nos, sort)
+    decl_nos, sort, quality, cap = _parse_pdf_query(
+        direction, declaration_nos, sort, quality, max_part_bytes,
+    )
     return _build_declarations_pdf_response(
         client_id=client_id, direction=direction,
         requested=decl_nos, sort=sort, filename=filename,
+        quality=quality, max_part_bytes=cap,
     )
 
 
@@ -798,9 +803,13 @@ def _safe_pdf_filename(value: str | None, *, fallback: str) -> str:
 
 def _parse_pdf_query(
     direction: str | None, declaration_nos: str | None, sort: str | None,
-) -> tuple[list[str], str]:
-    """Validate query params, returning (declaration_nos, sort). Raises
-    coded 400s matching the download.zip contract."""
+    quality: str | None = None, max_part_bytes: str | None = None,
+) -> tuple[list[str], str, str, int | None]:
+    """Validate query params, returning (declaration_nos, sort, quality,
+    max_part_bytes). Raises coded 400s matching the download.zip contract.
+
+    `quality`/`max_part_bytes` are additive: omitting both reproduces the
+    original behaviour exactly."""
     if direction not in ("import", "export"):
         raise HTTPException(400, "invalid_direction")
     decl_nos = _parse_zip_declaration_nos(declaration_nos)
@@ -811,7 +820,18 @@ def _parse_pdf_query(
     sort = sort or "declaration_no"
     if sort not in ("declaration_no", "registration_date"):
         raise HTTPException(400, "invalid_sort")
-    return decl_nos, sort
+    quality = quality or "print"
+    if quality not in ("print", "compact"):
+        raise HTTPException(400, "invalid_quality")
+    cap: int | None = None
+    if max_part_bytes is not None and str(max_part_bytes).strip() != "":
+        try:
+            cap = int(max_part_bytes)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "invalid_max_part_bytes")
+        if cap <= 0:
+            raise HTTPException(400, "invalid_max_part_bytes")
+    return decl_nos, sort, quality, cap
 
 
 def _order_declarations(
@@ -838,18 +858,27 @@ def _order_declarations(
 def _build_declarations_pdf_response(
     *, client_id: str, direction: str, requested: list[str],
     sort: str, filename: str | None,
+    quality: str = "print", max_part_bytes: int | None = None,
 ):
-    """Render + merge the requested declarations into one PDF and stream
-    it from a temp file (bounded memory), with the X-Declarations-*
-    gap-reporting headers CO uses to warn the operator."""
+    """Render + merge the requested declarations and stream the result
+    from a temp file (bounded memory), with the X-Declarations-*
+    gap-reporting headers CO uses to warn the operator.
+
+    Output is one `application/pdf` unless `max_part_bytes` is set, in
+    which case it is an `application/zip` of declaration-boundary parts
+    each ≤ the cap. New X-Render-*/X-Pdf-* headers are additive; omitting
+    `quality` + `max_part_bytes` reproduces the original response."""
     import shutil
     import tempfile
+    import time
     from pathlib import Path
 
     from starlette.background import BackgroundTask
     from fastapi.responses import FileResponse
 
-    from app.declarations_pdf import RENDER_VERSION, build_merged_pdf
+    from app.declarations_pdf import (
+        COMPACT_VERSION, RENDER_VERSION, build_merged_pdf,
+    )
 
     files = list_files_for_declarations(
         client_id, requested, direction=direction,
@@ -860,21 +889,26 @@ def _build_declarations_pdf_response(
     decl_order = _order_declarations(client_id, requested, direction, sort)
 
     tmpdir = Path(tempfile.mkdtemp(prefix="dh_pdf_"))
+    started = time.monotonic()
     try:
         result = build_merged_pdf(
             requested=requested, decl_order=decl_order,
             files_by_decl=files_by_decl, backend=get_backend(),
-            dest_dir=tmpdir,
+            dest_dir=tmpdir, quality=quality, max_part_bytes=max_part_bytes,
+            part_stem=f"declarations_{client_id}_{direction}",
         )
     except Exception:
         shutil.rmtree(tmpdir, ignore_errors=True)
         raise
+    render_ms = int((time.monotonic() - started) * 1000)
 
-    out_name = _safe_pdf_filename(
+    is_zip = result.media_type == "application/zip"
+    stem = _safe_pdf_filename(
         filename, fallback=f"declarations_{client_id}_{direction}.pdf",
-    )
+    )[:-4]  # drop the enforced .pdf suffix; re-add the right one below
+    out_name = f"{stem}.zip" if is_zip else f"{stem}.pdf"
     # Header values are latin-1 encoded by Starlette; declaration_nos are
-    # user-supplied, so coerce the echoed list to a safe encoding rather
+    # user-supplied, so coerce the echoed lists to a safe encoding rather
     # than risk a 500 on an exotic character.
     missing_hdr = ",".join(result.missing_nos[:50]).encode(
         "latin-1", "replace",
@@ -886,9 +920,19 @@ def _build_declarations_pdf_response(
         "X-Declarations-Missing": str(len(result.missing_nos)),
         "X-Declarations-Missing-Nos": missing_hdr,
         "X-Render-Version": RENDER_VERSION,
+        "X-Render-Ms": str(render_ms),
+        "X-Render-CacheHits": str(result.cache_hits),
+        "X-Render-CacheMisses": str(result.cache_misses),
+        "X-Pdf-Bytes": str(result.pdf_bytes),
+        "X-Pdf-Parts": str(result.parts),
+        "X-Pdf-Quality": COMPACT_VERSION if quality == "compact" else "print",
     }
+    if result.oversize_nos:
+        headers["X-Pdf-Oversize-Nos"] = ",".join(
+            result.oversize_nos[:50]
+        ).encode("latin-1", "replace").decode("latin-1")
     return FileResponse(
-        path=str(result.pdf_path), media_type="application/pdf",
+        path=str(result.path), media_type=result.media_type,
         headers=headers,
         background=BackgroundTask(
             shutil.rmtree, str(tmpdir), ignore_errors=True,

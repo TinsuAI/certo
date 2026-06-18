@@ -10,6 +10,12 @@ phiên bản theo [SemVer](https://semver.org/).
 > hành đã đóng gói tại thời điểm đó.
 
 ## [Unreleased]
+### API
+- **Ghép PDF tờ khai nhanh hơn + chia nhỏ vừa cổng Ecosys cũ:** endpoint `download.pdf` (bản Bearer cho CO và bản cookie cho thao tác viên) thêm 2 tham số tùy chọn:
+  - `quality` — `print` (mặc định, giữ nguyên) hoặc `compact` (dedup không mất dữ liệu: gộp font trùng giữa các tờ khai + nén lại content stream, giảm ~9% trên tờ khai thật, không bao giờ lớn hơn `print`).
+  - `max_part_bytes` — khi PDF ghép vượt ngưỡng, trả về ZIP nhiều phần `...-part-NNN.pdf` cắt theo ranh giới từng tờ khai (không cắt giữa tờ khai), mỗi phần ≤ ngưỡng; tờ khai đơn lẻ vượt ngưỡng được gắn cờ `X-Pdf-Oversize-Nos`. Phục vụ giới hạn ~2 MB của cổng Ecosys.
+- Render các bản chưa có trong cache giờ chạy **song song** (đo được ~2.8× trên tập nặng); thêm header `X-Render-Ms`, `X-Render-CacheHits/Misses`, `X-Pdf-Bytes/Parts/Quality`.
+- **Tương thích ngược tuyệt đối:** không truyền tham số mới → phản hồi giống y như trước (byte-for-byte). Header mới chỉ bổ sung. Chi tiết: `docs/API_CHANGELOG.md` (2026-06-18, Additive).
 
 ## [0.18.0] — 2026-06-14
 ### API

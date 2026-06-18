@@ -2355,6 +2355,8 @@ async def api_download_declarations_pdf(
     declaration_nos: str | None = None,
     filename: str | None = None,
     sort: str | None = None,
+    quality: str | None = None,
+    max_part_bytes: str | None = None,
     authorization: str | None = Header(None),
 ):
     """Bearer-auth mirror of the operator cookie route at
@@ -2376,13 +2378,16 @@ async def api_download_declarations_pdf(
     )
     claims = _require_token(authorization)  # default scope hub:read
     _require_can_view_client(claims, client_id)
-    decl_nos, sort = _parse_pdf_query(direction, declaration_nos, sort)
+    decl_nos, sort, quality, cap = _parse_pdf_query(
+        direction, declaration_nos, sort, quality, max_part_bytes,
+    )
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
     return _build_declarations_pdf_response(
         client_id=client_id, direction=direction,
         requested=decl_nos, sort=sort, filename=filename,
+        quality=quality, max_part_bytes=cap,
     )
 
 

@@ -14,6 +14,37 @@ Only `Breaking:` headings trigger notifications to `dev`/`admin` users (CO + BCQ
 
 ## Entries
 
+## 2026-06-18 — Additive: download.pdf gains quality + max_part_bytes (parallel render, Ecosys-friendly split)
+
+Silent / opt-in; no consumer code change required. Omitting both new params →
+response body byte-identical to before; all new headers are additive.
+
+- `GET /v1/hub/clients/{client_id}/declarations/download.pdf` gains two optional
+  query params:
+  - `quality` — `print` (default, lossless, unchanged) | `compact`. `compact` is
+    **lossless** object dedup + content-stream recompression (profile
+    `pypdf-dedup-1`): it merges the embedded fonts duplicated across the
+    concatenated declarations. ~9% on real vector tờ khai; never larger than
+    print. NOT an image downsampler — declarations are pure-vector Excel renders,
+    so it is not the size fix for Ecosys (use `max_part_bytes`).
+  - `max_part_bytes` — positive int. When the merged PDF exceeds it, the response
+    becomes `application/zip` of `declarations_{client_id}_{direction}-part-NNN.pdf`,
+    each ≤ cap, split on **declaration boundaries** in declaration_no order. A
+    declaration that alone exceeds the cap → its own part + `X-Pdf-Oversize-Nos`.
+    Absent, or the merged PDF already fits → single `application/pdf`.
+- New additive response headers: `X-Render-Ms`, `X-Render-CacheHits`,
+  `X-Render-CacheMisses`, `X-Pdf-Bytes`, `X-Pdf-Parts`, `X-Pdf-Quality`
+  (`print` | `pypdf-dedup-1`), `X-Pdf-Oversize-Nos` (only when present). Existing
+  `X-Declarations-*` + `X-Render-Version` unchanged.
+- New `400`s: `invalid_quality`, `invalid_max_part_bytes` (alongside existing
+  invalid_direction / declaration_nos_required / too_many_declaration_nos /
+  invalid_sort).
+- Performance: cache-miss renders now run in a bounded parallel pool (~2.8× on a
+  heavy set); the content-addressed render cache + warm behaviour are unchanged.
+- CO passes its configurable per-file limit (default 2 MB) as `max_part_bytes`;
+  on a zip response it drops parts into the dossier tờ-khai slots, falling back
+  to the single-PDF path on any DH error.
+
 ## 2026-06-14 — Additive: NXT + inventory paged/filtered line endpoints + list filters
 
 Silent / opt-in; no consumer code change required. Adds the scalable read path

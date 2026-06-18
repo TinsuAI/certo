@@ -892,6 +892,62 @@ Errors:
 Contract spec:
 `barry-CO-main/.ai/api-requests/2026-05-28-bcct-declarations-download-bearer.md`.
 
+#### `GET /v1/hub/clients/{client_id}/declarations/download.pdf`
+
+Bearer-auth mirror of the operator cookie route at
+`/clients/{cid}/declarations/download.pdf`. Merges every uploaded
+declaration file for (client, direction, declaration_no ∈ nos) into ONE
+print-standard "tờ khai ghép" PDF — each declaration rendered to the
+official A4 tờ khai layout, concatenated in `sort` order; within a
+declaration, files in `original_filename` order. Declarations with no
+usable file are skipped and reported via headers.
+
+Query params:
+- `direction`: required, `import` (TKN) or `export` (TKX).
+- `declaration_nos`: required, comma-separated (max 500), order-preserving.
+- `filename`: optional `Content-Disposition` filename. Default
+  `declarations_{client_id}_{direction}.pdf` (`.zip` when split). Sanitized
+  like download.zip.
+- `sort`: optional, `declaration_no` (default) | `registration_date`.
+- `quality`: optional, `print` (default, byte-identical to the original
+  contract) | `compact`. `compact` is **lossless** — it merges
+  byte-identical objects (the same embedded font duplicated across the
+  concatenated declarations) and recompresses content streams. No
+  rasterization / no quality loss. Typical trim ~9% on real vector tờ
+  khai; it is **not** the Ecosys size fix (the merged size is driven by
+  page count, not images) — use `max_part_bytes` to fit the ~2 MB limit.
+  `X-Pdf-Quality` = `pypdf-dedup-1` when applied, else `print`.
+- `max_part_bytes`: optional positive int. When the (already reduced)
+  merged PDF would exceed it, the response is an `application/zip` of
+  `declarations_{client_id}_{direction}-part-001.pdf … part-NNN.pdf`, each
+  ≤ the cap, split on **declaration boundaries** (never mid-declaration),
+  in declaration_no order. A declaration that alone exceeds the cap gets
+  its own part and is listed in `X-Pdf-Oversize-Nos`. Absent (or the merged
+  PDF already fits) → single PDF.
+
+Response:
+- `200 application/pdf` (single) or `200 application/zip` (split). Zero
+  match / all-missing → `200` single info-page PDF (never empty/corrupt,
+  never an empty zip).
+- Headers (all additive; omitting `quality` + `max_part_bytes` leaves the
+  body byte-identical to before):
+  - `X-Declarations-Requested` / `-Included` / `-Missing` / `-Missing-Nos`
+    (first 50) — unchanged gap reporting.
+  - `X-Render-Version`, `X-Pdf-Quality` (`print` | `pypdf-dedup-1`).
+  - `X-Render-Ms`, `X-Render-CacheHits`, `X-Render-CacheMisses` — render
+    timing; per-declaration renders are cached content-addressed by source
+    `.xls` sha256, so warm/overlapping exports are near-instant.
+  - `X-Pdf-Bytes` (single size, or sum of parts), `X-Pdf-Parts` (1 for a
+    single PDF), `X-Pdf-Oversize-Nos` (only when present).
+
+Errors:
+- `400 invalid_direction | declaration_nos_required | too_many_declaration_nos
+  | invalid_sort | invalid_quality | invalid_max_part_bytes`.
+- `401` bearer (strict mode); `403` scope / client whitelist; `404` client.
+
+Contract spec:
+`.ai/features/2026-06-18-declarations-pdf-fast-compact-split/brief.md`.
+
 ### Settlement inputs (NXT + year-end inventory)
 
 Data Hub owns these settlement *inputs*; BCQT computes Mẫu 15/15a from them.
