@@ -6263,6 +6263,19 @@ body.co-stock-history-modal-open { overflow: hidden; }
   border-radius: var(--radius-sm);
   background: var(--surface-subtle);
 }
+.run-stock-summary {
+  margin: 0.4rem 0 0;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--success);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+}
+.run-stock-summary[data-state="warning"] { border-left-color: var(--warning); }
+.run-stock-summary .run-stock-product { margin-top: 0.2rem; }
+.run-stock-summary .run-stock-product-code { font-weight: 600; }
 .bulk-cost-summary[data-state="warning"] { border-left-color: var(--warning); }
 .bulk-cost-summary .bulk-cost-warn { color: var(--warning); }
 .bulk-cost-summary .bulk-cost-info { color: var(--foreground-muted); }

@@ -1607,6 +1607,76 @@ def co_stock_key_candidates(row: dict) -> list[str]:
         if key and key not in keys:
             keys.append(key)
     return keys
+def case_stock_preview_summary(
+    case: dict,
+    invoice_matches: list[dict],
+    bom_workspace: dict,
+    form_lane: dict,
+    material_rows: list[dict],
+    stock_rows: list[dict],
+) -> dict:
+    """Run stock once for ALL products (preview) and aggregate 'mã thiếu tồn'.
+
+    Side-effect-free: allocates against a single shared pool with sequential
+    cross-product consumption via `prepare_case_origin_products`, then
+    aggregates. Does NOT persist the case or touch the stock ledger — locking
+    is a separate slice. `origin_snapshot` is dropped on a copy to force a
+    fresh allocation against current stock (no build-signature short-circuit).
+
+    Allocates from the canonical BOM selection (incl. per-client defaults);
+    per-sheet material edits (origin_sheet_states[*].material_overrides) are
+    NOT yet reflected — see Slice C."""
+    preview = dict(case)
+    preview.pop("origin_snapshot", None)
+    allocated = prepare_case_origin_products(
+        preview,
+        invoice_matches,
+        bom_workspace,
+        form_lane,
+        material_rows,
+        stock_rows,
+        preserve_existing=False,
+    )
+    return case_missing_stock_summary(allocated)
+def case_missing_stock_summary(case: dict) -> dict:
+    """Aggregate 'mã thiếu tồn' across all products after running stock (#13a).
+
+    A short material = allocation_status == "shortage". Soft-deleted rows are
+    ignored. Grouped by product; `missing_codes` lists the distinct short codes
+    (for batch substitution in Slice C). Pure read over an already-allocated
+    case — no ledger writes."""
+    products_out: list[dict] = []
+    missing_codes: list[str] = []
+    seen: set[str] = set()
+    for product in case.get("products", []) or []:
+        short_materials = []
+        for material in product.get("materials", []) or []:
+            if material.get("deleted") or material.get("allocation_status") != "shortage":
+                continue
+            material_code = str(
+                material.get("material_code") or material.get("internal_material_code") or ""
+            ).strip()
+            short_materials.append({
+                "material_code": material_code,
+                "name": material.get("material_description", ""),
+                "uom": material.get("uom", ""),
+                "shortage_qty": material.get("allocation_shortage_qty", ""),
+            })
+            if material_code and material_code not in seen:
+                seen.add(material_code)
+                missing_codes.append(material_code)
+        if short_materials:
+            products_out.append({
+                "product_code": str(product.get("code", "")).strip(),
+                "product_name": product.get("name", ""),
+                "materials": short_materials,
+            })
+    return {
+        "products": products_out,
+        "missing_codes": sorted(missing_codes),
+        "missing_code_count": len(seen),
+        "product_count": len(products_out),
+    }
 def case_allocation_pool(
     case: dict,
     invoice_matches: list[dict],

@@ -47,6 +47,8 @@ from app.web.co_case_context import (
     _refresh_co_stock_delta_or_full,
     attach_origin_sheet_states,
     case_allocation_pool,
+    case_missing_stock_summary,
+    case_stock_preview_summary,
     case_tkx_tkn_summary,
     co_case_bom_product_codes,
     co_case_source_context,

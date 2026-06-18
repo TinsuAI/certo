@@ -18,7 +18,7 @@ from app.dossier_export_service import dossier_export_result_path, dossier_expor
 from app.portfolio import portfolio_service
 from app.source_store import co_stock_rows_from_bcct
 from app.web.client_context import default_client_case, effective_min_gap_days, resolve_client, source_workspace_for_client
-from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, attach_origin_sheet_states, case_allocation_pool, case_tkx_tkn_summary, co_case_context, co_case_source_context, co_case_source_context_cached, co_stock_is_usable, dossier_content_revision, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, origin_case_revision, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
+from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, attach_origin_sheet_states, case_allocation_pool, case_stock_preview_summary, case_tkx_tkn_summary, co_case_context, co_case_source_context, co_case_source_context_cached, co_stock_is_usable, dossier_content_revision, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, origin_case_revision, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
 from app.web.deps import large_request_form
 from app.web.templating import templates
 from app.workbook_io import create_dossier_zip, create_hq_bang_ke_workbook
@@ -1574,6 +1574,38 @@ async def autosave_co_case_origin(request: Request, client_id: str, case_id: str
         "origin_product_order": origin_product_order(case),
         "origin_sheet_states": json_safe(case.get("origin_sheet_states", {})),
     }
+@router.post("/clients/{client_id}/co-case/{case_id}/origin/preview-stock-all")
+async def preview_stock_all_route(request: Request, client_id: str, case_id: str):
+    """Mục 6 (Slice B) — chạy tồn 1 lần cho TẤT CẢ SP (preview) → tổng hợp mã thiếu tồn.
+
+    Phân bổ toàn bộ SP trên 1 pool chung (tiêu thụ tuần tự) đúng tồn hiện tại,
+    KHÔNG trừ ledger và KHÔNG persist (chốt là slice riêng). Trả JSON summary để
+    UI hiện bảng mã thiếu, dẫn sang thay định mức."""
+    client = resolve_client(client_id)
+    case, _payload = await origin_case_from_request(request, client, case_id)
+    snapshot_stock_rows = _calculate_stock_rows_from_snapshot(client)
+    if snapshot_stock_rows is not None:
+        context = co_case_context(
+            client_id, case_id, current_step="origin", case=case,
+            preserve_origin_products=True, cached_case_context=True,
+        )
+        stock_rows = snapshot_stock_rows
+    else:
+        context = co_case_context(
+            client_id, case_id, current_step="origin", case=case,
+            preserve_origin_products=True, force_source_refresh=True,
+        )
+        stock_rows = context.get("origin_source_context", {}).get("stock_rows", [])
+    source_context = context.get("origin_source_context", {})
+    summary = case_stock_preview_summary(
+        context["case"],
+        source_context.get("invoice_matches", []),
+        context.get("bom_workspace", minimal_bom_workspace()),
+        context.get("recommended_form_lane", {}),
+        source_context.get("material_rows", []),
+        stock_rows,
+    )
+    return {"status": "ok", **summary}
 @router.post("/clients/{client_id}/co-case/{case_id}/origin/bulk-apply-cost")
 async def bulk_apply_cost_buildup_route(request: Request, client_id: str, case_id: str):
     """Mục 4a — áp hệ số chi phí (Mode A→B × FOB) cho TẤT CẢ SP RVC/LVC một lần.
