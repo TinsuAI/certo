@@ -940,6 +940,23 @@ def _build_declarations_pdf_response(
     )
 
 
+# Fixed entry timestamp → byte-deterministic, reproducible archives.
+# zipfile stamps str arcnames with wall-clock time, which makes the
+# bearer-vs-cookie byte-identity contract flaky (two requests can straddle
+# a 1-second boundary and produce different bytes).
+_ZIP_ENTRY_DATE = (1980, 1, 1, 0, 0, 0)
+
+
+def _zip_writestr(zf, name: str, data) -> None:
+    """`zipfile.writestr` with a fixed mtime + DEFLATE, so identical inputs
+    always yield identical archive bytes."""
+    import zipfile
+
+    info = zipfile.ZipInfo(filename=name, date_time=_ZIP_ENTRY_DATE)
+    info.compress_type = zipfile.ZIP_DEFLATED
+    zf.writestr(info, data)
+
+
 def _build_declarations_zip(
     *, client: dict, direction: str, requested: list[str],
     files_by_decl: dict[str, list], backend,
@@ -982,8 +999,8 @@ def _build_declarations_zip(
         for f, member, blob in staged:
             if blob is None:
                 continue  # registered-but-missing: surfaced below, not written
-            zf.writestr(member, blob)
-        zf.writestr("DANH_SACH_TO_KHAI.txt", manifest)
+            _zip_writestr(zf, member, blob)
+        _zip_writestr(zf, "DANH_SACH_TO_KHAI.txt", manifest)
         if unresolved_file_ids:
             marker = [
                 "Các file dưới đây có trong metadata nhưng thiếu nội dung "
@@ -995,10 +1012,10 @@ def _build_declarations_zip(
                 for f in files_by_decl.get(decl, []):
                     if f.id in unresolved_file_ids:
                         marker.append(f"- {decl}: {f.original_filename}")
-            zf.writestr("FILE_THIEU_NOI_DUNG.txt", "\n".join(marker) + "\n")
+            _zip_writestr(zf, "FILE_THIEU_NOI_DUNG.txt", "\n".join(marker) + "\n")
         if not staged:
-            zf.writestr(
-                "NO_FILES_FOUND.txt",
+            _zip_writestr(
+                zf, "NO_FILES_FOUND.txt",
                 "Không có file tờ khai nào đã upload cho các tờ khai yêu cầu.\n"
                 "Xem DANH_SACH_TO_KHAI.txt cho chi tiết.\n",
             )

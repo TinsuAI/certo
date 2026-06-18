@@ -581,7 +581,13 @@ def build_merged_pdf(
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for i, part in enumerate(parts, 1):
             part_bytes, _ = _concat_file_pdfs([b for _, b in part])
-            zf.writestr(f"{part_stem}-part-{i:03d}.pdf", part_bytes)
+            # Fixed mtime → deterministic, reproducible zip bytes.
+            info = zipfile.ZipInfo(
+                filename=f"{part_stem}-part-{i:03d}.pdf",
+                date_time=(1980, 1, 1, 0, 0, 0),
+            )
+            info.compress_type = zipfile.ZIP_DEFLATED
+            zf.writestr(info, part_bytes)
             total += len(part_bytes)
 
     return _result(
