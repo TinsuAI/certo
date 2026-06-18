@@ -80,6 +80,43 @@ def _page_count(content: bytes) -> int:
     return len(PdfReader(BytesIO(content)).pages)
 
 
+def _image_pdf(px: int = 700) -> bytes:
+    """A one-page PDF with a single px×px RGB image stored RAW (no
+    compression) — a predictable large `file_kind="pdf"` blob for sizing
+    the split (`max_part_bytes`) parts deterministically. Raw byte size ≈
+    px*px*3 (e.g. px=300 ≈ 270 KB, px=500 ≈ 750 KB, px=900 ≈ 2.43 MB)."""
+    w = h = px
+    raw = bytearray()
+    for y in range(h):
+        for x in range(w):
+            raw += bytes(((x * 255) // w, (y * 255) // h,
+                          ((x + y) * 255) // (w + h)))
+    raw = bytes(raw)
+    content = b"q 200 0 0 200 50 600 cm /Im0 Do Q"
+    objs = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
+        b"/Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>",
+        b"<< /Type /XObject /Subtype /Image /Width %d /Height %d "
+        b"/ColorSpace /DeviceRGB /BitsPerComponent 8 /Length %d >>\nstream\n"
+        % (w, h, len(raw)) + raw + b"\nendstream",
+        b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
+    ]
+    out = bytearray(b"%PDF-1.5\n")
+    offs = []
+    for i, o in enumerate(objs, 1):
+        offs.append(len(out))
+        out += b"%d 0 obj\n" % i + o + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n" % (len(objs) + 1) + b"0000000000 65535 f \n"
+    for off in offs:
+        out += b"%010d 00000 n \n" % off
+    out += (b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF"
+            % (len(objs) + 1, xref))
+    return bytes(out)
+
+
 # ─── Fixtures ────────────────────────────────────────────────────────
 
 
@@ -471,3 +508,221 @@ def test_render_fidelity_real_declaration(files_root, auth_disabled):
         assert _page_count(r.content) >= 1
     finally:
         _teardown(cid)
+
+
+# ─── Perf headers + compact + split (new) ────────────────────────────
+
+
+def _seed_imgs(cid: str, decls: list[tuple[str, bytes]],
+               *, direction: str = "import") -> None:
+    """Seed a client with one `pdf`-kind file per (decl_no, blob). No BCCT
+    rows needed — inclusion is file-driven."""
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "insert into hub.clients (client_id, name) values (%s, %s) "
+            "on conflict do nothing", (cid, "pdf perf test"),
+        )
+        for decl_no, blob in decls:
+            _seed_file(cur, client_id=cid, decl_no=decl_no, direction=direction,
+                       marker="", filename=f"{decl_no}.pdf",
+                       file_kind="pdf", blob=blob)
+
+
+def test_no_new_params_adds_headers_unchanged_body(seeded):
+    """Omitting quality + max_part_bytes: same X-Declarations-* contract,
+    single application/pdf, with the additive perf headers present and
+    quality defaulting to print."""
+    r = _client().get(
+        _url(seeded),
+        params={"direction": "import", "declaration_nos": "DEC001,DEC003"},
+    )
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/pdf"
+    assert r.headers["X-Declarations-Requested"] == "2"
+    assert r.headers["X-Declarations-Included"] == "2"
+    # Additive headers always present.
+    assert int(r.headers["X-Render-Ms"]) >= 0
+    assert int(r.headers["X-Pdf-Bytes"]) == len(r.content)
+    assert r.headers["X-Pdf-Parts"] == "1"
+    assert r.headers["X-Pdf-Quality"] == "print"
+    assert "X-Render-CacheHits" in r.headers
+    assert "X-Render-CacheMisses" in r.headers
+    # No split → no oversize header.
+    assert "X-Pdf-Oversize-Nos" not in r.headers
+
+
+def test_warm_cache_hits_and_faster(seeded):
+    """First call renders the .xls (miss); identical second call serves it
+    from the render cache (hit) and is faster."""
+    params = {"direction": "import", "declaration_nos": "DEC001"}
+    r1 = _client().get(_url(seeded), params=params)
+    assert r1.status_code == 200
+    assert int(r1.headers["X-Render-CacheMisses"]) >= 1
+    r2 = _client().get(_url(seeded), params=params)
+    assert r2.status_code == 200
+    assert int(r2.headers["X-Render-CacheHits"]) >= 1
+    assert int(r2.headers["X-Render-CacheMisses"]) == 0
+    # soffice render dominates the cold call; the warm call only reads the
+    # cache + concatenates, so it is strictly faster.
+    assert int(r2.headers["X-Render-Ms"]) < int(r1.headers["X-Render-Ms"])
+    # Same body content.
+    assert _pdf_text(r1.content).strip() == _pdf_text(r2.content).strip()
+
+
+def test_compact_lossless_dedup_smaller_no_field_loss(files_root, auth_disabled):
+    """quality=compact (lossless object dedup): 200 pdf, smaller X-Pdf-Bytes
+    than print, same page count, text fields preserved. Several declarations
+    sharing the same .xls render embed duplicate font programs after the
+    merge; dedup merges them with zero quality loss."""
+    cid = "pdf-cmp-" + secrets.token_hex(4)
+    try:
+        # Same form content under 4 declaration_nos → many duplicate objects
+        # in the merge for dedup to collapse (a realistic shape: every tờ
+        # khai uses the same embedded fonts).
+        blob = _decl_xls("MARKFIELD")
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "insert into hub.clients (client_id, name) values (%s,%s) "
+                "on conflict do nothing", (cid, "compact test"),
+            )
+            for n in ("DEC701", "DEC702", "DEC703", "DEC704"):
+                _seed_file(cur, client_id=cid, decl_no=n, direction="import",
+                           marker="", filename=f"{n}.xls", blob=blob)
+        nos = "DEC701,DEC702,DEC703,DEC704"
+        base = {"direction": "import", "declaration_nos": nos}
+        rp = _client().get(_url(cid), params={**base, "quality": "print"})
+        rc = _client().get(_url(cid), params={**base, "quality": "compact"})
+        assert rp.status_code == 200 and rc.status_code == 200
+        assert rc.headers["content-type"] == "application/pdf"
+        assert rc.headers["X-Pdf-Quality"] == "pypdf-dedup-1"
+        print_bytes = int(rp.headers["X-Pdf-Bytes"])
+        compact_bytes = int(rc.headers["X-Pdf-Bytes"])
+        assert compact_bytes < print_bytes
+        # Lossless: text survives, page count preserved.
+        assert "MARKFIELD" in _pdf_text(rc.content)
+        assert _page_count(rc.content) == _page_count(rp.content)
+    finally:
+        _teardown(cid)
+
+
+def test_max_part_bytes_under_limit_returns_single_pdf(files_root, auth_disabled):
+    """When the merged PDF already fits under the cap, return a single
+    application/pdf (no zip)."""
+    cid = "pdf-fit-" + secrets.token_hex(4)
+    try:
+        _seed_imgs(cid, [("DEC010", _image_pdf(300))])  # ~270 KB << 2 MB
+        r = _client().get(
+            _url(cid),
+            params={"direction": "import", "declaration_nos": "DEC010",
+                    "max_part_bytes": "2000000"},
+        )
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "application/pdf"
+        assert r.headers["X-Pdf-Parts"] == "1"
+        assert "X-Pdf-Oversize-Nos" not in r.headers
+    finally:
+        _teardown(cid)
+
+
+def test_max_part_bytes_over_limit_returns_zip_parts(files_root, auth_disabled):
+    """Merged PDF over the cap → application/zip of declaration-boundary
+    parts, each ≤ cap (except a declaration that alone exceeds it),
+    deterministic names + order, reassembling to the same page set."""
+    import io
+    import zipfile
+
+    cid = "pdf-zip-" + secrets.token_hex(4)
+    cap = 2_000_000
+    try:
+        # 4 × ~750 KB (pack 2/part) + 1 × ~2.43 MB (oversize, own part).
+        _seed_imgs(cid, [
+            ("DEC301", _image_pdf(500)),
+            ("DEC302", _image_pdf(500)),
+            ("DEC303", _image_pdf(500)),
+            ("DEC304", _image_pdf(500)),
+            ("DECBIG", _image_pdf(900)),
+        ])
+        nos = "DEC301,DEC302,DEC303,DEC304,DECBIG"
+        r = _client().get(
+            _url(cid),
+            params={"direction": "import", "declaration_nos": nos,
+                    "max_part_bytes": str(cap)},
+        )
+        assert r.status_code == 200, r.text
+        assert r.headers["content-type"] == "application/zip"
+        assert "attachment" in r.headers["content-disposition"]
+        assert r.headers["content-disposition"].endswith('.zip"')
+        nparts = int(r.headers["X-Pdf-Parts"])
+        assert nparts >= 2
+        # DECBIG alone exceeds the cap → flagged oversize.
+        assert r.headers["X-Pdf-Oversize-Nos"] == "DECBIG"
+
+        zf = zipfile.ZipFile(io.BytesIO(r.content))
+        names = zf.namelist()
+        # Deterministic names + order.
+        expected = [f"declarations_{cid}_import-part-{i:03d}.pdf"
+                    for i in range(1, nparts + 1)]
+        assert names == expected
+        # Sum of part bytes == X-Pdf-Bytes.
+        assert sum(len(zf.read(n)) for n in names) == int(r.headers["X-Pdf-Bytes"])
+        # Every part ≤ cap except the one carrying the oversize declaration.
+        over = [len(zf.read(n)) > cap for n in names]
+        assert sum(over) == 1  # exactly the oversize part
+        # Reassemble: total pages across parts == one page per declaration.
+        total_pages = sum(_page_count(zf.read(n)) for n in names)
+        assert total_pages == 5
+    finally:
+        _teardown(cid)
+
+
+def test_compact_plus_max_part_bytes_combined(files_root, auth_disabled):
+    """compact + max_part_bytes together: declaration units are deduped,
+    then packed. Each declaration alone is small here, so the result is a
+    single application/pdf ≤ cap (lossless), proving the two params compose."""
+    cid = "pdf-cs-" + secrets.token_hex(4)
+    cap = 2_000_000
+    try:
+        blob = _decl_xls("MARKCS")
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "insert into hub.clients (client_id, name) values (%s,%s) "
+                "on conflict do nothing", (cid, "compact+split test"),
+            )
+            for n in ("DEC801", "DEC802", "DEC803", "DEC804"):
+                _seed_file(cur, client_id=cid, decl_no=n, direction="import",
+                           marker="", filename=f"{n}.xls", blob=blob)
+        nos = "DEC801,DEC802,DEC803,DEC804"
+        rc = _client().get(
+            _url(cid),
+            params={"direction": "import", "declaration_nos": nos,
+                    "quality": "compact", "max_part_bytes": str(cap)},
+        )
+        assert rc.status_code == 200
+        assert rc.headers["content-type"] == "application/pdf"
+        assert rc.headers["X-Pdf-Parts"] == "1"
+        assert int(rc.headers["X-Pdf-Bytes"]) <= cap
+        assert "MARKCS" in _pdf_text(rc.content)
+        assert _page_count(rc.content) >= 4  # ≥ one page per declaration
+    finally:
+        _teardown(cid)
+
+
+def test_invalid_quality_returns_400(seeded):
+    r = _client().get(
+        _url(seeded),
+        params={"direction": "import", "declaration_nos": "DEC001",
+                "quality": "ultra"},
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"] == "invalid_quality"
+
+
+def test_invalid_max_part_bytes_returns_400(seeded):
+    for bad in ("0", "-5", "abc"):
+        r = _client().get(
+            _url(seeded),
+            params={"direction": "import", "declaration_nos": "DEC001",
+                    "max_part_bytes": bad},
+        )
+        assert r.status_code == 400, bad
+        assert r.json()["detail"] == "invalid_max_part_bytes"
