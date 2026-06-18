@@ -6274,8 +6274,24 @@ body.co-stock-history-modal-open { overflow: hidden; }
   background: var(--surface-subtle);
 }
 .run-stock-summary[data-state="warning"] { border-left-color: var(--warning); }
-.run-stock-summary .run-stock-product { margin-top: 0.2rem; }
+.run-stock-summary .run-stock-result { margin: 0 0 0.4rem; padding: 0.3rem 0.5rem; border-radius: var(--radius-sm); background: var(--success-soft, var(--surface-subtle)); color: var(--success); font-weight: 600; }
+.run-stock-summary .run-stock-product { margin-top: 0.5rem; }
 .run-stock-summary .run-stock-product-code { font-weight: 600; }
+.run-stock-summary .run-stock-miss { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin: 0.3rem 0 0 0.8rem; padding: 0.25rem 0; border-top: 1px dashed var(--border); }
+.run-stock-summary .run-stock-miss-info { display: flex; align-items: baseline; gap: 0.4rem; flex-wrap: wrap; flex: 1 1 22rem; min-width: 0; }
+.run-stock-summary .run-stock-mat { font-family: var(--font-mono, monospace); font-weight: 600; }
+.run-stock-summary .run-stock-mat-name { color: var(--foreground-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 18rem; }
+.run-stock-summary .run-stock-meta { color: var(--foreground-muted); font-size: 0.78rem; }
+.run-stock-summary .run-stock-short { color: var(--warning); }
+.run-stock-summary .run-stock-pick-btn { padding: 0.2rem 0.6rem; font-size: 0.8rem; }
+.run-stock-summary .run-stock-staged { color: var(--foreground-muted); font-size: 0.82rem; flex: 1 1 16rem; min-width: 0; display: flex; align-items: baseline; gap: 0.3rem; overflow: hidden; }
+.run-stock-summary .run-stock-staged-set { color: var(--foreground); }
+.run-stock-summary .run-stock-pick-name { color: var(--foreground-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 auto; }
+.run-stock-summary .run-stock-score { color: var(--info, var(--primary)); font-size: 0.76rem; }
+.run-stock-summary .run-stock-badge { padding: 0.05rem 0.4rem; border-radius: 999px; font-size: 0.74rem; }
+.run-stock-summary .run-stock-badge-ok { background: var(--success-soft, var(--surface-subtle)); color: var(--success); }
+.run-stock-summary .run-stock-badge-warn { background: var(--warning-soft, var(--surface-subtle)); color: var(--warning); }
+.run-stock-summary .run-stock-actions { margin-top: 0.6rem; }
 .bulk-cost-summary[data-state="warning"] { border-left-color: var(--warning); }
 .bulk-cost-summary .bulk-cost-warn { color: var(--warning); }
 .bulk-cost-summary .bulk-cost-info { color: var(--foreground-muted); }

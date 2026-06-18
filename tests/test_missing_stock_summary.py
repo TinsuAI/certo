@@ -7,13 +7,16 @@ are surfaced for batch substitution (Slice C).
 from __future__ import annotations
 
 
-def _mat(code, status, *, qty="", uom="kg", name="", deleted=False):
+def _mat(code, status, *, qty="", uom="kg", name="", deleted=False, norm="1", needed="", avail=""):
     return {
         "material_code": code,
         "material_description": name or f"NVL {code}",
         "uom": uom,
         "allocation_status": status,
         "allocation_shortage_qty": qty,
+        "bom_qty_per": norm,
+        "consumed_qty": needed,
+        "available_qty": avail,
         "deleted": deleted,
     }
 
@@ -50,7 +53,8 @@ def test_groups_shortages_by_product_and_dedups_codes():
     out = case_missing_stock_summary(case)
     assert [p["product_code"] for p in out["products"]] == ["P1", "P2"]
     assert out["products"][0]["materials"] == [
-        {"material_code": "M2", "name": "NVL M2", "uom": "kg", "shortage_qty": "5"}
+        {"material_code": "M2", "name": "NVL M2", "uom": "kg", "shortage_qty": "5",
+         "norm": "1", "needed_qty": "", "available_qty": ""}
     ]
     assert [m["material_code"] for m in out["products"][1]["materials"]] == ["M3", "M2"]
     # distinct short codes across the whole case, sorted

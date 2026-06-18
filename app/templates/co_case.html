@@ -903,6 +903,8 @@
     {% if case.products %}
     <button type="button" class="btn-secondary" data-run-stock-all
             data-run-stock-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/preview-stock-all"
+            data-bulk-substitute-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/bulk-substitute"
+            data-sheet-base="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet"
             title="Chạy tồn 1 lần cho tất cả SP (preview, không trừ tồn) để tổng hợp các mã thiếu tồn.">
       Chạy tồn (tất cả SP)
     </button>
@@ -2023,6 +2025,7 @@
   };
 
   let refreshCaseShellInteractions = () => {};
+  let openBulkSubstitutePicker = null;  // set by initOriginSubstituteModal; used by the bulk run-stock panel
 
   const nextPaint = () => new Promise((resolve) => {
     window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
@@ -3666,10 +3669,18 @@
       button.addEventListener("click", () => activateTab(button.dataset.originSubstituteTabTrigger || "recommended"));
     });
 
-    const populateCurrentStrip = (row) => {
+    const populateCurrentStrip = (row, override) => {
       if (!currentStrip) return;
-      if (!row) {
+      if (!row && !override) {
         currentStrip.hidden = true;
+        return;
+      }
+      if (!row && override) {
+        currentStrip.hidden = false;
+        Object.entries(override).forEach(([key, value]) => {
+          const el = currentField(key);
+          if (el) el.textContent = (value == null || value === "") ? "—" : value;
+        });
         return;
       }
       currentStrip.hidden = false;
@@ -3709,6 +3720,7 @@
     const close = () => {
       modal.hidden = true;
       document.body.classList.remove("origin-substitute-modal-open");
+      state.bulkPick = null;
     };
 
     modal.querySelectorAll("[data-origin-substitute-modal-close]").forEach((node) => {
@@ -3910,9 +3922,17 @@
         const sign = feasibility.deltaLvc > 0 ? "+" : (feasibility.deltaLvc < 0 ? "" : "±");
         lvcCell.textContent = `${sign}${feasibility.deltaLvc.toFixed(2)}% (→ ${feasibility.lvcNew.toFixed(2)}%)`;
       }
+      if (state.bulkPick) {
+        // Bulk preview has no original-material baseline → the Δ columns would be
+        // misleading. Keep the stock feasibility (Đủ tồn/Thiếu + lô), drop Δ.
+        valueCell.textContent = "—";
+        lvcCell.textContent = "—";
+      }
       if (applyBtn) {
-        applyBtn.disabled = !sufficient;
-        applyBtn.title = sufficient ? "" : `Tổng tồn không đủ ${fmtNumber(feasibility.consumedNew, 4)}`;
+        const bulk = !!state.bulkPick;
+        applyBtn.disabled = !sufficient && !bulk;  // bulk staging is exploratory — allow short picks, server re-previews
+        applyBtn.title = sufficient ? "" : (bulk ? "Chọn dù còn thiếu — sẽ tính lại sau khi áp" : `Tổng tồn không đủ ${fmtNumber(feasibility.consumedNew, 4)}`);
+        if (bulk) applyBtn.textContent = sufficient ? "Chọn mã này" : "Chọn (còn thiếu)";
       }
       li.__candidateFeasibility = feasibility;
     };
@@ -4224,6 +4244,14 @@
     };
 
     const apply = (item) => {
+      if (state.bulkPick) {
+        // Bulk "thay định mức loạt": stage the pick (no DOM mutation / sheet recalc);
+        // the bulk panel batches all picks into one /bulk-substitute POST.
+        const pickNorm = parseFloat(sharedNormInput?.value || state.currentNorm || "0") || 0;
+        state.bulkPick({item, feasibility: computeFeasibility(item), norm: pickNorm});
+        close();
+        return;
+      }
       const norm = parseFloat(sharedNormInput?.value || state.currentNorm || "0") || 0;
       const feasibility = computeFeasibility(item);
       if (!feasibility || feasibility.reason === "no-norm" || norm <= 0) {
@@ -4532,6 +4560,41 @@
       }
     });
 
+    // Bulk entry point: open the SAME rich modal for a missing material from the
+    // run-stock panel, in stage-mode (pick → onPick callback, no sheet mutation).
+    openBulkSubstitutePicker = (opts) => {
+      state.productCode = opts.productCode || "";
+      state.rowIndex = -1;
+      state.materialCode = opts.materialCode || "";
+      state.materialLabel = opts.materialCode || "";
+      state.currentNorm = opts.norm != null ? String(opts.norm) : "";
+      state.currentHs = opts.hs || "";
+      state.mode = "replace";
+      state.row = null;
+      state.bulkPick = opts.onPick || null;
+      if (deleteBtn) deleteBtn.hidden = true;
+      if (sharedNormInput) sharedNormInput.value = state.currentNorm;
+      targetLabel.textContent = `Thay NVL ${state.materialCode} · SP ${state.productCode}`;
+      populateCurrentStrip(null, {
+        code: opts.materialCode || "—",
+        name: opts.name || "—",
+        norm: state.currentNorm || "0",
+        uom: opts.uom || "",
+        consumed: opts.needed != null && opts.needed !== "" ? String(opts.needed) : "—",
+        unit_value: "—",
+        currency: "",
+        material_value: "—",
+      });
+      modal.hidden = false;
+      document.body.classList.add("origin-substitute-modal-open");
+      if (searchInput) searchInput.value = "";
+      if (recommendedFilterInput) recommendedFilterInput.value = "";
+      if (recommendedFilterEmpty) recommendedFilterEmpty.hidden = true;
+      if (searchList) searchList.innerHTML = "";
+      if (searchEmpty) { searchEmpty.hidden = false; searchEmpty.textContent = "Nhập từ khóa để tìm."; }
+      activateTab("recommended");
+      fetchRecommendations();
+    };
   };
 
   const currentClientId = () => {
@@ -5547,30 +5610,125 @@
     });
   };
 
-  // Mục 6 (Slice B) — "Chạy tồn (tất cả SP)": preview run-stock for the whole
-  // case (no ledger write), then list the mã thiếu tồn grouped by product.
-  const renderRunStockSummary = (body) => {
+  // Mục 6 (Slice B+C) — "Chạy tồn (tất cả SP)": preview run-stock for the whole
+  // case (no ledger write), list mã thiếu tồn per product; each "Chọn mã thay
+  // thế" opens the SAME rich substitute modal (ranking + tồn theo lô + đơn giá +
+  // đủ/thiếu) in stage-mode, then áp thay định mức hàng loạt in one POST.
+  const rsEsc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const stageKey = (p, m) => `${p} ${m}`;
+
+  const applyBulkSubstitute = async (btn, staged) => {
+    const url = btn.dataset.bulkSubstituteUrl;
+    const box = document.querySelector("[data-run-stock-summary]");
+    if (!url || !box) return;
+    const subs = [...staged.values()].map((s) => ({
+      product_code: s.product_code, material_code: s.material_code,
+      substitute_code: s.substitute_code, name: s.name || "", norm_per_unit: s.norm || "",
+    }));
+    if (!subs.length) { toast("Chưa chọn mã thay thế nào.", "error"); return; }
+    const workbook = document.querySelector("[data-origin-workbook]");
+    const applyBtn = box.querySelector("[data-bulk-substitute-apply]");
+    const resetBtn = () => { if (applyBtn) { applyBtn.disabled = false; applyBtn.textContent = `Áp thay thế (${staged.size})`; } };
+    if (applyBtn) { applyBtn.disabled = true; applyBtn.textContent = "Đang áp…"; }
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Accept": "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({ substitutions: subs, expected_revision: workbook?.dataset.originRevision || "" }),
+      });
+      if (resp.status === 409) { box.dataset.state = "warning"; toast("Hồ sơ đã đổi — tải lại trang.", "error"); resetBtn(); return; }
+      const body = await resp.json();
+      if (workbook && body.revision) workbook.dataset.originRevision = body.revision;
+      const n = (body.applied || []).length;
+      toast(`Đã thay ${n} mã định mức.`, n ? "success" : "error");
+      renderRunStockSummary(btn, body);   // body carries the refreshed override-aware summary
+    } catch (err) {
+      toast(`Lỗi thay định mức: ${err}`, "error");
+      resetBtn();
+    }
+  };
+
+  const renderStagedCell = (cell, pick) => {
+    const f = pick.feasibility;
+    let badge = "";
+    if (f && f.consumedNew > 0 && f.alloc) {
+      badge = f.alloc.shortage
+        ? `<span class="run-stock-badge run-stock-badge-warn">⚠ thiếu ${rsEsc(Math.round((f.alloc.shortageQty || 0) * 100) / 100)}</span>`
+        : `<span class="run-stock-badge run-stock-badge-ok">✓ đủ tồn</span>`;
+    }
+    const pct = pick.score ? ` <span class="run-stock-score">${Math.round(pick.score * 100)}%</span>` : "";
+    cell.innerHTML = `→ <span class="run-stock-mat">${rsEsc(pick.substitute_code)}</span>`
+      + (pick.name ? ` <span class="run-stock-pick-name">${rsEsc(pick.name)}</span>` : "")
+      + pct + " " + badge;
+    cell.classList.add("run-stock-staged-set");
+  };
+
+  const renderRunStockSummary = (btn, body) => {
     const box = document.querySelector("[data-run-stock-summary]");
     if (!box) return;
-    const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
     const products = body.products || [];
+    const head = [];
+    if (Array.isArray(body.applied) || Array.isArray(body.skipped)) {
+      const a = (body.applied || []).length, sk = (body.skipped || []).length;
+      head.push(`<div class="run-stock-result">✓ Đã thay ${a} mã${sk ? ` · bỏ qua ${sk}` : ""}. Bảng dưới là kết quả sau khi thay.</div>`);
+    }
     if (!products.length) {
-      box.innerHTML = "<div><strong>✓ Đủ tồn cho tất cả SP.</strong> Không có mã thiếu tồn.</div>";
-      box.hidden = false;
-      box.dataset.state = "ok";
+      box.innerHTML = head.join("") + "<div><strong>✓ Đủ tồn cho tất cả SP.</strong> Không còn mã thiếu tồn.</div>";
+      box.hidden = false; box.dataset.state = "ok";
       return;
     }
-    const parts = [`<strong>⚠ Thiếu tồn: ${body.missing_code_count || 0} mã trên ${products.length} SP.</strong>`];
+    const staged = new Map();
+    const parts = head.slice();
+    parts.push(`<div><strong>⚠ Thiếu tồn: ${body.missing_code_count || 0} mã trên ${products.length} SP.</strong> Bấm "Chọn mã thay thế" để mở gợi ý (ranking + tồn theo lô + đơn giá).</div>`);
     products.forEach((p) => {
-      const mats = (p.materials || []).map((m) => {
-        const qty = m.shortage_qty ? ` (thiếu ${esc(m.shortage_qty)} ${esc(m.uom || "")})` : "";
-        return `${esc(m.material_code)}${qty}`;
-      }).join(", ");
-      parts.push(`<div class="run-stock-product"><span class="run-stock-product-code">${esc(p.product_code)}</span>: ${mats}</div>`);
+      const rows = (p.materials || []).map((m) => {
+        const meta = [];
+        if (m.needed_qty) meta.push(`cần ${rsEsc(m.needed_qty)}`);
+        if (m.available_qty) meta.push(`có ${rsEsc(m.available_qty)}`);
+        if (m.shortage_qty) meta.push(`<span class="run-stock-short">thiếu ${rsEsc(m.shortage_qty)} ${rsEsc(m.uom || "")}</span>`);
+        return `<div class="run-stock-miss" data-miss>`
+          + `<div class="run-stock-miss-info">`
+          +   `<span class="run-stock-mat">${rsEsc(m.material_code)}</span>`
+          +   (m.name ? ` <span class="run-stock-mat-name">${rsEsc(m.name)}</span>` : "")
+          +   (meta.length ? `<span class="run-stock-meta">${meta.join(" · ")}</span>` : "")
+          + `</div>`
+          + `<button type="button" class="btn-secondary run-stock-pick-btn" data-sub-pick`
+          +   ` data-product="${rsEsc(p.product_code)}" data-material="${rsEsc(m.material_code)}"`
+          +   ` data-name="${rsEsc(m.name || "")}" data-norm="${rsEsc(m.norm || "")}"`
+          +   ` data-needed="${rsEsc(m.needed_qty || "")}" data-uom="${rsEsc(m.uom || "")}">Chọn mã thay thế</button>`
+          + `<span class="run-stock-staged" data-staged>— chưa chọn —</span>`
+          + `</div>`;
+      }).join("");
+      parts.push(`<div class="run-stock-product"><span class="run-stock-product-code">${rsEsc(p.product_code)}</span>${rows}</div>`);
     });
-    box.innerHTML = parts.map((p) => `<div>${p}</div>`).join("");
-    box.hidden = false;
-    box.dataset.state = "warning";
+    parts.push(`<div class="run-stock-actions"><button type="button" class="btn-primary" data-bulk-substitute-apply disabled>Áp thay thế đã chọn</button></div>`);
+    box.innerHTML = parts.join("");
+    box.hidden = false; box.dataset.state = "warning";
+    const applyBtn = box.querySelector("[data-bulk-substitute-apply]");
+    const refreshApplyBtn = () => { if (applyBtn) { applyBtn.disabled = staged.size === 0; applyBtn.textContent = staged.size ? `Áp thay thế (${staged.size})` : "Áp thay thế đã chọn"; } };
+    box.querySelectorAll("[data-sub-pick]").forEach((pickBtn) => {
+      const row = pickBtn.closest("[data-miss]");
+      const stagedCell = row.querySelector("[data-staged]");
+      pickBtn.addEventListener("click", () => {
+        if (!openBulkSubstitutePicker) { toast("Modal thay thế chưa sẵn sàng — tải lại trang.", "error"); return; }
+        const d = pickBtn.dataset;
+        openBulkSubstitutePicker({
+          productCode: d.product, materialCode: d.material, name: d.name,
+          norm: d.norm, needed: d.needed, uom: d.uom,
+          onPick: ({item, feasibility, norm}) => {
+            const pick = {
+              product_code: d.product, material_code: d.material,
+              substitute_code: item.material_code, name: item.name || "",
+              score: item.score || 0, feasibility, norm: norm || d.norm || "",
+            };
+            staged.set(stageKey(d.product, d.material), pick);
+            renderStagedCell(stagedCell, pick);
+            refreshApplyBtn();
+          },
+        });
+      });
+    });
+    if (applyBtn) applyBtn.addEventListener("click", () => applyBulkSubstitute(btn, staged));
   };
 
   const runStockAll = async (btn) => {
@@ -5589,7 +5747,7 @@
         if (box) { box.textContent = "Hồ sơ đã đổi — tải lại trang rồi chạy lại."; box.dataset.state = "warning"; }
         return;
       }
-      renderRunStockSummary(await resp.json());
+      renderRunStockSummary(btn, await resp.json());
     } catch (err) {
       if (box) { box.textContent = `Lỗi chạy tồn: ${err}`; box.dataset.state = "warning"; }
     } finally {

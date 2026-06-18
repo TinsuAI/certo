@@ -18,7 +18,7 @@ from app.dossier_export_service import dossier_export_result_path, dossier_expor
 from app.portfolio import portfolio_service
 from app.source_store import co_stock_rows_from_bcct
 from app.web.client_context import default_client_case, effective_min_gap_days, resolve_client, source_workspace_for_client
-from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, attach_origin_sheet_states, case_allocation_pool, case_stock_preview_summary, case_tkx_tkn_summary, co_case_context, co_case_source_context, co_case_source_context_cached, co_stock_is_usable, dossier_content_revision, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, origin_case_revision, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
+from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, attach_origin_sheet_states, case_allocation_pool, case_missing_stock_summary, case_stock_preview_summary, case_tkx_tkn_summary, co_case_context, co_case_source_context, co_case_source_context_cached, co_stock_is_usable, dossier_content_revision, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, material_row_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, origin_case_revision, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
 from app.web.deps import large_request_form
 from app.web.templating import templates
 from app.workbook_io import create_dossier_zip, create_hq_bang_ke_workbook
@@ -1574,38 +1574,153 @@ async def autosave_co_case_origin(request: Request, client_id: str, case_id: str
         "origin_product_order": origin_product_order(case),
         "origin_sheet_states": json_safe(case.get("origin_sheet_states", {})),
     }
-@router.post("/clients/{client_id}/co-case/{case_id}/origin/preview-stock-all")
-async def preview_stock_all_route(request: Request, client_id: str, case_id: str):
-    """Mục 6 (Slice B) — chạy tồn 1 lần cho TẤT CẢ SP (preview) → tổng hợp mã thiếu tồn.
-
-    Phân bổ toàn bộ SP trên 1 pool chung (tiêu thụ tuần tự) đúng tồn hiện tại,
-    KHÔNG trừ ledger và KHÔNG persist (chốt là slice riêng). Trả JSON summary để
-    UI hiện bảng mã thiếu, dẫn sang thay định mức."""
-    client = resolve_client(client_id)
-    case, _payload = await origin_case_from_request(request, client, case_id)
+def _origin_preview_context(client: dict, client_id: str, case_id: str, case: dict):
+    """Build a non-committing origin context + stock rows for a whole-case preview."""
     snapshot_stock_rows = _calculate_stock_rows_from_snapshot(client)
     if snapshot_stock_rows is not None:
         context = co_case_context(
             client_id, case_id, current_step="origin", case=case,
             preserve_origin_products=True, cached_case_context=True,
         )
-        stock_rows = snapshot_stock_rows
-    else:
-        context = co_case_context(
-            client_id, case_id, current_step="origin", case=case,
-            preserve_origin_products=True, force_source_refresh=True,
-        )
-        stock_rows = context.get("origin_source_context", {}).get("stock_rows", [])
-    source_context = context.get("origin_source_context", {})
-    summary = case_stock_preview_summary(
-        context["case"],
-        source_context.get("invoice_matches", []),
-        context.get("bom_workspace", minimal_bom_workspace()),
-        context.get("recommended_form_lane", {}),
-        source_context.get("material_rows", []),
-        stock_rows,
+        return context, snapshot_stock_rows
+    context = co_case_context(
+        client_id, case_id, current_step="origin", case=case,
+        preserve_origin_products=True, force_source_refresh=True,
     )
+    return context, context.get("origin_source_context", {}).get("stock_rows", [])
+def _origin_min_gap_days(client: dict) -> int:
+    try:
+        client_config = portfolio_service.get_client_config(client) if hasattr(portfolio_service, "get_client_config") else {}
+    except Exception:  # noqa: BLE001
+        client_config = {}
+    return effective_min_gap_days(client, client_config)
+def whole_case_stock_summary(client: dict, case: dict, context: dict, stock_rows: list[dict], min_gap_days: int | None) -> dict:
+    """Run stock for ALL products (preview, non-committing) → mã thiếu summary.
+
+    No sheet carries material_overrides → fast canonical pass (one shared pool,
+    `prepare_case_origin_products`). Any override present → recompute each sheet
+    in product order (`recalculate_origin_sheet_edits` for edited sheets,
+    `prepare_case_origin_sheet` for the rest) so the preview reflects swaps
+    (#13b) with correct sequential cross-product consumption. Never persists or
+    touches the ledger."""
+    source_context = context.get("origin_source_context", {})
+    invoice_matches = source_context.get("invoice_matches", [])
+    bom_workspace = context.get("bom_workspace", minimal_bom_workspace())
+    form_lane = context.get("recommended_form_lane", {})
+    material_rows = source_context.get("material_rows", [])
+    case = attach_origin_sheet_states(dict(case))
+    case.pop("origin_snapshot", None)
+    states = case.get("origin_sheet_states") or {}
+    has_overrides = any(isinstance(s, dict) and s.get("material_overrides") for s in states.values())
+    if not has_overrides:
+        return case_stock_preview_summary(case, invoice_matches, bom_workspace, form_lane, material_rows, stock_rows)
+    for code in origin_product_order(case):
+        sheet = states.get(code) if isinstance(states.get(code), dict) else {}
+        if sheet.get("material_overrides"):
+            case = recalculate_origin_sheet_edits(client, case, code, min_gap_days=min_gap_days)
+        else:
+            case = prepare_case_origin_sheet(
+                case, code, invoice_matches, bom_workspace, form_lane, material_rows, stock_rows,
+                min_gap_days=min_gap_days,
+            )
+    return case_missing_stock_summary(case)
+@router.post("/clients/{client_id}/co-case/{case_id}/origin/preview-stock-all")
+async def preview_stock_all_route(request: Request, client_id: str, case_id: str):
+    """Mục 6 (Slice B) — chạy tồn 1 lần cho TẤT CẢ SP (preview) → tổng hợp mã thiếu tồn.
+
+    Không trừ ledger, không persist. Tôn trọng mã thay thế (material_overrides)
+    đã lưu nên chạy lại sau khi thay sẽ phản ánh đúng."""
+    client = resolve_client(client_id)
+    case, _payload = await origin_case_from_request(request, client, case_id)
+    context, stock_rows = _origin_preview_context(client, client_id, case_id, case)
+    summary = whole_case_stock_summary(client, context["case"], context, stock_rows, _origin_min_gap_days(client))
     return {"status": "ok", **summary}
+@router.post("/clients/{client_id}/co-case/{case_id}/origin/bulk-substitute")
+async def bulk_substitute_route(request: Request, client_id: str, case_id: str):
+    """Mục 6 (Slice C) — thay định mức hàng loạt: áp mã thay thế cho nhiều SP một lần.
+
+    Payload: {"substitutions": [{product_code, material_code, substitute_code,
+    name?, uom?, hs_code?, norm_per_unit?}], expected_revision?}. Mỗi mục ghi một
+    material_override (thay mã tại đúng dòng) cho sheet tương ứng; sheet bị khoá
+    được bỏ qua + báo lại. Persist 1 lần, rồi trả preview override-aware."""
+    client = resolve_client(client_id)
+    payload = await read_json_or_form(request)
+    raw_subs = payload.get("substitutions") or []
+    if not isinstance(raw_subs, list) or not raw_subs:
+        raise HTTPException(status_code=400, detail="empty substitutions")
+    case = persisted_origin_case(client, case_id)
+    expected_revision = str(payload.get("expected_revision") or "").strip()
+    if expected_revision and expected_revision != origin_case_revision(case):
+        raise HTTPException(status_code=409, detail="Origin case state changed; reload before saving.")
+    case = attach_origin_sheet_states(case)
+    products_by_code = {str(p.get("code") or "").strip(): p for p in case.get("products", [])}
+    states = dict(case.get("origin_sheet_states") or {})
+    order = origin_product_order(case)
+    applied: list[dict] = []
+    skipped: list[dict] = []
+    by_product: dict[str, list[dict]] = {}
+    for entry in raw_subs:
+        if not isinstance(entry, dict):
+            continue
+        pc = str(entry.get("product_code") or "").strip()
+        mc = str(entry.get("material_code") or "").strip()
+        sc = str(entry.get("substitute_code") or "").strip()
+        if not (pc and mc and sc):
+            skipped.append({"product_code": pc, "material_code": mc, "reason": "incomplete"})
+            continue
+        by_product.setdefault(pc, []).append(entry)
+    edited_codes: list[str] = []
+    for pc, entries in by_product.items():
+        product = products_by_code.get(pc)
+        if not product:
+            skipped.extend({"product_code": pc, "material_code": str(e.get("material_code") or ""), "reason": "product_not_found"} for e in entries)
+            continue
+        prev = states.get(pc) if isinstance(states.get(pc), dict) else {}
+        if prev.get("status") == "locked":
+            skipped.extend({"product_code": pc, "material_code": str(e.get("material_code") or ""), "reason": "locked"} for e in entries)
+            continue
+        overrides = dict(prev.get("material_overrides") or {})
+        changed = False
+        for e in entries:
+            mc = str(e.get("material_code") or "").strip()
+            sc = str(e.get("substitute_code") or "").strip()
+            idx = material_row_index(product, mc)
+            if idx is None:
+                skipped.append({"product_code": pc, "material_code": mc, "reason": "material_not_found"})
+                continue
+            existing = overrides.get(str(idx)) if isinstance(overrides.get(str(idx)), dict) else {}
+            overrides[str(idx)] = {
+                **existing,
+                "material_code": sc,
+                "norm_per_unit": str(e.get("norm_per_unit") or existing.get("norm_per_unit") or "").strip(),
+                "name": str(e.get("name") or "").strip(),
+                "uom": str(e.get("uom") or "").strip(),
+                "hs_code": str(e.get("hs_code") or "").strip(),
+            }
+            applied.append({"product_code": pc, "material_code": mc, "substitute_code": sc})
+            changed = True
+        if changed:
+            states[pc] = {**prev, "material_overrides": overrides, "status": "calculated", "status_label": ORIGIN_SHEET_STATUS_LABELS["calculated"]}
+            edited_codes.append(pc)
+    min_gap = _origin_min_gap_days(client)
+    if edited_codes:
+        case["origin_sheet_states"] = states
+        edited_indices = [order.index(pc) for pc in edited_codes if pc in order]
+        if edited_indices:
+            case = mark_origin_sheets_stale(case, min(edited_indices))
+        for pc in sorted(edited_codes, key=lambda c: order.index(c) if c in order else 0):
+            case = recalculate_origin_sheet_edits(client, case, pc, min_gap_days=min_gap)
+            case = set_origin_sheet_status(case, pc, "calculated")
+        update_case_record(client, case)
+    context, stock_rows = _origin_preview_context(client, client_id, case_id, case)
+    summary = whole_case_stock_summary(client, context["case"], context, stock_rows, min_gap)
+    return {
+        "status": "ok",
+        "applied": applied,
+        "skipped": skipped,
+        "revision": origin_case_revision(case),
+        **summary,
+    }
 @router.post("/clients/{client_id}/co-case/{case_id}/origin/bulk-apply-cost")
 async def bulk_apply_cost_buildup_route(request: Request, client_id: str, case_id: str):
     """Mục 4a — áp hệ số chi phí (Mode A→B × FOB) cho TẤT CẢ SP RVC/LVC một lần.

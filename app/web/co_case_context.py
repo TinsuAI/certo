@@ -1638,6 +1638,20 @@ def case_stock_preview_summary(
         preserve_existing=False,
     )
     return case_missing_stock_summary(allocated)
+def material_row_index(product: dict, material_code: str) -> int | None:
+    """Position of `material_code` in product["materials"] (the key
+    sheet_edit_bom_rows / override dicts use). Skips soft-deleted rows; returns
+    the first ACTIVE match, or None. Falls back to internal_material_code (#13b)."""
+    target = str(material_code or "").strip()
+    if not target:
+        return None
+    for index, material in enumerate(product.get("materials", []) or []):
+        if material.get("deleted"):
+            continue
+        code = str(material.get("material_code") or material.get("internal_material_code") or "").strip()
+        if code == target:
+            return index
+    return None
 def case_missing_stock_summary(case: dict) -> dict:
     """Aggregate 'mã thiếu tồn' across all products after running stock (#13a).
 
@@ -1661,6 +1675,9 @@ def case_missing_stock_summary(case: dict) -> dict:
                 "name": material.get("material_description", ""),
                 "uom": material.get("uom", ""),
                 "shortage_qty": material.get("allocation_shortage_qty", ""),
+                "norm": material.get("bom_qty_per", ""),
+                "needed_qty": material.get("consumed_qty", ""),
+                "available_qty": material.get("available_qty", ""),
             })
             if material_code and material_code not in seen:
                 seen.add(material_code)

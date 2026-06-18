@@ -49,6 +49,7 @@ from app.web.co_case_context import (
     case_allocation_pool,
     case_missing_stock_summary,
     case_stock_preview_summary,
+    material_row_index,
     case_tkx_tkn_summary,
     co_case_bom_product_codes,
     co_case_source_context,
