@@ -908,6 +908,11 @@
             title="Chạy tồn 1 lần cho tất cả SP (preview, không trừ tồn) để tổng hợp các mã thiếu tồn.">
       Chạy tồn (tất cả SP)
     </button>
+    <button type="button" class="btn-secondary" data-bulk-lock
+            data-bulk-lock-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/bulk-lock"
+            title="Chốt tất cả sheet đã tính (theo thứ tự) — trừ tồn vào sổ; sheet đã chốt không sửa được tới khi mở chốt.">
+      Chốt tất cả
+    </button>
     {% endif %}
     <button type="submit" form="origin-export-bang-ke" data-origin-export-action class="btn-secondary">Xuất bảng kê HQ</button>
   </div>
@@ -5763,6 +5768,42 @@
     });
   };
 
+  // Mục 6 (Slice D) — "Chốt tất cả": lock every calculated sheet in order, commit
+  // ledger claims. Skipped sheets (not calculated / overclaim) are reported.
+  const runBulkLock = async (btn) => {
+    const url = btn.dataset.bulkLockUrl;
+    if (!url) return;
+    if (!window.confirm("Chốt tất cả sheet đã tính? Thao tác trừ tồn vào sổ; sheet đã chốt không sửa được tới khi mở chốt.")) return;
+    const form = btn.closest("form") || document.querySelector("[data-origin-workbook]")?.closest("form");
+    btn.disabled = true;
+    try {
+      const req = form
+        ? compactOriginRequest(form, null, "application/json")
+        : { body: "{}", headers: { "Accept": "application/json", "Content-Type": "application/json" } };
+      const resp = await fetch(url, { method: "POST", body: req.body, headers: req.headers });
+      if (resp.status === 409) { toast("Hồ sơ đã đổi — tải lại trang rồi chốt lại.", "error"); btn.disabled = false; return; }
+      const body = await resp.json();
+      const n = (body.locked || []).length, sk = (body.skipped || []).length, al = (body.already_locked || []).length;
+      let msg = `Đã chốt ${n} sheet`;
+      if (al) msg += ` (${al} đã chốt sẵn)`;
+      if (sk) msg += ` · bỏ qua ${sk} (chưa tính/vượt tồn)`;
+      toast(msg, (n || al) ? "success" : "error");
+      if (n > 0) setTimeout(() => window.location.reload(), 1300);  // reflect new locks + claims
+      else btn.disabled = false;  // nothing newly locked — keep the skip summary visible
+    } catch (err) {
+      toast(`Lỗi chốt: ${err}`, "error");
+      btn.disabled = false;
+    }
+  };
+
+  const initBulkLock = (root = document) => {
+    root.querySelectorAll("[data-bulk-lock]").forEach((btn) => {
+      if (btn.dataset.bound === "1") return;
+      btn.dataset.bound = "1";
+      btn.addEventListener("click", () => runBulkLock(btn));
+    });
+  };
+
   // Collapse "removed" rows (operator-deleted + DH-classified phi-vật-tư rác) into
   // one expandable summary row so the bảng kê isn't cluttered. declarable_unmatched
   // (real-but-unmatched) is NOT folded — it stays visible as the review queue.
@@ -5971,6 +6012,7 @@
     initCostBuildupApply(root);
     initBulkCostApply(root);
     initRunStockAll(root);
+    initBulkLock(root);
     initDocumentUploads(root);
     initOriginSettingsModal(root);
   };

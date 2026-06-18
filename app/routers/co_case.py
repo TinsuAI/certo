@@ -1721,6 +1721,51 @@ async def bulk_substitute_route(request: Request, client_id: str, case_id: str):
         "revision": origin_case_revision(case),
         **summary,
     }
+@router.post("/clients/{client_id}/co-case/{case_id}/origin/bulk-lock")
+async def bulk_lock_route(request: Request, client_id: str, case_id: str):
+    """Mục 6 (Slice D) — Chốt tất cả: khoá toàn bộ origin sheet theo thứ tự,
+    commit claims vào ledger.
+
+    Sheet đã chốt được đếm riêng; sheet chưa 'đã tính' hoặc vượt tồn → skip + báo
+    (và vì chốt phải tuần tự, sheet sau sẽ bị chặn nếu sheet trước chưa chốt).
+    Mirror luồng /lock đơn lẻ và persist TỪNG sheet để không sinh ghost-claim nếu
+    lỗi giữa chừng."""
+    client = resolve_client(client_id)
+    case, _payload = await origin_case_from_request(request, client, case_id)
+    case = attach_origin_sheet_states(case)
+    locked: list[str] = []
+    already_locked: list[str] = []
+    skipped: list[dict] = []
+    for code in origin_product_order(case):
+        sheet = (case.get("origin_sheet_states") or {}).get(code)
+        if isinstance(sheet, dict) and sheet.get("status") == "locked":
+            already_locked.append(code)
+            continue
+        action_error = origin_sheet_action_error(case, code, "lock")
+        if action_error:
+            skipped.append({"product_code": code, "reason": action_error})
+            continue
+        try:
+            record_sheet_lock_claims(client_id, case_id, code, case)
+        except co_stock_ledger.StockOverclaimError as exc:
+            skipped.append({
+                "product_code": code,
+                "reason": f"Vượt tồn ở {len(exc.violations)} lot — tính lại bảng kê rồi chốt lại.",
+            })
+            continue
+        case = set_origin_sheet_status(case, code, "locked")
+        update_case_record(client, case)
+        locked.append(code)
+    if locked:
+        invalidate_co_case_source_cache(client_id, case_id)
+    return {
+        "status": "ok",
+        "locked": locked,
+        "already_locked": already_locked,
+        "skipped": skipped,
+        "revision": origin_case_revision(case),
+        "origin_sheet_states": json_safe(case.get("origin_sheet_states", {})),
+    }
 @router.post("/clients/{client_id}/co-case/{case_id}/origin/bulk-apply-cost")
 async def bulk_apply_cost_buildup_route(request: Request, client_id: str, case_id: str):
     """Mục 4a — áp hệ số chi phí (Mode A→B × FOB) cho TẤT CẢ SP RVC/LVC một lần.
