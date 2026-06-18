@@ -99,6 +99,20 @@
       </div>
     </section>
 
+    <section class="zone mini-panel">
+      <div class="subsection-head">
+        <h3>Xuất hồ sơ</h3>
+        <p class="meta">Tờ khai nhập (TKN) ghép được Data Hub chia nhỏ để vừa giới hạn đính kèm của Ecosys.</p>
+      </div>
+      <div class="stack-form">
+        <label>Giới hạn 1 phần PDF tờ khai (MB)
+          <input type="number" name="tkn_pdf_max_part_mb" min="0.1" step="0.5"
+                 value="{{ (client.export_overrides or {}).get('tkn_pdf_max_part_mb', 2) }}">
+          <small class="meta">Mỗi phần TKN ghép sẽ ≤ giá trị này (MB). Mặc định 2 MB. Bản in luôn lossless (không nén ảnh).</small>
+        </label>
+      </div>
+    </section>
+
     <section class="zone mini-panel action-panel">
       <div class="subsection-head">
         <h3>Snapshot</h3>

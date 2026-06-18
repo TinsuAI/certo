@@ -177,12 +177,30 @@ async def save_client_config_route(request: Request, client_id: str):
     # `co_stock_min_days_before_export` knob is also CO-side: it controls a
     # local CO eligibility predicate, not anything DH owns, so it persists to
     # the same local overlay without going through `require_local_source_writes`.
-    if "legal_name" in form or "tax_code" in form or "co_stock_min_days_before_export" in form:
+    # The TKN-PDF max-part size is also CO-side export behaviour (not DH source
+    # data), so it persists to the client overlay alongside min-days and stays
+    # editable even when Data Hub source-mode is on (which blocks the source
+    # config save below).
+    if (
+        "legal_name" in form or "tax_code" in form
+        or "co_stock_min_days_before_export" in form or "tkn_pdf_max_part_mb" in form
+    ):
         client = dict(client)
         if "legal_name" in form:
             client["legal_name"] = str(form.get("legal_name") or "").strip()
         if "tax_code" in form:
             client["tax_code"] = str(form.get("tax_code") or "").strip()
+        if "tkn_pdf_max_part_mb" in form:
+            raw_mb = str(form.get("tkn_pdf_max_part_mb") or "").strip()
+            exp = dict(client.get("export_overrides") or {})
+            try:
+                mb = float(raw_mb) if raw_mb else 2.0
+                if mb <= 0:
+                    mb = 2.0
+            except ValueError:
+                mb = 2.0
+            exp["tkn_pdf_max_part_mb"] = int(mb) if float(mb).is_integer() else mb
+            client["export_overrides"] = exp
         if "co_stock_min_days_before_export" in form:
             raw = str(form.get("co_stock_min_days_before_export") or "").strip()
             overrides = dict(client.get("co_stock_overrides") or {})

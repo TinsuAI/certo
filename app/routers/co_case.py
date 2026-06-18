@@ -1386,6 +1386,14 @@ def _try_fetch_declaration_pdfs(
     case_code = (case.get("case_code") or "co-case").strip() or "co-case"
     pdfs: dict[str, bytes] = {}
     failures: list[dict] = []
+    # Per-client max size (MB) per merged tờ-khai PDF part → DH splits the import
+    # PDF so each part fits the old Ecosys upload limit. CO-side export override
+    # on the client (editable even in DH source-mode). Default 2 MB.
+    try:
+        _mb = float((client.get("export_overrides") or {}).get("tkn_pdf_max_part_mb", 2) or 2)
+    except (TypeError, ValueError):
+        _mb = 2.0
+    max_part_bytes = int(_mb * 1_000_000) if _mb > 0 else None
 
     def _fetch(direction: str, entries: list[dict], label: str, vi_slug: str) -> None:
         nos = sorted({
@@ -1399,6 +1407,7 @@ def _try_fetch_declaration_pdfs(
         try:
             result = data_hub.download_declarations_pdf(
                 client["id"], direction=direction, declaration_nos=nos, filename=filename,
+                max_part_bytes=max_part_bytes,
             )
         except Exception:  # noqa: BLE001 — record the gap; don't silently drop it
             failures.append({
@@ -1407,11 +1416,28 @@ def _try_fetch_declaration_pdfs(
                 "declaration_count": len(nos),
             })
             return
-        content = result.get("content") if isinstance(result, dict) else result
-        included = result.get("included") if isinstance(result, dict) else None
+        # Back-compat: a bare-bytes return (older adapter) embeds as one file.
+        if not isinstance(result, dict):
+            if isinstance(result, (bytes, bytearray)) and result:
+                pdfs[filename] = bytes(result)
+            return
         # Skip the info-only PDF Data Hub returns when no declaration has a file.
-        if isinstance(content, (bytes, bytearray)) and content and included != 0:
-            pdfs[filename] = bytes(content)
+        if result.get("included") == 0:
+            return
+        parts = result.get("parts") or []
+        if not parts and result.get("content"):
+            parts = [{"name": filename, "content": result["content"]}]
+        usable = [p for p in parts if isinstance(p.get("content"), (bytes, bytearray)) and p.get("content")]
+        if not usable:
+            return
+        if len(usable) == 1:
+            # Single PDF (under the size cap) → the usual numbered slot.
+            pdfs[filename] = bytes(usable[0]["content"])
+        else:
+            # Size-bounded split → one file per part, each ≤ the per-client cap.
+            for index, part in enumerate(usable, start=1):
+                part_name = safe_filename(f"{case_code}-to-khai-{vi_slug}-part-{index:03d}.pdf")
+                pdfs[part_name] = bytes(part["content"])
 
     _fetch("export", tkx_tkn_summary.get("tkx") or [], "TKX", "xuat")
     _fetch("import", tkx_tkn_summary.get("tkn") or [], "TKN", "nhap")

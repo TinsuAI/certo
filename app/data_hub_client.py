@@ -189,6 +189,8 @@ class DataHubClient:
         declaration_nos: list[str],
         filename: str = "",
         sort: str = "declaration_no",
+        quality: str = "print",
+        max_part_bytes: int | None = None,
     ) -> dict:
         """Bearer-aware merged declarations PDF — every TKX/TKN of a direction
         rendered to the official tờ khai layout and concatenated into one PDF
@@ -206,14 +208,23 @@ class DataHubClient:
             raise ValueError("declaration_nos is required")
         if sort not in ("declaration_no", "registration_date"):
             raise ValueError("sort must be 'declaration_no' or 'registration_date'")
+        if quality not in ("print", "compact"):
+            raise ValueError("quality must be 'print' or 'compact'")
         path = f"/v1/hub/clients/{hub_path_part(client_id)}/declarations/download.pdf"
         params = {
             "direction": direction,
             "declaration_nos": ",".join(list(declaration_nos)[:500]),
             "sort": sort,
+            "quality": quality,
         }
         if filename:
             params["filename"] = filename
+        # Size-bounded split: when set and the rendered PDF would exceed the cap,
+        # DH returns application/zip of `…-part-NNN.pdf` (each <= cap, split on
+        # declaration boundaries) so the agency can attach each part to the old
+        # Ecosys portal (per-file limit). Absent → single application/pdf.
+        if max_part_bytes is not None and int(max_part_bytes) > 0:
+            params["max_part_bytes"] = str(int(max_part_bytes))
         # Merged-PDF render is heavy: a single import direction can be thousands
         # of pages (hundreds of declarations). The default ~20s client timeout
         # trips on large dossiers, the caller swallows the timeout, and the
@@ -234,17 +245,39 @@ class DataHubClient:
             except (TypeError, ValueError):
                 return 0
 
-        missing_nos = [
-            part.strip()
-            for part in (headers.get("X-Declarations-Missing-Nos") or "").split(",")
-            if part.strip()
-        ]
+        def _csv(name: str) -> list[str]:
+            return [p.strip() for p in (headers.get(name) or "").split(",") if p.strip()]
+
+        content_type = (headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        # A max_part_bytes split returns application/zip of `…-part-NNN.pdf`;
+        # otherwise a single application/pdf. Always expose `parts` (1 entry when
+        # single) so callers embed uniformly; keep `content` (single-PDF bytes,
+        # None when split) for back-compat.
+        if content_type == "application/zip":
+            import io
+            import zipfile
+            with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+                parts = [
+                    {"name": name, "content": zf.read(name)}
+                    for name in sorted(zf.namelist())
+                ]
+            single = None
+        else:
+            single = response.content
+            parts = [{"name": filename or f"declarations_{direction}.pdf", "content": response.content}]
         return {
-            "content": response.content,
+            "content": single,
+            "parts": parts,
+            "content_type": content_type,
             "requested": _int("X-Declarations-Requested"),
             "included": _int("X-Declarations-Included"),
             "missing": _int("X-Declarations-Missing"),
-            "missing_nos": missing_nos,
+            "missing_nos": _csv("X-Declarations-Missing-Nos"),
+            "oversize_nos": _csv("X-Pdf-Oversize-Nos"),
+            "pdf_bytes": _int("X-Pdf-Bytes"),
+            "parts_count": _int("X-Pdf-Parts"),
+            "quality": (headers.get("X-Pdf-Quality") or "").strip(),
+            "render_ms": _int("X-Render-Ms"),
         }
 
     def list_products(self, client_id: str) -> list[dict]:
