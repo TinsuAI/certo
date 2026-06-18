@@ -10,6 +10,8 @@ phiên bản theo [SemVer](https://semver.org/).
 > hành đã đóng gói tại thời điểm đó.
 
 ## [Unreleased]
+
+## [0.19.0] — 2026-06-18
 ### API
 - **Ghép PDF tờ khai nhanh hơn + chia nhỏ vừa cổng Ecosys cũ:** endpoint `download.pdf` (bản Bearer cho CO và bản cookie cho thao tác viên) thêm 2 tham số tùy chọn:
   - `quality` — `print` (mặc định, giữ nguyên) hoặc `compact` (dedup không mất dữ liệu: gộp font trùng giữa các tờ khai + nén lại content stream, giảm ~9% trên tờ khai thật, không bao giờ lớn hơn `print`).
