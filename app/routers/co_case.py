@@ -1624,6 +1624,25 @@ def whole_case_stock_summary(client: dict, case: dict, context: dict, stock_rows
                 min_gap_days=min_gap_days,
             )
     return case_missing_stock_summary(case)
+@router.post("/clients/{client_id}/bom-default")
+async def set_bom_default_route(request: Request, client_id: str):
+    """Favourite ★ — explicitly pin/clear the per-client default BOM version for a
+    product code (#14, additive). Empty artifact_id clears the pin. Reuses
+    bom_default_store (Postgres + JSON fallback)."""
+    from app import bom_default_store
+
+    client = resolve_client(client_id)
+    payload = await read_json_or_form(request)
+    product_code = str(payload.get("product_code") or "").strip()
+    artifact_id = str(payload.get("artifact_id") or "").strip()
+    if not product_code:
+        raise HTTPException(status_code=400, detail="product_code required")
+    cid = str(client.get("id") or "").strip()
+    if artifact_id:
+        bom_default_store.set_default(cid, product_code, artifact_id)
+    else:
+        bom_default_store.delete_default(cid, product_code)
+    return {"status": "ok", "product_code": product_code, "artifact_id": artifact_id, "is_default": bool(artifact_id)}
 @router.post("/clients/{client_id}/co-case/{case_id}/origin/preview-stock-all")
 async def preview_stock_all_route(request: Request, client_id: str, case_id: str):
     """Mục 6 (Slice B) — chạy tồn 1 lần cho TẤT CẢ SP (preview) → tổng hợp mã thiếu tồn.

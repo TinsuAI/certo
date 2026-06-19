@@ -252,6 +252,9 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
         "client": client,
         "case": case,
         "active": "co-case",
+        # Per-client default BOM picks {product_code: artifact_id} — drives the
+        # favourite ★ + "mặc định" badge on each product's BOM picker.
+        "bom_defaults": bom_default_store.get_defaults(client_id),
         "bom_workspace": bom_workspace,
         "source_workspace": {},
         "client_config": source_summary["client_config"],

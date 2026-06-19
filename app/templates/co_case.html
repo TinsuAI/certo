@@ -1132,6 +1132,22 @@
                   {% endif %}
                 </select>
               </label>
+              {% set bom_default_artifact = (bom_defaults or {}).get(bom_lookup_code) or (bom_defaults or {}).get(product.code) %}
+              {% set bom_star_artifact = selected_bom_artifact_id or bom_default_artifact %}
+              {% set is_bom_default = bom_default_artifact and (not selected_bom_artifact_id or selected_bom_artifact_id == bom_default_artifact) %}
+              {% if bom_options or selected_bom_artifact_id or bom_default_artifact %}
+              <button type="button" class="bom-default-star{% if is_bom_default %} is-default{% endif %}"
+                      data-bom-default-toggle
+                      data-product-code="{{ product.code }}"
+                      data-artifact-id="{{ bom_star_artifact }}"
+                      data-default-artifact="{{ bom_default_artifact or '' }}"
+                      data-is-default="{{ '1' if is_bom_default else '0' }}"
+                      data-set-url="/clients/{{ client.id }}/bom-default"
+                      aria-pressed="{{ 'true' if is_bom_default else 'false' }}"
+                      title="{% if is_bom_default %}Phiên bản BOM mặc định của khách — hồ sơ mới tự dùng lại. Bấm để bỏ ghim.{% else %}Ghim phiên bản BOM này làm mặc định cho khách (hồ sơ mới tự dùng lại).{% endif %}">
+                <span class="bom-default-star-glyph" aria-hidden="true">{{ '★' if is_bom_default else '☆' }}</span><span class="bom-default-star-label">{{ 'Mặc định' if is_bom_default else 'Đặt mặc định' }}</span>
+              </button>
+              {% endif %}
               {% if not bom_options and bom_shallow_only %}
               <span class="origin-sheet-bom-shallow-warning meta" title="BOM hiện chỉ có bản rút gọn (giữ bán thành phẩm làm lá, chưa khai triển hết NVL) — không đủ để tính bảng kê. Cần BOM khai triển đầy đủ hoặc BOM theo định mức (Mẫu 16).">Chỉ có BOM rút gọn — chưa khai triển hết NVL. Cần BOM đầy đủ để tính bảng kê.</span>
               {% endif %}
@@ -5803,6 +5819,56 @@
       btn.addEventListener("click", () => runBulkLock(btn));
     });
   };
+
+  // Favourite ★ — pin/clear the per-client default BOM version for a product.
+  const paintBomDefaultStar = (btn) => {
+    const on = btn.dataset.isDefault === "1";
+    btn.classList.toggle("is-default", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    const glyph = btn.querySelector(".bom-default-star-glyph");
+    const label = btn.querySelector(".bom-default-star-label");
+    if (glyph) glyph.textContent = on ? "★" : "☆";
+    if (label) label.textContent = on ? "Mặc định" : "Đặt mặc định";
+    btn.title = on
+      ? "Phiên bản BOM mặc định của khách — hồ sơ mới tự dùng lại. Bấm để bỏ ghim."
+      : "Ghim phiên bản BOM này làm mặc định cho khách (hồ sơ mới tự dùng lại).";
+  };
+  document.addEventListener("click", async (event) => {
+    const btn = event.target.closest?.("[data-bom-default-toggle]");
+    if (!btn) return;
+    event.preventDefault();
+    const wasDefault = btn.dataset.isDefault === "1";
+    const artifactId = btn.dataset.artifactId || "";
+    if (!wasDefault && !artifactId) { toast("Chưa chọn phiên bản BOM để ghim.", "error"); return; }
+    btn.disabled = true;
+    try {
+      const resp = await fetch(btn.dataset.setUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ product_code: btn.dataset.productCode, artifact_id: wasDefault ? "" : artifactId }),
+      });
+      if (!resp.ok) throw new Error(resp.status);
+      const data = await resp.json();
+      btn.dataset.isDefault = data.is_default ? "1" : "0";
+      btn.dataset.defaultArtifact = data.is_default ? artifactId : "";
+      paintBomDefaultStar(btn);
+      toast(data.is_default ? "Đã ghim BOM mặc định cho khách." : "Đã bỏ ghim BOM mặc định.", "success");
+    } catch (_err) {
+      toast("Không cập nhật được BOM mặc định; thử lại.", "error");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  // Picker change → ★ reflects whether the NEW selection is the pinned default.
+  document.addEventListener("change", (event) => {
+    const select = event.target.closest?.("[data-bom-version-select]");
+    if (!select) return;
+    const star = select.closest(".origin-sheet-toolbar-main")?.querySelector("[data-bom-default-toggle]");
+    if (!star) return;
+    star.dataset.artifactId = select.value || "";
+    star.dataset.isDefault = (select.value && select.value === star.dataset.defaultArtifact) ? "1" : "0";
+    paintBomDefaultStar(star);
+  });
 
   // Collapse "removed" rows (operator-deleted + DH-classified phi-vật-tư rác) into
   // one expandable summary row so the bảng kê isn't cluttered. declarable_unmatched

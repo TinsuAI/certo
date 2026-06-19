@@ -3532,6 +3532,30 @@ button.co-stat:hover {
   margin-left: 0.35rem;
 }
 
+/* Favourite ★ — pin the per-client default BOM version */
+.bom-default-star {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--border, #d0d4dc);
+  border-radius: 999px;
+  background: var(--surface, #fff);
+  color: var(--muted, #6b7280);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bom-default-star:hover { border-color: var(--accent, #f0a500); color: var(--text, #1f2937); }
+.bom-default-star .bom-default-star-glyph { font-size: 0.9rem; }
+.bom-default-star.is-default {
+  border-color: var(--accent, #f0a500);
+  background: color-mix(in srgb, var(--accent, #f0a500) 14%, transparent);
+  color: var(--text, #1f2937);
+}
+.bom-default-star.is-default .bom-default-star-glyph { color: var(--accent, #f0a500); }
+
 .bom-meta-pill {
   display: inline-block;
   padding: 0.05rem 0.4rem;
