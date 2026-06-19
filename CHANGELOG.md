@@ -10,6 +10,8 @@ phiên bản theo [SemVer](https://semver.org/).
 > hành đã đóng gói tại thời điểm đó.
 
 ## [Unreleased]
+### Sửa
+- **Trang lỗi thân thiện thay cho JSON thô:** mọi trang giao diện khi gặp lỗi giờ hiển thị trang thông báo gọn gàng — kèm nội dung lỗi cụ thể đã Việt hóa (vd "Không tìm thấy khách hàng", "Không có quyền truy cập") — thay vì chuỗi JSON `{"detail": ...}`. Chưa đăng nhập mà mở trang cần quyền sẽ tự chuyển về trang đăng nhập và quay lại đúng trang sau khi đăng nhập. API cho ứng dụng đồng hành (`/v1/hub`, `/api/v1`) và các lời gọi fetch giữ nguyên định dạng JSON — không đổi.
 
 ## [0.19.0] — 2026-06-18
 ### API

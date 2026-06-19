@@ -2293,6 +2293,23 @@ tr[data-row-href]:focus-visible { outline: 2px solid var(--primary); outline-off
 .empty-state { padding: 3rem 2rem; text-align: center; color: var(--text-soft, #5b6478); background: var(--surface-alt, #f7f8fc); border-radius: 12px; }
 .empty-state p { margin: 0 0 1rem; }
 
+.error-page {
+  max-width: 460px; margin: 9vh auto; padding: 2.6rem 2rem;
+  text-align: center;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e3e6ee);
+  border-radius: 16px;
+  box-shadow: 0 8px 30px rgba(20, 30, 60, 0.06);
+}
+.error-page-code {
+  margin: 0; font-family: "IBM Plex Mono", monospace;
+  font-size: 3.4rem; font-weight: 600; line-height: 1;
+  color: var(--accent, #3c50dc); letter-spacing: .04em;
+}
+.error-page-title { margin: .9rem 0 .4rem; font-size: 1.3rem; }
+.error-page-body { margin: 0 auto 1.6rem; max-width: 34ch; color: var(--text-soft, #5b6478); }
+.error-page-actions { display: flex; justify-content: center; gap: .6rem; }
+
 .tag { display: inline-block; padding: .15rem .55rem; font-size: .75rem; font-weight: 500; border-radius: 999px; background: rgba(60, 80, 220, 0.1); color: var(--accent, #3c50dc); }
 .tag-active { background: rgba(40, 170, 90, 0.15); color: #1f7d3a; }
 .tag-discontinued { background: rgba(180, 60, 50, 0.15); color: #b3261e; }

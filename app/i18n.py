@@ -24,6 +24,22 @@ STRINGS: dict[str, dict[str, str]] = {
         "auth.logout": "Đăng xuất",
         "auth.error_invalid": "Email hoặc mật khẩu không đúng.",
         "auth.subtitle": "Đăng nhập để quản lý hồ sơ khách hàng.",
+        # error pages
+        "error.heading": "Đã xảy ra lỗi",
+        "error.400.title": "Dữ liệu không hợp lệ",
+        "error.400.body": "Yêu cầu không hợp lệ. Vui lòng kiểm tra lại và thử lại.",
+        "error.401.title": "Cần đăng nhập",
+        "error.401.body": "Vui lòng đăng nhập để tiếp tục.",
+        "error.403.title": "Không có quyền truy cập",
+        "error.403.body": "Tài khoản hiện tại không được phép xem nội dung này.",
+        "error.404.title": "Không tìm thấy trang",
+        "error.404.body": "Trang hoặc dữ liệu yêu cầu không tồn tại hoặc đã được di chuyển.",
+        "error.500.title": "Lỗi hệ thống",
+        "error.500.body": "Hệ thống gặp sự cố khi xử lý yêu cầu. Vui lòng thử lại sau ít phút.",
+        "error.generic.title": "Đã xảy ra lỗi",
+        "error.generic.body": "Yêu cầu không thể hoàn tất.",
+        "error.action.home": "Về trang chủ",
+        "error.action.login": "Đến trang đăng nhập",
         # common
         "common.cancel": "Hủy",
         "common.save": "Lưu thay đổi",
@@ -615,6 +631,22 @@ STRINGS: dict[str, dict[str, str]] = {
         "auth.signin": "Sign in",
         "auth.logout": "Sign out",
         "auth.error_invalid": "Invalid email or password.",
+        # error pages
+        "error.heading": "Something went wrong",
+        "error.400.title": "Invalid input",
+        "error.400.body": "The request was invalid. Please review and try again.",
+        "error.401.title": "Sign-in required",
+        "error.401.body": "Please sign in to continue.",
+        "error.403.title": "Access denied",
+        "error.403.body": "The current account is not allowed to view this content.",
+        "error.404.title": "Page not found",
+        "error.404.body": "The requested page or data does not exist or has been moved.",
+        "error.500.title": "System error",
+        "error.500.body": "The system ran into a problem handling the request. Please try again shortly.",
+        "error.generic.title": "Something went wrong",
+        "error.generic.body": "The request could not be completed.",
+        "error.action.home": "Back to home",
+        "error.action.login": "Go to sign-in",
         "auth.subtitle": "Sign in to manage client records.",
         "common.cancel": "Cancel",
         "common.save": "Save changes",
@@ -1182,3 +1214,76 @@ def t(key: str, lang: str = DEFAULT_LANG) -> str:
     if key in STRINGS.get(DEFAULT_LANG, {}):
         return STRINGS[DEFAULT_LANG][key]
     return key
+
+
+# Route HTTPException details → Vietnamese, applied ONLY when rendering the
+# human error page (app/main.py). JSON/API responses keep the original detail,
+# so sister-app (CO/BCQT) error contracts and machine-readable codes are
+# untouched. Keys are matched case-insensitively on the stripped detail.
+ROUTE_DETAIL_VI: dict[str, str] = {
+    "client not found": "Không tìm thấy khách hàng.",
+    "rule not found": "Không tìm thấy quy tắc.",
+    "user not found": "Không tìm thấy người dùng.",
+    "material not found": "Không tìm thấy vật tư.",
+    "candidate not found": "Không tìm thấy ứng viên.",
+    "thread not found": "Không tìm thấy hội thoại.",
+    "preset not found": "Không tìm thấy preset.",
+    "upload not found": "Không tìm thấy lượt tải lên.",
+    "snapshot not found": "Không tìm thấy bản chụp tồn kho.",
+    "pending upload not found or expired": "Lượt tải tạm không tồn tại hoặc đã hết hạn.",
+    "material not under_review or not found": "Vật tư không ở trạng thái chờ duyệt hoặc không tồn tại.",
+    "file no longer available": "Tệp không còn khả dụng.",
+    "forbidden": "Không có quyền truy cập.",
+    "dev only": "Chỉ dành cho tài khoản dev.",
+    "chat agent disabled": "Trợ lý chat đang tắt.",
+    "text is empty": "Nội dung trống.",
+    "rows required": "Thiếu dữ liệu dòng.",
+    "re-parse failed": "Phân tích lại thất bại.",
+    "invalid role": "Vai trò không hợp lệ.",
+    "invalid status": "Trạng thái không hợp lệ.",
+    "invalid scope": "Phạm vi không hợp lệ.",
+    "invalid_adapter": "Adapter không hợp lệ.",
+    "invalid_module": "Module không hợp lệ.",
+    "invalid_field": "Trường không hợp lệ.",
+    "field_and_alias_required": "Cần nhập cả trường và bí danh.",
+    "invalid_material_group_map_row": "Dòng ánh xạ nhóm vật tư không hợp lệ.",
+    "password too short": "Mật khẩu quá ngắn.",
+    "user is not a manager": "Người dùng không phải quản lý.",
+    "target must be a staff user": "Đối tượng phải là tài khoản nhân viên.",
+    "cannot change role of dev user": "Không thể đổi vai trò của tài khoản dev.",
+    "cannot lock the dev account": "Không thể khóa tài khoản dev.",
+    "cannot change your own status": "Không thể đổi trạng thái của chính tài khoản đang dùng.",
+    "pending is not a technical_flatten upload": "Lượt tải tạm không phải dạng technical_flatten.",
+    "btp_sourcing only applies to btp_sx materials": "btp_sourcing chỉ áp dụng cho vật tư btp_sx.",
+}
+
+
+# Dynamic detail prefixes ("invalid category: 'x'", "Parse error: …") — the
+# prefix is translated and the dynamic remainder (value, separator) preserved.
+# Longest-first so specific prefixes win over generic ones.
+ROUTE_DETAIL_VI_PREFIX: list[tuple[str, str]] = [
+    ("proposal not pending (current status:", "Đề xuất không ở trạng thái chờ (trạng thái hiện tại:"),
+    ("invalid production_source", "Nguồn sản xuất không hợp lệ"),
+    ("invalid btp_sourcing", "Nguồn BTP không hợp lệ"),
+    ("invalid category", "Phân loại không hợp lệ"),
+    ("invalid status", "Trạng thái không hợp lệ"),
+    ("upload not in mapping state", "Lượt tải không ở trạng thái ánh xạ"),
+    ("unknown job kind", "Loại tác vụ không xác định"),
+    ("cannot open workbook", "Không mở được workbook"),
+    ("parse error", "Lỗi phân tích"),
+]
+
+
+def translate_detail(detail: str | None, lang: str = DEFAULT_LANG) -> str | None:
+    """Translate a route's HTTPException detail for display on the error page.
+    Returns the original string for unknown details or non-vi languages."""
+    if not detail or normalize_lang(lang) != "vi":
+        return detail
+    stripped = detail.strip()
+    low = stripped.lower()
+    if low in ROUTE_DETAIL_VI:
+        return ROUTE_DETAIL_VI[low]
+    for prefix, vi_prefix in ROUTE_DETAIL_VI_PREFIX:
+        if low.startswith(prefix):
+            return vi_prefix + stripped[len(prefix):]
+    return detail

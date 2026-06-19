@@ -2,13 +2,20 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
+from http import HTTPStatus
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from fastapi import FastAPI, Form, HTTPException, Request, Response, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.exception_handlers import (
+    http_exception_handler as default_http_exception_handler,
+    request_validation_exception_handler as default_validation_exception_handler,
+)
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import auth, changelog, i18n, settings_store, version as appver
 from app.database import apply_migrations, close_pool
@@ -144,6 +151,85 @@ async def _no_store_sensitive(request: Request, call_next):
         response.headers["Cache-Control"] = "no-store, private"
         response.headers["Pragma"] = "no-cache"
     return response
+
+
+def _wants_json_error(request: Request) -> bool:
+    """True when the caller expects a JSON error, not an HTML page:
+
+    - `/v1/*` (Bearer sister-app) and `/api/v1/*` (cookie-UI fetch) — the
+      documented JSON surfaces (see API routing convention).
+    - Any programmatic fetch/XHR (e.g. the chat widget's `_widget/*`
+      endpoints, which live outside `/api/v1`). Browsers tag these with
+      `Sec-Fetch-Mode: cors|same-origin|no-cors`; jQuery-style callers set
+      `X-Requested-With`. Top-level navigations send `Sec-Fetch-Mode: navigate`
+      and fall through to the friendly HTML page / login bounce.
+    """
+    p = request.url.path
+    if p.startswith("/v1/") or p.startswith("/api/v1/"):
+        return True
+    if request.headers.get("sec-fetch-mode") in ("cors", "same-origin", "no-cors"):
+        return True
+    return request.headers.get("x-requested-with", "").lower() == "xmlhttprequest"
+
+
+def _error_key(status_code: int) -> str:
+    if status_code in (400, 403, 404):
+        return str(status_code)
+    if status_code >= 500:
+        return "500"
+    return "generic"
+
+
+def _render_error_page(request: Request, status_code: int, detail: str | None = None) -> Response:
+    return templates.TemplateResponse(
+        request, "error.html",
+        {"status_code": status_code, "err_key": _error_key(status_code), "detail": detail},
+        status_code=status_code,
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """UI routes render a friendly page; 401 bounces to /login?next=. API
+    routes keep FastAPI's default `{"detail": ...}` JSON for sister apps."""
+    if _wants_json_error(request):
+        return await default_http_exception_handler(request, exc)
+    if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+        target = request.url.path
+        if request.url.query:
+            target = f"{target}?{request.url.query}"
+        return RedirectResponse(url=f"/login?next={quote(target, safe='')}", status_code=303)
+    # Surface the route-authored message for every client error so the user
+    # sees what actually went wrong (HTTPException.detail is author-controlled,
+    # so it's safe). Drop the bare default HTTP phrase ("Not Found") so a detail
+    # -less raise still gets the friendlier localized body. Unhandled 5xx never
+    # reach here — they go to _unhandled_exception_handler, which never leaks
+    # str(exc).
+    detail = exc.detail if isinstance(exc.detail, str) and exc.detail.strip() else None
+    if detail:
+        try:
+            if detail == HTTPStatus(exc.status_code).phrase:
+                detail = None
+        except ValueError:
+            pass
+    if detail:
+        lang = i18n.normalize_lang(request.cookies.get(LANG_COOKIE))
+        detail = i18n.translate_detail(detail, lang)
+    return _render_error_page(request, exc.status_code, detail)
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_exception_handler(request: Request, exc: RequestValidationError):
+    if _wants_json_error(request):
+        return await default_validation_exception_handler(request, exc)
+    return _render_error_page(request, status.HTTP_400_BAD_REQUEST)
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception):
+    if _wants_json_error(request):
+        return JSONResponse({"detail": "internal server error"}, status_code=500)
+    return _render_error_page(request, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 def safe_next_path(value: str | None, default: str = "/clients") -> str:
