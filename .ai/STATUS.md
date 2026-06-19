@@ -1,70 +1,78 @@
 # Project Status
 
 ## Current State
-- **`main` = `origin/main` = prod = nightly = v0.15.0** (bumped from 0.14.0 — features below;
-  git_sha = latest `main` commit, xem `barry-co.tinsu.ai/version` + `demo-co.tinsu.ai/version`).
-  CI/CD green, tree clean. Features đầu session merged qua PR #3 (`834e1da`); version bump + changelog
-  + handoff là commit cuối.
-- **This session shipped 3 origin-flow features + 1 gate** (all live on `834e1da`):
-  1. **Missing-price guard** — a non-originating NVL with no đơn giá understates VNM → LVC bị thổi
-     (~100%). `/calculate` now parks such a sheet at `bom_loaded` (không chốt/xuất được), mirror của
-     guard BOM rỗng (#13c). Shortage (có giá, thiếu tồn) vẫn chốt được → Mục 6 nguyên vẹn.
-     Signal: `enrich_origin_product` sets `product["lvc_missing_price"]` (chỉ NVL `non_origin` thiếu giá).
-  2. **Favourite ★ BOM mặc định (explicit-only)** — nút ★ trên picker mỗi SP để ghim/bỏ ghim version
-     mặc định cho mã TP của khách (`POST /clients/{id}/bom-default`); badge + tooltip + đánh dấu version
-     mặc định trong dropdown. **Đã BỎ auto-pin ngầm** (#14): chọn version giờ chỉ áp cho hồ sơ này.
-     Read-precedence (hồ sơ mới tự dùng default) giữ nguyên. ★ chỉ hiện khi sheet THỰC SỰ có BOM.
-  3. **Wizard "Xử lý tuần tự"** — nút toolbar mở luồng dẫn dắt: tính → DỪNG cho duyệt → chốt, lần lượt
-     từng sheet theo thứ tự (bắt buộc tuần tự: calc N cần N-1 đã chốt). Mỗi bước mở thẳng sheet detail
-     (bảng kê + LVC cập nhật real-time); thanh wizard NỔI (fixed, z-index 60) hiển thị ở cả dashboard
-     lẫn sheet view. Sheet bị chặn (thiếu BOM/đơn giá) hiện lý do + "mở để sửa", không cho chốt. Không
-     có nút "bỏ qua" (sẽ phá thứ tự). Orchestrate client-side trên `/calculate` + `/lock` sẵn có.
-  4. **Tạm DISABLE 2 nút bulk cũ** "Chạy tồn (tất cả SP)" + "Chốt tất cả" (tooltip "đang xây dựng" →
-     dẫn sang wizard). Routes `preview-stock-all`/`bulk-lock` còn nguyên, chỉ ẩn cửa vào UI.
+- **`main` = `origin/main` = prod = nightly = `bad2c1a`** (v0.15.0; verified `barry-co.tinsu.ai/version`
+  + `demo-co.tinsu.ai/version` both `bad2c1a`, 2026-06-19). CI/CD green. Tree clean except `uv.lock`
+  (unrelated, uncommitted). **Version string NOT bumped this session** — 3 features shipped on 0.15.0;
+  bump + changelog next release.
+- **This session shipped 3 features** (all live on `bad2c1a`):
+  1. **NVL thay thế — ưu tiên lịch sử** (`4e40b63`): substitute modal pins materials previously used to
+     replace this NVL in past **locked** dossiers to the TOP, badge "↺ đã từng thay ·N", ranked by usage
+     count; injects history substitutes even when Data Hub never proposed them. CO-owned signal mined from
+     case `origin_sheet_states[*].material_overrides` — **no Data Hub dependency** (distinct from DH-side
+     ranking #4). See `app/substitution_history.py`.
+  2. **Graceful error pages** (`a13661a`): global `HTTPException`/`RequestValidationError` handler renders
+     a styled `error.html` for browser navigations, keeps JSON for fetch/XHR — a failed native form submit
+     no longer dumps a raw `{"detail":…}` blob. Export "bảng kê HQ" form now submits via fetch → downloads
+     on success, toasts the error in place.
+  3. **Global fetch error surfacing** (`bad2c1a`): `base.html` wraps `window.fetch` → ANY non-ok response
+     auto-toasts the server `detail` (no more silently-swallowed AJAX errors). `{quietError:true}` opt-out
+     for self-handled/background calls; toasts de-dupe by visible text; `co_case` `toast()` delegates to
+     the shared global `coToast`.
+- Tests: full suite **691 pass, 10 skip** (+`test_substitution_history.py` 6, +`test_substitute_history_route.py`
+  3, +`test_error_handling.py` 9). Browser-verified on live `:8001` w/ real growatt-vn data: history
+  pin/inject, 404 → error page, blocked export → toast (stays on page), global fetch wrapper.
 - **DATA NOT PURGED.** prod `co-db-1` có cases thật (johnson-vn) + Growatt cost-allocation. **Do NOT
   seed/test against prod; dùng nightly HOẶC local dev DB.**
-- Cost-allocation, Mục 6 (run-stock/substitute/bulk-lock routes), empty/no-BOM guard (#13c) — vẫn nguyên.
+- Cost-allocation, Mục 6, empty/no-BOM guard (#13c), missing-price guard, ★ BOM default, wizard — vẫn nguyên.
 
-## Recent Changes (this session — live on `834e1da`, PR #3)
-- `0e7128a` fix: block lock/export of sheets missing NVL đơn giá (+`lvc_missing_price` flag, +tests).
-- `cea4292` feat: explicit favourite ★ BOM default (`POST /clients/{id}/bom-default`, context `bom_defaults`).
-- `6f68610` feat: guided wizard "Xử lý tuần tự".
-- `12d6e07` refactor: BOM default explicit-only (remove implicit write-through) + fix ★ on no-BOM sheet.
-- `c2a99b6` fix: wizard opens sheet detail each step + floating bar (z-index 60, above sheet-view overlay).
-- `834e1da` chore: temporarily disable bulk "Chạy tồn"/"Chốt tất cả" buttons.
-- Tests: full suite **673 pass**; new `test_missing_price_lock_guard.py`, `test_bom_default_star.py`;
-  updated `test_bom_default_store.py` (removed write-through tests → +no-auto-pin test), `test_co_demo.py`
-  (2 demo export tests now price the 2nd NVL).
+## Recent Changes (this session — live on `bad2c1a`, pushed to main)
+- `4e40b63` feat(origin): pin previously-used NVL substitutes (`app/substitution_history.py`, route integ,
+  badge + top-pin in `co_case.html`, `.origin-substitute-prior` CSS, 9 tests).
+- `a13661a` feat(web): graceful error handling — `error.html` + `error_response()`/`_prefers_html_error()`
+  in `main.py` (HTTPException + RequestValidationError + CaseClosedError/DH handlers routed through it);
+  export form → fetch+download+toast; `.error-page` CSS; 9 tests.
+- `bad2c1a` feat(web): global `window.fetch` wrapper in `base.html` (auto-toast + quietError + dedup).
 
 ## Next Steps (priority order)
-1. **Phase 2 of the bulk/wizard rework** (the disabled buttons are placeholders):
-   - **Wizard: hiện "BOM: #N (mặc định)" trước khi Tính** — hiện wizard tính bằng version đang chọn
-     (picker → ★ default → latest) ÂM THẦM; nên cho user thấy/đổi version trước khi tính.
-   - Rebuild/re-enable a coherent batch flow OR retire "Chạy tồn"/"Chốt tất cả" hẳn (chúng đang disabled).
-     Lưu ý "Thay định mức loạt" (bulk-substitute) hiện vào từ panel "Chạy tồn" → đang bị khoá theo.
-   - Pre-flight summary cho bất kỳ batch-lock nào (sẽ chốt/bỏ qua sheet nào + lý do) trước khi commit tồn.
-2. **Correctness/UX findings từ walkthrough đầu session** (xem `.ai/screenshots/2026-06-19-co-flow-walkthrough/FINDINGS.md`):
-   ranking mã thay thế chôn mã điểm cao nhất (≙ client feedback **#4**, DH-side); modal thay-thế-loạt ẩn
-   ΔLVC/ΔTrị giá (by design — no baseline).
-3. **Client feedback 2026-06-05 còn lại:** **#12** số tồn TỔNG (aggregate SUM); **#4** ranking (DH-side,
-   cần `.ai/api-requests/`).
-4. `compact` PDF profile toggle; **EX1** column-K ref; **XX1** NVL có xuất xứ cột M-N. Backlog: B6/DC3/LK1/D1.
+1. **Ranking mã thay thế #4 (DH-side)** — history-priority (CO-side, shipped) only floats *previously-used*
+   codes; the root issue that a high-score-but-low-stock candidate gets buried (FINDINGS #2) is still
+   DH-side. Needs `.ai/api-requests/` for a score+feasibility blended ranking from Data Hub.
+2. **Phase 2 bulk/wizard rework** (disabled buttons are placeholders):
+   - Wizard: show "BOM: #N (mặc định)" before Tính (currently picks version silently).
+   - Rebuild/re-enable a coherent batch flow OR retire "Chạy tồn"/"Chốt tất cả". "Thay định mức loạt"
+     (bulk-substitute) entered via the now-disabled "Chạy tồn" panel → currently locked out.
+   - Pre-flight summary before any batch-lock (which sheets lock/skip + why).
+3. **Version bump + changelog** for this session's 3 features (still on 0.15.0).
+4. **Client feedback 2026-06-05 còn lại:** **#12** số tồn TỔNG (aggregate SUM); **#4** ranking (DH-side).
+5. `compact` PDF profile toggle; **EX1** column-K ref; **XX1** NVL có xuất xứ cột M-N. Backlog: B6/DC3/LK1/D1.
 
 ## Notes for Next AI Session
+- **Substitution history** (`app/substitution_history.py`): mines `origin_sheet_states[sp].material_overrides`
+  across the client's cases; counts ONLY sheets with `status=="locked"` (committed dossiers); keyed by the
+  base BOM `material_code` (= what the substitute-candidates route receives). 60s TTL cache, busted via
+  `invalidate_co_case_source_cache` (called on lock/reopen). Pure `build_substitution_history` is unit-tested;
+  route pins via `previously_used`/`history_rank`; client floats them in `reorderRecommendedByStock`.
+- **Error handling pattern:** `error_response(request, code, detail)` in `main.py` picks HTML-vs-JSON via
+  `_prefers_html_error` (browser = `Sec-Fetch-Dest: document` OR (`text/html` Accept & no `X-Requested-With`);
+  fetch = JSON). New error-prone routes get this for free. **Global fetch wrapper** (`base.html` `<head>`)
+  toasts every non-ok fetch — pass `{quietError:true}` for background/self-handled calls; `coToast` de-dupes.
+  500s deliberately NOT caught (keep dev tracebacks); add a friendly 500 page only if prod needs it.
 - **Sequential pipeline (quan trọng):** origin sheets xử lý **tuần tự + xen kẽ** — `/calculate` sheet N
-  đòi N-1 đã **locked** (shared-stock correctness). Nên KHÔNG thể "tính hết rồi chốt hết"; wizard xen kẽ
-  tính→chốt là đúng thiết kế. "Chốt tất cả" cũ chỉ chốt được sheet đang `calculated` → tên đánh lừa.
-- **★ chỉ render khi có DH BOM:** picker version chỉ populate từ DH BOM artifacts. **Local dev env không có**
-  cho hầu hết SP → ★ không hiện trên seed thường. Ngoại lệ: **`growatt-vn` PV00.0048500 CÓ** DH BOM #3
-  (~300 NVL) → dùng nó để screenshot/verify ★ + wizard local. (Trái với note cũ "growatt-vn 0 versions".)
+  đòi N-1 đã **locked**. Wizard xen kẽ tính→chốt là đúng thiết kế.
+- **★ chỉ render khi có DH BOM:** picker version chỉ populate từ DH BOM artifacts; local dev không có cho
+  hầu hết SP. Ngoại lệ: **`growatt-vn` PV00.0048500 CÓ** DH BOM #3 (~300 NVL) → dùng để verify ★/wizard.
 - **Local dev = auth-off + DB-mode** (`.env`: `CO_AUTH_REQUIRED=0`, `BARRY_DATABASE_URL`→`barry_co`,
   `DATA_HUB_ENABLED=1`→DH `:8754`). `npm run co:serve` = `:8001` (--reload watches app/ *.py/*.html/*.css).
-- **Scratch e2e harnesses (gitignored)** ở `.ai/screenshots/2026-06-19-co-flow-walkthrough/`:
-  - `e2e_lifecycle.py` — lock→reopen(gỡ tồn)→re-lock ledger + overclaim + empty-BOM + missing-price guard (SC1-7).
-  - `wizard_e2e.{py,cjs}` — full wizard 2-sheet calc→review→lock (cả 2 `locked` trong DB).
-  - `star_e2e`/`ui_walkthrough`/`e2e_lifecycle` — chạy với `.env` sourced + `NODE_PATH=$(pwd)/node_modules`.
-  - Reusable DB-mode harnesses ở `.ai/scripts/` (bulk_lock_ledger, bom_default_incontainer, substitute_export).
+- **Scratch e2e harnesses (gitignored, under `.ai/screenshots/`):**
+  - `2026-06-19-substitute-history/seed_and_shoot.py` (+`shoot.cjs`) — seed locked-history case + drive
+    modal; opens it via a synthetic `[data-origin-substitute-trigger]` (run-stock button disabled, and
+    hand-seed `-vn` rows don't render in detail).
+  - `2026-06-19-error-handling/seed_and_shoot.py` (+`shoot.cjs`) — 404 page + blocked-export toast;
+    `global_fetch_check.cjs` — global fetch wrapper (toast/quietError/dedup).
+  - `2026-06-19-co-flow-walkthrough/` — earlier lifecycle/wizard harnesses + FINDINGS.md.
+  - Run with `.env` sourced + `PYTHONPATH=$(pwd)` + `NODE_PATH=$(pwd)/node_modules` via `uv run python`.
 - **Verify after merge:** `curl …/version` git_sha (prod=barry-co, nightly=demo-co). **NEVER** ghi literal
-  CI-skip token trong commit msg → skip cả pipeline → prod không deploy ([[ci-skip-token-in-commit-msg]]).
-- **Test env:** full file-mode (NO `.env`) = **673 pass**. DB/in-container e2e cần `.env`.
+  CI-skip token trong commit msg → skip cả pipeline ([[ci-skip-token-in-commit-msg]]).
+- **Test env:** full file-mode (NO `.env`) = **691 pass**. DB/in-container e2e cần `.env`.
 - PR convention (rule của user): commit/PR English, **không** trailer/co-author AI.
