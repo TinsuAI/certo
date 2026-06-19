@@ -868,6 +868,10 @@
 
 <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export-bang-ke" id="origin-export-bang-ke" hx-boost="false"></form>
 
+{# Wizard "Xử lý tuần tự" — đặt ở cấp origin-step-root (ngoài toggle review/sheet)
+   để LUÔN hiển thị dù đang ở dashboard hay trong sheet detail. JS dựng nội dung. #}
+<div class="origin-wizard-bar" data-origin-wizard hidden></div>
+
 <section class="origin-review" data-origin-review aria-label="Tổng quan & cấu hình bảng kê">
   <div class="origin-page-bar">
     <div class="origin-page-strip">
@@ -920,7 +924,6 @@
     {% endif %}
     <button type="submit" form="origin-export-bang-ke" data-origin-export-action class="btn-secondary">Xuất bảng kê HQ</button>
   </div>
-  <div class="origin-wizard-bar" data-origin-wizard hidden></div>
   {% if _cost_ns.has %}
   <div class="bulk-cost-summary" data-bulk-cost-summary hidden></div>
   {% endif %}
@@ -5966,10 +5969,13 @@
     const code = root.querySelector("[data-origin-wizard]")?.dataset.currentCode;
     const panel = code ? wizardPanel(root, code) : null;
     if (!panel) return;
-    const tab = Array.from(root.querySelectorAll("[data-origin-sheet-tab]"))
-      .find((t) => (t.dataset.productCode || "") === code);
-    if (tab) activateOriginTab(tab);
-    if (act === "view") { panel.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+    // Open the sheet DETAIL view (Review → sheet), not just activate a hidden
+    // panel — so staff actually SEE the bảng kê update at each step. The calc/lock
+    // shell swap then preserves this sheet view (replaceCaseShellFromResponse).
+    applyOriginView({ view: "sheet", code });
+    setOriginUrlSheet(code);
+    document.querySelector("[data-origin-workbook]")?.scrollIntoView({ block: "start" });
+    if (act === "view") return;
     if (act === "calc") { panel.querySelector("[data-origin-sheet-calculate]")?.click(); return; }
     if (act === "lock") { panel.querySelector('button[formaction$="/lock"]')?.click(); return; }
   };
