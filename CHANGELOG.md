@@ -5,6 +5,12 @@ Nhật ký thay đổi của Barry CO dành cho người dùng. Định dạng t
 hưởng tới người dùng (bỏ qua refactor nội bộ, hạ tầng test). Phiên bản theo
 [SemVer](https://semver.org/lang/vi/).
 
+## [0.16.0] — 2026-06-19
+### Mới
+- **Ưu tiên mã NVL thay thế đã từng dùng**: trong cửa sổ "Tìm NVL thay thế", những mã từng được dùng để thay cho NVL này trong các bảng kê **đã chốt** trước đây sẽ được đẩy lên **đầu** danh sách khuyến nghị, kèm nhãn "↺ đã từng thay" và số lần đã dùng — kể cả mã mà gợi ý tự động chưa từng đề xuất. Mã dùng nhiều hơn xếp trên; giúp tái dùng nhanh lựa chọn quen thuộc từ các hồ sơ trước.
+### Cải tiến
+- **Lỗi luôn được báo rõ ràng, không còn "nuốt" lỗi âm thầm**: thao tác bị lỗi (ví dụ bấm "Xuất bảng kê HQ" khi còn bảng kê chưa tính/chốt) nay hiện thông báo ngay tại chỗ và **giữ nguyên trang**, thay vì nhảy sang trang dữ liệu thô khó hiểu. Lỗi khi mở trang/điều hướng thì hiện **trang báo lỗi thân thiện** có nút "Quay lại". Cả các thao tác chạy nền cũng đều báo khi gặp sự cố.
+
 ## [0.15.0] — 2026-06-19
 ### Mới
 - **Xử lý tuần tự**: nút mới ở bước "Bảng kê C/O" dẫn bạn xử lý từng sản phẩm lần lượt — Tính → xem lại bảng kê → Chốt, rồi tự sang sản phẩm sau theo đúng thứ tự trừ tồn. Có thanh hướng dẫn nổi hiển thị "Bước k/N", tiến độ và LVC; mỗi bước mở thẳng bảng kê để bạn duyệt trước khi chốt. Sản phẩm còn thiếu BOM/đơn giá sẽ báo lý do và không cho chốt cho tới khi sửa.
