@@ -1,11 +1,11 @@
 # Project Status
 
 ## Current State
-- **`main` = `origin/main` = prod = nightly = `bad2c1a`** (v0.15.0; verified `barry-co.tinsu.ai/version`
-  + `demo-co.tinsu.ai/version` both `bad2c1a`, 2026-06-19). CI/CD green. Tree clean except `uv.lock`
-  (unrelated, uncommitted). **Version string NOT bumped this session** — 3 features shipped on 0.15.0;
-  bump + changelog next release.
-- **This session shipped 3 features** (all live on `bad2c1a`):
+- **`main` = `origin/main` = prod = nightly = `c483673`** (v0.16.0; verified `barry-co.tinsu.ai/version`
+  + `demo-co.tinsu.ai/version` both `c483673`, build 2026-06-19T15:0x). CI/CD green. Tree clean except
+  `uv.lock` (unrelated, uncommitted). **v0.16.0 RELEASED** (`bfd7aff`) — the 3 features below + CHANGELOG
+  shipped; `c483673` follow-up safely renders `**bold**` in changelog bullets on the "what's new" UI.
+- **This session shipped 3 features** (all live on `c483673` / v0.16.0):
   1. **NVL thay thế — ưu tiên lịch sử** (`4e40b63`): substitute modal pins materials previously used to
      replace this NVL in past **locked** dossiers to the TOP, badge "↺ đã từng thay ·N", ranked by usage
      count; injects history substitutes even when Data Hub never proposed them. CO-owned signal mined from
@@ -26,26 +26,32 @@
   seed/test against prod; dùng nightly HOẶC local dev DB.**
 - Cost-allocation, Mục 6, empty/no-BOM guard (#13c), missing-price guard, ★ BOM default, wizard — vẫn nguyên.
 
-## Recent Changes (this session — live on `bad2c1a`, pushed to main)
+## Recent Changes (this session — live on `c483673` / v0.16.0, pushed to main)
 - `4e40b63` feat(origin): pin previously-used NVL substitutes (`app/substitution_history.py`, route integ,
   badge + top-pin in `co_case.html`, `.origin-substitute-prior` CSS, 9 tests).
 - `a13661a` feat(web): graceful error handling — `error.html` + `error_response()`/`_prefers_html_error()`
   in `main.py` (HTTPException + RequestValidationError + CaseClosedError/DH handlers routed through it);
   export form → fetch+download+toast; `.error-page` CSS; 9 tests.
 - `bad2c1a` feat(web): global `window.fetch` wrapper in `base.html` (auto-toast + quietError + dedup).
+- `bfd7aff` release: v0.16.0 — substitute-history priority + graceful error handling (CHANGELOG + version bump).
+- `c483673` fix(whats-new): render `**bold**` in changelog bullets safely on the "what's new" UI.
 
 ## Next Steps (priority order)
 1. **Ranking mã thay thế #4 (DH-side)** — history-priority (CO-side, shipped) only floats *previously-used*
    codes; the root issue that a high-score-but-low-stock candidate gets buried (FINDINGS #2) is still
    DH-side. Needs `.ai/api-requests/` for a score+feasibility blended ranking from Data Hub.
-2. **Phase 2 bulk/wizard rework** (disabled buttons are placeholders):
-   - Wizard: show "BOM: #N (mặc định)" before Tính (currently picks version silently).
-   - Rebuild/re-enable a coherent batch flow OR retire "Chạy tồn"/"Chốt tất cả". "Thay định mức loạt"
-     (bulk-substitute) entered via the now-disabled "Chạy tồn" panel → currently locked out.
-   - Pre-flight summary before any batch-lock (which sheets lock/skip + why).
-3. **Version bump + changelog** for this session's 3 features (still on 0.15.0).
-4. **Client feedback 2026-06-05 còn lại:** **#12** số tồn TỔNG (aggregate SUM); **#4** ranking (DH-side).
-5. `compact` PDF profile toggle; **EX1** column-K ref; **XX1** NVL có xuất xứ cột M-N. Backlog: B6/DC3/LK1/D1.
+2. **Phase 2 bulk/wizard rework** — **backend đã BUILT, KHÔNG phải placeholder**: routes
+   `preview_stock_all_route` / `bulk_substitute_route` / `bulk_lock_route` (`co_case.py:1635/1646/1732`)
+   chạy được; nút "Chạy tồn"/"Chốt tất cả" bị **gate tắt cố ý** ("đang xây dựng", `834e1da`, routes untouched).
+   - Quyết định: re-enable batch flow mạch lạc HAY retire — pre-flight summary trước batch-lock (sheet nào lock/skip + lý do).
+   - Wizard: vẫn **chọn BOM version im lặng** — show "BOM: #N (mặc định)" trước Tính (`co_case.html:6018-6021`, chưa đọc dataset version).
+3. **Client feedback 2026-06-05 còn lại:** **#12** số tồn TỔNG = **PARTIAL** (`#13a c9f5183` đã gộp thiếu-tồn
+   per-material `co_case_context.py:1675-1716`, nhưng **chưa có cột SUM tổng across SP** — `co_case.html:5782` chỉ "Thiếu tồn: N mã/M SP"); **#4** ranking (DH-side, = #1).
+4. **Correctness (backlog, ưu tiên):** **DC3a** update-BOM còn ship rác · **DC3c** `declarable_unmatched=0 → LVC thổi`
+   **chưa chặn cứng** Chốt/Xuất (DC3b export đã strip render-time, nhưng sheet pre-mig-078 còn lọt tới khi re-Tính);
+   **B6** re-scoped → verify **độ chính xác FX** (toggle native↔VND đã chạy, hết "luôn VND").
+5. `compact` PDF profile toggle; **EX1** column-K ref; **XX1** NVL có xuất xứ cột M-N (mới blank M-N tạm).
+   Backlog mở: **M1** (cả 2 sub-bug còn) · **D1** (còn C/E/F + parity harness) · **P1** (~40s) · **T1** (DB isolation) · **DC2** · **CS3** park ×2 · **LK1** review rộng.
 
 ## Notes for Next AI Session
 - **Substitution history** (`app/substitution_history.py`): mines `origin_sheet_states[sp].material_overrides`

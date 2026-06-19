@@ -138,22 +138,32 @@ Added: 2026-06-07.
 **DONE 2026-06-14.** Gốc rễ "trong suốt": `.ui-toast` dùng `background: var(--surface)` — **token không tồn tại** → nền transparent. Fix: nền `var(--card)` (đặc), chuyển `.ui-toast-stack` xuống **góc dưới-phải**, viền trái 4px theo kind (success/error), font 0.9rem line-height 1.35, timeout **2600ms→5000ms**, keyframe trượt từ dưới lên. Vùng: `co_case.html` `toast()` + CSS `.ui-toast*` (`app.css`).
 
 ### B6 — Logic "nguyên tệ" (native currency) cần review kỹ
-**REPORTED 2026-06-14 (user).** Các hồ sơ sofar **chỉ thấy hiển thị VND**, chưa lần nào thấy đơn vị tiền tệ khác → nghi `currency_mode='native'` / cột đơn giá-trị giá luôn rơi về VND. Cần review: nguồn `product.currency`/`fob_currency`/`unit_value_native` vs `unit_value_vnd`, đường FX (bcct_declared/customs_lookup), và `currency_mode` toggle có thực sự đổi hiển thị không. Vùng: `co_case_context` (đính giá/FX) + template cột đơn giá/trị giá + `_display_currency`. Added: 2026-06-14.
+**RE-SCOPED 2026-06-19 (verify code) — triệu chứng "luôn VND" KHÔNG còn đúng.** Hiện CÓ toggle native↔VND
+chạy thật: `co_case_context.py:2319/2323` set `unit_value_native`/`material_value_native` = trị giá tồn thô,
+`:2320/2324` set `*_vnd` qua FX (`:2288`); JS `co_case.html:3361-3399` đổi hiển thị theo `currency_mode`
+(native / VND / cross-convert qua `fob_fx_rate`). Không có commit currency/FX server-side nào sau 2026-06-14.
+**Việc còn lại = verify ĐỘ CHÍNH XÁC FX**, không phải sự tồn tại của toggle: cross-conversion `fob_fx_rate`
++ fallback khi thiếu rate (`co_case.html:3382`), nguồn rate (bcct_declared/customs_lookup). Added: 2026-06-14.
 
 ### B8 — Sheet đã chốt cần dễ nhận diện hơn (body + tabs)
 **DONE 2026-06-14.** Thêm 🔒 vào status pill (toolbar + review row); tab đáy sheet locked: nền `--success-soft` + 🔒 + chữ status xanh; tab locked active viền/accent xanh (success) thay vì xanh primary; product-line panel locked viền dưới xanh. Vùng: `co_case.html` (pill + bottom-tab class) + CSS `.origin-sheet-tab-locked` / `[data-origin-sheet-locked]`.
 
 ### B7 — Dropdown "chỉ tiêu" (criteria) nền đen — làm elegant hơn
-**REPORTED 2026-06-14 (user).** Ô "Tiêu chí" (`<input list="origin-criteria-options">` datalist trong ⚙ modal) bung dropdown **nền đen vô duyên**. Datalist native khó style cross-browser → cân nhắc thay bằng `<select>`/combobox tự dựng có style Primer, hoặc chỉnh token. Vùng: `co_case.html` `origin-criteria-options` + `[data-origin-recommendation-criteria]` + CSS. Added: 2026-06-14.
+**DONE `cb3504b` (2026-06-18).** Native datalist đã được thay bằng **segmented picker** (`co_case.html:1277-1294`
+`<div class="criteria-segments" data-criteria-segments>` + checkbox "hoặc Y" over hidden
+`[data-origin-recommendation-criteria]` ở 1276) — hết dropdown nền đen. Legacy `<datalist id="origin-criteria-options">`
+(co_case.html:844) giờ mồ côi (không còn `list=` nào trỏ tới), an toàn để xoá. Added: 2026-06-14.
 
 ## Tồn CO / Data Hub refresh
 
 ### D1 — Audit KỸ logic delta vs full + "refresh from Data Hub"
-Đã vá 1 lỗ (`039baeb`): snapshot rỗng + `refresh_state.last_bcct_server_time` còn sót ⇒ delta no-op,
-bảng tồn kẹt rỗng (repro johnson-vn: DH 65846 dòng BCCT / 60173 lô nhưng trang trống). Đó mới là 1
-triệu chứng — cần audit **toàn bộ** `_refresh_co_stock_delta_or_full` / `_try_delta_refresh` /
-`_full_refresh` / `record_refresh_state` (`co_case_context.py:2887+`) + `co_stock_materializer`
-refresh_state. Góc cần soi:
+**PHẦN LỚN AUDIT ĐÃ XONG `2c856da` (2026-06-08, sau `039baeb`)** — "harden delta/full refresh against silent
+tồn corruption": vá **(A)** force-full cho client aggregate, **(B)** server_time-before-pull, **(D)** empty-pull
+wipe; + 13 test TDD (`tests/test_co_stock_empty_pull_guard.py`); chạm `_full_refresh`/`_plan_removed_keys`
+(`co_case_context.py`), `co_stock_materializer.py`, `data_hub_client.py` (`bcct_server_time`).
+**CÒN MỞ (hẹp, theo commit body 2c856da):** **(C)** tombstone retry / full backstop, **(E)** sync-status,
+**(F)** refresh mode/reason UX, + **delta-vs-full parity harness**. Hạ cấp từ "audit toàn bộ" xuống các mục dưới.
+Góc còn soi:
 - **Desync `refresh_state` ↔ `co_stock_rows`:** còn vector nào khác khiến delta âm thầm under/over-apply
   (qty đổi, dòng xoá không qua tombstone, lô bị block-by-claims rồi bỏ qua)? Snapshot-empty chỉ là 1.
 - **Parity delta vs full:** chạy full rồi delta liên tiếp trên cùng dữ liệu phải ra cùng `co_stock_rows`.
@@ -175,23 +185,24 @@ Added: 2026-06-07.
 ## BOM / Propose (Data Hub)
 
 ### M1 — Propose BOM mới: trạng thái không sync + nút "Đã propose" propose lại
-Flow Propose BOM mới: đã **duyệt bên Data Hub** nhưng bảng kê CO vẫn hiển thị **"pending"/submitted**;
-và nút **"Đã propose ✓"** bấm vào lại **propose lần nữa** (tạo proposal trùng). Hai lỗi tách biệt:
+**RE-VERIFIED 2026-06-19 — CẢ HAI sub-bug CÒN NGUYÊN ở `c483673` (refs đã đổi).** Flow Propose BOM mới: đã
+**duyệt bên Data Hub** nhưng bảng kê CO vẫn hiển thị **"pending"/submitted**; và nút **"Đã propose ✓"** bấm
+vào lại **propose lần nữa** (tạo proposal trùng). Hai lỗi tách biệt:
 
-- **Status không refresh từ DH:** CO ghi `origin_sheet_proposed_status` lúc propose = `'submitted'`
-  (`co_case.html:1206` `… or 'submitted'`) và **không bao giờ đọc lại** trạng thái proposal từ Data Hub
-  → DH duyệt xong, CO vẫn kẹt "pending". Cần: CO đọc trạng thái proposal hiện tại từ DH (poll / lúc
-  render origin) và khi `approved` thì phản ánh đúng (có thể adopt artifact đã duyệt làm BOM của sheet).
-  Theo guardrail Data Hub: kiểm `app/data_hub_client.py` trước — nếu hợp đồng hiện tại chưa có endpoint
-  đọc trạng thái proposal thì cần **API request artifact** (`.ai/api-requests/…`) trước khi build CO.
+- **Status không refresh từ DH:** CO ghi `proposed_status = str(result.get("status") or "submitted")`
+  (`co_case.py:2622`) và **không bao giờ đọc lại** trạng thái proposal từ Data Hub — `data_hub_client.py`
+  KHÔNG có endpoint đọc proposal-status; `co_case_context.py:1265-1271` chỉ echo lại status đã lưu. DH
+  duyệt xong, CO vẫn kẹt "pending". Cần: CO đọc trạng thái proposal hiện tại từ DH (poll / lúc render
+  origin), khi `approved` thì phản ánh đúng (có thể adopt artifact đã duyệt làm BOM của sheet). Theo
+  guardrail Data Hub: hợp đồng hiện tại chưa có endpoint → cần **API request artifact** (`.ai/api-requests/…`).
 - **Nút "Đã propose" vẫn propose lại:** label đổi theo `product.origin_sheet_proposed_artifact_id`
-  ("Đã propose ✓" vs "Lưu BOM mới", `co_case.html:1169`) nhưng handler `initOriginProposeBom`
-  (`co_case.html:4902`) **không disable/neutralize** nút khi đã proposed → click lại POST
-  `…/origin/sheet/{code}/propose-bom` lần nữa. Cần: khi đã proposed, đổi nút thành trạng thái/link
+  ("Đã propose ✓" vs "Lưu BOM mới", `co_case.html:1196`) nhưng handler `initOriginProposeBom`
+  (`co_case.html:5406-5438`) **không disable/neutralize** nút khi đã proposed (chỉ có `confirm()`) → click
+  lại POST `…/origin/sheet/{code}/propose-bom` lần nữa. Cần: khi đã proposed, đổi nút thành trạng thái/link
   (không re-POST), hoặc disable + chỉ cho "Lưu BOM mới" khi BOM thực sự đổi.
 
-Pointers: template `co_case.html:1165-1206` (nút + dòng "Đã propose: <artifact> · trạng thái …"),
-JS `initOriginProposeBom` (`co_case.html:4902`), endpoint `…/origin/sheet/{product_code}/propose-bom`.
+Pointers: write `proposed_status` (`co_case.py:2622`), label (`co_case.html:1196`), JS `initOriginProposeBom`
+(`co_case.html:5406`), endpoint `…/origin/sheet/{product_code}/propose-bom`.
 `/discover` trước (đụng hợp đồng Data Hub). Added: 2026-06-08.
 
 ## Declarability (DH customs_relevance)
@@ -220,20 +231,25 @@ CO hiện có hiển thị các tên đó (thấy trong cases.json `material_des
 sẽ trống. Read-only điều tra, chưa khẩn. Added: 2026-06-09.
 
 ### DC3 — Hành vi dòng rác/đã-xoá qua Chốt/BOM/Xuất/Tính (cần chốt + vá)
-Soi code 2026-06-09. Bảng hành vi (dòng **đã-xoá** | dòng **rác** DH-classified):
+Soi code 2026-06-09; **re-verify 2026-06-19** (DC3a/c còn mở, DC3b đã giảm nhẹ). Bảng hành vi
+(dòng **đã-xoá** | dòng **rác** DH-classified):
 
-- **Update BOM qua DH (propose-bom, `co_case.py:build_bom_proposal_rows:2224`):** loại `deleted`
-  | **GIỮ rác.** Cố ý: BOM = cấu trúc sản phẩm, rác là thành phần BOM thật, `customs_relevance` chỉ
-  chi phối bảng kê. **Quyết định cần user chốt:** có muốn update-BOM cũng strip rác không? Nếu có,
-  thêm `or is_bom_technical_noise(...)` ở `build_bom_proposal_rows` (và cân nhắc `sheet_edit_bom_rows`).
-- **Xuất + Tính (LVC/VNM/tồn):** loại đã-xoá (`sheet_edit_bom_rows:594` bỏ khỏi recalc), rác trung-tính
-  (không phân bổ → trị giá 0, không claim tồn) | **NHƯNG chỉ đúng khi materials có `customs_relevance`.**
-  Sheet **đã-tính-từ-trước** lưu materials KHÔNG có field → `is_bom_technical_noise=False` → **rác LỌT
-  vào export + vào BOM** tới khi "Tính bảng kê" lại. **Rủi ro:** phát hành C/O có rác trên sheet cũ.
-  Cần: bắt buộc re-calc trước chốt/xuất, HOẶC render-time rebuild materials kèm `customs_relevance`.
-- **`declarable_unmatched` cộng 0 → thổi LVC** (thiếu trị giá không-xuất-xứ vì chưa khớp tồn). Spec Edit 5
-  đề xuất **chặn/cảnh báo phát hành** khi còn dòng chưa khớp; hiện mới có **cảnh báo hiển thị** (badge +
-  summary "cần đối soát"), **chưa chặn cứng** lúc Chốt/Xuất. Cân nhắc block phát hành C/O.
+- **(DC3a — CÒN MỞ) Update BOM qua DH (propose-bom, `co_case.py:build_bom_proposal_rows:2647-2661`):**
+  loại `deleted` (`:2649`) | **GIỮ rác** (không gọi `is_bom_technical_noise`). Cố ý: BOM = cấu trúc sản
+  phẩm, rác là thành phần BOM thật, `customs_relevance` chỉ chi phối bảng kê. **Quyết định cần user chốt:**
+  có muốn update-BOM cũng strip rác không? Nếu có, thêm `or is_bom_technical_noise(...)` ở
+  `build_bom_proposal_rows` (và cân nhắc `sheet_edit_bom_rows`).
+- **(DC3b — PARTIAL) Xuất + Tính (LVC/VNM/tồn):** đường **export GIỜ đã strip rác render-time** —
+  `workbook_io.py:617`, `bang_ke_renderer.py:259`, `bang_ke_xml_generator.py:391` đều skip
+  `is_bom_technical_noise(material)`. **NHƯNG vẫn phụ thuộc materials có `customs_relevance`:** sheet
+  **đã-tính trước mig-078** lưu materials KHÔNG có field → `is_bom_technical_noise=False` → **rác LỌT
+  vào export tới khi "Tính bảng kê" lại.** **Rủi ro còn:** phát hành C/O có rác trên sheet cũ. Cần:
+  bắt buộc re-calc trước chốt/xuất, HOẶC render-time rebuild materials kèm `customs_relevance`.
+- **(DC3c — CÒN MỞ) `declarable_unmatched` cộng 0 → thổi LVC** (thiếu trị giá không-xuất-xứ vì chưa khớp
+  tồn). `co_case_context.py:2692-2699` chỉ phát **cảnh báo hiển thị** (badge + "cần đối soát");
+  `origin_sheet_action_error` (`:1367-1406`) chặn prior-unlocked / chưa-tính / `missing_bom` nhưng **KHÔNG**
+  có check unmatched; lock route (`co_case.py:2047-2115`) + export (`:1001-1235`) **không raise** trên
+  unmatched → **chưa chặn cứng** lúc Chốt/Xuất. Spec Edit 5 đề xuất block phát hành. Cân nhắc block C/O.
 
 Liên quan [[DC1]] (gốc DH). Added: 2026-06-09.
 
@@ -322,7 +338,9 @@ khi sửa. Added: 2026-06-08.
 ## Tồn CO — Lịch sử lot (UI)
 
 ### CS1 — Modal "Lịch sử lot tồn CO" khó hiểu + nghi duplicate dữ liệu
-**REDESIGN DONE + INVESTIGATED 2026-06-14 (local, chưa commit).**
+**REDESIGN DONE + COMMITTED `ca11c37` (2026-06-15, PR #2 `a295a7d`)** — chạm `co_stock.html` (+51),
+`app.css`, e2e `.ai/scripts/e2e_cs1_lot_history.cjs`, tests. (Note "chưa commit" 2026-06-14 đã stale.)
+Chỉ còn root-cause churn → [[D1]].
 - **Điều tra — KHÔNG phải trùng:** events query theo lot-tuple `(decl,line,customs)`; materializer gắn
   `notes:materializer:<source_row>`. `_classify_changes` chỉ gán `added` khi row vắng trong snapshot → cùng
   1 source_row vừa `updated` (05-29) vừa `added` (06-07, *muộn hơn*) ⇒ row bị **xoá rồi nạp lại** giữa hai
@@ -540,9 +558,10 @@ template cột "Xuất xứ" + chứng từ phụ lục X. Liên quan [[technica
 là trục KHÁC — declarability, không phải origin). `/discover` trước. Added: 2026-06-14.
 
 ### LK1 — Review logic "Chốt" (lock) bảng kê: khi nào lock-able?
-**REQUESTED 2026-06-14 (user).** Rà soát điều kiện sheet **lock-able** và đảm bảo nút + endpoint "Chốt"
-CHỈ thao tác được khi lock-able (giống đã làm cho "Tính bảng kê" contextual). Hiện trạng (code):
-`origin_can_lock = code and status=='calculated' and not sequence_reason` (`co_case_context.py:1295`);
+**PHẦN GUARD HẸP ĐÃ XONG 2026-06-19** (`66d5ad7` empty/no-BOM #13c + `0e7128a` missing-price) — bổ sung
+gating trong `origin_can_lock` (`co_case_context.py:1306-1313`); chưa có commit nào chạm `origin_can_lock`
+sau `0e7128a`. **Còn lại = review RỘNG** (chưa có artifact) các điểm dưới; có thể đóng-as-covered phần đã vá.
+Hiện trạng (code): `origin_can_lock = code and status=='calculated' and not sequence_reason`;
 endpoint lock guard qua `origin_sheet_action_error` + `reject_if_sheet_locked`. Điểm cần soi:
 - Chỉ `calculated` mới chốt được — nhưng sheet đang có **chỉnh sửa chưa lưu** (pending ops client) thì
   sao? Chốt khi đang dirty = chốt dữ liệu cũ → cần buộc lưu/tính trước.
