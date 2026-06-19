@@ -901,6 +901,10 @@
     </button>
     {% endif %}
     {% if case.products %}
+    <button type="button" class="btn-secondary" data-origin-wizard-start
+            title="Xử lý từng bảng kê lần lượt theo thứ tự: tính → xem lại → chốt, cho tới hết. An toàn hơn 'Chốt tất cả' vì dừng cho bạn duyệt mỗi bước.">
+      Xử lý tuần tự
+    </button>
     <button type="button" class="btn-secondary" data-run-stock-all
             data-run-stock-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/preview-stock-all"
             data-bulk-substitute-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/bulk-substitute"
@@ -916,6 +920,7 @@
     {% endif %}
     <button type="submit" form="origin-export-bang-ke" data-origin-export-action class="btn-secondary">Xuất bảng kê HQ</button>
   </div>
+  <div class="origin-wizard-bar" data-origin-wizard hidden></div>
   {% if _cost_ns.has %}
   <div class="bulk-cost-summary" data-bulk-cost-summary hidden></div>
   {% endif %}
@@ -1042,6 +1047,13 @@
           data-product-fob-currency="{{ product.fob_currency or product.currency or 'VND' }}"
           data-product-fob-fx-rate="{{ product.fob_fx_rate or '' }}"
           data-origin-sheet-locked="{{ '1' if product.origin_sheet_status == 'locked' else '0' }}"
+          data-origin-sheet-status="{{ product.origin_sheet_status or 'draft' }}"
+          data-origin-can-calc="{{ '1' if product.origin_can_calculate else '0' }}"
+          data-origin-can-lock="{{ '1' if product.origin_can_lock else '0' }}"
+          data-origin-lock-reason="{{ product.origin_lock_block_reason }}"
+          data-origin-lvc="{{ product.lvc_percentage or '' }}"
+          data-origin-lvc-status="{{ product.lvc_status or '' }}"
+          data-origin-missing-price="{{ '1' if product.lvc_missing_price else '0' }}"
           data-product-vnm-baseline="{{ product.vnm_value or product.non_origin_value or '0' }}"
           data-product-lvc-baseline="{{ product.lvc_percentage or '0' }}"
           data-product-lvc-threshold="{{ product.origin_sheet_effective_lvc_threshold or product.lvc_threshold or '0' }}"
@@ -5874,6 +5886,112 @@
   // one expandable summary row so the bảng kê isn't cluttered. declarable_unmatched
   // (real-but-unmatched) is NOT folded — it stays visible as the review queue.
   // Visible material rows renumber contiguously; folded rows show "–".
+  // Guided wizard "Xử lý tuần tự" — drives the existing per-sheet calc/lock routes
+  // one sheet at a time in order, pausing after each calc so staff review before
+  // locking. State is read from the per-panel data-* attrs after each shell swap
+  // (refreshCaseShellInteractions re-runs initOriginWizard), so the bar always
+  // reflects the freshest server state. Sequential by design (calc N needs N-1
+  // locked) — see the pipeline constraint.
+  let originWizardActive = false;
+  const wizardCodes = (root) =>
+    ((root.querySelector("[data-origin-product-order]")?.value) || "")
+      .split("|").map((s) => s.trim()).filter(Boolean);
+  const wizardPanel = (root, code) =>
+    Array.from(root.querySelectorAll("[data-origin-sheet-panel]"))
+      .find((p) => (p.dataset.productCode || "") === code) || null;
+  const renderOriginWizard = (root = document) => {
+    const bar = root.querySelector("[data-origin-wizard]");
+    if (!bar) return;
+    if (!originWizardActive) { bar.hidden = true; bar.innerHTML = ""; bar.dataset.currentCode = ""; return; }
+    const codes = wizardCodes(root);
+    if (!codes.length) { bar.hidden = true; return; }
+    const statuses = codes.map((c) => wizardPanel(root, c)?.dataset.originSheetStatus || "draft");
+    const lockedCount = statuses.filter((s) => s === "locked").length;
+    const currentIdx = statuses.findIndex((s) => s !== "locked");
+    const dots = codes.map((c, i) => {
+      const cls = statuses[i] === "locked" ? "owz-done" : (i === currentIdx ? "owz-current" : "owz-pending");
+      return `<span class="owz-dot ${cls}" title="${escapeHtml(c)}: ${escapeHtml(statuses[i])}"></span>`;
+    }).join("");
+    bar.hidden = false;
+    if (currentIdx === -1) {
+      bar.dataset.currentCode = "";
+      bar.innerHTML = `<div class="owz-row"><div class="owz-progress">${dots}</div>`
+        + `<div class="owz-main"><strong>✓ Đã chốt toàn bộ ${codes.length} bảng kê.</strong></div>`
+        + `<div class="owz-actions"><button type="submit" form="origin-export-bang-ke" class="btn-primary owz-cta">Xuất bảng kê HQ</button>`
+        + `<button type="button" class="btn-secondary owz-exit" data-origin-wizard-exit>Đóng</button></div></div>`;
+      return;
+    }
+    const code = codes[currentIdx];
+    const panel = wizardPanel(root, code);
+    const status = statuses[currentIdx];
+    const step = `Bước ${currentIdx + 1}/${codes.length} · <strong class="mono">${escapeHtml(code)}</strong>`;
+    const lvc = panel?.dataset.originLvc || "";
+    const lvcTxt = lvc ? ` · LVC ${escapeHtml(lvc)}%` : "";
+    const viewBtn = `<button type="button" class="btn-secondary" data-origin-wizard-act="view">Xem bảng kê</button>`;
+    let summary = "", actions = "";
+    const blockedBom = status === "bom_loaded"
+      && (panel?.dataset.originLvcStatus === "missing_bom" || panel?.dataset.originMissingPrice === "1");
+    if (status === "calculating") {
+      summary = "Đang tính…";
+    } else if (status === "calculated") {
+      if (panel?.dataset.originCanLock === "1") {
+        summary = `Đã tính${lvcTxt}. Xem lại bảng kê rồi chốt.`;
+        actions = `<button type="button" class="btn-primary owz-cta" data-origin-wizard-act="lock">Chốt &amp; sang bảng kê sau</button>${viewBtn}`;
+      } else {
+        summary = `⛔ ${escapeHtml(panel?.dataset.originLockReason || "Chưa đủ điều kiện chốt.")}`;
+        actions = `<button type="button" class="btn-secondary owz-cta" data-origin-wizard-act="view">Mở bảng kê để sửa</button>`;
+      }
+    } else if (blockedBom) {
+      const why = panel?.dataset.originMissingPrice === "1"
+        ? "Còn NVL không xuất xứ thiếu đơn giá — bổ sung đơn giá rồi tính lại."
+        : "Chưa có BOM/NVL đầy đủ — nạp BOM rồi tính lại.";
+      summary = `⛔ ${why}`;
+      actions = `<button type="button" class="btn-secondary owz-cta" data-origin-wizard-act="view">Mở bảng kê để sửa</button>`;
+    } else {
+      summary = status === "stale" ? "Tồn đã đổi — cần tính lại." : "Chưa tính.";
+      actions = `<button type="button" class="btn-primary owz-cta" data-origin-wizard-act="calc">Tính bảng kê</button>${viewBtn}`;
+    }
+    bar.dataset.currentCode = code;
+    bar.innerHTML = `<div class="owz-row">`
+      + `<div class="owz-progress" title="${lockedCount}/${codes.length} đã chốt">${dots}</div>`
+      + `<div class="owz-main"><span class="owz-step">${step}</span> <span class="owz-summary">${summary}</span></div>`
+      + `<div class="owz-actions">${actions}<button type="button" class="btn-secondary owz-exit" data-origin-wizard-exit title="Thoát chế độ tuần tự">✕</button></div>`
+      + `</div>`;
+  };
+  const wizardAct = (root, act) => {
+    const code = root.querySelector("[data-origin-wizard]")?.dataset.currentCode;
+    const panel = code ? wizardPanel(root, code) : null;
+    if (!panel) return;
+    const tab = Array.from(root.querySelectorAll("[data-origin-sheet-tab]"))
+      .find((t) => (t.dataset.productCode || "") === code);
+    if (tab) activateOriginTab(tab);
+    if (act === "view") { panel.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+    if (act === "calc") { panel.querySelector("[data-origin-sheet-calculate]")?.click(); return; }
+    if (act === "lock") { panel.querySelector('button[formaction$="/lock"]')?.click(); return; }
+  };
+  const initOriginWizard = (root = document) => {
+    const startBtn = root.querySelector("[data-origin-wizard-start]");
+    if (startBtn && startBtn.dataset.bound !== "1") {
+      startBtn.dataset.bound = "1";
+      startBtn.addEventListener("click", () => {
+        originWizardActive = true;
+        renderOriginWizard(root);
+        wizardAct(root, "view");
+        root.querySelector("[data-origin-wizard]")?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    }
+    const bar = root.querySelector("[data-origin-wizard]");
+    if (bar && bar.dataset.bound !== "1") {
+      bar.dataset.bound = "1";
+      bar.addEventListener("click", (event) => {
+        const actBtn = event.target.closest("[data-origin-wizard-act]");
+        if (actBtn) { event.preventDefault(); wizardAct(root, actBtn.dataset.originWizardAct); return; }
+        if (event.target.closest("[data-origin-wizard-exit]")) { originWizardActive = false; renderOriginWizard(root); }
+      });
+    }
+    renderOriginWizard(root);
+  };
+
   const initOriginFoldRows = (root = document) => {
     root.querySelectorAll("[data-origin-sheet-panel] .origin-material-table").forEach((table) => {
       if (table.dataset.foldWired === "1") return;
@@ -6079,6 +6197,7 @@
     initBulkCostApply(root);
     initRunStockAll(root);
     initBulkLock(root);
+    initOriginWizard(root);
     initDocumentUploads(root);
     initOriginSettingsModal(root);
   };

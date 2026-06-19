@@ -3556,6 +3556,29 @@ button.co-stat:hover {
 }
 .bom-default-star.is-default .bom-default-star-glyph { color: var(--accent, #f0a500); }
 
+/* Guided wizard "Xử lý tuần tự" */
+.origin-wizard-bar {
+  position: sticky;
+  top: 0.4rem;
+  z-index: 5;
+  margin: 0.5rem 0;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--accent, #6366f1);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent, #6366f1) 8%, var(--surface, #fff));
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08);
+}
+.owz-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.owz-progress { display: inline-flex; align-items: center; gap: 0.25rem; }
+.owz-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--border, #d0d4dc); display: inline-block; }
+.owz-dot.owz-done { background: var(--ok, #16a34a); }
+.owz-dot.owz-current { background: var(--accent, #6366f1); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #6366f1) 28%, transparent); }
+.owz-main { flex: 1 1 auto; min-width: 12rem; font-size: 0.9rem; }
+.owz-step { margin-right: 0.4rem; }
+.owz-summary { color: var(--muted, #6b7280); }
+.owz-actions { display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.owz-exit { padding: 0.15rem 0.5rem; }
+
 .bom-meta-pill {
   display: inline-block;
   padding: 0.05rem 0.4rem;
