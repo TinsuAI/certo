@@ -1301,9 +1301,14 @@ def attach_origin_sheet_states(case: dict) -> dict:
         product["origin_calculate_block_reason"] = calc_reason
         product["origin_calculate_label"] = "Tính lại" if status == "stale" else "Tính bảng kê"
         product["origin_can_lock"] = bool(code and status == "calculated" and not sequence_reason)
-        product["origin_lock_block_reason"] = (
-            "" if product["origin_can_lock"] else sequence_reason or f"Chỉ chốt được bảng kê {code} sau khi đã tính."
-        )
+        if not product["origin_can_lock"] and not sequence_reason and product.get("lvc_missing_price") and status in {"calculated", "bom_loaded"}:
+            product["origin_lock_block_reason"] = (
+                f"Bảng kê {code} còn NVL thiếu đơn giá — bổ sung đơn giá và tính lại trước khi chốt."
+            )
+        else:
+            product["origin_lock_block_reason"] = (
+                "" if product["origin_can_lock"] else sequence_reason or f"Chỉ chốt được bảng kê {code} sau khi đã tính."
+            )
         product["origin_can_reopen"] = bool(code and status == "locked" and not later_locked)
         product["origin_reopen_block_reason"] = (
             "" if product["origin_can_reopen"] else f"Chỉ được mở chốt từ bước cuối cùng; cần mở chốt {', '.join(later_locked[:5])} trước." if later_locked else ""
@@ -2527,6 +2532,18 @@ def enrich_origin_product(product: dict) -> dict:
         else f"Thiếu tồn CO {shortage_material_count} dòng NVL; LVC đang tạm tính từ phần đã phân bổ."
         if shortage_material_count and lvc["percentage"]
         else ""
+    )
+    # Chốt/xuất guard: một NVL KHÔNG XUẤT XỨ (non_origin — đóng góp vào VNM) mà
+    # thiếu đơn giá ⇒ VNM thiếu ⇒ LVC bị thổi (chỉ tạm tính). Đánh cờ để /calculate
+    # giữ sheet ở "bom_loaded" (không chốt/xuất được) — song song guard BOM rỗng
+    # (#13c). Chỉ xét NVL non_origin (NVL có xuất xứ không vào VNM nên thiếu giá
+    # không ảnh hưởng LVC); bỏ qua dòng đã xoá. Thiếu TỒN (shortage, có đơn giá)
+    # KHÔNG tính ở đây ⇒ Mục 6 vẫn chốt được.
+    enriched["lvc_missing_price"] = any(
+        not material.get("deleted")
+        and material.get("origin_status") == "non_origin"
+        and (material.get("valuation_status") == "missing_unit_value" or material.get("unit_value_missing"))
+        for material in materials
     )
     ctc_rule = tariff_shift_rule_from_criterion(criterion)
     lvc_status = str(enriched.get("lvc_status") or "")

@@ -5248,6 +5248,22 @@ def test_origin_sheet_calculate_accepts_compact_json_from_fresh_origin_page():
                         "currency": "VND",
                     },
                     {
+                        # price the 2nd non-origin material too — an unpriced
+                        # non-origin NVL now parks the sheet at bom_loaded
+                        # (missing-price guard), which this test isn't exercising.
+                        "direction": "import",
+                        "declaration_type": "E11",
+                        "declaration_no": "NK-COMPACT-CALC",
+                        "line_no": "2",
+                        "item_code": "DEMO-NPL-002",
+                        "description": "Power module",
+                        "hs_code": "8504.40",
+                        "quantity": "10",
+                        "unit": "PCE",
+                        "customs_value": "100",
+                        "currency": "VND",
+                    },
+                    {
                         "direction": "export",
                         "declaration_type": "E42",
                         "declaration_no": "XK-COMPACT-CALC",
@@ -5669,6 +5685,9 @@ def test_co_case_export_workbook_contains_origin_snapshot_metadata_from_web():
                 "bcct.xlsx",
                 bcct_workbook([
                     {"direction": "import", "declaration_type": "E11", "declaration_no": "NK-ORIGIN-XLSX-1", "line_no": "1", "item_code": "DEMO-NPL-001", "description": "Main control board", "hs_code": "8542.39", "quantity": "100", "unit": "PCE", "customs_value": "1000", "currency": "VND"},
+                    # price the 2nd non-origin material — an unpriced non-origin NVL now
+                    # parks the sheet at bom_loaded (missing-price guard), not under test here.
+                    {"direction": "import", "declaration_type": "E11", "declaration_no": "NK-ORIGIN-XLSX-1", "line_no": "2", "item_code": "DEMO-NPL-002", "description": "Power module", "hs_code": "8504.40", "quantity": "100", "unit": "PCE", "customs_value": "1000", "currency": "VND"},
                     {"direction": "export", "declaration_type": "E42", "declaration_no": "XK-ORIGIN-XLSX", "line_no": "1", "item_code": "PV00.0048500", "description": "Growatt inverter", "hs_code": "850440", "quantity": "3", "unit": "PCS", "customs_value": "1000", "currency": "VND", "invoice_ref": "INV-ORIGIN-XLSX"},
                 ]),
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -5697,8 +5716,10 @@ def test_co_case_export_workbook_contains_origin_snapshot_metadata_from_web():
     assert "Origin Snapshot" in workbook.sheetnames
     values = [cell.value for row in workbook["Origin Snapshot"].iter_rows(values_only=False) for cell in row]
     assert "build_down_lvc" in values
-    assert "blocked" in values
-    assert "DEMO-NPL-002: thiếu đơn giá để tính trị giá NVL/VNM." in values
+    # Dossier is now fully priced (a missing-đơn-giá non-origin NVL would park the
+    # sheet at bom_loaded and block export — covered by test_missing_price_lock_guard),
+    # so readiness serializes as "review" (CTC review) rather than "blocked".
+    assert "review" in values
     assert "CTSH preview" in values
 
 
