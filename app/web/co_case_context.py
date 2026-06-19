@@ -1348,7 +1348,12 @@ def origin_sheet_export_blockers(case: dict) -> list[str]:
     blockers = []
     for product in attach_origin_sheet_states(case).get("products", []):
         status = product.get("origin_sheet_status")
-        if status in {"draft", "bom_loaded", "stale", "calculating"}:
+        # Block not-ready statuses AND any empty/no-BOM sheet (lvc_status
+        # "missing_bom") — exporting it ships an empty/invalid bảng kê.
+        if (
+            status in {"draft", "bom_loaded", "stale", "calculating"}
+            or str(product.get("lvc_status") or "") == "missing_bom"
+        ):
             blockers.append(str(product.get("code") or "sheet"))
     return blockers
 def origin_sheet_action_error(case: dict, product_code: str, action: str) -> str:
@@ -1380,6 +1385,13 @@ def origin_sheet_action_error(case: dict, product_code: str, action: str) -> str
         return f"Bảng kê {product_code} đã chốt; cần mở chốt trước khi tính lại."
     if action == "lock" and status != "calculated":
         return f"Chỉ chốt được bảng kê {product_code} sau khi đã tính."
+    if action == "lock" and str(target.get("lvc_status") or "") == "missing_bom":
+        # Defense-in-depth: a sheet can reach "calculated" with an empty/shallow
+        # BOM — enrich_origin_product then sets lvc_status="missing_bom" (no active
+        # NVL). Locking it would commit an empty bảng kê + 0 ledger claims. Block
+        # it. (shortage / missing-price sheets HAVE a BOM → lvc_status is review/
+        # missing_value, not missing_bom → unaffected.)
+        return f"Bảng kê {product_code} chưa có BOM/NVL — nạp BOM và tính lại trước khi chốt."
     if action == "reopen":
         if status != "locked":
             return f"Bảng kê {product_code} chưa chốt."

@@ -32,7 +32,11 @@ def _seed(statuses, client_id="growatt", case_id="case-lock-1"):
         "destination_market": "Ấn Độ", "status": "open",
         "created_at": now, "updated_at": now,
         "origin_product_order": [c for c, _ in statuses],
-        "products": [{"code": c, "name": c, "materials": []} for c, _ in statuses],
+        # a covered NVL so the sheet passes the "genuinely ready" lock guard;
+        # these tests exercise ordering / overclaim, not emptiness.
+        "products": [{"code": c, "name": c, "lvc_status": "pass",
+                      "materials": [{"material_code": f"M-{c}", "allocation_status": "covered"}]}
+                     for c, _ in statuses],
         "origin_sheet_states": {c: {"status": s, "status_label": s} for c, s in statuses},
     }
     co_case_store.save_state(client_id, {"schema_version": 1, "client_id": client_id, "cases": [case]})
@@ -82,6 +86,23 @@ def test_already_locked_counted_not_relocked(lock_client, monkeypatch):
     body = lock_client.post(_url(case_id), json={}).json()
     assert body["already_locked"] == ["TP-A"]
     assert body["locked"] == ["TP-B"]
+
+
+def test_empty_sheet_skipped_not_locked(lock_client, monkeypatch):
+    # A "calculated" sheet with no active NVL (empty/no-BOM) must be skipped, not
+    # locked — locking would commit an empty bảng kê + 0 claims.
+    _stub_claims(monkeypatch)
+    from app import co_case_store
+    case_id = _seed([("TP-A", "calculated")])
+    # strip the seeded material so the sheet is empty
+    st = co_case_store.load_state("growatt")
+    st["cases"][0]["products"][0]["materials"] = []
+    st["cases"][0]["products"][0]["lvc_status"] = "missing_bom"
+    co_case_store.save_state("growatt", st)
+    body = lock_client.post(_url(case_id), json={}).json()
+    assert body["locked"] == []
+    assert body["skipped"] and body["skipped"][0]["product_code"] == "TP-A"
+    assert "BOM" in body["skipped"][0]["reason"] or "NVL" in body["skipped"][0]["reason"]
 
 
 def test_overclaim_skips_and_blocks(lock_client, monkeypatch):
