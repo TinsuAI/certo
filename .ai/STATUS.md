@@ -1,9 +1,15 @@
 # Project Status
 
 ## Current State
-- **`main` = `origin/main` = prod = nightly = `1313ba0`** (`barry-co.tinsu.ai/version` +
-  `demo-co.tinsu.ai/version` both `1313ba0`, v0.14.0). CI green. Tree clean except the prior
-  part's untracked `.ai/sessions/2026-06-18-cost-allocation-bulk-apply.md`.
+- **`main` = `origin/main` = prod = nightly = `66d5ad7`** (`barry-co.tinsu.ai/version` +
+  `demo-co.tinsu.ai/version` both `66d5ad7`, v0.14.0). CI green. Tree clean.
+- **Lock/export readiness guard (correctness fix `66d5ad7`):** a sheet could reach status
+  "calculated" with an empty/shallow BOM (`materials=[]`, `lvc_status="missing_bom"`) and be locked
+  (0 ledger claims) + exported (empty bảng kê) — the "Chốt + Chưa có BOM" anomaly. Now
+  `origin_sheet_action_error(...,"lock")` + `origin_sheet_export_blockers` block `lvc_status=="missing_bom"`
+  (protects single+bulk lock + the `origin_can_lock` UI flag). Shortage/missing-price sheets keep a
+  BOM → still lockable. Root cause (pre-existing): `/calculate` sets "calculated" unconditionally +
+  gates trusted only the status string.
 - **Mục 6 (client-feedback batch workflow) is DONE + live + e2e-verified.** All 4 slices shipped:
   - **A (#14) BOM mặc định per-client** — pick a BOM → saved as the client default (pin version);
     later cases auto-reuse it. Store `bom_default_store` (Postgres `co_bom_product_default` + JSON
@@ -22,7 +28,9 @@
 - **Cost-allocation system mature** (2026-05-27 + Mục 4a): admin `/clients/{id}/cost-allocation`,
   Excel import, Mode A→B, per-product + bulk "Áp hệ số". Engine: hệ số×FOB → 6 chi tiết.
 
-## Recent Changes (this session — 7 commits, all live on `1313ba0`)
+## Recent Changes (this session — 9 commits, all live on `66d5ad7`)
+- `66d5ad7` fix: block lock/export of an empty/no-BOM sheet (audit finding; +7 tests).
+- `ed8ebaa` docs(handoff) + `edc3b2d`/`1313ba0` test harnesses (in-container BOM default; substitute→export).
 - `8f85e1f` feat: per-client default BOM pick (#14) — `bom_default_store`, migration 018, precedence.
 - `c9f5183` feat: run stock once for all products + aggregate shortages (#13a).
 - `8195ff9` feat: bulk substitute định mức with the rich sheet picker (#13b) — reuses the sheet's
