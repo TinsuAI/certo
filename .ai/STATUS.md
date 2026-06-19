@@ -1,15 +1,17 @@
 # Project Status
 
 ## Current State
-- **`main` = `origin/main` = prod = nightly = `66d5ad7`** (`barry-co.tinsu.ai/version` +
-  `demo-co.tinsu.ai/version` both `66d5ad7`, v0.14.0). CI green. Tree clean.
-- **Lock/export readiness guard (correctness fix `66d5ad7`):** a sheet could reach status
-  "calculated" with an empty/shallow BOM (`materials=[]`, `lvc_status="missing_bom"`) and be locked
-  (0 ledger claims) + exported (empty bảng kê) — the "Chốt + Chưa có BOM" anomaly. Now
-  `origin_sheet_action_error(...,"lock")` + `origin_sheet_export_blockers` block `lvc_status=="missing_bom"`
-  (protects single+bulk lock + the `origin_can_lock` UI flag). Shortage/missing-price sheets keep a
-  BOM → still lockable. Root cause (pre-existing): `/calculate` sets "calculated" unconditionally +
-  gates trusted only the status string.
+- **`main` = `origin/main` = prod = nightly = `dfa31d9`** (`barry-co.tinsu.ai/version` +
+  `demo-co.tinsu.ai/version` both `dfa31d9`, v0.14.0). CI green. Tree clean.
+- **Empty/no-BOM sheet can't be locked/exported — 2-layer fix** (the "Chốt + Chưa có BOM" anomaly: a
+  sheet whose BOM resolved to 0 rows → `materials=[]`, `lvc_status="missing_bom"` could be locked
+  (0 ledger claims) + exported (empty bảng kê)):
+  1. **Root cause (`dfa31d9`):** `/calculate` no longer sets "calculated" unconditionally —
+     `calculated_sheet_status()` keeps a `missing_bom` result at `"bom_loaded"` + surfaces an error.
+  2. **Gate guard / defense-in-depth (`66d5ad7`):** `origin_sheet_action_error(...,"lock")` +
+     `origin_sheet_export_blockers` block `lvc_status=="missing_bom"` (covers single+bulk lock + the
+     `origin_can_lock` UI flag + any legacy "calculated"-but-empty persisted data).
+  Shortage / missing-price sheets keep a BOM (lvc review/missing_value) → still lockable (Mục 6 intact).
 - **Mục 6 (client-feedback batch workflow) is DONE + live + e2e-verified.** All 4 slices shipped:
   - **A (#14) BOM mặc định per-client** — pick a BOM → saved as the client default (pin version);
     later cases auto-reuse it. Store `bom_default_store` (Postgres `co_bom_product_default` + JSON
@@ -28,7 +30,8 @@
 - **Cost-allocation system mature** (2026-05-27 + Mục 4a): admin `/clients/{id}/cost-allocation`,
   Excel import, Mode A→B, per-product + bulk "Áp hệ số". Engine: hệ số×FOB → 6 chi tiết.
 
-## Recent Changes (this session — 9 commits, all live on `66d5ad7`)
+## Recent Changes (this session — live on `dfa31d9`)
+- `dfa31d9` fix: /calculate keeps an empty/no-BOM sheet at "bom_loaded" (root cause; +2 tests).
 - `66d5ad7` fix: block lock/export of an empty/no-BOM sheet (audit finding; +7 tests).
 - `ed8ebaa` docs(handoff) + `edc3b2d`/`1313ba0` test harnesses (in-container BOM default; substitute→export).
 - `8f85e1f` feat: per-client default BOM pick (#14) — `bom_default_store`, migration 018, precedence.
@@ -43,17 +46,27 @@
   e2e (`e2e_muc6.cjs/.py`): `.ai/screenshots/2026-06-18-bom-default-batch-flow/` (gitignored).
 
 ## Next Steps (priority order)
-1. **Remaining client feedback (2026-06-05 `HIỆN TRẠNG BARRY CO`):**
+1. **PLAY THE USER — full CO-flow walkthrough + UX/correctness review (do this FIRST next session).**
+   Act as a normal agency staff member and go through the whole CO dossier flow end-to-end
+   (shipment → documents → BOM/bảng kê → TKX/TKN → review & export), **especially exercising the
+   features added these last sessions:** Mục 6 — BOM mặc định per-client (#14, pick → reuse), Chạy tồn
+   1 lần (#13a), Thay định mức loạt + rich substitute modal (#13b), Chốt tất cả (#13c), and the
+   empty/no-BOM lock-export guards. Judge **đúng/sai (correctness)** AND **trải nghiệm dùng (UX)** at
+   each step, not just "does it run". Drive the REAL UI (browser e2e — local `:8001` is auth-off
+   DB-mode, see [[co-local-dbmode-e2e]]); use a real-data client (`growatt-vn`) so substitutes/stock
+   are populated; report friction, confusing labels, missing affordances, and any logic that looks
+   wrong. Treat it like the "Chốt + Chưa có BOM" catch — assume something is subtly broken until proven.
+2. **Remaining client feedback (2026-06-05 `HIỆN TRẠNG BARRY CO`):**
    - **#12** — số tồn **TỔNG** để kiểm soát (hiện chỉ theo lô/mã; add aggregate SUM). Medium.
    - **#4** — ranking mã thay thế "chưa OK" — **DH-side** (`data_hub_client.py`); needs a
      `.ai/api-requests/` artifact, not CO code.
-2. **`compact` PDF profile UI toggle** — adapter supports `quality=compact`; no UI toggle; blocked on
+3. **`compact` PDF profile UI toggle** — adapter supports `quality=compact`; no UI toggle; blocked on
    user confirming Ecosys legibility. Lossless `print` + 2 MB split already solves size.
-3. **EX1** — column-K declaration ref configurable (số vs số/dòng).
-4. **XX1** — NVL CÓ xuất xứ → fill bảng kê cột M-N (currently blanked; column L date auto-fills).
-5. **(Tech-debt)** Config-page POST 409 in DH source-mode for source fields (overrides persist before
+4. **EX1** — column-K declaration ref configurable (số vs số/dòng).
+5. **XX1** — NVL CÓ xuất xứ → fill bảng kê cột M-N (currently blanked; column L date auto-fills).
+6. **(Tech-debt)** Config-page POST 409 in DH source-mode for source fields (overrides persist before
    the guard but response is 409).
-6. **Correctness backlog:** B6 (currency native→VND), DC3, LK1, D1 — see BACKLOG.md.
+7. **Correctness backlog:** B6 (currency native→VND), DC3, LK1, D1 — see BACKLOG.md.
 
 ## Notes for Next AI Session
 - **Local dev is AUTH-OFF + DB-mode** (`.env`: `CO_AUTH_REQUIRED=0`, `BARRY_DATABASE_URL` → local
