@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Lỗi {{ status_code }} · Barry CO{% endblock %}
+{% block content %}
+<section class="error-page">
+  <p class="error-page-code">{{ status_code }}</p>
+  <h1 class="error-page-title">{{ title }}</h1>
+  {% if detail %}<p class="error-page-detail">{{ detail }}</p>{% endif %}
+  <div class="error-page-actions">
+    <button type="button" class="btn-secondary" onclick="history.length > 1 ? history.back() : (window.location.href = '/clients')">← Quay lại</button>
+    <a class="btn-primary" href="/clients">Về danh sách công ty</a>
+  </div>
+</section>
+{% endblock %}

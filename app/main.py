@@ -7,8 +7,11 @@ from pathlib import Path
 import httpx
 from fastapi import Request
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import co_auth
 from app.bom_service import bom_service
@@ -92,17 +95,77 @@ app.include_router(settings_routes.router)
 app.include_router(pages_routes.router)
 
 
+_ERROR_TITLES = {
+    400: "Yêu cầu không hợp lệ",
+    401: "Cần đăng nhập",
+    403: "Không có quyền truy cập",
+    404: "Không tìm thấy trang",
+    409: "Chưa thực hiện được",
+    413: "Dữ liệu quá lớn",
+    422: "Dữ liệu không hợp lệ",
+    503: "Dịch vụ tạm thời không khả dụng",
+}
+
+
+def _prefers_html_error(request: Request) -> bool:
+    """True for a real browser navigation (native form submit / link click), False
+    for an AJAX/fetch call. Browser navigations get a styled error page; fetch/XHR
+    clients keep getting JSON so the existing in-page toast handling still works."""
+    if request.headers.get("x-requested-with"):
+        return False
+    dest = request.headers.get("sec-fetch-dest")
+    if dest:
+        return dest == "document"
+    return "text/html" in request.headers.get("accept", "")
+
+
+def error_response(request: Request, status_code: int, detail: str, headers=None):
+    """JSON for AJAX, a styled page for browser navigation — so an operator never
+    sees a raw {"detail": …} blob after a native form submit / page load."""
+    if _prefers_html_error(request):
+        title = _ERROR_TITLES.get(
+            status_code, "Lỗi máy chủ" if status_code >= 500 else "Đã xảy ra lỗi"
+        )
+        return templates.TemplateResponse(
+            request=request,
+            name="error.html",
+            context={"status_code": status_code, "title": title, "detail": detail},
+            status_code=status_code,
+        )
+    return JSONResponse(status_code=status_code, content={"detail": detail}, headers=headers)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """Catch-all for HTTPException (404/403/409/…): render a friendly page for
+    browsers, JSON for fetch. Replaces the default raw-JSON-everywhere handler."""
+    detail = exc.detail if isinstance(exc.detail, str) and exc.detail else "Đã xảy ra lỗi."
+    return error_response(request, exc.status_code, detail, headers=getattr(exc, "headers", None))
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Bad request params: a styled page for browsers; the standard FastAPI 422
+    JSON (with its error list) for fetch, so API clients see the field details."""
+    if _prefers_html_error(request):
+        return error_response(
+            request, 422,
+            "Dữ liệu gửi lên không hợp lệ. Kiểm tra lại các trường rồi thử lại.",
+        )
+    return await request_validation_exception_handler(request, exc)
+
+
 @app.exception_handler(CaseClosedError)
 async def _case_closed_handler(request: Request, exc: CaseClosedError):
     """Mutating route hit a closed case → 409 with the friendly Vietnamese message."""
-    return JSONResponse(status_code=409, content={"detail": str(exc)})
+    return error_response(request, 409, str(exc))
 
 
 @app.exception_handler(SourceBackendUnavailable)
 async def _source_backend_unavailable_handler(request: Request, exc: SourceBackendUnavailable):
     """Data Hub is the source of truth but unavailable, and local fallback is not
     allowed → 503 with a clear message instead of a silently-empty page."""
-    return PlainTextResponse(str(exc), status_code=503)
+    return error_response(request, 503, str(exc))
 
 
 @app.exception_handler(httpx.TransportError)
@@ -111,10 +174,10 @@ async def _data_hub_unreachable_handler(request: Request, exc: httpx.TransportEr
     timeout). Surface a clear 503 instead of a generic 500 so the operator knows
     it's a Data Hub outage, not a CO bug. Only fires for transport errors that
     propagate unhandled — local try/except (e.g. 404 fallbacks) still wins."""
-    return PlainTextResponse(
+    return error_response(
+        request, 503,
         "Data Hub không phản hồi (kết nối thất bại/timeout). CO không dùng dữ liệu "
         "local backup; kiểm tra Data Hub rồi thử lại.",
-        status_code=503,
     )
 
 
@@ -125,10 +188,10 @@ async def _data_hub_error_status_handler(request: Request, exc: httpx.HTTPStatus
     handle Data Hub statuses (e.g. 404 → fallback) catch the error themselves
     and never reach this handler."""
     upstream = exc.response.status_code if exc.response is not None else "?"
-    return PlainTextResponse(
+    return error_response(
+        request, 502,
         f"Data Hub trả lỗi ({upstream}). CO không dùng dữ liệu local backup; "
         "kiểm tra Data Hub rồi thử lại.",
-        status_code=502,
     )
 
 

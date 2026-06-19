@@ -866,7 +866,7 @@
      data-origin-active-sheet="{{ active_sheet_code or '' }}"
      data-origin-product-count="{{ case.products|length }}">
 
-<form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export-bang-ke" id="origin-export-bang-ke" hx-boost="false"></form>
+<form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export-bang-ke" id="origin-export-bang-ke" hx-boost="false" data-download-form data-download-label="Đã xuất bảng kê HQ."></form>
 
 {# Wizard "Xử lý tuần tự" — đặt ở cấp origin-step-root (ngoài toggle review/sheet)
    để LUÔN hiển thị dù đang ở dashboard hay trong sheet detail. JS dựng nội dung. #}
@@ -2059,6 +2059,52 @@
     const message = doc.querySelector(".toast, [data-message]");
     return {message: message?.textContent?.trim() || "", kind: "success"};
   };
+
+  // Download-style forms (file export endpoints) POST natively and stream a file
+  // back; on failure they raise an HTTPException whose JSON body would otherwise
+  // REPLACE the page with a raw {"detail": …} blob. Intercept: submit via fetch
+  // so we can download on success and toast the error on failure, staying put.
+  document.body.addEventListener("submit", async (event) => {
+    const form = event.target.closest?.("form[data-download-form]");
+    if (!form) return;
+    event.preventDefault();
+    const submitter = event.submitter;
+    if (submitter) submitter.disabled = true;
+    try {
+      const method = (form.getAttribute("method") || "post").toUpperCase();
+      const response = await fetch(form.action, {
+        method,
+        body: method === "GET" ? undefined : new FormData(form),
+        headers: { "X-Requested-With": "fetch" },
+      });
+      if (!response.ok) {
+        let detail = `Lỗi ${response.status}. Thử lại.`;
+        try {
+          const data = await response.json();
+          if (data && data.detail) detail = data.detail;
+        } catch (_e) { /* non-JSON body — keep the generic message */ }
+        toast(detail, "error");
+        return;
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+      const filename = match ? decodeURIComponent(match[1]) : "export.xlsx";
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast(form.dataset.downloadLabel || "Đã tải file.", "success");
+    } catch (_error) {
+      toast("Không kết nối được máy chủ để xuất file. Thử lại.", "error");
+    } finally {
+      if (submitter) submitter.disabled = false;
+    }
+  });
 
   let refreshCaseShellInteractions = () => {};
   let openBulkSubstitutePicker = null;  // set by initOriginSubstituteModal; used by the bulk run-stock panel
