@@ -910,13 +910,13 @@
       Xử lý tuần tự
     </button>
     {# Tạm disable bulk preview/lock cũ — đang xây dựng lại; dùng "Xử lý tuần tự". #}
-    <button type="button" class="btn-secondary" disabled
+    <button type="button" class="btn-secondary btn-wip" disabled
             title="Tính năng đang xây dựng — dùng 'Xử lý tuần tự' để xử lý lần lượt.">
-      Chạy tồn (tất cả SP)
+      Chạy tồn (tất cả SP) <span class="btn-wip-tag">🚧 đang xây dựng</span>
     </button>
-    <button type="button" class="btn-secondary" disabled
+    <button type="button" class="btn-secondary btn-wip" disabled
             title="Tính năng đang xây dựng — dùng 'Xử lý tuần tự' để chốt lần lượt.">
-      Chốt tất cả
+      Chốt tất cả <span class="btn-wip-tag">🚧 đang xây dựng</span>
     </button>
     {% endif %}
     <button type="submit" form="origin-export-bang-ke" data-origin-export-action class="btn-secondary">Xuất bảng kê HQ</button>
