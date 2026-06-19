@@ -8,6 +8,62 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ asset_url('css/app.css') }}">
+  <script>
+    // Global error surfacing — installed before any page script so every fetch is
+    // wrapped. A failed request shows a toast with the server's `detail` message
+    // by default, so an error can never be swallowed silently. Callers that
+    // handle their own errors / are non-critical pass {quietError: true}.
+    (function () {
+      function ensureStack() {
+        var s = document.querySelector("[data-ui-toast-stack]");
+        if (!s) {
+          s = document.createElement("div");
+          s.className = "ui-toast-stack";
+          s.dataset.uiToastStack = "1";
+          document.body.appendChild(s);
+        }
+        return s;
+      }
+      // De-dupe: skip if the same message is already on screen — stops a manual
+      // toast + the global one (or a polling loop) from stacking duplicates.
+      window.coToast = function (message, kind) {
+        if (!message || !document.body) return;
+        var stack = ensureStack();
+        var dup = Array.prototype.some.call(stack.querySelectorAll(".ui-toast"), function (t) {
+          return !t.classList.contains("ui-toast-hide") && t.textContent === message;
+        });
+        if (dup) return;
+        var item = document.createElement("div");
+        item.className = "ui-toast " + (kind === "error" ? "ui-toast-error" : "");
+        item.textContent = message;
+        stack.appendChild(item);
+        window.setTimeout(function () {
+          item.classList.add("ui-toast-hide");
+          window.setTimeout(function () { item.remove(); }, 240);
+        }, 5000);
+      };
+
+      var rawFetch = window.fetch.bind(window);
+      window.fetch = function (input, init) {
+        var quiet = !!(init && init.quietError);
+        return rawFetch(input, init).then(function (response) {
+          if (!response.ok && !quiet) {
+            response.clone().text().then(function (text) {
+              var detail = "";
+              try { var d = JSON.parse(text).detail; if (typeof d === "string") detail = d; } catch (_e) {}
+              window.coToast(detail || ("Lỗi máy chủ (HTTP " + response.status + ")."), "error");
+            }).catch(function () {
+              window.coToast("Lỗi máy chủ (HTTP " + response.status + ").", "error");
+            });
+          }
+          return response;
+        }, function (err) {
+          if (!quiet) window.coToast("Mất kết nối máy chủ. Kiểm tra mạng rồi thử lại.", "error");
+          throw err;
+        });
+      };
+    })();
+  </script>
 </head>
 <body data-theme="{{ theme }}">
   <div class="app-frame" aria-hidden="true"></div>

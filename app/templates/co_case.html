@@ -1879,7 +1879,7 @@
         timer = setTimeout(poll, 2000);
       }
       function poll() {
-        fetch(url, { headers: { "X-Requested-With": "fetch" } })
+        fetch(url, { headers: { "X-Requested-With": "fetch" }, quietError: true })
           .then(function (r) { return r.ok ? r.text() : null; })
           .then(function (html) {
             if (html == null) { schedule(); return; }
@@ -2032,7 +2032,10 @@
 
 <script>
 (() => {
+  // Delegates to the global toast (installed in base.html head) so manual toasts
+  // and the global fetch-error toast share one stack + de-dupe.
   const toast = (message, kind = "success") => {
+    if (window.coToast) return window.coToast(message, kind);
     if (!message) return;
     let stack = document.querySelector("[data-ui-toast-stack]");
     if (!stack) {
@@ -2076,6 +2079,7 @@
         method,
         body: method === "GET" ? undefined : new FormData(form),
         headers: { "X-Requested-With": "fetch" },
+        quietError: true,  // this handler shows its own success/error feedback
       });
       if (!response.ok) {
         let detail = `Lỗi ${response.status}. Thử lại.`;
@@ -2836,7 +2840,7 @@
     if (exact && value) {
       url.searchParams.set("invoice_no", value);
     }
-    const response = await fetch(url, {headers: {"Accept": "application/json"}});
+    const response = await fetch(url, {headers: {"Accept": "application/json"}, quietError: true});
     renderInvoicePreview(lookup, await response.json());
   };
 
