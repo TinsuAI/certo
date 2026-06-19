@@ -909,16 +909,13 @@
             title="Xử lý từng bảng kê lần lượt theo thứ tự: tính → xem lại → chốt, cho tới hết. An toàn hơn 'Chốt tất cả' vì dừng cho bạn duyệt mỗi bước.">
       Xử lý tuần tự
     </button>
-    <button type="button" class="btn-secondary" data-run-stock-all
-            data-run-stock-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/preview-stock-all"
-            data-bulk-substitute-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/bulk-substitute"
-            data-sheet-base="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet"
-            title="Chạy tồn 1 lần cho tất cả SP (preview, không trừ tồn) để tổng hợp các mã thiếu tồn.">
+    {# Tạm disable bulk preview/lock cũ — đang xây dựng lại; dùng "Xử lý tuần tự". #}
+    <button type="button" class="btn-secondary" disabled
+            title="Tính năng đang xây dựng — dùng 'Xử lý tuần tự' để xử lý lần lượt.">
       Chạy tồn (tất cả SP)
     </button>
-    <button type="button" class="btn-secondary" data-bulk-lock
-            data-bulk-lock-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/bulk-lock"
-            title="Chốt tất cả sheet đã tính (theo thứ tự) — trừ tồn vào sổ; sheet đã chốt không sửa được tới khi mở chốt.">
+    <button type="button" class="btn-secondary" disabled
+            title="Tính năng đang xây dựng — dùng 'Xử lý tuần tự' để chốt lần lượt.">
       Chốt tất cả
     </button>
     {% endif %}
