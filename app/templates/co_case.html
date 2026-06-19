@@ -1106,6 +1106,7 @@
           {% set bom_options = bom_workspace.product_version_options_by_code.get(bom_lookup_code, []) %}
           {% set bom_shallow_only = bom_lookup_code in (bom_workspace.bom_shallow_only_codes or []) %}
           {% set selected_bom_artifact_id = product.bom_product_artifact_id or product.bom_product_version_id %}
+          {% set bom_default_artifact = (bom_defaults or {}).get(bom_lookup_code) or (bom_defaults or {}).get(product.code) %}
           {% set bom_kind_short = {
               'manual_flat': 'manual-flat',
               'technical_flattened': 'technical-flat',
@@ -1137,27 +1138,29 @@
                   {% set opt_state = option.state or 'clean' %}
                   {% set opt_glyph = bom_state_glyph.get(opt_state, '') %}
                   {% set opt_date = (option.published_at or '')[:10] %}
-                  <option value="{{ option.product_artifact_id or option.product_version_id }}" {% if (option.product_artifact_id or option.product_version_id) == selected_bom_artifact_id %}selected{% endif %}>#{{ option.product_artifact_no or option.product_version_no }} · {{ option.row_count }} dòng{% if opt_date %} · {{ opt_date }}{% endif %} · {{ opt_kind }}{% if opt_variant != 'default' %} · v:{{ opt_variant }}{% endif %}{% if opt_glyph %} · {{ opt_glyph }}{% endif %}</option>
+                  <option value="{{ option.product_artifact_id or option.product_version_id }}" {% if (option.product_artifact_id or option.product_version_id) == selected_bom_artifact_id %}selected{% endif %}>#{{ option.product_artifact_no or option.product_version_no }} · {{ option.row_count }} dòng{% if opt_date %} · {{ opt_date }}{% endif %} · {{ opt_kind }}{% if opt_variant != 'default' %} · v:{{ opt_variant }}{% endif %}{% if opt_glyph %} · {{ opt_glyph }}{% endif %}{% if bom_default_artifact and (option.product_artifact_id or option.product_version_id) == bom_default_artifact %} · ★ mặc định{% endif %}</option>
                   {% endfor %}
                   {% if not bom_options %}
                   <option value="{{ selected_bom_artifact_id }}">{% if product.bom_product_artifact_no or product.bom_product_version_no %}#{{ product.bom_product_artifact_no or product.bom_product_version_no }}{% elif bom_shallow_only %}❗ Chưa có BOM khai triển đầy đủ{% else %}❗ Chưa có BOM{% endif %}</option>
                   {% endif %}
                 </select>
               </label>
-              {% set bom_default_artifact = (bom_defaults or {}).get(bom_lookup_code) or (bom_defaults or {}).get(product.code) %}
-              {% set bom_star_artifact = selected_bom_artifact_id or bom_default_artifact %}
-              {% set is_bom_default = bom_default_artifact and (not selected_bom_artifact_id or selected_bom_artifact_id == bom_default_artifact) %}
-              {% if bom_options or selected_bom_artifact_id or bom_default_artifact %}
+              {% set is_bom_default = selected_bom_artifact_id and selected_bom_artifact_id == bom_default_artifact %}
+              {# Chỉ hiện ★ khi sheet THỰC SỰ có BOM (có version để chọn, hoặc đã chọn 1
+                 version). Sheet "chưa có BOM" không có gì để ghim ⇒ không hiện ★.
+                 Ghim là hành động CHỦ ĐỘNG (đã bỏ auto-pin); ghim version đang chọn
+                 làm mặc định cho mã TP của khách → hồ sơ CO sau tự chọn sẵn. #}
+              {% if bom_options or selected_bom_artifact_id %}
               <button type="button" class="bom-default-star{% if is_bom_default %} is-default{% endif %}"
                       data-bom-default-toggle
                       data-product-code="{{ product.code }}"
-                      data-artifact-id="{{ bom_star_artifact }}"
+                      data-artifact-id="{{ selected_bom_artifact_id }}"
                       data-default-artifact="{{ bom_default_artifact or '' }}"
                       data-is-default="{{ '1' if is_bom_default else '0' }}"
                       data-set-url="/clients/{{ client.id }}/bom-default"
                       aria-pressed="{{ 'true' if is_bom_default else 'false' }}"
-                      title="{% if is_bom_default %}Phiên bản BOM mặc định của khách — hồ sơ mới tự dùng lại. Bấm để bỏ ghim.{% else %}Ghim phiên bản BOM này làm mặc định cho khách (hồ sơ mới tự dùng lại).{% endif %}">
-                <span class="bom-default-star-glyph" aria-hidden="true">{{ '★' if is_bom_default else '☆' }}</span><span class="bom-default-star-label">{{ 'Mặc định' if is_bom_default else 'Đặt mặc định' }}</span>
+                      title="{% if is_bom_default %}Phiên bản BOM mặc định cho mã TP {{ product.code }} của khách — hồ sơ CO sau tự chọn sẵn. Bấm để bỏ ghim.{% else %}Ghim phiên bản BOM đang chọn làm mặc định cho mã TP {{ product.code }} của khách — hồ sơ CO sau tự chọn sẵn, khỏi chọn lại.{% endif %}">
+                <span class="bom-default-star-glyph" aria-hidden="true">{{ '★' if is_bom_default else '☆' }}</span><span class="bom-default-star-label">{{ 'BOM mặc định' if is_bom_default else 'Đặt BOM mặc định' }}</span>
               </button>
               {% endif %}
               {% if not bom_options and bom_shallow_only %}
@@ -5839,11 +5842,12 @@
     btn.setAttribute("aria-pressed", on ? "true" : "false");
     const glyph = btn.querySelector(".bom-default-star-glyph");
     const label = btn.querySelector(".bom-default-star-label");
+    const code = btn.dataset.productCode || "";
     if (glyph) glyph.textContent = on ? "★" : "☆";
-    if (label) label.textContent = on ? "Mặc định" : "Đặt mặc định";
+    if (label) label.textContent = on ? "BOM mặc định" : "Đặt BOM mặc định";
     btn.title = on
-      ? "Phiên bản BOM mặc định của khách — hồ sơ mới tự dùng lại. Bấm để bỏ ghim."
-      : "Ghim phiên bản BOM này làm mặc định cho khách (hồ sơ mới tự dùng lại).";
+      ? `Phiên bản BOM mặc định cho mã TP ${code} của khách — hồ sơ CO sau tự chọn sẵn. Bấm để bỏ ghim.`
+      : `Ghim phiên bản BOM đang chọn làm mặc định cho mã TP ${code} của khách — hồ sơ CO sau tự chọn sẵn, khỏi chọn lại.`;
   };
   document.addEventListener("click", async (event) => {
     const btn = event.target.closest?.("[data-bom-default-toggle]");

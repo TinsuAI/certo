@@ -85,37 +85,25 @@ def test_picks_from_payload_empty():
     assert picks_from_payload({"products": [{"code": "P1"}]}) == {}
 
 
-def test_write_through_persists_new_picks(isolated_config_root):
-    from app.routers.co_case import persist_bom_picks_as_defaults
+def test_picking_a_bom_no_longer_auto_pins_default(isolated_config_root, monkeypatch):
+    """Picking a BOM version is a per-case choice only — it must NOT auto-set the
+    client default (the implicit write-through was removed; ★ is now the only
+    way to pin). Read-precedence is unchanged (covered in test_bom_default_precedence)."""
+    from fastapi.testclient import TestClient
+    import app.main as m
     from app.bom_default_store import get_defaults
-    payload = {
-        "bom_product_artifact_overrides": {"P1": "art-1"},
-        "products": [{"code": "P2", "bom_product_artifact_id": "art-2"}],
-    }
-    persist_bom_picks_as_defaults({"id": "growatt"}, payload, prior_overrides={})
-    assert get_defaults("growatt") == {"P1": "art-1", "P2": "art-2"}
+    from tests.test_co_demo import bcct_workbook
 
-
-def test_write_through_skips_unchanged_pick(isolated_config_root):
-    """Echoing a case's existing selection must NOT touch the client default."""
-    from app.routers.co_case import persist_bom_picks_as_defaults
-    from app.bom_default_store import set_default, get_defaults
-    set_default("growatt", "P1", "newer-default")
-    payload = {"products": [{"code": "P1", "bom_product_artifact_id": "stale-case-pick"}]}
-    persist_bom_picks_as_defaults({"id": "growatt"}, payload, prior_overrides={"P1": "stale-case-pick"})
-    assert get_defaults("growatt") == {"P1": "newer-default"}  # unchanged
-
-
-def test_write_through_writes_changed_pick(isolated_config_root):
-    from app.routers.co_case import persist_bom_picks_as_defaults
-    from app.bom_default_store import get_default
-    payload = {"products": [{"code": "P1", "bom_product_artifact_id": "v5"}]}
-    persist_bom_picks_as_defaults({"id": "growatt"}, payload, prior_overrides={"P1": "v2"})
-    assert get_default("growatt", "P1") == "v5"
-
-
-def test_write_through_noop_without_client_id(isolated_config_root):
-    from app.routers.co_case import persist_bom_picks_as_defaults
-    from app.bom_default_store import get_defaults
-    persist_bom_picks_as_defaults({}, {"bom_product_artifact_overrides": {"P1": "art-1"}}, prior_overrides={})
+    monkeypatch.setenv("CO_AUTH_REQUIRED", "0")
+    http = TestClient(m.app)
+    http.post("/clients/growatt/bcct/upload", files={"file": ("b.xlsx", bcct_workbook([
+        {"direction": "import", "declaration_type": "E11", "declaration_no": "NK-NP", "line_no": "1", "item_code": "DEMO-NPL-001", "description": "b", "hs_code": "8542.39", "quantity": "100", "unit": "PCE", "customs_value": "1000", "currency": "VND"},
+        {"direction": "export", "declaration_type": "E42", "declaration_no": "XK-NP", "line_no": "1", "item_code": "PV00.0048500", "description": "inv", "hs_code": "850440", "quantity": "1", "unit": "PCS", "customs_value": "1000", "currency": "VND", "invoice_ref": "INV-NP"},
+    ]), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    created = http.post("/clients/growatt/co-case/create", data={"title": "np", "case_code": "CO-NP", "destination_market": "Ấn Độ", "invoice_no": "INV-NP"}, follow_redirects=False)
+    loc = created.headers["location"]
+    # an autosave/calculate carrying a BOM pick must not create a client default
+    http.post(f"{loc}/origin/sheet/PV00.0048500/calculate", json={
+        "products": [{"code": "PV00.0048500", "bom_product_artifact_id": "some-art"}],
+    })
     assert get_defaults("growatt") == {}

@@ -160,9 +160,12 @@ async def origin_case_from_request(request: Request, client: dict, case_id: str)
         expected_revision = str(payload.get("expected_revision") or "").strip()
         if expected_revision and expected_revision != origin_case_revision(case):
             raise HTTPException(status_code=409, detail="Origin case state changed; reload before saving.")
-        prior_overrides = dict(case.get("bom_product_artifact_overrides") or {})
         merged = merge_origin_action_payload(case, payload)
-        persist_bom_picks_as_defaults(client, payload, prior_overrides)
+        # NOTE: picking a BOM version in the picker is a PER-CASE choice only — it
+        # no longer auto-pins the client default (that implicit write-through was
+        # confusing: staff couldn't tell what became "mặc định"). The client
+        # default is set explicitly via the ★ (POST /clients/{id}/bom-default).
+        # Read-time precedence (new cases auto-use a pinned default) is unchanged.
         return merged, payload
     form = await large_request_form(request)
     case = update_products_from_form({key: str(value) for key, value in form.items()})
@@ -170,22 +173,6 @@ async def origin_case_from_request(request: Request, client: dict, case_id: str)
     return case, {key: str(value) for key, value in form.items()}
 
 
-def persist_bom_picks_as_defaults(client: dict, payload: dict, prior_overrides: dict) -> None:
-    """Write-through (#14): a per-product BOM pick that CHANGED vs the case's
-    prior saved selection becomes the client's default for that product code.
-
-    Unchanged picks are skipped — the panel echoes the full current selection on
-    every save/autosave, so without this guard, reordering or editing an OLD
-    case would silently clobber a newer default with that case's stale pick."""
-    from app import bom_default_store
-
-    client_id = str(client.get("id") or "").strip()
-    if not client_id:
-        return
-    prior = prior_overrides or {}
-    for code, artifact_id in bom_default_store.picks_from_payload(payload).items():
-        if str(prior.get(code) or "").strip() != artifact_id:
-            bom_default_store.set_default(client_id, code, artifact_id)
 def record_sheet_lock_claims(client_id: str, case_id: str, product_code: str, case: dict) -> int:
     """Persist allocation lines from a locked sheet to the cross-case stock ledger.
 
