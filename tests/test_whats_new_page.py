@@ -40,3 +40,26 @@ def test_whats_new_escapes_bullet_html(monkeypatch):
         r = c.get("/whats-new")
     assert "<script>alert(1)</script>" not in r.text
     assert "&lt;script&gt;" in r.text
+
+
+def test_whats_new_renders_bold_markdown(monkeypatch):
+    monkeypatch.setattr(changelog, "load_changelog", lambda: [
+        {"version": "9.9.9", "date": "2026-06-07", "unreleased": False,
+         "sections": [{"title": "Mới", "entries": ["**Tính năng**: mô tả <b>x</b>"]}]},
+    ])
+    with TestClient(app) as c:
+        r = c.get("/whats-new")
+    assert "<strong>Tính năng</strong>" in r.text
+    assert "**Tính năng**" not in r.text          # markers consumed
+    assert "<b>x</b>" not in r.text                # inline HTML still escaped
+    assert "&lt;b&gt;x&lt;/b&gt;" in r.text
+
+
+def test_bold_md_filter_escapes_each_segment():
+    from app.web.templating import bold_md
+    assert str(bold_md("**a** b")) == "<strong>a</strong> b"
+    assert str(bold_md("no bold here")) == "no bold here"
+    # HTML in both bold and plain segments is escaped; only our tags survive.
+    assert str(bold_md("x <i>y</i> **<b>z</b>**")) == "x &lt;i&gt;y&lt;/i&gt; <strong>&lt;b&gt;z&lt;/b&gt;</strong>"
+    # Unmatched ** stays as escaped literal.
+    assert str(bold_md("a ** b")) == "a ** b"

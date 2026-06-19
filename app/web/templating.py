@@ -1,14 +1,35 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from functools import lru_cache
 from pathlib import Path
 
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup, escape
 
 from app import co_auth
 from app import version as appver
+
+
+_BOLD_MD = re.compile(r"\*\*(.+?)\*\*")
+
+
+def bold_md(text: str) -> Markup:
+    """Render ``**bold**`` spans in changelog bullets without trusting the rest
+    of the string: every segment is HTML-escaped and only the ``<strong>``
+    wrappers we emit are markup (no ``|safe`` on the whole bullet). Unmatched
+    ``**`` is left as escaped literal text."""
+    source = str(text)
+    out = Markup("")
+    pos = 0
+    for match in _BOLD_MD.finditer(source):
+        out += escape(source[pos:match.start()])
+        out += Markup("<strong>") + escape(match.group(1)) + Markup("</strong>")
+        pos = match.end()
+    out += escape(source[pos:])
+    return out
 
 
 APP_ROOT = Path(__file__).resolve().parent.parent
@@ -67,3 +88,4 @@ def theme_context(request: Request) -> dict[str, str]:
 
 templates = Jinja2Templates(directory=APP_ROOT / "templates", context_processors=[theme_context])
 templates.env.globals["asset_url"] = asset_url
+templates.env.filters["bold_md"] = bold_md

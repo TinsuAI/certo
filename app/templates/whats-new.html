@@ -34,7 +34,7 @@
         <strong>{{ s.title }}</strong>
         <ul style="margin: .2rem 0 .2rem 1.1rem;">
           {% for item in s.entries %}
-          <li>{{ item }}</li>
+          <li>{{ item | bold_md }}</li>
           {% endfor %}
         </ul>
       </div>
