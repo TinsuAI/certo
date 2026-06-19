@@ -6,7 +6,7 @@ import logging
 import re
 
 from fastapi import APIRouter
-from app import co_auth, co_stock_eligibility, co_stock_ledger, co_stock_materializer, material_search
+from app import co_auth, co_stock_eligibility, co_stock_ledger, co_stock_materializer, material_search, substitution_history
 from app.bom_store import attach_case_bom_snapshot
 from app.co_case_store import CaseHasActiveClaimsError, MAX_SUPPORTING_FILE_BYTES, build_case_criteria_rows, case_from_record, co_case_is_completed, co_case_status_view, create_case_record, create_case_workbook, declaration_refs, delete_case_record, delete_supporting_file, get_case_record, get_case_workspace, get_supporting_file, invoice_keys, json_safe, safe_filename, save_supporting_file, set_case_archived, update_case_record
 from app.co_form_config_store import load_co_form_config
@@ -233,6 +233,8 @@ def invalidate_co_case_source_cache(client_id: str = "", case_id: str = "") -> N
     ]
     for key in keys_to_drop:
         _CO_CASE_SOURCE_CACHE.pop(key, None)
+    # Locking/reopening a sheet changes which swaps count as committed history.
+    substitution_history.invalidate(client_id)
 def invoice_matches_only(client: dict, shipment: dict) -> list[dict]:
     """Lightweight invoice-match lookup for invoice-preview / search dropdown.
 
@@ -2237,8 +2239,53 @@ async def co_case_origin_sheet_substitute_candidates(
         elif search_error and not error_detail:
             error_detail = search_error
 
-    # Initial sort by score only — re-sorted client-side once stock arrives.
-    candidates.sort(key=lambda item: -item.get("score", 0.0))
+    # Pin previously-used substitutes (mined from THIS client's locked dossiers)
+    # to the top, and inject ones Data Hub never proposed. CO-owned signal — no
+    # Data Hub dependency. See app/substitution_history.py.
+    if material_code:
+        try:
+            prior = substitution_history.get_substitution_history(client).get(material_code, [])
+        except Exception:  # noqa: BLE001
+            prior = []
+        by_code = {c["material_code"]: c for c in candidates}
+        for rank, entry in enumerate(prior):
+            sub = str(entry.get("substitute_code") or "").strip()
+            if not sub:
+                continue
+            meta = {
+                "previously_used": True,
+                "history_count": entry.get("count", 0),
+                "history_last_used": entry.get("last_used", ""),
+                "history_rank": rank,
+            }
+            existing = by_code.get(sub)
+            if existing is not None:
+                existing.update(meta)
+            else:
+                injected = {
+                    "material_code": sub,
+                    "name": entry.get("name", ""),
+                    "category": "",
+                    "hs_code": "",
+                    "score": 0.0,
+                    "raw_scores": {},
+                    "sources": ["co_history"],
+                    "confirmed": False,
+                    "stock": empty_stock_summary(),
+                    "kind": "recommended",
+                    **meta,
+                }
+                candidates.append(injected)
+                by_code[sub] = injected
+
+    # Initial sort: previously-used pinned on top (by history rank = most-used /
+    # most-recent first), then the rest by score. Re-sorted client-side once
+    # stock arrives, but the previously-used pin is preserved there too.
+    candidates.sort(key=lambda item: (
+        0 if item.get("previously_used") else 1,
+        item.get("history_rank", 0),
+        -item.get("score", 0.0),
+    ))
     return JSONResponse({
         "ok": True,
         "product_code": product_code,

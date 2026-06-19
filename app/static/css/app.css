@@ -5191,6 +5191,15 @@ body.co-stock-history-modal-open { overflow: hidden; }
   border-radius: 4px;
 }
 
+.origin-substitute-prior {
+  background: var(--warning-soft);
+  color: var(--warning);
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .origin-substitute-price {
   color: var(--foreground);
   font-variant-numeric: tabular-nums;
