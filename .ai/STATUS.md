@@ -1,11 +1,12 @@
 # Project Status
 
 ## Current State
-- **prod = nightly = `c483673`** (v0.16.0; verified `barry-co.tinsu.ai/version` + `demo-co.tinsu.ai/version`
-  both `c483673`, build 2026-06-19T15:0x). CI/CD green. **`main` is 1 commit AHEAD of `origin/main`:**
-  `56f750d` (docs-only BACKLOG/STATUS reconciliation, **NOT pushed**). Tree clean except `uv.lock`
-  (unrelated, uncommitted). **v0.16.0 RELEASED** (`bfd7aff`) — the 3 features below + CHANGELOG shipped;
-  `c483673` follow-up safely renders `**bold**` in changelog bullets on the "what's new" UI.
+- **`main` = `origin/main` = `cfb3e6e`** (pushed). **prod = nightly = `c483673`** (v0.16.0; verified
+  `barry-co.tinsu.ai/version` + `demo-co.tinsu.ai/version` both `c483673`, build 2026-06-19T15:0x) — the
+  two docs commits on top (`56f750d` reconcile + `cfb3e6e` handoff) are docs-only, so CI/CD will advance
+  prod/nightly git_sha to `cfb3e6e` with no app change. Tree clean except `uv.lock` (unrelated, uncommitted).
+  **v0.16.0 RELEASED** (`bfd7aff`) — the 3 features below + CHANGELOG shipped; `c483673` renders
+  `**bold**` in changelog bullets on the "what's new" UI.
 - **This session shipped 3 features** (all live on `c483673` / v0.16.0):
   1. **NVL thay thế — ưu tiên lịch sử** (`4e40b63`): substitute modal pins materials previously used to
      replace this NVL in past **locked** dossiers to the TOP, badge "↺ đã từng thay ·N", ranked by usage
@@ -61,7 +62,6 @@
   Newly-closed since last backlog edit: **B7** (`cb3504b`), **CS1** (`ca11c37`); **D1** mostly done
   (`2c856da`, only C/E/F + parity left); **B6** re-scoped (toggle works, verify FX only); **DC3b** export
   strips rác render-time. Still-open w/ refreshed refs: **M1**, **DC3a/DC3c**, **#12** (partial), wizard "BOM #N".
-  **First push `56f750d` to origin** so prod/nightly git_sha catches up (docs-only, safe).
 - **Substitution history** (`app/substitution_history.py`): mines `origin_sheet_states[sp].material_overrides`
   across the client's cases; counts ONLY sheets with `status=="locked"` (committed dossiers); keyed by the
   base BOM `material_code` (= what the substitute-candidates route receives). 60s TTL cache, busted via
