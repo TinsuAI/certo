@@ -1891,6 +1891,12 @@ async def load_bom_co_case_origin_sheet(request: Request, client_id: str, case_i
     if context["case"].get("persisted_case_id") and not context.get("origin_demo_active"):
         update_case_record(client, context["case"])
     return templates.TemplateResponse(request=request, name="co_case.html", context=context)
+def calculated_sheet_status(product: dict) -> str:
+    """The status a sheet earns from /calculate. Only a real BOM result becomes
+    'calculated' (→ lockable/exportable); an empty/no-BOM result (lvc_status
+    'missing_bom') stays 'bom_loaded' so it cannot be locked or exported (#13c
+    root cause — previously /calculate set 'calculated' unconditionally)."""
+    return "bom_loaded" if str(product.get("lvc_status") or "") == "missing_bom" else "calculated"
 @router.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/calculate", response_class=HTMLResponse)
 async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_id: str, product_code: str):
     client = resolve_client(client_id)
@@ -1986,7 +1992,15 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
     context["case"] = attach_origin_readiness(context["case"])
     context["case"] = attach_results(context["case"])
     context["case"] = attach_origin_sheet_states(context["case"])
-    context["case"] = set_origin_sheet_status(context["case"], product_code, "calculated")
+    # Root-cause guard (#13c): a calc that found no BOM/NVL (lvc_status
+    # "missing_bom") must NOT advance to "calculated" — that would make an empty
+    # sheet lockable/exportable. Keep it at "bom_loaded" + surface why.
+    target_product = next(
+        (p for p in context["case"].get("products", []) if str(p.get("code") or "").strip() == product_code),
+        {},
+    )
+    sheet_status = calculated_sheet_status(target_product)
+    context["case"] = set_origin_sheet_status(context["case"], product_code, sheet_status)
     target_index = next(
         (
             index
@@ -1997,7 +2011,12 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
     )
     if target_index >= 0:
         context["case"] = mark_origin_sheets_stale(context["case"], target_index + 1)
-        context["case"] = set_origin_sheet_status(context["case"], product_code, "calculated")
+        context["case"] = set_origin_sheet_status(context["case"], product_code, sheet_status)
+    if sheet_status != "calculated":
+        context["error"] = (
+            f"Chưa tính được bảng kê {product_code}: chưa có BOM khai triển đầy đủ. "
+            f"Nạp BOM (Mẫu 16 hoặc BOM đầy đủ) rồi tính lại."
+        )
     context["criteria_rows"] = build_case_criteria_rows(context["case"], context.get("form_candidates", []))
     if context["case"].get("persisted_case_id") and not context.get("origin_demo_active"):
         update_case_record(client, context["case"])
