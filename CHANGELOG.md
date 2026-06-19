@@ -5,6 +5,18 @@ Nhật ký thay đổi của Barry CO dành cho người dùng. Định dạng t
 hưởng tới người dùng (bỏ qua refactor nội bộ, hạ tầng test). Phiên bản theo
 [SemVer](https://semver.org/lang/vi/).
 
+## [0.15.0] — 2026-06-19
+### Mới
+- **Xử lý tuần tự**: nút mới ở bước "Bảng kê C/O" dẫn bạn xử lý từng sản phẩm lần lượt — Tính → xem lại bảng kê → Chốt, rồi tự sang sản phẩm sau theo đúng thứ tự trừ tồn. Có thanh hướng dẫn nổi hiển thị "Bước k/N", tiến độ và LVC; mỗi bước mở thẳng bảng kê để bạn duyệt trước khi chốt. Sản phẩm còn thiếu BOM/đơn giá sẽ báo lý do và không cho chốt cho tới khi sửa.
+- **Ghim BOM mặc định (★)**: cạnh ô chọn phiên bản BOM của mỗi sản phẩm có dấu ★ để ghim phiên bản làm mặc định cho mã thành phẩm đó của khách — hồ sơ C/O sau tự chọn sẵn phiên bản này, khỏi chọn lại. Phiên bản đang là mặc định được đánh dấu trong danh sách.
+### Cải tiến
+- Chọn phiên bản BOM trong ô chọn giờ chỉ áp cho hồ sơ hiện tại; muốn đặt mặc định cho khách thì bấm ★ (trước đây cứ chọn là tự thành mặc định, gây khó hiểu).
+### Sửa lỗi
+- Chặn **chốt/xuất bảng kê** khi còn NVL không xuất xứ **thiếu đơn giá** — vì khi đó VNM thiếu nên LVC chỉ là tạm tính (dễ bị thổi lên ~100%). Cần bổ sung đơn giá rồi tính lại trước khi chốt/xuất. (Bảng kê chỉ thiếu tồn vẫn chốt được như cũ.)
+- Không còn hiện nhãn "★ Mặc định" trên sản phẩm "Chưa có BOM".
+### Thay đổi
+- Tạm khoá 2 nút "Chạy tồn (tất cả SP)" và "Chốt tất cả" (đang xây dựng lại) — dùng "Xử lý tuần tự" để xử lý lần lượt.
+
 ## [0.14.0] — 2026-06-14
 ### Mới
 - Thiết kế lại bước "Bảng kê C/O": bảng tổng quan các sheet (trạng thái, tóm tắt BOM, cấu hình, số cảnh báo); bấm vào một sheet để mở chế độ xem toàn màn hình kiểu Excel với tab sheet ở dưới, dấu 🔒 cho sheet đã chốt, và cấu hình gom vào nút ⚙.
