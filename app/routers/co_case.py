@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 
 from fastapi import APIRouter
 from app import co_auth, co_stock_eligibility, co_stock_ledger, co_stock_materializer, material_search, substitution_history
@@ -11,14 +12,14 @@ from app.bom_store import attach_case_bom_snapshot
 from app.co_case_store import CaseHasActiveClaimsError, MAX_SUPPORTING_FILE_BYTES, build_case_criteria_rows, case_from_record, co_case_is_completed, co_case_status_view, create_case_record, create_case_workbook, declaration_refs, delete_case_record, delete_supporting_file, get_case_record, get_case_workspace, get_supporting_file, invoice_keys, json_safe, safe_filename, save_supporting_file, set_case_archived, update_case_record
 from app.co_form_config_store import load_co_form_config
 from app.co_forms import prioritized_form_lanes, recommended_form_lane
-from app.data_hub_client import current_data_hub_token
+from app.data_hub_client import current_data_hub_token, normalize_material_row
 from app.data_hub_settings import data_hub_link_settings
 from app.demo_data import attach_results, update_products_from_form
 from app.dossier_export_service import dossier_export_result_path, dossier_export_status, submit_dossier_export
 from app.portfolio import portfolio_service
 from app.source_store import co_stock_rows_from_bcct
 from app.web.client_context import default_client_case, effective_min_gap_days, resolve_client, source_workspace_for_client
-from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, attach_origin_sheet_states, case_allocation_pool, case_missing_stock_summary, case_stock_preview_summary, case_tkx_tkn_summary, co_case_context, co_case_source_context, co_case_source_context_cached, co_stock_is_usable, dossier_content_revision, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, material_row_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, origin_case_revision, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
+from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, OVERRIDE_HISTORY_MAX, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, attach_origin_sheet_states, case_allocation_pool, case_missing_stock_summary, case_stock_preview_summary, case_tkx_tkn_summary, clean_override_stack, co_case_context, co_case_source_context, co_case_source_context_cached, co_stock_is_usable, dossier_content_revision, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, material_row_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, origin_case_revision, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
 from app.web.deps import large_request_form
 from app.web.templating import templates
 from app.workbook_io import create_dossier_zip, create_hq_bang_ke_workbook
@@ -515,6 +516,50 @@ def declaration_invoice_matches(client: dict, query: str, exact: bool, include_i
             continue
         matches.append({**row, "invoice_ref": invoice_ref})
     return matches
+_MATERIAL_CATALOG_CACHE: dict[str, tuple[float, list[dict]]] = {}
+_MATERIAL_CATALOG_TTL_SECONDS = 90.0
+
+
+def _material_catalog_rows(client: dict) -> list[dict]:
+    """The materials catalog ONLY (one list_materials pagination, no 65k BCCT pull).
+
+    The fast origin paths (/calculate, load-bom, edited-sheet recalc, whole-case
+    preview) build their source context from the materialized CO-stock snapshot,
+    which carries material_rows=[]. Without the catalog, NVL names resolve ONLY
+    from a matched CO-stock lot, so every NVL that does not match a lot exports
+    with a BLANK name (bảng kê "trống"). Pull the catalog — cheap next to the BCCT
+    corpus — and TTL-cache it so wizard/batch flows don't refetch per sheet."""
+    client_id = str(client.get("id", ""))
+    if not client_id:
+        return []
+    now = time.time()
+    cached = _MATERIAL_CATALOG_CACHE.get(client_id)
+    if cached and now - cached[0] < _MATERIAL_CATALOG_TTL_SECONDS:
+        return cached[1]
+    data_hub = getattr(portfolio_service, "data_hub", None)
+    if data_hub is None or not hasattr(data_hub, "list_materials"):
+        return []
+    try:
+        rows = [
+            normalize_material_row(row)
+            for row in data_hub.list_materials(client_id)
+            if row.get("category") != "tp"
+        ]
+    except Exception:  # noqa: BLE001
+        return []
+    if rows:
+        _MATERIAL_CATALOG_CACHE[client_id] = (now, rows)
+    return rows
+
+
+def _ensure_origin_material_rows(client: dict, material_rows: list[dict]) -> list[dict]:
+    """Guarantee the bảng kê builder gets the materials catalog.
+
+    The fast origin source context omits material_rows for speed; fall back to a
+    cached catalog-only pull so NVL names always resolve (see _material_catalog_rows)."""
+    return list(material_rows) if material_rows else _material_catalog_rows(client)
+
+
 def recalculate_origin_sheet_edits(client: dict, case: dict, product_code: str, *, min_gap_days: int | None = None) -> dict:
     """Recompute one sheet from its saved sheet edits, without changing BOM selection."""
     prepared = attach_origin_sheet_states(case)
@@ -565,7 +610,9 @@ def recalculate_origin_sheet_edits(client: dict, case: dict, product_code: str, 
             except Exception:  # noqa: BLE001
                 source_context = {"material_rows": [], "stock_rows": []}
                 stock_rows = []
-    material_index = material_catalog_index(source_context.get("material_rows") or [])
+    material_index = material_catalog_index(
+        _ensure_origin_material_rows(client, source_context.get("material_rows") or [])
+    )
     cached_matches = case.get("source_invoice_matches") if isinstance(case.get("source_invoice_matches"), list) else []
     stock_pool = case_allocation_pool(prepared, cached_matches, stock_rows, min_gap_days=min_gap_days)
     for previous in products[:target_index]:
@@ -1224,6 +1271,9 @@ async def export_co_case_bang_ke_workbook(request: Request, client_id: str, case
             update_case_record(client, case)
         except KeyError:
             pass
+    # Export is a PURE renderer (legal view only) — no extra business logic here.
+    # Classification (customs_relevance → rác/unmatched stripping) is decided at
+    # the "Tính bảng kê" step so the web grid and the exported file are identical.
     content = create_hq_bang_ke_workbook(case)
     filename = safe_filename(f"{case['case_code'] or 'co-case'}-bang-ke-hq.xlsx")
     return StreamingResponse(
@@ -1596,7 +1646,7 @@ def whole_case_stock_summary(client: dict, case: dict, context: dict, stock_rows
     invoice_matches = source_context.get("invoice_matches", [])
     bom_workspace = context.get("bom_workspace", minimal_bom_workspace())
     form_lane = context.get("recommended_form_lane", {})
-    material_rows = source_context.get("material_rows", [])
+    material_rows = _ensure_origin_material_rows(client, source_context.get("material_rows", []))
     case = attach_origin_sheet_states(dict(case))
     case.pop("origin_snapshot", None)
     states = case.get("origin_sheet_states") or {}
@@ -1875,7 +1925,7 @@ async def load_bom_co_case_origin_sheet(request: Request, client_id: str, case_i
         source_context.get("invoice_matches", []),
         context.get("bom_workspace", minimal_bom_workspace()),
         context.get("recommended_form_lane", {}),
-        source_context.get("material_rows", []),
+        _ensure_origin_material_rows(client, source_context.get("material_rows", [])),
         [],  # stock_rows — Load BOM không đụng tồn
         min_gap_days=min_gap_days,
         allocate=False,
@@ -1913,61 +1963,28 @@ def calculated_sheet_status(product: dict) -> str:
     if product.get("lvc_missing_price"):
         return "bom_loaded"
     return "calculated"
-@router.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/calculate", response_class=HTMLResponse)
-async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_id: str, product_code: str):
-    client = resolve_client(client_id)
-    case, _payload = await origin_case_from_request(request, client, case_id)
-    try:
-        persisted = get_case_record(client, case_id)
-        if persisted.get("origin_sheet_states"):
-            case["origin_sheet_states"] = dict(persisted.get("origin_sheet_states") or {})
-    except KeyError:
-        pass
-    action_error = origin_sheet_action_error(case, product_code, "calculate")
-    if action_error:
-        return templates.TemplateResponse(
-            request=request,
-            name="co_case.html",
-            status_code=409,
-            context=co_case_context(
-                client_id,
-                case_id,
-                current_step="origin",
-                case=case,
-                error=action_error,
-                preserve_origin_products=True,
-                fast_origin_context=True,
-            ),
-        )
-    # Fast path: delta-refresh the materialized stock snapshot (1-2s when
-    # the upstream BCCT is quiet, vs 30-45s for a full DH pull every time)
-    # and read stock rows from co_stock_rows directly. invoice_matches +
-    # material_rows are pulled through the cached snapshot the shipment
-    # step already populated. Falls back to the legacy full-pull path when
-    # the snapshot is empty (fresh client) or delta refresh errored, so we
-    # never silently calculate against stale data.
+def _recompute_origin_sheet_context(
+    client: dict, client_id: str, case_id: str, case: dict, product_code: str, message: str
+) -> dict:
+    """Recompute one origin sheet from its (possibly overridden) state and return
+    the render context. Shared by /calculate and the override undo/redo routes so
+    a sheet always recomputes through the SAME fast-path + catalog-aware build.
+
+    Fast path: delta-refresh the materialized stock snapshot and read stock rows
+    from co_stock_rows directly (1-2s) instead of the ~30-45s full DH pull; fall
+    back to the full pull when the snapshot is empty/errored."""
     snapshot_stock_rows = _calculate_stock_rows_from_snapshot(client)
     if snapshot_stock_rows is not None:
         context = co_case_context(
-            client_id,
-            case_id,
-            current_step="origin",
-            case=case,
-            message=f"Đã tính bảng kê {product_code}.",
-            preserve_origin_products=True,
-            cached_case_context=True,
+            client_id, case_id, current_step="origin", case=case, message=message,
+            preserve_origin_products=True, cached_case_context=True,
         )
         source_context = context.get("origin_source_context", {})
         stock_rows = snapshot_stock_rows
     else:
         context = co_case_context(
-            client_id,
-            case_id,
-            current_step="origin",
-            case=case,
-            message=f"Đã tính bảng kê {product_code}.",
-            preserve_origin_products=True,
-            force_source_refresh=True,
+            client_id, case_id, current_step="origin", case=case, message=message,
+            preserve_origin_products=True, force_source_refresh=True,
         )
         source_context = context.get("origin_source_context", {})
         stock_rows = source_context.get("stock_rows", [])
@@ -1984,8 +2001,7 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
     ).get("material_overrides")
     if target_overrides:
         # DU1 — GIỮ chỉnh sửa NVL: tính lại từ override (như đường "Lưu") thay vì
-        # khai triển tươi từ BOM artifact (sẽ vứt chỉnh sửa). Hỗ trợ luồng
-        # Load BOM → sửa NVL → Tính bảng kê.
+        # khai triển tươi từ BOM artifact (sẽ vứt chỉnh sửa).
         context["case"] = recalculate_origin_sheet_edits(
             client, context["case"], product_code, min_gap_days=min_gap_days
         )
@@ -1996,7 +2012,7 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
             source_context.get("invoice_matches", []),
             context.get("bom_workspace", minimal_bom_workspace()),
             context.get("recommended_form_lane", {}),
-            source_context.get("material_rows", []),
+            _ensure_origin_material_rows(client, source_context.get("material_rows", [])),
             stock_rows,
             min_gap_days=min_gap_days,
         )
@@ -2042,6 +2058,36 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
     context["criteria_rows"] = build_case_criteria_rows(context["case"], context.get("form_candidates", []))
     if context["case"].get("persisted_case_id") and not context.get("origin_demo_active"):
         update_case_record(client, context["case"])
+    return context
+@router.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/calculate", response_class=HTMLResponse)
+async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_id: str, product_code: str):
+    client = resolve_client(client_id)
+    case, _payload = await origin_case_from_request(request, client, case_id)
+    try:
+        persisted = get_case_record(client, case_id)
+        if persisted.get("origin_sheet_states"):
+            case["origin_sheet_states"] = dict(persisted.get("origin_sheet_states") or {})
+    except KeyError:
+        pass
+    action_error = origin_sheet_action_error(case, product_code, "calculate")
+    if action_error:
+        return templates.TemplateResponse(
+            request=request,
+            name="co_case.html",
+            status_code=409,
+            context=co_case_context(
+                client_id,
+                case_id,
+                current_step="origin",
+                case=case,
+                error=action_error,
+                preserve_origin_products=True,
+                fast_origin_context=True,
+            ),
+        )
+    context = _recompute_origin_sheet_context(
+        client, client_id, case_id, case, product_code, f"Đã tính bảng kê {product_code}."
+    )
     return templates.TemplateResponse(request=request, name="co_case.html", context=context)
 @router.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/lock", response_class=HTMLResponse)
 async def lock_co_case_origin_sheet(request: Request, client_id: str, case_id: str, product_code: str):
@@ -2891,9 +2937,22 @@ async def co_case_origin_sheet_save(
             }
             counts["adds"] += 1
 
+    # Push the PRE-save override snapshot onto the per-sheet undo stack so the
+    # operator can revert a too-fast autosave (a fresh save invalidates redo).
+    # Each entry is the small material_overrides map, bounded in clean_override_stack.
+    prior_overrides = {
+        str(k): dict(v)
+        for k, v in (previous.get("material_overrides") or {}).items()
+        if isinstance(v, dict)
+    }
+    override_history = clean_override_stack(previous.get("override_history"))
+    if overrides != prior_overrides:
+        override_history = clean_override_stack([*override_history, prior_overrides])
     states[product_code] = {
         **previous,
         "material_overrides": overrides,
+        "override_history": override_history,
+        "override_redo": [],
         "status": "calculated",
         "status_label": ORIGIN_SHEET_STATUS_LABELS["calculated"],
     }
@@ -2940,6 +2999,54 @@ async def co_case_origin_sheet_save(
         "origin_product_order": origin_product_order(case),
         "origin_sheet_states": json_safe(case.get("origin_sheet_states", {})),
     })
+async def _origin_sheet_history_step(
+    request: Request, client_id: str, case_id: str, product_code: str, *, direction: str
+):
+    """Server-side per-sheet override UNDO/REDO. Walks the override_history /
+    override_redo stacks (set on each /save), restores the chosen material_overrides
+    snapshot, and recomputes the sheet through the SAME path as /calculate so the
+    reverted bảng kê renders immediately. This is what makes 'giữ undo qua lần lưu'
+    correct: the client can't undo a saved change alone because /save is
+    override-delta-based and each save swaps the sheet DOM."""
+    client = resolve_client(client_id)
+    case = persisted_origin_case(client, case_id)
+    reject_if_sheet_locked(case, product_code)
+    states = dict(case.get("origin_sheet_states") or {})
+    sheet = dict(states.get(product_code)) if isinstance(states.get(product_code), dict) else {}
+    history = clean_override_stack(sheet.get("override_history"))
+    redo = clean_override_stack(sheet.get("override_redo"))
+    current = {
+        str(k): dict(v)
+        for k, v in (sheet.get("material_overrides") or {}).items()
+        if isinstance(v, dict)
+    }
+    if direction == "undo":
+        if not history:
+            raise HTTPException(status_code=409, detail="Không còn bước nào để lùi (hoàn tác).")
+        restored = history[-1]
+        history = history[:-1]
+        redo = clean_override_stack([*redo, current])
+        message = f"Đã lùi một bước chỉnh sửa trên bảng kê {product_code}."
+    else:
+        if not redo:
+            raise HTTPException(status_code=409, detail="Không còn bước nào để tiến (làm lại).")
+        restored = redo[-1]
+        redo = redo[:-1]
+        history = clean_override_stack([*history, current])
+        message = f"Đã làm lại một bước chỉnh sửa trên bảng kê {product_code}."
+    sheet["material_overrides"] = restored
+    sheet["override_history"] = history
+    sheet["override_redo"] = redo
+    states[product_code] = sheet
+    case["origin_sheet_states"] = states
+    context = _recompute_origin_sheet_context(client, client_id, case_id, case, product_code, message)
+    return templates.TemplateResponse(request=request, name="co_case.html", context=context)
+@router.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/undo", response_class=HTMLResponse)
+async def undo_co_case_origin_sheet(request: Request, client_id: str, case_id: str, product_code: str):
+    return await _origin_sheet_history_step(request, client_id, case_id, product_code, direction="undo")
+@router.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/redo", response_class=HTMLResponse)
+async def redo_co_case_origin_sheet(request: Request, client_id: str, case_id: str, product_code: str):
+    return await _origin_sheet_history_step(request, client_id, case_id, product_code, direction="redo")
 async def read_json_or_form(request: Request) -> dict:
     content_type = request.headers.get("content-type", "")
     if "application/json" in content_type:

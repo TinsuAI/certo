@@ -1356,10 +1356,12 @@
               {% endif %}
             </div>
             {% if product.origin_sheet_status != 'locked' %}
-            <div data-origin-edit-toolbar data-origin-dirty-banner class="origin-dirty-banner origin-dirty-banner-clean">
+            <div data-origin-edit-toolbar data-origin-dirty-banner class="origin-dirty-banner origin-dirty-banner-clean"
+                 data-origin-undo-count="{{ product.origin_sheet_undo_count or 0 }}"
+                 data-origin-redo-count="{{ product.origin_sheet_redo_count or 0 }}">
               <span data-origin-dirty-msg>✓ Đã lưu</span>
-              <button type="button" class="btn-secondary" data-origin-history-undo title="Lùi (Ctrl+Z)" aria-label="Lùi" disabled>↶</button>
-              <button type="button" class="btn-secondary" data-origin-history-redo title="Tiến (Ctrl+Y)" aria-label="Tiến" disabled>↷</button>
+              <button type="button" class="btn-secondary" data-origin-history-undo title="Lùi (Ctrl+Z) — hoàn tác kể cả sau khi đã lưu" aria-label="Lùi" disabled>↶</button>
+              <button type="button" class="btn-secondary" data-origin-history-redo title="Tiến (Ctrl+Y) — làm lại" aria-label="Tiến" disabled>↷</button>
               <button type="button" class="btn-primary" data-origin-save-now title="Lưu bảng kê" disabled>Lưu</button>
               <button type="button" class="btn-secondary" data-origin-discard title="Bỏ thay đổi" aria-label="Bỏ thay đổi" disabled>✕</button>
             </div>
@@ -1518,9 +1520,9 @@
                 {% set effective_norm = (norm_override.norm_per_unit if norm_override and norm_override.norm_per_unit) or material.bom_qty_per %}
                 {% set _row_non_origin_base = material.non_origin_cif_value or (material.material_value if material.origin_status != 'origin' else '0') or '0' %}
                 {% set _row_deleted = material.deleted or (norm_override and norm_override.deleted) %}
-                {% set _row_folded = _row_deleted or (material.bom_technical_noise and not material.declarable_unmatched) %}
+                {% set _row_folded = _row_deleted or material.bom_technical_noise %}
                 <tr class="{{ 'origin-row-warning' if material.material_warnings else '' }}{{ ' origin-row-foldable' if _row_folded else '' }}{{ ' origin-row-deleted-folded' if _row_deleted else '' }}"
-                    {% if _row_folded %}data-origin-fold-kind="{{ 'deleted' if _row_deleted else 'non-material' }}"{% endif %}
+                    {% if _row_folded %}data-origin-fold-kind="{{ 'deleted' if _row_deleted else ('unmatched' if material.declarable_unmatched else 'non-material') }}"{% endif %}
                     data-origin-material-row
                     data-allocation-group="{{ allocation_group }}"
                     data-row-no-stock="{{ '1' if allocation_count == 0 else '0' }}"
@@ -1536,6 +1538,10 @@
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_import_declaration_no" value="{{ material.import_declaration_no }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_import_line_no" value="{{ material.import_line_no }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_customs_material_code" value="{{ material.customs_material_code }}">
+                    {# DH declarability class, set at "Tính bảng kê". Round-trips through the export
+                       form so the exported file strips rác/declarable_unmatched EXACTLY like the web grid
+                       folds them — the export adds no logic of its own. #}
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_customs_relevance" value="{{ material.customs_relevance }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_material_sequence" value="{{ material.material_sequence or loop.index }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_status" value="{{ material.allocation_status }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_shortage_qty" value="{{ material.allocation_shortage_qty }}">
@@ -1603,7 +1609,7 @@
                       {% if _internal_code and _internal_code != substitute_label %}<small class="meta" title="Mã nội bộ — dùng để tra cứu/khớp tồn, không xuất ra bảng kê HQ">nội bộ: {{ _internal_code }}</small>{% endif %}
                       {% if row_override and row_override.material_code and row_override.material_code != substitute_label %}<small class="origin-material-code-override-mark">→ {{ row_override.material_code }}</small>{% endif %}
                       {% if row_override and row_override.deleted %}<small class="origin-material-code-override-mark">(đã xoá)</small>{% endif %}
-                      {% if material.declarable_unmatched %}<small class="origin-material-code-override-mark" title="NVL thật nhưng chưa khớp tờ khai nhập (chưa có HS/CIF) — cần đối soát trước khi phát hành C/O">⚠ chưa khớp · cần đối soát</small>
+                      {% if material.declarable_unmatched %}<small class="origin-material-code-override-mark" title="NVL thật nhưng chưa khớp tờ khai nhập (chưa có HS/CIF) — KHÔNG xuất ra bảng kê tới khi đối soát; bảng kê web và file xuất giống nhau">⚠ chưa khớp · không xuất (cần đối soát)</small>
                       {% elif material.bom_technical_noise %}<small class="origin-material-code-override-mark" title="Phi vật tư (bản vẽ/nhãn/tài liệu) — không xuất ra bảng kê">(phi vật tư · không xuất)</small>{% endif %}
                     </button>
                   </td>
@@ -5011,8 +5017,12 @@
     const undo = banner.querySelector("[data-origin-history-undo]");
     const redo = banner.querySelector("[data-origin-history-redo]");
     const save = banner.querySelector("[data-origin-save-now]");
-    if (undo) undo.disabled = history.past.length === 0;
-    if (redo) redo.disabled = history.future.length === 0;
+    // Server-side override history (survives save/reload) backs undo/redo even
+    // when there are no unsaved client-side snapshots in this panel.
+    const serverUndo = Number(banner.dataset.originUndoCount || 0);
+    const serverRedo = Number(banner.dataset.originRedoCount || 0);
+    if (undo) undo.disabled = history.past.length === 0 && serverUndo <= 0;
+    if (redo) redo.disabled = history.future.length === 0 && serverRedo <= 0;
     if (save && !save.dataset.saving) save.disabled = !hasUnsavedEdits(panel);
   };
 
@@ -5066,6 +5076,33 @@
     history.applying = true;
     restoreSheetSnapshot(panel, next);
     history.applying = false;
+  };
+
+  // Server-side undo/redo: walks the persisted per-sheet override history so a
+  // mistake survives the autosave (which swaps the sheet DOM + persists an
+  // override delta the client can't reverse alone). Mirrors triggerSave's error
+  // handling; success re-renders the reverted sheet in place.
+  const serverHistoryStep = async (panel, direction) => {
+    if (!panel) return;
+    const productCode = panel.dataset.productCode || "";
+    const url = `/clients/${encodeURIComponent(currentClientId())}/co-case/${encodeURIComponent(currentCaseId())}/origin/sheet/${encodeURIComponent(productCode)}/${direction}`;
+    try {
+      const response = await fetch(url, {method: "POST", headers: {"Accept": "text/html"}});
+      if (!response.ok) {
+        const text = await response.text();
+        let detail = "";
+        try { detail = JSON.parse(text).detail || ""; } catch (_e) { detail = text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 220); }
+        toast(detail || `Không ${direction === "undo" ? "lùi (hoàn tác)" : "tiến (làm lại)"} được.`, "error");
+        return;
+      }
+      await replaceCaseShellFromResponse(
+        response,
+        direction === "undo" ? "Đã lùi một bước." : "Đã làm lại một bước.",
+        {activeOriginProductCode: productCode},
+      );
+    } catch (err) {
+      toast(`Lỗi mạng: ${err}`, "error");
+    }
   };
 
   const syncNormEditOp = (input) => {
@@ -5206,7 +5243,12 @@
   // replaceCaseShellFromResponse, which replaces the panel DOM). The per-panel
   // guard above keeps a re-scan idempotent for already-wired nodes.
   const initSheetBulkDelete = (root = document) => {
-    root.querySelectorAll("[data-origin-sheet-panel]").forEach(wireSheetBulkDelete);
+    root.querySelectorAll("[data-origin-sheet-panel]").forEach((panel) => {
+      wireSheetBulkDelete(panel);
+      // Buttons render disabled; enable undo/redo from the server-persisted
+      // override history so post-save undo works on a fresh load / after a swap.
+      updateSheetHistoryButtons(panel);
+    });
   };
 
   const clearSheetDirty = (panel) => {
@@ -5234,8 +5276,15 @@
     if (!btn || btn.disabled) return;
     const panel = btn.closest("[data-origin-sheet-panel]");
     if (!panel) return;
-    if (btn.matches("[data-origin-history-undo]")) undoSheetEdit(panel);
-    else if (btn.matches("[data-origin-history-redo]")) redoSheetEdit(panel);
+    if (btn.matches("[data-origin-history-undo]")) {
+      // Fine-grained client undo for unsaved edits; once those are exhausted,
+      // fall back to the persisted server override history (post-save undo).
+      if ((sheetHistory(panel).past || []).length > 0) undoSheetEdit(panel);
+      else serverHistoryStep(panel, "undo");
+    } else if (btn.matches("[data-origin-history-redo]")) {
+      if ((sheetHistory(panel).future || []).length > 0) redoSheetEdit(panel);
+      else serverHistoryStep(panel, "redo");
+    }
     else if (btn.matches("[data-origin-save-now]")) triggerSave(panel);
     else if (btn.matches("[data-origin-discard]")) {
       if (confirm("Bỏ tất cả thay đổi chưa lưu trên sheet này?")) window.location.assign(currentOriginUrl() || window.location.pathname);
@@ -5246,7 +5295,28 @@
   // their own — "thay NVL" no longer needs a manual Lưu. Batched on purpose so a
   // bulk delete + thay re-allocates ONCE (not per row), and it never yanks focus
   // mid-edit nor overlaps an in-flight save (it re-arms instead).
-  const AUTO_SAVE_DELAY_MS = 2000;
+  // Auto-save delay is CONFIGURABLE so a too-fast save can't clobber a mistake
+  // before the operator fixes it. Precedence: localStorage `coAutoSaveDelayMs`
+  // (ms) → server-injected window.CO_AUTOSAVE_DELAY_MS → 30s default. Floored at
+  // 2s so it can never thrash. Support/power users can persist a per-browser
+  // value with coSetAutoSaveDelay(seconds) from the console.
+  const AUTO_SAVE_DELAY_DEFAULT_MS = 30000;
+  const AUTO_SAVE_DELAY_MIN_MS = 2000;
+  const autoSaveDelayMs = () => {
+    const candidates = [
+      Number(window.localStorage?.getItem("coAutoSaveDelayMs")),
+      Number(window.CO_AUTOSAVE_DELAY_MS),
+    ];
+    for (const value of candidates) {
+      if (Number.isFinite(value) && value >= AUTO_SAVE_DELAY_MIN_MS) return value;
+    }
+    return AUTO_SAVE_DELAY_DEFAULT_MS;
+  };
+  window.coSetAutoSaveDelay = (seconds) => {
+    const ms = Math.max(AUTO_SAVE_DELAY_MIN_MS, Math.round(Number(seconds) * 1000) || 0);
+    window.localStorage?.setItem("coAutoSaveDelayMs", String(ms));
+    return ms / 1000;
+  };
   // Staged substitute/add/delete live in __pendingOps; ĐM edits only land there
   // at save-time (sweep), so also treat a diverged norm input as unsaved.
   const hasUnsavedEdits = (panel) => {
@@ -5259,7 +5329,7 @@
     if (!panel) return;
     window.clearTimeout(panel.__autoSaveTimer);
     if (!hasUnsavedEdits(panel)) return;
-    panel.__autoSaveTimer = window.setTimeout(() => maybeAutoSave(panel), AUTO_SAVE_DELAY_MS);
+    panel.__autoSaveTimer = window.setTimeout(() => maybeAutoSave(panel), autoSaveDelayMs());
   };
   const maybeAutoSave = (panel) => {
     if (!panel || !panel.isConnected) return;
@@ -5267,7 +5337,7 @@
     const active = document.activeElement;
     const editingHere = active && panel.contains(active) && active.matches?.("input, select, textarea");
     if (editingHere || panel.__originSaveInFlight) {
-      panel.__autoSaveTimer = window.setTimeout(() => maybeAutoSave(panel), AUTO_SAVE_DELAY_MS);
+      panel.__autoSaveTimer = window.setTimeout(() => maybeAutoSave(panel), autoSaveDelayMs());
       return;
     }
     triggerSave(panel, {auto: true});
@@ -6092,7 +6162,7 @@
         });
         toggle?.setAttribute("aria-expanded", folded ? "false" : "true");
         if (caret) caret.textContent = folded ? "▸" : "▾";
-        if (label) label.innerHTML = `${folded ? "Hiện" : "Ẩn"} <strong>${foldRows.length}</strong> dòng đã loại (đã xoá · phi vật tư)`;
+        if (label) label.innerHTML = `${folded ? "Hiện" : "Ẩn"} <strong>${foldRows.length}</strong> dòng KHÔNG xuất ra bảng kê (đã xoá · phi vật tư · chưa khớp tờ khai)`;
         renumber();
       };
       summary.hidden = false;

@@ -294,6 +294,11 @@ Tách khỏi D1.
 - **Index (case list) 4.27s johnson-vn** — N+1 `co_stock_ledger.claims_summary_for_case`
   (`co_case_context.py:2760-2767`) per-case + `co_stock_summary` + source context. Batch/đổi 1 query.
 - **(Optional) `/calculate` lot-scoping** — scope stock theo lô của sản phẩm (~540ms/calc).
+- **P2 — fast `/calculate` giờ pull thêm catalog (2026-06-25).** Fix bảng-kê-trống (`#1A`) thêm
+  `_material_catalog_rows` (`co_case.py`, ~13k NVL johnson, TTL 90s) vào fast path để có tên +
+  `customs_relevance`. Đúng-đắn nhưng re-Tín nhích chậm vài giây ở lần đầu. **Tối ưu:** materialize
+  sẵn `customs_relevance` + tên vào **snapshot tồn CO** (`co_stock_rows`/source snapshot) để fast path
+  khỏi pull catalog riêng — khi đó fast `/calculate` chỉ đọc snapshot. Cần bàn shape snapshot + invalidation.
 
 <details><summary>Triệu chứng + đo gốc (giữ lại)</summary>
 

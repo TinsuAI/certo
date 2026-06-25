@@ -669,6 +669,7 @@ def case_from_form(form: dict[str, str]) -> dict:
                 "material_code": form.get(material_prefix + "material_code", ""),
                 "material_sequence": form.get(material_prefix + "material_sequence", str(material_index + 1)),
                 "customs_material_code": form.get(material_prefix + "customs_material_code", ""),
+                "customs_relevance": form.get(material_prefix + "customs_relevance", ""),
                 "internal_material_code": form.get(material_prefix + "internal_material_code", ""),
                 "material_description": form.get(material_prefix + "material_description", ""),
                 "hs_code": form.get(material_prefix + "hs_code", ""),

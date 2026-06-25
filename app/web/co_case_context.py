@@ -1163,6 +1163,26 @@ def _attach_fob_vnd(product: dict) -> None:
             return
     product["fob_vnd"] = ""
     product["fob_fx_source"] = "missing"
+OVERRIDE_HISTORY_MAX = 25
+
+
+def clean_override_stack(stack) -> list[dict]:
+    """Sanitize a per-sheet override undo/redo stack to JSON-safe snapshots.
+
+    Each entry is a `material_overrides` map (row_key -> override dict). Bounded
+    to the most recent OVERRIDE_HISTORY_MAX so the case JSON can't grow without
+    limit across a long editing session."""
+    cleaned: list[dict] = []
+    for snapshot in stack or []:
+        if isinstance(snapshot, dict):
+            cleaned.append({
+                str(key): dict(value)
+                for key, value in snapshot.items()
+                if isinstance(value, dict)
+            })
+    return cleaned[-OVERRIDE_HISTORY_MAX:]
+
+
 def attach_origin_sheet_states(case: dict) -> dict:
     products = case.get("products", [])
     existing = case.get("origin_sheet_states") if isinstance(case.get("origin_sheet_states"), dict) else {}
@@ -1238,6 +1258,15 @@ def attach_origin_sheet_states(case: dict) -> dict:
         material_overrides = raw_state.get("material_overrides") if isinstance(raw_state.get("material_overrides"), dict) else {}
         # Carry overrides on the sheet state so they round-trip through save/calculate.
         state["material_overrides"] = {str(k): dict(v) for k, v in material_overrides.items() if isinstance(v, dict)}
+        # Per-sheet override UNDO/REDO stacks (each entry = a prior material_overrides
+        # snapshot). attach_* rebuilds the sheet state from a whitelist, so these
+        # MUST be carried here or they'd be wiped on every recompute/render. They
+        # are what makes undo survive a save (the DOM-swap + override-delta save
+        # model can't be undone client-side alone).
+        state["override_history"] = clean_override_stack(raw_state.get("override_history"))
+        state["override_redo"] = clean_override_stack(raw_state.get("override_redo"))
+        product["origin_sheet_undo_count"] = len(state["override_history"])
+        product["origin_sheet_redo_count"] = len(state["override_redo"])
         diff_added = sum(1 for v in state["material_overrides"].values() if v.get("added"))
         diff_removed = sum(1 for v in state["material_overrides"].values() if v.get("deleted"))
         diff_replaced = sum(
@@ -2145,8 +2174,38 @@ def origin_material_from_bom_row(
     else:
         valuation_status = "ready"
     material_warnings = []
-    material_description = row.get("material_name") or material.get("name", "") or stock.get("material_description", "")
-    hs_code = row.get("hs_code") or material.get("hs_code", "") or stock.get("hs_code", "")
+    # Name precedence: BOM-row → catalog → matched CO-stock/BCCT lot. When the
+    # catalog has no entry/name for the code, fall back to ANY matched stock
+    # candidate that carries a description (the exact lot for this NVL) so the
+    # bảng kê never ships a nameless row for a material that IS in CO-stock/BCCT.
+    stock_name_fallback = next(
+        (
+            str(candidate.get("material_description") or "").strip()
+            for candidate in stock_candidates
+            if str(candidate.get("material_description") or "").strip()
+        ),
+        "",
+    )
+    material_description = (
+        row.get("material_name")
+        or material.get("name", "")
+        or stock.get("material_description", "")
+        or stock_name_fallback
+    )
+    stock_hs_fallback = next(
+        (
+            str(candidate.get("hs_code") or "").strip()
+            for candidate in stock_candidates
+            if str(candidate.get("hs_code") or "").strip()
+        ),
+        "",
+    )
+    hs_code = (
+        row.get("hs_code")
+        or material.get("hs_code", "")
+        or stock.get("hs_code", "")
+        or stock_hs_fallback
+    )
     if valuation_status == "missing_unit_value":
         material_warnings.append(f"{material_code}: thiếu đơn giá để tính trị giá NVL/VNM.")
     if mixed_allocation_currency:
