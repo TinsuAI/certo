@@ -16,6 +16,7 @@ from app.data_hub_client import current_data_hub_token, normalize_material_row
 from app.data_hub_settings import data_hub_link_settings
 from app.demo_data import attach_results, update_products_from_form
 from app.dossier_export_service import dossier_export_result_path, dossier_export_status, submit_dossier_export
+from app.origin_material_filters import is_bom_technical_noise
 from app.portfolio import portfolio_service
 from app.source_store import co_stock_rows_from_bcct
 from app.web.client_context import default_client_case, effective_min_gap_days, resolve_client, source_workspace_for_client
@@ -1957,10 +1958,18 @@ def calculated_sheet_status(product: dict) -> str:
     - lvc_missing_price — a non-originating NVL is missing đơn giá, so VNM is
       understated and LVC is only tạm-tính (would ship a provisional LVC).
     A SHORTAGE sheet keeps its prices (lvc_missing_price False) → stays
-    'calculated'/lockable (Mục 6 unaffected)."""
+    'calculated'/lockable (Mục 6 unaffected).
+
+    Also stays 'bom_loaded' when:
+    - lvc_declarable_unmatched — a declarable NVL has no BCCT import match (DC3c):
+      export-excluded and its value/origin still unresolved (when non-origin it is
+      zeroed into VNM, inflating LVC). Block issuance until it is matched or
+      substituted."""
     if str(product.get("lvc_status") or "") == "missing_bom":
         return "bom_loaded"
     if product.get("lvc_missing_price"):
+        return "bom_loaded"
+    if product.get("lvc_declarable_unmatched"):
         return "bom_loaded"
     return "calculated"
 def _recompute_origin_sheet_context(
@@ -2693,6 +2702,12 @@ def build_bom_proposal_rows(product: dict, overrides: dict) -> list[dict]:
     for index, material in enumerate(materials):
         override = overrides.get(str(index)) if isinstance(overrides.get(str(index)), dict) else {}
         if override.get("deleted") or material.get("deleted"):
+            continue
+        # DC3a: propose "đồng nhất với bảng kê" — drop the same rác/unmatched the
+        # export excludes, so the proposed BOM matches what is declared. Skip only
+        # when the row is NOT deliberately substituted (a substitute override is a
+        # real replacement of the noise original → keep it).
+        if not override.get("material_code") and is_bom_technical_noise(material):
             continue
         material_code = override.get("material_code") or material.get("material_code") or material.get("internal_material_code")
         qty = override.get("norm_per_unit") or material.get("bom_qty_per") or "0"

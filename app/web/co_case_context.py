@@ -1386,10 +1386,14 @@ def origin_sheet_export_blockers(case: dict) -> list[str]:
     for product in attach_origin_sheet_states(case).get("products", []):
         status = product.get("origin_sheet_status")
         # Block not-ready statuses AND any empty/no-BOM sheet (lvc_status
-        # "missing_bom") — exporting it ships an empty/invalid bảng kê.
+        # "missing_bom") — exporting it ships an empty/invalid bảng kê. DC3c
+        # defense-in-depth: also block a sheet still carrying an active
+        # declarable_unmatched NVL even if it was re-marked "calculated" by the
+        # save / bulk-substitute routes — its LVC is inflated (see the lock gate).
         if (
             status in {"draft", "bom_loaded", "stale", "calculating"}
             or str(product.get("lvc_status") or "") == "missing_bom"
+            or product.get("lvc_declarable_unmatched")
         ):
             blockers.append(str(product.get("code") or "sheet"))
     return blockers
@@ -1429,6 +1433,14 @@ def origin_sheet_action_error(case: dict, product_code: str, action: str) -> str
         # it. (shortage / missing-price sheets HAVE a BOM → lvc_status is review/
         # missing_value, not missing_bom → unaffected.)
         return f"Bảng kê {product_code} chưa có BOM/NVL — nạp BOM và tính lại trước khi chốt."
+    if action == "lock" and target.get("lvc_declarable_unmatched"):
+        # DC3c defense-in-depth: the save / bulk-substitute routes recompute a sheet
+        # then hardcode status "calculated" (bypassing calculated_sheet_status), so a
+        # sheet can be "calculated" while still carrying an active declarable_unmatched
+        # NVL — export-excluded but unresolved, so its LVC is inflated. Re-check the
+        # flag here (mirror the missing_bom guard) so lock is a true hard-block no
+        # matter how the status was persisted. Cleared by matching/substituting it.
+        return f"Bảng kê {product_code} còn NVL chưa khớp tồn (declarable_unmatched) — cần khớp hoặc thay trước khi chốt."
     if action == "reopen":
         if status != "locked":
             return f"Bảng kê {product_code} chưa chốt."
@@ -2605,6 +2617,18 @@ def enrich_origin_product(product: dict) -> dict:
         not material.get("deleted")
         and material.get("origin_status") == "non_origin"
         and (material.get("valuation_status") == "missing_unit_value" or material.get("unit_value_missing"))
+        for material in materials
+    )
+    # DC3c guard: một NVL `declarable_unmatched` (thật, thuộc diện khai báo nhưng
+    # CHƯA khớp tồn BCCT) bị loại khỏi bảng kê xuất mà trị giá/xuất xứ vẫn CHƯA xác
+    # định. Khi nó là NVL không-xuất-xứ (trường hợp thường gặp) thì cộng 0 vào VNM ⇒
+    # LVC bị thổi. Chặn trên MỌI dòng unmatched còn active — KHÔNG lọc theo
+    # `origin_status == "non_origin"` như guard thiếu-đơn-giá ở trên: dòng chưa khớp
+    # tồn có thể chưa có origin_status, nên chặn rộng là lựa chọn an toàn cho hồ sơ
+    # pháp lý (không phát hành tới khi khớp/thay). Đánh cờ để /calculate giữ sheet ở
+    # "bom_loaded". Bỏ qua dòng đã xoá.
+    enriched["lvc_declarable_unmatched"] = any(
+        not material.get("deleted") and material.get("declarable_unmatched")
         for material in materials
     )
     ctc_rule = tariff_shift_rule_from_criterion(criterion)

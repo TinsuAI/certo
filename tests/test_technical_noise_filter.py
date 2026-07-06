@@ -98,6 +98,31 @@ def test_summary_splits_non_material_from_unmatched_review():
     assert "STEEL" not in summary["excluded_non_material"]["examples"]
 
 
+def test_propose_bom_rows_match_bang_ke_exclusions():
+    # DC3a: propose-bom to Data Hub must be "đồng nhất với bảng kê" — the SAME
+    # exclusions the export applies (rác + unmatched) plus deleted rows are dropped,
+    # so the proposed BOM matches what is declared.
+    from app.routers.co_case import build_bom_proposal_rows
+    product = {"materials": [
+        _mat("AL1", customs_relevance="declarable", name="Nhôm", hs="76061190", alloc=True),
+        _mat("DRW", customs_relevance="excluded_non_material", name="Blueprint"),
+        _mat("STEEL", customs_relevance="declarable_unmatched", name="Tube;Round;45#"),
+        {"material_code": "DEL", "customs_relevance": "declarable", "deleted": True},
+    ]}
+    codes = [r["material_code"] for r in build_bom_proposal_rows(product, {})]
+    assert codes == ["AL1"], "only declarable+matched, non-deleted rows are proposed"
+
+
+def test_propose_bom_keeps_deliberate_substitute_over_noise_original():
+    # a row the operator deliberately substituted is KEPT (the substitute is a real
+    # choice) even if the ORIGINAL material was rác/unmatched — don't drop it.
+    from app.routers.co_case import build_bom_proposal_rows
+    product = {"materials": [_mat("STEEL", customs_relevance="declarable_unmatched", name="Tube")]}
+    overrides = {"0": {"material_code": "STEEL-SUB", "norm_per_unit": "2"}}
+    codes = [r["material_code"] for r in build_bom_proposal_rows(product, overrides)]
+    assert codes == ["STEEL-SUB"]
+
+
 def test_hq_export_skips_excluded_and_unmatched_keeps_declarable():
     wb = openpyxl.Workbook()
     ws = wb.active
