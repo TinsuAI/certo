@@ -139,8 +139,16 @@ tồn của nhau.
     ribbon + note phân bổ; scope toggle flip sang "Thay hết · 5 SP"; drill-down 5 ô SP (SP-4/5 cam thiếu);
     "Chọn mã thay thế" mở **đúng modal giàu** (tabs Khuyến nghị/Tìm kiếm, lọc, đang fetch DH recommendations).
     **0 JS error** (chỉ favicon-404). Screenshots `.ai/screenshots/2026-07-07-batch-ui-e2e/`.
-    **Follow-up nhỏ:** modal target label "SP SP-4" (anchor) nên phản ánh scope ("N SP") cho rõ; live
-    shell-swap sheet con (hiện stale-note+reload).
+  - **✅ 2 FOLLOW-UP DONE 2026-07-07.**
+    - **FU1 — label modal theo scope:** `openBulkSubstitutePicker(opts.scopeLabel)`; batch row truyền
+      "Thay hết · N SP" / "Thay phần thiếu · N SP". **Browser-verified:** modal hiện "Thay NVL 940.0661900 ·
+      Thay hết · 5 SP" (hết "SP SP-4" gây nhầm).
+    - **FU2 — live shell-swap sheet con:** `applyMaterialSubstitute` → `syncChildSheetsAndRerender`: re-fetch
+      case shell (`replaceCaseShellFromResponse` — pattern save đã kiểm chứng) → sheet con render lại với
+      override + re-render aggregate từ rollup; fallback stale-note nếu fetch fail. **Verified:** JS syntax,
+      Jinja compile, + **server re-allocation đúng** (thay SP-4 → rollup: `940.0661900` chỉ còn thiếu ở SP-5,
+      mã thay `940.0662900` được cấp tồn + đủ). In-browser child-sheet-visible **chưa verify** được local
+      (DH không trả candidate + case tổng hợp render "chưa có BOM"); cần case DH-BOM thật (nightly).
 - **Slice 3 — M3 sheet tổng hợp (VIEW):** wire rollup ↔ plan; sync xuống qua overrides.
 - **Slice 4 — M5 auto-flow (TKX → auto tính tất cả):** orchestration, sau khi 0+1 chắc.
 

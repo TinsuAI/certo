@@ -4682,7 +4682,9 @@
       state.bulkPick = opts.onPick || null;
       if (deleteBtn) deleteBtn.hidden = true;
       if (sharedNormInput) sharedNormInput.value = state.currentNorm;
-      targetLabel.textContent = `Thay NVL ${state.materialCode} · SP ${state.productCode}`;
+      targetLabel.textContent = opts.scopeLabel
+        ? `Thay NVL ${state.materialCode} · ${opts.scopeLabel}`
+        : `Thay NVL ${state.materialCode} · SP ${state.productCode}`;
       populateCurrentStrip(null, {
         code: opts.materialCode || "—",
         name: opts.name || "—",
@@ -5817,17 +5819,29 @@
       });
       if (resp.status === 409) { box.dataset.state = "warning"; toast("Hồ sơ đã đổi — tải lại trang.", "error"); return; }
       const body = await resp.json();
-      if (workbook && body.revision) {
-        workbook.dataset.originRevision = body.revision;
-        workbook.dataset.childSheetsStale = "1";  // child-sheet tabs need a reload to show the swap
-      }
+      if (workbook && body.revision) workbook.dataset.originRevision = body.revision;
       const n = (body.applied || []).length;
       toast(`Đã thay ${mat.material_code} → ${item.material_code} ở ${n} SP.`, n ? "success" : "error");
-      renderRunStockSummary(btn, body);   // re-render the aggregate from the fresh server rollup
+      await syncChildSheetsAndRerender(body);   // live-swap child sheets + re-render aggregate
     } catch (err) {
       toast(`Lỗi thay NVL: ${err}`, "error");
       box.dataset.state = "warning";
     }
+  };
+
+  // Live-sync: re-fetch the case shell so child-sheet tabs re-render with the
+  // persisted overrides, then re-render the aggregate from the fresh rollup — server
+  // truth on both surfaces. Falls back to a reload note if the shell fetch fails.
+  const syncChildSheetsAndRerender = async (body) => {
+    let swapped = false;
+    try {
+      const resp = await fetch(window.location.href, { headers: { "Accept": "text/html", "X-Requested-With": "fetch" } });
+      if (resp.ok) { await replaceCaseShellFromResponse(resp, "", { serverNav: false }); swapped = true; }
+    } catch (_err) { /* fall through to the stale-note path */ }
+    const wb = document.querySelector("[data-origin-workbook]");
+    if (wb) { if (swapped) delete wb.dataset.childSheetsStale; else wb.dataset.childSheetsStale = "1"; }
+    const newBtn = document.querySelector("[data-run-stock-all]");
+    if (newBtn) renderRunStockSummary(newBtn, body);
   };
 
   const rsRibbon = (active) =>
@@ -5921,8 +5935,10 @@
       row.querySelector("[data-rs-pick]").addEventListener("click", () => {
         if (!openBulkSubstitutePicker) { toast("Modal thay thế chưa sẵn sàng — tải lại trang.", "error"); return; }
         const anchorSp = (m.short_products && m.short_products[0]) || (m.using[0] && m.using[0].product_code) || "";
+        const scopeLabel = scopeState.scope === "everywhere"
+          ? `Thay hết · ${m.using_count} SP` : `Thay phần thiếu · ${m.short_count} SP`;
         openBulkSubstitutePicker({
-          productCode: anchorSp, materialCode: m.material_code, name: m.name, norm: "", uom: m.uom,
+          productCode: anchorSp, materialCode: m.material_code, name: m.name, norm: "", uom: m.uom, scopeLabel,
           onPick: ({ item, norm }) => applyMaterialSubstitute(btn, m, item, scopeState.scope, norm),
         });
       });
