@@ -910,10 +910,10 @@
       Xử lý tuần tự
     </button>
     <button type="button" class="btn-secondary" data-run-stock-all
-            data-run-stock-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/preview-stock-all"
+            data-run-stock-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/calculate-all"
             data-bulk-substitute-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/bulk-substitute"
-            title="Chạy tồn 1 lần cho tất cả SP (preview, không trừ sổ) → tổng hợp NVL thiếu tồn để thay phần thiếu / thay hết.">
-      Chạy tồn (tất cả SP)
+            title="Tính tồn cho TẤT CẢ SP một lượt — nạp BOM + phân bổ tồn + tính LVC + LƯU vào từng sheet (không khoá/không trừ sổ), rồi tổng hợp NVL thiếu để thay phần thiếu / thay hết.">
+      Tính tồn tất cả (SP)
     </button>
     <button type="button" class="btn-secondary" data-bulk-lock
             data-bulk-lock-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/bulk-lock"
@@ -5955,7 +5955,7 @@
     const form = btn.closest("form") || document.querySelector("[data-origin-workbook]")?.closest("form");
     const box = document.querySelector("[data-run-stock-summary]");
     btn.disabled = true;
-    if (box) { box.hidden = false; box.textContent = "Đang chạy tồn…"; box.removeAttribute("data-state"); }
+    if (box) { box.hidden = false; box.textContent = "Đang tính tồn tất cả SP…"; box.removeAttribute("data-state"); }
     try {
       const req = form
         ? compactOriginRequest(form, null, "application/json")
@@ -5965,9 +5965,14 @@
         if (box) { box.textContent = "Hồ sơ đã đổi — tải lại trang rồi chạy lại."; box.dataset.state = "warning"; }
         return;
       }
-      renderRunStockSummary(btn, await resp.json());
+      const body = await resp.json();
+      const workbook = document.querySelector("[data-origin-workbook]");
+      if (workbook && body.revision) workbook.dataset.originRevision = body.revision;
+      // calculate-all PERSISTS each sheet → swap the case shell so the child-sheet
+      // tabs show the calculated result, and re-render the aggregate from the rollup.
+      await syncChildSheetsAndRerender(body);
     } catch (err) {
-      if (box) { box.textContent = `Lỗi chạy tồn: ${err}`; box.dataset.state = "warning"; }
+      if (box) { box.textContent = `Lỗi tính tồn: ${err}`; box.dataset.state = "warning"; }
     } finally {
       btn.disabled = false;
     }

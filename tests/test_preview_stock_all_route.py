@@ -51,3 +51,18 @@ def test_preview_stock_all_returns_summary_shape(preview_client):
     assert body["rollup"]["materials"] == []
     assert body["rollup"]["material_count"] == 0
     assert "no_bom_products" in body["rollup"]  # no-BOM sheets are flagged, not counted as covered
+
+
+def test_calculate_all_returns_shape_and_persists(preview_client):
+    # calculate-all is committing (persists calculated sheets); file-mode has no BOM
+    # so nothing loads, but it must wire, return the rollup+revision shape, and 200.
+    case_id = _seed_case(case_id="case-calc-all-1")
+    resp = preview_client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/calculate-all", json={}
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert "revision" in body
+    assert body["rollup"]["material_count"] == 0
+    assert body["rollup"]["no_bom_products"] == ["PV.A"]  # seeded product has no BOM in file-mode

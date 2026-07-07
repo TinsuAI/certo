@@ -1707,6 +1707,35 @@ async def preview_stock_all_route(request: Request, client_id: str, case_id: str
     context, stock_rows = _origin_preview_context(client, client_id, case_id, case)
     allocated = allocate_whole_case_preview(client, context["case"], context, stock_rows, _origin_min_gap_days(client))
     return {"status": "ok", **case_missing_stock_summary(allocated), "rollup": case_shortfall_rollup(allocated)}
+@router.post("/clients/{client_id}/co-case/{case_id}/origin/calculate-all")
+async def calculate_all_route(request: Request, client_id: str, case_id: str):
+    """Tính tồn cho TẤT CẢ SP trong một lượt và PERSIST — nạp BOM + phân bổ tồn +
+    tính LVC cho từng sheet, rồi LƯU (không khoá / không trừ sổ) để review + Chốt.
+
+    Khác `preview-stock-all` (dry-run, không lưu): đây commit trạng thái đã tính vào
+    từng sheet con. Phân bổ cả lô là một pass tuần tự deterministic
+    (`allocate_whole_case_preview`), nên không đụng gate calc-per-sheet. Sheet không
+    đủ điều kiện (missing_bom / thiếu đơn giá / declarable_unmatched) tự giữ ở
+    'bom_loaded' qua `calculated_sheet_status`."""
+    client = resolve_client(client_id)
+    case, _payload = await origin_case_from_request(request, client, case_id)
+    context, stock_rows = _origin_preview_context(client, client_id, case_id, case)
+    allocated = allocate_whole_case_preview(client, context["case"], context, stock_rows, _origin_min_gap_days(client))
+    allocated = attach_origin_readiness(allocated)
+    allocated = attach_results(allocated)
+    allocated = attach_origin_sheet_states(allocated)
+    for product in list(allocated.get("products", [])):
+        code = str(product.get("code") or "").strip()
+        if code:
+            allocated = set_origin_sheet_status(allocated, code, calculated_sheet_status(product))
+    if allocated.get("persisted_case_id"):
+        update_case_record(client, allocated)
+    return {
+        "status": "ok",
+        "revision": origin_case_revision(allocated),
+        **case_missing_stock_summary(allocated),
+        "rollup": case_shortfall_rollup(allocated),
+    }
 @router.post("/clients/{client_id}/co-case/{case_id}/origin/bulk-substitute-plan")
 async def bulk_substitute_plan_route(request: Request, client_id: str, case_id: str):
     """M2 — expand a single 'thay NVL' choice into the concrete per-sheet
