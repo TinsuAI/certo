@@ -48,4 +48,6 @@ def test_preview_stock_all_returns_summary_shape(preview_client):
     assert body["missing_code_count"] == 0
     assert body["product_count"] == 0
     # material-centric rollup (M3) rides alongside the product-centric summary
-    assert body["rollup"] == {"materials": [], "material_count": 0}
+    assert body["rollup"]["materials"] == []
+    assert body["rollup"]["material_count"] == 0
+    assert "no_bom_products" in body["rollup"]  # no-BOM sheets are flagged, not counted as covered

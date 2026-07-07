@@ -1768,10 +1768,15 @@ def case_shortfall_rollup(case: dict) -> dict:
     short somewhere appear (fully-covered materials are not shortfalls)."""
     groups: dict[str, dict] = {}
     order: list[str] = []
+    no_bom_products: list[str] = []
     for product in case.get("products", []) or []:
         code = str(product.get("code") or "").strip()
         status = product.get("origin_sheet_status")
         lvc = product.get("lvc_percentage")
+        if not any(not m.get("deleted") for m in (product.get("materials") or [])):
+            # Sheet has no active NVL → no BOM loaded / nothing to allocate. It is
+            # NOT "đủ tồn"; flag it so the batch panel warns instead of reporting OK.
+            no_bom_products.append(code)
         for material in product.get("materials", []) or []:
             if material.get("deleted"):
                 continue
@@ -1820,7 +1825,12 @@ def case_shortfall_rollup(case: dict) -> dict:
             "short_products": [u["product_code"] for u in short_using],
             "short_count": len(short_using),
         })
-    return {"materials": materials, "material_count": len(materials)}
+    return {
+        "materials": materials,
+        "material_count": len(materials),
+        "no_bom_products": no_bom_products,
+        "no_bom_count": len(no_bom_products),
+    }
 def case_allocation_pool(
     case: dict,
     invoice_matches: list[dict],

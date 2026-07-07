@@ -52,6 +52,22 @@ def test_rollup_material_short_in_multiple_sheets_sums_units():
     assert a["short_count"] == 2 and a["short_products"] == ["P1", "P2"]
 
 
+def test_rollup_flags_no_bom_products_not_as_covered():
+    # A sheet with no active NVL (no BOM loaded) must be reported as no_bom, NOT
+    # silently treated as "đủ tồn" (the batch panel warns instead of "✓ Đủ tồn").
+    from app.web.co_case_context import case_shortfall_rollup
+    case = {"products": [
+        {"code": "INV-5000", "materials": [{"material_code": "A", "consumed_qty": "100",
+                                            "allocation_status": "shortage", "allocation_shortage_qty": "40"}]},
+        {"code": "INV-NOBOM", "materials": []},                       # no BOM
+        {"code": "INV-DEL", "materials": [{"material_code": "B", "deleted": True}]},  # only deleted → no BOM
+    ]}
+    r = case_shortfall_rollup(case)
+    assert r["no_bom_count"] == 2
+    assert set(r["no_bom_products"]) == {"INV-NOBOM", "INV-DEL"}
+    assert r["material_count"] == 1  # only the real shortage still surfaces
+
+
 def test_rollup_skips_deleted_and_uses_internal_code_fallback():
     from app.web.co_case_context import case_shortfall_rollup, decimal_value
     case = {"products": [

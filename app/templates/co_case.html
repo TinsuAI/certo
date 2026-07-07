@@ -5883,10 +5883,14 @@
       const a = (body.applied || []).length, sk = (body.skipped || []).length;
       parts.push(`<div class="run-stock-result">✓ Đã thay ${a} SP${sk ? ` · bỏ qua ${sk}` : ""}. Bảng dưới là kết quả tính lại từ server.</div>`);
     }
-    parts.push(rsRibbon(mats.length > 0));
+    const noBom = (body.rollup && body.rollup.no_bom_products) || [];
+    parts.push(rsRibbon(mats.length > 0 || noBom.length > 0));
+    if (noBom.length) {
+      parts.push(`<div class="rs-nobom"><strong>⚠ ${noBom.length} bảng kê chưa có BOM</strong> (${noBom.join(", ")}) — chưa tính được tồn. Nạp BOM (Data Hub) cho các TP này trước.</div>`);
+    }
     if (!mats.length) {
-      parts.push(`<div class="rs-done"><strong>✓ Đủ tồn cho tất cả SP.</strong> Không còn NVL thiếu tồn — có thể “Chốt tất cả”.</div>`);
-      box.innerHTML = parts.join(""); box.hidden = false; box.dataset.state = "ok";
+      if (!noBom.length) parts.push(`<div class="rs-done"><strong>✓ Đủ tồn cho tất cả SP.</strong> Không còn NVL thiếu tồn — có thể “Chốt tất cả”.</div>`);
+      box.innerHTML = parts.join(""); box.hidden = false; box.dataset.state = noBom.length ? "warning" : "ok";
       bindRsReload(box); return;
     }
     parts.push(`<div class="rs-lead"><strong>⚠ ${mats.length} NVL thiếu tồn</strong> trên cả lô. Chọn phạm vi (thay phần thiếu / thay hết) + mã thay thế; server tính lại tồn + LVC sau mỗi lần thay.</div>`);
