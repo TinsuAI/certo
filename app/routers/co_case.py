@@ -1981,15 +1981,28 @@ async def load_bom_co_case_origin_sheet(request: Request, client_id: str, case_i
     context["case"] = attach_origin_readiness(context["case"])
     context["case"] = attach_results(context["case"])
     context["case"] = attach_origin_sheet_states(context["case"])
-    # Nạp lại cấu trúc = reset về BOM artifact ⇒ bỏ chỉnh sửa client-side cũ (override).
-    states = dict(context["case"].get("origin_sheet_states") or {})
-    previous = states.get(product_code) if isinstance(states.get(product_code), dict) else {}
-    if previous.get("material_overrides"):
-        states[product_code] = {**previous, "material_overrides": {}}
-        context["case"]["origin_sheet_states"] = states
-    context["case"] = set_origin_sheet_status(context["case"], product_code, "bom_loaded")
+    # Only mark "bom_loaded" (Đã nạp BOM) if the BOM actually brought materials in.
+    # A product with no BOM artifact on Data Hub loads 0 rows — reporting success +
+    # advancing the status would falsely show "Đã nạp BOM" on an empty sheet.
+    target_product = next(
+        (p for p in context["case"].get("products", []) if str(p.get("code") or "").strip() == product_code),
+        {},
+    )
+    has_bom_rows = any(not m.get("deleted") for m in (target_product.get("materials") or []))
+    if has_bom_rows:
+        # Nạp lại cấu trúc = reset về BOM artifact ⇒ bỏ chỉnh sửa client-side cũ (override).
+        states = dict(context["case"].get("origin_sheet_states") or {})
+        previous = states.get(product_code) if isinstance(states.get(product_code), dict) else {}
+        if previous.get("material_overrides"):
+            states[product_code] = {**previous, "material_overrides": {}}
+            context["case"]["origin_sheet_states"] = states
+        context["case"] = set_origin_sheet_status(context["case"], product_code, "bom_loaded")
+    else:
+        # Không có BOM artifact để nạp → KHÔNG báo "Đã nạp BOM" giả; giữ nguyên trạng thái.
+        context["message"] = ""
+        context["error"] = f"TP {product_code} chưa có BOM artifact trên Data Hub — không có gì để nạp."
     context["criteria_rows"] = build_case_criteria_rows(context["case"], context.get("form_candidates", []))
-    if context["case"].get("persisted_case_id") and not context.get("origin_demo_active"):
+    if has_bom_rows and context["case"].get("persisted_case_id") and not context.get("origin_demo_active"):
         update_case_record(client, context["case"])
     return templates.TemplateResponse(request=request, name="co_case.html", context=context)
 def calculated_sheet_status(product: dict) -> str:

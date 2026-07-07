@@ -242,13 +242,17 @@ def _seed_growatt_case(case_code: str, product_code: str) -> str:
     return case_id
 
 
-def test_load_bom_endpoint_sets_bom_loaded_and_persists():
+def test_load_bom_no_artifact_does_not_falsely_mark_loaded():
+    # Load BOM on a product with NO BOM artifact (0 rows to load) must NOT report
+    # "Đã nạp BOM" nor advance status to bom_loaded — that would show a loaded state
+    # on an empty sheet. (In file-mode there is no Data Hub BOM, so nothing loads.)
     case_id = _seed_growatt_case("CO-LOADBOM-1", "TP1")
     http = TestClient(app)
     resp = http.post(f"/clients/growatt/co-case/{case_id}/origin/sheet/TP1/load-bom", json={})
     assert resp.status_code == 200
     stored = get_case_record(get_client("growatt"), case_id)
-    assert stored["origin_sheet_states"]["TP1"]["status"] == "bom_loaded"
+    assert stored.get("origin_sheet_states", {}).get("TP1", {}).get("status") != "bom_loaded"
+    assert "chưa có BOM artifact" in resp.text
 
 
 def test_load_bom_then_lock_is_blocked():
