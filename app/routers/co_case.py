@@ -21,7 +21,7 @@ from app.portfolio import portfolio_service
 from app.source_store import co_stock_rows_from_bcct
 from app.substitution_plan import plan_shortfall_substitution
 from app.web.client_context import default_client_case, effective_min_gap_days, resolve_client, source_workspace_for_client
-from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, OVERRIDE_HISTORY_MAX, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, attach_origin_sheet_states, case_allocation_pool, case_missing_stock_summary, case_stock_preview_summary, case_tkx_tkn_summary, clean_override_stack, co_case_context, co_case_source_context, co_case_source_context_cached, co_stock_is_usable, dossier_content_revision, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, material_row_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, origin_case_revision, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_products, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
+from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, OVERRIDE_HISTORY_MAX, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, attach_origin_sheet_states, case_allocation_pool, case_missing_stock_summary, case_shortfall_rollup, case_stock_preview_summary, case_tkx_tkn_summary, clean_override_stack, co_case_context, co_case_source_context, co_case_source_context_cached, co_stock_is_usable, dossier_content_revision, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, material_row_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, origin_case_revision, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_products, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
 from app.web.deps import large_request_form
 from app.web.templating import templates
 from app.workbook_io import create_dossier_zip, create_hq_bang_ke_workbook
@@ -1705,8 +1705,8 @@ async def preview_stock_all_route(request: Request, client_id: str, case_id: str
     client = resolve_client(client_id)
     case, _payload = await origin_case_from_request(request, client, case_id)
     context, stock_rows = _origin_preview_context(client, client_id, case_id, case)
-    summary = whole_case_stock_summary(client, context["case"], context, stock_rows, _origin_min_gap_days(client))
-    return {"status": "ok", **summary}
+    allocated = allocate_whole_case_preview(client, context["case"], context, stock_rows, _origin_min_gap_days(client))
+    return {"status": "ok", **case_missing_stock_summary(allocated), "rollup": case_shortfall_rollup(allocated)}
 @router.post("/clients/{client_id}/co-case/{case_id}/origin/bulk-substitute-plan")
 async def bulk_substitute_plan_route(request: Request, client_id: str, case_id: str):
     """M2 — expand a single 'thay NVL' choice into the concrete per-sheet
@@ -1813,13 +1813,14 @@ async def bulk_substitute_route(request: Request, client_id: str, case_id: str):
             case = set_origin_sheet_status(case, pc, "calculated")
         update_case_record(client, case)
     context, stock_rows = _origin_preview_context(client, client_id, case_id, case)
-    summary = whole_case_stock_summary(client, context["case"], context, stock_rows, min_gap)
+    allocated = allocate_whole_case_preview(client, context["case"], context, stock_rows, min_gap)
     return {
         "status": "ok",
         "applied": applied,
         "skipped": skipped,
         "revision": origin_case_revision(case),
-        **summary,
+        **case_missing_stock_summary(allocated),
+        "rollup": case_shortfall_rollup(allocated),
     }
 @router.post("/clients/{client_id}/co-case/{case_id}/origin/bulk-lock")
 async def bulk_lock_route(request: Request, client_id: str, case_id: str):

@@ -1755,6 +1755,72 @@ def case_missing_stock_summary(case: dict) -> dict:
         "missing_code_count": len(seen),
         "product_count": len(products_out),
     }
+def case_shortfall_rollup(case: dict) -> dict:
+    """Material-centric rollup for the batch 'sheet tổng hợp' (M3).
+
+    Pivots an already-allocated case (which is product-centric — each SP carries its
+    own materials with allocation_status) into ONE row per NVL that is short in ≥1
+    sheet: total needed / available / short units across the lô, plus every SP that
+    USES the material (for 'thay hết') and which are short with per-SP shortfall (for
+    'thay phần thiếu'). Sequential allocation means `available = needed - short`.
+
+    Pure read; no ledger, no mutation. Soft-deleted rows ignored. Only materials
+    short somewhere appear (fully-covered materials are not shortfalls)."""
+    groups: dict[str, dict] = {}
+    order: list[str] = []
+    for product in case.get("products", []) or []:
+        code = str(product.get("code") or "").strip()
+        status = product.get("origin_sheet_status")
+        lvc = product.get("lvc_percentage")
+        for material in product.get("materials", []) or []:
+            if material.get("deleted"):
+                continue
+            key = str(material.get("material_code") or material.get("internal_material_code") or "").strip()
+            if not key:
+                continue
+            group = groups.get(key)
+            if group is None:
+                group = groups[key] = {
+                    "material_code": key,
+                    "name": material.get("material_description", ""),
+                    "uom": material.get("uom", ""),
+                    "needed": Decimal("0"),
+                    "short": Decimal("0"),
+                    "using": [],
+                }
+                order.append(key)
+            shortage = decimal_value(material.get("allocation_shortage_qty"))
+            is_short = str(material.get("allocation_status") or "") == "shortage"
+            group["needed"] += decimal_value(material.get("consumed_qty"))
+            group["short"] += shortage
+            if not group["name"] and material.get("material_description"):
+                group["name"] = material.get("material_description")
+            group["using"].append({
+                "product_code": code,
+                "status": status,
+                "lvc_percentage": lvc,
+                "is_short": is_short,
+                "short_qty": decimal_text(shortage) if is_short else "",
+            })
+    materials: list[dict] = []
+    for key in order:
+        group = groups[key]
+        if group["short"] <= 0:
+            continue
+        short_using = [u for u in group["using"] if u["is_short"]]
+        materials.append({
+            "material_code": group["material_code"],
+            "name": group["name"],
+            "uom": group["uom"],
+            "needed": decimal_text(group["needed"]),
+            "available": decimal_text(group["needed"] - group["short"]),
+            "short_qty": decimal_text(group["short"]),
+            "using": group["using"],
+            "using_count": len(group["using"]),
+            "short_products": [u["product_code"] for u in short_using],
+            "short_count": len(short_using),
+        })
+    return {"materials": materials, "material_count": len(materials)}
 def case_allocation_pool(
     case: dict,
     invoice_matches: list[dict],
