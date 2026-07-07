@@ -909,6 +909,10 @@
             title="Xử lý từng bảng kê lần lượt theo thứ tự: tính → xem lại → chốt, cho tới hết. An toàn hơn 'Chốt tất cả' vì dừng cho bạn duyệt mỗi bước.">
       Xử lý tuần tự
     </button>
+    <button type="button" class="btn-secondary" data-origin-aggregate-open
+            title="Mở sheet Tổng hợp NVL thiếu tồn — liệt kê NVL thiếu trên cả lô, thay NVL (thay phần thiếu / thay hết), thay xong tính lại ngay.">
+      ▦ Tổng hợp NVL <span class="rs-tab-badge" data-agg-badge hidden></span>
+    </button>
     <button type="button" class="btn-secondary" data-run-stock-all
             data-run-stock-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/calculate-all"
             data-bulk-substitute-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/bulk-substitute"
@@ -925,9 +929,6 @@
   </div>
   {% if _cost_ns.has %}
   <div class="bulk-cost-summary" data-bulk-cost-summary hidden></div>
-  {% endif %}
-  {% if case.products %}
-  <div class="run-stock-summary" data-run-stock-summary hidden></div>
   {% endif %}
 
   {% if case.products %}
@@ -977,6 +978,24 @@
   <p class="empty-cell">Chưa có sản phẩm trong case C/O này.</p>
   {% endif %}
 </section>
+
+{% if case.products %}
+<section class="origin-aggregate" data-origin-aggregate aria-label="Sheet Tổng hợp NVL thiếu tồn">
+  <div class="origin-aggregate-head">
+    <button type="button" class="btn-secondary btn-sm" data-origin-back-to-review title="Về Review dashboard">‹ Review</button>
+    <h2 class="origin-aggregate-title">▦ Tổng hợp NVL thiếu tồn</h2>
+    <span class="origin-aggregate-spacer"></span>
+    <button type="button" class="btn-secondary" data-run-stock-all
+            data-run-stock-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/calculate-all"
+            data-bulk-substitute-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/bulk-substitute"
+            title="Tính lại tồn cho tất cả SP (nạp BOM + phân bổ + LVC, lưu) rồi tổng hợp NVL thiếu.">
+      Tính tồn lại (tất cả SP)
+    </button>
+  </div>
+  <p class="origin-aggregate-hint">Liệt kê NVL còn thiếu trên cả lô. Thay NVL (thay phần thiếu / thay hết) → server tính lại tồn + LVC + đồng bộ xuống từng sheet con. Bấm “Tính tồn tất cả (SP)” ở Review nếu chưa có dữ liệu.</p>
+  <div class="run-stock-summary" data-run-stock-summary hidden></div>
+</section>
+{% endif %}
 
 <div class="modal-backdrop" data-origin-reorder-modal hidden>
   <div class="confirm-modal origin-reorder-modal" role="dialog" aria-modal="true" aria-labelledby="origin-reorder-title">
@@ -2189,7 +2208,10 @@
     // GET navigations (serverNav) trust the server-rendered view; POST mutations
     // keep the user on the sheet they were editing instead of bouncing to Review.
     let originSheetUrlHandled = false;
-    if (!options.serverNav && prevOriginView && prevOriginView.view === "sheet") {
+    if (!options.serverNav && prevOriginView && prevOriginView.view === "aggregate") {
+      applyOriginView({view: "aggregate"});
+      originSheetUrlHandled = true;
+    } else if (!options.serverNav && prevOriginView && prevOriginView.view === "sheet") {
       const stayCode = prevOriginView.code || options.activeOriginProductCode || "";
       applyOriginView({view: "sheet", code: stayCode});
       setOriginUrlSheet(stayCode);
@@ -2448,6 +2470,7 @@
   const captureOriginView = () => {
     const root = document.querySelector("[data-origin-view]");
     if (!root) return null;
+    if (root.dataset.originView === "aggregate") return {view: "aggregate"};
     if (root.dataset.originView !== "sheet") return {view: "review"};
     const active = root.querySelector("[data-origin-sheet-panel].origin-sheet-panel-active")
       || root.querySelector("[data-origin-sheet-panel]:not([hidden])");
@@ -2475,12 +2498,17 @@
       activateOriginTab(tab);
       root.dataset.originView = "sheet";
       root.dataset.originActiveSheet = state.code;
-      root.classList.remove("origin-view-review");
+      root.classList.remove("origin-view-review", "origin-view-aggregate");
       root.classList.add("origin-view-sheet");
+    } else if (state.view === "aggregate") {
+      root.dataset.originView = "aggregate";
+      root.dataset.originActiveSheet = "";
+      root.classList.remove("origin-view-sheet", "origin-view-review");
+      root.classList.add("origin-view-aggregate");
     } else {
       root.dataset.originView = "review";
       root.dataset.originActiveSheet = "";
-      root.classList.remove("origin-view-sheet");
+      root.classList.remove("origin-view-sheet", "origin-view-aggregate");
       root.classList.add("origin-view-review");
     }
   };
@@ -2503,6 +2531,20 @@
     event.preventDefault();
     applyOriginView({view: "review"});
     setOriginUrlSheet("");
+  });
+  // Open the "Tổng hợp NVL" aggregate view (a first-class origin sub-view) and
+  // auto-populate it the first time (calculate-all persists + renders the rollup).
+  document.addEventListener("click", (event) => {
+    const open = event.target.closest?.("[data-origin-aggregate-open]");
+    if (!open) return;
+    event.preventDefault();
+    applyOriginView({view: "aggregate"});
+    setOriginUrlSheet("");
+    const box = document.querySelector("[data-run-stock-summary]");
+    if (box && (box.hidden || !box.innerHTML.trim())) {
+      document.querySelector("[data-run-stock-all]")?.click();
+    }
+    document.querySelector("[data-origin-aggregate]")?.scrollIntoView({block: "start"});
   });
 
   // Settings modal (⚙): move config overrides + cost-buildup + column toggles off
@@ -4009,9 +4051,13 @@
       wrap.className = "origin-substitute-item-feasibility " + (sufficient
         ? (feasibility.missingPrice ? "origin-feasibility-warn" : "origin-feasibility-ok")
         : "origin-feasibility-fail");
-      status.textContent = sufficient
+      // In bulk (whole-lô) mode the feasibility is computed against the anchor sheet
+      // only — the TRUE post-substitution shortfall depends on all sheets sharing the
+      // pool, so mark it advisory. Server re-previews the real result after "Chọn".
+      const bulkAdvisory = state.bulkPick ? " (tạm tính)" : "";
+      status.textContent = (sufficient
         ? (feasibility.missingPrice ? `Đủ tồn (thiếu đơn giá ${alloc.taken.length}/${alloc.taken.length} dòng)` : `Đủ tồn · ${alloc.taken.length} lô`)
-        : `Thiếu ${fmtNumber(alloc.shortageQty, 4)}`;
+        : `Thiếu ${fmtNumber(alloc.shortageQty, 4)}`) + bulkAdvisory;
       const deltaSign = feasibility.deltaMaterialValue > 0 ? "+" : (feasibility.deltaMaterialValue < 0 ? "−" : "±");
       valueCell.textContent = `${deltaSign}${fmtNumber(Math.abs(feasibility.deltaMaterialValue), 2)}`;
       if (feasibility.deltaLvc === null) {
@@ -5789,6 +5835,53 @@
   // thế" opens the SAME rich substitute modal (ranking + tồn theo lô + đơn giá +
   // đủ/thiếu) in stage-mode, then áp thay định mức hàng loạt in one POST.
   const rsEsc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  // Client-side audit log of applied substitutions → the collapsible "Nhật ký thay
+  // đổi" + per-entry undo in the Tổng hợp NVL sheet. The recomputed shortfall itself
+  // is always server truth (aggregate re-renders from the rollup); this records WHAT
+  // was changed so staff can review/revert.
+  const substitutionLog = [];
+  const revertSubstitution = async (i) => {
+    const entry = substitutionLog[i];
+    const btn = document.querySelector("[data-run-stock-all]");
+    const url = btn?.dataset.bulkSubstituteUrl;
+    const box = document.querySelector("[data-run-stock-summary]");
+    if (!entry || !url || !box) return;
+    const workbook = document.querySelector("[data-origin-workbook]");
+    box.dataset.state = "loading";
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Accept": "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({ substitutions: entry.revertTriples, expected_revision: workbook?.dataset.originRevision || "" }),
+      });
+      if (resp.status === 409) { box.dataset.state = "warning"; toast("Hồ sơ đã đổi — tải lại trang.", "error"); return; }
+      const body = await resp.json();
+      if (workbook && body.revision) workbook.dataset.originRevision = body.revision;
+      toast(`Đã hoàn tác: ${entry.to} → ${entry.from} ở ${entry.n} SP.`, "success");
+      substitutionLog.splice(i, 1);
+      await syncChildSheetsAndRerender(body);
+    } catch (err) { toast(`Lỗi hoàn tác: ${err}`, "error"); box.dataset.state = "warning"; }
+  };
+  const rsLedger = () => {
+    if (!substitutionLog.length) return "";
+    const rows = substitutionLog.map((e, i) =>
+      `<div class="rs-logrow"><span class="rs-dot rs-sp-ok"></span>`
+      + `<span class="rs-loggrow"><span class="run-stock-mat">${rsEsc(e.from)}</span> → <span class="run-stock-mat" style="color:var(--primary)">${rsEsc(e.to)}</span> · ${e.n} SP · ${e.scope === "everywhere" ? "thay hết" : "thay phần thiếu"}</span>`
+      + `<button type="button" class="btn-secondary rs-undo" data-rs-undo="${i}">↩ Hoàn tác</button></div>`).join("");
+    return `<details class="rs-ledger" open><summary>🕑 Nhật ký thay đổi <span class="rs-chip">${substitutionLog.length}</span></summary>${rows}</details>`;
+  };
+  const bindRsUndo = (box) => {
+    box.querySelectorAll("[data-rs-undo]").forEach((b) => {
+      b.addEventListener("click", () => revertSubstitution(+b.dataset.rsUndo));
+    });
+  };
+  const updateAggBadge = (shortCount) => {
+    const badge = document.querySelector("[data-agg-badge]");
+    if (!badge) return;
+    if (shortCount > 0) { badge.textContent = String(shortCount); badge.hidden = false; }
+    else { badge.textContent = ""; badge.hidden = true; }
+  };
+
   // Which SP a substitute applies to is SERVER TRUTH (rollup.using / is_short), so
   // the client never computes allocation — it only picks the scope. Locked sheets
   // can't be edited (bulk-substitute skips them anyway) → left out of the triples.
@@ -5822,6 +5915,11 @@
       if (workbook && body.revision) workbook.dataset.originRevision = body.revision;
       const n = (body.applied || []).length;
       toast(`Đã thay ${mat.material_code} → ${item.material_code} ở ${n} SP.`, n ? "success" : "error");
+      if (n) substitutionLog.unshift({
+        from: mat.material_code, to: item.material_code, scope, n,
+        // revert = substitute the NEW code back to the original in the same sheets
+        revertTriples: subs.map((s) => ({ product_code: s.product_code, material_code: item.material_code, substitute_code: mat.material_code })),
+      });
       await syncChildSheetsAndRerender(body);   // live-swap child sheets + re-render aggregate
     } catch (err) {
       toast(`Lỗi thay NVL: ${err}`, "error");
@@ -5890,8 +5988,9 @@
     }
     if (!mats.length) {
       if (!noBom.length) parts.push(`<div class="rs-done"><strong>✓ Đủ tồn cho tất cả SP.</strong> Không còn NVL thiếu tồn — có thể “Chốt tất cả”.</div>`);
+      parts.push(rsLedger());
       box.innerHTML = parts.join(""); box.hidden = false; box.dataset.state = noBom.length ? "warning" : "ok";
-      bindRsReload(box); return;
+      bindRsReload(box); bindRsUndo(box); updateAggBadge(0); return;
     }
     parts.push(`<div class="rs-lead"><strong>⚠ ${mats.length} NVL thiếu tồn</strong> trên cả lô. Chọn phạm vi (thay phần thiếu / thay hết) + mã thay thế; server tính lại tồn + LVC sau mỗi lần thay.</div>`);
     parts.push(`<div class="rs-note-alloc">Phân bổ tồn: SP trước ưu tiên (theo thứ tự sheet), lot theo ngày tờ khai.</div>`);
@@ -5916,8 +6015,9 @@
         + `</div>`
       );
     });
+    parts.push(rsLedger());
     box.innerHTML = parts.join(""); box.hidden = false; box.dataset.state = "warning";
-    bindRsReload(box);
+    bindRsReload(box); bindRsUndo(box); updateAggBadge(mats.length);
     box.querySelectorAll("[data-rs-mat]").forEach((row) => {
       const m = mats[+row.dataset.rsMat];
       const scopeState = { scope: "only_short" };
@@ -5952,6 +6052,7 @@
   const runStockAll = async (btn) => {
     const url = btn.dataset.runStockUrl;
     if (!url) return;
+    applyOriginView({view: "aggregate"});  // show the "Tổng hợp NVL" sheet with the result
     const form = btn.closest("form") || document.querySelector("[data-origin-workbook]")?.closest("form");
     const box = document.querySelector("[data-run-stock-summary]");
     btn.disabled = true;
