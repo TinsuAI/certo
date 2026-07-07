@@ -2,25 +2,22 @@
 
 Server dev `:8001` (auth-ON — đăng nhập SSO).
 
-> **Vì sao KHÔNG seed bằng script:** app gọi Data Hub bằng **token phiên đăng nhập** của user
-> (`current_data_hub_token()`), không có service-token. Script (không có phiên) → không kéo được BOM
-> từ DH → chỉ tạo được case "giả" nhét NVL inline, nhưng sheet sẽ hiển thị **"chưa có BOM"** (không
-> thực tế). Muốn test đúng phải dùng **case có BOM Data Hub thật** — chỉ tạo được khi **đã đăng nhập**.
+## Bước 0 — Case ĐÃ SEED SẴN (BOM Data Hub thật)
 
----
+Đã seed sẵn case **`e2e-batch-real`** dưới **growatt-vn**: 5 SP đều dùng BOM thật **`INV-5000`** (7 NVL từ
+Data Hub), tồn `co_stock_rows` được seed để **AL-100 thiếu 2/5 SP**, 6 NVL còn lại đủ.
 
-## Bước 0 — Có 1 case CÓ BOM THẬT + thiếu tồn
+1. **Đăng nhập** `:8001` bằng SSO (tài khoản dev/admin — để thấy client `growatt-vn` + phiên có DH token).
+2. Mở: `http://127.0.0.1:8001/clients/growatt-vn/co-case/e2e-batch-real/origin`
+   (hoặc Growatt VN → hồ sơ `E2E-BATCH-REAL` → bước "Bảng kê C/O").
+3. Sheet phải hiện **BOM INV-5000** (7 NVL) — KHÔNG còn "chưa có BOM". (BOM kéo từ DH bằng **phiên của
+   ông**; nếu vẫn "chưa có BOM" → báo tôi, do phiên/BOM fetch.)
 
-Đăng nhập `:8001` rồi **tạo/mở 1 case CO qua luồng bình thường** sao cho có NVL thiếu tồn:
-1. Tạo hồ sơ CO cho **growatt-vn** (hoặc johnson-vn).
-2. Nhập TKX/chứng từ → app match BCCT + **load BOM** cho các SP.
-3. Chọn **≥2 SP dùng CHUNG ≥1 NVL** mà **tồn CO không đủ** cho tổng nhu cầu → sẽ có thiếu tồn.
-   (Mẹo tạo thiếu tồn chắc chắn: chọn SP có sản lượng/định mức lớn trên 1 NVL tồn thấp.)
+**Con số thiếu tồn kỳ vọng** (đã verify bằng đường tính không-phiên): NVL **AL-100** · **cần 1000 · tồn
+600 · thiếu 400 kg · thiếu 2/5 SP (SP-4, SP-5)**. (0.5 kg/SP × 400 × 5 = 1000; tồn 600 đủ SP-1..3.)
 
-> Nếu không tiện tạo case thiếu tồn thật ở local → **test trên nightly** (`demo-co`) có data thật,
-> hoặc chỉ cần 1 NVL bất kỳ thiếu tồn là đủ để thấy bảng tổng hợp.
-
-Mở case → bước **"Bảng kê C/O"**.
+> Re-seed / dọn: `set -a; . ./.env.dev; set +a; PYTHONPATH=$(pwd) uv run python .ai/scripts/e2e_batch_real_seed.py [--cleanup]`
+> (chỉ ghi DB CO; xoá tồn theo marker `transaction_key='e2e-batch-real…'`, không đụng tồn khác / DB Data Hub).
 
 ---
 
