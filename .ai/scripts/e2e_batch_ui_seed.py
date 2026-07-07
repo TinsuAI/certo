@@ -1,6 +1,13 @@
-"""Seed a multi-SP SHORTFALL case (real growatt-vn stock) for the batch
-sheet-tổng-hợp UI e2e, and verify preview-stock-all returns a material-centric
-rollup with the shortfall. Leaves the case in the DB so the browser can drive it.
+"""INTERNAL render-smoke ONLY — NOT a faithful test case.
+
+Seeds a synthetic multi-SP case with inline materials + real growatt-vn stock so the
+batch aggregate PANEL renders a real shortfall (needed vs real stock). But it has no
+Data Hub BOM, so each sheet displays "chưa có BOM" and the substitute modal has no
+recommendations — a real test needs a DH-BOM case created while LOGGED IN (the app
+calls DH with the user's session token; a script has none). See e2e_batch_ui_TESTPLAN.md.
+
+Verify preview-stock-all returns a material-centric rollup with the shortfall.
+Leaves the case in the DB so the browser can drive it.
 
   set -a; . ./.env.dev; set +a
   PYTHONPATH=$(pwd) uv run python .ai/scripts/e2e_batch_ui_seed.py
