@@ -60,10 +60,17 @@ assert store is not None, "expected DB-mode — source .env.dev"
 _cleanup()
 store.save_case_record(CLIENT, case, 0)
 
-r = http.post(f"/clients/{CLIENT}/co-case/{CASE}/origin/preview-stock-all", json={})
-print("preview-stock-all HTTP", r.status_code, flush=True)
-body = r.json()
-rollup = body.get("rollup", {})
+# Verify the rollup directly (auth-independent — the HTTP route needs a session).
+from app.web.client_context import resolve_client
+from app.routers.co_case import (
+    persisted_origin_case, _origin_preview_context, _origin_min_gap_days, allocate_whole_case_preview,
+)
+from app.web.co_case_context import case_shortfall_rollup
+client = resolve_client(CLIENT)
+saved = persisted_origin_case(client, CASE)
+_ctx, _rows = _origin_preview_context(client, CLIENT, CASE, saved)
+_alloc = allocate_whole_case_preview(client, _ctx["case"], _ctx, _rows, _origin_min_gap_days(client))
+rollup = case_shortfall_rollup(_alloc)
 print("rollup material_count:", rollup.get("material_count"), flush=True)
 for mm in rollup.get("materials", []):
     print(f"  {mm['material_code']}: cần {mm['needed']} tồn {mm['available']} thiếu {mm['short_qty']} {mm['uom']} "
