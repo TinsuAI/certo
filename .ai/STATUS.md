@@ -1,6 +1,18 @@
 # Project Status
 
 ## Current State
+- **2026-07-08 — batch auto-flow: "Tổng hợp NVL" tab + substitute correctness + BOM/catalog design review.**
+  Branch **`feat/co-flow-guards`** (NOT on main; `840fb74..HEAD`, suite **729 pass**). Shipped: batch
+  **"Tính tồn tất cả (SP)"** now calculates + PERSISTS every sheet (`calculate-all`); **"Tổng hợp NVL" is a
+  first-class origin sub-view/tab** (Variant A + undo-per-row + collapsible ledger); reseed `e2e-batch-real`
+  with **real DH codes** (root cause of "no BOM": app resolves BOM by product `code`, not `bom_product_code`);
+  no-BOM sheets no longer report "✓ Đủ tồn"; **proved** substitute stock accounts for whole-lô consumption
+  (`test_substitute_shared_pool.py`, no bug). **3 OPEN design items** (agreed, NOT built) — see handoff
+  `.ai/sessions/2026-07-08-batch-tong-hop-tab-bom-catalog-review.md`: **#1** BOM-selection table + fix the
+  shadowed client-default precedence bug (`attach_case_bom_snapshot` pre-pins latest, ignoring
+  `client_defaults`); **#2** substitute search → stock-first ⟕ catalog (stock-only NVL currently
+  unfindable); **#3 DEFERRED**: compliance nuance for stock-only substitutes (`declarable_unmatched` /
+  DC3c) — **review before building #2's picker**.
 - **2026-06-25 — bảng kê blank-export root cause + fix (`763fe74`, on `main`, PUSHED → CI deploying).**
   Client report "xuất bảng kê vẫn bị trống" = fast `/calculate` truyền catalog rỗng → materials mất
   TÊN **và** `customs_relevance` → rác/`declarable_unmatched` không bị loại → lọt export thành dòng

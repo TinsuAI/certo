@@ -1,0 +1,243 @@
+<title>Sheet Tổng hợp NVL — as a tab (prototype)</title>
+<!-- THROWAWAY PROTOTYPE — 2026-07-07 — "sheet tổng hợp" as a first-class TAB (not a panel).
+     3 variants of the aggregate sheet + the after-substitution reflection. Mock data, stub mutations.
+     Switch: floating bar / arrow keys / ?variant. Fold the winner into co_case.html's origin view. -->
+<style>
+  :root{--bg:#f6f8fa;--surface:#fff;--surface-2:#f0f3f6;--line:#d6dde5;--line-2:#b6c2cf;--ink:#1b232c;
+    --ink-2:#55636f;--ink-3:#7d8a97;--accent:#2b6cb0;--accent-ink:#fff;--accent-soft:#dcebfa;
+    --ok:#1a7f52;--ok-soft:#d6f0e2;--warn:#b26a00;--warn-soft:#fbeccd;--bad:#b0341d;--bad-soft:#f7ddd6;
+    --lock:#5a4b8a;--lock-soft:#e6e0f5;--r:8px;--sh:0 1px 2px rgba(20,30,40,.08),0 4px 14px rgba(20,30,40,.06);
+    --mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;}
+  @media (prefers-color-scheme:dark){:root{--bg:#0d1117;--surface:#161b22;--surface-2:#1c232c;--line:#2b333d;
+    --line-2:#3a444f;--ink:#e6edf3;--ink-2:#a7b3bf;--ink-3:#74828f;--accent:#58a6ff;--accent-ink:#0b1622;
+    --accent-soft:#16324d;--ok:#46c08a;--ok-soft:#123726;--warn:#e0a53a;--warn-soft:#3a2c10;--bad:#f08a72;
+    --bad-soft:#3d1c15;--lock:#b7a6ef;--lock-soft:#241d3d;--sh:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.35);}}
+  :root[data-theme="light"]{--bg:#f6f8fa;--surface:#fff;--surface-2:#f0f3f6;--line:#d6dde5;--line-2:#b6c2cf;--ink:#1b232c;--ink-2:#55636f;--ink-3:#7d8a97;--accent:#2b6cb0;--accent-ink:#fff;--accent-soft:#dcebfa;--ok:#1a7f52;--ok-soft:#d6f0e2;--warn:#b26a00;--warn-soft:#fbeccd;--bad:#b0341d;--bad-soft:#f7ddd6;--lock:#5a4b8a;--lock-soft:#e6e0f5;}
+  :root[data-theme="dark"]{--bg:#0d1117;--surface:#161b22;--surface-2:#1c232c;--line:#2b333d;--line-2:#3a444f;--ink:#e6edf3;--ink-2:#a7b3bf;--ink-3:#74828f;--accent:#58a6ff;--accent-ink:#0b1622;--accent-soft:#16324d;--ok:#46c08a;--ok-soft:#123726;--warn:#e0a53a;--warn-soft:#3a2c10;--bad:#f08a72;--bad-soft:#3d1c15;--lock:#b7a6ef;--lock-soft:#241d3d;}
+  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  h1,h2,h3{margin:0;text-wrap:balance}.num{font-variant-numeric:tabular-nums;font-family:var(--mono)}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 20px 130px}
+  .appbar{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 20px;display:flex;gap:14px;align-items:center;position:sticky;top:0;z-index:5}
+  .appbar .brand{font-weight:700;letter-spacing:.02em}.appbar .crumb{color:var(--ink-3);font-size:13px}.appbar .sp{flex:1}
+  .lead{padding:18px 0 4px}.lead h1{font-size:19px;letter-spacing:-.01em}.lead p{color:var(--ink-2);margin:5px 0 0;max-width:64ch;font-size:13px}
+  /* Origin tab bar — the aggregate lives here as a real tab */
+  .tabs{display:flex;gap:4px;margin:14px 0 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .tab{border:1px solid var(--line);border-bottom:0;background:var(--surface-2);color:var(--ink-2);padding:8px 14px;
+    border-radius:8px 8px 0 0;font-weight:600;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:7px;margin-bottom:-1px}
+  .tab.on{background:var(--surface);color:var(--ink);border-bottom:1px solid var(--surface)}
+  .tab .seq{font-size:11px;color:var(--ink-3);font-weight:500}
+  .tab .badge{background:var(--warn);color:#fff;font-size:11px;font-weight:700;border-radius:20px;padding:0 6px;min-width:16px;text-align:center}
+  .tab.agg.on{color:var(--accent)}.tab.agg .ic{color:var(--warn)}
+  .tab .st{width:7px;height:7px;border-radius:50%}.st-ok{background:var(--ok)}.st-warn{background:var(--warn)}.st-lock{background:var(--lock)}
+  .panel{background:var(--surface);border:1px solid var(--line);border-top:0;border-radius:0 0 var(--r) var(--r);box-shadow:var(--sh);padding:16px}
+  .sheethead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px}
+  .sheethead h2{font-size:16px}.sheethead .sp{flex:1}
+  .chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:2px 8px;border-radius:20px;white-space:nowrap}
+  .chip.ok{background:var(--ok-soft);color:var(--ok)}.chip.warn{background:var(--warn-soft);color:var(--warn)}.chip.bad{background:var(--bad-soft);color:var(--bad)}
+  .chip.lock{background:var(--lock-soft);color:var(--lock)}.chip.mut{background:var(--surface-2);color:var(--ink-2)}.chip.acc{background:var(--accent-soft);color:var(--accent)}
+  .sub{color:var(--ink-2);font-size:13px;margin:2px 0 12px}
+  button{font-family:inherit;font-size:13px;cursor:pointer}
+  .btn{border:1px solid var(--line-2);background:var(--surface);color:var(--ink);padding:6px 12px;border-radius:6px;font-weight:600}
+  .btn:hover{border-color:var(--accent);color:var(--accent)}.btn.pri{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  .btn.pri:hover{filter:brightness(1.06);color:var(--accent-ink)}.btn.sm{padding:3px 9px;font-size:12px}.btn:disabled{opacity:.5;cursor:not-allowed}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+  table{width:100%;border-collapse:collapse;font-size:13px}.scroll{overflow-x:auto}
+  th,td{text-align:left;padding:9px 11px;border-bottom:1px solid var(--line)}th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3);background:var(--surface-2)}
+  td.r,th.r{text-align:right}.mat{font-weight:600}.code{font-family:var(--mono);font-size:12px;color:var(--ink-2)}
+  .bar{height:6px;border-radius:4px;background:var(--surface-2);overflow:hidden;min-width:80px}.bar>span{display:block;height:100%;background:var(--warn)}
+  tr.done{opacity:.7}tr.done .btn.pri{display:none}
+  .arrow{color:var(--accent);font-family:var(--mono)}.old{text-decoration:line-through;color:var(--ink-3)}
+  .spdots{display:inline-flex;gap:3px;vertical-align:middle}
+  .expand{border:0;background:none;cursor:pointer;color:var(--ink-3)}
+  .drill{background:var(--surface-2)}.drillbox{padding:10px 12px;display:grid;gap:8px}
+  .spgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}
+  .spcell{display:flex;align-items:center;gap:7px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);font-size:12px}
+  .spcell .lvc{margin-left:auto;color:var(--ink-2)}.spcell.short{border-color:color-mix(in srgb,var(--warn) 45%,var(--line))}
+  /* B: master-detail */
+  .md{display:grid;grid-template-columns:260px 1fr;gap:14px}
+  .mdlist{display:grid;gap:6px;align-content:start}
+  .mdrow{border:1px solid var(--line);border-radius:8px;padding:9px 11px;cursor:pointer;background:var(--surface)}
+  .mdrow.on{border-color:var(--accent);background:var(--accent-soft)}.mdrow.done{opacity:.65}
+  .mdrow .t{font-weight:600}.mdrow .m{font-size:12px;color:var(--ink-2)}
+  .mddetail{border:1px solid var(--line);border-radius:10px;padding:14px}
+  .beforeafter{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;margin:10px 0}
+  .ba{border:1px solid var(--line);border-radius:8px;padding:10px}.ba.after{border-color:var(--accent)}
+  .ba .lb{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3)}
+  /* C: ledger */
+  .ledger{margin-top:14px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .ledger .lh{padding:8px 12px;background:var(--surface-2);font-weight:700;font-size:13px;display:flex;gap:8px;align-items:center}
+  .logrow{display:flex;align-items:center;gap:10px;padding:9px 12px;border-top:1px solid var(--line);font-size:13px}
+  .logrow .grow{flex:1}.logrow .delta.up{color:var(--ok)}.empty{padding:14px;color:var(--ink-3);font-size:13px}
+  /* commit bar */
+  .commit{position:sticky;bottom:0;margin-top:14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh);padding:12px 16px;display:flex;gap:12px;align-items:center}
+  .commit .sp{flex:1}.commit .msg{color:var(--ink-2);font-size:13px}
+  /* modal */
+  .mb{position:fixed;inset:0;background:rgba(10,15,20,.5);display:none;align-items:center;justify-content:center;z-index:40;padding:20px}
+  .mb.open{display:flex}.modal{width:min(600px,100%);max-height:90vh;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+  .modal header{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:flex-start}.modal header .sp{flex:1}
+  .modal .eyebrow{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);font-weight:700}.modal header h2{font-size:16px;margin-top:2px}
+  .mbody{padding:16px 18px}.scopebox{border:1px solid var(--accent);background:color-mix(in srgb,var(--accent-soft) 55%,var(--surface));border-radius:10px;padding:10px 12px;margin-bottom:12px}
+  .scopebox .lab{font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px}
+  .seg{display:flex;border:1px solid var(--line-2);border-radius:8px;overflow:hidden;background:var(--surface)}
+  .seg button{flex:1;border:0;background:transparent;color:var(--ink-2);padding:9px;font-weight:600;display:flex;flex-direction:column;gap:1px;align-items:flex-start}
+  .seg button+button{border-left:1px solid var(--line-2)}.seg button.on{background:var(--accent-soft);color:var(--accent)}
+  .seg .cnt{font-size:17px;font-family:var(--mono)}.seg .l{font-size:11px;text-transform:uppercase}
+  .subtabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:10px}.subtab{border:0;background:none;padding:8px 12px;font-weight:600;color:var(--ink-3);border-bottom:2px solid transparent;margin-bottom:-1px}.subtab.on{color:var(--accent);border-bottom-color:var(--accent)}
+  .cands{display:grid;gap:6px}.cand{display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface);cursor:pointer;text-align:left;width:100%}
+  .cand:hover{border-color:var(--accent)}.cand.sel{border-color:var(--accent);background:var(--accent-soft)}.cand .grow{flex:1}.cand .nm{font-weight:600}
+  .badge-hist{background:var(--lock-soft);color:var(--lock);font-size:11px;font-weight:700;padding:1px 7px;border-radius:20px}
+  .modal footer{padding:14px 18px;border-top:1px solid var(--line);display:flex;gap:10px;justify-content:space-between;align-items:center;position:sticky;bottom:0;background:var(--surface)}
+  .iconbtn{border:0;background:none;color:var(--ink-3);font-size:20px;padding:2px 6px;border-radius:6px}.iconbtn:hover{background:var(--surface-2);color:var(--ink)}
+  .toolrow{display:flex;gap:12px;align-items:center;margin-bottom:10px;flex-wrap:wrap}.toolrow input{flex:1;min-width:160px;padding:7px 10px;border:1px solid var(--line-2);border-radius:6px;background:var(--bg);color:var(--ink)}
+  .switch{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:2px;background:#11151a;color:#fff;border-radius:999px;padding:5px 6px;box-shadow:0 8px 30px rgba(0,0,0,.4)}
+  .switch button{border:0;background:none;color:#fff;font-size:16px;width:34px;height:34px;border-radius:50%}.switch button:hover{background:rgba(255,255,255,.14)}
+  .switch .lbl{padding:0 12px;font-size:13px;font-weight:600;min-width:230px;text-align:center}.switch .lbl small{color:#9fb0c0;font-weight:500}
+  .protohint{position:fixed;left:14px;bottom:16px;z-index:60;font-size:11px;color:var(--ink-3);background:var(--surface);border:1px dashed var(--line-2);padding:4px 8px;border-radius:6px}
+  @media(max-width:760px){.md{grid-template-columns:1fr}.beforeafter{grid-template-columns:1fr}}
+</style>
+
+<div class="appbar"><span class="brand">barry·CO</span><span class="crumb">Hồ sơ CO · TKX-2026-0042 · Growatt VN · Bảng kê C/O</span><span class="sp"></span></div>
+<div class="wrap">
+  <div class="lead"><h1>Bước 3 — Bảng kê C/O</h1><p>“Tổng hợp NVL” là một <b>tab thật</b> cạnh Review và các sheet SP: liệt kê NVL thiếu tồn trên cả lô, thay NVL (thay phần thiếu / thay hết), thay xong phản ánh lại tác động.</p></div>
+  <div class="tabs" id="tabs">
+    <button class="tab" data-tab><span class="st st-ok"></span>Review</button>
+    <button class="tab agg on" data-tab><span class="ic">▦</span>Tổng hợp NVL <span class="badge" id="tabBadge">1</span></button>
+    <button class="tab" data-tab><span class="seq">B1</span><span class="st st-ok"></span>INV-5000</button>
+    <button class="tab" data-tab><span class="seq">B2</span><span class="st st-warn"></span>INV-10K</button>
+    <button class="tab" data-tab><span class="seq">B3</span><span class="st st-warn"></span>INV-3000</button>
+  </div>
+  <div class="panel"><div id="mount"></div></div>
+</div>
+
+<!-- substitute modal (rich) -->
+<div class="mb" id="mb"><div class="modal" role="dialog" aria-modal="true">
+  <header><div><div class="eyebrow">Thay NVL</div><h2 id="mTitle">Tìm NVL thay thế</h2><div class="sub" id="mTarget" style="margin:2px 0 0"></div></div><span class="sp"></span><button class="iconbtn" onclick="closeM()">×</button></header>
+  <div class="mbody">
+    <div class="scopebox"><div class="lab">Phạm vi thay</div>
+      <div class="seg"><button id="sgS" class="on" onclick="setMode('short')"><span class="l">Thay phần thiếu</span><span class="cnt" id="cS">0</span><span class="l">SP đang thiếu</span></button>
+        <button id="sgA" onclick="setMode('all')"><span class="l">Thay hết</span><span class="cnt" id="cA">0</span><span class="l">SP dùng NVL này</span></button></div>
+      <div class="sub" id="mScope" style="margin:8px 0 0"></div></div>
+    <div class="subtabs"><button class="subtab on" id="tRec" onclick="setTab('rec')">Khuyến nghị</button><button class="subtab" id="tSea" onclick="setTab('sea')">Tìm kiếm</button></div>
+    <div id="pRec"><div class="toolrow"><input type="search" id="recF" placeholder="Lọc nhanh: mã, tên, HS" oninput="renderCands()"><label style="font-size:12px;color:var(--ink-2)"><input type="checkbox" id="stockOnly" onchange="renderCands()"> Chỉ mã đủ tồn</label></div><div class="cands" id="candL"></div></div>
+    <div id="pSea" hidden><div class="toolrow"><input type="search" id="seaB" placeholder="Gõ mã + tên + HS — Enter"><button class="btn pri sm" onclick="renderCands()">Tìm</button></div><div class="cands" id="candL2"></div></div>
+  </div>
+  <footer><span class="sub" id="selInfo" style="margin:0">Chưa chọn mã thay thế.</span><span><button class="btn" onclick="closeM()">Huỷ</button> <button class="btn pri" id="applyBtn" onclick="applySub()" disabled>Áp dụng &amp; tính lại</button></span></footer>
+</div></div>
+
+<div class="switch" id="switch"><button onclick="cyc(-1)">‹</button><span class="lbl" id="lbl"></span><button onclick="cyc(1)">›</button></div>
+<div class="protohint">◆ PROTOTYPE — “Tổng hợp NVL” dạng tab · dữ liệu giả · ← → đổi biến thể</div>
+
+<script>
+(function(){
+  const SHEETS=[{code:"INV-5000",name:"Inverter 5kW",lvc:38.2,status:"calculated"},
+    {code:"INV-10K",name:"Inverter 10kW",lvc:35.9,status:"calculated"},
+    {code:"INV-3000",name:"Inverter 3kW",lvc:null,status:"bom_loaded"}];
+  const SH=Object.fromEntries(SHEETS.map(s=>[s.code,s]));const ALL=SHEETS.map(s=>s.code);
+  const MATS=[
+    {code:"AL-100",name:"Aluminum sheet 1mm",uom:"kg",needed:1700,available:1000,using:ALL,
+      shortIn:{"INV-10K":400,"INV-3000":300},resolved:false,sub:null,
+      cands:[{code:"AL-100-T5",name:"Aluminum 6063-T5",hs:"76061190",score:95,ok:true,hist:2},{code:"AL-120",name:"Aluminum sheet 1.2mm",hs:"76061190",score:84,ok:true,hist:0},{code:"AL-100-RAW",name:"Aluminum raw",hs:"76061110",score:71,ok:false,hist:0}]},
+    {code:"CU-WIRE-2",name:"Copper wire 2.5mm",uom:"m",needed:1200,available:900,using:["INV-5000","INV-10K"],
+      shortIn:{"INV-10K":300},resolved:false,sub:null,
+      cands:[{code:"CU-WIRE-25N",name:"Copper wire 2.5 N",hs:"85447000",score:90,ok:true,hist:1},{code:"CU-WIRE-3",name:"Copper wire 3.0mm",hs:"85447000",score:80,ok:true,hist:0}]},
+    {code:"PE-001",name:"Polyethylene resin A",uom:"kg",needed:2150,available:2000,using:ALL,
+      shortIn:{"INV-3000":150},resolved:false,sub:null,
+      cands:[{code:"PE-001B",name:"PE resin A grade B",hs:"39011010",score:88,ok:true,hist:0},{code:"PE-003",name:"PE resin C",hs:"39011010",score:76,ok:false,hist:0}]}];
+  const fmt=n=>n.toLocaleString("vi-VN");const shortQ=m=>Math.max(0,m.needed-m.available);
+  const shortSP=m=>Object.keys(m.shortIn);const open=()=>MATS.filter(m=>!m.resolved);
+
+  function tiles(){const o=open().length;return `<div class="sheethead"><h2>▦ Tổng hợp NVL thiếu tồn</h2>
+    <span class="chip ${o?'warn':'ok'}">${o?('⚠ '+o+' NVL thiếu'):'✓ đủ tồn'}</span>
+    <span class="chip mut">gộp trên cả ${SHEETS.length} SP</span><span class="sp"></span>
+    <button class="btn sm">Tính tồn lại</button></div>
+    <div class="sub">Phân bổ: SP trước ưu tiên (theo thứ tự sheet), lot theo ngày tờ khai. Thay NVL ở đây <b>sync xuống từng sheet con</b> + tính lại LVC.</div>`;}
+  function commit(){const o=open().length;const ready=o===0;
+    return `<div class="commit"><span class="chip ${ready?'ok':'warn'}">${ready?'✓ Sẵn sàng':'⚠ Chưa xong'}</span>
+      <span class="msg">${o?('Còn <b>'+o+'</b> NVL thiếu — thay xong mới chốt cả lô.'):'Tất cả NVL đủ tồn.'}</span><span class="sp"></span>
+      <button class="btn">Tính tồn tất cả</button><button class="btn pri" ${ready?'':'disabled'}>Chốt tất cả (${SHEETS.length} SP)</button></div>`;}
+  function spDots(m){return '<span class="spdots">'+m.using.map(c=>{const short=m.shortIn[c]!=null&&!m.resolved;
+    return `<span class="dot" title="${c}: ${short?'thiếu':'đủ'}" style="background:${short?'var(--warn)':'var(--ok)'}"></span>`;}).join('')+'</span>';}
+
+  // ============ Variant A — table + inline diff ============
+  function renderA(){
+    const rows=MATS.map((m,i)=>{const pct=Math.min(100,Math.round(m.available/m.needed*100));
+      const head=m.resolved?`<span class="old code">${m.code}</span> <span class="arrow">→</span> <span class="mat code" style="color:var(--accent)">${m.sub}</span>`:`<span class="mat">${m.name}</span>`;
+      const sub=m.resolved?`<span class="chip ok">✓ đã thay ${m.appliedN} SP · LVC ↑</span>`:`<span class="chip warn">thiếu ${fmt(shortQ(m))} ${m.uom} · ${shortSP(m).length}/${m.using.length} SP</span>`;
+      const main=`<tr class="${m.resolved?'done':''}">
+        <td><button class="expand" onclick="tgl(${i})">▸</button> ${head}<br><span class="code" style="margin-left:20px">${m.resolved?'':m.code+' · '+m.uom}</span></td>
+        <td class="r num">${fmt(m.needed)}</td><td class="r num">${fmt(m.available)}</td>
+        <td class="r num" style="color:var(--warn);font-weight:700">${m.resolved?'0':fmt(shortQ(m))}</td>
+        <td>${sub} ${spDots(m)}</td>
+        <td class="r"><button class="btn pri sm" onclick="openM(${i})">Thay…</button></td></tr>`;
+      const drill=exp.has(i)?`<tr class="drill"><td colspan="6"><div class="drillbox"><div class="sub" style="margin:0">SP dùng ${m.code}: cam=thiếu. “Thay phần thiếu” chỉ đụng ${shortSP(m).length} SP.</div><div class="spgrid">${m.using.map(c=>{const s=SH[c],short=m.shortIn[c]!=null&&!m.resolved;return `<div class="spcell ${short?'short':''}"><span class="dot" style="background:${short?'var(--warn)':'var(--ok)'}"></span><span class="code">${c}</span>${short?`<span class="lvc" style="color:var(--warn)">thiếu ${fmt(m.shortIn[c])} ${m.uom}</span>`:`<span class="lvc">LVC ${s.lvc??'—'}%</span>`}</div>`;}).join('')}</div></div></td></tr>`:'';
+      return main+drill;}).join('');
+    return tiles()+`<div class="scroll"><table><thead><tr><th>Nguyên vật liệu (bấm ▸ xem SP)</th><th class="r">Cần</th><th class="r">Tồn</th><th class="r">Thiếu</th><th>Thiếu ở · sau thay</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`+commit();
+  }
+
+  // ============ Variant B — master ↔ detail ============
+  let sel=MATS[0].code;
+  function renderB(){
+    const list=MATS.map(m=>`<button class="mdrow ${m.code===sel?'on':''} ${m.resolved?'done':''}" onclick="pickMd('${m.code}')">
+      <div class="t">${m.resolved?'<span class="old">'+m.code+'</span> → '+m.sub:m.name}</div>
+      <div class="m">${m.resolved?'✓ đã thay '+m.appliedN+' SP':'thiếu '+fmt(shortQ(m))+' '+m.uom+' · '+shortSP(m).length+'/'+m.using.length+' SP'}</div></button>`).join('');
+    const m=MATS.find(x=>x.code===sel)||MATS[0];
+    const spRows=m.using.map(c=>{const s=SH[c],short=m.shortIn[c]!=null&&!m.resolved;
+      return `<div class="spcell ${short?'short':''}"><span class="dot" style="background:${short?'var(--warn)':'var(--ok)'}"></span><span class="code">${c}</span> ${s.name}<span class="lvc">${short?'<span style="color:var(--warn)">thiếu '+fmt(m.shortIn[c])+' '+m.uom+'</span>':'LVC '+(s.lvc??'—')+'%'}</span></div>`;}).join('');
+    const detail=`<div class="mddetail"><div class="sheethead" style="margin:0 0 6px"><h2 style="font-size:15px">${m.name}</h2><span class="code">${m.code} · ${m.uom}</span><span class="sp"></span>${m.resolved?`<span class="chip ok">✓ đã thay ${m.appliedN} SP</span>`:`<span class="chip warn">thiếu ${fmt(shortQ(m))} ${m.uom}</span>`}</div>
+      <div class="beforeafter"><div class="ba"><div class="lb">Trước</div><div>cần <b>${fmt(m.needed)}</b> · tồn <b>${fmt(m.available)}</b> · <span style="color:var(--warn)">thiếu ${fmt(shortQ(m))}</span> · ${shortSP(m).length}/${m.using.length} SP thiếu</div></div>
+        <div class="arrow" style="text-align:center;font-size:20px">→</div>
+        <div class="ba after"><div class="lb">Sau khi thay${m.resolved?'':' (dự kiến)'}</div><div>${m.resolved?'mã <b>'+m.sub+'</b> · '+m.appliedN+' SP · đủ tồn · <span style="color:var(--ok)">LVC ↑ ~2–3%</span>':'thay '+shortSP(m).length+' SP thiếu → phần thiếu về <b>0</b>, LVC các SP đó tăng'}</div></div></div>
+      <div class="sub" style="margin:2px 0 8px"><b>SP dùng NVL này</b> (cam = thiếu):</div><div class="spgrid">${spRows}</div>
+      <div style="margin-top:12px">${m.resolved?'<button class="btn sm">Hoàn tác thay</button>':'<button class="btn pri" onclick="openM('+MATS.indexOf(m)+')">Chọn mã thay thế…</button>'}</div></div>`;
+    return tiles()+`<div class="md"><div class="mdlist">${list}</div>${detail}</div>`+commit();
+  }
+  window.pickMd=c=>{sel=c;render();};
+
+  // ============ Variant C — table + change ledger ============
+  const log=[];
+  function renderC(){
+    const rows=MATS.map((m,i)=>{const sub=m.resolved?`<span class="chip ok">✓ đã thay</span>`:`<span class="chip warn">thiếu ${fmt(shortQ(m))} ${m.uom} · ${shortSP(m).length}/${m.using.length} SP</span>`;
+      return `<tr class="${m.resolved?'done':''}"><td><span class="mat">${m.name}</span> <span class="code">${m.code}</span></td>
+        <td class="r num">${fmt(m.needed)}</td><td class="r num">${fmt(m.available)}</td><td class="r num" style="color:var(--warn);font-weight:700">${m.resolved?'0':fmt(shortQ(m))}</td>
+        <td>${sub} ${spDots(m)}</td><td class="r"><button class="btn pri sm" onclick="openM(${i})">Thay…</button></td></tr>`;}).join('');
+    const logHtml=log.length?log.map((l,i)=>`<div class="logrow"><span class="dot" style="background:var(--ok)"></span><span class="grow"><span class="code">${l.from}</span> <span class="arrow">→</span> <span class="code" style="color:var(--accent)">${l.to}</span> · ${l.n} SP (${l.scope==='all'?'thay hết':'phần thiếu'})</span><span class="delta up">LVC +${l.lvc}%</span><button class="btn sm" onclick="undo(${i})">Hoàn tác</button></div>`).join(''):'<div class="empty">Chưa có thay đổi. Thay một NVL để ghi vào nhật ký.</div>';
+    return tiles()+`<div class="scroll"><table><thead><tr><th>Nguyên vật liệu</th><th class="r">Cần</th><th class="r">Tồn</th><th class="r">Thiếu</th><th>Thiếu ở</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="ledger"><div class="lh">🕑 Nhật ký thay đổi <span class="chip mut">${log.length}</span></div>${logHtml}</div>`+commit();
+  }
+  window.undo=i=>{const l=log[i];const m=MATS.find(x=>x.code===l.code);if(m){m.resolved=false;m.sub=null;}log.splice(i,1);render();};
+
+  // ---- shared modal ----
+  let matI=null,mode="short",tab="rec",selCand=null;
+  window.openM=i=>{matI=i;const m=MATS[i];mode="short";tab="rec";selCand=null;
+    document.getElementById("mTarget").textContent=`Dòng NVL: ${m.code} — ${m.name}`;
+    document.getElementById("cS").textContent=shortSP(m).length;document.getElementById("cA").textContent=m.using.length;
+    document.getElementById("recF").value="";document.getElementById("seaB").value="";document.getElementById("stockOnly").checked=false;
+    setMode("short");setTab("rec");renderCands();syncSel();document.getElementById("mb").classList.add("open");};
+  window.setMode=x=>{mode=x;const m=MATS[matI];document.getElementById("sgS").classList.toggle("on",x==="short");document.getElementById("sgA").classList.toggle("on",x==="all");
+    const n=x==="short"?shortSP(m).length:m.using.length;const w=x==="short"?("SP đang thiếu ("+shortSP(m).join(", ")+")"):"tất cả SP dùng NVL này";
+    document.getElementById("mScope").innerHTML=`Áp mã thay thế ở <b>${n} sản phẩm</b> — ${w}. Ghi override xuống từng sheet con rồi tính lại tồn + LVC cả lô.`;};
+  window.setTab=t=>{tab=t;document.getElementById("tRec").classList.toggle("on",t==="rec");document.getElementById("tSea").classList.toggle("on",t==="sea");document.getElementById("pRec").hidden=t!=="rec";document.getElementById("pSea").hidden=t!=="sea";};
+  function candHTML(c){const okc=c.ok?'<span class="chip ok">đủ tồn</span>':'<span class="chip warn">thiếu tồn</span>';const h=c.hist?`<span class="badge-hist">↺ đã từng thay ·${c.hist}</span>`:'';
+    return `<button class="cand ${selCand===c.code?'sel':''}" onclick="pick('${c.code}')"><span class="grow"><span class="nm">${c.name}</span> ${h}<br><span class="code">${c.code} · HS ${c.hs}</span></span>${okc}<span class="code" style="font-weight:700">${c.score}đ</span></button>`;}
+  window.renderCands=()=>{const m=MATS[matI];const f=(document.getElementById("recF").value||"").toLowerCase();const so=document.getElementById("stockOnly").checked;
+    let l=m.cands.slice();if(so)l=l.filter(c=>c.ok);if(f)l=l.filter(c=>(c.code+c.name+c.hs).toLowerCase().includes(f));l.sort((a,b)=>(b.hist>0)-(a.hist>0)||b.score-a.score);
+    document.getElementById("candL").innerHTML=l.length?l.map(candHTML).join(''):'<div class="empty">Không có khuyến nghị khớp.</div>';
+    const sq=(document.getElementById("seaB").value||"").toLowerCase();document.getElementById("candL2").innerHTML=sq?(m.cands.filter(c=>(c.code+c.name).toLowerCase().includes(sq)).map(candHTML).join('')||'<div class="empty">Không tìm thấy.</div>'):'<div class="empty">Nhập từ khoá để tìm.</div>';};
+  window.pick=c=>{selCand=c;renderCands();syncSel();};
+  function syncSel(){const m=MATS[matI];const c=m&&m.cands.find(x=>x.code===selCand);document.getElementById("selInfo").innerHTML=c?`Chọn: <b>${c.code}</b> — ${c.name}`:"Chưa chọn mã thay thế.";document.getElementById("applyBtn").disabled=!c;}
+  window.closeM=()=>document.getElementById("mb").classList.remove("open");
+  window.applySub=()=>{const m=MATS[matI];const c=m.cands.find(x=>x.code===selCand);m.sub=selCand;m.appliedN=mode==="short"?shortSP(m).length:m.using.length;
+    if(c&&c.ok){m.resolved=true;log.unshift({code:m.code,from:m.code,to:selCand,n:m.appliedN,scope:mode,lvc:(2+Math.round(Math.random()*2))});}
+    else{m.resolved=false;m.available=m.needed-Math.max(1,Math.round(shortQ(m)/2));Object.keys(m.shortIn).forEach(k=>m.shortIn[k]=Math.round(m.shortIn[k]/2));}
+    closeM();render();};
+  window.tgl=i=>{exp.has(i)?exp.delete(i):exp.add(i);render();};const exp=new Set();
+
+  const V={A:["A","Bảng + diff inline",renderA],B:["B","Master ↔ chi tiết/tác động",renderB],C:["C","Bảng + nhật ký thay đổi",renderC]};
+  const order=["A","B","C"];let cur=(location.hash.replace("#","").toUpperCase());if(!order.includes(cur))cur="A";
+  function render(){document.getElementById("mount").innerHTML=V[cur][2]();document.getElementById("lbl").innerHTML=`${V[cur][0]} — <small>${V[cur][1]}</small>`;document.getElementById("tabBadge").textContent=open().length;location.hash=cur;}
+  window.cyc=d=>{cur=order[(order.indexOf(cur)+d+order.length)%order.length];render();};
+  document.addEventListener("keydown",e=>{const t=e.target.tagName;if(t==="INPUT"||t==="TEXTAREA")return;if(e.key==="ArrowLeft")cyc(-1);if(e.key==="ArrowRight")cyc(1);if(e.key==="Escape")closeM();});
+  document.getElementById("mb").addEventListener("click",e=>{if(e.target.id==="mb")closeM();});
+  render();
+})();
+</script>
