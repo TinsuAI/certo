@@ -102,12 +102,62 @@ tồn của nhau.
     `POST .../origin/bulk-substitute-plan` trả `{substitutions, summary}` (UI xem "thay N vs thay M" rồi
     POST `/bulk-substitute` áp). Refactor behavior-preserving: tách `allocate_whole_case_preview`
     (whole_case_stock_summary delegate) để plan lấy allocated case. +2 smoke test. **Suite 719 pass.**
-  - **⏳ UI PENDING — thiết kế trước khi build.** Nút batch cũ bị gate vì "confusing/half-built" (`834e1da`),
-    thay bằng wizard "Xử lý tuần tự". Auto-flow khách = UX batch **cải tiến** (sheet tổng hợp) thay nút cũ:
-    nhập TKX→auto tính all→sheet tổng hợp thiếu tồn→thay phần thiếu/thay hết (plan route)→review→Chốt tất cả.
-    **Đề xuất: prototype UI trước** (skill `prototype`) — đây là quyết định UX lớn.
+  - **✅ M3 rollup DONE 2026-07-07.** `case_shortfall_rollup` (`co_case_context.py`) pivot allocated case
+    (product-centric) → **material-centric**: 1 dòng/NVL thiếu ≥1 sheet, tổng cần/tồn/**thiếu (đơn vị)** +
+    `using[SP]` (thay hết) + per-SP short qty + LVC/status cho drill-down. Wired `preview-stock-all` +
+    `bulk-substitute` (mỗi mutation trả `rollup` mới → server-authoritative). 3 tests. **Suite 722 pass.**
+  - **✅ UI ĐÃ CHỐT HƯỚNG (judge panel 2026-07-07).** Prototype 3 biến thể
+    (`.ai/prototypes/2026-07-07-sheet-tong-hop-prototype.html`) → panel 4 expert (UX/consistency/
+    info-design/cost) **nhất trí Variant A** (bảng thiếu tồn tập trung): A 4.5/5/4.5/5 · B 3.5/3/2.5/3 ·
+    C 3.0/2/3.0/2. **Giải pháp build:**
+    1. **Spine = bảng material-centric** (1 dòng/NVL thiếu: cần/tồn/thiếu + "thiếu N/M SP" + Thay…).
+       = M3 `case_shortfall_rollup` (pivot `case_missing_stock_summary` short-per-SP → per-NVL, + usedBy
+       cho "thay hết"). **Lưu ý cost judge:** summary hiện product-centric, chỉ emit short-per-SP → cần
+       rollup material-centric (usedBy chưa có) — chấp nhận vì đúng mental-model khách ("NVL A thiếu 2/10 SP").
+    2. **Reuse rich modal** `.origin-substitute-modal` qua `openBulkSubstitutePicker` (muc6 đã có stage-mode:
+       tabs Khuyến nghị/Tìm kiếm + filter + badge "↺ đã từng thay" + score + đủ/thiếu) — **thêm scope toggle**
+       (thay phần thiếu `only_short` / thay hết `everywhere`) wired vào `bulk-substitute-plan` (đã build). Đây
+       là interaction MỚI duy nhất.
+    3. **Graft B →** phase ribbon mảnh (Tính→Xử lý→Review&Chốt) dùng idiom `owz` cũ, KHÔNG stepper mới
+       (step-state = thứ làm hỏng UI cũ `834e1da`).
+    4. **Graft C →** drill-down dot-strip per-SP (đủ/thiếu/không-dùng) + LVC + trạng thái locked/DC3c-blocked
+       trong dòng mở rộng — KHÔNG full matrix (matrix chết ở 30 SP + cần endpoint material-centric mới).
+    5. Re-enable nút gated `co_case.html:913-920` (+`data-*`/URL) → thừa hưởng run-stock/bulk-substitute/bulk-lock.
+    - Verdict lưu ở `.ai/prototypes/2026-07-07-sheet-tong-hop-NOTES.md`. Sau khi build: xoá prototype + switcher.
 - **Slice 3 — M3 sheet tổng hợp (VIEW):** wire rollup ↔ plan; sync xuống qua overrides.
 - **Slice 4 — M5 auto-flow (TKX → auto tính tất cả):** orchestration, sau khi 0+1 chắc.
+
+## Logic & đồng bộ batch (VERIFIED 2026-07-07 — 4 concern của user)
+1. **Phân bổ NVL vào SP (L1) — "hợp lý" = tuần tự + FIFO ngày tờ khai, KHÔNG optimizer.** 1 pool chung
+   per-material; SP tiêu thụ theo `origin_product_order` (SP trước ăn tồn trước), lot trong 1 mã sort
+   `co_stock_allocation_sort_key` (`co_case_context.py:1825`): usable→có-remaining→có-value→**declaration_date ASC**.
+   SP hết tồn ⇒ `allocation_status="shortage"`. **Lever duy nhất = "Đổi thứ tự sheet"** (`co_case.html:979`
+   post `origin_product_order`). **Quyết định: GIỮ policy này** (deterministic, đúng tinh thần trừ-lùi);
+   batch chỉ **phơi bày** thứ tự + cho reorder (KHÔNG viết optimizer mới — rủi ro parity cao). Drill-down
+   đã hiện SP nào thiếu bao nhiêu → staff reorder nếu muốn SP khác chịu thiếu.
+2. **Thay hết/thay phần thiếu phải TÍNH LẠI delta (L2) — server ĐÃ làm đúng.** `bulk_substitute_route`
+   ghi override → `mark_origin_sheets_stale` từ index sớm nhất → `recalculate_origin_sheet_edits` từng sheet
+   **theo thứ tự** (rebuild rows, đổi mã, phân bổ tồn cho **chính mã thay thế**, tính lại VNM/LVC) → re-run
+   `whole_case_stock_summary`. **Quan trọng: mã thay thế cũng có thể THIẾU tồn** → aggregate phải hiện
+   shortfall **tính lại**, KHÔNG mark "đã xong" mù quáng. Client LVC chỉ là "(live)" tạm tính (`co_case.html:3936`
+   `computeFeasibility`), **số cuối theo server**.
+3. **Sync sheet con (L3) — có GAP phải vá.** Override propagate server-side (`attach_origin_sheet_states`
+   → `product.origin_sheet_material_overrides`; sheet con render `→ mã thay` `co_case.html:1610`). **GAP:**
+   `applyBulkSubstitute` hiện chỉ update ô summary + revision (`:5811`), **KHÔNG swap `[data-co-case-shell]`**
+   ⇒ tab sheet con giữ DOM cũ tới khi reload. **Vá: sau bulk-substitute, re-render case shell** (reuse
+   `replaceCaseShellFromResponse:2179`) — bulk endpoint trả HTML (hoặc client re-fetch shell) như đường
+   single-save đã làm.
+4. **Client/server không bất nhất (L4) — theo đúng pattern có sẵn.** `origin_case_revision`
+   (`co_case_context.py:53`, sha256 trên state user-editable, loại derived-snapshot để không 409 giả);
+   mọi mutation gửi `expected_revision` → server 409 nếu lệch, trả `revision` mới → client ghi lại
+   `workbook.dataset.originRevision`; **client state = chỉ override-delta**, reconcile bằng **re-render từ
+   response** (`replaceCaseShellFromResponse`), KHÔNG giữ speculative state. Batch phải: gửi expected_revision,
+   200 → **swap shell**, luôn update originRevision. Aggregate đủ/thiếu **luôn từ `whole_case_stock_summary`**
+   (override-aware, tuần tự), KHÔNG từ client `allocateCandidate`.
+
+**⇒ Batch = server-authoritative:** mỗi thao tác (thay/tính lại/chốt) = 1 mutation gửi expected_revision →
+server tính lại tuần tự → trả shell + revision + summary → client swap shell (sheet con + aggregate đồng bộ).
+Không có bảng tính "sống" riêng ở client. Đây là điểm **phải làm trong Slice 2 UI** (vá gap L3).
 
 ## Risks
 - **R1 — VERIFIED 2026-07-06 (discovery agent) → gate-relax theo material_code UNSOUND.**
