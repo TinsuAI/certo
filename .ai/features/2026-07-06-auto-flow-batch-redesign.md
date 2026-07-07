@@ -132,7 +132,15 @@ tồn của nhau.
     (thay phần thiếu/thay hết); server-authoritative (re-render từ `body.rollup`, revision-token 409→reload).
     CSS `.rs-*` trong `app.css`. **L3 (sync sheet con):** hiện dùng cờ `childSheetsStale` + note "Tải lại" +
     reload khi Chốt (live shell-swap để follow-up). Verified tĩnh: JS `node --check`, co_case.html compile,
-    suite 722. **Chưa browser e2e** (dev server auth-on + chưa có case thiếu-tồn local).
+    suite 722.
+  - **✅ BROWSER E2E PASSED 2026-07-07** (real growatt-vn stock, headless chromium). Seed harness
+    `.ai/scripts/e2e_batch_ui_seed.py` (5 SP × 2000 kg lot `940.0661900` ~6000 tồn → thiếu 4000 kg · 2/5 SP).
+    Drive: `Chạy tồn` → bảng material-centric render (cần 10000/tồn 6000/**thiếu 4000 kg** · thiếu 2/5 SP) +
+    ribbon + note phân bổ; scope toggle flip sang "Thay hết · 5 SP"; drill-down 5 ô SP (SP-4/5 cam thiếu);
+    "Chọn mã thay thế" mở **đúng modal giàu** (tabs Khuyến nghị/Tìm kiếm, lọc, đang fetch DH recommendations).
+    **0 JS error** (chỉ favicon-404). Screenshots `.ai/screenshots/2026-07-07-batch-ui-e2e/`.
+    **Follow-up nhỏ:** modal target label "SP SP-4" (anchor) nên phản ánh scope ("N SP") cho rõ; live
+    shell-swap sheet con (hiện stale-note+reload).
 - **Slice 3 — M3 sheet tổng hợp (VIEW):** wire rollup ↔ plan; sync xuống qua overrides.
 - **Slice 4 — M5 auto-flow (TKX → auto tính tất cả):** orchestration, sau khi 0+1 chắc.
 
