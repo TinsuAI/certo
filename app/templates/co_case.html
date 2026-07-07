@@ -909,14 +909,16 @@
             title="Xử lý từng bảng kê lần lượt theo thứ tự: tính → xem lại → chốt, cho tới hết. An toàn hơn 'Chốt tất cả' vì dừng cho bạn duyệt mỗi bước.">
       Xử lý tuần tự
     </button>
-    {# Tạm disable bulk preview/lock cũ — đang xây dựng lại; dùng "Xử lý tuần tự". #}
-    <button type="button" class="btn-secondary btn-wip" disabled
-            title="Tính năng đang xây dựng — dùng 'Xử lý tuần tự' để xử lý lần lượt.">
-      Chạy tồn (tất cả SP) <span class="btn-wip-tag">🚧 đang xây dựng</span>
+    <button type="button" class="btn-secondary" data-run-stock-all
+            data-run-stock-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/preview-stock-all"
+            data-bulk-substitute-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/bulk-substitute"
+            title="Chạy tồn 1 lần cho tất cả SP (preview, không trừ sổ) → tổng hợp NVL thiếu tồn để thay phần thiếu / thay hết.">
+      Chạy tồn (tất cả SP)
     </button>
-    <button type="button" class="btn-secondary btn-wip" disabled
-            title="Tính năng đang xây dựng — dùng 'Xử lý tuần tự' để chốt lần lượt.">
-      Chốt tất cả <span class="btn-wip-tag">🚧 đang xây dựng</span>
+    <button type="button" class="btn-secondary" data-bulk-lock
+            data-bulk-lock-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/bulk-lock"
+            title="Chốt tất cả sheet đã tính (theo thứ tự) — trừ tồn vào sổ; sheet đã chốt không sửa được tới khi mở chốt.">
+      Chốt tất cả
     </button>
     {% endif %}
     <button type="submit" form="origin-export-bang-ke" data-origin-export-action class="btn-secondary">Xuất bảng kê HQ</button>
@@ -5785,120 +5787,146 @@
   // thế" opens the SAME rich substitute modal (ranking + tồn theo lô + đơn giá +
   // đủ/thiếu) in stage-mode, then áp thay định mức hàng loạt in one POST.
   const rsEsc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  const stageKey = (p, m) => `${p} ${m}`;
+  // Which SP a substitute applies to is SERVER TRUTH (rollup.using / is_short), so
+  // the client never computes allocation — it only picks the scope. Locked sheets
+  // can't be edited (bulk-substitute skips them anyway) → left out of the triples.
+  const buildSubTriples = (mat, item, scope, norm) =>
+    (mat.using || [])
+      .filter((u) => (scope === "everywhere" || u.is_short) && u.status !== "locked")
+      .map((u) => ({
+        product_code: u.product_code, material_code: mat.material_code,
+        substitute_code: item.material_code, name: item.name || "", norm_per_unit: norm || "",
+      }));
 
-  const applyBulkSubstitute = async (btn, staged) => {
+  // Apply one material's substitution immediately. Server re-allocates the
+  // substitute (which can itself be short), recomputes LVC, and returns the fresh
+  // rollup — the aggregate re-renders from body.rollup (server-authoritative).
+  const applyMaterialSubstitute = async (btn, mat, item, scope, norm) => {
     const url = btn.dataset.bulkSubstituteUrl;
     const box = document.querySelector("[data-run-stock-summary]");
     if (!url || !box) return;
-    const subs = [...staged.values()].map((s) => ({
-      product_code: s.product_code, material_code: s.material_code,
-      substitute_code: s.substitute_code, name: s.name || "", norm_per_unit: s.norm || "",
-    }));
-    if (!subs.length) { toast("Chưa chọn mã thay thế nào.", "error"); return; }
+    const subs = buildSubTriples(mat, item, scope, norm);
+    if (!subs.length) { toast("Không có SP nào để thay (các SP dùng mã này đã chốt).", "error"); return; }
     const workbook = document.querySelector("[data-origin-workbook]");
-    const applyBtn = box.querySelector("[data-bulk-substitute-apply]");
-    const resetBtn = () => { if (applyBtn) { applyBtn.disabled = false; applyBtn.textContent = `Áp thay thế (${staged.size})`; } };
-    if (applyBtn) { applyBtn.disabled = true; applyBtn.textContent = "Đang áp…"; }
+    box.dataset.state = "loading";
     try {
       const resp = await fetch(url, {
         method: "POST",
         headers: { "Accept": "application/json", "Content-Type": "application/json" },
         body: JSON.stringify({ substitutions: subs, expected_revision: workbook?.dataset.originRevision || "" }),
       });
-      if (resp.status === 409) { box.dataset.state = "warning"; toast("Hồ sơ đã đổi — tải lại trang.", "error"); resetBtn(); return; }
+      if (resp.status === 409) { box.dataset.state = "warning"; toast("Hồ sơ đã đổi — tải lại trang.", "error"); return; }
       const body = await resp.json();
-      if (workbook && body.revision) workbook.dataset.originRevision = body.revision;
+      if (workbook && body.revision) {
+        workbook.dataset.originRevision = body.revision;
+        workbook.dataset.childSheetsStale = "1";  // child-sheet tabs need a reload to show the swap
+      }
       const n = (body.applied || []).length;
-      toast(`Đã thay ${n} mã định mức.`, n ? "success" : "error");
-      renderRunStockSummary(btn, body);   // body carries the refreshed override-aware summary
+      toast(`Đã thay ${mat.material_code} → ${item.material_code} ở ${n} SP.`, n ? "success" : "error");
+      renderRunStockSummary(btn, body);   // re-render the aggregate from the fresh server rollup
     } catch (err) {
-      toast(`Lỗi thay định mức: ${err}`, "error");
-      resetBtn();
+      toast(`Lỗi thay NVL: ${err}`, "error");
+      box.dataset.state = "warning";
     }
   };
 
-  const renderStagedCell = (cell, pick) => {
-    const f = pick.feasibility;
-    let badge = "";
-    if (f && f.consumedNew > 0 && f.alloc) {
-      badge = f.alloc.shortage
-        ? `<span class="run-stock-badge run-stock-badge-warn">⚠ thiếu ${rsEsc(Math.round((f.alloc.shortageQty || 0) * 100) / 100)}</span>`
-        : `<span class="run-stock-badge run-stock-badge-ok">✓ đủ tồn</span>`;
-    }
-    const pct = pick.score ? ` <span class="run-stock-score">${Math.round(pick.score * 100)}%</span>` : "";
-    cell.innerHTML = `→ <span class="run-stock-mat">${rsEsc(pick.substitute_code)}</span>`
-      + (pick.name ? ` <span class="run-stock-pick-name">${rsEsc(pick.name)}</span>` : "")
-      + pct + " " + badge;
-    cell.classList.add("run-stock-staged-set");
+  const rsRibbon = (active) =>
+    `<div class="rs-ribbon">`
+    + `<span class="rs-ph done"><span class="rs-d"></span>Tính cả lô</span><span class="rs-sep">›</span>`
+    + `<span class="rs-ph ${active ? "now" : "done"}"><span class="rs-d"></span>Xử lý thiếu tồn</span><span class="rs-sep">›</span>`
+    + `<span class="rs-ph ${active ? "" : "now"}"><span class="rs-d"></span>Review &amp; Chốt tất cả</span></div>`;
+
+  const rsDrill = (mat) => {
+    const cells = (mat.using || []).map((u) => {
+      const locked = u.status === "locked";
+      const blocked = u.lvc_status === "missing_bom" || u.status === "blocked";
+      const cls = blocked ? "rs-sp-blocked" : u.is_short ? "rs-sp-short" : locked ? "rs-sp-locked" : "rs-sp-ok";
+      let tail;
+      if (blocked) tail = `<span class="rs-sp-tag">chặn</span>`;
+      else if (locked) tail = "🔒";
+      else if (u.is_short) tail = `<span class="rs-sp-qty">thiếu ${rsEsc(u.short_qty || "")} ${rsEsc(mat.uom || "")}</span>`;
+      else tail = u.lvc_percentage ? `<span class="rs-sp-lvc">LVC ${rsEsc(u.lvc_percentage)}%</span>` : "";
+      return `<div class="rs-spcell ${cls}"><span class="rs-dot"></span><span class="rs-sp-code">${rsEsc(u.product_code)}</span>${tail}</div>`;
+    }).join("");
+    return `<div class="rs-drill"><div class="rs-drill-hint">Dùng ở ${(mat.using || []).length} SP · cam = thiếu tồn · 🔒 đã chốt · đỏ = bị chặn. “Thay phần thiếu” chỉ đụng ${mat.short_count} SP.</div><div class="rs-spgrid">${cells}</div></div>`;
+  };
+
+  const bindRsReload = (box) => {
+    const link = box.querySelector("[data-rs-reload]");
+    if (link) link.addEventListener("click", (e) => { e.preventDefault(); window.location.reload(); });
   };
 
   const renderRunStockSummary = (btn, body) => {
     const box = document.querySelector("[data-run-stock-summary]");
     if (!box) return;
-    const products = body.products || [];
-    const head = [];
-    if (Array.isArray(body.applied) || Array.isArray(body.skipped)) {
+    const workbook = document.querySelector("[data-origin-workbook]");
+    const mats = (body.rollup && body.rollup.materials) || [];
+    const parts = [];
+    if (workbook?.dataset.childSheetsStale === "1") {
+      parts.push(`<div class="rs-stale">Đã thay NVL ở server — các tab <b>sheet con</b> cập nhật khi tải lại. <a href="#" data-rs-reload>Tải lại bảng kê</a></div>`);
+    }
+    if (Array.isArray(body.applied)) {
       const a = (body.applied || []).length, sk = (body.skipped || []).length;
-      head.push(`<div class="run-stock-result">✓ Đã thay ${a} mã${sk ? ` · bỏ qua ${sk}` : ""}. Bảng dưới là kết quả sau khi thay.</div>`);
+      parts.push(`<div class="run-stock-result">✓ Đã thay ${a} SP${sk ? ` · bỏ qua ${sk}` : ""}. Bảng dưới là kết quả tính lại từ server.</div>`);
     }
-    if (!products.length) {
-      box.innerHTML = head.join("") + "<div><strong>✓ Đủ tồn cho tất cả SP.</strong> Không còn mã thiếu tồn.</div>";
-      box.hidden = false; box.dataset.state = "ok";
-      return;
+    parts.push(rsRibbon(mats.length > 0));
+    if (!mats.length) {
+      parts.push(`<div class="rs-done"><strong>✓ Đủ tồn cho tất cả SP.</strong> Không còn NVL thiếu tồn — có thể “Chốt tất cả”.</div>`);
+      box.innerHTML = parts.join(""); box.hidden = false; box.dataset.state = "ok";
+      bindRsReload(box); return;
     }
-    const staged = new Map();
-    const parts = head.slice();
-    parts.push(`<div><strong>⚠ Thiếu tồn: ${body.missing_code_count || 0} mã trên ${products.length} SP.</strong> Bấm "Chọn mã thay thế" để mở gợi ý (ranking + tồn theo lô + đơn giá).</div>`);
-    products.forEach((p) => {
-      const rows = (p.materials || []).map((m) => {
-        const meta = [];
-        if (m.needed_qty) meta.push(`cần ${rsEsc(m.needed_qty)}`);
-        if (m.available_qty) meta.push(`có ${rsEsc(m.available_qty)}`);
-        if (m.shortage_qty) meta.push(`<span class="run-stock-short">thiếu ${rsEsc(m.shortage_qty)} ${rsEsc(m.uom || "")}</span>`);
-        return `<div class="run-stock-miss" data-miss>`
-          + `<div class="run-stock-miss-info">`
-          +   `<span class="run-stock-mat">${rsEsc(m.material_code)}</span>`
-          +   (m.name ? ` <span class="run-stock-mat-name">${rsEsc(m.name)}</span>` : "")
-          +   (meta.length ? `<span class="run-stock-meta">${meta.join(" · ")}</span>` : "")
-          + `</div>`
-          + `<button type="button" class="btn-secondary run-stock-pick-btn" data-sub-pick`
-          +   ` data-product="${rsEsc(p.product_code)}" data-material="${rsEsc(m.material_code)}"`
-          +   ` data-name="${rsEsc(m.name || "")}" data-norm="${rsEsc(m.norm || "")}"`
-          +   ` data-needed="${rsEsc(m.needed_qty || "")}" data-uom="${rsEsc(m.uom || "")}">Chọn mã thay thế</button>`
-          + `<span class="run-stock-staged" data-staged>— chưa chọn —</span>`
-          + `</div>`;
-      }).join("");
-      parts.push(`<div class="run-stock-product"><span class="run-stock-product-code">${rsEsc(p.product_code)}</span>${rows}</div>`);
+    parts.push(`<div class="rs-lead"><strong>⚠ ${mats.length} NVL thiếu tồn</strong> trên cả lô. Chọn phạm vi (thay phần thiếu / thay hết) + mã thay thế; server tính lại tồn + LVC sau mỗi lần thay.</div>`);
+    parts.push(`<div class="rs-note-alloc">Phân bổ tồn: SP trước ưu tiên (theo thứ tự sheet), lot theo ngày tờ khai.</div>`);
+    mats.forEach((m, i) => {
+      parts.push(
+        `<div class="rs-mat" data-rs-mat="${i}">`
+        + `<div class="rs-mat-head">`
+        +   `<button type="button" class="rs-expand" data-rs-expand aria-expanded="false" title="Xem SP dùng NVL này">▸</button>`
+        +   `<div class="rs-mat-id"><span class="run-stock-mat">${rsEsc(m.material_code)}</span>`
+        +     (m.name ? ` <span class="run-stock-mat-name">${rsEsc(m.name)}</span>` : "") + `</div>`
+        +   `<div class="rs-mat-metrics"><span>cần <b>${rsEsc(m.needed)}</b></span> <span>tồn <b>${rsEsc(m.available)}</b></span> `
+        +     `<span class="run-stock-short">thiếu <b>${rsEsc(m.short_qty)} ${rsEsc(m.uom || "")}</b></span></div>`
+        +   `<span class="rs-chip">thiếu ${m.short_count}/${m.using_count} SP</span>`
+        + `</div>`
+        + `<div class="rs-mat-act">`
+        +   `<div class="rs-scope" role="tablist" aria-label="Phạm vi thay">`
+        +     `<button type="button" class="rs-scope-btn on" data-scope="only_short">Thay phần thiếu · ${m.short_count} SP</button>`
+        +     `<button type="button" class="rs-scope-btn" data-scope="everywhere">Thay hết · ${m.using_count} SP</button>`
+        +   `</div>`
+        +   `<button type="button" class="btn-secondary rs-pick-btn" data-rs-pick>Chọn mã thay thế…</button>`
+        + `</div>`
+        + `</div>`
+      );
     });
-    parts.push(`<div class="run-stock-actions"><button type="button" class="btn-primary" data-bulk-substitute-apply disabled>Áp thay thế đã chọn</button></div>`);
-    box.innerHTML = parts.join("");
-    box.hidden = false; box.dataset.state = "warning";
-    const applyBtn = box.querySelector("[data-bulk-substitute-apply]");
-    const refreshApplyBtn = () => { if (applyBtn) { applyBtn.disabled = staged.size === 0; applyBtn.textContent = staged.size ? `Áp thay thế (${staged.size})` : "Áp thay thế đã chọn"; } };
-    box.querySelectorAll("[data-sub-pick]").forEach((pickBtn) => {
-      const row = pickBtn.closest("[data-miss]");
-      const stagedCell = row.querySelector("[data-staged]");
-      pickBtn.addEventListener("click", () => {
+    box.innerHTML = parts.join(""); box.hidden = false; box.dataset.state = "warning";
+    bindRsReload(box);
+    box.querySelectorAll("[data-rs-mat]").forEach((row) => {
+      const m = mats[+row.dataset.rsMat];
+      const scopeState = { scope: "only_short" };
+      const expandBtn = row.querySelector("[data-rs-expand]");
+      expandBtn.addEventListener("click", () => {
+        const open = row.classList.toggle("open");
+        expandBtn.setAttribute("aria-expanded", open ? "true" : "false");
+        expandBtn.textContent = open ? "▾" : "▸";
+        const drill = row.querySelector(".rs-drill");
+        if (open && !drill) row.insertAdjacentHTML("beforeend", rsDrill(m));
+        else if (!open && drill) drill.remove();
+      });
+      row.querySelectorAll("[data-scope]").forEach((sb) => {
+        sb.addEventListener("click", () => {
+          scopeState.scope = sb.dataset.scope;
+          row.querySelectorAll("[data-scope]").forEach((x) => x.classList.toggle("on", x === sb));
+        });
+      });
+      row.querySelector("[data-rs-pick]").addEventListener("click", () => {
         if (!openBulkSubstitutePicker) { toast("Modal thay thế chưa sẵn sàng — tải lại trang.", "error"); return; }
-        const d = pickBtn.dataset;
+        const anchorSp = (m.short_products && m.short_products[0]) || (m.using[0] && m.using[0].product_code) || "";
         openBulkSubstitutePicker({
-          productCode: d.product, materialCode: d.material, name: d.name,
-          norm: d.norm, needed: d.needed, uom: d.uom,
-          onPick: ({item, feasibility, norm}) => {
-            const pick = {
-              product_code: d.product, material_code: d.material,
-              substitute_code: item.material_code, name: item.name || "",
-              score: item.score || 0, feasibility, norm: norm || d.norm || "",
-            };
-            staged.set(stageKey(d.product, d.material), pick);
-            renderStagedCell(stagedCell, pick);
-            refreshApplyBtn();
-          },
+          productCode: anchorSp, materialCode: m.material_code, name: m.name, norm: "", uom: m.uom,
+          onPick: ({ item, norm }) => applyMaterialSubstitute(btn, m, item, scopeState.scope, norm),
         });
       });
     });
-    if (applyBtn) applyBtn.addEventListener("click", () => applyBulkSubstitute(btn, staged));
   };
 
   const runStockAll = async (btn) => {

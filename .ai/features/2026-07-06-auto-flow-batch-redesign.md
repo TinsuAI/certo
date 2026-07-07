@@ -124,6 +124,15 @@ tồn của nhau.
        trong dòng mở rộng — KHÔNG full matrix (matrix chết ở 30 SP + cần endpoint material-centric mới).
     5. Re-enable nút gated `co_case.html:913-920` (+`data-*`/URL) → thừa hưởng run-stock/bulk-substitute/bulk-lock.
     - Verdict lưu ở `.ai/prototypes/2026-07-07-sheet-tong-hop-NOTES.md`. Sau khi build: xoá prototype + switcher.
+  - **✅ UI BUILT 2026-07-07 (browser e2e pending).** `co_case.html`: re-enable 2 nút gated (+`data-*`/URL);
+    rewrite `renderRunStockSummary` → bảng material-centric đọc `body.rollup` (cần/tồn/**thiếu đơn vị** +
+    chip "thiếu N/M SP" + phase ribbon owz + drill-down per-SP `rsDrill`); thay `applyBulkSubstitute` (staged)
+    bằng `applyMaterialSubstitute` (per-material, tức thì) + `buildSubTriples` (dựng triple **từ rollup** =
+    server truth, không tính client); reuse modal giàu qua `openBulkSubstitutePicker` + **scope toggle**
+    (thay phần thiếu/thay hết); server-authoritative (re-render từ `body.rollup`, revision-token 409→reload).
+    CSS `.rs-*` trong `app.css`. **L3 (sync sheet con):** hiện dùng cờ `childSheetsStale` + note "Tải lại" +
+    reload khi Chốt (live shell-swap để follow-up). Verified tĩnh: JS `node --check`, co_case.html compile,
+    suite 722. **Chưa browser e2e** (dev server auth-on + chưa có case thiếu-tồn local).
 - **Slice 3 — M3 sheet tổng hợp (VIEW):** wire rollup ↔ plan; sync xuống qua overrides.
 - **Slice 4 — M5 auto-flow (TKX → auto tính tất cả):** orchestration, sau khi 0+1 chắc.
 
