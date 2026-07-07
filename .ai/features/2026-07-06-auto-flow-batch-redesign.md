@@ -92,17 +92,45 @@ tồn của nhau.
     - Ghi chú: guard `lvc_missing_price` có **cùng điểm yếu single-point** (pre-existing) — OUT OF SCOPE
       slice này, note lại để cân nhắc defense-in-depth tương tự sau.
   - **Full suite 711 pass / 15 skip**; server `:8001` reload sạch (HTTP 200). Chưa commit (theo convention).
-- **Slice 1 — Gate relax M1:** đồ thị giao NVL sau interface cũ. Trả lời trực tiếp câu hỏi khách.
-  Regression test: 2 sheet disjoint tính/chốt độc lập; 2 sheet chung NVL vẫn giữ thứ tự + ledger đúng.
-- **Slice 2 — M2 shortfall-plan + re-enable UI batch:** module plan + route mỏng; re-bind nút
-  `co_case.html:913-920` (route+JS còn nguyên → chỉ gắn `data-*` + bỏ `btn-wip`).
+- **Slice 1 — Gate relax M1: ⚠️ ĐỔI HƯỚNG sau discovery (2026-07-06).** Overlap theo `material_code`
+  **KHÔNG an toàn** — xem discovery dưới. Nếu làm gate-relax phải trên **tập LOT** (alias-expanded qua
+  pool), + chỉ giữa sheet **đã tính**, + fallback conservative cho draft/bom_loaded. To + rủi ro; giá
+  trị biên thấp vì whole-case calc đã đúng. **Đề xuất: bỏ gate-relax, đi thẳng batch UI (Slice 2/3).**
+- **Slice 2 — M2 shortfall-plan + batch UI:**
+  - **✅ BACKEND DONE (commit) 2026-07-07.** `app/substitution_plan.py` = `plan_shortfall_substitution`
+    (pure; only_short/everywhere, loại locked, carry name/uom/hs/norm) — 6 tests. Route mỏng
+    `POST .../origin/bulk-substitute-plan` trả `{substitutions, summary}` (UI xem "thay N vs thay M" rồi
+    POST `/bulk-substitute` áp). Refactor behavior-preserving: tách `allocate_whole_case_preview`
+    (whole_case_stock_summary delegate) để plan lấy allocated case. +2 smoke test. **Suite 719 pass.**
+  - **⏳ UI PENDING — thiết kế trước khi build.** Nút batch cũ bị gate vì "confusing/half-built" (`834e1da`),
+    thay bằng wizard "Xử lý tuần tự". Auto-flow khách = UX batch **cải tiến** (sheet tổng hợp) thay nút cũ:
+    nhập TKX→auto tính all→sheet tổng hợp thiếu tồn→thay phần thiếu/thay hết (plan route)→review→Chốt tất cả.
+    **Đề xuất: prototype UI trước** (skill `prototype`) — đây là quyết định UX lớn.
 - **Slice 3 — M3 sheet tổng hợp (VIEW):** wire rollup ↔ plan; sync xuống qua overrides.
 - **Slice 4 — M5 auto-flow (TKX → auto tính tất cả):** orchestration, sau khi 0+1 chắc.
 
 ## Risks
-- **R1 — Determinism claim ledger khi relax gate.** Trong 1 connected-component chung NVL, thứ tự trừ
-  pool phải bám `origin_product_order` (index) để lot→sheet không đổi. Đồ thị chỉ **bỏ cạnh** giữa sheet
-  rời rạc, **không đảo** thứ tự trong component. Test: kết quả allocation bằng hệt trước/sau relax.
+- **R1 — VERIFIED 2026-07-06 (discovery agent) → gate-relax theo material_code UNSOUND.**
+  - **D2 (critical):** lot đăng ký dưới **nhiều key** (`co_stock_key_candidates` = material_code +
+    allocation_code + customs_item_code, `co_case_context.py:1664/1820`); lookup theo material_code của
+    NVL (`stock_candidates_for_material:1876`). ⇒ 2 sheet **material_code rời rạc vẫn chung 1 lot** qua
+    alias. Overlap theo material_code **under-block → over-claim**. Muốn đúng phải so **tập lot** đã
+    resolve, không so mã.
+  - **D3:** trước khi tính, lot của sheet **không biết được** (draft = `materials:[]` `:1044`;
+    bom_loaded có mã nhưng **không** allocation_lines `:2033`). Gate **không nạp pool** ⇒ không tính
+    overlap chính xác nếu không chạy trial-allocation.
+  - **D1/D4:** per-sheet calc trừ **mọi** sheet index thấp hơn in-memory (`apply_existing_origin_product_consumption`
+    `:1047`, KHÔNG lọc lock) **cộng** overlay ledger locked (`_calculate_stock_rows_from_snapshot:3373`)
+    ⇒ invariant "unlocked prior không đóng góp" do **chính index-gate** giữ, không phải calc. (Phát hiện
+    thêm: same-case locked lot bị **trừ 2 lần** — ledger + in-memory; `used_qty_by_lot` thiếu case filter
+    `co_stock_ledger.py:491` — **conservative**, không over-claim; backlog nhỏ.)
+  - **D5:** logic gate **nhân bản** ≥4 chỗ: `origin_sheet_action_error` (callers `co_case.py:1803/2081/2105/3144`),
+    UI flags (`co_case_context.py:1301-1347`, comprehension trùng `1304-1313`), `origin_can_reopen:1344`,
+    `origin_sheet_export_blockers:1384` — sửa gate phải đồng bộ hết.
+  - **Kết luận:** whole-case calc (`prepare_case_origin_products`) **đã** phân bổ đúng per-material,
+    index-order, deterministic — client "chỉ NVL chung tranh tồn" **đã đúng ở tầng calc**. Gate-relax chỉ
+    thêm khả năng lock **lệch thứ tự** giữa sheet rời rạc = workflow thủ công hiếm, đổi lại rủi ro over-claim.
+    **Giá trị tự động hoá của khách nằm ở BATCH (tính cả lô 1 lần + bulk-lock, backend đã có), KHÔNG ở gate-relax.**
 - **R2 — Batch nhân lỗi DC3a/DC3c.** ⇒ Slice 0 bắt buộc trước. Không mở batch khi guard chưa xong.
 - **R3 — Invariant "view không calc".** M3 dễ bị cám dỗ tính lại → phải chiếu thuần. Guard = so
   rollup vs từng sheet đã tính (parity như export==web).
