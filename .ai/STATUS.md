@@ -4,7 +4,10 @@
 - **2026-07-08 (PM2) — cross-dossier tồn contention REVIEWED (multi-hồ-sơ/1 công ty) + fix D + COMMITTED.**
   Branch **`feat/co-flow-guards`** (base `840fb74`): **`ceabdb5`** (feat #1/#2/D) + **`a0ec3f6`** (agent docs);
   `uv.lock`+`dev.sh` cố ý để uncommitted (local-only). Handoff:
-  `.ai/sessions/2026-07-08-cross-dossier-review-substitute-stock-fix.md`. Suite **743 pass / 15 skip** (+2). Verdict:
+  `.ai/sessions/2026-07-08-cross-dossier-review-substitute-stock-fix.md`. **`/code-review` 22-commit vs `origin/main`:** Standards SẠCH
+  (0 hard, hợp 2 ADR); Spec = đa số "thiếu" là UI Pending có chủ đích + **1 lỗi precedence thật (c): resolver bỏ
+  rơi override/client_default hợp lệ khi pin echo cũ unusable → rơi thẳng dh_latest — ĐÃ VÁ** (duyệt candidate
+  theo precedence, kiểm usable từng bước; +3 test). Suite **746 pass / 15 skip**. Verdict:
   cơ chế cốt lõi ĐÚNG — chốt cứng (`record_sheet_lock` khoá `co_stock_rows FOR UPDATE`, net Σ claims
   case KHÁC, abort over-claim, sort chống deadlock); đường Tính/batch net claims qua
   `apply_used_qty(used_qty_by_lot)`. **Fixed D:** `/substitute-stock` (`co_case.py:~2553`) trước báo tồn

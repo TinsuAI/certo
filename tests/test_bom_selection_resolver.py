@@ -119,3 +119,71 @@ def test_versions_ignores_snapshot_echo(default_store):
     picked = _versions(case)
     assert picked["version_id"] == "v2"
     assert picked["source"] == "client_default"
+
+
+# --------------------------------------------------------------------------- #
+# Precedence WITH usability: a higher-precedence pick that is unusable must not #
+# shadow a lower-precedence usable one (code-review finding, 2026-07-08).       #
+# --------------------------------------------------------------------------- #
+def _uv(vid, no, *, usable):
+    """A P1 product version. usable=False => empty rows, so the resolver skips it."""
+    return {
+        "product_code": "P1",
+        "product_version_id": vid,
+        "product_artifact_id": vid,
+        "product_version_no": no,
+        "rows": [{"product_code": "P1", "material_code": "M", "qty_per": "1"}] if usable else [],
+    }
+
+
+def _resolver_inputs(**over):
+    stale = _uv("v_stale", 1, usable=False)
+    good = _uv("v_good", 3, usable=True)
+    latest = _uv("v_latest", 9, usable=True)
+    inputs = dict(
+        overrides={},
+        client_defaults={},
+        composition_ids={},
+        version_index={"v_stale": stale, "v_good": good, "v_latest": latest},
+        bom_workspace={"product_versions": [stale, good, latest]},
+        bom_product_code="P1",
+    )
+    inputs.update(over)
+    return inputs
+
+
+def test_unusable_pin_falls_through_to_client_default_not_latest():
+    """(c) regression: a stale-but-set pin echo pointing at an unusable version must
+    NOT shadow a valid client_default and drop straight to dh_latest."""
+    from app.bom_store import resolve_selected_product_version
+    product = {"code": "P1", "bom_product_code": "P1", "bom_product_artifact_id": "v_stale"}
+    version, source = resolve_selected_product_version(
+        product, honor_product_pin=True, **_resolver_inputs(client_defaults={"P1": "v_good"}),
+    )
+    assert source == "client_default"
+    assert version["product_version_id"] == "v_good"
+
+
+def test_unusable_case_override_does_not_shadow_client_default():
+    """Same rule one level down: an unusable case_override must fall through to a
+    usable client_default, not to dh_latest."""
+    from app.bom_store import resolve_selected_product_version
+    product = {"code": "P1", "bom_product_code": "P1"}
+    version, source = resolve_selected_product_version(
+        product, honor_product_pin=False,
+        **_resolver_inputs(overrides={"P1": "v_stale"}, client_defaults={"P1": "v_good"}),
+    )
+    assert source == "client_default"
+    assert version["product_version_id"] == "v_good"
+
+
+def test_usable_pin_still_wins():
+    """Positive control: a usable pin echo is still honoured first (backward compat),
+    even when a client_default points elsewhere."""
+    from app.bom_store import resolve_selected_product_version
+    product = {"code": "P1", "bom_product_code": "P1", "bom_product_artifact_id": "v_good"}
+    version, source = resolve_selected_product_version(
+        product, honor_product_pin=True, **_resolver_inputs(client_defaults={"P1": "v_latest"}),
+    )
+    assert source == "pin"
+    assert version["product_version_id"] == "v_good"

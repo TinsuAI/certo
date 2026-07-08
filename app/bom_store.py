@@ -781,30 +781,30 @@ def resolve_selected_product_version(
     """
     product_code = str(product.get("code") or "").strip()
     bom_code = str(bom_product_code or product_code).strip()
+    composition_id = str(composition_ids.get(bom_code) or composition_ids.get(product_code) or "").strip()
 
-    winner_id, winner_source = "", ""
+    # Precedence steps in order (ADR 2026-07-08): pin echo (calc path only) >
+    # case override > client default > DH composition. Each step is tried in turn
+    # and SKIPPED when its version is missing/unusable, so a stale-but-set higher
+    # step (e.g. a pin echo pointing at a since-retracted artifact) never shadows a
+    # valid lower step — it just falls through to it, then finally to DH latest.
+    candidates: list[tuple[str, str]] = []
     if honor_product_pin:
         pin = str(product.get("bom_product_artifact_id") or product.get("bom_product_version_id") or "").strip()
         if pin:
-            winner_id, winner_source = pin, "pin"
-    if not winner_id:
-        for source, table in (("case_override", overrides), ("client_default", client_defaults)):
-            vid = str(table.get(product_code) or table.get(bom_code) or "").strip()
-            if vid:
-                winner_id, winner_source = vid, source
-                break
-    composition_id = str(composition_ids.get(bom_code) or composition_ids.get(product_code) or "").strip()
-    if not winner_id and composition_id:
-        winner_id, winner_source = composition_id, "dh_composition"
+            candidates.append(("pin", pin))
+    for source, table in (("case_override", overrides), ("client_default", client_defaults)):
+        vid = str(table.get(product_code) or table.get(bom_code) or "").strip()
+        if vid:
+            candidates.append((source, vid))
+    if composition_id:
+        candidates.append(("dh_composition", composition_id))
 
-    version = version_index.get(winner_id)
-    if usable_product_version(version):
-        return version, winner_source
+    for source, vid in candidates:
+        version = version_index.get(vid)
+        if usable_product_version(version):
+            return version, source
 
-    # Winner missing/unusable → DH composition, then DH latest usable version.
-    fallback = version_index.get(composition_id) if composition_id else None
-    if usable_product_version(fallback):
-        return fallback, "dh_composition"
     latest = latest_usable_product_version(bom_workspace, bom_code or product_code)
     return (latest or {}), "dh_latest"
 
