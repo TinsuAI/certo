@@ -1,8 +1,10 @@
 # Project Status
 
 ## Current State
-- **2026-07-08 (PM2) — cross-dossier tồn contention REVIEWED (multi-hồ-sơ/1 công ty) + fix D.**
-  Branch **`feat/co-flow-guards`**, **UNCOMMITTED**, suite **743 pass / 15 skip** (+2). Verdict:
+- **2026-07-08 (PM2) — cross-dossier tồn contention REVIEWED (multi-hồ-sơ/1 công ty) + fix D + COMMITTED.**
+  Branch **`feat/co-flow-guards`** (base `840fb74`): **`ceabdb5`** (feat #1/#2/D) + **`a0ec3f6`** (agent docs);
+  `uv.lock`+`dev.sh` cố ý để uncommitted (local-only). Handoff:
+  `.ai/sessions/2026-07-08-cross-dossier-review-substitute-stock-fix.md`. Suite **743 pass / 15 skip** (+2). Verdict:
   cơ chế cốt lõi ĐÚNG — chốt cứng (`record_sheet_lock` khoá `co_stock_rows FOR UPDATE`, net Σ claims
   case KHÁC, abort over-claim, sort chống deadlock); đường Tính/batch net claims qua
   `apply_used_qty(used_qty_by_lot)`. **Fixed D:** `/substitute-stock` (`co_case.py:~2553`) trước báo tồn
