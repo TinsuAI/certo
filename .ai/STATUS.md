@@ -1,6 +1,30 @@
 # Project Status
 
 ## Current State
+- **2026-07-08 (PM2) — cross-dossier tồn contention REVIEWED (multi-hồ-sơ/1 công ty) + fix D.**
+  Branch **`feat/co-flow-guards`**, **UNCOMMITTED**, suite **743 pass / 15 skip** (+2). Verdict:
+  cơ chế cốt lõi ĐÚNG — chốt cứng (`record_sheet_lock` khoá `co_stock_rows FOR UPDATE`, net Σ claims
+  case KHÁC, abort over-claim, sort chống deadlock); đường Tính/batch net claims qua
+  `apply_used_qty(used_qty_by_lot)`. **Fixed D:** `/substitute-stock` (`co_case.py:~2553`) trước báo tồn
+  **gross** (không trừ claims hồ sơ khác) → nay overlay `apply_used_qty` trước pool (mirror đường Tính);
+  test `tests/test_substitute_stock_claims_overlay.py`. **Còn mở F** (cold-start no-snapshot → overclaim
+  guard bị bỏ, `co_stock_ledger.py:198-204`) → BACKLOG **D2**. Chi tiết phân tích 6 kịch bản race: BACKLOG D2.
+- **2026-07-08 (PM) — #1 BOM-selection + #2 substitute-search IMPLEMENTED (grill→tdd→e2e).**
+  Branch **`feat/co-flow-guards`**, **all UNCOMMITTED**, suite **741 pass / 15 skip** (+12 new).
+  Shipped: **#1a** one precedence resolver `resolve_selected_product_version` (honour-the-pin
+  fix — snapshot writer no longer shadows the client-default layer); **#1b** provenance chip
+  `.bom-version-why` + **batch BOM-selection modal** on "Tính tồn tất cả (SP)" + **save-mirror-leak
+  fix** (only a DELIBERATE deviation becomes a case override, not every SP's echo); **#2**
+  `app/substitute_discovery.py` stock-first discovery wired into the substitute-candidates search
+  (stock-only NVL now findable) + smart lots-collapse. Grill wrote GLOSSARY (8 terms) + 2 ADRs +
+  spec `.ai/features/2026-07-08-bom-selection-and-substitute-search.md`. Browser-verified on real
+  `growatt-vn e2e-batch-real` (Playwright; auth toggled off→**restored =1**). **User caught a real
+  bug in the old handoff:** `declarable_unmatched` = DH "no import match", NOT "missing catalog" →
+  stock substitutes are declarable, not blocked. Full handoff:
+  `.ai/sessions/2026-07-08-bom-selection-substitute-search-impl.md`. **Pending UI polish** (data
+  flows, presentation only): batch inline picker row (optional), stock-first modal badges/dimming.
+  **NEXT (user ask): review batch-flow logic for MULTIPLE dossiers per same company** — cross-dossier
+  stock contention (claims overlay, overclaim guard) is the open correctness question.
 - **2026-07-08 — batch auto-flow: "Tổng hợp NVL" tab + substitute correctness + BOM/catalog design review.**
   Branch **`feat/co-flow-guards`** (NOT on main; `840fb74..HEAD`, suite **729 pass**). Shipped: batch
   **"Tính tồn tất cả (SP)"** now calculates + PERSISTS every sheet (`calculate-all`); **"Tổng hợp NVL" is a
@@ -63,7 +87,13 @@
   via 5 parallel agents) — **NOT pushed yet**. See session `2026-06-19-backlog-status-reconciliation.md`.
 
 ## Next Steps (priority order)
-0. **(2026-06-25 follow-ups)** — (a) **P2 perf** (BACKLOG): fast `/calculate` giờ pull thêm catalog
+0. **(REVIEWED 2026-07-08 PM2) Batch-flow cho NHIỀU hồ sơ / cùng 1 công ty — xong review + fix D.**
+   Kết luận: chốt cứng + đường Tính/batch đều net claims cross-dossier ĐÚNG; `/substitute-stock` báo
+   gross → **đã vá (D)** overlay `apply_used_qty`. Còn **F** (cold-start overclaim-guard bị bỏ) → BACKLOG
+   **D2** (hẹp). Full phân tích 6 kịch bản race + verdict trong BACKLOG **D2**. **Next:** cân nhắc vá F
+   (chặn Chốt khi chưa có snapshot) HOẶC gói `feat/co-flow-guards` để `/code-review` so `840fb74` + commit
+   (#1/#2/D đều UNCOMMITTED). Tùy chọn: seed multi-dossier e2e (lock A → tính/thay-NVL B) làm regression sống.
+0b. **(2026-06-25 follow-ups)** — (a) **P2 perf** (BACKLOG): fast `/calculate` giờ pull thêm catalog
    (~13k, cache 90s) cho tên+`customs_relevance` → tối ưu bằng materialize vào snapshot tồn. (b) Sheet
    **đã CHỐT trước fix** giữ materials `customs_relevance=0` → export vẫn theo bản cũ; cần mở chốt +
    Tính lại để dọn (KHÔNG vá ở export — đúng nguyên tắc). (c) Verify prod sau deploy: `curl …/version`

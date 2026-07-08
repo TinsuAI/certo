@@ -8,7 +8,7 @@ import threading
 
 from app import bom_default_store, co_stock_eligibility, co_stock_ledger, co_stock_materializer
 from app.bom_service import bom_service
-from app.bom_store import attach_case_bom_snapshot
+from app.bom_store import attach_case_bom_snapshot, resolve_selected_product_version
 from app.co_case_store import build_case_criteria_rows, case_from_record, co_case_delete_block_reason, co_case_is_completed, co_case_status_view, declaration_refs, get_case_record, get_case_workspace, json_safe, load_state
 from app.co_form_config_store import load_co_form_config
 from app.origin_material_filters import is_bom_technical_noise, is_declarable_unmatched
@@ -222,6 +222,9 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
             case = attach_origin_readiness(case)
             case = attach_results(case)
             case = attach_origin_sheet_states(case)
+            # Last: attach_origin_readiness rebuilds case["products"], so compute the
+            # view-only picker labels on the FINAL product dicts (else they're dropped).
+            case = attach_bom_version_picks(case, bom_workspace)
             criteria_rows = build_case_criteria_rows(case, form_candidates)
     elif current_step == "origin" and case.get("products"):
         if not use_cached_context:
@@ -230,6 +233,7 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
         case = attach_origin_readiness(case)
         case = attach_results(case)
         case = attach_origin_sheet_states(case)
+        case = attach_bom_version_picks(case, bom_workspace)
         criteria_rows = build_case_criteria_rows(case, form_candidates)
     elif current_step == "origin":
         case = attach_case_bom_snapshot(case, bom_workspace)
@@ -1533,11 +1537,14 @@ def origin_build_signature(
     return hashlib.sha256(encoded.encode()).hexdigest()
 def compact_origin_signature_row(row: dict, fields: list[str]) -> dict:
     return {field: str(row.get(field, "")) for field in fields if row.get(field, "") not in (None, "")}
-def selected_bom_rows_by_product(
+def _bom_selection_inputs(
     case: dict,
     bom_workspace: dict,
-    client_defaults: dict[str, str] | None = None,
-) -> dict[str, list[dict]]:
+    client_defaults: dict[str, str] | None,
+) -> tuple[dict[str, str], dict, dict, dict, dict]:
+    """Shared setup for BOM version selection: resolve the aggregate, build the
+    version index, the composition-default map, and the merged case overrides.
+    Feeds the single precedence resolver `resolve_selected_product_version`."""
     if client_defaults is None:
         client_defaults = bom_default_store.get_defaults(str(case.get("client_id") or ""))
     selected_version_id = (
@@ -1554,16 +1561,7 @@ def selected_bom_rows_by_product(
         ),
         bom_workspace.get("latest_version", {}),
     )
-    rows = aggregate.get("rows")
-    if rows is None:
-        rows = bom_workspace.get("latest_rows", [])
-    output: dict[str, list[dict]] = {}
-    for row in rows or []:
-        product_code = str(row.get("product_code", "")).strip()
-        if product_code:
-            output.setdefault(product_code, []).append(dict(row))
-
-    version_index = {}
+    version_index: dict[str, dict] = {}
     for version in bom_workspace.get("product_versions", []):
         for artifact_key in (version.get("product_artifact_id"), version.get("product_version_id"), version.get("artifact_id"), version.get("version_id")):
             if artifact_key:
@@ -1576,32 +1574,117 @@ def selected_bom_rows_by_product(
         **dict(case.get("bom_product_version_overrides", {})),
         **dict(case.get("bom_product_artifact_overrides", {})),
     }
+    return client_defaults, aggregate, version_index, composition_by_product, overrides
+
+
+def selected_bom_rows_by_product(
+    case: dict,
+    bom_workspace: dict,
+    client_defaults: dict[str, str] | None = None,
+) -> dict[str, list[dict]]:
+    client_defaults, aggregate, version_index, composition_by_product, overrides = _bom_selection_inputs(
+        case, bom_workspace, client_defaults
+    )
+    rows = aggregate.get("rows")
+    if rows is None:
+        rows = bom_workspace.get("latest_rows", [])
+    output: dict[str, list[dict]] = {}
+    for row in rows or []:
+        product_code = str(row.get("product_code", "")).strip()
+        if product_code:
+            output.setdefault(product_code, []).append(dict(row))
     for product in case.get("products", []):
         product_code = str(product.get("code", "")).strip()
         bom_product_code = resolve_bom_product_code(
             str(product.get("bom_product_code") or product_code),
             bom_workspace,
         )
-        selected_product_version_id = (
-            product.get("bom_product_artifact_id")
-            or product.get("bom_product_version_id")
-            or overrides.get(product_code)
-            or overrides.get(bom_product_code)
-            or client_defaults.get(product_code)
-            or client_defaults.get(bom_product_code)
-            or composition_by_product.get(bom_product_code, "")
-            or composition_by_product.get(product_code, "")
+        selected_product_version, _source = resolve_selected_product_version(
+            product,
+            overrides=overrides,
+            client_defaults=client_defaults,
+            composition_ids=composition_by_product,
+            version_index=version_index,
+            bom_workspace=bom_workspace,
+            bom_product_code=bom_product_code,
         )
-        selected_product_version = version_index.get(selected_product_version_id)
-        if product_code and not usable_bom_product_version(selected_product_version):
-            fallback_version_id = composition_by_product.get(bom_product_code, "") or composition_by_product.get(product_code, "")
-            selected_product_version = version_index.get(fallback_version_id) or latest_usable_product_version(
-                bom_workspace,
-                bom_product_code or product_code,
-            )
         if product_code and selected_product_version and selected_product_version.get("rows") is not None:
             output[product_code] = [dict(row) for row in selected_product_version.get("rows", [])]
     return output
+
+
+def selected_bom_versions_by_product(
+    case: dict,
+    bom_workspace: dict,
+    client_defaults: dict[str, str] | None = None,
+) -> dict[str, dict]:
+    """For the batch BOM-selection picker: per product, the resolved version's
+    id/no and provenance `source` for the "why" label. Uses `honor_product_pin=
+    False` so the label reflects the canonical stores (an explicit pick always
+    lives in `bom_product_artifact_overrides`), never the snapshot echo the writer
+    stamped onto `product.bom_product_artifact_id`."""
+    client_defaults, _aggregate, version_index, composition_by_product, overrides = _bom_selection_inputs(
+        case, bom_workspace, client_defaults
+    )
+    output: dict[str, dict] = {}
+    for product in case.get("products", []):
+        product_code = str(product.get("code", "")).strip()
+        if not product_code:
+            continue
+        bom_product_code = resolve_bom_product_code(
+            str(product.get("bom_product_code") or product_code),
+            bom_workspace,
+        )
+        version, source = resolve_selected_product_version(
+            product,
+            overrides=overrides,
+            client_defaults=client_defaults,
+            composition_ids=composition_by_product,
+            version_index=version_index,
+            bom_workspace=bom_workspace,
+            bom_product_code=bom_product_code,
+            honor_product_pin=False,
+        )
+        output[product_code] = {
+            "version_id": version.get("product_artifact_id") or version.get("product_version_id") or "",
+            "version_no": version.get("product_artifact_no") or version.get("product_version_no") or 0,
+            "source": source,
+            "usable": usable_bom_product_version(version),
+        }
+    return output
+
+
+# Human-facing "why" labels for the batch BOM-selection picker (#1b). `dh_*`
+# sources are the unpinned "riding DH latest/composition" state → highlighted so
+# staff can see which SP are not explicitly pinned.
+BOM_VERSION_SOURCE_LABELS = {
+    "pin": "bạn chọn",
+    "case_override": "bạn chọn",
+    "client_default": "mặc định khách",
+    "dh_composition": "mới nhất · chưa ghim",
+    "dh_latest": "mới nhất · chưa ghim",
+}
+BOM_VERSION_UNPINNED_SOURCES = frozenset({"dh_composition", "dh_latest"})
+
+
+def attach_bom_version_picks(case: dict, bom_workspace: dict) -> dict:
+    """Attach the resolved BOM version + provenance to each product for the batch
+    Review picker's "why" label (#1b). VIEW-only derived data (like
+    attach_origin_readiness) — it is not persisted and does not feed
+    origin_case_revision (which hashes only order/status/overrides)."""
+    picks = selected_bom_versions_by_product(case, bom_workspace)
+    for product in case.get("products", []):
+        code = str(product.get("code") or "").strip()
+        pick = picks.get(code)
+        if not code or not pick:
+            continue
+        source = pick["source"]
+        product["bom_version_pick"] = {
+            **pick,
+            "source_label": BOM_VERSION_SOURCE_LABELS.get(source, ""),
+            "unpinned": source in BOM_VERSION_UNPINNED_SOURCES,
+        }
+    return case
 def attach_origin_bom_product_codes(
     case: dict,
     bom_workspace: dict,

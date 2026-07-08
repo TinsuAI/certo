@@ -753,6 +753,62 @@ def publish_product_version(
     return product_version
 
 
+def resolve_selected_product_version(
+    product: dict,
+    *,
+    overrides: dict[str, str],
+    client_defaults: dict[str, str],
+    composition_ids: dict[str, str],
+    version_index: dict[str, dict],
+    bom_workspace: dict,
+    bom_product_code: str = "",
+    honor_product_pin: bool = True,
+) -> tuple[dict, str]:
+    """Single source of truth for 'which BOM version does this product use'.
+
+    Precedence (ADR 2026-07-08): explicit pin (case override) > client default >
+    DH aggregate composition > DH latest usable. A pinned/client-default version is
+    honoured even after DH publishes a newer one. Returns ``(version, source)``
+    where ``source`` names the winning step — ``pin`` / ``case_override`` /
+    ``client_default`` / ``dh_composition`` / ``dh_latest`` — driving the picker's
+    "why" label.
+
+    ``honor_product_pin``: the calc path (snapshot writer, row selector) reads the
+    persisted ``product.bom_product_artifact_id`` as the top step for backward
+    compatibility; the picker passes ``False`` so the label reflects the canonical
+    stores (an explicit pick always lives in ``bom_product_artifact_overrides``),
+    never the snapshot echo the writer itself stamped.
+    """
+    product_code = str(product.get("code") or "").strip()
+    bom_code = str(bom_product_code or product_code).strip()
+
+    winner_id, winner_source = "", ""
+    if honor_product_pin:
+        pin = str(product.get("bom_product_artifact_id") or product.get("bom_product_version_id") or "").strip()
+        if pin:
+            winner_id, winner_source = pin, "pin"
+    if not winner_id:
+        for source, table in (("case_override", overrides), ("client_default", client_defaults)):
+            vid = str(table.get(product_code) or table.get(bom_code) or "").strip()
+            if vid:
+                winner_id, winner_source = vid, source
+                break
+    composition_id = str(composition_ids.get(bom_code) or composition_ids.get(product_code) or "").strip()
+    if not winner_id and composition_id:
+        winner_id, winner_source = composition_id, "dh_composition"
+
+    version = version_index.get(winner_id)
+    if usable_product_version(version):
+        return version, winner_source
+
+    # Winner missing/unusable → DH composition, then DH latest usable version.
+    fallback = version_index.get(composition_id) if composition_id else None
+    if usable_product_version(fallback):
+        return fallback, "dh_composition"
+    latest = latest_usable_product_version(bom_workspace, bom_code or product_code)
+    return (latest or {}), "dh_latest"
+
+
 def attach_case_bom_snapshot(case: dict, bom_workspace: dict) -> dict:
     versions = bom_workspace.get("versions", [])
     latest = bom_workspace.get("latest_version", {})
@@ -783,24 +839,32 @@ def attach_case_bom_snapshot(case: dict, bom_workspace: dict) -> dict:
     snapshot_composition = []
     seen_product_versions = set()
 
+    # Client defaults are a real precedence layer (ADR 2026-07-08). Fetch once and
+    # feed the shared resolver so the snapshot pins the SAME version the per-sheet
+    # row selector would — previously this writer had no client-default step and
+    # shadowed it. Lazy import keeps bom_store free of a bom_default_store cycle.
+    try:
+        from app import bom_default_store
+
+        client_defaults = bom_default_store.get_defaults(str(case.get("client_id") or ""))
+    except Exception:  # noqa: BLE001 — missing/unavailable store must never blank a snapshot
+        client_defaults = {}
+    composition_ids = {
+        code: (row.get("product_artifact_id") or row.get("product_version_id") or "")
+        for code, row in composition_by_product.items()
+    }
+
     for product in case.get("products", []):
-        product_code = product.get("code", "")
-        selected_product_version_id = product.get("bom_product_artifact_id") or product.get("bom_product_version_id") or overrides.get(product_code)
-        if not selected_product_version_id:
-            selected_product_version_id = (
-                composition_by_product.get(product_code, {}).get("product_artifact_id")
-                or composition_by_product.get(product_code, {}).get("product_version_id", "")
-            )
-        selected_product_version = version_index.get(selected_product_version_id)
-        if not usable_product_version(selected_product_version):
-            fallback_version_id = (
-                composition_by_product.get(product_code, {}).get("product_artifact_id")
-                or composition_by_product.get(product_code, {}).get("product_version_id", "")
-            )
-            selected_product_version = version_index.get(fallback_version_id) or latest_usable_product_version(
-                bom_workspace,
-                product_code,
-            )
+        bom_product_code = str(product.get("bom_product_code") or product.get("code") or "").strip()
+        selected_product_version, _source = resolve_selected_product_version(
+            product,
+            overrides=overrides,
+            client_defaults=client_defaults,
+            composition_ids=composition_ids,
+            version_index=version_index,
+            bom_workspace=bom_workspace,
+            bom_product_code=bom_product_code,
+        )
         if selected_product_version:
             product_artifact_id = selected_product_version.get("product_artifact_id") or selected_product_version.get("product_version_id", "")
             product_artifact_no = selected_product_version.get("product_artifact_no") or selected_product_version.get("product_version_no", "")

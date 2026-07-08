@@ -1062,6 +1062,8 @@
           aria-labelledby="origin-sheet-tab-{{ product_index }}"
           data-product-code="{{ product.code }}"
           data-origin-sheet-panel
+          data-bom-source="{{ (product.bom_version_pick or {}).source or '' }}"
+          data-bom-resolved-version="{{ (product.bom_version_pick or {}).version_id or '' }}"
           data-product-fob="{{ product.fob or '0' }}"
           data-product-quantity="{{ product.quantity or '0' }}"
           data-product-currency="{{ product.currency or '' }}"
@@ -1183,6 +1185,15 @@
                       title="{% if is_bom_default %}Phiên bản BOM mặc định cho mã TP {{ product.code }} của khách — hồ sơ CO sau tự chọn sẵn. Bấm để bỏ ghim.{% else %}Ghim phiên bản BOM đang chọn làm mặc định cho mã TP {{ product.code }} của khách — hồ sơ CO sau tự chọn sẵn, khỏi chọn lại.{% endif %}">
                 <span class="bom-default-star-glyph" aria-hidden="true">{{ '★' if is_bom_default else '☆' }}</span><span class="bom-default-star-label">{{ 'BOM mặc định' if is_bom_default else 'Đặt BOM mặc định' }}</span>
               </button>
+              {% endif %}
+              {# Provenance "why" label (#1b): which precedence step chose the version
+                 the sheet calculates. dh_* (unpinned, riding latest) is highlighted so
+                 staff see which SP are not explicitly pinned — the blast radius of the
+                 old client-default shadowing bug. #}
+              {% set _pick = product.bom_version_pick %}
+              {% if _pick and _pick.source_label %}
+              <span class="bom-version-why{% if _pick.unpinned %} is-unpinned{% endif %}"
+                    title="Phiên bản BOM sheet đang dùng để tính — nguồn chọn: {{ _pick.source_label }}.{% if _pick.unpinned %} Chưa được ghim: đang tự lấy bản mới nhất. Ghim (★) nếu muốn cố định cho khách.{% endif %}">#{{ _pick.version_no }} · {{ _pick.source_label }}</span>
               {% endif %}
               {% if not bom_options and bom_shallow_only %}
               <span class="origin-sheet-bom-shallow-warning meta" title="BOM hiện chỉ có bản rút gọn (giữ bán thành phẩm làm lá, chưa khai triển hết NVL) — không đủ để tính bảng kê. Cần BOM khai triển đầy đủ hoặc BOM theo định mức (Mẫu 16).">Chỉ có BOM rút gọn — chưa khai triển hết NVL. Cần BOM đầy đủ để tính bảng kê.</span>
@@ -2267,11 +2278,21 @@
       const bomProductCode = panel.querySelector('input[name$="_bom_product_code"]')?.value || code;
       const sheetStatus = panel.querySelector('input[name$="_origin_sheet_status"]')?.value || "";
       const sheetStatusLabel = panel.querySelector('input[name$="_origin_sheet_status_label"]')?.value || "";
+      // Only treat the version as a case override (pin) when it DELIBERATELY deviates
+      // from what the resolver picks on its own — or was already a pin. A version that
+      // merely echoes the auto-resolved default (client default / DH latest) must NOT
+      // be persisted as an override, else every batch save silently pins the whole lô
+      // (the save-mirror-leak). See ADR 2026-07-08. Server pins from this field too,
+      // so sending "" for non-deliberate SPs keeps them tracking the precedence chain.
+      const bomValue = bomSelect?.value || "";
+      const bomResolved = panel.dataset.bomResolvedVersion || "";
+      const bomIsPin = !!bomValue && (bomValue !== bomResolved || panel.dataset.bomSource === "case_override");
+      const bomPick = bomIsPin ? bomValue : "";
       return {
         code,
         bom_product_code: bomProductCode,
-        bom_product_artifact_id: bomSelect?.value || "",
-        bom_product_version_id: bomSelect?.value || "",
+        bom_product_artifact_id: bomPick,
+        bom_product_version_id: bomPick,
         name: panel.querySelector('input[name$="_name"]')?.value || "",
         finished_hs: panel.querySelector('input[name$="_finished_hs"]')?.value || "",
         quantity: panel.querySelector('input[name$="_quantity"]')?.value || "",
@@ -3895,6 +3916,29 @@
       });
     };
 
+    // Collapse a long lots table: keep the first `preview` (the FIFO/price-priority
+    // lots that would actually be consumed first) visible, fold the rest behind a
+    // "xem tất cả N lô" toggle so an NVL with many lots doesn't flood the panel.
+    const collapseLotsTable = (lotsTbody, preview = 3) => {
+      if (!lotsTbody) return;
+      lotsTbody.querySelector(".origin-substitute-lots-more")?.remove();
+      const rows = Array.from(lotsTbody.querySelectorAll("tr"));
+      if (rows.length <= preview) return;
+      const hidden = rows.length - preview;
+      rows.forEach((r, i) => { if (i >= preview) { r.hidden = true; r.dataset.lotExtra = "1"; } });
+      const moreTr = document.createElement("tr");
+      moreTr.className = "origin-substitute-lots-more";
+      moreTr.innerHTML = `<td colspan="6"><button type="button" class="origin-substitute-lots-toggle">▾ Xem tất cả ${rows.length} lô (ẩn ${hidden})</button></td>`;
+      const btn = moreTr.querySelector("button");
+      let open = false;
+      btn.addEventListener("click", () => {
+        open = !open;
+        rows.forEach((r, i) => { if (i >= preview) r.hidden = !open; });
+        btn.textContent = open ? `▴ Thu gọn (${rows.length} lô)` : `▾ Xem tất cả ${rows.length} lô (ẩn ${hidden})`;
+      });
+      lotsTbody.appendChild(moreTr);
+    };
+
     const sheetPanelOfState = () => {
       if (state.row) return state.row.closest("[data-origin-sheet-panel]");
       return document.querySelector(`[data-origin-sheet-panel][data-product-code="${state.productCode}"]`);
@@ -4159,6 +4203,7 @@
         `;
         lotsTbody.appendChild(tr);
       });
+      collapseLotsTable(lotsTbody);
       if (sorted.length === 0) {
         lotsEmpty.hidden = false;
         lotsTable.hidden = true;
@@ -4504,6 +4549,7 @@
                   `;
                   lotsTbody.appendChild(tr);
                 });
+                collapseLotsTable(lotsTbody);
                 if (stock.lots.length > 0) {
                   if (lotsEmpty) lotsEmpty.hidden = true;
                   if (lotsTable) lotsTable.hidden = false;
@@ -6079,11 +6125,87 @@
     }
   };
 
+  // #1b batch BOM-selection modal: opening "Tính tồn tất cả (SP)" first shows a
+  // per-SP BOM-version table (default per the fixed precedence, user-editable). The
+  // chosen versions feed the batch calc (Q3c: picking does NOT auto-recalc — only
+  // this confirm runs it). Reuses the existing per-SP selects + compactOriginRequest
+  // (which reads each panel's [data-bom-version-select] as a case override), so no
+  // new persistence path.
+  const openBomSelectionModal = (runBtn) => {
+    const form = runBtn.closest("form") || document.querySelector("[data-origin-workbook]")?.closest("form");
+    const panels = Array.from((form || document).querySelectorAll("[data-origin-sheet-panel]"))
+      .filter((panel) => panel.dataset.productCode && panel.querySelector("[data-bom-version-select]"));
+    if (!panels.length) { runStockAll(runBtn); return; }  // nothing to pick → just run
+
+    let backdrop = document.querySelector("[data-bom-select-modal]");
+    if (!backdrop) {
+      backdrop = document.createElement("div");
+      backdrop.className = "bom-select-modal-backdrop";
+      backdrop.setAttribute("data-bom-select-modal", "");
+      backdrop.innerHTML = `
+        <div class="bom-select-modal" role="dialog" aria-modal="true" aria-label="Chọn phiên bản BOM">
+          <header class="bom-select-modal-head">
+            <strong>Chọn phiên bản BOM cho từng SP</strong>
+            <button type="button" class="bom-select-modal-close" data-bsm-cancel aria-label="Đóng">×</button>
+          </header>
+          <p class="bom-select-modal-hint">Mặc định theo thứ tự ưu tiên (bạn ghim › mặc định khách › mới nhất). Đổi phiên bản nếu cần rồi bấm “Tính tồn tất cả”.</p>
+          <div class="bom-select-modal-body"><table class="bom-select-table">
+            <thead><tr><th>SP</th><th>Phiên bản BOM</th><th>Nguồn chọn</th></tr></thead>
+            <tbody></tbody>
+          </table></div>
+          <footer class="bom-select-modal-foot">
+            <button type="button" class="btn-secondary" data-bsm-cancel>Hủy</button>
+            <button type="button" class="btn-primary" data-bsm-confirm>Tính tồn tất cả (SP)</button>
+          </footer>
+        </div>`;
+      document.body.appendChild(backdrop);
+    }
+    const tbody = backdrop.querySelector("tbody");
+    tbody.innerHTML = "";
+    const rowMap = [];
+    panels.forEach((panel) => {
+      const code = panel.dataset.productCode;
+      const realSelect = panel.querySelector("[data-bom-version-select]");
+      const name = panel.querySelector('input[name$="_name"]')?.value || "";
+      const chip = panel.querySelector(".bom-version-why");
+      const tr = document.createElement("tr");
+      const tdCode = document.createElement("td");
+      tdCode.innerHTML = `<span class="mono">${escapeHtml(code)}</span>${name ? `<br><small>${escapeHtml(name)}</small>` : ""}`;
+      const tdSel = document.createElement("td");
+      const modalSelect = realSelect.cloneNode(true);
+      modalSelect.removeAttribute("name");                 // don't post twice
+      modalSelect.removeAttribute("data-bom-version-select"); // avoid the auto-submit-on-change listener
+      modalSelect.value = realSelect.value;
+      tdSel.appendChild(modalSelect);
+      const tdWhy = document.createElement("td");
+      tdWhy.innerHTML = chip ? `<span class="${chip.className}">${escapeHtml(chip.textContent)}</span>` : "";
+      modalSelect.addEventListener("change", () => {
+        const opt = modalSelect.options[modalSelect.selectedIndex];
+        const vm = (opt?.text || "").match(/#\s*(\d+)/);
+        tdWhy.innerHTML = `<span class="bom-version-why">#${vm ? vm[1] : "?"} · bạn chọn</span>`;
+      });
+      tr.append(tdCode, tdSel, tdWhy);
+      tbody.appendChild(tr);
+      rowMap.push({ realSelect, modalSelect });
+    });
+    const close = () => { backdrop.hidden = true; };
+    backdrop.querySelectorAll("[data-bsm-cancel]").forEach((b) => (b.onclick = close));
+    backdrop.onclick = (e) => { if (e.target === backdrop) close(); };
+    backdrop.querySelector("[data-bsm-confirm]").onclick = () => {
+      // Apply picks to the real selects WITHOUT dispatching change (which would
+      // auto-submit per row); compactOriginRequest inside runStockAll reads them.
+      rowMap.forEach(({ realSelect, modalSelect }) => { realSelect.value = modalSelect.value; });
+      close();
+      runStockAll(runBtn);
+    };
+    backdrop.hidden = false;
+  };
+
   const initRunStockAll = (root = document) => {
     root.querySelectorAll("[data-run-stock-all]").forEach((btn) => {
       if (btn.dataset.bound === "1") return;
       btn.dataset.bound = "1";
-      btn.addEventListener("click", () => runStockAll(btn));
+      btn.addEventListener("click", () => openBomSelectionModal(btn));
     });
   };
 

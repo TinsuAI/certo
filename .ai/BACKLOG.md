@@ -182,6 +182,39 @@ Góc còn soi:
 Rủi ro: SAI TỒN (over/under-claim downstream). `/discover` + viết test parity trước khi sửa.
 Added: 2026-06-07.
 
+### D2 — Cross-dossier tồn contention: review 2026-07-08 (D vá xong · F còn mở)
+**Bối cảnh:** review logic batch-flow khi làm NHIỀU hồ sơ / CÙNG 1 công ty (STATUS Next Steps #0).
+Kết luận: cơ chế cốt lõi ĐÚNG — chốt cứng `record_sheet_lock` khoá `co_stock_rows FOR UPDATE` +
+`net = remaining − Σ claims case/sheet KHÁC` → abort over-claim, sort `source_row` chống deadlock;
+đường Tính/batch overlay `apply_used_qty(used_qty_by_lot)` nên preview đã net claims hồ sơ khác;
+materializer upsert cùng thứ tự khoá + `_claims_blocking_removal` chặn xoá lô đang có claim.
+- **D (VÁ XONG, uncommitted):** `/substitute-stock` (`co_case.py:~2553`) trước đây đọc snapshot thô,
+  báo tồn **GROSS** (không trừ claims hồ sơ khác) → modal thay-NVL đánh lừa operator. Đã overlay
+  `apply_used_qty` trước `case_allocation_pool` (mirror đường Tính). Test
+  `tests/test_substitute_stock_claims_overlay.py` (2). KHÔNG gây over-claim (guard chốt vẫn chặn),
+  chỉ là UX/hiển thị.
+- **F (CÒN MỞ, hẹp):** cold-start — client CHƯA materialize (0 row `co_stock_rows`) → `record_sheet_lock`
+  BỎ QUA check overclaim (`co_stock_ledger.py:198-204`, "trust allocator calculate-time" mà calc không
+  khoá). ⇒ 2 hồ sơ có thể cùng chốt đè lô KHÔNG guard. Đòi client chưa refresh bao giờ → hiếm, nhưng
+  là over-claim thật. Cân nhắc: chặn Chốt khi chưa có snapshot, HOẶC guard bằng nguồn BCCT trực tiếp.
+- **E (note, an toàn):** `used_qty_by_lot` không lọc case → double-count claim CÙNG-case (conservative,
+  under-state, không over-claim). Để nguyên.
+
+**Reservation model (review 2026-07-08 PM2, câu hỏi "2 hồ sơ cùng tính 1 NVL"):** VERIFIED — claim chỉ
+ghi ở CHỐT (`record_sheet_lock_claims` gọi từ `lock_co_case_origin_sheet:2214` + `bulk_lock_route:1880`);
+chỉ 2 status `locked`/`released`, KHÔNG có `pending`/`reserved`. ⇒ **Tính-mà-chưa-chốt KHÔNG giữ tồn**;
+hai bản nháp vô hình với nhau. Hệ quả:
+- **Gap A** — "ai CHỐT trước thắng", không phải "ai tính trước": cả hai thấy A đủ (chưa ai lock) → xung đột
+  lộ MUỘN ở Chốt (`StockOverclaimError`). `calculate-all` khuếch đại (tính+persist cả lô, 0 claim).
+- **Gap B** — không re-evaluate: khi A rảnh lại (hồ sơ kia release/đổi trước lock), hồ sơ đã đổi NVL không
+  được nhắc xem lại A; `material_override` là snapshot tại-thời-điểm, không tái-tối-ưu.
+**Quyết định (khuyến nghị):** GIỮ commit-time; KHÔNG làm soft-reservation `pending`+TTL (tái tạo ghost-hold,
+đổi schema, over-engineer cho tần suất thấp). Trị Gap A bằng **cảnh báo sớm read-only** ở bước Tính: đọc
+calc-state các case OPEN khác cùng client (đường mining `origin_sheet_states` đã có ở `substitution_history.py`)
+→ banner tư vấn "NVL A đang được hồ sơ X dự tính dùng". **Gộp vào Phase-2 pre-flight summary** (đừng mở feature
+riêng). Ưu tiên: THẤP — contention hiện an toàn (guard Chốt chặn over-claim thật), đây là chống-lãng-phí-công.
+Added: 2026-07-08.
+
 ## BOM / Propose (Data Hub)
 
 ### M1 — Propose BOM mới: trạng thái không sync + nút "Đã propose" propose lại

@@ -8,6 +8,7 @@ import time
 
 from fastapi import APIRouter
 from app import co_auth, co_stock_eligibility, co_stock_ledger, co_stock_materializer, material_search, substitution_history
+from app.substitute_discovery import build_stock_first_candidates
 from app.bom_store import attach_case_bom_snapshot
 from app.co_case_store import CaseHasActiveClaimsError, MAX_SUPPORTING_FILE_BYTES, build_case_criteria_rows, case_from_record, co_case_is_completed, co_case_status_view, create_case_record, create_case_workbook, declaration_refs, delete_case_record, delete_supporting_file, get_case_record, get_case_workspace, get_supporting_file, invoice_keys, json_safe, safe_filename, save_supporting_file, set_case_archived, update_case_record
 from app.co_form_config_store import load_co_form_config
@@ -2353,7 +2354,45 @@ async def co_case_origin_sheet_substitute_candidates(
         except Exception as exc:  # noqa: BLE001
             search_error = str(exc)
         fallback_rows = search_case_material_rows(case, search, limit=min(limit, 50))
+        # Stock-first discovery (#2, ADR 2026-07-08): surface NVL that are in the
+        # CO-stock snapshot — INCLUDING codes absent from the DH catalog, which the
+        # catalog search alone can never find. Grouped at the logical-material grain,
+        # LEFT-JOINed to the catalog for name/HS enrichment. Read from the cached
+        # snapshot (same source the sibling /substitute-stock endpoint uses), so it
+        # never triggers a live BCCT pull.
+        try:
+            snapshot_rows = co_stock_materializer.read_co_stock_rows_cached(client_id)
+            catalog_ctx = co_case_source_context_cached(client, case)
+            catalog_index = material_catalog_index(catalog_ctx.get("material_rows") or [])
+        except Exception:  # noqa: BLE001 — a flaky snapshot/catalog read must not blank search
+            snapshot_rows, catalog_index = [], {}
+        stock_first = build_stock_first_candidates(
+            snapshot_rows,
+            catalog_index,
+            query=search,
+            exclude_codes={material_code} if material_code else set(),
+            limit=min(limit, 50),
+        )
         seen_search_codes: set[str] = set()
+        # Stock-first ORDERING (not a hard filter): candidates with tồn on top…
+        for candidate in stock_first:
+            code = candidate["material_code"]
+            if not code or code in seen_search_codes:
+                continue
+            seen_search_codes.add(code)
+            search_results.append({
+                "material_code": code,
+                "name": candidate["name"],
+                "category": candidate["category"],
+                "hs_code": candidate["hs_code"],
+                "score": 0.0,
+                "stock": empty_stock_summary(),
+                "kind": "search",
+                "stock_first": True,
+                "stock_only": candidate["stock_only"],
+                "total_remaining_qty": candidate["total_remaining_qty"],
+            })
+        # …then catalog matches that have no stock (kept visible, dimmed client-side).
         for row in [*raw_search, *fallback_rows]:
             code = str(row.get("material_code") or row.get("internal_code") or "").strip()
             if not code or code in seen_search_codes:
@@ -2367,6 +2406,7 @@ async def co_case_origin_sheet_substitute_candidates(
                 "score": 0.0,
                 "stock": empty_stock_summary(),
                 "kind": "search",
+                "stock_first": False,
             })
             if len(search_results) >= max(1, min(limit, 50)):
                 break
@@ -2510,7 +2550,16 @@ async def co_case_origin_sheet_substitute_stock(
     # may lag BCCT; the response carries `stock_refreshed_at` so the modal shows
     # how fresh the tồn is (empty when the client has never been materialized).
     requested_set = set(requested)
-    snapshot_rows = co_stock_materializer.read_co_stock_rows_cached(client_id)
+    # Net LIVE ledger claims (tồn other dossiers of this client have already
+    # locked) onto the raw snapshot BEFORE building the pool — mirror the
+    # calculate path (`_calculate_stock_rows_from_snapshot` -> `apply_used_qty`).
+    # Copy first so the shared read cache stays clean. Without this the modal
+    # shows GROSS tồn: a lot mostly locked by another dossier would look fully
+    # available and mislead the operator into picking an infeasible substitute.
+    snapshot_rows = [dict(row) for row in co_stock_materializer.read_co_stock_rows_cached(client_id)]
+    snapshot_rows = co_stock_ledger.apply_used_qty(
+        snapshot_rows, co_stock_ledger.used_qty_by_lot(client_id)
+    )
     candidate_rows = [
         row for row in snapshot_rows
         if any(key in requested_set for key in co_stock_key_candidates(row))

@@ -3584,6 +3584,79 @@ button.co-stat:hover {
 }
 .bom-default-star.is-default .bom-default-star-glyph { color: var(--accent, #f0a500); }
 
+/* BOM version provenance "why" chip (#1b) — which precedence step chose the
+   version the sheet calculates. Unpinned (riding DH latest) is amber-highlighted. */
+.bom-version-why {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--border, #d0d4dc);
+  border-radius: 999px;
+  background: var(--surface, #fff);
+  color: var(--muted, #6b7280);
+  font-size: 0.74rem;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.bom-version-why.is-unpinned {
+  border-color: color-mix(in srgb, var(--accent, #f0a500) 55%, var(--border, #d0d4dc));
+  background: color-mix(in srgb, var(--accent, #f0a500) 12%, transparent);
+  color: color-mix(in srgb, var(--accent, #f0a500) 45%, var(--text, #1f2937));
+}
+
+/* #1b batch BOM-selection modal (opens on "Tính tồn tất cả (SP)") */
+.bom-select-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.45);
+  padding: 1rem;
+}
+.bom-select-modal-backdrop[hidden] { display: none; }
+.bom-select-modal {
+  background: var(--surface, #fff);
+  color: var(--text, #1f2937);
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  width: min(680px, 100%);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.bom-select-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.9rem 1.1rem;
+  border-bottom: 1px solid var(--border, #d0d4dc);
+}
+.bom-select-modal-close {
+  border: none;
+  background: none;
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--muted, #6b7280);
+}
+.bom-select-modal-hint { margin: 0.7rem 1.1rem 0; color: var(--muted, #6b7280); font-size: 0.82rem; }
+.bom-select-modal-body { overflow: auto; padding: 0.7rem 1.1rem 0; }
+.bom-select-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+.bom-select-table th,
+.bom-select-table td { text-align: left; padding: 0.5rem 0.5rem; border-bottom: 1px solid var(--border, #d0d4dc); vertical-align: top; }
+.bom-select-table th { color: var(--muted, #6b7280); font-weight: 600; }
+.bom-select-table select { max-width: 320px; }
+.bom-select-modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.9rem 1.1rem;
+  border-top: 1px solid var(--border, #d0d4dc);
+}
+
 /* Guided wizard "Xử lý tuần tự" — floating bar, visible in both review & sheet views */
 .origin-wizard-bar {
   position: fixed;
@@ -5370,6 +5443,17 @@ body.co-stock-history-modal-open { overflow: hidden; }
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+.origin-substitute-lots-more td { border-bottom: none; padding: 0.15rem 0.4rem; }
+.origin-substitute-lots-toggle {
+  border: none;
+  background: none;
+  color: var(--accent, #f0a500);
+  font-size: 0.78rem;
+  cursor: pointer;
+  padding: 0.1rem 0;
+}
+.origin-substitute-lots-toggle:hover { text-decoration: underline; }
 
 .origin-substitute-lots-empty {
   font-size: 0.8rem;
