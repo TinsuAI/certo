@@ -92,11 +92,35 @@ When CO needs new Data Hub data or behavior:
 Guardrail: `tests/test_data_hub_policy.py` fails if raw `/v1/hub` endpoint strings appear outside `app/data_hub_client.py`.
 
 ## Skills
-- `/tdd` — test-driven development
-- `/rev` — two-stage code review
-- `/fix` — systematic debugging
-- `/discover` — explore before building
-- `/handoff` — session summary + STATUS.md update
+Curated skills from `mattpocock/skills` are installed user-level at `~/.claude/skills/`.
+Full usage guide (Vietnamese, tailored to CO): `~/.claude/skills-guide.md`. Common flows:
+- Explore/research → `/research`; sharpen a plan → `/grill-with-docs`; pin CO domain terms → `/domain-modeling`
+- Build test-first → `/tdd`; build from a spec → `/implement`
+- Debug → `/diagnosing-bugs`; review a diff → `/code-review`
+- End a session → `/handoff`; unsure which skill → `/ask-matt`
+
+Enable `/git-guardrails-claude-code` to block dangerous git — pushing `main` from this box
+triggers prod CD. `/setup-matt-pocock-skills` was already run for this repo (see below).
+
+## Agent skills
+
+### Issue tracker
+
+Local markdown in `.ai/` — feature specs/PRDs under `.ai/features/`, durable backlog in
+`.ai/BACKLOG.md`, Data Hub API requests under `.ai/api-requests/`. No `gh`/`glab`. See
+`docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical roles recorded as a `Status:` line in each item; default role names. See
+`docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context. This repo uses `.ai/`, not `CONTEXT.md`/`docs/adr/`: skills that look for
+`CONTEXT.md` must read **`.ai/GLOSSARY.md`** instead, and those that look for `docs/adr/` must
+read **`.ai/DECISIONS.md`**. Do not create a parallel `CONTEXT.md`/`docs/adr/`. See
+`docs/agents/domain.md`.
 
 ## Conventions
 Project-specific conventions beyond the global rules. Examples:
