@@ -10,8 +10,17 @@ phiên bản theo [SemVer](https://semver.org/).
 > hành đã đóng gói tại thời điểm đó.
 
 ## [Unreleased]
+
+## [0.20.0] — 2026-07-10
+### Mới
+- **Không còn bị đăng xuất giữa ca khi đang làm việc trên ứng dụng đồng hành:** Data Hub cấp thêm một "vé gia hạn" (refresh token) để ứng dụng đồng hành tự làm mới phiên ngầm, thay vì bắt thao tác viên đăng nhập lại mỗi ~10 phút — kể cả khi đang dở một thao tác trên cùng một trang. Vé truy cập vẫn hết hạn nhanh sau 10 phút như cũ, nên mức bảo mật không đổi; chỉ có việc gia hạn là tự động. Vé gia hạn trượt theo 12 giờ không thao tác, tối đa 7 ngày, và mất hiệu lực ngay khi đăng xuất khỏi Data Hub.
+
 ### Sửa
 - **Trang lỗi thân thiện thay cho JSON thô:** mọi trang giao diện khi gặp lỗi giờ hiển thị trang thông báo gọn gàng — kèm nội dung lỗi cụ thể đã Việt hóa (vd "Không tìm thấy khách hàng", "Không có quyền truy cập") — thay vì chuỗi JSON `{"detail": ...}`. Chưa đăng nhập mà mở trang cần quyền sẽ tự chuyển về trang đăng nhập và quay lại đúng trang sau khi đăng nhập. API cho ứng dụng đồng hành (`/v1/hub`, `/api/v1`) và các lời gọi fetch giữ nguyên định dạng JSON — không đổi.
+- **Hết tình trạng đăng nhập từ ứng dụng đồng hành thỉnh thoảng bị từ chối:** mã đăng nhập một lần trước đây chỉ nằm trong bộ nhớ của một tiến trình, nên khi Data Hub chạy nhiều tiến trình, một phần lượt đăng nhập bị báo "mã không hợp lệ hoặc đã hết hạn" dù mã còn tốt. Mã nay lưu tập trung nên đăng nhập ổn định. Kèm theo: đăng xuất khỏi Data Hub vô hiệu hóa ngay các mã đăng nhập còn treo.
+
+### API
+- `POST /v1/auth/exchange` trả thêm `refresh_token`; thêm `POST /v1/auth/refresh` để đổi vé gia hạn lấy vé truy cập mới, không cần thao tác người dùng. Bổ sung thuần, tương thích ngược hoàn toàn — không truyền gì mới thì phản hồi giữ nguyên. Chi tiết: `docs/API_CHANGELOG.md` (2026-07-10, Additive).
 
 ## [0.19.0] — 2026-06-18
 ### API
