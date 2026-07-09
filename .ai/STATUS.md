@@ -25,9 +25,13 @@
   `/auth/login`; `POST /auth/refresh` không cookie → 401 `session_expired` (route mới live).
   **CHƯA verify trên deployed:** nhánh success có refresh token hợp lệ (200 + rotation) — mint credential
   trên DH live bị **permission classifier chặn**; 3 phương án ghi ở Open items của session summary.
-  **⚠ GIT: `local main` = chính commit docs này — AHEAD `origin/main`=`306e2b4` **1 commit, CHƯA PUSH**.
-  Push `main` bị git-guardrails hook chặn → bước tay của user (`!git push origin main`); docs-only nên CI chỉ
-  chạy lại `Deploy demo`, không đổi app. Nhánh `fix/session-expiry-xhr-401` đã merged, chưa xoá (local+remote).**
+  **GIT: 2 commit cuối phiên (docs handoff + guardrail) đã PUSH lên `origin/main`** — docs/hook only, không đổi
+  app, CI chỉ chạy lại `Deploy demo`. Nhánh `fix/session-expiry-xhr-401` đã merged, chưa xoá (local+remote).
+  **Guardrail đã đổi:** `git push` và `gh pr merge` giờ **hỏi xác nhận** (PreToolUse `permissionDecision: "ask"`)
+  thay vì bị chặn cứng — agent push/merge được nhưng user duyệt từng lần; các lệnh phá huỷ (hard reset, forced
+  clean, force-delete branch, whole-tree checkout/restore, **force-push**) vẫn **chặn cứng**, và được kiểm TRƯỚC
+  nhánh ask. **Hạn chế đã biết:** hook substring-match cả command string → lệnh chỉ *nhắc tên* pattern trong text
+  (commit message, `grep`) cũng bị chặn oan; né bằng `git commit -F <file>`.**
 - **2026-07-09 — TOOLING (no app change): synced + mattpocock/skills + git guardrails.**
   Local `main` synced 23 behind → `origin/main` (`ecd9179`, FF); then **`da6e381`** (chore/workflow) on top
   → ~~`main` ahead of `origin/main` by 1, UNPUSHED~~ **(RESOLVED 2026-07-10: `da6e381` went up as an ancestor
