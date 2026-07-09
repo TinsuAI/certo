@@ -17,8 +17,6 @@ from __future__ import annotations
 
 import logging
 import os
-import secrets
-from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import jwt as pyjwt
@@ -29,13 +27,11 @@ from app import auth
 from app import jwt_issuer
 from app.auth.session import verify_password
 from app.database import connect
-from app.stores import sso_refresh
+from app.stores import sso_codes, sso_refresh
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/auth")
-SSO_CODE_TTL_SECONDS = 120
-_SSO_CODES: dict[str, dict] = {}
 
 
 def _request_query_path(request: Request) -> str:
@@ -73,13 +69,6 @@ def _with_query(url: str, values: dict[str, str]) -> str:
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
     query.update(values)
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment))
-
-
-def _purge_expired_sso_codes() -> None:
-    now = datetime.now(timezone.utc)
-    expired = [code for code, row in _SSO_CODES.items() if row["expires_at"] <= now]
-    for code in expired:
-        _SSO_CODES.pop(code, None)
 
 
 def _visible_clients_for(*, user_id: str, email: str, role: str, display_name: str) -> list[str] | None:
@@ -186,20 +175,17 @@ async def authorize(request: Request, redirect_uri: str, state: str = ""):
     if not user:
         return RedirectResponse(f"/login?{urlencode({'next': _request_query_path(request)})}", status_code=303)
 
-    _purge_expired_sso_codes()
-    code = secrets.token_urlsafe(32)
-    _SSO_CODES[code] = {
-        "user_id": user.user_id,
-        "email": user.email,
-        "role": user.role,
-        "display_name": user.display_name,
-        "redirect_uri": redirect_uri,
-        # Carried through to /exchange so the refresh token can be bound to
-        # the SSO session that authorized it. Logging out of Data Hub then
-        # kills the consumer's silent renewal too.
-        "session_id": request.cookies.get(auth.SESSION_COOKIE),
-        "expires_at": datetime.now(timezone.utc) + timedelta(seconds=SSO_CODE_TTL_SECONDS),
-    }
+    code = sso_codes.issue(
+        user_id=user.user_id,
+        email=user.email,
+        role=user.role,
+        display_name=user.display_name,
+        redirect_uri=redirect_uri,
+        # Rides through to /exchange so the refresh token can be bound to the
+        # SSO session that authorized it. Logging out of Data Hub then kills
+        # the consumer's silent renewal too.
+        session_id=request.cookies.get(auth.SESSION_COOKIE),
+    )
     return RedirectResponse(_with_query(redirect_uri, {"code": code, "state": state}), status_code=303)
 
 
@@ -209,14 +195,20 @@ async def exchange_code(request: Request):
     code = str(payload.get("code") or "")
     if not code:
         raise HTTPException(400, "code required")
-    _purge_expired_sso_codes()
-    row = _SSO_CODES.get(code)
-    if not row:
-        raise HTTPException(401, "invalid or expired code")
     redirect_uri = str(payload.get("redirect_uri") or "")
-    if not redirect_uri or _safe_redirect_uri(redirect_uri) != row["redirect_uri"]:
+    if not redirect_uri:
         raise HTTPException(401, "invalid redirect_uri")
-    _SSO_CODES.pop(code, None)
+    redirect_uri = _safe_redirect_uri(redirect_uri)
+
+    # Single-use consume. Two exchanges racing on one code leave exactly one
+    # winner; a redirect_uri mismatch rolls back and leaves the code spendable.
+    try:
+        row = sso_codes.consume(code, redirect_uri=redirect_uri)
+    except sso_codes.SsoCodeRedirectMismatch:
+        raise HTTPException(401, "invalid redirect_uri")
+    except sso_codes.SsoCodeInvalid:
+        raise HTTPException(401, "invalid or expired code")
+
     client_scope = _visible_clients_for(
         user_id=row["user_id"],
         email=row["email"],
