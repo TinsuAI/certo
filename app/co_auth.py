@@ -8,7 +8,7 @@ from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 import httpx
 import jwt
 from fastapi import Request
-from fastapi.responses import PlainTextResponse, RedirectResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 
 from app.data_hub_settings import data_hub_link_settings
 
@@ -158,16 +158,16 @@ def load_optional_user(request: Request) -> DataHubUser | None:
     return user
 
 
-def guard_response(request: Request) -> RedirectResponse | PlainTextResponse | None:
+def guard_response(request: Request) -> RedirectResponse | JSONResponse | PlainTextResponse | None:
     if not auth_required() or not should_guard_path(request.url.path):
         return None
     token = bearer_token(request) or request.cookies.get(CO_SESSION_COOKIE)
     if not token:
-        return login_redirect(request)
+        return auth_challenge(request)
     try:
         user = verify_session_token(token)
     except (jwt.InvalidTokenError, httpx.HTTPError, ValueError):
-        return login_redirect(request)
+        return auth_challenge(request)
     request.state.co_user = user
     client_id = client_id_from_path(request.url.path)
     if client_id and not can_view_client(user, client_id):
@@ -267,11 +267,43 @@ def bearer_token(request: Request) -> str:
     return header[7:].strip()
 
 
-def login_redirect(request: Request) -> RedirectResponse:
+def login_next_url(request: Request) -> str:
     target = request.url.path
     if request.url.query:
         target = f"{target}?{request.url.query}"
-    return RedirectResponse(f"/auth/login?next={quote(target, safe='/')}", status_code=303)
+    return f"/auth/login?next={quote(target, safe='/')}"
+
+
+def login_redirect(request: Request) -> RedirectResponse:
+    return RedirectResponse(login_next_url(request), status_code=303)
+
+
+def is_xhr_request(request: Request) -> bool:
+    """A background fetch/XHR vs. a top-level browser page load. Detection is
+    POSITIVE: only requests that clearly announce themselves as fetch/XHR divert
+    to a JSON 401 — a bare navigation still gets the SSO login redirect. XHRs
+    must not get the 303, because following it to the cross-origin SSO page makes
+    fetch() throw `TypeError: Failed to fetch` (the ~10-minute prod disconnect)."""
+    dest = request.headers.get("sec-fetch-dest")
+    if dest:
+        return dest != "document"
+    if request.headers.get("x-requested-with", "").lower() == "xmlhttprequest":
+        return True
+    accept = request.headers.get("accept", "")
+    return "application/json" in accept and "text/html" not in accept
+
+
+def auth_challenge(request: Request) -> RedirectResponse | JSONResponse:
+    if not is_xhr_request(request):
+        return login_redirect(request)
+    return JSONResponse(
+        {
+            "detail": "Phiên đăng nhập đã hết hạn. Đăng nhập lại để tiếp tục.",
+            "code": "session_expired",
+            "login_url": login_next_url(request),
+        },
+        status_code=401,
+    )
 
 
 def safe_next_path(value: str | None, default: str = "/clients") -> str:

@@ -43,10 +43,50 @@
         }, 5000);
       };
 
+      // Session expired mid-work. The server now answers XHRs with a readable
+      // 401 {code:"session_expired", login_url} instead of a 303 to the
+      // cross-origin SSO page (which made fetch() throw "Failed to fetch"). Show
+      // a re-login prompt that opens SSO in a NEW TAB so this page — and any
+      // in-progress client-side work (e.g. the substitute plan) — is preserved.
+      window.coSessionExpired = function (loginUrl) {
+        if (!document.body || document.querySelector("[data-session-expired]")) return;
+        var backdrop = document.createElement("div");
+        backdrop.className = "modal-backdrop";
+        backdrop.dataset.sessionExpired = "1";
+        backdrop.innerHTML =
+          '<div class="confirm-modal" role="alertdialog" aria-modal="true">' +
+          "<h2>Phiên đăng nhập đã hết hạn</h2>" +
+          "<p>Đăng nhập lại để tiếp tục. Việc bạn đang làm trên trang này được " +
+          "giữ nguyên — đăng nhập ở tab mới rồi quay lại thao tác tiếp.</p>" +
+          '<div class="confirm-modal-actions" style="display:flex;gap:.5rem;justify-content:flex-end">' +
+          '<button type="button" class="btn-secondary" data-session-dismiss>Để sau</button>' +
+          '<button type="button" class="btn-primary" data-session-login>Đăng nhập lại (tab mới)</button>' +
+          "</div></div>";
+        document.body.appendChild(backdrop);
+        backdrop.querySelector("[data-session-login]").addEventListener("click", function () {
+          window.open(loginUrl || "/auth/login", "_blank");
+        });
+        backdrop.querySelector("[data-session-dismiss]").addEventListener("click", function () {
+          backdrop.remove();
+        });
+      };
+
       var rawFetch = window.fetch.bind(window);
       window.fetch = function (input, init) {
         var quiet = !!(init && init.quietError);
         return rawFetch(input, init).then(function (response) {
+          if (response.status === 401) {
+            response.clone().json().then(function (body) {
+              if (body && body.code === "session_expired") {
+                window.coSessionExpired(body.login_url);
+              } else if (!quiet) {
+                window.coToast((body && body.detail) || "Lỗi máy chủ (HTTP 401).", "error");
+              }
+            }).catch(function () {
+              if (!quiet) window.coToast("Lỗi máy chủ (HTTP 401).", "error");
+            });
+            return response;
+          }
           if (!response.ok && !quiet) {
             response.clone().text().then(function (text) {
               var detail = "";
