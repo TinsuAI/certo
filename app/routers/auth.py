@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
+import httpx
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import PlainTextResponse, RedirectResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse
 
 from app import co_auth
 from app.web.templating import templates
@@ -65,4 +66,31 @@ async def auth_callback(request: Request, code: str = "", state: str = "/clients
         return response
     response = RedirectResponse(next_url, status_code=303)
     co_auth.set_session_cookie(response, token, int(payload.get("expires_in") or 600))
+    refresh = payload.get("refresh_token")
+    if refresh:
+        co_auth.set_refresh_cookie(response, str(refresh))
+    return response
+
+
+@router.post("/auth/refresh")
+async def auth_refresh(request: Request):
+    """Silent session renewal: trade the stored rotating refresh token for a
+    fresh access token. Driven by the client keep-alive / retry-on-401 so an
+    active operator never re-logs mid-work. On any DH rejection, clear cookies
+    and report session_expired so the client shows the interactive login."""
+    refresh_token = request.cookies.get(co_auth.CO_REFRESH_COOKIE)
+    if not refresh_token:
+        return co_auth.session_expired_json()
+    try:
+        payload = co_auth.refresh_data_hub_session(refresh_token)
+    except (httpx.HTTPError, ValueError):
+        response = co_auth.session_expired_json()
+        co_auth.clear_session_cookie(response)
+        return response
+    expires_in = int(payload.get("expires_in") or 600)
+    response = JSONResponse({"ok": True, "expires_in": expires_in})
+    co_auth.set_session_cookie(response, str(payload["access_token"]), expires_in)
+    rotated = payload.get("refresh_token")
+    if rotated:
+        co_auth.set_refresh_cookie(response, str(rotated))
     return response

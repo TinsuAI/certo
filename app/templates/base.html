@@ -72,31 +72,64 @@
       };
 
       var rawFetch = window.fetch.bind(window);
+
+      // Silent session renewal. A single in-flight /auth/refresh is shared by
+      // all callers that hit an expired session at once. rawFetch bypasses this
+      // wrapper so the refresh call can't recurse.
+      var refreshInFlight = null;
+      function attemptSessionRefresh() {
+        if (!refreshInFlight) {
+          refreshInFlight = rawFetch("/auth/refresh", {
+            method: "POST", headers: {"Accept": "application/json"}
+          }).then(function (r) { return r.ok; }, function () { return false; })
+            .then(function (ok) { refreshInFlight = null; return ok; });
+        }
+        return refreshInFlight;
+      }
+      function methodOf(input, init) {
+        var m = (init && init.method) || (input && input.method) || "GET";
+        return String(m).toUpperCase();
+      }
+
       window.fetch = function (input, init) {
         var quiet = !!(init && init.quietError);
         return rawFetch(input, init).then(function (response) {
-          if (response.status === 401) {
-            response.clone().json().then(function (body) {
-              if (body && body.code === "session_expired") {
-                window.coSessionExpired(body.login_url);
-              } else if (!quiet) {
-                window.coToast((body && body.detail) || "Lỗi máy chủ (HTTP 401).", "error");
-              }
-            }).catch(function () {
-              if (!quiet) window.coToast("Lỗi máy chủ (HTTP 401).", "error");
-            });
+          if (response.status !== 401) {
+            if (!response.ok && !quiet) {
+              response.clone().text().then(function (text) {
+                var detail = "";
+                try { var d = JSON.parse(text).detail; if (typeof d === "string") detail = d; } catch (_e) {}
+                window.coToast(detail || ("Lỗi máy chủ (HTTP " + response.status + ")."), "error");
+              }).catch(function () {
+                window.coToast("Lỗi máy chủ (HTTP " + response.status + ").", "error");
+              });
+            }
             return response;
           }
-          if (!response.ok && !quiet) {
-            response.clone().text().then(function (text) {
-              var detail = "";
-              try { var d = JSON.parse(text).detail; if (typeof d === "string") detail = d; } catch (_e) {}
-              window.coToast(detail || ("Lỗi máy chủ (HTTP " + response.status + ")."), "error");
-            }).catch(function () {
-              window.coToast("Lỗi máy chủ (HTTP " + response.status + ").", "error");
+          // 401 — an expired session can be renewed silently once. On success we
+          // replay idempotent (GET) requests transparently; other verbs just ask
+          // the user to redo the one action (their work is untouched).
+          return response.clone().json().then(function (body) {
+            if (!body || body.code !== "session_expired") {
+              if (!quiet) window.coToast((body && body.detail) || "Lỗi máy chủ (HTTP 401).", "error");
+              return response;
+            }
+            if (init && init._sessionRetried) {
+              window.coSessionExpired(body.login_url);
+              return response;
+            }
+            return attemptSessionRefresh().then(function (ok) {
+              if (!ok) { window.coSessionExpired(body.login_url); return response; }
+              if (methodOf(input, init) === "GET") {
+                return window.fetch(input, Object.assign({}, init, {_sessionRetried: true}));
+              }
+              window.coToast("Đã gia hạn phiên đăng nhập — vui lòng thao tác lại.", "error");
+              return response;
             });
-          }
-          return response;
+          }).catch(function () {
+            if (!quiet) window.coToast("Lỗi máy chủ (HTTP 401).", "error");
+            return response;
+          });
         }, function (err) {
           if (!quiet) window.coToast("Mất kết nối máy chủ. Kiểm tra mạng rồi thử lại.", "error");
           throw err;

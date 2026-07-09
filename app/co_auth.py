@@ -14,6 +14,10 @@ from app.data_hub_settings import data_hub_link_settings
 
 
 CO_SESSION_COOKIE = "co_data_hub_session"
+CO_REFRESH_COOKIE = "co_data_hub_refresh"
+# DH is the source of truth on refresh-token validity (sliding, 7d ceiling); the
+# cookie just has to outlive the short access token so the browser keeps it.
+REFRESH_COOKIE_MAX_AGE = 7 * 24 * 3600
 JWKS_CACHE_TTL_SECONDS = 300.0
 _JWKS_CACHE: dict[str, tuple[float, dict]] = {}
 
@@ -293,17 +297,21 @@ def is_xhr_request(request: Request) -> bool:
     return "application/json" in accept and "text/html" not in accept
 
 
-def auth_challenge(request: Request) -> RedirectResponse | JSONResponse:
-    if not is_xhr_request(request):
-        return login_redirect(request)
+def session_expired_json(login_url: str = "/auth/login") -> JSONResponse:
     return JSONResponse(
         {
             "detail": "Phiên đăng nhập đã hết hạn. Đăng nhập lại để tiếp tục.",
             "code": "session_expired",
-            "login_url": login_next_url(request),
+            "login_url": login_url,
         },
         status_code=401,
     )
+
+
+def auth_challenge(request: Request) -> RedirectResponse | JSONResponse:
+    if not is_xhr_request(request):
+        return login_redirect(request)
+    return session_expired_json(login_next_url(request))
 
 
 def safe_next_path(value: str | None, default: str = "/clients") -> str:
@@ -361,6 +369,23 @@ def exchange_data_hub_sso_code(code: str, *, redirect_uri: str = "") -> dict:
     return payload
 
 
+def refresh_data_hub_session(refresh_token: str) -> dict:
+    """Trade a rotating refresh token for a fresh access token via
+    `POST /v1/auth/refresh`. The refresh token is the only proof — the access
+    token is expired by definition. Raises on any non-2xx (caller maps to
+    session_expired and falls back to interactive SSO)."""
+    response = httpx.post(
+        f"{data_hub_api_base_url()}/v1/auth/refresh",
+        json={"refresh_token": refresh_token},
+        timeout=data_hub_request_timeout_seconds(),
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not payload.get("access_token"):
+        raise ValueError("Data Hub refresh did not return an access token.")
+    return payload
+
+
 def set_session_cookie(response, token: str, max_age: int = 600) -> None:
     response.set_cookie(
         CO_SESSION_COOKIE,
@@ -373,5 +398,18 @@ def set_session_cookie(response, token: str, max_age: int = 600) -> None:
     )
 
 
+def set_refresh_cookie(response, refresh_token: str, max_age: int = REFRESH_COOKIE_MAX_AGE) -> None:
+    response.set_cookie(
+        CO_REFRESH_COOKIE,
+        refresh_token,
+        max_age=max_age,
+        httponly=True,
+        samesite="lax",
+        secure=data_hub_link_settings().force_https_cookie,
+        path="/",
+    )
+
+
 def clear_session_cookie(response) -> None:
     response.delete_cookie(CO_SESSION_COOKIE, path="/")
+    response.delete_cookie(CO_REFRESH_COOKIE, path="/")
