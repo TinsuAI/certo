@@ -31,6 +31,7 @@ header.
 | 2026-05-29 | `2026-05-29-service-account-admin-ui-and-1y-tokens.md` | Service-account admin UI (`/admin/service-accounts`); default token TTL 30d → 1y; **CO action: set `DATA_HUB_SERVICE_TOKEN` (not `DATA_HUB_API_TOKEN`)**. Non-breaking | 073-074 |
 | 2026-06-07 | `2026-06-07-bom-summary-block-available.md` | Additive `bom` block on `/source-summary` (headline = `exported_with_bom`/`exported_without_bom`/`exported_total`; secondary `product_count`/`stale_count`/`multi_version_count`/`last_published_at`). Companion `/products` `total`+pagination deferred (backlog C.4) | — |
 | 2026-06-07 | `2026-06-07-co-app-identity-brand.md` | **CO action (UI).** Both apps now share the Primer look; add a per-app `--brand` identity marker (monogram + topnav border + 4-side viewport frame). DH = green (`dbd85fb`); CO pick non-green/non-blue (recommend violet). `--primary` blue stays the shared action accent | — |
+| 2026-07-10 | `2026-07-10-sso-refresh-tokens-available.md` | Additive. `/v1/auth/exchange` also returns an opaque rotating `refresh_token`; new `POST /v1/auth/refresh` renews the 600s access token with no user interaction. Sliding 12h idle / 7d absolute, bound to the SSO session. `prompt=none` rejected (SameSite=Lax). Also fixes `/exchange` spurious 401s under `--workers > 1` (SSO codes → Postgres) | 088, 089 |
 
 ## Read order if starting fresh today (2026-05-13)
 

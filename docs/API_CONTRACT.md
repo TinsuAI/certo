@@ -86,6 +86,30 @@ Content-Type: application/json
 }
 ```
 
+The response carries a `refresh_token` alongside the access token:
+
+```json
+{
+  "access_token": "<EdDSA JWT>",
+  "token_type": "Bearer",
+  "expires_in": 600,
+  "refresh_token": "<opaque>"
+}
+```
+
+Silent renewal — trade the refresh token for a fresh access token with no
+user interaction. The refresh token is the only proof required; the expired
+access token must NOT be sent:
+
+```http
+POST /v1/auth/refresh
+Content-Type: application/json
+
+{
+  "refresh_token": "<opaque>"
+}
+```
+
 JWKS:
 
 ```http
@@ -161,6 +185,43 @@ Query params:
 #### `POST /v1/auth/exchange`
 
 Exchange one-time browser SSO code for JWT.
+
+Returns `access_token`, `token_type`, `expires_in`, and `refresh_token`. The
+refresh token is opaque — never decode it. It is omitted only when no Data Hub
+SSO session could be bound to the code, which cannot happen in a normal
+`/authorize` round-trip.
+
+#### `POST /v1/auth/refresh`
+
+Trade a refresh token for a fresh access token, with no user interaction.
+
+Body: `{"refresh_token": "<opaque>"}`. The refresh token is the sole proof —
+do not send the expired access token, and do not send an access token in the
+`refresh_token` field (rejected on shape).
+
+Returns the same body shape as `/v1/auth/exchange`. Rotating: the presented
+token is spent, and the response carries its replacement. Store the new one
+before the next call.
+
+- `400` — body missing or blank `refresh_token`.
+- `401` — unknown / expired / revoked / already-spent token, or the Data Hub
+  SSO session behind it ended. Fall back to interactive `/v1/auth/authorize`.
+- `403` — token still valid, but the user may no longer authenticate
+  (deactivated). Retrying will not help.
+
+Claims on the refreshed token match the original: same `sub`, same `role`,
+same client scope. Access revoked since login is reflected immediately; access
+*granted* since login is not — a refresh never broadens scope (RFC 6749 §6).
+Widening requires a fresh `/authorize`.
+
+Concurrency: two refreshes presenting the same token yield exactly one `200`;
+the loser gets `401`. Serialize refreshes and retry the guarded call once.
+Re-presenting a spent token long after it was rotated is treated as replay and
+revokes the whole token family, forcing a full SSO login.
+
+Lifetime: sliding 12h idle window, extended on each refresh, capped by a hard
+7d ceiling from first issue and by the Data Hub SSO session. Logging out of
+Data Hub revokes the consumer's refresh tokens.
 
 #### `GET /v1/auth/jwks`
 
