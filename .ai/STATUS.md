@@ -1,6 +1,42 @@
 # Project Status
 
 ## Current State
+- **2026-07-10 — PROD BUG: CO session chết mỗi ~10 phút → FIXED (2 tầng) + MERGED + DEPLOYED.**
+  User report (Johnson VN): "Tìm NVL thay thế" **mất kết nối mỗi ~10 phút**, `TypeError: Failed to fetch`,
+  **mất sạch việc thay-NVL client-side** (phải làm lại từ đầu). **Root cause:** phiên CO = DH access token
+  trong cookie `co_data_hub_session`, set 1 lần lúc login `max_age = expires_in or 600` (~10 phút — xác nhận
+  `expires_in=600` với DH thật), **KHÔNG refresh** → hết hạn thì XHR guarded bị **303 sang trang SSO
+  cross-origin** (không CORS header) → browser ném `Failed to fetch`. Dev không tái hiện (`CO_AUTH_REQUIRED=0`).
+  **Fix 2 tầng — PR #4 → `origin/main`=`306e2b4` → job `Deploy demo` SUCCESS:**
+  **(1) CO-side resilience:** `guard_response` trả **`401 {code:session_expired, login_url}`** cho request
+  XHR (nhận diện `Sec-Fetch-Dest`≠document / `X-Requested-With` / JSON `Accept`), giữ **303 cho điều hướng
+  trang**; `base.html` fetch-wrapper → overlay đăng-nhập-lại (mở tab mới, giữ trang) + **tự refresh & replay
+  GET** (liền mạch, không mất việc). **(2) Refresh-token flow (trị gốc):** DH ship rotating `refresh_token`
+  ở `/v1/auth/exchange` + `POST /v1/auth/refresh` (sliding idle-TTL, trần **7 ngày**, reuse-detection); CO
+  tiêu thụ: cookie `co_data_hub_refresh` + route `POST /auth/refresh` + client silent-renew → **hết bị đá ra
+  mỗi ~10 phút** (làm liên tục → phiên sống tới 7 ngày). Commits `84182cd`(fix guard)+`c8a5316`(api-request)
+  +`8797d16`(feat consumer). **Verify:** suite **760 pass/10 skip** (+9 test); CO↔DH round-trip **THẬT** (SSO
+  → refresh token thật → rotation+reuse-detection); **browser E2E** (Chrome thật, auth-on CO→DH thật: xoá
+  session cookie→silent `/auth/refresh`→retry 200 không prompt; hết refresh token→overlay graceful).
+  Session `.ai/sessions/2026-07-10-session-expiry-xhr-refresh-flow.md`; DH contract
+  `.ai/api-requests/2026-07-10-session-token-refresh*.md`.
+  **Deployed smoke (prod `barry-co` + nightly `demo-co`, cả hai `git_sha=306e2b4`):** XHR + phiên hết hạn
+  → **401 `session_expired`** (hết `Failed to fetch` — root cause đã sửa **trên prod**); NAV → 303
+  `/auth/login`; `POST /auth/refresh` không cookie → 401 `session_expired` (route mới live).
+  **CHƯA verify trên deployed:** nhánh success có refresh token hợp lệ (200 + rotation) — mint credential
+  trên DH live bị **permission classifier chặn**; 3 phương án ghi ở Open items của session summary.
+  **⚠ GIT: `local main` = chính commit docs này — AHEAD `origin/main`=`306e2b4` **1 commit, CHƯA PUSH**.
+  Push `main` bị git-guardrails hook chặn → bước tay của user (`!git push origin main`); docs-only nên CI chỉ
+  chạy lại `Deploy demo`, không đổi app. Nhánh `fix/session-expiry-xhr-401` đã merged, chưa xoá (local+remote).**
+- **2026-07-09 — TOOLING (no app change): synced + mattpocock/skills + git guardrails.**
+  Local `main` synced 23 behind → `origin/main` (`ecd9179`, FF); then **`da6e381`** (chore/workflow) on top
+  → ~~`main` ahead of `origin/main` by 1, UNPUSHED~~ **(RESOLVED 2026-07-10: `da6e381` went up as an ancestor
+  of PR #4 → now on `origin/main`=`306e2b4`, deployed).** Installed the
+  `mattpocock/skills` engineering set global at `~/.claude/skills/` (`/tdd`,`/handoff` now Pocock's;
+  `rev/fix/discover` retiring), guide `~/.claude/skills-guide.md`. Enabled **project git guardrails**
+  (`.claude/` blocks `push`/`reset --hard`/`clean`/`branch -D` for the agent). Session:
+  `.ai/sessions/2026-07-09-skills-workflow-standardization-git-guardrails.md`; memory
+  `[[mattpocock-skills-global-install]]`. **The `main = cfb3e6e` line lower down is now STALE** (real head `da6e381`).
 - **2026-07-08 (PM2) — cross-dossier tồn contention REVIEWED (multi-hồ-sơ/1 công ty) + fix D + COMMITTED.**
   Branch **`feat/co-flow-guards`** (base `840fb74`): **`ceabdb5`** (feat #1/#2/D) + **`a0ec3f6`** (agent docs);
   `uv.lock`+`dev.sh` cố ý để uncommitted (local-only). Handoff:
