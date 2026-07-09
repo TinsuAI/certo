@@ -65,11 +65,13 @@ Commands to build, run dev server, run tests, lint.
 ## How We Work
 Scale rigor to the change — a quick fix needs less ceremony than a payments integration.
 
-- **Risky changes** (auth, payments, API contracts, migrations): `/discover` first → `/tdd` → `/rev` → commit
-- **Standard features**: write tests → implement → `/rev` → commit
+- **Risky changes** (auth, payments, API contracts, migrations): `/grill-with-docs` to sharpen the plan → `/to-spec`/`/to-tickets` → `/implement` (TDD built in) or `/tdd` → `/code-review` → commit
+- **Standard features**: `/tdd`, or build from a spec with `/implement` → `/code-review` → commit
 - **Quick fixes**: implement → verify → commit
-- **Bug investigation**: `/fix` for systematic root-cause analysis → regression test → fix
+- **Bug investigation**: `/diagnosing-bugs` for systematic root-cause analysis → regression test → fix
 - **Session end**: `/handoff` to capture state for next session
+
+Skill set is `mattpocock/skills` (see **Skills** below; full guide `~/.claude/skills-guide.md`). Legacy `/discover`, `/rev`, `/fix` still resolve but are being retired for `/grill-with-docs`+`/research`, `/code-review`, and `/diagnosing-bugs`.
 
 ### Principles
 - **Progressive rigor:** Small change = lightweight. Risky change = thorough spec and review.
