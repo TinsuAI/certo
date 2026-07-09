@@ -14,6 +14,49 @@ Only `Breaking:` headings trigger notifications to `dev`/`admin` users (CO + BCQ
 
 ## Entries
 
+## 2026-07-10 — Additive: refresh tokens for silent access-token renewal (mig 088, 089)
+
+Silent / opt-in. Existing consumers keep working untouched: `/v1/auth/exchange`
+gains one new response field, and nothing about the access token changed.
+
+- `POST /v1/auth/exchange` now also returns `refresh_token` (opaque, not a JWT).
+- `POST /v1/auth/refresh` is new. Body `{"refresh_token": "..."}` → the same
+  body shape as `exchange`. No bearer required; the refresh token is the proof.
+- Access token is unchanged: EdDSA, JWKS-verifiable, `expires_in` still 600s.
+
+Semantics CO must honour:
+
+- **Rotating.** Each refresh spends the presented token and returns its
+  replacement. Persist the new one before the next call.
+- **One winner.** Concurrent refreshes with the same token → exactly one `200`,
+  the rest `401`. Serialize refreshes; retry the guarded call once.
+- **Replay kills the family.** Re-presenting a token spent more than
+  `sso_refresh_reuse_grace_seconds` (30s) ago revokes every token in its
+  lineage and forces a full SSO login. A retry inside that window is treated as
+  a benign race and leaves the family intact.
+- **Scope never broadens.** The refreshed access token carries the same `sub`,
+  `role`, and client scope as the original. ACL *revocations* land on the next
+  refresh; ACL *grants* do not — widening needs a fresh `/authorize`
+  (RFC 6749 §6).
+- **Bound to the SSO session.** Logging out of Data Hub revokes the refresh
+  tokens minted from that session.
+
+Errors: `400` malformed body; `401` unknown/expired/revoked/spent token or dead
+SSO session (fall back to interactive SSO); `403` token valid but the user is
+deactivated (retry will not help).
+
+Lifetime: sliding 12h idle window extended on every refresh, under a hard 7d
+absolute ceiling from first issue, itself capped by the SSO session. Tunable via
+`hub.app_settings`: `sso_refresh_idle_ttl_seconds`,
+`sso_refresh_absolute_ttl_seconds`, `sso_refresh_reuse_grace_seconds`.
+
+**Reliability fix, same shipment (mig 089).** One-time SSO codes moved from a
+per-process dict into `hub.sso_codes`. `POST /v1/auth/exchange` no longer returns
+a spurious `401 invalid or expired code` when `/authorize` and `/exchange` land
+on different uvicorn workers (2 failures in 12 attempts at `--workers 4` before;
+24/24 after). Contract unchanged; codes stay single-use and a `redirect_uri`
+mismatch still does not spend them.
+
 ## 2026-06-18 — Additive: download.pdf gains quality + max_part_bytes (parallel render, Ecosys-friendly split)
 
 Silent / opt-in; no consumer code change required. Omitting both new params →
