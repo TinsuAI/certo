@@ -4,7 +4,10 @@ Three endpoints:
 
 - POST /v1/auth/token — exchange email+password for an access token.
 - GET  /v1/auth/authorize — browser SSO start for sister apps.
-- POST /v1/auth/exchange — exchange a browser SSO code for a JWT.
+- POST /v1/auth/exchange — exchange a browser SSO code for a JWT
+  (+ a refresh token, when the SSO session can be bound).
+- POST /v1/auth/refresh — trade a refresh token for a fresh access token
+  without user interaction. Rotating: the presented token is spent.
 - GET  /v1/auth/jwks  — public-key set so consumers (BCQT, CO) can
   verify tokens locally.
 - GET  /v1/auth/validate — debug / one-shot validate; consumers should
@@ -26,6 +29,7 @@ from app import auth
 from app import jwt_issuer
 from app.auth.session import verify_password
 from app.database import connect
+from app.stores import sso_refresh
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +63,11 @@ def _safe_redirect_uri(value: str) -> str:
     return value
 
 
+def _origin_of(url: str) -> str:
+    parsed = urlsplit(url)
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
 def _with_query(url: str, values: dict[str, str]) -> str:
     parsed = urlsplit(url)
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
@@ -73,16 +82,26 @@ def _purge_expired_sso_codes() -> None:
         _SSO_CODES.pop(code, None)
 
 
-def _issue_user_token(*, user_id: str, email: str, role: str, display_name: str) -> dict:
-    user = auth.User(
+def _visible_clients_for(*, user_id: str, email: str, role: str, display_name: str) -> list[str] | None:
+    """Live per-client ACL for a user. `None` means every client."""
+    return auth.visible_clients(auth.User(
         user_id=user_id,
         email=email,
         display_name=display_name,
         role=role,
         status="active",
-    )
-    visible_clients = auth.visible_clients(user)
-    extra_claims = {"all_clients": True} if visible_clients is None else {"client_ids": visible_clients}
+    ))
+
+
+def _issue_user_token(
+    *,
+    user_id: str,
+    email: str,
+    role: str,
+    display_name: str,
+    client_scope: list[str] | None,
+) -> dict:
+    extra_claims = {"all_clients": True} if client_scope is None else {"client_ids": client_scope}
     return jwt_issuer.make_token(
         user_id=user_id,
         email=email,
@@ -144,7 +163,15 @@ async def issue_token(request: Request):
         raise HTTPException(401, "invalid credentials")
 
     user_id, _email, _pw, display_name, role, _status = row
-    return _issue_user_token(user_id=user_id, email=email, role=role, display_name=display_name)
+    return _issue_user_token(
+        user_id=user_id,
+        email=email,
+        role=role,
+        display_name=display_name,
+        client_scope=_visible_clients_for(
+            user_id=user_id, email=email, role=role, display_name=display_name,
+        ),
+    )
 
 
 @router.get("/authorize")
@@ -167,6 +194,10 @@ async def authorize(request: Request, redirect_uri: str, state: str = ""):
         "role": user.role,
         "display_name": user.display_name,
         "redirect_uri": redirect_uri,
+        # Carried through to /exchange so the refresh token can be bound to
+        # the SSO session that authorized it. Logging out of Data Hub then
+        # kills the consumer's silent renewal too.
+        "session_id": request.cookies.get(auth.SESSION_COOKIE),
         "expires_at": datetime.now(timezone.utc) + timedelta(seconds=SSO_CODE_TTL_SECONDS),
     }
     return RedirectResponse(_with_query(redirect_uri, {"code": code, "state": state}), status_code=303)
@@ -186,12 +217,94 @@ async def exchange_code(request: Request):
     if not redirect_uri or _safe_redirect_uri(redirect_uri) != row["redirect_uri"]:
         raise HTTPException(401, "invalid redirect_uri")
     _SSO_CODES.pop(code, None)
-    return _issue_user_token(
+    client_scope = _visible_clients_for(
         user_id=row["user_id"],
         email=row["email"],
         role=row["role"],
         display_name=row["display_name"],
     )
+    token = _issue_user_token(
+        user_id=row["user_id"],
+        email=row["email"],
+        role=row["role"],
+        display_name=row["display_name"],
+        client_scope=client_scope,
+    )
+
+    # A refresh token has to be bound to an SSO session. `/authorize`
+    # cannot mint a code without a live one, so this is only ever None in
+    # tests that stub out `current_user`. Degrade to an access-token-only
+    # response rather than failing the exchange.
+    session_id = row.get("session_id")
+    if session_id:
+        try:
+            issued = sso_refresh.issue(
+                user_id=row["user_id"],
+                session_id=session_id,
+                granted_role=row["role"],
+                granted_client_ids=client_scope,
+                redirect_origin=_origin_of(redirect_uri),
+            )
+            token["refresh_token"] = issued["refresh_token"]
+        except sso_refresh.RefreshTokenInvalid:
+            logger.warning(
+                "exchange: sso session %s vanished before refresh token could be bound",
+                session_id,
+            )
+    return token
+
+
+@router.post("/refresh")
+async def refresh_token(request: Request):
+    """Trade a refresh token for a fresh access token, with no user
+    interaction. The refresh token is the only proof required — the
+    caller's access token has, by definition, already expired.
+
+    Claims are rebuilt from live DB state via the same path `/exchange`
+    uses, so an ACL that shrank between issue and refresh is reflected
+    here and a refresh can never broaden the visible-client set.
+
+    400 malformed body; 401 unknown/expired/revoked/spent token (consumer
+    falls back to interactive SSO); 403 token still valid but the user may
+    no longer authenticate.
+    """
+    payload = await _request_payload(request)
+    presented = payload.get("refresh_token")
+    if not isinstance(presented, str) or not presented.strip():
+        raise HTTPException(400, "refresh_token required")
+    presented = presented.strip()
+
+    # An access token handed to /refresh must never be hashed against the
+    # store, let alone accepted. Reject on shape, before it touches the DB.
+    if sso_refresh.looks_like_jwt(presented):
+        raise HTTPException(401, "invalid refresh token")
+
+    try:
+        rotated = sso_refresh.rotate(presented)
+    except sso_refresh.UserNotPermitted:
+        raise HTTPException(403, "user is no longer permitted")
+    except sso_refresh.RefreshTokenInvalid:
+        raise HTTPException(401, "invalid refresh token")
+
+    user = rotated["user"]
+    # The live ACL is read against the user's CURRENT role (the ACL table
+    # differs per role), then intersected with the scope frozen at login.
+    # Revocations land immediately; a widened grant does not.
+    live_scope = _visible_clients_for(
+        user_id=user["user_id"],
+        email=user["email"],
+        role=user["role"],
+        display_name=user["display_name"],
+    )
+    token = _issue_user_token(
+        user_id=user["user_id"],
+        email=user["email"],
+        role=sso_refresh.narrow_role(rotated["granted_role"], user["role"]),
+        display_name=user["display_name"],
+        client_scope=sso_refresh.narrow_client_scope(rotated["granted_client_ids"], live_scope),
+    )
+    token["refresh_token"] = rotated["refresh_token"]
+    return token
 
 
 @router.get("/jwks")
