@@ -9,7 +9,9 @@ to `origin/main`.
 ## Current State
 
 - **Prod healthy** — `ttdatahub.tinsu.ai/version` → version `0.20.0`, git_sha
-  `c4a70b3`. Tier-D box `tinsu`/100.84.189.87 (Docker). Verified live, not from
+  `7ed5d8c` (docs-only merge, PR #36; `0.20.0` code unchanged). Re-verified
+  2026-07-10 after that deploy: `/healthz` → `200`, anon `/v1/hub/dncxs` → `401`.
+  Tier-D box `tinsu`/100.84.189.87 (Docker). Verified live, not from
   CI logs: `/v1/auth/refresh` → `401` on a bogus token (a 401 rather than a 500
   proves the row lookup reached the DB), `400` on missing body; anon
   `/v1/hub/dncxs` → `401`. Confirmed by `psql` on the host that migs `088`+`089`
@@ -36,12 +38,14 @@ New decisions go to `docs/adr/` (ADR-0001, ADR-0002 written); `.ai/DECISIONS.md`
 is likewise historical. Skill config lives in `docs/agents/`. One ticket store,
 no parallel paths — see `AGENTS.md` → "Agent skills — repo configuration".
 
-## In flight — catalog discovery redesign (no code yet)
+## Next up — catalog discovery redesign (issue #31 first)
 
 Second session on 2026-07-10 reviewed the whole catalog flow and produced
 `.ai/features/2026-07-10-catalog-candidates-merge/brief.md` (revised after a
 `critic` pass). Session log:
-`.ai/sessions/2026-07-10-catalog-flow-review.md`. **Nothing committed.**
+`.ai/sessions/2026-07-10-catalog-flow-review.md`. Merged via PR #36
+(`main` @ `7ed5d8c`), deployed; prod verified serving that SHA. **No product
+code changed yet** — the six phases are issues #30-#35.
 
 - **Plan:** replace `hub.catalog_candidates` (+ its 739-line store) with a
   computed discovery view; reject becomes a suppression table; accept stays a
@@ -51,9 +55,14 @@ Second session on 2026-07-10 reviewed the whole catalog flow and produced
   `.` per client (fixed-asset lines); 210 forklift/rack part numbers sit in the
   approval queue; `refresh_candidates()` costs 2.2s inside a `GET` handler;
   `/v1/hub/materials` would serve a tombstoned material to CO.
-- **Blocking Phase 0:** where the per-client `customs_code` placeholder config
-  lives. **Phase 1** (default `status='active'` on the two `/v1/hub/materials`
-  routes + regression test) has no open questions and is a no-op on current data.
+- **Start here next session: issue #31** (catalog phase 1) — default
+  `status='active'` on the two `/v1/hub/materials` routes + a regression test.
+  No open questions, no blockers, and a byte-identical-response oracle because
+  all 13,631 rows are `active` today. Branch first; `/implement` commits to the
+  current branch, and a push to `main` triggers the prod deploy.
+- **Blocking Phase 0 (#30):** where the per-client `customs_code` placeholder
+  config lives. Recommendation in the brief: a `text[]` column on `hub.clients`,
+  default empty, seeded per client with a `where exists` guard.
 - **Sister apps:** CO needs no change if Phase 1 lands before the rest. BCQT does
   not read the `hub` schema at all (verified: 0 refs, no Postgres driver).
 
