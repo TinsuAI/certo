@@ -1,4 +1,13 @@
-# Backlog
+# Backlog — FROZEN 2026-07-10
+
+**This file is a historical record. Do not add work items to it.**
+
+Open items were migrated to GitHub Issues on `TinsuAI/data-hub` (#14-#35), which is now
+the single ticket store. Shipped and deferred entries stay below, unedited, the same way
+`.ai/DECISIONS.md` holds decision history. See `docs/agents/issue-tracker.md`.
+
+---
+
 
 Ideas captured but not yet planned. Each item should grow into a feature
 brief (`.ai/features/YYYY-MM-DD-<slug>/brief.md`) before being built.
@@ -95,256 +104,27 @@ principle, [[feedback_no_derived_in_source]]).
 
 ## A.3 Catalog edit permission (per-role configurable)
 
-**Captured 2026-05-09**. User: *"cho user quyền edit (configurable
-trong giao diện phân quyền)"*.
-
-Today catalog UI has Accept/Promote/Tombstone but no general "edit row"
-form for an existing material. Add:
-
-- `/clients/<id>/catalog/<material_code>/edit` — form to edit name,
-  category, uom, production_source, supplier_hint, hq_registration_*.
-- Permission gate via existing role system. New permission key
-  `catalog:edit_material` exposed in role-management UI.
-- Audit captures every edit (mig 045 trigger already in place).
-- "no DELETE" rule — edits stay versioned in audit table.
-
-**Effort**: ~1 day (form + permission UI + tests + screenshots).
+**Moved to [#14](https://github.com/TinsuAI/data-hub/issues/14)**. Full text lives in the issue. Do not edit here.
 
 ## A.4 Catalog material detail — cross-source inconsistency warnings
 
-**Captured 2026-05-09**. User: *"Trong view của mỗi mã vật tư, cần query
-chéo các thông tin ở các nơi, cảnh báo bất nhất nếu có. Ví dụ các dòng
-trong BCCT dùng mã đó nhưng lại khác mã HScode, etc."*
-
-Existing detail page (`/clients/<id>/catalog/<material_code>/detail`)
-shows: provenance, observed signals (from v_material_roles), audit
-history, recent BCCT refs, recent BOM artifacts.
-
-Add **cross-source inconsistency panel**:
-
-- **HS code drift**: same material_code declared with multiple `hs_code`
-  values in BCCT → warn "Mã HQ này đã khai 3 mã HS khác nhau: X (47 lần),
-  Y (3 lần), Z (1 lần)".
-- **UoM drift**: BCCT.unit vs BOM.uom vs materials.uom mismatch.
-- **Origin drift**: BCCT.origin variation across declarations for same
-  code.
-- **Direction drift**: code declared as both import + export (multi-role
-  hint).
-- **Sourcing drift** (mig 046 sourcing_confirmation_conflict): catalog
-  says btp_nm but BCCT shows is_consumed_in_bom + is_in_own_bom_root →
-  inconsistent.
-- **Code mappings drift**: 1 NB code mapped to multiple HQ buckets,
-  vice versa.
-
-Each warning has: severity, evidence count, link to drilldown.
-
-**Effort**: ~1 day (detail-page section + 5-6 warning queries + tests).
-
-**Status 2026-05-10**: ✅ initial implementation shipped (Feature 3 in
-`.ai/features/2026-05-10-johnson-onboarding/brief.md`):
-`app/stores/catalog_bcct_analysis.py` + panel in
-`app/templates/clients/catalog_detail.html`. Covers unit (CRITICAL),
-hs_code (WARN), goods_name (INFO), origin (INFO). Common-prefix/suffix
-diff highlight surfaces divergent characters per-value.
+**Moved to [#15](https://github.com/TinsuAI/data-hub/issues/15)**. Full text lives in the issue. Do not edit here.
 
 ## A.4.2 Substitute XLSX bulk upload (P1 client_confirmed)
 
-**Captured 2026-05-10** during Feature 4 MVP. Manual-add UI covers
-single-pair entry; bulk-import path deferred.
-
-**Scope:** XLSX with columns `material_a_code`, `material_b_code`,
-optional `notes`. Upload route under `/clients/{cid}/substitutes/upload`,
-inserts rows with `source='client_confirmed'` and current user as
-`confirmed_by`. Conflict policy: existing auto rows (`trigram`,
-`same_hs`) coexist as separate sources for the same pair (UNIQUE on
-client+a+b+source). Rejected pairs silently skipped (caller intent
-unclear); surface count in toast.
-
-**Effort:** ~0.5 day (parser + route + UI button on catalog list).
+**Moved to [#16](https://github.com/TinsuAI/data-hub/issues/16)**. Full text lives in the issue. Do not edit here.
 
 ## A.4.3 Smarter goods_name similarity (insignificant-diff folding)
 
-**Captured 2026-05-10** during Feature 3 review. User: *"Cần thuật toán
-thông minh hơn, tên hàng sai khác nhau không đáng kể"*.
-
-Current INFO drift on `goods_name` flags any string-distinct value as
-drift. Many cases are noise:
-- whitespace / punctuation variants (`"M10x1.5P;G10;OIL"` vs `"M10x1.5P mm"`).
-- different unit annotation in description (when `unit` itself doesn't drift).
-- minor ordering of attributes.
-- typos / abbreviation variants.
-
-Need a similarity threshold or normalization pass that folds
-near-duplicate descriptions into one bucket and only flags when the
-difference is semantic (different product). Candidates:
-- **Normalize then bucket**: lowercase + strip punctuation/whitespace +
-  collapse digits to placeholder; identical normalized form = same bucket.
-- **Token Jaccard ≥ threshold**: split on `[,.;\s]+`, intersection/union
-  ≥ 0.85 = same bucket.
-- **Trigram similarity ≥ 0.85** via pg_trgm (already enabled by Feature 4).
-
-Output: bucket count + per-bucket representative + outlier list
-("3 dòng có mô tả khác đáng kể"). Folds noise into a single chip with
-`×N variants` annotation; surfaces only the truly different ones.
-
-Wait until Feature 4 ships pg_trgm, then build on top of it. Keep current
-naive implementation as fallback for clients without pg_trgm.
-
-**Effort**: ~0.5-1 day after pg_trgm available.
+**Moved to [#17](https://github.com/TinsuAI/data-hub/issues/17)**. Full text lives in the issue. Do not edit here.
 
 ## A.4.4 Convertibility-aware UoM divergence (accept convertible, flag only incompatible)
 
-**Captured 2026-06-07** during catalog-detail redesign + UoM panel wiring.
-User: *"Thiết kế lại flow ĐVT khác biệt, cùng họ, convertible các thứ.
-Nếu convertable thì BOM chấp nhận khác với BCCT, BCCT chấp nhận khác với
-nhau, chỉ cần convert về nhau được → cần design thật hợp lý và thông minh."*
-
-**Core principle:** a UoM difference is only a *problem* if the two units
-are **not convertible**. If a factor exists (same canonical, same family
-via `base_factor`, or a `client_uom_overrides` row), then BOM≠BCCT and
-BCCT-row≠BCCT-row are **acceptable** — surface them as info ("quy đổi
-được ×N"), never as an error/block. Reserve warn/block for genuinely
-incompatible pairs with no factor.
-
-**Current state (fragmented, inconsistent severity):**
-- Catalog detail UoM panel (shipped 2026-06-07): divergence cue uses
-  `uom_standards.are_equivalent()` → flags anything that isn't the *same
-  canonical*. Over-flags same-family-different-canonical (m vs cm) and
-  cross-family-with-override (SETS→PCS factor exists) as "lệch" even
-  though both convert cleanly.
-- `catalog_bcct_analysis.py`: `unit` drift hard-coded **CRITICAL** on any
-  distinct-value count ≥2 — doesn't consult the conversion engine at all.
-- BOM staleness (mig 069/071): the *most* correct surface — `is_uom_aligned`
-  + `client_uom_overrides` precedence check before marking stale. This is
-  the model the others should follow.
-- Ingest-time UoM drift gate ([[project_uom_drift_gate]]): 3-tier severity,
-  ack-required for cross-family — partially convertibility-aware already.
-
-So four surfaces answer "is this UoM difference OK?" four different ways.
-
-**Desired design — one classifier, used everywhere:**
-- Single helper `classify_uom_relation(a, b, *, client_id, material_code)`
-  → `{relation: equivalent | convertible | incompatible, factor, via}`
-  where `via ∈ {alias, same_family_base_factor, client_override,
-  tier_a_default}`. Derive it from the existing 6-tier `make_uom_lookup`
-  cascade — do NOT reinvent factor logic.
-- Acceptance rule (the whole point): `equivalent`/`convertible` ⇒ accept
-  silently or as info; `incompatible` ⇒ the only state that warns/blocks
-  and prompts an override at `/uom-factors`.
-- Rewire all four surfaces onto it: catalog panel chip color, bcct_analysis
-  drift severity (downgrade convertible `unit` drift from CRITICAL→info),
-  BOM staleness (already close), ingest gate.
-
-**Smart cases to get right:**
-- **Cross-row BCCT drift**: 100 rows in PCS + 14 in SETS for the same code
-  — if SETS→PCS convertible, this is *not* an inconsistency, it's two
-  valid declaration habits. Timeline/RLE still shows the change (data
-  visibility) but no alarm.
-- **Per-client factors**: convertibility is client-scoped — a SETS→PCS
-  factor for Johnson doesn't make Growatt's SETS convertible. Classifier
-  must take `client_id` (+ optional `material_code` for material-specific
-  overrides).
-- **Directionality**: acceptance is symmetric, but the displayed factor is
-  directional — show both the factor and which canonical it normalizes to.
-- **Unknown tokens**: alias not in `uom_aliases` → cannot prove
-  convertible → treat as `incompatible` (conservative) but offer "thêm
-  alias" at `/admin/uom`, not just "thêm factor".
-- **Tier-A vs Tier-B** (from mig 021 §9): Tier-A cross-family default
-  (count/assembly ↔ 1.0) is "convertible-by-assumption" — surface as
-  convertible-unconfirmed (distinct shade), Tier-B hard-block stays
-  incompatible.
-
-**Why it matters:** the current over-flagging trains users to ignore the
-warning (cry-wolf), and a CRITICAL on convertible `unit` drift is a false
-alarm that hides the genuinely-incompatible cases. Convertibility is the
-correct gate, and the engine to compute it already exists — this is a
-*unification + severity-rationalization* task, not new infra.
-
-**Effort:** ~1-1.5 day (classifier + 4 surface rewires + severity tests).
-Relates to [[shipped: BOM UoM conversion engine]], A.4 (drift panel),
-A.4.3 (smarter similarity — same "stop flagging noise" spirit).
+**Moved to [#18](https://github.com/TinsuAI/data-hub/issues/18)**. Full text lives in the issue. Do not edit here.
 
 ## A.5 v_material_roles paren-aware (replace material_observations workaround)
 
-**Captured 2026-05-09** (Mã chờ duyệt v3 review). Issue surfaced when
-Growatt's NB material `001.0001100` showed `observed_count=0` on detail
-page despite 68 BCCT references via paren-extract.
-
-**Root cause**: `hub.v_material_roles` view JOINs by
-`bcct_rows.customs_code` only. NB codes that live inside `goods_name`
-parens (Growatt-shape) are invisible to the view. Affected fields:
-`has_imports`, `has_exports`, `observed_count`, `observed_first_at`,
-`observed_last_at`, `observed_directions`, `is_multi_role`,
-`declared_observed_conflict`.
-
-**Current workaround** (ships now, MUST be replaced):
-- `app/stores/material_observations.py::compute_observations` —
-  per-client (rules-driven, generic), recomputes signals from BCCT at
-  request time using parser rules paren-extract.
-- Wired into `/catalog/<code>/detail` only. **Not** wired into list
-  page (`/catalog`), so the table still shows 0 for affected rows.
-- 5 tests (`tests/test_material_observations.py`) cover the helper.
-- Per-row Python work — fine for 1 detail page, NOT scalable to list
-  view with hundreds of rows.
-
-**Proper fix — 3 options:**
-
-1. **Rebuild view as materialized view with re2-aware resolution.**
-   Refresh on BCCT confirm + on parser_rules edit. Pros: fast reads,
-   matches existing API. Cons: needs Postgres plpython3u extension OR
-   external Python refresher script + materialized view.
-
-2. **Generated/cached column on `bcct_rows`.** Add
-   `bcct_rows.internal_code` (was dropped in mig 038), populated by a
-   trigger on insert/update that runs the parser rules. View JOINs
-   `b.customs_code = m.material_code OR b.internal_code = m.material_code`.
-   Pros: SQL-only, no plpython. Cons: reintroduces dropped column;
-   trigger must fire whenever rules change (re-derive existing rows).
-
-3. **Replace view entirely with Python-computed materialization.**
-   Cron job + a real `hub.material_observations` table refreshed on
-   every BCCT/BOM change (post-ingest hook). Pros: fully decouple from
-   SQL constraints. Cons: another batch job to maintain.
-
-**Original recommendation**: option 2 (generated column). Most
-surgical, no new infrastructure.
-
-**Design re-examined 2026-05-13** (user deferred A.5 with "chưa rõ
-lắm"). Original recommendation conflicts with memory
-`feedback_no_derived_in_source`: source tables hold only manual input,
-not derived/cached values — that principle drove mig 038 dropping
-`material_identity` in the first place. Three options surveyed this
-session:
-
-- **B (original) — stored column + trigger.** Reintroduces
-  `bcct_rows.internal_code`. Trigger has to run re2 parser rules on
-  every insert + re-derive all rows whenever `client_parser_rules`
-  change. pgsql has no re2; would need plpython3u OR an external
-  Python refresher. Violates `no_derived_in_source`.
-- **C — separate derived table.** New
-  `hub.bcct_internal_codes (client_id, declaration_no, line_no, internal_code)`
-  populated by Python (post-ingest hook + rules-change hook). View
-  JOINs both `customs_code` and the derived table. Aligns principle:
-  bcct_rows stays pure manual; derived data sits in its own table.
-  Cost ~1-1.5d.
-- **D — runtime Python supplement.** Wire existing `compute_observations`
-  into the list page in batch mode (one BCCT query for ~100 codes per
-  page render). ~2-4h. Solves the user-visible symptom (list page
-  count) but keeps the workaround code and the view as-is. Only 1 of
-  3 removal triggers met.
-
-**Status:** deferred. Re-engage when bandwidth + clarity converge. If
-shipped, prefer C over B; D is a tactical bridge if user wants the
-list page fixed sooner.
-
-**Removal trigger** for the workaround:
-- View returns correct signals on `001.0001100` directly (no Python
-  override needed).
-- `material_observations.py` deleted; route handler skips supplement.
-- List page `/catalog` "Quan sát BCCT" column shows correct counts
-  for paren-extract NB materials.
-
-**Effort**: 1-1.5 days for option B or C; ~2-4h for option D (partial).
+**Moved to [#33](https://github.com/TinsuAI/data-hub/issues/33)** (folded into catalog phase 3). Full text lives in the issue. Do not edit here.
 
 ## A.6 Scripts that lost SQL `material_identity` access (deferred 2026-05-08)
 
@@ -418,139 +198,15 @@ registry: `BomAdapter` Protocol + `register()` + detect-ranked `parse_with_fallb
 
 ## B.0b Declarability generalization follow-ups (captured 2026-06-09)
 
-From the mig 078/079 work + overfit discussion (see A.0,
-`.ai/features/2026-06-08-leaf-nvl-declarability/brief.md`, DECISIONS 2026-06-09):
-- **Two-layer model is the principle:** correctness = import evidence (general,
-  config-free, every client); Material-Group rác classification = OPTIONAL
-  per-client noise-suppression. A new client/format with no map = correct-by-default
-  (declarable/declarable_unmatched), just noisier — never "redo everything".
-- **Rename `material_group` → a neutral `item_type_token`** (it's a SAP-ism; the
-  column is really "an ingested item-type token an adapter populates"). Cosmetic but
-  removes the misleading coupling.
-- **Generalize the map key** `(client_id, material_group)` → `(client_id, signal_kind,
-  signal_value)` ONLY when a 2nd format/signal appears (YAGNI now — generalizing
-  before the 2nd case risks the wrong abstraction).
-- **Precise drawing auto-hide** (deferred from A.0): RD07 drawings surface as
-  `declarable_unmatched` (review) not auto-hidden, because RD07 is overloaded +
-  ~704 codes lack a name in catalog_candidates. Needs name-level classification at
-  ingest if auto-hiding drawings is wanted.
+**Moved to [#19](https://github.com/TinsuAI/data-hub/issues/19)**. Full text lives in the issue. Do not edit here.
 
 ## B.1 Modular BOM ingest adapters (per supplier shape)
 
-**Captured 2026-05-06.** Two distinct supplier-file shapes have
-shipped so far:
-
-- **Growatt-shape** — agency provides one file per code (TP and BTP
-  separately). Ingest yields per-code `raw_graph` directly. Result:
-  144/147 BTP shallow leaves are decomposable from their own
-  `bom_artifacts` rows.
-- **Johnson-shape** — agency provides one deep-tree file per TP.
-  Ingest yields TP-level `raw_graph` only; intermediate BTPs have
-  edges (in `hub.bom_edges`) but no `bom_artifacts` row keyed to them.
-  Result: 0/342 BTP shallow leaves decomposable until a derive step
-  runs.
-
-Both shapes converge on the same in-DB model (raw_graph / shallow /
-full_flat per `project_bom_3_shapes.md`, now 4-shape after 2026-05-13),
-so the divergence lives entirely in the **parse + post-ingest** path.
-Treat each supplier shape as a pluggable adapter / add-on.
-
-**Goals:**
-
-1. **Adapter interface** — formalize the contract: `detect(file) →
-   match_score`, `parse(file) → list[bom_version_payload]`,
-   `post_ingest_hooks → [...]`. New supplier shapes drop in as a
-   registered adapter under `app/parsers/bom_adapters/` with no
-   core-code changes. *(Mostly SHIPPED — `bom_adapters` registry +
-   `parse_with_fallback` + `auto` profile (2026-05-13); post_ingest_hooks
-   wired; **`detect → match_score` ranking SHIPPED 2026-06-07** — optional
-   `detect(blob, root_code) → float|None` on the Protocol; abstain (None)
-   preserves registration order = no regression; positive scores tried
-   first. `detect` implemented on `sap_indented_walk` (0.95) +
-   `sap_exploded_levels` (0.9) so deep-tree files no longer get grabbed
-   + flattened by the more permissive `manual_flat`. Other adapters abstain;
-   add `detect` as needed.)*
-2. **`derive_btp_shallows.py`** — post-ingest hook for Johnson-shape
-   adapter (and any future deep-tree shape). For each intermediate
-   `parent_code` in `bom_edges` that is classified `btp_sx`,
-   materialize a `bom_artifacts` row keyed to that code with
-   `flatten_status='flattened'`,
-   `flatten_strategy='purchased_btp_as_leaf'`, walking from that node
-   down to first BTP/NVL leaves. After this runs, Johnson reaches
-   Growatt-level decomposability and resolver Phase 3 can compose
-   shallow → full_flat without knowing supplier shape.
-3. **Canonical adapter registry** — extract current ingest scripts
-   (`ingest_technical_raw_batch.py`, `ingest_curated_xlsx_direct.py`)
-   into adapter classes: `growatt.py`, `johnson.py`, plus a
-   `default.py` fallback. Selection by `client_id` + filename
-   heuristics; UI override per upload.
-4. **Phase 3 readiness** — resolver should rely only on the unified
-   in-DB model, never on adapter-specific quirks. Divergence ends at
-   parse-time, not propagated downstream.
-
-**Why now:** v3 model has settled and we have two real shapes to
-abstract from — one is enough to risk over-fitting, three risks
-under-fitting, two is the sweet spot.
-
-**Cross-link:** the **BCCT-side configurable parsing rules** shipped
-2026-05-08 as `hub.client_parser_rules`. The BOM-side adapter work can
-reuse the same table shape with `output_field='bom_*'`, unifying both
-into a single per-client rule infra.
-
-**Estimate (BOM-side only):** ~10-15h to formalize the registry +
-extract scripts + write `derive_btp_shallows.py` + tests. Bundle with
-Phase 3 resolver work since they share the "uniform in-DB model"
-assumption.
+**Moved to [#20](https://github.com/TinsuAI/data-hub/issues/20)**. Full text lives in the issue. Do not edit here.
 
 ## B.2 UI BOM upload — wire up v3 concepts (Phase 3c follow-ups)
 
-**Captured 2026-05-05** + 2026-05-07 (consolidated). Auto-detect ship
-2026-05-13 closed item 0; remaining items below. Some overlap with
-B.1 (modular adapters) and Phase 3c (post_ingest_hooks).
-
-1. **`bom_variant_id` field in upload form** — staff should pick a
-   batch label (e.g. `agency_2026-05-05` or freetext) when uploading
-   multiple supplier batches per product. Auto-derive default from
-   filename or upload date if blank. Without this, multi-batch uploads
-   via UI collide on `(product_code, default)` and trigger version-bump
-   idempotency dedup.
-2. **Auto-materialize post-upload** — when `technical_raw` confirms,
-   trigger `materialize_shallow_and_full_flat` for the new
-   `bom_artifacts` row inline (or async). Without this, shallow +
-   full_flat versions only exist after a manual script run, which
-   leaves the freshly-uploaded raw_graph orphan from BCQT/CO consumer
-   queries. *(Partial — `post_ingest_hooks` registry wired into
-   `app/routes/bom.py` confirm flow; explicit derive_btp_shallows hook
-   registration still pending — see B.1.2.)*
-3. **Auto-bootstrap BTP roster** — same trigger should re-run BTP
-   detection (rule: parent_code in bom_edges + not a tp_root).
-   Catalog `btp_sx` entries for newly-introduced intermediate codes
-   land without a separate command.
-4. **Shape badge in preview** — preview page currently shows flat rows.
-   Add a header banner showing "This upload will create a `raw_graph`
-   BOM" / "`manual_flat`" / "`shallow`" / "`full_flat`" so staff confirm
-   with intent. Use `bom_shape()` helper (4-shape post-2026-05-13).
-5. **Multi-role warning at upload** — *SHIPPED 2026-06-07.*
-   `app/stores/bom_multirole.py::compute_multirole_warnings(client_id,
-   products)` flags upload component codes that already appear in
-   `bcct_rows.direction='export'` for this client. Advisory panel in
-   `bom_preview.html` (non-blocking, like `multi_level_flat`); wired into
-   `preview_view`. Matches on `customs_code` only — shares the A.5
-   paren-code blind spot (acceptable for an advisory). Reference
-   `project_bom_code_multirole.md`.
-6. **Per-client policy gate** — `clients.auto_derive_shallow_from_raw`
-   (`disabled` / `draft_only` / `publish`) should gate auto-materialize
-   step. UI upload should respect the value: in `draft_only`, derived
-   shallow/full_flat insert as `status='draft'` not `published`.
-7. **Tests + docs** — Playwright E2E that drives upload → mapping →
-   parse → preview → confirm and asserts shape + materialize side
-   effects. Unit tests for the new auto-trigger functions. *(Partial —
-   pytest regression `tests/test_bom_ingest_followups.py` (2026-06-07)
-   covers auto upload→preview→confirm + the new detect ranking +
-   multi-role warning + friendly parse-error. No browser-level Playwright
-   E2E yet.)*
-
-**Estimated effort**: 4-6h for items 1-6, +2-3h for tests + docs (item 7).
+**Moved to [#21](https://github.com/TinsuAI/data-hub/issues/21)**. Full text lives in the issue. Do not edit here.
 
 ## B.3 BOM/BQD/Catalog parse-error UX — BOM side SHIPPED 2026-06-07
 
@@ -581,199 +237,23 @@ remains.
 
 ## B.4 Manual mapping UI when LLM disabled
 
-When LLM is unavailable AND a file fails rigid parse, the upload errors
-with no recovery besides edit-in-DB. Add a "Manual mapping" link on the
-parser-mapping preview when LLM is unavailable, surfacing the same
-header→logical-field grid the LLM-confirmed flow uses. Reuses
-`parser_mappings` cache once confirmed.
+**Moved to [#22](https://github.com/TinsuAI/data-hub/issues/22)**. Full text lives in the issue. Do not edit here.
 
 ## B.5 Unified import UX across all data-import surfaces
 
-**Captured 2026-05-12** during Phase 2 step 7 admin UI rollout. User
-feedback: import flow của UoM-factors cần consistent với mọi surface
-import dữ liệu khác (BCCT, BOM, Catalog, parser rules, code mappings,
-declaration types, client-type-presets, ...). Hiện tại mỗi feature
-implement import riêng → UX divergent.
-
-**Common pattern phải có** ở mọi import surface:
-
-1. **Download template button** (XLSX or CSV). Template generated
-   on-the-fly từ store helper, có sample rows + sheet "Hướng dẫn".
-   Giúp staff biết schema chính xác.
-2. **Multi-format upload** (CSV + XLSX/.xlsm). Auto-detect by
-   filename suffix. Both encode same column contract.
-3. **Validation feedback**: row-level errors with row number + reason,
-   capped to 20 displayed errors. "X inserted, Y failed — row N: ...".
-4. **Idempotent semantic**: same source data, re-upload = no-op
-   (upsert on PK).
-5. **Source enum tagging**: each imported row gets tagged with
-   `source='imported'` (or feature-specific) so audit trail
-   distinguishes manual vs bulk.
-6. **Confirm-before-write** pattern (matches BOM/BCCT preview-confirm
-   flow): show "X rows will be added/updated, Y skipped" preview before
-   committing. Currently UoM-factors imports immediately — this is OK
-   for low-risk reference data but must change for higher-stakes
-   imports.
-7. **Audit trail per import**: who, when, file name + size, summary
-   counts. Persisted to existing audit table.
-
-**Inventory of import surfaces today** (audit needed):
-
-| Feature | Status | Format | Template | Audit |
-|---|---|---|---|---|
-| BCCT upload | ✓ via parser | xlsx | — | upload_pending |
-| BOM upload | ✓ via parser | xlsx | — | upload_pending |
-| Catalog (DS DK HQ) | ✓ via parser | xlsx | — | upload_pending |
-| `client_uom_overrides` | ✓ Phase 2 step 7 | csv + xlsx | ✓ | factor source enum |
-| `client_parser_rules` | ? | — | — | — |
-| `code_mappings` | ? | — | — | — |
-| `declaration_types` | ? | — | — | — |
-| `materials.uom` aliases | ? | — | — | — |
-
-**Effort:** ~1 week. Sub-tasks:
-
-1. **Audit + document existing import surfaces** (~0.5d). Walk each
-   route + identify gaps vs the 7-point pattern.
-2. **Design unified `ImportFlow` helper** at
-   `app/stores/import_flow.py` (~2d). Generic CSV/XLSX parser with
-   pluggable validation + commit functions. Each feature plugs in
-   schema declarations.
-3. **Refactor existing imports** to use the helper (~2d). Order:
-   easiest wins first.
-4. **Template generation convention**: each feature exposes
-   `render_template_xlsx() -> bytes` returning an in-memory XLSX with
-   header + sample rows + Hướng dẫn sheet. Endpoint at
-   `/clients/{id}/<feature>/template.xlsx` or
-   `/admin/<feature>/template.xlsx`.
-5. **Unified UX template snippet** (`_import_form.html`) — Jinja2
-   include rendering Download Template + File Upload + Source select +
-   Submit, parametrized. Each feature uses it.
-
-**Why deferred:**
-- Phase 2 step 7 shipped a working CSV+XLSX import for one feature.
-- The unified pattern requires understanding all current imports
-  first — premature without that audit.
-- Other features may have specific quirks (BCCT preview-confirm flow,
-  parser-rules diff editor) that don't fit the simple-import pattern.
-
-**Bring back when:**
-- AI polish bandwidth.
-- Or when adding a new import surface (do it right from start).
-- Or after first customer ramps and import-flow inconsistency causes
-  staff confusion.
-
----
-
-# C. Sister-app coordination
-
-Cross-repo work needed to bring CO + BCQT in line with Data Hub.
-Sister-app notes live at `.ai/sister-app-notes/`.
+**Moved to [#23](https://github.com/TinsuAI/data-hub/issues/23)**. Full text lives in the issue. Do not edit here.
 
 ## C.1 CO + BCQT — adopt service-account JWTs
 
-**Captured 2026-05-02 PM.** Ship-blocking dependency for "API auth
-strict promotion" below. No hard deadline — coexistence works fine.
-
-Service-account JWTs are live in Data Hub (migration 020 + CLI). Sister
-apps still call with permissive bearer / user JWT. To adopt:
-
-1. **Mint tokens** (Data Hub admin):
-   ```bash
-   uv run python scripts/mint_service_token.py create \
-     --name co --scopes hub:read,bom:propose \
-     --client-ids growatt-vn,dke-vietnam-d0e3,johnson-vn,do-thanh-vietnam-2614 \
-     --created-by <admin-email>
-
-   uv run python scripts/mint_service_token.py create \
-     --name bcqt --scopes hub:read \
-     --created-by <admin-email>
-   ```
-2. **CO repo** (`barry-CO-main`): inject `DATA_HUB_SERVICE_TOKEN` env
-   into `app/data_hub_client.py` Bearer header on every call. If CO
-   verifies tokens locally, branch on `claims["typ"] == "service"` —
-   service tokens have no email/role/name; `sub` is `svc:co`.
-3. **BCQT repo**: same pattern, `hub:read` scope only.
-
-Full instructions:
-`.ai/sister-app-notes/2026-05-02-service-account-jwts-available.md`.
-Design rationale: `.ai/features/2026-05-02-service-account-jwts.md`.
-
-**Partial progress 2026-05-13**: substitute lookup mirrored at
-`/v1/hub/clients/{c}/materials/{m}/substitutes` (Bearer-aware) after
-CO reported 401 on the cookie-only `/api/v1/...` route. Note:
-`.ai/sister-app-notes/2026-05-13-substitute-api-bearer-available.md`.
-Other CO endpoints may have the same shape — audit if more 401s
-surface.
-
-**Pull this out of backlog when:** ready to coordinate the sister-repo
-PRs, or when about to flip `api_auth_strict=true` (then it becomes
-ship-blocking).
+**Moved to [#24](https://github.com/TinsuAI/data-hub/issues/24)**. Full text lives in the issue. Do not edit here.
 
 ## C.1.a BCCT by-codes — soak test under real CO load
 
-**Captured 2026-05-13** (this session). `GET /v1/hub/clients/{c}/bcct/by-codes`
-shipped per CO API request
-`barry-CO-main/.ai/api-requests/2026-05-13-bcct-by-codes-lookup.md`.
-19 provider tests cover the contract (codes filter, case-insensitive,
-URL-decoded, direction combine, pagination, all 4xx error paths,
-service-token scope + whitelist enforcement). Live smoke against
-Johnson confirmed correct rows + sub-100ms latency on small code lists.
-
-**Not yet exercised:**
-
-- **Real-load behaviour from CO**: only smoked with 2-3 codes against
-  Johnson. CO's substitute modal calls with up to ~20 candidate codes
-  + paginates if the resulting BCCT slice exceeds `limit`. Need to
-  confirm latency stays low when CO is the actual caller (HTTP client,
-  service token, real concurrent requests), not curl.
-- **Pagination at boundary**: tests assert cursor round-trip on a
-  2-row fixture. No test for a code with very long import history
-  (e.g. a Johnson NVL with hundreds of TKN lines spanning multiple
-  pages). Verify ordering stays stable across cursors.
-- **`include_material_identity=true` with many rows**: tests cover
-  attach correctness on 1 row. No assertion of per-row cost when the
-  resolver runs across, say, 100 rows. Could surface a hot loop in
-  `_attach_material_identity`.
-- **DB plan**: SQL uses `where client_id = %s and upper(customs_code)
-  = any(%s)`. Need to confirm Postgres uses the existing
-  `(client_id, customs_code)` index (if any) or whether the `upper(...)`
-  forces a seq scan on `bcct_rows`. EXPLAIN ANALYZE on Johnson once CO
-  is hitting prod-shaped load.
-- **CO consumer**: not yet shipped on CO side. CO `CLAUDE.md` requires
-  Data Hub provider tests + changelog bump first (both done in this
-  session). Awaiting CO ping-back via sister-app-notes when consumer
-  ships.
-
-**Pull this out of backlog when:** CO's consumer ships and we've
-observed the endpoint under real substitute-modal load for at least a
-day on the demo box. If latency or correctness issues appear, fold a
-fix into this item; otherwise close out.
+**Moved to [#25](https://github.com/TinsuAI/data-hub/issues/25)**. Full text lives in the issue. Do not edit here.
 
 ## C.2 API auth — flip dev-permissive reads to strict by default
 
-**Captured 2026-05-02.** **Unblocked 2026-05-02 PM** — service-account
-JWTs shipped (migration 020). Now waiting on sister-app cutover (C.1).
-
-Today the read API on `/v1/hub/*` accepts non-empty legacy bearer
-strings when `api_auth_strict=false` (default). Writes (BOM proposal
-POST) always require a valid Data Hub JWT regardless of the flag. The
-trade-off was chosen deliberately: prioritize dev/integration
-ergonomics today, prioritize corruption prevention on writes.
-
-**Promote when:**
-- CO and BCQT have switched to service-account JWTs (per
-  `.ai/sister-app-notes/2026-05-02-service-account-jwts-available.md`).
-- We have a staging environment where strict mode can be soak-tested
-  before flipping prod.
-
-**Steps when promoting:**
-1. Default `api_auth_strict=true` in fresh installs; add a one-time
-   migration to flip existing installs after CO/BCQT confirm readiness.
-2. Remove the legacy bearer fallback path in `_require_token`; keep
-   only the JWT validation branch.
-3. Update `docs/API_CONTRACT.md` to drop the dev-permissive mode
-   section.
-4. Update CO/BCQT consumer code to send real JWT on every read call.
+**Moved to [#26](https://github.com/TinsuAI/data-hub/issues/26)**. Full text lives in the issue. Do not edit here.
 
 ## C.3 Drop BOM vocab v1 aliases — SHIPPED 2026-05-28
 
@@ -834,98 +314,51 @@ tables. Touches every mutable hub table.
 
 ## D.1 Aggregate-data git-history
 
-**Captured 2026-05-05** as a hard product principle from user.
+**Moved to [#27](https://github.com/TinsuAI/data-hub/issues/27)**. Full text lives in the issue. Do not edit here.
 
-**Principle (already enforced for BOMs, generalize to other aggregates):**
+## D.2 BOM staleness — Scope A SHIPPED 2026-06-08; Scope B (fingerprint rebuild) DEFERRED, revisit-if
 
-- Never physically `DELETE` rows from any aggregate-data table (BOMs,
-  materials, code_mappings, client_config, parser_mappings, etc.).
-- Edits = INSERT a new version with lineage back to the previous one.
-- "Removal" is via tombstone / deactivation flag on the row, not row
-  deletion.
-- All aggregate data must support **git-like history**: who added what,
-  who removed what, when, with revert / undo capability.
+**Captured 2026-06-07** during A.4.4 discovery. Split into two scopes after a
+critic review 2026-06-08. Brief: `.ai/features/2026-06-08-bom-staleness-fingerprint/brief.md`.
 
-**Current state (HEAD as of 2026-05-05):**
+**Problem (original):** trigger-push + binary flag — D1–D9 plpgsql triggers set
+`is_stale`/`has_uom_drift` on every source change. Two faults: (1) whack-a-mole
+false positives (mig 069/070/071 = three narrowings of the same leak); (2)
+`is_stale` conflates "an input changed" with "the output is now wrong".
 
-| Table | History tracking | Gap |
-|---|---|---|
-| `bom_artifacts` + children | ✅ tombstone + parent_artifact_id lineage (mig 006/029) | Uses migration 027 cleanup pattern. Already conformant. |
-| `bcct_rows` | ✅ `bcct_row_history` audit table + AFTER UPDATE/DELETE trigger (mig 013) | OK, but no UI for revert. |
-| `materials` | ⚠️ `provenance` jsonb merge-on-conflict only | No history table. UPDATE overwrites name/category/unit/etc. |
-| `code_mappings` | ❌ Plain table, UPDATE in place. | No history. |
-| `client_config`, `parser_mappings`, `bom_flatten_decisions`, `client_uom_overrides`, `client_type_presets` | ❌ Plain tables. | No history. |
-| `clients`, `users` | ❌ Plain tables. | No history (probably OK for users, debatable for clients). |
+**Scope A — narrow fix — ✅ SHIPPED 2026-06-08** (mig 077, commit `f17e405`
+"D.2-A"). Widened `hub.has_drift_remaining` to mirror `classify_uom_relation`
+(alias + per-material/client-wide override either direction + same-family
+`base_factor` + tier-A 1:1 → not-stale; tier-B + unknown token → stale). D7/D9
+triggers call it by name. Backfill clears now-resolvable flags. Parity guard
+`tests/test_has_drift_remaining_parity.py`. **This killed fault (1)** — the
+concrete cry-wolf pain that motivated the rebuild. Convertible catalog edit
+(kg→g) no longer churns published rows.
 
-**Work units (each its own PR):**
+**Scope B — input-fingerprint rebuild — DEFERRED, critic-rejected as proposed.**
+The big-bang "replace all 9 triggers with stored `input_fingerprint` +
+derive-on-read" design was flagged 2026-06-08 as **over-built in the wrong
+direction** (verified against code). NOT planned work — a *revisit-if* gated on:
+- **No family-canonical normalizer** — `uom.py` resolves only pairwise; the
+  fingerprint needs a new single-arg "normalize qty to family base" primitive.
+- **Guarantee downgrade (the killer)** — triggers observe *every* write
+  (psql/script/bulk re-ingest, documented workflows); app-hook + Python recompute
+  silently under-flags on bypass paths until a cron that **does not exist** (mig
+  062 `background_jobs` is a subprocess tracker, not a scheduler). For a TT
+  39/2018 product feeding CO/BCQT, under-flag is a worse failure class than the
+  triggers' over-flag.
+- **Fan-out cost** — `reconcile_for_material` caps at 50 / reports `deferred`;
+  sync full-tree re-derive needs a real job queue first.
+- **Float-hash instability** (`normalized_hash` rounds float) + **unknown-token
+  sentinel** (adding an alias would flip the hash = NEW false positive).
 
-1. **`materials_history` audit table + trigger** mirroring the
-   `bcct_row_history` pattern. Capture full row before any UPDATE
-   or DELETE, with `changed_at`, `changed_by` (read from
-   `app.user_id` GUC), `change_kind ∈ {insert, update, delete}`.
-2. **`code_mappings_history`** same pattern.
-3. **`client_config_history`** + **`parser_mappings_history`** same.
-4. **`/v1/hub/{table}/{key}/history` endpoints** — paginated audit
-   timeline per entity.
-5. **`/v1/hub/{table}/{key}/revert?to=<changed_at>`** — revert one
-   row to a prior state. Implemented as INSERT-from-history (still
-   append-only); audit captures it as a new change with
-   `change_kind='revert'`.
-6. **UI: history page per entity.** Reuse `bcct_row_history` page
-   pattern. Diff view showing what changed.
-7. **Document the "no DELETE" rule in `AGENTS.md` + standards repo.**
-   Add a CI lint that scans for `DELETE FROM hub.<aggregate-table>`
-   and fails on match unless explicitly tagged
-   `-- ALLOW-DELETE: <reason>`.
-
-**Why this matters:**
-
-- Customs audit (TT 39/2018) requires 5-10 year retention of source
-  data underlying settlement / origin certificates.
-- Disputes between agency and customs auditor often hinge on "which
-  version of the catalog/BOM/mapping was active when this transaction
-  was filed?" — without history, the answer is "current state" which
-  may not be the truth-of-record.
-- Staff confidence: undo / revert lowers the cost of accidental
-  destructive edits, which lowers the activation energy for staff
-  to actually fix bad data.
-
-**Out of scope for this backlog item:**
-
-- BOM versioning is already done — don't redo it. The new history
-  tables are for non-BOM aggregates.
-- Operational tables (sessions, llm_usage, notifications,
-  upload_pending) don't need this — they're transient.
-
-## D.2 BOM staleness rework — fingerprint model (replace trigger-push)
-
-**Captured 2026-06-07** during A.4.4 discovery. User dissatisfied with
-current staleness model; no solution settled yet. Revives the
-never-written `.ai/features/2026-05-27-stale-rebuild/` brief.
-
-**Problem:** current model is trigger-push + binary flag — D1–D9 plpgsql
-triggers set `is_stale`/`has_uom_drift` on every source change. Two
-structural faults: (1) whack-a-mole false positives — mig 069/070/071
-were three successive narrowings of the same leak; (2) `is_stale`
-conflates "an input changed" with "the output is now wrong" (a
-convertible UoM change doesn't make the published `full_flat` wrong —
-flatten converts at materialize time).
-
-**Proposed:** input-fingerprint, derive-on-read. Store
-`input_fingerprint` on the artifact at materialize time = hash over
-*normalized* inputs (component canonical UoM + resolved factor via
-`classify_uom_relation`, + category/sourcing). Staleness =
-`current_fingerprint != stored`, computed on read / cheap cron, no
-triggers. Benign (alias/same-family/override/tier-A) changes produce the
-same hash → no false staleness; only incompatible change or a
-math-altering factor change flips it. Retires the trigger zoo.
-
-**Depends on A.4.4** — `classify_uom_relation` is the keystone that makes
-the fingerprint benign-change-immune. Do A.4.4 first. Migration is
-incremental (add column → backfill → run derive-on-read beside the flag →
-compare → drop triggers at parity), not big-bang. Full direction in
-`.ai/features/2026-06-07-convertibility-aware-uom/brief.md` →
-"BOM staleness — rework direction". **Next-session work.**
+Fault (2) remains conceptually true but is now *aesthetic*, not real maintenance
+pain (Scope A removed the leak). **If B is ever revived**, use the hybrid shape:
+a thin trigger that only stamps `fingerprint_dirty=true` (keeps universal cheap
+write-observation) + an off-path worker (all-Decimal quantized arithmetic, stable
+unknown-token rule, backfill that preserves genuine staleness). **Revisit only
+when a job queue exists OR the trigger-push model causes real (not aesthetic)
+maintenance pain.** Trigger-push stays the working model until then.
 
 ---
 
@@ -936,62 +369,7 @@ the original cut. Smaller individually; bundle when convenient.
 
 ## E.1 Sprint D — parser/data architectural follow-ups (post-Sprints A/B/C)
 
-**Captured 2026-05-03 PM** after Sprints A/B/C closed the immediate
-correctness gaps. Each item below is its own PR (per plan-review
-critic: "uncoupled changes — don't bundle"). No fixed order; ship in
-parallel as bandwidth allows.
-
-- **D1: `hub.declaration_types` lookup table.** *(SHIPPED — mig 019.)*
-  Hardcoded `IMPORT_TYPES` / `EXPORT_TYPES` Python sets in
-  `app/parsers/bcct.py` replaced with DB-seeded table sourced from
-  Decision 1357/QĐ-TCHQ. Direction is now a SQL JOIN.
-
-- **D2: `transaction_key` GENERATED ALWAYS AS column.** Make
-  `transaction_key = '{declaration_no}-{line_no}'` a stored generated
-  column on `hub.bcct_rows` so the invariant cannot drift. Migration
-  touches every BCCT insert path; ship as its own PR.
-
-- **D3: `normalized_hash` Decimal end-to-end + dual-version migration.**
-  `app/stores/bom.py:normalized_hash` currently does
-  `round(float(...), 9)` — float arithmetic drift undermines
-  idempotency. Switching to Decimal changes every existing version's
-  hash. Need a phase-in plan: compute v2 hash on writes, store both
-  v1 + v2 during transition, dual-check on insert until backfill.
-
-- **D4: Idempotency canonical-projection re-design.** Critic flagged
-  that re-uploading the same Excel after fixing an unrelated catalog
-  row currently silently dedup's because `normalized_hash` doesn't
-  cover the upload-context dimension. Discovery doc first, then
-  decide: log audit event on dedup-hit, OR widen the canonical
-  projection, OR both.
-
-- **D5: SAP indented-walk level-skip handling.** Reject (or pad with
-  sentinel parents) BOM workbooks where indent levels skip
-  non-contiguously (e.g. L2 → L4 missing L3). Need a real Johnson SAP
-  sample exhibiting the case to reproduce — fixture
-  `johnson_sap_english_headers.xlsx` may already cover it; verify
-  before writing speculative code.
-
-- **D6: BOM idempotency unique index audit.** Same
-  uq_bom_idempotent_v2 design — verify the (`actor`, `intent`)
-  column tuple is the right granularity vs upload identity.
-
-- **D7: Fixture-pinned regression test for BOM-vs-CO compare.**
-  Replace the gitignored `data/screenshots/_compare_report.md` with
-  `tests/regression/test_real_bom_compare.py` env-gated, pinning
-  per-file leaf-set match thresholds against checked-in fixture
-  corpus.
-
-- **D8: Cross-table `hub.integrity_findings` materialized view.**
-  Surface every catalog-vs-BOM-vs-BCCT inconsistency in one place
-  (orphan BTP_SX, UOM mismatches, ghost codes, etc.). Defer until 3+
-  consumers want the same data — currently the per-page badges from
-  Sprint B cover MVP need. Cross-link with A.4 (catalog material
-  detail cross-source warnings).
-
-- **D9: `bcct_rows.artifact_id` point-of-use binding.** Already
-  designed in `.ai/features/2026-04-30-data-hub-mvp.md` (BCQT-side).
-  Implement when BCQT migration sprint lands.
+**Moved to [#28](https://github.com/TinsuAI/data-hub/issues/28)**. Full text lives in the issue. Do not edit here.
 
 ## E.2 Phase 3 review follow-ups (deferred 2026-05-07)
 
@@ -1053,20 +431,7 @@ shipped; below are nice-to-haves deferred:
 
 ## E.4 /rev cross-cuts (still open)
 
-- **CSRF protection** on POST endpoints (pre-existing project gap).
-- **`set_config('app.user_id', ..., false)`** — switch to `true`
-  (LOCAL) if connection pooling lands. Today every `connect(user_id=...)`
-  call gets a fresh connection, so SESSION-scoped GUC is fine.
-- **Migration numbering gap** (010 → 012, no 011) — cosmetic; renaming
-  applied migrations would diverge `schema_migrations` rows across
-  environments.
-
----
-
-# F. Data operations
-
-Programmatic data-ops scripts driven by client onboarding + clean-up
-needs.
+**Moved to [#29](https://github.com/TinsuAI/data-hub/issues/29)**. Full text lives in the issue. Do not edit here.
 
 ## F.1 Growatt programmatic bulk re-ingest — SHIPPED 2026-05-28 + 2026-05-29
 
