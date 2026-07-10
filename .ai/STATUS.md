@@ -1,6 +1,17 @@
 # Project Status
 
 ## Current State
+- **2026-07-11 (PM) — VN-ORIGIN SPEC + 8 TICKETS PUBLISHED; GitHub Issues = TRACKER OF RECORD
+  (docs only, no code).** Spec `.ai/features/2026-07-11-vn-origin-materials/spec.md` (12 ADR
+  synthesized; seam test duyệt: Tính recompute + route + pure-fn). Tickets = **TinsuAI/co #6–#13**
+  (`ready-for-agent`; frontier = #6, #7, #8, #13; #8 shortage guard độc lập — legal urgency; graph
+  #9←#6,#7 · #10←#9 · #11←#6 · #12←#7,#9,#11). **Convention mới:** implementation issues lên GitHub
+  qua `gh` (5 triage labels đã tạo), specs/BACKLOG/api-requests vẫn `.ai/` — xem
+  `docs/agents/issue-tracker.md` (viết lại) + `AGENTS.md`. Commits `c55e433` (spec+tickets) +
+  `f9d79f2` (tracker switch) + handoff — **đều docs-only, local `main`, CHƯA push**
+  (origin/main = `312e58d`). Session: `2026-07-11-vn-origin-spec-tickets-github-tracker.md`.
+  **Next:** `/implement` từng ticket một (fetch `gh issue view <n>`), fresh context mỗi vé —
+  design ĐÃ CHỐT, không grill lại.
 - **2026-07-11 — VN-ORIGIN GRILL PART 2: CLOSED (design only, NO code).** All part-1 leftovers
   settled + phase 2 killed. **5 new ADRs** (`.ai/DECISIONS.md` 2026-07-11): (1) col-9 unknown label =
   **free-text** client-config `bang_ke.unknown_origin_label`, default "Không xác định", unknown bucket
