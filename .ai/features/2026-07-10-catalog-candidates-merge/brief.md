@@ -169,12 +169,12 @@ every page load, with no data change.
 
 ## Implementation order
 
-Each phase ships independently. Do not reorder 1 before 0, or 5 before 2.
+Each phase ships independently. Order settled 2026-07-11 (design review): **1 → 0 → 2 → 3 → 4 → 5**. The earlier "do not reorder 1 before 0" constraint had no mechanism behind it — phases 0 and 1 do not interact — and STATUS.md already pointed at phase 1 first. Real blocking edges: 3 needs 0 (placeholder predicate), 4 needs 3 (link table), 5 needs 3 and 4.
 
 | # | Phase | Notes |
 |---|---|---|
 | 0 | Placeholder config + `derive_from_bcct` skip + delete 2 junk `.` rows | No API change, no CO impact (none of the 210 machinery codes reached `materials`). |
-| 1 | Default `status='active'` on both read routes + regression test | No-op on current data (all rows `active`). Closes risk 3. |
+| 1 | Default `status not in ('tombstoned','inactive')` on both read routes + positive test set (amended 2026-07-11 — `active`-only would hide `under_review`/`deprecated`, breaking CO's roster and the accept flow) | No-op on current data (all rows `active`). Closes risk 3 on the `/materials` surface; the BCCT-identity surface is #37. |
 | 2 | Move `refresh_candidates` out of `GET` | ~5 lines. Kills "GET writes to DB" and most of the 2.2s. |
 | 3 | `bcct_nb_codes` + ingest hook + backfill; rebuild `v_material_roles`; delete `material_observations.py`; **machinery marking** | Backfill ≈ 1s total. |
 | 4 | Anti-join model: discovery view + suppression table; drop `catalog_candidates` + store | The structural change. |
