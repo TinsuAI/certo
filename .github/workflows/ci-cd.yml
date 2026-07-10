@@ -40,15 +40,39 @@ jobs:
           version: "0.5.11"
       - name: Sync dependencies
         run: uv sync --frozen
+      - name: Resolve LibreOffice candidate version (cache key)
+        id: libreoffice
+        # azure.archive.ubuntu.com intermittently throttles to ~40 KB/s
+        # (two 18+ min stalls on 2026-07-10, runs 29114048212 and
+        # 29118166424), so the ~150 MB of LibreOffice debs are cached
+        # keyed on the apt candidate version: a hit installs fully
+        # offline, a point release misses and re-seeds. timeout-minutes
+        # makes a throttled-mirror run fail in minutes instead of the
+        # 360-min job default (queued main runs pile up behind a stall).
+        timeout-minutes: 3
+        run: |
+          sudo apt-get update
+          echo "version=$(apt-cache policy libreoffice-calc | awk '/Candidate:/{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: Cache LibreOffice debs
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-debs
+          key: apt-libreoffice-${{ steps.libreoffice.outputs.version }}
       - name: Install LibreOffice
         # The declaration merge-PDF feature renders the stored .xls (the
         # ECUS print form) via LibreOffice headless; the prod image ships
         # libreoffice-calc, so CI must too or those render tests fail with
         # "soffice binary not found".
+        timeout-minutes: 5
         run: |
-          sudo apt-get update
+          if ls ~/apt-debs/*.deb >/dev/null 2>&1; then
+            sudo cp ~/apt-debs/*.deb /var/cache/apt/archives/
+          fi
           sudo apt-get install -y --no-install-recommends \
             libreoffice-calc fonts-liberation fonts-dejavu-core
+          mkdir -p ~/apt-debs
+          sudo cp /var/cache/apt/archives/*.deb ~/apt-debs/
+          sudo chown -R "$USER" ~/apt-debs
       - name: Run pytest
         # Two test files need a pre-populated dev DB and don't
         # self-seed, so they're deselected on clean CI:
