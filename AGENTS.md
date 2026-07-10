@@ -101,6 +101,8 @@ After discovery sprint, implementation phases (~5-7 weeks total): Data Hub MVP b
 
 - 4 spaces Python, 2 spaces YAML/JSON
 - Commit messages in English, no Co-Authored-By trailer
+- Every commit references its issue — `Closes #31`, `Refs #33`. `/code-review`'s Spec axis
+  resolves the spec from that reference; without it the axis has nothing to check against
 - Vietnamese comments only where domain terms have no good English equivalent
 - Test-first for risky changes, test-after acceptable for cosmetic
 - Sprint-end retrospective ritual (when Python project is scaffolded, copy `make retro` infra)
@@ -148,11 +150,14 @@ Do not pick a different port for dev runs. If 8754 is in use, find and stop the 
 
 Scale rigor to the change. Inherits from BCQT-System conventions:
 
-- **Risky changes** (schema, auth, API contracts, migrations): `/discover` first → `/tdd` → `/rev` → commit
-- **Standard features**: write tests → implement → `/rev` → commit
+- **Risky changes** (schema, auth, API contracts, migrations): `/discover` first → `/tdd` → `/code-review` → commit
+- **Standard features**: write tests → implement → `/code-review` → commit
 - **Quick fixes**: implement → verify → commit
 - **Bug investigation**: `/fix` for systematic root-cause analysis → regression test → fix
-- **Session end**: `/handoff` to capture state for next session
+- **Session end**: `/handoff` to capture state for next session. **The user must type
+  it** — it sets `disable-model-invocation`, so the agent cannot call it. When the user
+  doesn't, the agent writes `.ai/sessions/YYYY-MM-DD-<topic>.md` and updates
+  `.ai/STATUS.md` by hand instead.
 
 ### Principles
 - **Progressive rigor:** small change = lightweight; risky change = thorough spec + review.
@@ -188,15 +193,73 @@ Rules:
 
 ## Skills
 
-All available via user-level `~/.claude/skills/`:
+All available via user-level `~/.claude/skills/`.
+
+Agent-invocable — the agent calls these itself:
 
 - `/tdd` — test-driven development
-- `/rev` — two-stage code review
+- `/code-review` — the closing review; two axes, parallel sub-agents (see below)
 - `/fix` — systematic debugging
-- `/discover` — explore before building (use to scope M9 discovery sprint deliverables)
-- `/handoff` — session summary + STATUS.md update
-- `/scaffold` — scaffold new code structure (will use when picking tech stack post-audit)
+- `/discover` — explore before building
+- `/scaffold` — scaffold new code structure
 - `/ai-init` — already used to set up this project's AI context
+- `/code-review`, `/codebase-design`, `/domain-modeling`, `/grilling`, `/prototype`,
+  `/research`, `/diagnosing-bugs`, `/qa`, `/request-refactor-plan`,
+  `/resolving-merge-conflicts` — from the Matt Pocock skill pack
+
+User-typed only — these set `disable-model-invocation: true` in their `SKILL.md`, so the
+agent cannot call them. Type them at the **start** of a message, or the harness treats
+them as plain text:
+
+- `/handoff` — session summary + STATUS.md update
+- `/ask-matt` — router: which skill or flow fits this situation
+- `/implement`, `/to-spec`, `/to-tickets`, `/triage`, `/wayfinder`,
+  `/grill-me`, `/grill-with-docs`, `/improve-codebase-architecture`,
+  `/teach`, `/ubiquitous-language`, `/writing-great-skills`
+
+### Agent skills — repo configuration
+
+**Read `docs/agents/flow.md` first** — the whole flow, the on-ramps, and how this repo
+deviates from it. Adopted 2026-07-10. One path, no parallel stores.
+
+- **Issue tracker** — GitHub Issues on `TinsuAI/data-hub`, via `gh`. PRs are not a request
+  surface. See `docs/agents/issue-tracker.md`.
+- **Triage labels** — the five canonical labels, unrenamed. See `docs/agents/triage-labels.md`.
+- **Domain docs** — `.ai/GLOSSARY.md` plays the role of `CONTEXT.md`; ADRs live in
+  `docs/adr/`. See `docs/agents/domain.md`.
+
+`.ai/BACKLOG.md` is frozen as a historical record: its open items moved to Issues, its
+shipped and deferred entries stay. Do not add work items to it. `.ai/DECISIONS.md` is
+likewise historical; new decisions become ADRs.
+
+### Review — `/code-review` is the default (changed 2026-07-10)
+
+`/rev` is **retired**. It stays on disk but nothing in this repo's workflow calls it.
+`/code-review` is what `/implement` closes with, so using it keeps one flow, not two.
+
+**Two axes, two parallel sub-agents, contexts isolated** so neither masks the other:
+
+- **Standards** — documented repo standards, plus a fixed baseline of 12 Fowler code
+  smells. A documented repo standard always overrides the baseline. Smells are labelled
+  judgement calls, never hard violations.
+- **Spec** — requirements the spec asked for that are missing, behaviour nobody asked for
+  (scope creep), and requirements implemented wrongly.
+
+Findings are never merged or reranked across the two axes. That separation is the point.
+
+**Know what it does not do.** Neither axis hunts bugs, security holes, missing error
+handling at I/O boundaries, or breaking public-interface changes. `/rev` used to. For a
+change that touches auth, migrations, or the `/v1/hub` surface, run the harness's
+`/security-review` as a separate pass; `/code-review` will not catch those.
+
+**It needs two inputs.** A fixed point (`main`, a SHA, a tag) for `git diff <point>...HEAD`,
+and a spec. The Spec axis finds the spec from issue references in the commit messages, via
+`docs/agents/issue-tracker.md`. **So commit messages must reference their issue** —
+`Closes #31`, `Refs #33`. Without that reference the Spec axis has nothing to compare
+against and skips.
+
+`/setup-matt-pocock-skills` has effectively been run by hand. Do not run it again; it would
+add a duplicate `## Agent skills` block.
 
 No project-local skills needed currently. If the project develops Data-Hub-specific workflows that warrant custom skills, add via `ai-skill add` to `.claude/skills/`.
 
