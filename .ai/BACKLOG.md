@@ -572,6 +572,12 @@ kỹ + viết parity test trước khi gỡ fold (rủi ro SAI TỒN). AUDIT/HAR
 ## Bảng kê — Xuất xứ NVL
 
 ### XX1 — Input NVL CÓ xuất xứ (phụ lục X) → nhánh "có xuất xứ" của bảng kê (ảnh hưởng LVC/RVC)
+**Status: DESIGNED 2026-07-10/11 (grill, 12 ADRs) — chưa build.** Thiết kế đã chốt khác điểm 1/3 dưới:
+per-ROW resolver (`origin_country`→VN AND supplier flag), KHÔNG per-lot input tay; evidence store
+CO-side `co_supplier_evidence_events` (không cần DH API request — dữ liệu đã đủ qua BCCT);
+Growatt seed = 2 NCC (Mingjie/Minghui VN), Johnson = 0. Xem DECISIONS.md 2026-07-10/11 +
+knowledge `2026-07-10-vn-origin-supplier-data-facts.md` (addendum 2026-07-11). Ticket order trong
+session `2026-07-11-vn-origin-grill-part2-close.md`.
 **REPORTED 2026-06-14 (user).** Hiện **đa số NVL = không xuất xứ** (mặc định bảo thủ
 `origin_status='non_origin'`, source `default_conservative`). Nhưng có **lô nhập khẩu CÓ xuất xứ**
 (kèm **phụ lục X** làm chứng từ). Cần:
@@ -624,3 +630,13 @@ vì form không có cột dòng riêng. Vùng: `bang_ke_renderer.py` (`import_de
 config `config/bang-ke-forms/*.json` (cân nhắc field `import_ref_format: number|number_line`); cũng cân nhắc
 dấu nối nhiều TK/dòng (template gốc dùng `;`, renderer hiện dùng `, `). Cột L (Ngày) đã wire sẵn (auto từ
 `registration_date` lô). Added: 2026-06-18.
+
+## CO Forms
+
+### FX1 — Form X (VCCI non-preferential) thiếu trong `app/co_forms.py`
+**FOUND 2026-07-11 (trừ-lùi workbook scan).** Workbook agency có sheet `FORM X` — template C/O
+không ưu đãi thứ hai của VCCI (bên cạnh `FORM B`), đã dùng thật (consignor CAIXIANG → RONGBAOYU,
+reference number 51400641). `app/co_forms.py` chỉ model B/AI/CPTPP/EUR.1 → parity gap nhỏ.
+Forms config đã extensible qua `load_co_form_config` (`/settings/co-forms` UI) nên có thể thêm
+qua config trước, `FORM_REFERENCES` built-in sau. KHÔNG liên quan cumulation; phase-2 in-bloc
+đã defer-until-demand (DECISIONS.md 2026-07-11). Added: 2026-07-11.

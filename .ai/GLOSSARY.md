@@ -69,3 +69,45 @@ opposite of unmatched: a stock code absent from the catalog gets an empty
 stock-sourced substitute's row from the **stock lot's** name/HS/value; the catalog
 join is enrichment (canonical name, origin_status), never a precondition for
 declarability.
+
+## Xuất xứ (three distinct things, one Vietnamese word)
+
+Verified against the promulgating forms of TT 05/2018 (Phụ lục VIII, RVC). Do not
+collapse these — they are three different columns answering three different questions.
+
+**nước xuất xứ** — Column (9) of the bảng kê. A **fact**: the country the material
+came from, taken from the import declaration (`origin` in `hub.bcct_rows` → CO's
+`origin_country`). Free text, not ISO (`VIETNAM`, `CHINA`, `UNKNOWN`, `HG.KONG`…).
+A non-member country is written as itself — writing "không có xuất xứ" here is wrong,
+because the qualification is expressed by columns (7)/(8), not by this cell.
+
+**trị giá có / không có xuất xứ FTA** — Columns (7)/(8), both **money**, under the
+merged header *Trị giá (USD)*. The **judgment**: whether the material qualifies as
+originating *for the FTA of the C/O being issued*. "FTA" is form-relative — a Korean
+input is originating for AK, not for D. `origin_status` in the code decides which
+column the value lands in. In Phụ lục VII (LVC) the same pair reads *Trong nước /
+Nước ngoài*.
+
+**tiêu chí xuất xứ** — the finished product's rule (WO / CTC / RVC / LVC), a property
+of the *product and form*, never of a material row. Rendered as *Tiêu chí áp dụng* in
+the bảng kê header, not a column.
+
+**Bản khai báo xuất xứ (Phụ lục X)** — The supplier's origin declaration; the client
+calls it "PL X". The **evidence** that lets a domestic material's value sit in column
+(7). Per NĐ 31/2018 Điều 15.1.g a VAT invoice alone is *not* origin proof (Điều 15.1.i
+makes the invoice a cross-check document). The form is keyed to **one VAT invoice**
+(fields: nhà sản xuất, mã số doanh nghiệp, số lượng, trị giá FOB, *hóa đơn GTGT*), carries
+a **ngày but no số**, and its body certifies the goods were *produced at the signer's own
+factory in Vietnam* and meet a named criterion. Its *Ghi chú* excludes **Form D**.
+Referenced by bảng kê columns (12)/(13) — alongside *C/O ưu đãi nhập khẩu*, which is the
+same slot's evidence for an imported originating input.
+
+**tồn CO** — "inventory for C/O purposes", NOT "C/O documents on hand". The agency's
+`BẢNG THEO DÕI TỒN CO.xlsx` (verified 2026-07-11) is a material-level import inventory:
+one row per import-declaration line item with `Đã xuất`/`Tồn` draw-down columns — the
+feed for the trừ-lùi engine. The agency keeps **no register of incoming C/O documents**;
+do not read "tồn CO" as evidence tracking.
+
+**Form X** — a second **non-preferential** VCCI C/O template the agency produces from the
+trừ-lùi workbook (sheet `FORM X`, alongside `FORM B`). Not modeled in `app/co_forms.py`
+(BACKLOG FX1). Not an FTA form; irrelevant to cumulation.

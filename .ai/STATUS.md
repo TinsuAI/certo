@@ -1,6 +1,43 @@
 # Project Status
 
 ## Current State
+- **2026-07-11 — VN-ORIGIN GRILL PART 2: CLOSED (design only, NO code).** All part-1 leftovers
+  settled + phase 2 killed. **5 new ADRs** (`.ai/DECISIONS.md` 2026-07-11): (1) col-9 unknown label =
+  **free-text** client-config `bang_ke.unknown_origin_label`, default "Không xác định", unknown bucket
+  only; (2) flag flips always allowed, **ON→OFF = confirm + damage list** of locked sheets, append-only
+  log, no effective-dating; (3) evidence store = **CO-side Postgres `co_supplier_evidence_events`**
+  (fork-review re-affirmed CO over DH; boolean → **evidence record** with `evidence_kind`; `doc_no/doc_date`
+  DEFERRED by user; Tính snapshots `supplier_key` + col-12/13 text per row); (4) **dncx preset → +E13**
+  (growatt-vn on-spot = 83% E13; empty config = no filter, live configs untouched) + per-type counts on
+  config form; (5) **phase-2 in-bloc DEFERRED until demand** — trừ-lùi workbook scan: Form D/AK/E = 0 hits,
+  agency files **B, X, EUR.1, AI** only; `BẢNG THEO DÕI TỒN CO` = material inventory, NOT a C/O register;
+  3 constraints pinned (form-scoped resolution; consignment-grain evidence; ATIGA partial = number-only).
+  **Staff facts:** Growatt = 2 NCC Phụ lục X (**Mingjie VN + Minghui VN**, pure E15; beware distinct
+  `MINGJIE INDUSTRIAL (HK)`); **Johnson = 0 NCC** → all-VNM treatment is CORRECT for Johnson; day-one
+  beneficiary = Growatt only; no seed script (2 rows via UI). **Updated 7-ticket build order** in session
+  `2026-07-11-vn-origin-grill-part2-close.md`; BACKLOG **FX1** (Form X missing in `co_forms.py`) + XX1
+  marked DESIGNED. Next: build per ticket order, or the 2 standing non-grill action items (audit locked
+  SHORTAGE sheets; `missing_price` hole).
+- **2026-07-10/11 — VN-ORIGIN DESIGN GRILL (design only, NO code shipped).**
+  `/grill-with-docs` on how CO handles VN-origin (and later in-bloc) materials. Output = **7 ADRs**
+  (`.ai/DECISIONS.md`, 2026-07-10/11), 2 knowledge files, glossary, corrected memory. Full handoff:
+  `.ai/sessions/2026-07-11-vn-origin-design-grill.md`. **Key finding:** VN-origin materials already sit
+  in `hub.bcct_rows` as on-spot imports (E15/E13, `origin='VIETNAM'`, NCC in `consignee_name`) — Johnson
+  6,272 rows / 1,252 codes / 64 NCC — but CO never lets `origin` touch `origin_status`, so they're all in
+  VNM and RVC is understated. **No Data Hub change needed.** Rule decided: originating iff
+  `origin_country`→VN **AND** supplier flagged for Phụ lục X (24/64 NCC sell mixed-origin, so the flag
+  alone must not flip a row). **Decisions:** row grain = BOM line (CO already matches agency); split rows
+  when a BOM line's lots differ in origin (render fan-out, key `(material_sequence, origin_status,
+  column9_text)`); **shortage blocks issuance** (three-belt, ship independently — legal urgency);
+  col (9) content = client-default+per-case mode (country|qualification_label) materialized at Tính;
+  override key = `material_sequence` made version-aware (no UUID). **Prerequisite tickets (ordered):**
+  (1) plumb `origin_country`+`consignee_name` into sheet material at Tính (col 9 blank in prod today);
+  (2) re-key overrides to `material_sequence`; (3) shortage guard; (4) col-9 mode + `app/origin_country.py`;
+  (5) per-row VN resolver. **Non-grill action items (don't drop):** audit already-locked SHORTAGE sheets
+  in prod (claims written — legal exposure); resolve `missing_price` one-belt hole (leaks via save-route);
+  `dncx` preset E11/E15 drops 13/38 E13-only VN suppliers. **Still open (deferrable):** supplier-flag
+  curation UI + NCC name normalization; phase-2 in-bloc cumulation (Form D/AK not in `co_forms.py`).
+  **NO git change this session** — `.ai/` docs only.
 - **2026-07-10 — PROD BUG: CO session chết mỗi ~10 phút → FIXED (2 tầng) + MERGED + DEPLOYED.**
   User report (Johnson VN): "Tìm NVL thay thế" **mất kết nối mỗi ~10 phút**, `TypeError: Failed to fetch`,
   **mất sạch việc thay-NVL client-side** (phải làm lại từ đầu). **Root cause:** phiên CO = DH access token
