@@ -28,6 +28,35 @@ to `origin/main`.
 - Full suite green: **1603 passed, 16 skipped**. Dev server running on :8754
   (`--workers 4`, no reload).
 
+## Tracker moved to GitHub Issues (2026-07-10)
+
+`.ai/BACKLOG.md` is **frozen**. Its 17 open items became issues #14-#35 on
+`TinsuAI/data-hub`; shipped and deferred entries stay in the file as history.
+New decisions go to `docs/adr/` (ADR-0001, ADR-0002 written); `.ai/DECISIONS.md`
+is likewise historical. Skill config lives in `docs/agents/`. One ticket store,
+no parallel paths — see `AGENTS.md` → "Agent skills — repo configuration".
+
+## In flight — catalog discovery redesign (no code yet)
+
+Second session on 2026-07-10 reviewed the whole catalog flow and produced
+`.ai/features/2026-07-10-catalog-candidates-merge/brief.md` (revised after a
+`critic` pass). Session log:
+`.ai/sessions/2026-07-10-catalog-flow-review.md`. **Nothing committed.**
+
+- **Plan:** replace `hub.catalog_candidates` (+ its 739-line store) with a
+  computed discovery view; reject becomes a suppression table; accept stays a
+  row in `materials`. Persist the BCCT paren extraction as `hub.bcct_nb_codes`.
+  Add a bulk-approval UI — per-item review has never once been used.
+- **Bugs found, none fixed:** `derive_from_bcct` creates a junk material named
+  `.` per client (fixed-asset lines); 210 forklift/rack part numbers sit in the
+  approval queue; `refresh_candidates()` costs 2.2s inside a `GET` handler;
+  `/v1/hub/materials` would serve a tombstoned material to CO.
+- **Blocking Phase 0:** where the per-client `customs_code` placeholder config
+  lives. **Phase 1** (default `status='active'` on the two `/v1/hub/materials`
+  routes + regression test) has no open questions and is a no-op on current data.
+- **Sister apps:** CO needs no change if Phase 1 lands before the rest. BCQT does
+  not read the `hub` schema at all (verified: 0 refs, no Postgres driver).
+
 ## Recent Changes
 
 - `c4a70b3` Merge PR #13 (feat/sso-refresh-tokens).
