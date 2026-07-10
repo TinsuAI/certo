@@ -170,7 +170,13 @@
 
 ## Next Steps (priority order)
 00. **(NEW 2026-07-11) Build VN-origin feature theo 7-ticket order** trong
-   `.ai/sessions/2026-07-11-vn-origin-grill-part2-close.md` — design đã chốt 12 ADR, KHÔNG cần grill thêm:
+   `.ai/sessions/2026-07-11-vn-origin-grill-part2-close.md` — design đã chốt 12 ADR, KHÔNG cần grill thêm.
+   **Spec (ready-for-agent): `.ai/features/2026-07-11-vn-origin-materials/spec.md`** — tổng hợp 12 ADR
+   + seam test đã duyệt (Tính recompute + route + pure-fn). **Tickets = GitHub Issues TinsuAI/co
+   #6–#13 (tracker of record từ 2026-07-11**, label `ready-for-agent`; archive copies
+   `.ai/features/2026-07-11-vn-origin-materials/issues/`; col-9 tách 2 vé: #9 materialization +
+   #10 flip lifecycle; frontier khởi đầu = #6, #7, #8, #13). Convention mới:
+   `docs/agents/issue-tracker.md` — implementation issues lên GitHub, specs vẫn `.ai/`:
    (1) plumb `origin_country`+`consignee_name`+`supplier_key` vào sheet material tại Tính; (2) re-key
    overrides → `material_sequence` version-aware; (3) shortage three-belt guard (độc lập, legal urgency);
    (4) col-9 mode + `app/origin_country.py` + `bang_ke.unknown_origin_label`; (5) `co_supplier_evidence_events`
