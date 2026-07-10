@@ -108,14 +108,16 @@ triggers prod CD. `/setup-matt-pocock-skills` was already run for this repo (see
 
 ### Issue tracker
 
-Local markdown in `.ai/` — feature specs/PRDs under `.ai/features/`, durable backlog in
-`.ai/BACKLOG.md`, Data Hub API requests under `.ai/api-requests/`. No `gh`/`glab`. See
-`docs/agents/issue-tracker.md`.
+Implementation issues/tickets on **GitHub Issues (`TinsuAI/co`, via `gh`)** since
+2026-07-11 — publish in dependency order, triage via labels. Feature specs/PRDs stay
+under `.ai/features/`, durable backlog in `.ai/BACKLOG.md`, Data Hub API requests under
+`.ai/api-requests/`. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Five canonical roles recorded as a `Status:` line in each item; default role names. See
-`docs/agents/triage-labels.md`.
+Five canonical roles as GitHub labels on `TinsuAI/co` (`needs-triage`, `needs-info`,
+`ready-for-agent`, `ready-for-human`, `wontfix`); local `.ai/` files may mirror the role
+as a `Status:` line, GitHub wins. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
