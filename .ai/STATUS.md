@@ -1,43 +1,32 @@
 # Project Status
 
-**Date:** 2026-07-11 — Session re-verified the catalog plan before building:
-the claims behind #30/#31 were checked against code + DB (all held), a critic
-pass and a full design review ran over the six-phase catalog redesign
-(verdict: **keep the plan, amend #31/#34, don't restructure**), the amendments
-were applied to the issues, #37 was filed, and the phase order was settled as
-**1 → 0 → 2 → 3 → 4 → 5**. No product code changed. On `main`, pushed through
-`152b432`; prod verified serving it after a deploy network incident (see
-Current State).
+**Date:** 2026-07-11 (late session) — **Issue #31 shipped**: alive-only default
+status filter on both `/v1/hub/materials` routes (PR #38, merge `cf8ed14`),
+plus a CI fix (PR #40, merge `d3ad200`): LibreOffice debs cached +
+fail-fast timeouts after two 18-min apt-mirror stalls. Both deployed and
+verified on prod. Session log:
+`.ai/sessions/2026-07-11-issue-31-and-ci-libreoffice-cache.md`.
 
 ## Current State
 
-- **Prod healthy — verified 2026-07-11 at session end.**
-  `ttdatahub.tinsu.ai/version` → version `0.20.0`, git_sha `152b432` (docs-only
-  pushes; code unchanged since `7ed5d8c`). `/healthz` → `200`, anon
-  `/v1/hub/dncxs` → `401`. Both deploys hit a ~30-min box-level network outage
-  (cloudflared QUIC dial timeouts → CF `530`/`1033` externally; self-hosted
-  runner died mid-job; apt hung). The origin container served throughout; the
-  tunnel self-recovered at 18:49Z and `gh run rerun --failed` landed the
-  deploy. Details: session log postscript. The session-closing docs commit
-  auto-deploys after session end (docs-only — glance at prod sha next
-  session). Tier-D box `tinsu`/100.84.189.87 (Docker). Verified live, not from
-  CI logs: `/v1/auth/refresh` → `401` on a bogus token (a 401 rather than a 500
-  proves the row lookup reached the DB), `400` on missing body; anon
-  `/v1/hub/dncxs` → `401`. Confirmed by `psql` on the host that migs `088`+`089`
-  are in `hub.schema_migrations` and both tables exist.
-- **Silent renewal shipped.** `POST /v1/auth/exchange` also returns an opaque
-  `refresh_token`; new `POST /v1/auth/refresh` trades it for a fresh access
-  token with no bearer and no user interaction. Access token unchanged: EdDSA,
-  JWKS-verifiable, `expires_in: 600`.
-- **Refresh-token semantics** (`app/stores/sso_refresh.py`, mig 088): only
-  `sha256(token)` stored; rotating single-use; sliding 12h idle under a hard 7d
-  absolute ceiling, both capped by the bound SSO session (logout revokes);
-  replay past a 30s grace window revokes the whole family; scope never broadens
-  (live ACL ∩ grant frozen at login, RFC 6749 §6).
-- **One-time SSO codes are Postgres-backed** (`app/stores/sso_codes.py`,
-  mig 089). `_SSO_CODES` (the per-process dict) is gone.
-- Full suite green: **1603 passed, 16 skipped**. Dev server running on :8754
-  (`--workers 4`, no reload).
+- **Prod healthy — verified 2026-07-10 ~20:16Z.** `ttdatahub.tinsu.ai/version`
+  → version `0.20.0`, git_sha `d3ad200`; `/healthz` → 200; anon
+  `/v1/hub/dncxs` and `/v1/hub/materials` → 401. Tier-D box
+  `tinsu`/100.84.189.87 (Docker).
+- **#31 live:** `GET /v1/hub/materials` and get-by-code default to
+  `status not in ('tombstoned','inactive')` (shared `_status_filter_sql`,
+  `app/routes/api.py`); get-by-code has `?status=`; dead materials 404.
+  Responses byte-identical on today's data (all rows `active`) — CO/BCQT
+  unaffected. Docs: API_CONTRACT.md, API_CHANGELOG.md (2026-07-11 Additive),
+  CHANGELOG.md `[Unreleased]`.
+- **CI hardened (#39):** Test job caches ~90 MiB of LibreOffice debs
+  (`actions/cache`, key = apt candidate version of `libreoffice-calc`);
+  `timeout-minutes` 3/5 on the mirror-touching steps. Verified: hit path
+  installs offline in 15s; a main-scoped cache exists (branch-scoped PR
+  caches are invisible to main — main re-seeded once, expected).
+- Full suite green: **1608 passed, 16 skipped** (+5 from
+  `tests/test_materials_status_filter.py`).
+- Dev server on :8754 may need restarting next session (see Notes recipe).
 
 ## Tracker moved to GitHub Issues (2026-07-10)
 
@@ -47,141 +36,98 @@ New decisions go to `docs/adr/` (ADR-0001, ADR-0002 written); `.ai/DECISIONS.md`
 is likewise historical. Skill config lives in `docs/agents/`. One ticket store,
 no parallel paths — see `AGENTS.md` → "Agent skills — repo configuration".
 
-## Next up — catalog redesign, order settled **1 → 0 → 2 → 3 → 4 → 5** (2026-07-11)
+## Next up — catalog redesign, order **1 → 0 → 2 → 3 → 4 → 5**
 
-The 2026-07-11 session verified the plan's claims against code + DB (all held),
-ran a critic pass plus a full design review
-(`.ai/features/2026-07-10-catalog-candidates-merge/design-review-2026-07-11.md`),
-and applied every recommended amendment. Session log:
-`.ai/sessions/2026-07-11-catalog-plan-verification.md`. Still no product code
-changed — the phases are issues #30-#35, plus new #37.
+Phase 1 (#31) is **done** (this session). Remaining: **#30 → #32 → #33 →
+#34 → #35**; real blocking edges 3←0, 4←3, 5←3+4. Plan + rationale:
+`.ai/features/2026-07-10-catalog-candidates-merge/` (brief + design review).
 
-- **Start here: issue #31 (amended 2026-07-11)** — default `status not in
-  ('tombstoned','inactive')` on both `/v1/hub/materials` routes. **Not
-  `='active'`**: `status` is not the approval gate (approval = `source`
-  promotion + candidates queue), and active-only would break CO's product
-  roster and hide staff-accepted `under_review` rows until phase 4. The issue
-  now carries the positive test set, the `?status=` param for get-by-code, and
-  the `API_CONTRACT.md`/`API_CHANGELOG.md` duty. Branch first; `/implement`
-  commits to the current branch, and a push to `main` triggers the prod deploy.
-- **Then #30 → #32 → #33 → #34 → #35.** Real blocking edges: 3←0, 4←3, 5←3+4.
-  The brief's old "don't do 1 before 0" had no mechanism and was removed.
-- **#34 gained a preservation clause:** copy the 1,207 accept decisions'
-  `(decided_by, decided_at, decision_reason)` into `hub.bom_audit_events` (new
-  `event_type`) before dropping `catalog_candidates`; the drop migration must
-  enumerate every unreplayable column.
-- **#37 (new, ready-for-human):** `bcct_material_identity.py:120-133` serves
-  dead materials into CO's BCCT identity payload regardless of #31. Open
-  contract decision — hide them, or deliberately keep them for historical
-  resolution. User decides before anyone implements.
-- **Sister apps:** CO needs no change if #31 lands first (all 13,631 rows are
-  `active` today → responses byte-identical). BCQT does not read the `hub`
-  schema at all (verified: 0 refs, no Postgres driver).
+- **Start here: issue #30.** One open decision inside it: placeholder config
+  placement — the brief recommends `text[]` on `hub.clients`, consistent with
+  existing per-client config columns.
+- **#34 preservation clause:** copy the 1,207 accept decisions'
+  `(decided_by, decided_at, decision_reason)` into `hub.bom_audit_events`
+  before dropping `catalog_candidates`; the drop migration must enumerate
+  every unreplayable column.
+- **#37 (ready-for-human):** `bcct_material_identity.py:120-133` serves dead
+  materials into CO's BCCT identity payload regardless of #31. Hide vs keep —
+  **user decides** before anyone implements.
 
 ## Recent Changes
 
-- `b6ece39` docs(catalog): phase order settled + design review committed;
-  pushed 2026-07-11 (deploy in flight at handoff). Issues #31/#34 amended and
-  #37 filed on GitHub in the same session.
-- `bb26b70` docs(status) correction from 2026-07-10 — was committed but never
-  pushed; went out with the `b6ece39` push.
-- `c4a70b3` Merge PR #13 (feat/sso-refresh-tokens).
-- `e04718a` chore(release): 0.20.0 — also realigned `uv.lock` (see Notes).
-- `7cdede1` docs(auth): API_CONTRACT + API_CHANGELOG + sister-app note for CO.
-- `b944de0` fix(auth): one-time SSO codes → Postgres (mig 089). Measured:
-  `/exchange` failed **2/12** at `--workers 4` before, **24/24** after.
-- `0d8c126` feat(auth): refresh-token flow (mig 088) + `tests/test_sso_refresh.py`
-  (34) and later `tests/test_sso_codes.py` (8).
-- Session log: `.ai/sessions/2026-07-10-sso-refresh-tokens.md`.
+- `d3ad200` Merge PR #40 — `ci: cache LibreOffice debs, fail-fast timeouts`
+  (`041d991`, Closes #39). Root cause: `azure.archive.ubuntu.com` throttled
+  to ~40 KB/s; two 18-min Test stalls on 2026-07-10 (runs 29114048212,
+  29118166424 — the latter was #38's own deploy run, cancelled + rerun).
+- `cf8ed14` Merge PR #38 — `feat(api): alive-only default status filter on
+  /v1/hub/materials` (`708e4bf`, Closes #31). `/code-review` ran both axes:
+  Spec 0 findings; Standards 0 hard, 4 judgement calls, 2 applied.
+- Previous session (2026-07-11 early): catalog plan verified, #31/#34
+  amended, #37 filed, phase order settled — see
+  `.ai/sessions/2026-07-11-catalog-plan-verification.md`.
 
 ## Next Steps
 
-1. **`/implement` amended #31** — fresh session, **branch first**, commit
-   `Closes #31`. The issue text is the spec; the design review holds the
-   rationale.
+1. **`/implement` #30** (catalog phase 0) — branch first, commit `Closes #30`.
+   Decide placeholder-config placement (brief recommends `text[]` on
+   `hub.clients`) at the start.
 2. **Decide #37** — dead materials in the BCCT identity payload: hide (apply
    #31's predicate) or keep deliberately (document in API_CONTRACT). User call.
-3. **CO integration is unbuilt.** DH's side is done and documented in
-   `.ai/sister-app-notes/2026-07-10-sso-refresh-tokens-available.md`. CO stores
-   the refresh token httponly (separate from its access-token cookie), adds its
-   own `/auth/refresh` route + a keep-alive timer at **~T-120s** (600s TTL, 60s
-   verify leeway), serializes refreshes, retries the guarded call once on `401`.
+3. **CO integration is unbuilt** for refresh tokens. DH side done + documented
+   in `.ai/sister-app-notes/2026-07-10-sso-refresh-tokens-available.md`.
    CO is `~/workspace/client/barry-CO-main` — audit-only from this repo.
-4. **`v0.19.0` tag is absent.** `589bdae` is the release commit but was never
-   tagged; sequence is `v0.15.0 … v0.18.0, v0.20.0`. Tag it if contiguous
-   history matters.
-5. **Postgres collation-version mismatch on the prod host** — DB created with
-   collation 2.41, OS provides 2.36. Silently corrupts text-column index
-   ordering. Needs `REINDEX` + `ALTER DATABASE data_hub REFRESH COLLATION
-   VERSION` in a maintenance window. Data-integrity investigation, not a quick
-   reindex. **Unrelated to this session's change.**
-6. **Answer CO's open question** (PR #11, still open): do dossiers ever contain
-   embedded raster scans (operator-uploaded scanned PDFs via `file_kind=pdf`)?
-   If never, `compact` lossless is final; if yes, add an image-downsample profile.
-7. **`docs/agency-staff-guide` branch still unpushed/unmerged** (commit
-   `d5ae3ab`) — holds a 385-line Vietnamese guide that exists nowhere else.
-   Decide: open a PR or leave it. Carried over from 2026-06-19.
-8. **`feat/sso-refresh-tokens` branch** exists locally and on origin; safe to
-   delete.
+4. **Branch cleanup:** `feat/materials-alive-only-filter`,
+   `ci/cache-libreoffice-debs`, `feat/sso-refresh-tokens` are merged/stale —
+   safe to delete local+origin. `docs/agency-staff-guide` (`d5ae3ab`) still
+   holds a 385-line VN guide that exists nowhere else — decide PR or drop.
+5. **`v0.19.0` tag is absent** (`589bdae` never tagged); sequence jumps
+   v0.18.0 → v0.20.0. Tag it if contiguous history matters.
+6. **Postgres collation-version mismatch on prod** (DB 2.41 vs OS 2.36) —
+   needs `REINDEX` + `ALTER DATABASE ... REFRESH COLLATION VERSION` in a
+   maintenance window. Data-integrity investigation, not a quick reindex.
+7. **Next release cut (0.21.0)** sweeps CHANGELOG `[Unreleased]` (#31 entry)
+   and bumps pyproject + uv.lock together.
 
 ## Notes for Next AI Session
 
 - **Read this file and the last 2-3 session summaries BEFORE touching
-  anything.** Last session skipped that and re-learned two traps below the hard
-  way (the `pkill` one and the `pull.rebase` one), both already documented here.
-- **Auth surfaces are split: `/v1/auth` is public, `/v1/hub` is guarded.** The
-  `api_auth_strict` dependency lives on the `/v1/hub` router (`app/routes/api.py`),
-  so `/v1/auth/refresh` correctly needs no bearer even with strict on in prod.
-  Don't retrofit the guard onto `/v1/auth`.
+  anything.**
+- **Auth surfaces are split: `/v1/auth` is public, `/v1/hub` is guarded.**
+  The `api_auth_strict` dependency lives on the `/v1/hub` router
+  (`app/routes/api.py`). Don't retrofit the guard onto `/v1/auth`.
 - **Never widen refresh scope.** A refreshed access token returns the live ACL
-  *intersected* with the grant frozen at login. If CO asks for grants to land
-  without a re-login, that is a deliberate contract change — not a bug.
-- **Single-use consume pattern.** Both `sso_codes.consume()` and
-  `sso_refresh.rotate()` rely on `UPDATE ... WHERE used_at IS NULL ... RETURNING`
-  inside one transaction for exactly-one-winner semantics, and on raising to
-  roll back when a later check fails (403, redirect_uri mismatch). Adding a
-  write *after* the raise path will silently lose it — that bug was hit and
-  fixed once already (`_ReplayDetected` → `_revoke_family_tx`).
-- **Don't trust a green concurrency test.** It passes when the requests never
-  overlap. Mutation-test the guard (delete `and used_at is null`, confirm the
-  test goes red) and race it over real HTTP across workers.
-- **Error responses are centralized — don't add per-route error pages or manual
-  `/login` bounces.** Raise the right `HTTPException` status and let the central
-  handler in `app/main.py` render it. New JSON surface → put it under `/v1/` or
-  `/api/v1/`. New human message → translate in `i18n.ROUTE_DETAIL_VI(_PREFIX)`,
-  not inline at the raise site. Test guard: `tests/test_error_pages.py`. Memory:
-  `project_central_error_handlers`.
-- **Restarting the dev server: kill the MASTER first, then the orphaned
-  workers.** `--workers 4` spawns workers whose cmdline is
-  `python -c "from multiprocessing.spawn import spawn_main..."` — `pkill -f
-  "uvicorn ... port 8754"` only hits the master, leaving orphan workers (PPID
-  reparented to init) that keep holding :8754 and serving STALE code. Recipe:
-  `pkill -9 -f "uvicorn app.main:app ... --port 8754"` → then `kill -9 $(fuser
-  8754/tcp)` for the orphans → confirm `fuser 8754/tcp` empty before relaunch.
-  **In this harness a bare `pkill -f 'uvicorn app.main:app'` also kills the
-  calling shell (exit 144).** Don't touch :8001 (CO dev) / :8014.
-- **Background dev-server launch:** run uvicorn as a `run_in_background` Bash
-  task with `exec uv run uvicorn ...` (no `&`/`nohup`); the harness keeps it
-  alive across turns. `nohup ... &` inside a backgrounded task gets killed with
-  the task's process group.
-- **Real-data E2E auth on dev:** the dev DB admin password is **not** `.env`'s
-  `DATA_HUB_SEED_PASSWORD` — running the suite makes `tests/conftest.py` reset it
-  to the test-canonical value. Either use that, or `auth.create_session(user_id)`
-  + cookie, or a service token. `api_auth_strict=false` on dev but Bearer
-  `/v1/hub` still 401s without a token.
-- **Merge auto-deploys to prod:** the CI/CD `Deploy to tinsu` job runs on every
-  push to `main` (and `workflow_dispatch`), so merging a PR ships to
-  `ttdatahub.tinsu.ai` (incl. a prod smoke through Cloudflare) and applies
-  pending migrations at container boot. Update CHANGELOG before merging; bump
-  `API_CHANGELOG.md` if the sister-app API surface changed.
-- **After `gh pr merge`: `git fetch` then `git merge --ff-only origin/main`** —
-  the repo has `pull.rebase=true`, so `git pull --ff-only` errors with "cannot
-  pull with rebase" when the tree has unstaged changes. `git merge --ff-only`
-  preserves them.
-- **`uv.lock` drift is FIXED** (supersedes the old note here). It had declared
-  `data-hub 0.13.1` while `pyproject` moved through `0.19.0`; the `0.20.0`
-  release regenerated it — one line, no dependency resolution changed. Releases
-  may now bump `pyproject.toml` + `CHANGELOG.md` + `uv.lock` together.
+  *intersected* with the grant frozen at login.
+- **Single-use consume pattern** (`sso_codes.consume()`, `sso_refresh.rotate()`):
+  `UPDATE ... WHERE used_at IS NULL ... RETURNING` in one transaction; raising
+  rolls back. Never add a write after the raise path.
+- **Error responses are centralized** — raise the right `HTTPException`, let
+  `app/main.py` handlers render; translate human messages in
+  `i18n.ROUTE_DETAIL_VI(_PREFIX)`. Guard: `tests/test_error_pages.py`.
+- **Restarting the dev server: kill the MASTER first, then orphaned workers.**
+  `pkill -9 -f "uvicorn app.main:app ... --port 8754"` → `kill -9 $(fuser
+  8754/tcp)` → confirm empty before relaunch. **A bare `pkill -f 'uvicorn
+  app.main:app'` also kills the calling shell (exit 144).** Don't touch :8001
+  (CO dev) / :8014.
+- **Background dev-server launch:** `run_in_background` Bash with
+  `exec uv run uvicorn ...` (no `&`/`nohup`).
+- **Real-data E2E auth on dev:** dev DB admin password is NOT `.env`'s
+  `DATA_HUB_SEED_PASSWORD` after running the suite (conftest resets it).
+- **Merge auto-deploys to prod:** every push to `main` runs `Deploy to tinsu`
+  (incl. prod smoke through Cloudflare). Update CHANGELOG before merging;
+  bump `API_CHANGELOG.md` if the sister-app surface changed.
+- **After `gh pr merge`: `git fetch` then `git merge --ff-only origin/main`**
+  (`pull.rebase=true` breaks `git pull --ff-only` on a dirty tree).
+- **CI cache scoping:** PR-branch caches are invisible to `main`; main-scoped
+  caches are visible everywhere. A "Cache not found" on main right after a PR
+  seeded one is expected once. Key rotates on LibreOffice point releases
+  (bump = one ~20s re-seed).
+- **`gh run list --jq` does not accept jq `--arg`** (gh parses it as its own
+  flag). Filter by `--commit <sha>` instead. Partial logs of an in-progress
+  job 404; use the steps API for live hang diagnosis.
+- **Diagnosing a "slow deploy": check which JOB and STEP first** (steps API
+  shows live `started_at`). CD leg on the box is 74-100s when healthy; the
+  two known stall modes are the apt mirror (now cached away) and the
+  self-hosted runner dying with the box network.
 - **Pre-existing dirty tree is NOT from recent sessions — leave alone:** `M`
   `.ai/BACKLOG.md`; many untracked `.ai/sessions/*`, `docs/training/*`,
   `scripts/*`.
