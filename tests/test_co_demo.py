@@ -134,6 +134,8 @@ def bcct_workbook(rows: list[dict]) -> bytes:
         "customs_value",
         "currency",
         "invoice_ref",
+        "xuat_xu",
+        "ten_doi_tac",
     ])
     for row in rows:
         worksheet.append([
@@ -152,6 +154,8 @@ def bcct_workbook(rows: list[dict]) -> bytes:
             row.get("customs_value", ""),
             row.get("currency", ""),
             row.get("invoice_ref", ""),
+            row.get("origin_country", ""),
+            row.get("partner_name", ""),
         ])
     return workbook_bytes(workbook)
 
@@ -5743,6 +5747,8 @@ def test_co_case_origin_round_trips_multi_lot_allocation_to_export_workbook():
                         "unit": "PCE",
                         "customs_value": "10",
                         "currency": "VND",
+                        "origin_country": "VIETNAM",
+                        "partner_name": "CONG TY TNHH MINGJIE VIET NAM",
                     },
                     {
                         "direction": "import",
@@ -5756,6 +5762,8 @@ def test_co_case_origin_round_trips_multi_lot_allocation_to_export_workbook():
                         "unit": "PCE",
                         "customs_value": "40",
                         "currency": "VND",
+                        "origin_country": "CHINA",
+                        "partner_name": "MINGJIE INDUSTRIAL (HK) LIMITED",
                     },
                     {
                         "direction": "import",
@@ -5829,6 +5837,15 @@ def test_co_case_origin_round_trips_multi_lot_allocation_to_export_workbook():
     assert form_data["product_0_material_0_material_sequence"] == "1"
     assert form_data["product_0_material_0_allocation_0_import_declaration_no"] == "NK-ALLOC-1"
     assert form_data["product_0_material_0_allocation_1_import_declaration_no"] == "NK-ALLOC-2"
+    # Lot origin fields plumbed at Tính (VN-origin ticket #6): each allocation line
+    # carries its lot's country + supplier; the material folds ALL distinct values.
+    assert form_data["product_0_material_0_allocation_0_origin_country"] == "VIETNAM"
+    assert form_data["product_0_material_0_allocation_1_origin_country"] == "CHINA"
+    assert form_data["product_0_material_0_allocation_0_consignee_name"] == "CONG TY TNHH MINGJIE VIET NAM"
+    assert form_data["product_0_material_0_origin_country"] == "VIETNAM, CHINA"
+    assert form_data["product_0_material_0_consignee_name"] == "CONG TY TNHH MINGJIE VIET NAM, MINGJIE INDUSTRIAL (HK) LIMITED"
+    assert form_data["product_0_material_0_supplier_key"] == "CONG TY TNHH MINGJIE VIET NAM, MINGJIE INDUSTRIAL (HK) LIMITED"
+    assert 'origin-country-text' in origin.text
     assert form_data["product_0_material_0_allocation_0_product_sequence"] == "1"
     assert form_data["product_0_material_0_allocation_0_opening_qty"] == "1"
     assert form_data["product_0_material_0_allocation_0_allocated_qty"] == "1"

@@ -4130,6 +4130,13 @@ button.co-stat:hover {
   max-width: 100%;
 }
 
+.origin-country-text {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--foreground-muted);
+  font-size: 0.68rem;
+}
+
 .source-status-badge {
   flex: 0 0 auto;
   min-height: 1.45rem;

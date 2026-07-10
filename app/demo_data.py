@@ -673,6 +673,9 @@ def case_from_form(form: dict[str, str]) -> dict:
                 "internal_material_code": form.get(material_prefix + "internal_material_code", ""),
                 "material_description": form.get(material_prefix + "material_description", ""),
                 "hs_code": form.get(material_prefix + "hs_code", ""),
+                "origin_country": form.get(material_prefix + "origin_country", ""),
+                "consignee_name": form.get(material_prefix + "consignee_name", ""),
+                "supplier_key": form.get(material_prefix + "supplier_key", ""),
                 "origin_status": form.get(material_prefix + "origin_status", "non_origin"),
                 "origin_status_label": form.get(material_prefix + "origin_status_label", ""),
                 "origin_status_source": form.get(material_prefix + "origin_status_source", ""),
@@ -727,6 +730,9 @@ def case_from_form(form: dict[str, str]) -> dict:
                         "valuation_source_label": form.get(allocation_prefix + "valuation_source_label", ""),
                         "material_description": form.get(allocation_prefix + "material_description", ""),
                         "hs_code": form.get(allocation_prefix + "hs_code", ""),
+                        "origin_country": form.get(allocation_prefix + "origin_country", ""),
+                        "consignee_name": form.get(allocation_prefix + "consignee_name", ""),
+                        "supplier_key": form.get(allocation_prefix + "supplier_key", ""),
                     }
                 )
             product["materials"].append(material)

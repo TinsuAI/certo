@@ -21,6 +21,7 @@ from app.demo_data import DEMO_CASE, SOURCE_NOTES, attach_results, clone_case
 from app.origin import evaluate_tariff_shift
 from app.portfolio import portfolio_service
 from app.source_store import co_stock_rows_from_bcct
+from app.supplier_identity import supplier_key
 from app.web.client_context import case_finished_hs_codes, client_case, resolve_client
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -2201,6 +2202,9 @@ def origin_material_structure_only(
         "material_description": material_description,
         "material_name_missing": not bool(material_description),
         "hs_code": hs_code,
+        "origin_country": "",
+        "consignee_name": "",
+        "supplier_key": "",
         "origin_status": origin_details["status"],
         "origin_status_label": origin_details["label"],
         "origin_status_source": origin_details["source"],
@@ -2402,6 +2406,13 @@ def origin_material_from_bom_row(
     # The customs item code (mã HQ) of the matched lots — the bảng kê / HQ export
     # must show this, NOT the internal allocation/BOM code (which is lookup-only).
     allocation_customs_codes = unique_texts(line.get("customs_material_code", "") for line in allocation_lines)
+    # Lot origin/supplier folded to the material for bảng kê cột (9) + supplier
+    # evidence. Distinct values are ALL kept ("VIETNAM, CHINA") — a mixed-origin
+    # line must never silently show only one country; the split machinery later
+    # renders them as separate rows. No stock[0] fallback: only consumed lots count.
+    allocation_origin_countries = unique_texts(line.get("origin_country", "") for line in allocation_lines)
+    allocation_consignee_names = unique_texts(line.get("consignee_name", "") for line in allocation_lines)
+    allocation_supplier_keys = unique_texts(line.get("supplier_key", "") for line in allocation_lines)
     available_qty = allocation_available_qty(allocation_lines, stock_candidates)
     currency = allocation_currency_summary(allocation_lines)
     if not currency:
@@ -2424,6 +2435,9 @@ def origin_material_from_bom_row(
         "material_description": material_description,
         "material_name_missing": not bool(material_description),
         "hs_code": hs_code,
+        "origin_country": ", ".join(allocation_origin_countries),
+        "consignee_name": ", ".join(allocation_consignee_names),
+        "supplier_key": ", ".join(allocation_supplier_keys),
         "origin_status": origin_status,
         "origin_status_label": origin_details["label"],
         "origin_status_source": origin_details["source"],
@@ -2558,6 +2572,9 @@ def stock_allocation_line(
         "valuation_source_label": valuation_source_label(unit_value_source),
         "material_description": stock.get("material_description", ""),
         "hs_code": stock.get("hs_code", ""),
+        "origin_country": stock.get("origin_country", ""),
+        "consignee_name": stock.get("consignee_name", ""),
+        "supplier_key": supplier_key(stock.get("consignee_name", "")),
     }
 def _allocation_line_fx(stock: dict) -> tuple[Decimal | None, str]:
     """Return (rate, source) parsed from a co_stock row's FX payload fields.
