@@ -169,6 +169,15 @@
   via 5 parallel agents) — **NOT pushed yet**. See session `2026-06-19-backlog-status-reconciliation.md`.
 
 ## Next Steps (priority order)
+00. **(NEW 2026-07-11) Build VN-origin feature theo 7-ticket order** trong
+   `.ai/sessions/2026-07-11-vn-origin-grill-part2-close.md` — design đã chốt 12 ADR, KHÔNG cần grill thêm:
+   (1) plumb `origin_country`+`consignee_name`+`supplier_key` vào sheet material tại Tính; (2) re-key
+   overrides → `material_sequence` version-aware; (3) shortage three-belt guard (độc lập, legal urgency);
+   (4) col-9 mode + `app/origin_country.py` + `bang_ke.unknown_origin_label`; (5) `co_supplier_evidence_events`
+   migration + curation screen + flip flow; (6) per-row VN resolver; (7) dncx preset +E13 + per-type counts
+   (nhỏ, độc lập). Đồng thời 2 action items đứng riêng: audit locked SHORTAGE sheets prod; vá `missing_price`
+   one-belt hole. Growatt seed = flag 2 NCC qua UI (Mingjie VN + Minghui VN — check spelling `consignee_name`
+   lúc build); Johnson = 0 flag.
 0. **(REVIEWED 2026-07-08 PM2) Batch-flow cho NHIỀU hồ sơ / cùng 1 công ty — xong review + fix D.**
    Kết luận: chốt cứng + đường Tính/batch đều net claims cross-dossier ĐÚNG; `/substitute-stock` báo
    gross → **đã vá (D)** overlay `apply_used_qty`. Còn **F** (cold-start overclaim-guard bị bỏ) → BACKLOG
