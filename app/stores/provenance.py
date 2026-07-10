@@ -19,6 +19,20 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from app.parsers.catalog_candidates import _is_missing_hq
+
+
+def customs_code_placeholders(cur, *, client_id: str) -> tuple[str, ...]:
+    """The client's customs_code placeholder strings (mig 090). A BCCT line
+    whose customs_code equals one of them has no HQ code — Growatt/Johnson
+    write '.' on fixed-asset lines (E13 forklifts, racks)."""
+    cur.execute(
+        "select customs_code_placeholders from hub.clients where client_id = %s",
+        (client_id,),
+    )
+    row = cur.fetchone()
+    return tuple(row[0] or ()) if row else ()
+
 
 _DERIVE_FROM_BCCT_SQL = """
     -- Auto-derive catalog rows from BCCT observations. UoM picked per code
@@ -86,9 +100,16 @@ def derive_from_bcct(cur, *, client_id: str, customs_codes: Iterable[str]) -> in
     in the catalog UI later. New rows get `source='bcct_observed'`,
     `status='active'`. Observation stats come from `v_material_roles` view.
 
+    Placeholder codes (customs_code_placeholders on the client) are
+    skipped — those lines have no HQ code and must not become materials.
+
     Returns the number of distinct customs_codes processed (for logging).
     """
-    codes = [c.strip() for c in customs_codes if c and isinstance(c, str) and c.strip()]
+    placeholders = customs_code_placeholders(cur, client_id=client_id)
+    codes = [
+        c.strip() for c in customs_codes
+        if c and isinstance(c, str) and not _is_missing_hq(c, placeholders)
+    ]
     if not codes:
         return 0
     cur.execute(_DERIVE_FROM_BCCT_SQL, (client_id, codes, client_id, client_id, codes))

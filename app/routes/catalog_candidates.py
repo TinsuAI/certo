@@ -310,15 +310,18 @@ def _co_occurring_codes(client_id: str, candidate: dict) -> list[dict]:
             from app.parsers.client_parser_rules import (
                 load_rules, extract_all_matches_from_compiled,
             )
+            from app.parsers.catalog_candidates import _is_missing_hq
+            from app.stores.provenance import customs_code_placeholders
             rules = load_rules(client_id=client_id, output_field="internal_code")
             if rules:
+                placeholders = customs_code_placeholders(cur, client_id=client_id)
                 cur.execute(
                     "select customs_code, goods_name from hub.bcct_rows "
                     "where client_id=%s",
                     (client_id,),
                 )
                 for cc, gn in cur.fetchall():
-                    if not cc or cc == ".":
+                    if _is_missing_hq(cc, placeholders):
                         continue
                     matches = extract_all_matches_from_compiled(
                         rules, row={"customs_code": cc, "goods_name": gn},

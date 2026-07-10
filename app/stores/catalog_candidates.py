@@ -17,11 +17,13 @@ from typing import Iterable
 
 from app.database import connect
 from app.parsers.catalog_candidates import (
+    _is_missing_hq,
     candidates_from_bcct_row,
     candidates_from_bom_codes,
     candidates_from_code_mapping_pairs,
 )
 from app.parsers.client_parser_rules import load_rules
+from app.stores.provenance import customs_code_placeholders
 
 
 def _has_dual_system(client_id: str) -> bool:
@@ -245,6 +247,7 @@ def refresh_candidates(client_id: str) -> int:
 
     # ── Source 1+2: BCCT (per-row classification) ──
     with connect() as conn, conn.cursor() as cur:
+        placeholders = customs_code_placeholders(cur, client_id=client_id)
         cur.execute(
             "select customs_code, goods_name, direction, registration_date, "
             "       declaration_no, hs_code, unit, origin "
@@ -256,6 +259,7 @@ def refresh_candidates(client_id: str) -> int:
             row = {"customs_code": customs_code, "goods_name": goods_name}
             row_candidates = candidates_from_bcct_row(
                 row, rules=rules, has_dual_system=has_dual,
+                placeholders=placeholders,
             )
             hq_codes_in_row = [c for c, k in row_candidates if k == "hq"]
             nb_codes_in_row = [c for c, k in row_candidates if k == "nb"]
@@ -601,6 +605,7 @@ def _bcct_paren_pairs_for_nb(client_id: str, nb_code: str) -> list[tuple[str, st
     )
     pairs: set[tuple[str, str]] = set()
     with connect() as conn, conn.cursor() as cur:
+        placeholders = customs_code_placeholders(cur, client_id=client_id)
         cur.execute(
             "select customs_code, goods_name from hub.bcct_rows "
             "where client_id=%s",
@@ -608,7 +613,7 @@ def _bcct_paren_pairs_for_nb(client_id: str, nb_code: str) -> list[tuple[str, st
         )
         for customs_code, goods_name in cur.fetchall():
             hq = (customs_code or "").strip()
-            if not hq or hq == ".":
+            if _is_missing_hq(hq, placeholders):
                 continue
             row = {"customs_code": customs_code, "goods_name": goods_name}
             for m in extract_all_matches_from_compiled(rules, row=row):
