@@ -5,16 +5,22 @@ the claims behind #30/#31 were checked against code + DB (all held), a critic
 pass and a full design review ran over the six-phase catalog redesign
 (verdict: **keep the plan, amend #31/#34, don't restructure**), the amendments
 were applied to the issues, #37 was filed, and the phase order was settled as
-**1 → 0 → 2 → 3 → 4 → 5**. No product code changed. On `main`, pushed
-`b6ece39`.
+**1 → 0 → 2 → 3 → 4 → 5**. No product code changed. On `main`, pushed through
+`152b432`; prod verified serving it after a deploy network incident (see
+Current State).
 
 ## Current State
 
-- **Prod healthy** — `ttdatahub.tinsu.ai/version` → version `0.20.0`. Docs-only
-  push `b6ece39` (2026-07-11) triggered deploy run `29114048212`, still in
-  progress at handoff — code unchanged, git_sha should move `7ed5d8c` →
-  `b6ece39` with version staying `0.20.0`. **Confirm the run finished green
-  next session.** Tier-D box `tinsu`/100.84.189.87 (Docker). Verified live, not from
+- **Prod healthy — verified 2026-07-11 at session end.**
+  `ttdatahub.tinsu.ai/version` → version `0.20.0`, git_sha `152b432` (docs-only
+  pushes; code unchanged since `7ed5d8c`). `/healthz` → `200`, anon
+  `/v1/hub/dncxs` → `401`. Both deploys hit a ~30-min box-level network outage
+  (cloudflared QUIC dial timeouts → CF `530`/`1033` externally; self-hosted
+  runner died mid-job; apt hung). The origin container served throughout; the
+  tunnel self-recovered at 18:49Z and `gh run rerun --failed` landed the
+  deploy. Details: session log postscript. The session-closing docs commit
+  auto-deploys after session end (docs-only — glance at prod sha next
+  session). Tier-D box `tinsu`/100.84.189.87 (Docker). Verified live, not from
   CI logs: `/v1/auth/refresh` → `401` on a bogus token (a 401 rather than a 500
   proves the row lookup reached the DB), `400` on missing body; anon
   `/v1/hub/dncxs` → `401`. Confirmed by `psql` on the host that migs `088`+`089`
@@ -95,29 +101,27 @@ changed — the phases are issues #30-#35, plus new #37.
    rationale.
 2. **Decide #37** — dead materials in the BCCT identity payload: hide (apply
    #31's predicate) or keep deliberately (document in API_CONTRACT). User call.
-3. **Confirm deploy run `29114048212` finished green** and prod `/version`
-   shows git_sha `b6ece39` (docs-only, version stays `0.20.0`).
-4. **CO integration is unbuilt.** DH's side is done and documented in
+3. **CO integration is unbuilt.** DH's side is done and documented in
    `.ai/sister-app-notes/2026-07-10-sso-refresh-tokens-available.md`. CO stores
    the refresh token httponly (separate from its access-token cookie), adds its
    own `/auth/refresh` route + a keep-alive timer at **~T-120s** (600s TTL, 60s
    verify leeway), serializes refreshes, retries the guarded call once on `401`.
    CO is `~/workspace/client/barry-CO-main` — audit-only from this repo.
-5. **`v0.19.0` tag is absent.** `589bdae` is the release commit but was never
+4. **`v0.19.0` tag is absent.** `589bdae` is the release commit but was never
    tagged; sequence is `v0.15.0 … v0.18.0, v0.20.0`. Tag it if contiguous
    history matters.
-6. **Postgres collation-version mismatch on the prod host** — DB created with
+5. **Postgres collation-version mismatch on the prod host** — DB created with
    collation 2.41, OS provides 2.36. Silently corrupts text-column index
    ordering. Needs `REINDEX` + `ALTER DATABASE data_hub REFRESH COLLATION
    VERSION` in a maintenance window. Data-integrity investigation, not a quick
    reindex. **Unrelated to this session's change.**
-7. **Answer CO's open question** (PR #11, still open): do dossiers ever contain
+6. **Answer CO's open question** (PR #11, still open): do dossiers ever contain
    embedded raster scans (operator-uploaded scanned PDFs via `file_kind=pdf`)?
    If never, `compact` lossless is final; if yes, add an image-downsample profile.
-8. **`docs/agency-staff-guide` branch still unpushed/unmerged** (commit
+7. **`docs/agency-staff-guide` branch still unpushed/unmerged** (commit
    `d5ae3ab`) — holds a 385-line Vietnamese guide that exists nowhere else.
    Decide: open a PR or leave it. Carried over from 2026-06-19.
-9. **`feat/sso-refresh-tokens` branch** exists locally and on origin; safe to
+8. **`feat/sso-refresh-tokens` branch** exists locally and on origin; safe to
    delete.
 
 ## Notes for Next AI Session

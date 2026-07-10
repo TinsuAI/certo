@@ -72,7 +72,32 @@ trust in the catalog tickets (#30–#35) before building anything". No product c
    deploys prod), commit `Closes #31`.
 2. Then #30 → #32 → #33 → #34 → #35 per settled order.
 3. **#37 decision** is user's: dead rows in BCCT identity payload — hide or keep.
-4. Confirm deploy 29114048212 finished green (docs-only push).
-5. Carried over from previous sessions: CO refresh-token integration unbuilt; prod
+4. Carried over from previous sessions: CO refresh-token integration unbuilt; prod
    Postgres collation mismatch; `v0.19.0` tag absent; `docs/agency-staff-guide` branch
    unmerged; CO's PR #11 question (raster scans in dossiers).
+
+## Postscript — deploy network incident (same session, after the handoff commit)
+
+Both docs-only pushes (`b6ece39`, then `152b432`) hit a box-level outbound network
+outage on `tinsu` (~18:18–18:49 UTC = 01:18–01:49 +07):
+
+- Run `29114048212` (`b6ece39`): Test job hung 17+ min on "Install LibreOffice"
+  (24s on the last green run) — apt couldn't reach mirrors. Cancelled as superseded
+  by the next run.
+- Run `29114412818` (`152b432`): Test + Docker build green; "Deploy to tinsu" died
+  at "Compose up" with **empty step logs** — the self-hosted runner lost GitHub
+  mid-job. The container was untouched; the old build kept serving at the origin.
+- Externally `ttdatahub.tinsu.ai` returned CF `530` / error `1033`.
+  `journalctl -u cloudflared` on the box: repeated "failed to dial a quic
+  connection … timeout: no recent network activity"; the tunnel re-registered on
+  its own at 18:49:41Z (hkg01).
+- Fix: `gh run rerun 29114412818 --failed` after the network recovered → deploy
+  green. Prod verified: `/version` → `0.20.0` @ `152b432`, `/healthz` → `200`,
+  anon `/v1/hub/dncxs` → `401`.
+
+Lesson: one network blip produced three unrelated-looking symptoms (hung apt step,
+dead deploy job with no logs, CF 1033). Before assuming a deploy broke prod: ssh
+the box, curl the origin `/healthz` locally, check `docker ps` for the app
+container, then `journalctl -u cloudflared`. Note `gh run view --log-failed`
+returns nothing for a job whose runner died — the JSON `.jobs[].steps[]`
+conclusions still show where it stopped.
