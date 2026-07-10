@@ -1,0 +1,68 @@
+[
+  {
+    "file": "01_catalog_vi_hq_registered.xlsx",
+    "rows": 5,
+    "columns": 7
+  },
+  {
+    "file": "02_catalog_english_headers.xlsx",
+    "rows": 2,
+    "columns": 7
+  },
+  {
+    "file": "03_catalog_with_skipped_rows.xlsx",
+    "rows": 3,
+    "columns": 7
+  },
+  {
+    "file": "04_bqd_identity.xlsx",
+    "rows": 4,
+    "columns": 4
+  },
+  {
+    "file": "05_bqd_dual_code_one_to_many.xlsx",
+    "rows": 4,
+    "columns": 4
+  },
+  {
+    "file": "06_bcct_full_co_fields.xlsx",
+    "rows": 4,
+    "columns": 28
+  },
+  {
+    "file": "07_bcct_header_row_5.xlsx",
+    "rows": 2,
+    "columns": 12,
+    "header_row": 5
+  },
+  {
+    "file": "08_bcct_update_baseline.xlsx",
+    "rows": 3,
+    "columns": 10
+  },
+  {
+    "file": "09_bcct_update_changed.xlsx",
+    "rows": 3,
+    "columns": 10
+  },
+  {
+    "file": "10_wrong_file_bom_uploaded_as_bcct.xlsx",
+    "rows": 2,
+    "columns": 4
+  },
+  {
+    "file": "11_bom_manual_flat.xlsx",
+    "rows": 3,
+    "columns": 6
+  },
+  {
+    "file": "12_bom_technical_multilevel.xlsx",
+    "rows": 6,
+    "columns": 6
+  },
+  {
+    "file": "13_bom_sap_style_english.xlsx",
+    "rows": 5,
+    "columns": 5
+  }
+]
