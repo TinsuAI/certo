@@ -1,17 +1,20 @@
 # Project Status
 
-**Date:** 2026-07-10 — Session shipped **SSO refresh tokens** (silent
-access-token renewal for CO) and fixed a pre-existing **multi-worker bug in
-`/v1/auth/exchange`**. Built → tested → mutation-tested → live-verified →
-PR #13 → released `v0.20.0` → merged → deployed. Now on branch `main`, synced
-to `origin/main`.
+**Date:** 2026-07-11 — Session re-verified the catalog plan before building:
+the claims behind #30/#31 were checked against code + DB (all held), a critic
+pass and a full design review ran over the six-phase catalog redesign
+(verdict: **keep the plan, amend #31/#34, don't restructure**), the amendments
+were applied to the issues, #37 was filed, and the phase order was settled as
+**1 → 0 → 2 → 3 → 4 → 5**. No product code changed. On `main`, pushed
+`b6ece39`.
 
 ## Current State
 
-- **Prod healthy** — `ttdatahub.tinsu.ai/version` → version `0.20.0`, git_sha
-  `7ed5d8c` (docs-only merge, PR #36; `0.20.0` code unchanged). Re-verified
-  2026-07-10 after that deploy: `/healthz` → `200`, anon `/v1/hub/dncxs` → `401`.
-  Tier-D box `tinsu`/100.84.189.87 (Docker). Verified live, not from
+- **Prod healthy** — `ttdatahub.tinsu.ai/version` → version `0.20.0`. Docs-only
+  push `b6ece39` (2026-07-11) triggered deploy run `29114048212`, still in
+  progress at handoff — code unchanged, git_sha should move `7ed5d8c` →
+  `b6ece39` with version staying `0.20.0`. **Confirm the run finished green
+  next session.** Tier-D box `tinsu`/100.84.189.87 (Docker). Verified live, not from
   CI logs: `/v1/auth/refresh` → `401` on a bogus token (a 401 rather than a 500
   proves the row lookup reached the DB), `400` on missing body; anon
   `/v1/hub/dncxs` → `401`. Confirmed by `psql` on the host that migs `088`+`089`
@@ -38,36 +41,44 @@ New decisions go to `docs/adr/` (ADR-0001, ADR-0002 written); `.ai/DECISIONS.md`
 is likewise historical. Skill config lives in `docs/agents/`. One ticket store,
 no parallel paths — see `AGENTS.md` → "Agent skills — repo configuration".
 
-## Next up — catalog discovery redesign (issue #31 first)
+## Next up — catalog redesign, order settled **1 → 0 → 2 → 3 → 4 → 5** (2026-07-11)
 
-Second session on 2026-07-10 reviewed the whole catalog flow and produced
-`.ai/features/2026-07-10-catalog-candidates-merge/brief.md` (revised after a
-`critic` pass). Session log:
-`.ai/sessions/2026-07-10-catalog-flow-review.md`. Merged via PR #36
-(`main` @ `7ed5d8c`), deployed; prod verified serving that SHA. **No product
-code changed yet** — the six phases are issues #30-#35.
+The 2026-07-11 session verified the plan's claims against code + DB (all held),
+ran a critic pass plus a full design review
+(`.ai/features/2026-07-10-catalog-candidates-merge/design-review-2026-07-11.md`),
+and applied every recommended amendment. Session log:
+`.ai/sessions/2026-07-11-catalog-plan-verification.md`. Still no product code
+changed — the phases are issues #30-#35, plus new #37.
 
-- **Plan:** replace `hub.catalog_candidates` (+ its 739-line store) with a
-  computed discovery view; reject becomes a suppression table; accept stays a
-  row in `materials`. Persist the BCCT paren extraction as `hub.bcct_nb_codes`.
-  Add a bulk-approval UI — per-item review has never once been used.
-- **Bugs found, none fixed:** `derive_from_bcct` creates a junk material named
-  `.` per client (fixed-asset lines); 210 forklift/rack part numbers sit in the
-  approval queue; `refresh_candidates()` costs 2.2s inside a `GET` handler;
-  `/v1/hub/materials` would serve a tombstoned material to CO.
-- **Start here next session: issue #31** (catalog phase 1) — default
-  `status='active'` on the two `/v1/hub/materials` routes + a regression test.
-  No open questions, no blockers, and a byte-identical-response oracle because
-  all 13,631 rows are `active` today. Branch first; `/implement` commits to the
-  current branch, and a push to `main` triggers the prod deploy.
-- **Blocking Phase 0 (#30):** where the per-client `customs_code` placeholder
-  config lives. Recommendation in the brief: a `text[]` column on `hub.clients`,
-  default empty, seeded per client with a `where exists` guard.
-- **Sister apps:** CO needs no change if Phase 1 lands before the rest. BCQT does
-  not read the `hub` schema at all (verified: 0 refs, no Postgres driver).
+- **Start here: issue #31 (amended 2026-07-11)** — default `status not in
+  ('tombstoned','inactive')` on both `/v1/hub/materials` routes. **Not
+  `='active'`**: `status` is not the approval gate (approval = `source`
+  promotion + candidates queue), and active-only would break CO's product
+  roster and hide staff-accepted `under_review` rows until phase 4. The issue
+  now carries the positive test set, the `?status=` param for get-by-code, and
+  the `API_CONTRACT.md`/`API_CHANGELOG.md` duty. Branch first; `/implement`
+  commits to the current branch, and a push to `main` triggers the prod deploy.
+- **Then #30 → #32 → #33 → #34 → #35.** Real blocking edges: 3←0, 4←3, 5←3+4.
+  The brief's old "don't do 1 before 0" had no mechanism and was removed.
+- **#34 gained a preservation clause:** copy the 1,207 accept decisions'
+  `(decided_by, decided_at, decision_reason)` into `hub.bom_audit_events` (new
+  `event_type`) before dropping `catalog_candidates`; the drop migration must
+  enumerate every unreplayable column.
+- **#37 (new, ready-for-human):** `bcct_material_identity.py:120-133` serves
+  dead materials into CO's BCCT identity payload regardless of #31. Open
+  contract decision — hide them, or deliberately keep them for historical
+  resolution. User decides before anyone implements.
+- **Sister apps:** CO needs no change if #31 lands first (all 13,631 rows are
+  `active` today → responses byte-identical). BCQT does not read the `hub`
+  schema at all (verified: 0 refs, no Postgres driver).
 
 ## Recent Changes
 
+- `b6ece39` docs(catalog): phase order settled + design review committed;
+  pushed 2026-07-11 (deploy in flight at handoff). Issues #31/#34 amended and
+  #37 filed on GitHub in the same session.
+- `bb26b70` docs(status) correction from 2026-07-10 — was committed but never
+  pushed; went out with the `b6ece39` push.
 - `c4a70b3` Merge PR #13 (feat/sso-refresh-tokens).
 - `e04718a` chore(release): 0.20.0 — also realigned `uv.lock` (see Notes).
 - `7cdede1` docs(auth): API_CONTRACT + API_CHANGELOG + sister-app note for CO.
@@ -79,27 +90,34 @@ code changed yet** — the six phases are issues #30-#35.
 
 ## Next Steps
 
-1. **CO integration is unbuilt.** DH's side is done and documented in
+1. **`/implement` amended #31** — fresh session, **branch first**, commit
+   `Closes #31`. The issue text is the spec; the design review holds the
+   rationale.
+2. **Decide #37** — dead materials in the BCCT identity payload: hide (apply
+   #31's predicate) or keep deliberately (document in API_CONTRACT). User call.
+3. **Confirm deploy run `29114048212` finished green** and prod `/version`
+   shows git_sha `b6ece39` (docs-only, version stays `0.20.0`).
+4. **CO integration is unbuilt.** DH's side is done and documented in
    `.ai/sister-app-notes/2026-07-10-sso-refresh-tokens-available.md`. CO stores
    the refresh token httponly (separate from its access-token cookie), adds its
    own `/auth/refresh` route + a keep-alive timer at **~T-120s** (600s TTL, 60s
    verify leeway), serializes refreshes, retries the guarded call once on `401`.
    CO is `~/workspace/client/barry-CO-main` — audit-only from this repo.
-2. **`v0.19.0` tag is absent.** `589bdae` is the release commit but was never
+5. **`v0.19.0` tag is absent.** `589bdae` is the release commit but was never
    tagged; sequence is `v0.15.0 … v0.18.0, v0.20.0`. Tag it if contiguous
    history matters.
-3. **Postgres collation-version mismatch on the prod host** — DB created with
+6. **Postgres collation-version mismatch on the prod host** — DB created with
    collation 2.41, OS provides 2.36. Silently corrupts text-column index
    ordering. Needs `REINDEX` + `ALTER DATABASE data_hub REFRESH COLLATION
    VERSION` in a maintenance window. Data-integrity investigation, not a quick
    reindex. **Unrelated to this session's change.**
-4. **Answer CO's open question** (PR #11, still open): do dossiers ever contain
+7. **Answer CO's open question** (PR #11, still open): do dossiers ever contain
    embedded raster scans (operator-uploaded scanned PDFs via `file_kind=pdf`)?
    If never, `compact` lossless is final; if yes, add an image-downsample profile.
-5. **`docs/agency-staff-guide` branch still unpushed/unmerged** (commit
+8. **`docs/agency-staff-guide` branch still unpushed/unmerged** (commit
    `d5ae3ab`) — holds a 385-line Vietnamese guide that exists nowhere else.
    Decide: open a PR or leave it. Carried over from 2026-06-19.
-6. **`feat/sso-refresh-tokens` branch** exists locally and on origin; safe to
+9. **`feat/sso-refresh-tokens` branch** exists locally and on origin; safe to
    delete.
 
 ## Notes for Next AI Session
