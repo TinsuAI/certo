@@ -10,6 +10,8 @@ phiên bản theo [SemVer](https://semver.org/).
 > hành đã đóng gói tại thời điểm đó.
 
 ## [Unreleased]
+### API
+- **Danh mục vật tư qua API mặc định chỉ trả về mã còn hiệu lực:** `GET /v1/hub/materials` (danh sách và tra theo mã) bỏ qua các mã đã khai tử (`tombstoned`) hoặc ngừng dùng (`inactive`), để ứng dụng đồng hành không hiển thị mã đã loại bỏ. Mã đang chờ duyệt (`under_review`) và mã cũ (`deprecated`) vẫn trả về như trước. Thêm tham số `?status=` để xem đúng một trạng thái khi cần, kể cả mã đã khai tử. Dữ liệu hiện tại chưa có mã khai tử nên phản hồi không đổi. Chi tiết: `docs/API_CHANGELOG.md` (2026-07-11, Additive).
 
 ## [0.20.0] — 2026-07-10
 ### Mới

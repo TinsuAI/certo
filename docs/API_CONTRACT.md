@@ -374,7 +374,7 @@ List materials.
 Query params:
 - `client_id`: required.
 - `category`: optional.
-- `status`: optional.
+- `status`: optional. **Default (param omitted): rows with `status` in (`tombstoned`, `inactive`) are excluded** — the alive-only view. `under_review` and `deprecated` rows stay in the response: `status` is lifecycle state, not the approval gate (approval is `source` promotion plus the candidates queue). An explicit `?status=<value>` selects exactly that one status — including `tombstoned` / `inactive`.
 - `cursor`: optional.
 - `limit`: optional, default 200, max 1000.
 
@@ -399,6 +399,7 @@ Fetch one material.
 
 Query params:
 - `client_id`: required.
+- `status`: optional. Default (param omitted): a material whose `status` is `tombstoned` or `inactive` returns **404** — same alive-only predicate as the list route. An explicit `?status=<value>` matches exactly that status (`?status=tombstoned` returns the tombstoned row; any other status then 404s).
 
 ### BCCT
 
