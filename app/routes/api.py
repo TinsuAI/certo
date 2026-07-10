@@ -462,6 +462,17 @@ _MATERIALS_SELECT_WITH_ROLES = """
 """
 
 
+def _status_filter_sql(status: str | None, params: list) -> str:
+    """Issue #31: alive-only by default — NOT `='active'`: approval is
+    `source` promotion + the candidates queue, so `under_review` and
+    `deprecated` mark live materials CO depends on. An explicit `?status=`
+    selects exactly that one status."""
+    if status:
+        params.append(status)
+        return " and m.status = %s"
+    return " and m.status not in ('tombstoned', 'inactive')"
+
+
 @router.get("/materials")
 async def api_list_materials(
     client_id: str,
@@ -485,9 +496,7 @@ async def api_list_materials(
     if category:
         sql += " and m.category = %s"
         params.append(category)
-    if status:
-        sql += " and m.status = %s"
-        params.append(status)
+    sql += _status_filter_sql(status, params)
     sql += " order by m.material_code limit %s offset %s"
     params.extend([safe_limit + 1, offset])
     with connect() as conn:
@@ -506,16 +515,17 @@ async def api_list_materials(
 @router.get("/materials/{material_code}")
 async def api_get_material(
     material_code: str, client_id: str,
+    status: str | None = None,
     authorization: str | None = Header(None),
 ):
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
+    sql = _MATERIALS_SELECT_WITH_ROLES + " where m.client_id = %s and m.material_code = %s"
+    params: list = [client_id, material_code]
+    sql += _status_filter_sql(status, params)
     with connect() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                _MATERIALS_SELECT_WITH_ROLES + " where m.client_id = %s and m.material_code = %s",
-                (client_id, material_code),
-            )
+            cur.execute(sql, params)
             row = cur.fetchone()
             if not row:
                 raise HTTPException(404, "material not found")

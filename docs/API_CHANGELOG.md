@@ -14,6 +14,21 @@ Only `Breaking:` headings trigger notifications to `dev`/`admin` users (CO + BCQ
 
 ## Entries
 
+## 2026-07-11 — Additive: alive-only default status filter on /v1/hub/materials
+
+Responses are byte-identical today (every current row is `active`); this pins
+the semantics ahead of catalog tombstoning. No sister-app code change needed.
+
+- `GET /v1/hub/materials` — when `?status=` is omitted, rows with `status` in
+  (`tombstoned`, `inactive`) are excluded. `under_review` and `deprecated`
+  rows stay served: `status` is lifecycle state, not the approval gate, and
+  hiding them would break CO's product roster and historical name resolution.
+- `GET /v1/hub/materials/{customs_code}` — a dead material returns `404` by
+  default (CO already degrades 404 → `{}`). New optional `?status=` param
+  selects exactly one status — `?status=tombstoned` returns the tombstoned row.
+- Out of scope: the BCCT identity resolver still serves dead materials into
+  CO's identity payload; tracked as data-hub#37.
+
 ## 2026-07-10 — Additive: refresh tokens for silent access-token renewal (mig 088, 089)
 
 Silent / opt-in. Existing consumers keep working untouched: `/v1/auth/exchange`
