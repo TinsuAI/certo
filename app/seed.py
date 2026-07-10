@@ -41,6 +41,15 @@ def auto_seed_demo_if_empty() -> str:
         status="active", notes="Identity mode — customs_code IS internal_code.",
     )
 
+    # customs_code placeholder config (mig 090 is a no-op on fresh DB
+    # because clients didn't exist when migrations ran).
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "update hub.clients set customs_code_placeholders = '{\".\"}' "
+            "where client_id in (%s, %s)",
+            (growatt_id, johnson_id),
+        )
+
     # Seed Growatt with full data
     _seed_growatt(growatt_id)
     _seed_johnson(johnson_id)
