@@ -1,17 +1,26 @@
 # Project Status
 
-**Date:** 2026-07-11 (marathon session) — **Catalog phases 0+2+3+4 shipped**:
-#30 (PR #41, `4d74819`), #32 (PR #42, `15ad288`), #33 (PR #43, `2f68100`),
-#34 (PR #44, `58e1994`). All merged, deployed, prod-verified. Session log:
-`.ai/sessions/2026-07-11-catalog-phases-0-2-3-4.md`.
+**Date:** 2026-07-11 — **Catalog rework COMPLETE (phases 0–5):** #30 (PR
+#41), #32 (PR #42), #33 (PR #43), #34 (PR #44), and now **#35 bulk
+approval** (PR #45, merge `297f775`). All merged, deployed, prod-verified.
+Session logs: `.ai/sessions/2026-07-11-catalog-phases-0-2-3-4.md` and
+`.ai/sessions/2026-07-11-catalog-bulk-approval.md`.
 
 ## Current State
 
-- **Prod healthy — verified 2026-07-11 ~06:30Z.** `ttdatahub.tinsu.ai/version`
-  → git_sha `58e1994`; `/healthz` 200. Prod oracle: `catalog_candidates`
-  dropped, `hub.catalog_discovery('growatt-vn')` pending = 3,306 (exact
-  preservation), 1,207 decision tuples in `bom_audit_events`,
-  `bcct_nb_codes` = 35,349 (boot backfill self-healed).
+- **Prod healthy — verified 2026-07-11 ~10:48Z.** `ttdatahub.tinsu.ai/version`
+  → git_sha `297f775`; `/healthz` 200. mig 093 applied at boot. Prod
+  oracle unchanged from #34: `hub.catalog_discovery('growatt-vn')` pending
+  = 3,306, `bcct_nb_codes` = 35,349. **No bulk-accept executed against
+  prod** — the button is live for an operator to press.
+- **#35 bulk approval live:** discovery page has filter-as-rule (leaf /
+  source chips / observed_count / machinery toggle) + «Duyệt N mã đang
+  lọc». mig 093 = D9 trigger guarded by `hub.bulk_load` GUC +
+  `hub.materials_propagate_bulk` (batched staleness, parity-tested).
+  Growatt leaf rule → 2,156 approvable. Deviation flagged (not certified):
+  source filter is single-select, not multi-select `sources[]`.
+- **customs_relevance still lives in 3 places** (view + 2 inline mirrors,
+  parity-tested) — unchanged by #35, which only reads/filters it.
 - **The catalog now has ADR-0001's three homes:** pending =
   `hub.catalog_discovery(client)` set-returning SQL function (mig 092,
   ~0.6–1.3s/client, page 1.8s live); rejected = `hub.catalog_rejections`
@@ -35,21 +44,20 @@
 
 ## Next Steps
 
-1. **`/implement #35`** (bulk approval UI — final catalog phase, unblocked
-   by #33+#34). **Plan the mig-058 staleness mass-fire** (brief Risk 2):
-   bulk-accepting ~2,157 flattened-leaf codes fires the trigger per row —
-   batch it or suspend-and-recompute once. Filters come free from
-   `catalog_discovery` output (`customs_relevance`, `bom_role`, `sources`);
-   `excluded_non_material` out by default; one audit event carrying
-   predicate + count + code list; `decided_by` = the operator.
-2. **Decide #37** (user): dead materials in CO's BCCT identity payload
-   (`bcct_material_identity.py:120-133`) — hide vs document-and-keep.
-3. **Release cut 0.21.0** when convenient: CHANGELOG `[Unreleased]` holds 4
-   entries; bump pyproject + uv.lock together.
+1. **Decide #37** (user, ready-for-human): dead materials in CO's BCCT
+   identity payload (`bcct_material_identity.py:120-133`) — hide (apply
+   #31 predicate) vs document-and-keep.
+2. **Release cut 0.21.0** when convenient: CHANGELOG `[Unreleased]` now
+   holds **5** entries (incl. #35 bulk approval); bump pyproject +
+   uv.lock together.
+3. **#35 follow-up:** source filter multi-select (`sources[]`) — decide
+   if wanted (deferred, PR #45 note).
 4. Housekeeping: `docs/agency-staff-guide` branch (385-line VN guide,
    nowhere else) — PR or drop; `v0.19.0` tag absent; prod Postgres
    collation-version mismatch (REINDEX + REFRESH COLLATION VERSION in a
    maintenance window — data-integrity investigation, not quick).
+5. Remaining ready-for-agent backlog (non-catalog): #23 B.5, #22 B.4,
+   #21 B.2, #19 B.0b, #14–18 A.x, #26 C.2, #29 E.4.
 
 ## Notes for Next AI Session
 
@@ -67,6 +75,18 @@
   `hub.schema_migrations` row, drop the object, re-run
   `apply_migrations()`; after any 092 re-apply, refill via
   `backfill_if_empty()` (092 truncates `bcct_nb_codes`).
+- **`create or replace function` must start from the LATEST prior
+  definition, not the original.** The D9 insert trigger
+  (`materials_propagate_on_insert`) was defined in mig 058, redefined in
+  069 + 071, guarded in 093. A rebuild from an older body silently
+  reverts later logic — `git grep "function hub.<name>"` for every def
+  first. Parity/behaviour tests catch it (069/071 has_drift_remaining).
+- **Batching around a per-row AFTER trigger:** `SET LOCAL
+  hub.bulk_load='on'` no-ops the D9 trigger (mig 093 guard); run
+  `hub.materials_propagate_bulk(client, codes)` once after the bulk
+  insert. Works for a non-superuser and is pool-safe (txn-scoped).
+  `session_replication_role` needs superuser (denied); `DISABLE TRIGGER`
+  needs ownership + ACCESS EXCLUSIVE lock.
 - **Multi-referenced CTEs in views are materialized** — client predicates
   do NOT push down. EXPLAIN first; prefer a set-returning function
   parameterized by client (the `hub.catalog_discovery` precedent).
