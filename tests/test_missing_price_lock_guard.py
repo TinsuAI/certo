@@ -4,8 +4,9 @@ lockable/exportable — VNM is understated so LVC is inflated, and a committed C
 dossier would carry a provisional LVC. Mirror of the empty/no-BOM guard (#13c):
 /calculate keeps such a sheet at 'bom_loaded' (non-lockable, non-exportable).
 
-A SHORTAGE sheet (materials priced, just insufficient stock) DOES have valid
-prices -> stays lockable (Mục 6 must not regress).
+Shortage is no longer lockable: ADR 2026-07-11 decides shortage blocks issuance
+via its own flag (`lvc_allocation_shortage`, see test_shortage_lock_guard.py).
+The missing-price downgrade branch here is independent of that flag and stays.
 """
 from __future__ import annotations
 
@@ -16,9 +17,8 @@ def test_missing_price_stays_bom_loaded():
     assert calculated_sheet_status({"lvc_status": "partial_fail", "lvc_missing_price": True}) == "bom_loaded"
 
 
-def test_shortage_with_price_still_calculated():
+def test_priced_sheet_without_shortage_flag_still_calculated():
     from app.routers.co_case import calculated_sheet_status
-    # shortage = priced materials, insufficient stock -> lvc_missing_price False -> lockable
     assert calculated_sheet_status({"lvc_status": "partial_fail", "lvc_missing_price": False}) == "calculated"
     assert calculated_sheet_status({"lvc_status": "pass"}) == "calculated"
 

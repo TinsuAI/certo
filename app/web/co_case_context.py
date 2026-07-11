@@ -1338,7 +1338,14 @@ def attach_origin_sheet_states(case: dict) -> dict:
         product["origin_calculate_block_reason"] = calc_reason
         product["origin_calculate_label"] = "Tính lại" if status == "stale" else "Tính bảng kê"
         product["origin_can_lock"] = bool(code and status == "calculated" and not sequence_reason)
-        if not product["origin_can_lock"] and not sequence_reason and product.get("lvc_missing_price") and status in {"calculated", "bom_loaded"}:
+        # Shortage first: a no-lot NVL also trips lvc_missing_price (its value is
+        # empty by design), but the remedy is the DOCUMENT, not a price.
+        if not product["origin_can_lock"] and not sequence_reason and product.get("lvc_allocation_shortage") and status in {"calculated", "bom_loaded"}:
+            product["origin_lock_block_reason"] = (
+                f"Bảng kê {code} còn NVL thiếu tồn/không có lô nhập khớp — "
+                "bổ sung chứng từ (khớp tờ khai nhập hoặc hoá đơn VAT) rồi tính lại; không dùng giá ước tính."
+            )
+        elif not product["origin_can_lock"] and not sequence_reason and product.get("lvc_missing_price") and status in {"calculated", "bom_loaded"}:
             product["origin_lock_block_reason"] = (
                 f"Bảng kê {code} còn NVL thiếu đơn giá — bổ sung đơn giá và tính lại trước khi chốt."
             )
@@ -1399,6 +1406,7 @@ def origin_sheet_export_blockers(case: dict) -> list[str]:
             status in {"draft", "bom_loaded", "stale", "calculating"}
             or str(product.get("lvc_status") or "") == "missing_bom"
             or product.get("lvc_declarable_unmatched")
+            or product.get("lvc_allocation_shortage")
         ):
             blockers.append(str(product.get("code") or "sheet"))
     return blockers
@@ -1446,6 +1454,14 @@ def origin_sheet_action_error(case: dict, product_code: str, action: str) -> str
         # flag here (mirror the missing_bom guard) so lock is a true hard-block no
         # matter how the status was persisted. Cleared by matching/substituting it.
         return f"Bảng kê {product_code} còn NVL chưa khớp tồn (declarable_unmatched) — cần khớp hoặc thay trước khi chốt."
+    if action == "lock" and target.get("lvc_allocation_shortage"):
+        # Shortage re-check (same bypass as above): the shortfall has no lawful
+        # value on the bảng kê, so the remedy is a DOCUMENT, never a price.
+        return (
+            f"Bảng kê {product_code} còn NVL thiếu tồn/không có lô nhập khớp — "
+            "bổ sung chứng từ (khớp tờ khai nhập hoặc hoá đơn VAT) rồi tính lại trước khi chốt; "
+            "không dùng giá ước tính."
+        )
     if action == "reopen":
         if status != "locked":
             return f"Bảng kê {product_code} chưa chốt."
@@ -2314,10 +2330,12 @@ def origin_material_from_bom_row(
         if line.get("material_value") not in (None, "")
     ]
     mixed_allocation_currency = len(unique_texts(line.get("currency", "") for line in allocation_lines)) > 1
+    # No fallback pricing for unallocated quantity (ADR 2026-07-11): a value with
+    # no matched import declaration behind it has no lawful place on the bảng kê,
+    # so a no-lot material stays unvalued (→ 100% shortage → blocked) instead of
+    # being priced from BOM/catalog.
     if allocated_values and not mixed_allocation_currency:
         material_value = sum(allocated_values, Decimal("0"))
-    elif not stock_candidates and fallback_unit_value is not None:
-        material_value = consumed_qty * fallback_unit_value
     else:
         material_value = None
     # VND-base aggregates — even when mixed currencies make material_value
@@ -2339,9 +2357,15 @@ def origin_material_from_bom_row(
     line_unit_missing = any(not line.get("unit_value") for line in allocation_lines)
     unit_value_missing = material_value is None or line_unit_missing
     allocation_status = "covered" if shortage_qty <= 0 else "shortage"
+    # A no-lot line's defect is the missing DOCUMENT, not a missing price — with
+    # the fallback-price path removed its value is always empty, so classifying
+    # it "missing_unit_value" would tell the user to fix a price that no lot backs.
+    no_lot_shortage = allocation_status == "shortage" and not allocation_lines
     if mixed_allocation_currency:
         valuation_status = "partial_valuation"
         unit_value_missing = True
+    elif no_lot_shortage:
+        valuation_status = "partial_allocation"
     elif unit_value_missing:
         valuation_status = "missing_unit_value"
     elif allocation_status == "shortage":
@@ -2388,6 +2412,11 @@ def origin_material_from_bom_row(
     if allocation_status == "shortage" and consumed_qty > 0 and allocation_lines:
         material_warnings.append(
             f"{material_code}: thiếu tồn CO {decimal_text(shortage_qty)} {row.get('uom', '')} để phủ lượng dùng."
+        )
+    if allocation_status == "shortage" and consumed_qty > 0 and not allocation_lines:
+        material_warnings.append(
+            f"{material_code}: không có lô tồn CO/tờ khai nhập khớp — bổ sung chứng từ "
+            "(khớp tờ khai nhập hoặc hoá đơn VAT) trước khi chốt."
         )
     if allocation_status == "shortage" and shortage_trace:
         material_warnings.append(f"{material_code}: tồn CO đã dùng ở bước trước: {shortage_trace}.")
@@ -2787,8 +2816,8 @@ def enrich_origin_product(product: dict) -> dict:
     # thiếu đơn giá ⇒ VNM thiếu ⇒ LVC bị thổi (chỉ tạm tính). Đánh cờ để /calculate
     # giữ sheet ở "bom_loaded" (không chốt/xuất được) — song song guard BOM rỗng
     # (#13c). Chỉ xét NVL non_origin (NVL có xuất xứ không vào VNM nên thiếu giá
-    # không ảnh hưởng LVC); bỏ qua dòng đã xoá. Thiếu TỒN (shortage, có đơn giá)
-    # KHÔNG tính ở đây ⇒ Mục 6 vẫn chốt được.
+    # không ảnh hưởng LVC); bỏ qua dòng đã xoá. Thiếu TỒN (shortage) KHÔNG tính
+    # ở cờ này — nó có cờ riêng `lvc_allocation_shortage` bên dưới (ADR 2026-07-11).
     enriched["lvc_missing_price"] = any(
         not material.get("deleted")
         and material.get("origin_status") == "non_origin"
@@ -2805,6 +2834,18 @@ def enrich_origin_product(product: dict) -> dict:
     # "bom_loaded". Bỏ qua dòng đã xoá.
     enriched["lvc_declarable_unmatched"] = any(
         not material.get("deleted") and material.get("declarable_unmatched")
+        for material in materials
+    )
+    # Shortage guard (ADR 2026-07-11): lượng dùng vượt lô nhập khớp (kể cả NVL
+    # không có lô nào) không có trị giá hợp pháp trên bảng kê (TT 05/2018 Điều
+    # 6.4.b — chỉ trị giá gắn tờ khai nhập hoặc hoá đơn VAT). Đánh cờ để
+    # /calculate giữ sheet ở "bom_loaded" và lock/export re-check. Bỏ qua dòng
+    # đã xoá và rác kỹ thuật (không lên bảng kê). ĐẢO quyết định cũ "Mục 6 vẫn
+    # chốt được khi thiếu tồn".
+    enriched["lvc_allocation_shortage"] = any(
+        not material.get("deleted")
+        and not material.get("bom_technical_noise")
+        and str(material.get("allocation_status") or "") == "shortage"
         for material in materials
     )
     ctc_rule = tariff_shift_rule_from_criterion(criterion)

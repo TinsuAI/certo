@@ -2042,19 +2042,23 @@ def calculated_sheet_status(product: dict) -> str:
     - lvc_status 'missing_bom' — empty/no-BOM (#13c root cause); or
     - lvc_missing_price — a non-originating NVL is missing đơn giá, so VNM is
       understated and LVC is only tạm-tính (would ship a provisional LVC).
-    A SHORTAGE sheet keeps its prices (lvc_missing_price False) → stays
-    'calculated'/lockable (Mục 6 unaffected).
 
     Also stays 'bom_loaded' when:
     - lvc_declarable_unmatched — a declarable NVL has no BCCT import match (DC3c):
       export-excluded and its value/origin still unresolved (when non-origin it is
       zeroed into VNM, inflating LVC). Block issuance until it is matched or
-      substituted."""
+      substituted.
+    - lvc_allocation_shortage — consumed quantity exceeds the matched import lots
+      (incl. a no-lot NVL). The shortfall has no lawful value on the bảng kê
+      (TT 05/2018 Điều 6.4.b), so the sheet must not be lockable/exportable
+      (ADR 2026-07-11 — reverses the old "shortage stays lockable" rule)."""
     if str(product.get("lvc_status") or "") == "missing_bom":
         return "bom_loaded"
     if product.get("lvc_missing_price"):
         return "bom_loaded"
     if product.get("lvc_declarable_unmatched"):
+        return "bom_loaded"
+    if product.get("lvc_allocation_shortage"):
         return "bom_loaded"
     return "calculated"
 def _recompute_origin_sheet_context(

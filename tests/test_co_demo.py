@@ -2683,14 +2683,18 @@ def test_co_case_origin_page_surfaces_method_readiness_and_evidence_gaps():
     calculated_data = hidden_form_data(calculated.text)
 
     assert calculated.status_code == 200
-    assert "Thiếu đơn giá NVL" in calculated.text
-    assert "DEMO-NPL-002: thiếu đơn giá để tính trị giá NVL/VNM." in calculated.text
+    # DEMO-NPL-002 has no matched lot: since the shortage guard (ticket #8) its
+    # defect is the missing DOCUMENT, not a missing price — no fallback pricing,
+    # shortage classification, document remedy in the warning.
+    assert "Thiếu đơn giá NVL" not in calculated.text
+    assert "Thiếu tồn CO" in calculated.text
+    assert "DEMO-NPL-002: không có lô tồn CO/tờ khai nhập khớp — bổ sung chứng từ (khớp tờ khai nhập hoặc hoá đơn VAT) trước khi chốt." in calculated.text
     assert calculated_data["product_0_lvc_status"] == "partial_pass"
     assert calculated_data["product_0_lvc_percentage"] == "97.00"
-    assert calculated_data["product_0_material_1_valuation_status"] == "missing_unit_value"
+    assert calculated_data["product_0_material_1_valuation_status"] == "partial_allocation"
     assert "97.00%" in calculated.text
     assert "Tạm đạt LVC" in calculated.text
-    assert "Thiếu đơn giá 1 dòng NVL; LVC đang tạm tính từ các dòng đã có đơn giá." in calculated.text
+    assert "Thiếu tồn CO 1 dòng NVL; LVC đang tạm tính từ phần đã phân bổ." in calculated.text
 
 
 def test_co_case_origin_does_not_calculate_lvc_without_bom_materials():
