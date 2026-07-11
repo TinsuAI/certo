@@ -54,6 +54,16 @@
       ↻ Đã quét lại nguồn — {{ request.query_params.get('refreshed') }} mã
       trong danh sách.
     </div>
+  {% elif request.query_params.get('bulk_accepted') is not none %}
+    <div class="toast" style="margin-bottom: 1rem;">
+      ✓ Đã duyệt hàng loạt {{ request.query_params.get('bulk_accepted') }} mã
+      vào catalog.
+      {% set bskip = request.query_params.get('bulk_skipped')|int %}
+      {% if bskip %}
+        <span class="meta">— bỏ qua {{ bskip }} mã chưa phân loại được
+        (để duyệt thủ công).</span>
+      {% endif %}
+    </div>
   {% endif %}
 
   <form method="get" class="search-bar" style="margin-bottom: 0.75rem;">
@@ -86,6 +96,76 @@
       </a>
       {% endif %}
     {% endfor %}
+    {% if source_counts %}
+      <span class="meta" style="margin-left: 0.5rem;">Nguồn:</span>
+      {% for s in ['bcct', 'bom', 'bqd'] %}
+        {% set sn = source_counts.get(s, 0) %}
+        {% if sn > 0 %}
+        <a class="chip {{ 'chip-active' if active_source == s else '' }}"
+           href="/clients/{{ client.client_id }}/catalog/candidates?source={{ s }}{% if active_kind %}&kind={{ active_kind }}{% endif %}{% if active_q %}&q={{ active_q }}{% endif %}">
+          {{ s|upper }} ({{ sn }})
+        </a>
+        {% endif %}
+      {% endfor %}
+      {% if active_source %}
+        <a class="btn-ghost btn-sm"
+           href="/clients/{{ client.client_id }}/catalog/candidates{% if active_kind %}?kind={{ active_kind }}{% endif %}">✗ nguồn</a>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  <div class="rule-bar"
+       style="margin-bottom: 1rem; padding: 0.75rem; border: 1px solid var(--border, #ddd); border-radius: 6px;">
+    <form method="get"
+          style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;">
+      {% if active_kind %}<input type="hidden" name="kind" value="{{ active_kind }}">{% endif %}
+      {% if active_source %}<input type="hidden" name="source" value="{{ active_source }}">{% endif %}
+      {% if active_q %}<input type="hidden" name="q" value="{{ active_q }}">{% endif %}
+      <label title="Mã là lá cuối của một BOM đã làm phẳng — tín hiệu duyệt hàng loạt">
+        <input type="checkbox" name="leaf" value="1" {% if active_leaf %}checked{% endif %}>
+        Chỉ lá BOM đã làm phẳng ({{ leaf_count }})
+      </label>
+      <label title="Ngưỡng số lần quan sát tối thiểu">
+        Quan sát ≥
+        <input type="number" name="min_observed" min="0"
+               value="{{ active_min_observed or '' }}" style="width: 5rem;">
+      </label>
+      <label title="Mặc định ẩn mã máy móc (excluded_non_material)">
+        <input type="checkbox" name="show_machinery" value="1"
+               {% if active_show_machinery %}checked{% endif %}>
+        Hiện mã máy móc ({{ machinery_total }})
+      </label>
+      <button type="submit" class="btn-secondary btn-sm">Áp dụng lọc</button>
+      {% if active_leaf or active_min_observed or active_show_machinery %}
+        <a class="btn-ghost btn-sm"
+           href="/clients/{{ client.client_id }}/catalog/candidates{% if active_kind %}?kind={{ active_kind }}{% endif %}">✗ Bỏ lọc</a>
+      {% endif %}
+    </form>
+
+    {% if pending_total > 0 %}
+    <form method="post"
+          action="/clients/{{ client.client_id }}/catalog/candidates/bulk-accept"
+          style="margin-top: 0.75rem; display: flex; align-items: center; gap: 0.75rem;">
+      {% if active_kind %}<input type="hidden" name="kind" value="{{ active_kind }}">{% endif %}
+      {% if active_source %}<input type="hidden" name="source" value="{{ active_source }}">{% endif %}
+      {% if active_q %}<input type="hidden" name="q" value="{{ active_q }}">{% endif %}
+      {% if active_leaf %}<input type="hidden" name="leaf" value="1">{% endif %}
+      {% if active_min_observed %}<input type="hidden" name="min_observed" value="{{ active_min_observed }}">{% endif %}
+      {% if active_show_machinery %}<input type="hidden" name="show_machinery" value="1">{% endif %}
+      <button type="submit" class="btn-primary btn-sm"
+              onclick="return confirm('Duyệt {{ pending_total }} mã đang lọc vào catalog? Bộ lọc hiện tại chính là quy tắc. Mã chưa phân loại được sẽ bị bỏ qua.')">
+        Duyệt {{ pending_total }} mã đang lọc
+      </button>
+      <span class="meta">Bộ lọc chính là quy tắc — duyệt toàn bộ
+        {{ pending_total }} mã khớp bộ lọc. Danh mục lấy theo đề xuất
+        (lá phẳng → NVL); tên/UoM lấy theo dữ liệu quan sát.
+        {% if bulk_sample %}
+          <br>Vd:
+          {% for code in bulk_sample %}<code>{{ code }}</code>{% if not loop.last %}, {% endif %}{% endfor %}{% if pending_total > bulk_sample|length %}, …{% endif %}
+        {% endif %}
+      </span>
+    </form>
+    {% endif %}
   </div>
 
   {% if not pending %}
@@ -142,6 +222,10 @@
               <span class="badge badge-info" title="Parent giữa cây BOM">BTP_SX</span>
             {% elif c.bom_role == 'nvl_leaf' %}
               <span class="badge badge-info" title="Lá cuối trong BOM">leaf</span>
+            {% endif %}
+            {% if c.leaf_in_flattened_bom %}
+              <span class="badge badge-success"
+                    title="Là lá của một BOM đã làm phẳng — đủ điều kiện duyệt hàng loạt">✓ lá phẳng</span>
             {% endif %}
           </td>
           <td class="meta">
