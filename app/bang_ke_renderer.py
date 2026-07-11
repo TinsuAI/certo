@@ -290,7 +290,7 @@ def _write_body(ws, body_cfg: dict, product: dict) -> tuple[int, dict]:
             put("unit_price", _text(unit_price))
             put("origin_value", _text(origin_value))
             put("non_origin_value", _text(non_origin_value))
-            put("country", part.get("origin_country", ""))
+            put("country", part.get("bang_ke_origin_text") or part.get("origin_country", ""))
             put("import_decl_no", part.get("import_declaration_no", ""))
             put(
                 "import_decl_date",
@@ -300,10 +300,10 @@ def _write_body(ws, body_cfg: dict, product: dict) -> tuple[int, dict]:
                 or "",
             )
             # Cột M-N ("C/O ưu đãi nhập khẩu / Bản khai báo của nhà SX / NCC NVL
-            # trong nước") chỉ dành cho NVL CÓ xuất xứ (đáp ứng LVC/RVC) — tính năng
-            # XX1 chưa làm. Để TRỐNG tạm thời; KHÔNG nhét source_document_ref vào đây.
-            put("co_doc_no", "")
-            put("co_doc_date", "")
+            # trong nước") — pure reader of the text materialized at Tính; the
+            # VN-origin resolver ticket fills the content for qualifying rows.
+            put("co_doc_no", part.get("bang_ke_co_doc_no", ""))
+            put("co_doc_date", part.get("bang_ke_co_doc_date", ""))
             # Legacy helper columns (only present on wide layouts).
             put("import_line_no", part.get("import_line_no", ""))
             put("decl_mat_key", f"{product.get('source_declaration_no', '')}{material_code}")

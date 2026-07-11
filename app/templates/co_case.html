@@ -1110,6 +1110,7 @@
           <input type="hidden" name="product_{{ product_index }}_origin_readiness_label" value="{{ product.origin_readiness_label }}">
           <input type="hidden" name="product_{{ product_index }}_origin_warnings" value="{{ product.origin_warnings_text }}">
           <input type="hidden" name="product_{{ product_index }}_origin_sheet_status" value="{{ product.origin_sheet_status or 'draft' }}">
+          <input type="hidden" name="product_{{ product_index }}_bang_ke_column9_mode" value="{{ product.bang_ke_column9_mode }}">
           <input type="hidden" name="product_{{ product_index }}_origin_sheet_status_label" value="{{ product.origin_sheet_status_label or 'Chưa tính' }}">
           <input type="hidden" name="product_{{ product_index }}_tariff_shift_rule" value="{{ product.tariff_shift_rule }}">
           <input type="hidden" name="product_{{ product_index }}_tariff_shift_status" value="{{ product.tariff_shift_status }}">
@@ -1611,6 +1612,7 @@
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_origin_country" value="{{ allocation.origin_country }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_consignee_name" value="{{ allocation.consignee_name }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_supplier_key" value="{{ allocation.supplier_key }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_bang_ke_origin_text" value="{{ allocation.bang_ke_origin_text }}">
                     {% endfor %}
                     {% if render_allocation_details %}
                     <button type="button" class="allocation-toggle" data-allocation-toggle data-allocation-group="{{ allocation_group }}" aria-expanded="{{ 'true' if allocation_default_expanded else 'false' }}" title="{{ 'Thu gọn dòng tồn' if allocation_default_expanded else 'Mở dòng tồn' }}">
@@ -1706,9 +1708,12 @@
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_origin_country" value="{{ material.origin_country }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_consignee_name" value="{{ material.consignee_name }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_supplier_key" value="{{ material.supplier_key }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_bang_ke_origin_text" value="{{ material.bang_ke_origin_text }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_bang_ke_co_doc_no" value="{{ material.bang_ke_co_doc_no }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_bang_ke_co_doc_date" value="{{ material.bang_ke_co_doc_date }}">
                     <span class="badge {{ 'badge-ok' if material.origin_status == 'origin' else 'badge-warning' if material.origin_status_source == 'default_conservative' else 'badge-neutral' }}" title="{{ material.origin_status_note }}">{{ material.origin_status_label or ('Có xuất xứ' if material.origin_status == 'origin' else 'Không xuất xứ') }}</span>
-                    {% if material.origin_country %}
-                    <small class="origin-country-text" title="Nước xuất xứ theo lô BCCT (cột 9 bảng kê)">{{ material.origin_country }}</small>
+                    {% if material.bang_ke_origin_text or material.origin_country %}
+                    <small class="origin-country-text" title="Cột (9) bảng kê — materialized lúc Tính">{{ material.bang_ke_origin_text or material.origin_country }}</small>
                     {% endif %}
                   </td>
                   <td data-origin-column="non-origin" class="num">
@@ -1762,7 +1767,7 @@
                   <td data-origin-column="consumed" class="num">{{ allocation.allocated_qty|number(6) }} <small>{{ material.uom }}</small></td>
                   <td data-origin-column="unit-value" class="num">{{ allocation.unit_value|number(6) if allocation.unit_value else 'Thiếu' }} <small>{{ allocation.currency or material.currency }}</small></td>
                   <td data-origin-column="material-value" class="num">{{ allocation.material_value|number if allocation.material_value else 'Thiếu' }}</td>
-                  <td data-origin-column="origin">{% if allocation.origin_country %}<small class="origin-country-text" title="{{ allocation.consignee_name }}">{{ allocation.origin_country }}</small>{% endif %}</td>
+                  <td data-origin-column="origin">{% if allocation.bang_ke_origin_text or allocation.origin_country %}<small class="origin-country-text" title="{{ allocation.consignee_name }}">{{ allocation.bang_ke_origin_text or allocation.origin_country }}</small>{% endif %}</td>
                   <td data-origin-column="non-origin" class="num">{{ allocation.material_value|number if material.origin_status == 'non_origin' and allocation.material_value else '0' }}</td>
                   <td data-origin-column="source">
                     <strong>{{ allocation.import_declaration_no }} / line {{ allocation.import_line_no }}</strong>

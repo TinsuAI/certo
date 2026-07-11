@@ -621,6 +621,7 @@ def case_from_form(form: dict[str, str]) -> dict:
             "bom_product_artifact_no": form.get(prefix + "bom_product_artifact_no", form.get(prefix + "bom_product_version_no", "")),
             "bom_product_version_id": form.get(prefix + "bom_product_artifact_id", form.get(prefix + "bom_product_version_id", "")),
             "bom_product_version_no": form.get(prefix + "bom_product_artifact_no", form.get(prefix + "bom_product_version_no", "")),
+            "bang_ke_column9_mode": form.get(prefix + "bang_ke_column9_mode", ""),
             "origin_method": form.get(prefix + "origin_method", ""),
             "origin_method_label": form.get(prefix + "origin_method_label", ""),
             "origin_formula": form.get(prefix + "origin_formula", ""),
@@ -676,6 +677,9 @@ def case_from_form(form: dict[str, str]) -> dict:
                 "origin_country": form.get(material_prefix + "origin_country", ""),
                 "consignee_name": form.get(material_prefix + "consignee_name", ""),
                 "supplier_key": form.get(material_prefix + "supplier_key", ""),
+                "bang_ke_origin_text": form.get(material_prefix + "bang_ke_origin_text", ""),
+                "bang_ke_co_doc_no": form.get(material_prefix + "bang_ke_co_doc_no", ""),
+                "bang_ke_co_doc_date": form.get(material_prefix + "bang_ke_co_doc_date", ""),
                 "origin_status": form.get(material_prefix + "origin_status", "non_origin"),
                 "origin_status_label": form.get(material_prefix + "origin_status_label", ""),
                 "origin_status_source": form.get(material_prefix + "origin_status_source", ""),
@@ -733,6 +737,7 @@ def case_from_form(form: dict[str, str]) -> dict:
                         "origin_country": form.get(allocation_prefix + "origin_country", ""),
                         "consignee_name": form.get(allocation_prefix + "consignee_name", ""),
                         "supplier_key": form.get(allocation_prefix + "supplier_key", ""),
+                        "bang_ke_origin_text": form.get(allocation_prefix + "bang_ke_origin_text", ""),
                     }
                 )
             product["materials"].append(material)

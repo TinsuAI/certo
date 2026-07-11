@@ -120,6 +120,37 @@
 
     <section class="zone mini-panel">
       <div class="subsection-head">
+        <h3>Bảng kê — cột (9) Nước xuất xứ</h3>
+        <p class="meta">Quy ước hiển thị cột (9), áp khi bấm "Tính bảng kê" (không đổi các bảng kê đã chốt). Có thể override theo từng hồ sơ.</p>
+      </div>
+      <div class="stack-form">
+        <label>Chế độ cột (9) mặc định
+          <select name="bang_ke_column9_mode">
+            <option value="country" {% if bang_ke_settings.column9_mode == 'country' %}selected{% endif %}>country — tên nước xuất xứ (Việt Nam, Trung Quốc…)</option>
+            <option value="qualification_label" {% if bang_ke_settings.column9_mode == 'qualification_label' %}selected{% endif %}>qualification_label — "Việt Nam"/"Không xuất xứ" theo đạt/không đạt</option>
+          </select>
+          <small class="meta">Hai chế độ chỉ đổi CHỮ trên cột (9); tiền cột (7)/(8) và LVC không đổi.</small>
+        </label>
+        <label>Nhãn cho lô không rõ xuất xứ (UNKNOWN / trống)
+          <input name="bang_ke_unknown_origin_label" value="{{ (client.bang_ke_overrides or {}).get('unknown_origin_label', '') }}" placeholder="Không xác định">
+          <small class="meta">Chỉ áp cho nhóm không-xác-định; nước có tên nhưng chưa có trong bảng quy đổi vẫn hiển thị nguyên văn kèm cảnh báo.</small>
+        </label>
+        <details>
+          <summary class="meta">Bảng quy đổi tên nước (chỉ đọc, {{ origin_country_mapping|length }} mục)</summary>
+          <div class="meta" data-origin-country-mapping style="max-height: 14rem; overflow-y: auto;">
+            {% for entry in origin_country_mapping %}{{ entry.raw }} → {{ entry.label_vi or entry.iso }}{% if not loop.last %} · {% endif %}{% endfor %}
+          </div>
+          {% if origin_country_unmapped %}
+          <div class="meta" data-origin-country-unmapped style="color: var(--danger, #b91c1c);">
+            Chuỗi xuất xứ của công ty này CHƯA có trong bảng: {{ origin_country_unmapped|join(', ') }} — sẽ hiển thị nguyên văn trên cột (9).
+          </div>
+          {% endif %}
+        </details>
+      </div>
+    </section>
+
+    <section class="zone mini-panel">
+      <div class="subsection-head">
         <h3>Xuất hồ sơ</h3>
         <p class="meta">Tờ khai nhập (TKN) ghép được Data Hub chia nhỏ để vừa giới hạn đính kèm của Ecosys.</p>
       </div>

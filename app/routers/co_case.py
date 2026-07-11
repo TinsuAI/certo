@@ -22,7 +22,7 @@ from app.portfolio import portfolio_service
 from app.source_store import co_stock_rows_from_bcct
 from app.substitution_plan import plan_shortfall_substitution
 from app.web.client_context import default_client_case, effective_min_gap_days, resolve_client, source_workspace_for_client
-from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, OVERRIDE_HISTORY_MAX, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, attach_origin_sheet_states, case_allocation_pool, case_missing_stock_summary, case_shortfall_rollup, case_stock_preview_summary, case_tkx_tkn_summary, clean_override_stack, co_case_context, co_case_source_context, co_case_source_context_cached, co_stock_is_usable, dossier_content_revision, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, material_row_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, origin_case_revision, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_products, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
+from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, OVERRIDE_HISTORY_MAX, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, attach_origin_sheet_states, case_allocation_pool, materialize_bang_ke_origin_fields, case_missing_stock_summary, case_shortfall_rollup, case_stock_preview_summary, case_tkx_tkn_summary, clean_override_stack, co_case_context, co_case_source_context, co_case_source_context_cached, co_stock_is_usable, dossier_content_revision, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, material_row_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, origin_case_revision, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_products, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
 from app.web.deps import large_request_form
 from app.web.templating import templates
 from app.workbook_io import create_dossier_zip, create_hq_bang_ke_workbook
@@ -645,6 +645,7 @@ def recalculate_origin_sheet_edits(client: dict, case: dict, product_code: str, 
     updated_products = [dict(product) for product in products]
     updated_products[target_index] = recalculated
     prepared["products"] = updated_products
+    prepared = materialize_bang_ke_origin_fields(prepared, client)
     return attach_origin_sheet_states(prepared)
 def override_state_stamp(product: dict) -> dict:
     """Fields every material_overrides WRITE must stamp on the sheet state:
@@ -1684,9 +1685,12 @@ def allocate_whole_case_preview(client: dict, case: dict, context: dict, stock_r
     if not has_overrides:
         preview = dict(case)
         preview.pop("origin_snapshot", None)
-        return prepare_case_origin_products(
-            preview, invoice_matches, bom_workspace, form_lane, material_rows, stock_rows,
-            preserve_existing=False,
+        return materialize_bang_ke_origin_fields(
+            prepare_case_origin_products(
+                preview, invoice_matches, bom_workspace, form_lane, material_rows, stock_rows,
+                preserve_existing=False,
+            ),
+            client,
         )
     for code in origin_product_order(case):
         sheet = states.get(code) if isinstance(states.get(code), dict) else {}
@@ -1697,7 +1701,7 @@ def allocate_whole_case_preview(client: dict, case: dict, context: dict, stock_r
                 case, code, invoice_matches, bom_workspace, form_lane, material_rows, stock_rows,
                 min_gap_days=min_gap_days,
             )
-    return case
+    return materialize_bang_ke_origin_fields(case, client)
 def whole_case_stock_summary(client: dict, case: dict, context: dict, stock_rows: list[dict], min_gap_days: int | None) -> dict:
     """Run stock for ALL products (preview, non-committing) → mã thiếu summary."""
     return case_missing_stock_summary(
@@ -2032,6 +2036,7 @@ async def load_bom_co_case_origin_sheet(request: Request, client_id: str, case_i
         min_gap_days=min_gap_days,
         allocate=False,
     )
+    context["case"] = materialize_bang_ke_origin_fields(context["case"], client)
     context["case"] = attach_case_bom_snapshot(context["case"], context.get("bom_workspace", minimal_bom_workspace()))
     context["case"] = attach_origin_bom_product_codes(
         context["case"],
@@ -2143,6 +2148,7 @@ def _recompute_origin_sheet_context(
             stock_rows,
             min_gap_days=min_gap_days,
         )
+    context["case"] = materialize_bang_ke_origin_fields(context["case"], client)
     context["case"] = attach_case_bom_snapshot(context["case"], context.get("bom_workspace", minimal_bom_workspace()))
     context["case"] = attach_origin_bom_product_codes(
         context["case"],

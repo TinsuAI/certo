@@ -652,7 +652,7 @@ def write_hq_sheet_materials(ws, product: dict, start_row: int, *, legacy_export
             put(row_index, "unit_price", unit_price_display)
             put(row_index, "origin_val", str(origin_value))
             put(row_index, "non_origin_val", str(non_origin_value))
-            put(row_index, "country", part.get("origin_country", ""))
+            put(row_index, "country", part.get("bang_ke_origin_text") or part.get("origin_country", ""))
             put(row_index, "imp_no", part.get("import_declaration_no", ""))
             put(
                 row_index,
@@ -662,10 +662,10 @@ def write_hq_sheet_materials(ws, product: dict, start_row: int, *, legacy_export
                 or part.get("registration_date")
                 or "",
             )
-            # Cột M-N (C/O ưu đãi nhập khẩu / bản khai báo NCC) — để TRỐNG tạm thời
-            # tới khi làm phần xuất xứ NVL (XX1). Xem app/bang_ke_renderer.py.
-            put(row_index, "co_no", "")
-            put(row_index, "co_date", "")
+            # Cột M-N (C/O ưu đãi nhập khẩu / bản khai báo NCC) — pure reader of the
+            # text materialized at Tính; nội dung đến từ ticket resolver VN-origin.
+            put(row_index, "co_no", part.get("bang_ke_co_doc_no", ""))
+            put(row_index, "co_date", part.get("bang_ke_co_doc_date", ""))
             # Legacy helper columns — only meaningful on the wide layout.
             if layout["kind"] == "legacy":
                 put(row_index, "line_no", part.get("import_line_no", ""))

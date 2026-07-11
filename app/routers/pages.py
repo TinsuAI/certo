@@ -5,6 +5,8 @@ from fastapi import APIRouter
 from app import changelog, co_auth, co_stock_eligibility, co_stock_materializer
 from app import version as appver
 from app.bcct_aggregates import declaration_type_counts, excluded_types_with_rows
+from app.origin_country import ISO_TO_VI, RAW_TO_ISO, country_label_vi, is_unknown_origin, normalize_column9_mode
+from app.web.co_case_context import bang_ke_settings
 from app.app_state_store import get_app_state_store
 from app.co_case_store import co_case_is_completed, co_case_status_view, get_case_workspace, update_case_record
 from app.demo_data import update_products_from_form
@@ -50,12 +52,28 @@ def config_context(client_id: str, **extra) -> dict:
     context.update(_declaration_type_count_context(context.get("client") or {}, context.get("client_config") or {}))
     return context
 def _declaration_type_count_context(client: dict, client_config: dict) -> dict:
-    counts = declaration_type_counts(co_stock_materializer.read_co_stock_rows_cached(str(client.get("id") or "")))
+    stock_rows = co_stock_materializer.read_co_stock_rows_cached(str(client.get("id") or ""))
+    counts = declaration_type_counts(stock_rows)
     eligible = (client_config.get("bcct") or {}).get("eligible_import_declaration_types") or []
     return {
         "bcct_declaration_type_counts": counts,
         "bcct_excluded_type_rows": excluded_types_with_rows(counts, eligible),
+        "bang_ke_settings": bang_ke_settings(client),
+        "origin_country_mapping": [
+            {"raw": raw, "iso": iso, "label_vi": ISO_TO_VI.get(iso, "")}
+            for raw, iso in sorted(RAW_TO_ISO.items())
+        ],
+        "origin_country_unmapped": _unmapped_origin_strings(stock_rows),
     }
+def _unmapped_origin_strings(stock_rows: list[dict]) -> list[str]:
+    seen: list[str] = []
+    for row in stock_rows or []:
+        raw = str(row.get("origin_country") or "").strip()
+        if not raw or is_unknown_origin(raw):
+            continue
+        if not country_label_vi(raw)[1] and raw not in seen:
+            seen.append(raw)
+    return sorted(seen)
 def declaration_type_exclusion_warning(client: dict, client_config: dict) -> str:
     excluded = _declaration_type_count_context(client, client_config)["bcct_excluded_type_rows"]
     if not excluded:
@@ -204,12 +222,23 @@ async def save_client_config_route(request: Request, client_id: str):
     if (
         "legal_name" in form or "tax_code" in form
         or "co_stock_min_days_before_export" in form or "tkn_pdf_max_part_mb" in form
+        or "bang_ke_column9_mode" in form or "bang_ke_unknown_origin_label" in form
     ):
         client = dict(client)
         if "legal_name" in form:
             client["legal_name"] = str(form.get("legal_name") or "").strip()
         if "tax_code" in form:
             client["tax_code"] = str(form.get("tax_code") or "").strip()
+        if "bang_ke_column9_mode" in form or "bang_ke_unknown_origin_label" in form:
+            # Bảng kê conventions are CO-side render metadata (like legal_name):
+            # editable even when DH source-mode makes the source config read-only.
+            # Editing them never rewrites persisted sheets — only re-Tính applies.
+            overrides = dict(client.get("bang_ke_overrides") or {})
+            if "bang_ke_column9_mode" in form:
+                overrides["column9_mode"] = normalize_column9_mode(form.get("bang_ke_column9_mode"))
+            if "bang_ke_unknown_origin_label" in form:
+                overrides["unknown_origin_label"] = str(form.get("bang_ke_unknown_origin_label") or "").strip()
+            client["bang_ke_overrides"] = overrides
         if "tkn_pdf_max_part_mb" in form:
             raw_mb = str(form.get("tkn_pdf_max_part_mb") or "").strip()
             exp = dict(client.get("export_overrides") or {})

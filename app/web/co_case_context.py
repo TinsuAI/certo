@@ -19,6 +19,13 @@ from app.data_hub_client import bom_product_code_from_material_identity
 from app.data_hub_settings import data_hub_link_settings
 from app.demo_data import DEMO_CASE, SOURCE_NOTES, attach_results, clone_case
 from app.origin import evaluate_tariff_shift
+from app.origin_country import (
+    DEFAULT_COLUMN9_MODE,
+    DEFAULT_UNKNOWN_ORIGIN_LABEL,
+    column9_text,
+    country_label_vi,
+    normalize_column9_mode,
+)
 from app.portfolio import portfolio_service
 from app.source_store import co_stock_rows_from_bcct
 from app.supplier_identity import supplier_key
@@ -1407,6 +1414,77 @@ def sheet_form_recommendation(market: str, finished_hs: str) -> dict:
         "criteria_text": criteria_text,
         "source": "engine",
     }
+def bang_ke_settings(client: dict | None) -> dict:
+    """Client-level bảng kê conventions, stored on the CO-side client overlay
+    (like co_stock_overrides) so they stay editable when DH source-mode makes
+    the shared source config read-only."""
+    overrides = (client or {}).get("bang_ke_overrides") or {}
+    return {
+        "column9_mode": normalize_column9_mode(overrides.get("column9_mode")) or DEFAULT_COLUMN9_MODE,
+        "unknown_origin_label": str(overrides.get("unknown_origin_label") or "").strip() or DEFAULT_UNKNOWN_ORIGIN_LABEL,
+    }
+def resolve_case_column9_mode(case: dict | None, client: dict | None) -> str:
+    """One resolver owns the column-9 mode precedence: per-case override >
+    client default > code default (ADR 2026-07-11). Deliberately no per-sheet
+    knob — a dossier is one C/O."""
+    return (
+        normalize_column9_mode((case or {}).get("bang_ke_column9_mode_override"))
+        or bang_ke_settings(client)["column9_mode"]
+    )
+def materialize_bang_ke_origin_fields(case: dict, client: dict | None) -> dict:
+    """Materialize the column-9 text (and the (12)/(13) text slots) onto every
+    product/material/allocation-line at Tính. The mode is read ONCE here and
+    stamped on the product; all three export renderers and the web cell are
+    pure readers of the materialized fields, so export == web holds by
+    construction and later config/mode edits never rewrite persisted sheets —
+    only the next Tính picks them up."""
+    mode = resolve_case_column9_mode(case, client)
+    unknown_label = bang_ke_settings(client)["unknown_origin_label"]
+    for product in case.get("products") or []:
+        product["bang_ke_column9_mode"] = mode
+        for material in product.get("materials") or []:
+            _materialize_material_origin_text(material, mode, unknown_label)
+    return case
+def _materialize_material_origin_text(material: dict, mode: str, unknown_label: str) -> None:
+    if material.get("deleted"):
+        return
+    lines = material.get("allocation_lines") or []
+    unmapped: list[str] = []
+    line_texts: list[str] = []
+    for line in lines:
+        label, mapped = country_label_vi(line.get("origin_country"), unknown_label)
+        if not mapped:
+            unmapped.append(label)
+        text = column9_text(mode, line.get("origin_status") or material.get("origin_status") or "non_origin", label)
+        line["bang_ke_origin_text"] = text
+        if text and text not in line_texts:
+            line_texts.append(text)
+    if line_texts:
+        material["bang_ke_origin_text"] = ", ".join(line_texts)
+    elif str(material.get("origin_country") or "").strip():
+        label, mapped = country_label_vi(material.get("origin_country"), unknown_label)
+        if not mapped:
+            unmapped.append(label)
+        material["bang_ke_origin_text"] = column9_text(
+            mode, material.get("origin_status") or "non_origin", label
+        )
+    else:
+        # No lot data at all: leave column (9) blank (never the unknown label —
+        # that would stamp every un-calculated load-BOM row).
+        material["bang_ke_origin_text"] = ""
+    # (12)/(13) slots: materialized (renderers read only these), content arrives
+    # with the VN-origin resolver ticket.
+    material.setdefault("bang_ke_co_doc_no", "")
+    material.setdefault("bang_ke_co_doc_date", "")
+    if unmapped:
+        warnings = list(material.get("material_warnings") or [])
+        code = material.get("material_code") or material.get("internal_material_code") or "NVL"
+        for raw in unique_texts(unmapped):
+            note = f"{code}: nước xuất xứ '{raw}' chưa có trong bảng quy đổi — hiển thị nguyên văn trên cột (9)."
+            if note not in warnings:
+                warnings.append(note)
+        material["material_warnings"] = warnings
+        material["material_warnings_text"] = " | ".join(warnings)
 def origin_sheet_export_blockers(case: dict) -> list[str]:
     blockers = []
     for product in attach_origin_sheet_states(case).get("products", []):

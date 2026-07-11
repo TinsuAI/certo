@@ -5925,6 +5925,69 @@ def test_co_case_origin_round_trips_multi_lot_allocation_to_export_workbook():
     assert hidden_form_data(locked.text)["product_0_origin_sheet_status"] == "locked"
 
 
+def test_co_case_origin_country_mode_splits_mixed_origin_line_end_to_end():
+    # VN-origin tickets #7+#9: one BOM line drawn from a CHINA lot and a TAIWAN
+    # lot must render as TWO rows (fan-out keyed on the materialized column-9
+    # text) — proven through the real upload → Tính → web grid pipeline.
+    client = TestClient(app)
+    client.post(
+        "/clients/growatt/bcct/upload",
+        files={
+            "file": (
+                "bcct.xlsx",
+                bcct_workbook([
+                    {
+                        "direction": "import", "declaration_type": "E11",
+                        "declaration_no": "NK-SPLIT-1", "line_no": "1",
+                        "item_code": "DEMO-NPL-001", "description": "Board CN",
+                        "hs_code": "8542.39", "quantity": "1", "unit": "PCE",
+                        "customs_value": "10", "currency": "VND",
+                        "origin_country": "CHINA", "partner_name": "NCC CN",
+                    },
+                    {
+                        "direction": "import", "declaration_type": "E11",
+                        "declaration_no": "NK-SPLIT-2", "line_no": "2",
+                        "item_code": "DEMO-NPL-001", "description": "Board TW",
+                        "hs_code": "8542.39", "quantity": "2", "unit": "PCE",
+                        "customs_value": "40", "currency": "VND",
+                        "origin_country": "TAIWAN", "partner_name": "NCC TW",
+                    },
+                    {
+                        "direction": "export", "declaration_type": "E42",
+                        "declaration_no": "XK-SPLIT", "line_no": "1",
+                        "item_code": "PV00.0048500", "description": "Growatt inverter",
+                        "hs_code": "850440", "quantity": "3", "unit": "PCS",
+                        "customs_value": "1000", "currency": "VND",
+                        "invoice_ref": "INV-SPLIT",
+                    },
+                ]),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+    created = client.post(
+        "/clients/growatt/co-case/create",
+        data={"title": "Country split", "case_code": "CO-SPLIT-E2E", "destination_market": "Ấn Độ", "invoice_no": "INV-SPLIT"},
+        follow_redirects=False,
+    )
+    origin = client.get(f"{created.headers['location']}/origin")
+    client.post(
+        f"{created.headers['location']}/origin/sheet/PV00.0048500/calculate",
+        data=hidden_form_data(origin.text),
+    )
+    page = client.get(f"{created.headers['location']}/origin")
+    form_data = hidden_form_data(page.text)
+
+    assert form_data["product_0_bang_ke_column9_mode"] == "country"
+    assert form_data["product_0_material_0_bang_ke_origin_text"] == "Trung Quốc, Đài Loan"
+    assert form_data["product_0_material_0_allocation_0_bang_ke_origin_text"] == "Trung Quốc"
+    assert form_data["product_0_material_0_allocation_1_bang_ke_origin_text"] == "Đài Loan"
+    # the web grid fans the line out into two split rows
+    assert page.text.count("data-origin-split-row") == 2
+    assert "Tách 1/2" in page.text
+    assert "Tách 2/2" in page.text
+
+
 def test_co_case_delete_only_allows_draft_unlocked_cases():
     client = TestClient(app)
     draft = client.post(

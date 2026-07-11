@@ -173,8 +173,9 @@ def test_renderer_emits_one_row_per_part():
     product = {"code": "P1", "materials": [material]}
     render_into_sheet(ws, cfg, case={"case_code": "C", "products": [product]}, product=product, sheet_title="P1")
     cols, start = cfg["body"]["columns"], cfg["body"]["start_row"]
-    assert ws[f"{cols['country']}{start}"].value == "VIETNAM"
-    assert ws[f"{cols['country']}{start + 1}"].value == "CHINA"
+    # column (9) prefers the materialized text (ticket #9) over the raw string
+    assert ws[f"{cols['country']}{start}"].value == "Việt Nam"
+    assert ws[f"{cols['country']}{start + 1}"].value == "Trung Quốc"
     assert ws[f"{cols['stt']}{start}"].value == 1
     assert ws[f"{cols['stt']}{start + 1}"].value == 2
     # the two part rows carry the split money: origin part → origin column,
