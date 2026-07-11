@@ -68,6 +68,16 @@ async def main() -> None:
         print(f"  explicit refresh round-trip: {refresh_s:.2f}s")
         await shoot(page, "11_candidates_refreshed_toast")
 
+        # 3. Phase 3 (#33) — A.5 removal trigger: an NB material that only
+        #    appears inside goods_name parens shows real observation counts
+        #    on the detail page straight from v_material_roles (the Python
+        #    workaround is deleted).
+        await page.goto(f"{BASE}/clients/{CLIENT}/catalog/001.0001100/detail")
+        await page.wait_for_load_state("networkidle")
+        body = await page.content()
+        assert "001.0001100" in body
+        await shoot(page, "12_paren_only_material_has_observations")
+
         await ctx.close()
         await browser.close()
         print("OK")

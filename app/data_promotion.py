@@ -161,6 +161,10 @@ EXCLUDED_CLIENT_SCOPED_TABLES = frozenset({
     # rules are mig-seeded and tuned per-deployment; v_material_roles is
     # a view, picked up automatically by schema replay.
     "client_parser_rules",
+    # Persisted derivation of bcct_rows x client_parser_rules (mig 091).
+    # Both inputs are handled above; the destination's boot backfill
+    # (app/stores/bcct_nb_codes.py) recomputes it from them.
+    "bcct_nb_codes",
     "v_material_roles",
     "v_material_classification",  # derived view (mig 078); schema replay
     # picks it up. The raw material_group it reads ships on hub.materials.

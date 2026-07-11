@@ -1217,20 +1217,6 @@ async def catalog_detail(request: Request, client_id: str, material_code: str):
     for ev in audit_events:
         ev["diff"] = audit_diff(ev["event_type"], ev["payload"])
 
-    # Supplement v_material_roles when it returns 0 observations but BCCT
-    # actually references this material via paren-extract (Growatt-shape).
-    # Generic fix via per-client parser_rules — see material_observations.py.
-    if material.get("observed_count", 0) == 0:
-        from app.stores.material_observations import compute_observations
-        obs = compute_observations(client_id, material_code)
-        if obs.observed_count > 0:
-            material["has_imports"] = obs.has_imports
-            material["has_exports"] = obs.has_exports
-            material["observed_count"] = obs.observed_count
-            material["observed_first_at"] = obs.observed_first_at
-            material["observed_last_at"] = obs.observed_last_at
-            material["observed_directions"] = obs.observed_directions
-
     # code_mappings panel: full NB↔HQ relationships for this material.
     with connect() as conn, conn.cursor() as cur:
         # Cases: this material as NB → which HQ codes; as HQ → which NB codes.

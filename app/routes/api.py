@@ -2090,6 +2090,8 @@ async def api_create_parser_rule(
         row = cur.fetchone()
     from app.parsers.client_parser_rules import clear_rules_cache
     clear_rules_cache()
+    from app.stores.bcct_nb_codes import rebuild_after_change
+    rebuild_after_change(client_id)
     return _json(_serialize_rule(row), status_code=201)
 
 
@@ -2126,6 +2128,8 @@ async def api_patch_parser_rule(
         raise HTTPException(404, "rule not found")
     from app.parsers.client_parser_rules import clear_rules_cache
     clear_rules_cache()
+    from app.stores.bcct_nb_codes import rebuild_after_change
+    rebuild_after_change(client_id)
     return _json(_serialize_rule(row))
 
 
@@ -2151,6 +2155,8 @@ async def api_delete_parser_rule(
         raise HTTPException(404, "rule not found or already disabled")
     from app.parsers.client_parser_rules import clear_rules_cache
     clear_rules_cache()
+    from app.stores.bcct_nb_codes import rebuild_after_change
+    rebuild_after_change(client_id)
     return _json({"rule_id": rule_id, "enabled": False})
 
 
