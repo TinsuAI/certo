@@ -282,34 +282,33 @@ def test_theme_toggle_persists_dark_theme_cookie():
     assert 'name="theme" value="light"' in themed.text
 
 
-def test_client_navigation_hides_data_modules_inside_co_workflow():
+def test_client_tabs_stay_visible_inside_co_workflow():
+    # QA issue #17: the case view must keep the client-tabs bar so Tồn CO /
+    # BCCT / NCC / config stay one click away from an open dossier.
     client = TestClient(app)
 
     response = client.get("/clients/growatt/co-case")
 
     assert response.status_code == 200
     assert 'aria-label="Hồ sơ C/O"' in response.text
-    assert 'aria-label="Dữ liệu nền công ty"' not in response.text
     assert "+ Tạo hồ sơ" in response.text
-    assert 'href="/clients/growatt/co-case">Hồ sơ C/O</a>' not in response.text
-    assert "Overview" not in response.text
-    assert "Danh mục mã hàng" not in response.text
-    assert "/clients/growatt/catalog" not in response.text
-    assert "/clients/growatt/bom" not in response.text
-    assert "/clients/growatt/co-stock" not in response.text
-    assert "/clients/growatt/bcct" not in response.text
+    assert 'aria-label="Khu làm việc công ty"' in response.text
+    assert "/clients/growatt/catalog" in response.text
+    assert "/clients/growatt/co-stock" in response.text
+    assert "/clients/growatt/suppliers" in response.text
 
     created = client.post(
         "/clients/growatt/co-case/create",
-        data={"title": "Hidden data nav case", "case_code": "NAV-HIDE", "destination_market": "EU"},
+        data={"title": "Nav tabs case", "case_code": "NAV-TABS", "destination_market": "EU"},
         follow_redirects=False,
     )
     detail = client.get(created.headers["location"])
 
     assert detail.status_code == 200
-    assert 'aria-label="Dữ liệu nền công ty"' not in detail.text
-    assert "Overview" not in detail.text
-    assert "Danh mục mã hàng" not in detail.text
+    assert 'aria-label="Khu làm việc công ty"' in detail.text
+    assert 'aria-label="Các bước làm C/O"' in detail.text
+    assert "/clients/growatt/co-stock" in detail.text
+    assert "/clients/growatt/suppliers" in detail.text
 
     catalog = client.get("/clients/growatt/catalog")
 
