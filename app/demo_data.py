@@ -738,6 +738,8 @@ def case_from_form(form: dict[str, str]) -> dict:
                         "consignee_name": form.get(allocation_prefix + "consignee_name", ""),
                         "supplier_key": form.get(allocation_prefix + "supplier_key", ""),
                         "bang_ke_origin_text": form.get(allocation_prefix + "bang_ke_origin_text", ""),
+                        "origin_status": form.get(allocation_prefix + "origin_status", ""),
+                        "bang_ke_co_doc_no": form.get(allocation_prefix + "bang_ke_co_doc_no", ""),
                     }
                 )
             product["materials"].append(material)

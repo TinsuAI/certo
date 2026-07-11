@@ -803,6 +803,7 @@ def prepare_case_origin_products(
     stock_rows: list[dict],
     *,
     preserve_existing: bool = False,
+    supplier_flags: dict | None = None,
 ) -> dict:
     source_matches = (
         invoice_matches
@@ -844,6 +845,7 @@ def prepare_case_origin_products(
             stock_pool,
             product_sequence=product_sequence,
             bom_product_code=bom_product_code,
+            supplier_flags=supplier_flags,
         ))
     if not products:
         return case
@@ -949,6 +951,7 @@ def prepare_case_origin_sheet(
     *,
     min_gap_days: int | None = None,
     allocate: bool = True,
+    supplier_flags: dict | None = None,
 ) -> dict:
     target_code = str(product_code or "").strip()
     if not target_code:
@@ -991,6 +994,7 @@ def prepare_case_origin_sheet(
         product_sequence=target_sequence,
         bom_product_code=bom_product_code,
         allocate=allocate,
+        supplier_flags=supplier_flags,
     )
     products = []
     changed = False
@@ -1533,9 +1537,12 @@ def _materialize_material_origin_text(material: dict, mode: str, unknown_label: 
         # No lot data at all: leave column (9) blank (never the unknown label —
         # that would stamp every un-calculated load-BOM row).
         material["bang_ke_origin_text"] = ""
-    # (12)/(13) slots: materialized (renderers read only these), content arrives
-    # with the VN-origin resolver ticket.
-    material.setdefault("bang_ke_co_doc_no", "")
+    # (12)/(13) slots: materialized (renderers read only these). Content is the
+    # distinct join of the per-line evidence text the resolver stamped on
+    # qualifying lines ("Phụ lục X/<NCC>"); (13) stays blank until document
+    # dates exist (deferred).
+    line_doc_refs = unique_texts(line.get("bang_ke_co_doc_no", "") for line in lines)
+    material["bang_ke_co_doc_no"] = ", ".join(line_doc_refs)
     material.setdefault("bang_ke_co_doc_date", "")
     if unmapped:
         warnings = list(material.get("material_warnings") or [])
@@ -2244,6 +2251,7 @@ def origin_product_from_invoice_match(
     product_sequence: int | None = None,
     bom_product_code: str = "",
     allocate: bool = True,
+    supplier_flags: dict | None = None,
 ) -> dict:
     product_code = str(match.get("item_code", "")).strip()
     bom_product_code = str(bom_product_code or product_code).strip()
@@ -2265,6 +2273,7 @@ def origin_product_from_invoice_match(
             product_name=match.get("description") or product_code,
             material_sequence=material_sequence,
             allocate=allocate,
+            supplier_flags=supplier_flags,
         )
         for material_sequence, row in enumerate(bom_rows, start=1)
     ]
@@ -2441,6 +2450,7 @@ def origin_material_from_bom_row(
     product_name: str = "",
     material_sequence: int | None = None,
     allocate: bool = True,
+    supplier_flags: dict | None = None,
 ) -> dict:
     material_code = str(row.get("material_code", "")).strip()
     material = material_index.get(material_code, {})
@@ -2487,6 +2497,13 @@ def origin_material_from_bom_row(
         material,
         allocation_context,
     )
+    # Per-row VN-origin resolution (ticket #12, ADR 2026-07-10): a LINE is
+    # originating iff its lot's origin normalizes to VN AND its supplier holds a
+    # current evidence flag. Resolved per lot at Tính, never persisted outside
+    # the snapshot; the resolver yields an originating AMOUNT (split rows /
+    # phase-2 partial cumulation change only the number). With zero flags
+    # (Johnson) nothing is stamped — behaviour byte-identical to pre-feature.
+    origin_amount, origin_amount_vnd = _resolve_vn_origin_lines(allocation_lines, supplier_flags)
     origin_details = origin_status_details_from_material(material)
     origin_status = origin_details["status"]
     fallback_unit_value, fallback_unit_value_source = first_decimal_source(
@@ -2522,8 +2539,18 @@ def origin_material_from_bom_row(
         material_value_vnd = sum(allocated_values_vnd, Decimal("0"))
     else:
         material_value_vnd = None
-    vnm_value = material_value if origin_status == "non_origin" and material_value is not None else None
-    vnm_value_vnd = material_value_vnd if origin_status == "non_origin" and material_value_vnd is not None else None
+    if origin_status == "non_origin" and material_value is not None:
+        vnm_value = material_value - origin_amount
+        if vnm_value < 0:
+            vnm_value = Decimal("0")
+    else:
+        vnm_value = None
+    if origin_status == "non_origin" and material_value_vnd is not None:
+        vnm_value_vnd = material_value_vnd - origin_amount_vnd
+        if vnm_value_vnd < 0:
+            vnm_value_vnd = Decimal("0")
+    else:
+        vnm_value_vnd = None
     line_fx_sources = unique_texts(line.get("exchange_rate_source", "") for line in allocation_lines)
     aggregated_fx_source = line_fx_sources[0] if len(line_fx_sources) == 1 else ("mixed" if line_fx_sources else "")
     line_unit_missing = any(not line.get("unit_value") for line in allocation_lines)
@@ -2592,7 +2619,11 @@ def origin_material_from_bom_row(
         )
     if allocation_status == "shortage" and shortage_trace:
         material_warnings.append(f"{material_code}: tồn CO đã dùng ở bước trước: {shortage_trace}.")
-    if origin_details["source"] == "default_conservative":
+    if origin_amount > 0:
+        material_warnings.append(
+            f"{material_code}: cột (13) trống — chưa có ngày chứng từ (Phụ lục X/C-O nhập); đính kèm bản giấy khi nộp hồ sơ."
+        )
+    if origin_details["source"] == "default_conservative" and origin_amount <= 0:
         material_warnings.append(f"{material_code}: chưa có phân loại xuất xứ, đang tính bảo thủ là không xuất xứ.")
     if not material_description:
         material_warnings.append(f"{material_code}: thiếu tên NVL từ BOM, danh mục NVL và BCCT nhập.")
@@ -2643,6 +2674,8 @@ def origin_material_from_bom_row(
         "origin_status_label": origin_details["label"],
         "origin_status_source": origin_details["source"],
         "origin_status_note": origin_details["note"],
+        "origin_amount": decimal_text(origin_amount) if origin_amount > 0 else "",
+        "origin_amount_vnd": decimal_text(origin_amount_vnd) if origin_amount_vnd > 0 else "",
         "available_qty": available_qty,
         "consumed_qty": consumed_qty,
         "unit_value": unit_value_text,
@@ -2676,6 +2709,30 @@ def origin_material_from_bom_row(
         "uom": row.get("uom", ""),
         "source_document_ref": allocation_document_ref(allocation_lines) or row.get("source") or row.get("product_version_id", ""),
     }
+def _resolve_vn_origin_lines(allocation_lines: list[dict], supplier_flags: dict | None) -> tuple[Decimal, Decimal]:
+    """Stamp per-line origin_status + the (12)/(13) evidence text and return the
+    originating (amount, amount_vnd). Inert with no flags: zero-flag clients get
+    exactly the pre-feature snapshot."""
+    from app.origin_country import is_vietnam_origin
+    from app.supplier_evidence_store import EVIDENCE_KIND_LABELS
+
+    if not supplier_flags:
+        return Decimal("0"), Decimal("0")
+    origin_amount = Decimal("0")
+    origin_amount_vnd = Decimal("0")
+    for line in allocation_lines:
+        flag = supplier_flags.get(str(line.get("supplier_key") or ""))
+        qualifies = bool(flag) and is_vietnam_origin(line.get("origin_country"))
+        line["origin_status"] = "origin" if qualifies else "non_origin"
+        if not qualifies:
+            continue
+        kind_label = EVIDENCE_KIND_LABELS.get(str(flag.get("evidence_kind") or ""), "Phụ lục X")
+        supplier_display = str(flag.get("supplier_name") or line.get("consignee_name") or "").strip()
+        line["bang_ke_co_doc_no"] = f"{kind_label}/{supplier_display}" if supplier_display else kind_label
+        line["bang_ke_co_doc_date"] = ""
+        origin_amount += decimal_value(line.get("material_value"))
+        origin_amount_vnd += decimal_value(line.get("material_value_vnd"))
+    return origin_amount, origin_amount_vnd
 def allocate_material_stock(
     material_code: str,
     required_qty: Decimal,

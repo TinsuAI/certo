@@ -633,6 +633,7 @@ def recalculate_origin_sheet_edits(client: dict, case: dict, product_code: str, 
         stock_pool,
         product_sequence=target_index + 1,
         bom_product_code=str(target.get("bom_product_code") or target.get("code") or ""),
+        supplier_flags=_supplier_flags(client),
     )
     for key in [
         "bom_product_artifact_id",
@@ -648,6 +649,16 @@ def recalculate_origin_sheet_edits(client: dict, case: dict, product_code: str, 
     prepared["products"] = updated_products
     prepared = materialize_bang_ke_origin_fields(prepared, client)
     return attach_origin_sheet_states(prepared)
+def _supplier_flags(client: dict) -> dict:
+    """Current supplier evidence flags for this client, fetched ONCE per Tính
+    and threaded down the build funnel. {} without a database or on error —
+    the resolver is inert then (zero-flag clients stay byte-identical)."""
+    from app import supplier_evidence_store
+
+    try:
+        return supplier_evidence_store.flagged_suppliers(str(client.get("id") or ""))
+    except Exception:  # noqa: BLE001
+        return {}
 def override_state_stamp(product: dict) -> dict:
     """Fields every material_overrides WRITE must stamp on the sheet state:
     the key scheme (so the legacy-key migration never re-runs on new-style
@@ -1683,6 +1694,7 @@ def allocate_whole_case_preview(client: dict, case: dict, context: dict, stock_r
     case.pop("origin_snapshot", None)
     states = case.get("origin_sheet_states") or {}
     has_overrides = any(isinstance(s, dict) and s.get("material_overrides") for s in states.values())
+    supplier_flags = _supplier_flags(client)
     if not has_overrides:
         preview = dict(case)
         preview.pop("origin_snapshot", None)
@@ -1690,6 +1702,7 @@ def allocate_whole_case_preview(client: dict, case: dict, context: dict, stock_r
             prepare_case_origin_products(
                 preview, invoice_matches, bom_workspace, form_lane, material_rows, stock_rows,
                 preserve_existing=False,
+                supplier_flags=supplier_flags,
             ),
             client,
         )
@@ -1701,6 +1714,7 @@ def allocate_whole_case_preview(client: dict, case: dict, context: dict, stock_r
             case = prepare_case_origin_sheet(
                 case, code, invoice_matches, bom_workspace, form_lane, material_rows, stock_rows,
                 min_gap_days=min_gap_days,
+                supplier_flags=supplier_flags,
             )
     return materialize_bang_ke_origin_fields(case, client)
 def whole_case_stock_summary(client: dict, case: dict, context: dict, stock_rows: list[dict], min_gap_days: int | None) -> dict:
@@ -2148,6 +2162,7 @@ def _recompute_origin_sheet_context(
             _ensure_origin_material_rows(client, source_context.get("material_rows", [])),
             stock_rows,
             min_gap_days=min_gap_days,
+            supplier_flags=_supplier_flags(client),
         )
     context["case"] = materialize_bang_ke_origin_fields(context["case"], client)
     context["case"] = attach_case_bom_snapshot(context["case"], context.get("bom_workspace", minimal_bom_workspace()))

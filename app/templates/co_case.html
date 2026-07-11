@@ -1629,6 +1629,8 @@
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_consignee_name" value="{{ allocation.consignee_name }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_supplier_key" value="{{ allocation.supplier_key }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_bang_ke_origin_text" value="{{ allocation.bang_ke_origin_text }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_origin_status" value="{{ allocation.origin_status }}">
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_allocation_{{ allocation_index }}_bang_ke_co_doc_no" value="{{ allocation.bang_ke_co_doc_no }}">
                     {% endfor %}
                     {% if render_allocation_details %}
                     <button type="button" class="allocation-toggle" data-allocation-toggle data-allocation-group="{{ allocation_group }}" aria-expanded="{{ 'true' if allocation_default_expanded else 'false' }}" title="{{ 'Thu gọn dòng tồn' if allocation_default_expanded else 'Mở dòng tồn' }}">

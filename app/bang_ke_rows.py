@@ -29,7 +29,11 @@ def material_render_parts(material: dict) -> list[dict]:
             str(line.get("bang_ke_origin_text") or default_key[1]),
         )
         groups.setdefault(key, []).append(line)
-    if len(groups) <= 1:
+    if not groups or (len(groups) == 1 and next(iter(groups)) == default_key):
+        # Identity fast-path: uniform lines matching the material's own key —
+        # rendering byte-identical. A single group with a DIFFERENT key (e.g.
+        # every lot qualifies as originating) still builds a part, or the row
+        # would render under the material's conservative status.
         return [material]
 
     allocated_total = sum((_decimal(line.get("allocated_qty")) or Decimal("0") for line in lines), Decimal("0"))
@@ -66,6 +70,8 @@ def material_render_parts(material: dict) -> list[dict]:
             "origin_country": _joined(group_lines, "origin_country"),
             "consignee_name": _joined(group_lines, "consignee_name"),
             "supplier_key": _joined(group_lines, "supplier_key"),
+            "bang_ke_co_doc_no": _joined(group_lines, "bang_ke_co_doc_no"),
+            "bang_ke_co_doc_date": _joined(group_lines, "bang_ke_co_doc_date"),
             "render_part_key": f"{sequence}:{origin_status}:{origin_text}",
             "render_part_count": len(groups),
         })
