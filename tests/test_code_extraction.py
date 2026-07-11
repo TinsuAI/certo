@@ -15,8 +15,6 @@ import re2
 from app.parsers.client_parser_rules import CompiledRule
 from app.parsers.code_extraction import (
     candidates_from_bcct_row,
-    candidates_from_bom_codes,
-    candidates_from_code_mapping_pairs,
 )
 
 
@@ -140,69 +138,3 @@ def test_bcct_dot_strips_to_skip():
                                      has_dual_system=True,
                                      placeholders=(".",))
     assert out1 == out2 == [("A", "nb")]
-
-
-# ── BOM stream ────────────────────────────────────────────────────────────
-
-
-def test_bom_codes_dual_system_kind_nb():
-    out = candidates_from_bom_codes(["P", "Q", "R"], has_dual_system=True)
-    assert sorted(out) == sorted([("P", "nb"), ("Q", "nb"), ("R", "nb")])
-
-
-def test_bom_codes_single_system_kind_unified():
-    out = candidates_from_bom_codes(["1000527370", "1000527380"],
-                                     has_dual_system=False)
-    assert sorted(out) == sorted([
-        ("1000527370", "unified"), ("1000527380", "unified"),
-    ])
-
-
-def test_bom_codes_dedup():
-    """Distinct codes only — caller may pass duplicates."""
-    out = candidates_from_bom_codes(["P", "P", "Q"], has_dual_system=True)
-    assert sorted(out) == sorted([("P", "nb"), ("Q", "nb")])
-
-
-def test_bom_codes_skip_empty():
-    """Skip None/empty/whitespace."""
-    out = candidates_from_bom_codes(["P", "", None, " ", "Q"],
-                                     has_dual_system=True)
-    assert sorted(out) == sorted([("P", "nb"), ("Q", "nb")])
-
-
-# ── code_mappings (BQD) stream ────────────────────────────────────────────
-
-
-def test_code_mappings_pair_distinct_strings():
-    """Different HQ/NB strings → 2 candidates (hq + nb)."""
-    out = candidates_from_code_mapping_pairs([("DAUNOI", "019.X")])
-    assert sorted(out) == sorted([("DAUNOI", "hq"), ("019.X", "nb")])
-
-
-def test_code_mappings_pair_same_string_unified():
-    """HQ == NB string → single 'unified' candidate."""
-    out = candidates_from_code_mapping_pairs([("X", "X")])
-    assert out == [("X", "unified")]
-
-
-def test_code_mappings_n_n_relationship():
-    """Many HQ to many NB (Growatt-style): 3 HQ × 2 NB → 6 raw → 5 distinct candidates."""
-    pairs = [
-        ("DAUNOI", "019.X"), ("DAUNOI", "019.Y"),
-        ("DOV",    "019.X"), ("DOV",    "019.Z"),
-        ("LK",     "019.Y"),
-    ]
-    out = candidates_from_code_mapping_pairs(pairs)
-    assert sorted(out) == sorted([
-        ("DAUNOI", "hq"), ("DOV", "hq"), ("LK", "hq"),
-        ("019.X", "nb"), ("019.Y", "nb"), ("019.Z", "nb"),
-    ])
-
-
-def test_code_mappings_skip_empty_pairs():
-    """Skip rows where either side is None/empty."""
-    out = candidates_from_code_mapping_pairs([
-        ("DAUNOI", "019.X"), (None, "019.Y"), ("DOV", None), ("", ""),
-    ])
-    assert sorted(out) == sorted([("DAUNOI", "hq"), ("019.X", "nb")])

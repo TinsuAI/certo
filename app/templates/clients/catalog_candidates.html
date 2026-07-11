@@ -188,8 +188,8 @@
               <div class="meta" style="font-size: 0.85em; margin-top: 0.25rem;">
                 {% if c.hs_code %}
                   <span class="badge badge-info"
-                        title="Mã HS {% if c.hs_alternates_count > 1 %}({{ c.hs_alternates_count }} mã khác nhau){% endif %}">
-                    HS: {{ c.hs_code }}{% if c.hs_alternates_count > 1 %} ⚠{% endif %}
+                        title="Mã HS {% if c.hs_alternates_count > 0 %}({{ c.hs_alternates_count }} mã HS khác cũng quan sát được){% endif %}">
+                    HS: {{ c.hs_code }}{% if c.hs_alternates_count > 0 %} ⚠{% endif %}
                   </span>
                 {% endif %}
                 {% if c.uom %}

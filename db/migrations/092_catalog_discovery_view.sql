@@ -87,7 +87,7 @@ end $$;
 delete from hub.bcct_nb_codes;
 
 -- ── 4. Discovery ─────────────────────────────────────────────────────────
--- Mirrors app/parsers/catalog_candidates.py per-row classification:
+-- Mirrors app/parsers/code_extraction.py per-row classification:
 --   case 1 dual      → (hq,'hq') + (nb,'nb')...
 --   case 2 NB==HQ    → (hq,'unified') only (self-link present; other
 --                      extractions on that row are suppressed, as the
@@ -230,26 +230,28 @@ with params as (
                else 'nvl_leaf'
            end as bom_role,
            r.parent_n + r.child_n as bom_edge_count,
-           r.bom_uom
+           r.bom_uom, r.bom_desc
       from (
           select codes.code,
                  bool_or(codes.is_root) as is_root,
                  sum(codes.parent_n) as parent_n,
                  sum(codes.child_n) as child_n,
-                 mode() within group (order by codes.uom) as bom_uom
+                 mode() within group (order by codes.uom) as bom_uom,
+                 mode() within group (order by codes.descr) as bom_desc
             from (
                 select a.product_code as code,
                        true as is_root, 0 as parent_n, 0 as child_n,
-                       null::text as uom
+                       null::text as uom, null::text as descr
                   from hub.bom_artifacts a
                  where a.client_id = p_client and a.tombstoned_at is null
                 union all
-                select e.parent_code, false, 1, 0, null
+                select e.parent_code, false, 1, 0, null, null
                   from hub.bom_edges e
                   join hub.bom_artifacts a on a.artifact_id = e.artifact_id
                  where a.client_id = p_client and a.tombstoned_at is null
                 union all
-                select e.child_code, false, 0, 1, nullif(trim(e.uom), '')
+                select e.child_code, false, 0, 1, nullif(trim(e.uom), ''),
+                       nullif(e.payload->>'description', '')
                   from hub.bom_edges e
                   join hub.bom_artifacts a on a.artifact_id = e.artifact_id
                  where a.client_id = p_client and a.tombstoned_at is null
@@ -289,7 +291,7 @@ with params as (
     select br.code, br.code_kind,
            false, true, false,
            br.bom_edge_count,
-           0, 0, 0, null, null, null, null, 0, br.bom_uom, null,
+           0, 0, 0, null, null, br.bom_desc, null, 0, br.bom_uom, null,
            br.bom_role,
            case br.bom_role
                when 'tp_root' then 'TP root trong BOM'
@@ -315,10 +317,12 @@ with params as (
            sum(s.decl_count) as decl_count,
            min(s.first_seen) as first_seen,
            max(s.last_seen) as last_seen,
-           max(s.sample_text) as sample_text,
+           coalesce(max(s.sample_text) filter (where s.f_bcct),
+                    max(s.sample_text)) as sample_text,
            max(s.hs_code) as hs_code,
            max(s.hs_alternates_count) as hs_alternates_count,
-           max(s.uom) as uom,
+           coalesce(max(s.uom) filter (where s.f_bcct),
+                    max(s.uom)) as uom,
            max(s.origin) as origin,
            max(s.bom_role) as bom_role,
            max(s.bom_sample) as bom_sample,
@@ -343,10 +347,12 @@ with params as (
            sum(k.decl_count) as decl_count,
            min(k.first_seen) as first_seen,
            max(k.last_seen) as last_seen,
-           max(k.sample_text) as sample_text,
+           coalesce(max(k.sample_text) filter (where k.f_bcct),
+                    max(k.sample_text)) as sample_text,
            max(k.hs_code) as hs_code,
            max(k.hs_alternates_count) as hs_alternates_count,
-           max(k.uom) as uom,
+           coalesce(max(k.uom) filter (where k.f_bcct),
+                    max(k.uom)) as uom,
            max(k.origin) as origin,
            max(k.bom_role) as bom_role,
            max(k.bom_sample) as bom_sample,

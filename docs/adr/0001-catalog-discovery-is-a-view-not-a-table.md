@@ -77,3 +77,17 @@ declaration history to each child. See ADR-0002.
 - Session: `.ai/sessions/2026-07-10-catalog-flow-review.md`
 - Supersedes nothing. The `roles[]` refactor (`.ai/features/2026-05-28-catalog-roles-array/`)
   remains rejected per mig 072 and BACKLOG A.1 — do not revive it.
+
+## Amendment (2026-07-11, #34 implementation)
+
+Shipped as a **set-returning SQL function** `hub.catalog_discovery(client_id)`
+rather than a plain view. The discovery CTEs are referenced repeatedly, so a
+view materializes the whole corpus on every query regardless of the client
+filter (measured 4.5s, all clients); the function computes one client
+(~0.6–1.3s Growatt). The decision's substance is unchanged: pending is the
+absence of a decision, computed at read time, stored nowhere. Two further
+refinements from the same session: the suppression key is `(client_id, code)`
+— staff say no to the *string*, so one rejection hides every kind of it — and
+`hub.bcct_nb_codes` also stores the unified self-link (extracted code equal to
+the row's `customs_code`), which is how the function detects the NB==HQ case
+without re-running the regex.

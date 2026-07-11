@@ -119,7 +119,7 @@
           <td>{% if candidate.suggested_category %}<span class="badge badge-info">{{ candidate.suggested_category }}</span>{% else %}—{% endif %}</td></tr>
       <tr><td class="mono"><strong>hs_code</strong></td>
           <td>{% if candidate.hs_code %}<code>{{ candidate.hs_code }}</code>
-              {% if candidate.hs_alternates_count > 1 %}<span class="badge badge-warn" title="{{ candidate.hs_alternates_count }} mã HS khác nhau quan sát được">⚠ {{ candidate.hs_alternates_count }} alts</span>{% endif %}
+              {% if candidate.hs_alternates_count > 0 %}<span class="badge badge-warn" title="{{ candidate.hs_alternates_count }} mã HS khác cũng quan sát được">⚠ {{ candidate.hs_alternates_count }} alts</span>{% endif %}
               {% else %}—{% endif %}</td></tr>
       <tr><td class="mono"><strong>uom</strong></td><td>{{ candidate.uom or '—' }}</td></tr>
       <tr><td class="mono"><strong>origin</strong></td><td>{{ candidate.origin or '—' }}</td></tr>

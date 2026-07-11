@@ -221,7 +221,7 @@ def _validate_form(category: str, status: str,
         raise HTTPException(400, f"invalid status: {status!r}")
     if production_source and production_source not in VALID_PRODUCTION_SOURCES:
         raise HTTPException(400,
-                             f"invalid production_source: {production_source!r}")
+                            f"invalid production_source: {production_source!r}")
 
 
 @router.post("/clients/{client_id}/catalog/candidates/accept")
