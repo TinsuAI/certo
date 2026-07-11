@@ -2,8 +2,10 @@
 
 Brief: .ai/features/2026-05-09-ma-cho-duyet/brief.md
 
-Page handler GETs the feed (refreshes candidates on render). POST handlers
-implement the state-machine transitions: accept, reject, unreject.
+Page handler GETs the feed read-only (#32 — the rebuild runs after each
+ingest and behind the explicit refresh POST, never on render). POST
+handlers implement the state-machine transitions: accept, reject,
+unreject, plus the refresh.
 """
 from __future__ import annotations
 
