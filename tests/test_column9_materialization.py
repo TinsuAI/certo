@@ -230,6 +230,39 @@ def test_xml_generator_and_legacy_workbook_read_materialized_fields():
     assert ws.cell(row=5, column=layout["co_date"]).value == "01/07/2026"
 
 
+def test_column9_parity_across_all_three_export_formats():
+    # One calculated material rendered through every export format shows EXACTLY
+    # the materialized web-grid text — export == web by construction.
+    from openpyxl import Workbook
+    from app.bang_ke_renderer import load_form_config, render_into_sheet
+    from app.bang_ke_xml_generator import _build_material_row
+    from app.workbook_io import _hq_layout_for, write_hq_sheet_materials
+
+    material = {
+        "material_code": "NVL-1", "material_description": "Thép",
+        "origin_status": "non_origin", "hs_code": "73182200", "uom": "PCE",
+        "bom_qty_per": "1", "consumed_qty": "1", "unit_value": "1", "material_value": "1",
+        "origin_country": "CHINA", "bang_ke_origin_text": "Trung Quốc",
+    }
+    web_text = material["bang_ke_origin_text"]
+
+    cfg = load_form_config("LVC")
+    wb = Workbook()
+    ws = wb.active
+    product = {"code": "P1", "materials": [dict(material)]}
+    render_into_sheet(ws, cfg, case={"case_code": "C", "products": [product]}, product=product, sheet_title="P1")
+    xlsx_text = ws[f"{cfg['body']['columns']['country']}{cfg['body']['start_row']}"].value
+
+    xml_text = _build_material_row(dict(material), {}, {"code": "P1"}, 1)[0]["country"]
+
+    wb2 = Workbook()
+    ws2 = wb2.active
+    write_hq_sheet_materials(ws2, {"materials": [dict(material)]}, 5, sheet_code="LVC")
+    legacy_text = ws2.cell(row=5, column=_hq_layout_for("LVC")["cols"]["country"]).value
+
+    assert xlsx_text == xml_text == legacy_text == web_text
+
+
 # --- config form surface ---
 
 def test_config_page_renders_bang_ke_settings_and_readonly_mapping(monkeypatch):

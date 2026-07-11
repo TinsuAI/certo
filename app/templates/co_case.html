@@ -894,6 +894,16 @@
     <button type="button" class="btn-secondary" data-origin-reorder-open>Đổi thứ tự sheet</button>
     <span class="origin-sheet-tabs-hint">Thứ tự quyết định sheet nào trừ tồn trước.</span>
     {% endif %}
+    <label class="origin-column9-mode" data-origin-column9-mode
+           title="Quy ước cột (9) Nước xuất xứ cho HỒ SƠ này (override mặc định của công ty). Đổi quy ước: sheet đã tính lệch quy ước → chuyển 'Cần tính lại'; sheet đã chốt GIỮ NGUYÊN (chỉ gắn nhãn lệch).">
+      <span class="meta">Cột (9)</span>
+      <select data-origin-column9-mode-select
+              data-column9-mode-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/column9-mode">
+        <option value="" {% if not case.bang_ke_column9_mode_override %}selected{% endif %}>⤷ mặc định công ty ({{ client_column9_mode_default or 'country' }})</option>
+        <option value="country" {% if case.bang_ke_column9_mode_override == 'country' %}selected{% endif %}>country — tên nước</option>
+        <option value="qualification_label" {% if case.bang_ke_column9_mode_override == 'qualification_label' %}selected{% endif %}>qualification_label — Việt Nam/Không xuất xứ</option>
+      </select>
+    </label>
     <span class="origin-workbar-sequence-dirty" data-origin-sequence-dirty hidden>Thứ tự sheet đã đổi — cần tính lại</span>
     <span class="origin-review-toolbar-spacer"></span>
     {% if _cost_ns.has %}
@@ -1246,6 +1256,12 @@
             {% if product.origin_sheet_overrides_version_mismatch %}
             <div class="origin-bom-diff" data-origin-overrides-version-mismatch title="Các chỉnh sửa NVL đã lưu được tạo trên BOM version khác nên KHÔNG áp cho version đang chọn. Chuyển lại version cũ để áp lại; sửa tiếp trên version này sẽ xoá các chỉnh sửa cũ.">
               <span class="origin-bom-diff-eyebrow">Chỉnh sửa NVL thuộc BOM version khác — chưa áp</span>
+            </div>
+            {% endif %}
+            {% if product.bang_ke_column9_mode_mismatch %}
+            <div class="origin-bom-diff" data-origin-column9-mode-mismatch
+                 title="{% if product.origin_sheet_status == 'locked' %}Sheet đã chốt theo quy ước cột (9) '{{ product.bang_ke_column9_mode }}' — giữ nguyên như đã nộp; quy ước hiện tại đã khác.{% else %}Sheet materialize cột (9) theo quy ước cũ '{{ product.bang_ke_column9_mode }}' — bấm Tính lại để áp quy ước mới.{% endif %}">
+              <span class="origin-bom-diff-eyebrow">⚠ Cột (9) lệch quy ước{% if product.origin_sheet_status == 'locked' %} (đã chốt — giữ như đã nộp){% else %} — cần Tính lại{% endif %}</span>
             </div>
             {% endif %}
           </div>
@@ -2735,6 +2751,51 @@
       closeReorder();
     });
   }
+  // Per-case column-9 mode override (ticket #10): preview the consequences,
+  // confirm, apply, reload. Locked sheets are never touched by the flip.
+  document.addEventListener("change", async (event) => {
+    const select = event.target.closest?.("[data-origin-column9-mode-select]");
+    if (!select) return;
+    const url = select.dataset.column9ModeUrl || "";
+    const mode = select.value;
+    const previous = select.dataset.previousValue ?? "";
+    try {
+      const previewResponse = await fetch(url, {
+        method: "POST",
+        headers: {"Content-Type": "application/json", "Accept": "application/json"},
+        body: JSON.stringify({mode, preview: true}),
+        quietError: true,
+      });
+      if (!previewResponse.ok) throw new Error("preview failed");
+      const preview = await previewResponse.json();
+      const staleCount = (preview.stale_codes || []).length;
+      const lockedCount = (preview.locked_mismatch_codes || []).length;
+      const summary = [
+        `Đổi quy ước cột (9) sang "${preview.effective_mode}".`,
+        staleCount ? `${staleCount} sheet đã tính sẽ chuyển "Cần tính lại": ${(preview.stale_codes || []).join(", ")}.` : "Không sheet đã tính nào bị ảnh hưởng.",
+        lockedCount ? `${lockedCount} sheet đã chốt GIỮ NGUYÊN và gắn nhãn lệch quy ước: ${(preview.locked_mismatch_codes || []).join(", ")}.` : "",
+        "Tiếp tục?",
+      ].filter(Boolean).join("\n");
+      if (!window.confirm(summary)) {
+        select.value = previous;
+        return;
+      }
+      const applied = await fetch(url, {
+        method: "POST",
+        headers: {"Content-Type": "application/json", "Accept": "application/json"},
+        body: JSON.stringify({mode}),
+      });
+      if (!applied.ok) throw new Error("apply failed");
+      window.location.reload();
+    } catch (err) {
+      select.value = previous;
+      toast(`Không đổi được quy ước cột (9): ${err}`, "error");
+    }
+  });
+  document.addEventListener("focusin", (event) => {
+    const select = event.target.closest?.("[data-origin-column9-mode-select]");
+    if (select) select.dataset.previousValue = select.value;
+  });
   document.addEventListener("keydown", (event) => {
     const tab = event.target.closest?.("[data-origin-sheet-tab]");
     if (!tab || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;

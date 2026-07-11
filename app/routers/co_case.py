@@ -18,11 +18,12 @@ from app.data_hub_settings import data_hub_link_settings
 from app.demo_data import attach_results, update_products_from_form
 from app.dossier_export_service import dossier_export_result_path, dossier_export_status, submit_dossier_export
 from app.origin_material_filters import is_bom_technical_noise, material_override_key
+from app.origin_country import normalize_column9_mode
 from app.portfolio import portfolio_service
 from app.source_store import co_stock_rows_from_bcct
 from app.substitution_plan import plan_shortfall_substitution
 from app.web.client_context import default_client_case, effective_min_gap_days, resolve_client, source_workspace_for_client
-from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, OVERRIDE_HISTORY_MAX, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, attach_origin_sheet_states, case_allocation_pool, materialize_bang_ke_origin_fields, case_missing_stock_summary, case_shortfall_rollup, case_stock_preview_summary, case_tkx_tkn_summary, clean_override_stack, co_case_context, co_case_source_context, co_case_source_context_cached, co_stock_is_usable, dossier_content_revision, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, material_row_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, origin_case_revision, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_products, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
+from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, OVERRIDE_HISTORY_MAX, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, apply_column9_mode_flip, attach_column9_mode_mismatch, attach_origin_sheet_states, case_allocation_pool, column9_mode_mismatches, materialize_bang_ke_origin_fields, resolve_case_column9_mode, case_missing_stock_summary, case_shortfall_rollup, case_stock_preview_summary, case_tkx_tkn_summary, clean_override_stack, co_case_context, co_case_source_context, co_case_source_context_cached, co_stock_is_usable, dossier_content_revision, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, material_row_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, origin_case_revision, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_products, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
 from app.web.deps import large_request_form
 from app.web.templating import templates
 from app.workbook_io import create_dossier_zip, create_hq_bang_ke_workbook
@@ -1232,7 +1233,7 @@ async def export_co_case_workbook(request: Request, client_id: str, case_id: str
         case=posted_case,
         origin_demo_allowed=False,
     )
-    blockers = origin_sheet_export_blockers(context["case"])
+    blockers = origin_sheet_export_blockers(context["case"], client)
     should_enforce_sheet_state = bool(posted_case)
     if should_enforce_sheet_state and blockers:
         return templates.TemplateResponse(
@@ -1289,7 +1290,7 @@ async def export_co_case_bang_ke_workbook(request: Request, client_id: str, case
     case = attach_origin_sheet_states(case)
     _hydrate_material_dates_from_stock(case, client)
     _hydrate_product_export_declaration_dates(case, client)
-    blockers = origin_sheet_export_blockers(case)
+    blockers = origin_sheet_export_blockers(case, client)
     if blockers:
         raise HTTPException(
             status_code=409,
@@ -1905,7 +1906,7 @@ async def bulk_lock_route(request: Request, client_id: str, case_id: str):
         if isinstance(sheet, dict) and sheet.get("status") == "locked":
             already_locked.append(code)
             continue
-        action_error = origin_sheet_action_error(case, code, "lock")
+        action_error = origin_sheet_action_error(case, code, "lock", client)
         if action_error:
             skipped.append({"product_code": code, "reason": action_error})
             continue
@@ -2226,7 +2227,7 @@ async def calculate_co_case_origin_sheet(request: Request, client_id: str, case_
 async def lock_co_case_origin_sheet(request: Request, client_id: str, case_id: str, product_code: str):
     client = resolve_client(client_id)
     case, _payload = await origin_case_from_request(request, client, case_id)
-    action_error = origin_sheet_action_error(case, product_code, "lock")
+    action_error = origin_sheet_action_error(case, product_code, "lock", client)
     if action_error:
         return templates.TemplateResponse(
             request=request,
@@ -2796,6 +2797,33 @@ async def co_case_origin_sheet_substitute_row(
         "applied_override": overrides.get(key, {"deleted": True}),
         "sheet_status": "stale",
     })
+@router.post("/clients/{client_id}/co-case/{case_id}/origin/column9-mode")
+async def co_case_origin_column9_mode(request: Request, client_id: str, case_id: str):
+    """Set/clear the per-case column-9 mode override (ticket #10). The flip
+    lifecycle: mismatched `calculated` sheets go stale (re-Tính applies the new
+    convention), draft/bom_loaded untouched, locked sheets untouched — they get
+    the mismatch chip. `preview: true` returns the consequence counts without
+    persisting, so the UI can state them before the operator confirms."""
+    payload = await read_json_or_form(request)
+    raw_mode = str(payload.get("mode") or "").strip()
+    mode = normalize_column9_mode(raw_mode)
+    if raw_mode and not mode:
+        raise HTTPException(status_code=400, detail="mode must be 'country', 'qualification_label', or empty to clear")
+    client = resolve_client(client_id)
+    case = persisted_origin_case(client, case_id)
+    case["bang_ke_column9_mode_override"] = mode
+    flip = apply_column9_mode_flip(case, client)
+    response = {
+        "ok": True,
+        "mode": mode,
+        "effective_mode": resolve_case_column9_mode(case, client),
+        "stale_codes": flip["stale_codes"],
+        "locked_mismatch_codes": flip["locked_codes"],
+    }
+    if payload.get("preview"):
+        return JSONResponse({**response, "preview": True})
+    update_case_record(client, flip["case"])
+    return JSONResponse(response)
 @router.post("/clients/{client_id}/co-case/{case_id}/origin/sheet/{product_code}/propose-bom")
 async def co_case_origin_sheet_propose_bom(
     request: Request, client_id: str, case_id: str, product_code: str

@@ -177,7 +177,7 @@ def update_case_record(client: dict, case: dict) -> dict:
         record["shipment"]["bill_of_lading_no"] = clean_text(shipment.get("bill_of_lading_no"))
         if "products" in case:
             record["products"] = persisted_products(case.get("products", []))
-        for key in ["origin_product_order", "origin_sheet_states", "bom_artifact_id", "bom_version_id", "bom_product_artifact_overrides", "bom_product_version_overrides", "bom_snapshot", "origin_snapshot", "source_snapshot", "source_invoice_matches"]:
+        for key in ["origin_product_order", "origin_sheet_states", "bang_ke_column9_mode_override", "bom_artifact_id", "bom_version_id", "bom_product_artifact_overrides", "bom_product_version_overrides", "bom_snapshot", "origin_snapshot", "source_snapshot", "source_invoice_matches"]:
             if key in case:
                 record[key] = json_safe(case.get(key))
         if "bom_artifact_id" in case and "bom_version_id" not in case:
@@ -408,7 +408,7 @@ def case_from_record(base_case: dict, client: dict, record: dict) -> dict:
     case["supporting_files"] = [dict(file_row) for file_row in record.get("supporting_files", [])]
     if "products" in record:
         case["products"] = restored_products(record.get("products", []))
-    for key in ["origin_product_order", "origin_sheet_states", "bom_artifact_id", "bom_version_id", "bom_product_artifact_overrides", "bom_product_version_overrides", "bom_snapshot", "origin_snapshot", "source_snapshot", "source_invoice_matches"]:
+    for key in ["origin_product_order", "origin_sheet_states", "bang_ke_column9_mode_override", "bom_artifact_id", "bom_version_id", "bom_product_artifact_overrides", "bom_product_version_overrides", "bom_snapshot", "origin_snapshot", "source_snapshot", "source_invoice_matches"]:
         if key in record:
             case[key] = json_safe(record.get(key))
     if "bom_artifact_id" not in case and "bom_version_id" in case:

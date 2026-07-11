@@ -1431,6 +1431,59 @@ def resolve_case_column9_mode(case: dict | None, client: dict | None) -> str:
         normalize_column9_mode((case or {}).get("bang_ke_column9_mode_override"))
         or bang_ke_settings(client)["column9_mode"]
     )
+def column9_mode_mismatches(case: dict, client: dict | None) -> list[dict]:
+    """Sheets whose materialized column-9 mode (stamped at their last Tính)
+    differs from the CURRENT effective mode — the dossier would mix two
+    conventions if issued as-is. Locked sheets are reported (chip/warning
+    material), never mutated: their snapshot is what was filed."""
+    effective = resolve_case_column9_mode(case, client)
+    mismatches = []
+    for product in case.get("products") or []:
+        materialized = normalize_column9_mode(product.get("bang_ke_column9_mode"))
+        if not materialized or materialized == effective:
+            continue
+        status = ""
+        states = case.get("origin_sheet_states") or {}
+        state = states.get(str(product.get("code") or "")) if isinstance(states, dict) else None
+        if isinstance(state, dict):
+            status = str(state.get("status") or "")
+        status = status or str(product.get("origin_sheet_status") or "")
+        mismatches.append({
+            "code": str(product.get("code") or ""),
+            "status": status,
+            "materialized_mode": materialized,
+            "effective_mode": effective,
+        })
+    return mismatches
+def attach_column9_mode_mismatch(case: dict, client: dict | None) -> dict:
+    """Stamp per-product `bang_ke_column9_mode_mismatch` for the UI chip.
+    Read-only annotation — never changes statuses or snapshots."""
+    mismatched_codes = {entry["code"] for entry in column9_mode_mismatches(case, client)}
+    for product in case.get("products") or []:
+        product["bang_ke_column9_mode_mismatch"] = str(product.get("code") or "") in mismatched_codes
+    return case
+def apply_column9_mode_flip(case: dict, client: dict | None) -> dict:
+    """The flip lifecycle (ADR 2026-07-11): after the effective mode changed,
+    mark every mismatched CALCULATED sheet stale (re-Tính picks up the new mode
+    and clears it); leave draft/bom_loaded alone (they materialize at first
+    Tính); never touch locked sheets — they keep the as-filed snapshot and get
+    the mismatch chip instead. Returns {case, stale_codes, locked_codes}."""
+    stale_codes: list[str] = []
+    locked_codes: list[str] = []
+    states = dict(case.get("origin_sheet_states") or {})
+    for entry in column9_mode_mismatches(case, client):
+        if entry["status"] == "calculated":
+            previous = states.get(entry["code"]) if isinstance(states.get(entry["code"]), dict) else {}
+            states[entry["code"]] = {
+                **previous,
+                "status": "stale",
+                "status_label": ORIGIN_SHEET_STATUS_LABELS["stale"],
+            }
+            stale_codes.append(entry["code"])
+        elif entry["status"] == "locked":
+            locked_codes.append(entry["code"])
+    case["origin_sheet_states"] = states
+    return {"case": case, "stale_codes": stale_codes, "locked_codes": locked_codes}
 def materialize_bang_ke_origin_fields(case: dict, client: dict | None) -> dict:
     """Materialize the column-9 text (and the (12)/(13) text slots) onto every
     product/material/allocation-line at Tính. The mode is read ONCE here and
@@ -1440,7 +1493,15 @@ def materialize_bang_ke_origin_fields(case: dict, client: dict | None) -> dict:
     only the next Tính picks them up."""
     mode = resolve_case_column9_mode(case, client)
     unknown_label = bang_ke_settings(client)["unknown_origin_label"]
+    states = case.get("origin_sheet_states") if isinstance(case.get("origin_sheet_states"), dict) else {}
     for product in case.get("products") or []:
+        # NEVER re-stamp a locked sheet: its snapshot is what was filed. Without
+        # this skip, a Tính on any OTHER sheet (whole-case persist) would rewrite
+        # the locked sheet's column-9 text to the current convention and silently
+        # clear its mismatch chip.
+        state = states.get(str(product.get("code") or ""))
+        if isinstance(state, dict) and str(state.get("status") or "") == "locked":
+            continue
         product["bang_ke_column9_mode"] = mode
         for material in product.get("materials") or []:
             _materialize_material_origin_text(material, mode, unknown_label)
@@ -1485,8 +1546,17 @@ def _materialize_material_origin_text(material: dict, mode: str, unknown_label: 
                 warnings.append(note)
         material["material_warnings"] = warnings
         material["material_warnings_text"] = " | ".join(warnings)
-def origin_sheet_export_blockers(case: dict) -> list[str]:
+def origin_sheet_export_blockers(case: dict, client: dict | None = None) -> list[str]:
     blockers = []
+    # Column-9 mode mismatch (ticket #10): a NON-locked sheet materialized under
+    # another mode must re-Tính before export — the save-route status hardcode
+    # cannot bypass this because the re-check reads the materialized stamp, not
+    # the status. Locked sheets are as-filed → never blockers (chip instead).
+    mode_mismatched = (
+        {entry["code"] for entry in column9_mode_mismatches(case, client) if entry["status"] != "locked"}
+        if client is not None
+        else set()
+    )
     for product in attach_origin_sheet_states(case).get("products", []):
         status = product.get("origin_sheet_status")
         # Block not-ready statuses AND any empty/no-BOM sheet (lvc_status
@@ -1499,10 +1569,11 @@ def origin_sheet_export_blockers(case: dict) -> list[str]:
             or str(product.get("lvc_status") or "") == "missing_bom"
             or product.get("lvc_declarable_unmatched")
             or product.get("lvc_allocation_shortage")
+            or str(product.get("code") or "") in mode_mismatched
         ):
             blockers.append(str(product.get("code") or "sheet"))
     return blockers
-def origin_sheet_action_error(case: dict, product_code: str, action: str) -> str:
+def origin_sheet_action_error(case: dict, product_code: str, action: str, client: dict | None = None) -> str:
     prepared = attach_origin_sheet_states(case)
     products = prepared.get("products", [])
     target_index = next(
@@ -1554,6 +1625,15 @@ def origin_sheet_action_error(case: dict, product_code: str, action: str) -> str
             "bổ sung chứng từ (khớp tờ khai nhập hoặc hoá đơn VAT) rồi tính lại trước khi chốt; "
             "không dùng giá ước tính."
         )
+    if action == "lock" and client is not None:
+        # Column-9 mode re-check (ticket #10): the sheet was materialized under
+        # another convention — locking it would file a dossier mixing two modes.
+        mismatched = {entry["code"] for entry in column9_mode_mismatches(prepared, client)}
+        if product_code in mismatched:
+            return (
+                f"Bảng kê {product_code} đang materialize cột (9) theo quy ước cũ — "
+                "quy ước đã đổi; bấm Tính lại để áp quy ước mới trước khi chốt."
+            )
     if action == "reopen":
         if status != "locked":
             return f"Bảng kê {product_code} chưa chốt."
@@ -3342,6 +3422,8 @@ def co_case_context(client_id: str, case_id: str = "", current_step: str = "inde
         if current_step == "index":
             exported = (export_states.get(dossier.get("case_id", "")) or {}).get("status") == "done"
             dossier["status_view"] = co_case_status_view(dossier, exported=exported)
+    if current_step == "origin":
+        case = attach_column9_mode_mismatch(case, client)
     form_candidates = form_candidates_for_market(case.get("destination_market", ""))
     criteria_rows = build_case_criteria_rows(case, form_candidates)
     context = co_case_light_context(
@@ -3353,6 +3435,8 @@ def co_case_context(client_id: str, case_id: str = "", current_step: str = "inde
         criteria_rows=criteria_rows,
         **extra,
     )
+    if current_step == "origin":
+        context["client_column9_mode_default"] = bang_ke_settings(client)["column9_mode"]
     # Tồn CO overview strip on the làm-CO list page (feedback #12). Cheap SQL
     # aggregate (~ms even on 60k-row clients); skip on detail/step pages where
     # the strip isn't shown.

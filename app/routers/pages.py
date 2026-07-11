@@ -74,6 +74,45 @@ def _unmapped_origin_strings(stock_rows: list[dict]) -> list[str]:
         if not country_label_vi(raw)[1] and raw not in seen:
             seen.append(raw)
     return sorted(seen)
+def _apply_client_column9_mode_flip(client: dict) -> str:
+    """Client-default column-9 mode changed (ticket #10): sweep the client's
+    cases, mark mismatched CALCULATED sheets stale, never touch locked ones
+    (they get the mismatch chip at render time). Returns a message suffix
+    naming the consequences."""
+    from app.web.co_case_context import apply_column9_mode_flip
+
+    stale_total = 0
+    locked_total = 0
+    failed_total = 0
+    try:
+        cases = get_case_workspace(client).get("cases") or []
+    except Exception:  # noqa: BLE001
+        cases = []
+    for record in cases:
+        case_id = str(record.get("case_id") or "")
+        if not case_id:
+            continue
+        try:
+            from app.co_case_store import case_from_record
+            case = case_from_record({}, client, record)
+            flip = apply_column9_mode_flip(case, client)
+            if flip["stale_codes"]:
+                update_case_record(client, flip["case"])
+            stale_total += len(flip["stale_codes"])
+            locked_total += len(flip["locked_codes"])
+        except Exception:  # noqa: BLE001
+            failed_total += 1
+            continue
+    if not stale_total and not locked_total and not failed_total:
+        return ""
+    parts = []
+    if stale_total:
+        parts.append(f"{stale_total} bảng kê đã tính chuyển 'Cần tính lại'")
+    if locked_total:
+        parts.append(f"{locked_total} bảng kê đã chốt gắn nhãn lệch quy ước (giữ như đã nộp)")
+    if failed_total:
+        parts.append(f"{failed_total} hồ sơ KHÔNG cập nhật được (đã đóng/lỗi) — kiểm tra lại")
+    return " Đổi quy ước cột (9): " + "; ".join(parts) + "."
 def declaration_type_exclusion_warning(client: dict, client_config: dict) -> str:
     excluded = _declaration_type_count_context(client, client_config)["bcct_excluded_type_rows"]
     if not excluded:
@@ -210,6 +249,7 @@ async def client_config(request: Request, client_id: str):
 async def save_client_config_route(request: Request, client_id: str):
     client = resolve_client(client_id)
     form = await request.form()
+    flip_note = ""
     # Identity fields (legal_name / tax_code) are CO-side render metadata, not
     # source data — editable even when Data Hub source-mode is enabled. The
     # `co_stock_min_days_before_export` knob is also CO-side: it controls a
@@ -234,11 +274,14 @@ async def save_client_config_route(request: Request, client_id: str):
             # editable even when DH source-mode makes the source config read-only.
             # Editing them never rewrites persisted sheets — only re-Tính applies.
             overrides = dict(client.get("bang_ke_overrides") or {})
+            previous_mode = bang_ke_settings(client)["column9_mode"]
             if "bang_ke_column9_mode" in form:
                 overrides["column9_mode"] = normalize_column9_mode(form.get("bang_ke_column9_mode"))
             if "bang_ke_unknown_origin_label" in form:
                 overrides["unknown_origin_label"] = str(form.get("bang_ke_unknown_origin_label") or "").strip()
             client["bang_ke_overrides"] = overrides
+            if bang_ke_settings(client)["column9_mode"] != previous_mode:
+                flip_note = _apply_client_column9_mode_flip(client)
         if "tkn_pdf_max_part_mb" in form:
             raw_mb = str(form.get("tkn_pdf_max_part_mb") or "").strip()
             exp = dict(client.get("export_overrides") or {})
@@ -288,7 +331,7 @@ async def save_client_config_route(request: Request, client_id: str):
         name="client_config.html",
         context=config_context(
             client_id,
-            message="Đã lưu cấu hình công ty." + declaration_type_exclusion_warning(client, config),
+            message="Đã lưu cấu hình công ty." + flip_note + declaration_type_exclusion_warning(client, config),
         ),
     )
 @router.post("/clients/{client_id}/evaluate", response_class=HTMLResponse)

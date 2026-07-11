@@ -125,7 +125,9 @@
       </div>
       <div class="stack-form">
         <label>Chế độ cột (9) mặc định
-          <select name="bang_ke_column9_mode">
+          <select name="bang_ke_column9_mode"
+                  onchange="if (this.value !== this.dataset.initial && !window.confirm('Đổi quy ước cột (9) mặc định của công ty: các bảng kê ĐÃ TÍNH lệch quy ước trên MỌI hồ sơ sẽ chuyển \'Cần tính lại\'; bảng kê đã chốt GIỮ NGUYÊN và gắn nhãn lệch. Tiếp tục?')) { this.value = this.dataset.initial; }"
+                  data-initial="{{ bang_ke_settings.column9_mode }}">
             <option value="country" {% if bang_ke_settings.column9_mode == 'country' %}selected{% endif %}>country — tên nước xuất xứ (Việt Nam, Trung Quốc…)</option>
             <option value="qualification_label" {% if bang_ke_settings.column9_mode == 'qualification_label' %}selected{% endif %}>qualification_label — "Việt Nam"/"Không xuất xứ" theo đạt/không đạt</option>
           </select>
