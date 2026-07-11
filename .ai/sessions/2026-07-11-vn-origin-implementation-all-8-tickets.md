@@ -15,9 +15,9 @@ to local `main`, and closed on GitHub with result comments. **NOTHING pushed.**
 | ea710a6 | #9 | `app/origin_country.py` (raw→ISO→VN, unknown bucket, pure `column9_text`); materialization at all 4 Tính build exits; renderers/web = pure readers; config form mode+label+read-only mapping |
 | 928bcf2 | #10 | Per-case mode override control + flip lifecycle (stale/chip/never-touch-locked); materializer SKIPS locked sheets (review catch); belts re-check the mode stamp |
 | 546850e | #11 | Migration 019 `co_supplier_evidence_events` (append-only); store (loud 503 without DB); curation screen `/clients/{id}/suppliers`; ON→OFF damage-list confirm, OFF→ON benefit list |
-| (pending) | #12 | Per-row VN resolver: line originating iff lot VN AND supplier flagged; originating AMOUNT; VNM shrinks exactly; (12) "Phụ lục X/<NCC>"; zero-flag byte-identical |
+| cad563d + ca4d705 | #12 | Per-row VN resolver: line originating iff lot VN AND supplier flagged; originating AMOUNT; VNM shrinks exactly; (12) "Phụ lục X/<NCC>"; zero-flag byte-identical |
 
-Suite progression: 757 → 879 passed (122 new tests), 13-14 skipped (DB-gated),
+Suite progression: 757 → 881 passed (124 new tests), 13-14 skipped (DB-gated),
 file-mode. Full suite ran green after every ticket.
 
 ## Review process
@@ -59,7 +59,7 @@ Per-ticket two-axis review (standards + spec sub-agents). Real catches folded in
 - The origin page GET rebuilds products from the source context, so hand-seeded
   per-line fields never render — web-grid split e2e must go through a real
   upload→Tính (done in #9's country-mode split test).
-- Review sub-agents sometimes stall >5 min; SendMessage "finalize now" unblocks.
+- Review sub-agents sometimes stall >5 min; SendMessage "finalize now" unblocks. The #12 review returned AFTER its commit — its 2 catches (partial-qualification note, mixed-currency origin_amount) landed as follow-up ca4d705.
 
 ## Deploy-day manual steps (NOT code)
 

@@ -2,9 +2,9 @@
 
 ## Current State
 - **2026-07-12 (overnight) — VN-ORIGIN FEATURE BUILT: ALL 8 TICKETS (#6–#13) IMPLEMENTED,
-  TESTED, COMMITTED, ISSUES CLOSED.** Autonomous run per user directive. 8 commits on local
-  `main` (`3fc3112`→`cad563d`), **NOT pushed** (origin/main = `312e58d`; push triggers prod CD —
-  needs user go-ahead). Suite **757 → 879 passed** (122 new tests), file-mode green after every
+  TESTED, COMMITTED, ISSUES CLOSED.** Autonomous run per user directive. 10 commits on local
+  `main` (`3fc3112`→`ca4d705`, incl. handoff + #12 review follow-up), **NOT pushed** (origin/main = `312e58d`; push triggers prod CD —
+  needs user go-ahead). Suite **757 → 881 passed** (124 new tests), file-mode green after every
   ticket; migration 019 verified against local Postgres. Per-ticket two-axis reviews caught and
   fixed 3 real bugs (shortage reason precedence #8; override version-rebind hole #7; locked-sheet
   re-stamp #10). Full handoff: `.ai/sessions/2026-07-11-vn-origin-implementation-all-8-tickets.md`
