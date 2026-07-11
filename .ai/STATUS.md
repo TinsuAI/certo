@@ -2,17 +2,20 @@
 
 ## Current State
 - **2026-07-12 (overnight) — VN-ORIGIN FEATURE BUILT: ALL 8 TICKETS (#6–#13) IMPLEMENTED,
-  TESTED, COMMITTED, ISSUES CLOSED.** Autonomous run per user directive. 10 commits on local
-  `main` (`3fc3112`→`ca4d705`, incl. handoff + #12 review follow-up), **NOT pushed** (origin/main = `312e58d`; push triggers prod CD —
-  needs user go-ahead). Suite **757 → 881 passed** (124 new tests), file-mode green after every
+  TESTED, COMMITTED, ISSUES CLOSED.** Autonomous run per user directive. **PUSHED + DEPLOYED 2026-07-12** (user go-ahead): `origin/main` = `51fe273`,
+  CI/CD green, prod `barry-co` + nightly `demo-co` both verified `git_sha=51fe273`. Live e2e
+  screenshot tour done (see session addendum); finding **#14** filed (growatt-vn allocation
+  strategy hard-defaults `same_as_customs_code` in DH mode → technical BOMs match no on-spot
+  lots — onboarding blocker for the day-one beneficiary, needs-triage); backlog **ST1**
+  (readiness chip: guard-parked sheets still read "Đã nạp BOM" after batch Tính). Suite **757 → 881 passed** (124 new tests), file-mode green after every
   ticket; migration 019 verified against local Postgres. Per-ticket two-axis reviews caught and
   fixed 3 real bugs (shortage reason precedence #8; override version-rebind hole #7; locked-sheet
   re-stamp #10). Full handoff: `.ai/sessions/2026-07-11-vn-origin-implementation-all-8-tickets.md`
   (includes build-time decisions, gotchas, accepted edges). **Deploy-day manual steps:** flag
   Mingjie VN + Minghui VN on growatt-vn via the new `/clients/{id}/suppliers` screen (verify
-  spellings vs live BCCT; NEVER the HK namesake); Johnson stays zero-flag. **Next:** user reviews
-  + pushes; then the 2 standing action items (audit locked SHORTAGE sheets in prod — now more
-  urgent since new shortage sheets are blocked; `missing_price` one-belt hole).
+  spellings vs live BCCT; NEVER the HK namesake); Johnson stays zero-flag. **Next:** decide #14
+  (unblocks VN-origin on growatt-vn prod) + flag the 2 NCC on prod when ready; then the 2
+  standing action items (audit locked SHORTAGE sheets in prod; `missing_price` one-belt hole).
 - **2026-07-11 (PM) — VN-ORIGIN SPEC + 8 TICKETS PUBLISHED; GitHub Issues = TRACKER OF RECORD
   (docs only, no code).** Spec `.ai/features/2026-07-11-vn-origin-materials/spec.md` (12 ADR
   synthesized; seam test duyệt: Tính recompute + route + pure-fn). Tickets = **TinsuAI/co #6–#13**
