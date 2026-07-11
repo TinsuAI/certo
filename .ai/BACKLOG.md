@@ -640,3 +640,21 @@ reference number 51400641). `app/co_forms.py` chỉ model B/AI/CPTPP/EUR.1 → p
 Forms config đã extensible qua `load_co_form_config` (`/settings/co-forms` UI) nên có thể thêm
 qua config trước, `FORM_REFERENCES` built-in sau. KHÔNG liên quan cumulation; phase-2 in-bloc
 đã defer-until-demand (DECISIONS.md 2026-07-11). Added: 2026-07-11.
+
+## Trạng thái sheet — badge honesty
+
+### ST1 — "Tính tồn tất cả" xong, sheet bị guard chặn vẫn hiện "Đã nạp BOM" (readiness chip đã defer ở ADR 2026-07-11)
+**User catch 2026-07-12** (screenshot `.ai/screenshots/2026-07-12-vn-origin-e2e/18-furniture-summary-calculated.png`):
+chạy batch "Tính tồn tất cả (SP)" xong, số liệu (LVC, trị giá, phân bổ) đã tính + LƯU đầy đủ,
+nhưng cột TRẠNG THÁI vẫn "Đã nạp BOM". Cơ chế: `calculate-all` gán status qua
+`calculated_sheet_status` (`co_case.py:2038`) — sheet dính guard (thiếu tồn `lvc_allocation_shortage`
+(#8), thiếu đơn giá, `declarable_unmatched`, missing_bom) GIỮ ở `bom_loaded` để không chốt/xuất được.
+Đúng theo thiết kế guard, nhưng label GỘP 2 nghĩa: "chưa tính" và "đã tính nhưng bị chặn" — user
+nhìn batch chạy xong mà tưởng chưa chạy. ĐÃ CÓ ADR: "[2026-07-11] Status model: badge honesty via
+a readiness chip, NOT by re-keying the status enum (deferred)" — spec VN-origin cũng pin
+"Status-enum refactor / readiness-chip work" ngoài scope. Enhancement đề xuất: giữ status enum
+nguyên (an toàn cho save-route hardcode + guards), thêm CHIP readiness cạnh badge cho sheet
+`bom_loaded`-có-số-liệu: "Đã tính — chặn chốt: thiếu tồn N dòng" (nguồn: `lvc_allocation_shortage`
+/ `lvc_missing_price` / `lvc_declarable_unmatched` / `missing_bom` + `origin_lock_block_reason`
+đã có sẵn per-product). Vùng: summary table + sheet tab pill (`co_case.html`), context đã có đủ
+cờ — chỉ là render. KHÔNG đổi `calculated_sheet_status`. Added: 2026-07-12.
