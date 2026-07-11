@@ -60,6 +60,11 @@ def setup():
                     "bcct_rows", "materials"):
             cur.execute(f"delete from hub.{tbl} where client_id=%s", (CLIENT,))
         cur.execute(
+            "delete from hub.bom_audit_events where client_id=%s and "
+            "event_type in ('catalog_bulk_accept','catalog_candidate_decision')",
+            (CLIENT,),
+        )
+        cur.execute(
             "delete from hub.client_parser_rules where client_id=%s", (CLIENT,)
         )
         cur.execute("delete from hub.sessions where user_id=%s", (USER_ID,))
@@ -278,3 +283,56 @@ def test_filter_by_kind(setup):
     body = r.text
     assert "DAUNOI" in body
     assert "DOV" in body
+
+
+# ── Bulk approval (#35) ────────────────────────────────────────────────────
+
+
+def test_bulk_accept_route_creates_materials(setup):
+    _seed_bcct("D1", "DAUNOI", "DAUNOI (019.X)")
+    _seed_bcct("D2", "DOV", "DOV (019.Y)")
+    c = _client(setup["session_id"])
+    r = c.post(f"/clients/{CLIENT}/catalog/candidates/bulk-accept",
+               data={}, follow_redirects=False)
+    assert r.status_code == 303
+    assert "bulk_accepted=" in r.headers["location"]
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select count(*) from hub.materials "
+            "where client_id=%s and status='active'", (CLIENT,))
+        assert cur.fetchone()[0] >= 2
+        cur.execute(
+            "select count(*) from hub.bom_audit_events "
+            "where client_id=%s and event_type='catalog_bulk_accept'", (CLIENT,))
+        assert cur.fetchone()[0] == 1
+
+
+def test_bulk_accept_respects_filter(setup):
+    # 019.X is import (nvl); a machinery-marked code would be excluded by
+    # default, so filtering to leaf=1 with no BOM yields zero.
+    _seed_bcct("D1", "DAUNOI", "DAUNOI (019.X)")
+    c = _client(setup["session_id"])
+    r = c.post(f"/clients/{CLIENT}/catalog/candidates/bulk-accept",
+               data={"leaf": "1"}, follow_redirects=False)
+    assert r.status_code == 303
+    assert "bulk_accepted=0" in r.headers["location"]
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute("select count(*) from hub.materials where client_id=%s",
+                    (CLIENT,))
+        assert cur.fetchone()[0] == 0
+
+
+def test_bulk_accept_route_requires_edit_auth(setup):
+    c = TestClient(app)  # no session
+    r = c.post(f"/clients/{CLIENT}/catalog/candidates/bulk-accept",
+               data={}, follow_redirects=False)
+    assert r.status_code in (302, 303, 401, 403)
+
+
+def test_page_renders_bulk_button_and_filters(setup):
+    _seed_bcct("D1", "DAUNOI", "DAUNOI (019.X)")
+    c = _client(setup["session_id"])
+    body = c.get(f"/clients/{CLIENT}/catalog/candidates").text
+    assert "mã đang lọc" in body       # the bulk button label
+    assert "Chỉ lá BOM đã làm phẳng" in body
+    assert "Hiện mã máy móc" in body
