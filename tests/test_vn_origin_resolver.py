@@ -107,6 +107,34 @@ def test_mixed_line_yields_partial_originating_amount():
     assert any("(13)" in warning for warning in material["material_warnings"])
 
 
+def test_partial_qualification_keeps_the_conservative_note():
+    # Only 20 of 40 qualifies — the remainder is still counted conservatively
+    # and must stay annotated; a FULLY qualifying line drops the note.
+    pool = {"NVL-1": [
+        _stock(remaining_qty="2", available_qty="2"),
+        _stock(source_row="ROW-2", line_no="2", origin_country="CHINA",
+               consignee_name="NCC CN", remaining_qty="100", available_qty="100"),
+    ]}
+    partial = _material(pool)
+    assert any("tính bảo thủ" in warning for warning in partial["material_warnings"])
+    full = _material({"NVL-1": [_stock()]})
+    assert not any("tính bảo thủ" in warning for warning in full["material_warnings"])
+
+
+def test_mixed_currency_material_publishes_no_native_origin_amount():
+    pool = {"NVL-1": [
+        _stock(remaining_qty="2", available_qty="2"),
+        _stock(source_row="ROW-2", line_no="2", value_currency="USD", currency="USD",
+               unit_value="1", exchange_rate_to_vnd="25000", exchange_rate_source="bcct_declared",
+               remaining_qty="100", available_qty="100"),
+    ]}
+    material = _material(pool)
+    # both lines qualify (VN + flagged) but their currencies differ — the native
+    # sum would be currency-ambiguous; the VND sum stays valid.
+    assert material["origin_amount"] == ""
+    assert material["origin_amount_vnd"] != ""
+
+
 def test_rvc_rises_by_exactly_the_qualifying_amount():
     pool = {"NVL-1": [
         _stock(remaining_qty="2", available_qty="2"),

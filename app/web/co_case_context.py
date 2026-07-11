@@ -2623,7 +2623,11 @@ def origin_material_from_bom_row(
         material_warnings.append(
             f"{material_code}: cột (13) trống — chưa có ngày chứng từ (Phụ lục X/C-O nhập); đính kèm bản giấy khi nộp hồ sơ."
         )
-    if origin_details["source"] == "default_conservative" and origin_amount <= 0:
+    # Suppress the conservative-default note only when the resolver covered the
+    # WHOLE line — a partially qualifying line's remainder is still counted
+    # conservatively and must stay annotated.
+    origin_fully_covers = material_value is not None and origin_amount >= material_value
+    if origin_details["source"] == "default_conservative" and not origin_fully_covers:
         material_warnings.append(f"{material_code}: chưa có phân loại xuất xứ, đang tính bảo thủ là không xuất xứ.")
     if not material_description:
         material_warnings.append(f"{material_code}: thiếu tên NVL từ BOM, danh mục NVL và BCCT nhập.")
@@ -2674,7 +2678,10 @@ def origin_material_from_bom_row(
         "origin_status_label": origin_details["label"],
         "origin_status_source": origin_details["source"],
         "origin_status_note": origin_details["note"],
-        "origin_amount": decimal_text(origin_amount) if origin_amount > 0 else "",
+        # Publish no currency-ambiguous number: with mixed line currencies the
+        # native sum is meaningless (the VND sum stays valid — every line was
+        # converted through its own rate).
+        "origin_amount": decimal_text(origin_amount) if origin_amount > 0 and not mixed_allocation_currency else "",
         "origin_amount_vnd": decimal_text(origin_amount_vnd) if origin_amount_vnd > 0 else "",
         "available_qty": available_qty,
         "consumed_qty": consumed_qty,
