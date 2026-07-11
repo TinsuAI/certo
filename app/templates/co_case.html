@@ -1242,6 +1242,11 @@
               {% if product.origin_sheet_material_diff_norm_only %}<span class="origin-bom-diff-norm">Δ{{ product.origin_sheet_material_diff_norm_only }} ĐM</span>{% endif %}
             </div>
             {% endif %}
+            {% if product.origin_sheet_overrides_version_mismatch %}
+            <div class="origin-bom-diff" data-origin-overrides-version-mismatch title="Các chỉnh sửa NVL đã lưu được tạo trên BOM version khác nên KHÔNG áp cho version đang chọn. Chuyển lại version cũ để áp lại; sửa tiếp trên version này sẽ xoá các chỉnh sửa cũ.">
+              <span class="origin-bom-diff-eyebrow">Chỉnh sửa NVL thuộc BOM version khác — chưa áp</span>
+            </div>
+            {% endif %}
           </div>
           {% if not bom_options and not product.materials %}
           <div class="callout callout-warning origin-bom-missing">
@@ -1548,7 +1553,8 @@
                 {% set render_allocation_details = allocation_count > 0 %}
                 {% set allocation_default_expanded = allocation_has_issue %}
                 {% set allocation_group = 'allocation-' ~ product_index ~ '-' ~ material_index %}
-                {% set norm_override = product.origin_sheet_material_overrides.get(material_index|string) if product.origin_sheet_material_overrides else none %}
+                {% set material_row_key = (material.material_sequence or loop.index)|string %}
+                {% set norm_override = product.origin_sheet_material_overrides.get(material_row_key) if product.origin_sheet_material_overrides else none %}
                 {% set effective_norm = (norm_override.norm_per_unit if norm_override and norm_override.norm_per_unit) or material.bom_qty_per %}
                 {% set _row_non_origin_base = material.non_origin_cif_value or (material.material_value if material.origin_status != 'origin' else '0') or '0' %}
                 {% set _row_deleted = material.deleted or (norm_override and norm_override.deleted) %}
@@ -1626,13 +1632,13 @@
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_bom_source" value="{{ material.bom_source }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_bom_row_class" value="{{ material.bom_row_class }}">
                     {% set substitute_label = material.customs_material_code or material.internal_material_code or material.material_code or 'n/a' %}
-                    {% set row_override = product.origin_sheet_material_overrides.get(material_index|string) if product.origin_sheet_material_overrides else none %}
+                    {% set row_override = product.origin_sheet_material_overrides.get(material_row_key) if product.origin_sheet_material_overrides else none %}
                     {% set _sheet_locked = product.origin_sheet_status == 'locked' %}
                     <button type="button"
                             class="origin-material-code-btn {% if row_override %}origin-material-code-overridden{% endif %}"
                             data-origin-substitute-trigger
                             data-product-code="{{ product.code }}"
-                            data-row-index="{{ material_index }}"
+                            data-row-index="{{ material_row_key }}"
                             data-material-code="{{ material.material_code }}"
                             data-internal-code="{{ material.internal_material_code }}"
                             data-current-norm="{{ effective_norm or '0' }}"
@@ -1660,7 +1666,7 @@
                            class="origin-norm-edit {% if norm_override and norm_override.norm_per_unit %}origin-norm-edit-overridden{% endif %}"
                            data-origin-norm-edit
                            data-product-code="{{ product.code }}"
-                           data-row-index="{{ material_index }}"
+                           data-row-index="{{ material_row_key }}"
                            data-original-value="{{ effective_norm or '0' }}"
                            value="{{ effective_norm or '0' }}"
                            aria-label="Định mức cho {{ material.material_code }}">
@@ -1763,6 +1769,32 @@
                     <small>Bước {{ allocation.product_sequence or product.allocation_sequence or product_index + 1 }} · tồn trước {{ allocation_opening_qty|number(6) }} -> còn {{ allocation.remaining_qty|number(6) }}</small>
                     <small>{{ allocation.source_row }}</small>
                   </td>
+                </tr>
+                {% endfor %}
+                {% endif %}
+                {# Render-split fan-out (ticket #7): when the material's lots resolve to
+                   distinct (origin_status, cột-9 text) groups, show one breakdown row per
+                   group — the exported bảng kê renders these as separate STT rows. With
+                   uniform keys (today's data) this block renders nothing. #}
+                {% set render_parts = material_render_parts(material) %}
+                {% if render_parts|length > 1 %}
+                {% for part in render_parts %}
+                <tr class="origin-split-row" data-origin-split-row data-render-part-key="{{ part.render_part_key }}" data-allocation-group="{{ allocation_group }}">
+                  <td data-origin-column="select" class="origin-col-select"></td>
+                  <td data-origin-column="row"></td>
+                  <td data-origin-column="code"><span class="allocation-indent">Tách {{ loop.index }}/{{ render_parts|length }}</span></td>
+                  <td data-origin-column="name"><small>{{ part.bang_ke_origin_text or part.origin_country or '—' }}</small></td>
+                  <td data-origin-column="hs"></td>
+                  <td data-origin-column="bom"></td>
+                  <td data-origin-column="consumed" class="num">{{ part.consumed_qty|number(6) }} <small>{{ material.uom }}</small></td>
+                  <td data-origin-column="unit-value" class="num"></td>
+                  <td data-origin-column="material-value" class="num">{{ part.material_value|number if part.material_value else '—' }}</td>
+                  <td data-origin-column="origin">
+                    <span class="badge {{ 'badge-ok' if part.origin_status == 'origin' else 'badge-neutral' }}">{{ 'Có xuất xứ' if part.origin_status == 'origin' else 'Không xuất xứ' }}</span>
+                    {% if part.origin_country %}<small class="origin-country-text">{{ part.origin_country }}</small>{% endif %}
+                  </td>
+                  <td data-origin-column="non-origin" class="num">{{ part.non_origin_cif_value|number if part.non_origin_cif_value else '0' }}</td>
+                  <td data-origin-column="source"><small>{{ part.import_declaration_no }}</small></td>
                 </tr>
                 {% endfor %}
                 {% endif %}
@@ -4724,7 +4756,7 @@
         state.row = trigger.closest("[data-origin-material-row]");
         if (deleteBtn) deleteBtn.hidden = false;
         if (sharedNormInput) sharedNormInput.value = state.currentNorm;
-        targetLabel.textContent = `Sheet ${state.productCode} · dòng ${state.rowIndex + 1}`;
+        targetLabel.textContent = `Sheet ${state.productCode} · dòng ${state.rowIndex}`;
         populateCurrentStrip(state.row);
         modal.hidden = false;
         document.body.classList.add("origin-substitute-modal-open");

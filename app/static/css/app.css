@@ -4137,6 +4137,11 @@ button.co-stat:hover {
   font-size: 0.68rem;
 }
 
+.origin-split-row td {
+  background: var(--surface-subtle);
+  font-size: 0.78rem;
+}
+
 .source-status-badge {
   flex: 0 0 auto;
   min-height: 1.45rem;

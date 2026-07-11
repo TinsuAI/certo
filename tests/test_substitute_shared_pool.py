@@ -158,8 +158,8 @@ def test_native_shared_pool_no_shortage_when_ample():
 def _substitution_case() -> dict:
     """Case where P1 uses A1 natively and P2 carries a saved A->A1 override.
 
-    P2 keeps its native material A in `materials` (index 0); the override at that
-    index swaps the code to A1 — exactly the shape `bulk_substitute_route` persists.
+    P2 keeps its native material A in `materials` (sequence key "1"); the override at
+    that key swaps the code to A1 — exactly the shape `bulk_substitute_route` persists.
     """
     return {
         "origin_product_order": ["P1", "P2"],
@@ -171,7 +171,7 @@ def _substitution_case() -> dict:
                             "material_description": "Mat A"}]},
         ],
         "origin_sheet_states": {
-            "P2": {"material_overrides": {"0": {"material_code": "A1", "norm_per_unit": "2", "uom": "kg"}}},
+            "P2": {"material_overrides": {"1": {"material_code": "A1", "norm_per_unit": "2", "uom": "kg"}}},
         },
     }
 

@@ -39,14 +39,14 @@ def _product(n: int) -> dict:
 # --- sheet_edit_bom_rows: soft delete, index-stable -------------------------
 
 def test_sheet_edit_bom_rows_keeps_deleted_row_flagged():
-    rows = sheet_edit_bom_rows(_product(3), {"1": {"deleted": True}})
+    rows = sheet_edit_bom_rows(_product(3), {"2": {"deleted": True}})
     assert len(rows) == 3, "soft delete: dòng deleted phải GIỮ trong output (index ổn định)"
     assert rows[1].get("deleted") is True
     assert rows[1]["material_code"] == "M2", "dòng deleted giữ danh tính gốc"
 
 
 def test_sheet_edit_bom_rows_neighbors_keep_identity():
-    rows = sheet_edit_bom_rows(_product(3), {"1": {"deleted": True}})
+    rows = sheet_edit_bom_rows(_product(3), {"2": {"deleted": True}})
     assert rows[0]["material_code"] == "M1" and not rows[0].get("deleted")
     assert rows[2]["material_code"] == "M3" and not rows[2].get("deleted")
 
@@ -191,15 +191,15 @@ def test_successive_single_deletes_do_not_lose_extra_rows():
     http = TestClient(app)
     base = f"/clients/growatt/co-case/{case_id}/origin/sheet/TP1"
 
-    r1 = http.post(f"{base}/save", json={"deletes": {"1": True}})
+    r1 = http.post(f"{base}/save", json={"deletes": {"2": True}})
     assert r1.status_code == 200
     stored = get_case_record(get_client("growatt"), case_id)
     assert len(stored["products"][0]["materials"]) == 4, "length giữ nguyên (soft delete)"
     assert _active_codes(stored) == ["M1", "M3", "M4"]
     assert _deleted_count(stored) == 1
 
-    # index 2 = M3 — index VẪN ổn định vì materials không co
-    r2 = http.post(f"{base}/save", json={"deletes": {"2": True}})
+    # sequence 3 = M3 — key VẪN ổn định vì materials không co
+    r2 = http.post(f"{base}/save", json={"deletes": {"3": True}})
     assert r2.status_code == 200
     stored2 = get_case_record(get_client("growatt"), case_id)
     assert len(stored2["products"][0]["materials"]) == 4
@@ -211,8 +211,8 @@ def test_diff_removed_accumulates_in_render_state():
     case_id = _seed_growatt_case_n_materials("CO-SOFTDEL-2", 4)
     http = TestClient(app)
     base = f"/clients/growatt/co-case/{case_id}/origin/sheet/TP1"
-    http.post(f"{base}/save", json={"deletes": {"0": True}})
     http.post(f"{base}/save", json={"deletes": {"1": True}})
+    http.post(f"{base}/save", json={"deletes": {"2": True}})
     stored = get_case_record(get_client("growatt"), case_id)
     prepared = attach_origin_sheet_states(stored)
     target = next(p for p in prepared["products"] if p["code"] == "TP1")

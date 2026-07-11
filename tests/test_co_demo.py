@@ -3387,7 +3387,7 @@ def test_origin_sheet_substitute_row_persists_override_and_marks_stale():
     response = client.post(
         f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-APPLY/substitute-row",
         json={
-            "row_index": 0,
+            "row_index": 1,
             "new_material_code": "M-NEW",
             "new_norm_per_unit": "1.5",
             "new_name": "New material",
@@ -3402,12 +3402,12 @@ def test_origin_sheet_substitute_row_persists_override_and_marks_stale():
     saved = get_case_record(get_client("growatt"), case_id)
     state = saved["origin_sheet_states"]["TP-APPLY"]
     assert state["status"] == "stale"
-    assert state["material_overrides"]["0"]["material_code"] == "M-NEW"
-    assert state["material_overrides"]["0"]["norm_per_unit"] == "1.5"
+    assert state["material_overrides"]["1"]["material_code"] == "M-NEW"
+    assert state["material_overrides"]["1"]["norm_per_unit"] == "1.5"
 
     deleted = client.post(
         f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-APPLY/substitute-row",
-        json={"row_index": 0, "delete": True},
+        json={"row_index": 1, "delete": True},
     )
     assert deleted.status_code == 200
     assert deleted.json()["applied_override"] == {"deleted": True}
@@ -4390,7 +4390,7 @@ def test_origin_sheet_edit_row_persists_norm_only_override():
 
     response = client.post(
         f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-EDIT/edit-row",
-        json={"row_index": 0, "new_norm_per_unit": "2.5"},
+        json={"row_index": 1, "new_norm_per_unit": "2.5"},
     )
     assert response.status_code == 200
     body = response.json()
@@ -4399,11 +4399,11 @@ def test_origin_sheet_edit_row_persists_norm_only_override():
     assert body["sheet_status"] == "stale"
 
     saved = get_case_record(get_client("growatt"), case_id)
-    assert saved["origin_sheet_states"]["TP-EDIT"]["material_overrides"]["0"]["norm_per_unit"] == "2.5"
+    assert saved["origin_sheet_states"]["TP-EDIT"]["material_overrides"]["1"]["norm_per_unit"] == "2.5"
 
     bad = client.post(
         f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-EDIT/edit-row",
-        json={"row_index": 0, "new_norm_per_unit": "abc"},
+        json={"row_index": 1, "new_norm_per_unit": "abc"},
     )
     assert bad.status_code == 400
 
@@ -4461,7 +4461,7 @@ def test_origin_sheet_renders_effective_norm_as_live_recompute_baseline():
     assert calculated.status_code == 200
     edited = client.post(
         f"{created.headers['location']}/origin/sheet/PV00.0048500/edit-row",
-        json={"row_index": 0, "new_norm_per_unit": "2.5"},
+        json={"row_index": 1, "new_norm_per_unit": "2.5"},
     )
     assert edited.status_code == 200
 
@@ -4533,7 +4533,7 @@ def test_origin_sheet_save_recomputes_replaced_material_snapshot():
         f"{created.headers['location']}/origin/sheet/PV00.0048500/save",
         json={
             "replaces": {
-                "0": {
+                "1": {
                     "new_material_code": "M-NEW",
                     "new_norm_per_unit": "2",
                     "new_name": "New material override",
@@ -4720,9 +4720,9 @@ def test_origin_sheet_save_batches_replaces_adds_deletes_and_norm_edits():
     response = client.post(
         f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-SAVE/save",
         json={
-            "replaces": {"0": {"new_material_code": "M-SWAP", "new_norm_per_unit": "1.5", "new_name": "Swap"}},
-            "norm_edits": {"1": "2.25"},
-            "deletes": {"2": True},
+            "replaces": {"1": {"new_material_code": "M-SWAP", "new_norm_per_unit": "1.5", "new_name": "Swap"}},
+            "norm_edits": {"2": "2.25"},
+            "deletes": {"3": True},
             "adds": [
                 {"new_material_code": "M-ADD", "new_norm_per_unit": "0.5", "new_name": "Added"},
                 {"new_material_code": "M-ADD2", "new_norm_per_unit": "0.1"},
@@ -4737,11 +4737,11 @@ def test_origin_sheet_save_batches_replaces_adds_deletes_and_norm_edits():
 
     saved = get_case_record(get_client("growatt"), case_id)
     overrides = saved["origin_sheet_states"]["TP-SAVE"]["material_overrides"]
-    assert overrides["0"]["material_code"] == "M-SWAP"
-    assert overrides["0"]["norm_per_unit"] == "1.5"
-    assert overrides["1"]["norm_per_unit"] == "2.25"
-    assert overrides["1"]["norm_edit_only"] is True
-    assert overrides["2"]["deleted"] is True
+    assert overrides["1"]["material_code"] == "M-SWAP"
+    assert overrides["1"]["norm_per_unit"] == "1.5"
+    assert overrides["2"]["norm_per_unit"] == "2.25"
+    assert overrides["2"]["norm_edit_only"] is True
+    assert overrides["3"]["deleted"] is True
     added = [k for k in overrides if k.startswith("added_")]
     assert len(added) == 2
     assert {overrides[k]["material_code"] for k in added} == {"M-ADD", "M-ADD2"}
@@ -4836,7 +4836,7 @@ def test_origin_sheet_save_merges_full_workbook_state_before_recompute():
                 {"code": "TP-A", "origin_sheet_status": "locked", "origin_sheet_status_label": "Chốt"},
                 {"code": "TP-B", "origin_sheet_status": "calculated", "origin_sheet_status_label": "Đã tính"},
             ],
-            "norm_edits": {"0": "2"},
+            "norm_edits": {"1": "2"},
         },
     )
 
@@ -4848,7 +4848,7 @@ def test_origin_sheet_save_merges_full_workbook_state_before_recompute():
     assert saved["origin_sheet_states"]["TP-A"]["criteria_override"] == "preserve A"
     assert saved["origin_sheet_states"]["TP-B"]["status"] == "calculated"
     assert saved["origin_sheet_states"]["TP-B"]["currency_mode"] == "vnd"
-    assert saved["origin_sheet_states"]["TP-B"]["material_overrides"]["0"]["norm_per_unit"] == "2"
+    assert saved["origin_sheet_states"]["TP-B"]["material_overrides"]["1"]["norm_per_unit"] == "2"
 
 
 def test_origin_sheet_save_rejects_empty_payload_and_invalid_norm():
@@ -4878,7 +4878,7 @@ def test_origin_sheet_save_rejects_empty_payload_and_invalid_norm():
 
     bad_norm = client.post(
         f"/clients/growatt/co-case/{case_id}/origin/sheet/TP-SAVEX/save",
-        json={"norm_edits": {"0": "not-a-number"}},
+        json={"norm_edits": {"1": "not-a-number"}},
     )
     assert bad_norm.status_code == 400
 

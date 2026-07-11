@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import time
 
+from app.co_case_store import OVERRIDE_KEY_SCHEME
+
 _CACHE: dict[str, tuple[float, dict[str, list[dict]]]] = {}
 _TTL_SECONDS = 60.0
 
@@ -59,6 +61,11 @@ def build_substitution_history(cases: list[dict]) -> dict[str, list[dict]]:
                     idx = int(str(key))
                 except (TypeError, ValueError):
                     continue
+                # Key semantics depend on the state's scheme: new-style states key
+                # by 1-based material_sequence, legacy (unmigrated raw records read
+                # outside case_from_record) by 0-based position.
+                if state.get("override_key_scheme") == OVERRIDE_KEY_SCHEME:
+                    idx = idx - 1
                 if idx < 0 or idx >= len(materials):
                     continue
                 base = materials[idx] if isinstance(materials[idx], dict) else {}

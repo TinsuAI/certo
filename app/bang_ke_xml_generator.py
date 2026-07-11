@@ -21,7 +21,8 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
-from app.origin_material_filters import is_bom_technical_noise
+from app.bang_ke_rows import material_render_parts
+from app.origin_material_filters import is_bom_technical_noise, material_override_key
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -387,15 +388,17 @@ def _render_sheet(ws, cfg: BangKeConfig, form: FormSpec, case: dict, product: di
     overrides = product.get("origin_sheet_material_overrides") or {}
     counter = 1
     for index, material in enumerate(materials):
-        override = overrides.get(str(index)) if isinstance(overrides.get(str(index)), dict) else {}
+        row_key = material_override_key(material, index)
+        override = overrides.get(row_key) if isinstance(overrides.get(row_key), dict) else {}
         if override.get("deleted") or is_bom_technical_noise(material):
             continue
-        values, origin_value, non_origin_value = _build_material_row(material, override, product, counter)
-        sum_origin += origin_value
-        sum_non_origin += non_origin_value
-        _write_body_row(ws, row, columns, values, body_font, cell_border, style)
-        row += 1
-        counter += 1
+        for part in material_render_parts(material):
+            values, origin_value, non_origin_value = _build_material_row(part, override, product, counter)
+            sum_origin += origin_value
+            sum_non_origin += non_origin_value
+            _write_body_row(ws, row, columns, values, body_font, cell_border, style)
+            row += 1
+            counter += 1
     for key, value in overrides.items():
         if not key.startswith("added_") or not isinstance(value, dict):
             continue

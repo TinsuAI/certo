@@ -26,6 +26,46 @@ MAX_SUPPORTING_FILE_BYTES = 20 * 1024 * 1024
 ALLOWED_SUPPORTING_SUFFIXES = {".pdf", ".xlsx", ".xls", ".xlsm", ".doc", ".docx", ".jpg", ".jpeg", ".png"}
 COMPLETED_CASE_STATUSES = {"completed", "done", "finished", "submitted", "closed"}
 
+# material_overrides key scheme: "material_sequence" = keys are the 1-based BOM
+# row sequence (plus added_<n>), replacing the legacy 0-based render index.
+OVERRIDE_KEY_SCHEME = "material_sequence"
+
+
+def migrated_override_keys(state: dict) -> dict:
+    """Migrate one sheet state's override maps from legacy positional keys
+    (0-based render index) to material_sequence keys (index+1 — deterministic
+    because material_sequence is assigned as enumerate(bom_rows, start=1)).
+    The stamped `override_key_scheme` makes this idempotent: a state written or
+    already migrated under the new scheme is returned unchanged."""
+    if not isinstance(state, dict):
+        return state
+    if state.get("override_key_scheme") == OVERRIDE_KEY_SCHEME:
+        return state
+
+    def migrate_map(overrides: dict) -> dict:
+        migrated = {}
+        for key, value in (overrides or {}).items():
+            text = str(key)
+            if text.isdigit():
+                migrated[str(int(text) + 1)] = value
+            else:
+                migrated[text] = value
+        return migrated
+
+    out = dict(state)
+    if isinstance(state.get("material_overrides"), dict):
+        out["material_overrides"] = migrate_map(state["material_overrides"])
+    if isinstance(state.get("override_history"), list):
+        out["override_history"] = [
+            migrate_map(snapshot) for snapshot in state["override_history"] if isinstance(snapshot, dict)
+        ]
+    if isinstance(state.get("override_redo"), list):
+        out["override_redo"] = [
+            migrate_map(snapshot) for snapshot in state["override_redo"] if isinstance(snapshot, dict)
+        ]
+    out["override_key_scheme"] = OVERRIDE_KEY_SCHEME
+    return out
+
 
 class CaseClosedError(ValueError):
     """Raised when a mutating call lands on a case whose status is in
@@ -375,6 +415,11 @@ def case_from_record(base_case: dict, client: dict, record: dict) -> dict:
         case["bom_artifact_id"] = json_safe(case.get("bom_version_id"))
     if "bom_product_artifact_overrides" not in case and "bom_product_version_overrides" in case:
         case["bom_product_artifact_overrides"] = json_safe(case.get("bom_product_version_overrides"))
+    if isinstance(case.get("origin_sheet_states"), dict):
+        case["origin_sheet_states"] = {
+            code: migrated_override_keys(state)
+            for code, state in case["origin_sheet_states"].items()
+        }
     return case
 
 

@@ -11,6 +11,7 @@ from markupsafe import Markup, escape
 
 from app import co_auth
 from app import version as appver
+from app.bang_ke_rows import material_render_parts
 
 
 _BOLD_MD = re.compile(r"\*\*(.+?)\*\*")
@@ -88,4 +89,5 @@ def theme_context(request: Request) -> dict[str, str]:
 
 templates = Jinja2Templates(directory=APP_ROOT / "templates", context_processors=[theme_context])
 templates.env.globals["asset_url"] = asset_url
+templates.env.globals["material_render_parts"] = material_render_parts
 templates.env.filters["bold_md"] = bold_md

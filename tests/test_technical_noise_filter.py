@@ -118,7 +118,7 @@ def test_propose_bom_keeps_deliberate_substitute_over_noise_original():
     # choice) even if the ORIGINAL material was rác/unmatched — don't drop it.
     from app.routers.co_case import build_bom_proposal_rows
     product = {"materials": [_mat("STEEL", customs_relevance="declarable_unmatched", name="Tube")]}
-    overrides = {"0": {"material_code": "STEEL-SUB", "norm_per_unit": "2"}}
+    overrides = {"1": {"material_code": "STEEL-SUB", "norm_per_unit": "2"}}
     codes = [r["material_code"] for r in build_bom_proposal_rows(product, overrides)]
     assert codes == ["STEEL-SUB"]
 

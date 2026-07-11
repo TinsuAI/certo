@@ -1263,6 +1263,20 @@ def attach_origin_sheet_states(case: dict) -> dict:
         material_overrides = raw_state.get("material_overrides") if isinstance(raw_state.get("material_overrides"), dict) else {}
         # Carry overrides on the sheet state so they round-trip through save/calculate.
         state["material_overrides"] = {str(k): dict(v) for k, v in material_overrides.items() if isinstance(v, dict)}
+        # Version binding (ticket #7): overrides written against BOM version A are
+        # KEPT on the state but not APPLIED while version B is selected — switching
+        # back re-applies them. Carry the write-time stamps or a recompute would
+        # wipe them and the legacy-key migration would re-run on migrated keys.
+        state["override_key_scheme"] = str(raw_state.get("override_key_scheme") or "")
+        state["overrides_artifact_id"] = str(raw_state.get("overrides_artifact_id") or "")
+        current_artifact_id = str(product.get("bom_product_artifact_id") or "")
+        overrides_version_mismatch = bool(
+            state["overrides_artifact_id"]
+            and current_artifact_id
+            and state["overrides_artifact_id"] != current_artifact_id
+        )
+        applied_overrides = {} if overrides_version_mismatch else state["material_overrides"]
+        product["origin_sheet_overrides_version_mismatch"] = overrides_version_mismatch
         # Per-sheet override UNDO/REDO stacks (each entry = a prior material_overrides
         # snapshot). attach_* rebuilds the sheet state from a whitelist, so these
         # MUST be carried here or they'd be wiped on every recompute/render. They
@@ -1272,14 +1286,14 @@ def attach_origin_sheet_states(case: dict) -> dict:
         state["override_redo"] = clean_override_stack(raw_state.get("override_redo"))
         product["origin_sheet_undo_count"] = len(state["override_history"])
         product["origin_sheet_redo_count"] = len(state["override_redo"])
-        diff_added = sum(1 for v in state["material_overrides"].values() if v.get("added"))
-        diff_removed = sum(1 for v in state["material_overrides"].values() if v.get("deleted"))
+        diff_added = sum(1 for v in applied_overrides.values() if v.get("added"))
+        diff_removed = sum(1 for v in applied_overrides.values() if v.get("deleted"))
         diff_replaced = sum(
-            1 for v in state["material_overrides"].values()
+            1 for v in applied_overrides.values()
             if not v.get("added") and not v.get("deleted") and v.get("material_code") and not v.get("norm_edit_only")
         )
         diff_norm_only = sum(
-            1 for v in state["material_overrides"].values()
+            1 for v in applied_overrides.values()
             if v.get("norm_edit_only") and not v.get("added") and not v.get("deleted")
         )
         state["material_diff_added"] = diff_added
@@ -1287,7 +1301,7 @@ def attach_origin_sheet_states(case: dict) -> dict:
         state["material_diff_replaced"] = diff_replaced
         state["material_diff_norm_only"] = diff_norm_only
         state["material_diff_total"] = diff_added + diff_removed + diff_replaced + diff_norm_only
-        product["origin_sheet_material_overrides"] = state["material_overrides"]
+        product["origin_sheet_material_overrides"] = applied_overrides
         product["origin_sheet_has_material_overrides"] = state["material_diff_total"] > 0
         product["origin_sheet_material_diff_added"] = diff_added
         product["origin_sheet_material_diff_removed"] = diff_removed

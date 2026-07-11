@@ -20,3 +20,13 @@ def is_declarable_unmatched(material: dict) -> bool:
     """Real, declarable-class material with no BCCT import match — export-excluded
     but surfaced as a reconciliation REVIEW queue, never lumped into rác."""
     return str(material.get("customs_relevance") or "").strip() == "declarable_unmatched"
+
+
+def material_override_key(material: dict, index: int) -> str:
+    """The material_overrides key for a material row: its 1-based
+    material_sequence (assigned as enumerate(bom_rows, start=1) and round-tripped
+    through the form), falling back to position+1 for rows that predate the
+    field. Every override READER keys through this; write routes store the key
+    the client sends, which the template computes the same way — the render
+    index is NOT the override identity (VN-origin ticket #7)."""
+    return str(material.get("material_sequence") or "").strip() or str(index + 1)

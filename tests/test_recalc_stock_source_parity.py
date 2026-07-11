@@ -30,7 +30,7 @@ def _case_with_substitute() -> dict:
         "origin_sheet_states": {
             "MFW0507-39": {
                 "material_overrides": {
-                    "0": {"material_code": "SUB-WITH-STOCK", "norm_per_unit": "1"},
+                    "1": {"material_code": "SUB-WITH-STOCK", "norm_per_unit": "1"},
                 },
             }
         },

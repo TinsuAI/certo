@@ -9,7 +9,8 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.utils import get_column_letter
 
 from app.bang_ke_renderer import load_form_config, render_into_sheet
-from app.origin_material_filters import is_bom_technical_noise
+from app.bang_ke_rows import material_render_parts
+from app.origin_material_filters import is_bom_technical_noise, material_override_key
 from app.bang_ke_xml_generator import render_case as render_case_via_xml
 from app.demo_data import attach_results, get_demo_case
 
@@ -577,9 +578,10 @@ def count_hq_material_rows(product: dict) -> int:
     overrides = product.get("origin_sheet_material_overrides") or {}
     count = 0
     for index, _material in enumerate(materials):
-        override = overrides.get(str(index)) if isinstance(overrides.get(str(index)), dict) else {}
+        row_key = material_override_key(_material, index)
+        override = overrides.get(row_key) if isinstance(overrides.get(row_key), dict) else {}
         if not override.get("deleted"):
-            count += 1
+            count += len(material_render_parts(_material))
     count += sum(
         1
         for key, value in overrides.items()
@@ -613,63 +615,67 @@ def write_hq_sheet_materials(ws, product: dict, start_row: int, *, legacy_export
         ws.cell(row=row, column=col, value=value)
 
     for index, material in enumerate(materials):
-        override = overrides.get(str(index)) if isinstance(overrides.get(str(index)), dict) else {}
+        row_key = material_override_key(material, index)
+        override = overrides.get(row_key) if isinstance(overrides.get(row_key), dict) else {}
         if override.get("deleted") or is_bom_technical_noise(material):
             continue
-        material_code = override.get("material_code") or material.get("material_code", "")
-        # The HQ bảng kê shows the customs item code (mã HQ); the internal
-        # allocation/BOM code is lookup-only. Fall back to material_code when a
-        # row has no matched-lot customs code (e.g. unmatched NVL).
-        hq_code = override.get("customs_material_code") or material.get("customs_material_code") or material_code
-        material_name = override.get("name") or material.get("material_description", "")
-        norm = override.get("norm_per_unit") or material.get("bom_qty_per", "0")
-        required_qty = decimal_value(material.get("consumed_qty") or norm)
-        unit_value_raw = cell_text(material.get("unit_value"))
-        unit_price = decimal_value(unit_value_raw or "0")
-        # Preserve non-numeric markers ("Nhiều đơn giá") for display rather than
-        # showing a misleading 0 in the unit-price column.
-        unit_price_display = unit_value_raw if _is_non_numeric_marker(unit_value_raw) else str(unit_price)
-        material_value = decimal_value(material.get("material_value") or "0")
-        origin_status = str(material.get("origin_status") or "non_origin")
-        origin_value = material_value if origin_status == "origin" else Decimal("0")
-        non_origin_value = material_value if origin_status != "origin" else Decimal("0")
-        sum_origin += origin_value
-        sum_non_origin += non_origin_value
+        # Render-split fan-out: one row per (origin_status, column-9 text) group
+        # of the material's lots; uniform keys → the single part IS the material.
+        for part in material_render_parts(material):
+            material_code = override.get("material_code") or part.get("material_code", "")
+            # The HQ bảng kê shows the customs item code (mã HQ); the internal
+            # allocation/BOM code is lookup-only. Fall back to material_code when a
+            # row has no matched-lot customs code (e.g. unmatched NVL).
+            hq_code = override.get("customs_material_code") or part.get("customs_material_code") or material_code
+            material_name = override.get("name") or part.get("material_description", "")
+            norm = override.get("norm_per_unit") or part.get("bom_qty_per", "0")
+            required_qty = decimal_value(part.get("consumed_qty") or norm)
+            unit_value_raw = cell_text(part.get("unit_value"))
+            unit_price = decimal_value(unit_value_raw or "0")
+            # Preserve non-numeric markers ("Nhiều đơn giá") for display rather than
+            # showing a misleading 0 in the unit-price column.
+            unit_price_display = unit_value_raw if _is_non_numeric_marker(unit_value_raw) else str(unit_price)
+            material_value = decimal_value(part.get("material_value") or "0")
+            origin_status = str(part.get("origin_status") or "non_origin")
+            origin_value = material_value if origin_status == "origin" else Decimal("0")
+            non_origin_value = material_value if origin_status != "origin" else Decimal("0")
+            sum_origin += origin_value
+            sum_non_origin += non_origin_value
 
-        put(row_index, "stt", counter)
-        put(row_index, "name", material_name)
-        put(row_index, "mat_code", hq_code)
-        put(row_index, "hs", material.get("hs_code", ""))
-        put(row_index, "uom", material.get("uom", ""))
-        put(row_index, "norm", str(norm))
-        put(row_index, "qty", str(required_qty))
-        put(row_index, "unit_price", unit_price_display)
-        put(row_index, "origin_val", str(origin_value))
-        put(row_index, "non_origin_val", str(non_origin_value))
-        put(row_index, "country", material.get("origin_country", ""))
-        put(row_index, "imp_no", material.get("import_declaration_no", ""))
-        put(
-            row_index,
-            "imp_date",
-            material.get("import_declaration_date")
-            or material.get("declaration_date")
-            or material.get("registration_date")
-            or "",
-        )
-        # Cột M-N (C/O ưu đãi nhập khẩu / bản khai báo NCC) — để TRỐNG tạm thời
-        # tới khi làm phần xuất xứ NVL (XX1). Xem app/bang_ke_renderer.py.
-        put(row_index, "co_no", "")
-        put(row_index, "co_date", "")
-        # Legacy helper columns — only meaningful on the wide layout.
-        if layout["kind"] == "legacy":
-            put(row_index, "line_no", material.get("import_line_no", ""))
-            put(row_index, "col_q", f"{product.get('source_declaration_no', '')}{material_code}")
-            put(row_index, "col_s", material.get("import_declaration_type", ""))
-            put(row_index, "prod_code", product.get("code", ""))
-            put(row_index, "src_line", product.get("source_line_no", ""))
-            put(row_index, "qty_y", product.get("quantity", ""))
-        row_index += 1
-        counter += 1
+            put(row_index, "stt", counter)
+            put(row_index, "name", material_name)
+            put(row_index, "mat_code", hq_code)
+            put(row_index, "hs", part.get("hs_code", ""))
+            put(row_index, "uom", part.get("uom", ""))
+            put(row_index, "norm", str(norm))
+            put(row_index, "qty", str(required_qty))
+            put(row_index, "unit_price", unit_price_display)
+            put(row_index, "origin_val", str(origin_value))
+            put(row_index, "non_origin_val", str(non_origin_value))
+            put(row_index, "country", part.get("origin_country", ""))
+            put(row_index, "imp_no", part.get("import_declaration_no", ""))
+            put(
+                row_index,
+                "imp_date",
+                part.get("import_declaration_date")
+                or part.get("declaration_date")
+                or part.get("registration_date")
+                or "",
+            )
+            # Cột M-N (C/O ưu đãi nhập khẩu / bản khai báo NCC) — để TRỐNG tạm thời
+            # tới khi làm phần xuất xứ NVL (XX1). Xem app/bang_ke_renderer.py.
+            put(row_index, "co_no", "")
+            put(row_index, "co_date", "")
+            # Legacy helper columns — only meaningful on the wide layout.
+            if layout["kind"] == "legacy":
+                put(row_index, "line_no", part.get("import_line_no", ""))
+                put(row_index, "col_q", f"{product.get('source_declaration_no', '')}{material_code}")
+                put(row_index, "col_s", part.get("import_declaration_type", ""))
+                put(row_index, "prod_code", product.get("code", ""))
+                put(row_index, "src_line", product.get("source_line_no", ""))
+                put(row_index, "qty_y", product.get("quantity", ""))
+            row_index += 1
+            counter += 1
 
     # Added-rows from overrides go at the end.
     for key, value in overrides.items():

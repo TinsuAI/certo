@@ -10,14 +10,14 @@ from fastapi import APIRouter
 from app import co_auth, co_stock_eligibility, co_stock_ledger, co_stock_materializer, material_search, substitution_history
 from app.substitute_discovery import build_stock_first_candidates
 from app.bom_store import attach_case_bom_snapshot
-from app.co_case_store import CaseHasActiveClaimsError, MAX_SUPPORTING_FILE_BYTES, build_case_criteria_rows, case_from_record, co_case_is_completed, co_case_status_view, create_case_record, create_case_workbook, declaration_refs, delete_case_record, delete_supporting_file, get_case_record, get_case_workspace, get_supporting_file, invoice_keys, json_safe, safe_filename, save_supporting_file, set_case_archived, update_case_record
+from app.co_case_store import CaseHasActiveClaimsError, MAX_SUPPORTING_FILE_BYTES, OVERRIDE_KEY_SCHEME, build_case_criteria_rows, case_from_record, co_case_is_completed, co_case_status_view, create_case_record, create_case_workbook, declaration_refs, delete_case_record, delete_supporting_file, get_case_record, get_case_workspace, get_supporting_file, invoice_keys, json_safe, safe_filename, save_supporting_file, set_case_archived, update_case_record
 from app.co_form_config_store import load_co_form_config
 from app.co_forms import prioritized_form_lanes, recommended_form_lane
 from app.data_hub_client import current_data_hub_token, normalize_material_row
 from app.data_hub_settings import data_hub_link_settings
 from app.demo_data import attach_results, update_products_from_form
 from app.dossier_export_service import dossier_export_result_path, dossier_export_status, submit_dossier_export
-from app.origin_material_filters import is_bom_technical_noise
+from app.origin_material_filters import is_bom_technical_noise, material_override_key
 from app.portfolio import portfolio_service
 from app.source_store import co_stock_rows_from_bcct
 from app.substitution_plan import plan_shortfall_substitution
@@ -646,11 +646,36 @@ def recalculate_origin_sheet_edits(client: dict, case: dict, product_code: str, 
     updated_products[target_index] = recalculated
     prepared["products"] = updated_products
     return attach_origin_sheet_states(prepared)
+def override_state_stamp(product: dict) -> dict:
+    """Fields every material_overrides WRITE must stamp on the sheet state:
+    the key scheme (so the legacy-key migration never re-runs on new-style
+    keys) and the BOM version artifact the overrides were made against (so an
+    override made under version A is not applied under version B)."""
+    return {
+        "override_key_scheme": OVERRIDE_KEY_SCHEME,
+        "overrides_artifact_id": str(product.get("bom_product_artifact_id") or ""),
+    }
+def writable_overrides(previous: dict, product: dict) -> tuple[dict, bool]:
+    """The override map a write may merge into. The kept map belongs to the BOM
+    version it was written against: merging under a DIFFERENT version and
+    restamping would silently rebind version-A overrides to version B, so on a
+    mismatch the write starts from an empty map (version-A overrides drop the
+    moment the operator edits under B — the spec-sanctioned alternative) and the
+    caller must also drop the undo/redo stacks, which key rows of that version.
+    Returns (overrides, version_mismatch)."""
+    previous = previous if isinstance(previous, dict) else {}
+    stored = str(previous.get("overrides_artifact_id") or "")
+    current = str(product.get("bom_product_artifact_id") or "")
+    if stored and current and stored != current:
+        return {}, True
+    overrides = previous.get("material_overrides")
+    return (dict(overrides) if isinstance(overrides, dict) else {}), False
 def sheet_edit_bom_rows(product: dict, overrides: dict) -> list[dict]:
     rows: list[dict] = []
     materials = product.get("materials") or []
     for index, material in enumerate(materials):
-        override = overrides.get(str(index)) if isinstance(overrides.get(str(index)), dict) else {}
+        row_key = material_override_key(material, index)
+        override = overrides.get(row_key) if isinstance(overrides.get(row_key), dict) else {}
         if override.get("deleted"):
             # Soft delete: GIỮ dòng trong output (gắn cờ `deleted`) để materials
             # KHÔNG co lại — index ổn định, override các lần xoá sau không lệch
@@ -1809,7 +1834,7 @@ async def bulk_substitute_route(request: Request, client_id: str, case_id: str):
         if prev.get("status") == "locked":
             skipped.extend({"product_code": pc, "material_code": str(e.get("material_code") or ""), "reason": "locked"} for e in entries)
             continue
-        overrides = dict(prev.get("material_overrides") or {})
+        overrides, version_mismatch = writable_overrides(prev, product)
         changed = False
         for e in entries:
             mc = str(e.get("material_code") or "").strip()
@@ -1818,8 +1843,9 @@ async def bulk_substitute_route(request: Request, client_id: str, case_id: str):
             if idx is None:
                 skipped.append({"product_code": pc, "material_code": mc, "reason": "material_not_found"})
                 continue
-            existing = overrides.get(str(idx)) if isinstance(overrides.get(str(idx)), dict) else {}
-            overrides[str(idx)] = {
+            key = material_override_key((product.get("materials") or [])[idx], idx)
+            existing = overrides.get(key) if isinstance(overrides.get(key), dict) else {}
+            overrides[key] = {
                 **existing,
                 "material_code": sc,
                 "norm_per_unit": str(e.get("norm_per_unit") or existing.get("norm_per_unit") or "").strip(),
@@ -1830,7 +1856,10 @@ async def bulk_substitute_route(request: Request, client_id: str, case_id: str):
             applied.append({"product_code": pc, "material_code": mc, "substitute_code": sc})
             changed = True
         if changed:
-            states[pc] = {**prev, "material_overrides": overrides, "status": "calculated", "status_label": ORIGIN_SHEET_STATUS_LABELS["calculated"]}
+            states[pc] = {**prev, "material_overrides": overrides, **override_state_stamp(product), "status": "calculated", "status_label": ORIGIN_SHEET_STATUS_LABELS["calculated"]}
+            if version_mismatch:
+                states[pc]["override_history"] = []
+                states[pc]["override_redo"] = []
             edited_codes.append(pc)
     min_gap = _origin_min_gap_days(client)
     if edited_codes:
@@ -2724,7 +2753,7 @@ async def co_case_origin_sheet_substitute_row(
     reject_if_sheet_locked(case, product_code)
     states = dict(case.get("origin_sheet_states") or {})
     previous = states.get(product_code) if isinstance(states.get(product_code), dict) else {}
-    overrides = dict(previous.get("material_overrides") or {})
+    overrides, version_mismatch = writable_overrides(previous, products[target_index])
     if delete:
         if is_added_key:
             # added rows aren't part of product.materials; "deletion" = drop the override
@@ -2747,7 +2776,10 @@ async def co_case_origin_sheet_substitute_row(
             "norm_per_unit": new_norm,
             "name": new_name,
         }
-    states[product_code] = {**previous, "material_overrides": overrides, "status": "stale", "status_label": ORIGIN_SHEET_STATUS_LABELS["stale"]}
+    states[product_code] = {**previous, "material_overrides": overrides, **override_state_stamp(products[target_index]), "status": "stale", "status_label": ORIGIN_SHEET_STATUS_LABELS["stale"]}
+    if version_mismatch:
+        states[product_code]["override_history"] = []
+        states[product_code]["override_redo"] = []
     case["origin_sheet_states"] = states
     case = mark_origin_sheets_stale(case, target_index)
     update_case_record(client, case)
@@ -2837,7 +2869,8 @@ def build_bom_proposal_rows(product: dict, overrides: dict) -> list[dict]:
     materials = product.get("materials") or []
     output: list[dict] = []
     for index, material in enumerate(materials):
-        override = overrides.get(str(index)) if isinstance(overrides.get(str(index)), dict) else {}
+        row_key = material_override_key(material, index)
+        override = overrides.get(row_key) if isinstance(overrides.get(row_key), dict) else {}
         if override.get("deleted") or material.get("deleted"):
             continue
         # DC3a: propose "đồng nhất với bảng kê" — drop the same rác/unmatched the
@@ -2899,11 +2932,14 @@ async def co_case_origin_sheet_edit_row(
     reject_if_sheet_locked(case, product_code)
     states = dict(case.get("origin_sheet_states") or {})
     previous = states.get(product_code) if isinstance(states.get(product_code), dict) else {}
-    overrides = dict(previous.get("material_overrides") or {})
+    overrides, version_mismatch = writable_overrides(previous, case["products"][target_index])
     key = str(row_index_int)
     existing = overrides.get(key) if isinstance(overrides.get(key), dict) else {}
     overrides[key] = {**existing, "norm_per_unit": new_norm, "norm_edit_only": not existing.get("material_code")}
-    states[product_code] = {**previous, "material_overrides": overrides, "status": "stale", "status_label": ORIGIN_SHEET_STATUS_LABELS["stale"]}
+    states[product_code] = {**previous, "material_overrides": overrides, **override_state_stamp(case["products"][target_index]), "status": "stale", "status_label": ORIGIN_SHEET_STATUS_LABELS["stale"]}
+    if version_mismatch:
+        states[product_code]["override_history"] = []
+        states[product_code]["override_redo"] = []
     case["origin_sheet_states"] = states
     case = mark_origin_sheets_stale(case, target_index)
     update_case_record(client, case)
@@ -2939,7 +2975,7 @@ async def co_case_origin_sheet_add_row(
     reject_if_sheet_locked(case, product_code)
     states = dict(case.get("origin_sheet_states") or {})
     previous = states.get(product_code) if isinstance(states.get(product_code), dict) else {}
-    overrides = dict(previous.get("material_overrides") or {})
+    overrides, version_mismatch = writable_overrides(previous, case["products"][target_index])
     next_added = 1 + max(
         [int(k.split("_", 1)[1]) for k in overrides if k.startswith("added_") and k.split("_", 1)[1].isdigit()] + [-1]
     )
@@ -2952,7 +2988,10 @@ async def co_case_origin_sheet_add_row(
         "uom": new_uom,
         "hs_code": new_hs,
     }
-    states[product_code] = {**previous, "material_overrides": overrides, "status": "stale", "status_label": ORIGIN_SHEET_STATUS_LABELS["stale"]}
+    states[product_code] = {**previous, "material_overrides": overrides, **override_state_stamp(case["products"][target_index]), "status": "stale", "status_label": ORIGIN_SHEET_STATUS_LABELS["stale"]}
+    if version_mismatch:
+        states[product_code]["override_history"] = []
+        states[product_code]["override_redo"] = []
     case["origin_sheet_states"] = states
     case = mark_origin_sheets_stale(case, target_index)
     update_case_record(client, case)
@@ -2998,7 +3037,7 @@ async def co_case_origin_sheet_save(
     reject_if_sheet_locked(case, product_code)
     states = dict(case.get("origin_sheet_states") or {})
     previous = states.get(product_code) if isinstance(states.get(product_code), dict) else {}
-    overrides = dict(previous.get("material_overrides") or {})
+    overrides, version_mismatch = writable_overrides(previous, case["products"][target_index])
 
     def _parse_row_index(value) -> int | None:
         try:
@@ -3092,17 +3131,23 @@ async def co_case_origin_sheet_save(
     # Push the PRE-save override snapshot onto the per-sheet undo stack so the
     # operator can revert a too-fast autosave (a fresh save invalidates redo).
     # Each entry is the small material_overrides map, bounded in clean_override_stack.
-    prior_overrides = {
-        str(k): dict(v)
-        for k, v in (previous.get("material_overrides") or {}).items()
-        if isinstance(v, dict)
-    }
-    override_history = clean_override_stack(previous.get("override_history"))
+    if version_mismatch:
+        # The kept map and the undo stacks belong to the other BOM version.
+        prior_overrides = {}
+        override_history = []
+    else:
+        prior_overrides = {
+            str(k): dict(v)
+            for k, v in (previous.get("material_overrides") or {}).items()
+            if isinstance(v, dict)
+        }
+        override_history = clean_override_stack(previous.get("override_history"))
     if overrides != prior_overrides:
         override_history = clean_override_stack([*override_history, prior_overrides])
     states[product_code] = {
         **previous,
         "material_overrides": overrides,
+        **override_state_stamp(case["products"][target_index]),
         "override_history": override_history,
         "override_redo": [],
         "status": "calculated",

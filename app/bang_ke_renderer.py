@@ -18,7 +18,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from app.origin_material_filters import is_bom_technical_noise
+from app.bang_ke_rows import material_render_parts
+from app.origin_material_filters import is_bom_technical_noise, material_override_key
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = ROOT / "config" / "bang-ke-forms"
@@ -255,59 +256,64 @@ def _write_body(ws, body_cfg: dict, product: dict) -> tuple[int, dict]:
     currency_mode = (product.get("origin_sheet_currency_mode") or "native").strip().lower()
     use_vnd = currency_mode == "vnd"
     for index, material in enumerate(materials):
-        override = overrides.get(str(index)) if isinstance(overrides.get(str(index)), dict) else {}
+        row_key = material_override_key(material, index)
+        override = overrides.get(row_key) if isinstance(overrides.get(row_key), dict) else {}
         if override.get("deleted") or is_bom_technical_noise(material):
             continue
-        material_code = override.get("material_code") or material.get("material_code", "")
-        # Bảng kê hiện mã HQ (customs_item_code của lô khớp); mã allocation/nội bộ
-        # chỉ để tra cứu/khớp tồn (giữ cho decl_mat_key). Fallback nội bộ khi NVL
-        # chưa khớp lô.
-        hq_code = override.get("customs_material_code") or material.get("customs_material_code") or material_code
-        material_name = override.get("name") or material.get("material_description", "")
-        norm = override.get("norm_per_unit") or material.get("bom_qty_per", "0")
-        consumed_qty = _decimal(material.get("consumed_qty") or norm)
-        unit_price = _decimal(_pick_currency_value(material, "unit_value", use_vnd, product))
-        material_value = _decimal(_pick_currency_value(material, "material_value", use_vnd, product))
-        is_origin = str(material.get("origin_status") or "non_origin") == "origin"
-        origin_value = material_value if is_origin else Decimal("0")
-        non_origin_value = material_value if not is_origin else Decimal("0")
-        sum_origin += origin_value
-        sum_non_origin += non_origin_value
+        # Render-split fan-out: one row per (origin_status, column-9 text) group
+        # of the material's lots; with uniform keys (all of today's data) the
+        # single part IS the material dict, so rendering is unchanged.
+        for part in material_render_parts(material):
+            material_code = override.get("material_code") or part.get("material_code", "")
+            # Bảng kê hiện mã HQ (customs_item_code của lô khớp); mã allocation/nội bộ
+            # chỉ để tra cứu/khớp tồn (giữ cho decl_mat_key). Fallback nội bộ khi NVL
+            # chưa khớp lô.
+            hq_code = override.get("customs_material_code") or part.get("customs_material_code") or material_code
+            material_name = override.get("name") or part.get("material_description", "")
+            norm = override.get("norm_per_unit") or part.get("bom_qty_per", "0")
+            consumed_qty = _decimal(part.get("consumed_qty") or norm)
+            unit_price = _decimal(_pick_currency_value(part, "unit_value", use_vnd, product))
+            material_value = _decimal(_pick_currency_value(part, "material_value", use_vnd, product))
+            is_origin = str(part.get("origin_status") or "non_origin") == "origin"
+            origin_value = material_value if is_origin else Decimal("0")
+            non_origin_value = material_value if not is_origin else Decimal("0")
+            sum_origin += origin_value
+            sum_non_origin += non_origin_value
 
-        put("stt", counter)
-        put("name", material_name)
-        put("material_code", hq_code)
-        put("hs", material.get("hs_code", ""))
-        put("uom", material.get("uom", ""))
-        put("norm", _text(norm))
-        put("qty", _text(consumed_qty))
-        put("unit_price", _text(unit_price))
-        put("origin_value", _text(origin_value))
-        put("non_origin_value", _text(non_origin_value))
-        put("country", material.get("origin_country", ""))
-        put("import_decl_no", material.get("import_declaration_no", ""))
-        put(
-            "import_decl_date",
-            material.get("import_declaration_date")
-            or material.get("declaration_date")
-            or material.get("registration_date")
-            or "",
-        )
-        # Cột M-N ("C/O ưu đãi nhập khẩu / Bản khai báo của nhà SX / NCC NVL
-        # trong nước") chỉ dành cho NVL CÓ xuất xứ (đáp ứng LVC/RVC) — tính năng
-        # XX1 chưa làm. Để TRỐNG tạm thời; KHÔNG nhét source_document_ref vào đây.
-        put("co_doc_no", "")
-        put("co_doc_date", "")
-        # Legacy helper columns (only present on wide layouts).
-        put("import_line_no", material.get("import_line_no", ""))
-        put("decl_mat_key", f"{product.get('source_declaration_no', '')}{material_code}")
-        put("decl_type", material.get("import_declaration_type", ""))
-        put("product_code", product.get("code", ""))
-        put("product_line", product.get("source_line_no", ""))
-        put("product_qty", product.get("quantity", ""))
+            put("stt", counter)
+            put("name", material_name)
+            put("material_code", hq_code)
+            put("hs", part.get("hs_code", ""))
+            put("uom", part.get("uom", ""))
+            put("norm", _text(norm))
+            put("qty", _text(consumed_qty))
+            put("unit_price", _text(unit_price))
+            put("origin_value", _text(origin_value))
+            put("non_origin_value", _text(non_origin_value))
+            put("country", part.get("origin_country", ""))
+            put("import_decl_no", part.get("import_declaration_no", ""))
+            put(
+                "import_decl_date",
+                part.get("import_declaration_date")
+                or part.get("declaration_date")
+                or part.get("registration_date")
+                or "",
+            )
+            # Cột M-N ("C/O ưu đãi nhập khẩu / Bản khai báo của nhà SX / NCC NVL
+            # trong nước") chỉ dành cho NVL CÓ xuất xứ (đáp ứng LVC/RVC) — tính năng
+            # XX1 chưa làm. Để TRỐNG tạm thời; KHÔNG nhét source_document_ref vào đây.
+            put("co_doc_no", "")
+            put("co_doc_date", "")
+            # Legacy helper columns (only present on wide layouts).
+            put("import_line_no", part.get("import_line_no", ""))
+            put("decl_mat_key", f"{product.get('source_declaration_no', '')}{material_code}")
+            put("decl_type", part.get("import_declaration_type", ""))
+            put("product_code", product.get("code", ""))
+            put("product_line", product.get("source_line_no", ""))
+            put("product_qty", product.get("quantity", ""))
 
-        row_index += 1
-        counter += 1
+            row_index += 1
+            counter += 1
 
     # Added-row overrides at the end.
     for key, value in overrides.items():
@@ -440,9 +446,10 @@ def _compute_ratio(totals: dict) -> str:
 def _count_visible_materials(materials: list[dict], overrides: dict) -> int:
     count = 0
     for index, _material in enumerate(materials):
-        override = overrides.get(str(index)) if isinstance(overrides.get(str(index)), dict) else {}
+        row_key = material_override_key(_material, index)
+        override = overrides.get(row_key) if isinstance(overrides.get(row_key), dict) else {}
         if not override.get("deleted"):
-            count += 1
+            count += len(material_render_parts(_material))
     count += sum(
         1
         for key, value in overrides.items()

@@ -58,8 +58,8 @@ def test_substitution_persists_override_at_matched_row(sub_client):
     assert body["skipped"] == []
     record = co_case_store.get_case_record(get_client("growatt"), case_id)
     overrides = record["origin_sheet_states"]["PV.A"]["material_overrides"]
-    # M-OLD is the 2nd material → row index "1"
-    assert overrides["1"]["material_code"] == "M-NEW"
+    # M-OLD is the 2nd material → material_sequence key "2"
+    assert overrides["2"]["material_code"] == "M-NEW"
 
 
 def test_unknown_material_is_skipped(sub_client):
