@@ -1356,7 +1356,7 @@ def test_bcct_parser_infers_configured_import_types_when_direction_is_blank():
 def test_growatt_client_config_defaults_to_dncx_and_description_allocation():
     config = get_client_config(get_client("growatt"))
 
-    assert config["bcct"]["eligible_import_declaration_types"] == ["E11", "E15"]
+    assert config["bcct"]["eligible_import_declaration_types"] == ["E11", "E13", "E15"]
     assert config["bcct"]["relevant_export_declaration_types"] == ["E42"]
     assert config["co_stock"]["lot_policy"] == "line_level"
     assert config["allocation_code"]["strategy"] == "description_regex"

@@ -4,6 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from app import changelog, co_auth, co_stock_eligibility, co_stock_materializer
 from app import version as appver
+from app.bcct_aggregates import declaration_type_counts, excluded_types_with_rows
 from app.app_state_store import get_app_state_store
 from app.co_case_store import co_case_is_completed, co_case_status_view, get_case_workspace, update_case_record
 from app.demo_data import update_products_from_form
@@ -41,10 +42,29 @@ def config_context(client_id: str, **extra) -> dict:
     # need source_workspace / bom_workspace, so skip the full pagination that
     # client_context triggers (Johnson: ~65k BCCT rows over HTTP per render).
     lean = _data_hub_overview_context(client_id, "config", dh_path="")
+    context = lean if lean is not None else client_context(client_id, "config", **extra)
     if lean is not None:
-        lean.update(extra)
-        return lean
-    return client_context(client_id, "config", **extra)
+        context.update(extra)
+    # Per-declaration-type BCCT counts from the materialized tồn snapshot (cheap,
+    # local) so a filtering mistake is visible before it produces false shortages.
+    context.update(_declaration_type_count_context(context.get("client") or {}, context.get("client_config") or {}))
+    return context
+def _declaration_type_count_context(client: dict, client_config: dict) -> dict:
+    counts = declaration_type_counts(co_stock_materializer.read_co_stock_rows_cached(str(client.get("id") or "")))
+    eligible = (client_config.get("bcct") or {}).get("eligible_import_declaration_types") or []
+    return {
+        "bcct_declaration_type_counts": counts,
+        "bcct_excluded_type_rows": excluded_types_with_rows(counts, eligible),
+    }
+def declaration_type_exclusion_warning(client: dict, client_config: dict) -> str:
+    excluded = _declaration_type_count_context(client, client_config)["bcct_excluded_type_rows"]
+    if not excluded:
+        return ""
+    listed = "; ".join(f"{declaration_type}: {count} dòng" for declaration_type, count in excluded)
+    return (
+        f" Lưu ý: danh sách loại hình nhập đang LOẠI các loại hình có dữ liệu BCCT ({listed}) — "
+        "các lô đó sẽ không được tính tồn CO (nguy cơ thiếu tồn giả)."
+    )
 @router.get("/", response_class=HTMLResponse)
 @router.get("/clients", response_class=HTMLResponse)
 async def clients(request: Request):
@@ -237,7 +257,10 @@ async def save_client_config_route(request: Request, client_id: str):
     return templates.TemplateResponse(
         request=request,
         name="client_config.html",
-        context=config_context(client_id, message="Đã lưu cấu hình công ty."),
+        context=config_context(
+            client_id,
+            message="Đã lưu cấu hình công ty." + declaration_type_exclusion_warning(client, config),
+        ),
     )
 @router.post("/clients/{client_id}/evaluate", response_class=HTMLResponse)
 async def evaluate(request: Request, client_id: str):

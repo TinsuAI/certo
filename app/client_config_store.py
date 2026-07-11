@@ -13,7 +13,11 @@ from pathlib import Path
 
 DECLARATION_TYPE_PRESETS = {
     "dncx": {
-        "eligible_import_declaration_types": ["E11", "E15"],
+        # E13 is on-spot domestic purchase (nhập tại chỗ "từ nội địa") — 83% of
+        # Growatt's on-spot volume; omitting it silently drops those lots for any
+        # DNCX client onboarded via this preset (ADR 2026-07-11). Live saved
+        # configs are not rewritten by this default.
+        "eligible_import_declaration_types": ["E11", "E13", "E15"],
         "relevant_export_declaration_types": ["E42"],
     },
     "sxxk": {

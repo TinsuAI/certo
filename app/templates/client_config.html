@@ -41,7 +41,26 @@
         <div class="rowitem">
           <div class="rowitem-main">
             <strong>Loại hình nhập tính tồn C/O</strong>
-            <div class="meta">{{ client_config.bcct.eligible_import_declaration_types|join(', ') or 'chưa cấu hình' }}</div>
+            <div class="meta">{{ client_config.bcct.eligible_import_declaration_types|join(', ') or 'chưa cấu hình (không lọc — mọi loại hình đều tính)' }}</div>
+          </div>
+        </div>
+        <div class="rowitem">
+          <div class="rowitem-main">
+            <strong>Số dòng BCCT nhập theo loại hình</strong>
+            <div class="meta" data-bcct-type-counts>
+              {% if bcct_declaration_type_counts %}
+              {% for declaration_type, count in bcct_declaration_type_counts.items() %}{{ declaration_type }}: {{ count }} dòng{% if not loop.last %} · {% endif %}{% endfor %}
+              {% else %}
+              Chưa có snapshot tồn CO — bấm "Refresh tồn" ở tab Tồn C/O để thấy số liệu.
+              {% endif %}
+            </div>
+            {% if bcct_excluded_type_rows %}
+            <div class="meta" data-bcct-excluded-warning style="color: var(--danger, #b91c1c);">
+              ⚠ Danh sách loại hình nhập đang LOẠI loại hình có dữ liệu:
+              {% for declaration_type, count in bcct_excluded_type_rows %}{{ declaration_type }} ({{ count }} dòng){% if not loop.last %}, {% endif %}{% endfor %}
+              — các lô đó không được tính tồn CO (nguy cơ thiếu tồn giả).
+            </div>
+            {% endif %}
           </div>
         </div>
         <div class="rowitem">
