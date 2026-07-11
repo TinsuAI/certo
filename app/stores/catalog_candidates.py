@@ -418,6 +418,20 @@ def refresh_candidates(client_id: str) -> int:
     return len(agg)
 
 
+def refresh_candidates_after_ingest(client_id: str) -> None:
+    """Post-ingest hook (#32): rebuild the review queue after new source
+    rows land (BCCT / BOM / BQD). Never bubbles — a failed refresh must
+    not fail the upload that triggered it; the page's "Làm mới" button
+    re-runs it on demand."""
+    import logging
+    try:
+        refresh_candidates(client_id)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "catalog candidates refresh after ingest failed for %s", client_id,
+        )
+
+
 # ── Post-aggregation helpers ──────────────────────────────────────────────
 
 

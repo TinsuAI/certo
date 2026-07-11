@@ -10,10 +10,16 @@
       <h2>Mã chờ duyệt</h2>
       <p class="meta">
         Phát hiện mã mới từ BCCT + BOM + BQD. Duyệt thì cho vào catalog;
-        không thì từ chối (ẩn khỏi feed). Re-derive mỗi lần render.
+        không thì từ chối (ẩn khỏi feed). Danh sách tự cập nhật sau mỗi
+        lần nhập liệu; bấm «Làm mới» để quét lại thủ công.
       </p>
     </div>
     <div class="page-actions">
+      <form method="post"
+            action="/clients/{{ client.client_id }}/catalog/candidates/refresh"
+            style="display: inline;">
+        <button type="submit" class="btn-secondary">↻ Làm mới</button>
+      </form>
       <a class="btn-secondary"
          href="/clients/{{ client.client_id }}/catalog">← {{ t('catalog.title') }}</a>
     </div>
@@ -41,6 +47,11 @@
   {% elif request.query_params.get('unrejected') %}
     <div class="toast" style="margin-bottom: 1rem;">
       ↻ Đã khôi phục <code>{{ toast_code or '?' }}</code> về pending.
+    </div>
+  {% elif request.query_params.get('refreshed') is not none %}
+    <div class="toast" style="margin-bottom: 1rem;">
+      ↻ Đã quét lại nguồn — {{ request.query_params.get('refreshed') }} mã
+      trong danh sách.
     </div>
   {% endif %}
 

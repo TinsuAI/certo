@@ -11,6 +11,7 @@ phiên bản theo [SemVer](https://semver.org/).
 
 ## [Unreleased]
 ### Sửa
+- **Trang "Mã chờ duyệt" mở nhanh hơn (~0.4s thay vì ~2.2s trên dữ liệu Growatt):** trước đây mỗi lần mở trang (kể cả chuyển trang) hệ thống quét lại toàn bộ tờ khai và ghi lại hàng nghìn dòng "mã chờ duyệt". Nay việc quét chỉ chạy sau mỗi lần nhập liệu (BCCT / BOM / BQD) và khi bấm nút «Làm mới» trên trang; mở trang chỉ đọc, không ghi gì vào hệ thống.
 - **Ký hiệu giữ chỗ trên tờ khai không còn tự sinh "vật tư" rác:** một số khách hàng ghi ký hiệu giữ chỗ (vd `.`) vào cột mã HQ cho các dòng tài sản cố định (xe nâng, giá kệ — loại hình E13). Trước đây các dòng này tự sinh một "vật tư" tên `.` trong danh mục. Nay ký hiệu giữ chỗ được cấu hình riêng cho từng khách hàng (`hub.clients.customs_code_placeholders`, Growatt + Johnson dùng `.`), các dòng đó được bỏ qua khi tự ghi nhận vật tư từ tờ khai, và hai "vật tư" `.` cũ đã được xóa khỏi danh mục. Không đổi API; các mã phụ tùng máy móc sẽ được đánh dấu ở giai đoạn 3 (#33).
 
 ### API

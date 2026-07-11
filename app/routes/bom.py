@@ -766,6 +766,12 @@ async def preview_confirm(request: Request, client_id: str, pending_id: str):
                 (n, upload_id),
             )
 
+    # Post-ingest hook (#32): new BOM edges can surface new candidate
+    # codes — the candidates page no longer refreshes on GET.
+    if created_artifact_ids:
+        from app.stores.catalog_candidates import refresh_candidates_after_ingest
+        refresh_candidates_after_ingest(client_id)
+
     # If this upload used an LLM-proposed mapping, persist it now (the
     # staff just verified the resulting products+rows looked correct).
     if (diff_summary or {}).get("proposed_by") == "llm_proposed":
