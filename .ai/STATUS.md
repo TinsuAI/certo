@@ -1,6 +1,24 @@
 # Project Status
 
 ## Current State
+- **2026-07-11 (PM) — 2 STANDING ITEMS CLOSED + SUPPLIERS-SCREEN BUG FIXED + DEPLOYED.**
+  `origin/main` = prod = nightly = **`9f38afa`** (CI green, `/version` verified both).
+  (1) **`missing_price` belts 2/3** (`b89e187`): lock gate + export blockers re-check
+  `lvc_missing_price` (shortage takes precedence — no-lot NVL trips both flags, remedy = document).
+  (2) **Prod audit locked SHORTAGE sheets: NO exposure** — 0/10 locked sheets flagged (16 cases,
+  82 sheets); 4 johnson-vn `calculated` sheets carry flags → now correctly hard-blocked until re-Tính.
+  (3) **Suppliers screen empty root cause + fix** (`9f38afa`): pre-VN-origin snapshots lack
+  `consignee_name` and "Refresh tồn" takes the DELTA path (never rewrites unchanged rows) → CO-side
+  derivation field additions never backfilled. Fix = migration **020** `derivation_schema_version`
+  stamp; dispatch forces ONE full re-derivation on mismatch (`DERIVATION_SCHEMA_VERSION=2`).
+  **Prod + nightly BACKFILLED in-container** (both clients 100% consignee coverage, 0 removed,
+  stamps=2) — prod NCC screen is populated NOW. (4) **QA issues #15/#16/#17 filed**
+  (`ready-for-agent`, independent): long-name horizontal scroll, suppliers search box, client-tabs
+  missing on case view. Suite **887 pass / 14 skip**. Session:
+  `.ai/sessions/2026-07-11-missing-price-belts-stock-refresh-backfill.md`.
+  **USER ACTION PENDING:** flag 2 NCC on prod UI (`CONG TY TNHH MINGJIE VIET NAM` +
+  `CONG TY TNHH MINGHUI VIET NAM`, spellings verified vs live BCCT; NEVER the HK namesake);
+  decide **#14** (recommendation: option 2 — CO-side allocation override on client overlay).
 - **2026-07-12 (overnight) — VN-ORIGIN FEATURE BUILT: ALL 8 TICKETS (#6–#13) IMPLEMENTED,
   TESTED, COMMITTED, ISSUES CLOSED.** Autonomous run per user directive. **PUSHED + DEPLOYED 2026-07-12** (user go-ahead): `origin/main` = `51fe273`,
   CI/CD green, prod `barry-co` + nightly `demo-co` both verified `git_sha=51fe273`. Live e2e
@@ -195,6 +213,14 @@
   via 5 parallel agents) — **NOT pushed yet**. See session `2026-06-19-backlog-status-reconciliation.md`.
 
 ## Next Steps (priority order)
+000. **`/implement` #15, #16, #17** (GitHub, `ready-for-agent`, độc lập — fresh context mỗi vé,
+   `gh issue view <n>`): #15 NCC tên dài → horizontal scroll (wrap/truncate cột tên);
+   #16 search box màn NCC (match theo supplier_key normalize, không dấu); #17 client-tabs
+   bị ẩn ở case view (`active == "co-case"` trong `_client_nav.html`) → cho hiện cùng step nav.
+000b. **User actions:** flag 2 NCC prod (xem Current State) + quyết #14 (đề xuất: option 2
+   CO-side allocation override trên client overlay, precedent `bang_ke_overrides`; hỏi agency
+   trước liệu growatt-vn có upload BOM mã HQ không — option 3 thì khỏi cần override).
+   2 standing action items cũ (audit locked SHORTAGE sheets; `missing_price` hole) **ĐÃ XONG 2026-07-11**.
 00. **(DONE 2026-07-12 — see Current State)** ~~Build VN-origin feature theo 7-ticket order~~ trong
    `.ai/sessions/2026-07-11-vn-origin-grill-part2-close.md` — design đã chốt 12 ADR, KHÔNG cần grill thêm.
    **Spec (ready-for-agent): `.ai/features/2026-07-11-vn-origin-materials/spec.md`** — tổng hợp 12 ADR
