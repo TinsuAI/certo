@@ -3660,8 +3660,18 @@ def _refresh_co_stock_delta_or_full(client: dict) -> dict:
     # (double-count). Force full for that policy until delta is aggregate-aware.
     lot_policy = portfolio_service.get_client_config(client).get("co_stock", {}).get("lot_policy", "line_level")
     delta_safe = lot_policy != "aggregate_by_declaration_and_allocation_code"
+    # A delta only rewrites rows whose SOURCE data changed on Data Hub, so it
+    # can never backfill payload fields a CO release added to the derivation
+    # (e.g. consignee_name for the suppliers screen). Force one full
+    # re-derivation whenever the snapshot was stamped by an older derivation.
+    schema_current = (
+        state.get("derivation_schema_version") == co_stock_materializer.DERIVATION_SCHEMA_VERSION
+        if state
+        else False
+    )
     if (
         delta_safe
+        and schema_current
         and last_server_time
         and snapshot_count > 0
         and data_hub is not None

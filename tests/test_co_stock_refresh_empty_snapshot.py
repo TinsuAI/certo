@@ -16,9 +16,14 @@ class _FakeDataHub:
 
 
 def _patch_common(monkeypatch, row_count: int):
+    from app import co_stock_materializer
+
     monkeypatch.setattr(
         "app.co_stock_materializer.read_refresh_state",
-        lambda cid: {"last_bcct_server_time": "2026-01-01T00:00:00+00:00"},
+        lambda cid: {
+            "last_bcct_server_time": "2026-01-01T00:00:00+00:00",
+            "derivation_schema_version": co_stock_materializer.DERIVATION_SCHEMA_VERSION,
+        },
     )
     monkeypatch.setattr("app.co_stock_materializer.row_count", lambda cid: row_count)
     monkeypatch.setattr(ctx.portfolio_service, "data_hub", _FakeDataHub(), raising=False)

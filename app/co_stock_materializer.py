@@ -33,6 +33,15 @@ from app.source_index_store import build_co_stock_index_records
 
 LOGGER = logging.getLogger(__name__)
 
+# Bump when `co_stock_rows_from_bcct` adds/changes derived payload fields. A
+# delta refresh only rewrites rows whose source BCCT data changed, so without
+# this stamp a CO-side field addition never backfills the existing snapshot
+# (the suppliers screen stayed empty because pre-VN-origin rows had no
+# consignee_name and "Refresh tồn" was a delta no-op). The dispatch forces one
+# FULL re-derivation when the stored stamp differs.
+# 2 = VN-origin: consignee_name/origin_country plumbed into the payload (#6).
+DERIVATION_SCHEMA_VERSION = 2
+
 
 def _store_available() -> bool:
     return bool(database_url())
@@ -809,8 +818,9 @@ def record_refresh_state(
             cur.execute(
                 """insert into co_stock_refresh_state (
                     client_id, snapshot_row_count, bcct_row_count_at_refresh,
-                    bcct_indexed_at_at_refresh, last_bcct_server_time, refreshed_at
-                   ) values (%s, %s, %s, %s, %s, now())
+                    bcct_indexed_at_at_refresh, last_bcct_server_time,
+                    derivation_schema_version, refreshed_at
+                   ) values (%s, %s, %s, %s, %s, %s, now())
                    on conflict (client_id) do update set
                      snapshot_row_count = excluded.snapshot_row_count,
                      bcct_row_count_at_refresh = excluded.bcct_row_count_at_refresh,
@@ -818,6 +828,7 @@ def record_refresh_state(
                      last_bcct_server_time = case
                        when excluded.last_bcct_server_time = '' then co_stock_refresh_state.last_bcct_server_time
                        else excluded.last_bcct_server_time end,
+                     derivation_schema_version = excluded.derivation_schema_version,
                      refreshed_at = now()""",
                 (
                     client_id,
@@ -825,6 +836,7 @@ def record_refresh_state(
                     int(bcct_row_count_at_refresh),
                     bcct_indexed_at_at_refresh,
                     last_bcct_server_time or "",
+                    DERIVATION_SCHEMA_VERSION,
                 ),
             )
     except Exception as exc:  # noqa: BLE001
@@ -838,7 +850,8 @@ def read_refresh_state(client_id: str) -> dict | None:
         with connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """select snapshot_row_count, bcct_row_count_at_refresh,
-                          bcct_indexed_at_at_refresh, refreshed_at, last_bcct_server_time
+                          bcct_indexed_at_at_refresh, refreshed_at, last_bcct_server_time,
+                          derivation_schema_version
                    from co_stock_refresh_state where client_id = %s""",
                 (client_id,),
             )
@@ -851,6 +864,7 @@ def read_refresh_state(client_id: str) -> dict | None:
                 "bcct_indexed_at_at_refresh": row[2].isoformat() if row[2] else "",
                 "refreshed_at": row[3].isoformat() if row[3] else "",
                 "last_bcct_server_time": row[4] or "",
+                "derivation_schema_version": int(row[5] or 0),
             }
     except Exception:  # noqa: BLE001
         return None

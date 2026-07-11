@@ -135,9 +135,14 @@ class _DeltaCapableHub:
 def _patch_delta_preconditions(monkeypatch, lot_policy: str):
     """Snapshot non-empty + stored server_time + delta-capable hub — all the
     conditions that would normally take the delta path."""
+    from app import co_stock_materializer
+
     monkeypatch.setattr(
         "app.co_stock_materializer.read_refresh_state",
-        lambda cid: {"last_bcct_server_time": "2026-01-01T00:00:00+00:00"},
+        lambda cid: {
+            "last_bcct_server_time": "2026-01-01T00:00:00+00:00",
+            "derivation_schema_version": co_stock_materializer.DERIVATION_SCHEMA_VERSION,
+        },
     )
     monkeypatch.setattr("app.co_stock_materializer.row_count", lambda cid: 5)
     monkeypatch.setattr(ctx.portfolio_service, "data_hub", _DeltaCapableHub(), raising=False)
