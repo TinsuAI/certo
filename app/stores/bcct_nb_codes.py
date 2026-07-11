@@ -14,7 +14,7 @@ domain.
 from __future__ import annotations
 
 from app.database import connect
-from app.parsers.catalog_candidates import candidates_from_bcct_row
+from app.parsers.code_extraction import candidates_from_bcct_row
 from app.parsers.client_parser_rules import load_rules
 from app.stores.provenance import customs_code_placeholders
 
@@ -45,7 +45,11 @@ def rebuild_for_client(client_id: str) -> int:
                 rules=rules, has_dual_system=True, placeholders=placeholders,
             )
             for code, kind in cands:
-                if kind == "nb":
+                # 'nb' plus the 'unified' self-link (extracted code equal
+                # to the row's customs_code) — the self-link is how the
+                # discovery view detects the NB==HQ case in SQL (#34).
+                # 'hq' is never stored: it is already a bcct_rows column.
+                if kind in ("nb", "unified"):
                     links.add((txn, line, code))
         if links:
             cur.executemany(

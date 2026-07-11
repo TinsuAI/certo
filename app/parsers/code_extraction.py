@@ -10,10 +10,12 @@ Per-row classification handles 4 BCCT cases:
      for each NB. Placeholder strings come from
      `hub.clients.customs_code_placeholders` (mig 090), loaded by callers.
 
-BOM and code_mappings sources are simpler — see individual functions.
+The BOM and code_mappings discovery streams live in SQL
+(hub.catalog_discovery, mig 092) — only the BCCT regex extraction
+needs Python.
 
 These helpers are deliberately stateless; DB lookups happen in the store
-layer (app/stores/catalog_candidates.py) and route layer.
+layer (app/stores/bcct_nb_codes.py) and route layer.
 """
 from __future__ import annotations
 
@@ -88,59 +90,3 @@ def candidates_from_bcct_row(
 
     # Case 4: NB only (no HQ)
     return [(nb, "nb") for nb in nbs]
-
-
-def candidates_from_bom_codes(
-    codes,
-    *,
-    has_dual_system: bool,
-) -> list[Candidate]:
-    """Classify BOM edge codes (parent or child).
-
-    BOM is internal supply chain — codes are NB-level (or 'unified' for
-    single-system clients). Skip None/empty/whitespace; dedup distinct codes.
-    """
-    seen: set[str] = set()
-    out: list[Candidate] = []
-    kind = "nb" if has_dual_system else "unified"
-    for raw in codes or []:
-        if raw is None:
-            continue
-        code = raw.strip() if isinstance(raw, str) else ""
-        if not code or code in seen:
-            continue
-        seen.add(code)
-        out.append((code, kind))
-    return out
-
-
-def candidates_from_code_mapping_pairs(
-    pairs,
-) -> list[Candidate]:
-    """Classify code_mappings rows (BQD upload bridges).
-
-    Each (customs_code, internal_code) pair becomes 1 or 2 candidates:
-      - same string  → 1 'unified' candidate
-      - different    → 2 candidates: (hq,'hq') + (nb,'nb')
-
-    Dedup by (code, kind). Skip rows where either side is None/empty.
-    """
-    seen: set[tuple[str, str]] = set()
-    out: list[Candidate] = []
-    for hq_raw, nb_raw in pairs or []:
-        hq = (hq_raw or "").strip() if isinstance(hq_raw, str) else ""
-        nb = (nb_raw or "").strip() if isinstance(nb_raw, str) else ""
-        if not hq or not nb:
-            continue
-        if hq == nb:
-            key = (hq, "unified")
-            if key not in seen:
-                seen.add(key)
-                out.append(key)
-            continue
-        for code, kind in ((hq, "hq"), (nb, "nb")):
-            key = (code, kind)
-            if key not in seen:
-                seen.add(key)
-                out.append(key)
-    return out

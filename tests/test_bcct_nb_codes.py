@@ -37,7 +37,7 @@ def setup():
             "on conflict (user_id) do update set role='admin', status='active'",
             (USER_ID, USER_EMAIL, hash_password("test-password")),
         )
-        for tbl in ("bcct_nb_codes", "catalog_candidates", "bcct_rows",
+        for tbl in ("bcct_nb_codes", "catalog_rejections", "bcct_rows",
                     "materials", "client_parser_rules"):
             cur.execute(f"delete from hub.{tbl} where client_id=%s", (CLIENT,))
         cur.execute(
@@ -52,7 +52,7 @@ def setup():
     clear_rules_cache()
     yield
     with connect() as conn, conn.cursor() as cur:
-        for tbl in ("bcct_nb_codes", "catalog_candidates", "bcct_rows",
+        for tbl in ("bcct_nb_codes", "catalog_rejections", "bcct_rows",
                     "materials", "client_parser_rules"):
             cur.execute(f"delete from hub.{tbl} where client_id=%s", (CLIENT,))
         cur.execute("delete from hub.sessions where user_id=%s", (USER_ID,))
@@ -101,16 +101,17 @@ def test_rebuild_extracts_nb_codes():
 
 
 def test_rebuild_parity_with_parser(setup):
-    """The issue's oracle: table content == candidates_from_bcct_row NB
-    output, row by row, zero diffs."""
+    """The oracle: table content == candidates_from_bcct_row extracted
+    output (kinds nb + unified — the unified self-link is what lets the
+    discovery view detect the NB==HQ case in SQL, #34), zero diffs."""
     _seed_bcct("TX1", "1", "DAUNOI", "combo (019.X) and (019.Y)")
-    _seed_bcct("TX1", "2", "PV01.Z", "unified (PV01.Z)")   # NB==HQ: no NB row
+    _seed_bcct("TX1", "2", "PV01.Z", "unified (PV01.Z)")   # NB==HQ: self-link
     _seed_bcct("TX2", "1", "", "bare (019.W)")
     _seed_bcct("TX2", "2", "DOV", "nothing extractable")
     from app.stores.bcct_nb_codes import rebuild_for_client
     rebuild_for_client(CLIENT)
 
-    from app.parsers.catalog_candidates import candidates_from_bcct_row
+    from app.parsers.code_extraction import candidates_from_bcct_row
     from app.parsers.client_parser_rules import load_rules
     rules = load_rules(client_id=CLIENT, output_field="internal_code")
     expected = set()
@@ -125,10 +126,10 @@ def test_rebuild_parity_with_parser(setup):
                 rules=rules, has_dual_system=True, placeholders=(".",),
             )
             for code, kind in cands:
-                if kind == "nb":
+                if kind in ("nb", "unified"):
                     expected.add((txn, line, code))
     assert set(_nb_rows()) == expected
-    assert ("TX1", "2", "PV01.Z") not in expected  # unified stays out
+    assert ("TX1", "2", "PV01.Z") in expected  # unified self-link stored
 
 
 def test_rebuild_no_rules_client_is_empty():
