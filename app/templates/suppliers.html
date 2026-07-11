@@ -35,6 +35,14 @@
     </div>
   </div>
   {% else %}
+  <div class="table-toolbar">
+    <label class="table-search">Tìm NCC
+      <input type="search" data-supplier-search-input
+             placeholder="Gõ tên NCC — không phân biệt hoa/thường, có dấu hay không"
+             aria-label="Tìm NCC theo tên" autocomplete="off">
+    </label>
+    <span class="meta" data-supplier-result-count>{{ suppliers|length }} NCC</span>
+  </div>
   <div class="table-scroll">
     <table class="table" data-supplier-table>
       <thead>
@@ -51,9 +59,10 @@
         {% for supplier in suppliers %}
         {% set flag = flags.get(supplier.supplier_key) %}
         {% set flagged = flag and flag.action == 'on' %}
-        <tr data-supplier-row data-supplier-key="{{ supplier.supplier_key }}">
+        <tr data-supplier-row data-supplier-key="{{ supplier.supplier_key }}"
+            data-supplier-search="{{ (supplier.supplier_key ~ ' ' ~ supplier.names|join(' '))|lower }}">
           <td>
-            <strong class="mono">{{ supplier.supplier_key }}</strong>
+            <strong class="mono supplier-name">{{ supplier.supplier_key }}</strong>
             {% if supplier.names|length > 1 %}<small class="meta" title="Các cách viết đã gặp trong BCCT">{{ supplier.names|join(' | ') }}</small>{% endif %}
           </td>
           <td class="num">{{ supplier.row_count }}</td>
@@ -114,6 +123,37 @@
 </section>
 
 <script>
+(() => {
+  const input = document.querySelector("[data-supplier-search-input]");
+  const table = document.querySelector("[data-supplier-table]");
+  if (!input || !table) return;
+  const countEl = document.querySelector("[data-supplier-result-count]");
+  const normalize = (value) => (value || "")
+    .toString()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\u0111/g, "d")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  const rows = Array.from(table.querySelectorAll("[data-supplier-row]")).map((row) => ({
+    row,
+    haystack: normalize(row.dataset.supplierSearch || row.dataset.supplierKey || ""),
+  }));
+  const apply = () => {
+    const needle = normalize(input.value);
+    let visible = 0;
+    rows.forEach(({row, haystack}) => {
+      const matches = !needle || haystack.includes(needle);
+      row.hidden = !matches;
+      if (matches) visible += 1;
+    });
+    if (countEl) countEl.textContent = `${visible} / ${rows.length} NCC`;
+  };
+  input.addEventListener("input", apply);
+  apply();
+})();
+
 (() => {
   const flipUrl = "/clients/{{ client.id }}/suppliers/flip";
   document.addEventListener("click", async (event) => {

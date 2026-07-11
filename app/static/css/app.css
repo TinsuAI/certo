@@ -3942,6 +3942,21 @@ button.co-stat:hover {
   background: var(--surface-subtle);
 }
 
+/* Supplier curation table: legal names run 40-70 chars — cap the text columns
+   and wrap so one outlier does not push the whole table into horizontal scroll. */
+[data-supplier-table] .supplier-name {
+  display: block;
+  max-width: 40ch;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+[data-supplier-table] td small {
+  display: block;
+  max-width: 44ch;
+  white-space: normal;
+}
+
 .origin-column-controls {
   display: flex;
   align-items: center;

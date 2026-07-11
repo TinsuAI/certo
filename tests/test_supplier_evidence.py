@@ -174,6 +174,12 @@ def test_curation_screen_lists_suppliers_with_counts(monkeypatch):
     # the HK namesake stays a DISTINCT row (no auto-merge)
     assert "MINGJIE INDUSTRIAL (HK) LIMITED" in page.text
     assert "data-supplier-flip" in page.text
+    # QA #16: search box + per-row lowered haystack for the client-side filter
+    assert "data-supplier-search-input" in page.text
+    assert 'data-supplier-search="cong ty tnhh mingjie viet nam' in page.text
+    # QA #15: name renders through the wrapping class so a 70-char legal name
+    # cannot force the table into horizontal scroll
+    assert 'class="mono supplier-name"' in page.text
 
 
 # --- DB round-trip (append-only) ---
