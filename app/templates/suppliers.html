@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}NCC / Phụ lục X - {{ client.name }}{% endblock %}
+
+{% block content %}
+{% include "_client_nav.html" %}
+
+<section class="zone" id="supplier-evidence">
+  <div class="zone-head">
+    <div>
+      <h2>Nhà cung cấp — bằng chứng xuất xứ (Phụ lục X / C/O nhập)</h2>
+      <p class="meta">
+        NVL mua nội địa chỉ được tính CÓ xuất xứ khi lô có xuất xứ Việt Nam <strong>VÀ</strong> NCC của lô được gắn cờ đã cung cấp
+        bằng chứng (Bản khai báo xuất xứ — Phụ lục X, hoặc C/O nhập khẩu). Cờ chỉ ảnh hưởng lần Tính sau; bảng kê đã chốt không đổi.
+        Hai NCC tên gần giống là hai pháp nhân riêng — không tự gộp.
+      </p>
+    </div>
+  </div>
+
+  {% if not evidence_store_available %}
+  <div class="callout callout-warning">
+    <span class="callout-icon">!</span>
+    <div>
+      <div class="callout-title">Chưa có database — không ghi được cờ NCC</div>
+      Cờ bằng chứng lưu ở bảng append-only <code>co_supplier_evidence_events</code> (cần <code>BARRY_DATABASE_URL</code>).
+    </div>
+  </div>
+  {% endif %}
+
+  {% if not suppliers %}
+  <div class="callout callout-info">
+    <span class="callout-icon">i</span>
+    <div>
+      <div class="callout-title">Chưa có dữ liệu NCC</div>
+      Danh sách NCC lấy từ snapshot tồn CO (cột "Tên đối tác" của BCCT nhập) — bấm "Refresh tồn" ở tab Tồn CO trước.
+    </div>
+  </div>
+  {% else %}
+  <div class="table-scroll">
+    <table class="table" data-supplier-table>
+      <thead>
+        <tr>
+          <th>NCC (consignee_name chuẩn hoá)</th>
+          <th class="num">Số dòng BCCT</th>
+          <th>Theo loại hình</th>
+          <th>Xuất xứ lô</th>
+          <th>Cờ bằng chứng</th>
+          <th>Thao tác</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for supplier in suppliers %}
+        {% set flag = flags.get(supplier.supplier_key) %}
+        {% set flagged = flag and flag.action == 'on' %}
+        <tr data-supplier-row data-supplier-key="{{ supplier.supplier_key }}">
+          <td>
+            <strong class="mono">{{ supplier.supplier_key }}</strong>
+            {% if supplier.names|length > 1 %}<small class="meta" title="Các cách viết đã gặp trong BCCT">{{ supplier.names|join(' | ') }}</small>{% endif %}
+          </td>
+          <td class="num">{{ supplier.row_count }}</td>
+          <td><small>{% for t, n in supplier.type_counts.items() %}{{ t }}: {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</small></td>
+          <td><small>{% for o, n in supplier.origin_counts.items() %}{{ o }}: {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</small></td>
+          <td data-supplier-flag-cell>
+            {% if flagged %}
+            <span class="badge badge-success" title="{{ flag.actor_email or flag.actor_id }} · {{ flag.created_at }}">✓ {{ 'Phụ lục X' if flag.evidence_kind == 'phu_luc_x' else 'C/O nhập khẩu' }}</span>
+            {% else %}
+            <span class="badge badge-neutral">chưa có bằng chứng</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if flagged %}
+            <button type="button" class="btn-secondary btn-danger" data-supplier-flip
+                    data-action="off" data-supplier-name="{{ flag.supplier_name or supplier.names[0] if supplier.names else supplier.supplier_key }}"
+                    data-evidence-kind="{{ flag.evidence_kind }}"
+                    {% if not evidence_store_available %}disabled{% endif %}>Tắt cờ</button>
+            {% else %}
+            <select data-supplier-evidence-kind aria-label="Loại bằng chứng">
+              <option value="phu_luc_x">Phụ lục X</option>
+              <option value="co_import">C/O nhập khẩu</option>
+            </select>
+            <button type="button" class="btn-secondary" data-supplier-flip
+                    data-action="on" data-supplier-name="{{ supplier.names[0] if supplier.names else supplier.supplier_key }}"
+                    {% if not evidence_store_available %}disabled{% endif %}>Bật cờ</button>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if events %}
+  <details class="zone mini-panel">
+    <summary>Nhật ký gắn/tắt cờ (append-only, {{ events|length }} sự kiện)</summary>
+    <div class="table-scroll">
+      <table class="table">
+        <thead><tr><th>Lúc</th><th>NCC</th><th>Hành động</th><th>Bằng chứng</th><th>Người thao tác</th><th>Ghi chú</th></tr></thead>
+        <tbody>
+          {% for event in events %}
+          <tr>
+            <td><small>{{ event.created_at }}</small></td>
+            <td class="mono">{{ event.supplier_key }}</td>
+            <td>{{ 'BẬT' if event.action == 'on' else 'TẮT' }}</td>
+            <td>{{ 'Phụ lục X' if event.evidence_kind == 'phu_luc_x' else 'C/O nhập khẩu' }}</td>
+            <td><small>{{ event.actor_email or event.actor_id or '—' }}</small></td>
+            <td><small>{{ event.note }}</small></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+  {% endif %}
+</section>
+
+<script>
+(() => {
+  const flipUrl = "/clients/{{ client.id }}/suppliers/flip";
+  document.addEventListener("click", async (event) => {
+    const button = event.target.closest?.("[data-supplier-flip]");
+    if (!button || button.disabled) return;
+    const row = button.closest("[data-supplier-row]");
+    const action = button.dataset.action;
+    const supplierName = button.dataset.supplierName || row?.dataset.supplierKey || "";
+    const evidenceKind = button.dataset.evidenceKind
+      || row?.querySelector("[data-supplier-evidence-kind]")?.value
+      || "phu_luc_x";
+    const post = async (confirmFlag) => fetch(flipUrl, {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "Accept": "application/json"},
+      body: JSON.stringify({supplier_name: supplierName, action, evidence_kind: evidenceKind, confirm: confirmFlag}),
+      quietError: true,
+    });
+    try {
+      let response = await post(false);
+      let body = await response.json().catch(() => ({}));
+      if (response.ok && body.confirm_required) {
+        const damage = body.damage_list || [];
+        const lines = damage.slice(0, 10).map((d) => `- ${d.case_code} / ${d.product_code}: ${d.originating_amount}`);
+        const message = [
+          `TẮT cờ "${supplierName}":`,
+          damage.length
+            ? `${damage.length} bảng kê ĐÃ CHỐT đang tính CÓ xuất xứ dựa trên NCC này (case / sheet / trị giá có xuất xứ):\n${lines.join("\n")}${damage.length > 10 ? "\n…" : ""}`
+            : "Không bảng kê đã chốt nào dựa trên NCC này.",
+          "Bảng kê đã chốt GIỮ NGUYÊN như đã nộp — đây là mức phơi bày pháp lý bạn chấp nhận. Tiếp tục?",
+        ].join("\n");
+        if (!window.confirm(message)) return;
+        response = await post(true);
+        body = await response.json().catch(() => ({}));
+      }
+      if (!response.ok) throw new Error(body.detail || response.status);
+      if (action === "on") {
+        const benefit = body.benefit_list || [];
+        if (benefit.length) {
+          window.alert(`Đã bật cờ. ${benefit.length} bảng kê đã chốt CÓ THỂ hưởng lợi nếu mở chốt + Tính lại: ${benefit.map((b) => `${b.case_code}/${b.product_code}`).join(", ")}.`);
+        }
+      }
+      window.location.reload();
+    } catch (err) {
+      (window.coToast || window.alert)(`Không đổi được cờ NCC: ${err}`);
+    }
+  });
+})();
+</script>
+{% endblock %}

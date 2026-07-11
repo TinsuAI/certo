@@ -1,4 +1,4 @@
-{% set breadcrumb_sections = {'catalog': 'Danh mục mã hàng', 'bom': 'BOM', 'co-stock': 'Tồn CO', 'bcct': 'BCCT', 'config': 'Cấu hình công ty', 'cost-allocation': 'Hệ số phân bổ', 'co-case': 'Hồ sơ C/O'} %}
+{% set breadcrumb_sections = {'catalog': 'Danh mục mã hàng', 'bom': 'BOM', 'co-stock': 'Tồn CO', 'bcct': 'BCCT', 'config': 'Cấu hình công ty', 'cost-allocation': 'Hệ số phân bổ', 'suppliers': 'NCC / Phụ lục X', 'co-case': 'Hồ sơ C/O'} %}
 {% set on_case_detail = active == 'co-case' and co_case_active_step is defined and co_case_active_step not in ['index', none] %}
 <nav class="breadcrumb" aria-label="Đường dẫn">
   <a href="/clients">Công ty</a>
@@ -54,7 +54,7 @@
 
 {% if active != "co-case" %}
   {% set data_active = active in ['catalog', 'bom', 'co-stock', 'bcct'] %}
-  {% set config_active = active in ['config', 'cost-allocation'] %}
+  {% set config_active = active in ['config', 'cost-allocation', 'suppliers'] %}
   <nav class="tabs client-tabs" aria-label="Khu làm việc công ty">
     <a class="tab-link {{ 'tab-link-active' if active == 'overview' else '' }}" href="/clients/{{ client.id }}">Tổng quan</a>
     <a class="tab-link tab-link-primary" href="/clients/{{ client.id }}/co-case">Hồ sơ C/O</a>
@@ -75,6 +75,7 @@
       <div class="nav-menu-panel">
         <a class="{{ 'is-active' if active == 'config' else '' }}" href="/clients/{{ client.id }}/config">Cấu hình công ty</a>
         <a class="{{ 'is-active' if active == 'cost-allocation' else '' }}" href="/clients/{{ client.id }}/cost-allocation">Hệ số phân bổ</a>
+        <a class="{{ 'is-active' if active == 'suppliers' else '' }}" href="/clients/{{ client.id }}/suppliers">NCC / Phụ lục X</a>
       </div>
     </details>
   </nav>

@@ -16,7 +16,7 @@ from app.web.co_case_context import co_case_context, enrich_client_with_source_s
 from app.web.deps import large_request_form, require_local_source_writes
 from app.web.templating import templates
 from app.workbook_io import WorkbookParseError, create_evidence_workbook, create_input_workbook, parse_input_workbook
-from fastapi import File, Request, UploadFile
+from fastapi import File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 
@@ -334,6 +334,72 @@ async def save_client_config_route(request: Request, client_id: str):
             message="Đã lưu cấu hình công ty." + flip_note + declaration_type_exclusion_warning(client, config),
         ),
     )
+@router.get("/clients/{client_id}/suppliers", response_class=HTMLResponse)
+async def supplier_evidence_page(request: Request, client_id: str):
+    from app import supplier_evidence_store
+    from app.bcct_aggregates import supplier_type_summary
+
+    client = resolve_client(client_id)
+    stock_rows = co_stock_materializer.read_co_stock_rows_cached(str(client.get("id") or ""))
+    context = config_context(client_id)
+    context.update({
+        "active": "suppliers",
+        "suppliers": supplier_type_summary(stock_rows),
+        "flags": supplier_evidence_store.current_flags(client_id),
+        "events": supplier_evidence_store.list_events(client_id),
+        "evidence_store_available": supplier_evidence_store.store_available(),
+    })
+    return templates.TemplateResponse(request=request, name="suppliers.html", context=context)
+@router.post("/clients/{client_id}/suppliers/flip")
+async def supplier_evidence_flip(request: Request, client_id: str):
+    """Flip a supplier's origin-evidence flag (ticket #11). ON→OFF requires an
+    explicit confirm rendering the damage list computed from locked snapshots
+    (cancelling writes nothing); OFF→ON returns the could-benefit info. Every
+    flip appends one event with the DH-JWT actor — the table is the audit log."""
+    from fastapi.responses import JSONResponse as _JSONResponse
+
+    from app import supplier_evidence_store
+    from app.supplier_evidence import supplier_benefit_list, supplier_damage_list
+    from app.supplier_identity import supplier_key as normalize_supplier_key
+
+    client = resolve_client(client_id)
+    payload = await request.json() if "application/json" in (request.headers.get("content-type") or "") else dict(await request.form())
+    supplier_name = str(payload.get("supplier_name") or "").strip()
+    action = str(payload.get("action") or "").strip()
+    evidence_kind = str(payload.get("evidence_kind") or "phu_luc_x").strip()
+    note = str(payload.get("note") or "").strip()
+    confirm = bool(payload.get("confirm"))
+    if not supplier_name:
+        raise HTTPException(status_code=400, detail="supplier_name required")
+    if action not in supplier_evidence_store.ACTIONS:
+        raise HTTPException(status_code=400, detail="action must be 'on' or 'off'")
+    if evidence_kind not in supplier_evidence_store.EVIDENCE_KINDS:
+        raise HTTPException(status_code=400, detail="evidence_kind must be 'phu_luc_x' or 'co_import'")
+    if not supplier_evidence_store.store_available():
+        raise HTTPException(status_code=503, detail="Chưa cấu hình database — không ghi được cờ NCC (bảng co_supplier_evidence_events).")
+    key = normalize_supplier_key(supplier_name)
+    cases = get_case_workspace(client).get("cases") or []
+    if action == "off" and not confirm:
+        return _JSONResponse({
+            "ok": True,
+            "confirm_required": True,
+            "supplier_key": key,
+            "damage_list": supplier_damage_list(cases, key),
+        })
+    user = co_auth.current_user(request)
+    event = supplier_evidence_store.record_flip(
+        client_id=client_id,
+        supplier_name=supplier_name,
+        action=action,
+        evidence_kind=evidence_kind,
+        actor_id=getattr(user, "user_id", "") or "",
+        actor_email=getattr(user, "email", "") or "",
+        note=note,
+    )
+    response = {"ok": True, "event": event, "supplier_key": key}
+    if action == "on":
+        response["benefit_list"] = supplier_benefit_list(cases, key)
+    return _JSONResponse(response)
 @router.post("/clients/{client_id}/evaluate", response_class=HTMLResponse)
 async def evaluate(request: Request, client_id: str):
     form = await large_request_form(request)
