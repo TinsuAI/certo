@@ -7,6 +7,10 @@ dossier would carry a provisional LVC. Mirror of the empty/no-BOM guard (#13c):
 Shortage is no longer lockable: ADR 2026-07-11 decides shortage blocks issuance
 via its own flag (`lvc_allocation_shortage`, see test_shortage_lock_guard.py).
 The missing-price downgrade branch here is independent of that flag and stays.
+
+Three belts (same set as shortage): /calculate parks at bom_loaded; the lock
+gate re-checks the flag (the save / bulk-substitute routes hardcode status
+"calculated", bypassing calculated_sheet_status); export blockers re-check it.
 """
 from __future__ import annotations
 
@@ -81,5 +85,42 @@ def test_export_blocks_missing_price_sheet():
         "products": [{"code": "P1", "name": "P1", "materials": [{"material_code": "M"}],
                       "lvc_status": "partial_pass", "origin_sheet_status": "bom_loaded"}],
         "origin_sheet_states": {"P1": {"status": "bom_loaded", "status_label": "bom_loaded"}},
+    }
+    assert "P1" in origin_sheet_export_blockers(case)
+
+
+# --- belt 2: lock gate re-check (save-route status hardcode bypass) ---
+
+def test_lock_gate_blocks_missing_price_even_when_status_calculated():
+    from app.web.co_case_context import origin_sheet_action_error
+    case = {
+        "products": [{"code": "P1", "lvc_status": "partial_pass", "lvc_missing_price": True}],
+        "origin_sheet_states": {"P1": {"status": "calculated"}},
+    }
+    error = origin_sheet_action_error(case, "P1", "lock")
+    assert "thiếu đơn giá" in error
+    assert "sau khi đã tính" not in error  # not the generic loop-through-Tính reason
+
+
+def test_lock_gate_shortage_takes_precedence_over_missing_price():
+    # a no-lot NVL trips BOTH flags; the remedy is the document, never a price.
+    from app.web.co_case_context import origin_sheet_action_error
+    case = {
+        "products": [{"code": "P1", "lvc_status": "partial_pass",
+                      "lvc_allocation_shortage": True, "lvc_missing_price": True}],
+        "origin_sheet_states": {"P1": {"status": "calculated"}},
+    }
+    error = origin_sheet_action_error(case, "P1", "lock")
+    assert "chứng từ" in error
+    assert "thiếu đơn giá" not in error
+
+
+# --- belt 3: export blockers re-check the flag ---
+
+def test_export_blocks_missing_price_even_when_status_calculated():
+    from app.web.co_case_context import origin_sheet_export_blockers
+    case = {
+        "products": [{"code": "P1", "lvc_status": "partial_pass", "lvc_missing_price": True}],
+        "origin_sheet_states": {"P1": {"status": "calculated"}},
     }
     assert "P1" in origin_sheet_export_blockers(case)

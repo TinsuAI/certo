@@ -1576,6 +1576,7 @@ def origin_sheet_export_blockers(case: dict, client: dict | None = None) -> list
             or str(product.get("lvc_status") or "") == "missing_bom"
             or product.get("lvc_declarable_unmatched")
             or product.get("lvc_allocation_shortage")
+            or product.get("lvc_missing_price")
             or str(product.get("code") or "") in mode_mismatched
         ):
             blockers.append(str(product.get("code") or "sheet"))
@@ -1631,6 +1632,14 @@ def origin_sheet_action_error(case: dict, product_code: str, action: str, client
             f"Bảng kê {product_code} còn NVL thiếu tồn/không có lô nhập khớp — "
             "bổ sung chứng từ (khớp tờ khai nhập hoặc hoá đơn VAT) rồi tính lại trước khi chốt; "
             "không dùng giá ước tính."
+        )
+    if action == "lock" and target.get("lvc_missing_price"):
+        # Missing-price re-check (same bypass; AFTER shortage — a no-lot NVL trips
+        # both flags and its remedy is the document, not a price): a non-origin NVL
+        # without đơn giá understates VNM, so the LVC is only tạm tính.
+        return (
+            f"Bảng kê {product_code} còn NVL không xuất xứ thiếu đơn giá — LVC mới là tạm tính; "
+            "bổ sung đơn giá và tính lại trước khi chốt."
         )
     if action == "lock" and client is not None:
         # Column-9 mode re-check (ticket #10): the sheet was materialized under
