@@ -1,6 +1,18 @@
 # Project Status
 
 ## Current State
+- **2026-07-12 (overnight) — VN-ORIGIN FEATURE BUILT: ALL 8 TICKETS (#6–#13) IMPLEMENTED,
+  TESTED, COMMITTED, ISSUES CLOSED.** Autonomous run per user directive. 8 commits on local
+  `main` (`3fc3112`→`cad563d`), **NOT pushed** (origin/main = `312e58d`; push triggers prod CD —
+  needs user go-ahead). Suite **757 → 879 passed** (122 new tests), file-mode green after every
+  ticket; migration 019 verified against local Postgres. Per-ticket two-axis reviews caught and
+  fixed 3 real bugs (shortage reason precedence #8; override version-rebind hole #7; locked-sheet
+  re-stamp #10). Full handoff: `.ai/sessions/2026-07-11-vn-origin-implementation-all-8-tickets.md`
+  (includes build-time decisions, gotchas, accepted edges). **Deploy-day manual steps:** flag
+  Mingjie VN + Minghui VN on growatt-vn via the new `/clients/{id}/suppliers` screen (verify
+  spellings vs live BCCT; NEVER the HK namesake); Johnson stays zero-flag. **Next:** user reviews
+  + pushes; then the 2 standing action items (audit locked SHORTAGE sheets in prod — now more
+  urgent since new shortage sheets are blocked; `missing_price` one-belt hole).
 - **2026-07-11 (PM) — VN-ORIGIN SPEC + 8 TICKETS PUBLISHED; GitHub Issues = TRACKER OF RECORD
   (docs only, no code).** Spec `.ai/features/2026-07-11-vn-origin-materials/spec.md` (12 ADR
   synthesized; seam test duyệt: Tính recompute + route + pure-fn). Tickets = **TinsuAI/co #6–#13**
@@ -180,7 +192,7 @@
   via 5 parallel agents) — **NOT pushed yet**. See session `2026-06-19-backlog-status-reconciliation.md`.
 
 ## Next Steps (priority order)
-00. **(NEW 2026-07-11) Build VN-origin feature theo 7-ticket order** trong
+00. **(DONE 2026-07-12 — see Current State)** ~~Build VN-origin feature theo 7-ticket order~~ trong
    `.ai/sessions/2026-07-11-vn-origin-grill-part2-close.md` — design đã chốt 12 ADR, KHÔNG cần grill thêm.
    **Spec (ready-for-agent): `.ai/features/2026-07-11-vn-origin-materials/spec.md`** — tổng hợp 12 ADR
    + seam test đã duyệt (Tính recompute + route + pure-fn). **Tickets = GitHub Issues TinsuAI/co
