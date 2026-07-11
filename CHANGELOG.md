@@ -10,6 +10,8 @@ phiên bản theo [SemVer](https://semver.org/).
 > hành đã đóng gói tại thời điểm đó.
 
 ## [Unreleased]
+
+## [0.21.0] — 2026-07-11
 ### Mới
 - **"Mã chờ duyệt" tính trực tiếp từ dữ liệu nguồn, không còn bảng trung gian:** danh sách mã chờ duyệt nay được tính thẳng từ tờ khai + BOM + BQD mỗi lần xem — không còn bảng lưu sẵn có thể lệch so với nguồn, không còn khái niệm "làm mới danh sách". Từ chối một mã được ghi vào bảng chặn riêng (`hub.catalog_rejections`) và không bị dữ liệu mới "hồi sinh"; duyệt một mã ghi thẳng vào danh mục kèm nguồn gốc đúng theo luồng phát hiện (tờ khai / BOM / BQD — trước đây luôn ghi cứng "quan sát từ tờ khai"). Toàn bộ 1.207 quyết định duyệt cũ được lưu vĩnh viễn vào nhật ký (`bom_audit_events`) trước khi bỏ bảng cũ; khôi phục một mã đã từ chối không còn để sót dữ liệu duyệt cũ.
 - **Danh mục nhận diện đúng mã NB nằm trong ngoặc đơn của tên hàng:** với khách hàng khai mã NB trong ngoặc ở tên hàng trên tờ khai (dạng Growatt), số lần quan sát, hướng XNK và ngày quan sát của các mã đó trước đây hiển thị 0 ở trang danh mục (chỉ trang chi tiết có số đúng nhờ một bước tính tạm). Nay kết quả bóc tách được lưu lại (`hub.bcct_nb_codes`, tự cập nhật sau mỗi lần nhập tờ khai hoặc sửa quy tắc bóc tách) và mọi trang đọc chung một nguồn — số liệu nhất quán ở cả danh sách lẫn chi tiết.
