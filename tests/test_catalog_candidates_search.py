@@ -28,7 +28,7 @@ def setup():
             "on conflict (user_id) do update set role='admin', status='active'",
             (USER_ID, USER_EMAIL, hash_password("test-pw")),
         )
-        cur.execute("delete from hub.catalog_candidates where client_id=%s",
+        cur.execute("delete from hub.catalog_rejections where client_id=%s",
                     (CLIENT,))
         cur.execute("delete from hub.bcct_rows where client_id=%s", (CLIENT,))
         for i, (code, sample) in enumerate([
@@ -47,13 +47,11 @@ def setup():
                 """,
                 (CLIENT, f"TX_{i}", f"D{i}", code, sample),
             )
-    # GET no longer refreshes (#32) — build the queue explicitly.
-    from app.stores.catalog_candidates import refresh_candidates
-    refresh_candidates(CLIENT)
+    # The feed is computed live (#34) — no build step needed.
     sess = create_session(USER_ID)
     yield {"session": sess}
     with connect() as conn, conn.cursor() as cur:
-        cur.execute("delete from hub.catalog_candidates where client_id=%s",
+        cur.execute("delete from hub.catalog_rejections where client_id=%s",
                     (CLIENT,))
         cur.execute("delete from hub.bcct_rows where client_id=%s", (CLIENT,))
         cur.execute("delete from hub.sessions where user_id=%s", (USER_ID,))

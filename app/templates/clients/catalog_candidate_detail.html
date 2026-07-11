@@ -33,8 +33,10 @@
     <details style="flex: 1;">
       <summary class="btn-primary">Duyệt vào catalog</summary>
       <form method="post"
-            action="/clients/{{ client.client_id }}/catalog/candidates/{{ candidate.candidate_id }}/accept"
+            action="/clients/{{ client.client_id }}/catalog/candidates/accept"
             class="form-stack" style="margin-top: 0.5rem; padding: 0.75rem; background: #fafafa; border-radius: 4px;">
+        <input type="hidden" name="code" value="{{ candidate.code }}">
+        <input type="hidden" name="code_kind" value="{{ candidate.code_kind }}">
         <input type="text" name="name" placeholder="Tên hàng" required
                value="{{ candidate.sample_text[:200] if candidate.sample_text else '' }}"
                style="width: 100%; margin-bottom: 0.25rem;">
@@ -65,7 +67,9 @@
       </form>
     </details>
     <form method="post"
-          action="/clients/{{ client.client_id }}/catalog/candidates/{{ candidate.candidate_id }}/reject">
+          action="/clients/{{ client.client_id }}/catalog/candidates/reject">
+      <input type="hidden" name="code" value="{{ candidate.code }}">
+      <input type="hidden" name="code_kind" value="{{ candidate.code_kind }}">
       <input type="text" name="reason" placeholder="Lý do (tùy chọn)" style="width: 220px;">
       <button type="submit" class="btn-secondary btn-sm"
               onclick="return confirm('Từ chối {{ candidate.code }}?')">Từ chối</button>
@@ -76,16 +80,10 @@
     Đã từ chối bởi {{ candidate.decided_by or '—' }}
     {% if candidate.decision_reason %}— "{{ candidate.decision_reason }}"{% endif %}
     <form method="post" style="display: inline; margin-left: 0.5rem;"
-          action="/clients/{{ client.client_id }}/catalog/candidates/{{ candidate.candidate_id }}/unreject">
+          action="/clients/{{ client.client_id }}/catalog/candidates/unreject">
+      <input type="hidden" name="code" value="{{ candidate.code }}">
       <button type="submit" class="btn-secondary btn-sm">↻ Khôi phục</button>
     </form>
-  </div>
-  {% elif candidate.status == 'accepted' %}
-  <div class="toast" style="margin-bottom: 1rem;">
-    ✓ Đã duyệt bởi {{ candidate.decided_by or '—' }} —
-    <a href="/clients/{{ client.client_id }}/catalog/{{ candidate.code }}/detail">
-      Xem trong catalog →
-    </a>
   </div>
   {% endif %}
 

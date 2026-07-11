@@ -69,6 +69,16 @@ async def main() -> None:
         print(f"  explicit refresh round-trip: {refresh_s:.2f}s")
         await shoot(page, "11_candidates_refreshed_toast")
 
+        # 2b. Phase 4 (#34) — the feed is a computed view; a pending row's
+        #     detail page is keyed by ?code=&kind= (no stored candidate_id).
+        await page.goto(f"{BASE}/clients/{CLIENT}/catalog/candidates")
+        await page.wait_for_load_state("networkidle")
+        first_link = page.locator("tbody tr td a").first
+        await first_link.click()
+        await page.wait_for_load_state("networkidle")
+        assert "/catalog/candidates/detail?code=" in page.url, page.url
+        await shoot(page, "13_discovery_detail_code_keyed")
+
         # 3. Phase 3 (#33) — A.5 removal trigger: an NB material that only
         #    appears inside goods_name parens shows real observation counts
         #    on the detail page straight from v_material_roles (the Python

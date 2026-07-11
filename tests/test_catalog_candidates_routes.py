@@ -1,6 +1,8 @@
-"""HTTP route handlers for Mã chờ duyệt — page render + accept/reject/unreject.
+"""HTTP route handlers for Mã chờ duyệt — live feed + decisions (#34).
 
-End-to-end via TestClient against live DB.
+End-to-end via TestClient against live DB. The feed is computed
+(hub.catalog_discovery), so pages render current data with no refresh
+step; decisions are keyed by (code, code_kind) form fields.
 """
 from __future__ import annotations
 
@@ -31,7 +33,8 @@ def setup():
             "on conflict (user_id) do update set role='admin', status='active'",
             (USER_ID, USER_EMAIL, hash_password("test-password")),
         )
-        for tbl in ("catalog_candidates", "code_mappings", "bcct_rows", "materials"):
+        for tbl in ("catalog_rejections", "bcct_nb_codes", "code_mappings",
+                    "bcct_rows", "materials"):
             cur.execute(f"delete from hub.{tbl} where client_id=%s", (CLIENT,))
         cur.execute(
             "delete from hub.client_parser_rules where client_id=%s", (CLIENT,)
@@ -53,7 +56,8 @@ def setup():
     yield {"session_id": session_id}
 
     with connect() as conn, conn.cursor() as cur:
-        for tbl in ("catalog_candidates", "code_mappings", "bcct_rows", "materials"):
+        for tbl in ("catalog_rejections", "bcct_nb_codes", "code_mappings",
+                    "bcct_rows", "materials"):
             cur.execute(f"delete from hub.{tbl} where client_id=%s", (CLIENT,))
         cur.execute(
             "delete from hub.client_parser_rules where client_id=%s", (CLIENT,)
@@ -70,12 +74,6 @@ def _client(session_id):
     return c
 
 
-def _refresh(c):
-    """Explicit rebuild — the GET page no longer refreshes (#32)."""
-    return c.post(f"/clients/{CLIENT}/catalog/candidates/refresh",
-                  follow_redirects=False)
-
-
 def _seed_bcct(decl, customs, goods, direction="import"):
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
@@ -88,17 +86,8 @@ def _seed_bcct(decl, customs, goods, direction="import"):
             """,
             (CLIENT, f"TX_{decl}", decl, direction, customs, goods),
         )
-
-
-def _candidate_id(code, kind):
-    with connect() as conn, conn.cursor() as cur:
-        cur.execute(
-            "select candidate_id from hub.catalog_candidates "
-            "where client_id=%s and code=%s and code_kind=%s",
-            (CLIENT, code, kind),
-        )
-        r = cur.fetchone()
-        return r[0] if r else None
+    from app.stores.bcct_nb_codes import rebuild_for_client
+    rebuild_for_client(CLIENT)
 
 
 # ── Page render ───────────────────────────────────────────────────────────
@@ -117,10 +106,10 @@ def test_candidates_page_404_for_unknown_client(setup):
     assert r.status_code == 404
 
 
-def test_candidates_page_renders_pending_after_refresh(setup):
+def test_candidates_page_renders_live(setup):
+    """The feed is computed — seeded data shows with no refresh step."""
     _seed_bcct("D1", "DAUNOI", "DAUNOI (019.X)")
     c = _client(setup["session_id"])
-    _refresh(c)
     r = c.get(f"/clients/{CLIENT}/catalog/candidates")
     assert r.status_code == 200
     body = r.text
@@ -131,73 +120,56 @@ def test_candidates_page_renders_pending_after_refresh(setup):
 def test_candidates_page_shows_kind_chips(setup):
     _seed_bcct("D1", "DAUNOI", "DAUNOI (019.X)")
     c = _client(setup["session_id"])
-    _refresh(c)
     r = c.get(f"/clients/{CLIENT}/catalog/candidates")
     body = r.text
-    # Both NB and HQ candidates appear; UI labels them
     assert "HQ" in body or "hq" in body
     assert "NB" in body or "nb" in body
 
 
-# ── Refresh is explicit (#32) ─────────────────────────────────────────────
-
-
 def test_get_page_writes_nothing(setup):
-    """Oracle from #32: loading the page writes zero candidate rows."""
+    """#32 oracle still holds: loading the page writes zero rows —
+    there is no candidates table at all now, so assert on rejections
+    (the only queue-side table) and materials."""
     _seed_bcct("D1", "DAUNOI", "DAUNOI (019.X)")
     c = _client(setup["session_id"])
     r = c.get(f"/clients/{CLIENT}/catalog/candidates")
     assert r.status_code == 200
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            "select count(*) from hub.catalog_candidates where client_id=%s",
+            "select count(*) from hub.catalog_rejections where client_id=%s",
             (CLIENT,),
+        )
+        assert cur.fetchone()[0] == 0
+        cur.execute(
+            "select count(*) from hub.materials where client_id=%s", (CLIENT,),
         )
         assert cur.fetchone()[0] == 0
 
 
-def test_refresh_button_populates_and_redirects(setup):
-    _seed_bcct("D1", "DAUNOI", "DAUNOI (019.X)")
-    c = _client(setup["session_id"])
-    r = _refresh(c)
-    assert r.status_code == 303
-    assert r.headers["location"].startswith(
-        f"/clients/{CLIENT}/catalog/candidates"
-    )
-    assert _candidate_id("DAUNOI", "hq") is not None
-    assert _candidate_id("019.X", "nb") is not None
-
-
-def test_refresh_route_requires_auth(setup):
-    no_auth = TestClient(app)
-    r = no_auth.post(f"/clients/{CLIENT}/catalog/candidates/refresh",
-                     follow_redirects=False)
-    assert r.status_code in (302, 303, 401, 403)
-
-
-def test_bcct_apply_refreshes_candidates(setup):
-    """Post-ingest hook: applying BCCT rows rebuilds the queue with no
-    page visit and no button press."""
-    from app.routes.bcct import _apply_bcct_rows
-    from app.routes.clients import get_client
-
-    client = get_client(CLIENT)
-    row = {
-        "transaction_key": "TX_HOOK", "line_no": "1",
-        "declaration_no": "DHOOK", "declaration_type": "E11",
-        "direction": "import", "registration_date": "2026-04-01",
-        "customs_code": "HOOKCODE", "goods_name": "HOOKCODE (019.H)",
-    }
-    _apply_bcct_rows(client_id=CLIENT, rows=[row], upload_id=None,
-                     client=client, orphans_to_delete=[], user_id=None)
-    # The HQ code was auto-derived into materials by derive_from_bcct, so
-    # the anti-join keeps it out of the queue; the paren-extracted NB code
-    # is what the refreshed queue must now show.
-    assert _candidate_id("019.H", "nb") is not None
+def test_refresh_button_rebuilds_links(setup):
+    """«Làm mới» re-extracts bcct_nb_codes (catch-up for script loads)."""
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            "select count(*) from hub.materials "
-            "where client_id=%s and material_code='HOOKCODE'", (CLIENT,),
+            """
+            insert into hub.bcct_rows
+              (client_id, transaction_key, line_no, declaration_no,
+               declaration_type, direction, registration_date,
+               customs_code, goods_name, payload)
+            values (%s, 'TX_S', '1', 'DS', 'E11', 'import', '2026-04-01',
+                    'DAUNOI', 'script load (019.S)', '{}'::jsonb)
+            """,
+            (CLIENT,),
+        )
+    # No rebuild ran — the paren link is missing.
+    c = _client(setup["session_id"])
+    r = c.post(f"/clients/{CLIENT}/catalog/candidates/refresh",
+               follow_redirects=False)
+    assert r.status_code == 303
+    assert "refreshed=" in r.headers["location"]
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select count(*) from hub.bcct_nb_codes "
+            "where client_id=%s and nb_code='019.S'", (CLIENT,),
         )
         assert cur.fetchone()[0] == 1
 
@@ -208,93 +180,91 @@ def test_bcct_apply_refreshes_candidates(setup):
 def test_accept_endpoint_inserts_material(setup):
     _seed_bcct("D1", "DAUNOI", "DAUNOI (019.X)")
     c = _client(setup["session_id"])
-    _refresh(c)  # populates candidates
-    cid = _candidate_id("DAUNOI", "hq")
-    assert cid is not None
     r = c.post(
-        f"/clients/{CLIENT}/catalog/candidates/{cid}/accept",
-        data={"name": "Đầu nối", "category": "nvl", "status": "active"},
+        f"/clients/{CLIENT}/catalog/candidates/accept",
+        data={"code": "DAUNOI", "code_kind": "hq",
+              "name": "Đầu nối", "category": "nvl", "status": "active"},
         follow_redirects=False,
     )
     assert r.status_code == 303
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            "select code_kind, category from hub.materials "
+            "select code_kind, category, source from hub.materials "
             "where client_id=%s and material_code='DAUNOI'", (CLIENT,)
         )
         row = cur.fetchone()
-    assert row is not None
-    assert row == ("hq", "nvl")
+    assert row == ("hq", "nvl", "bcct_observed")
 
 
 def test_accept_endpoint_rejects_unauthorized(setup):
     _seed_bcct("D1", "X", "X (019.X)")
-    c = _client(setup["session_id"])
-    _refresh(c)
-    cid = _candidate_id("X", "hq")
-    # Drop session — no auth cookie
     no_auth = TestClient(app)
     r = no_auth.post(
-        f"/clients/{CLIENT}/catalog/candidates/{cid}/accept",
-        data={"name": "x", "category": "nvl"},
+        f"/clients/{CLIENT}/catalog/candidates/accept",
+        data={"code": "X", "code_kind": "hq", "name": "x", "category": "nvl"},
         follow_redirects=False,
     )
     assert r.status_code in (302, 303, 401, 403)
 
 
-def test_accept_endpoint_404_for_unknown_candidate(setup):
+def test_accept_endpoint_404_for_unknown_code(setup):
     c = _client(setup["session_id"])
     r = c.post(
-        f"/clients/{CLIENT}/catalog/candidates/9999999/accept",
-        data={"name": "x", "category": "nvl"},
+        f"/clients/{CLIENT}/catalog/candidates/accept",
+        data={"code": "NOPE", "code_kind": "hq", "name": "x",
+              "category": "nvl"},
         follow_redirects=False,
     )
     assert r.status_code == 404
 
 
-# ── Reject route ──────────────────────────────────────────────────────────
+# ── Reject / unreject ─────────────────────────────────────────────────────
 
 
-def test_reject_endpoint_marks_rejected(setup):
+def test_reject_endpoint_suppresses(setup):
     _seed_bcct("D1", "NOISE", "NOISE (019.X)")
     c = _client(setup["session_id"])
-    _refresh(c)
-    cid = _candidate_id("NOISE", "hq")
     r = c.post(
-        f"/clients/{CLIENT}/catalog/candidates/{cid}/reject",
-        data={"reason": "test rubbish"},
+        f"/clients/{CLIENT}/catalog/candidates/reject",
+        data={"code": "NOISE", "code_kind": "hq", "reason": "test rubbish"},
         follow_redirects=False,
     )
     assert r.status_code == 303
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            "select status, decision_reason from hub.catalog_candidates "
-            "where candidate_id=%s", (cid,)
+            "select reason, rejected_by from hub.catalog_rejections "
+            "where client_id=%s and code='NOISE'", (CLIENT,)
         )
-        s, reason = cur.fetchone()
-    assert s == "rejected"
+        reason, by = cur.fetchone()
     assert reason == "test rubbish"
+    assert by == USER_EMAIL
+    # Gone from pending, shown in the rejected section.
+    body = c.get(f"/clients/{CLIENT}/catalog/candidates").text
+    assert "test rubbish" in body
 
 
-def test_unreject_endpoint_resets_to_pending(setup):
+def test_unreject_endpoint_lifts_suppression(setup):
     _seed_bcct("D1", "MAYBE", "MAYBE (019.X)")
     c = _client(setup["session_id"])
-    _refresh(c)
-    cid = _candidate_id("MAYBE", "hq")
-    c.post(f"/clients/{CLIENT}/catalog/candidates/{cid}/reject",
-           data={"reason": "oops"}, follow_redirects=False)
-    r = c.post(f"/clients/{CLIENT}/catalog/candidates/{cid}/unreject",
-               follow_redirects=False)
+    c.post(f"/clients/{CLIENT}/catalog/candidates/reject",
+           data={"code": "MAYBE", "code_kind": "hq", "reason": "oops"},
+           follow_redirects=False)
+    r = c.post(f"/clients/{CLIENT}/catalog/candidates/unreject",
+               data={"code": "MAYBE"}, follow_redirects=False)
     assert r.status_code == 303
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            "select status, decided_at, decision_reason "
-            "from hub.catalog_candidates where candidate_id=%s", (cid,)
+            "select count(*) from hub.catalog_rejections "
+            "where client_id=%s and code='MAYBE'", (CLIENT,)
         )
-        s, decided_at, reason = cur.fetchone()
-    assert s == "pending"
-    assert decided_at is None
-    assert reason is None
+        assert cur.fetchone()[0] == 0
+
+
+def test_unreject_404_when_not_rejected(setup):
+    c = _client(setup["session_id"])
+    r = c.post(f"/clients/{CLIENT}/catalog/candidates/unreject",
+               data={"code": "NEVER"}, follow_redirects=False)
+    assert r.status_code == 404
 
 
 # ── Filter chips ──────────────────────────────────────────────────────────
@@ -304,22 +274,7 @@ def test_filter_by_kind(setup):
     _seed_bcct("D1", "DAUNOI", "DAUNOI (019.X)")
     _seed_bcct("D2", "DOV", "DOV (019.Y)")
     c = _client(setup["session_id"])
-    _refresh(c)
     r = c.get(f"/clients/{CLIENT}/catalog/candidates?kind=hq")
     body = r.text
     assert "DAUNOI" in body
     assert "DOV" in body
-    # NB codes filtered out
-    assert "019.X" not in body or "data-kind=\"hq\"" in body  # tolerate filter UX
-
-
-def test_rejected_section_shown(setup):
-    _seed_bcct("D1", "NOISE", "NOISE (019.X)")
-    c = _client(setup["session_id"])
-    _refresh(c)
-    cid = _candidate_id("NOISE", "hq")
-    c.post(f"/clients/{CLIENT}/catalog/candidates/{cid}/reject",
-           data={"reason": "junk"}, follow_redirects=False)
-    r = c.get(f"/clients/{CLIENT}/catalog/candidates")
-    body = r.text
-    assert "NOISE" in body  # appears in rejected section

@@ -89,6 +89,7 @@ TABLES: tuple[TableSpec, ...] = (
     TableSpec("parser_mappings",       sql.SQL("client_id = %s"),                                              order=30, null_columns=("confirmed_by",)),
     TableSpec("code_mappings",         sql.SQL("client_id = %s"),                                              order=40),
     TableSpec("materials",             sql.SQL("client_id = %s"),                                              order=50),
+    TableSpec("catalog_rejections",    sql.SQL("client_id = %s"),                                              order=55),
     TableSpec("client_uom_overrides",  sql.SQL("client_id = %s"),                                              order=58),
     TableSpec("client_material_group_map", sql.SQL("client_id = %s"),                                          order=59),
     TableSpec("bcct_rows",             sql.SQL("client_id = %s"),                                              order=60),
@@ -154,9 +155,6 @@ EXCLUDED_CLIENT_SCOPED_TABLES = frozenset({
     "bcct_row_history",        # trigger-driven audit on bcct_rows
     "material_audit_events",   # audit log
     "bom_audit_events",        # audit log
-    # Per-deployment review queue. Re-derives from BCCT/BOM/code_mappings
-    # on the destination via refresh_candidates() — no need to ship rows.
-    "catalog_candidates",
     # Per-deployment parser rules + computed view (not a real table). The
     # rules are mig-seeded and tuned per-deployment; v_material_roles is
     # a view, picked up automatically by schema replay.

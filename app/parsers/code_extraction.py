@@ -13,7 +13,7 @@ Per-row classification handles 4 BCCT cases:
 BOM and code_mappings sources are simpler — see individual functions.
 
 These helpers are deliberately stateless; DB lookups happen in the store
-layer (app/stores/catalog_candidates.py) and route layer.
+layer (app/stores/bcct_nb_codes.py) and route layer.
 """
 from __future__ import annotations
 

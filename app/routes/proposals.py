@@ -84,10 +84,6 @@ async def approve_view(request: Request, client_id: str, proposal_id: str,
         raise HTTPException(404, "Proposal not found")
     except ProposalNotPending as exc:
         raise HTTPException(409, f"Proposal not pending (current status: {exc})")
-    # Post-ingest hook (#32): approval materialized a new artifact whose
-    # edges can carry codes the candidates queue hasn't seen.
-    from app.stores.catalog_candidates import refresh_candidates_after_ingest
-    refresh_candidates_after_ingest(client_id)
     return RedirectResponse(
         url=f"/clients/{client_id}/proposals/{proposal_id}", status_code=303,
     )

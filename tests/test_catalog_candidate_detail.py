@@ -1,4 +1,9 @@
-"""Candidate detail page — surface full info + cross-references for one candidate."""
+"""Candidate detail page — keyed by ?code=&kind= (#34, no stored id).
+
+Locks: renders the code + HS/UoM enrichment, BCCT sample lines,
+co-occurrences from the persisted paren links, 404 for unknown codes,
+and client scoping (another client's code 404s).
+"""
 from __future__ import annotations
 
 import pytest
@@ -9,151 +14,99 @@ from app.database import connect
 from app.main import app
 
 
-CLIENT = "_test_cdetail"
-USER_ID = "u_cdetail"
-USER_EMAIL = "cdetail@test.local"
+CLIENT = "_test_detail_disc"
+OTHER = "_test_detail_other"
+USER_ID = "u_detail_test"
 
 
 @pytest.fixture(autouse=True)
 def setup():
     with connect() as conn, conn.cursor() as cur:
-        cur.execute(
-            "insert into hub.clients (client_id, name) values (%s, 'cdetail') "
-            "on conflict do nothing",
-            (CLIENT,),
-        )
+        for cid, name in ((CLIENT, "detail test"), (OTHER, "other")):
+            cur.execute(
+                "insert into hub.clients (client_id, name) values (%s, %s) "
+                "on conflict do nothing",
+                (cid, name),
+            )
         cur.execute(
             "insert into hub.users (user_id, email, display_name, password_hash, "
-            " role, status) values (%s, %s, 'CD Test', %s, 'admin', 'active') "
+            " role, status) values (%s, 'detail@test.local', 'D', %s, 'admin', "
+            " 'active') "
             "on conflict (user_id) do update set role='admin', status='active'",
-            (USER_ID, USER_EMAIL, hash_password("test-pw")),
+            (USER_ID, hash_password("pw")),
         )
-        for tbl in ("catalog_candidates", "bcct_rows", "materials"):
-            cur.execute(f"delete from hub.{tbl} where client_id=%s", (CLIENT,))
-        cur.execute(
-            "delete from hub.client_parser_rules where client_id=%s", (CLIENT,)
-        )
+        for cid in (CLIENT, OTHER):
+            for tbl in ("catalog_rejections", "bcct_nb_codes", "bcct_rows",
+                        "materials", "client_parser_rules"):
+                cur.execute(f"delete from hub.{tbl} where client_id=%s", (cid,))
         cur.execute(
             "insert into hub.client_parser_rules "
             "(client_id, output_field, priority, pattern, source_field, "
             " match_group, match_action, no_match_action, enabled, created_by) "
             "values (%s, 'internal_code', 10, '\\(([\\d\\.\\w\\-]+)\\)', "
-            " 'goods_name', 1, 'capture', 'next_rule', true, 'test') "
-            "on conflict do nothing",
+            " 'goods_name', 1, 'capture', 'next_rule', true, 'test')",
+            (CLIENT,),
+        )
+        cur.execute(
+            """
+            insert into hub.bcct_rows
+              (client_id, transaction_key, line_no, declaration_no,
+               declaration_type, direction, registration_date, customs_code,
+               goods_name, hs_code, unit, payload)
+            values (%s, 'TXD', '1', 'DD1', 'E11', 'import', '2026-04-01',
+                    'BUCKET', 'hàng test (019.D)', '85044090', 'PCS',
+                    '{}'::jsonb)
+            """,
             (CLIENT,),
         )
     from app.parsers.client_parser_rules import clear_rules_cache
     clear_rules_cache()
-    session = create_session(USER_ID)
-    yield {"session": session}
+    from app.stores.bcct_nb_codes import rebuild_for_client
+    rebuild_for_client(CLIENT)
+    c = TestClient(app)
+    c.cookies.set(SESSION_COOKIE, create_session(USER_ID))
+    yield c
     with connect() as conn, conn.cursor() as cur:
-        for tbl in ("catalog_candidates", "bcct_rows", "materials"):
-            cur.execute(f"delete from hub.{tbl} where client_id=%s", (CLIENT,))
-        cur.execute(
-            "delete from hub.client_parser_rules where client_id=%s", (CLIENT,)
-        )
+        for cid in (CLIENT, OTHER):
+            for tbl in ("catalog_rejections", "bcct_nb_codes", "bcct_rows",
+                        "materials", "client_parser_rules"):
+                cur.execute(f"delete from hub.{tbl} where client_id=%s", (cid,))
+            cur.execute("delete from hub.clients where client_id=%s", (cid,))
         cur.execute("delete from hub.sessions where user_id=%s", (USER_ID,))
         cur.execute("delete from hub.users where user_id=%s", (USER_ID,))
-        cur.execute("delete from hub.clients where client_id=%s", (CLIENT,))
     clear_rules_cache()
 
 
-def _client(session_id):
-    c = TestClient(app)
-    c.cookies.set(SESSION_COOKIE, session_id)
-    return c
-
-
-def _seed_bcct(rows):
-    """rows: (decl, customs_code, hs_code, unit, origin, direction, goods_name)."""
-    with connect() as conn, conn.cursor() as cur:
-        for i, (decl, cc, hs, unit, origin, dirn, gn) in enumerate(rows):
-            cur.execute(
-                """
-                insert into hub.bcct_rows
-                  (client_id, transaction_key, line_no, declaration_no,
-                   declaration_type, direction, registration_date,
-                   customs_code, hs_code, unit, origin, goods_name, payload)
-                values (%s, %s, '1', %s, 'E11', %s, '2026-04-01',
-                        %s, %s, %s, %s, %s, '{}'::jsonb)
-                """,
-                (CLIENT, f"TX_{decl}_{i}", decl, dirn, cc, hs, unit, origin, gn),
-            )
-
-
-def _refresh_and_get_id(code, kind):
-    from app.stores.catalog_candidates import refresh_candidates
-    refresh_candidates(CLIENT)
-    with connect() as conn, conn.cursor() as cur:
-        cur.execute(
-            "select candidate_id from hub.catalog_candidates "
-            "where client_id=%s and code=%s and code_kind=%s",
-            (CLIENT, code, kind),
-        )
-        row = cur.fetchone()
-        return row[0] if row else None
-
-
-def test_candidate_detail_renders(setup):
-    _seed_bcct([
-        ("D1", "WIDGET", "85369012", "PIECES", "VN", "import", "WIDGET#&item"),
-    ])
-    # Client has parser_rules → has_dual_system=True → no-paren goods_name
-    # classifies as kind='hq'.
-    cid = _refresh_and_get_id("WIDGET", "hq")
-    c = _client(setup["session"])
-    r = c.get(f"/clients/{CLIENT}/catalog/candidates/{cid}")
+def test_detail_renders_enrichment(setup):
+    r = setup.get(
+        f"/clients/{CLIENT}/catalog/candidates/detail?code=BUCKET&kind=hq",
+    )
     assert r.status_code == 200
-    assert "WIDGET" in r.text
-    assert "85369012" in r.text  # HS code shown
-    assert "PIECES" in r.text  # UoM shown
-
-
-def test_candidate_detail_shows_bcct_samples(setup):
-    _seed_bcct([
-        ("D1", "WIDGET", "85369012", "PIECES", "VN", "import",
-         "WIDGET#&Sample one"),
-        ("D2", "WIDGET", "85369012", "PIECES", "VN", "import",
-         "WIDGET#&Sample two"),
-    ])
-    cid = _refresh_and_get_id("WIDGET", "hq")
-    c = _client(setup["session"])
-    r = c.get(f"/clients/{CLIENT}/catalog/candidates/{cid}")
-    assert "D1" in r.text
-    assert "D2" in r.text
-
-
-def test_candidate_detail_shows_co_occurrences(setup):
-    """HQ candidate with multiple paired NB → list them."""
-    _seed_bcct([
-        ("D1", "BUCKET", "85369012", "PIECES", "VN", "import",
-         "BUCKET#&parts (019.X)"),
-        ("D2", "BUCKET", "85369012", "PIECES", "VN", "import",
-         "BUCKET#&parts (019.Y)"),
-    ])
-    cid = _refresh_and_get_id("BUCKET", "hq")
-    c = _client(setup["session"])
-    r = c.get(f"/clients/{CLIENT}/catalog/candidates/{cid}")
     body = r.text
-    assert "019.X" in body
-    assert "019.Y" in body
+    assert "BUCKET" in body
+    assert "85044090" in body
+    assert "DD1" in body            # BCCT sample line
+    assert "019.D" in body          # co-occurrence partner
 
 
-def test_candidate_detail_404_for_unknown(setup):
-    c = _client(setup["session"])
-    r = c.get(f"/clients/{CLIENT}/catalog/candidates/99999999",
-              follow_redirects=False)
+def test_detail_nb_side_shows_hq_partner(setup):
+    r = setup.get(
+        f"/clients/{CLIENT}/catalog/candidates/detail?code=019.D&kind=nb",
+    )
+    assert r.status_code == 200
+    assert "BUCKET" in r.text
+
+
+def test_detail_404_unknown_code(setup):
+    r = setup.get(
+        f"/clients/{CLIENT}/catalog/candidates/detail?code=NOPE",
+    )
     assert r.status_code == 404
 
 
-def test_candidate_detail_404_for_other_client_candidate(setup):
-    """Candidate belongs to another client → 404 (URL-tampering protection)."""
-    _seed_bcct([
-        ("D1", "X", "85369012", "PIECES", "VN", "import", "X#&item"),
-    ])
-    cid = _refresh_and_get_id("X", "hq")
-    c = _client(setup["session"])
-    r = c.get(f"/clients/_other_client_/catalog/candidates/{cid}",
-              follow_redirects=False)
-    # Either 404 (candidate not in URL client) or 403/404 (URL client doesn't exist)
-    assert r.status_code in (403, 404)
+def test_detail_is_client_scoped(setup):
+    """BUCKET exists for CLIENT only — OTHER 404s on the same code."""
+    r = setup.get(
+        f"/clients/{OTHER}/catalog/candidates/detail?code=BUCKET",
+    )
+    assert r.status_code == 404

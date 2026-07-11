@@ -1056,17 +1056,18 @@ async def edit_material_submit(
 
 @router.post("/clients/{client_id}/catalog/{material_code:path}/promote")
 async def promote_material(request: Request, client_id: str, material_code: str):
-    """Mig 042: promote a `bcct_observed` / `under_review` material to
-    `client_declared` / `active`. Sets promoted_to_declared_at + promoted_by
-    audit trail."""
+    """Promote an `under_review` material to `active`. Sets
+    promoted_to_declared_at + promoted_by audit trail. `source` is
+    provenance, not approval — promotion no longer rewrites it to
+    'client_declared' (#34: approving an observed code does not mean the
+    client declared it)."""
     user = auth.require_user(request)
     auth.require_can_edit_client(user, client_id)
     with connect(user_id=user.user_id) as conn, conn.cursor() as cur:
         cur.execute(
             """
             update hub.materials
-               set source = 'client_declared',
-                   status = 'active',
+               set status = 'active',
                    promoted_to_declared_at = now(),
                    promoted_by = %s,
                    updated_at = now()

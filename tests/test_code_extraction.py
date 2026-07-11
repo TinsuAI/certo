@@ -13,7 +13,7 @@ from __future__ import annotations
 import re2
 
 from app.parsers.client_parser_rules import CompiledRule
-from app.parsers.catalog_candidates import (
+from app.parsers.code_extraction import (
     candidates_from_bcct_row,
     candidates_from_bom_codes,
     candidates_from_code_mapping_pairs,

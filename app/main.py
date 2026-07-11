@@ -20,7 +20,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app import auth, changelog, i18n, settings_store, version as appver
 from app.database import apply_migrations, close_pool
 from app.seed_master_data import seed_master_data_if_empty
-from app.routes import admin, agent, api, auth_api, bcct, bom, bqd, catalog, catalog_candidates, client_config_ui, client_uom_factors, clients, declarations, inventory_snapshots, jobs as job_routes, master_data, notifications as notif_routes, nxt, proposals, substitutes, uploads
+from app.routes import admin, agent, api, auth_api, bcct, bom, bqd, catalog, catalog_discovery, client_config_ui, client_uom_factors, clients, declarations, inventory_snapshots, jobs as job_routes, master_data, notifications as notif_routes, nxt, proposals, substitutes, uploads
 from app.seed import auto_seed_demo_if_empty, seed_parser_rules_if_empty
 
 ROOT = Path(__file__).resolve().parent
@@ -265,8 +265,11 @@ templates.env.filters["from_json"] = _from_json_filter
 
 # Routers
 app.include_router(clients.router)
+# Discovery BEFORE catalog: its fixed /catalog/candidates/* paths must
+# win over catalog's greedy /catalog/{material_code:path}/... patterns
+# (a material named "candidates" is not a thing; a swallowed route is).
+app.include_router(catalog_discovery.router)
 app.include_router(catalog.router)
-app.include_router(catalog_candidates.router)
 app.include_router(bqd.router)
 app.include_router(bcct.router)
 app.include_router(declarations.router)

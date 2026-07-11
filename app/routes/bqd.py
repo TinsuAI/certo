@@ -37,7 +37,6 @@ from app.routes._paging import (
 )
 from app.routes.clients import get_client, stats_for_client
 from app.storage import save_upload, sha256_bytes
-from app.stores.catalog_candidates import refresh_candidates_after_ingest
 from app.stores.staleness import freshness_for_template
 from app.stores.uploads import record_upload
 
@@ -350,7 +349,6 @@ async def preview_confirm(request: Request, client_id: str, pending_id: str):
         cfg=BQD_CFG,
         included_skipped=included_skipped,
     )
-    refresh_candidates_after_ingest(client_id)
     return RedirectResponse(
         url=f"/clients/{client_id}/bqd?ingested={n}", status_code=303,
     )
@@ -397,7 +395,6 @@ async def manual_add(
                     "notes": notes.strip() or None,
                 }],
             )
-    refresh_candidates_after_ingest(client_id)
     return RedirectResponse(url=f"/clients/{client_id}/bqd", status_code=303)
 
 
