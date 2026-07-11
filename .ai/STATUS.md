@@ -1,18 +1,24 @@
 # Project Status
 
 **Date:** 2026-07-11 — **Catalog rework COMPLETE (phases 0–5):** #30 (PR
-#41), #32 (PR #42), #33 (PR #43), #34 (PR #44), and now **#35 bulk
-approval** (PR #45, merge `297f775`). All merged, deployed, prod-verified.
+#41), #32 (PR #42), #33 (PR #43), #34 (PR #44), and **#35 bulk approval**
+(PR #45, merge `297f775`). All merged, deployed, prod-verified, and
+shipped as **release `v0.21.0`** (commit `d58e4e8`, tag `v0.21.0`).
 Session logs: `.ai/sessions/2026-07-11-catalog-phases-0-2-3-4.md` and
 `.ai/sessions/2026-07-11-catalog-bulk-approval.md`.
 
 ## Current State
 
-- **Prod healthy — verified 2026-07-11 ~10:48Z.** `ttdatahub.tinsu.ai/version`
-  → git_sha `297f775`; `/healthz` 200. mig 093 applied at boot. Prod
-  oracle unchanged from #34: `hub.catalog_discovery('growatt-vn')` pending
-  = 3,306, `bcct_nb_codes` = 35,349. **No bulk-accept executed against
-  prod** — the button is live for an operator to press.
+- **Prod healthy — on `v0.21.0`, verified 2026-07-11 ~15:53Z.**
+  `ttdatahub.tinsu.ai/version` → `version=0.21.0`, `git_sha=d58e4e8`;
+  `/healthz` 200. mig 093 applied at boot. Prod oracle unchanged from #34:
+  `hub.catalog_discovery('growatt-vn')` pending = 3,306, `bcct_nb_codes` =
+  35,349. **No bulk-accept executed against prod** — the button is live
+  for an operator to press.
+- **Release `v0.21.0` (2026-07-11)** bundles catalog phases 0–5.
+  `pyproject.toml` + `uv.lock` = 0.21.0; CHANGELOG `[Unreleased]` rolled
+  to `## [0.21.0] — 2026-07-11`; tag pushed; `/whats-new` renders it.
+  `[Unreleased]` is now empty.
 - **#35 bulk approval live:** discovery page has filter-as-rule (leaf /
   source chips / observed_count / machinery toggle) + «Duyệt N mã đang
   lọc». mig 093 = D9 trigger guarded by `hub.bulk_load` GUC +
@@ -47,16 +53,13 @@ Session logs: `.ai/sessions/2026-07-11-catalog-phases-0-2-3-4.md` and
 1. **Decide #37** (user, ready-for-human): dead materials in CO's BCCT
    identity payload (`bcct_material_identity.py:120-133`) — hide (apply
    #31 predicate) vs document-and-keep.
-2. **Release cut 0.21.0** when convenient: CHANGELOG `[Unreleased]` now
-   holds **5** entries (incl. #35 bulk approval); bump pyproject +
-   uv.lock together.
-3. **#35 follow-up:** source filter multi-select (`sources[]`) — decide
+2. **#35 follow-up:** source filter multi-select (`sources[]`) — decide
    if wanted (deferred, PR #45 note).
-4. Housekeeping: `docs/agency-staff-guide` branch (385-line VN guide,
+3. Housekeeping: `docs/agency-staff-guide` branch (385-line VN guide,
    nowhere else) — PR or drop; `v0.19.0` tag absent; prod Postgres
    collation-version mismatch (REINDEX + REFRESH COLLATION VERSION in a
    maintenance window — data-integrity investigation, not quick).
-5. Remaining ready-for-agent backlog (non-catalog): #23 B.5, #22 B.4,
+4. Remaining ready-for-agent backlog (non-catalog): #23 B.5, #22 B.4,
    #21 B.2, #19 B.0b, #14–18 A.x, #26 C.2, #29 E.4.
 
 ## Notes for Next AI Session
