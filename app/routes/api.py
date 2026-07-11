@@ -436,9 +436,12 @@ _MATERIALS_SELECT_WITH_ROLES = """
            -- customs_relevance computed inline (mirrors hub.v_material_classification,
            -- which is the canonical def + parity-tested) to avoid re-joining the
            -- heavy v_material_roles aggregation a second time via the view.
-           -- has_imports precedes the rác check: a real import wins over the MG
-           -- heuristic (mig 079).
+           -- placeholder-only comes first (mig 091): those codes have real
+           -- has_imports via paren lines and must not read as declarable.
+           -- Then has_imports precedes the rác check: a real import wins over
+           -- the MG heuristic (mig 079).
            case
+             when po.material_code is not null then 'excluded_non_material'
              when m.material_group is null then null
              when coalesce(vmr.has_imports, false) then 'declarable'
              when mgmap.material_group is null then 'review'
@@ -459,6 +462,9 @@ _MATERIALS_SELECT_WITH_ROLES = """
     left join hub.client_material_group_map mgmap
            on mgmap.client_id = m.client_id
           and mgmap.material_group = m.material_group
+    left join hub.v_placeholder_only_codes po
+           on po.client_id = m.client_id
+          and po.material_code = m.material_code
 """
 
 

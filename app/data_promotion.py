@@ -166,6 +166,7 @@ EXCLUDED_CLIENT_SCOPED_TABLES = frozenset({
     # (app/stores/bcct_nb_codes.py) recomputes it from them.
     "bcct_nb_codes",
     "v_material_roles",
+    "v_placeholder_only_codes",   # derived view (mig 091); schema replay
     "v_material_classification",  # derived view (mig 078); schema replay
     # picks it up. The raw material_group it reads ships on hub.materials.
     # Per-deployment column-alias overrides for the upload mapping flow
@@ -561,6 +562,13 @@ def import_client_bundle(*, bundle_path: Path | str) -> dict:
 
     finally:
         shutil.rmtree(staging, ignore_errors=True)
+
+    # The cascade wipe above emptied this client's bcct_nb_codes and the
+    # bundle deliberately doesn't ship them; rebuild now (from the just-
+    # imported bcct_rows × client_parser_rules) instead of waiting for
+    # the next app boot's backfill (#33).
+    from app.stores.bcct_nb_codes import rebuild_after_change
+    rebuild_after_change(client_id)
 
     return {
         "client_id": client_id,

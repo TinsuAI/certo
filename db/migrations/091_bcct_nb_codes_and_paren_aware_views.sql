@@ -7,7 +7,7 @@
 --      extraction (mig 050), so Python writes this table
 --      (app/stores/bcct_nb_codes.py) and SQL joins it. A deliberate
 --      persisted derivation — exception to no-derived-in-source, with a
---      delete-and-rebuild invalidation policy (measured ~0.9s Growatt):
+--      delete-and-rebuild invalidation policy (measured ~2s Growatt):
 --      rebuilt on BCCT apply and on any parser-rule edit; backfilled at
 --      app boot when empty (fresh DBs, this deploy).
 --   2. v_material_roles, 6th definition — BCCT signals now flow through
@@ -147,32 +147,35 @@ select client_id,
        observed_directions
   from atoms a;
 
--- ── 3. v_material_classification — machinery marking ────────────────────
+-- ── 3. Machinery marking ────────────────────────────────────────────────
+
+-- Codes whose every BCCT appearance is a placeholder line (fixed
+-- assets) and that never appear as a customs_code themselves. Growatt:
+-- forklift/rack part numbers — 207 of the 218 paren-extracted
+-- fixed-asset codes; the other 11 also show up on production lines
+-- (8 in other rows' parens, 3 as directly declared customs_codes) and
+-- stay unmarked. One definition, three readers: the classification
+-- view below plus the inline customs_relevance mirrors in
+-- app/routes/api.py and app/routes/catalog.py (parity-tested).
+create or replace view hub.v_placeholder_only_codes as
+select n.client_id, n.nb_code as material_code
+  from hub.bcct_nb_codes n
+  join hub.bcct_rows b
+    on b.client_id = n.client_id
+   and b.transaction_key = n.transaction_key
+   and b.line_no = n.line_no
+  join hub.clients c on c.client_id = n.client_id
+ group by n.client_id, n.nb_code
+having bool_and(coalesce(
+           nullif(trim(b.customs_code), '')
+               = any(c.customs_code_placeholders),
+           false))
+   and not exists (
+           select 1 from hub.bcct_rows b2
+           where b2.client_id = n.client_id
+             and b2.customs_code = n.nb_code);
 
 create or replace view hub.v_material_classification as
-with placeholder_only as (
-    -- Codes whose every BCCT appearance is a placeholder line (fixed
-    -- assets) and that never appear as a customs_code themselves.
-    -- Growatt: forklift/rack part numbers (210 of 218 paren-extracted
-    -- fixed-asset codes; the 8 shared with production lines fail
-    -- bool_and and stay unmarked).
-    select n.client_id, n.nb_code as material_code
-      from hub.bcct_nb_codes n
-      join hub.bcct_rows b
-        on b.client_id = n.client_id
-       and b.transaction_key = n.transaction_key
-       and b.line_no = n.line_no
-      join hub.clients c on c.client_id = n.client_id
-     group by n.client_id, n.nb_code
-    having bool_and(coalesce(
-               nullif(trim(b.customs_code), '')
-                   = any(c.customs_code_placeholders),
-               false))
-       and not exists (
-               select 1 from hub.bcct_rows b2
-               where b2.client_id = n.client_id
-                 and b2.customs_code = n.nb_code)
-)
 select m.client_id,
        m.material_code,
        m.material_group,
@@ -193,6 +196,6 @@ select m.client_id,
   left join hub.v_material_roles vmr
     on vmr.client_id = m.client_id
    and vmr.material_code = m.material_code
-  left join placeholder_only po
+  left join hub.v_placeholder_only_codes po
     on po.client_id = m.client_id
    and po.material_code = m.material_code;

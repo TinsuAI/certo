@@ -10,6 +10,7 @@ Run with the dev server up on :8754:
 from __future__ import annotations
 
 import asyncio
+import re
 import sys
 import time
 from pathlib import Path
@@ -76,6 +77,8 @@ async def main() -> None:
         await page.wait_for_load_state("networkidle")
         body = await page.content()
         assert "001.0001100" in body
+        m = re.search(r"Số lần quan sát[^0-9]*(\d+)", body)
+        assert m and int(m.group(1)) > 0, "paren-only NB code shows 0 observations"
         await shoot(page, "12_paren_only_material_has_observations")
 
         await ctx.close()

@@ -6,7 +6,7 @@ extracts NB codes from goods_name and stores (client_id,
 transaction_key, line_no, nb_code); views join it
 (v_material_roles, v_material_classification — mig 091).
 
-Invalidation is delete-and-rebuild per client (measured ~0.9s on
+Invalidation is delete-and-rebuild per client (measured ~2s on
 Growatt's 39k rows): triggered by a BCCT apply or any parser-rule
 edit, backfilled at app boot when empty. NOT an incremental staleness
 domain.

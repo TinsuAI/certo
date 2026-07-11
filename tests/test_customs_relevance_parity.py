@@ -24,6 +24,7 @@ def cid():
                     (client_id, "customs_relevance parity"))
     yield client_id
     with connect() as conn, conn.cursor() as cur:
+        cur.execute("delete from hub.bcct_nb_codes where client_id=%s", (client_id,))
         cur.execute("delete from hub.bcct_rows where client_id=%s", (client_id,))
         cur.execute("delete from hub.materials where client_id=%s", (client_id,))
         cur.execute("delete from hub.client_material_group_map where client_id=%s", (client_id,))
@@ -54,6 +55,25 @@ def _seed(cid):
                 "customs_code, direction, registration_date, payload) "
                 "values (%s,%s,1,%s,'import','2026-01-15','{}'::jsonb)",
                 (cid, "tx-" + code, code))
+        # Placeholder-only machinery marking (mig 091): PH_ONLY appears
+        # only on a placeholder line; PH_SHARED also on a production line.
+        cur.execute(
+            "update hub.clients set customs_code_placeholders='{\".\"}' "
+            "where client_id=%s", (cid,))
+        cur.executemany(
+            "insert into hub.bcct_rows (client_id, transaction_key, line_no, "
+            "customs_code, direction, registration_date, payload) "
+            "values (%s,%s,'1',%s,'import','2026-01-15','{}'::jsonb)",
+            [(cid, "tx-ph", "."), (cid, "tx-prod", "HQX")])
+        cur.executemany(
+            "insert into hub.bcct_nb_codes (client_id, transaction_key, "
+            "line_no, nb_code) values (%s,%s,'1',%s)",
+            [(cid, "tx-ph", "PH_ONLY"), (cid, "tx-ph", "PH_SHARED"),
+             (cid, "tx-prod", "PH_SHARED")])
+        cur.executemany(
+            "insert into hub.materials (client_id, material_code, name, "
+            "category) values (%s,%s,%s,'nvl')",
+            [(cid, "PH_ONLY", "PH_ONLY"), (cid, "PH_SHARED", "PH_SHARED")])
 
 
 def _view(cid):
@@ -85,6 +105,8 @@ def test_import_guard_and_enum(cid):
     assert v["MET_NOIMP"] == "declarable_unmatched"
     assert v["UNMAPPED"] == "review"
     assert v["NOMG"] is None
+    assert v["PH_ONLY"] == "excluded_non_material"   # mig 091 marking
+    assert v["PH_SHARED"] is None                    # production line spares it
 
 
 def test_inline_matches_view(cid):
