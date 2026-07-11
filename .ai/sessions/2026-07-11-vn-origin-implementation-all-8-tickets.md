@@ -86,3 +86,43 @@ Per-ticket two-axis review (standards + spec sub-agents). Real catches folded in
   origin_amount but VNM stays unadjusted (such sheets are lock-blocked anyway);
   client-default mode flip confirm states consequences without exact counts.
 - BACKLOG FX1 (Form X missing in co_forms.py) untouched; phase-2 in-bloc deferred.
+
+
+## Addendum 2026-07-12 (morning) — live browser e2e + screenshots
+
+Per user request: full browser tour of every shipped feature against the live
+dev stack (`:8001`, DB-mode, real DH data). 22 screenshots in
+`.ai/screenshots/2026-07-12-vn-origin-e2e/` (gitignored) + the harness scripts.
+
+**Verified live on real growatt-vn data:** full tồn refresh re-materializes
+38,287 lots WITH `consignee_name` (144 MING* lots); suppliers screen lists the
+real NCC with counts/origin mix and the HK namesake distinct; flip ON writes
+real append-only events (Mingjie + Minghui flagged = deploy-day state, kept);
+config page shows per-type counts (E13/E15/...) + bảng kê column-9 section +
+read-only mapping; batch "Tính tồn tất cả (SP)" runs; every sheet parks at
+"Đã nạp BOM" (shortage guard — correct, see finding below); export blocked
+with the live belt-3 toast naming the sheets; per-case column-9 select +
+preview-confirm dialogs captured; OFF-flip damage confirm captured, cancel
+writes nothing (flag stays on).
+
+**Verified live on demo-furniture (DH-seeded, customs-coded BOM):** seeded 2
+OAKVNR lots into local DH (VN/Mingjie E15 + CN E11), flagged Mingjie, batch
+Tính → the OAKVNR line SPLITS: "Tách 1/2 Việt Nam · Có xuất xứ · 200" /
+"Tách 2/2 Trung Quốc · Không xuất xứ · 180"; (12) =
+"Phụ lục X/CONG TY TNHH MINGJIE VIET NAM"; per-line (9) texts; unknown lots
+render "Không xác định"; shortage chip "Thiếu tồn CO 1 dòng" blocks chốt.
+
+**Finding filed as TinsuAI/co#14 (needs-triage):** in DH mode the allocation
+strategy hard-defaults to same_as_customs_code (DH config is read-only from CO
+and carries no allocation fields), so growatt-vn's internal-coded technical
+BOMs match almost no on-spot lots → the resolver never sees Mingjie/Minghui
+lots there. Feature is fine; onboarding config is the blocker. Options in the
+issue (DH api-request vs CO overlay vs customs-coded BOMs).
+
+**State left behind (local dev DB only):** growatt-vn case CO-E2E-VNORIGIN
+(co-case-3c13e6b34eb3, all sheets bom_loaded); demo-furniture case
+CO-DEMO-FURNITURE-...-CE1A recalculated with the split visible; 2 seeded
+OAKVNR rows in local hub.bcct_rows (declarations 105100100777/778); evidence
+flags ON: growatt-vn (Mingjie, Minghui), demo-furniture (Mingjie); growatt-vn
+tồn snapshot re-materialized with consignee_name. The temporary
+co.client_configs strategy edit was reverted.
