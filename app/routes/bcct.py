@@ -789,6 +789,11 @@ def _apply_bcct_rows(*, client_id: str, rows: list[dict], upload_id: str | None,
             )
         except Exception:
             pass  # notification is non-critical
+
+    # Post-ingest hook (#32): rebuild the review queue now that new BCCT
+    # rows landed — the candidates page no longer refreshes on GET.
+    from app.stores.catalog_candidates import refresh_candidates_after_ingest
+    refresh_candidates_after_ingest(client_id)
     return n
 
 # ── Confirm-on-update preview/confirm routes ─────────────────────────────

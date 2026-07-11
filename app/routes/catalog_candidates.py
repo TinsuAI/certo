@@ -2,8 +2,10 @@
 
 Brief: .ai/features/2026-05-09-ma-cho-duyet/brief.md
 
-Page handler GETs the feed (refreshes candidates on render). POST handlers
-implement the state-machine transitions: accept, reject, unreject.
+Page handler GETs the feed read-only (#32 — the rebuild runs after each
+ingest and behind the explicit refresh POST, never on render). POST
+handlers implement the state-machine transitions: accept, reject,
+unreject, plus the refresh.
 """
 from __future__ import annotations
 
@@ -139,9 +141,6 @@ async def candidates_page(
     if not client:
         raise HTTPException(404, "Client not found")
 
-    # Refresh from sources (cheap: sub-second on Growatt-scale data).
-    refresh_candidates(client_id)
-
     page_params = parse_page_params(query_params=request.query_params)
     pending = _list_candidates(
         client_id, status="pending", kind=kind, source=source, q=q,
@@ -175,6 +174,24 @@ async def candidates_page(
             "active_root": "clients",
             "active_tab": "catalog",
         },
+    )
+
+
+@router.post("/clients/{client_id}/catalog/candidates/refresh")
+async def refresh_candidates_route(request: Request, client_id: str):
+    """Explicit "Làm mới" button. The refresh left the GET handler in #32 —
+    it scanned all bcct_rows and wrote thousands of candidate rows on every
+    page view (measured 2.2s+ on Growatt). Ingest flows also call
+    `refresh_candidates_after_ingest`, so the button is for catch-up
+    (script-loaded data, rule edits)."""
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+    n = refresh_candidates(client_id)
+    return RedirectResponse(
+        url=f"/clients/{client_id}/catalog/candidates?refreshed={n}",
+        status_code=303,
     )
 
 

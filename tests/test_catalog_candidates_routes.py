@@ -70,6 +70,12 @@ def _client(session_id):
     return c
 
 
+def _refresh(c):
+    """Explicit rebuild — the GET page no longer refreshes (#32)."""
+    return c.post(f"/clients/{CLIENT}/catalog/candidates/refresh",
+                  follow_redirects=False)
+
+
 def _seed_bcct(decl, customs, goods, direction="import"):
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
@@ -114,6 +120,7 @@ def test_candidates_page_404_for_unknown_client(setup):
 def test_candidates_page_renders_pending_after_refresh(setup):
     _seed_bcct("D1", "DAUNOI", "DAUNOI (019.X)")
     c = _client(setup["session_id"])
+    _refresh(c)
     r = c.get(f"/clients/{CLIENT}/catalog/candidates")
     assert r.status_code == 200
     body = r.text
@@ -124,11 +131,75 @@ def test_candidates_page_renders_pending_after_refresh(setup):
 def test_candidates_page_shows_kind_chips(setup):
     _seed_bcct("D1", "DAUNOI", "DAUNOI (019.X)")
     c = _client(setup["session_id"])
+    _refresh(c)
     r = c.get(f"/clients/{CLIENT}/catalog/candidates")
     body = r.text
     # Both NB and HQ candidates appear; UI labels them
     assert "HQ" in body or "hq" in body
     assert "NB" in body or "nb" in body
+
+
+# ── Refresh is explicit (#32) ─────────────────────────────────────────────
+
+
+def test_get_page_writes_nothing(setup):
+    """Oracle from #32: loading the page writes zero candidate rows."""
+    _seed_bcct("D1", "DAUNOI", "DAUNOI (019.X)")
+    c = _client(setup["session_id"])
+    r = c.get(f"/clients/{CLIENT}/catalog/candidates")
+    assert r.status_code == 200
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select count(*) from hub.catalog_candidates where client_id=%s",
+            (CLIENT,),
+        )
+        assert cur.fetchone()[0] == 0
+
+
+def test_refresh_button_populates_and_redirects(setup):
+    _seed_bcct("D1", "DAUNOI", "DAUNOI (019.X)")
+    c = _client(setup["session_id"])
+    r = _refresh(c)
+    assert r.status_code == 303
+    assert r.headers["location"].startswith(
+        f"/clients/{CLIENT}/catalog/candidates"
+    )
+    assert _candidate_id("DAUNOI", "hq") is not None
+    assert _candidate_id("019.X", "nb") is not None
+
+
+def test_refresh_route_requires_auth(setup):
+    no_auth = TestClient(app)
+    r = no_auth.post(f"/clients/{CLIENT}/catalog/candidates/refresh",
+                     follow_redirects=False)
+    assert r.status_code in (302, 303, 401, 403)
+
+
+def test_bcct_apply_refreshes_candidates(setup):
+    """Post-ingest hook: applying BCCT rows rebuilds the queue with no
+    page visit and no button press."""
+    from app.routes.bcct import _apply_bcct_rows
+    from app.routes.clients import get_client
+
+    client = get_client(CLIENT)
+    row = {
+        "transaction_key": "TX_HOOK", "line_no": "1",
+        "declaration_no": "DHOOK", "declaration_type": "E11",
+        "direction": "import", "registration_date": "2026-04-01",
+        "customs_code": "HOOKCODE", "goods_name": "HOOKCODE (019.H)",
+    }
+    _apply_bcct_rows(client_id=CLIENT, rows=[row], upload_id=None,
+                     client=client, orphans_to_delete=[], user_id=None)
+    # The HQ code was auto-derived into materials by derive_from_bcct, so
+    # the anti-join keeps it out of the queue; the paren-extracted NB code
+    # is what the refreshed queue must now show.
+    assert _candidate_id("019.H", "nb") is not None
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select count(*) from hub.materials "
+            "where client_id=%s and material_code='HOOKCODE'", (CLIENT,),
+        )
+        assert cur.fetchone()[0] == 1
 
 
 # ── Accept route ──────────────────────────────────────────────────────────
@@ -137,7 +208,7 @@ def test_candidates_page_shows_kind_chips(setup):
 def test_accept_endpoint_inserts_material(setup):
     _seed_bcct("D1", "DAUNOI", "DAUNOI (019.X)")
     c = _client(setup["session_id"])
-    c.get(f"/clients/{CLIENT}/catalog/candidates")  # populates candidates
+    _refresh(c)  # populates candidates
     cid = _candidate_id("DAUNOI", "hq")
     assert cid is not None
     r = c.post(
@@ -159,7 +230,7 @@ def test_accept_endpoint_inserts_material(setup):
 def test_accept_endpoint_rejects_unauthorized(setup):
     _seed_bcct("D1", "X", "X (019.X)")
     c = _client(setup["session_id"])
-    c.get(f"/clients/{CLIENT}/catalog/candidates")
+    _refresh(c)
     cid = _candidate_id("X", "hq")
     # Drop session — no auth cookie
     no_auth = TestClient(app)
@@ -187,7 +258,7 @@ def test_accept_endpoint_404_for_unknown_candidate(setup):
 def test_reject_endpoint_marks_rejected(setup):
     _seed_bcct("D1", "NOISE", "NOISE (019.X)")
     c = _client(setup["session_id"])
-    c.get(f"/clients/{CLIENT}/catalog/candidates")
+    _refresh(c)
     cid = _candidate_id("NOISE", "hq")
     r = c.post(
         f"/clients/{CLIENT}/catalog/candidates/{cid}/reject",
@@ -208,7 +279,7 @@ def test_reject_endpoint_marks_rejected(setup):
 def test_unreject_endpoint_resets_to_pending(setup):
     _seed_bcct("D1", "MAYBE", "MAYBE (019.X)")
     c = _client(setup["session_id"])
-    c.get(f"/clients/{CLIENT}/catalog/candidates")
+    _refresh(c)
     cid = _candidate_id("MAYBE", "hq")
     c.post(f"/clients/{CLIENT}/catalog/candidates/{cid}/reject",
            data={"reason": "oops"}, follow_redirects=False)
@@ -233,6 +304,7 @@ def test_filter_by_kind(setup):
     _seed_bcct("D1", "DAUNOI", "DAUNOI (019.X)")
     _seed_bcct("D2", "DOV", "DOV (019.Y)")
     c = _client(setup["session_id"])
+    _refresh(c)
     r = c.get(f"/clients/{CLIENT}/catalog/candidates?kind=hq")
     body = r.text
     assert "DAUNOI" in body
@@ -244,7 +316,7 @@ def test_filter_by_kind(setup):
 def test_rejected_section_shown(setup):
     _seed_bcct("D1", "NOISE", "NOISE (019.X)")
     c = _client(setup["session_id"])
-    c.get(f"/clients/{CLIENT}/catalog/candidates")
+    _refresh(c)
     cid = _candidate_id("NOISE", "hq")
     c.post(f"/clients/{CLIENT}/catalog/candidates/{cid}/reject",
            data={"reason": "junk"}, follow_redirects=False)

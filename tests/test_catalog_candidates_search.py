@@ -47,6 +47,9 @@ def setup():
                 """,
                 (CLIENT, f"TX_{i}", f"D{i}", code, sample),
             )
+    # GET no longer refreshes (#32) — build the queue explicitly.
+    from app.stores.catalog_candidates import refresh_candidates
+    refresh_candidates(CLIENT)
     sess = create_session(USER_ID)
     yield {"session": sess}
     with connect() as conn, conn.cursor() as cur:
