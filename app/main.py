@@ -119,6 +119,12 @@ async def lifespan(app: FastAPI):
             print(f"[seed] Demo data seeded: {seeded_demo}")
     # Parser rules (mig 036/037 are no-ops on fresh DB; seed via app code).
     seed_parser_rules_if_empty()
+    # bcct_nb_codes backfill (#33): fills clients whose paren extraction
+    # has never been persisted (fresh DBs + first deploy after mig 091).
+    from app.stores.bcct_nb_codes import backfill_if_empty
+    filled = backfill_if_empty()
+    if filled:
+        print(f"[backfill] bcct_nb_codes rebuilt for: {', '.join(filled)}")
     yield
     # On shutdown: drain and close the pool so the process exits cleanly
     # without leaving Postgres connections in TIME_WAIT.

@@ -790,9 +790,12 @@ def _apply_bcct_rows(*, client_id: str, rows: list[dict], upload_id: str | None,
         except Exception:
             pass  # notification is non-critical
 
-    # Post-ingest hook (#32): rebuild the review queue now that new BCCT
-    # rows landed — the candidates page no longer refreshes on GET.
+    # Post-ingest hooks. #33: re-extract the paren NB links now that BCCT
+    # rows changed (delete-and-rebuild, ~1s). #32: rebuild the review
+    # queue — the candidates page no longer refreshes on GET.
+    from app.stores.bcct_nb_codes import rebuild_after_change
     from app.stores.catalog_candidates import refresh_candidates_after_ingest
+    rebuild_after_change(client_id)
     refresh_candidates_after_ingest(client_id)
     return n
 

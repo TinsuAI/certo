@@ -319,6 +319,8 @@ async def parser_rules_create(request: Request, client_id: str,
                 status_code=303,
             )
     clear_rules_cache()
+    from app.stores.bcct_nb_codes import rebuild_after_change
+    rebuild_after_change(client_id)
     return RedirectResponse(
         url=f"/clients/{client_id}/parser-rules?flash=Rule+created",
         status_code=303,
@@ -389,6 +391,8 @@ async def parser_rules_edit_post(request: Request, client_id: str, rule_id: int,
              client_id, rule_id),
         )
     clear_rules_cache()
+    from app.stores.bcct_nb_codes import rebuild_after_change
+    rebuild_after_change(client_id)
     return RedirectResponse(
         url=f"/clients/{client_id}/parser-rules?flash=Rule+{rule_id}+updated",
         status_code=303,
@@ -408,6 +412,8 @@ async def parser_rules_disable(request: Request, client_id: str, rule_id: int):
             (client_id, rule_id),
         )
     clear_rules_cache()
+    from app.stores.bcct_nb_codes import rebuild_after_change
+    rebuild_after_change(client_id)
     return RedirectResponse(
         url=f"/clients/{client_id}/parser-rules?flash=Rule+disabled",
         status_code=303,

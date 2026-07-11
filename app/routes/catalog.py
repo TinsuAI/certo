@@ -643,9 +643,13 @@ def _query_materials(*, client_id: str, category: str | None,
                m.promoted_to_declared_at, m.promoted_by,
                m.material_group, mgmap.item_category,
                -- inline (mirrors hub.v_material_classification) to avoid a 2nd
-               -- v_material_roles aggregation on this hot list path. has_imports
-               -- precedes the rác check: a real import wins over MG (mig 079).
+               -- v_material_roles aggregation on this hot list path.
+               -- placeholder-only first (mig 091): those codes have real
+               -- has_imports via paren lines and must not read declarable.
+               -- Then has_imports precedes the rác check: a real import wins
+               -- over MG (mig 079).
                case
+                 when po.material_code is not null then 'excluded_non_material'
                  when m.material_group is null then null
                  when coalesce(vmr.has_imports, false) then 'declarable'
                  when mgmap.material_group is null then 'review'
@@ -672,6 +676,9 @@ def _query_materials(*, client_id: str, category: str | None,
         left join hub.client_material_group_map mgmap
                on mgmap.client_id = m.client_id
               and mgmap.material_group = m.material_group
+        left join hub.v_placeholder_only_codes po
+               on po.client_id = m.client_id
+              and po.material_code = m.material_code
         {where}
         order by {order_by}
         limit %s offset %s
@@ -1216,20 +1223,6 @@ async def catalog_detail(request: Request, client_id: str, material_code: str):
     warnings = compute_warnings(client_id, material_code)
     for ev in audit_events:
         ev["diff"] = audit_diff(ev["event_type"], ev["payload"])
-
-    # Supplement v_material_roles when it returns 0 observations but BCCT
-    # actually references this material via paren-extract (Growatt-shape).
-    # Generic fix via per-client parser_rules — see material_observations.py.
-    if material.get("observed_count", 0) == 0:
-        from app.stores.material_observations import compute_observations
-        obs = compute_observations(client_id, material_code)
-        if obs.observed_count > 0:
-            material["has_imports"] = obs.has_imports
-            material["has_exports"] = obs.has_exports
-            material["observed_count"] = obs.observed_count
-            material["observed_first_at"] = obs.observed_first_at
-            material["observed_last_at"] = obs.observed_last_at
-            material["observed_directions"] = obs.observed_directions
 
     # code_mappings panel: full NB↔HQ relationships for this material.
     with connect() as conn, conn.cursor() as cur:

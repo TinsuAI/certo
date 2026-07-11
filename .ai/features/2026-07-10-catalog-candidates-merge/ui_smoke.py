@@ -10,6 +10,7 @@ Run with the dev server up on :8754:
 from __future__ import annotations
 
 import asyncio
+import re
 import sys
 import time
 from pathlib import Path
@@ -67,6 +68,18 @@ async def main() -> None:
         assert await toast.count() >= 1, "refresh toast missing"
         print(f"  explicit refresh round-trip: {refresh_s:.2f}s")
         await shoot(page, "11_candidates_refreshed_toast")
+
+        # 3. Phase 3 (#33) — A.5 removal trigger: an NB material that only
+        #    appears inside goods_name parens shows real observation counts
+        #    on the detail page straight from v_material_roles (the Python
+        #    workaround is deleted).
+        await page.goto(f"{BASE}/clients/{CLIENT}/catalog/001.0001100/detail")
+        await page.wait_for_load_state("networkidle")
+        body = await page.content()
+        assert "001.0001100" in body
+        m = re.search(r"Số lần quan sát[^0-9]*(\d+)", body)
+        assert m and int(m.group(1)) > 0, "paren-only NB code shows 0 observations"
+        await shoot(page, "12_paren_only_material_has_observations")
 
         await ctx.close()
         await browser.close()
