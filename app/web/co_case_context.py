@@ -3662,7 +3662,8 @@ def _refresh_co_stock_delta_or_full(client: dict) -> dict:
     # the lot's `source_row` is a comma-joined set, so per-import-row tombstones
     # never match (phantom stock) and a changed row inserts a duplicate aggregate
     # (double-count). Force full for that policy until delta is aggregate-aware.
-    lot_policy = portfolio_service.get_client_config(client).get("co_stock", {}).get("lot_policy", "line_level")
+    client_config = portfolio_service.get_client_config(client)
+    lot_policy = client_config.get("co_stock", {}).get("lot_policy", "line_level")
     delta_safe = lot_policy != "aggregate_by_declaration_and_allocation_code"
     # A delta only rewrites rows whose SOURCE data changed on Data Hub, so it
     # can never backfill payload fields a CO release added to the derivation
@@ -3673,9 +3674,19 @@ def _refresh_co_stock_delta_or_full(client: dict) -> dict:
         if state
         else False
     )
+    # A CO-owned config change (allocation strategy/regex/fallback, lot_policy)
+    # re-derives codes but touches no source row, so a delta re-derives nothing
+    # and the snapshot keeps stale codes. Force full when the config fingerprint
+    # moved since the snapshot was stamped (#14).
+    config_current = (
+        state.get("co_config_fingerprint") == co_stock_materializer.co_config_fingerprint(client_config)
+        if state
+        else False
+    )
     if (
         delta_safe
         and schema_current
+        and config_current
         and last_server_time
         and snapshot_count > 0
         and data_hub is not None
@@ -3728,6 +3739,7 @@ def _try_delta_refresh(client: dict, data_hub, last_server_time: str) -> dict | 
         snapshot_row_count=co_stock_materializer.row_count(client["id"]),
         bcct_row_count_at_refresh=source_summary.get("bcct", {}).get("published_row_count", 0),
         last_bcct_server_time=server_time,
+        config_fingerprint=co_stock_materializer.co_config_fingerprint(client_config),
     )
     summary["server_time"] = server_time
     summary["tombstones_received"] = len(tombstones)
@@ -3741,6 +3753,7 @@ def _full_refresh(client: dict) -> dict:
     # UPSERT is idempotent. Best-effort — blank when the deployment lacks
     # server_time support, leaving _refresh_co_stock_delta_or_full on full.
     server_time = _probe_server_time(client)
+    client_config = portfolio_service.get_client_config(client)
     workspace, _backend = portfolio_service.source_workspace(client)
     summary = co_stock_materializer.refresh_co_stock_for_client(
         client, lambda: workspace.get("co_stock_rows") or [],
@@ -3756,6 +3769,7 @@ def _full_refresh(client: dict) -> dict:
         snapshot_row_count=summary.get("rows_persisted", 0),
         bcct_row_count_at_refresh=source_summary.get("bcct", {}).get("published_row_count", 0),
         last_bcct_server_time=server_time,
+        config_fingerprint=co_stock_materializer.co_config_fingerprint(client_config),
     )
     if server_time:
         summary["server_time"] = server_time

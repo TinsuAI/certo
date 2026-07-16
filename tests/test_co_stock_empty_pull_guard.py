@@ -84,6 +84,10 @@ def test_full_refresh_skips_state_advance_when_pull_aborted(monkeypatch):
         lambda *a, **k: recorded.append((a, k)),
     )
     monkeypatch.setattr(ctx, "_probe_server_time", lambda c: "PROBED")
+    monkeypatch.setattr(
+        ctx.portfolio_service, "get_client_config",
+        lambda c: {"co_stock": {"lot_policy": "line_level"}}, raising=False,
+    )
 
     summary = ctx._full_refresh({"id": "johnson-vn"})
 
@@ -118,6 +122,10 @@ def test_full_refresh_probes_server_time_before_pulling(monkeypatch):
         ctx.co_stock_materializer, "record_refresh_state",
         lambda cid, **k: recorded.update(k),
     )
+    monkeypatch.setattr(
+        ctx.portfolio_service, "get_client_config",
+        lambda c: {"co_stock": {"lot_policy": "line_level"}}, raising=False,
+    )
 
     ctx._full_refresh({"id": "johnson-vn"})
 
@@ -133,22 +141,25 @@ class _DeltaCapableHub:
 
 
 def _patch_delta_preconditions(monkeypatch, lot_policy: str):
-    """Snapshot non-empty + stored server_time + delta-capable hub — all the
-    conditions that would normally take the delta path."""
+    """Snapshot non-empty + stored server_time + delta-capable hub + matching
+    config fingerprint — all the conditions that would normally take the delta
+    path."""
     from app import co_stock_materializer
 
+    config = {"co_stock": {"lot_policy": lot_policy}}
     monkeypatch.setattr(
         "app.co_stock_materializer.read_refresh_state",
         lambda cid: {
             "last_bcct_server_time": "2026-01-01T00:00:00+00:00",
             "derivation_schema_version": co_stock_materializer.DERIVATION_SCHEMA_VERSION,
+            "co_config_fingerprint": co_stock_materializer.co_config_fingerprint(config),
         },
     )
     monkeypatch.setattr("app.co_stock_materializer.row_count", lambda cid: 5)
     monkeypatch.setattr(ctx.portfolio_service, "data_hub", _DeltaCapableHub(), raising=False)
     monkeypatch.setattr(
         ctx.portfolio_service, "get_client_config",
-        lambda c: {"co_stock": {"lot_policy": lot_policy}}, raising=False,
+        lambda c: config, raising=False,
     )
 
 

@@ -21,6 +21,8 @@ ledger`. (The legacy fold / `co_stock_adjustments` layer was removed 2026-06-15.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import time
 from datetime import datetime
@@ -41,6 +43,29 @@ LOGGER = logging.getLogger(__name__)
 # FULL re-derivation when the stored stamp differs.
 # 2 = VN-origin: consignee_name/origin_country plumbed into the payload (#6).
 DERIVATION_SCHEMA_VERSION = 2
+
+
+def co_config_fingerprint(config: dict) -> str:
+    """Stable hash of the CO-owned config sections that drive co_stock derivation
+    (#14). A CO-config change (e.g. allocation strategy same_as_customs_code ->
+    description_regex, or lot_policy line_level -> manual_review) touches no DH
+    source row, so the delta refresh re-derives nothing and the snapshot keeps
+    stale codes. The dispatch forces one FULL re-derivation when this fingerprint
+    differs from the stored one.
+
+    Hashes both `allocation_code` AND `co_stock`: a line_level -> manual_review
+    lot_policy change alters derivation (forces requires_review) while leaving
+    `allocation_code` untouched, so an allocation-only fingerprint would miss it.
+    NOT keyed on `config_hash` — that embeds `updated_at`, regenerated on every
+    DH-mode `get_client_config` call, so it is unstable across refreshes.
+    """
+    config = config or {}
+    sections = {
+        "allocation_code": config.get("allocation_code") or {},
+        "co_stock": config.get("co_stock") or {},
+    }
+    payload = json.dumps(sections, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 def _store_available() -> bool:
@@ -810,6 +835,7 @@ def record_refresh_state(
     bcct_row_count_at_refresh: int,
     bcct_indexed_at_at_refresh=None,
     last_bcct_server_time: str = "",
+    config_fingerprint: str = "",
 ) -> None:
     if not _store_available() or not client_id:
         return
@@ -819,8 +845,8 @@ def record_refresh_state(
                 """insert into co_stock_refresh_state (
                     client_id, snapshot_row_count, bcct_row_count_at_refresh,
                     bcct_indexed_at_at_refresh, last_bcct_server_time,
-                    derivation_schema_version, refreshed_at
-                   ) values (%s, %s, %s, %s, %s, %s, now())
+                    derivation_schema_version, co_config_fingerprint, refreshed_at
+                   ) values (%s, %s, %s, %s, %s, %s, %s, now())
                    on conflict (client_id) do update set
                      snapshot_row_count = excluded.snapshot_row_count,
                      bcct_row_count_at_refresh = excluded.bcct_row_count_at_refresh,
@@ -829,6 +855,7 @@ def record_refresh_state(
                        when excluded.last_bcct_server_time = '' then co_stock_refresh_state.last_bcct_server_time
                        else excluded.last_bcct_server_time end,
                      derivation_schema_version = excluded.derivation_schema_version,
+                     co_config_fingerprint = excluded.co_config_fingerprint,
                      refreshed_at = now()""",
                 (
                     client_id,
@@ -837,6 +864,7 @@ def record_refresh_state(
                     bcct_indexed_at_at_refresh,
                     last_bcct_server_time or "",
                     DERIVATION_SCHEMA_VERSION,
+                    config_fingerprint or "",
                 ),
             )
     except Exception as exc:  # noqa: BLE001
@@ -851,7 +879,7 @@ def read_refresh_state(client_id: str) -> dict | None:
             cur.execute(
                 """select snapshot_row_count, bcct_row_count_at_refresh,
                           bcct_indexed_at_at_refresh, refreshed_at, last_bcct_server_time,
-                          derivation_schema_version
+                          derivation_schema_version, co_config_fingerprint
                    from co_stock_refresh_state where client_id = %s""",
                 (client_id,),
             )
@@ -865,6 +893,7 @@ def read_refresh_state(client_id: str) -> dict | None:
                 "refreshed_at": row[3].isoformat() if row[3] else "",
                 "last_bcct_server_time": row[4] or "",
                 "derivation_schema_version": int(row[5] or 0),
+                "co_config_fingerprint": row[6] or "",
             }
     except Exception:  # noqa: BLE001
         return None

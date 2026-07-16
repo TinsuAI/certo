@@ -22,6 +22,16 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 
 router = APIRouter()
 
+# DH-owned declaration-type (`bcct`) form fields. Present only if a client tries
+# to change master data CO does not own — the config form renders them read-only,
+# so a real submit never carries them; a programmatic POST that does trips the
+# source-write gate (#14).
+_DECLARATION_TYPE_FORM_FIELDS = frozenset({
+    "declaration_type_preset",
+    "eligible_import_declaration_types",
+    "relevant_export_declaration_types",
+})
+
 @router.get("/healthz")
 async def healthz() -> dict[str, str]:
     return {"status": "ok"}
@@ -250,6 +260,12 @@ async def save_client_config_route(request: Request, client_id: str):
     client = resolve_client(client_id)
     form = await request.form()
     flip_note = ""
+    # Declaration types (`bcct`) are DH-owned master data, rendered read-only on
+    # this form. Reject a declaration-type change UP FRONT — before any overlay or
+    # CO-owned config write — so a POST that carries one persists nothing then
+    # 409s, instead of partial-saving and erroring (#14 S2).
+    if any(field in form for field in _DECLARATION_TYPE_FORM_FIELDS):
+        require_local_source_writes()
     # Identity fields (legal_name / tax_code) are CO-side render metadata, not
     # source data — editable even when Data Hub source-mode is enabled. The
     # `co_stock_min_days_before_export` knob is also CO-side: it controls a
@@ -310,7 +326,10 @@ async def save_client_config_route(request: Request, client_id: str):
         store = get_app_state_store()
         if store:
             store.upsert_client(client)
-    require_local_source_writes()
+    # `allocation_code` + `co_stock` are CO-owned config sections (#14): editable
+    # even in DH source-mode (they parameterize CO's own derivation; no DH
+    # consumer reads them). The declaration-type gate above already rejected any
+    # bcct change, so this save is always CO-owned and allowed.
     config = portfolio_service.get_client_config(client)
     config["co_stock"]["lot_policy"] = str(form.get("co_stock_lot_policy", "line_level"))
     config["allocation_code"]["strategy"] = str(form.get("allocation_code_strategy", "same_as_customs_code"))

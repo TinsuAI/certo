@@ -416,6 +416,7 @@ def import_standard_snapshot(client: dict, content: bytes, *, config: dict | Non
             snapshot_row_count=materialize.get("rows_persisted", 0),
             bcct_row_count_at_refresh=0,
             last_bcct_server_time="",
+            config_fingerprint=co_stock_materializer.co_config_fingerprint(config),
         )
         _CO_CASE_SOURCE_CACHE.clear()
     return {

@@ -22,10 +22,20 @@ class _FakeDataHub:
         return {"server_time": "2026-07-12T00:00:00+00:00", "items": [], "tombstones": []}
 
 
+_CONFIG = {
+    "allocation_code": {"strategy": "same_as_customs_code", "description_regex": "", "fallback": "same_as_customs_code"},
+    "co_stock": {"lot_policy": "line_level"},
+}
+
+
 def _patch_common(monkeypatch, state: dict):
     monkeypatch.setattr("app.co_stock_materializer.read_refresh_state", lambda cid: state)
     monkeypatch.setattr("app.co_stock_materializer.row_count", lambda cid: 38287)
     monkeypatch.setattr(ctx.portfolio_service, "data_hub", _FakeDataHub(), raising=False)
+    monkeypatch.setattr(ctx.portfolio_service, "get_client_config", lambda c: _CONFIG, raising=False)
+    # Keep the CO-config fingerprint matching so these tests isolate the
+    # derivation-schema dimension (#14 adds a separate config-fingerprint guard).
+    state.setdefault("co_config_fingerprint", co_stock_materializer.co_config_fingerprint(_CONFIG))
 
 
 def _run(monkeypatch):

@@ -15,6 +15,12 @@ class _FakeDataHub:
         return {"server_time": "2026-06-07T00:00:00+00:00", "items": [], "tombstones": []}
 
 
+_CONFIG = {
+    "allocation_code": {"strategy": "same_as_customs_code", "description_regex": "", "fallback": "same_as_customs_code"},
+    "co_stock": {"lot_policy": "line_level"},
+}
+
+
 def _patch_common(monkeypatch, row_count: int):
     from app import co_stock_materializer
 
@@ -23,10 +29,12 @@ def _patch_common(monkeypatch, row_count: int):
         lambda cid: {
             "last_bcct_server_time": "2026-01-01T00:00:00+00:00",
             "derivation_schema_version": co_stock_materializer.DERIVATION_SCHEMA_VERSION,
+            "co_config_fingerprint": co_stock_materializer.co_config_fingerprint(_CONFIG),
         },
     )
     monkeypatch.setattr("app.co_stock_materializer.row_count", lambda cid: row_count)
     monkeypatch.setattr(ctx.portfolio_service, "data_hub", _FakeDataHub(), raising=False)
+    monkeypatch.setattr(ctx.portfolio_service, "get_client_config", lambda c: _CONFIG, raising=False)
 
 
 def test_empty_snapshot_forces_full_refresh_even_with_stored_server_time(monkeypatch):

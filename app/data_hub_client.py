@@ -6,7 +6,7 @@ from urllib.parse import quote
 
 import httpx
 
-from app.client_config_store import default_config, migrate_config
+from app.client_config_store import migrate_config
 from app.co_case_store import match_case_bcct_exports
 from app.data_hub_settings import data_hub_link_settings
 from app.material_search import rank_matches
@@ -633,6 +633,17 @@ class DataHubClient:
         self._client.close()
 
 
+def _local_config_store():
+    """The store that holds CO-owned client config (allocation_code + co_stock):
+    the Postgres app-state store when a BARRY_DATABASE_URL is configured, else the
+    local file store (tests/offline). Both expose get_client_config(client) /
+    save_client_config(client, config)."""
+    from app import client_config_store
+    from app.app_state_store import get_app_state_store
+
+    return get_app_state_store() or client_config_store
+
+
 class DataHubPortfolioService:
     def __init__(self, client: DataHubClient):
         self.data_hub = client
@@ -666,11 +677,48 @@ class DataHubPortfolioService:
         }
 
     def get_client_config(self, client: dict) -> dict:
-        config = self.data_hub.get_client_config(client["id"])
-        return migrate_config({**default_config(client), **config}, client)
+        # Client config is partitioned by owner (#14). CO owns `allocation_code`
+        # and the `co_stock.lot_policy` knob (they parameterize CO's own
+        # derivation; no DH consumer reads them) and persists them in the local
+        # `client_configs` store; DH owns the `bcct` declaration-type preset.
+        # Read the local saved config as base, overlay DH's `bcct` on top, and
+        # keep local's `co_stock` (lot_policy) winning while preserving any other
+        # co_stock field DH still supplies (e.g. `min_days_before_export`, which
+        # `effective_min_gap_days` falls back to).
+        local = _local_config_store().get_client_config(client)
+        dh = normalize_data_hub_client_config(self.data_hub.get_client_config(client["id"]) or {}, client)
+        merged = {
+            **local,
+            "bcct": {**(local.get("bcct") or {}), **(dh.get("bcct") or {})},
+            "co_stock": {**(dh.get("co_stock") or {}), **(local.get("co_stock") or {})},
+        }
+        return migrate_config(merged, client)
 
     def save_client_config(self, client: dict, config: dict) -> dict:
-        raise RuntimeError("Client config is read-only from CO while DATA_HUB_ENABLED is active.")
+        # CO-owned sections persist locally; a `bcct` change is rejected — it is
+        # DH-owned master data, edited in Data Hub, not here (#14).
+        incoming = migrate_config(config, client)
+        effective = self.get_client_config(client)
+        if incoming.get("bcct") != effective.get("bcct"):
+            raise ValueError(
+                "Loại tờ khai (bcct) do Data Hub quản lý, chỉ đọc trong CO. "
+                "Chỉ sửa được chiến lược mã cấp phát và chính sách tồn kho."
+            )
+        store = _local_config_store()
+        local_base = store.get_client_config(client)
+        # Persist only the CO-owned knobs into local: allocation_code and the
+        # co_stock lot_policy. Do NOT write back DH-supplied co_stock fields (e.g.
+        # min_days_before_export merged in by get_client_config) — local would
+        # otherwise pin a stale copy that then wins over a later DH change.
+        to_save = {
+            **local_base,
+            "allocation_code": incoming["allocation_code"],
+            "co_stock": {
+                **(local_base.get("co_stock") or {}),
+                "lot_policy": incoming["co_stock"].get("lot_policy", "line_level"),
+            },
+        }
+        return store.save_client_config(client, to_save)
 
     def refresh_client_indexes(self, client: dict) -> None:
         return None
