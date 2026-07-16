@@ -217,7 +217,7 @@ def test_growatt_vn_onboarding_resolves_embedded_codes(_isolated_config_root):
     }
     resolved = resolve_allocation_code(lot, effective)
     assert resolved["allocation_code"] == "920.0042600"
-    assert resolved["source"] == "description_regex"
+    assert resolved["source"] == "strategy_regex"
 
     # Contrast: the pre-onboarding default keys on the short customs code (4.5%).
     default_resolved = resolve_allocation_code(

@@ -154,9 +154,11 @@ def resolve_stock_eligibility(row: dict, client_config: dict) -> dict:
         return {"status": "active", "reason": "included_by_declaration_type_config"}
     return {"status": "inactive", "reason": "excluded_by_declaration_type_config"}
 def review_allocation(allocation: dict, reason: str) -> dict:
+    # Keep the wrapped `source` (how the code WOULD derive) — only the status
+    # flips to the canonical unresolved because lot_policy holds it for review.
     return {
         **allocation,
-        "status": "requires_review",
+        "status": "unresolved",
         "confidence": "low",
         "reason": reason,
     }

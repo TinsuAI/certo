@@ -1381,11 +1381,11 @@ def test_allocation_code_resolver_handles_regex_fallback_and_ambiguity():
 
     assert resolved["allocation_code"] == "001.0001400"
     assert resolved["status"] == "resolved"
-    assert resolved["source"] == "description_regex"
+    assert resolved["source"] == "strategy_regex"
     assert fallback["allocation_code"] == "DIENTRO"
-    assert fallback["source"] == "same_as_customs_code"
+    assert fallback["source"] == "fallback_customs"
     assert ambiguous["allocation_code"] == ""
-    assert ambiguous["status"] == "requires_review"
+    assert ambiguous["status"] == "unresolved"
     assert ambiguous["reason"] == "multiple_regex_matches"
 
 
@@ -1407,7 +1407,7 @@ def test_allocation_code_resolver_prefers_data_hub_material_identity_internal_co
     )
 
     assert resolved["allocation_code"] == "012.0002700"
-    assert resolved["source"] == "material_identity.internal_code"
+    assert resolved["source"] == "material_identity"
     assert resolved["status"] == "resolved"
 
 
@@ -1443,7 +1443,7 @@ def test_bcct_import_rows_create_immutable_co_stock_source_rows():
     assert stock_row["customs_item_code"] == "MAT-001"
     assert stock_row["allocation_code"] == "MAT-001"
     assert stock_row["material_code"] == "MAT-001"
-    assert stock_row["allocation_code_source"] == "same_as_customs_code"
+    assert stock_row["allocation_code_source"] == "strategy_customs"
     assert stock_row["allocation_code_status"] == "resolved"
     assert stock_row["available_qty"] == "100"
     assert stock_row["used_qty"] == "0"
@@ -1633,7 +1633,7 @@ def test_unresolved_allocation_code_is_review_only_stock():
     process_bcct_upload(client, upload, "bcct.xlsx")
 
     stock_row = get_source_workspace(client)["co_stock_rows"][0]
-    assert stock_row["allocation_code_status"] == "requires_review"
+    assert stock_row["allocation_code_status"] == "unresolved"
     assert stock_row["allocation_code"] == ""
     assert stock_row["material_code"] == ""
     response = TestClient(app).get("/clients/do-thanh/co-stock")
@@ -1654,7 +1654,7 @@ def test_manual_review_lot_policy_keeps_stock_rows_unusable_until_review():
     process_bcct_upload(client, upload, "bcct.xlsx")
 
     stock_row = get_source_workspace(client)["co_stock_rows"][0]
-    assert stock_row["allocation_code_status"] == "requires_review"
+    assert stock_row["allocation_code_status"] == "unresolved"
     assert stock_row["allocation_code_reason"] == "manual_stock_review"
     assert stock_row["material_code"] == ""
 

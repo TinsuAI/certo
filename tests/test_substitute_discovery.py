@@ -81,7 +81,7 @@ def test_unresolved_allocation_falls_back_to_customs_item_code():
 
     lot = _lot(
         allocation_code="",
-        allocation_code_status="requires_review",
+        allocation_code_status="unresolved",
         customs_item_code="DECL-777",
         material_description="chưa chuẩn hoá",
         remaining_qty="42",

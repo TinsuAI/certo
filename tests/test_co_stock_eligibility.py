@@ -32,7 +32,7 @@ def test_ineligible_status_is_rejected_before_gap_check():
 
 
 def test_unresolved_allocation_code_rejected():
-    row = {"eligibility_status": "active", "allocation_code_status": "needs_review"}
+    row = {"eligibility_status": "active", "allocation_code_status": "unresolved"}
     v = is_stock_lot_eligible(row, export_date=date(2026, 5, 1))
     assert not v.ok
     assert v.reason == REASON_UNRESOLVED_ALLOCATION

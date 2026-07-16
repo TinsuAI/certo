@@ -73,11 +73,13 @@ ledger is safe (its `claim_id` hashes `source_row` + the stable BOM `material_co
 `allocation_line_matches_stock` (`co_case_context.py:1097`), which
 compares a **persisted** saved-line `allocation_code` against a re-derived one — a
 strategy change (e.g. onboarding growatt-vn per #14) can stop a saved line re-binding
-to its lot. Status values as stored are `resolved` / `requires_review`; the glossary
-and `co_stock_eligibility` also say "unresolved" for the same negative state — one
-boolean, three spellings, align during the unify pass. `_source` currently emits the
-strategy name (`same_as_customs_code` for both primary and fallback, indistinguishable)
-and `_confidence` mixes a quality scale (`high`/`low`) with provenance (`exact`/`fallback`).
+to its lot. `_status` is boolean: `resolved` / `unresolved` (one spelling for the
+negative state, matching `co_stock_eligibility`'s `unresolved_allocation_code`; distinct
+from the config knob `allocation_code.fallback: requires_review`, concept 7). `_source`
+is provenance — one of `material_identity`, `strategy_customs`, `strategy_regex`,
+`fallback_customs`, `manual` (`""` when unresolved by a regex miss) — so a fallback
+resolution is distinguishable from a primary one. `_confidence` is a pure quality ordinal
+(`high` / `low`); provenance tags never leak into it (#21).
 
 **stock key candidates** — The set `{material_code, allocation_code,
 customs_item_code}` under which the allocation pool aliases each lot

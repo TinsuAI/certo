@@ -42,7 +42,9 @@ LOGGER = logging.getLogger(__name__)
 # consignee_name and "Refresh tồn" was a delta no-op). The dispatch forces one
 # FULL re-derivation when the stored stamp differs.
 # 2 = VN-origin: consignee_name/origin_country plumbed into the payload (#6).
-DERIVATION_SCHEMA_VERSION = 2
+# 3 = allocation_code provenance value-set canonicalized (#21): _source splits
+#     primary vs fallback, _confidence is ordinal, _status uses `unresolved`.
+DERIVATION_SCHEMA_VERSION = 3
 
 
 def co_config_fingerprint(config: dict) -> str:
@@ -54,8 +56,9 @@ def co_config_fingerprint(config: dict) -> str:
     differs from the stored one.
 
     Hashes both `allocation_code` AND `co_stock`: a line_level -> manual_review
-    lot_policy change alters derivation (forces requires_review) while leaving
-    `allocation_code` untouched, so an allocation-only fingerprint would miss it.
+    lot_policy change alters derivation (forces the allocation status to
+    `unresolved`) while leaving `allocation_code` untouched, so an
+    allocation-only fingerprint would miss it.
     NOT keyed on `config_hash` — that embeds `updated_at`, regenerated on every
     DH-mode `get_client_config` call, so it is unstable across refreshes.
     """
