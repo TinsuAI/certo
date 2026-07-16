@@ -88,3 +88,8 @@ push, deploy, and the growatt-vn onboarding seed on nightly then prod. **5 commi
 - **Rollback for growatt-vn** (if the onboarding ever looks wrong): set `allocation_code.strategy`
   back to `same_as_customs_code` (config UI, now editable in DH mode) + Refresh tồn — fingerprint
   mismatch forces a full re-derivation to the old codes; no case/claim state to unwind.
+- **Handoff convention pinned (decision) but not enforced (pending):** session-end = `/v_handoff` only
+  (STATUS + `.ai/sessions/`); Pocock's global `/handoff` is a fork-bridge (live-conversation compaction),
+  not a session-end tool, and is rarely needed here (harness auto-summarizes). Ad-hoc handoff this session
+  (hand-wrote the summary) is the anti-pattern to stop. **PENDING user approval:** edit `CLAUDE.md`
+  "Session end: /handoff" → `/v_handoff` + save a `feedback` memory so it's deterministic, not from memory.

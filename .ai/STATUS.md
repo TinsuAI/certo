@@ -348,6 +348,13 @@
    Backlog mở: **M1** (cả 2 sub-bug còn) · **D1** (còn C/E/F + parity harness) · **P1** (~40s) · **T1** (DB isolation) · **DC2** · **CS3** park ×2 · **LK1** review rộng.
 
 ## Notes for Next AI Session
+- **HANDOFF CONVENTION (decided 2026-07-17 — do the right thing, not ad-hoc):** session-end handoff =
+  **`/v_handoff`** ONLY (writes `.ai/sessions/YYYY-MM-DD-*.md` + overwrites `STATUS.md`). Do NOT hand-roll
+  the summary, and do NOT use Pocock's global **`/handoff`** for session-end — that one compacts the live
+  conversation into a fork-bridge file (for `grill → prototype → back`), a different artifact/format.
+  `/handoff` is ONLY for a deliberate mid-work fork (rare here: the harness already auto-summarizes long
+  context). **Known hazard:** `CLAUDE.md`'s "Session end: /handoff" line still points at the wrong one;
+  pinning the split into `CLAUDE.md` + a `feedback` memory is **PENDING user approval** (offered, not yet done).
 - **BACKLOG is freshly reconciled vs code (2026-06-19, `56f750d`)** — markers are accurate as of `c483673`.
   Newly-closed since last backlog edit: **B7** (`cb3504b`), **CS1** (`ca11c37`); **D1** mostly done
   (`2c856da`, only C/E/F + parity left); **B6** re-scoped (toggle works, verify FX only); **DC3b** export
