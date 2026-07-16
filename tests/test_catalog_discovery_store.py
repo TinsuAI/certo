@@ -99,10 +99,19 @@ def _audit_actions():
 
 def test_accept_inserts_material_with_stream_source():
     accept_code(CLIENT, code="019.X", code_kind="nb", actor="t@x",
-                name="linh kiện", category="nvl", status="active",
+                name="linh kiện", category="nvl",
                 sources=["bom"])
     assert _material("019.X") == ("bom_observed", "nb", "active")
     assert ("accept", "019.X") in _audit_actions()
+
+
+def test_accept_defaults_to_active():
+    """#49: accepting a candidate lands it active. The old default was
+    under_review, which inverted the trust ordering — BCCT ingest
+    auto-inserts active with no review at all."""
+    accept_code(CLIENT, code="019.ACT", code_kind="nb", actor="t@x",
+                name="x", category="nvl", sources=["bcct"])
+    assert _material("019.ACT")[2] == "active"
 
 
 def test_accept_source_priority_bcct_over_bom():
@@ -124,7 +133,7 @@ def test_accept_existing_material_raises():
         accept_code(CLIENT, code="DUP", code_kind="unified", actor="t@x",
                     name="y", category="tp", sources=["bcct"])
     # The first accept's data is untouched (no clobber — old bug C.9).
-    assert _material("DUP") == ("bcct_observed", "unified", "under_review")
+    assert _material("DUP") == ("bcct_observed", "unified", "active")
 
 
 def test_accept_hq_automaps_to_existing_nb_materials():

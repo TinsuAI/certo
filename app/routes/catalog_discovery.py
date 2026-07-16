@@ -38,7 +38,6 @@ router = APIRouter()
 VALID_KIND_FILTER = {"nb", "hq", "unified"}
 VALID_SOURCE_FILTER = {"bcct", "bom", "bqd"}
 VALID_CATEGORIES = {"nvl", "tp", "btp_sx", "btp_nm", "ccdc"}
-VALID_STATUSES = {"under_review", "active"}
 VALID_PRODUCTION_SOURCES = {"nk", "sx", "mixed", "unknown"}
 
 
@@ -294,12 +293,9 @@ async def candidate_detail(
 # ── Decisions ─────────────────────────────────────────────────────────────
 
 
-def _validate_form(category: str, status: str,
-                   production_source: str | None) -> None:
+def _validate_form(category: str, production_source: str | None) -> None:
     if category not in VALID_CATEGORIES:
         raise HTTPException(400, f"invalid category: {category!r}")
-    if status not in VALID_STATUSES:
-        raise HTTPException(400, f"invalid status: {status!r}")
     if production_source and production_source not in VALID_PRODUCTION_SOURCES:
         raise HTTPException(400,
                             f"invalid production_source: {production_source!r}")
@@ -312,7 +308,6 @@ async def accept(
     code_kind: str = Form(...),
     name: str = Form(...),
     category: str = Form(...),
-    status: str = Form("under_review"),
     uom: str = Form(""),
     production_source: str = Form(""),
     supplier_hint: str = Form(""),
@@ -321,11 +316,11 @@ async def accept(
     row = get_row(client_id, code, code_kind)
     if row is None or row["status"] != "pending":
         raise HTTPException(404, "candidate not found")
-    _validate_form(category, status, production_source or None)
+    _validate_form(category, production_source or None)
     try:
         accept_code(
             client_id, code=code, code_kind=code_kind, actor=user.email,
-            name=name.strip(), category=category, status=status,
+            name=name.strip(), category=category,
             uom=uom.strip() or None,
             production_source=production_source or None,
             supplier_hint=supplier_hint.strip() or None,
