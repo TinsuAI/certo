@@ -1,8 +1,10 @@
 # Project Status
 
 ## Current State
-- **2026-07-17 — #18 + #14 S1–S4 IMPLEMENTED, TESTED, 2-AXIS REVIEWED, COMMITTED (local `main`, NOT pushed).**
-  `/implement` per the #14 spec, `/tdd` per slice. Two focused commits on local `main`.
+- **2026-07-17 — #18 + #14 S1–S4 SHIPPED + DEPLOYED + growatt-vn SEEDED (prod + nightly).**
+  `origin/main` = prod `barry-co` = nightly `demo-co` = **`d74e8fb`** (CI green, `/version` verified both).
+  `/implement` per the #14 spec, `/tdd` per slice. 4 commits: `2479111` (#18), `0f0812f` (#14 S1–S4),
+  `f240964` (docs), `d74e8fb` (source_summary display fix, below).
   **#18 (`2479111`)** — dropped `allocation_code` from `allocation_line_matches_stock`
   (`co_case_context.py:1092`); saved allocation lines now rebind to their lot by
   `source_row`/`decl_no`/`line_no` (all strategy-invariant) after a strategy flip. `tests/test_allocation_line_rebind.py` (6).
@@ -21,14 +23,32 @@
   the effective strategy and a `(920.0042600)` lot resolution. New tests: `test_co_owned_client_config.py`,
   `test_config_route_co_owned.py`, `test_co_stock_refresh_config_fingerprint.py` (+ 3 existing refresh-dispatch
   tests updated for the new guard).
-  **Verify:** full suite **909 pass / 14 skip**; migration 021 applies to the local `barry_co` DB; a real
-  Postgres `client_configs` round-trip flips the default `same_as_customs_code` → `description_regex` with
-  DH `bcct` still overlaid. **`/code-review` (Standards + Spec parallel agents):** no hard standards
-  violations; applied 3 standards fixes (collapse middle-man `_dh_client_config` + duplicated store-dispatch
-  into `_local_config_store()`; rename the `record_refresh_state` param that shadowed the
-  `co_config_fingerprint` fn); the one valid Spec finding (S2 partial-save shape) was fixed up-front.
-  **DEPLOY PENDING (needs prod/nightly + DH up):** run `seed_growatt_vn_allocation.py` on growatt-vn.
-  **NOT pushed.** #14 spec doc + ADR/GLOSSARY committed alongside in the docs commit.
+  **Verify:** full suite **910 pass / 14 skip**; migration 021 applies; a real Postgres `client_configs`
+  round-trip flips `same_as_customs_code` → `description_regex` with DH `bcct` still overlaid.
+  **`/code-review` (Standards + Spec parallel agents):** no hard violations; 3 standards fixes (middle-man +
+  dup store-dispatch → `_local_config_store()`; renamed the `record_refresh_state` param that shadowed
+  `co_config_fingerprint`); the S2 partial-save Spec finding fixed up-front.
+  **Browser e2e (real CO+DH stack) caught a display bug → fix `d74e8fb`:** the config page AND the
+  case-context derivation read `source_summary["client_config"]`, built via `normalize_data_hub_client_config`
+  (DH `bcct` + the code default), so a saved CO-owned strategy persisted but never SHOWED / never reached that
+  derivation path. Fix = `_partition_merge_config` shared by `get_client_config` AND `source_summary`
+  (`data_hub_client.py`). e2e now PASS (set `description_regex` → page + hard-reload reflect it, DH `bcct`
+  intact, restore returns baseline). +1 regression test.
+  **PUSHED + DEPLOYED (`d74e8fb`):** CI/CD green; prod `barry-co` + nightly `demo-co` both `/version`
+  `git_sha=d74e8fb`. Migration 021 ran on deploy (additive col; each client's next Refresh tồn goes one full
+  re-derivation — same config → same codes, just heavier once).
+  **growatt-vn SEEDED — nightly THEN prod** (advisor-vetted vs LIVE prod: growatt-vn **0 cases / 0 claims /
+  no aggregate-policy config** → #18 rebind had nothing to orphan; johnson-vn untouched; write is one atomic
+  `refresh_co_stock_for_client` txn). In-container `docker exec -i {co-app-1|nightly-co-app-1}
+  /app/.venv/bin/python`: strategy → `description_regex`, forced full re-derivation `mode=full
+  rows_persisted=38287`, fingerprint `44176834c0abb7b1` (**identical both envs**),
+  **34,388/38,287 (90%) rows now carry dotted internal `allocation_code`** (DIOT→008.0035900,
+  PCBA→B700.0141600, BBD→010.0005000) vs 4,469 short-code fallback. 4.5% → ~96% BOM-code match unblocked.
+  **STILL PENDING (user manual step, independent of the seed):** flag 2 NCC on growatt-vn
+  `/clients/growatt-vn/suppliers` — `CONG TY TNHH MINGJIE VIET NAM` + `CONG TY TNHH MINGHUI VIET NAM`
+  (verify spelling vs live BCCT; NEVER the HK namesake `MINGJIE INDUSTRIAL (HK)`).
+  Rollback (if ever needed): set strategy back to `same_as_customs_code` + refresh — fingerprint mismatch
+  forces a full re-derivation to the old codes; no case/claim state to unwind for growatt-vn.
 - **2026-07-16/17 — #14 RESOLVED (design + docs only, NO code); code-vocab DICTIONARY + AUDIT; 5 issues filed.**
   `/grill-with-docs` on #14 (growatt-vn allocation strategy blocker). **Empirically settled vs live DH
   Postgres:** growatt-vn lots embed the internal code in `goods_name` parens `(008.0006100)`;
@@ -268,16 +288,15 @@
   via 5 parallel agents) — **NOT pushed yet**. See session `2026-06-19-backlog-status-reconciliation.md`.
 
 ## Next Steps (priority order)
-0000. **#14 S1–S4 + #18 DONE 2026-07-17 (local `main` `0f0812f`+`2479111`, NOT pushed — see Current State).**
-   Remaining code-vocab batch: (a) **`/implement` #19 (T2)** safe helper renames + return-shape unification,
-   `ready-for-agent`, independent. (b) **`/implement` #20 (T3)** invariant tests (claim.customs_code ==
-   lot.customs_item_code; stock-row material_code == allocation_code) + adapter-boundary docs,
-   `ready-for-agent`. (c) **#21 (T4)** allocation_code `_source`/`_confidence`/`_status` cleanup — **now
-   UNBLOCKED** (rode on #14's S3 re-derivation, which shipped). (d) **#22 (T6)** DH→CO fallback — still needs a
-   human keep/tighten/remove decision first, NOT agent-ready. **DEPLOY when pushing #14:** run
-   `uv run python scripts/seed_growatt_vn_allocation.py` on growatt-vn (prod + nightly, DH up); then flag the
-   2 NCC (below). **Do NOT re-litigate the #14 design** — ownership-partition shipped as specified.
-   **When ready to push:** `git push` → CI/CD deploys prod; verify `/version` git_sha both, then seed.
+0000. **#14 S1–S4 + #18 DONE + DEPLOYED + SEEDED 2026-07-17 (`origin/main`=`d74e8fb`; see Current State).**
+   growatt-vn onboarded (`description_regex`) on prod + nightly. Remaining code-vocab batch:
+   (a) **`/implement` #19 (T2)** safe helper renames + return-shape unification, `ready-for-agent`, independent.
+   (b) **`/implement` #20 (T3)** invariant tests (claim.customs_code == lot.customs_item_code; stock-row
+   material_code == allocation_code) + adapter-boundary docs, `ready-for-agent`. (c) **#21 (T4)**
+   allocation_code `_source`/`_confidence`/`_status` cleanup — **now UNBLOCKED** (rode on #14's S3
+   re-derivation, which shipped). (d) **#22 (T6)** DH→CO fallback — still needs a human keep/tighten/remove
+   decision first, NOT agent-ready. **STILL PENDING:** flag 2 NCC on growatt-vn (Current State).
+   **Do NOT re-litigate the #14 design** — ownership-partition shipped as specified.
 000. **`/implement` #15, #16, #17** (GitHub, `ready-for-agent`, độc lập — fresh context mỗi vé,
    `gh issue view <n>`): #15 NCC tên dài → horizontal scroll (wrap/truncate cột tên);
    #16 search box màn NCC (match theo supplier_key normalize, không dấu); #17 client-tabs
