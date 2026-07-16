@@ -7,6 +7,13 @@ shipped as **release `v0.21.0`** (commit `d58e4e8`, tag `v0.21.0`).
 Session logs: `.ai/sessions/2026-07-11-catalog-phases-0-2-3-4.md` and
 `.ai/sessions/2026-07-11-catalog-bulk-approval.md`.
 
+**2026-07-13 backlog triage (no code changed):** verified all open issues
+vs HEAD (`cb52b24`), closed 5 done/superseded — #17, #18, #20, #22
+(completed), #23 (superseded by `app/routes/_mapping_flow.py`) — and filed
+**#46** (BCCT by-codes lookup seq-scans `bcct_rows`, no `upper(customs_code)`
+index; CO calls it in prod). Full relevance map + reasoning in the Matt-variant
+handoff `/tmp/handoff-datahub-backlog-triage-2026-07-13.md`.
+
 ## Current State
 
 - **Prod healthy — on `v0.21.0`, verified 2026-07-11 ~15:53Z.**
@@ -59,8 +66,21 @@ Session logs: `.ai/sessions/2026-07-11-catalog-phases-0-2-3-4.md` and
    nowhere else) — PR or drop; `v0.19.0` tag absent; prod Postgres
    collation-version mismatch (REINDEX + REFRESH COLLATION VERSION in a
    maintenance window — data-integrity investigation, not quick).
-4. Remaining ready-for-agent backlog (non-catalog): #23 B.5, #22 B.4,
-   #21 B.2, #19 B.0b, #14–18 A.x, #26 C.2, #29 E.4.
+4. **Open backlog after 2026-07-13 triage** (verified vs HEAD; trust code,
+   not issue text). Real work, ranked: **#16** A.4.2 substitute XLSX bulk
+   upload (only P1/client_confirmed, genuinely unbuilt — no `substitutes/
+   upload` route), **#37** (item 1 above), **#46** by-codes index (prod
+   perf, CO calls it live; land before #25 soak), **#26** C.2 flip auth
+   strict-by-default (prod strict is a hand-set DB row only — code default
+   still permissive, fallback branch still in `_require_token`), **#28-D3**
+   float `normalized_hash` drift + **#28-D5** SAP indented-walk L4→L2
+   level-skip mis-bind (both correctness), **#29-a** CSRF absent on all POST
+   (security — needs `/security-review`). Lower/partial: #15 (only
+   sourcing-drift left), #21 (variant field / roster auto-bootstrap / preview
+   shape badge / Playwright), #14 (per-role toggle UI only), #27
+   (code_mappings + client_config history + revert endpoint + CI DELETE-lint),
+   #24 (CO adopted service JWTs; BCQT has no DH consumer yet).
+   Deferred-by-design: #19 B.0b, #28-D8, #29-b/c, #25 (gated on #46).
 
 ## Notes for Next AI Session
 
