@@ -10,6 +10,8 @@ phiên bản theo [SemVer](https://semver.org/).
 > hành đã đóng gói tại thời điểm đó.
 
 ## [Unreleased]
+### API
+- **Sửa: lệnh lấy BOM "mới nhất" hàng loạt không còn lẫn bản sửa theo hồ sơ CO:** `POST /v1/hub/products/bom/artifacts:batch` và `GET /v1/hub/products/{mã}/bom/artifacts` khi gọi mặc định (không truyền `intents`/`case_id`) trước đây có thể trả về một bản BOM `modified_for_case` (bản sửa riêng cho một hồ sơ CO) làm bản "mới nhất" của sản phẩm — lệch với `GET /v1/hub/products/{mã}/bom/latest` vốn luôn loại bản này. Nay bản `modified_for_case` luôn bị giới hạn theo `case_id`: chỉ trả về khi người gọi nêu đúng hồ sơ, nên lệnh lấy "mới nhất" không kèm hồ sơ sẽ không bao giờ nhận nhầm bản sửa theo hồ sơ. Ứng dụng đồng hành (CO) không bị ảnh hưởng vì luôn gọi kèm `intents` + `case_id`. Chi tiết: `docs/API_CHANGELOG.md` (2026-07-17, Additive). Refs #47.
 
 ## [0.21.0] — 2026-07-11
 ### Mới

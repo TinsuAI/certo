@@ -24,9 +24,26 @@ from app.seed import auto_seed_demo_if_empty, seed_parser_rules_if_empty
 from app.seed_master_data import seed_master_data_if_empty
 
 
+def _sweep_test_junk_clients() -> None:
+    """Delete throwaway clients that a fixture teardown never removed —
+    sessions that were killed or timed out leave their random-suffixed
+    clients (and, via FK ON DELETE CASCADE, all child rows) behind, and they
+    accumulate in the shared local dev DB (`connect()` defaults to
+    postgresql:///data_hub; only CI overrides DATA_HUB_DATABASE_URL).
+
+    Scoped to the fixture naming convention `<prefix>-<8 hex>` produced by
+    `secrets.token_hex(4)`; semantic real clients (growatt-vn, johnson-vn,
+    demo-furniture, ...) never match, so this cannot touch real data.
+    """
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(r"delete from hub.clients where client_id ~ '-[0-9a-f]{8}$'")
+        conn.commit()
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _bootstrap_schema():
     apply_migrations()
+    _sweep_test_junk_clients()  # clear residue left by a prior interrupted run
     seed_master_data_if_empty()
     auth.seed_admin_if_empty(email="admin@data-hub.local", password="admin123")
     # Force admin to the test-canonical password regardless of any prior
@@ -45,3 +62,4 @@ def _bootstrap_schema():
     auto_seed_demo_if_empty()
     seed_parser_rules_if_empty()
     yield
+    _sweep_test_junk_clients()  # clean up this session's throwaway clients

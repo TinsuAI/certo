@@ -14,6 +14,25 @@ Only `Breaking:` headings trigger notifications to `dev`/`admin` users (CO + BCQ
 
 ## Entries
 
+## 2026-07-17 — Additive: modified_for_case is always case-scoped on the default path (fixes #47)
+
+Silent — no sister-app code change needed. CO already passes explicit
+`intents` + `case_id`, so its responses are unchanged; this only affects a
+default call (no `intents`, no `case_id`).
+
+- `POST /v1/hub/products/bom/artifacts:batch` and
+  `GET /v1/hub/products/{product_code}/bom/artifacts` — a `modified_for_case`
+  artifact is now excluded from a default call, matching
+  `GET /v1/hub/products/{product_code}/bom/latest` (which already excluded it).
+  Previously the case-scoping applied only when the caller explicitly listed
+  `intents` including `modified_for_case`, so a plain "latest" call could win a
+  case-specific BOM into the `latest_per_variant` partition.
+- A caller that wants a case-modified BOM must still name it: pass `intents`
+  including `modified_for_case` with the matching `case_id` (unchanged — the
+  `case_id_required` guard still applies).
+- Fix is in the shared filter chain, so `:batch` and the per-product
+  `/bom/artifacts` stay byte-identical (parity test holds).
+
 ## 2026-07-11 — Additive: alive-only default status filter on /v1/hub/materials
 
 Responses are byte-identical today (every current row is `active`); this pins
