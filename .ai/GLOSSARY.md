@@ -26,29 +26,66 @@ has no case override.
 resolver and rendered as the picker's "why" label (e.g. *"#N · mặc định khách"*,
 *"#N · mới nhất (chưa ghim)"*, *"user chọn"*).
 
-## Stock / trừ-lùi codes (see `docs/co-stock-architecture.md §4`)
+## Material & lot codes — the vocabulary (see `docs/co-stock-architecture.md §4`)
 
-**item_code / customs_item_code** — The material code **as declared on the
-customs-declaration line**. Immutable, **identity-bearing**: it is part of the lot
-key `(declaration_no, line_no, customs_item_code)`. For Johnson/Growatt it equals
-the internal NVL code (audited: trừ-lùi name-prefix "#&" == BCCT customs_item_code
-1500/1500).
+The trừ-lùi/stock pipeline uses **seven distinct code concepts**; each wears several
+names as it crosses the DH→CO→BOM boundary. This table is the single source of truth
+for which name means what. **The golden rule: an *identity* code is immutable and
+safe as a key; the *derived* `allocation_code` is recomputed from config and must
+never be a persisted key.**
 
-**allocation_code** — The **CO-derived, normalised** material code, computed by
-`resolve_allocation_code(client_config)`. It collapses several declared
-`customs_item_code` lots into **one logical material** ("these declared codes are
-all really aluminium-100"). An **attribute, not identity — mutable**: re-editing
-the mapping re-derives it, so it must NEVER be used as a lot/claim key (that would
-orphan claims). May be `resolved` or `unresolved` (`allocation_code_status`); an
-unresolved row has no logical-material grouping and falls back to
-`customs_item_code`. For clients configured `same_as_customs_code` it happens to
-equal customs_item_code, but that is a config special-case, not its nature.
+| # | Concept | Canonical name | Other names in code (same value, different stage) | Kind |
+|---|---|---|---|---|
+| 1 | Code declared on the customs line (**lot identity**) | `customs_item_code` | DH `customs_code`; CO `item_code`; `co_stock_claims`/`co_stock_events`.`customs_code`; material-row `customs_material_code` | **identity** — immutable, part of lot key `(declaration_no, line_no, customs_item_code)` |
+| 2 | The agency's own material code (mã NPL) — BOM leaf + catalog | `material_code` | `internal_code`, `internal_material_code`, `material_identity.internal_code` | source (BOM/catalog identity) |
+| 3 | DH-resolved identity dict on a BCCT line | `material_identity` | sub-keys `resolved_code`, `internal_code`, `customs_code`, `resolution_status`, `bom_product_code` | source (nested contract) |
+| 4 | Finished good / BOM parent (thành phẩm) | `product_code` | `bom_product_code`, `sheet_product_code`, `product["code"]` | identity (one level **above** the material) |
+| 5 | BOM structure/version id | `bom_code` | `ma_bom` | identity (**defaults to `product_code`** when absent) |
+| 6 | CO's computed bridge declared→BOM code | `allocation_code` (+ `_status/_source/_confidence/_reason`) | — | **derived — mutable; NEVER a persisted key** |
+| 7 | The strategy that computes #6 (CO-owned config, #14) | `config["allocation_code"]` = `{strategy, description_regex, fallback}` | form fields `allocation_code_strategy` / `_fallback` / `description_regex` | config |
+
+**item_code / customs_item_code** (concept 1) — The material code **as declared on
+the customs-declaration line**. Immutable, **identity-bearing**: part of the lot key
+`(declaration_no, line_no, customs_item_code)`. Whether it **equals** the internal
+NVL code (concept 2) is **per client**: for Johnson the declared code and the
+internal code are the same string, so all names collapse and the distinction never
+shows; for **growatt-vn they differ** (declared `DIOT` vs internal `008.0006100`,
+embedded in the lot `goods_name` parentheses) — which is the entire reason concept 6
+exists. Named `item_code` on a raw/normalized BCCT row, `customs_item_code` in
+`co_stock_rows`, and `customs_code` again on claims/events — a silent re-spelling at
+the persistence boundary that is only correct because the value is copied 1:1
+(guard it with an invariant test: claim.`customs_code` == source lot.`customs_item_code`).
+
+**material_code** (concept 2) — The stable BOM/catalog identity for a material.
+**Overload warning:** on a **`co_stock_rows`** row, `material_code` is NOT the
+catalog code — `co_stock_derivation.py:53` / `co_stock_workbook.py:362` set it to the
+**derived `allocation_code`** (blank when not usable). So `material_code` means the
+catalog identity in a case/BOM context but the mutable bridge on a stock row. Do not
+assume the two are the same field.
+
+**allocation_code** (concept 6) — The **CO-derived, normalised** material code,
+computed by `resolve_allocation_code(client_config)`. It maps a declared
+`customs_item_code` lot onto the code the BOM uses, collapsing several declared codes
+into **one logical material**. An **attribute, not identity — mutable**: re-editing
+the strategy re-derives it, so it must NEVER be used as a lot/claim key. The claim
+ledger is safe (its `claim_id` hashes `source_row` + the stable BOM `material_code`
+— neither derived from the strategy); the one live exposure is
+`allocation_line_matches_stock` (`co_case_context.py:1097`), which
+compares a **persisted** saved-line `allocation_code` against a re-derived one — a
+strategy change (e.g. onboarding growatt-vn per #14) can stop a saved line re-binding
+to its lot. Status values as stored are `resolved` / `requires_review`; the glossary
+and `co_stock_eligibility` also say "unresolved" for the same negative state — one
+boolean, three spellings, align during the unify pass. `_source` currently emits the
+strategy name (`same_as_customs_code` for both primary and fallback, indistinguishable)
+and `_confidence` mixes a quality scale (`high`/`low`) with provenance (`exact`/`fallback`).
 
 **stock key candidates** — The set `{material_code, allocation_code,
 customs_item_code}` under which the allocation pool aliases each lot
-(`co_case_context.py:1896`). A code matching **any** of the three resolves to that
-lot at both preview and calc time — which is why a substitute identified by any one
-key still receives its stock when recalculated.
+(`co_stock_key_candidates`, `co_case_context.py:1952`; pool built `:2174-2188`). A
+code matching **any** of the three resolves to that lot at both preview and calc time
+— which is why a substitute identified by any one key still receives its stock when
+recalculated. In-memory only (rebuilt each render), so the mutable `allocation_code`
+member is safe here; it is NOT safe when persisted (see concept 6).
 
 **substitute candidate identity** — The grain at which the substitute picker
 presents a swap-to material. Substitution is chosen at the **logical-material**
@@ -111,3 +148,30 @@ do not read "tồn CO" as evidence tracking.
 **Form X** — a second **non-preferential** VCCI C/O template the agency produces from the
 trừ-lùi workbook (sheet `FORM X`, alongside `FORM B`). Not modeled in `app/co_forms.py`
 (BACKLOG FX1). Not an FTA form; irrelevant to cumulation.
+
+## Runtime modes
+
+Two **independent, instance-wide** toggles plus one DH-side per-client field. There is
+**no "DH-mode client"** — the source backend is global, so in a given CO instance either
+all clients read from Data Hub or none do.
+
+**Source backend** (Axis 1, global; `portfolio.py:247`) — where CO reads *source data*
+(materials, BCCT/lots, BOM) and who owns `client_config`. **DH source-mode**
+(`DATA_HUB_ENABLED=1`) → `DataHubPortfolioService`; source config incl. `allocation_code`
+is owned by Data Hub and `save_client_config` from CO is read-only
+(`data_hub_client.py:673`). **Local source-mode** (`CO_ALLOW_LOCAL_SOURCE=1`, DH off) →
+`PortfolioService`, config CO-owned/writable. **Neither** → 503 `SourceBackendUnavailable`
+(prod safety default; never silently serve stale local backup). Prod runs DH source-mode.
+
+**Persistence backend** (Axis 2, global; env `BARRY_DATABASE_URL`) — where CO stores *its
+own* state (cases, claims, **client overlay** `bang_ke_overrides`/`export_overrides`/
+`co_stock_overrides`, stock ledger). **DB-mode** (URL set) → Postgres; **file-mode**
+(unset) → on-disk `cases.json` (`co_case_store.py:1063`). Independent of Axis 1: local dev
+and prod both run DH-source + DB simultaneously. The CO client overlay is writable in
+DB-mode even while the Axis-1 source config is read-only — that is the seam a CO-side
+per-client override (e.g. allocation strategy for growatt-vn) uses.
+
+**code_resolution_mode** (DH-side, **per-client**; `hub.clients`) — `identity` /
+`simple_mapping` / `batch_aggregate_resolution`. How Data Hub resolves material codes when
+building BOM artifacts (growatt-vn = `batch_aggregate_resolution`). DH-internal; unrelated
+to CO's `allocation_code.strategy`. The only genuinely per-client "mode".

@@ -1,6 +1,61 @@
 # Project Status
 
 ## Current State
+- **2026-07-17 — #18 + #14 S1–S4 IMPLEMENTED, TESTED, 2-AXIS REVIEWED, COMMITTED (local `main`, NOT pushed).**
+  `/implement` per the #14 spec, `/tdd` per slice. Two focused commits on local `main`.
+  **#18 (`2479111`)** — dropped `allocation_code` from `allocation_line_matches_stock`
+  (`co_case_context.py:1092`); saved allocation lines now rebind to their lot by
+  `source_row`/`decl_no`/`line_no` (all strategy-invariant) after a strategy flip. `tests/test_allocation_line_rebind.py` (6).
+  **#14 (`0f0812f`)** — ownership-partition per the ADR. **S1** `data_hub_client.py`:
+  `get_client_config` = local base + DH `bcct` overlay; `save_client_config` writes the CO-owned
+  sections locally, rejects a `bcct` edit. Hardened beyond the literal spec: DH-supplied `co_stock`
+  fields (`min_days_before_export`) are preserved while local `lot_policy` wins → no eligibility
+  regression. Store selection via one `_local_config_store()` (DB store or file store). **S2** `pages.py`:
+  the config route rejects a declaration-type change UP FRONT, then saves allocation/lot_policy — no
+  more partial-save-then-409 (was `require_local_source_writes()` at `:313` after the overlay upserts).
+  **S3** `co_stock_materializer.py` + `co_case_context.py`: `co_config_fingerprint` (hashes BOTH
+  `allocation_code` and `co_stock`, NOT `config_hash`) stamped in `co_stock_refresh_state`
+  (**migration 021**), `config_current` added to the delta guard → forces one full re-derivation on
+  mismatch (self-healing default `''`). **S4** `scripts/seed_growatt_vn_allocation.py` (idempotent:
+  save `description_regex` through the new path + force the full re-derivation) + regression test pinning
+  the effective strategy and a `(920.0042600)` lot resolution. New tests: `test_co_owned_client_config.py`,
+  `test_config_route_co_owned.py`, `test_co_stock_refresh_config_fingerprint.py` (+ 3 existing refresh-dispatch
+  tests updated for the new guard).
+  **Verify:** full suite **909 pass / 14 skip**; migration 021 applies to the local `barry_co` DB; a real
+  Postgres `client_configs` round-trip flips the default `same_as_customs_code` → `description_regex` with
+  DH `bcct` still overlaid. **`/code-review` (Standards + Spec parallel agents):** no hard standards
+  violations; applied 3 standards fixes (collapse middle-man `_dh_client_config` + duplicated store-dispatch
+  into `_local_config_store()`; rename the `record_refresh_state` param that shadowed the
+  `co_config_fingerprint` fn); the one valid Spec finding (S2 partial-save shape) was fixed up-front.
+  **DEPLOY PENDING (needs prod/nightly + DH up):** run `seed_growatt_vn_allocation.py` on growatt-vn.
+  **NOT pushed.** #14 spec doc + ADR/GLOSSARY committed alongside in the docs commit.
+- **2026-07-16/17 — #14 RESOLVED (design + docs only, NO code); code-vocab DICTIONARY + AUDIT; 5 issues filed.**
+  `/grill-with-docs` on #14 (growatt-vn allocation strategy blocker). **Empirically settled vs live DH
+  Postgres:** growatt-vn lots embed the internal code in `goods_name` parens `(008.0006100)`;
+  `description_regex` takes BOM-code match **4.5% → 96%** (101 → 2,145 / 2,236); `material_identity.internal_code`
+  null on **0/38,287** rows (short-circuit inert). Config problem, NOT keyspace — Option 3 (reseed) dead.
+  **DECISION — SUPERSEDES the old "option 2 CO-side overlay blob" recommendation below:** client_config
+  ownership is **partitioned** — DH owns `bcct` (declaration types), **CO owns `allocation_code` + `co_stock`**,
+  persisted through the EXISTING local `client_configs` store (`app_state_store.py:96-144`), NOT a new
+  `bang_ke_overrides`-style blob. DH-mode `get_client_config` = local base + DH `bcct` overlay;
+  `save_client_config` writes CO-owned sections locally. **Rejected:** Option A (DH-side, two-repo);
+  gap-filler precedence (a DH backfill of the `same_as_customs_code` default would silently revert
+  growatt-vn cross-repo). ADR `.ai/DECISIONS.md` [2026-07-16].
+  **Spec** `.ai/features/2026-07-16-co-owned-client-config-allocation.md` (S1–S4). **S3 is mandatory:**
+  fingerprint BOTH CO-owned sections in `co_stock_refresh_state` (`co_config_fingerprint`) + force full
+  re-derivation, else the fix silently no-ops on the 60k snapshot (delta never rewrites unchanged rows).
+  NOT keyed on `config_hash` (unstable in DH mode). Mirrors the 020/`DERIVATION_SCHEMA_VERSION` pattern.
+  **DICTIONARY** `.ai/GLOSSARY.md` new "Material & lot codes" (7-concept model: `customs_item_code` identity /
+  `material_code` / `material_identity` / `product_code` / `bom_code` / `allocation_code` derived / config)
+  + "Runtime modes" (Axis-1 source backend, Axis-2 persistence, DH `code_resolution_mode`). 3-agent audit +
+  independent logic review (all claims CONFIRMED, numbers reproduced to the digit).
+  **Issues filed `TinsuAI/co`:** **#18** T0 correctness bug (`allocation_line_matches_stock:1097` orphans
+  saved allocation lines on a strategy change; growatt-vn safe today = no saved cases) `ready-for-agent`+`bug`,
+  linked to #14; **#19** T2 safe helper renames; **#20** T3 invariant tests + adapter docs; **#21** T4
+  allocation_code `_source`/`_confidence`/`_status` value cleanup (**blocked by #14**, rides S3); **#22** T6
+  DH→CO fallback investigation (`needs-triage`, behavior-risk). T5 (persisted-column renames) intentionally
+  NOT filed. All docs uncommitted on local `main`; no code. Session
+  `.ai/sessions/2026-07-16-issue-14-co-owned-config-and-code-vocab-dictionary.md`.
 - **2026-07-11 (PM) — 2 STANDING ITEMS CLOSED + SUPPLIERS-SCREEN BUG FIXED + DEPLOYED.**
   `origin/main` = prod = nightly = **`9f38afa`** (CI green, `/version` verified both).
   (1) **`missing_price` belts 2/3** (`b89e187`): lock gate + export blockers re-check
@@ -213,6 +268,16 @@
   via 5 parallel agents) — **NOT pushed yet**. See session `2026-06-19-backlog-status-reconciliation.md`.
 
 ## Next Steps (priority order)
+0000. **#14 S1–S4 + #18 DONE 2026-07-17 (local `main` `0f0812f`+`2479111`, NOT pushed — see Current State).**
+   Remaining code-vocab batch: (a) **`/implement` #19 (T2)** safe helper renames + return-shape unification,
+   `ready-for-agent`, independent. (b) **`/implement` #20 (T3)** invariant tests (claim.customs_code ==
+   lot.customs_item_code; stock-row material_code == allocation_code) + adapter-boundary docs,
+   `ready-for-agent`. (c) **#21 (T4)** allocation_code `_source`/`_confidence`/`_status` cleanup — **now
+   UNBLOCKED** (rode on #14's S3 re-derivation, which shipped). (d) **#22 (T6)** DH→CO fallback — still needs a
+   human keep/tighten/remove decision first, NOT agent-ready. **DEPLOY when pushing #14:** run
+   `uv run python scripts/seed_growatt_vn_allocation.py` on growatt-vn (prod + nightly, DH up); then flag the
+   2 NCC (below). **Do NOT re-litigate the #14 design** — ownership-partition shipped as specified.
+   **When ready to push:** `git push` → CI/CD deploys prod; verify `/version` git_sha both, then seed.
 000. **`/implement` #15, #16, #17** (GitHub, `ready-for-agent`, độc lập — fresh context mỗi vé,
    `gh issue view <n>`): #15 NCC tên dài → horizontal scroll (wrap/truncate cột tên);
    #16 search box màn NCC (match theo supplier_key normalize, không dấu); #17 client-tabs
