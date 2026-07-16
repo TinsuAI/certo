@@ -22,9 +22,10 @@ from __future__ import annotations
 import concurrent.futures
 import logging
 import os
+import re
 import subprocess
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
 
@@ -350,6 +351,125 @@ def compact_pdf_bytes(pdf: bytes) -> bytes:
     return out if len(out) < len(pdf) else pdf
 
 
+# ── page selection (print only the goods lines a dossier uses) ──────
+#
+# A real Growatt import declaration is 52-54 pages for 50 goods lines
+# (VNACCS caps 50 dòng/TK) — roughly ONE goods line per page. A CO dossier
+# cites a few lines per declaration, so most printed pages are irrelevant;
+# selecting pages is also the only lever that fits Ecosys's ~2 MB limit,
+# since merged size is page-COUNT-driven (see the compact section above).
+#
+# The rendered ECUS page carries an angle-bracket line marker in its text:
+# `<01>` on line 1's page, `<02>` on line 2's. `<IMP>`/`<EXP>` is the
+# watermark, so the marker is numeric-only. Validated on 6 real Growatt
+# import declarations / 300 lines: the `hub.bcct_rows.line_no` set equals
+# the marker set exactly (zero missing, zero extra), one line per page, no
+# line spanning two pages.
+#
+# THE RULE — derived per page, never a hardcoded header page count:
+#   - a page with NO marker is framing (header/trailer) → ALWAYS keep;
+#   - a page WITH a marker is kept only if its line_no was requested.
+# Real headers are not a fixed size: 108077837340 has framing pages [1,2]
+# while 108234677720 has [1,2,3,54] — a 3-page header AND a trailing page.
+# "Keep page 1" or "keep pages 1-2" would DROP a header page on the latter.
+#
+# Matching NVL codes in the page text was tested and rejected:
+# `customs_code` is an HQ bucket code (`IC` matched 24 of 52 pages and
+# false-positives into the header), and NB codes can be empty or degenerate
+# to the HQ code. Line numbers need neither.
+#
+# WHOLE pages are dropped, never edited, and rows are never stripped from
+# the source `.xls` before rendering — that would renumber the lines and
+# break the form's `X/N` marker, so the output would stop being a faithful
+# copy of the filed declaration and be disqualified as customs evidence.
+# Because page content is never touched, a kept page still carries the
+# exact `X/N` it was filed with (on 108234677720 the line-1 goods page
+# prints "3/52" — the form's own numbering, which matches neither the
+# rendered page index nor the 54-page render; that mismatch is the filed
+# form's, and preserving it verbatim is the point).
+
+_LINE_MARKER_RE = re.compile(r"<(\d{1,3})>")
+
+
+def _page_line_nos(page) -> set[int]:
+    """Goods-line numbers marked on a rendered page. Empty ⇒ framing page.
+    A text-extraction failure yields empty, i.e. the page is treated as
+    framing and kept — the safe direction (never drop evidence)."""
+    try:
+        text = page.extract_text() or ""
+    except Exception as exc:
+        logger.warning("page text extraction failed; keeping page: %s", exc)
+        return set()
+    return {int(m) for m in _LINE_MARKER_RE.findall(text)}
+
+
+@dataclass
+class PageSelection:
+    """Which rendered pages survive, per source file.
+
+    `keep_by_file` maps file_id → ascending 0-based page indices; a file
+    absent from it has no selection and keeps every page. `missing_by_decl`
+    maps declaration_no → requested lines that matched no marker page, so
+    the caller can report them instead of silently dropping them."""
+    keep_by_file: dict[int, list[int]] = field(default_factory=dict)
+    missing_by_decl: dict[str, list[int]] = field(default_factory=dict)
+
+
+def plan_page_selection(
+    ordered: list[tuple[str, DeclarationFile]],
+    pdf_by_file: dict[int, bytes | None],
+    lines_by_decl: dict[str, set[int]],
+) -> PageSelection:
+    """Resolve the requested per-declaration line numbers to per-file page
+    indices, applying THE RULE above. Declarations absent from
+    `lines_by_decl` (or with an empty line set) are left untouched — the
+    never-drop-evidence fallback."""
+    from pypdf import PdfReader
+
+    keep_by_file: dict[int, list[int]] = {}
+    found_by_decl: dict[str, set[int]] = {}
+    for decl, f in ordered:
+        wanted = lines_by_decl.get(decl)
+        if not wanted:
+            continue  # no selection for this declaration → keep all pages
+        pdf = pdf_by_file.get(f.id)
+        if not pdf:
+            continue  # no pages at all; reported at declaration level
+        try:
+            reader = PdfReader(BytesIO(pdf))
+        except Exception as exc:  # corrupt → the merge loop skips it too
+            logger.warning("page selection skipped file id=%s: %s", f.id, exc)
+            continue
+        found = found_by_decl.setdefault(decl, set())
+        keep: list[int] = []
+        for i, page in enumerate(reader.pages):
+            markers = _page_line_nos(page)
+            if not markers:
+                keep.append(i)  # framing page — always kept
+                continue
+            hit = markers & wanted
+            if hit:
+                keep.append(i)
+                found |= hit
+        keep_by_file[f.id] = keep
+
+    # Only declarations that actually contributed pages can have a line-level
+    # gap; one that produced nothing is already reported via missing_nos.
+    missing_by_decl: dict[str, list[int]] = {}
+    for decl, found in found_by_decl.items():
+        gap = sorted(lines_by_decl.get(decl, set()) - found)
+        if gap:
+            missing_by_decl[decl] = gap
+    return PageSelection(keep_by_file=keep_by_file,
+                         missing_by_decl=missing_by_decl)
+
+
+def _pages_to_add(reader, keep: list[int] | None):
+    """The pages of `reader` to merge: every page when `keep` is None (the
+    original, byte-identity-preserving path), else just the kept indices."""
+    return reader.pages if keep is None else [reader.pages[i] for i in keep]
+
+
 # ── merge ───────────────────────────────────────────────────────────
 
 
@@ -366,25 +486,34 @@ class MergeResult:
     pdf_bytes: int          # single PDF size, or sum of part sizes (zip)
     parts: int              # 1 for a single PDF; N for a zip of parts
     oversize_nos: list[str]  # declarations that alone exceed max_part_bytes
+    # "declNo:lineNo" for each requested line with no marker page, in
+    # requested order. Empty when no line selection was asked for.
+    missing_line_nos: list[str] = field(default_factory=list)
 
 
-def _concat_file_pdfs(blobs: list[bytes | None]) -> tuple[bytes, int]:
+def _concat_file_pdfs(
+    blobs: list[bytes | None], keeps: list[list[int] | None] | None = None,
+) -> tuple[bytes, int]:
     """Concatenate already-rendered PDF blobs into one, skipping None /
     corrupt sources. Returns (pdf_bytes, page_count); (b"", 0) when none
     contributed a page. pypdf merges into a single header/xref, so the
-    result is never larger than the sum of the inputs."""
+    result is never larger than the sum of the inputs.
+
+    `keeps` (when given) is aligned with `blobs` and selects page indices
+    per blob; None for a blob keeps all of its pages."""
     from pypdf import PdfReader, PdfWriter
 
     writer = PdfWriter()
     n = 0
-    for b in blobs:
+    for i, b in enumerate(blobs):
         if not b:
             continue
         try:
             reader = PdfReader(BytesIO(b))
-            for page in reader.pages:
+            pages = _pages_to_add(reader, keeps[i] if keeps else None)
+            for page in pages:
                 writer.add_page(page)
-            n += len(reader.pages)
+            n += len(pages)
         except Exception as exc:  # corrupt source PDF — skip, don't fail
             logger.warning("concat skipped a source pdf: %s", exc)
     if n == 0:
@@ -461,6 +590,7 @@ def build_merged_pdf(
     quality: str = "print",
     max_part_bytes: int | None = None,
     part_stem: str = "declarations",
+    lines_by_decl: dict[str, set[int]] | None = None,
 ) -> MergeResult:
     """Merge every declaration's rendered pages in `decl_order` (within a
     declaration, files by `original_filename`). Declarations producing no
@@ -472,18 +602,41 @@ def build_merged_pdf(
     contract. `quality="compact"` applies lossless object dedup +
     content-stream recompression (see `_apply_dedup`). `max_part_bytes`
     (when set) returns a `parts.zip` of declaration-boundary parts each ≤
-    the cap (see `_pack_parts`)."""
+    the cap (see `_pack_parts`).
+
+    `lines_by_decl` (when given) restricts a declaration's goods pages to
+    the listed line numbers, always keeping its framing pages (see
+    `plan_page_selection`). It applies BEFORE compact and BEFORE splitting,
+    so both operate on the already-reduced page set. A declaration absent
+    from the map — or the whole argument being None/empty — keeps every
+    page on the ORIGINAL code path, preserving the byte-identity promise."""
     from pypdf import PdfReader, PdfWriter
 
     ordered = _ordered_files(decl_order, files_by_decl)
     stats = RenderStats()
     pdf_by_file = ensure_pdfs([f for _, f in ordered], backend, stats)
 
+    # None (not an empty PageSelection) when nothing was selected, so the
+    # no-selection path stays the exact pre-existing code path.
+    selection = (
+        plan_page_selection(ordered, pdf_by_file, lines_by_decl)
+        if lines_by_decl else None
+    )
+    missing_line_nos = [
+        f"{d}:{ln}"
+        for d in requested
+        for ln in (selection.missing_by_decl.get(d, []) if selection else [])
+    ]
+
+    def _keep_for(f: DeclarationFile) -> list[int] | None:
+        return selection.keep_by_file.get(f.id) if selection else None
+
     def _result(**kw) -> MergeResult:
         kw.setdefault("requested", len(requested))
         kw.setdefault("cache_hits", stats.cache_hits)
         kw.setdefault("cache_misses", stats.cache_misses)
         kw.setdefault("oversize_nos", [])
+        kw.setdefault("missing_line_nos", missing_line_nos)
         return MergeResult(**kw)
 
     # ── single-PDF path (max_part_bytes unset) ─────────────────────────
@@ -499,9 +652,10 @@ def build_merged_pdf(
                 continue
             try:
                 reader = PdfReader(BytesIO(pdf))
-                for page in reader.pages:
+                pages = _pages_to_add(reader, _keep_for(f))
+                for page in pages:
                     writer.add_page(page)
-                pages_by_decl[decl] = pages_by_decl.get(decl, 0) + len(reader.pages)
+                pages_by_decl[decl] = pages_by_decl.get(decl, 0) + len(pages)
             except Exception as exc:  # corrupt source PDF — skip, don't fail
                 logger.warning("merge skipped file id=%s: %s", f.id, exc)
 
@@ -540,7 +694,10 @@ def build_merged_pdf(
             files_by_decl.get(decl, []),
             key=lambda x: ((x.original_filename or ""), x.id),
         )
-        unit, npages = _concat_file_pdfs([pdf_by_file.get(f.id) for f in files])
+        unit, npages = _concat_file_pdfs(
+            [pdf_by_file.get(f.id) for f in files],
+            keeps=[_keep_for(f) for f in files] if selection else None,
+        )
         if npages > 0:
             decl_units.append((decl, unit))
 

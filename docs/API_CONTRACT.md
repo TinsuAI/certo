@@ -1010,6 +1010,95 @@ Errors:
 Contract spec:
 `.ai/features/2026-06-18-declarations-pdf-fast-compact-split/brief.md`.
 
+#### `POST /v1/hub/clients/{client_id}/declarations/download.pdf`
+
+Page-selective sibling of the GET above: prints each declaration's framing
+pages + **only the goods pages a dossier cites**. Same path, same auth
+(`hub:read`), same response shape.
+
+A real Growatt import declaration is 52-54 pages for 50 goods lines (VNACCS
+caps 50 dòng/TK) — roughly ONE goods line per page. A CO dossier uses a few
+lines per declaration, so ~90% of the printed pages are irrelevant. This is
+also the lever for the Ecosys ~2 MB limit: merged size is **page-count**
+driven, which `quality=compact` cannot solve.
+
+**The GET is unchanged.** `lines` is POST-only; the GET ignores it.
+
+Body:
+```json
+{
+  "direction": "import",
+  "declarations": [
+    {"declaration_no": "108234677720", "lines": [1, 3]},
+    {"declaration_no": "107918960330"}
+  ],
+  "sort": "declaration_no",
+  "quality": "print",
+  "max_part_bytes": 2000000,
+  "filename": "6. TKN GHEP.pdf"
+}
+```
+
+- `direction`: required, `import` | `export`. As the GET.
+- `declarations`: required, non-empty (max 500 distinct `declaration_no`).
+  Replaces the GET's comma-separated `declaration_nos` — a line map is
+  per-declaration, so it cannot be a flat repeated param. Order-preserving,
+  deduped; a repeated `declaration_no` unions its `lines`.
+- `lines`: optional per entry, ints `1..999` (a declaration's goods line
+  numbers, matching `hub.bcct_rows.line_no`). **Omitted or `[]` → ALL pages
+  of that declaration**, so a body naming no lines anywhere is byte-for-byte
+  the GET. A bare entry always wins over a duplicate that names lines.
+- `sort`, `quality`, `max_part_bytes`, `filename`: as the GET (same
+  defaults, same validation, same error codes).
+
+Which pages survive — derived per page, never a fixed header count:
+- A page with **no** `<NN>` line marker is framing (header/trailer) and is
+  **always kept**. Headers are not a fixed size in real data: declaration
+  `108077837340` has framing pages `[1,2]`, while `108234677720` has
+  `[1,2,3,54]` — a 3-page header *and* a trailing page.
+- A page **with** a marker is kept only if its line_no was requested.
+
+Worked example: `108234677720` (54 pages) requesting `lines: [1,3]` → pages
+`1,2,3,54` (framing) + `4` (line 1) + `6` (line 3) = **6 pages of 54**.
+
+Whole pages are dropped, never edited; rows are never stripped from the
+source `.xls` before rendering, which would renumber lines and break the
+form's `X/N` marker. Page content is never touched, so a kept page still
+carries the exact `X/N` it was filed with — the output stays a faithful copy
+of the filed declaration and remains valid customs evidence. Note the form's
+own `X/N` is its own numbering: on `108234677720` the line-1 goods page
+prints `3/52`, matching neither the rendered page index nor the 54-page
+render. That is the filed form's numbering and is preserved verbatim.
+
+Selection applies **before** `quality=compact` and **before**
+`max_part_bytes` splitting, so both operate on the reduced page set. The
+render cache is unaffected (it keys on the source `.xls` sha256; selection is
+post-render filtering).
+
+Response: as the GET (`200 application/pdf`, or `application/zip` when
+split; zero match → info-page PDF), plus one additive header:
+- `X-Lines-Missing-Nos`: `declNo:lineNo` pairs (first 50) for requested
+  lines that matched no page — e.g. `108234677720:7`. **Present only when
+  non-empty** (as `X-Pdf-Oversize-Nos`). A requested line is never silently
+  dropped. A declaration with no file at all is reported once via
+  `X-Declarations-Missing-Nos`, not duplicated per line.
+
+Errors: the GET's, plus
+- `400 invalid_body` — body is not a JSON object.
+- `400 declarations_required` — missing/empty/not a list, or an entry with
+  no usable `declaration_no`.
+- `400 invalid_lines` — `lines` not a list of ints in `1..999`.
+- `400 too_many_declaration_nos` — more than 500 distinct declarations.
+
+Why POST for a read: the line map cannot be a flat repeated param, and at
+the 500-declaration cap a URL encoding runs ~12KB — over nginx's default 8KB
+`large_client_header_buffers`. Read-only and idempotent, like
+`POST /v1/hub/products/bom/artifacts:batch`. Nothing caches these responses:
+`app/main.py` forces `Cache-Control: no-store, private` on every `/v1/hub`
+path and attachment, and nginx has no `proxy_cache`.
+
+Contract spec: data-hub#50.
+
 ### Settlement inputs (NXT + year-end inventory)
 
 Data Hub owns these settlement *inputs*; BCQT computes Mẫu 15/15a from them.
