@@ -1,8 +1,12 @@
 # Project Status
 
 ## Current State
-- **2026-07-17 (PM2) — LOCAL bugfixes: /clients 500 + growatt-vn calculate-all "toàn 0"; 2 commits, UNPUSHED; prod config change PREPPED not run.**
-  Two commits on local `main`, **not pushed** (origin/main still `d74e8fb`): `8e10948`, `b98156a`.
+- **2026-07-17 (PM2) — LOCAL bugfixes SHIPPED + DEPLOYED: /clients 500 + growatt-vn calculate-all "toàn 0"; prod seed config change PREPPED, not run.**
+  **PUSHED + DEPLOYED** — `origin/main` = prod `barry-co` = nightly `demo-co` = **`d769012`** (CI/CD run
+  `29529764304` green: build + 910 tests + Deploy demo; `/version` verified BOTH hosts `git_sha=d769012`,
+  build `2026-07-16T19:54Z`). 3 commits: `8e10948`, `b98156a`, `d769012` (STATUS). **Only `8e10948` is a
+  runtime change** (portfolio page hardened vs null-tax_code clients); `b98156a` = seed script NOT in the
+  Docker image (no runtime effect); `d769012` = docs.
   **(1) `/clients` + `/` → 500 "Internal Server Error" (`8e10948`).** Root cause: DH `list_clients()` returns
   test clients with an explicit `tax_code: null` (local DH `:8754` has ~60 junk `nxt-*`/`sa-test-*` clients);
   `upsert_client` (`app_state_store.py:76`) bound the NOT NULL text cols with `payload.get(col, "")`, which
@@ -35,7 +39,7 @@
   growatt-vn still has the broad regex → same blanked lots expected). Command (via `ssh tinsu`, from a checkout):
   `docker exec -i co-app-1 /app/.venv/bin/python - < scripts/seed_growatt_vn_allocation.py` (+ nightly). Vet
   first: confirm container names + check growatt-vn for locked cases (re-derivation changes stock
-  `allocation_code`). **Also PENDING:** push `8e10948`+`b98156a` when ready.
+  `allocation_code`). The seed script (`b98156a`) is already on `origin/main` — pull a checkout before running.
   **Follow-up (optional):** `DEFAULT_DESCRIPTION_REGEX` (`client_config_store.py:40`) is still the broad
   over-matching pattern — the demo `growatt` client uses it; consider calibrating the default too.
 - **2026-07-17 — #18 + #14 S1–S4 SHIPPED + DEPLOYED + growatt-vn SEEDED (prod + nightly).**
