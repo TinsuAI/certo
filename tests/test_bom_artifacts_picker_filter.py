@@ -228,6 +228,28 @@ def test_intents_modified_for_case_scoped_by_case_id(seeded):
     assert aids == {f"{seeded}_PB_v1", f"{seeded}_PB_v2", f"{seeded}_PB_v3"}
 
 
+def test_default_call_never_surfaces_modified_for_case(seeded):
+    """A 'latest' call with no case_id must never return a modified_for_case
+    artifact. Case-scoping applies on the default (intents=None) path too, not
+    only when intents explicitly lists modified_for_case — otherwise a plain
+    "give me the latest BOM" call silently wins a case-specific artifact into
+    the partition. Regression for the /bom/latest vs :batch divergence:
+    /bom/latest excludes modified_for_case outright, so the picker chain must
+    agree by scoping it out when no matching case_id is named.
+    """
+    r = _client().get(_url("PB"), params={
+        "client_id": seeded, "lifecycle": "active", "shape": "flat",
+        "latest_per_variant": "true",
+    }, headers=_bearer())
+    assert r.status_code == 200
+    aids = {it["artifact_id"] for it in r.json()["items"]}
+    # PB v3/v4/v5 are all modified_for_case; with no case_id every one is
+    # scoped out, so the manual_flat partition contributes nothing. Only the
+    # staff_edit (v1) and derived (v2) partition winners survive.
+    assert aids == {f"{seeded}_PB_v1", f"{seeded}_PB_v2"}
+    assert f"{seeded}_PB_v5" not in aids
+
+
 def test_conflicting_intent_params_400(seeded):
     r = _client().get(_url("PB"), params={
         "client_id": seeded,

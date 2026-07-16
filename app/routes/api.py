@@ -1282,16 +1282,20 @@ def _apply_bom_artifact_filters(
         out = [v for v in out if v.get("intent") in intents]
     elif intent_singular:
         out = [v for v in out if v.get("intent") == intent_singular]
-    if intents is not None and "modified_for_case" in intents:
-        # modified_for_case rows only kept for matching case_id; rows for
-        # other intents pass through untouched. Also exclude
-        # modified_for_case rows that lack context.case_id entirely.
-        def _scope_ok(v: dict) -> bool:
-            if v.get("intent") != "modified_for_case":
-                return True
-            row_case = (v.get("context") or {}).get("case_id")
-            return bool(row_case) and row_case == case_id
-        out = [v for v in out if _scope_ok(v)]
+    # modified_for_case is ALWAYS case-scoped, on every path including the
+    # default (intents=None): a case-modified artifact is only ever returned to
+    # a caller that named the matching case_id. Rows of any other intent pass
+    # through untouched. Without this the scoping was gated on the caller
+    # explicitly listing modified_for_case, so a plain "latest" call (no
+    # intents, no case_id) silently won a case-specific artifact into the
+    # partition — the /bom/latest vs :batch divergence (/bom/latest excludes
+    # modified_for_case outright; this makes the picker chain agree by scoping).
+    def _scope_ok(v: dict) -> bool:
+        if v.get("intent") != "modified_for_case":
+            return True
+        row_case = (v.get("context") or {}).get("case_id")
+        return bool(row_case) and row_case == case_id
+    out = [v for v in out if _scope_ok(v)]
     if depth == "full":
         out = [
             v for v in out
