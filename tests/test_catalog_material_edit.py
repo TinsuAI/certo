@@ -118,7 +118,7 @@ def test_edit_updates_material(setup):
         data={
             "name": "New name",
             "category": "tp",
-            "status": "under_review",
+            "status": "deprecated",
             "uom": "PIECES",
             "production_source": "nk",
             "supplier_hint": "Supplier X",
@@ -129,7 +129,7 @@ def test_edit_updates_material(setup):
     m = _material()
     assert m["name"] == "New name"
     assert m["category"] == "tp"
-    assert m["status"] == "under_review"
+    assert m["status"] == "deprecated"
     assert m["uom"] == "PIECES"
     assert m["production_source"] == "nk"
     assert m["supplier_hint"] == "Supplier X"
@@ -143,6 +143,20 @@ def test_edit_rejects_invalid_category(setup):
         follow_redirects=False,
     )
     assert r.status_code == 400
+
+
+def test_edit_rejects_under_review(setup):
+    """#49: under_review is not a legal status — the edit route is the
+    second write path into materials.status and must refuse it before the
+    DB CHECK does."""
+    c = _client(setup["admin"])
+    r = c.post(
+        f"/clients/{CLIENT}/catalog/TESTCODE/edit",
+        data={"name": "x", "category": "nvl", "status": "under_review"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 400
+    assert _material()["status"] != "under_review"
 
 
 def test_edit_403_for_read_only_staff(setup):

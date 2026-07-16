@@ -40,17 +40,11 @@
         <input type="text" name="name" placeholder="Tên hàng" required
                value="{{ candidate.sample_text[:200] if candidate.sample_text else '' }}"
                style="width: 100%; margin-bottom: 0.25rem;">
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
-          <select name="category" required>
-            {% for cat in categories %}
-              <option value="{{ cat }}" {% if cat == candidate.suggested_category %}selected{% endif %}>{{ cat }}</option>
-            {% endfor %}
-          </select>
-          <select name="status">
-            <option value="under_review">Chờ duyệt</option>
-            <option value="active">Hoạt động</option>
-          </select>
-        </div>
+        <select name="category" required style="width: 100%;">
+          {% for cat in categories %}
+            <option value="{{ cat }}" {% if cat == candidate.suggested_category %}selected{% endif %}>{{ cat }}</option>
+          {% endfor %}
+        </select>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.25rem;">
           <input type="text" name="uom" placeholder="UoM"
                  value="{{ candidate.uom or '' }}">

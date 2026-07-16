@@ -369,12 +369,9 @@ def _empty_result(row: dict, ctx: ResolverContext, *, status: str,
 def _resolved(row: dict, ctx: ResolverContext, *, code: str,
               resolution_source: str, evidence: dict, candidates: list[dict],
               confidence: str = "high",
-              review_status: str = "system_resolved",
-              status: str = "resolved") -> dict:
-    # Mig 042: status param added to support 'resolved_pending_review' for
-    # bcct_observed/under_review materials. Default 'resolved' for legacy paths.
+              review_status: str = "system_resolved") -> dict:
     out = {
-        "resolution_status": status,
+        "resolution_status": "resolved",
         "resolved_code": code,
         "bom_product_code": _bom_alias(code, ctx),
         "product_kind": _kind_for(code, ctx),
@@ -450,14 +447,6 @@ def resolve_material_identity(row: dict, *, ctx: ResolverContext) -> dict:
 
     if len(paren_validated) == 1:
         ext, cand = paren_validated[0]
-        # Mig 042: catalog rows in `under_review` status (typically bcct_observed
-        # auto-derives awaiting staff promote) resolve as `resolved_pending_review`
-        # so consumers can branch (UI shows badge, write-side may require sign-off).
-        meta = catalog.get(ext["product_code"]) or {}
-        res_status = (
-            "resolved_pending_review" if meta.get("status") == "under_review"
-            else "resolved"
-        )
         return _resolved(
             row, ctx, code=ext["product_code"],
             resolution_source="goods_name_embedded_code",
@@ -468,7 +457,6 @@ def resolve_material_identity(row: dict, *, ctx: ResolverContext) -> dict:
                 "match_rule": ext["match_rule"],
             },
             candidates=[cand],
-            status=res_status,
         )
 
     if len(paren_validated) > 1:
@@ -510,11 +498,6 @@ def resolve_material_identity(row: dict, *, ctx: ResolverContext) -> dict:
             reason="customs_code matches a BOM product directly.",
             ctx=ctx,
         )
-        meta = catalog.get(customs) or {}
-        res_status = (
-            "resolved_pending_review" if meta.get("status") == "under_review"
-            else "resolved"
-        )
         return _resolved(
             row, ctx, code=customs,
             resolution_source="structured_field",
@@ -525,7 +508,6 @@ def resolve_material_identity(row: dict, *, ctx: ResolverContext) -> dict:
                 "match_rule": "customs_code_exists_in_bom_products",
             },
             candidates=[candidate],
-            status=res_status,
         )
 
     # ── Stage 3: reviewed_line_mapping ────────────────────────────

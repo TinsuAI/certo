@@ -2,9 +2,9 @@
 
 Default predicate is `status not in ('tombstoned','inactive')` — NOT
 `status='active'`: approval is `source` promotion plus the candidates queue,
-so `under_review` and `deprecated` mark live, observed materials that CO's
-roster and name resolution depend on. An explicit `?status=` opts into any
-single status on both routes.
+so `deprecated` marks live, observed materials that CO's roster and name
+resolution depend on. An explicit `?status=` opts into any single status on
+both routes.
 
 Spec: .ai/features/2026-07-10-catalog-candidates-merge/brief.md
 """
@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from app.database import connect
 from app.main import app
 
-STATUSES = ("active", "under_review", "deprecated", "inactive", "tombstoned")
+STATUSES = ("active", "deprecated", "inactive", "tombstoned")
 
 
 @pytest.fixture(autouse=True)
@@ -60,7 +60,7 @@ def _list_codes(cid, **params):
 def test_default_list_serves_live_statuses_only(cid_all_statuses):
     codes = _list_codes(cid_all_statuses)
     # Positive pin: live statuses are present, not just "dead ones absent".
-    assert codes == {"MAT_ACTIVE", "MAT_UNDER_REVIEW", "MAT_DEPRECATED"}
+    assert codes == {"MAT_ACTIVE", "MAT_DEPRECATED"}
 
 
 def test_explicit_status_param_opts_into_dead_rows(cid_all_statuses):
@@ -81,7 +81,7 @@ def test_get_by_code_404s_on_dead_material_by_default(cid_all_statuses):
 
 
 def test_get_by_code_serves_live_statuses_by_default(cid_all_statuses):
-    for code in ("MAT_ACTIVE", "MAT_UNDER_REVIEW", "MAT_DEPRECATED"):
+    for code in ("MAT_ACTIVE", "MAT_DEPRECATED"):
         r = _get(cid_all_statuses, code)
         assert r.status_code == 200, (code, r.text)
         assert r.json()["material_code"] == code

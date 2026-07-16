@@ -214,7 +214,6 @@
     {% endif %}
   </div>
 
-  {# Mig 042 — status filter (under_review = staff queue for catalog-derive promotion). #}
   <div class="chip-row" aria-label="Status filter" style="margin-top: 0.5rem;">
     <span class="meta" style="align-self: center;">Trạng thái:</span>
     {% set qstatus = request.query_params.get('status') %}
@@ -222,8 +221,6 @@
        href="/clients/{{ client.client_id }}/catalog">Tất cả</a>
     <a class="chip {{ 'chip-active' if qstatus == 'active' else '' }}"
        href="/clients/{{ client.client_id }}/catalog?status=active">Active</a>
-    <a class="chip {{ 'chip-active' if qstatus == 'under_review' else '' }}"
-       href="/clients/{{ client.client_id }}/catalog?status=under_review">Under review</a>
     <a class="chip {{ 'chip-active' if qstatus == 'deprecated' else '' }}"
        href="/clients/{{ client.client_id }}/catalog?status=deprecated">Deprecated</a>
     <a class="meta" style="margin-left: auto;"
@@ -281,7 +278,7 @@
         {{ sort_th('category', 'Khai báo', sort=sort, sort_link=sort_link, attrs='data-col="category"') }}
         <th data-col="observed_roles" title="Vai trò hệ thống tự phát hiện từ BCCT + BOM. Khác với khai báo — đây là sự thật từ giao dịch.">Vai trò quan sát</th>
         <th data-col="source" title="Nguồn dữ liệu của row catalog: client_declared (agency upload), bcct_observed (auto từ BCCT), bom_observed (auto từ BOM), system">Nguồn</th>
-        <th data-col="status" title="Trạng thái lifecycle: active / under_review / deprecated / đã loại">Trạng thái</th>
+        <th data-col="status" title="Trạng thái lifecycle: active / deprecated / đã loại">Trạng thái</th>
         <th data-col="hq_registered" title="Đã đăng ký với cơ quan HQ?">ĐK HQ</th>
         <th data-col="observed" title="Tần suất + thời gian observed trong BCCT (live từ v_material_roles view)">Quan sát BCCT</th>
         <th data-col="btp_sourcing" title="Staff xác nhận nguồn cung BTP. Nếu khác observed_roles (vd: observed=dual nhưng staff confirm=self_produced_only) → cảnh báo conflict.">Xác nhận nguồn cung</th>
@@ -355,7 +352,6 @@
         <td data-col="status" style="vertical-align: middle; text-align: center;">
           {% set st = m.status or 'active' %}
           {% if st == 'active' %}<span class="badge badge-success">active</span>
-          {% elif st == 'under_review' %}<span class="badge badge-warn" title="Đang chờ staff review/promote">⚠ under review</span>
           {% elif st == 'deprecated' %}<span class="badge" style="opacity:.6">deprecated</span>
           {% elif st == 'tombstoned' %}<span class="badge" style="opacity:.4;text-decoration:line-through" title="đã loại — lưu lịch sử, không xóa">đã loại</span>
           {% else %}<span class="badge">{{ st }}</span>{% endif %}

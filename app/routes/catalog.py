@@ -1018,7 +1018,7 @@ async def edit_material_submit(
     auth.require_can_edit_client(user, client_id)
     if category not in CATEGORIES:
         raise HTTPException(400, f"invalid category: {category!r}")
-    if status not in {"active", "under_review", "deprecated", "tombstoned"}:
+    if status not in {"active", "deprecated", "tombstoned"}:
         raise HTTPException(400, f"invalid status: {status!r}")
     if production_source and production_source not in {"nk", "sx", "mixed", "unknown"}:
         raise HTTPException(400, f"invalid production_source: {production_source!r}")
@@ -1050,36 +1050,6 @@ async def edit_material_submit(
                             triggered_by_user_id=user.user_id)
     return RedirectResponse(
         url=f"/clients/{client_id}/catalog/{material_code}/detail?edited=1",
-        status_code=303,
-    )
-
-
-@router.post("/clients/{client_id}/catalog/{material_code:path}/promote")
-async def promote_material(request: Request, client_id: str, material_code: str):
-    """Promote an `under_review` material to `active`. Sets
-    promoted_to_declared_at + promoted_by audit trail. `source` is
-    provenance, not approval — promotion no longer rewrites it to
-    'client_declared' (#34: approving an observed code does not mean the
-    client declared it)."""
-    user = auth.require_user(request)
-    auth.require_can_edit_client(user, client_id)
-    with connect(user_id=user.user_id) as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            update hub.materials
-               set status = 'active',
-                   promoted_to_declared_at = now(),
-                   promoted_by = %s,
-                   updated_at = now()
-             where client_id = %s and material_code = %s
-               and status = 'under_review'
-            """,
-            (user.email, client_id, material_code),
-        )
-        if cur.rowcount == 0:
-            raise HTTPException(404, "material not under_review or not found")
-    return RedirectResponse(
-        url=f"/clients/{client_id}/catalog?status=under_review",
         status_code=303,
     )
 

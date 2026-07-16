@@ -37,9 +37,9 @@
       <div>
         <label for="status">Trạng thái</label>
         <select id="status" name="status" required style="width: 100%;">
-          {% set status_labels = {'active': 'active', 'under_review': 'under_review',
-                                   'deprecated': 'deprecated', 'tombstoned': 'đã loại'} %}
-          {% for s in ['active', 'under_review', 'deprecated', 'tombstoned'] %}
+          {% set status_labels = {'active': 'active', 'deprecated': 'deprecated',
+                                   'tombstoned': 'đã loại'} %}
+          {% for s in ['active', 'deprecated', 'tombstoned'] %}
             <option value="{{ s }}" {% if s == material.status %}selected{% endif %}>{{ status_labels[s] }}</option>
           {% endfor %}
         </select>
