@@ -1,6 +1,43 @@
 # Project Status
 
 ## Current State
+- **2026-07-17 (PM2) — LOCAL bugfixes: /clients 500 + growatt-vn calculate-all "toàn 0"; 2 commits, UNPUSHED; prod config change PREPPED not run.**
+  Two commits on local `main`, **not pushed** (origin/main still `d74e8fb`): `8e10948`, `b98156a`.
+  **(1) `/clients` + `/` → 500 "Internal Server Error" (`8e10948`).** Root cause: DH `list_clients()` returns
+  test clients with an explicit `tax_code: null` (local DH `:8754` has ~60 junk `nxt-*`/`sa-test-*` clients);
+  `upsert_client` (`app_state_store.py:76`) bound the NOT NULL text cols with `payload.get(col, "")`, which
+  returns `None` when the key is present-but-null → `NotNullViolation` on the first such client → the whole
+  portfolio page 500s. Fix = `payload.get(col) or ""` for name/code/status/tax_code/contact. Local-dev-only
+  today (prod clients carry real tax codes). Junk DH clients NOT cleaned (DH-side data; guardrail).
+  **(2) growatt-vn "Chạy tồn tất cả → mọi sheet 'Đã nạp BOM', toàn 0" (case `co-case-3c13e6b34eb3`).**
+  Root cause: **LOCAL dev growatt-vn was never seeded with #14 `description_regex`** — the 2026-07-17 seed hit
+  prod+nightly in-container only; local config was still `same_as_customs_code`. BOM uses dotted internal codes
+  (`001.*`, `012.*`); under `same_as_customs_code` only **25/850** match a lot → every material shortage +
+  missing-price → `calculated_sheet_status` hard-blocks to `bom_loaded` (`co_case.py:2104-2112`). NOTE local
+  lot data differs from prod: internal code lives in **`material_description`** parens (not `goods_name`),
+  34,835/38,287 rows have it. Ran `scripts/seed_growatt_vn_allocation.py` LOCALLY (→ `description_regex` + full
+  re-derivation) → 848/850 match, 3/6 sheets calculate.
+  **(3) Residual `012.0001400` = CODE-EXTRACTION error, NOT out of stock (`b98156a`).** 20 lots, tens of
+  thousands of units available. Lot descriptions carry TWO parens — a mfr part number + the internal code:
+  `...M(SCK10202MSY). Hàng mới 100%(012.0001400)`. The broad regex matched BOTH → `resolve_allocation_code`
+  (`client_config_store.py:145`) blanked it as `multiple_regex_matches`. **Fix = calibrate growatt-vn's
+  per-client `description_regex` to `\(\s*([A-Z0-9]+\.[A-Z0-9]+)\s*\)`** (single alnum·dot·alnum filling the
+  whole paren) — keeps every real shape (`012.0001400`, `B700.0141600`, `PE07.0073300`, `001.SK0002900`),
+  rejects part numbers/specs (`SCK10202MSY`, `150W`, `380-415`, `1.25-16MM2`). **848→849, 38→0 blanked, no
+  regression.** Deliberately in the **per-client config (the #14 seam), NOT the shared resolver** — user flagged
+  that hardcoding "prefer dotted" in `resolve_allocation_code` would overfit to Growatt; the ambiguity guard
+  stays intact as a general safety net. `DEFAULT_DESCRIPTION_REGEX` + other clients untouched. Seed script
+  generalized (normalizes strategy/regex/fallback, idempotent, **stdin-safe** so it runs piped in-container —
+  `scripts/` is NOT in the Docker image). Applied LOCALLY → **5/6 sheets calculate, missing_codes=[]**
+  (`PV06.0010800` = genuine `lvc_status=fail`; `PV01.0117900` = genuine `missing_bom`). 38 config/alloc/refresh
+  tests pass.
+  **PENDING (user manual):** run the calibrated seed on **prod `co-app-1` + nightly `nightly-co-app-1`** (prod
+  growatt-vn still has the broad regex → same blanked lots expected). Command (via `ssh tinsu`, from a checkout):
+  `docker exec -i co-app-1 /app/.venv/bin/python - < scripts/seed_growatt_vn_allocation.py` (+ nightly). Vet
+  first: confirm container names + check growatt-vn for locked cases (re-derivation changes stock
+  `allocation_code`). **Also PENDING:** push `8e10948`+`b98156a` when ready.
+  **Follow-up (optional):** `DEFAULT_DESCRIPTION_REGEX` (`client_config_store.py:40`) is still the broad
+  over-matching pattern — the demo `growatt` client uses it; consider calibrating the default too.
 - **2026-07-17 — #18 + #14 S1–S4 SHIPPED + DEPLOYED + growatt-vn SEEDED (prod + nightly).**
   `origin/main` = prod `barry-co` = nightly `demo-co` = **`d74e8fb`** (CI green, `/version` verified both).
   `/implement` per the #14 spec, `/tdd` per slice. 4 commits: `2479111` (#18), `0f0812f` (#14 S1–S4),
