@@ -1090,11 +1090,15 @@ def stock_for_existing_allocation_line(stock_pool: dict[str, list[dict]], materi
             return stock
     return {}
 def allocation_line_matches_stock(line: dict, stock: dict) -> bool:
+    # `source_row` (co_stock_rows PK component) identifies the lot and is
+    # strategy-invariant; `declaration_no`/`line_no` identify it on older
+    # snapshots. `allocation_code` is derived + mutable per client config, so
+    # it must NOT be a match key — a strategy change re-derives it and would
+    # otherwise orphan the saved line from its lot (#18).
     checks = [
         ("source_row", "source_row"),
         ("import_declaration_no", "import_declaration_no"),
         ("import_line_no", "line_no"),
-        ("allocation_code", "allocation_code"),
     ]
     matched = False
     for line_key, stock_key in checks:
