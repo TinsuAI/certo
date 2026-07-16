@@ -30,6 +30,19 @@ class _FakeDataHub:
             "relevant_export_declaration_types": self.relevant,
         }
 
+    def source_summary(self, _client_id: str) -> dict:
+        return {
+            "client_config": {
+                "client_id": _client_id,
+                "eligible_import_declaration_types": self.eligible,
+                "relevant_export_declaration_types": self.relevant,
+            },
+            "material_catalog": {"published_row_count": 0, "latest_version": {}},
+            "product_catalog": {"published_row_count": 0, "latest_version": {}},
+            "bcct": {"published_row_count": 0, "latest_version": {}},
+            "co_stock_row_count": 0,
+        }
+
 
 class _NestedDataHub:
     """A DH deployment that returns a nested config carrying a co_stock field CO
@@ -72,6 +85,25 @@ def test_dh_mode_saves_co_owned_allocation_strategy(_isolated_config_root):
 
     reread = service.get_client_config(client)
     assert reread["allocation_code"]["strategy"] == "description_regex"
+
+
+def test_source_summary_config_reflects_saved_co_owned_strategy(_isolated_config_root):
+    """The config PAGE and the case-context derivation both read
+    source_summary["client_config"] — it must carry the CO-owned allocation
+    strategy, not just DH's bcct + the code default. (Browser e2e caught this:
+    saves persisted via get_client_config but the page showed the default.)"""
+    client = {"id": "growatt-vn"}
+    service = DataHubPortfolioService(_FakeDataHub(eligible=("E11", "E13", "E15")))
+
+    config = service.get_client_config(client)
+    config["allocation_code"]["strategy"] = "description_regex"
+    service.save_client_config(client, config)
+
+    summary, backend = service.source_summary(client)
+    assert backend == "data-hub"
+    assert summary["client_config"]["allocation_code"]["strategy"] == "description_regex"
+    # DH bcct still overlaid in the summary config too.
+    assert summary["client_config"]["bcct"]["eligible_import_declaration_types"] == ["E11", "E13", "E15"]
 
 
 def test_dh_bcct_overlays_local_base(_isolated_config_root):

@@ -1071,13 +1071,19 @@ def test_data_hub_bom_service_prefers_latest_usable_version_over_non_flattened()
     assert workspace["latest_rows"][0]["material_code"] == "NVL-1"
 
 
-def test_data_hub_portfolio_service_uses_data_hub_source_summary():
+def test_data_hub_portfolio_service_uses_data_hub_source_summary(tmp_path, monkeypatch):
     from app.data_hub_client import DataHubPortfolioService
+
+    # source_summary["client_config"] is now partition-merged (#14): DH owns bcct,
+    # CO owns allocation_code + co_stock.lot_policy from the local store. Isolate
+    # the local config store so the merge is deterministic.
+    monkeypatch.setenv("CLIENT_CONFIG_ROOT", str(tmp_path))
+    monkeypatch.delenv("BARRY_DATABASE_URL", raising=False)
 
     class FakeDataHubClient:
         def source_summary(self, _client_id: str):
             return {
-                "client_config": {"config_version": 9, "config_hash": "hub-cfg", "co_stock": {"lot_policy": "line_level"}, "bcct": {"eligible_import_declaration_types": []}, "allocation_code": {"strategy": "same_as_customs_code"}},
+                "client_config": {"config_version": 9, "config_hash": "hub-cfg", "co_stock": {"lot_policy": "line_level"}, "bcct": {"eligible_import_declaration_types": ["E11"]}, "allocation_code": {"strategy": "same_as_customs_code"}},
                 "material_catalog": {"published_row_count": 1, "latest_version": {}},
                 "product_catalog": {"published_row_count": 1, "latest_version": {}},
                 "bcct": {"published_row_count": 2, "reviewed_row_count": 2, "latest_version": {}},
@@ -1089,7 +1095,9 @@ def test_data_hub_portfolio_service_uses_data_hub_source_summary():
     summary, backend = service.source_summary({"id": "growatt-vn"})
 
     assert backend == "data-hub"
-    assert summary["client_config"]["config_version"] == 9
+    # DH bcct overlaid; CO-owned allocation_code present from the local base.
+    assert summary["client_config"]["bcct"]["eligible_import_declaration_types"] == ["E11"]
+    assert summary["client_config"]["allocation_code"]["strategy"] == "same_as_customs_code"
     assert summary["material_catalog"]["published_row_count"] == 1
     assert summary["product_catalog"]["published_row_count"] == 1
     assert summary["bcct"]["published_row_count"] == 2

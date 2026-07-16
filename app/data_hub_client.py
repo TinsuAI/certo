@@ -644,6 +644,19 @@ def _local_config_store():
     return get_app_state_store() or client_config_store
 
 
+def _partition_merge_config(local: dict, dh: dict, client: dict) -> dict:
+    """Partition-merge a client config (#14): CO owns `allocation_code` + the
+    `co_stock.lot_policy` knob (local wins); DH owns `bcct` and supplies any other
+    co_stock field (e.g. `min_days_before_export`). Both the config page display
+    (via source_summary) and derivation (via get_client_config) go through here so
+    they agree on the CO-owned strategy."""
+    return migrate_config({
+        **local,
+        "bcct": {**(local.get("bcct") or {}), **(dh.get("bcct") or {})},
+        "co_stock": {**(dh.get("co_stock") or {}), **(local.get("co_stock") or {})},
+    }, client)
+
+
 class DataHubPortfolioService:
     def __init__(self, client: DataHubClient):
         self.data_hub = client
@@ -687,12 +700,7 @@ class DataHubPortfolioService:
         # `effective_min_gap_days` falls back to).
         local = _local_config_store().get_client_config(client)
         dh = normalize_data_hub_client_config(self.data_hub.get_client_config(client["id"]) or {}, client)
-        merged = {
-            **local,
-            "bcct": {**(local.get("bcct") or {}), **(dh.get("bcct") or {})},
-            "co_stock": {**(dh.get("co_stock") or {}), **(local.get("co_stock") or {})},
-        }
-        return migrate_config(merged, client)
+        return _partition_merge_config(local, dh, client)
 
     def save_client_config(self, client: dict, config: dict) -> dict:
         # CO-owned sections persist locally; a `bcct` change is rejected — it is
@@ -725,7 +733,14 @@ class DataHubPortfolioService:
 
     def source_summary(self, client: dict) -> tuple[dict, str]:
         summary = self.data_hub.source_summary(client["id"])
-        summary["client_config"] = normalize_data_hub_client_config(summary.get("client_config") or {}, client)
+        # Partition-merge so the config page display and the case-context
+        # derivation (both read source_summary["client_config"]) carry the CO-owned
+        # allocation_code, not just DH's bcct + the code default (#14). Reuse the
+        # DH client_config already in the summary — no extra Data Hub call.
+        dh = normalize_data_hub_client_config(summary.get("client_config") or {}, client)
+        summary["client_config"] = _partition_merge_config(
+            _local_config_store().get_client_config(client), dh, client
+        )
         # Never paginate the full import-direction BCCT just to compute co_stock_row_count.
         # On big clients (Johnson: 65k+ rows) that's the difference between a snappy
         # /clients home and a 30-60s page load. If Data Hub didn't include the count
