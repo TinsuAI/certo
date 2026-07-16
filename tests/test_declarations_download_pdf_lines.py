@@ -507,8 +507,34 @@ def test_post_get_still_works_unchanged(seeded):
     assert _page_count(r.content) == 7  # `lines` ignored on the GET
 
 
+@pytest.mark.parametrize("params,detail", [
+    # No declaration_nos AND a bad sort: the declaration_nos check runs first.
+    ({"direction": "import", "sort": "banana"}, "declaration_nos_required"),
+    # Too many nos AND a bad quality: the too-many check runs first.
+    ({"direction": "import", "declaration_nos": ",".join(f"D{i}" for i in range(501)),
+      "quality": "ultra"}, "too_many_declaration_nos"),
+    # Bad direction AND a bad sort: direction runs first.
+    ({"direction": "sideways", "declaration_nos": "DEC001", "sort": "banana"},
+     "invalid_direction"),
+])
+def test_get_error_precedence_unchanged(seeded, params, detail):
+    """The GET's validation ORDER is contract: direction → declaration_nos →
+    render options, first bad check wins. The POST shares the render-option
+    validator, and hoisting it above the declaration_nos checks silently
+    changes which `detail` CO sees when two params are bad at once. The
+    pre-existing tests miss this because each supplies exactly one bad
+    param."""
+    r = _client().get(_url(seeded), params=params)
+    assert r.status_code == 400
+    assert r.json()["detail"] == detail
+
+
 @pytest.mark.parametrize("body,detail", [
     ({"declarations": [{"declaration_no": "DEC001"}]}, "invalid_direction"),
+    # The POST applies the same order as the GET.
+    ({"direction": "import", "sort": "banana"}, "declarations_required"),
+    ({"direction": "sideways", "declarations": [], "sort": "banana"},
+     "invalid_direction"),
     ({"direction": "sideways",
       "declarations": [{"declaration_no": "DEC001"}]}, "invalid_direction"),
     ({"direction": "import"}, "declarations_required"),

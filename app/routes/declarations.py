@@ -801,15 +801,21 @@ def _safe_pdf_filename(value: str | None, *, fallback: str) -> str:
     return cleaned[:120]
 
 
-def _validate_pdf_options(
-    direction: str | None, sort: str | None,
-    quality: str | None, max_part_bytes,
-) -> tuple[str, str, int | None]:
-    """Validate the options shared by the GET (query params) and the POST
-    (JSON body), returning (sort, quality, max_part_bytes). One chain, so
-    the two surfaces cannot drift on defaults or error codes."""
+def _validate_direction(direction: str | None) -> None:
     if direction not in ("import", "export"):
         raise HTTPException(400, "invalid_direction")
+
+
+def _validate_render_options(
+    sort: str | None, quality: str | None, max_part_bytes,
+) -> tuple[str, str, int | None]:
+    """Validate the render options shared by the GET (query params) and the
+    POST (JSON body), returning (sort, quality, max_part_bytes). One chain,
+    so the two surfaces cannot drift on defaults or error codes.
+
+    Deliberately excludes `direction` and the declaration list: both
+    surfaces validate those FIRST, and which `detail` wins when two params
+    are bad at once is contract (see `_parse_pdf_query`)."""
     sort = sort or "declaration_no"
     if sort not in ("declaration_no", "registration_date"):
         raise HTTPException(400, "invalid_sort")
@@ -838,15 +844,19 @@ def _parse_pdf_query(
     max_part_bytes). Raises coded 400s matching the download.zip contract.
 
     `quality`/`max_part_bytes` are additive: omitting both reproduces the
-    original behaviour exactly."""
-    sort, quality, cap = _validate_pdf_options(
-        direction, sort, quality, max_part_bytes,
-    )
+    original behaviour exactly.
+
+    Order is contract, not taste: direction → declaration_nos → render
+    options. When two params are bad at once the FIRST check wins, and that
+    `detail` is what CO sees, so sharing `_validate_render_options` with the
+    POST must not hoist it above the declaration_nos checks."""
+    _validate_direction(direction)
     decl_nos = _parse_zip_declaration_nos(declaration_nos)
     if not decl_nos:
         raise HTTPException(400, "declaration_nos_required")
     if len(decl_nos) > _DECLARATIONS_PDF_MAX_NOS:
         raise HTTPException(400, "too_many_declaration_nos")
+    sort, quality, cap = _validate_render_options(sort, quality, max_part_bytes)
     return decl_nos, sort, quality, cap
 
 
@@ -879,20 +889,18 @@ def _parse_pdf_body(body) -> tuple[list[str], str, str, int | None,
     """Validate the POST JSON body, returning (declaration_nos, sort,
     quality, max_part_bytes, lines_by_decl).
 
-    Shares `_validate_pdf_options` with the GET, so `direction`/`sort`/
-    `quality`/`max_part_bytes` behave identically on both. `declarations`
-    replaces the GET's comma-separated `declaration_nos`, because a line map
-    is inherently per-declaration and cannot be a flat repeated param.
+    Shares `_validate_direction` + `_validate_render_options` with the GET,
+    so those params behave identically on both, and applies them in the
+    GET's order (direction → declarations → render options).
+    `declarations` replaces the GET's comma-separated `declaration_nos`,
+    because a line map is inherently per-declaration and cannot be a flat
+    repeated param.
 
     An entry with no `lines` (or `lines: []`) selects every page of that
     declaration, so a body naming no lines at all is exactly the GET."""
     if not isinstance(body, dict):
         raise HTTPException(400, "invalid_body")
-    direction = body.get("direction")
-    sort, quality, cap = _validate_pdf_options(
-        direction, body.get("sort"), body.get("quality"),
-        body.get("max_part_bytes"),
-    )
+    _validate_direction(body.get("direction"))
 
     entries = body.get("declarations")
     if not isinstance(entries, list) or not entries:
@@ -920,6 +928,9 @@ def _parse_pdf_body(body) -> tuple[list[str], str, str, int | None,
             select_all.add(decl_no)
     if len(decl_nos) > _DECLARATIONS_PDF_MAX_NOS:
         raise HTTPException(400, "too_many_declaration_nos")
+    sort, quality, cap = _validate_render_options(
+        body.get("sort"), body.get("quality"), body.get("max_part_bytes"),
+    )
 
     lines_by_decl = {
         d: ls for d, ls in lines_by_decl.items()
