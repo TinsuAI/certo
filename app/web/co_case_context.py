@@ -2828,6 +2828,9 @@ def stock_allocation_line(
             or ""
         ),
         "import_line_no": stock.get("line_no", ""),
+        # Adapter (INV-1, #20): customs_item_code (lot's customs identity) becomes the
+        # line's customs_material_code, which the lock route copies into the claim's
+        # customs_code. Kept distinct from allocation_code (the BOM-match spelling).
         "customs_material_code": stock.get("customs_item_code", ""),
         "allocation_code": stock.get("allocation_code", ""),
         "product_sequence": allocation_context.get("product_sequence", ""),

@@ -50,6 +50,8 @@ def co_stock_rows_from_bcct(
             "declaration_type": row.get("declaration_type", ""),
             "customs_item_code": row.get("item_code", ""),
             "allocation_code": allocation["allocation_code"],
+            # Overload (INV-2, #20): a stock row's material_code holds the DERIVED
+            # allocation_code (what BOM lines match), NOT the catalog/customs code.
             "material_code": allocation["allocation_code"] if usable else "",
             "allocation_code_source": allocation["source"],
             "allocation_code_status": allocation["status"],

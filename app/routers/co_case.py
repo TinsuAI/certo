@@ -202,6 +202,9 @@ def record_sheet_lock_claims(client_id: str, case_id: str, product_code: str, ca
                 "claimed_qty": line.get("allocated_qty", "0"),
                 "declaration_no": line.get("import_declaration_no", ""),
                 "line_no": line.get("import_line_no", ""),
+                # Adapter (INV-1, #20): the claim's customs_code IS the source lot's
+                # customs_item_code, carried here via the line's customs_material_code
+                # (set in stock_allocation_line). co_stock_ledger persists it 1:1.
                 "customs_code": line.get("customs_material_code", "") or line.get("customs_code", ""),
             })
     return co_stock_ledger.record_sheet_lock(client_id, case_id, product_code, allocations)

@@ -359,6 +359,8 @@ def stock_rows_from_standard(standard_rows: list[dict], config: dict) -> list[di
             "declaration_type": cell_text(r.get("declaration_type")),
             "customs_item_code": code,
             "allocation_code": alloc.get("allocation_code", ""),
+            # Overload (INV-2, #20): material_code holds the DERIVED allocation_code
+            # (BOM-match spelling), NOT the catalog/customs code — same as the BCCT path.
             "material_code": alloc.get("allocation_code", "") if usable else "",
             "allocation_code_source": alloc.get("source", ""),
             "allocation_code_status": alloc.get("status", ""),
