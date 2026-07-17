@@ -201,6 +201,45 @@ def test_accept_endpoint_inserts_material(setup):
     assert row == ("hq", "nvl", "bcct_observed")
 
 
+def test_accept_endpoint_lands_active_without_status_field(setup):
+    """#49: the form no longer carries a status field — accept lands active."""
+    _seed_bcct("D2", "NOSTAT", "NOSTAT (019.N)")
+    c = _client(setup["session_id"])
+    r = c.post(
+        f"/clients/{CLIENT}/catalog/candidates/accept",
+        data={"code": "NOSTAT", "code_kind": "hq", "name": "x",
+              "category": "nvl"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select status from hub.materials "
+            "where client_id=%s and material_code='NOSTAT'", (CLIENT,)
+        )
+        assert cur.fetchone()[0] == "active"
+
+
+def test_accept_endpoint_ignores_injected_status(setup):
+    """#49: a posted status field is not honoured — no code path writes
+    under_review."""
+    _seed_bcct("D3", "INJECT", "INJECT (019.I)")
+    c = _client(setup["session_id"])
+    r = c.post(
+        f"/clients/{CLIENT}/catalog/candidates/accept",
+        data={"code": "INJECT", "code_kind": "hq", "name": "x",
+              "category": "nvl", "status": "under_review"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "select status from hub.materials "
+            "where client_id=%s and material_code='INJECT'", (CLIENT,)
+        )
+        assert cur.fetchone()[0] == "active"
+
+
 def test_accept_endpoint_rejects_unauthorized(setup):
     _seed_bcct("D1", "X", "X (019.X)")
     no_auth = TestClient(app)

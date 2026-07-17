@@ -48,6 +48,11 @@ router = APIRouter()
 
 CATEGORIES = ["nvl", "btp_sx", "btp_nm", "tp", "ccdc"]
 
+# Statuses a user may set from the edit form, in display order. Narrower than
+# the mig-094 CHECK (which also admits `inactive`): `inactive` is storable but
+# not hand-settable. #49 removed `under_review` from both.
+EDITABLE_STATUSES = ["active", "deprecated", "tombstoned"]
+
 
 def _summarize_catalog(parsed_rows: list[dict]) -> dict:
     by_cat: dict[str, int] = {}
@@ -640,7 +645,6 @@ def _query_materials(*, client_id: str, category: str | None,
         select m.material_code, m.name, m.category,
                m.status, m.uom, m.uom as unit, m.hs_code, m.updated_at, m.provenance,
                m.btp_sourcing, m.source, m.hq_registered, m.code_kind,
-               m.promoted_to_declared_at, m.promoted_by,
                m.material_group, mgmap.item_category,
                -- inline (mirrors hub.v_material_classification) to avoid a 2nd
                -- v_material_roles aggregation on this hot list path.
@@ -997,6 +1001,7 @@ async def edit_material_form(request: Request, client_id: str, material_code: st
         {
             "client": client, "material": material,
             "categories": CATEGORIES,
+            "editable_statuses": EDITABLE_STATUSES,
             "production_sources": ["nk", "sx", "mixed", "unknown"],
             "active_root": "clients", "active_tab": "catalog",
         },
@@ -1018,7 +1023,7 @@ async def edit_material_submit(
     auth.require_can_edit_client(user, client_id)
     if category not in CATEGORIES:
         raise HTTPException(400, f"invalid category: {category!r}")
-    if status not in {"active", "under_review", "deprecated", "tombstoned"}:
+    if status not in set(EDITABLE_STATUSES):
         raise HTTPException(400, f"invalid status: {status!r}")
     if production_source and production_source not in {"nk", "sx", "mixed", "unknown"}:
         raise HTTPException(400, f"invalid production_source: {production_source!r}")
@@ -1050,36 +1055,6 @@ async def edit_material_submit(
                             triggered_by_user_id=user.user_id)
     return RedirectResponse(
         url=f"/clients/{client_id}/catalog/{material_code}/detail?edited=1",
-        status_code=303,
-    )
-
-
-@router.post("/clients/{client_id}/catalog/{material_code:path}/promote")
-async def promote_material(request: Request, client_id: str, material_code: str):
-    """Promote an `under_review` material to `active`. Sets
-    promoted_to_declared_at + promoted_by audit trail. `source` is
-    provenance, not approval — promotion no longer rewrites it to
-    'client_declared' (#34: approving an observed code does not mean the
-    client declared it)."""
-    user = auth.require_user(request)
-    auth.require_can_edit_client(user, client_id)
-    with connect(user_id=user.user_id) as conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            update hub.materials
-               set status = 'active',
-                   promoted_to_declared_at = now(),
-                   promoted_by = %s,
-                   updated_at = now()
-             where client_id = %s and material_code = %s
-               and status = 'under_review'
-            """,
-            (user.email, client_id, material_code),
-        )
-        if cur.rowcount == 0:
-            raise HTTPException(404, "material not under_review or not found")
-    return RedirectResponse(
-        url=f"/clients/{client_id}/catalog?status=under_review",
         status_code=303,
     )
 
@@ -1285,6 +1260,7 @@ async def catalog_detail(request: Request, client_id: str, material_code: str):
     return request.app.state.templates.TemplateResponse(
         request, "clients/catalog_detail.html",
         {"client": client, "material": material,
+         "editable_statuses": EDITABLE_STATUSES,
          "audit_events": audit_events, "bcct_rows": bcct_rows,
          "bcct_analysis": bcct_analysis,
          "bcct_timeline": bcct_timeline,

@@ -20,11 +20,6 @@
            ✎ Sửa
         </a>
         {% endif %}
-        {% if material.status == 'under_review' %}
-        <form method="post" action="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/promote" style="display:inline">
-          <button type="submit" class="btn-primary">↑ Duyệt → chính thức</button>
-        </form>
-        {% endif %}
         {% if material.status not in ('tombstoned',) %}
         <form method="post" action="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/tombstone" style="display:inline"
               onsubmit="return confirm('Loại mã này khỏi danh mục? (Lưu lịch sử, không xóa thật.)')">
@@ -46,7 +41,6 @@
       <span class="sum-chip"><span class="sum-k">Trạng thái</span>
         {% set st = material.status %}
         {% if st == 'active' %}<span class="badge badge-success">đang dùng</span>
-        {% elif st == 'under_review' %}<span class="badge badge-warn">⚠ chờ duyệt</span>
         {% elif st == 'deprecated' %}<span class="badge" style="opacity:.6">ngừng dùng</span>
         {% elif st == 'tombstoned' %}<span class="badge" style="opacity:.4;text-decoration:line-through">đã loại</span>
         {% else %}<span class="badge">{{ st }}</span>{% endif %}
@@ -435,7 +429,6 @@
         <tr><td><strong>Trạng thái</strong> <small class="meta mono">status</small></td><td>
             {% set st = material.status %}
             {% if st == 'active' %}<span class="badge badge-success">đang dùng</span>
-            {% elif st == 'under_review' %}<span class="badge badge-warn">⚠ chờ duyệt</span>
             {% elif st == 'deprecated' %}<span class="badge" style="opacity:.6">ngừng dùng</span>
             {% elif st == 'tombstoned' %}<span class="badge" style="opacity:.4;text-decoration:line-through" title="đã loại — lifecycle marker, lưu lịch sử không xóa">đã loại</span>
             {% else %}<span class="badge">{{ st }}</span>{% endif %}
@@ -445,9 +438,6 @@
             {% elif material.hq_registered == false %}<span class="meta">✗ Chưa ĐK HQ</span>
             {% else %}<span class="meta">— (chưa rõ)</span>{% endif %}
         </td></tr>
-        {% if material.promoted_to_declared_at %}
-        <tr><td><strong>Đã duyệt</strong> <small class="meta mono">promoted</small></td><td>{{ material.promoted_to_declared_at }} bởi <code>{{ material.promoted_by or '?' }}</code></td></tr>
-        {% endif %}
         <tr><td><strong>Nguồn BTP</strong> <small class="meta mono">btp_sourcing</small></td><td><code>{{ material.btp_sourcing or '—' }}</code></td></tr>
         <tr><td><strong>Đơn vị tính (catalog)</strong> <small class="meta mono">uom</small></td><td class="mono">{{ material.uom or '—' }}</td></tr>
         <tr><td><strong>Mã HS</strong> <small class="meta mono">hs_code</small></td><td class="mono">{{ material.hs_code or '—' }}</td></tr>
@@ -497,9 +487,9 @@
             </label>
             <label>Trạng thái
               <select name="status" required style="width: 100%;">
-                {% set status_labels = {'active': 'đang dùng', 'under_review': 'chờ duyệt',
+                {% set status_labels = {'active': 'đang dùng',
                                          'deprecated': 'ngừng dùng', 'tombstoned': 'đã loại'} %}
-                {% for s in ['active', 'under_review', 'deprecated', 'tombstoned'] %}
+                {% for s in editable_statuses %}
                   <option value="{{ s }}" {% if s == material.status %}selected{% endif %}>{{ status_labels[s] }}</option>
                 {% endfor %}
               </select>

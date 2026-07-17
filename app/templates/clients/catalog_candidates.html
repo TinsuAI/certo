@@ -318,10 +318,6 @@
                     <option value="{{ cat }}" {% if cat == c.suggested_category %}selected{% endif %}>{{ cat }}</option>
                   {% endfor %}
                 </select>
-                <select name="status" style="width: 100%; margin-bottom: 0.25rem;">
-                  <option value="under_review">Chờ duyệt</option>
-                  <option value="active">Hoạt động</option>
-                </select>
                 <input type="text" name="uom" placeholder="UoM"
                        value="{{ c.uom or '' }}"
                        style="width: 100%; margin-bottom: 0.25rem;">

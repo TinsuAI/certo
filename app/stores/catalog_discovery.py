@@ -172,7 +172,7 @@ def _auto_map(cur, client_id: str, code: str, code_kind: str) -> int:
 
 
 def accept_code(client_id: str, *, code: str, code_kind: str, actor: str,
-                name: str, category: str, status: str = "under_review",
+                name: str, category: str,
                 uom: str | None = None,
                 production_source: str | None = None,
                 supplier_hint: str | None = None,
@@ -189,11 +189,11 @@ def accept_code(client_id: str, *, code: str, code_kind: str, actor: str,
             insert into hub.materials
               (client_id, material_code, name, category, status, source,
                uom, code_kind, production_source, supplier_hint, provenance)
-            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, '{}'::jsonb)
+            values (%s, %s, %s, %s, 'active', %s, %s, %s, %s, %s, '{}'::jsonb)
             on conflict (client_id, material_code) do nothing
             returning material_code
             """,
-            (client_id, code, name, category, status, source,
+            (client_id, code, name, category, source,
              uom or None, code_kind, production_source or None,
              supplier_hint or None),
         )
@@ -208,7 +208,7 @@ def accept_code(client_id: str, *, code: str, code_kind: str, actor: str,
         n_map = _auto_map(cur, client_id, code, code_kind)
         _audit(cur, client_id, code=code, code_kind=code_kind,
                action="accept", actor=actor,
-               extra={"name": name, "category": category, "status": status,
+               extra={"name": name, "category": category,
                       "source": source, "mappings_added": n_map})
     return {"source": source, "mappings_added": n_map}
 

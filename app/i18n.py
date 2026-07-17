@@ -1231,7 +1231,6 @@ ROUTE_DETAIL_VI: dict[str, str] = {
     "upload not found": "Không tìm thấy lượt tải lên.",
     "snapshot not found": "Không tìm thấy bản chụp tồn kho.",
     "pending upload not found or expired": "Lượt tải tạm không tồn tại hoặc đã hết hạn.",
-    "material not under_review or not found": "Vật tư không ở trạng thái chờ duyệt hoặc không tồn tại.",
     "file no longer available": "Tệp không còn khả dụng.",
     "forbidden": "Không có quyền truy cập.",
     "dev only": "Chỉ dành cho tài khoản dev.",
