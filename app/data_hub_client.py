@@ -1156,7 +1156,10 @@ def normalize_data_hub_client_config(payload: dict, client: dict) -> dict:
 
 
 def normalize_material_row(row: dict) -> dict:
-    code = row.get("material_code") or row.get("customs_code", "")
+    # DH materials carry material_code (NOT NULL identity col) and never a separate
+    # customs_code/internal_code column (#22), so both fields alias to material_code.
+    # The old `or customs_code` tail was dead — customs_code is absent on material rows.
+    code = row.get("material_code") or ""
     normalized = {key: value for key, value in row.items() if key != "unit"}
     return {
         **normalized,
@@ -1187,7 +1190,11 @@ def normalize_product_row(row: dict) -> dict:
 
 
 def normalize_bcct_row(row: dict) -> dict:
-    item_code = material_identity_display_code(row) or row.get("item_code") or row.get("internal_code") or row.get("customs_code", "")
+    # item_code is the declared lot identity: prefer the DH material_identity display
+    # code, else the raw item_code, else the declared customs_code. NO internal_code
+    # link (#22) — bcct rows have no internal_code column, and preferring internal over
+    # the declared code would mis-key lots against the customs declaration.
+    item_code = material_identity_display_code(row) or row.get("item_code") or row.get("customs_code", "")
     payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
     transaction_key = row.get("transaction_key") or "||".join([
         row.get("direction", ""),
