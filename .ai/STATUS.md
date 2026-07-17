@@ -7,16 +7,18 @@ NOT pushed.** #49 removed `materials.status='under_review'` entirely (mig 094);
 `.ai/sessions/2026-07-17-under-review-removal-and-pdf-page-selection.md`.
 Earlier today's codebase audit: `.ai/sessions/2026-07-17-codebase-audit-and-bom-batch-fix.md`.
 
-> ⚠️ **`main` is 4 commits ahead of `origin/main`.** Every merge to `main`
-> auto-deploys PROD **and applies pending migrations at boot** — pushing runs
-> **migration 094** against production. Decide deliberately; see Next Steps 1.
+> ⚠️ **`main` is 10 commits ahead of `origin/main`** (8 feature/doc + 2 merges).
+> Every merge to `main` auto-deploys PROD **and applies pending migrations at
+> boot** — pushing runs **migration 094** against production. Decide
+> deliberately; see Next Steps 1.
 
 ## Current State
 
 - **Prod is healthy on `v0.21.0` / `git_sha=4b958ef`** — last session's deploy
   verified (`/version` matched, `/healthz` 200). Prod does **not** have #49/#50.
-- **Local `main` = `88c94d2`**, ahead by: `2ad2292` (merge #49), `6e02593`
-  (merge #50), `fb0c014` (review fixes), `88c94d2` (AGENTS.md baseline).
+- **Local `main` = `9e0332a`**, 10 commits ahead: `04715c2` `66d88cc` `3395e58`
+  `fb0c014` (#49) · `a821a47` `31d11cb` (#50) · `2ad2292` `6e02593` (merges) ·
+  `88c94d2` (AGENTS.md baseline) · `9e0332a` (this handoff).
 - **#49 shipped locally.** Accepting a candidate now lands `active` — it landed
   `under_review` while the bulk button beside it landed `active`, and BCCT
   ingest (unreviewed) landed `active`, so the *unreviewed* path was the more
@@ -56,7 +58,7 @@ Earlier today's codebase audit: `.ai/sessions/2026-07-17-codebase-audit-and-bom-
 
 ## Next Steps
 
-1. **Decide the push.** `main` +4 → auto-deploy PROD + **mig 094 at boot**.
+1. **Decide the push.** `main` +10 → auto-deploy PROD + **mig 094 at boot**.
    Migration flips rows before adding the constraint and was verified clean on a
    fresh DB. Consider `/security-review` first — #50 adds a new `/v1/hub`
    surface. Nothing forces urgency: #50 is inert until CO adopts it.

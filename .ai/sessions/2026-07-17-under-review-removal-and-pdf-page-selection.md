@@ -7,7 +7,7 @@ for the audit findings backlog; this log does not repeat them.
 **Entry point:** user raised three items via `/ask-matt`. Two shipped, one
 deferred.
 
-> ⚠️ **`main` is 4 commits ahead of `origin/main` and NOT pushed.** Pushing
+> ⚠️ **`main` is 10 commits ahead of `origin/main` and NOT pushed.** Pushing
 > auto-deploys PROD *and* applies migration 094 at boot. See "Open items".
 
 ---
@@ -185,7 +185,7 @@ it admits `inactive`, which is storable but must not become hand-settable.
 
 ## Open items
 
-1. **PUSH DECISION — `main` is 4 commits ahead, unpushed.** Pushing
+1. **PUSH DECISION — `main` is 10 commits ahead, unpushed.** Pushing
    auto-deploys PROD and applies **migration 094** at boot. Migration is
    idempotent-safe (flips rows before the constraint) and verified clean on a
    fresh DB. Consider `/security-review`: #50 adds a new `/v1/hub` surface.
