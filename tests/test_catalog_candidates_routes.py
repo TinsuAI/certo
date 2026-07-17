@@ -328,11 +328,13 @@ def test_filter_by_kind(setup):
 
 
 def test_bulk_accept_route_creates_materials(setup):
+    # select_all_matching=1 is the whole-filter path (#55): approve everything
+    # the filter yields, no explicit code list.
     _seed_bcct("D1", "DAUNOI", "DAUNOI (019.X)")
     _seed_bcct("D2", "DOV", "DOV (019.Y)")
     c = _client(setup["session_id"])
     r = c.post(f"/clients/{CLIENT}/catalog/candidates/bulk-accept",
-               data={}, follow_redirects=False)
+               data={"select_all_matching": "1"}, follow_redirects=False)
     assert r.status_code == 303
     assert "bulk_accepted=" in r.headers["location"]
     with connect() as conn, conn.cursor() as cur:
@@ -347,12 +349,13 @@ def test_bulk_accept_route_creates_materials(setup):
 
 
 def test_bulk_accept_respects_filter(setup):
-    # 019.X is import (nvl); a machinery-marked code would be excluded by
-    # default, so filtering to leaf=1 with no BOM yields zero.
+    # 019.X is import (nvl); filtering to leaf=1 with no BOM yields zero, so
+    # even select-all-matching accepts nothing.
     _seed_bcct("D1", "DAUNOI", "DAUNOI (019.X)")
     c = _client(setup["session_id"])
     r = c.post(f"/clients/{CLIENT}/catalog/candidates/bulk-accept",
-               data={"leaf": "1"}, follow_redirects=False)
+               data={"select_all_matching": "1", "leaf": "1"},
+               follow_redirects=False)
     assert r.status_code == 303
     assert "bulk_accepted=0" in r.headers["location"]
     with connect() as conn, conn.cursor() as cur:
@@ -372,6 +375,6 @@ def test_page_renders_bulk_button_and_filters(setup):
     _seed_bcct("D1", "DAUNOI", "DAUNOI (019.X)")
     c = _client(setup["session_id"])
     body = c.get(f"/clients/{CLIENT}/catalog/candidates").text
-    assert "mã đang lọc" in body       # the bulk button label
+    assert "mã đã chọn" in body         # the bulk button label (#55 selection)
     assert "Chỉ lá BOM đã làm phẳng" in body
     assert "Hiện mã máy móc" in body

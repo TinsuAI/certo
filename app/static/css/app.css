@@ -3423,3 +3423,28 @@ a.uom-chip.uom-chip-bad:hover { border-color: #dc2626; background: #fee2e2; }
 .tech-block > summary h3,
 .tech-block > summary h4 { margin: 0; }
 .tech-block[open] > summary { margin-bottom: 0.25rem; }
+
+/* ── Mã chờ duyệt: selection column + accept dialog (#55) ── */
+.check-col { width: 2.2rem; text-align: center; }
+.check-col input[type="checkbox"] { cursor: pointer; }
+#bulk-approve-btn[disabled] { opacity: 0.55; cursor: not-allowed; }
+
+.form-stack { display: flex; flex-direction: column; gap: 0.6rem; }
+
+dialog.accept-dialog {
+  width: min(30rem, 92vw);
+  padding: 1.1rem 1.25rem 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface, #fff);
+  color: var(--text, inherit);
+  box-shadow: var(--shadow-lg);
+}
+dialog.accept-dialog::backdrop { background: rgba(1, 4, 9, 0.45); }
+dialog.accept-dialog h3 { font-size: 1rem; }
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}

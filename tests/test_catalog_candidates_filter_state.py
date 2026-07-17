@@ -101,7 +101,9 @@ def _chips(body: str) -> list[tuple[str, str, int]]:
 
 
 def _row_count(body: str) -> int:
-    return body.count("data-code=")
+    # One selection checkbox per pending row — an unambiguous row marker
+    # (the <tr> and the accept button both also carry data-code).
+    return body.count('class="row-check"')
 
 
 def test_every_chip_count_equals_what_clicking_it_delivers(setup):
