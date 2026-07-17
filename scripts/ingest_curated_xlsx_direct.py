@@ -141,7 +141,7 @@ def main() -> int:
 
     print()
     print("Direct-ingest done. Run verify_btp_rollup.py + bootstrap_btp_roster "
-          "+ bootstrap_catalog_from_bcct next.")
+          "next. Catalog rows derive on ingest (#52) — no bootstrap step.")
     return 0
 
 
