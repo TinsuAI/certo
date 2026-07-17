@@ -1,7 +1,7 @@
 # Project Status
 
 **Date:** 2026-07-17 (fourth session) — **#53's backfill is LIVE on prod (data
-only); #54's code is committed on a branch and deployed nowhere.** The catalog
+only); #54's code is merged to LOCAL `main`, NOT pushed, deployed nowhere.** The catalog
 approval queue went **2,704 → 111 shown** on both instances. Full context:
 `.ai/sessions/2026-07-17-nb-backfill-and-catalog-filter-defects.md`. Merged-tree
 suite: **1680 passed, 16 skipped, 0 failed** (serial).
@@ -12,9 +12,10 @@ Today's other logs: the codebase audit + BOM `:batch` fix
 (`2026-07-17-under-review-removal-and-pdf-page-selection.md`). The #52 BCCT
 derive-gap session (`02377c6`, `2992623`) **left no log**.
 
-> ⚠️ **`main` is 17 commits ahead of `origin/main`**, carrying migs **094 + 095**.
-> Pushing auto-deploys PROD and applies them at boot. Branch
-> `fix/nb-two-source-backfill` (3 more commits) is **not merged**.
+> ⚠️ **`main` is 19 commits ahead of `origin/main`**, carrying migs **094 + 095**.
+> Pushing auto-deploys PROD and applies them at boot. `fix/nb-two-source-backfill`
+> is **merged into local `main`** (`ccb8e33`); merged-tree suite re-run serially:
+> **1680 passed, 16 skipped, 0 failed**.
 >
 > ⚠️ **Prod's data is ahead of its migration table.** `schema_migrations` reads
 > **093**, but `customs_code_placeholders` already contains `'..'` — mig 095 was
@@ -32,7 +33,7 @@ derive-gap session (`02377c6`, `2992623`) **left no log**.
   2,109 → **74** of 2,236. `johnson-vn` has no NB side — nothing to backfill.
   Undo handle: audit event `ops:backfill-nb-two-source-53`, `details->'codes'`
   (2,593/2,594 entries). Undo = bulk `tombstoned`, never DELETE.
-- **#54 COMMITTED, NOT DEPLOYED.** Filter chips now count in the state their own
+- **#54 MERGED to local `main`, NOT PUSHED.** Filter chips now count in the state their own
   click produces; one owner (`_filter_params` + `_filter_url_builder`) builds
   every chip / clear-link / form target. Proof:
   `.ai/features/2026-07-17-catalog-filter-state/`.
@@ -67,10 +68,11 @@ derive-gap session (`02377c6`, `2992623`) **left no log**.
 
 ## Next Steps
 
-1. **Decide the push.** `main` +17 → auto-deploys PROD + migs 094/095 at boot.
-   Then decide the merge of `fix/nb-two-source-backfill` (+3). Consider
-   `/security-review` first — #50 added a `/v1/hub` surface. Nothing forces
-   urgency; #50 is inert until CO adopts it.
+1. **Decide the push.** `main` +19 → auto-deploys PROD + migs 094/095 at boot.
+   This is now the only gate left; everything is merged and green on the merged
+   tree. Consider `/security-review` first — #50 added a `/v1/hub` surface.
+   Nothing forces urgency; #50 is inert until CO adopts it. Pushing also closes
+   #49/#50/#52/#53/#54 via their commit refs.
 2. **Resolve the Tier D/P contradiction — needs a human.**
    `docs/release-engineering.md:116` says Tier P is **not stood up** and lists
    `DATA_HUB_API_AUTH_DISABLED=1` for the tier serving `ttdatahub.tinsu.ai`;
