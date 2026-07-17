@@ -48,10 +48,30 @@ link and form target goes through it. Forms emit their hidden inputs by
 iterating `filter_params` instead of hand-listing — so a new facet cannot be
 forgotten in five places, which is what produced the defect.
 
-**Each facet counted in the state its own click produces.** `_facet_count(rows,
-kw, kind=None)` counts with that facet dropped and the rest applied. `Tất cả`
-reads `base_total = len(kind_base)` — the kind facet removed, everything else
-kept, which is exactly what clicking it delivers.
+**Each facet counted in the state its own click produces.** `_facet_rows(rows,
+kw, kind=None)` returns the rows with that facet dropped and the rest applied.
+`Tất cả` reads `base_total = len(kind_base)` — the kind facet removed,
+everything else kept, which is exactly what clicking it delivers.
+
+### «Tất cả» keeps its non-kind facets — #54's stated expectation withdrawn
+
+#54 said `?leaf=1` should make the chip read 2,704. It still reads 2,106, on
+purpose. The chip sits in the kind row, so it drops *kind* and keeps the rest;
+clicking it delivers 2,106, so the number is truthful. Making it read 2,704
+would mean clearing every facet — which re-introduces **Defect 2's own
+mechanism** ("tick leaf → click «Tất cả» → leaf silently discarded → wider"),
+differing only in which chip does it. Every clear affordance here is scoped and
+labelled («✗ Xóa», «✗ nguồn», «✗ Bỏ lọc»); a full reset would be a new labelled
+control, not an overload of a kind chip.
+
+**Accepted cost:** with a rule-bar filter on, the unfiltered total appears
+nowhere. #54's "the operator has no denominator" rationale is unmet. There is
+no operator — `bom_audit_events` holds one human decision ever against 1,207
+script accepts and 0 rejections, and Tier P is not stood up
+(`docs/release-engineering.md:116`). Revisit with a real operator or a second
+dual-code client: add a passive total to the header or rule bar (a denominator
+is information, not navigation) and keep the chip as-is. Amendment recorded on
+#54.
 
 ## The invariant
 

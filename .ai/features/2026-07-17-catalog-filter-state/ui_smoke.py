@@ -10,16 +10,18 @@ Run with the dev server up on :8754:
 from __future__ import annotations
 
 import asyncio
+import os
 import re
-import sys
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from playwright.async_api import async_playwright
 
 BASE = "http://127.0.0.1:8754"
 CLIENT = "growatt-vn"
+EMAIL = os.environ.get("DATA_HUB_SEED_EMAIL", "admin@data-hub.local")
+# Mirrors app/main.py's seed default. `.env` is not auto-loaded (nothing in
+# app/ imports dotenv), so a value set only there never reaches either side.
+PASSWORD = os.environ.get("DATA_HUB_SEED_PASSWORD", "admin123")
 OUT = Path(__file__).resolve().parent / "screenshots"
 OUT.mkdir(parents=True, exist_ok=True)
 
@@ -43,8 +45,8 @@ async def main() -> int:
         ])
         page = await ctx.new_page()
         await page.goto(f"{BASE}/login")
-        await page.fill('input[name="email"]', "admin@data-hub.local")
-        await page.fill('input[name="password"]', "admin123")
+        await page.fill('input[name="email"]', EMAIL)
+        await page.fill('input[name="password"]', PASSWORD)
         await page.click('button[type="submit"]')
         await page.wait_for_load_state("networkidle")
 

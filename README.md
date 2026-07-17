@@ -74,12 +74,19 @@ POST /api/v1/hub/products/{product_code}/bom/proposals
 
 ## Environment
 
+Read from the process environment. **`.env` is not auto-loaded** — nothing in
+`app/` imports dotenv, so a value written only into `.env` never reaches the
+app. Export it, or prefix the command.
+
 ```
 DATA_HUB_DATABASE_URL=postgresql:///data_hub
 DATA_HUB_FILES_ROOT=data/files
 DATA_HUB_SEED_EMAIL=admin@data-hub.local
-DATA_HUB_SEED_PASSWORD=local_test_password
+DATA_HUB_SEED_PASSWORD=admin123
 ```
+
+`DATA_HUB_SEED_*` apply only when `hub.users` is empty — the admin is seeded
+once and never re-passworded, so changing these later needs a re-seed.
 
 ## Documentation
 

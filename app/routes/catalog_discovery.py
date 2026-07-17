@@ -133,10 +133,10 @@ def _filter_url_builder(client_id: str, params: dict[str, str]):
     return url
 
 
-def _facet_count(rows, kw: dict, **dropped) -> list[dict]:
-    """Rows matching the filter with `dropped` facets removed. A chip's number
-    must be what clicking it delivers, so it is counted in the state that click
-    produces — not in some unrelated state (#54)."""
+def _facet_rows(rows, kw: dict, **dropped) -> list[dict]:
+    """Rows matching the filter with `dropped` facets removed — i.e. the state
+    clicking that control lands on. Counting a chip here rather than in some
+    unrelated state is what makes its number the number it delivers (#54)."""
     return _filter_pending(rows, **{**kw, **dropped})
 
 
@@ -162,6 +162,7 @@ async def candidates_page(
         (r for r in rows if r["status"] == "rejected"),
         key=lambda r: r["code"],
     )
+    params = _filter_params(kw)
     pending = _filter_pending(rows, **kw)
     pending.sort(key=lambda r: (-(r["observed_count"] or 0), r["code"]))
     pending_total = len(pending)
@@ -172,18 +173,18 @@ async def candidates_page(
 
     # Each facet is counted with its own filter dropped and the rest applied —
     # exactly the state clicking that control lands on.
-    kind_base = _facet_count(rows, kw, kind=None)
+    kind_base = _facet_rows(rows, kw, kind=None)
     counts: dict[str, int] = {}
     for r in kind_base:
         counts[r["code_kind"]] = counts.get(r["code_kind"], 0) + 1
     source_counts: dict[str, int] = {}
-    for r in _facet_count(rows, kw, source=None):
+    for r in _facet_rows(rows, kw, source=None):
         for s in (r["sources"] or []):
             source_counts[s] = source_counts.get(s, 0) + 1
-    leaf_count = sum(1 for r in _facet_count(rows, kw, leaf=False)
+    leaf_count = sum(1 for r in _facet_rows(rows, kw, leaf=False)
                      if r.get("leaf_in_flattened_bom"))
     machinery_total = sum(
-        1 for r in _facet_count(rows, kw, show_machinery=True)
+        1 for r in _facet_rows(rows, kw, show_machinery=True)
         if r.get("customs_relevance") == "excluded_non_material")
     # A short sample of the codes the bulk button would act on.
     bulk_sample = [r["code"] for r in pending[:5]]
@@ -198,8 +199,8 @@ async def candidates_page(
             "pending": page,
             "pending_total": pending_total,
             "base_total": len(kind_base),
-            "filter_params": _filter_params(kw),
-            "filter_url": _filter_url_builder(client_id, _filter_params(kw)),
+            "filter_params": params,
+            "filter_url": _filter_url_builder(client_id, params),
             "leaf_count": leaf_count,
             "machinery_total": machinery_total,
             "rejected": rejected,
