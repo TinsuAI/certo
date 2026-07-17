@@ -48,6 +48,11 @@ router = APIRouter()
 
 CATEGORIES = ["nvl", "btp_sx", "btp_nm", "tp", "ccdc"]
 
+# Statuses a user may set from the edit form, in display order. Narrower than
+# the mig-094 CHECK (which also admits `inactive`): `inactive` is storable but
+# not hand-settable. #49 removed `under_review` from both.
+EDITABLE_STATUSES = ["active", "deprecated", "tombstoned"]
+
 
 def _summarize_catalog(parsed_rows: list[dict]) -> dict:
     by_cat: dict[str, int] = {}
@@ -640,7 +645,6 @@ def _query_materials(*, client_id: str, category: str | None,
         select m.material_code, m.name, m.category,
                m.status, m.uom, m.uom as unit, m.hs_code, m.updated_at, m.provenance,
                m.btp_sourcing, m.source, m.hq_registered, m.code_kind,
-               m.promoted_to_declared_at, m.promoted_by,
                m.material_group, mgmap.item_category,
                -- inline (mirrors hub.v_material_classification) to avoid a 2nd
                -- v_material_roles aggregation on this hot list path.
@@ -997,6 +1001,7 @@ async def edit_material_form(request: Request, client_id: str, material_code: st
         {
             "client": client, "material": material,
             "categories": CATEGORIES,
+            "editable_statuses": EDITABLE_STATUSES,
             "production_sources": ["nk", "sx", "mixed", "unknown"],
             "active_root": "clients", "active_tab": "catalog",
         },
@@ -1018,7 +1023,7 @@ async def edit_material_submit(
     auth.require_can_edit_client(user, client_id)
     if category not in CATEGORIES:
         raise HTTPException(400, f"invalid category: {category!r}")
-    if status not in {"active", "deprecated", "tombstoned"}:
+    if status not in set(EDITABLE_STATUSES):
         raise HTTPException(400, f"invalid status: {status!r}")
     if production_source and production_source not in {"nk", "sx", "mixed", "unknown"}:
         raise HTTPException(400, f"invalid production_source: {production_source!r}")
@@ -1255,6 +1260,7 @@ async def catalog_detail(request: Request, client_id: str, material_code: str):
     return request.app.state.templates.TemplateResponse(
         request, "clients/catalog_detail.html",
         {"client": client, "material": material,
+         "editable_statuses": EDITABLE_STATUSES,
          "audit_events": audit_events, "bcct_rows": bcct_rows,
          "bcct_analysis": bcct_analysis,
          "bcct_timeline": bcct_timeline,

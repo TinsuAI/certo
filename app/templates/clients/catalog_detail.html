@@ -438,9 +438,6 @@
             {% elif material.hq_registered == false %}<span class="meta">✗ Chưa ĐK HQ</span>
             {% else %}<span class="meta">— (chưa rõ)</span>{% endif %}
         </td></tr>
-        {% if material.promoted_to_declared_at %}
-        <tr><td><strong>Đã duyệt</strong> <small class="meta mono">promoted</small></td><td>{{ material.promoted_to_declared_at }} bởi <code>{{ material.promoted_by or '?' }}</code></td></tr>
-        {% endif %}
         <tr><td><strong>Nguồn BTP</strong> <small class="meta mono">btp_sourcing</small></td><td><code>{{ material.btp_sourcing or '—' }}</code></td></tr>
         <tr><td><strong>Đơn vị tính (catalog)</strong> <small class="meta mono">uom</small></td><td class="mono">{{ material.uom or '—' }}</td></tr>
         <tr><td><strong>Mã HS</strong> <small class="meta mono">hs_code</small></td><td class="mono">{{ material.hs_code or '—' }}</td></tr>
@@ -492,7 +489,7 @@
               <select name="status" required style="width: 100%;">
                 {% set status_labels = {'active': 'đang dùng',
                                          'deprecated': 'ngừng dùng', 'tombstoned': 'đã loại'} %}
-                {% for s in ['active', 'deprecated', 'tombstoned'] %}
+                {% for s in editable_statuses %}
                   <option value="{{ s }}" {% if s == material.status %}selected{% endif %}>{{ status_labels[s] }}</option>
                 {% endfor %}
               </select>

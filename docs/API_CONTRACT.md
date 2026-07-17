@@ -374,7 +374,7 @@ List materials.
 Query params:
 - `client_id`: required.
 - `category`: optional.
-- `status`: optional. **Default (param omitted): rows with `status` in (`tombstoned`, `inactive`) are excluded** — the alive-only view. `under_review` and `deprecated` rows stay in the response: `status` is lifecycle state, not the approval gate (approval is `source` promotion plus the candidates queue). An explicit `?status=<value>` selects exactly that one status — including `tombstoned` / `inactive`.
+- `status`: optional. **Default (param omitted): rows with `status` in (`tombstoned`, `inactive`) are excluded** — the alive-only view. `deprecated` rows stay in the response: `status` is lifecycle state, not the approval gate (approval is `source` promotion plus the candidates queue). An explicit `?status=<value>` selects exactly that one status — including `tombstoned` / `inactive`. Legal values are `active`, `deprecated`, `tombstoned`, `inactive` (`under_review` was removed in #49).
 - `cursor`: optional.
 - `limit`: optional, default 200, max 1000.
 

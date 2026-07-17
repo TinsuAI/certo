@@ -470,9 +470,9 @@ _MATERIALS_SELECT_WITH_ROLES = """
 
 def _status_filter_sql(status: str | None, params: list) -> str:
     """Issue #31: alive-only by default — NOT `='active'`: approval is
-    `source` promotion + the candidates queue, so `under_review` and
-    `deprecated` mark live materials CO depends on. An explicit `?status=`
-    selects exactly that one status."""
+    `source` promotion + the candidates queue, so `deprecated` marks a live
+    material CO depends on. An explicit `?status=` selects exactly that one
+    status. (#49 dropped `under_review`; the default set is unchanged.)"""
     if status:
         params.append(status)
         return " and m.status = %s"

@@ -10,6 +10,9 @@ phiên bản theo [SemVer](https://semver.org/).
 > hành đã đóng gói tại thời điểm đó.
 
 ## [Unreleased]
+### Sửa
+- **Duyệt một mã ở trang "Mã chờ duyệt" nay vào thẳng danh mục ở trạng thái «Hoạt động»:** trước đây nút duyệt từng mã đưa mã vào danh mục ở trạng thái «Chờ duyệt», trong khi nút «Duyệt N mã đang lọc» ngay bên cạnh lại đưa vào «Hoạt động» — hai nút trên cùng một trang cho ra hai kết quả khác nhau. Nghịch lý hơn: mã tự ghi nhận từ tờ khai (không ai xem xét) vào thẳng «Hoạt động», còn mã do người dùng chủ động duyệt lại phải chờ duyệt thêm một lần nữa ở trang chi tiết — lối thoát duy nhất là bấm vào từng mã một. Trạng thái «Chờ duyệt» nay được bỏ hẳn: việc duyệt đã nằm ở chính trang "Mã chờ duyệt", không cần thêm một cửa duyệt thứ hai. Trạng thái hợp lệ còn `active` / `deprecated` / `tombstoned` / `inactive`. Refs #49.
+
 ### API
 - **Sửa: lệnh lấy BOM "mới nhất" hàng loạt không còn lẫn bản sửa theo hồ sơ CO:** `POST /v1/hub/products/bom/artifacts:batch` và `GET /v1/hub/products/{mã}/bom/artifacts` khi gọi mặc định (không truyền `intents`/`case_id`) trước đây có thể trả về một bản BOM `modified_for_case` (bản sửa riêng cho một hồ sơ CO) làm bản "mới nhất" của sản phẩm — lệch với `GET /v1/hub/products/{mã}/bom/latest` vốn luôn loại bản này. Nay bản `modified_for_case` luôn bị giới hạn theo `case_id`: chỉ trả về khi người gọi nêu đúng hồ sơ, nên lệnh lấy "mới nhất" không kèm hồ sơ sẽ không bao giờ nhận nhầm bản sửa theo hồ sơ. Ứng dụng đồng hành (CO) không bị ảnh hưởng vì luôn gọi kèm `intents` + `case_id`. Chi tiết: `docs/API_CHANGELOG.md` (2026-07-17, Additive). Refs #47.
 

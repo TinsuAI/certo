@@ -14,6 +14,26 @@ Only `Breaking:` headings trigger notifications to `dev`/`admin` users (CO + BCQ
 
 ## Entries
 
+## 2026-07-17 — Cosmetic: `under_review` removed from the materials status set (#49)
+
+No consumer impact — filed Cosmetic rather than Breaking because no sister app
+must update code (grep: zero `under_review` / `resolved_pending_review` hits in
+CO and BCQT). Response bytes are unchanged: every live row is `active`.
+
+- `GET /v1/hub/materials` and `/materials/{customs_code}` — `status` can no
+  longer return `under_review`. Legal values are now `active`, `deprecated`,
+  `tombstoned`, `inactive` (`db/migrations/094` enforces this in a CHECK). The
+  alive-only default (`not in ('tombstoned','inactive')`) is unchanged in
+  meaning. `?status=under_review` now matches nothing instead of erroring.
+- BCCT material-identity payload — `resolution_status` can no longer return
+  `resolved_pending_review`; a resolved material is always `resolved`. CO's
+  `data_hub_client.py:1118` accepts both values, so the removed one simply
+  stops matching; the reference there is now dead and can be dropped whenever
+  CO is next touched.
+- Supersedes the 2026-07-11 entry below, which recorded `under_review` as a
+  live status served to sister apps. That entry stays as written — it was
+  true on that date.
+
 ## 2026-07-17 — Additive: modified_for_case is always case-scoped on the default path (fixes #47)
 
 Silent — no sister-app code change needed. CO already passes explicit

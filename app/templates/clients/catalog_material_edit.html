@@ -39,7 +39,7 @@
         <select id="status" name="status" required style="width: 100%;">
           {% set status_labels = {'active': 'active', 'deprecated': 'deprecated',
                                    'tombstoned': 'đã loại'} %}
-          {% for s in ['active', 'deprecated', 'tombstoned'] %}
+          {% for s in editable_statuses %}
             <option value="{{ s }}" {% if s == material.status %}selected{% endif %}>{{ status_labels[s] }}</option>
           {% endfor %}
         </select>

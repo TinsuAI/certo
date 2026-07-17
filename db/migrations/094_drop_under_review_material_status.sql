@@ -1,4 +1,5 @@
--- 094 — remove `under_review` from hub.materials.status (issue #49).
+-- 094_drop_under_review_material_status.sql
+-- Catalog (#49): remove `under_review` from hub.materials.status.
 --
 -- Mig 042 line 124 admitted `under_review` to support the catalog_derive
 -- wizard, abandoned in the 2026-05-09 pivot. It became a dead end: accepting

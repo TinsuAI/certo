@@ -91,3 +91,21 @@ refinements from the same session: the suppression key is `(client_id, code)`
 `hub.bcct_nb_codes` also stores the unified self-link (extracted code equal to
 the row's `customs_code`), which is how the function detects the NB==HQ case
 without re-running the regex.
+
+## Amendment (2026-07-17, #49 — `under_review` removed for real)
+
+The first rejected alternative above is now enforced, not merely declined.
+`under_review` survived in `materials.status` as a leftover of the abandoned
+`catalog_derive` wizard: accepting one candidate wrote it, while the bulk
+button beside it wrote `active`, and BCCT ingest — which nobody reviews —
+wrote `active` too. So the unreviewed path produced the more trusted state.
+
+Migration 094 drops the value from the CHECK (`active | deprecated |
+tombstoned | inactive`). The `promote_material` route, the `?status=under_review`
+chip, the status badges, and the resolver's `resolution_status='resolved_pending_review'`
+are all deleted. `promoted_to_declared_at` / `promoted_by` are retained but no
+longer read.
+
+This closes the gap the ADR's own reasoning predicted — "leak to CO (which
+copies `status` through and never filters on it)" was true right up until #49.
+Sister apps: `.ai/sister-app-notes/2026-07-17-under-review-removed.md`.
