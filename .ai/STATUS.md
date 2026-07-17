@@ -1,134 +1,112 @@
 # Project Status
 
-**Date:** 2026-07-11 — **Catalog rework COMPLETE (phases 0–5):** #30 (PR
-#41), #32 (PR #42), #33 (PR #43), #34 (PR #44), and **#35 bulk approval**
-(PR #45, merge `297f775`). All merged, deployed, prod-verified, and
-shipped as **release `v0.21.0`** (commit `d58e4e8`, tag `v0.21.0`).
-Session logs: `.ai/sessions/2026-07-11-catalog-phases-0-2-3-4.md` and
-`.ai/sessions/2026-07-11-catalog-bulk-approval.md`.
+**Date:** 2026-07-17 (second session) — **Two features merged to LOCAL `main`,
+NOT pushed.** #49 removed `materials.status='under_review'` entirely (mig 094);
+#50 added page-selective declarations PDF export for CO dossiers. Merged suite:
+**1670 passed, 16 skipped, 0 failed** (serial). Full context:
+`.ai/sessions/2026-07-17-under-review-removal-and-pdf-page-selection.md`.
+Earlier today's codebase audit: `.ai/sessions/2026-07-17-codebase-audit-and-bom-batch-fix.md`.
 
-**2026-07-13 backlog triage (no code changed):** verified all open issues
-vs HEAD (`cb52b24`), closed 5 done/superseded — #17, #18, #20, #22
-(completed), #23 (superseded by `app/routes/_mapping_flow.py`) — and filed
-**#46** (BCCT by-codes lookup seq-scans `bcct_rows`, no `upper(customs_code)`
-index; CO calls it in prod). Full relevance map + reasoning in the Matt-variant
-handoff `/tmp/handoff-datahub-backlog-triage-2026-07-13.md`.
+> ⚠️ **`main` is 4 commits ahead of `origin/main`.** Every merge to `main`
+> auto-deploys PROD **and applies pending migrations at boot** — pushing runs
+> **migration 094** against production. Decide deliberately; see Next Steps 1.
 
 ## Current State
 
-- **Prod healthy — on `v0.21.0`, verified 2026-07-11 ~15:53Z.**
-  `ttdatahub.tinsu.ai/version` → `version=0.21.0`, `git_sha=d58e4e8`;
-  `/healthz` 200. mig 093 applied at boot. Prod oracle unchanged from #34:
-  `hub.catalog_discovery('growatt-vn')` pending = 3,306, `bcct_nb_codes` =
-  35,349. **No bulk-accept executed against prod** — the button is live
-  for an operator to press.
-- **Release `v0.21.0` (2026-07-11)** bundles catalog phases 0–5.
-  `pyproject.toml` + `uv.lock` = 0.21.0; CHANGELOG `[Unreleased]` rolled
-  to `## [0.21.0] — 2026-07-11`; tag pushed; `/whats-new` renders it.
-  `[Unreleased]` is now empty.
-- **#35 bulk approval live:** discovery page has filter-as-rule (leaf /
-  source chips / observed_count / machinery toggle) + «Duyệt N mã đang
-  lọc». mig 093 = D9 trigger guarded by `hub.bulk_load` GUC +
-  `hub.materials_propagate_bulk` (batched staleness, parity-tested).
-  Growatt leaf rule → 2,156 approvable. Deviation flagged (not certified):
-  source filter is single-select, not multi-select `sources[]`.
-- **customs_relevance still lives in 3 places** (view + 2 inline mirrors,
-  parity-tested) — unchanged by #35, which only reads/filters it.
-- **The catalog now has ADR-0001's three homes:** pending =
-  `hub.catalog_discovery(client)` set-returning SQL function (mig 092,
-  ~0.6–1.3s/client, page 1.8s live); rejected = `hub.catalog_rejections`
-  (by string, ships in promotion bundle); accepted = `hub.materials` row
-  (source derived from originating stream). No candidate_id anywhere —
-  routes/templates key on (code, code_kind).
-- **Machinery marking live:** placeholder-only codes (207 Growatt) carry
-  `customs_relevance='excluded_non_material'` through all three surfaces
-  (view + 2 inline mirrors, parity-tested) and through the discovery
-  output for #35's default filter. Deviation from issue text (207/11 vs
-  210/8): 3 direct-declared codes spared by design — user has not
-  explicitly certified, see session log decision 1.
-- **`hub.bcct_nb_codes`** (mig 091, widened mig 092): persisted paren
-  extraction incl. unified self-links; delete-and-rebuild ~2-3s; triggers =
-  BCCT apply, 6 rule-edit routes, promotion import, «Làm mới» button, boot
-  backfill-if-empty. `v_material_roles` (6th def) joins it — paren-only NB
-  codes finally show observations (A.5 closed; `material_observations.py`
-  deleted).
-- Full suite green: **1591 passed, 16 skipped**.
-- Dev server on :8754 runs merged main code (left running).
+- **Prod is healthy on `v0.21.0` / `git_sha=4b958ef`** — last session's deploy
+  verified (`/version` matched, `/healthz` 200). Prod does **not** have #49/#50.
+- **Local `main` = `88c94d2`**, ahead by: `2ad2292` (merge #49), `6e02593`
+  (merge #50), `fb0c014` (review fixes), `88c94d2` (AGENTS.md baseline).
+- **#49 shipped locally.** Accepting a candidate now lands `active` — it landed
+  `under_review` while the bulk button beside it landed `active`, and BCCT
+  ingest (unreviewed) landed `active`, so the *unreviewed* path was the more
+  trusted one. Mig 094: `active | deprecated | tombstoned | inactive`. Deleted
+  `promote_material`, the `?status=under_review` chip, badges, and the
+  resolver's `resolved_pending_review`. **Mig 094 is already applied to the
+  shared dev DB.**
+- **#50 shipped locally, UNUSED.** `POST /v1/hub/clients/{cid}/declarations/download.pdf`
+  takes a per-declaration line map; prints framing pages + only cited goods
+  pages. Measured 262 pages/978KB → 22 pages/326KB on a 5-declaration dossier.
+  **CO has not adopted it** — still calls the GET, still gets all pages.
+- **Version still `0.21.0`** — now three `[Unreleased]` entries (#47, #49, #50).
+- **Sister-app impact of #49: none.** Zero `under_review` /
+  `resolved_pending_review` consumers in CO or BCQT (grepped). CO's
+  `data_hub_client.py:1118` holds a now-dead reference that still works.
+
+## Recent Changes
+
+- `db/migrations/094_drop_under_review_material_status.sql` — new.
+- `app/routes/catalog_discovery.py`, `app/stores/catalog_discovery.py` — accept
+  path hardcodes `'active'`; status form field + `VALID_STATUSES` gone.
+- `app/routes/catalog.py` — `promote_material` deleted; `/edit` now 400s on
+  `under_review` (would have been a **500 CheckViolation**); `EDITABLE_STATUSES`
+  constant; dead `promoted_*` columns no longer selected.
+- `app/resolvers/bcct_material_identity.py` — `resolved_pending_review` gone.
+- `app/declarations_pdf.py`, `app/routes/declarations.py`, `app/routes/api.py` —
+  page selection + POST route + `X-Lines-Missing-Nos`.
+- `tests/test_declarations_download_pdf_lines.py` (new, 703 lines),
+  `tests/test_materials_status_check.py` (new).
+- `docs/API_CONTRACT.md` edited in place; `CHANGELOG.md` + `docs/API_CHANGELOG.md`
+  got **new** entries (historical ones left as written — they were true then).
+- `.ai/sister-app-notes/2026-07-17-under-review-removed.md` + INDEX row.
+- `docs/adr/0001-*.md` — amendment: #49 executes the alternative it rejected.
+- `AGENTS.md` — pytest baseline was `219 passed` (off ~7x), now dated
+  `~1670 passed, 16 skipped (2026-07-17)`; documents the shared-DB hazard.
+- Issues **#49**, **#50** closed by the merges. **#51** filed (see below).
 
 ## Next Steps
 
-1. **Decide #37** (user, ready-for-human): dead materials in CO's BCCT
-   identity payload (`bcct_material_identity.py:120-133`) — hide (apply
-   #31 predicate) vs document-and-keep.
-2. **#35 follow-up:** source filter multi-select (`sources[]`) — decide
-   if wanted (deferred, PR #45 note).
-3. Housekeeping: `docs/agency-staff-guide` branch (385-line VN guide,
-   nowhere else) — PR or drop; `v0.19.0` tag absent; prod Postgres
-   collation-version mismatch (REINDEX + REFRESH COLLATION VERSION in a
-   maintenance window — data-integrity investigation, not quick).
-4. **Open backlog after 2026-07-13 triage** (verified vs HEAD; trust code,
-   not issue text). Real work, ranked: **#16** A.4.2 substitute XLSX bulk
-   upload (only P1/client_confirmed, genuinely unbuilt — no `substitutes/
-   upload` route), **#37** (item 1 above), **#46** by-codes index (prod
-   perf, CO calls it live; land before #25 soak), **#26** C.2 flip auth
-   strict-by-default (prod strict is a hand-set DB row only — code default
-   still permissive, fallback branch still in `_require_token`), **#28-D3**
-   float `normalized_hash` drift + **#28-D5** SAP indented-walk L4→L2
-   level-skip mis-bind (both correctness), **#29-a** CSRF absent on all POST
-   (security — needs `/security-review`). Lower/partial: #15 (only
-   sourcing-drift left), #21 (variant field / roster auto-bootstrap / preview
-   shape badge / Playwright), #14 (per-role toggle UI only), #27
-   (code_mappings + client_config history + revert endpoint + CI DELETE-lint),
-   #24 (CO adopted service JWTs; BCQT has no DH consumer yet).
-   Deferred-by-design: #19 B.0b, #28-D8, #29-b/c, #25 (gated on #46).
+1. **Decide the push.** `main` +4 → auto-deploy PROD + **mig 094 at boot**.
+   Migration flips rows before adding the constraint and was verified clean on a
+   fresh DB. Consider `/security-review` first — #50 adds a new `/v1/hub`
+   surface. Nothing forces urgency: #50 is inert until CO adopts it.
+2. **Decide the release cut.** Three `[Unreleased]` entries now; bigger than the
+   `v0.21.1` last session contemplated.
+3. **CO adoption of #50** — one callsite,
+   `barry-CO-main/app/routers/co_case.py:1500-1512`, stops discarding
+   `lines[*].line_no` from `case_tkx_tkn_summary`. **No sister-app note written
+   for #50 yet** (only #49 got one).
+4. **#2 — candidates bulk-approve UI redesign. DEFERRED; premise changed.** #49
+   removed half the incoherence. **Look at the page before redesigning.** Likely
+   remaining complaint is the *model*: "the filter IS the rule" — no checkboxes,
+   no per-row selection, so you cannot approve 5 and skip the 6th. Needs
+   `/grill-with-docs` in a **fresh** context window (user-typed only).
+5. **Still open from the audit session** (unchanged, see that log): file the
+   unfiled findings **C3** `/v1/hub/products` 50-row truncation, **S2** no
+   rate-limit on `/login`+`/v1/auth/token`, **S3** parser-rule stored SQLi,
+   **C8** UI preset-create 500. Ranked work: **#26/S1** `/v1/hub` fails OPEN on
+   fresh/restored DB → **C3** → **#46** by-codes index (CONCURRENTLY,
+   out-of-band — NOT a boot migration) → **S2/S3**.
+6. **#51** — Danh Mục upload with a status column raises CheckViolation.
+   `STATUS_MAP` emits `pending`/`discontinued`, illegal since **mig 042** — 52
+   migrations of latent breakage. Needs a decision on which legal status each
+   label maps to.
+7. **Comprehension thread** — 4 of ~5 load-bearing seams remain for guided
+   walkthroughs: `/v1/hub` auth gate, migrate-at-boot pipeline, staleness
+   triggers, ingest/hash path.
 
 ## Notes for Next AI Session
 
-- **Read this file and the last 2-3 session summaries BEFORE touching
-  anything.**
-- **customs_relevance lives in 3 places** — `hub.v_material_classification`
-  + inline mirrors in `app/routes/api.py` (`_MATERIALS_SELECT_WITH_ROLES`)
-  and `app/routes/catalog.py` (`_query_materials`).
-  `tests/test_customs_relevance_parity.py` locks them; touch all three or
-  the parity test goes red.
-- **Discovery router registers BEFORE catalog in main.py** — its fixed
-  `/catalog/candidates/*` paths must beat catalog's
-  `{material_code:path}` patterns. Don't reorder.
-- **Editing an applied migration locally:** delete its
-  `hub.schema_migrations` row, drop the object, re-run
-  `apply_migrations()`; after any 092 re-apply, refill via
-  `backfill_if_empty()` (092 truncates `bcct_nb_codes`).
-- **`create or replace function` must start from the LATEST prior
-  definition, not the original.** The D9 insert trigger
-  (`materials_propagate_on_insert`) was defined in mig 058, redefined in
-  069 + 071, guarded in 093. A rebuild from an older body silently
-  reverts later logic — `git grep "function hub.<name>"` for every def
-  first. Parity/behaviour tests catch it (069/071 has_drift_remaining).
-- **Batching around a per-row AFTER trigger:** `SET LOCAL
-  hub.bulk_load='on'` no-ops the D9 trigger (mig 093 guard); run
-  `hub.materials_propagate_bulk(client, codes)` once after the bulk
-  insert. Works for a non-superuser and is pool-safe (txn-scoped).
-  `session_replication_role` needs superuser (denied); `DISABLE TRIGGER`
-  needs ownership + ACCESS EXCLUSIVE lock.
-- **Multi-referenced CTEs in views are materialized** — client predicates
-  do NOT push down. EXPLAIN first; prefer a set-returning function
-  parameterized by client (the `hub.catalog_discovery` precedent).
-- **Restarting the dev server:** `pkill -9 -f "uvicorn app.main:app --host
-  127.0.0.1 --port 8754"` kills the master but its 4 workers keep the port.
-  Then `kill -9` the PIDs from `fuser 8754/tcp`, confirm `fuser` exits 1,
-  then launch `exec uv run uvicorn app.main:app --host 127.0.0.1 --port
-  8754 --workers 4` as a background task. Don't touch :8001/:8014.
-- **Auth surfaces split:** `/v1/auth` public, `/v1/hub` guarded; error
-  responses centralized in `app/main.py` handlers; never widen refresh
-  scope; single-use consume pattern for sso codes/refresh (see
-  2026-07-10/11 session logs).
-- **Merge auto-deploys prod** (runs migs at boot via lifespan + backfills).
-  Update CHANGELOG before merging; API_CHANGELOG only if `/v1/hub` surface
-  changed (this session: no API surface change). `[skip ci]` for docs-only
-  pushes to main.
-- **After `gh pr merge`: `git fetch` then `git merge --ff-only origin/main`.**
-- **Real-data E2E auth on dev:** admin password is `admin123` after any
-  suite run (conftest resets it).
-- **Pre-existing dirty tree is NOT from recent sessions — leave alone:**
-  `M .ai/BACKLOG.md`; untracked `.ai/sessions/*` (old ones),
-  `docs/training/*`, `scripts/*`.
+- **Read this + both 2026-07-17 session logs.** The audit log holds the ranked
+  Tier 1-3 findings; the under_review/PDF log holds the #49/#50 decisions and
+  the two mechanisms (`<NN>` marker; why NVL-code matching was rejected).
+- **Run pytest serially** (`-p no:randomly`, one session at a time). The suite
+  hits the **shared** dev DB, so (a) concurrent runs invent phantom failures and
+  (b) **a migration on one branch reds every other branch including `main`** —
+  deterministic, survives re-run, looks exactly like real breakage. A worktree
+  isolates files, **not** the DB. Only the merged tree is a trustworthy gate.
+  Memory: `feedback_test_db_shared_across_branches`.
+- **Do not re-derive #50's mechanism.** The ECUS form prints `<01>`, `<02>` per
+  goods page; a page with no marker is header/trailer (count **varies** — some
+  declarations are `[1,2]`, others `[1,2,3,54]`) and is always kept. Matching
+  NVL codes instead was tested and rejected: `IC` matched 24 of 52 pages.
+- **The audit's "verified CLEAN" list still stands** — don't re-audit migration
+  chains, JWT/SSO, SQLi surface, customs_relevance parity.
+- **Advisor agent must run on model `fable`** (memory `feedback_advisor_runs_fable`).
+- **User is time-constrained** — delegates, but wants the mechanism briefed, no
+  black box. Does NOT want to code by hand. Keep him in the loop on load-bearing
+  seams and on anything outward-facing.
+- **Prod psql:** `docker exec data-hub-db-1 psql -U hub -d data_hub` (role
+  `hub`). Prod runs Docker, not systemd. Docs-only commits use `[skip ci]`.
+- Dev server on :8754 was left running; it holds **stale code** (no `--reload`)
+  — restart it before any manual UI check.
