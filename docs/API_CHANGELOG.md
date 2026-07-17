@@ -14,6 +14,32 @@ Only `Breaking:` headings trigger notifications to `dev`/`admin` users (CO + BCQ
 
 ## Entries
 
+## 2026-07-17 — Additive: page-selective declarations PDF export (#50)
+
+New method on an existing path; opt-in. The `GET` is untouched and its body
+stays byte-identical, so no sister-app code change is needed until CO adopts
+the `POST`.
+
+- `POST /v1/hub/clients/{client_id}/declarations/download.pdf` is new. Body
+  `{direction, declarations: [{declaration_no, lines?}], sort?, quality?,
+  max_part_bytes?, filename?}`. Scope `hub:read`, same auth as the `GET`.
+- Prints each declaration's framing pages + only the goods pages whose line
+  number is listed in `lines`. A real Growatt import declaration is 52-54
+  pages for 50 goods lines, so a dossier citing a few lines drops ~90% of the
+  pages. This — not `quality=compact` — is the fix for Ecosys's ~2 MB limit,
+  because merged size is page-count driven.
+- `lines` omitted or `[]` on an entry → ALL pages of that declaration, so a
+  body naming no lines is exactly the `GET`. `lines` is POST-only; the `GET`
+  ignores it.
+- New additive response header `X-Lines-Missing-Nos` — `declNo:lineNo` pairs
+  for requested lines that matched no page. Present only when non-empty
+  (mirrors `X-Pdf-Oversize-Nos`). Requested lines are never silently dropped.
+- New `400`s, POST only: `invalid_body`, `declarations_required`,
+  `invalid_lines`.
+- Selection runs before `compact` and before `max_part_bytes` splitting.
+  `RENDER_VERSION` is unchanged — the render cache keys on the source `.xls`
+  sha256 and selection is post-render filtering, so cached renders stay valid.
+
 ## 2026-07-17 — Cosmetic: `under_review` removed from the materials status set (#49)
 
 No consumer impact — filed Cosmetic rather than Breaking because no sister app
@@ -33,7 +59,6 @@ CO and BCQT). Response bytes are unchanged: every live row is `active`.
 - Supersedes the 2026-07-11 entry below, which recorded `under_review` as a
   live status served to sister apps. That entry stays as written — it was
   true on that date.
-
 ## 2026-07-17 — Additive: modified_for_case is always case-scoped on the default path (fixes #47)
 
 Silent — no sister-app code change needed. CO already passes explicit

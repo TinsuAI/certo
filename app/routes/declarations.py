@@ -801,22 +801,21 @@ def _safe_pdf_filename(value: str | None, *, fallback: str) -> str:
     return cleaned[:120]
 
 
-def _parse_pdf_query(
-    direction: str | None, declaration_nos: str | None, sort: str | None,
-    quality: str | None = None, max_part_bytes: str | None = None,
-) -> tuple[list[str], str, str, int | None]:
-    """Validate query params, returning (declaration_nos, sort, quality,
-    max_part_bytes). Raises coded 400s matching the download.zip contract.
-
-    `quality`/`max_part_bytes` are additive: omitting both reproduces the
-    original behaviour exactly."""
+def _validate_direction(direction: str | None) -> None:
     if direction not in ("import", "export"):
         raise HTTPException(400, "invalid_direction")
-    decl_nos = _parse_zip_declaration_nos(declaration_nos)
-    if not decl_nos:
-        raise HTTPException(400, "declaration_nos_required")
-    if len(decl_nos) > _DECLARATIONS_PDF_MAX_NOS:
-        raise HTTPException(400, "too_many_declaration_nos")
+
+
+def _validate_render_options(
+    sort: str | None, quality: str | None, max_part_bytes,
+) -> tuple[str, str, int | None]:
+    """Validate the render options shared by the GET (query params) and the
+    POST (JSON body), returning (sort, quality, max_part_bytes). One chain,
+    so the two surfaces cannot drift on defaults or error codes.
+
+    Deliberately excludes `direction` and the declaration list: both
+    surfaces validate those FIRST, and which `detail` wins when two params
+    are bad at once is contract (see `_parse_pdf_query`)."""
     sort = sort or "declaration_no"
     if sort not in ("declaration_no", "registration_date"):
         raise HTTPException(400, "invalid_sort")
@@ -825,13 +824,119 @@ def _parse_pdf_query(
         raise HTTPException(400, "invalid_quality")
     cap: int | None = None
     if max_part_bytes is not None and str(max_part_bytes).strip() != "":
+        # bool is an int subclass; `max_part_bytes: true` is not a size.
+        if isinstance(max_part_bytes, bool):
+            raise HTTPException(400, "invalid_max_part_bytes")
         try:
             cap = int(max_part_bytes)
         except (TypeError, ValueError):
             raise HTTPException(400, "invalid_max_part_bytes")
         if cap <= 0:
             raise HTTPException(400, "invalid_max_part_bytes")
+    return sort, quality, cap
+
+
+def _parse_pdf_query(
+    direction: str | None, declaration_nos: str | None, sort: str | None,
+    quality: str | None = None, max_part_bytes: str | None = None,
+) -> tuple[list[str], str, str, int | None]:
+    """Validate query params, returning (declaration_nos, sort, quality,
+    max_part_bytes). Raises coded 400s matching the download.zip contract.
+
+    `quality`/`max_part_bytes` are additive: omitting both reproduces the
+    original behaviour exactly.
+
+    Order is contract, not taste: direction → declaration_nos → render
+    options. When two params are bad at once the FIRST check wins, and that
+    `detail` is what CO sees, so sharing `_validate_render_options` with the
+    POST must not hoist it above the declaration_nos checks."""
+    _validate_direction(direction)
+    decl_nos = _parse_zip_declaration_nos(declaration_nos)
+    if not decl_nos:
+        raise HTTPException(400, "declaration_nos_required")
+    if len(decl_nos) > _DECLARATIONS_PDF_MAX_NOS:
+        raise HTTPException(400, "too_many_declaration_nos")
+    sort, quality, cap = _validate_render_options(sort, quality, max_part_bytes)
     return decl_nos, sort, quality, cap
+
+
+# VNACCS caps a declaration at 50 goods lines; allow 3 digits because the
+# marker regex reads up to `<999>` and a client's form may renumber.
+_DECLARATIONS_PDF_MIN_LINE = 1
+_DECLARATIONS_PDF_MAX_LINE = 999
+
+
+def _parse_lines(raw) -> set[int]:
+    """Validate one entry's `lines`. Omitted/empty → empty set, meaning ALL
+    pages for that declaration (the never-drop-evidence fallback)."""
+    if raw is None:
+        return set()
+    if not isinstance(raw, list):
+        raise HTTPException(400, "invalid_lines")
+    out: set[int] = set()
+    for v in raw:
+        # bool is an int subclass; `lines: [true]` is not a line number.
+        if not isinstance(v, int) or isinstance(v, bool):
+            raise HTTPException(400, "invalid_lines")
+        if not (_DECLARATIONS_PDF_MIN_LINE <= v <= _DECLARATIONS_PDF_MAX_LINE):
+            raise HTTPException(400, "invalid_lines")
+        out.add(v)
+    return out
+
+
+def _parse_pdf_body(body) -> tuple[list[str], str, str, int | None,
+                                   dict[str, set[int]]]:
+    """Validate the POST JSON body, returning (declaration_nos, sort,
+    quality, max_part_bytes, lines_by_decl).
+
+    Shares `_validate_direction` + `_validate_render_options` with the GET,
+    so those params behave identically on both, and applies them in the
+    GET's order (direction → declarations → render options).
+    `declarations` replaces the GET's comma-separated `declaration_nos`,
+    because a line map is inherently per-declaration and cannot be a flat
+    repeated param.
+
+    An entry with no `lines` (or `lines: []`) selects every page of that
+    declaration, so a body naming no lines at all is exactly the GET."""
+    if not isinstance(body, dict):
+        raise HTTPException(400, "invalid_body")
+    _validate_direction(body.get("direction"))
+
+    entries = body.get("declarations")
+    if not isinstance(entries, list) or not entries:
+        raise HTTPException(400, "declarations_required")
+
+    decl_nos: list[str] = []          # dedup, order-preserving (as the GET)
+    lines_by_decl: dict[str, set[int]] = {}
+    select_all: set[str] = set()      # a bare entry — keep every page
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise HTTPException(400, "declarations_required")
+        decl_no = entry.get("declaration_no")
+        if not isinstance(decl_no, str) or not decl_no.strip():
+            raise HTTPException(400, "declarations_required")
+        decl_no = decl_no.strip()
+        lines = _parse_lines(entry.get("lines"))
+        if decl_no not in lines_by_decl:
+            decl_nos.append(decl_no)
+            lines_by_decl[decl_no] = set()
+        # A repeated declaration unions its line sets; a bare entry (all
+        # pages) always wins, so a duplicate cannot narrow it.
+        if lines:
+            lines_by_decl[decl_no] |= lines
+        else:
+            select_all.add(decl_no)
+    if len(decl_nos) > _DECLARATIONS_PDF_MAX_NOS:
+        raise HTTPException(400, "too_many_declaration_nos")
+    sort, quality, cap = _validate_render_options(
+        body.get("sort"), body.get("quality"), body.get("max_part_bytes"),
+    )
+
+    lines_by_decl = {
+        d: ls for d, ls in lines_by_decl.items()
+        if ls and d not in select_all
+    }
+    return decl_nos, sort, quality, cap, lines_by_decl
 
 
 def _order_declarations(
@@ -859,6 +964,7 @@ def _build_declarations_pdf_response(
     *, client_id: str, direction: str, requested: list[str],
     sort: str, filename: str | None,
     quality: str = "print", max_part_bytes: int | None = None,
+    lines_by_decl: dict[str, set[int]] | None = None,
 ):
     """Render + merge the requested declarations and stream the result
     from a temp file (bounded memory), with the X-Declarations-*
@@ -867,7 +973,11 @@ def _build_declarations_pdf_response(
     Output is one `application/pdf` unless `max_part_bytes` is set, in
     which case it is an `application/zip` of declaration-boundary parts
     each ≤ the cap. New X-Render-*/X-Pdf-* headers are additive; omitting
-    `quality` + `max_part_bytes` reproduces the original response."""
+    `quality` + `max_part_bytes` reproduces the original response.
+
+    `lines_by_decl` (POST only) restricts each declaration to its framing
+    pages + the named goods lines; lines that matched no page come back in
+    `X-Lines-Missing-Nos`. Omitting it reproduces the original response."""
     import shutil
     import tempfile
     import time
@@ -896,6 +1006,7 @@ def _build_declarations_pdf_response(
             files_by_decl=files_by_decl, backend=get_backend(),
             dest_dir=tmpdir, quality=quality, max_part_bytes=max_part_bytes,
             part_stem=f"declarations_{client_id}_{direction}",
+            lines_by_decl=lines_by_decl,
         )
     except Exception:
         shutil.rmtree(tmpdir, ignore_errors=True)
@@ -910,9 +1021,12 @@ def _build_declarations_pdf_response(
     # Header values are latin-1 encoded by Starlette; declaration_nos are
     # user-supplied, so coerce the echoed lists to a safe encoding rather
     # than risk a 500 on an exotic character.
-    missing_hdr = ",".join(result.missing_nos[:50]).encode(
-        "latin-1", "replace",
-    ).decode("latin-1")
+    def _hdr_list(values: list[str]) -> str:
+        return ",".join(values[:50]).encode(
+            "latin-1", "replace",
+        ).decode("latin-1")
+
+    missing_hdr = _hdr_list(result.missing_nos)
     headers = {
         "content-disposition": f'attachment; filename="{out_name}"',
         "X-Declarations-Requested": str(result.requested),
@@ -928,9 +1042,11 @@ def _build_declarations_pdf_response(
         "X-Pdf-Quality": COMPACT_VERSION if quality == "compact" else "print",
     }
     if result.oversize_nos:
-        headers["X-Pdf-Oversize-Nos"] = ",".join(
-            result.oversize_nos[:50]
-        ).encode("latin-1", "replace").decode("latin-1")
+        headers["X-Pdf-Oversize-Nos"] = _hdr_list(result.oversize_nos)
+    # Additive + present only when a requested line matched no page, mirroring
+    # X-Pdf-Oversize-Nos. Never silently drop a line the caller asked for.
+    if result.missing_line_nos:
+        headers["X-Lines-Missing-Nos"] = _hdr_list(result.missing_line_nos)
     return FileResponse(
         path=str(result.path), media_type=result.media_type,
         headers=headers,

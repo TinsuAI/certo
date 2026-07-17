@@ -2417,6 +2417,56 @@ async def api_download_declarations_pdf(
     )
 
 
+@router.post("/clients/{client_id}/declarations/download.pdf")
+async def api_download_declarations_pdf_selective(
+    client_id: str,
+    request: Request,
+    authorization: str | None = Header(None),
+):
+    """Page-selective sibling of the GET above: prints each declaration's
+    header/trailer pages + ONLY the goods pages a CO dossier cites.
+
+    A real Growatt import declaration is 52-54 pages for 50 goods lines
+    (VNACCS caps 50 dòng/TK) — roughly one line per page — so a dossier
+    citing a few lines wastes ~90% of the pages. It is also the only lever
+    that fits Ecosys's ~2 MB limit: merged size is page-COUNT-driven, which
+    `quality=compact` cannot solve. See `app.declarations_pdf`'s page
+    selection section for the marker rule and its validation.
+
+    Body: `{direction, declarations: [{declaration_no, lines?}], sort?,
+    quality?, max_part_bytes?, filename?}`. Omitting `lines` on an entry
+    prints ALL of that declaration's pages, so this endpoint is a strict
+    superset of the GET — which stays exactly as-is. Requested lines that
+    match no page come back in `X-Lines-Missing-Nos`; every other header is
+    the GET's. Selection applies before `compact` and before splitting.
+
+    POST because the line map is per-declaration (not expressible as a flat
+    repeated param) and at the 500-declaration cap a URL encoding runs ~12KB,
+    over nginx's default 8KB `large_client_header_buffers`. Read-only and
+    idempotent, like `POST /products/bom/artifacts:batch`; nothing caches
+    these responses (`app.main._no_store_sensitive` forces `no-store` on
+    `/v1/hub`). Auth is the GET's: user JWT or service token, scope
+    `hub:read`.
+    """
+    from app.routes.declarations import (
+        _build_declarations_pdf_response, _parse_pdf_body,
+    )
+    claims = _require_token(authorization)  # default scope hub:read
+    _require_can_view_client(claims, client_id)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "invalid_body")
+    decl_nos, sort, quality, cap, lines_by_decl = _parse_pdf_body(body)
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+    return _build_declarations_pdf_response(
+        client_id=client_id, direction=body.get("direction"),
+        requested=decl_nos, sort=sort, filename=body.get("filename"),
+        quality=quality, max_part_bytes=cap, lines_by_decl=lines_by_decl,
+    )
+
+
 # ── NXT + year-end inventory tier (settlement inputs for BCQT) ──────────
 
 def _parse_iso_date(s: str | None):
