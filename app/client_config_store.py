@@ -126,30 +126,30 @@ def resolve_allocation_code(row: dict, config: dict) -> dict:
     identity = row.get("material_identity") if isinstance(row.get("material_identity"), dict) else {}
     identity_internal_code = cell_text(identity.get("internal_code"))
     if identity_internal_code:
-        return resolved_code(identity_internal_code, "material_identity", "high")
+        return _resolved_allocation(identity_internal_code, "material_identity", "high")
 
     allocation = config["allocation_code"]
     item_code = cell_text(row.get("item_code"))
     strategy = allocation.get("strategy")
     if strategy == "same_as_customs_code":
-        return resolved_code(item_code, "strategy_customs", "high")
+        return _resolved_allocation(item_code, "strategy_customs", "high")
     if strategy == "manual_review":
-        return review_code("manual_review", "manual")
+        return _review_allocation("manual_review", "manual")
 
     pattern = re.compile(allocation.get("description_regex") or "")
     matches = [match for match in pattern.findall(cell_text(row.get("description"))) if cell_text(match)]
     matches = [cell_text(match[0] if isinstance(match, tuple) else match) for match in matches]
     unique_matches = list(dict.fromkeys(matches))
     if len(unique_matches) == 1:
-        return resolved_code(unique_matches[0], "strategy_regex", "high")
+        return _resolved_allocation(unique_matches[0], "strategy_regex", "high")
     if len(unique_matches) > 1:
-        return review_code("multiple_regex_matches")
+        return _review_allocation("multiple_regex_matches")
     if allocation.get("fallback") == "same_as_customs_code":
-        return resolved_code(item_code, "fallback_customs", "low")
-    return review_code("no_regex_match")
+        return _resolved_allocation(item_code, "fallback_customs", "low")
+    return _review_allocation("no_regex_match")
 
 
-def resolved_code(code: str, source: str, confidence: str) -> dict:
+def _resolved_allocation(code: str, source: str, confidence: str) -> dict:
     # `source` = provenance, `confidence` = quality ordinal only — the
     # primary-vs-fallback distinction lives in `source`, not `confidence`.
     # Value-set: GLOSSARY "Material & lot codes"; invariants pinned by
@@ -163,7 +163,7 @@ def resolved_code(code: str, source: str, confidence: str) -> dict:
     }
 
 
-def review_code(reason: str, source: str = "") -> dict:
+def _review_allocation(reason: str, source: str = "") -> dict:
     return {
         "allocation_code": "",
         "source": source,
