@@ -20,12 +20,15 @@ def cur():
 
 
 def test_seeded_clients_have_dot_placeholder(cur):
+    # Growatt also writes '..' on one 2022 line (mig 095, #52). Migration and
+    # app/seed.py must agree, or an existing DB and a fresh one disagree
+    # forever — the migration cannot see clients that seed creates later.
     cur.execute(
         "select client_id, customs_code_placeholders from hub.clients "
         "where client_id in ('growatt-vn', 'johnson-vn') order by client_id",
     )
     rows = dict(cur.fetchall())
-    assert rows == {"growatt-vn": ["."], "johnson-vn": ["."]}
+    assert rows == {"growatt-vn": [".", ".."], "johnson-vn": ["."]}
 
 
 def test_new_client_defaults_to_no_placeholders(cur):

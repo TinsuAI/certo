@@ -728,6 +728,10 @@ def _stash_pending(*, client_id: str, upload_id: str, parsed: list[dict],
     return pending_id
 
 
+def _customs_codes_in(rows: list[dict]) -> set[str]:
+    return {c for r in rows if (c := r.get("customs_code"))}
+
+
 def _apply_bcct_rows(*, client_id: str, rows: list[dict], upload_id: str | None,
                     client: dict, orphans_to_delete: list[dict],
                     user_id: str | None) -> int:
@@ -740,11 +744,7 @@ def _apply_bcct_rows(*, client_id: str, rows: list[dict], upload_id: str | None,
     """
     from app.stores.provenance import derive_from_bcct, unregistered_seen_count
 
-    touched_codes: set[str] = set()
-    for r in rows:
-        c = r.get("customs_code")
-        if c:
-            touched_codes.add(c)
+    touched_codes = _customs_codes_in(rows)
 
     unreg_before = 0
     unreg_after = 0
@@ -1128,15 +1128,36 @@ def _years(client_id: str) -> list[int]:
 
 def _insert_bcct(*, client_id: str, rows: list[dict],
                  upload_id: str | None, client: dict, user_id: str | None = None) -> int:
-    """Insert BCCT rows. Opens its own connection. For multi-step apply
-    paths (e.g. confirm flow that also DELETEs orphans), call
-    `_insert_bcct_with_cursor` directly to share the transaction."""
+    """Insert BCCT rows and derive the catalog rows their codes name.
+
+    Opens its own connection; the derive shares that transaction. For
+    multi-step apply paths (e.g. confirm flow that also DELETEs orphans),
+    call `_insert_bcct_with_cursor` directly to share the transaction —
+    `_apply_bcct_rows` does, and derives itself, so the web path does not
+    derive twice.
+
+    Deriving here and not only in `_apply_bcct_rows` is issue #52: ad-hoc
+    ingest scripts call this wrapper, and without the derive they leave
+    declared HQ codes with no material row.
+
+    Still narrower than `_apply_bcct_rows`, deliberately (#52): this does not
+    rebuild `hub.bcct_nb_codes` and does not fire the unregistered-code
+    alarm, so an ad-hoc ingest through here leaves NB extraction stale until
+    the next apply through the web route.
+    """
+    from app.stores.provenance import derive_from_bcct
+
     with connect(user_id=user_id) as conn:
         with conn.cursor() as cur:
-            return _insert_bcct_with_cursor(
+            n = _insert_bcct_with_cursor(
                 cur, client_id=client_id, rows=rows,
                 upload_id=upload_id, client=client,
             )
+            touched = _customs_codes_in(rows)
+            if touched:
+                derive_from_bcct(cur, client_id=client_id,
+                                 customs_codes=touched)
+            return n
 
 
 def _insert_bcct_with_cursor(cur, *, client_id: str, rows: list[dict],
