@@ -252,22 +252,19 @@ async def bulk_accept(
     else:
         chosen = set(codes)
         matching = [r for r in filtered if r["code"] in chosen]
-    if not matching:
-        return RedirectResponse(
-            url=(f"/clients/{client_id}/catalog/candidates"
-                 f"?bulk_accepted=0&bulk_skipped=0"),
-            status_code=303,
+    if matching:
+        result = bulk_accept_codes(
+            client_id, rows=matching, actor=user.email,
+            predicate={**{k: v for k, v in kw.items() if v},
+                       "selection": "all_matching" if _truthy(select_all_matching)
+                       else "explicit"},
         )
-    result = bulk_accept_codes(
-        client_id, rows=matching, actor=user.email,
-        predicate={**{k: v for k, v in kw.items() if v},
-                   "selection": "all_matching" if _truthy(select_all_matching)
-                   else "explicit"},
-    )
+        accepted, skipped = result["accepted"], result["skipped"]
+    else:
+        accepted, skipped = 0, 0
     return RedirectResponse(
         url=(f"/clients/{client_id}/catalog/candidates"
-             f"?bulk_accepted={result['accepted']}"
-             f"&bulk_skipped={result['skipped']}"),
+             f"?bulk_accepted={accepted}&bulk_skipped={skipped}"),
         status_code=303,
     )
 

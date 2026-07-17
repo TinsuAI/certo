@@ -103,17 +103,6 @@
     });
   }
 
-  // When select-all-matching is active, the explicit row checkboxes must not
-  // also post — the server would intersect them and shrink the set. Uncheck
-  // them at submit so only the flag travels.
-  form.addEventListener("submit", function () {
-    if (allMatching()) {
-      rowChecks.forEach(function (cb) {
-        cb.checked = false;
-      });
-    }
-  });
-
   // ── Single-row accept dialog ──────────────────────────────────────────────
   var dialog = document.getElementById("accept-dialog");
   if (dialog) {
