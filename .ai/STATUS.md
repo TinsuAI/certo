@@ -1,6 +1,31 @@
 # Project Status
 
 ## Current State
+- **2026-07-17 (PM3) — CODE-VOCAB BATCH #18–#22 FULLY CLOSED + USER GUIDE SHIPPED. `TinsuAI/co` = 0 open issues.**
+  `origin/main` = prod `barry-co` = nightly `demo-co` = **`dacb70d`** (CI green; `/version` verified BOTH:
+  prod build `05:57:52Z`, nightly `05:58:23Z`). 4 new commits this session; full suite **932 pass / 14 skip**.
+  Session: `.ai/sessions/2026-07-17-code-vocab-19-20-22-close-and-user-guide.md`.
+  **User guide (`c1d8d9c`)** — VI operator guide `docs/huong-dan-su-dung/` (README + PDF + 22 screenshots),
+  CO + Data Hub end-to-end, fictional `Demo Furniture Co.` (no agency data). Repro tooling under
+  `.ai/features/2026-06-20-co-datahub-user-guide/` (was built 2026-06-20, untracked → committed now).
+  **#19 (`acb135d`) — NARROW-CLOSED, task 1 only.** Renamed module-private `resolved_code`/`review_code`
+  → `_resolved_allocation`/`_review_allocation` (3-owner token collision). Tasks 2 (return-shape prefix) +
+  3 (`bom_product_code`→`product_code` locals) DROPPED — task 2 would rewrite #21's just-canonicalized
+  value-set; task 3 unsafe where both codes coexist as distinct BOM-match keys (`co_case_context.py:839,911,987`).
+  **#20 (`daf1732`)** — `tests/test_code_identity_invariants.py` (4) pins INV-1 (claim.customs_code ==
+  source lot.customs_item_code) + INV-2 (`co_stock_rows.material_code` = derived allocation_code, NOT catalog)
+  + adapter/overload comments at 4 sites (issue line numbers had drifted).
+  **#22 (`dacb70d`) — INVESTIGATION → keep all 3 DH→CO normalize fallbacks; remove 2 DEAD links + pin contract.**
+  Verified vs LIVE local DH (`psql data_hub`, `hub.*`): johnson-vn 13,131 materials / 60,173 stock rows
+  (declared==internal, all collapse), growatt-vn 457 / 38,287 (33,748 declared≠internal → `item_code`=DECLARED,
+  not internal). Erasures need row shapes the DH SCHEMA can't produce (material w/ only customs_code; bcct w/
+  internal_code). Dropped `normalize_bcct_row` `or internal_code` (mis-ordered) + `normalize_material_row` dead
+  `or customs_code`. Zero behavior change → NO re-derivation (corrects the issue's #14-S3 hedge).
+  `tests/test_dh_normalization_fallbacks.py` (10, 3 layers: growatt/johnson/contract).
+  **#21 (`5838d2c`, pre-session) + #15/#16/#17** — all CLOSED (code already shipped; issues closed this session).
+  **STILL PENDING (user-manual, unchanged):** (1) run calibrated growatt-vn regex seed
+  (`scripts/seed_growatt_vn_allocation.py`, `b98156a`) on prod + nightly — applied LOCALLY only; prod/nightly
+  still broad regex. (2) flag Mingjie VN + Minghui VN on growatt-vn suppliers screen.
 - **2026-07-17 (PM2) — LOCAL bugfixes SHIPPED + DEPLOYED: /clients 500 + growatt-vn calculate-all "toàn 0"; prod seed config change PREPPED, not run.**
   **PUSHED + DEPLOYED** — `origin/main` = prod `barry-co` = nightly `demo-co` = **`d769012`** (CI/CD run
   `29529764304` green: build + 910 tests + Deploy demo; `/version` verified BOTH hosts `git_sha=d769012`,
@@ -329,23 +354,18 @@
   via 5 parallel agents) — **NOT pushed yet**. See session `2026-06-19-backlog-status-reconciliation.md`.
 
 ## Next Steps (priority order)
-0000. **#14 S1–S4 + #18 DONE + DEPLOYED + SEEDED 2026-07-17 (`origin/main`=`d74e8fb`; see Current State).**
-   growatt-vn onboarded (`description_regex`) on prod + nightly. Remaining code-vocab batch:
-   (a) **`/implement` #19 (T2)** safe helper renames + return-shape unification, `ready-for-agent`, independent.
-   (b) **`/implement` #20 (T3)** invariant tests (claim.customs_code == lot.customs_item_code; stock-row
-   material_code == allocation_code) + adapter-boundary docs, `ready-for-agent`. (c) **#21 (T4)**
-   allocation_code `_source`/`_confidence`/`_status` cleanup — **now UNBLOCKED** (rode on #14's S3
-   re-derivation, which shipped). (d) **#22 (T6)** DH→CO fallback — still needs a human keep/tighten/remove
-   decision first, NOT agent-ready. **STILL PENDING:** flag 2 NCC on growatt-vn (Current State).
-   **Do NOT re-litigate the #14 design** — ownership-partition shipped as specified.
-000. **`/implement` #15, #16, #17** (GitHub, `ready-for-agent`, độc lập — fresh context mỗi vé,
-   `gh issue view <n>`): #15 NCC tên dài → horizontal scroll (wrap/truncate cột tên);
-   #16 search box màn NCC (match theo supplier_key normalize, không dấu); #17 client-tabs
-   bị ẩn ở case view (`active == "co-case"` trong `_client_nav.html`) → cho hiện cùng step nav.
-000b. **User actions:** flag 2 NCC prod (xem Current State) + quyết #14 (đề xuất: option 2
-   CO-side allocation override trên client overlay, precedent `bang_ke_overrides`; hỏi agency
-   trước liệu growatt-vn có upload BOM mã HQ không — option 3 thì khỏi cần override).
-   2 standing action items cũ (audit locked SHORTAGE sheets; `missing_price` hole) **ĐÃ XONG 2026-07-11**.
+0000. **CODE-VOCAB BATCH #18–#22 ALL CLOSED 2026-07-17 (PM3); #15/#16/#17 also closed. `TinsuAI/co` = 0 open
+   issues.** See Current State. **Nothing agent-ready remains on the tracker.** Do NOT reopen #19 tasks 2/3
+   (task 2 obsolete post-#21; task 3 unsafe — `bom_product_code`≠`product_code` coexist) or re-litigate #22
+   (fallbacks are safe by the DH schema — verified vs live data, both clients). Do NOT re-litigate the #14
+   design (ownership-partition shipped).
+000. **REMAINING = user-manual growatt-vn prod ops (NOT code):** (1) run calibrated regex seed
+   `scripts/seed_growatt_vn_allocation.py` (`b98156a`) on prod `co-app-1` + nightly `nightly-co-app-1`
+   (`docker exec -i {c} /app/.venv/bin/python - < scripts/seed_growatt_vn_allocation.py` via `ssh tinsu`;
+   vet container names + locked cases first) — applied LOCALLY only. (2) flag `CONG TY TNHH MINGJIE VIET NAM`
+   + `CONG TY TNHH MINGHUI VIET NAM` on `/clients/growatt-vn/suppliers` (verify spelling vs live BCCT; NEVER
+   the HK namesake). Johnson = 0 flag. Old standing items (audit locked SHORTAGE sheets; `missing_price` hole)
+   **ĐÃ XONG 2026-07-11**.
 00. **(DONE 2026-07-12 — see Current State)** ~~Build VN-origin feature theo 7-ticket order~~ trong
    `.ai/sessions/2026-07-11-vn-origin-grill-part2-close.md` — design đã chốt 12 ADR, KHÔNG cần grill thêm.
    **Spec (ready-for-agent): `.ai/features/2026-07-11-vn-origin-materials/spec.md`** — tổng hợp 12 ADR
