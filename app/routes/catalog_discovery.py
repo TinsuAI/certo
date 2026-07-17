@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from app import auth
 from app.database import connect
@@ -94,6 +94,52 @@ def _filter_kwargs(*, kind, source, q, leaf, min_observed, show_machinery):
     )
 
 
+def _filter_params(kw: dict) -> dict[str, str]:
+    """The active filter as URL params — the single source every control
+    rebuilds its target from (#54). Hand-listing hidden inputs per form is
+    what let chips drop `leaf`/`min_observed`/`show_machinery` silently."""
+    p: dict[str, str] = {}
+    if kw.get("kind") in VALID_KIND_FILTER:
+        p["kind"] = kw["kind"]
+    if kw.get("source") in VALID_SOURCE_FILTER:
+        p["source"] = kw["source"]
+    if kw.get("q"):
+        p["q"] = kw["q"]
+    if kw.get("leaf"):
+        p["leaf"] = "1"
+    if kw.get("min_observed"):
+        p["min_observed"] = str(kw["min_observed"])
+    if kw.get("show_machinery"):
+        p["show_machinery"] = "1"
+    return p
+
+
+def _filter_url_builder(client_id: str, params: dict[str, str]):
+    """Build a candidates URL from the full current filter, overriding named
+    facets. Pass None to drop one. Every chip and clear link goes through this
+    so no control can discard a filter it does not know about."""
+    base = f"/clients/{client_id}/catalog/candidates"
+
+    def url(**overrides) -> str:
+        merged = dict(params)
+        for k, v in overrides.items():
+            if v is None or v is False or v == "":
+                merged.pop(k, None)
+            else:
+                merged[k] = "1" if v is True else str(v)
+        qs = urlencode(merged)
+        return f"{base}?{qs}" if qs else base
+
+    return url
+
+
+def _facet_rows(rows, kw: dict, **dropped) -> list[dict]:
+    """Rows matching the filter with `dropped` facets removed — i.e. the state
+    clicking that control lands on. Counting a chip here rather than in some
+    unrelated state is what makes its number the number it delivers (#54)."""
+    return _filter_pending(rows, **{**kw, **dropped})
+
+
 @router.get(
     "/clients/{client_id}/catalog/candidates",
     response_class=HTMLResponse,
@@ -116,9 +162,7 @@ async def candidates_page(
         (r for r in rows if r["status"] == "rejected"),
         key=lambda r: r["code"],
     )
-    # Base = pending after the machinery default (so kind chips count the
-    # visible set), then apply the narrowing filters for the table.
-    base = _filter_pending(rows, show_machinery=kw["show_machinery"])
+    params = _filter_params(kw)
     pending = _filter_pending(rows, **kw)
     pending.sort(key=lambda r: (-(r["observed_count"] or 0), r["code"]))
     pending_total = len(pending)
@@ -126,18 +170,22 @@ async def candidates_page(
     page_params = parse_page_params(query_params=request.query_params)
     page = pending[page_params.offset:page_params.offset
                    + page_params.page_size]
+
+    # Each facet is counted with its own filter dropped and the rest applied —
+    # exactly the state clicking that control lands on.
+    kind_base = _facet_rows(rows, kw, kind=None)
     counts: dict[str, int] = {}
-    source_counts: dict[str, int] = {}
-    leaf_count = 0
-    for r in base:
+    for r in kind_base:
         counts[r["code_kind"]] = counts.get(r["code_kind"], 0) + 1
+    source_counts: dict[str, int] = {}
+    for r in _facet_rows(rows, kw, source=None):
         for s in (r["sources"] or []):
             source_counts[s] = source_counts.get(s, 0) + 1
-        if r.get("leaf_in_flattened_bom"):
-            leaf_count += 1
+    leaf_count = sum(1 for r in _facet_rows(rows, kw, leaf=False)
+                     if r.get("leaf_in_flattened_bom"))
     machinery_total = sum(
-        1 for r in rows if r["status"] == "pending"
-        and r.get("customs_relevance") == "excluded_non_material")
+        1 for r in _facet_rows(rows, kw, show_machinery=True)
+        if r.get("customs_relevance") == "excluded_non_material")
     # A short sample of the codes the bulk button would act on.
     bulk_sample = [r["code"] for r in pending[:5]]
     paging = pagination_context(
@@ -150,7 +198,9 @@ async def candidates_page(
             "client": client,
             "pending": page,
             "pending_total": pending_total,
-            "base_total": len(base),
+            "base_total": len(kind_base),
+            "filter_params": params,
+            "filter_url": _filter_url_builder(client_id, params),
             "leaf_count": leaf_count,
             "machinery_total": machinery_total,
             "rejected": rejected,

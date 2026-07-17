@@ -67,15 +67,16 @@
   {% endif %}
 
   <form method="get" class="search-bar" style="margin-bottom: 0.75rem;">
-    {% if active_kind %}<input type="hidden" name="kind" value="{{ active_kind }}">{% endif %}
-    {% if active_source %}<input type="hidden" name="source" value="{{ active_source }}">{% endif %}
+    {# Carry the whole active filter — searching narrows, it never resets. #}
+    {% for k, v in filter_params.items() if k != 'q' %}
+      <input type="hidden" name="{{ k }}" value="{{ v }}">
+    {% endfor %}
     <input type="search" name="q" value="{{ active_q }}"
            placeholder="Tìm code hoặc sample text…"
            style="width: 320px; padding: 0.4rem 0.6rem;">
     <button type="submit" class="btn-secondary btn-sm">Tìm</button>
     {% if active_q %}
-      <a class="btn-ghost btn-sm"
-         href="/clients/{{ client.client_id }}/catalog/candidates{% if active_kind %}?kind={{ active_kind }}{% endif %}">
+      <a class="btn-ghost btn-sm" href="{{ filter_url(q=None) }}">
         ✗ Xóa
       </a>
       <span class="meta">— "{{ active_q }}" — {{ pending_total }} kết quả</span>
@@ -83,15 +84,17 @@
   </form>
 
   <div class="filter-bar" style="margin-bottom: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+    {# Each chip's count is computed in the state its own click produces, so
+       the number it advertises is the number it delivers (#54). #}
     <a class="chip {{ 'chip-active' if not active_kind else '' }}"
-       href="/clients/{{ client.client_id }}/catalog/candidates{% if active_q %}?q={{ active_q }}{% endif %}">
-      Tất cả ({{ pending_total }})
+       href="{{ filter_url(kind=None) }}">
+      Tất cả ({{ base_total }})
     </a>
     {% for k in ['nb', 'hq', 'unified'] %}
       {% set n = kind_counts.get(k, 0) %}
       {% if n > 0 %}
       <a class="chip {{ 'chip-active' if active_kind == k else '' }}"
-         href="/clients/{{ client.client_id }}/catalog/candidates?kind={{ k }}{% if active_q %}&q={{ active_q }}{% endif %}">
+         href="{{ filter_url(kind=k) }}">
         {{ k|upper }} ({{ n }})
       </a>
       {% endif %}
@@ -102,14 +105,14 @@
         {% set sn = source_counts.get(s, 0) %}
         {% if sn > 0 %}
         <a class="chip {{ 'chip-active' if active_source == s else '' }}"
-           href="/clients/{{ client.client_id }}/catalog/candidates?source={{ s }}{% if active_kind %}&kind={{ active_kind }}{% endif %}{% if active_q %}&q={{ active_q }}{% endif %}">
+           href="{{ filter_url(source=s) }}">
           {{ s|upper }} ({{ sn }})
         </a>
         {% endif %}
       {% endfor %}
       {% if active_source %}
         <a class="btn-ghost btn-sm"
-           href="/clients/{{ client.client_id }}/catalog/candidates{% if active_kind %}?kind={{ active_kind }}{% endif %}">✗ nguồn</a>
+           href="{{ filter_url(source=None) }}">✗ nguồn</a>
       {% endif %}
     {% endif %}
   </div>
@@ -118,9 +121,11 @@
        style="margin-bottom: 1rem; padding: 0.75rem; border: 1px solid var(--border, #ddd); border-radius: 6px;">
     <form method="get"
           style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;">
-      {% if active_kind %}<input type="hidden" name="kind" value="{{ active_kind }}">{% endif %}
-      {% if active_source %}<input type="hidden" name="source" value="{{ active_source }}">{% endif %}
-      {% if active_q %}<input type="hidden" name="q" value="{{ active_q }}">{% endif %}
+      {# The facets this form does not own; its own three are inputs below. #}
+      {% for k, v in filter_params.items()
+         if k not in ['leaf', 'min_observed', 'show_machinery'] %}
+        <input type="hidden" name="{{ k }}" value="{{ v }}">
+      {% endfor %}
       <label title="Mã là lá cuối của một BOM đã làm phẳng — tín hiệu duyệt hàng loạt">
         <input type="checkbox" name="leaf" value="1" {% if active_leaf %}checked{% endif %}>
         Chỉ lá BOM đã làm phẳng ({{ leaf_count }})
@@ -138,7 +143,8 @@
       <button type="submit" class="btn-secondary btn-sm">Áp dụng lọc</button>
       {% if active_leaf or active_min_observed or active_show_machinery %}
         <a class="btn-ghost btn-sm"
-           href="/clients/{{ client.client_id }}/catalog/candidates{% if active_kind %}?kind={{ active_kind }}{% endif %}">✗ Bỏ lọc</a>
+           href="{{ filter_url(leaf=None, min_observed=None,
+                               show_machinery=None) }}">✗ Bỏ lọc</a>
       {% endif %}
     </form>
 
@@ -146,12 +152,11 @@
     <form method="post"
           action="/clients/{{ client.client_id }}/catalog/candidates/bulk-accept"
           style="margin-top: 0.75rem; display: flex; align-items: center; gap: 0.75rem;">
-      {% if active_kind %}<input type="hidden" name="kind" value="{{ active_kind }}">{% endif %}
-      {% if active_source %}<input type="hidden" name="source" value="{{ active_source }}">{% endif %}
-      {% if active_q %}<input type="hidden" name="q" value="{{ active_q }}">{% endif %}
-      {% if active_leaf %}<input type="hidden" name="leaf" value="1">{% endif %}
-      {% if active_min_observed %}<input type="hidden" name="min_observed" value="{{ active_min_observed }}">{% endif %}
-      {% if active_show_machinery %}<input type="hidden" name="show_machinery" value="1">{% endif %}
+      {# The rule is the whole filter — post every facet, not a hand-kept
+         subset, or the button approves a set the table never showed. #}
+      {% for k, v in filter_params.items() %}
+        <input type="hidden" name="{{ k }}" value="{{ v }}">
+      {% endfor %}
       <button type="submit" class="btn-primary btn-sm"
               onclick="return confirm('Duyệt {{ pending_total }} mã đang lọc vào catalog? Bộ lọc hiện tại chính là quy tắc. Mã chưa phân loại được sẽ bị bỏ qua.')">
         Duyệt {{ pending_total }} mã đang lọc

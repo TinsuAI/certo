@@ -120,7 +120,13 @@ Will likely match CO's existing choices to minimize friction:
 
 ```bash
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8754 --workers 4
-# Login admin@data-hub.local / local_test_password (role=dev)
+# Login admin@data-hub.local / admin123 (role=dev)
+#
+# The password is `app/main.py`'s DATA_HUB_SEED_PASSWORD default. Nothing
+# in app/ loads `.env` (no dotenv import), so .env's DATA_HUB_SEED_PASSWORD
+# never reaches the seed — export it in the environment if you want another
+# value, and note the admin is seeded only when hub.users is empty, so
+# changing it later needs a re-seed, not just an env var.
 #
 # Why 4 workers: routes are `async def` but do blocking sync DB I/O
 # (psycopg `connect()`), so each DB-bound request blocks its worker's
