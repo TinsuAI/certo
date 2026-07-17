@@ -136,9 +136,28 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8754 --workers 4
 # is fine now (and lets you attach a debugger); use more workers only to
 # test real concurrency.
 
-uv run pytest -q                                          # 219 passed, 15 skipped
+uv run pytest -q                                          # ~1670 passed, 16 skipped (2026-07-17)
 DATA_HUB_REAL_DATA_DIR=/tmp/dh_real_data uv run pytest -q # +real-data smoke (env-gated)
 ```
+
+The count is dated because it rots — it read "219 passed" until 2026-07-17,
+off by ~7x, and two agents wasted a run each believing it. Treat it as an
+order of magnitude, not a gate. The gate is "0 failed".
+
+Run the suite **serially** (`-p no:randomly`, one session at a time). It hits
+the *shared* dev DB `postgresql:///data_hub` — not an isolated test DB (only
+CI overrides `DATA_HUB_DATABASE_URL`). Two consequences bite hard:
+
+- **Concurrent runs invent failures.** Two pytest sessions at once produce
+  phantom reds that pass in isolation and vanish on re-run.
+- **A migration on one branch reds every other branch, including `main`.** The
+  DB is shared across branches and worktrees, so branch B's tests run against
+  branch A's schema. This is deterministic, survives a serial re-run, and looks
+  exactly like "main is broken". It resolves on merge. A git worktree isolates
+  files, **not** the database.
+
+So a red run on one branch proves nothing while another branch holds an
+unmerged migration. The only trustworthy gate is the merged tree, run serially.
 
 ### Dev port — pinned to **8754**
 
