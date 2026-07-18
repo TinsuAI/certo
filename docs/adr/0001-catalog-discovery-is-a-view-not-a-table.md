@@ -109,3 +109,35 @@ longer read.
 This closes the gap the ADR's own reasoning predicted — "leak to CO (which
 copies `status` through and never filters on it)" was true right up until #49.
 Sister apps: `.ai/sister-app-notes/2026-07-17-under-review-removed.md`.
+
+## Amendment (2026-07-18, #55 — bulk approve accepts a client selection)
+
+The Consequences section said: *"Approval becomes a bulk operation over a
+filtered view. The filter is the rule; there is no rule-authoring DSL."* The
+route enforced that by re-applying the filter server-side and **ignoring** any
+client-sent code list — the button approved the whole filtered set, nothing
+less.
+
+#55 adds per-row checkboxes: the filter narrows, the operator picks a subset.
+That requires the POST to carry a code list, which the original design refused
+to trust. The refusal is preserved by **intersection, not trust**: the server
+recomputes `_filter_pending(...)` and accepts only `selected ∩ filtered-pending`.
+A code that is stale, already a material, machinery, or outside the active
+filter is dropped. A code that was never pending cannot be forced in by placing
+it in the POST — verified by `test_injected_code_is_dropped`.
+
+Two submit shapes:
+- explicit `codes[]` — the checked rows, intersected as above;
+- `select_all_matching=1` — no code list; reproduces the original whole-filter
+  behaviour exactly (`_filter_pending` is the set).
+
+"The filter is the rule" still holds as the **outer bound**: the filter defines
+what *may* be approved, and the selection chooses within it. The filter can only
+ever shrink the writable set, never grow it. No rule-authoring DSL was added;
+the change is a subset selector over the same filtered view.
+
+Single-row approval moved from an inline `<details>` form in the table cell to
+a native `<dialog>` (the repo's first modal), posting to the unchanged
+`/accept` route. Route + tests: `app/routes/catalog_discovery.py::bulk_accept`,
+`tests/test_catalog_candidate_selection.py`. UI:
+`.ai/features/2026-07-18-catalog-selection-modal/`.

@@ -233,23 +233,38 @@ async def bulk_accept(
     leaf: str = Form(""),
     min_observed: int = Form(0),
     show_machinery: str = Form(""),
+    codes: list[str] = Form(default=[]),
+    select_all_matching: str = Form(""),
 ):
-    """Approve every code matching the current filter. The filter is
-    re-applied server-side (not trusted from a client-sent code list),
-    so the button acts on exactly what the table showed."""
+    """Approve the selected codes. The client sends a `codes` list (checked
+    rows) or `select_all_matching=1` (the whole filtered set). Either way the
+    filter is re-applied server-side and the selection is **intersected** with
+    it — a code that is stale, already a material, machinery, or outside the
+    active filter is dropped. The server never trusts the client list on its
+    own; the filter still bounds what can be written (ADR-0001)."""
     user, _ = _require_client(request, client_id, edit=True)
     kw = _filter_kwargs(kind=kind or None, source=source or None,
                         q=q or None, leaf=leaf, min_observed=min_observed,
                         show_machinery=show_machinery)
-    matching = _filter_pending(discovery_rows(client_id), **kw)
-    result = bulk_accept_codes(
-        client_id, rows=matching, actor=user.email,
-        predicate={k: v for k, v in kw.items() if v},
-    )
+    filtered = _filter_pending(discovery_rows(client_id), **kw)
+    if _truthy(select_all_matching):
+        matching = filtered
+    else:
+        chosen = set(codes)
+        matching = [r for r in filtered if r["code"] in chosen]
+    if matching:
+        result = bulk_accept_codes(
+            client_id, rows=matching, actor=user.email,
+            predicate={**{k: v for k, v in kw.items() if v},
+                       "selection": "all_matching" if _truthy(select_all_matching)
+                       else "explicit"},
+        )
+        accepted, skipped = result["accepted"], result["skipped"]
+    else:
+        accepted, skipped = 0, 0
     return RedirectResponse(
         url=(f"/clients/{client_id}/catalog/candidates"
-             f"?bulk_accepted={result['accepted']}"
-             f"&bulk_skipped={result['skipped']}"),
+             f"?bulk_accepted={accepted}&bulk_skipped={skipped}"),
         status_code=303,
     )
 
