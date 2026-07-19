@@ -82,7 +82,7 @@ policy.
 |----------|-------|
 | Hosting | Single VPS — Tailscale-reachable host `tinsu` (`100.84.189.87`) |
 | Public access | https://ttdatahub.tinsu.ai (Cloudflare tunnel; HTTP internally) |
-| Auth | API auth disabled: `DATA_HUB_API_AUTH_DISABLED=1`; UI auth required |
+| Auth | `/v1/hub` strict — `hub.app_settings.api_auth_strict=true`, `DATA_HUB_API_AUTH_DISABLED=0`; UI auth required |
 | Container runtime | Docker Compose (`app` + `db`) |
 | App service | `data-hub-app` on host port 8754 (single uvicorn worker) |
 | DB service | `postgres:16`, named volume `pgdata` |
@@ -97,15 +97,29 @@ policy.
 
 Production-relevant env that differs from demo defaults:
 
-- `DATA_HUB_API_AUTH_DISABLED=1`
+- `DATA_HUB_API_AUTH_DISABLED=0`
 - `DATA_HUB_SSO_ALLOWED_REDIRECT_ORIGINS=https://barry-co.tinsu.ai`
 - `DATA_HUB_FORCE_HTTPS_COOKIE=1`
 
 DB-side settings that differ:
 
+- `hub.app_settings.api_auth_strict = true`
 - `hub.app_settings.sso_issuer_url = https://ttdatahub.tinsu.ai`
 - `hub.app_settings.sso_active_kid = k1`
 - `hub.app_settings.sso_token_ttl_seconds = 600`
+
+> **`api_auth_strict` is a hand-set DB row, not a seeded one.** No
+> migration writes it, and `_strict_mode()` in `app/routes/api.py`
+> defaults to **false** when the row is absent — so a fresh or
+> restored DB serves `/v1/hub` permissively until someone sets it by
+> hand. That is issue **#26**. Verify the row after any restore or
+> new-tier stand-up; do not assume the deploy carries it.
+>
+> The `DATA_HUB_API_AUTH_DISABLED=1` kill-switch is **dev-only** and is
+> suppressed automatically when `api_auth_strict=true`
+> (`_auth_disabled()` returns false, and `lifespan` logs that it was
+> ignored). Setting it in a tier that serves real data is still wrong —
+> the suppression depends on the very row that a restore can drop.
 
 ### Tier S (Staging) — NOT YET STOOD UP
 
