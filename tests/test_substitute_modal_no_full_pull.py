@@ -39,6 +39,55 @@ def _service(handler) -> tuple[DataHubPortfolioService, list[str]]:
     return DataHubPortfolioService(client), seen
 
 
+SOURCE_SUMMARY_PAYLOAD = {
+    "material_catalog": {"published_row_count": 1, "latest_version": {"version_no": 3}},
+    "product_catalog": {"published_row_count": 1, "latest_version": {"version_no": 2}},
+    "bcct": {"published_row_count": 1, "latest_version": {"version_no": 5}},
+    "co_stock_row_count": 7,
+    "client_config": {
+        "preset_key": "data_hub",
+        "eligible_import_declaration_types": ["A11", "A12"],
+        "relevant_export_declaration_types": ["B11", "E62"],
+    },
+}
+
+
+def _full_handler(request: httpx.Request) -> httpx.Response:
+    """Serves every endpoint the heavy co_case_source_context path calls."""
+    p = request.url.path
+    if p == "/v1/hub/dncxs/acme/source-summary":
+        return httpx.Response(200, json=SOURCE_SUMMARY_PAYLOAD)
+    if p == "/v1/hub/materials":
+        return httpx.Response(200, json={"items": [
+            {"material_code": "NVL-1", "category": "nvl", "name": "A", "hs_code": "8501"},
+            {"material_code": "NVL-2", "category": "nvl", "name": "B", "hs_code": "8502"},
+            {"material_code": "TP-1", "category": "tp", "name": "C", "hs_code": "8501"},
+        ]})
+    if p == "/v1/hub/bcct":
+        return httpx.Response(200, json={"items": [
+            {"direction": "export", "declaration_no": "D1", "line_no": 1, "item_code": "NVL-1"},
+        ]})
+    if p == "/v1/hub/bcct/invoice-matches":
+        return httpx.Response(200, json={"items": []})
+    return httpx.Response(200, json={"items": []})
+
+
+def test_material_catalog_equals_heavy_path_material_rows():
+    """Core correctness invariant: material_catalog() returns byte-identical
+    material_rows to the full co_case_source_context heavy pull. The substitute
+    modal only ever read material_rows from that pull (BCCT/stock were fetched and
+    discarded at the call sites), so its candidates/catalog are unchanged — only
+    the ~104s BCCT pagination is gone. Guards against the two paths drifting."""
+    service, _ = _service(_full_handler)
+    catalog = service.material_catalog({"id": "acme"})
+    heavy = service.co_case_source_context(
+        {"id": "acme"}, {"shipment": {"invoice_no": "INV-1"}}
+    )["material_rows"]
+
+    assert catalog == heavy
+    assert [r.get("material_code") for r in catalog] == ["NVL-1", "NVL-2"]  # 'tp' dropped both sides
+
+
 def test_material_catalog_fetches_materials_only_not_bcct():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/v1/hub/materials":
