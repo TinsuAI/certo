@@ -855,6 +855,20 @@ class DataHubPortfolioService:
             limit=limit,
         )
 
+    def material_catalog(self, client: dict) -> list[dict]:
+        """NVL catalog (material_rows) only — the ~15s list_materials pagination,
+        never the ~104s full list_bcct pull. The substitute modal needs the
+        material catalog for its heuristic/search candidates but no BCCT, so it
+        must not go through co_case_source_context. Mirrors the heavy path's
+        filtering (drops finished-product 'tp' rows)."""
+        if not hasattr(self.data_hub, "list_materials"):
+            return []
+        return [
+            normalize_material_row(row)
+            for row in self.data_hub.list_materials(client["id"])
+            if row.get("category") != "tp"
+        ]
+
     def co_case_source_context(self, client: dict, case: dict, *, skip_heavy_context: bool = False) -> dict:
         source_summary, source_backend = self.source_summary(client)
         client_config = source_summary["client_config"]

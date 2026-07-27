@@ -368,6 +368,39 @@ def co_case_source_context_cached(client: dict, case: dict) -> dict:
         rows = co_stock_ledger.apply_used_qty(rows, used_by_lot)
         context = {**context, "stock_rows": rows}
     return context
+_CO_MATERIAL_CATALOG_CACHE: dict[str, tuple[float, list[dict]]] = {}
+_CO_MATERIAL_CATALOG_TTL_SECONDS = 300.0
+def co_case_material_catalog_cached(client: dict, case: dict) -> list[dict]:
+    """Client-wide NVL catalog for the substitute modal — materials-only (~15s
+    list_materials), NEVER the ~104s full BCCT pull that co_case_source_context
+    runs. The substitute modal only reads material_rows, so paying for the BCCT
+    pagination made a cold modal open take ~125s → Cloudflare 524. The catalog
+    changes rarely, so cache per client (TTL). File-store / test mode (no
+    `material_catalog` on the service) keeps the cheap in-memory source-context
+    path so behaviour there is unchanged."""
+    import time
+
+    svc = portfolio_service
+    if not hasattr(svc, "material_catalog"):
+        # File-store / test mode: source_context is in-memory and cheap.
+        try:
+            return co_case_source_context_cached(client, case).get("material_rows") or []
+        except Exception:  # noqa: BLE001
+            return []
+    client_id = client.get("id", "")
+    now = time.time()
+    cached = _CO_MATERIAL_CATALOG_CACHE.get(client_id)
+    if cached and now - cached[0] < _CO_MATERIAL_CATALOG_TTL_SECONDS:
+        return cached[1]
+    try:
+        rows = svc.material_catalog(client)
+    except Exception:  # noqa: BLE001
+        return cached[1] if cached else []
+    _CO_MATERIAL_CATALOG_CACHE[client_id] = (now, rows)
+    if len(_CO_MATERIAL_CATALOG_CACHE) > 32:
+        oldest = sorted(_CO_MATERIAL_CATALOG_CACHE.items(), key=lambda kv: kv[1][0])[0][0]
+        _CO_MATERIAL_CATALOG_CACHE.pop(oldest, None)
+    return rows
 def origin_source_context(client: dict, case: dict) -> dict:
     """Converged source context for the origin tab-load (cold path).
 

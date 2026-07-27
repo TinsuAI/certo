@@ -23,7 +23,7 @@ from app.portfolio import portfolio_service
 from app.source_store import co_stock_rows_from_bcct
 from app.substitution_plan import plan_shortfall_substitution
 from app.web.client_context import default_client_case, effective_min_gap_days, resolve_client, source_workspace_for_client
-from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, OVERRIDE_HISTORY_MAX, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, apply_column9_mode_flip, attach_column9_mode_mismatch, attach_origin_sheet_states, case_allocation_pool, column9_mode_mismatches, materialize_bang_ke_origin_fields, resolve_case_column9_mode, case_missing_stock_summary, case_shortfall_rollup, case_stock_preview_summary, case_tkx_tkn_summary, clean_override_stack, co_case_context, co_case_source_context, co_case_source_context_cached, co_stock_is_usable, dossier_content_revision, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, material_row_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, origin_case_revision, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_products, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
+from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, OVERRIDE_HISTORY_MAX, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, apply_column9_mode_flip, attach_column9_mode_mismatch, attach_origin_sheet_states, case_allocation_pool, column9_mode_mismatches, materialize_bang_ke_origin_fields, resolve_case_column9_mode, case_missing_stock_summary, case_shortfall_rollup, case_stock_preview_summary, case_tkx_tkn_summary, clean_override_stack, co_case_context, co_case_source_context, co_case_source_context_cached, co_case_material_catalog_cached, co_stock_is_usable, dossier_content_revision, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, material_row_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, origin_case_revision, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_products, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
 from app.web.deps import large_request_form
 from app.web.templating import templates
 from app.workbook_io import create_dossier_zip, create_hq_bang_ke_workbook
@@ -2375,14 +2375,14 @@ async def co_case_origin_sheet_substitute_candidates(
                 "stock": empty_stock_summary(),
                 "kind": "recommended",
             })
-        # Heuristic fallback ONLY when Data Hub had nothing: this still needs
-        # the materials catalog (one Data Hub list_materials pagination, but
-        # cached). Caller can opt out via ?skip_heuristic=1 to keep first call
-        # fast even on substitutes-empty.
+        # Heuristic fallback ONLY when Data Hub had nothing: this needs the
+        # materials catalog only (co_case_material_catalog_cached = one cached
+        # list_materials pagination, ~15s cold), NEVER the full BCCT pull that
+        # co_case_source_context runs (~125s cold → 524). Caller can opt out via
+        # ?skip_heuristic=1 to keep the first call fast even on substitutes-empty.
         if not candidates:
             try:
-                cached_ctx = co_case_source_context_cached(client, case)
-                material_rows = cached_ctx.get("material_rows") or []
+                material_rows = co_case_material_catalog_cached(client, case)
             except Exception:  # noqa: BLE001
                 material_rows = []
             heuristic, hs_seed = compute_substitute_heuristic_candidates(
@@ -2420,8 +2420,7 @@ async def co_case_origin_sheet_substitute_candidates(
         # never triggers a live BCCT pull.
         try:
             snapshot_rows = co_stock_materializer.read_co_stock_rows_cached(client_id)
-            catalog_ctx = co_case_source_context_cached(client, case)
-            catalog_index = material_catalog_index(catalog_ctx.get("material_rows") or [])
+            catalog_index = material_catalog_index(co_case_material_catalog_cached(client, case))
         except Exception:  # noqa: BLE001 — a flaky snapshot/catalog read must not blank search
             snapshot_rows, catalog_index = [], {}
         stock_first = build_stock_first_candidates(
