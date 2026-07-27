@@ -135,6 +135,25 @@
     </label>
     {% endif %}
 
+    {% if uom_drift_blocks_confirm %}
+    {# Hidden by default; the script below reveals it. The button's lock is
+       JS-driven (banner), so without JS the button is not actually disabled
+       — don't show a "locked" claim that isn't true. #}
+    <div id="uom-gate-hint" hidden class="zone mini-panel"
+         style="border-left: 3px solid var(--warn, #c80); margin-bottom: 0.75rem;">
+      🔒 <strong>Nút bên dưới đang khoá.</strong>
+      Còn đơn vị tính khác họ chưa được xác nhận.
+      <a href="#" id="uom-gate-jump">Tới ô xác nhận drift khác họ →</a>
+      <p class="meta" style="margin-top: 0.3rem;">
+        Tick ô xác nhận trong khung cảnh báo phía trên để mở nút.
+        {% if summary.diff %}Ô "Xác nhận ghi đè {{ summary.diff|length }} dòng
+        đã đổi" không mở nút — nó chỉ quyết định các dòng đổi có được ghi đè
+        hay không.{% endif %}
+        Không cần gán hệ số ("+ hệ số") cho từng dòng để import BCCT.
+      </p>
+    </div>
+    {% endif %}
+
     <div style="display:flex; gap:0.5rem; margin-top: 1.5rem;">
       {% if summary.diff or summary.orphan %}
       <button type="submit" class="btn-primary">Apply confirmed changes</button>
@@ -151,4 +170,26 @@
     {% endif %}
   </form>
 </section>
+{% if uom_drift_blocks_confirm %}
+<script>
+  // Make the UoM ack gate discoverable: the drift ack checkbox (in the
+  // banner near the top) is the only control that enables the confirm
+  // button. Link the locked-state hint to it, and hide the hint once
+  // acked. The button's disable/enable itself is owned by the banner.
+  (function () {
+    var ack = document.querySelector('input[name=ack_uom_drift]');
+    var hint = document.getElementById('uom-gate-hint');
+    var jump = document.getElementById('uom-gate-jump');
+    if (jump && ack) jump.addEventListener('click', function (e) {
+      e.preventDefault();
+      ack.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      ack.focus({ preventScroll: true });
+    });
+    if (ack && hint) {
+      hint.hidden = ack.checked;
+      ack.addEventListener('change', function () { hint.hidden = ack.checked; });
+    }
+  })();
+</script>
+{% endif %}
 {% endblock %}
