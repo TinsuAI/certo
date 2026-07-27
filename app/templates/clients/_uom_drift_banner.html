@@ -123,8 +123,13 @@
   document.addEventListener('DOMContentLoaded', function(){
     var form = document.getElementById('confirm-form');
     if (!form) return;
+    // Mirror the ack's CURRENT state, don't hard-lock: browsers restore a
+    // checked ack on reload without firing 'change', which would otherwise
+    // leave the button stuck disabled with no way to re-enable it.
+    var ack = document.querySelector('input[name=ack_uom_drift]');
+    var locked = !(ack && ack.checked);
     form.querySelectorAll('button[type=submit].btn-primary').forEach(function(btn){
-      btn.disabled = true;
+      btn.disabled = locked;
     });
   });
 </script>

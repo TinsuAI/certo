@@ -323,9 +323,12 @@ def test_bom_preview_route_renders_uom_drift_banner(admin_client):
                         (pending,))
 
 
-def _stash_bcct_pending_with_drift(client_id: str) -> str:
+def _stash_bcct_pending_with_drift(client_id: str,
+                                   diff: dict | None = None) -> str:
     """Same but for BCCT shape (customs_code/unit instead of
-    material_code/uom)."""
+    material_code/uom). Pass `diff` to also surface value-diff rows (the
+    confirm_diffs checkbox + Apply button); default is an all-new summary
+    with no diffs."""
     import json
     import secrets
     from datetime import datetime, timedelta, timezone
@@ -335,7 +338,8 @@ def _stash_bcct_pending_with_drift(client_id: str) -> str:
          "declaration_no": "TEST_DRIFT", "line_no": 1,
          "transaction_key": "TEST_DRIFT-1", "direction": "import"},
     ]
-    diff = {"new": 1, "noop": 0, "diff": [], "orphan": [], "total": 1}
+    if diff is None:
+        diff = {"new": 1, "noop": 0, "diff": [], "orphan": [], "total": 1}
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "insert into hub.upload_pending (pending_id, client_id, "
@@ -361,6 +365,47 @@ def test_bcct_preview_route_renders_uom_drift_banner(admin_client):
         )
         assert 'name="ack_uom_drift"' in body
         assert "COUNT_PCS" in body
+    finally:
+        with connect() as conn, conn.cursor() as cur:
+            cur.execute("delete from hub.upload_pending where pending_id=%s",
+                        (pending,))
+
+
+def test_bcct_preview_apply_gate_hint_when_blocking_drift(admin_client):
+    """Regression for #56: when a blocking cross-family drift disables the
+    Apply button, the preview must render a discoverable hint that (a) says
+    the button is locked, (b) links to the ack checkbox, (c) clarifies that
+    confirm_diffs does not unlock it and per-row factors are optional."""
+    # Johnson VN scenario: value-diff rows (so confirm_diffs + the Apply
+    # button render) plus a blocking cross-family drift.
+    diff = {
+        "new": 14164, "noop": 31171, "total": 14164, "orphan": [],
+        "diff": [{
+            "key": ["TEST_DRIFT-1", 1], "decl_no": "TEST_DRIFT", "line_no": 1,
+            "changed_fields": ["invoice_date"],
+            "old": {"invoice_date": "2026-04-19"},
+            "new": {"invoice_date": "2026-05-19"},
+        }],
+    }
+    pending = _stash_bcct_pending_with_drift(CLIENT, diff=diff)
+    try:
+        r = admin_client.get(
+            f"/clients/{CLIENT}/bcct/upload/preview/{pending}")
+        assert r.status_code == 200
+        body = r.text
+        # Precondition: this is the gated scenario (diff rows + blocking drift).
+        assert 'name="ack_uom_drift"' in body
+        assert 'name="confirm_diffs"' in body
+        assert "Apply confirmed changes" in body
+        # The fix: a discoverable locked-state hint + jump link to the ack box.
+        assert 'id="uom-gate-hint"' in body, (
+            "disabled Apply button must carry a hint explaining the UoM ack gate")
+        assert 'id="uom-gate-jump"' in body, (
+            "hint must link to the ack checkbox")
+        assert "không mở nút" in body, (
+            "hint must clarify confirm_diffs does not unlock the button")
+        assert "Không cần gán hệ số" in body, (
+            "hint must clarify per-row factors are optional")
     finally:
         with connect() as conn, conn.cursor() as cur:
             cur.execute("delete from hub.upload_pending where pending_id=%s",
