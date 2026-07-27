@@ -877,18 +877,22 @@ class DataHubPortfolioService:
         relevant_types = client_config.get("bcct", {}).get("relevant_export_declaration_types", [])
         # Lightweight path for non-origin steps (shipment/documents/exports/review).
         # Those tabs only render source_summary + invoice_matches, so skip the full
-        # list_materials + list_bcct pagination (65k+ rows for big clients) that
-        # otherwise makes the case detail page take ~21s. material_rows/stock_rows
-        # stay empty; invoice_matches comes from the dedicated lightweight endpoint
-        # (no BCCT enrichment). Export-declaration cases still need the full BCCT
-        # pull (match_case_bcct_exports) to populate invoice_matches, so they fall
-        # through to the heavy path even on non-origin tabs.
-        if skip_heavy_context and not export_declaration_nos:
-            invoice_matches = (
-                self.data_hub.invoice_matches(client["id"], invoice_no, relevant_types)
-                if invoice_no
-                else []
-            )
+        # list_materials + list_bcct pagination (65k+ rows / ~120s for big clients)
+        # that otherwise makes the case detail page take minutes — long enough to
+        # trip Cloudflare's 100s limit (524) on the shipment landing tab.
+        # Export-declaration cases used to fall through to that full pull to compute
+        # matches; they now use the same NARROW per-declaration fetch as the origin
+        # tab (origin_invoice_matches: list_bcct(declaration_no=) then
+        # match_case_bcct_exports), proven byte-identical to the full pull on
+        # Johnson. Invoice-only cases keep the indexed invoice-match endpoint.
+        # material_rows/stock_rows stay empty (unused by non-origin tabs).
+        if skip_heavy_context:
+            if export_declaration_nos:
+                invoice_matches = self.origin_invoice_matches(client, case, client_config)
+            elif invoice_no:
+                invoice_matches = self.data_hub.invoice_matches(client["id"], invoice_no, relevant_types)
+            else:
+                invoice_matches = []
             declaration_file_counts = self.declaration_file_counts(client["id"], case, invoice_matches)
             return {
                 "source_backend": source_backend,
