@@ -10,7 +10,9 @@ phiên bản theo [SemVer](https://semver.org/).
 > hành đã đóng gói tại thời điểm đó.
 
 ## [Unreleased]
-### Thêm
+
+## [0.22.0] — 2026-07-27
+### Mới
 - **Trang "Mã chờ duyệt" nay chọn được từng mã, và duyệt một mã mở hộp thoại riêng thay vì form chen trong bảng:** trước đây chỉ duyệt được **toàn bộ** tập khớp bộ lọc — không tích chọn được 5 mã rồi bỏ mã thứ 6. Nay mỗi dòng có ô tích; tích cả trang thì hiện dải băng «Chọn tất cả N mã khớp bộ lọc» (kiểu Gmail). Nút duyệt đổi nhãn theo lựa chọn: chưa chọn thì tắt, chọn rồi thì «Duyệt N mã đã chọn», chọn cả tập thì «Duyệt toàn bộ N mã khớp bộ lọc». Về mặt an toàn: máy chủ **không tin** danh sách mã client gửi — nó tự tính lại tập khớp bộ lọc rồi **giao** với danh sách đã chọn, nên một mã đã thành vật tư, mã máy móc, mã ngoài bộ lọc, hay mã bịa đặt bỏ vào request đều bị loại; bộ lọc vẫn là giới hạn ngoài, chỉ thu hẹp chứ không nới rộng được tập ghi vào. Nút «Duyệt» ở từng dòng nay mở hộp thoại (modal) điền sẵn tên/danh mục/UoM theo dữ liệu, thay cho form 5 ô chen trong ô bảng; danh mục điền sẵn đúng theo cách duyệt hàng loạt suy ra (lá phẳng → NVL) nên không còn mặc định nhầm sang loại đầu bảng. Refs #55.
 
 ### Sửa
