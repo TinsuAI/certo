@@ -1,6 +1,33 @@
 # Project Status
 
 ## Current State
+- **2026-07-27 — CO 524 (origin timeout) ON CASE-OPEN + SUBSTITUTE MODAL: BOTH FIXED, DEPLOYED, VERIFIED LIVE.**
+  `origin/main` = prod `barry-co` = nightly `demo-co` = **`8556ee1`** (CI/CD green all 3 commits; behavior
+  verified live on prod johnson-vn). Full suite **935 pass / 14 skip**. Session:
+  `.ai/sessions/2026-07-27-co-524-shipment-substitute-narrow-fetch.md`.
+  **Client feedback = 2 items.** (1) **Data Hub** BCCT-import "Apply confirmed changes" disabled + yellow/green
+  "đơn vị tính khác họ (604)" unclear → **`data-hub` repo, NOT CO** (guardrail); handed to user as a ready
+  `/diagnosing-bugs` prompt for a parallel DH session. NOT fixed here. (2) **CO** case-open → Cloudflare 524.
+  **Fix 1 shipment 524 (`544840e`)** — `co_case_source_context` skip-heavy branch (`data_hub_client.py:886`)
+  EXCLUDED export-declaration cases (`and not export_declaration_nos`) → the default shipment tab did the full
+  ~65k-BCCT + ~12k-materials pull SYNC on the async event loop (`co_case_detail` is `async def` calling sync
+  `co_case_context`). As Johnson grew to ~73k BCCT, the pull crossed 100s → 524. F5 "worked" because the
+  background preload persisted `source_snapshot` → next open hit the cached path. **Fix:** route export-decl
+  light path through `origin_invoice_matches` (narrow per-declaration `list_bcct(declaration_no=)` +
+  `match_case_bcct_exports`, the same fetch the origin tab has used since 2026-05-31, byte-identical 43/43 on
+  Johnson). Prod: **124.88s → 0.31s**, same 2 matches. **Fix 2 substitute modal 524 (`c104615`)** — found by
+  the fable review of fix 1: `co_case_origin_sheet_substitute_candidates` (`co_case.py:2384,2423`) called
+  `co_case_source_context_cached` (full ~125s pull) but ONLY read `material_rows`. **Fix:** new
+  `DataHubPortfolioService.material_catalog` (materials-only, drops `tp`) + `co_case_material_catalog_cached`
+  (client-wide 300s cache; file-store falls back to in-memory). Prod: **~125s → 15.69s** (14 calls, **0 bcct**),
+  12943 rows (= heavy-path count). **Parity test (`8556ee1`)** — `material_catalog == heavy material_rows`
+  byte-for-byte (locks the invariant after the user asked whether "chỉ list_materials" is safe: YES — the
+  modal only ever used material_rows, which is identical; RVC/tồn/bảng kê compute elsewhere with independent
+  snapshot stock, per `test_recalc_stock_source_parity`).
+  **Residual (NOT done, not urgent — no 524):** (A) narrow fetch omits `include_material_identity` → item_code
+  display-code vs raw on non-origin cold window (display only); fix touches shared `origin_invoice_matches` →
+  ticket. (B) H2: `co_case_detail`/`co_case_step`/substitute endpoint are `async def` calling sync pulls →
+  the residual ~15s first-open still blocks the event loop (15s < 100s so no 524); offload to a thread later.
 - **2026-07-17 (PM3) — CODE-VOCAB BATCH #18–#22 FULLY CLOSED + USER GUIDE SHIPPED. `TinsuAI/co` = 0 open issues.**
   `origin/main` = prod `barry-co` = nightly `demo-co` = **`dacb70d`** (CI green; `/version` verified BOTH:
   prod build `05:57:52Z`, nightly `05:58:23Z`). 4 new commits this session; full suite **932 pass / 14 skip**.
@@ -354,6 +381,15 @@
   via 5 parallel agents) — **NOT pushed yet**. See session `2026-06-19-backlog-status-reconciliation.md`.
 
 ## Next Steps (priority order)
+00000. **CO 524 fixes SHIPPED + DEPLOYED 2026-07-27 (see Current State).** Two follow-ups, neither urgent
+   (both no-524): (A) add `include_material_identity="true"` to the narrow fetch (`data_hub_client.py:962-966`
+   in `origin_invoice_matches`) for item_code/material_identity display parity on non-origin cold window —
+   shared with the origin tab, so needs its own test before shipping (could shift origin behavior). (B) **H2
+   async-offload:** run `co_case_context` / the substitute catalog pull off the event loop in
+   `co_case_detail`/`co_case_step`/`co_case_origin_sheet_substitute_candidates` (all `async def` calling sync
+   pulls) — removes the residual ~15s first-open stall and stops one slow request stalling others.
+   **Parallel track:** user is running a `data-hub` repo session for feedback #1 (BCCT-import Apply disabled +
+   yellow/green unclear) — CO side has nothing to do there.
 0000. **CODE-VOCAB BATCH #18–#22 ALL CLOSED 2026-07-17 (PM3); #15/#16/#17 also closed. `TinsuAI/co` = 0 open
    issues.** See Current State. **Nothing agent-ready remains on the tracker.** Do NOT reopen #19 tasks 2/3
    (task 2 obsolete post-#21; task 3 unsafe — `bom_product_code`≠`product_code` coexist) or re-litigate #22
@@ -409,6 +445,17 @@
    Backlog mở: **M1** (cả 2 sub-bug còn) · **D1** (còn C/E/F + parity harness) · **P1** (~40s) · **T1** (DB isolation) · **DC2** · **CS3** park ×2 · **LK1** review rộng.
 
 ## Notes for Next AI Session
+- **Prod perf diagnosis pattern (2026-07-27, reusable):** measure a cold path read-only IN the prod container
+  before/after — `ssh tinsu` → `docker exec -i co-app-1 python -` piping a harness that builds
+  `data_hub_client_from_env()` (picks up the prod service token from the config file) + wraps `client._get`
+  to count HTTP calls per path and time them. This is how the 524 was root-caused (124.88s, 74 bcct pages)
+  and the fix verified live (0.31s / 15.69s). `co_case_source_context`/`origin_invoice_matches`/
+  `material_catalog` are read-only (safe on prod); do NOT call `preload_co_case_origin_context` on prod (it
+  writes the case record). App access log has NO request duration and a 524 still logs `200 OK` after the
+  origin finishes — don't trust the access log for slow-request timing. **Engineering lesson:** when a narrow
+  replacement for a heavy DH call is introduced, audit EVERY call site of the heavy call — the origin tab got
+  `origin_invoice_matches` in 2026-05, but the shipment light path AND the substitute modal kept the full pull
+  for over a year → two separate 524s.
 - **HANDOFF CONVENTION (decided 2026-07-17 — do the right thing, not ad-hoc):** session-end handoff =
   **`/v_handoff`** ONLY (writes `.ai/sessions/YYYY-MM-DD-*.md` + overwrites `STATUS.md`). Do NOT hand-roll
   the summary, and do NOT use Pocock's global **`/handoff`** for session-end — that one compacts the live
