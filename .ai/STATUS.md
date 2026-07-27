@@ -1,20 +1,23 @@
 # Project Status
 
-**Date:** 2026-07-19 — **everything through #55 is shipped, pushed, and live.**
-`main == origin/main == prod` at `ebd7bdc`. Prod migration table reads **095**
-with no files missing. Merged-tree suite, serial: **1686 passed, 16 skipped,
-0 failed**. There is no unpushed work and no pending migration.
+**Date:** 2026-07-27 — **everything through #58 is shipped, released as
+`v0.22.0`, and live.** `main == origin/main == prod` at `9e2b4f7`. Prod schema
+unchanged (**095**; this release is UI-only — no migrations). CI Test job green
+on the release commit (isolated-DB full suite); not re-run locally this session
+— targeted slices were **45 passed** across the touched BCCT/BOM/drift files.
+No unpushed work, no pending migration.
 
-The three warnings the 2026-07-17 STATUS carried — 19 unpushed commits, migs
-094/095 pending on prod, prod data ahead of its migration table — were all
-resolved by the 2026-07-18 deploy. That session left no log; one was written
-retroactively on 2026-07-19:
-`.ai/sessions/2026-07-18-catalog-selection-modal.md`.
+`v0.22.0` (2026-07-27) snapshots the `[Unreleased]` backlog **#47–#58** into a
+dated CHANGELOG section. It shipped in two moves: PR **#59** merged the #56/#58
+code (auto-deployed at v0.21.0 on push-to-main), then `chore(release): 0.22.0`
+(`9e2b4f7`) re-baked the image so `/version` and the footer badge read 0.22.0.
+`[Unreleased]` is now empty.
 
 ## Current State
 
-- **Prod `v0.21.0` / `git_sha=ebd7bdc`**, built `2026-07-18T05:48:05Z`,
-  `/healthz` 200. Same commit as local `main`. Verified 2026-07-19.
+- **Prod `v0.22.0` / `git_sha=9e2b4f7`**, built `2026-07-27T07:25:59Z`,
+  `/healthz` 200. Same commit as local `main` and tag `v0.22.0`. Verified live
+  through Cloudflare 2026-07-27.
 - **Prod schema is current.** `hub.schema_migrations` max
   `095_growatt_double_dot_placeholder.sql`, 93 rows; filename diff against
   `db/migrations/*.sql` is empty. (Local records 94 rows — one stale entry for
@@ -30,6 +33,18 @@ retroactively on 2026-07-19:
   forced in through the POST. ADR-0001 amended. Proof:
   `.ai/features/2026-07-18-catalog-selection-modal/` (`brief.md`, `ui_smoke.py`
   for states, `e2e_smoke.py` for real writes on a throwaway client).
+- **#56 / #58 SHIPPED (v0.22.0), closed.** The BCCT upload-preview "Apply
+  confirmed changes" button is disabled by the cross-family UoM ack gate with no
+  cue — operators ticked the 51-row confirm box and read the grey button as
+  broken. #56 adds a locked-state hint above the button (explains the lock,
+  jumps to + focuses the ack checkbox, states that `confirm_diffs` does not
+  unlock and per-row factors are optional; hidden-by-default, JS-revealed). #58
+  (spun off during the fix) makes the shared drift banner mirror the ack's
+  restored state on reload instead of hard-locking. Shared banner touched →
+  verified on BCCT + BOM. Proof: `.ai/features/2026-07-27-bcct-apply-gate-hint/`.
+  **#57 filed, deferred** — `upload_preview_confirm` (`app/routes/bcct.py:975`)
+  never reads `ack_uom_drift`, so the cross-family gate is client-JS-only (same
+  "gate not enforced server-side" family as #26).
 - **#52 / #53 / #54 SHIPPED and now closed.** They stayed open for a day after
   the deploy because their commits said `Refs #NN`, not `Closes`. Closed by
   hand 2026-07-19 with the shipping evidence in the comment.
@@ -49,20 +64,19 @@ retroactively on 2026-07-19:
 
 ## Recent Changes (since the last STATUS)
 
-- `app/routes/catalog_discovery.py` — `bulk_accept` takes `codes[]` or
-  `select_all_matching` and intersects with the recomputed filtered-pending set.
-- `app/templates/clients/catalog_candidates.html` — checkbox column, approve
-  bar + select-all banner, `<dialog>`, row button carrying `data-*`.
-- `app/static/js/catalog-candidates.js` — new: selection, banner, dialog fill.
-- `app/static/css/app.css` — checkbox column, dialog, `.form-stack`.
-- `docs/adr/0001-catalog-discovery-is-a-view-not-a-table.md` — amendment
-  recording the client-selection contract.
-- `tests/test_catalog_candidate_selection.py` — new, 6 tests; the 3 existing
-  bulk-accept tests updated for the explicit-selection contract.
-- `docs/release-engineering.md` (2026-07-19) — Tier D auth row corrected from
-  `DATA_HUB_API_AUTH_DISABLED=1` to the live values, plus a note that
-  `api_auth_strict` is hand-set and a restore drops it (#26).
-- `.ai/sessions/2026-07-18-catalog-selection-modal.md` — retroactive log.
+- `app/templates/clients/bcct_upload_preview.html` — locked-state Apply-gate
+  hint + jump-link script (hidden-by-default, JS-revealed). #56.
+- `app/templates/clients/_uom_drift_banner.html` — `DOMContentLoaded` now
+  mirrors the ack checkbox's current state instead of hard-locking the confirm
+  button. #58.
+- `tests/test_uom_ingest_drift.py` — regression test for the hint;
+  `_stash_bcct_pending_with_drift` parameterized with `diff=`.
+- `.ai/features/2026-07-27-bcct-apply-gate-hint/` — brief, `ui_smoke.py`
+  (load → confirm_diffs → ack states + a `[restore]` #58 scenario), screenshots.
+- `pyproject.toml` → `0.22.0`; `CHANGELOG.md` — #56/#58 entries, then the whole
+  `[Unreleased]` block rolled into `## [0.22.0] — 2026-07-27`.
+- Git: PR #59 merged (auto-deployed the code at v0.21.0); `chore(release):
+  0.22.0` (`9e2b4f7`) re-baked prod to 0.22.0; tag `v0.22.0` on origin.
 
 ## Next Steps
 
@@ -73,9 +87,11 @@ retroactively on 2026-07-19:
    permissive fallback branch is still in `_require_token`. A restore, a new
    tier, or a rebuilt DB serves the API open. Now documented in
    `docs/release-engineering.md`, which does not fix it.
-2. **Decide the release cut.** Seven `[Unreleased]` entries (#47, #49, #50,
-   #52, #53, #54, #55); version still `0.21.0`. Nothing forces a particular
-   number — this is a judgement call about where the line goes.
+2. **#57 — cross-family UoM gate is client-side only.** `upload_preview_confirm`
+   (`app/routes/bcct.py:975`) never reads `ack_uom_drift`; the gate is enforced
+   only by banner JS, so a JS-off or scripted POST bypasses it. Same "gate not
+   enforced server-side" family as #26 above. Filed, deferred. (Release cut is
+   no longer pending — `v0.22.0` shipped 2026-07-27.)
 3. **Unfiled findings from the audit session**, ranked after #26: **C3**
    (`/v1/hub/products` 50-row truncation) → **#46** by-codes index (must run
    `CONCURRENTLY`, out-of-band — **NOT** a boot migration) → **S2** (no rate
@@ -99,7 +115,8 @@ retroactively on 2026-07-19:
 
 ## Notes for Next AI Session
 
-- **Read this + `2026-07-18-catalog-selection-modal.md` +
+- **Read this + `.ai/features/2026-07-27-bcct-apply-gate-hint/brief.md` +
+  `2026-07-18-catalog-selection-modal.md` +
   `2026-07-17-nb-backfill-and-catalog-filter-defects.md`.**
 - **Run the suite serially** (`-p no:randomly`, one session at a time). It hits
   the **shared** dev DB, so concurrent runs invent phantom failures, and a
