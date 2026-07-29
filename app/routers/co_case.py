@@ -2874,6 +2874,8 @@ async def co_case_origin_sheet_propose_bom(
     rows = build_bom_proposal_rows(target, overrides)
     if not rows:
         raise HTTPException(status_code=409, detail="Không có dòng NVL nào để propose.")
+    if str(state.get("proposed_artifact_id") or "").strip():
+        raise HTTPException(status_code=409, detail="BOM đã được propose; sửa BOM rồi mới propose lại.")
     try:
         result = portfolio_service.submit_bom_proposal(
             client_id,
