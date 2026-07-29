@@ -180,13 +180,18 @@ def _pick_currency_value(material: dict, base_key: str, use_vnd: bool, product: 
     if target == "VND":
         vnd = material.get(f"{base_key}_vnd")
         return vnd if vnd not in (None, "") else material.get(base_key, "")
-    # target is non-VND and row stored in VND (the common growatt case):
-    # divide the canonical VND value by fob_fx_rate to get the nguyên tệ figure.
-    # Only the precomputed *_vnd field holds a genuine VND amount; base_key holds
-    # the native value. A legacy row lacking *_vnd must fall back to that native
-    # value UNCONVERTED — feeding it into the division below applies the rate a
-    # second time (native ÷ VND-rate) and prints a wrong figure.
+    # target is non-VND and row stored in a different currency (the common
+    # growatt case: row is VND, target is USD). Divide the canonical VND value by
+    # fob_fx_rate to get the nguyên tệ figure. The precomputed *_vnd field holds a
+    # genuine VND amount; base_key holds the native value in row_currency.
+    #   - VND row lacking *_vnd (legacy data): base_key itself IS a VND amount, so
+    #     fall back to it and convert once — 2450000 / 24500 = 100.
+    #   - Non-VND row lacking *_vnd (e.g. EUR-native): base_key is a foreign
+    #     native value; converting it would apply the rate a second time and print
+    #     a wrong figure, so it must fall through UNCONVERTED.
     vnd_value = material.get(f"{base_key}_vnd")
+    if vnd_value in (None, "") and row_currency == "VND":
+        vnd_value = material.get(base_key, "")
     fx_rate = (product or {}).get("fob_fx_rate") or ""
     try:
         if vnd_value not in (None, "") and fx_rate:
