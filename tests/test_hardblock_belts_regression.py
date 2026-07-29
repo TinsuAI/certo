@@ -68,7 +68,7 @@ def test_belt1_flag_derives_from_empty_unit_value():
     # unit_value, and only then does the product flag trip. A non-origin NVL.
     p = enrich_origin_product({
         "code": "P1", "fob": "100",
-        "materials": [{"material_code": "M", "origin_status": "non_origin", "unit_value": ""}],
+        "materials": [{"material_code": "M", "origin_status": "non_origin", "unit_value": "", "customs_relevance": ""}],
     })
     assert p["materials"][0]["valuation_status"] == "missing_unit_value"
     assert p["lvc_missing_price"] is True
@@ -78,7 +78,7 @@ def test_belt1_flag_off_for_origin_material_without_price():
     # An ORIGIN material never enters VNM, so a missing price does not inflate LVC.
     p = enrich_origin_product({
         "code": "P1", "fob": "100",
-        "materials": [{"material_code": "M", "origin_status": "origin", "unit_value": ""}],
+        "materials": [{"material_code": "M", "origin_status": "origin", "unit_value": "", "customs_relevance": ""}],
     })
     assert p["lvc_missing_price"] is False
 
@@ -111,7 +111,7 @@ def test_belt1_lock_blocked_even_when_status_calculated():
     # Segment (c). Enrich for real, then mis-persist as 'calculated' → still blocked.
     enriched = enrich_origin_product({
         "code": "P1", "fob": "100",
-        "materials": [{"material_code": "M", "origin_status": "non_origin", "unit_value": ""}],
+        "materials": [{"material_code": "M", "origin_status": "non_origin", "unit_value": "", "customs_relevance": ""}],
     })
     error = origin_sheet_action_error(_case_with_calculated_sheet(enriched), "P1", "lock")
     assert MISSING_PRICE_LOCK_FRAGMENT in error
@@ -123,7 +123,7 @@ def test_belt1_export_blocked_even_when_status_calculated():
     # Segment (d). The missing-price sheet is an export blocker despite status.
     enriched = enrich_origin_product({
         "code": "P1", "fob": "100",
-        "materials": [{"material_code": "M", "origin_status": "non_origin", "unit_value": ""}],
+        "materials": [{"material_code": "M", "origin_status": "non_origin", "unit_value": "", "customs_relevance": ""}],
     })
     assert "P1" in origin_sheet_export_blockers(_case_with_calculated_sheet(enriched))
 
@@ -133,7 +133,7 @@ def test_belt1_missing_price_row_is_not_stripped_from_export():
     # sheet, it does NOT silently drop the row (that is the declarable_unmatched
     # behavior, belt 2). If this row were stripped, the sheet could look complete
     # while the priced rows alone pass, hiding the block.
-    material = {"material_code": "M", "origin_status": "non_origin", "unit_value": ""}
+    material = {"material_code": "M", "origin_status": "non_origin", "unit_value": "", "customs_relevance": ""}
     assert is_bom_technical_noise(material) is False
 
 
