@@ -964,7 +964,10 @@ class DataHubPortfolioService:
         form is ignored), so fetch one declaration at a time, then run the same
         match_case_bcct_exports the heavy path uses. Produces identical matches to
         the full pull (verified on Johnson: by-codes 0 field mismatch; declaration
-        filter 43/43 exact).
+        filter 43/43 exact). The declaration fetch passes
+        include_material_identity=true so normalize_bcct_row resolves item_code to
+        the material_identity display code, matching the heavy full-pull path; on a
+        non-origin cold window this avoids the raw/display-code variant.
         """
         shipment = case.get("shipment", {})
         invoice_no = str(shipment.get("invoice_no", "") or "").strip()
@@ -978,7 +981,10 @@ class DataHubPortfolioService:
                 narrow_rows.extend(
                     normalize_bcct_row(row)
                     for row in self.data_hub.list_bcct(
-                        client["id"], declaration_no=token, direction="export"
+                        client["id"],
+                        declaration_no=token,
+                        direction="export",
+                        include_material_identity="true",
                     )
                 )
             return match_case_bcct_exports(

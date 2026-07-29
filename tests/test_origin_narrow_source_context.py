@@ -124,6 +124,80 @@ def test_export_declaration_case_uses_declaration_filter_not_full_pull():
     assert not any(u.path == "/v1/hub/materials" for u in seen)
 
 
+def _export_decl_identity_handler(request: httpx.Request) -> httpx.Response:
+    """Mimics Data Hub: the bcct row only carries a material_identity object when
+    the request asked for it (include_material_identity=true). item_code differs
+    from the identity's resolved_code so the resolution is observable."""
+    path = request.url.path
+    params = request.url.params
+    if path == "/v1/hub/bcct" and params.get("declaration_no"):
+        row = {
+            "direction": "export", "review_status": "reviewed", "declaration_type": "B11",
+            "declaration_no": "EX-1", "line_no": 1, "item_code": "RAW-1",
+            "invoice_ref": "INV-1", "transaction_key": "TX-1", "customs_value": "900",
+        }
+        if params.get("include_material_identity") == "true":
+            row["material_identity"] = {"resolved_code": "RES-1", "resolution_status": "resolved"}
+        return httpx.Response(200, json={"items": [row]})
+    if path == "/v1/hub/bcct":
+        return httpx.Response(200, json={"items": [{"_full_pull": "must-not-be-called"}]})
+    if path == "/v1/hub/materials":
+        return httpx.Response(200, json={"items": [{"_materials": "must-not-be-called"}]})
+    return httpx.Response(200, json={"items": []})
+
+
+def test_export_declaration_narrow_fetch_requests_material_identity():
+    # Residual fix (CO 524): the narrow per-declaration fetch omitted
+    # include_material_identity, so on a non-origin cold window item_code showed
+    # the raw variant instead of the resolved display code. It now asks DH to
+    # resolve identity, matching the heavy full-pull path.
+    service, seen = _service(_export_decl_identity_handler)
+    matches = service.origin_invoice_matches(
+        {"id": "acme"}, {"shipment": {"export_declaration_nos": ["EX-1"]}}, CLIENT_CONFIG
+    )
+    # The declaration-filtered fetch carried include_material_identity=true...
+    assert any(
+        u.path == "/v1/hub/bcct"
+        and u.params.get("declaration_no") == "EX-1"
+        and u.params.get("include_material_identity") == "true"
+        for u in seen
+    )
+    # ...so item_code is the identity-resolved display code, not the raw "RAW-1".
+    assert [m["item_code"] for m in matches] == ["RES-1"]
+    assert not _full_bcct_pulled(seen)
+
+
+def test_export_declaration_narrow_matches_equal_heavy_path_over_same_rows():
+    # Parity guard for the 43/43-byte-identical Johnson result: the narrow
+    # per-declaration path must yield the SAME invoice_matches the heavy full-pull
+    # path builds (normalize_bcct_row + match_case_bcct_exports) over the same DH
+    # rows — now that both send include_material_identity=true.
+    from app.co_case_store import match_case_bcct_exports
+    from app.data_hub_client import normalize_bcct_row
+
+    dh_row = {
+        "direction": "export", "review_status": "reviewed", "declaration_type": "B11",
+        "declaration_no": "EX-1", "line_no": 1, "item_code": "RAW-1",
+        "invoice_ref": "INV-1", "transaction_key": "TX-1", "customs_value": "900",
+        "material_identity": {"resolved_code": "RES-1", "resolution_status": "resolved"},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/hub/bcct" and request.url.params.get("declaration_no"):
+            return httpx.Response(200, json={"items": [dh_row]})
+        return httpx.Response(200, json={"items": []})
+
+    service, _ = _service(handler)
+    case = {"shipment": {"export_declaration_nos": ["EX-1"]}}
+    narrow = service.origin_invoice_matches({"id": "acme"}, case, CLIENT_CONFIG)
+
+    heavy = match_case_bcct_exports(
+        case, {"bcct": {"published_rows": [normalize_bcct_row(dh_row)]}}, CLIENT_CONFIG
+    )
+    assert narrow == heavy
+    assert [m["item_code"] for m in narrow] == ["RES-1"]
+
+
 def test_empty_shipment_returns_no_matches_without_any_fetch():
     service, seen = _service(_invoice_only_handler)
     matches = service.origin_invoice_matches({"id": "acme"}, {"shipment": {}}, CLIENT_CONFIG)
