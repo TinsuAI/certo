@@ -1929,6 +1929,9 @@ async def bulk_lock_route(request: Request, client_id: str, case_id: str):
             continue
         try:
             record_sheet_lock_claims(client_id, case_id, code, case)
+        except co_stock_ledger.StockSnapshotMissingError as exc:
+            skipped.append({"product_code": code, "reason": str(exc)})
+            continue
         except co_stock_ledger.StockOverclaimError as exc:
             skipped.append({
                 "product_code": code,
@@ -2270,6 +2273,21 @@ async def lock_co_case_origin_sheet(request: Request, client_id: str, case_id: s
     # this code path used to suffer from silent exception swallowing).
     try:
         record_sheet_lock_claims(client_id, case_id, product_code, case)
+    except co_stock_ledger.StockSnapshotMissingError as exc:
+        return templates.TemplateResponse(
+            request=request,
+            name="co_case.html",
+            status_code=409,
+            context=co_case_context(
+                client_id,
+                case_id,
+                current_step="origin",
+                case=case,
+                error=str(exc),
+                preserve_origin_products=True,
+                fast_origin_context=True,
+            ),
+        )
     except co_stock_ledger.StockOverclaimError as exc:
         detail_lines = [
             f"{v['source_row']}: cần {v['claimed']}, còn {v['available']}"
