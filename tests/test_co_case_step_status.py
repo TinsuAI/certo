@@ -17,7 +17,12 @@ per step (not a single generic map).
 """
 from __future__ import annotations
 
-from app.web.co_case_context import co_case_step_status, co_case_workflow_steps
+from app.web.co_case_context import (
+    attach_origin_sheet_states,
+    co_case_step_status,
+    co_case_workflow_steps,
+    origin_sheet_attention,
+)
 
 STATUS_KEYS = {"done", "in_progress", "attention", "todo"}
 
@@ -204,3 +209,103 @@ def test_workflow_steps_emit_four_key_status_and_label():
     origin = next(s for s in steps if s["key"] == "origin")
     assert origin["status"] == "done"
     assert origin["status_label"] == "Đã chốt 2/2"
+
+
+# --- Readiness chip: guard-blocked vs merely-loaded (backlog ST1) ----------
+# After a batch "Tính", a sheet a guard held (shortage / missing price /
+# declarable-unmatched / empty BOM) stays at `bom_loaded` — identical badge to a
+# sheet that only had BOM structure loaded and was never calculated.
+# `origin_sheet_attention` tells them apart.
+
+def _blocked_sheet(**flags) -> dict:
+    # A CALCULATED sheet (origin_not_calculated False) resting at bom_loaded.
+    base = {"code": "TP-1", "origin_sheet_status": "bom_loaded", "origin_not_calculated": False}
+    base.update(flags)
+    return base
+
+
+def test_attention_shortage():
+    chip = origin_sheet_attention(_blocked_sheet(lvc_allocation_shortage=True))
+    assert chip["status"] == "attention"
+    assert chip["reason"] == "shortage"
+    assert chip["label"] == "Cần xử lý: thiếu tồn"
+    assert chip["detail"]
+
+
+def test_attention_missing_price():
+    chip = origin_sheet_attention(_blocked_sheet(lvc_missing_price=True))
+    assert chip["status"] == "attention"
+    assert chip["reason"] == "missing_price"
+    assert chip["label"] == "Cần xử lý: thiếu đơn giá"
+
+
+def test_attention_declarable_unmatched():
+    chip = origin_sheet_attention(_blocked_sheet(lvc_declarable_unmatched=True))
+    assert chip["status"] == "attention"
+    assert chip["reason"] == "declarable_unmatched"
+    assert chip["label"] == "Cần xử lý: NVL chưa khớp tồn"
+
+
+def test_attention_missing_bom():
+    chip = origin_sheet_attention(_blocked_sheet(lvc_status="missing_bom"))
+    assert chip["status"] == "attention"
+    assert chip["reason"] == "missing_bom"
+    assert chip["label"] == "Cần xử lý: chưa đủ BOM"
+
+
+def test_attention_priority_shortage_beats_missing_price():
+    # A no-lot NVL trips both; the remedy is the import document, not a price, so
+    # shortage wins — same order as the lock-block reason.
+    chip = origin_sheet_attention(
+        _blocked_sheet(lvc_allocation_shortage=True, lvc_missing_price=True)
+    )
+    assert chip["reason"] == "shortage"
+
+
+def test_never_calculated_load_bom_stays_neutral():
+    # Merely Load-BOM'd (origin_not_calculated) — even with a raw missing price it
+    # is only "loaded", not "blocked". Must read neutral so the badge stays
+    # "Đã nạp BOM".
+    chip = origin_sheet_attention(
+        {
+            "code": "TP-1",
+            "origin_sheet_status": "bom_loaded",
+            "origin_not_calculated": True,
+            "lvc_missing_price": True,
+        }
+    )
+    assert chip["status"] == ""
+
+
+def test_bom_loaded_no_flags_neutral():
+    chip = origin_sheet_attention(_blocked_sheet())
+    assert chip["status"] == ""
+
+
+def test_non_bom_loaded_status_never_attention():
+    # A calculated/locked/draft sheet is never a "Cần xử lý" chip even with a flag
+    # set — the chip is scoped to sheets resting at bom_loaded.
+    for status in ("draft", "calculated", "locked", "stale", ""):
+        chip = origin_sheet_attention(
+            {"code": "TP-1", "origin_sheet_status": status, "lvc_allocation_shortage": True}
+        )
+        assert chip["status"] == "", status
+
+
+def test_attach_origin_sheet_states_exposes_chip():
+    # Integration: the render pipeline attaches the chip onto each product.
+    case = {
+        "products": [
+            {"code": "TP-BLOCK", "origin_not_calculated": False, "lvc_missing_price": True},
+            {"code": "TP-LOADED", "origin_not_calculated": True},
+        ],
+        "origin_sheet_states": {
+            "TP-BLOCK": {"status": "bom_loaded"},
+            "TP-LOADED": {"status": "bom_loaded"},
+        },
+    }
+    prepared = attach_origin_sheet_states(case)
+    by_code = {p["code"]: p for p in prepared["products"]}
+    assert by_code["TP-BLOCK"]["origin_sheet_attention"]["status"] == "attention"
+    assert by_code["TP-BLOCK"]["origin_sheet_attention"]["reason"] == "missing_price"
+    assert by_code["TP-LOADED"]["origin_sheet_attention"]["status"] == ""

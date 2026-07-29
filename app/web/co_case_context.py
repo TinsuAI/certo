@@ -58,6 +58,62 @@ def durable_sheet_status(status) -> str:
     """
     text = str(status or "").strip()
     return "stale" if text == "calculating" else text
+# Guard reasons that hold a CALCULATED sheet at `bom_loaded` (see
+# routers.co_case.calculated_sheet_status). Ordered by remedy priority, mirroring
+# the lock-block reason in attach_origin_sheet_states: shortage first (a no-lot
+# NVL also trips missing_price, but the fix is the import DOCUMENT, not a price),
+# then missing price, then declarable-unmatched, then an empty BOM.
+ORIGIN_SHEET_ATTENTION_REASONS = (
+    (
+        "shortage",
+        "Cần xử lý: thiếu tồn",
+        "Còn NVL thiếu tồn/không có lô nhập khớp — bổ sung chứng từ (khớp tờ khai nhập hoặc hoá đơn VAT) rồi tính lại.",
+    ),
+    (
+        "missing_price",
+        "Cần xử lý: thiếu đơn giá",
+        "Còn NVL không xuất xứ thiếu đơn giá — bổ sung đơn giá rồi tính lại trước khi chốt.",
+    ),
+    (
+        "declarable_unmatched",
+        "Cần xử lý: NVL chưa khớp tồn",
+        "Còn NVL thuộc diện khai báo chưa khớp tồn BCCT — khớp hoặc thay NVL rồi tính lại.",
+    ),
+    (
+        "missing_bom",
+        "Cần xử lý: chưa đủ BOM",
+        "Chưa có BOM khai triển đầy đủ — nạp BOM (Mẫu 16 hoặc BOM đầy đủ) rồi tính lại.",
+    ),
+)
+def origin_sheet_attention(product: dict) -> dict:
+    """Readiness chip that separates a guard-BLOCKED sheet from a merely-loaded one.
+
+    Both rest at status `bom_loaded` and would otherwise render the same neutral
+    "Đã nạp BOM" badge. This returns {"status", "reason", "label", "detail"}:
+    - status == "attention" (amber) → the sheet was calculated but a guard
+      (shortage / missing price / declarable-unmatched / empty BOM) held it, so
+      the caller renders "Cần xử lý: <reason>" instead of "Đã nạp BOM".
+    - status == "" → not blocked; the caller keeps the plain status label.
+
+    A never-calculated sheet (origin_not_calculated) always reads neutral even if
+    its raw BOM already shows missing prices: the operator has not run Tính, so it
+    is only "loaded", not "blocked". Presentation-only — no lock/calc logic here.
+    """
+    empty = {"status": "", "reason": "", "label": "", "detail": ""}
+    if durable_sheet_status(product.get("origin_sheet_status")) != "bom_loaded":
+        return empty
+    if product.get("origin_not_calculated"):
+        return empty
+    flags = {
+        "shortage": bool(product.get("lvc_allocation_shortage")),
+        "missing_price": bool(product.get("lvc_missing_price")),
+        "declarable_unmatched": bool(product.get("lvc_declarable_unmatched")),
+        "missing_bom": str(product.get("lvc_status") or "") == "missing_bom",
+    }
+    for reason, label, detail in ORIGIN_SHEET_ATTENTION_REASONS:
+        if flags[reason]:
+            return {"status": "attention", "reason": reason, "label": label, "detail": detail}
+    return empty
 def origin_case_revision(case: dict) -> str:
     # Optimistic-concurrency token over USER-EDITABLE case state only.
     #
@@ -1294,6 +1350,11 @@ def attach_origin_sheet_states(case: dict) -> dict:
         product["origin_sheet_state"] = state
         product["origin_sheet_status"] = state["status"]
         product["origin_sheet_status_label"] = state["status_label"]
+        # Readiness chip: a sheet resting at `bom_loaded` is either merely loaded
+        # (neutral "Đã nạp BOM") or was calculated and held by a guard — surface
+        # the latter as an amber "Cần xử lý: <reason>" so batch-Tính leaves no
+        # blocked sheet looking identical to an un-calculated one.
+        product["origin_sheet_attention"] = origin_sheet_attention(product)
         product["origin_sheet_form_override"] = form_override
         product["origin_sheet_criteria_override"] = criteria_override
         product["origin_sheet_lvc_threshold_override"] = lvc_threshold_override

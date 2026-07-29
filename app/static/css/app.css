@@ -3497,6 +3497,14 @@ button.co-stat:hover {
   color: var(--info);
 }
 
+/* Guard-blocked sheet resting at bom_loaded: amber "Cần xử lý", set apart from
+   a merely-loaded sheet's neutral info pill. */
+.origin-sheet-status-pill.origin-sheet-state-attention {
+  border-color: color-mix(in srgb, var(--warning) 55%, var(--border));
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
 .origin-sheet-status-pill.origin-sheet-state-locked {
   border-color: color-mix(in srgb, var(--success) 65%, var(--border));
   background: var(--success-soft);
