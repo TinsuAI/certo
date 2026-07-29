@@ -187,7 +187,7 @@ def _run_whole_case(monkeypatch, a1_qty):
     from app.web.co_case_context import case_missing_stock_summary, case_shortfall_rollup
 
     stock = _a1_stock(a1_qty)
-    monkeypatch.setattr(R, "_calculate_stock_rows_from_snapshot", lambda client: [dict(r) for r in stock])
+    monkeypatch.setattr(R, "_calculate_stock_rows_from_snapshot", lambda client, scope_codes=None: [dict(r) for r in stock])
     monkeypatch.setattr(R, "_ensure_origin_material_rows", lambda client, rows: list(rows or []))
 
     context = {

@@ -3870,7 +3870,7 @@ def _schedule_background_co_stock_refresh(client: dict) -> None:
                 _co_stock_refresh_inflight.discard(client_id)
 
     threading.Thread(target=_run, name=f"co-stock-refresh-{client_id}", daemon=True).start()
-def _calculate_stock_rows_from_snapshot(client: dict) -> list[dict] | None:
+def _calculate_stock_rows_from_snapshot(client: dict, *, scope_codes: set[str] | None = None) -> list[dict] | None:
     """Returns stock rows ready for `prepare_case_origin_sheet`, decorated with
     current ledger used/remaining qty, or None when the snapshot is empty (no
     DB / never materialized) so the caller's legacy full-pull runs instead — an
@@ -3884,6 +3884,15 @@ def _calculate_stock_rows_from_snapshot(client: dict) -> list[dict] | None:
     request on a multi-minute synchronous re-pull. The origin UI surfaces the
     snapshot's age, so calculating on it is never silent, and `apply_used_qty`
     keeps available tồn correct against the latest claims regardless of age.
+
+    `scope_codes`: when given (a single-sheet /calculate knows exactly which
+    material codes it can allocate against, via `case_stock_scope_codes`), drop
+    every lot whose `co_stock_key_candidates` miss all of them BEFORE the
+    per-row copy + `apply_used_qty`. Such a lot can never land in a queried
+    allocation-pool bucket, so the allocation/tồn result is byte-identical while
+    the copy + overlay run over only the relevant lots instead of the whole
+    ~60k-row client snapshot. Empty/None scope = no filter (full snapshot), so
+    callers that need the broad read stay unchanged.
     """
     client_id = str(client.get("id", "")) if isinstance(client, dict) else ""
     if not client_id:
@@ -3895,6 +3904,14 @@ def _calculate_stock_rows_from_snapshot(client: dict) -> list[dict] | None:
         return None
     if not _co_stock_snapshot_is_fresh(client_id):
         _schedule_background_co_stock_refresh(client)
+    if scope_codes:
+        scope = {str(code).strip() for code in scope_codes if str(code).strip()}
+        if scope:
+            # Filtering preserves the cached rows' relative order, so the
+            # retained lots keep the same `_allocation_sequence` ordering the
+            # allocation-pool sort relies on — that tiebreaker is index-relative,
+            # never index-absolute.
+            rows = [row for row in rows if any(key in scope for key in co_stock_key_candidates(row))]
     # apply_used_qty mutates the rows in place to attach used/remaining,
     # so copy the cached payloads first — the cache must stay clean. The
     # materialized snapshot is already trừ-lùi-folded (refresh + import re-fold
@@ -3903,3 +3920,38 @@ def _calculate_stock_rows_from_snapshot(client: dict) -> list[dict] | None:
     rows = [dict(r) for r in rows]
     used_by_lot = co_stock_ledger.used_qty_by_lot(client_id)
     return co_stock_ledger.apply_used_qty(rows, used_by_lot)
+
+
+def case_stock_scope_codes(case: dict, bom_workspace: dict | None = None) -> set[str]:
+    """Material codes a single-sheet /calculate can allocate against.
+
+    Two query sides feed the allocation pool: the target sheet's BOM rows (each
+    looked up by `material_code`) and the previous sheets whose consumption is
+    replayed (`apply_existing_origin_product_consumption`, keyed by each
+    material's `material_code`/`internal_material_code`). This gathers both — the
+    case's product materials plus every selected BOM row's material code — so the
+    returned set is a SUPERSET of every pool key the calc will look up. Scoping
+    the snapshot read to lots reaching one of these codes therefore drops only
+    lots that no allocation bucket would ever return.
+
+    `bom_workspace` is optional: the override path already carries the target's
+    material codes on the sheet itself, so it can union those in separately and
+    skip the BOM-selection resolve."""
+    scope: set[str] = set()
+    for product in (case.get("products") if isinstance(case, dict) else None) or []:
+        for material in product.get("materials", []) or []:
+            for value in (material.get("material_code"), material.get("internal_material_code")):
+                key = str(value or "").strip()
+                if key:
+                    scope.add(key)
+    if bom_workspace is not None:
+        try:
+            rows_by_product = selected_bom_rows_by_product(case, bom_workspace)
+        except Exception:  # noqa: BLE001 — scope is an optimisation; never block calc
+            rows_by_product = {}
+        for rows in rows_by_product.values():
+            for row in rows or []:
+                key = str(row.get("material_code") or "").strip()
+                if key:
+                    scope.add(key)
+    return scope

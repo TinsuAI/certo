@@ -23,7 +23,7 @@ from app.portfolio import portfolio_service
 from app.source_store import co_stock_rows_from_bcct
 from app.substitution_plan import plan_shortfall_substitution
 from app.web.client_context import default_client_case, effective_min_gap_days, resolve_client, source_workspace_for_client
-from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, OVERRIDE_HISTORY_MAX, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, apply_column9_mode_flip, attach_column9_mode_mismatch, attach_origin_sheet_states, case_allocation_pool, column9_mode_mismatches, materialize_bang_ke_origin_fields, resolve_case_column9_mode, case_missing_stock_summary, case_shortfall_rollup, case_stock_preview_summary, case_tkx_tkn_summary, clean_override_stack, co_case_context, co_case_source_context, co_case_source_context_cached, co_case_material_catalog_cached, co_stock_is_usable, dossier_content_revision, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, material_row_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, origin_case_revision, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_products, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
+from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, OVERRIDE_HISTORY_MAX, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, apply_column9_mode_flip, attach_column9_mode_mismatch, attach_origin_sheet_states, case_allocation_pool, case_stock_scope_codes, column9_mode_mismatches, materialize_bang_ke_origin_fields, resolve_case_column9_mode, case_missing_stock_summary, case_shortfall_rollup, case_stock_preview_summary, case_tkx_tkn_summary, clean_override_stack, co_case_context, co_case_source_context, co_case_source_context_cached, co_case_material_catalog_cached, co_stock_is_usable, dossier_content_revision, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, material_row_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, origin_case_revision, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_products, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
 from app.web.deps import large_request_form
 from app.web.templating import templates
 from app.workbook_io import create_dossier_zip, create_hq_bang_ke_workbook
@@ -598,7 +598,12 @@ def recalculate_origin_sheet_edits(client: dict, case: dict, product_code: str, 
     # baseline. Mirror the non-override /calculate path so calculate and lock
     # agree; fall back to the raw pull only on a cold/empty snapshot (no fold
     # exists yet there anyway).
-    stock_rows: list[dict] = _calculate_stock_rows_from_snapshot(client) or []
+    # Scope the snapshot read to the lots this sheet can reach: the target's
+    # overridden BOM codes (material_codes) plus every product material already
+    # on the case (previous sheets whose consumption is replayed below). Superset
+    # of the pool keys queried → allocation stays byte-identical, read is narrow.
+    scope_codes = case_stock_scope_codes(prepared) | set(material_codes)
+    stock_rows: list[dict] = _calculate_stock_rows_from_snapshot(client, scope_codes=scope_codes) or []
     if not stock_rows:
         try:
             narrow_rows = portfolio_service.list_bcct_by_codes(client.get("id", ""), material_codes, direction="import")
@@ -2123,14 +2128,25 @@ def _recompute_origin_sheet_context(
     Fast path: delta-refresh the materialized stock snapshot and read stock rows
     from co_stock_rows directly (1-2s) instead of the ~30-45s full DH pull; fall
     back to the full pull when the snapshot is empty/errored."""
-    snapshot_stock_rows = _calculate_stock_rows_from_snapshot(client)
-    if snapshot_stock_rows is not None:
+    # Probe (cached, cheap): a materialized snapshot present is exactly the
+    # condition that `_calculate_stock_rows_from_snapshot` returns non-None on,
+    # so this reproduces the old branch without paying the 60k-row copy up front.
+    has_snapshot = bool(
+        co_stock_materializer.read_co_stock_rows_cached(str(client.get("id", "") or ""))
+    )
+    if has_snapshot:
         context = co_case_context(
             client_id, case_id, current_step="origin", case=case, message=message,
             preserve_origin_products=True, cached_case_context=True,
         )
         source_context = context.get("origin_source_context", {})
-        stock_rows = snapshot_stock_rows
+        # Scope the snapshot read to the lots this case's BOM + product materials
+        # can reach — a superset of the pool keys this /calculate looks up, so the
+        # allocation is byte-identical while the copy + overlay skip unrelated lots.
+        scope_codes = case_stock_scope_codes(
+            context["case"], context.get("bom_workspace") or minimal_bom_workspace()
+        )
+        stock_rows = _calculate_stock_rows_from_snapshot(client, scope_codes=scope_codes) or []
     else:
         context = co_case_context(
             client_id, case_id, current_step="origin", case=case, message=message,
