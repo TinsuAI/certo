@@ -840,6 +840,16 @@ def record_refresh_state(
     last_bcct_server_time: str = "",
     config_fingerprint: str = "",
 ) -> None:
+    """Persist the per-client refresh high-water mark.
+
+    `bcct_row_count_at_refresh` is the WHOLE-CORPUS BCCT published row count at
+    refresh time (the sync high-water mark), NOT the number of rows this refresh
+    touched. `compute_sync_status` compares it against the current corpus total
+    to detect drift, so it must stay the total even on a delta refresh — a delta
+    that pulled 3 rows still records the full ~65k. The operation-scoped count
+    (rows this refresh actually pulled) is surfaced separately in the refresh
+    response as `source_rows_considered`; see `_try_delta_refresh`.
+    """
     if not _store_available() or not client_id:
         return
     try:

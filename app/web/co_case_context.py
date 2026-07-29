@@ -3719,7 +3719,7 @@ def _refresh_co_stock_delta_or_full(client: dict) -> dict:
         if state
         else False
     )
-    if (
+    delta_ready = (
         delta_safe
         and schema_current
         and config_current
@@ -3727,11 +3727,56 @@ def _refresh_co_stock_delta_or_full(client: dict) -> dict:
         and snapshot_count > 0
         and data_hub is not None
         and hasattr(data_hub, "list_bcct_with_envelope")
-    ):
+    )
+    if delta_ready:
         delta_summary = _try_delta_refresh(client, data_hub, last_server_time)
         if delta_summary is not None:
             return delta_summary
-    return _full_refresh(client)
+        # Delta preconditions held but the pull couldn't proceed (Data Hub on an
+        # older contract with no server_time, or the since-pull raised) — full is
+        # the fallback. Distinct from the reasons below: nothing about the client
+        # forced full, the delta contract was just unavailable on this call.
+        full_reason = "delta_unavailable"
+    else:
+        full_reason = _full_refresh_reason(
+            delta_safe=delta_safe,
+            schema_current=schema_current,
+            config_current=config_current,
+            last_server_time=last_server_time,
+            snapshot_count=snapshot_count,
+            data_hub=data_hub,
+        )
+    summary = _full_refresh(client)
+    # `_full_refresh` stamps "empty_source" itself when the pull came back empty
+    # over a populated snapshot; keep that over the dispatch-level decision.
+    summary.setdefault("reason", full_reason)
+    return summary
+def _full_refresh_reason(
+    *,
+    delta_safe: bool,
+    schema_current: bool,
+    config_current: bool,
+    last_server_time: str,
+    snapshot_count: int,
+    data_hub,
+) -> str:
+    """Report WHY the dispatch chose full over delta. Mirrors the `delta_ready`
+    predicate without changing it — pure classification for the operator/log.
+    Cold conditions (no snapshot / no high-water mark) rank first because they
+    mean a delta was structurally impossible, not that the client changed."""
+    if snapshot_count <= 0:
+        return "empty_snapshot"
+    if not last_server_time:
+        return "no_server_time"
+    if not delta_safe:
+        return "aggregate_lot_policy"
+    if not schema_current:
+        return "schema_version"
+    if not config_current:
+        return "config_changed"
+    if data_hub is None or not hasattr(data_hub, "list_bcct_with_envelope"):
+        return "no_delta_contract"
+    return "forced_full"
 def _try_delta_refresh(client: dict, data_hub, last_server_time: str) -> dict | None:
     """Returns a summary on success, or None if delta path can't be taken
     (e.g. response missing `server_time`, indicating Data Hub doesn't yet
@@ -3770,15 +3815,26 @@ def _try_delta_refresh(client: dict, data_hub, last_server_time: str) -> dict | 
         tombstone_source_rows=tombstone_source_rows,
     )
     source_summary, _ = portfolio_service.source_summary(client)
+    bcct_total_rows = source_summary.get("bcct", {}).get("published_row_count", 0)
     co_stock_materializer.record_refresh_state(
         client["id"],
         snapshot_row_count=co_stock_materializer.row_count(client["id"]),
-        bcct_row_count_at_refresh=source_summary.get("bcct", {}).get("published_row_count", 0),
+        bcct_row_count_at_refresh=bcct_total_rows,
         last_bcct_server_time=server_time,
         config_fingerprint=co_stock_materializer.co_config_fingerprint(client_config),
     )
+    summary["mode"] = "delta"
+    summary["reason"] = "incremental"
     summary["server_time"] = server_time
     summary["tombstones_received"] = len(tombstones)
+    # Two counts, deliberately separate. `source_rows_considered` is what THIS
+    # operation pulled — the since-window items, a handful on a quiet delta.
+    # `bcct_total_rows` is the whole-corpus high-water mark stored in
+    # refresh_state (bcct_row_count_at_refresh, ~65k). Reporting only the total
+    # on a delta implied the delta processed 65k rows; keeping both apart lets
+    # an operator read "delta considered 3 of 65846" instead.
+    summary["source_rows_considered"] = len(delta_items)
+    summary["bcct_total_rows"] = bcct_total_rows
     return summary
 def _full_refresh(client: dict) -> dict:
     # Capture the high-water mark BEFORE the data pull. Probing AFTER would record
@@ -3794,21 +3850,34 @@ def _full_refresh(client: dict) -> dict:
     summary = co_stock_materializer.refresh_co_stock_for_client(
         client, lambda: workspace.get("co_stock_rows") or [],
     )
+    summary["mode"] = "full"
     if summary.get("aborted_empty_full_pull"):
         # The pull came back empty over a populated snapshot — snapshot preserved.
         # Do NOT advance refresh_state / server_time: marking the high-water mark
         # over rows we never pulled would strand them out of the next delta.
+        # Report "empty_source" (this summary also carries the abort error, so the
+        # route returns ok:false) so the operator sees "the pull was empty", not
+        # "nothing changed". This reason wins over the dispatch decision.
+        summary["reason"] = "empty_source"
+        summary["source_rows_considered"] = 0
+        summary["bcct_total_rows"] = 0
         return summary
     source_summary, _ = portfolio_service.source_summary(client)
+    bcct_total_rows = source_summary.get("bcct", {}).get("published_row_count", 0)
     co_stock_materializer.record_refresh_state(
         client["id"],
         snapshot_row_count=summary.get("rows_persisted", 0),
-        bcct_row_count_at_refresh=source_summary.get("bcct", {}).get("published_row_count", 0),
+        bcct_row_count_at_refresh=bcct_total_rows,
         last_bcct_server_time=server_time,
         config_fingerprint=co_stock_materializer.co_config_fingerprint(client_config),
     )
     if server_time:
         summary["server_time"] = server_time
+    # A full pull considers the entire corpus, so the operation-scoped count and
+    # the total coincide — but emit both so the response shape stays stable
+    # across full and delta. `reason` is filled by the dispatch (setdefault).
+    summary["source_rows_considered"] = bcct_total_rows
+    summary["bcct_total_rows"] = bcct_total_rows
     return summary
 def _probe_server_time(client: dict) -> str:
     data_hub = getattr(portfolio_service, "data_hub", None)
