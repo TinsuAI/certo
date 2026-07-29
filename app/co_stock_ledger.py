@@ -425,6 +425,39 @@ def claims_summary_for_case(client_id: str, case_id: str) -> dict:
         return {"count": 0, "lots": 0}
 
 
+def claims_summary_for_cases(client_id: str, case_ids: list[str]) -> dict[str, dict]:
+    """Batched `claims_summary_for_case` — one query for many cases.
+
+    Returns `{case_id: {"count": int, "lots": int}}`. Every requested id is a
+    key, so a case with no locked claims (absent from the grouped result) still
+    maps to `{"count": 0, "lots": 0}` — identical to calling the single-case
+    probe once per id, but in a single DB round trip. Replaces the per-dossier
+    loop on the case-list index (`co_case_context`), which was one query per
+    dossier.
+    """
+    # Every requested id (including duplicates and blanks) gets a default entry
+    # so the caller can look up any dossier without branching. The query itself
+    # only sends the deduped, non-blank ids.
+    result = {case_id: {"count": 0, "lots": 0} for case_id in case_ids}
+    query_ids = [cid for cid in dict.fromkeys(case_ids) if cid]
+    if not query_ids or not _ledger_available():
+        return result
+    try:
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """select case_id, count(*), count(distinct source_row)
+                   from co_stock_claims
+                   where client_id = %s and case_id = any(%s) and status = 'locked'
+                   group by case_id""",
+                (client_id, query_ids),
+            )
+            for case_id, count, lots in cur.fetchall():
+                result[case_id] = {"count": int(count or 0), "lots": int(lots or 0)}
+    except DatabaseUnavailable:
+        return result
+    return result
+
+
 def release_all_claims_for_case(client_id: str, case_id: str) -> int:
     """Release every locked claim belonging to a case, across all sheets.
 

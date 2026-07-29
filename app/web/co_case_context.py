@@ -3524,14 +3524,19 @@ def co_case_context(client_id: str, case_id: str = "", current_step: str = "inde
         extra.setdefault("cached_case_context", True)
     extra["force_source_refresh"] = force_source_refresh
     export_states = (load_state(client_id).get("dossier_exports") or {}) if current_step == "index" else {}
+    # One batched query for every dossier's locked-claim summary instead of one
+    # per dossier (was an N+1 on the case-list index). Any DB error falls back to
+    # an empty map, so each dossier still gets the {"count": 0, "lots": 0} default.
+    case_ids = [dossier.get("case_id", "") for dossier in workspace["cases"]]
+    try:
+        claims_summaries = co_stock_ledger.claims_summary_for_cases(client_id, case_ids)
+    except Exception:  # noqa: BLE001
+        claims_summaries = {}
     for dossier in workspace["cases"]:
         dossier["delete_block_reason"] = co_case_delete_block_reason(dossier)
-        try:
-            dossier["delete_claims_summary"] = co_stock_ledger.claims_summary_for_case(
-                client_id, dossier.get("case_id", "")
-            )
-        except Exception:  # noqa: BLE001
-            dossier["delete_claims_summary"] = {"count": 0, "lots": 0}
+        dossier["delete_claims_summary"] = claims_summaries.get(
+            dossier.get("case_id", ""), {"count": 0, "lots": 0}
+        )
         if current_step == "index":
             exported = (export_states.get(dossier.get("case_id", "")) or {}).get("status") == "done"
             dossier["status_view"] = co_case_status_view(dossier, exported=exported)
