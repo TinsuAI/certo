@@ -666,10 +666,19 @@ def override_state_stamp(product: dict) -> dict:
     """Fields every material_overrides WRITE must stamp on the sheet state:
     the key scheme (so the legacy-key migration never re-runs on new-style
     keys) and the BOM version artifact the overrides were made against (so an
-    override made under version A is not applied under version B)."""
+    override made under version A is not applied under version B).
+
+    It also clears any prior BOM-proposal stamp. A proposal (proposed_artifact_id
+    /_proposal_id/_status) refers to the exact BOM that was propose-submitted;
+    once the operator edits materials again that reference is stale, so the
+    "Đã propose ✓" button must reset to "Lưu BOM mới" and allow a fresh
+    proposal for the changed BOM."""
     return {
         "override_key_scheme": OVERRIDE_KEY_SCHEME,
         "overrides_artifact_id": str(product.get("bom_product_artifact_id") or ""),
+        "proposed_artifact_id": "",
+        "proposed_proposal_id": "",
+        "proposed_status": "",
     }
 def writable_overrides(previous: dict, product: dict) -> tuple[dict, bool]:
     """The override map a write may merge into. The kept map belongs to the BOM

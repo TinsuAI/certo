@@ -1234,8 +1234,9 @@
                 <button type="button" class="btn-primary"
                         data-origin-propose-bom
                         data-product-code="{{ product.code }}"
+                        data-proposed-artifact-id="{{ product.origin_sheet_proposed_artifact_id }}"
                         data-propose-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/sheet/{{ product.code|urlencode }}/propose-bom"
-                        title="Lưu BOM artifact mới về Data Hub">
+                        {% if product.origin_sheet_proposed_artifact_id %}disabled title="Đã propose artifact {{ product.origin_sheet_proposed_artifact_id }} sang Data Hub. Sửa BOM (thêm/xoá/thay NVL) rồi mới propose lại được."{% else %}title="Lưu BOM artifact mới về Data Hub"{% endif %}>
                   {% if product.origin_sheet_proposed_artifact_id %}Đã propose ✓{% else %}Lưu BOM mới{% endif %}
                 </button>
                 {% endif %}
@@ -5688,6 +5689,14 @@
     root.querySelectorAll("[data-origin-propose-bom]").forEach((btn) => {
       if (btn.dataset.originProposeInitialized === "1") return;
       btn.dataset.originProposeInitialized = "1";
+      // Already proposed for the current (unchanged) BOM: the button is a status
+      // marker, not an action. Re-POSTing would file a duplicate proposal on
+      // Data Hub, so keep it inert. Editing the BOM clears proposed_artifact_id
+      // server-side (override_state_stamp), which re-renders it as "Lưu BOM mới".
+      if (btn.dataset.proposedArtifactId) {
+        btn.disabled = true;
+        return;
+      }
       btn.addEventListener("click", async () => {
         const url = btn.dataset.proposeUrl || "";
         if (!url) return;
