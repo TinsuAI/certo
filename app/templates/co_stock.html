@@ -185,7 +185,24 @@
         alert(`Refresh thất bại: ${(data.errors || []).join(", ") || r.status}`);
         return;
       }
-      btn.textContent = `Đã refresh ${data.rows_persisted} dòng (${data.took_seconds}s). Đang tải lại…`;
+      const modeLabels = {full: "Full", delta: "Delta"};
+      const reasonLabels = {
+        incremental: "tăng dần",
+        config_changed: "cấu hình đổi",
+        schema_version: "đổi schema dẫn xuất",
+        aggregate_lot_policy: "lot policy gộp",
+        empty_snapshot: "snapshot rỗng",
+        no_server_time: "chưa có mốc thời gian",
+        no_delta_contract: "Data Hub chưa hỗ trợ delta",
+        delta_unavailable: "delta không khả dụng",
+        empty_source: "nguồn rỗng — giữ snapshot",
+        forced_full: "ép full",
+      };
+      const modeLabel = modeLabels[data.mode] || data.mode || "?";
+      const reasonLabel = reasonLabels[data.reason] || data.reason || "";
+      const considered = data.source_rows_considered ?? data.rows_persisted;
+      const total = data.bcct_total_rows ?? "?";
+      btn.textContent = `${modeLabel}${reasonLabel ? " (" + reasonLabel + ")" : ""}: ${data.rows_persisted} dòng, xét ${considered}/${total} nguồn (${data.took_seconds}s). Đang tải lại…`;
       window.location.reload();
     } catch (err) {
       btn.textContent = original;
