@@ -1240,10 +1240,13 @@ async def co_case_detail(request: Request, client_id: str, case_id: str):
     asyncio.get_event_loop().run_in_executor(
         None, preload_co_case_origin_context, client_id, case_id
     )
+    # co_case_context runs a sync Data Hub pull (BCCT pagination). Offload it to a
+    # thread so this async handler doesn't block the event loop while it waits.
+    context = await asyncio.to_thread(co_case_context, client_id, case_id, "shipment")
     return templates.TemplateResponse(
         request=request,
         name="co_case.html",
-        context=co_case_context(client_id, case_id, "shipment"),
+        context=context,
     )
 @router.get("/clients/{client_id}/co-case/{case_id}/export-bang-ke")
 async def export_co_case_bang_ke_workbook_get(request: Request, client_id: str, case_id: str):
@@ -1252,8 +1255,14 @@ async def export_co_case_bang_ke_workbook_get(request: Request, client_id: str, 
 async def co_case_step(request: Request, client_id: str, case_id: str, step: str):
     if step not in CO_CASE_WORKFLOW_STEP_KEYS:
         raise HTTPException(status_code=404)
-    context = co_case_context(
-        client_id, case_id, step, requested_sheet=request.query_params.get("sheet")
+    # co_case_context runs a sync Data Hub pull; offload it to a thread so this
+    # async handler doesn't block the event loop while it waits.
+    context = await asyncio.to_thread(
+        co_case_context,
+        client_id,
+        case_id,
+        step,
+        requested_sheet=request.query_params.get("sheet"),
     )
     if step == "review":
         # Server-render the current export state into the page so the panel shows
@@ -2757,7 +2766,8 @@ async def co_case_origin_sheet_substitute_candidates(
     if not material_code and not search:
         raise HTTPException(status_code=400, detail="material_code or search query required")
     client = resolve_client(client_id)
-    case = persisted_origin_case(client, case_id)
+    # Offload the blocking case-record read off the event loop — this handler is async.
+    case = await asyncio.to_thread(persisted_origin_case, client, case_id)
     target = next((p for p in case.get("products", []) if str(p.get("code") or "").strip() == product_code), None)
     if target is None:
         raise HTTPException(status_code=404, detail=f"Sheet {product_code} not found in case")
@@ -2784,8 +2794,12 @@ async def co_case_origin_sheet_substitute_candidates(
     candidates_source = "data_hub"
     if material_code:
         try:
-            raw, source = portfolio_service.list_material_substitutes(
-                client_id, material_code, min_score=0.5, limit=min(limit, 50)
+            raw, source = await asyncio.to_thread(
+                portfolio_service.list_material_substitutes,
+                client_id,
+                material_code,
+                min_score=0.5,
+                limit=min(limit, 50),
             )
         except Exception as exc:  # noqa: BLE001
             raw, source = [], "error"
@@ -2814,7 +2828,9 @@ async def co_case_origin_sheet_substitute_candidates(
         # ?skip_heuristic=1 to keep the first call fast even on substitutes-empty.
         if not candidates:
             try:
-                material_rows = co_case_material_catalog_cached(client, case)
+                material_rows = await asyncio.to_thread(
+                    co_case_material_catalog_cached, client, case
+                )
             except Exception:  # noqa: BLE001
                 material_rows = []
             heuristic, hs_seed = compute_substitute_heuristic_candidates(
@@ -2840,7 +2856,9 @@ async def co_case_origin_sheet_substitute_candidates(
         raw_search: list[dict] = []
         search_error = ""
         try:
-            raw_search = portfolio_service.search_materials(client_id, search, limit=search_limit)
+            raw_search = await asyncio.to_thread(
+                portfolio_service.search_materials, client_id, search, limit=search_limit
+            )
         except Exception as exc:  # noqa: BLE001
             search_error = str(exc)
         fallback_rows = search_case_material_rows(case, search, limit=search_limit)
@@ -2851,8 +2869,12 @@ async def co_case_origin_sheet_substitute_candidates(
         # snapshot (same source the sibling /substitute-stock endpoint uses), so it
         # never triggers a live BCCT pull.
         try:
-            snapshot_rows = co_stock_materializer.read_co_stock_rows_cached(client_id)
-            catalog_index = material_catalog_index(co_case_material_catalog_cached(client, case))
+            snapshot_rows = await asyncio.to_thread(
+                co_stock_materializer.read_co_stock_rows_cached, client_id
+            )
+            catalog_index = material_catalog_index(
+                await asyncio.to_thread(co_case_material_catalog_cached, client, case)
+            )
         except Exception:  # noqa: BLE001 — a flaky snapshot/catalog read must not blank search
             snapshot_rows, catalog_index = [], {}
         stock_first = build_stock_first_candidates(
