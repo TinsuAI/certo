@@ -29,16 +29,21 @@ def test_lock_blocked_when_all_materials_deleted():
     assert origin_sheet_action_error(case, "P1", "lock")
 
 
+# NOTE (DC3b): a post-migration-078 material always carries `customs_relevance`
+# (the materializer writes it, "" when unclassified). A material WITHOUT the field
+# is a pre-mig row that now forces a re-Tính before lock/export (sheet_needs_recalc),
+# so lockable/exportable fixtures must carry the field to represent a valid
+# post-mig sheet — otherwise they'd exercise the DC3b block, not the guard here.
 def test_lock_allowed_with_covered_material():
     from app.main import origin_sheet_action_error
-    case = _case([{"material_code": "M1", "allocation_status": "covered"}])
+    case = _case([{"material_code": "M1", "allocation_status": "covered", "customs_relevance": ""}])
     assert origin_sheet_action_error(case, "P1", "lock") == ""
 
 
 def test_lock_allowed_with_shortage_material_not_overblocked():
     # shortage = materials exist but insufficient stock — must STAY lockable.
     from app.main import origin_sheet_action_error
-    case = _case([{"material_code": "M1", "allocation_status": "shortage"}], lvc_status="review")
+    case = _case([{"material_code": "M1", "allocation_status": "shortage", "customs_relevance": ""}], lvc_status="review")
     assert origin_sheet_action_error(case, "P1", "lock") == ""
 
 
@@ -50,5 +55,5 @@ def test_export_blocks_empty_calculated_sheet():
 
 def test_export_allows_sheet_with_materials():
     from app.web.co_case_context import origin_sheet_export_blockers
-    blockers = origin_sheet_export_blockers(_case([{"material_code": "M1", "allocation_status": "covered"}]))
+    blockers = origin_sheet_export_blockers(_case([{"material_code": "M1", "allocation_status": "covered", "customs_relevance": ""}]))
     assert "P1" not in blockers

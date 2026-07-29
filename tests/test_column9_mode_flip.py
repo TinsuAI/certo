@@ -23,7 +23,9 @@ def _case(statuses: dict[str, str], materialized_mode: str = "country", override
         "bang_ke_column9_mode_override": override,
         "products": [
             {"code": code, "bang_ke_column9_mode": materialized_mode, "lvc_status": "pass",
-             "materials": [{"material_code": "M1", "material_sequence": "1"}]}
+             # customs_relevance present (post-mig) so these mode-flip cases don't
+             # also trip the DC3b pre-migration recalc guard.
+             "materials": [{"material_code": "M1", "material_sequence": "1", "customs_relevance": ""}]}
             for code in statuses
         ],
         "origin_sheet_states": {code: {"status": status} for code, status in statuses.items()},

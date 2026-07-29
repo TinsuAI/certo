@@ -1651,6 +1651,20 @@ def _materialize_material_origin_text(material: dict, mode: str, unknown_label: 
                 warnings.append(note)
         material["material_warnings"] = warnings
         material["material_warnings_text"] = " | ".join(warnings)
+def sheet_needs_recalc(product: dict) -> bool:
+    """LK1/DC3b: True when a sheet was calculated BEFORE migration 078 and stored
+    its materials WITHOUT the `customs_relevance` field. `is_bom_technical_noise`
+    then returns False for every such row, so rác / declarable_unmatched leak into
+    the exported bảng kê until the sheet is re-Tính. Detect it by field ABSENCE:
+    the post-mig materializers (origin_material_from_bom_row*) ALWAYS write the
+    key — as "" for an unclassified row — so a missing key means the row predates
+    the classification and its noise/declarability is unknown. Deleted rows are
+    excluded (they never reach the bảng kê). The remedy is a forced re-Tính, which
+    re-materializes every row with a current `customs_relevance`."""
+    return any(
+        not material.get("deleted") and "customs_relevance" not in material
+        for material in (product.get("materials") or [])
+    )
 def origin_sheet_export_blockers(case: dict, client: dict | None = None) -> list[str]:
     blockers = []
     # Column-9 mode mismatch (ticket #10): a NON-locked sheet materialized under
@@ -1675,6 +1689,10 @@ def origin_sheet_export_blockers(case: dict, client: dict | None = None) -> list
             or product.get("lvc_declarable_unmatched")
             or product.get("lvc_allocation_shortage")
             or product.get("lvc_missing_price")
+            # LK1/DC3b: a sheet calculated before mig 078 carries materials without
+            # `customs_relevance`, so rác/unmatched are NOT stripped from the export.
+            # Block it (even when "locked") until a forced re-Tính re-classifies.
+            or sheet_needs_recalc(product)
             or str(product.get("code") or "") in mode_mismatched
         ):
             blockers.append(str(product.get("code") or "sheet"))
@@ -1715,6 +1733,15 @@ def origin_sheet_action_error(case: dict, product_code: str, action: str, client
         # it. (shortage / missing-price sheets HAVE a BOM → lvc_status is review/
         # missing_value, not missing_bom → unaffected.)
         return f"Bảng kê {product_code} chưa có BOM/NVL — nạp BOM và tính lại trước khi chốt."
+    if action == "lock" and sheet_needs_recalc(target):
+        # LK1/DC3b hard-block: the sheet was calculated before mig 078, so its
+        # materials have no `customs_relevance` — rác/declarable_unmatched are not
+        # stripped and the LVC/bảng kê are stale. Force a re-Tính (which re-
+        # materializes every row with a current classification) before locking.
+        return (
+            f"Bảng kê {product_code} được tính theo bản phân loại NVL cũ "
+            "(trước khi cập nhật danh mục) — bấm Tính lại trước khi chốt."
+        )
     if action == "lock" and target.get("lvc_declarable_unmatched"):
         # DC3c defense-in-depth: the save / bulk-substitute routes recompute a sheet
         # then hardcode status "calculated" (bypassing calculated_sheet_status), so a
