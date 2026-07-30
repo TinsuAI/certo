@@ -386,26 +386,54 @@ def refresh_data_hub_session(refresh_token: str) -> dict:
     return payload
 
 
-def set_session_cookie(response, token: str, max_age: int = 600) -> None:
+def request_is_https(request: Request | None) -> bool:
+    """True when the browser-facing request is HTTPS. The app runs behind a
+    proxy that terminates TLS and forwards over http, so trust
+    `X-Forwarded-Proto` (first value if it is a comma-separated list) in
+    addition to the direct request scheme."""
+    if request is None:
+        return False
+    if request.url.scheme == "https":
+        return True
+    forwarded = request.headers.get("x-forwarded-proto", "")
+    return forwarded.split(",")[0].strip().lower() == "https"
+
+
+def cookie_secure(request: Request | None = None) -> bool:
+    """Whether the auth cookies get the `Secure` flag. On by default for any
+    HTTPS request so prod (behind the TLS proxy) never issues cookies without
+    Secure. Plain-http local dev gets Secure off so the browser still stores the
+    cookie. `CO_FORCE_HTTPS_COOKIE` is an explicit force-enable override. When
+    the scheme is unknown (no request), fail secure."""
+    if data_hub_link_settings().force_https_cookie:
+        return True
+    if request is None:
+        return True
+    return request_is_https(request)
+
+
+def set_session_cookie(response, token: str, max_age: int = 600, *, request: Request | None = None) -> None:
     response.set_cookie(
         CO_SESSION_COOKIE,
         token,
         max_age=max_age,
         httponly=True,
         samesite="lax",
-        secure=data_hub_link_settings().force_https_cookie,
+        secure=cookie_secure(request),
         path="/",
     )
 
 
-def set_refresh_cookie(response, refresh_token: str, max_age: int = REFRESH_COOKIE_MAX_AGE) -> None:
+def set_refresh_cookie(
+    response, refresh_token: str, max_age: int = REFRESH_COOKIE_MAX_AGE, *, request: Request | None = None
+) -> None:
     response.set_cookie(
         CO_REFRESH_COOKIE,
         refresh_token,
         max_age=max_age,
         httponly=True,
         samesite="lax",
-        secure=data_hub_link_settings().force_https_cookie,
+        secure=cookie_secure(request),
         path="/",
     )
 

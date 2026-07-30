@@ -65,10 +65,10 @@ async def auth_callback(request: Request, code: str = "", state: str = "/clients
         co_auth.clear_session_cookie(response)
         return response
     response = RedirectResponse(next_url, status_code=303)
-    co_auth.set_session_cookie(response, token, int(payload.get("expires_in") or 600))
+    co_auth.set_session_cookie(response, token, int(payload.get("expires_in") or 600), request=request)
     refresh = payload.get("refresh_token")
     if refresh:
-        co_auth.set_refresh_cookie(response, str(refresh))
+        co_auth.set_refresh_cookie(response, str(refresh), request=request)
     return response
 
 
@@ -89,8 +89,8 @@ async def auth_refresh(request: Request):
         return response
     expires_in = int(payload.get("expires_in") or 600)
     response = JSONResponse({"ok": True, "expires_in": expires_in})
-    co_auth.set_session_cookie(response, str(payload["access_token"]), expires_in)
+    co_auth.set_session_cookie(response, str(payload["access_token"]), expires_in, request=request)
     rotated = payload.get("refresh_token")
     if rotated:
-        co_auth.set_refresh_cookie(response, str(rotated))
+        co_auth.set_refresh_cookie(response, str(rotated), request=request)
     return response
