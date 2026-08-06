@@ -58,6 +58,62 @@ def durable_sheet_status(status) -> str:
     """
     text = str(status or "").strip()
     return "stale" if text == "calculating" else text
+# Guard reasons that hold a CALCULATED sheet at `bom_loaded` (see
+# routers.co_case.calculated_sheet_status). Ordered by remedy priority, mirroring
+# the lock-block reason in attach_origin_sheet_states: shortage first (a no-lot
+# NVL also trips missing_price, but the fix is the import DOCUMENT, not a price),
+# then missing price, then declarable-unmatched, then an empty BOM.
+ORIGIN_SHEET_ATTENTION_REASONS = (
+    (
+        "shortage",
+        "Cần xử lý: thiếu tồn",
+        "Còn NVL thiếu tồn/không có lô nhập khớp — bổ sung chứng từ (khớp tờ khai nhập hoặc hoá đơn VAT) rồi tính lại.",
+    ),
+    (
+        "missing_price",
+        "Cần xử lý: thiếu đơn giá",
+        "Còn NVL không xuất xứ thiếu đơn giá — bổ sung đơn giá rồi tính lại trước khi chốt.",
+    ),
+    (
+        "declarable_unmatched",
+        "Cần xử lý: NVL chưa khớp tồn",
+        "Còn NVL thuộc diện khai báo chưa khớp tồn BCCT — khớp hoặc thay NVL rồi tính lại.",
+    ),
+    (
+        "missing_bom",
+        "Cần xử lý: chưa đủ BOM",
+        "Chưa có BOM khai triển đầy đủ — nạp BOM (Mẫu 16 hoặc BOM đầy đủ) rồi tính lại.",
+    ),
+)
+def origin_sheet_attention(product: dict) -> dict:
+    """Readiness chip that separates a guard-BLOCKED sheet from a merely-loaded one.
+
+    Both rest at status `bom_loaded` and would otherwise render the same neutral
+    "Đã nạp BOM" badge. This returns {"status", "reason", "label", "detail"}:
+    - status == "attention" (amber) → the sheet was calculated but a guard
+      (shortage / missing price / declarable-unmatched / empty BOM) held it, so
+      the caller renders "Cần xử lý: <reason>" instead of "Đã nạp BOM".
+    - status == "" → not blocked; the caller keeps the plain status label.
+
+    A never-calculated sheet (origin_not_calculated) always reads neutral even if
+    its raw BOM already shows missing prices: the operator has not run Tính, so it
+    is only "loaded", not "blocked". Presentation-only — no lock/calc logic here.
+    """
+    empty = {"status": "", "reason": "", "label": "", "detail": ""}
+    if durable_sheet_status(product.get("origin_sheet_status")) != "bom_loaded":
+        return empty
+    if product.get("origin_not_calculated"):
+        return empty
+    flags = {
+        "shortage": bool(product.get("lvc_allocation_shortage")),
+        "missing_price": bool(product.get("lvc_missing_price")),
+        "declarable_unmatched": bool(product.get("lvc_declarable_unmatched")),
+        "missing_bom": str(product.get("lvc_status") or "") == "missing_bom",
+    }
+    for reason, label, detail in ORIGIN_SHEET_ATTENTION_REASONS:
+        if flags[reason]:
+            return {"status": "attention", "reason": reason, "label": label, "detail": detail}
+    return empty
 def origin_case_revision(case: dict) -> str:
     # Optimistic-concurrency token over USER-EDITABLE case state only.
     #
@@ -314,6 +370,16 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
         criteria_rows=criteria_rows,
         origin_demo_active=origin_demo_active,
         tkx_tkn_summary=context.get("tkx_tkn_summary"),
+    )
+    # Per-company opt-in: "chọn NVL rác → xoá hàng loạt" on both the per-sheet grid
+    # and the aggregate "Tổng hợp NVL" sheet (default off). Prefer the canonical
+    # (migrated) accessor; fall back to the config already in context for lightweight
+    # test doubles that don't implement get_client_config.
+    features_config = context.get("client_config") or {}
+    if hasattr(portfolio_service, "get_client_config"):
+        features_config = portfolio_service.get_client_config(client)
+    context["bulk_delete_junk_enabled"] = bool(
+        (features_config.get("features") or {}).get("bulk_delete_junk_rows", False)
     )
     return context
 _CO_CASE_SOURCE_CACHE_TTL_SECONDS = 90.0
@@ -1294,6 +1360,11 @@ def attach_origin_sheet_states(case: dict) -> dict:
         product["origin_sheet_state"] = state
         product["origin_sheet_status"] = state["status"]
         product["origin_sheet_status_label"] = state["status_label"]
+        # Readiness chip: a sheet resting at `bom_loaded` is either merely loaded
+        # (neutral "Đã nạp BOM") or was calculated and held by a guard — surface
+        # the latter as an amber "Cần xử lý: <reason>" so batch-Tính leaves no
+        # blocked sheet looking identical to an un-calculated one.
+        product["origin_sheet_attention"] = origin_sheet_attention(product)
         product["origin_sheet_form_override"] = form_override
         product["origin_sheet_criteria_override"] = criteria_override
         product["origin_sheet_lvc_threshold_override"] = lvc_threshold_override
@@ -1590,6 +1661,20 @@ def _materialize_material_origin_text(material: dict, mode: str, unknown_label: 
                 warnings.append(note)
         material["material_warnings"] = warnings
         material["material_warnings_text"] = " | ".join(warnings)
+def sheet_needs_recalc(product: dict) -> bool:
+    """LK1/DC3b: True when a sheet was calculated BEFORE migration 078 and stored
+    its materials WITHOUT the `customs_relevance` field. `is_bom_technical_noise`
+    then returns False for every such row, so rác / declarable_unmatched leak into
+    the exported bảng kê until the sheet is re-Tính. Detect it by field ABSENCE:
+    the post-mig materializers (origin_material_from_bom_row*) ALWAYS write the
+    key — as "" for an unclassified row — so a missing key means the row predates
+    the classification and its noise/declarability is unknown. Deleted rows are
+    excluded (they never reach the bảng kê). The remedy is a forced re-Tính, which
+    re-materializes every row with a current `customs_relevance`."""
+    return any(
+        not material.get("deleted") and "customs_relevance" not in material
+        for material in (product.get("materials") or [])
+    )
 def origin_sheet_export_blockers(case: dict, client: dict | None = None) -> list[str]:
     blockers = []
     # Column-9 mode mismatch (ticket #10): a NON-locked sheet materialized under
@@ -1614,6 +1699,10 @@ def origin_sheet_export_blockers(case: dict, client: dict | None = None) -> list
             or product.get("lvc_declarable_unmatched")
             or product.get("lvc_allocation_shortage")
             or product.get("lvc_missing_price")
+            # LK1/DC3b: a sheet calculated before mig 078 carries materials without
+            # `customs_relevance`, so rác/unmatched are NOT stripped from the export.
+            # Block it (even when "locked") until a forced re-Tính re-classifies.
+            or sheet_needs_recalc(product)
             or str(product.get("code") or "") in mode_mismatched
         ):
             blockers.append(str(product.get("code") or "sheet"))
@@ -1654,6 +1743,15 @@ def origin_sheet_action_error(case: dict, product_code: str, action: str, client
         # it. (shortage / missing-price sheets HAVE a BOM → lvc_status is review/
         # missing_value, not missing_bom → unaffected.)
         return f"Bảng kê {product_code} chưa có BOM/NVL — nạp BOM và tính lại trước khi chốt."
+    if action == "lock" and sheet_needs_recalc(target):
+        # LK1/DC3b hard-block: the sheet was calculated before mig 078, so its
+        # materials have no `customs_relevance` — rác/declarable_unmatched are not
+        # stripped and the LVC/bảng kê are stale. Force a re-Tính (which re-
+        # materializes every row with a current classification) before locking.
+        return (
+            f"Bảng kê {product_code} được tính theo bản phân loại NVL cũ "
+            "(trước khi cập nhật danh mục) — bấm Tính lại trước khi chốt."
+        )
     if action == "lock" and target.get("lvc_declarable_unmatched"):
         # DC3c defense-in-depth: the save / bulk-substitute routes recompute a sheet
         # then hardcode status "calculated" (bypassing calculated_sheet_status), so a
@@ -2094,6 +2192,8 @@ def case_shortfall_rollup(case: dict) -> dict:
     groups: dict[str, dict] = {}
     order: list[str] = []
     no_bom_products: list[str] = []
+    folded_groups: dict[str, dict] = {}
+    folded_order: list[str] = []
     for product in case.get("products", []) or []:
         code = str(product.get("code") or "").strip()
         status = product.get("origin_sheet_status")
@@ -2125,18 +2225,41 @@ def case_shortfall_rollup(case: dict) -> dict:
             group["short"] += shortage
             if not group["name"] and material.get("material_description"):
                 group["name"] = material.get("material_description")
+            # noise = folded technical-noise row. Two kinds, both = mã KHÔNG có trong
+            # BCCT (candidate == 0): `declarable_unmatched` (NVL thật chưa khớp tờ khai)
+            # và `excluded_non_material` (phi vật tư). Thu vào folded_rac để xoá hàng
+            # loạt; giữ cờ ở đây để loại NVL toàn-rác khỏi danh sách thiếu tồn.
+            noise = is_bom_technical_noise(material)
             group["using"].append({
                 "product_code": code,
                 "status": status,
                 "lvc_percentage": lvc,
                 "is_short": is_short,
                 "short_qty": decimal_text(shortage) if is_short else "",
+                "noise": noise,
             })
+            # Folded rác — collected independently of shortage; skip locked sheets
+            # (can't be edited) exactly like the no-stock bucket.
+            if noise and status != "locked":
+                fkind = "declarable_unmatched" if is_declarable_unmatched(material) else "excluded_non_material"
+                fgroup = folded_groups.get(key)
+                if fgroup is None:
+                    fgroup = folded_groups[key] = {
+                        "material_code": key, "name": material.get("material_description", ""),
+                        "kinds": set(), "products": [],
+                    }
+                    folded_order.append(key)
+                if not fgroup["name"] and material.get("material_description"):
+                    fgroup["name"] = material.get("material_description")
+                fgroup["kinds"].add(fkind)
+                fgroup["products"].append(code)
     materials: list[dict] = []
     for key in order:
         group = groups[key]
         if group["short"] <= 0:
             continue
+        if not any(not u["noise"] for u in group["using"]):
+            continue  # pure rác (mọi occurrence đều folded) → thuộc folded_rac, không vào danh sách thiếu tồn
         short_using = [u for u in group["using"] if u["is_short"]]
         materials.append({
             "material_code": group["material_code"],
@@ -2150,11 +2273,24 @@ def case_shortfall_rollup(case: dict) -> dict:
             "short_products": [u["product_code"] for u in short_using],
             "short_count": len(short_using),
         })
+    folded_rac: list[dict] = []
+    for key in folded_order:
+        fg = folded_groups[key]
+        kind = next(iter(fg["kinds"])) if len(fg["kinds"]) == 1 else "mixed"
+        folded_rac.append({
+            "material_code": fg["material_code"],
+            "name": fg["name"],
+            "kind": kind,   # declarable_unmatched | excluded_non_material | mixed
+            "products": fg["products"],
+            "count": len(fg["products"]),
+        })
     return {
         "materials": materials,
         "material_count": len(materials),
         "no_bom_products": no_bom_products,
         "no_bom_count": len(no_bom_products),
+        "folded_rac": folded_rac,
+        "folded_rac_count": len(folded_rac),
     }
 def case_allocation_pool(
     case: dict,
@@ -3524,14 +3660,19 @@ def co_case_context(client_id: str, case_id: str = "", current_step: str = "inde
         extra.setdefault("cached_case_context", True)
     extra["force_source_refresh"] = force_source_refresh
     export_states = (load_state(client_id).get("dossier_exports") or {}) if current_step == "index" else {}
+    # One batched query for every dossier's locked-claim summary instead of one
+    # per dossier (was an N+1 on the case-list index). Any DB error falls back to
+    # an empty map, so each dossier still gets the {"count": 0, "lots": 0} default.
+    case_ids = [dossier.get("case_id", "") for dossier in workspace["cases"]]
+    try:
+        claims_summaries = co_stock_ledger.claims_summary_for_cases(client_id, case_ids)
+    except Exception:  # noqa: BLE001
+        claims_summaries = {}
     for dossier in workspace["cases"]:
         dossier["delete_block_reason"] = co_case_delete_block_reason(dossier)
-        try:
-            dossier["delete_claims_summary"] = co_stock_ledger.claims_summary_for_case(
-                client_id, dossier.get("case_id", "")
-            )
-        except Exception:  # noqa: BLE001
-            dossier["delete_claims_summary"] = {"count": 0, "lots": 0}
+        dossier["delete_claims_summary"] = claims_summaries.get(
+            dossier.get("case_id", ""), {"count": 0, "lots": 0}
+        )
         if current_step == "index":
             exported = (export_states.get(dossier.get("case_id", "")) or {}).get("status") == "done"
             dossier["status_view"] = co_case_status_view(dossier, exported=exported)
@@ -3719,7 +3860,7 @@ def _refresh_co_stock_delta_or_full(client: dict) -> dict:
         if state
         else False
     )
-    if (
+    delta_ready = (
         delta_safe
         and schema_current
         and config_current
@@ -3727,11 +3868,56 @@ def _refresh_co_stock_delta_or_full(client: dict) -> dict:
         and snapshot_count > 0
         and data_hub is not None
         and hasattr(data_hub, "list_bcct_with_envelope")
-    ):
+    )
+    if delta_ready:
         delta_summary = _try_delta_refresh(client, data_hub, last_server_time)
         if delta_summary is not None:
             return delta_summary
-    return _full_refresh(client)
+        # Delta preconditions held but the pull couldn't proceed (Data Hub on an
+        # older contract with no server_time, or the since-pull raised) — full is
+        # the fallback. Distinct from the reasons below: nothing about the client
+        # forced full, the delta contract was just unavailable on this call.
+        full_reason = "delta_unavailable"
+    else:
+        full_reason = _full_refresh_reason(
+            delta_safe=delta_safe,
+            schema_current=schema_current,
+            config_current=config_current,
+            last_server_time=last_server_time,
+            snapshot_count=snapshot_count,
+            data_hub=data_hub,
+        )
+    summary = _full_refresh(client)
+    # `_full_refresh` stamps "empty_source" itself when the pull came back empty
+    # over a populated snapshot; keep that over the dispatch-level decision.
+    summary.setdefault("reason", full_reason)
+    return summary
+def _full_refresh_reason(
+    *,
+    delta_safe: bool,
+    schema_current: bool,
+    config_current: bool,
+    last_server_time: str,
+    snapshot_count: int,
+    data_hub,
+) -> str:
+    """Report WHY the dispatch chose full over delta. Mirrors the `delta_ready`
+    predicate without changing it — pure classification for the operator/log.
+    Cold conditions (no snapshot / no high-water mark) rank first because they
+    mean a delta was structurally impossible, not that the client changed."""
+    if snapshot_count <= 0:
+        return "empty_snapshot"
+    if not last_server_time:
+        return "no_server_time"
+    if not delta_safe:
+        return "aggregate_lot_policy"
+    if not schema_current:
+        return "schema_version"
+    if not config_current:
+        return "config_changed"
+    if data_hub is None or not hasattr(data_hub, "list_bcct_with_envelope"):
+        return "no_delta_contract"
+    return "forced_full"
 def _try_delta_refresh(client: dict, data_hub, last_server_time: str) -> dict | None:
     """Returns a summary on success, or None if delta path can't be taken
     (e.g. response missing `server_time`, indicating Data Hub doesn't yet
@@ -3770,15 +3956,26 @@ def _try_delta_refresh(client: dict, data_hub, last_server_time: str) -> dict | 
         tombstone_source_rows=tombstone_source_rows,
     )
     source_summary, _ = portfolio_service.source_summary(client)
+    bcct_total_rows = source_summary.get("bcct", {}).get("published_row_count", 0)
     co_stock_materializer.record_refresh_state(
         client["id"],
         snapshot_row_count=co_stock_materializer.row_count(client["id"]),
-        bcct_row_count_at_refresh=source_summary.get("bcct", {}).get("published_row_count", 0),
+        bcct_row_count_at_refresh=bcct_total_rows,
         last_bcct_server_time=server_time,
         config_fingerprint=co_stock_materializer.co_config_fingerprint(client_config),
     )
+    summary["mode"] = "delta"
+    summary["reason"] = "incremental"
     summary["server_time"] = server_time
     summary["tombstones_received"] = len(tombstones)
+    # Two counts, deliberately separate. `source_rows_considered` is what THIS
+    # operation pulled — the since-window items, a handful on a quiet delta.
+    # `bcct_total_rows` is the whole-corpus high-water mark stored in
+    # refresh_state (bcct_row_count_at_refresh, ~65k). Reporting only the total
+    # on a delta implied the delta processed 65k rows; keeping both apart lets
+    # an operator read "delta considered 3 of 65846" instead.
+    summary["source_rows_considered"] = len(delta_items)
+    summary["bcct_total_rows"] = bcct_total_rows
     return summary
 def _full_refresh(client: dict) -> dict:
     # Capture the high-water mark BEFORE the data pull. Probing AFTER would record
@@ -3794,21 +3991,34 @@ def _full_refresh(client: dict) -> dict:
     summary = co_stock_materializer.refresh_co_stock_for_client(
         client, lambda: workspace.get("co_stock_rows") or [],
     )
+    summary["mode"] = "full"
     if summary.get("aborted_empty_full_pull"):
         # The pull came back empty over a populated snapshot — snapshot preserved.
         # Do NOT advance refresh_state / server_time: marking the high-water mark
         # over rows we never pulled would strand them out of the next delta.
+        # Report "empty_source" (this summary also carries the abort error, so the
+        # route returns ok:false) so the operator sees "the pull was empty", not
+        # "nothing changed". This reason wins over the dispatch decision.
+        summary["reason"] = "empty_source"
+        summary["source_rows_considered"] = 0
+        summary["bcct_total_rows"] = 0
         return summary
     source_summary, _ = portfolio_service.source_summary(client)
+    bcct_total_rows = source_summary.get("bcct", {}).get("published_row_count", 0)
     co_stock_materializer.record_refresh_state(
         client["id"],
         snapshot_row_count=summary.get("rows_persisted", 0),
-        bcct_row_count_at_refresh=source_summary.get("bcct", {}).get("published_row_count", 0),
+        bcct_row_count_at_refresh=bcct_total_rows,
         last_bcct_server_time=server_time,
         config_fingerprint=co_stock_materializer.co_config_fingerprint(client_config),
     )
     if server_time:
         summary["server_time"] = server_time
+    # A full pull considers the entire corpus, so the operation-scoped count and
+    # the total coincide — but emit both so the response shape stays stable
+    # across full and delta. `reason` is filled by the dispatch (setdefault).
+    summary["source_rows_considered"] = bcct_total_rows
+    summary["bcct_total_rows"] = bcct_total_rows
     return summary
 def _probe_server_time(client: dict) -> str:
     data_hub = getattr(portfolio_service, "data_hub", None)
@@ -3870,7 +4080,7 @@ def _schedule_background_co_stock_refresh(client: dict) -> None:
                 _co_stock_refresh_inflight.discard(client_id)
 
     threading.Thread(target=_run, name=f"co-stock-refresh-{client_id}", daemon=True).start()
-def _calculate_stock_rows_from_snapshot(client: dict) -> list[dict] | None:
+def _calculate_stock_rows_from_snapshot(client: dict, *, scope_codes: set[str] | None = None) -> list[dict] | None:
     """Returns stock rows ready for `prepare_case_origin_sheet`, decorated with
     current ledger used/remaining qty, or None when the snapshot is empty (no
     DB / never materialized) so the caller's legacy full-pull runs instead — an
@@ -3884,6 +4094,15 @@ def _calculate_stock_rows_from_snapshot(client: dict) -> list[dict] | None:
     request on a multi-minute synchronous re-pull. The origin UI surfaces the
     snapshot's age, so calculating on it is never silent, and `apply_used_qty`
     keeps available tồn correct against the latest claims regardless of age.
+
+    `scope_codes`: when given (a single-sheet /calculate knows exactly which
+    material codes it can allocate against, via `case_stock_scope_codes`), drop
+    every lot whose `co_stock_key_candidates` miss all of them BEFORE the
+    per-row copy + `apply_used_qty`. Such a lot can never land in a queried
+    allocation-pool bucket, so the allocation/tồn result is byte-identical while
+    the copy + overlay run over only the relevant lots instead of the whole
+    ~60k-row client snapshot. Empty/None scope = no filter (full snapshot), so
+    callers that need the broad read stay unchanged.
     """
     client_id = str(client.get("id", "")) if isinstance(client, dict) else ""
     if not client_id:
@@ -3895,6 +4114,14 @@ def _calculate_stock_rows_from_snapshot(client: dict) -> list[dict] | None:
         return None
     if not _co_stock_snapshot_is_fresh(client_id):
         _schedule_background_co_stock_refresh(client)
+    if scope_codes:
+        scope = {str(code).strip() for code in scope_codes if str(code).strip()}
+        if scope:
+            # Filtering preserves the cached rows' relative order, so the
+            # retained lots keep the same `_allocation_sequence` ordering the
+            # allocation-pool sort relies on — that tiebreaker is index-relative,
+            # never index-absolute.
+            rows = [row for row in rows if any(key in scope for key in co_stock_key_candidates(row))]
     # apply_used_qty mutates the rows in place to attach used/remaining,
     # so copy the cached payloads first — the cache must stay clean. The
     # materialized snapshot is already trừ-lùi-folded (refresh + import re-fold
@@ -3903,3 +4130,38 @@ def _calculate_stock_rows_from_snapshot(client: dict) -> list[dict] | None:
     rows = [dict(r) for r in rows]
     used_by_lot = co_stock_ledger.used_qty_by_lot(client_id)
     return co_stock_ledger.apply_used_qty(rows, used_by_lot)
+
+
+def case_stock_scope_codes(case: dict, bom_workspace: dict | None = None) -> set[str]:
+    """Material codes a single-sheet /calculate can allocate against.
+
+    Two query sides feed the allocation pool: the target sheet's BOM rows (each
+    looked up by `material_code`) and the previous sheets whose consumption is
+    replayed (`apply_existing_origin_product_consumption`, keyed by each
+    material's `material_code`/`internal_material_code`). This gathers both — the
+    case's product materials plus every selected BOM row's material code — so the
+    returned set is a SUPERSET of every pool key the calc will look up. Scoping
+    the snapshot read to lots reaching one of these codes therefore drops only
+    lots that no allocation bucket would ever return.
+
+    `bom_workspace` is optional: the override path already carries the target's
+    material codes on the sheet itself, so it can union those in separately and
+    skip the BOM-selection resolve."""
+    scope: set[str] = set()
+    for product in (case.get("products") if isinstance(case, dict) else None) or []:
+        for material in product.get("materials", []) or []:
+            for value in (material.get("material_code"), material.get("internal_material_code")):
+                key = str(value or "").strip()
+                if key:
+                    scope.add(key)
+    if bom_workspace is not None:
+        try:
+            rows_by_product = selected_bom_rows_by_product(case, bom_workspace)
+        except Exception:  # noqa: BLE001 — scope is an optimisation; never block calc
+            rows_by_product = {}
+        for rows in rows_by_product.values():
+            for row in rows or []:
+                key = str(row.get("material_code") or "").strip()
+                if key:
+                    scope.add(key)
+    return scope

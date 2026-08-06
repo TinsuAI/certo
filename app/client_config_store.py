@@ -82,6 +82,11 @@ def default_config(client: dict) -> dict:
             "description_regex": DEFAULT_DESCRIPTION_REGEX,
             "fallback": "same_as_customs_code",
         },
+        "features": {
+            # Bulk "chọn NVL rác → xoá" on the per-sheet grid AND the aggregate
+            # "Tổng hợp NVL" sheet. Opt-in per company (default off).
+            "bulk_delete_junk_rows": False,
+        },
     }
     stamp_config_hash(config)
     return config
@@ -97,6 +102,7 @@ def migrate_config(config: dict, client: dict) -> dict:
     merged["bcct"] = {**default["bcct"], **config.get("bcct", {})}
     merged["co_stock"] = {**default["co_stock"], **config.get("co_stock", {})}
     merged["allocation_code"] = {**default["allocation_code"], **config.get("allocation_code", {})}
+    merged["features"] = {**default["features"], **config.get("features", {})}
     merged.setdefault("config_version", 1)
     merged.setdefault("created_at", default["created_at"])
     merged.setdefault("updated_at", default["updated_at"])

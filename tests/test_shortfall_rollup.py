@@ -81,3 +81,34 @@ def test_rollup_skips_deleted_and_uses_internal_code_fallback():
     r = case_shortfall_rollup(case)
     assert [m["material_code"] for m in r["materials"]] == ["B"]
     assert decimal_value(r["materials"][0]["short_qty"]) == Decimal("30")
+
+
+def test_rollup_folded_rac_split_by_kind_excluding_locked():
+    # folded rác = customs_relevance in {declarable_unmatched, excluded_non_material}
+    # (= mã KHÔNG có trong BCCT). Collected into folded_rac grouped by kind; locked
+    # sheets excluded. Pure-rác materials are kept OUT of the shortfall/substitute list;
+    # genuine thiếu tồn (declarable, có lô nhưng thiếu) stays there.
+    from app.web.co_case_context import case_shortfall_rollup
+    case = {"products": [
+        {"code": "P1", "origin_sheet_status": "calculated", "materials": [
+            {"material_code": "A", "consumed_qty": "100", "allocation_status": "shortage",
+             "allocation_shortage_qty": "100", "customs_relevance": "declarable_unmatched"},   # không có trong BCCT
+            {"material_code": "B", "consumed_qty": "50", "allocation_status": "shortage",
+             "allocation_shortage_qty": "10", "allocation_lines": [{"qty": "40"}],
+             "customs_relevance": "declarable"},                                               # thiếu tồn thật
+            {"material_code": "C", "consumed_qty": "5", "allocation_status": "shortage",
+             "allocation_shortage_qty": "5", "customs_relevance": "excluded_non_material"},     # phi vật tư
+        ]},
+        {"code": "P2", "origin_sheet_status": "locked", "materials": [
+            {"material_code": "A", "consumed_qty": "100", "allocation_status": "shortage",
+             "allocation_shortage_qty": "100", "customs_relevance": "declarable_unmatched"},    # LOCKED → excluded
+        ]},
+    ]}
+    r = case_shortfall_rollup(case)
+    # substitute list = only genuine thiếu-tồn B (A, C are pure rác → excluded)
+    assert [m["material_code"] for m in r["materials"]] == ["B"]
+    by = {f["material_code"]: f for f in r["folded_rac"]}
+    assert r["folded_rac_count"] == 2
+    assert by["A"]["kind"] == "declarable_unmatched"
+    assert by["A"]["products"] == ["P1"]                       # P2 locked → excluded
+    assert by["C"]["kind"] == "excluded_non_material"

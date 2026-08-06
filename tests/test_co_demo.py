@@ -3780,7 +3780,7 @@ def test_export_bang_ke_direct_route_works_on_open_case(monkeypatch):
                  "documented_result": "LVC 30%", "lvc_threshold": "30",
                  "materials": [
                      {"material_code": "M-D", "uom": "PCS", "bom_qty_per": "1", "unit_value": "10", "material_value": "10",
-                      "origin_status": "non_origin", "consumed_qty": "1"},
+                      "origin_status": "non_origin", "consumed_qty": "1", "customs_relevance": ""},
                  ]},
             ],
             "origin_sheet_states": {"TP-DIRECT": {"status": "locked", "status_label": "Chốt"}},

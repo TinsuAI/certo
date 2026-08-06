@@ -48,7 +48,7 @@ def test_recalc_allocates_from_folded_snapshot_not_raw_bcct(monkeypatch):
             "line_no": "1",
         }
     ]
-    monkeypatch.setattr(co_case, "_calculate_stock_rows_from_snapshot", lambda client: folded_snapshot)
+    monkeypatch.setattr(co_case, "_calculate_stock_rows_from_snapshot", lambda client, scope_codes=None: folded_snapshot)
 
     def _must_not_pull(*args, **kwargs):
         raise AssertionError("recalc must not pull RAW BCCT when a folded snapshot exists")
@@ -73,7 +73,7 @@ def test_recalc_allocates_from_folded_snapshot_not_raw_bcct(monkeypatch):
 def test_recalc_falls_back_to_raw_pull_only_when_snapshot_empty(monkeypatch):
     # Cold start: no materialized snapshot (no fold exists yet) -> the legacy
     # narrow BCCT pull still runs so a fresh client can calculate.
-    monkeypatch.setattr(co_case, "_calculate_stock_rows_from_snapshot", lambda client: None)
+    monkeypatch.setattr(co_case, "_calculate_stock_rows_from_snapshot", lambda client, scope_codes=None: None)
     monkeypatch.setattr(
         co_case, "co_case_source_context_cached", lambda client, case: {"material_rows": [], "stock_rows": []}
     )

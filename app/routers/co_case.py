@@ -23,7 +23,7 @@ from app.portfolio import portfolio_service
 from app.source_store import co_stock_rows_from_bcct
 from app.substitution_plan import plan_shortfall_substitution
 from app.web.client_context import default_client_case, effective_min_gap_days, resolve_client, source_workspace_for_client
-from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, OVERRIDE_HISTORY_MAX, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, apply_column9_mode_flip, attach_column9_mode_mismatch, attach_origin_sheet_states, case_allocation_pool, column9_mode_mismatches, materialize_bang_ke_origin_fields, resolve_case_column9_mode, case_missing_stock_summary, case_shortfall_rollup, case_stock_preview_summary, case_tkx_tkn_summary, clean_override_stack, co_case_context, co_case_source_context, co_case_source_context_cached, co_case_material_catalog_cached, co_stock_is_usable, dossier_content_revision, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, material_row_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, origin_case_revision, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_products, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
+from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, OVERRIDE_HISTORY_MAX, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, apply_column9_mode_flip, attach_column9_mode_mismatch, attach_origin_sheet_states, case_allocation_pool, case_stock_scope_codes, column9_mode_mismatches, materialize_bang_ke_origin_fields, resolve_case_column9_mode, case_missing_stock_summary, case_shortfall_rollup, case_stock_preview_summary, case_tkx_tkn_summary, clean_override_stack, co_case_context, co_case_source_context, co_case_source_context_cached, co_case_material_catalog_cached, co_stock_is_usable, dossier_content_revision, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, material_row_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, origin_case_revision, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_products, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
 from app.web.deps import large_request_form
 from app.web.templating import templates
 from app.workbook_io import create_dossier_zip, create_hq_bang_ke_workbook
@@ -598,7 +598,12 @@ def recalculate_origin_sheet_edits(client: dict, case: dict, product_code: str, 
     # baseline. Mirror the non-override /calculate path so calculate and lock
     # agree; fall back to the raw pull only on a cold/empty snapshot (no fold
     # exists yet there anyway).
-    stock_rows: list[dict] = _calculate_stock_rows_from_snapshot(client) or []
+    # Scope the snapshot read to the lots this sheet can reach: the target's
+    # overridden BOM codes (material_codes) plus every product material already
+    # on the case (previous sheets whose consumption is replayed below). Superset
+    # of the pool keys queried → allocation stays byte-identical, read is narrow.
+    scope_codes = case_stock_scope_codes(prepared) | set(material_codes)
+    stock_rows: list[dict] = _calculate_stock_rows_from_snapshot(client, scope_codes=scope_codes) or []
     if not stock_rows:
         try:
             narrow_rows = portfolio_service.list_bcct_by_codes(client.get("id", ""), material_codes, direction="import")
@@ -666,10 +671,19 @@ def override_state_stamp(product: dict) -> dict:
     """Fields every material_overrides WRITE must stamp on the sheet state:
     the key scheme (so the legacy-key migration never re-runs on new-style
     keys) and the BOM version artifact the overrides were made against (so an
-    override made under version A is not applied under version B)."""
+    override made under version A is not applied under version B).
+
+    It also clears any prior BOM-proposal stamp. A proposal (proposed_artifact_id
+    /_proposal_id/_status) refers to the exact BOM that was propose-submitted;
+    once the operator edits materials again that reference is stale, so the
+    "Đã propose ✓" button must reset to "Lưu BOM mới" and allow a fresh
+    proposal for the changed BOM."""
     return {
         "override_key_scheme": OVERRIDE_KEY_SCHEME,
         "overrides_artifact_id": str(product.get("bom_product_artifact_id") or ""),
+        "proposed_artifact_id": "",
+        "proposed_proposal_id": "",
+        "proposed_status": "",
     }
 def writable_overrides(previous: dict, product: dict) -> tuple[dict, bool]:
     """The override map a write may merge into. The kept map belongs to the BOM
@@ -1903,6 +1917,93 @@ async def bulk_substitute_route(request: Request, client_id: str, case_id: str):
         **case_missing_stock_summary(allocated),
         "rollup": case_shortfall_rollup(allocated),
     }
+_RAC_KINDS = {"declarable_unmatched", "excluded_non_material"}
+@router.post("/clients/{client_id}/co-case/{case_id}/origin/bulk-delete-rac")
+async def bulk_delete_rac_route(request: Request, client_id: str, case_id: str):
+    """"Xoá NVL rác hàng loạt" ở sheet Tổng hợp NVL — xoá các dòng NVL rác đã LOẠI
+    (folded, `customs_relevance` = một trong hai loại) của những material_code được
+    chọn, trên MỌI sheet CHƯA khoá.
+
+    `kind`: "declarable_unmatched" (NVL thật không có trong BCCT / chưa khớp tờ khai)
+    hoặc "excluded_non_material" (phi vật tư). Server tự lọc theo customs_relevance
+    (không tin client) nên phân loại khít với rollup. Payload: {"material_codes": [...],
+    "kind": ..., "expected_revision"?}. Sheet đã khoá bị bỏ qua + báo lại
+    (`skipped_locked`). Soft-delete (cờ `deleted`); persist 1 lần rồi trả rollup mới."""
+    client = resolve_client(client_id)
+    payload = await read_json_or_form(request)
+    kind = str(payload.get("kind") or "").strip()
+    if kind not in _RAC_KINDS:
+        raise HTTPException(status_code=400, detail=f"kind must be one of {sorted(_RAC_KINDS)}")
+    raw_codes = payload.get("material_codes") or []
+    if isinstance(raw_codes, str):
+        raw_codes = [raw_codes]
+    codes = {str(c).strip() for c in raw_codes if str(c).strip()}
+    if not codes:
+        raise HTTPException(status_code=400, detail="empty material_codes")
+    # Optional: scope to ONE sheet (per-sheet delete). Omitted → every non-locked
+    # sheet (aggregate delete). Same route, consistent classification either way.
+    scope_pc = str(payload.get("product_code") or "").strip()
+    case = persisted_origin_case(client, case_id)
+    expected_revision = str(payload.get("expected_revision") or "").strip()
+    if expected_revision and expected_revision != origin_case_revision(case):
+        raise HTTPException(status_code=409, detail="Origin case state changed; reload before saving.")
+    case = attach_origin_sheet_states(case)
+    states = dict(case.get("origin_sheet_states") or {})
+    order = origin_product_order(case)
+    deleted: list[dict] = []
+    skipped_locked: list[dict] = []
+    edited_codes: list[str] = []
+    for product in case.get("products", []):
+        pc = str(product.get("code") or "").strip()
+        if scope_pc and pc != scope_pc:
+            continue
+        targets: list[tuple[int, dict, str]] = []
+        for idx, material in enumerate(product.get("materials") or []):
+            if material.get("deleted"):
+                continue
+            if str(material.get("customs_relevance") or "").strip() != kind:
+                continue  # chỉ đúng loại rác đang chọn (declarable_unmatched | excluded_non_material)
+            code = str(material.get("material_code") or material.get("internal_material_code") or "").strip()
+            if code not in codes:
+                continue
+            targets.append((idx, material, code))
+        if not targets:
+            continue
+        prev = states.get(pc) if isinstance(states.get(pc), dict) else {}
+        if prev.get("status") == "locked":
+            skipped_locked.extend({"product_code": pc, "material_code": code} for _, _, code in targets)
+            continue
+        overrides, version_mismatch = writable_overrides(prev, product)
+        for idx, material, code in targets:
+            key = material_override_key(material, idx)
+            existing = overrides.get(key) if isinstance(overrides.get(key), dict) else {}
+            overrides[key] = {**existing, "deleted": True}
+            deleted.append({"product_code": pc, "material_code": code, "name": material.get("material_description", "")})
+        states[pc] = {**prev, "material_overrides": overrides, **override_state_stamp(product), "status": "calculated", "status_label": ORIGIN_SHEET_STATUS_LABELS["calculated"]}
+        if version_mismatch:
+            states[pc]["override_history"] = []
+            states[pc]["override_redo"] = []
+        edited_codes.append(pc)
+    min_gap = _origin_min_gap_days(client)
+    if edited_codes:
+        case["origin_sheet_states"] = states
+        edited_indices = [order.index(pc) for pc in edited_codes if pc in order]
+        if edited_indices:
+            case = mark_origin_sheets_stale(case, min(edited_indices))
+        for pc in sorted(edited_codes, key=lambda c: order.index(c) if c in order else 0):
+            case = recalculate_origin_sheet_edits(client, case, pc, min_gap_days=min_gap)
+            case = set_origin_sheet_status(case, pc, "calculated")
+        update_case_record(client, case)
+    context, stock_rows = _origin_preview_context(client, client_id, case_id, case)
+    allocated = allocate_whole_case_preview(client, context["case"], context, stock_rows, min_gap)
+    return {
+        "status": "ok",
+        "deleted": deleted,
+        "skipped_locked": skipped_locked,
+        "revision": origin_case_revision(case),
+        **case_missing_stock_summary(allocated),
+        "rollup": case_shortfall_rollup(allocated),
+    }
 @router.post("/clients/{client_id}/co-case/{case_id}/origin/bulk-lock")
 async def bulk_lock_route(request: Request, client_id: str, case_id: str):
     """Mục 6 (Slice D) — Chốt tất cả: khoá toàn bộ origin sheet theo thứ tự,
@@ -1929,6 +2030,9 @@ async def bulk_lock_route(request: Request, client_id: str, case_id: str):
             continue
         try:
             record_sheet_lock_claims(client_id, case_id, code, case)
+        except co_stock_ledger.StockSnapshotMissingError as exc:
+            skipped.append({"product_code": code, "reason": str(exc)})
+            continue
         except co_stock_ledger.StockOverclaimError as exc:
             skipped.append({
                 "product_code": code,
@@ -2123,14 +2227,25 @@ def _recompute_origin_sheet_context(
     Fast path: delta-refresh the materialized stock snapshot and read stock rows
     from co_stock_rows directly (1-2s) instead of the ~30-45s full DH pull; fall
     back to the full pull when the snapshot is empty/errored."""
-    snapshot_stock_rows = _calculate_stock_rows_from_snapshot(client)
-    if snapshot_stock_rows is not None:
+    # Probe (cached, cheap): a materialized snapshot present is exactly the
+    # condition that `_calculate_stock_rows_from_snapshot` returns non-None on,
+    # so this reproduces the old branch without paying the 60k-row copy up front.
+    has_snapshot = bool(
+        co_stock_materializer.read_co_stock_rows_cached(str(client.get("id", "") or ""))
+    )
+    if has_snapshot:
         context = co_case_context(
             client_id, case_id, current_step="origin", case=case, message=message,
             preserve_origin_products=True, cached_case_context=True,
         )
         source_context = context.get("origin_source_context", {})
-        stock_rows = snapshot_stock_rows
+        # Scope the snapshot read to the lots this case's BOM + product materials
+        # can reach — a superset of the pool keys this /calculate looks up, so the
+        # allocation is byte-identical while the copy + overlay skip unrelated lots.
+        scope_codes = case_stock_scope_codes(
+            context["case"], context.get("bom_workspace") or minimal_bom_workspace()
+        )
+        stock_rows = _calculate_stock_rows_from_snapshot(client, scope_codes=scope_codes) or []
     else:
         context = co_case_context(
             client_id, case_id, current_step="origin", case=case, message=message,
@@ -2270,6 +2385,21 @@ async def lock_co_case_origin_sheet(request: Request, client_id: str, case_id: s
     # this code path used to suffer from silent exception swallowing).
     try:
         record_sheet_lock_claims(client_id, case_id, product_code, case)
+    except co_stock_ledger.StockSnapshotMissingError as exc:
+        return templates.TemplateResponse(
+            request=request,
+            name="co_case.html",
+            status_code=409,
+            context=co_case_context(
+                client_id,
+                case_id,
+                current_step="origin",
+                case=case,
+                error=str(exc),
+                preserve_origin_products=True,
+                fast_origin_context=True,
+            ),
+        )
     except co_stock_ledger.StockOverclaimError as exc:
         detail_lines = [
             f"{v['source_row']}: cần {v['claimed']}, còn {v['available']}"
@@ -2865,6 +2995,8 @@ async def co_case_origin_sheet_propose_bom(
     rows = build_bom_proposal_rows(target, overrides)
     if not rows:
         raise HTTPException(status_code=409, detail="Không có dòng NVL nào để propose.")
+    if str(state.get("proposed_artifact_id") or "").strip():
+        raise HTTPException(status_code=409, detail="BOM đã được propose; sửa BOM rồi mới propose lại.")
     try:
         result = portfolio_service.submit_bom_proposal(
             client_id,

@@ -43,6 +43,28 @@ class StockOverclaimError(Exception):
         super().__init__(f"Vượt tồn ở {len(self.violations)} lot: {summary}")
 
 
+class StockSnapshotMissingError(Exception):
+    """Raised when a lock is attempted before CO stock has been materialized.
+
+    `record_sheet_lock` validates each claim against `co_stock_rows` and takes a
+    `FOR UPDATE` row lock there. When the client has NO materialized snapshot
+    (0 rows in `co_stock_rows`, cold start), there is no row to lock and nothing
+    to validate against — so two dossiers for the same company could both lock
+    and over-claim the same lot with no guard (calculate-time holds no row lock).
+    Block the lock and tell the operator to refresh CO stock first.
+
+    `client_id` and `source_rows` are carried for the caller's message.
+    """
+
+    def __init__(self, client_id: str, source_rows: list[str] | None = None):
+        self.client_id = client_id
+        self.source_rows = list(source_rows or [])
+        super().__init__(
+            "Chưa có snapshot tồn CO cho client này — bấm 'Refresh từ Data Hub' "
+            "ở tab Tồn C/O để materialize tồn trước khi chốt."
+        )
+
+
 def _ledger_available() -> bool:
     return bool(database_url())
 
@@ -164,6 +186,10 @@ def record_sheet_lock(
         StockOverclaimError: if any source_row would be claimed past
             (co_stock_rows.remaining_qty - sum_of_other_active_claims). The
             full transaction is aborted; no claims are written.
+        StockSnapshotMissingError: if the client has no materialized CO stock
+            snapshot (0 rows in co_stock_rows) at lock time. Without a snapshot
+            row there is nothing to FOR UPDATE lock or validate against, so the
+            lock is blocked rather than trusting calculate-time.
         DatabaseUnavailable is treated as a no-op so unit tests that don't
             configure BARRY_DATABASE_URL keep working. All other database
             errors propagate to the caller — silent failure would let the
@@ -189,12 +215,16 @@ def record_sheet_lock(
             # over-claimed here.
             #
             # If the client has NO materialized snapshot at all (e.g. a fresh
-            # workspace or a unit test that bypasses /refresh), we can't
-            # validate against BCCT here — skip the check and trust the
-            # allocator's calculate-time check. We do NOT skip the check for
-            # individual missing source_rows when a snapshot exists: an
-            # allocation referencing a lot that's not in the snapshot is a
-            # legitimate violation (the lot doesn't exist or was filtered out).
+            # workspace that never ran /refresh), we can't validate against BCCT
+            # here AND there is no co_stock_rows row to take FOR UPDATE on. Two
+            # dossiers for the same company could then both lock and over-claim
+            # the same lot with no guard (calculate-time holds no row lock). So
+            # block the lock and tell the operator to refresh CO stock first,
+            # rather than silently trusting the allocator's calculate-time check.
+            # We do NOT skip the check for individual missing source_rows when a
+            # snapshot exists: an allocation referencing a lot that's not in the
+            # snapshot is a legitimate violation (the lot doesn't exist or was
+            # filtered out).
             if new_by_lot:
                 cur.execute(
                     "select exists(select 1 from co_stock_rows where client_id = %s)",
@@ -259,6 +289,8 @@ def record_sheet_lock(
                             })
                     if violations:
                         raise StockOverclaimError(violations)
+                else:
+                    raise StockSnapshotMissingError(client_id, sorted(new_by_lot.keys()))
 
             # Snapshot prior claims so we can emit release events for any that
             # get replaced (re-lock of an already-locked sheet).
@@ -423,6 +455,39 @@ def claims_summary_for_case(client_id: str, case_id: str) -> dict:
             return {"count": int(count or 0), "lots": int(lots or 0)}
     except DatabaseUnavailable:
         return {"count": 0, "lots": 0}
+
+
+def claims_summary_for_cases(client_id: str, case_ids: list[str]) -> dict[str, dict]:
+    """Batched `claims_summary_for_case` — one query for many cases.
+
+    Returns `{case_id: {"count": int, "lots": int}}`. Every requested id is a
+    key, so a case with no locked claims (absent from the grouped result) still
+    maps to `{"count": 0, "lots": 0}` — identical to calling the single-case
+    probe once per id, but in a single DB round trip. Replaces the per-dossier
+    loop on the case-list index (`co_case_context`), which was one query per
+    dossier.
+    """
+    # Every requested id (including duplicates and blanks) gets a default entry
+    # so the caller can look up any dossier without branching. The query itself
+    # only sends the deduped, non-blank ids.
+    result = {case_id: {"count": 0, "lots": 0} for case_id in case_ids}
+    query_ids = [cid for cid in dict.fromkeys(case_ids) if cid]
+    if not query_ids or not _ledger_available():
+        return result
+    try:
+        with _connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """select case_id, count(*), count(distinct source_row)
+                   from co_stock_claims
+                   where client_id = %s and case_id = any(%s) and status = 'locked'
+                   group by case_id""",
+                (client_id, query_ids),
+            )
+            for case_id, count, lots in cur.fetchall():
+                result[case_id] = {"count": int(count or 0), "lots": int(lots or 0)}
+    except DatabaseUnavailable:
+        return result
+    return result
 
 
 def release_all_claims_for_case(client_id: str, case_id: str) -> int:

@@ -33,9 +33,12 @@ def _seed(statuses, client_id="growatt", case_id="case-lock-1"):
         "created_at": now, "updated_at": now,
         "origin_product_order": [c for c, _ in statuses],
         # a covered NVL so the sheet passes the "genuinely ready" lock guard;
-        # these tests exercise ordering / overclaim, not emptiness.
+        # customs_relevance is present (post-mig-078 materialize) so it also clears
+        # the DC3b pre-migration recalc guard. These tests exercise ordering /
+        # overclaim, not emptiness or staleness.
         "products": [{"code": c, "name": c, "lvc_status": "pass",
-                      "materials": [{"material_code": f"M-{c}", "allocation_status": "covered"}]}
+                      "materials": [{"material_code": f"M-{c}", "allocation_status": "covered",
+                                     "customs_relevance": ""}]}
                      for c, _ in statuses],
         "origin_sheet_states": {c: {"status": s, "status_label": s} for c, s in statuses},
     }

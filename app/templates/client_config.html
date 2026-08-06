@@ -95,6 +95,21 @@
 
     <section class="zone mini-panel">
       <div class="subsection-head">
+        <h3>Tính năng bảng kê</h3>
+        <p class="meta">Bật/tắt các thao tác hàng loạt trên bảng kê NVL.</p>
+      </div>
+      <div class="stack-form">
+        <label class="feature-toggle">
+          <input type="checkbox" name="features_bulk_delete_junk_rows" value="1"
+                 {% if client_config.features.bulk_delete_junk_rows %}checked{% endif %}>
+          <span>Cho phép "Chọn NVL rác → xoá hàng loạt"</span>
+        </label>
+        <small class="meta">Hiện nút chọn nhanh các dòng NVL không khớp tồn CO / BCCT để xoá hàng loạt — áp cho cả sheet lẻ và sheet "Tổng hợp NVL". Tắt để ẩn hoàn toàn thao tác này.</small>
+      </div>
+    </section>
+
+    <section class="zone mini-panel">
+      <div class="subsection-head">
         <h3>Mã phân bổ</h3>
         <p class="meta">Mã dùng để match BOM; mã hải quan vẫn giữ để audit tờ khai.</p>
       </div>

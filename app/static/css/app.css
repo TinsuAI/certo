@@ -3497,6 +3497,14 @@ button.co-stat:hover {
   color: var(--info);
 }
 
+/* Guard-blocked sheet resting at bom_loaded: amber "Cần xử lý", set apart from
+   a merely-loaded sheet's neutral info pill. */
+.origin-sheet-status-pill.origin-sheet-state-attention {
+  border-color: color-mix(in srgb, var(--warning) 55%, var(--border));
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
 .origin-sheet-status-pill.origin-sheet-state-locked {
   border-color: color-mix(in srgb, var(--success) 65%, var(--border));
   background: var(--success-soft);
@@ -5989,6 +5997,46 @@ body.co-stock-history-modal-open { overflow: hidden; }
   padding-left: 0.4rem;
   padding-right: 0.4rem;
 }
+
+/* Feature "Chọn NVL rác → xoá hàng loạt" off for this company: hide the row-select
+   column entirely (the ⊘ button + bulk bar are already Jinja-gated out). */
+.origin-bulk-disabled .origin-material-table th.origin-col-select,
+.origin-bulk-disabled .origin-material-table td.origin-col-select {
+  display: none;
+}
+
+/* Aggregate + per-sheet "xoá NVL rác" controls */
+.rs-rac-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.6rem 0 0.3rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--border, #d0d0d0);
+}
+.rs-rac-lead { font-size: 0.82rem; color: var(--muted, #666); }
+.rs-rac-btn, .sheet-rac-btn { white-space: nowrap; }
+
+/* Scrollable rác-delete modal. NOTE: .confirm-modal is display:grid, whose items
+   size to min-content and can overflow — every child here needs min-width:0 so the
+   list stays bounded to the modal width instead of expanding to the row content. */
+.rac-modal { max-width: 620px; width: min(92vw, 620px); min-width: 0; }
+.rac-modal > * { min-width: 0; }
+.rac-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.rac-modal-hint { margin: 0.2rem 0 0.5rem; }
+.rac-modal-tools { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.4rem; }
+.rac-linkbtn { background: none; border: none; color: var(--primary, #2a6); cursor: pointer; padding: 0; font-size: 0.82rem; text-decoration: underline; }
+.rac-modal-count { margin-left: auto; font-size: 0.8rem; color: var(--muted, #666); }
+.rac-modal-list { max-height: 48vh; overflow-y: auto; overflow-x: hidden; min-width: 0; border: 1px solid var(--border, #d0d0d0); border-radius: 6px; }
+.rac-item { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.15rem 0.5rem; min-width: 0; padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--border-subtle, #eee); cursor: pointer; }
+.rac-item:last-child { border-bottom: none; }
+.rac-item:hover { background: var(--surface-hover, rgba(0,0,0,0.03)); }
+.rac-item > input[data-rac-check] { flex: none; margin: 0; grid-row: 1 / span 2; }
+.rac-item-code { font-family: var(--mono, monospace); font-weight: 600; grid-column: 2; }
+.rac-item-name { color: var(--muted, #555); font-size: 0.85rem; grid-column: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rac-item-tag { font-size: 0.72rem; padding: 0.05rem 0.4rem; border-radius: 999px; background: var(--warning-bg, #fff3cd); color: var(--warning-fg, #8a6d3b); white-space: nowrap; grid-column: 3; grid-row: 1; justify-self: end; }
+.rac-item-sub { font-size: 0.72rem; color: var(--muted, #888); grid-column: 2 / 4; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .origin-sheet-tabs-toolbar {
   display: flex;

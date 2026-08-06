@@ -335,6 +335,10 @@ async def save_client_config_route(request: Request, client_id: str):
     config["allocation_code"]["strategy"] = str(form.get("allocation_code_strategy", "same_as_customs_code"))
     config["allocation_code"]["description_regex"] = str(form.get("description_regex", ""))
     config["allocation_code"]["fallback"] = str(form.get("allocation_code_fallback", "same_as_customs_code"))
+    # Unchecked checkbox = field absent → False.
+    config.setdefault("features", {})["bulk_delete_junk_rows"] = (
+        form.get("features_bulk_delete_junk_rows") == "1"
+    )
     try:
         portfolio_service.save_client_config(client, config)
     except ValueError as exc:
