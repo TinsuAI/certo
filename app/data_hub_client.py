@@ -725,6 +725,11 @@ class DataHubPortfolioService:
                 **(local_base.get("co_stock") or {}),
                 "lot_policy": incoming["co_stock"].get("lot_policy", "line_level"),
             },
+            # features are CO-owned UI toggles → persist the incoming edit locally.
+            "features": {
+                **(local_base.get("features") or {}),
+                **(incoming.get("features") or {}),
+            },
         }
         return store.save_client_config(client, to_save)
 

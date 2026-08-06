@@ -1917,6 +1917,93 @@ async def bulk_substitute_route(request: Request, client_id: str, case_id: str):
         **case_missing_stock_summary(allocated),
         "rollup": case_shortfall_rollup(allocated),
     }
+_RAC_KINDS = {"declarable_unmatched", "excluded_non_material"}
+@router.post("/clients/{client_id}/co-case/{case_id}/origin/bulk-delete-rac")
+async def bulk_delete_rac_route(request: Request, client_id: str, case_id: str):
+    """"Xoá NVL rác hàng loạt" ở sheet Tổng hợp NVL — xoá các dòng NVL rác đã LOẠI
+    (folded, `customs_relevance` = một trong hai loại) của những material_code được
+    chọn, trên MỌI sheet CHƯA khoá.
+
+    `kind`: "declarable_unmatched" (NVL thật không có trong BCCT / chưa khớp tờ khai)
+    hoặc "excluded_non_material" (phi vật tư). Server tự lọc theo customs_relevance
+    (không tin client) nên phân loại khít với rollup. Payload: {"material_codes": [...],
+    "kind": ..., "expected_revision"?}. Sheet đã khoá bị bỏ qua + báo lại
+    (`skipped_locked`). Soft-delete (cờ `deleted`); persist 1 lần rồi trả rollup mới."""
+    client = resolve_client(client_id)
+    payload = await read_json_or_form(request)
+    kind = str(payload.get("kind") or "").strip()
+    if kind not in _RAC_KINDS:
+        raise HTTPException(status_code=400, detail=f"kind must be one of {sorted(_RAC_KINDS)}")
+    raw_codes = payload.get("material_codes") or []
+    if isinstance(raw_codes, str):
+        raw_codes = [raw_codes]
+    codes = {str(c).strip() for c in raw_codes if str(c).strip()}
+    if not codes:
+        raise HTTPException(status_code=400, detail="empty material_codes")
+    # Optional: scope to ONE sheet (per-sheet delete). Omitted → every non-locked
+    # sheet (aggregate delete). Same route, consistent classification either way.
+    scope_pc = str(payload.get("product_code") or "").strip()
+    case = persisted_origin_case(client, case_id)
+    expected_revision = str(payload.get("expected_revision") or "").strip()
+    if expected_revision and expected_revision != origin_case_revision(case):
+        raise HTTPException(status_code=409, detail="Origin case state changed; reload before saving.")
+    case = attach_origin_sheet_states(case)
+    states = dict(case.get("origin_sheet_states") or {})
+    order = origin_product_order(case)
+    deleted: list[dict] = []
+    skipped_locked: list[dict] = []
+    edited_codes: list[str] = []
+    for product in case.get("products", []):
+        pc = str(product.get("code") or "").strip()
+        if scope_pc and pc != scope_pc:
+            continue
+        targets: list[tuple[int, dict, str]] = []
+        for idx, material in enumerate(product.get("materials") or []):
+            if material.get("deleted"):
+                continue
+            if str(material.get("customs_relevance") or "").strip() != kind:
+                continue  # chỉ đúng loại rác đang chọn (declarable_unmatched | excluded_non_material)
+            code = str(material.get("material_code") or material.get("internal_material_code") or "").strip()
+            if code not in codes:
+                continue
+            targets.append((idx, material, code))
+        if not targets:
+            continue
+        prev = states.get(pc) if isinstance(states.get(pc), dict) else {}
+        if prev.get("status") == "locked":
+            skipped_locked.extend({"product_code": pc, "material_code": code} for _, _, code in targets)
+            continue
+        overrides, version_mismatch = writable_overrides(prev, product)
+        for idx, material, code in targets:
+            key = material_override_key(material, idx)
+            existing = overrides.get(key) if isinstance(overrides.get(key), dict) else {}
+            overrides[key] = {**existing, "deleted": True}
+            deleted.append({"product_code": pc, "material_code": code, "name": material.get("material_description", "")})
+        states[pc] = {**prev, "material_overrides": overrides, **override_state_stamp(product), "status": "calculated", "status_label": ORIGIN_SHEET_STATUS_LABELS["calculated"]}
+        if version_mismatch:
+            states[pc]["override_history"] = []
+            states[pc]["override_redo"] = []
+        edited_codes.append(pc)
+    min_gap = _origin_min_gap_days(client)
+    if edited_codes:
+        case["origin_sheet_states"] = states
+        edited_indices = [order.index(pc) for pc in edited_codes if pc in order]
+        if edited_indices:
+            case = mark_origin_sheets_stale(case, min(edited_indices))
+        for pc in sorted(edited_codes, key=lambda c: order.index(c) if c in order else 0):
+            case = recalculate_origin_sheet_edits(client, case, pc, min_gap_days=min_gap)
+            case = set_origin_sheet_status(case, pc, "calculated")
+        update_case_record(client, case)
+    context, stock_rows = _origin_preview_context(client, client_id, case_id, case)
+    allocated = allocate_whole_case_preview(client, context["case"], context, stock_rows, min_gap)
+    return {
+        "status": "ok",
+        "deleted": deleted,
+        "skipped_locked": skipped_locked,
+        "revision": origin_case_revision(case),
+        **case_missing_stock_summary(allocated),
+        "rollup": case_shortfall_rollup(allocated),
+    }
 @router.post("/clients/{client_id}/co-case/{case_id}/origin/bulk-lock")
 async def bulk_lock_route(request: Request, client_id: str, case_id: str):
     """Mục 6 (Slice D) — Chốt tất cả: khoá toàn bộ origin sheet theo thứ tự,

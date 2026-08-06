@@ -371,6 +371,16 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
         origin_demo_active=origin_demo_active,
         tkx_tkn_summary=context.get("tkx_tkn_summary"),
     )
+    # Per-company opt-in: "chọn NVL rác → xoá hàng loạt" on both the per-sheet grid
+    # and the aggregate "Tổng hợp NVL" sheet (default off). Prefer the canonical
+    # (migrated) accessor; fall back to the config already in context for lightweight
+    # test doubles that don't implement get_client_config.
+    features_config = context.get("client_config") or {}
+    if hasattr(portfolio_service, "get_client_config"):
+        features_config = portfolio_service.get_client_config(client)
+    context["bulk_delete_junk_enabled"] = bool(
+        (features_config.get("features") or {}).get("bulk_delete_junk_rows", False)
+    )
     return context
 _CO_CASE_SOURCE_CACHE_TTL_SECONDS = 90.0
 def co_case_source_context(client: dict, case: dict, *, skip_heavy_context: bool = False) -> dict:
@@ -2182,6 +2192,8 @@ def case_shortfall_rollup(case: dict) -> dict:
     groups: dict[str, dict] = {}
     order: list[str] = []
     no_bom_products: list[str] = []
+    folded_groups: dict[str, dict] = {}
+    folded_order: list[str] = []
     for product in case.get("products", []) or []:
         code = str(product.get("code") or "").strip()
         status = product.get("origin_sheet_status")
@@ -2213,18 +2225,41 @@ def case_shortfall_rollup(case: dict) -> dict:
             group["short"] += shortage
             if not group["name"] and material.get("material_description"):
                 group["name"] = material.get("material_description")
+            # noise = folded technical-noise row. Two kinds, both = mã KHÔNG có trong
+            # BCCT (candidate == 0): `declarable_unmatched` (NVL thật chưa khớp tờ khai)
+            # và `excluded_non_material` (phi vật tư). Thu vào folded_rac để xoá hàng
+            # loạt; giữ cờ ở đây để loại NVL toàn-rác khỏi danh sách thiếu tồn.
+            noise = is_bom_technical_noise(material)
             group["using"].append({
                 "product_code": code,
                 "status": status,
                 "lvc_percentage": lvc,
                 "is_short": is_short,
                 "short_qty": decimal_text(shortage) if is_short else "",
+                "noise": noise,
             })
+            # Folded rác — collected independently of shortage; skip locked sheets
+            # (can't be edited) exactly like the no-stock bucket.
+            if noise and status != "locked":
+                fkind = "declarable_unmatched" if is_declarable_unmatched(material) else "excluded_non_material"
+                fgroup = folded_groups.get(key)
+                if fgroup is None:
+                    fgroup = folded_groups[key] = {
+                        "material_code": key, "name": material.get("material_description", ""),
+                        "kinds": set(), "products": [],
+                    }
+                    folded_order.append(key)
+                if not fgroup["name"] and material.get("material_description"):
+                    fgroup["name"] = material.get("material_description")
+                fgroup["kinds"].add(fkind)
+                fgroup["products"].append(code)
     materials: list[dict] = []
     for key in order:
         group = groups[key]
         if group["short"] <= 0:
             continue
+        if not any(not u["noise"] for u in group["using"]):
+            continue  # pure rác (mọi occurrence đều folded) → thuộc folded_rac, không vào danh sách thiếu tồn
         short_using = [u for u in group["using"] if u["is_short"]]
         materials.append({
             "material_code": group["material_code"],
@@ -2238,11 +2273,24 @@ def case_shortfall_rollup(case: dict) -> dict:
             "short_products": [u["product_code"] for u in short_using],
             "short_count": len(short_using),
         })
+    folded_rac: list[dict] = []
+    for key in folded_order:
+        fg = folded_groups[key]
+        kind = next(iter(fg["kinds"])) if len(fg["kinds"]) == 1 else "mixed"
+        folded_rac.append({
+            "material_code": fg["material_code"],
+            "name": fg["name"],
+            "kind": kind,   # declarable_unmatched | excluded_non_material | mixed
+            "products": fg["products"],
+            "count": len(fg["products"]),
+        })
     return {
         "materials": materials,
         "material_count": len(materials),
         "no_bom_products": no_bom_products,
         "no_bom_count": len(no_bom_products),
+        "folded_rac": folded_rac,
+        "folded_rac_count": len(folded_rac),
     }
 def case_allocation_pool(
     case: dict,

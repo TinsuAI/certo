@@ -113,3 +113,30 @@ def test_allocation_save_allowed_when_dh_mode_off(monkeypatch):
     })
     asyncio.run(pages.save_client_config_route(req, "growatt-vn"))
     assert saved["config"]["co_stock"]["lot_policy"] == "manual_review"
+
+
+def test_features_bulk_delete_checkbox_saved_on(monkeypatch):
+    monkeypatch.delenv("DATA_HUB_ENABLED", raising=False)
+    saved: dict = {}
+    _patch_service(monkeypatch, saved)   # mocked config has no `features` key → setdefault path
+
+    req = _FakeReq({
+        "co_stock_lot_policy": "line_level",
+        "allocation_code_strategy": "same_as_customs_code",
+        "features_bulk_delete_junk_rows": "1",
+    })
+    asyncio.run(pages.save_client_config_route(req, "growatt-vn"))
+    assert saved["config"]["features"]["bulk_delete_junk_rows"] is True
+
+
+def test_features_bulk_delete_checkbox_absent_is_off(monkeypatch):
+    monkeypatch.delenv("DATA_HUB_ENABLED", raising=False)
+    saved: dict = {}
+    _patch_service(monkeypatch, saved)
+
+    req = _FakeReq({
+        "co_stock_lot_policy": "line_level",
+        "allocation_code_strategy": "same_as_customs_code",
+    })  # unchecked → field absent
+    asyncio.run(pages.save_client_config_route(req, "growatt-vn"))
+    assert saved["config"]["features"]["bulk_delete_junk_rows"] is False
