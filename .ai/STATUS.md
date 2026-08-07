@@ -1,6 +1,35 @@
 # Project Status
 
 ## Current State
+- **2026-08-06 — BULK-DELETE "NVL RÁC" (aggregate + per-sheet, 2 kinds) SHIPPED + DEPLOYED.**
+  `origin/main` = prod `barry-co` = nightly `demo-co` = **`27980bb`** (merge of PR #23 `review/clean-fixes`;
+  feature commit **`d6bdebb`**; CI/CD run `31116327808` green: build + Python tests + Deploy demo). Full suite
+  **1030 pass / 17 skip**. Session: `.ai/sessions/2026-08-06-bulk-delete-nvl-rac.md`.
+  PR #23 = review-batch integration (this feature + ~15 already-reviewed agent branches: LK1/DC3b force
+  re-Tính, cold-start overclaim block, calculate lot-scoping, dup-BOM-propose guards, secure cookies, N+1 claim
+  batch, CO-stock refresh reason, test/harness hardening).
+  **Feature:** per-company opt-in `features.bulk_delete_junk_rows` (default **OFF**) → bulk-delete folded rác
+  NVL, split into 2 kinds by `customs_relevance`, on BOTH the "Tổng hợp NVL" aggregate sheet AND each per-sheet
+  grid: **NVL không có trong BCCT** (`declarable_unmatched`) + **NVL phi vật tư** (`excluded_non_material`);
+  shared scrollable confirm modal (checkbox list). Per-sheet made consistent with aggregate (same buttons +
+  modal, route scoped by `product_code`); old mis-targeted `⊘ Lọc dòng lỗi` removed.
+  **Key finding ("sửa logic cho đúng"):** cross-tab on real Johnson data (267 rows, `co-case-e0b390ead3b0`
+  clone, deletions reverted) proved `customs_relevance` deterministically encodes BCCT-lot presence —
+  `declarable` ⟺ in BCCT (short = genuine **thiếu tồn** → THAY THẾ, not delete); the two folded kinds ⟺
+  candidate 0 (rác → xoá). `allocation_count == 0` alone is **NOT** a rác signal (a declarable material with 0
+  lots is thiếu-tồn, lots exhausted/date-excluded); the first no-stock build was WRONG and reworked. Route
+  `POST .../origin/bulk-delete-rac` (kind ∈ {declarable_unmatched, excluded_non_material} + optional
+  `product_code` scope) filters by `customs_relevance` server-side; rollup `case_shortfall_rollup` returns
+  `folded_rac` (grouped code+kind, locked excluded) and keeps pure-rác OUT of the thiếu-tồn/substitute list.
+  Aggregate substitute scope default flipped `only_short` → `everywhere` ("thay hết", aggregate UI only).
+  Config: `features` section in default/migrate + **DH-mode `to_save` whitelist** (else the toggle is silently
+  dropped in prod DH source-mode) + config-page checkbox. Verified: unit/route tests + browser e2e on Johnson
+  (48 unmatched + 23 phi-vật-tư; delete removed 63 rows, folded_rac 71→23, kinds isolated); flags reset OFF +
+  e2e clone removed after. Committed feature files only (never `.ai/BACKLOG.md`/`uv.lock`/untracked docs); no AI
+  trailer.
+  **Open (low, product call):** `declarable_unmatched` is in the delete bucket as "không có trong BCCT" but is a
+  real NVL **chờ đối soát** (recoverable via Ctrl+Z; modal tags each row). If the client wants it split from true
+  phi-vật-tư with a stronger warning (not one-click delete), split Nhóm 1 further — not requested yet.
 - **2026-07-27 — CO 524 (origin timeout) ON CASE-OPEN + SUBSTITUTE MODAL: BOTH FIXED, DEPLOYED, VERIFIED LIVE.**
   `origin/main` = prod `barry-co` = nightly `demo-co` = **`8556ee1`** (CI/CD green all 3 commits; behavior
   verified live on prod johnson-vn). Full suite **935 pass / 14 skip**. Session:
