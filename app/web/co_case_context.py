@@ -2192,8 +2192,6 @@ def case_shortfall_rollup(case: dict) -> dict:
     groups: dict[str, dict] = {}
     order: list[str] = []
     no_bom_products: list[str] = []
-    folded_groups: dict[str, dict] = {}
-    folded_order: list[str] = []
     for product in case.get("products", []) or []:
         code = str(product.get("code") or "").strip()
         status = product.get("origin_sheet_status")
@@ -2225,11 +2223,14 @@ def case_shortfall_rollup(case: dict) -> dict:
             group["short"] += shortage
             if not group["name"] and material.get("material_description"):
                 group["name"] = material.get("material_description")
-            # noise = folded technical-noise row. Two kinds, both = mã KHÔNG có trong
-            # BCCT (candidate == 0): `declarable_unmatched` (NVL thật chưa khớp tờ khai)
-            # và `excluded_non_material` (phi vật tư). Thu vào folded_rac để xoá hàng
-            # loạt; giữ cờ ở đây để loại NVL toàn-rác khỏi danh sách thiếu tồn.
+            # noise = folded row (mã KHÔNG có trong BCCT). Kind: `declarable_unmatched`
+            # (NVL thật, chưa khớp tờ khai → THAY THẾ được) hoặc `excluded_non_material`
+            # (phi vật tư → chỉ xoá). A material whose EVERY occurrence is noise becomes a
+            # folded_rac entry (carries full substitute data); otherwise it's a normal
+            # shortfall row.
             noise = is_bom_technical_noise(material)
+            kind = ("declarable_unmatched" if is_declarable_unmatched(material)
+                    else "excluded_non_material") if noise else ""
             group["using"].append({
                 "product_code": code,
                 "status": status,
@@ -2237,31 +2238,11 @@ def case_shortfall_rollup(case: dict) -> dict:
                 "is_short": is_short,
                 "short_qty": decimal_text(shortage) if is_short else "",
                 "noise": noise,
+                "kind": kind,
             })
-            # Folded rác — collected independently of shortage; skip locked sheets
-            # (can't be edited) exactly like the no-stock bucket.
-            if noise and status != "locked":
-                fkind = "declarable_unmatched" if is_declarable_unmatched(material) else "excluded_non_material"
-                fgroup = folded_groups.get(key)
-                if fgroup is None:
-                    fgroup = folded_groups[key] = {
-                        "material_code": key, "name": material.get("material_description", ""),
-                        "kinds": set(), "products": [],
-                    }
-                    folded_order.append(key)
-                if not fgroup["name"] and material.get("material_description"):
-                    fgroup["name"] = material.get("material_description")
-                fgroup["kinds"].add(fkind)
-                fgroup["products"].append(code)
-    materials: list[dict] = []
-    for key in order:
-        group = groups[key]
-        if group["short"] <= 0:
-            continue
-        if not any(not u["noise"] for u in group["using"]):
-            continue  # pure rác (mọi occurrence đều folded) → thuộc folded_rac, không vào danh sách thiếu tồn
+    def _entry(group):
         short_using = [u for u in group["using"] if u["is_short"]]
-        materials.append({
+        return {
             "material_code": group["material_code"],
             "name": group["name"],
             "uom": group["uom"],
@@ -2272,18 +2253,28 @@ def case_shortfall_rollup(case: dict) -> dict:
             "using_count": len(group["using"]),
             "short_products": [u["product_code"] for u in short_using],
             "short_count": len(short_using),
-        })
+        }
+    materials: list[dict] = []
     folded_rac: list[dict] = []
-    for key in folded_order:
-        fg = folded_groups[key]
-        kind = next(iter(fg["kinds"])) if len(fg["kinds"]) == 1 else "mixed"
-        folded_rac.append({
-            "material_code": fg["material_code"],
-            "name": fg["name"],
-            "kind": kind,   # declarable_unmatched | excluded_non_material | mixed
-            "products": fg["products"],
-            "count": len(fg["products"]),
-        })
+    for key in order:
+        group = groups[key]
+        if any(not u["noise"] for u in group["using"]):
+            # normal material — appears in the shortfall/substitute list only if short
+            if group["short"] > 0:
+                materials.append(_entry(group))
+            continue
+        # EVERY occurrence is folded (mã không có trong BCCT). Non-locked occurrences
+        # only (locked can't be edited); carries full data so declarable_unmatched can
+        # still be substituted, not just deleted.
+        live = [u for u in group["using"] if u["status"] != "locked"]
+        if not live:
+            continue
+        kinds = {u["kind"] for u in group["using"] if u["kind"]}
+        entry = _entry(group)
+        entry["kind"] = next(iter(kinds)) if len(kinds) == 1 else "mixed"
+        entry["products"] = list(dict.fromkeys(u["product_code"] for u in live))
+        entry["count"] = len(entry["products"])
+        folded_rac.append(entry)
     return {
         "materials": materials,
         "material_count": len(materials),

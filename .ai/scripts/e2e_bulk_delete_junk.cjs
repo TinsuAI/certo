@@ -42,16 +42,15 @@ const count = (page, sel) => page.$$eval(sel, (e) => e.length).catch(() => 0);
   await page.goto(`${BASE}/clients/${CLIENT}/co-case/${CASE}/origin`, { waitUntil: "networkidle2" });
 
   const aggEnabled = await page.$eval("[data-origin-aggregate]", (n) => n.dataset.bulkDeleteEnabled).catch(() => null);
-  const perSheetInDom = await count(page, "[data-sheet-rac-kind]");
-  const perSheetVisible = await page.$$eval("[data-sheet-rac-kind]", (els) => els.filter((e) => !e.hidden).length).catch(() => 0);
-  console.log(`  static: data-bulk-delete-enabled=${aggEnabled} perSheetButtons(dom=${perSheetInDom}, visible=${perSheetVisible})`);
+  const perSheetMounts = await count(page, "[data-sheet-rac-mount]");
+  console.log(`  static: data-bulk-delete-enabled=${aggEnabled} perSheetMounts=${perSheetMounts}`);
 
   if (MODE === "off") {
     aggEnabled === "0" ? ok("aggregate flag = 0") : fail(`aggregate flag should be 0 (got ${aggEnabled})`);
-    perSheetInDom === 0 ? ok("no per-sheet rác buttons in DOM") : fail(`per-sheet rác buttons should be absent (got ${perSheetInDom})`);
+    perSheetMounts === 0 ? ok("no per-sheet rác mounts (gated off)") : fail(`per-sheet rác mounts should be absent (got ${perSheetMounts})`);
   } else {
     aggEnabled === "1" ? ok("aggregate flag = 1") : fail(`aggregate flag should be 1 (got ${aggEnabled})`);
-    perSheetVisible >= 1 ? ok(`per-sheet rác button visible (${perSheetVisible})`) : fail("expected ≥1 visible per-sheet rác button");
+    perSheetMounts >= 1 ? ok(`per-sheet rác mounts present (${perSheetMounts})`) : fail("expected ≥1 per-sheet rác mount");
   }
 
   // Run "Tính tồn tất cả" → aggregate renders (handle BOM-selection modal).
@@ -64,48 +63,71 @@ const count = (page, sel) => page.$$eval(sel, (e) => e.length).catch(() => 0);
   }, { timeout: 30000 }).catch(() => {});
   await page.screenshot({ path: `${OUT}/${MODE}-01-aggregate.png`, fullPage: true });
 
-  const unmBtn = "[data-rs-rac-kind=\"declarable_unmatched\"]";
-  const phiBtn = "[data-rs-rac-kind=\"excluded_non_material\"]";
-  const racBtns = await count(page, "[data-rs-rac-kind]");
-  console.log(`  aggregate rác buttons: ${racBtns}`);
+  const AGG = "[data-run-stock-summary] ";   // scope to the aggregate (per-sheet also renders rác panels)
+  const pickUnm = AGG + '[data-rs-rac-pick="declarable_unmatched"]';
+  const unmRows = AGG + '[data-rs-rac-row][data-kind="declarable_unmatched"]';
+  const phiRows = AGG + '[data-rs-rac-row][data-kind="excluded_non_material"]';
+  const pickBtns = await count(page, AGG + "[data-rs-rac-pick]");
+  const racRows = await count(page, AGG + "[data-rs-rac-row]");
+  console.log(`  aggregate rác: pickButtons=${pickBtns} rows=${racRows}`);
 
   if (MODE === "off") {
-    racBtns === 0 ? ok("no aggregate rác buttons (gated off)") : fail(`aggregate rác buttons should be absent (got ${racBtns})`);
+    pickBtns === 0 ? ok("no rác pick buttons (gated off)") : fail(`rác pick buttons should be absent (got ${pickBtns})`);
+    racRows === 0 ? ok("no inline rác rows") : fail(`rác rows should be absent (got ${racRows})`);
     errors.filter((e) => !/Failed to load resource/i.test(e)).length === 0 ? ok("no console errors") : fail("console errors: " + errors.slice(0, 3).join(" | "));
     await browser.close();
     process.exit(failed ? 1 : 0);
   }
 
-  // MODE=on — exercise the "không có trong BCCT" group via the scrollable modal.
-  if (!(await page.$(unmBtn))) { fail("expected the declarable_unmatched rác button (Johnson has these)"); await browser.close(); process.exit(1); }
-  const unmLabel = await page.$eval(unmBtn, (n) => n.textContent);
-  const phiBefore = !!(await page.$(phiBtn));
-  ok(`rác button present: "${unmLabel.trim()}" (phi-vật-tư present=${phiBefore})`);
+  // MODE=on — inline select: quick-select a kind → bulk Xoá → confirm modal → delete.
+  if (!(await page.$(pickUnm))) { fail("expected 'Chọn NVL không có trong BCCT' button"); await browser.close(); process.exit(1); }
+  const unmLabel = await page.$eval(pickUnm, (n) => n.textContent.trim());
+  const nUnm = await count(page, unmRows), nPhi = await count(page, phiRows);
+  ok(`pick button "${unmLabel}"; rows: unmatched=${nUnm} phi-vật-tư=${nPhi}`);
 
-  await page.$eval(unmBtn, (el) => el.click());
+  await page.$eval(pickUnm, (el) => el.click());   // quick-select the declarable_unmatched rows
+  const checkedAfterPick = await page.$$eval(AGG + "[data-rs-rac-select]", (cbs) => cbs.filter((c) => c.checked).length);
+  const delVisible = await page.$eval(AGG + "[data-rs-rac-delete]", (n) => !n.hidden).catch(() => false);
+  const delText = await page.$eval(AGG + "[data-rs-rac-delete]", (n) => n.textContent.trim()).catch(() => "");
+  await page.screenshot({ path: `${OUT}/on-02-selected.png`, fullPage: true });
+  checkedAfterPick === nUnm ? ok(`quick-select checked ${checkedAfterPick} unmatched rows`) : fail(`expected ${nUnm} checked, got ${checkedAfterPick}`);
+  delVisible ? ok(`bulk delete visible: "${delText}"`) : fail("bulk delete should be visible after select");
+
+  await page.$eval(AGG + "[data-rs-rac-delete]", (el) => el.click());   // → confirm modal
   await page.waitForSelector("[data-rac-modal] [data-rac-confirm]", { visible: true, timeout: 8000 });
   const modalItems = await count(page, "[data-rac-modal] [data-rac-check]");
-  const modalChecked = await page.$$eval("[data-rac-modal] [data-rac-check]", (e) => e.filter((x) => x.checked).length);
   const confirmText = await page.$eval("[data-rac-modal] [data-rac-confirm]", (n) => n.textContent.trim());
-  await page.screenshot({ path: `${OUT}/on-02-modal.png`, fullPage: true });
-  console.log(`  modal: items=${modalItems} checked=${modalChecked} confirmBtn="${confirmText}"`);
-  modalItems >= 1 ? ok(`modal lists ${modalItems} NVL`) : fail("modal should list NVL");
-  modalChecked === modalItems ? ok("all pre-checked") : fail(`all should be pre-checked (got ${modalChecked}/${modalItems})`);
+  await page.screenshot({ path: `${OUT}/on-03-confirm-modal.png`, fullPage: true });
+  console.log(`  confirm modal: items=${modalItems} confirmBtn="${confirmText}"`);
+  modalItems === nUnm ? ok(`confirm modal lists the ${modalItems} selected NVL`) : fail(`confirm should list ${nUnm} (got ${modalItems})`);
   /Xoá/.test(confirmText) ? ok(`confirm button = "${confirmText}"`) : fail("confirm button should say Xoá (N)");
 
   await page.$eval("[data-rac-modal] [data-rac-confirm]", (el) => el.click());
   await page.waitForFunction(() => !document.querySelector("[data-rac-modal]"), { timeout: 15000 }).catch(() => {});
-  await page.waitForFunction((sel) => {
-    const b = document.querySelector("[data-run-stock-summary]");
-    return b && !b.querySelector(sel);   // the declarable_unmatched button is gone after delete
-  }, { timeout: 30000 }, unmBtn).catch(() => {});
-  await page.screenshot({ path: `${OUT}/on-03-after-delete.png`, fullPage: true });
+  await page.waitForFunction((sel) => !document.querySelector(sel), { timeout: 30000 }, unmRows).catch(() => {});   // aggregate unmatched rows gone after delete
+  await page.screenshot({ path: `${OUT}/on-04-after-delete.png`, fullPage: true });
 
-  const unmAfter = await count(page, unmBtn);
-  const phiAfter = await count(page, phiBtn);
-  console.log(`  after delete: declarable_unmatched button=${unmAfter} phi-vật-tư button=${phiAfter}`);
-  unmAfter === 0 ? ok("'không có trong BCCT' group cleared") : fail(`declarable_unmatched button should be gone (got ${unmAfter})`);
-  phiAfter >= 1 ? ok("'phi vật tư' group still present (kinds isolated)") : fail("excluded_non_material group should remain");
+  const unmAfter = await count(page, unmRows), phiAfter = await count(page, phiRows);
+  console.log(`  after delete: unmatched rows=${unmAfter} phi-vật-tư rows=${phiAfter}`);
+  unmAfter === 0 ? ok("'không có trong BCCT' rows cleared") : fail(`unmatched rows should be gone (got ${unmAfter})`);
+  phiAfter >= 1 ? ok("'phi vật tư' rows still present (kind isolation)") : fail("phi-vật-tư rows should remain");
+
+  // Per-sheet: aggregate → Review → drill into a sheet (real sheet VIEW), verify the
+  // SAME inline rác panel + capture. [data-origin-drill] is the Review→sheet trigger.
+  await page.$eval("[data-origin-back-to-review]", (el) => el.click()).catch(() => {});
+  await new Promise((r) => setTimeout(r, 300));
+  const drills = await page.$$("[data-origin-drill]");
+  let perSheetRows = 0;
+  for (const d of drills) {
+    await d.evaluate((el) => el.click());
+    await new Promise((r) => setTimeout(r, 450));
+    perSheetRows = await page.$$eval("[data-origin-sheet-panel].origin-sheet-panel-active [data-sheet-rac-mount] [data-rs-rac-row]", (e) => e.length).catch(() => 0);
+    if (perSheetRows > 0) break;
+  }
+  const perSheetPicks = await page.$$eval("[data-origin-sheet-panel].origin-sheet-panel-active [data-sheet-rac-mount] [data-rs-rac-pick]", (e) => e.length).catch(() => 0);
+  await page.screenshot({ path: `${OUT}/on-05-per-sheet.png`, fullPage: true });
+  console.log(`  per-sheet: racRows=${perSheetRows} pickButtons=${perSheetPicks}`);
+  perSheetRows >= 1 ? ok(`per-sheet inline rác panel renders (${perSheetRows} rows)`) : fail("per-sheet rác panel should render inline");
 
   const real = errors.filter((e) => !/favicon|Failed to load resource/i.test(e));
   real.length === 0 ? ok("no console errors") : fail("console errors: " + real.slice(0, 3).join(" | "));

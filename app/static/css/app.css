@@ -6005,18 +6005,20 @@ body.co-stock-history-modal-open { overflow: hidden; }
   display: none;
 }
 
-/* Aggregate + per-sheet "xoá NVL rác" controls */
+/* Aggregate + per-sheet "chọn NVL rác → xoá" controls */
+.rs-rac-panel { margin-top: 0.6rem; padding-top: 0.5rem; border-top: 1px dashed var(--border, #d0d0d0); }
 .rs-rac-tools {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
-  margin: 0.6rem 0 0.3rem;
-  padding-top: 0.5rem;
-  border-top: 1px dashed var(--border, #d0d0d0);
+  margin: 0 0 0.3rem;
 }
 .rs-rac-lead { font-size: 0.82rem; color: var(--muted, #666); }
-.rs-rac-btn, .sheet-rac-btn { white-space: nowrap; }
+.rs-rac-pick, .sheet-rac-btn { white-space: nowrap; }
+.rs-rac-count { font-size: 0.8rem; color: var(--muted, #666); }
+.rs-rac-delete { margin-left: auto; white-space: nowrap; }
+.rs-rac-list { max-height: 40vh; overflow-y: auto; border: 1px solid var(--border, #d0d0d0); border-radius: 6px; }
 
 /* Scrollable rác-delete modal. NOTE: .confirm-modal is display:grid, whose items
    size to min-content and can overflow — every child here needs min-width:0 so the
@@ -6029,14 +6031,21 @@ body.co-stock-history-modal-open { overflow: hidden; }
 .rac-linkbtn { background: none; border: none; color: var(--primary, #2a6); cursor: pointer; padding: 0; font-size: 0.82rem; text-decoration: underline; }
 .rac-modal-count { margin-left: auto; font-size: 0.8rem; color: var(--muted, #666); }
 .rac-modal-list { max-height: 48vh; overflow-y: auto; overflow-x: hidden; min-width: 0; border: 1px solid var(--border, #d0d0d0); border-radius: 6px; }
-.rac-item { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.15rem 0.5rem; min-width: 0; padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--border-subtle, #eee); cursor: pointer; }
-.rac-item:last-child { border-bottom: none; }
-.rac-item:hover { background: var(--surface-hover, rgba(0,0,0,0.03)); }
-.rac-item > input[data-rac-check] { flex: none; margin: 0; grid-row: 1 / span 2; }
-.rac-item-code { font-family: var(--mono, monospace); font-weight: 600; grid-column: 2; }
-.rac-item-name { color: var(--muted, #555); font-size: 0.85rem; grid-column: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rac-item-tag { font-size: 0.72rem; padding: 0.05rem 0.4rem; border-radius: 999px; background: var(--warning-bg, #fff3cd); color: var(--warning-fg, #8a6d3b); white-space: nowrap; grid-column: 3; grid-row: 1; justify-self: end; }
-.rac-item-sub { font-size: 0.72rem; color: var(--muted, #888); grid-column: 2 / 4; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* rác row: checkbox at the start, whole row highlights when selected */
+.rac-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.45rem 0.7rem; border-bottom: 1px solid var(--border-subtle, #eee); cursor: pointer; transition: background 0.12s ease; }
+.rac-row:last-child { border-bottom: none; }
+.rac-row:hover { background: var(--surface-hover, rgba(0,0,0,0.035)); }
+.rac-row-checked { background: var(--primary-soft, rgba(37,120,92,0.10)); box-shadow: inset 3px 0 0 var(--primary, #25785c); }
+.rac-row > input[type="checkbox"] { flex: none; width: 1.05rem; height: 1.05rem; margin: 0; accent-color: var(--primary, #25785c); }
+.rac-row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.rac-row-top { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+.rac-row-code { font-family: var(--mono, monospace); font-weight: 600; }
+.rac-row-name { color: var(--muted, #555); font-size: 0.85rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rac-row-tag { font-size: 0.7rem; padding: 0.08rem 0.5rem; border-radius: 999px; white-space: nowrap; background: rgba(0,0,0,0.06); color: var(--muted, #666); }
+.rac-tag-declarable_unmatched { background: var(--warning-bg, #fff3cd); color: var(--warning-fg, #8a6d3b); }
+.rac-tag-excluded_non_material { background: rgba(0,0,0,0.06); color: var(--muted, #666); }
+.rac-row-sub { font-size: 0.72rem; color: var(--muted, #888); }
+.rac-row .rs-rac-sub { flex: none; margin-left: auto; white-space: nowrap; font-size: 0.78rem; padding: 0.16rem 0.6rem; }
 
 .origin-sheet-tabs-toolbar {
   display: flex;

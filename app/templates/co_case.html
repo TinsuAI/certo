@@ -1523,11 +1523,10 @@
             </div>
             <div class="origin-warning-filter-empty" data-origin-warning-empty hidden>Không có dòng NVL khớp cảnh báo đang chọn.</div>
             {% endif %}
-            {% if product.origin_sheet_status != 'locked' and bulk_delete_junk_enabled %}
-            <button type="button" class="btn-secondary origin-rowselect-btn sheet-rac-btn" data-sheet-rac-kind="declarable_unmatched" data-sheet-rac-product="{{ product.code }}" title="Xoá các NVL rác không có trong BCCT (chưa khớp tờ khai) khỏi sheet này" hidden>⊘ NVL không có trong BCCT</button>
-            <button type="button" class="btn-secondary origin-rowselect-btn sheet-rac-btn" data-sheet-rac-kind="excluded_non_material" data-sheet-rac-product="{{ product.code }}" title="Xoá các dòng phi vật tư khỏi sheet này" hidden>⊘ NVL phi vật tư</button>
-            {% endif %}
           </div>
+          {% if product.origin_sheet_status != 'locked' and bulk_delete_junk_enabled %}
+          <div class="sheet-rac-mount" data-sheet-rac-mount data-sheet-rac-product="{{ product.code }}" hidden></div>
+          {% endif %}
 
           <div class="origin-column-controls" data-origin-column-controls aria-label="Ẩn hiện cột bảng NVL">
             <span>Cột</span>
@@ -6152,12 +6151,15 @@
     bd.className = "modal-backdrop rac-modal-backdrop";
     bd.setAttribute("data-rac-modal", "");
     const rows = items.map((it) =>
-      `<label class="rac-item">`
+      `<label class="rac-row rac-row-checked" data-rac-row>`
       + `<input type="checkbox" data-rac-check value="${rsEsc(it.code)}" checked>`
-      + `<span class="rac-item-code">${rsEsc(it.code)}</span>`
-      + (it.name && it.name !== it.code ? `<span class="rac-item-name">${rsEsc(it.name)}</span>` : "")
-      + (it.tag ? `<span class="rac-item-tag">${rsEsc(it.tag)}</span>` : "")
-      + (it.sub ? `<span class="rac-item-sub">${rsEsc(it.sub)}</span>` : "")
+      + `<span class="rac-row-main"><span class="rac-row-top">`
+      +   `<span class="rac-row-code">${rsEsc(it.code)}</span>`
+      +   (it.name && it.name !== it.code ? `<span class="rac-row-name">${rsEsc(it.name)}</span>` : "")
+      +   (it.tag ? `<span class="rac-row-tag rac-tag-${it.kind || "x"}">${rsEsc(it.tag)}</span>` : "")
+      + `</span>`
+      + (it.sub ? `<span class="rac-row-sub">${rsEsc(it.sub)}</span>` : "")
+      + `</span>`
       + `</label>`
     ).join("");
     bd.innerHTML =
@@ -6184,9 +6186,10 @@
       if (countEl) countEl.textContent = `${n}/${items.length}`;
     };
     const close = () => bd.remove();
-    bd.addEventListener("change", (e) => { if (e.target.matches("[data-rac-check]")) refresh(); });
-    bd.querySelector("[data-rac-all]").addEventListener("click", () => { checks().forEach((c) => { c.checked = true; }); refresh(); });
-    bd.querySelector("[data-rac-none]").addEventListener("click", () => { checks().forEach((c) => { c.checked = false; }); refresh(); });
+    const syncRow = (cb) => cb.closest("[data-rac-row]")?.classList.toggle("rac-row-checked", cb.checked);
+    bd.addEventListener("change", (e) => { if (e.target.matches("[data-rac-check]")) { syncRow(e.target); refresh(); } });
+    bd.querySelector("[data-rac-all]").addEventListener("click", () => { checks().forEach((c) => { c.checked = true; syncRow(c); }); refresh(); });
+    bd.querySelector("[data-rac-none]").addEventListener("click", () => { checks().forEach((c) => { c.checked = false; syncRow(c); }); refresh(); });
     bd.querySelectorAll("[data-rac-cancel]").forEach((b) => b.addEventListener("click", close));
     bd.addEventListener("click", (e) => { if (e.target === bd) close(); });
     confirmBtn.addEventListener("click", async () => {
@@ -6202,9 +6205,9 @@
   // The two folded-rác kinds (shared by aggregate + per-sheet), matched by
   // customs_relevance server-side.
   const RAC_KINDS = [
-    { kind: "declarable_unmatched", label: "NVL không có trong BCCT", tag: "chưa khớp tờ khai",
+    { kind: "declarable_unmatched", label: "NVL không có trong BCCT", pickLabel: "NVL không có trong BCCT", tag: "chưa khớp tờ khai",
       hint: "NVL thật nhưng chưa khớp tờ khai nhập (không có trong BCCT) — không xuất ra bảng kê tới khi đối soát. Có thể khôi phục bằng Ctrl+Z trong sheet trước khi lưu." },
-    { kind: "excluded_non_material", label: "NVL phi vật tư", tag: "phi vật tư",
+    { kind: "excluded_non_material", label: "NVL phi vật tư", pickLabel: "mã phi vật tư", tag: "phi vật tư",
       hint: "Dòng không phải vật tư cấu thành (bao bì, nhãn…) — đã loại khỏi bảng kê. Có thể khôi phục bằng Ctrl+Z trong sheet trước khi lưu." },
   ];
   const racBulkDeleteUrl = () =>
@@ -6232,61 +6235,125 @@
     await syncChildSheetsAndRerender(body);   // live-swap child sheets + re-render aggregate
   };
 
-  // Aggregate: one "⊘ <label> (N)" button per non-empty rác kind → scrollable modal.
-  const racGroupsHtml = (folded, bulkEnabled) => {
-    if (!bulkEnabled || !folded.length) return "";
-    const btns = RAC_KINDS.map(({ kind, label }) => {
-      const n = folded.filter((f) => f.kind === kind).length;
-      return n ? `<button type="button" class="btn-secondary origin-rowselect-btn rs-rac-btn" data-rs-rac-kind="${kind}">⊘ ${label} (${n})</button>` : "";
+  // Shared rác panel (inline select) — used by BOTH the aggregate and each per-sheet
+  // grid. items: [{code, name, kind, sub}]. Per-row checkbox + two quick-select
+  // buttons (by kind) + a bulk "Xoá dòng đã chọn" → confirm modal → onDelete(codes).
+  const racItemsFromFolded = (folded) => (folded || []).map((f) => ({
+    ...f, code: f.material_code,
+    sub: (f.products && f.products.length) ? `${f.products.length} sheet: ${f.products.join(", ")}` : "",
+  }));
+  const racPanelHtml = (items) => {
+    if (!items || !items.length) return "";
+    const picks = RAC_KINDS.map(({ kind, pickLabel }) => {
+      const n = items.filter((it) => it.kind === kind).length;
+      return n ? `<button type="button" class="btn-secondary origin-rowselect-btn rs-rac-pick" data-rs-rac-pick="${kind}">⊘ Chọn ${pickLabel} (${n})</button>` : "";
     }).filter(Boolean).join("");
-    return btns
-      ? `<div class="rs-rac-tools"><span class="rs-rac-lead">Xoá NVL rác đã loại khỏi bảng kê (mọi sheet chưa khoá):</span>${btns}</div>`
-      : "";
+    const rows = items.map((it) => {
+      const meta = RAC_KINDS.find((k) => k.kind === it.kind) || { tag: "" };
+      // declarable_unmatched = NVL thật → cho THAY THẾ; phi vật tư → chỉ xoá.
+      const subBtn = it.kind === "declarable_unmatched"
+        ? `<button type="button" class="btn-secondary rs-rac-sub" data-rs-rac-sub>Chọn mã thay thế…</button>` : "";
+      return `<label class="rac-row" data-rs-rac-row data-code="${rsEsc(it.code)}" data-kind="${it.kind}">`
+        + `<input type="checkbox" data-rs-rac-select>`
+        + `<span class="rac-row-main"><span class="rac-row-top">`
+        +   `<span class="rac-row-code">${rsEsc(it.code)}</span>`
+        +   (it.name && it.name !== it.code ? `<span class="rac-row-name">${rsEsc(it.name)}</span>` : "")
+        +   (meta.tag ? `<span class="rac-row-tag rac-tag-${it.kind}">${rsEsc(meta.tag)}</span>` : "")
+        + `</span>`
+        + (it.sub ? `<span class="rac-row-sub">${rsEsc(it.sub)}</span>` : "")
+        + `</span>`
+        + subBtn
+        + `</label>`;
+    }).join("");
+    return `<div class="rs-rac-panel"><div class="rs-rac-tools">`
+      + `<span class="rs-rac-lead">Mã NVL không có trong BCCT hoặc phi vật tư — thay thế từng dòng, hoặc chọn để xoá khỏi bảng kê:</span>`
+      + picks
+      + `<button type="button" class="rac-linkbtn" data-rs-rac-clear>Bỏ chọn</button>`
+      + `<span class="rs-rac-count" data-rs-rac-count></span>`
+      + `<button type="button" class="btn-secondary btn-danger rs-rac-delete" data-rs-rac-delete hidden>Xoá dòng đã chọn</button>`
+      + `</div><div class="rs-rac-list">${rows}</div></div>`;
   };
-  const wireAggregateRac = (box, folded) => {
-    box.querySelectorAll("[data-rs-rac-kind]").forEach((b) => {
-      const meta = RAC_KINDS.find((k) => k.kind === b.dataset.rsRacKind) || { label: "NVL rác", tag: "", hint: "" };
-      const items = folded.filter((f) => f.kind === meta.kind).map((f) => ({
-        code: f.material_code, name: f.name, tag: meta.tag,
-        sub: (f.products && f.products.length) ? `${f.products.length} sheet: ${f.products.join(", ")}` : "",
-      }));
-      b.addEventListener("click", () => openRacDeleteModal({
-        title: `Xoá ${meta.label}`, hint: meta.hint, items, confirmLabel: "Xoá khỏi bảng kê",
-        onConfirm: (codes) => racDelete({ kind: meta.kind, codes }),
-      }));
+  const wireRacPanel = (scope, { items, onDelete, onSubstitute } = {}) => {
+    const rows = () => Array.from(scope.querySelectorAll("[data-rs-rac-row]"));
+    if (!rows().length) return;
+    const byCode = new Map((items || []).map((it) => [it.code, it]));
+    const selOf = (r) => r.querySelector("[data-rs-rac-select]");
+    const checkedRows = () => rows().filter((r) => selOf(r).checked);
+    const countEl = scope.querySelector("[data-rs-rac-count]");
+    const delBtn = scope.querySelector("[data-rs-rac-delete]");
+    const refresh = () => {
+      const n = checkedRows().length;
+      rows().forEach((r) => r.classList.toggle("rac-row-checked", selOf(r).checked));   // cả dòng đổi màu
+      if (countEl) countEl.textContent = n ? `Đã chọn ${n}` : "";
+      if (delBtn) { delBtn.hidden = n === 0; delBtn.textContent = `Xoá dòng đã chọn (${n})`; }
+    };
+    scope.querySelectorAll("[data-rs-rac-select]").forEach((cb) => cb.addEventListener("change", refresh));
+    scope.querySelectorAll("[data-rs-rac-pick]").forEach((b) => b.addEventListener("click", () => {
+      const kindRows = rows().filter((r) => r.dataset.kind === b.dataset.rsRacPick);
+      const allOn = kindRows.length && kindRows.every((r) => selOf(r).checked);
+      kindRows.forEach((r) => { selOf(r).checked = !allOn; });   // toggle chọn hết / bỏ chọn theo loại
+      refresh();
+    }));
+    scope.querySelectorAll("[data-rs-rac-sub]").forEach((b) => b.addEventListener("click", (e) => {
+      e.preventDefault(); e.stopPropagation();   // đừng toggle checkbox của <label>
+      const item = byCode.get(b.closest("[data-rs-rac-row]")?.dataset.code);
+      if (item && onSubstitute) onSubstitute(item);
+    }));
+    scope.querySelector("[data-rs-rac-clear]")?.addEventListener("click", () => {
+      rows().forEach((r) => { selOf(r).checked = false; });
+      refresh();
     });
+    delBtn?.addEventListener("click", () => {
+      const sel = checkedRows();
+      if (!sel.length) return;
+      const delItems = sel.map((r) => {
+        const meta = RAC_KINDS.find((k) => k.kind === r.dataset.kind) || { tag: "" };
+        return { code: r.dataset.code, kind: r.dataset.kind,
+          name: (r.querySelector(".rac-row-name")?.textContent || "").trim(),
+          tag: meta.tag, sub: (r.querySelector(".rac-row-sub")?.textContent || "") };
+      });
+      openRacDeleteModal({
+        title: "Xoá NVL khỏi bảng kê",
+        hint: "Xác nhận xoá các NVL đã chọn khỏi bảng kê. Có thể khôi phục bằng Ctrl+Z trong từng sheet trước khi lưu.",
+        items: delItems, confirmLabel: "Xoá khỏi bảng kê",
+        onConfirm: (codes) => onDelete(codes),
+      });
+    });
+    refresh();
   };
 
-  // Per-sheet: two rác buttons per sheet (consistent with the aggregate). Reads the
-  // sheet's folded rác rows (data-origin-fold-kind), opens the same modal, deletes
-  // via the shared route scoped to that sheet (product_code).
-  const SHEET_RAC_FOLD = { declarable_unmatched: "unmatched", excluded_non_material: "non-material" };
-  const initSheetRacButtons = (root = document) => {
-    root.querySelectorAll("[data-sheet-rac-kind]").forEach((btn) => {
-      if (btn.dataset.racWired === "1") return;
-      btn.dataset.racWired = "1";
-      const kind = btn.dataset.sheetRacKind;
-      const productCode = btn.dataset.sheetRacProduct;
-      const meta = RAC_KINDS.find((k) => k.kind === kind) || { label: "NVL rác", tag: "", hint: "" };
-      const panel = btn.closest("[data-origin-sheet-panel]");
-      const foldSel = `[data-origin-fold-kind="${SHEET_RAC_FOLD[kind]}"]`;
-      const rows = () => Array.from(panel ? panel.querySelectorAll(foldSel) : [])
-        .filter((r) => !r.classList.contains("origin-row-deleted"));
-      const n = rows().length;
-      if (!n) { btn.hidden = true; return; }
-      btn.hidden = false;
-      btn.textContent = `⊘ ${meta.label} (${n})`;
-      btn.addEventListener("click", () => {
-        const items = rows().map((r) => ({
+  // Per-sheet: render the SAME inline rác panel per sheet, built from that sheet's
+  // folded rác rows (data-origin-fold-kind). Delete via the shared route scoped to
+  // the sheet's product_code. Re-runs after every shell swap (idempotent guard).
+  const FOLD_KIND_TO_RAC = { unmatched: "declarable_unmatched", "non-material": "excluded_non_material" };
+  const initSheetRacPanels = (root = document) => {
+    root.querySelectorAll("[data-sheet-rac-mount]").forEach((mount) => {
+      if (mount.dataset.racWired === "1") return;
+      mount.dataset.racWired = "1";
+      const productCode = mount.dataset.sheetRacProduct;
+      const panel = mount.closest("[data-origin-sheet-panel]");
+      const foldRows = panel ? Array.from(panel.querySelectorAll('[data-origin-fold-kind="unmatched"], [data-origin-fold-kind="non-material"]')) : [];
+      const items = foldRows
+        .filter((r) => !r.classList.contains("origin-row-deleted"))
+        .map((r) => ({
           code: r.querySelector("[data-material-code]")?.dataset.materialCode || "",
           name: (r.querySelector(".origin-material-name")?.textContent || "").trim(),
-          tag: meta.tag,
-        })).filter((it) => it.code);
-        if (!items.length) { toast("Không còn NVL rác loại này trong sheet.", "error"); return; }
-        openRacDeleteModal({
-          title: `Xoá ${meta.label} — ${productCode}`, hint: meta.hint, items, confirmLabel: "Xoá khỏi bảng kê",
-          onConfirm: (codes) => racDelete({ kind, codes, productCode }),
-        });
+          kind: FOLD_KIND_TO_RAC[r.getAttribute("data-origin-fold-kind")] || "",
+          sub: "",
+        }))
+        .filter((it) => it.code && it.kind);
+      if (!items.length) { mount.hidden = true; return; }
+      mount.hidden = false;
+      mount.innerHTML = racPanelHtml(items);
+      wireRacPanel(mount, {
+        items,
+        onDelete: (codes) => racDelete({ codes, productCode }),
+        onSubstitute: (item) => {
+          // reuse the sheet's existing per-row substitute (the code button), scoped to this sheet
+          const trigger = panel && panel.querySelector(`[data-origin-substitute-trigger][data-material-code="${item.code}"]`);
+          if (trigger) trigger.click();
+          else toast("Không tìm thấy dòng để thay thế trong sheet.", "error");
+        },
       });
     });
   };
@@ -6298,6 +6365,18 @@
     const mats = (body.rollup && body.rollup.materials) || [];
     const folded = (body.rollup && body.rollup.folded_rac) || [];
     const bulkEnabled = document.querySelector("[data-origin-aggregate]")?.dataset.bulkDeleteEnabled === "1";
+    const racItems = bulkEnabled ? racItemsFromFolded(folded) : [];
+    // "Chọn mã thay thế…" on a declarable_unmatched rác row → same bulk-substitute
+    // picker as the shortfall rows (scope everywhere — all its occurrences are short).
+    const aggSubstitute = (item) => {
+      if (!openBulkSubstitutePicker) { toast("Modal thay thế chưa sẵn sàng — tải lại trang.", "error"); return; }
+      const anchorSp = (item.short_products && item.short_products[0]) || (item.using && item.using[0] && item.using[0].product_code) || "";
+      openBulkSubstitutePicker({
+        productCode: anchorSp, materialCode: item.material_code, name: item.name, norm: "", uom: item.uom,
+        scopeLabel: `Thay hết · ${item.using_count} SP`,
+        onPick: ({ item: pick, norm }) => applyMaterialSubstitute(btn, item, pick, "everywhere", norm),
+      });
+    };
     const parts = [];
     if (workbook?.dataset.childSheetsStale === "1") {
       parts.push(`<div class="rs-stale">Đã thay NVL ở server — các tab <b>sheet con</b> cập nhật khi tải lại. <a href="#" data-rs-reload>Tải lại bảng kê</a></div>`);
@@ -6313,10 +6392,10 @@
     }
     if (!mats.length) {
       if (!noBom.length) parts.push(`<div class="rs-done"><strong>✓ Đủ tồn cho tất cả SP.</strong> Không còn NVL thiếu tồn — có thể “Chốt tất cả”.</div>`);
-      parts.push(racGroupsHtml(folded, bulkEnabled));
+      parts.push(racPanelHtml(racItems));
       parts.push(rsLedger());
       box.innerHTML = parts.join(""); box.hidden = false; box.dataset.state = noBom.length ? "warning" : "ok";
-      bindRsReload(box); bindRsUndo(box); wireAggregateRac(box, folded); updateAggBadge(0); return;
+      bindRsReload(box); bindRsUndo(box); wireRacPanel(box, { items: racItems, onDelete: (codes) => racDelete({ codes }), onSubstitute: aggSubstitute }); updateAggBadge(0); return;
     }
     parts.push(`<div class="rs-lead"><strong>⚠ ${mats.length} NVL thiếu tồn</strong> trên cả lô. Chọn phạm vi (thay phần thiếu / thay hết) + mã thay thế; server tính lại tồn + LVC sau mỗi lần thay.</div>`);
     parts.push(`<div class="rs-note-alloc">Phân bổ tồn: SP trước ưu tiên (theo thứ tự sheet), lot theo ngày tờ khai.</div>`);
@@ -6341,7 +6420,7 @@
         + `</div>`
       );
     });
-    parts.push(racGroupsHtml(folded, bulkEnabled));
+    parts.push(racPanelHtml(racItems));
     parts.push(rsLedger());
     box.innerHTML = parts.join(""); box.hidden = false; box.dataset.state = "warning";
     bindRsReload(box); bindRsUndo(box); updateAggBadge(mats.length);
@@ -6374,7 +6453,7 @@
         });
       });
     });
-    wireAggregateRac(box, folded);
+    wireRacPanel(box, { items: racItems, onDelete: (codes) => racDelete({ codes }), onSubstitute: aggSubstitute });
   };
 
   const runStockAll = async (btn) => {
@@ -6883,7 +6962,7 @@
     initOriginColumnControls(root);
     initOriginAllocationToggles(root);
     initSheetBulkDelete(root);
-    initSheetRacButtons(root);
+    initSheetRacPanels(root);
     initOriginFoldRows(root);
     initOriginRecommendationOverrides(root);
     initCriteriaSegments(root);

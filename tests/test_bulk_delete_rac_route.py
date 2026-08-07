@@ -77,6 +77,19 @@ def test_kinds_do_not_bleed(del_client):
     assert deleted == {("PV.A", "M-PHI")}
 
 
+def test_no_kind_deletes_any_folded_rac_mixed(del_client):
+    from app import co_case_store
+    from app.demo_data import get_client
+    case_id = _seed()
+    # omit kind → mixed selection: both folded kinds go; the declarable row is safe.
+    body = del_client.post(_url(case_id), json={"material_codes": ["M-UNM", "M-PHI", "M-OK"]}).json()
+    deleted = {(d["product_code"], d["material_code"]) for d in body["deleted"]}
+    assert deleted == {("PV.A", "M-UNM"), ("PV.A", "M-PHI"), ("PV.B", "M-UNM")}
+    rec = co_case_store.get_case_record(get_client("growatt"), case_id)
+    over_a = rec["origin_sheet_states"]["PV.A"]["material_overrides"]
+    assert "3" not in over_a or not over_a["3"].get("deleted")   # M-OK (declarable) never deleted
+
+
 def test_product_code_scopes_to_one_sheet(del_client):
     case_id = _seed()
     body = del_client.post(_url(case_id), json={

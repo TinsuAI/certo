@@ -1931,8 +1931,11 @@ async def bulk_delete_rac_route(request: Request, client_id: str, case_id: str):
     (`skipped_locked`). Soft-delete (cờ `deleted`); persist 1 lần rồi trả rollup mới."""
     client = resolve_client(client_id)
     payload = await read_json_or_form(request)
+    # kind optional: given → only that folded-rác kind; omitted → any folded rác
+    # (declarable_unmatched OR excluded_non_material) among the selected codes, so a
+    # mixed inline selection deletes in one call.
     kind = str(payload.get("kind") or "").strip()
-    if kind not in _RAC_KINDS:
+    if kind and kind not in _RAC_KINDS:
         raise HTTPException(status_code=400, detail=f"kind must be one of {sorted(_RAC_KINDS)}")
     raw_codes = payload.get("material_codes") or []
     if isinstance(raw_codes, str):
@@ -1961,8 +1964,12 @@ async def bulk_delete_rac_route(request: Request, client_id: str, case_id: str):
         for idx, material in enumerate(product.get("materials") or []):
             if material.get("deleted"):
                 continue
-            if str(material.get("customs_relevance") or "").strip() != kind:
-                continue  # chỉ đúng loại rác đang chọn (declarable_unmatched | excluded_non_material)
+            cr = str(material.get("customs_relevance") or "").strip()
+            if kind:
+                if cr != kind:
+                    continue  # chỉ đúng loại rác đang chọn
+            elif cr not in _RAC_KINDS:
+                continue      # no kind → any folded rác (declarable_unmatched | excluded_non_material)
             code = str(material.get("material_code") or material.get("internal_material_code") or "").strip()
             if code not in codes:
                 continue
