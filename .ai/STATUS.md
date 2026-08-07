@@ -1,6 +1,27 @@
 # Project Status
 
 ## Current State
+- **2026-08-07 — "NVL rác" REDESIGN: inline select + per-row substitute + row UI, SHIPPED + DEPLOYED.**
+  `origin/main` = prod `barry-co` = nightly `demo-co` = **`0055b17`** (CI/CD run `31149953052` green: build +
+  Python tests + Deploy demo). Full suite **1031 pass / 17 skip**. Continues the 2026-08-06 feature below (same
+  session file `.ai/sessions/2026-08-06-bulk-delete-nvl-rac.md`).
+  Operator feedback drove three changes to the "xoá NVL rác" surface (aggregate + per-sheet):
+  **(1) select-then-act, not delete-only** — rác rows render INLINE; checkbox at the START of each row; selecting
+  highlights the WHOLE row; two quick-select buttons by kind (không có trong BCCT / phi vật tư) + a bulk "Xoá
+  dòng đã chọn" → scrollable confirm modal → delete.
+  **(2) substitute option** — each `declarable_unmatched` ("không có trong BCCT", a REAL NVL) row gets "Chọn mã
+  thay thế…" (aggregate → bulk-substitute picker; per-sheet → reuses the sheet's per-row substitute trigger);
+  `excluded_non_material` (phi vật tư) is delete-only (not a material). Fixes the earlier "chỉ để đó hoặc xoá".
+  **(3) neutral labels** — dropped the "rác đã loại" wording; per-row tags "chưa khớp tờ khai" / "phi vật tư".
+  **Impl:** rollup `folded_rac` entries now carry full substitute data (`using`, short_count…); route
+  `bulk-delete-rac` `kind` is now OPTIONAL → a MIXED selection deletes in one call (declarable/thiếu-tồn rows
+  never touched). Shared `racPanelHtml`/`wireRacPanel` render+wire the panel for BOTH the aggregate and each
+  per-sheet grid (`[data-sheet-rac-mount]` + `initSheetRacPanels`; per-sheet delete scoped by `product_code`).
+  Row markup = `.rac-row` (checkbox-first flex; `.rac-row-checked` whole-row highlight; kind-colored tags).
+  Verified: full suite + browser e2e ON/OFF on the Johnson clone (aggregate 48 unmatched / 23 phi-vật-tư; per-sheet
+  panel 6 rows; screenshots `.ai/screenshots/2026-08-06-bulk-delete-rac/`). Flags reset OFF; clone removed.
+  **Note:** the earlier docs commit `9144ade` deploy FAILED on runner disk-full (`tinsu` `_diag` logs); this
+  deploy (`0055b17`) succeeded → runner disk has since been freed.
 - **2026-08-06 — BULK-DELETE "NVL RÁC" (aggregate + per-sheet, 2 kinds) SHIPPED + DEPLOYED.**
   `origin/main` = prod `barry-co` = nightly `demo-co` = **`27980bb`** (merge of PR #23 `review/clean-fixes`;
   feature commit **`d6bdebb`**; CI/CD run `31116327808` green: build + Python tests + Deploy demo). Full suite

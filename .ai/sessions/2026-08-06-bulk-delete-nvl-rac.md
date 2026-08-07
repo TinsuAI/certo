@@ -52,3 +52,41 @@ All 29 Johnson "no-stock" (allocation_count==0) rows were `declarable` in-BCCT (
 
 ## Files
 Server: `app/client_config_store.py`, `app/data_hub_client.py`, `app/routers/pages.py`, `app/web/co_case_context.py`, `app/routers/co_case.py`. UI: `app/templates/client_config.html`, `app/templates/co_case.html`, `app/static/css/app.css`. Tests: 2 new + 2 edited. Harness: `.ai/scripts/e2e_bulk_delete_junk.cjs`, `.ai/scripts/e2e_johnson_rac_seed.py`. Memory: `customs-relevance-encodes-bcct-match`, `client-config-dh-mode-to-save-whitelist`.
+
+---
+
+## Continuation (2026-08-07) — UX redesign: inline select + per-row substitute + row UI
+Prod after redesign = `origin/main` = **`0055b17`** (CD run `31149953052` green; full suite **1031 pass / 17 skip**). The v1 above shipped as `d6bdebb`→merge `27980bb`→deploy; then a docs commit `9144ade` whose deploy FAILED on runner disk-full (`tinsu` `_diag` — no code impact; runner since freed). This continuation reworks the same feature per operator feedback.
+
+### Feedback → changes
+1. **"Chỉ có 1 option là để đó hoặc xoá" + "NVL rác nghe không ổn"** → the delete-only modal became a **select-then-act** panel, and got a **substitute** path:
+   - rác rows render **INLINE** (not behind a button→modal); **checkbox at the START** of each row; **selecting highlights the whole row** (`.rac-row-checked`).
+   - two **quick-select** buttons by kind + a bulk **"Xoá dòng đã chọn"** → the scrollable modal is now the **confirm** step (was the selection UI).
+   - each **`declarable_unmatched`** ("không có trong BCCT" — a real NVL) row has **"Chọn mã thay thế…"**; **`excluded_non_material`** (phi vật tư) is **delete-only** (not a material).
+   - **neutral labels** — dropped "rác đã loại"; lead "Mã NVL không có trong BCCT hoặc phi vật tư…", per-row tags "chưa khớp tờ khai" / "phi vật tư".
+2. **Design polish** ("checkbox ra đầu dòng, select đổi màu cả dòng, đẹp vào") → row markup switched from a finicky grid to `.rac-row` (checkbox-first flex, whole-row highlight, kind-colored pill tags). Same `.rac-row` used by the panel AND the confirm modal.
+
+### Decisions
+- **declarable_unmatched = substitutable, phi-vật-tư = delete-only** (phi vật tư isn't a material, thay thế vô nghĩa). This resolves most of the earlier "open item".
+- **Modal stays as the delete-confirm** (user: "vẫn phải có modal confirm"), not the selection UI.
+- **Both surfaces, one code path** (user: consistent). Aggregate + per-sheet both build the panel via shared `racPanelHtml`/`wireRacPanel`.
+- **Layout for `declarable_unmatched` = Option 2** (keep the inline panel, add per-row "Thay thế") over merging into the shortfall list.
+
+### Impl
+- **Rollup** (`case_shortfall_rollup`): folded materials (all occurrences noise) now emit `folded_rac` entries carrying **full substitute data** (`using`, `short_count`, `using_count`, `short_products`, `uom`, needed/available/short) + `kind`; built from the same `groups` loop (dropped the separate folded_groups). Pure-rác still kept out of the thiếu-tồn/substitute `materials[]`.
+- **Route** `POST .../origin/bulk-delete-rac`: `kind` now **optional** — given → that kind; omitted → any folded rác (`is_bom_technical_noise`) among the selected codes, so a **mixed inline selection deletes in one call**. `declarable` (thiếu-tồn) rows never matched.
+- **UI** (`co_case.html`): `racItemsFromFolded` → full items; `racPanelHtml(items)` (inline rows + quick-select + bulk delete, "Thay thế" only on declarable_unmatched); `wireRacPanel(scope, {items, onDelete, onSubstitute})` (row-highlight on change; substitute button `e.preventDefault()` so the `<label>` checkbox doesn't toggle). Aggregate: `onSubstitute` → `openBulkSubstitutePicker`+`applyMaterialSubstitute(btn, item, pick, "everywhere", norm)`. Per-sheet: template mount `[data-sheet-rac-mount]`, `initSheetRacPanels` builds items from the sheet's folded DOM rows (`data-origin-fold-kind` unmatched/non-material), `onSubstitute` → clicks the grid row's existing `[data-origin-substitute-trigger]`; delete scoped by `product_code`.
+- **CSS**: `.rac-row*` (checkbox-first; `.rac-row-checked` highlight + left accent; `.rac-tag-declarable_unmatched` amber / `.rac-tag-excluded_non_material` grey).
+
+### What didn't work / dead ends
+- **Row-layout CSS fought the `display:grid` `.confirm-modal` repeatedly.** `margin-left:auto` on a flex child made the list size to min-content and push content off-screen (codes rendered but invisible; proven via live DOM dump — element visible at `x=697` past the item edge). Tried single-line flex, 2-line grid, nested body — several blanked. Landed on `.rac-row` flex (checkbox-first, no `margin-auto` except the isolated substitute button) which works in both the panel and the modal.
+- **e2e per-sheet screenshot first showed the aggregate** — clicking `[data-origin-sheet-tab]` activates the panel but does NOT switch the root view; the real Review→sheet trigger is `[data-origin-drill]`. Fixed the harness to go aggregate→Review→drill.
+- **e2e aggregate counts were polluted** once per-sheet also rendered panels on load (page-wide `[data-rs-rac-*]` counted both) → scoped aggregate queries to `[data-run-stock-summary]`.
+
+### Verify
+- Full suite **1031 pass / 17 skip** (added `test_no_kind_deletes_any_folded_rac_mixed`; `test_shortfall_rollup` folded_rac test still green). JS `node --check` clean.
+- Browser e2e ON/OFF on the Johnson clone: aggregate 2 pick buttons / 71 rows, quick-select 48 → confirm modal 48 → deleted 63 (folded_rac 71→23, kinds isolated); per-sheet drill → inline panel 6 rows; OFF → nothing. Screenshots `.ai/screenshots/2026-08-06-bulk-delete-rac/`: `on-01-aggregate`, `on-02-selected` (checkbox-first, whole-row highlight, "Chọn mã thay thế…"), `on-03-confirm-modal`, `on-04-after-delete`, `on-05-per-sheet` (real sheet view), `off-01-aggregate`.
+- Commits: `0055b17` (redesign). Flags reset OFF; clone removed.
+
+### Still open (low, product call)
+`declarable_unmatched` now has BOTH substitute + delete; phi-vật-tư delete-only. If the client wants a stronger "chờ đối soát" guard on declarable_unmatched (e.g. warn before one-click delete, or separate it visually from phi-vật-tư more), that's a further refinement — not requested.
