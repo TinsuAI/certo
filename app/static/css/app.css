@@ -2423,11 +2423,23 @@ button.co-stat:hover {
   cursor: help;
 }
 
-/* Tiêu chí chip: a button (opens the config modal) that must still read as a chip. */
+/* Tiêu chí chip: a button (opens the config modal) that must still read as a chip.
+   The criterion text can be a full PSR sentence, so the chip truncates INSIDE its
+   own box — `.origin-metric-chip` is `nowrap`, and without the shrink + ellipsis it
+   overflowed onto the LVC chip next to it. */
 .origin-metric-chip.origin-metric-criteria {
   cursor: pointer;
-  max-width: 26rem;
+  max-width: 24rem;
+  min-width: 0;
+  overflow: hidden;
   text-align: left;
+}
+
+.origin-metric-chip.origin-metric-criteria > strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 15rem;
 }
 
 .origin-metric-chip.origin-metric-criteria:hover {

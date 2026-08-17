@@ -1421,8 +1421,8 @@
                       data-origin-settings-open data-origin-criteria-chip
                       title="{% if criteria_override %}Tiêu chí đã chọn — bấm để sửa.{% else %}Chưa chọn tiêu chí: đang ghi theo khuyến nghị của hệ thống ({{ rec_criteria or 'n/a' }}). Bấm để chọn tiêu chí sẽ ghi lên C/O.{% endif %}">
                 <em>Tiêu chí</em>
-                <strong>{{ (criteria_override or effective_criteria or '—')|truncate(38, True, '…') }}</strong>
-                {% if not criteria_override %}<small>chưa chọn · theo khuyến nghị</small>{% endif %}
+                <strong title="{{ criteria_override or effective_criteria or '' }}">{{ (criteria_override or effective_criteria or '—')|truncate(30, True, '…') }}</strong>
+                {% if not criteria_override %}<small>chưa chọn</small>{% endif %}
               </button>
               <span class="origin-metric-chip origin-metric-{{ lvc_metric_class }}" data-origin-lvc-cell title="{{ product.lvc_quality_warning_text or product.lvc_status_label or 'LVC' }}">
                 <em>LVC <small data-origin-live-flag hidden>(live)</small></em>
