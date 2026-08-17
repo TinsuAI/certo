@@ -75,6 +75,12 @@ ORIGIN_SHEET_ATTENTION_REASONS = (
         "Còn NVL không xuất xứ thiếu đơn giá — bổ sung đơn giá rồi tính lại trước khi chốt.",
     ),
     (
+        "zero_lot_price",
+        "Cần xử lý: đơn giá 0",
+        "Có NVL đã khớp tờ khai nhập nhưng đơn giá/trị giá đang là 0 — trị giá không xuất xứ bị thiếu "
+        "nên LVC cao hơn thực tế; bấm Tính lại để lấy lại đơn giá theo lô nhập.",
+    ),
+    (
         "declarable_unmatched",
         "Cần xử lý: NVL chưa có tờ khai nhập",
         "Có NVL mà mã của nó không tìm thấy trong bất kỳ tờ khai nhập nào (không phải thiếu số lượng) "
@@ -86,6 +92,18 @@ ORIGIN_SHEET_ATTENTION_REASONS = (
         "Chưa có BOM khai triển đầy đủ — nạp BOM (Mẫu 16 hoặc BOM đầy đủ) rồi tính lại.",
     ),
 )
+def _material_priced_zero(material: dict) -> bool:
+    """A lot-matched row whose đơn giá / trị giá reads 0 — a value the bảng kê
+    cannot carry (the lot it came from has a price). Empty is NOT zero: that is
+    the missing-price case, flagged separately."""
+    for key in ("unit_value", "material_value"):
+        text = str(material.get(key) or "").strip()
+        if not text:
+            continue
+        parsed = optional_decimal(text)
+        if parsed is not None and parsed == 0:
+            return True
+    return False
 def origin_sheet_attention(product: dict) -> dict:
     """Readiness chip that separates a guard-BLOCKED sheet from a merely-loaded one.
 
@@ -108,6 +126,7 @@ def origin_sheet_attention(product: dict) -> dict:
     flags = {
         "shortage": bool(product.get("lvc_allocation_shortage")),
         "missing_price": bool(product.get("lvc_missing_price")),
+        "zero_lot_price": bool(product.get("lvc_zero_lot_price")),
         "declarable_unmatched": bool(product.get("lvc_declarable_unmatched")),
         "missing_bom": str(product.get("lvc_status") or "") == "missing_bom",
     }
@@ -1700,6 +1719,7 @@ def origin_sheet_export_blockers(case: dict, client: dict | None = None) -> list
             or product.get("lvc_declarable_unmatched")
             or product.get("lvc_allocation_shortage")
             or product.get("lvc_missing_price")
+            or product.get("lvc_zero_lot_price")
             # LK1/DC3b: a sheet calculated before mig 078 carries materials without
             # `customs_relevance`, so rác/unmatched are NOT stripped from the export.
             # Block it (even when "locked") until a forced re-Tính re-classifies.
@@ -1771,6 +1791,15 @@ def origin_sheet_action_error(case: dict, product_code: str, action: str, client
             f"Bảng kê {product_code} còn NVL thiếu tồn/không có lô nhập khớp — "
             "bổ sung chứng từ (khớp tờ khai nhập hoặc hoá đơn VAT) rồi tính lại trước khi chốt; "
             "không dùng giá ước tính."
+        )
+    if action == "lock" and target.get("lvc_zero_lot_price"):
+        # Zero-price re-check (same bypass as above): the row HAS its import lot, so
+        # a 0 is a calculation artefact, not the declaration — locking it would file
+        # an understated VNM (inflated LVC). Cleared by Tính lại, which reprices
+        # every line from its lot.
+        return (
+            f"Bảng kê {product_code} còn NVL đã khớp tờ khai nhập nhưng đơn giá 0 — "
+            "trị giá không xuất xứ bị thiếu nên LVC cao hơn thực tế; bấm Tính lại trước khi chốt."
         )
     if action == "lock" and target.get("lvc_missing_price"):
         # Missing-price re-check (same bypass; AFTER shortage — a no-lot NVL trips
@@ -2959,12 +2988,19 @@ def stock_allocation_line(
     allocation_context: dict | None = None,
 ) -> dict:
     allocation_context = allocation_context or {}
+    # The matched lot prices its own line: a line IS a quantity taken from one
+    # import declaration, so that declaration's đơn giá is the lawful price
+    # (TT 05/2018 Điều 6.4.b). BOM/catalog stay as fallbacks for a lot that
+    # carries no price. Reversing this order let a value CO itself wrote in the
+    # previous pass (carried back by sheet_edit_bom_rows) outrank the declaration
+    # — how "Nhiều đơn giá"/0 froze onto priced rows and could not be recalculated
+    # away (johnson-vn, 34 rows / 11 cases).
     unit_value, unit_value_source = first_decimal_source(
-        ("bom", bom_row.get("unit_value")),
-        ("bom", bom_row.get("unit_price")),
         ("co_stock", stock.get("unit_value")),
         ("co_stock", stock.get("unit_price")),
         ("co_stock", stock.get("taxable_unit_price")),
+        ("bom", bom_row.get("unit_value")),
+        ("bom", bom_row.get("unit_price")),
         ("material_catalog", material.get("unit_price")),
         ("material_catalog", material.get("taxable_unit_price")),
     )
@@ -3271,6 +3307,19 @@ def enrich_origin_product(product: dict) -> dict:
         and str(material.get("allocation_status") or "") == "shortage"
         for material in materials
     )
+    # Zero-price guard: một NVL ĐÃ khớp lô nhập nhưng trị giá = 0 ⇒ cộng 0 vào VNM
+    # ⇒ LVC bị thổi, mà `valuation_status` vẫn "ready" nên KHÔNG cờ nào ở trên bắt
+    # được (thiếu-đơn-giá chỉ bắt ô giá RỖNG). Đây là hình dạng của lỗi
+    # "Nhiều đơn giá" bị đọc thành 0 (johnson-vn 2026-08-17, 34 dòng/11 hồ sơ, có
+    # hồ sơ đã chốt + đã xuất). Chỉ xét dòng CÓ lô: dòng không lô là vấn đề chứng
+    # từ, đã có cờ shortage/unmatched riêng. Bỏ dòng đã xoá và rác kỹ thuật.
+    enriched["lvc_zero_lot_price"] = any(
+        not material.get("deleted")
+        and not material.get("bom_technical_noise")
+        and material.get("allocation_lines")
+        and _material_priced_zero(material)
+        for material in materials
+    )
     ctc_rule = tariff_shift_rule_from_criterion(criterion)
     lvc_status = str(enriched.get("lvc_status") or "")
     warnings = []
@@ -3541,9 +3590,24 @@ def first_non_empty(values) -> str:
     return ""
 def first_decimal_source(*values: tuple[str, object]) -> tuple[Decimal | None, str]:
     for source, value in values:
-        if value not in (None, ""):
-            return decimal_value(value), source
+        if value in (None, ""):
+            continue
+        parsed = optional_decimal(value)
+        if parsed is None:
+            # Display markers round-trip through numeric fields — "Nhiều đơn giá"
+            # (allocation_unit_value_summary) reaches here as a BOM-row price via
+            # sheet_edit_bom_rows. Coercing it to 0 (the old decimal_value path)
+            # zeroed đơn giá + trị giá on rows whose lots were priced, understating
+            # VNM. A value we cannot read is absent, not zero.
+            continue
+        return parsed, source
     return None, ""
+def optional_decimal(value) -> Decimal | None:
+    """Decimal or None — unlike `decimal_value`, never turns junk into 0."""
+    try:
+        return Decimal(str(value).replace(",", "").strip())
+    except (InvalidOperation, ValueError, ArithmeticError):
+        return None
 def decimal_value(value) -> Decimal:
     try:
         return Decimal(str(value or "0").replace(",", "").strip() or "0")
