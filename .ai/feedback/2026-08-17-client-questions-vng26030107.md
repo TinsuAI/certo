@@ -250,6 +250,29 @@ the same sheet exported twice — nguyên tệ mode prints đơn giá **0.735317
 USD label, VND mode prints **19,007.89015 VND** with a VND label, LVC identical (99.96)
 in both, and no re-derivation between them.
 
+**Live state after deploy (prod, verified):** johnson-vn's stock snapshot was
+re-derived on 2026-08-17 16:55Z (`derivation_schema_version` 3 → 4, full, reason
+`schema_version`, 35s): all 84,231 rows now carry the invoice lane — **74,952 USD**
+(every one with the declaration's own rate, `bcct_declared`) + 9,279 VND — the VND lane
+is unchanged (84,231 rows still priced), and all 1,621 stock claims of locked sheets
+still resolve to their lots. Every johnson sheet already runs `currency_mode = native`
+(142/142), so **no per-client default is needed**: a sheet comes out in the invoice
+currency as soon as it is recalculated, because the product-level invoice lane is
+attached when the sheet is rebuilt from the export declaration (0 of 157 existing
+products carry it yet — they were calculated before the deploy).
+
+Proven on prod read-only for MPL0109-39 of VNG26030107: its persisted match states
+`currency = USD`, `customs_value = 38,896,037.92` VND and `foreign_currency_value =
+1,488.16` USD → the rebuilt product resolves target currency **USD** and prints FOB
+**1,488.16**.
+
+That check also exposed a gap: DH's invoice-match rows carry **no `exchange_rate`**, so
+`fob_fx_rate` was empty and a lot declared in the other currency (9,279 VND lines on a
+USD sheet) would have printed its VND figure under a USD label. Fixed by deriving the
+rate from the two totals the same declaration line states
+(`customs_value / foreign_currency_value`, source `declaration_ratio`); a declared rate
+still wins when present.
+
 **Still open for the agency to decide:** whether johnson's sheets should default to
 nguyên tệ (a per-client default for the sheet switch is not built yet — today it is
 per sheet, defaulting to `native`, which resolves to the invoice currency only when the
@@ -326,66 +349,96 @@ inherit it, drops the LVC threshold, switches the method label to "Chuyển đ�
 
 ## Reply to the client (Vietnamese, forwardable)
 
-**1. Đơn giá đang hiện VND, muốn giữ theo USD**
+Bản này viết sau khi đã sửa và deploy xong (prod + demo chạy `2c25147`), thay cho bản
+nháp trước đó.
 
-Hệ thống không tự quy đổi. Trên tờ khai, mỗi dòng có hai cột giá: đơn giá nguyên tệ (USD) và
-đơn giá tính thuế đã quy VND theo tỷ giá thanh toán. Phần dữ liệu BCCT bên Data Hub có đủ cả
-hai (ví dụ tờ khai 107271797510 dòng 20: 0,735317 USD và 19.007,890150 VND, tỷ giá 25.850),
-nhưng bên CO hiện chỉ lấy cột VND, nên bảng kê, đơn giá và cả trị giá FOB đều hiện VND. Con số
-nhiều số thập phân (80.334,057473) chính là đơn giá tính thuế bằng VND của tờ khai.
+**1. Đơn giá đang hiện VND, anh/chị muốn giữ theo USD**
 
-Để bảng kê chạy theo USD, chúng tôi cần bổ sung việc đọc đơn giá nguyên tệ + tỷ giá vào phần
-tính tồn, rồi tính lại tồn cho Johnson. Việc này ảnh hưởng tới các bảng kê đã chốt (phải mở
-lại và tính lại mới hiện USD), nên anh/chị xác nhận trước khi chúng tôi làm: **muốn toàn bộ
-bảng kê theo USD (nguyên tệ của tờ khai), hay chỉ những hồ sơ mới từ nay?**
+Hệ thống không tự quy đổi. Mỗi dòng tờ khai có hai cột giá: đơn giá nguyên tệ (USD) và
+đơn giá tính thuế đã quy VND theo tỷ giá thanh toán. Trước đây bên CO chỉ đọc cột VND,
+nên bảng kê, đơn giá và trị giá FOB đều hiện VND.
+
+Đã sửa: mỗi lô tồn nay mang **cả hai** — số VND (dùng để tính LVC) và số nguyên tệ đúng
+như tờ khai ghi, kèm tỷ giá thanh toán của chính tờ khai đó. Dữ liệu tồn của Johnson đã
+được làm mới ngày 17/08: **84.231/84.231 dòng** có đủ hai cột (74.952 dòng USD, 9.279
+dòng khai bằng VND — loại nhập tại chỗ/nội địa thì vẫn là VND, đúng bản chất).
+
+Cách dùng: mở bảng kê → chip **⚙ Cấu hình** → **Tiền tệ = Nguyên tệ** (mặc định đã là
+Nguyên tệ) → Lưu → **Tính bảng kê lại**. Sau bước tính lại, đơn giá in ra là đúng con số
+USD trên tờ khai (ví dụ mã 0000096074: 3,0116 USD thay vì 80.334,057473 VND), FOB cũng
+theo USD của tờ khai xuất. Đổi qua lại giữa VND và nguyên tệ chỉ là một lựa chọn trên
+bảng kê, bấm là đổi, không phải tính lại tồn.
+
+Một điểm quan trọng: **tỷ lệ LVC/RVC luôn được tính bằng VND** dù bảng kê in bằng USD.
+Đây là chủ ý: trong dữ liệu của Johnson có 102 tờ khai xuất bằng EUR, 44 bằng JPY, trong
+khi 89% lô nhập là USD; nếu lấy FOB một loại tiền trừ trị giá NVL loại tiền khác thì tỷ
+lệ sẽ sai mà không có dấu hiệu gì. Tính bằng VND rồi in ra nguyên tệ là cách duy nhất
+vừa đúng vừa cho phép in theo tiền hoá đơn.
 
 **2. Lâu lâu có mã NVL đơn giá = 0 (và bảng kê xuất ra cũng 0)**
 
-Đây là lỗi của chúng tôi và là lỗi nặng nhất trong 4 mục. Nguyên nhân: khi một mã NVL được trừ
-lùi từ **hai lô nhập có đơn giá khác nhau**, ô đơn giá hiển thị dòng chữ "Nhiều đơn giá". Dòng
-chữ đó bị lưu vào chính ô số đơn giá, nên lần **Tính bảng kê** sau, hệ thống đọc dòng chữ đó
-như một con số, không đọc được và hiểu thành **0** — từ đó đơn giá và trị giá của mã đó thành 0
-và không tự sửa được dù tính lại.
+Đây là lỗi của chúng tôi, đã sửa. Nguyên nhân: khi một mã NVL được trừ lùi từ **hai lô
+nhập có đơn giá khác nhau**, ô đơn giá hiển thị dòng chữ "Nhiều đơn giá"; dòng chữ đó bị
+lưu vào chính ô số đơn giá, nên lần Tính bảng kê sau hệ thống đọc nó như một con số,
+không đọc được và hiểu thành **0**. Từ đó đơn giá và trị giá của mã đó thành 0, và tính
+lại cũng không tự khỏi.
 
-Chúng tôi đã đếm trên dữ liệu thật của Johnson: **34 dòng** đang bị 0 (thuộc 11 hồ sơ) và
-**22 dòng** đang hiện "Nhiều đơn giá" (sẽ thành 0 nếu tính lại). Trong đó có các bảng kê **đã
-chốt**, gồm cả hồ sơ VNG26030107 (MPL0109-39 2 dòng, MFW0588-39 1 dòng) và hồ sơ SCI26030014
-(11 dòng). Vì các dòng này là NVL không xuất xứ, trị giá 0 làm **phần không xuất xứ bị thiếu →
-tỷ lệ LVC/RVC bị cao hơn thực tế**. Anh/chị tạm thời chưa nộp các bảng kê có dòng đơn giá 0.
+Đo trên dữ liệu thật của Johnson: **34 dòng** đang bị 0 (thuộc 11 hồ sơ) và **22 dòng**
+đang hiện "Nhiều đơn giá". Trong đó có bảng kê **đã chốt**, gồm hồ sơ VNG26030107
+(MPL0109-39 2 dòng, MFW0588-39 1 dòng) và hồ sơ SCI26030014 (11 dòng). Vì các dòng này
+là NVL không xuất xứ, trị giá 0 làm phần không xuất xứ bị thiếu → **tỷ lệ LVC/RVC cao
+hơn thực tế**.
 
-Chúng tôi sẽ sửa để: đơn giá lấy đúng theo lô nhập (không bị dòng chữ ghi đè), ô đơn giá không
-bao giờ chứa chữ, và thêm chốt chặn không cho Chốt bảng kê nếu còn dòng có lô nhập mà đơn giá
-bằng 0. Sau khi sửa, các hồ sơ nêu trên cần mở lại → Tính bảng kê lại → Chốt lại; chúng tôi sẽ
-gửi danh sách cụ thể.
+Từ nay đơn giá luôn lấy theo lô nhập đã khớp; ngoài ra hệ thống **chặn Chốt** nếu còn
+dòng đã khớp lô mà đơn giá bằng 0. Việc cần làm với các hồ sơ trên: mở lại → **Tính bảng
+kê lại** → kiểm tra lại LVC còn đạt ngưỡng không → Chốt lại. Chúng tôi có thể gửi danh
+sách chi tiết từng hồ sơ/từng dòng nếu anh/chị cần.
 
-**3. Hệ thống tự chọn xét theo LVC hay CTC?**
+**3. Chọn tiêu chí xuất xứ**
 
-Không có bước tự chọn. Hai sheet của anh/chị đang để tiêu chí theo khuyến nghị của CPTPP, và
-nguyên văn tiêu chí đó gồm cả CTH lẫn RVC ("CTH; hoặc RVC không thấp hơn 30% trực tiếp / 40%
-gián tiếp / 50% …"), nên thanh trên cùng hiện đồng thời hai ô tham khảo: LVC 53,70% so với
-ngưỡng 30%, và CTC "Đạt CTH". Cả hai chỉ là tham khảo, không quyết định gì; nội dung ghi lên
-C/O là tiêu chí anh/chị chọn.
+Hệ thống không tự chọn giữa LVC và CTC. Trước đây hai sheet của anh/chị để tiêu chí theo
+khuyến nghị của CPTPP, mà nguyên văn tiêu chí đó gồm **cả** CTH **lẫn** RVC (30% trực
+tiếp / 40% gián tiếp / 50% tập trung), nên thanh số liệu hiện đồng thời hai ô — đó là
+hai phương án, đạt một trong hai là đủ.
 
-Chỗ chọn tiêu chí đã có: trên từng bảng kê, bấm chip **⚙ Cấu hình** → mục **Tiêu chí** (WO, PE,
-CC, CTH, CTSH, RVC, LVC, PSR, ô "Khác…" để gõ tay, các lựa chọn "hoặc", và Ngưỡng %) → Lưu →
-Tính bảng kê lại. Nếu anh/chị muốn nó thành **một bước bắt buộc phải chọn trước khi tính** (thay
-vì nằm trong cấu hình), chúng tôi làm được — anh/chị xác nhận là muốn bắt buộc chọn, hay chỉ cần
-hiện rõ tiêu chí đang áp dụng ngay trên bảng kê.
+Đã bổ sung:
+- **Chọn tiêu chí cho cả lô hàng** ở đầu bước Bảng kê C/O: có nút "Dùng khuyến nghị"
+  (một cú bấm), hoặc gõ tiêu chí khác. Mọi bảng kê trong lô thừa hưởng; bảng kê nào cần
+  khác thì đặt riêng ở ⚙ Cấu hình → Tiêu chí.
+- Chip **Tiêu chí** trên từng bảng kê nói rõ tiêu chí đang áp dụng và nguồn ("theo lô
+  hàng" / "riêng sheet này" / "chưa chọn").
+- Khi tiêu chí là chuyển đổi mã số (CC/CTH/CTSH), ô LVC **không còn chấm đạt/không đạt**
+  và không hiện ngưỡng — chỉ để tham khảo, vì tiêu chí đó không xét hàm lượng giá trị.
+  Nhãn "Phương pháp" cũng đổi theo tiêu chí thay vì luôn ghi "Build-down LVC/RVC".
+- **Từ nay phải chọn tiêu chí trước khi Chốt.** Bước Tính bảng kê không bị chặn. Các
+  bảng kê hiện có sẽ báo "chưa chọn tiêu chí" cho tới khi anh/chị bấm chọn — một cú bấm
+  cho cả hồ sơ. Bảng kê đã chốt và hồ sơ đã đóng không bị ảnh hưởng.
 
-**4. Xuất hồ sơ .zip chờ 30 phút không ra file**
+**4. Xuất hồ sơ .zip chờ mãi không ra file**
 
-File đã tạo xong, nhưng màn hình không cập nhật. Cụ thể hồ sơ VNG26030107: bấm xuất lúc 15:32,
-file hoàn tất lúc 15:38 (21,3 MB, gồm cả tờ khai ghép 157 TKN), và anh/chị tải được lúc 16:11
-sau khi tải lại trang. Trong khoảng đó trang vẫn hiện "Đang tạo hồ sơ .zip…" vì phần theo dõi
-tiến độ chỉ chạy khi trang được tải mới (F5); khi anh/chị chuyển tab trong hồ sơ (và khi bấm
-"Mở lại hồ sơ" lúc 15:34 rồi đóng lại), phần theo dõi không chạy nữa nên nút tải file không
-xuất hiện.
+File đã tạo xong, chỉ có màn hình không cập nhật. Hồ sơ VNG26030107: bấm xuất 15:32,
+file hoàn tất 15:38 (21,3 MB, gồm tờ khai ghép 157 TKN), anh/chị tải được lúc 16:11 sau
+khi tải lại trang. Lỗi ở phần theo dõi tiến độ: nó chỉ chạy khi trang được tải mới, nên
+khi anh/chị chuyển tab trong hồ sơ (và khi bấm "Mở lại hồ sơ" lúc 15:34 rồi đóng lại)
+thì nút tải file không hiện ra.
 
-Đây là lỗi của chúng tôi, đang sửa. Trong lúc chờ bản cập nhật: sau khi bấm **Xuất hồ sơ**, chờ
-khoảng 5–7 phút với hồ sơ nhiều tờ khai rồi **F5 lại trang Review** — nút "Tải hồ sơ .zip" sẽ
-hiện. File được lưu lại trên hệ thống nên rời trang cũng không mất.
+Đã sửa: phần theo dõi chạy cả khi chuyển tab; màn hình ghi đúng thời gian dự kiến (5–7
+phút với hồ sơ nhiều tờ khai) kèm số phút đã chạy; nếu tiến trình bị dừng giữa (khởi
+động lại hệ thống) thì hiện nút "Xuất lại" thay vì quay mãi. Về thời gian: 5 phút 42
+giây của lần đó gồm khoảng 2 phút ghép 157 tờ khai nhập thành PDF và khoảng 3 phút 20
+tính lại dữ liệu tồn/tờ khai — phần sau chúng tôi sẽ rút ngắn.
 
-Về thời gian: 5 phút 42 giây của lần xuất này chia làm hai phần — khoảng 2 phút là in/ghép 157
-tờ khai nhập thành PDF, khoảng 3 phút 20 là hệ thống tính lại dữ liệu tồn/tờ khai của hồ sơ.
-Chúng tôi sẽ rút ngắn phần thứ hai và ghi đúng thời gian dự kiến trên màn hình (hiện đang ghi
-"~1 phút").
+**5. Mới: đơn vị tính giữa BOM và tờ khai nhập**
+
+Nhân rà soát mục 1–2 chúng tôi phát hiện một lỗi chưa ai báo: hệ thống **không so** đơn
+vị tính trong BOM với đơn vị tính trên tờ khai nhập, cứ trừ tồn như thể hai đơn vị là
+một. Trên dữ liệu Johnson có **226/3.816 dòng** lệch đơn vị; 184 dòng chỉ khác cách viết
+(EA và PIECES — không sao), nhưng **42 dòng thuộc 25 mã** là khác đại lượng thật: EA với
+SETS (35 dòng), EA với CAY, EA với KILO-GRAMMES, KG với PIECES, EA với METRIC-TONS. Với
+những dòng này số lượng trừ tồn (và trị giá) đang dựa trên giả định 1:1 chưa ai kiểm.
+
+Đã sửa: cặp đơn vị chỉ khác tên (kể cả tên Việt) hoặc cùng họ đo lường (kg↔g↔tấn,
+m↔cm↔mm, l↔ml) thì hệ thống tự quy đổi. Cặp khác đại lượng thì **cần anh/chị xác nhận
+hệ số** — trên dòng đó có nút `⇄`, bấm vào và trả lời "1 SET bằng mấy EA"; hệ số được
+lưu cho công ty (ghi kèm ai xác nhận, lúc nào) và áp cho các hồ sơ sau. Trước khi xác
+nhận, hệ thống vẫn tính tạm theo 1:1 nhưng **không cho Chốt** bảng kê đó.

@@ -2676,6 +2676,18 @@ def origin_product_invoice_lane(match: dict, vnd_lane_currency: str) -> dict:
     if rate:
         lane["fob_fx_rate"] = rate
         lane["fob_fx_source"] = "bcct_declared"
+        return lane
+    # DH's invoice-match rows carry no `exchange_rate`, and without a rate a lot
+    # declared in the OTHER currency (johnson-vn: 9,279 VND lines against a USD sheet)
+    # printed its own figure under the sheet's label. The same declaration line states
+    # both totals, so their ratio is the rate it converted at.
+    vnd_total = optional_decimal(match.get("customs_value") or match.get("total_value"))
+    native_total = optional_decimal(invoice_total)
+    if vnd_total is not None and native_total is not None and native_total > 0 and vnd_total > 0:
+        lane["fob_fx_rate"] = decimal_text(
+            (vnd_total / native_total).quantize(Decimal("0.000001"))
+        )
+        lane["fob_fx_source"] = "declaration_ratio"
     return lane
 def origin_product_value(match: dict) -> dict:
     value_sources = [

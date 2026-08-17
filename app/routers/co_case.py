@@ -644,7 +644,7 @@ def recalculate_origin_sheet_edits(client: dict, case: dict, product_code: str, 
         prioritized_form_lanes(prepared.get("destination_market", ""), [str(target.get("finished_hs") or "")])
     )
     recalculated = origin_product_from_invoice_match(
-        origin_match_from_existing_product(target),
+        origin_match_for_recalc(prepared, target),
         sheet_rows,
         form_lane,
         material_index,
@@ -687,6 +687,33 @@ def recalculate_origin_sheet_and_status(
     return set_origin_sheet_status(
         case, product_code, calculated_sheet_status(product) if product else "calculated"
     )
+def origin_match_for_recalc(case: dict, target: dict) -> dict:
+    """The match a per-sheet recalculation should rebuild from.
+
+    `origin_match_from_existing_product` can only report what the sheet already has, so
+    a sheet calculated before the invoice lane existed would never regain it — its
+    nguyên-tệ FOB and the payment rate live on the export declaration, which the case
+    still holds in `source_invoice_matches`. Start from that row and let the product's
+    own (possibly edited) figures drive the VND lane on top."""
+    code = str(target.get("code") or "").strip()
+    persisted = next(
+        (
+            row for row in (case.get("source_invoice_matches") or [])
+            if isinstance(row, dict) and str(row.get("item_code") or "").strip() == code
+        ),
+        None,
+    )
+    from_product = origin_match_from_existing_product(target)
+    if not persisted:
+        return from_product
+    merged = {**persisted, **{key: value for key, value in from_product.items() if value not in (None, "")}}
+    # Declaration-owned fields: the operator edits quantity/FOB on the sheet, never the
+    # currency the tờ khai was filed in.
+    for key in ("currency", "value_currency", "foreign_currency_value", "invoice_value",
+                "exchange_rate", "customs_value", "total_value"):
+        if persisted.get(key) not in (None, ""):
+            merged[key] = persisted[key]
+    return merged
 def _uom_factors(client: dict) -> dict:
     """Operator-confirmed ĐVT factors for this client, fetched once per Tính and
     threaded down the build funnel exactly like `_supplier_flags`."""

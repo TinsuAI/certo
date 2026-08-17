@@ -329,3 +329,70 @@ def test_renderer_field_table_prints_fob_in_the_sheet_currency():
     assert native["fob"] == "11727.78"
     vnd = _build_field_table({}, {**product, "origin_sheet_currency_mode": "vnd"})
     assert vnd["fob"] == "306528985.86"
+
+
+def test_invoice_lane_derives_the_rate_from_the_declaration_when_absent():
+    """DH's invoice-match rows carry no `exchange_rate`, but the same line states both
+    totals — their ratio IS the rate that declaration converted at. Without it a
+    VND-declared lot on a USD-filed sheet printed its VND figure under a USD label."""
+    from app.web.co_case_context import origin_product_invoice_lane
+    lane = origin_product_invoice_lane(
+        {"currency": "USD", "customs_value": "38896037.92", "foreign_currency_value": "1488.16"},
+        "VND",
+    )
+    assert lane["invoice_currency"] == "USD"
+    assert lane["fob_invoice"] == "1488.16"
+    assert Decimal(lane["fob_fx_rate"]) == (Decimal("38896037.92") / Decimal("1488.16")).quantize(Decimal("0.000001"))
+    assert lane["fob_fx_source"] == "declaration_ratio"
+
+
+def test_declared_rate_beats_the_derived_one():
+    from app.web.co_case_context import origin_product_invoice_lane
+    lane = origin_product_invoice_lane(
+        {"currency": "USD", "customs_value": "38896037.92", "foreign_currency_value": "1488.16",
+         "exchange_rate": "26140"},
+        "VND",
+    )
+    assert lane["fob_fx_rate"] == "26140"
+    assert lane["fob_fx_source"] == "bcct_declared"
+
+
+def test_a_vnd_lot_on_a_usd_sheet_converts_with_that_rate():
+    from app.bang_ke_renderer import _pick_currency_value
+    material = {
+        "currency": "VND", "unit_value": "26140", "unit_value_vnd": "26140",
+        "native_currency": "VND", "unit_value_native": "26140",
+    }
+    product = {"fob_currency": "VND", "invoice_currency": "USD", "fob_fx_rate": "26140",
+               "origin_sheet_currency_mode": "native"}
+    assert _pick_currency_value(material, "unit_value", False, product) == "1"
+
+
+def test_recalculating_one_sheet_recovers_the_invoice_lane_from_the_declaration():
+    """A per-sheet Tính lại rebuilds the product from the EXISTING product, which (for a
+    sheet calculated before this change) has no invoice lane. The case still holds the
+    export declaration's match, so the lane must be read from there — otherwise an old
+    sheet can never come out in nguyên tệ, however often it is recalculated."""
+    from app.routers.co_case import origin_match_for_recalc
+    case = {
+        "source_invoice_matches": [{
+            "item_code": "MPL0109-39", "currency": "USD", "value_currency": "VND",
+            "customs_value": "38896037.92", "foreign_currency_value": "1488.16",
+            "quantity": "2", "hs_code": "95069100",
+        }],
+    }
+    target = {"code": "MPL0109-39", "fob": "38896037.92", "currency": "VND",
+              "quantity": "2", "finished_hs": "95069100"}
+    match = origin_match_for_recalc(case, target)
+    assert match["currency"] == "USD"
+    assert match["foreign_currency_value"] == "1488.16"
+    assert match["customs_value"] == "38896037.92"
+    # the product's own (possibly edited) VND figure still drives the VND lane
+    assert match["fob_value"] == "38896037.92"
+
+
+def test_recalc_match_falls_back_to_the_product_without_a_persisted_match():
+    from app.routers.co_case import origin_match_for_recalc
+    target = {"code": "TP-A", "fob": "100", "currency": "USD", "quantity": "1"}
+    match = origin_match_for_recalc({}, target)
+    assert match["item_code"] == "TP-A" and match["fob_value"] == "100"
