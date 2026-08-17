@@ -128,6 +128,30 @@ def test_belt1_export_blocked_even_when_status_calculated():
     assert "P1" in origin_sheet_export_blockers(_case_with_calculated_sheet(enriched))
 
 
+def test_belt1_flag_off_for_no_lot_rac_row():
+    # A row Data Hub classified as rác (here `excluded_non_material` — a nhãn) has
+    # no matched lot, so the build path leaves it valuation_status
+    # 'partial_allocation' with unit_value_missing=True (co_case_context.py:2734 —
+    # "a no-lot line's defect is the missing DOCUMENT, not a missing price"). It is
+    # stripped from every bảng kê renderer and contributes 0 to VNM, so it must NOT
+    # trip belt 1. Shape copied from prod johnson-vn co-case-6cb034e91cb7 / MPL0108-39.
+    p = enrich_origin_product({
+        "code": "P1", "fob": "1000",
+        "materials": [
+            {"material_code": "OK", "origin_status": "non_origin", "unit_value": "5",
+             "customs_relevance": "declarable", "valuation_status": "ready",
+             "allocation_status": "covered", "non_origin_cif_value": "100",
+             "allocation_lines": [{"import_declaration_no": "X", "unit_value": "5"}]},
+            {"material_code": "1000363756", "origin_status": "non_origin", "unit_value": "",
+             "customs_relevance": "excluded_non_material", "valuation_status": "partial_allocation",
+             "allocation_status": "shortage", "unit_value_missing": True,
+             "allocation_shortage_qty": "4", "allocation_lines": []},
+        ],
+    })
+    assert p["lvc_missing_price"] is False
+    assert calculated_sheet_status(p) == "calculated"
+
+
 def test_belt1_missing_price_row_is_not_stripped_from_export():
     # Invariant: a missing-price NVL is a REAL material — the belt blocks the whole
     # sheet, it does NOT silently drop the row (that is the declarable_unmatched
@@ -225,15 +249,37 @@ def test_calc_status_matrix_each_flag_parks_independently():
     assert calculated_sheet_status({"lvc_status": "pass", "lvc_declarable_unmatched": True}) == "bom_loaded"
 
 
-def test_both_flags_trip_and_lock_gate_reports_unmatched_first():
-    # A single non-origin declarable_unmatched NVL with no price trips BOTH belt
-    # flags. calculated_sheet_status still parks the sheet; the lock gate checks
-    # declarable_unmatched BEFORE missing_price (co_case_context.py order), so the
-    # unmatched remedy (match/substitute) is surfaced, not "add a price".
+def test_unmatched_row_trips_only_belt2_not_belt1():
+    # A non-origin declarable_unmatched NVL with no price trips belt 2 ONLY. It is
+    # export-stripped rác with no matched lot, so its empty price is a consequence of
+    # the missing DOCUMENT, not a price the operator can type — belt 1 must stay off
+    # or the sheet reports the wrong remedy. The sheet is still parked by belt 2.
     enriched = enrich_origin_product({
         "code": "P1", "fob": "100",
         "materials": [{"material_code": "STEEL", "customs_relevance": "declarable_unmatched",
                        "origin_status": "non_origin", "unit_value": ""}],
+    })
+    assert enriched["lvc_missing_price"] is False
+    assert enriched["lvc_declarable_unmatched"] is True
+    assert calculated_sheet_status(enriched) == "bom_loaded"
+    error = origin_sheet_action_error(_case_with_calculated_sheet(enriched), "P1", "lock")
+    assert UNMATCHED_LOCK_FRAGMENT in error
+    assert MISSING_PRICE_LOCK_FRAGMENT not in error
+
+
+def test_both_flags_trip_and_lock_gate_reports_unmatched_first():
+    # Both belts trip when a REAL (matched, non-rác) non-origin NVL is missing its
+    # đơn giá and a separate row is declarable_unmatched. The lock gate checks
+    # declarable_unmatched BEFORE missing_price (co_case_context.py order), so the
+    # unmatched remedy (match/substitute) is surfaced, not "add a price".
+    enriched = enrich_origin_product({
+        "code": "P1", "fob": "100",
+        "materials": [
+            {"material_code": "NOPRICE", "customs_relevance": "declarable",
+             "origin_status": "non_origin", "unit_value": ""},
+            {"material_code": "STEEL", "customs_relevance": "declarable_unmatched",
+             "origin_status": "non_origin", "unit_value": ""},
+        ],
     })
     assert enriched["lvc_missing_price"] is True
     assert enriched["lvc_declarable_unmatched"] is True

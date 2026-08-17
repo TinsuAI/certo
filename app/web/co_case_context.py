@@ -3230,8 +3230,15 @@ def enrich_origin_product(product: dict) -> dict:
     # (#13c). Chỉ xét NVL non_origin (NVL có xuất xứ không vào VNM nên thiếu giá
     # không ảnh hưởng LVC); bỏ qua dòng đã xoá. Thiếu TỒN (shortage) KHÔNG tính
     # ở cờ này — nó có cờ riêng `lvc_allocation_shortage` bên dưới (ADR 2026-07-11).
+    # Bỏ qua rác kỹ thuật y như cờ shortage: dòng `excluded_non_material` /
+    # `declarable_unmatched` không có lô khớp nên `unit_value_missing` LUÔN bật
+    # (material_value = None, xem :2734), trong khi nó bị loại khỏi mọi bảng kê và
+    # cộng 0 vào VNM. Không loại thì một sheet mà MỌI dòng thật đều đủ đơn giá vẫn
+    # báo "thiếu đơn giá" — sai việc cần làm (remedy là chứng từ/thay mã, không
+    # phải nhập giá). `declarable_unmatched` vẫn bị chặn bằng cờ riêng bên dưới.
     enriched["lvc_missing_price"] = any(
         not material.get("deleted")
+        and not material.get("bom_technical_noise")
         and material.get("origin_status") == "non_origin"
         and (material.get("valuation_status") == "missing_unit_value" or material.get("unit_value_missing"))
         for material in materials

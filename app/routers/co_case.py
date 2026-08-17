@@ -657,6 +657,25 @@ def recalculate_origin_sheet_edits(client: dict, case: dict, product_code: str, 
     prepared["products"] = updated_products
     prepared = materialize_bang_ke_origin_fields(prepared, client)
     return attach_origin_sheet_states(prepared)
+def recalculate_origin_sheet_and_status(
+    client: dict, case: dict, product_code: str, *, min_gap_days: int | None = None
+) -> dict:
+    """Recompute one sheet from its saved edits, then persist the status that sheet
+    EARNS via `calculated_sheet_status` — never a hardcoded "calculated".
+
+    The bulk routes used to stamp "calculated" unconditionally, so a sheet still
+    tripping a hard-block belt (missing price / declarable_unmatched / shortage /
+    empty BOM) read "Đã tính" in the sheet list while the lock gate — which
+    re-checks the flags — refused it: "Chốt tất cả" reported "bỏ qua N (chưa
+    tính/vượt tồn)" and the real state only appeared after a full reload."""
+    case = recalculate_origin_sheet_edits(client, case, product_code, min_gap_days=min_gap_days)
+    product = next(
+        (p for p in case.get("products", []) if str(p.get("code") or "").strip() == product_code),
+        None,
+    )
+    return set_origin_sheet_status(
+        case, product_code, calculated_sheet_status(product) if product else "calculated"
+    )
 def _supplier_flags(client: dict) -> dict:
     """Current supplier evidence flags for this client, fetched ONCE per Tính
     and threaded down the build funnel. {} without a database or on error —
@@ -1904,8 +1923,7 @@ async def bulk_substitute_route(request: Request, client_id: str, case_id: str):
         if edited_indices:
             case = mark_origin_sheets_stale(case, min(edited_indices))
         for pc in sorted(edited_codes, key=lambda c: order.index(c) if c in order else 0):
-            case = recalculate_origin_sheet_edits(client, case, pc, min_gap_days=min_gap)
-            case = set_origin_sheet_status(case, pc, "calculated")
+            case = recalculate_origin_sheet_and_status(client, case, pc, min_gap_days=min_gap)
         update_case_record(client, case)
     context, stock_rows = _origin_preview_context(client, client_id, case_id, case)
     allocated = allocate_whole_case_preview(client, context["case"], context, stock_rows, min_gap)
@@ -1998,8 +2016,7 @@ async def bulk_delete_rac_route(request: Request, client_id: str, case_id: str):
         if edited_indices:
             case = mark_origin_sheets_stale(case, min(edited_indices))
         for pc in sorted(edited_codes, key=lambda c: order.index(c) if c in order else 0):
-            case = recalculate_origin_sheet_edits(client, case, pc, min_gap_days=min_gap)
-            case = set_origin_sheet_status(case, pc, "calculated")
+            case = recalculate_origin_sheet_and_status(client, case, pc, min_gap_days=min_gap)
         update_case_record(client, case)
     context, stock_rows = _origin_preview_context(client, client_id, case_id, case)
     allocated = allocate_whole_case_preview(client, context["case"], context, stock_rows, min_gap)

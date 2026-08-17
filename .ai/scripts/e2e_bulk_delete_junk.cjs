@@ -72,8 +72,20 @@ const count = (page, sel) => page.$$eval(sel, (e) => e.length).catch(() => 0);
   console.log(`  aggregate rác: pickButtons=${pickBtns} rows=${racRows}`);
 
   if (MODE === "off") {
+    // Flag off = no bulk ACTIONS, but the rác is still LISTED read-only: those codes
+    // block "Chốt tất cả" (belt declarable_unmatched), so hiding them made the
+    // aggregate claim "đủ tồn — có thể Chốt tất cả" on a case that cannot lock.
+    const staticRows = await count(page, AGG + ".rac-row-static");
+    const checkboxes = await count(page, AGG + "[data-rs-rac-select]");
+    const subBtns = await count(page, AGG + "[data-rs-rac-sub]");
+    const delBtns = await count(page, AGG + "[data-rs-rac-delete]");
+    console.log(`  off-mode rác: staticRows=${staticRows} checkboxes=${checkboxes} subBtns=${subBtns} delBtns=${delBtns}`);
     pickBtns === 0 ? ok("no rác pick buttons (gated off)") : fail(`rác pick buttons should be absent (got ${pickBtns})`);
-    racRows === 0 ? ok("no inline rác rows") : fail(`rác rows should be absent (got ${racRows})`);
+    racRows === 0 ? ok("no SELECTABLE rác rows (data-rs-rac-row absent)") : fail(`selectable rác rows should be absent (got ${racRows})`);
+    staticRows >= 1 ? ok(`rác still listed read-only (${staticRows} rows)`) : fail("rác rows should still be LISTED when the flag is off");
+    checkboxes === 0 ? ok("no checkboxes") : fail(`checkboxes should be absent (got ${checkboxes})`);
+    subBtns === 0 ? ok("no per-row substitute buttons") : fail(`substitute buttons should be absent (got ${subBtns})`);
+    delBtns === 0 ? ok("no bulk delete button") : fail(`bulk delete should be absent (got ${delBtns})`);
     errors.filter((e) => !/Failed to load resource/i.test(e)).length === 0 ? ok("no console errors") : fail("console errors: " + errors.slice(0, 3).join(" | "));
     await browser.close();
     process.exit(failed ? 1 : 0);

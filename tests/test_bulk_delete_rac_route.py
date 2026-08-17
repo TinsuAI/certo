@@ -114,3 +114,17 @@ def test_bad_kind_rejected(del_client):
 def test_empty_codes_rejected(del_client):
     case_id = _seed()
     assert del_client.post(_url(case_id), json={"kind": "declarable_unmatched", "material_codes": []}).status_code == 400
+
+
+def test_persisted_status_reflects_the_remaining_block(del_client):
+    """Deleting only the phi-vật-tư row leaves PV.A with a declarable_unmatched NVL,
+    so the sheet is NOT lockable. The route must persist the status DERIVED from the
+    recalculated sheet (`bom_loaded`), not a hardcoded "calculated" — otherwise the
+    sheet list reads "Đã tính" while "Chốt tất cả" silently skips it, and the real
+    state only appears after F5."""
+    from app import co_case_store
+    from app.demo_data import get_client
+    case_id = _seed()
+    del_client.post(_url(case_id), json={"kind": "excluded_non_material", "material_codes": ["M-PHI"]})
+    rec = co_case_store.get_case_record(get_client("growatt"), case_id)
+    assert rec["origin_sheet_states"]["PV.A"]["status"] == "bom_loaded"

@@ -6045,6 +6045,10 @@ body.co-stock-history-modal-open { overflow: hidden; }
 .rac-tag-declarable_unmatched { background: var(--warning-bg, #fff3cd); color: var(--warning-fg, #8a6d3b); }
 .rac-tag-excluded_non_material { background: rgba(0,0,0,0.06); color: var(--muted, #666); }
 .rac-row-sub { font-size: 0.72rem; color: var(--muted, #888); }
+/* Bulk-delete off: rows are listed for visibility only — no checkbox, so drop the
+   click affordance. */
+.rac-row-static { cursor: default; }
+.rac-row-static:hover { background: none; }
 .rac-row .rs-rac-sub { flex: none; margin-left: auto; white-space: nowrap; font-size: 0.78rem; padding: 0.16rem 0.6rem; }
 
 .origin-sheet-tabs-toolbar {
@@ -6617,7 +6621,8 @@ body.co-stock-history-modal-open { overflow: hidden; }
 .run-stock-summary .rs-ph.now .rs-d { background: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft, var(--surface-subtle)); }
 .run-stock-summary .rs-sep { color: var(--foreground-muted); }
 .run-stock-summary .rs-stale { margin-bottom: 0.5rem; padding: 0.35rem 0.6rem; border-radius: var(--radius-sm); background: var(--warning-soft, var(--surface-subtle)); color: var(--warning); font-size: 0.85rem; }
-.run-stock-summary .rs-nobom { margin: 0.4rem 0; padding: 0.4rem 0.7rem; border-radius: var(--radius-sm); background: var(--danger-soft, var(--warning-soft, var(--surface-subtle))); color: var(--danger, var(--warning)); font-size: 0.86rem; }
+.run-stock-summary .rs-nobom,
+.run-stock-summary .rs-blocked { margin: 0.4rem 0; padding: 0.4rem 0.7rem; border-radius: var(--radius-sm); background: var(--danger-soft, var(--warning-soft, var(--surface-subtle))); color: var(--danger, var(--warning)); font-size: 0.86rem; }
 .run-stock-summary .rs-lead { margin: 0.2rem 0; }
 .run-stock-summary .rs-note-alloc { color: var(--foreground-muted); font-size: 0.78rem; margin: 0 0 0.6rem; }
 .run-stock-summary .rs-done { padding: 0.4rem 0; }

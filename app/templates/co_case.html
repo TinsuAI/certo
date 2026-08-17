@@ -6242,19 +6242,24 @@
     ...f, code: f.material_code,
     sub: (f.products && f.products.length) ? `${f.products.length} sheet: ${f.products.join(", ")}` : "",
   }));
-  const racPanelHtml = (items) => {
+  // readOnly = tính năng xoá hàng loạt đang TẮT cho khách này. Vẫn LIỆT KÊ các mã
+  // rác (chúng chặn Chốt), chỉ bỏ checkbox + nút thao tác — giấu cả danh sách thì
+  // panel tổng hợp báo "đủ tồn, chốt được" mà không nói gì về thứ đang chặn.
+  const racPanelHtml = (items, { readOnly = false } = {}) => {
     if (!items || !items.length) return "";
-    const picks = RAC_KINDS.map(({ kind, pickLabel }) => {
+    const picks = readOnly ? "" : RAC_KINDS.map(({ kind, pickLabel }) => {
       const n = items.filter((it) => it.kind === kind).length;
       return n ? `<button type="button" class="btn-secondary origin-rowselect-btn rs-rac-pick" data-rs-rac-pick="${kind}">⊘ Chọn ${pickLabel} (${n})</button>` : "";
     }).filter(Boolean).join("");
     const rows = items.map((it) => {
       const meta = RAC_KINDS.find((k) => k.kind === it.kind) || { tag: "" };
       // declarable_unmatched = NVL thật → cho THAY THẾ; phi vật tư → chỉ xoá.
-      const subBtn = it.kind === "declarable_unmatched"
+      const subBtn = (!readOnly && it.kind === "declarable_unmatched")
         ? `<button type="button" class="btn-secondary rs-rac-sub" data-rs-rac-sub>Chọn mã thay thế…</button>` : "";
-      return `<label class="rac-row" data-rs-rac-row data-code="${rsEsc(it.code)}" data-kind="${it.kind}">`
-        + `<input type="checkbox" data-rs-rac-select>`
+      // readOnly bỏ luôn data-rs-rac-row → wireRacPanel (nếu lỡ gọi) thoát sớm thay
+      // vì đọc .checked của checkbox không tồn tại.
+      return `<label class="rac-row${readOnly ? " rac-row-static" : ""}" ${readOnly ? "" : "data-rs-rac-row"} data-code="${rsEsc(it.code)}" data-kind="${it.kind}">`
+        + (readOnly ? "" : `<input type="checkbox" data-rs-rac-select>`)
         + `<span class="rac-row-main"><span class="rac-row-top">`
         +   `<span class="rac-row-code">${rsEsc(it.code)}</span>`
         +   (it.name && it.name !== it.code ? `<span class="rac-row-name">${rsEsc(it.name)}</span>` : "")
@@ -6265,13 +6270,14 @@
         + subBtn
         + `</label>`;
     }).join("");
-    return `<div class="rs-rac-panel"><div class="rs-rac-tools">`
-      + `<span class="rs-rac-lead">Mã NVL không có trong BCCT hoặc phi vật tư — thay thế từng dòng, hoặc chọn để xoá khỏi bảng kê:</span>`
-      + picks
-      + `<button type="button" class="rac-linkbtn" data-rs-rac-clear>Bỏ chọn</button>`
-      + `<span class="rs-rac-count" data-rs-rac-count></span>`
-      + `<button type="button" class="btn-secondary btn-danger rs-rac-delete" data-rs-rac-delete hidden>Xoá dòng đã chọn</button>`
-      + `</div><div class="rs-rac-list">${rows}</div></div>`;
+    const tools = readOnly
+      ? `<span class="rs-rac-lead">Mã NVL không có trong BCCT hoặc phi vật tư. Mã “chưa khớp tờ khai” chặn Chốt — mở từng bảng kê để thay hoặc xoá dòng. Bật “Xoá NVL rác hàng loạt” ở Cấu hình khách để xử lý cả lô một lần.</span>`
+      : `<span class="rs-rac-lead">Mã NVL không có trong BCCT hoặc phi vật tư — thay thế từng dòng, hoặc chọn để xoá khỏi bảng kê:</span>`
+        + picks
+        + `<button type="button" class="rac-linkbtn" data-rs-rac-clear>Bỏ chọn</button>`
+        + `<span class="rs-rac-count" data-rs-rac-count></span>`
+        + `<button type="button" class="btn-secondary btn-danger rs-rac-delete" data-rs-rac-delete hidden>Xoá dòng đã chọn</button>`;
+    return `<div class="rs-rac-panel"><div class="rs-rac-tools">${tools}</div><div class="rs-rac-list">${rows}</div></div>`;
   };
   const wireRacPanel = (scope, { items, onDelete, onSubstitute } = {}) => {
     const rows = () => Array.from(scope.querySelectorAll("[data-rs-rac-row]"));
@@ -6365,7 +6371,13 @@
     const mats = (body.rollup && body.rollup.materials) || [];
     const folded = (body.rollup && body.rollup.folded_rac) || [];
     const bulkEnabled = document.querySelector("[data-origin-aggregate]")?.dataset.bulkDeleteEnabled === "1";
-    const racItems = bulkEnabled ? racItemsFromFolded(folded) : [];
+    // Rác luôn được LIỆT KÊ (kể cả khi tắt xoá hàng loạt) — cờ chỉ quyết định có
+    // thao tác chọn/xoá/thay hay không.
+    const racItems = racItemsFromFolded(folded);
+    // Chỉ `declarable_unmatched` (và `mixed` — thận trọng) chặn Chốt qua
+    // lvc_declarable_unmatched. `excluded_non_material` bị loại khỏi bảng kê và
+    // cộng 0 vào VNM ⇒ KHÔNG chặn; dọn cho gọn thôi.
+    const racBlocking = racItems.filter((it) => it.kind !== "excluded_non_material");
     // "Chọn mã thay thế…" on a declarable_unmatched rác row → same bulk-substitute
     // picker as the shortfall rows (scope everywhere — all its occurrences are short).
     const aggSubstitute = (item) => {
@@ -6386,16 +6398,25 @@
       parts.push(`<div class="run-stock-result">✓ Đã thay ${a} SP${sk ? ` · bỏ qua ${sk}` : ""}. Bảng dưới là kết quả tính lại từ server.</div>`);
     }
     const noBom = (body.rollup && body.rollup.no_bom_products) || [];
-    parts.push(rsRibbon(mats.length > 0 || noBom.length > 0));
+    parts.push(rsRibbon(mats.length > 0 || noBom.length > 0 || racBlocking.length > 0));
     if (noBom.length) {
       parts.push(`<div class="rs-nobom"><strong>⚠ ${noBom.length} bảng kê chưa có BOM</strong> (${noBom.join(", ")}) — chưa tính được tồn. Nạp BOM (Data Hub) cho các TP này trước.</div>`);
     }
     if (!mats.length) {
-      if (!noBom.length) parts.push(`<div class="rs-done"><strong>✓ Đủ tồn cho tất cả SP.</strong> Không còn NVL thiếu tồn — có thể “Chốt tất cả”.</div>`);
-      parts.push(racPanelHtml(racItems));
+      if (!noBom.length) {
+        // "Hết thiếu tồn" KHÔNG đồng nghĩa "chốt được": mã chưa khớp tờ khai vẫn giữ
+        // sheet ở bom_loaded (belt declarable_unmatched), nên đừng mời "Chốt tất cả".
+        parts.push(racBlocking.length
+          ? `<div class="rs-blocked"><strong>⚠ Đủ tồn, nhưng còn ${racBlocking.length} mã NVL chưa khớp tờ khai</strong> — chưa “Chốt tất cả” được. Thay mã hoặc xoá các dòng dưới rồi Tính lại.</div>`
+          : `<div class="rs-done"><strong>✓ Đủ tồn cho tất cả SP.</strong> Không còn NVL thiếu tồn — có thể “Chốt tất cả”.</div>`);
+      }
+      parts.push(racPanelHtml(racItems, { readOnly: !bulkEnabled }));
       parts.push(rsLedger());
-      box.innerHTML = parts.join(""); box.hidden = false; box.dataset.state = noBom.length ? "warning" : "ok";
-      bindRsReload(box); bindRsUndo(box); wireRacPanel(box, { items: racItems, onDelete: (codes) => racDelete({ codes }), onSubstitute: aggSubstitute }); updateAggBadge(0); return;
+      box.innerHTML = parts.join(""); box.hidden = false;
+      box.dataset.state = (noBom.length || racBlocking.length) ? "warning" : "ok";
+      bindRsReload(box); bindRsUndo(box);
+      if (bulkEnabled) wireRacPanel(box, { items: racItems, onDelete: (codes) => racDelete({ codes }), onSubstitute: aggSubstitute });
+      updateAggBadge(racBlocking.length); return;
     }
     parts.push(`<div class="rs-lead"><strong>⚠ ${mats.length} NVL thiếu tồn</strong> trên cả lô. Chọn phạm vi (thay phần thiếu / thay hết) + mã thay thế; server tính lại tồn + LVC sau mỗi lần thay.</div>`);
     parts.push(`<div class="rs-note-alloc">Phân bổ tồn: SP trước ưu tiên (theo thứ tự sheet), lot theo ngày tờ khai.</div>`);
@@ -6420,10 +6441,10 @@
         + `</div>`
       );
     });
-    parts.push(racPanelHtml(racItems));
+    parts.push(racPanelHtml(racItems, { readOnly: !bulkEnabled }));
     parts.push(rsLedger());
     box.innerHTML = parts.join(""); box.hidden = false; box.dataset.state = "warning";
-    bindRsReload(box); bindRsUndo(box); updateAggBadge(mats.length);
+    bindRsReload(box); bindRsUndo(box); updateAggBadge(mats.length + racBlocking.length);
     box.querySelectorAll("[data-rs-mat]").forEach((row) => {
       const m = mats[+row.dataset.rsMat];
       const scopeState = { scope: "everywhere" };
@@ -6453,7 +6474,7 @@
         });
       });
     });
-    wireRacPanel(box, { items: racItems, onDelete: (codes) => racDelete({ codes }), onSubstitute: aggSubstitute });
+    if (bulkEnabled) wireRacPanel(box, { items: racItems, onDelete: (codes) => racDelete({ codes }), onSubstitute: aggSubstitute });
   };
 
   const runStockAll = async (btn) => {

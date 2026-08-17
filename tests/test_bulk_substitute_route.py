@@ -84,3 +84,41 @@ def test_empty_payload_rejected(sub_client):
     case_id = _seed()
     resp = sub_client.post(_url(case_id), json={"substitutions": []})
     assert resp.status_code == 400
+
+
+def _seed_with_unmatched(client_id="growatt", case_id="case-sub-unm"):
+    from app import co_case_store
+    now = co_case_store.now_iso()
+    case = {
+        "id": case_id, "persisted_case_id": case_id, "case_id": case_id,
+        "case_code": "CO-SUB-UNM", "title": "Sub test", "customer": "Growatt",
+        "destination_market": "Ấn Độ", "status": "open",
+        "created_at": now, "updated_at": now,
+        "origin_product_order": ["PV.A"],
+        "products": [{
+            "code": "PV.A", "name": "SP A", "fob": "100000", "quantity": "1",
+            "materials": [
+                {"material_code": "M-OLD", "uom": "kg", "customs_relevance": "declarable"},
+                {"material_code": "M-UNM", "uom": "kg", "customs_relevance": "declarable_unmatched"},
+            ],
+        }],
+    }
+    co_case_store.save_state(client_id, {"schema_version": 1, "client_id": client_id, "cases": [case]})
+    return case_id
+
+
+def test_persisted_status_reflects_the_remaining_block(sub_client):
+    """Substituting one NVL leaves PV.A with a declarable_unmatched row, so the sheet
+    is NOT lockable. The route must persist the DERIVED status (`bom_loaded`), not a
+    hardcoded "calculated" — otherwise the sheet list reads "Đã tính" while "Chốt tất
+    cả" skips it, and the block only surfaces after a reload."""
+    from app import co_case_store
+    from app.demo_data import get_client
+    case_id = _seed_with_unmatched()
+    resp = sub_client.post(
+        f"/clients/growatt/co-case/{case_id}/origin/bulk-substitute",
+        json={"substitutions": [{"product_code": "PV.A", "material_code": "M-OLD", "substitute_code": "M-NEW"}]},
+    )
+    assert resp.status_code == 200
+    rec = co_case_store.get_case_record(get_client("growatt"), case_id)
+    assert rec["origin_sheet_states"]["PV.A"]["status"] == "bom_loaded"
