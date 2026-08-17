@@ -975,6 +975,7 @@
       <span class="orr-config">
         {{ product.origin_sheet_effective_form_code or '—' }} · {{ product.origin_sheet_effective_criteria_text or '—' }}{% if _eff_thr %} · {{ _eff_thr }}%{% endif %}
         {% if _has_override %}<span class="orr-override">override</span>{% endif %}
+        {% if not product.origin_sheet_criteria_override %}<span class="orr-criteria-unset" title="Chưa chọn tiêu chí — đang dùng khuyến nghị của hệ thống. Mở bảng kê → chip Tiêu chí để chọn.">tiêu chí: khuyến nghị</span>{% endif %}
       </span>
       <span class="orr-metrics">
         <span class="origin-metric-chip"><em>HS</em> <strong class="mono">{{ product.finished_hs }}</strong></span>
@@ -1355,6 +1356,13 @@
                   <label data-criteria-alt-wrap="RVC 40%"><input type="checkbox" data-criteria-alt="RVC 40%"> RVC 40%</label>
                 </div>
                 <input type="text" class="origin-config-select criteria-other-input" data-criteria-other-input hidden placeholder="VD: AIFTA 35% FOB + CTSH" value="">
+                <small class="origin-config-criteria-hint">
+                  {% if criteria_override %}Sẽ ghi lên C/O: <strong>{{ criteria_override }}</strong>.
+                  {% else %}<strong>Chưa chọn tiêu chí</strong> — sẽ ghi theo khuyến nghị: <strong>{{ rec_criteria or 'n/a' }}</strong>.
+                  {% endif %}
+                  Ô LVC và CTC trên thanh số liệu chỉ là đối chiếu tham khảo của chính tiêu chí này —
+                  hệ thống không tự chọn LVC hay CTC thay bạn. Chọn xong bấm Lưu rồi Tính bảng kê lại.
+                </small>
               </div>
               <div class="origin-config-row" data-criteria-threshold-row hidden>
                 <span class="origin-config-row-label">Ngưỡng %</span>
@@ -1405,6 +1413,17 @@
               <span class="origin-metric-chip"><em>SL</em> <strong>{{ product.quantity|number(6) }}</strong> {{ product.unit or product.export_unit }}</span>
               <span class="origin-metric-chip"><em>FOB</em> <strong class="num" data-origin-fob>{{ product.fob|number if product.fob else 'Thiếu' }}</strong> {{ product.currency }}</span>
               <span class="origin-metric-chip"><em>VNM</em> <strong class="num" data-origin-vnm>{{ (product.vnm_value or product.non_origin_value or '0')|number }}</strong> {{ product.currency }}</span>
+              {# Tiêu chí is an explicit choice, not something the system settles: this chip
+                 says which criterion will be written on the C/O and whether the operator has
+                 picked it or is still riding the engine recommendation. LVC + CTC next to it
+                 are both only previews OF this criterion. #}
+              <button type="button" class="origin-metric-chip origin-metric-criteria{{ '' if criteria_override else ' origin-metric-criteria-unset' }}"
+                      data-origin-settings-open data-origin-criteria-chip
+                      title="{% if criteria_override %}Tiêu chí đã chọn — bấm để sửa.{% else %}Chưa chọn tiêu chí: đang ghi theo khuyến nghị của hệ thống ({{ rec_criteria or 'n/a' }}). Bấm để chọn tiêu chí sẽ ghi lên C/O.{% endif %}">
+                <em>Tiêu chí</em>
+                <strong>{{ (criteria_override or effective_criteria or '—')|truncate(38, True, '…') }}</strong>
+                {% if not criteria_override %}<small>chưa chọn · theo khuyến nghị</small>{% endif %}
+              </button>
               <span class="origin-metric-chip origin-metric-{{ lvc_metric_class }}" data-origin-lvc-cell title="{{ product.lvc_quality_warning_text or product.lvc_status_label or 'LVC' }}">
                 <em>LVC <small data-origin-live-flag hidden>(live)</small></em>
                 <strong class="num" data-origin-lvc>{{ product.lvc_percentage ~ '%' if product.lvc_percentage else product.lvc_status_label or 'Thiếu' }}</strong>{% if displayed_threshold %} / {{ displayed_threshold }}%{% if lvc_threshold_override or rvc_threshold_override %} <small class="origin-recommendation-overridden">(override)</small>{% endif %}{% endif %}

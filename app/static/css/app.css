@@ -2423,6 +2423,37 @@ button.co-stat:hover {
   cursor: help;
 }
 
+/* Tiêu chí chip: a button (opens the config modal) that must still read as a chip. */
+.origin-metric-chip.origin-metric-criteria {
+  cursor: pointer;
+  max-width: 26rem;
+  text-align: left;
+}
+
+.origin-metric-chip.origin-metric-criteria:hover {
+  border-color: var(--primary);
+}
+
+.origin-metric-chip.origin-metric-criteria > small {
+  color: var(--warning);
+  font-size: 0.66rem;
+  font-weight: 700;
+}
+
+.origin-metric-chip.origin-metric-criteria-unset {
+  background: var(--warning-soft);
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
+}
+
+.origin-config-criteria-hint {
+  display: block;
+  margin-top: 0.3rem;
+  color: var(--foreground-muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
 .origin-metric-chip.origin-metric-fail,
 .origin-metric-chip.origin-metric-partial_fail {
   background: var(--error-soft);
@@ -7133,6 +7164,12 @@ body.co-stock-history-modal-open { overflow: hidden; }
   margin-left: 0.3rem; padding: 0.02rem 0.34rem; border-radius: var(--radius-xs);
   background: var(--warning-soft); color: var(--warning);
   font-size: 0.64rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em;
+}
+.orr-criteria-unset {
+  margin-left: 0.3rem; padding: 0.02rem 0.34rem; border-radius: var(--radius-xs);
+  border: 1px dashed color-mix(in srgb, var(--warning) 45%, var(--border));
+  color: var(--foreground-muted);
+  font-size: 0.64rem; font-weight: 700; letter-spacing: 0.02em;
 }
 .orr-metrics { display: flex; flex-wrap: wrap; gap: 0.25rem; }
 .orr-metrics .origin-metric-chip { margin: 0; }
