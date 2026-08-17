@@ -1,6 +1,62 @@
 # Project Status
 
 ## Current State
+- **2026-08-17 — CLIENT QUESTIONS on johnson-vn VNG26020033: 3 defects FIXED + SHIPPED + DEPLOYED + VERIFIED
+  LIVE; johnson-vn rác-cleanup flag turned ON in prod.**
+  `origin/main` = prod `barry-co` = nightly `demo-co` = **`72de4eb`** (CD runs `31995246886` + `31996774344`
+  green: Python tests + Docker build + Deploy demo; `/version` verified BOTH hosts). Full suite **1035 pass /
+  17 skip**. Session: `.ai/sessions/2026-08-17-client-questions-missing-price-belt-and-labels.md`;
+  client-facing findings + forwardable VI reply: `.ai/feedback/2026-08-17-client-questions-vng26020033.md`.
+  **Operator report:** "Tổng hợp NVL" said "Đủ tồn — có thể Chốt tất cả" → "Chốt tất cả" returned "Đã chốt 0
+  sheet · bỏ qua 2" → F5 showed "Cần xử lý: thiếu đơn giá" on a bảng kê where EVERY row had an đơn giá.
+  **All measured on live prod (read-only):** MPL0108-39 = 145 rows (82 declarable/ready + 35
+  `declarable_unmatched` + 28 `excluded_non_material`), MFW0509-39 = 86 (62 + 19 + 5); **0 rows** carry
+  `valuation_status == missing_unit_value` on either sheet.
+  **D1 `lvc_missing_price` fired on rác (`co_case_context.py:3233`)** — the flag ORs on `unit_value_missing`,
+  which a no-lot row ALWAYS sets (`material_value = None`), while its `valuation_status` is deliberately
+  `partial_allocation` (ADR 2026-07-11 `:2734` — a no-lot line's defect is the missing DOCUMENT, not a price).
+  It also never excluded `bom_technical_noise` the way its sibling `lvc_allocation_shortage` (`:3255`) does →
+  shortage false, missing_price true, wrong remedy shown. Fix = `and not material.get("bom_technical_noise")`.
+  **D2 bulk routes stamped `"calculated"` blind** (bulk-substitute + bulk-delete-rac) → a belt-blocked sheet
+  read "Đã tính" while the lock gate refused it; **this is the F5 story, NOT a client-side repaint gap.**
+  Fix = new `recalculate_origin_sheet_and_status` (`co_case.py`) used by both.
+  **D3 aggregate invited "Chốt tất cả" while blocked** — `case_shortfall_rollup` routes all-noise materials
+  into `folded_rac`, never `materials` (`material_count == 0` → ✓ invite), and the client DROPPED `folded_rac`
+  when the flag was off. **Decision: the flag gates bulk ACTIONS, not visibility of a blocker** → rác is now
+  listed read-only regardless of the flag, and the panel warns instead of inviting Chốt while
+  `declarable_unmatched` remains. `excluded_non_material` does NOT block (after D1), so the ✓ invite survives
+  when only phi-vật-tư rows are left — pinned by an e2e assertion.
+  **D4 relabel (`72de4eb`)** — the chip read "NVL chưa khớp tồn", which reads as a QUANTITY shortfall, i.e.
+  exactly what the other label ("thiếu tồn") means. Unified 4 phrasings onto **"NVL chưa có tờ khai nhập"**
+  across chip / lock error / per-sheet filter chip / rác quick-select / row tag / per-row mark / fold toggle;
+  details now say "không phải thiếu số lượng" + name remedies (sửa mã / thay mã / xoá dòng). "BCCT" dropped
+  from operator text; `declarable_unmatched` kept in the lock error as a support anchor.
+  **PROD CONFIG (not code): `features.bulk_delete_junk_rows` = ON for johnson-vn** — first real client to get
+  it. `config_version` 1→2, `co_config_fingerprint` UNCHANGED `17c95904c2712c54` (→ no stock re-derivation),
+  `allocation_code`/`co_stock`/`bcct` untouched; written via `_local_config_store().save_client_config`,
+  verified through `portfolio_service.get_client_config`.
+  **Q1 "uploaded BCCT but codes still missing" = NOT a CO bug, NOT an upload gap.** DH johnson-vn import BCCT
+  = 84,231 rows / 10,393 codes / 2025-04-18→2026-08-05, and CO `co_stock_rows` = 84,231 (1:1, refreshed
+  03:25Z, no declaration-type filter). All **53** unmatched codes appear in **0** BCCT rows either direction;
+  they sit in `hub.materials` as `provenance={"seen_in_bom_only": true}` with `name == material_code`
+  (matched codes carry `provenance.seen_in_bcct` + a real description). Client-wide **3,822/14,527** catalog
+  materials are BOM-only and `hub.code_mappings` has **0 rows for johnson-vn** (growatt-vn: 2,913) → a BOM
+  code that isn't literally the declared customs code can never match. Earliest import = 2025-04-18, so any
+  Jan–mid-Apr 2025 declaration never landed. Needs agency confirmation + possibly a DH-side mapping
+  (`data-hub` repo — guardrail, not from here).
+  **Q5 "chọn tiêu chí PSR/CTH?" = already exists** — per-sheet `⚙ Cấu hình` → Tiêu chí segments
+  WO/PE/CC/CTH/CTSH/RVC/LVC/PSR + "Khác…" + "hoặc" alternates + Ngưỡng % (`co_case.html:1332-1381`). The
+  criterion drives the LVC threshold and the CTC preview (`tariff_shift_rule_from_criterion:3441`); both
+  sheets run empty "(khuyến nghị)" criteria, hence "CTC —". LVC fail does NOT block lock.
+  **Verified live after deploy:** deployed code run in-container against `co-case-6cb034e91cb7` →
+  `missing_price=False` on both sheets (was True), `unmatched=True`, status `bom_loaded`, chip = "Cần xử lý:
+  NVL chưa có tờ khai nhập". The case is still (correctly) not lockable — 35 + 19 unmatched rows remain; with
+  the flag ON the operator clears them from "Tổng hợp NVL" in one pass, Tính lại, then Chốt.
+  **OPEN (decision needed, NOT fixed):** `co_case.py:3358` (per-sheet "Lưu bảng kê") + `:3556` (mở chốt) carry
+  the SAME hardcoded-`"calculated"` defect as D2 (`:3556` can't reuse the helper — reopen has no recalculation
+  before it). **Adjacent/inert:** VNM sums `non_origin_cif_value` over noise rows (`co_case_context.py:2455-2460`,
+  no noise filter — harmless while noise rows carry no value). **Cosmetic:** LVC "Tạm đạt/Tạm tính" + "Thiếu
+  tồn CO N dòng" quality warning still count noise rows (`:2461`, `:3208-3226`); does not block lock.
 - **2026-08-07 — "NVL rác" REDESIGN: inline select + per-row substitute + row UI, SHIPPED + DEPLOYED.**
   `origin/main` = prod `barry-co` = nightly `demo-co` = **`0055b17`** (CI/CD run `31149953052` green: build +
   Python tests + Deploy demo). Full suite **1031 pass / 17 skip**. Continues the 2026-08-06 feature below (same
@@ -431,6 +487,20 @@
   via 5 parallel agents) — **NOT pushed yet**. See session `2026-06-19-backlog-status-reconciliation.md`.
 
 ## Next Steps (priority order)
+000000. **2026-08-17 client-question batch is CLOSED and LIVE on `72de4eb` — do NOT re-diagnose it.** The
+   "thiếu đơn giá on a fully-priced bảng kê" report was `lvc_missing_price` firing on rác, the "Đã chốt 0
+   sheet" was the two bulk routes stamping `"calculated"` blind, and the F5 difference was that same stamp —
+   all fixed and verified in-container against the live case. **What remains is not CO code:**
+   (A) **Waiting on the agency for Q1** — the 53 codes in VNG26020033 have never appeared in any tờ khai;
+   they need to say whether the `1000…`-series are internal codes needing a DH `code_mappings` row, domestic
+   VAT purchases, or pre-2025-04-18 imports. A mapping is `data-hub` repo work (guardrail).
+   (B) **Operator action on the case** — clear the 35 + 19 `declarable_unmatched` rows from "Tổng hợp NVL"
+   (the flag is ON for johnson-vn now), Tính lại, then Chốt.
+   (C) **Decide the D2 siblings** — `co_case.py:3358` ("Lưu bảng kê") + `:3556` (mở chốt) stamp
+   `"calculated"` without re-deriving, same as the two routes just fixed. File as issues if wanted; `:3556`
+   needs its own approach (reopen has no recalculation before it).
+   (D) **Optional cleanups** — noise rows still enter the VNM sum (`co_case_context.py:2455-2460`, inert) and
+   the LVC "Tạm đạt/Tạm tính" + "Thiếu tồn CO N dòng" labels (`:2461`, `:3208-3226`, cosmetic).
 00000. **CO 524 fixes SHIPPED + DEPLOYED 2026-07-27 (see Current State).** Two follow-ups, neither urgent
    (both no-524): (A) add `include_material_identity="true"` to the narrow fetch (`data_hub_client.py:962-966`
    in `origin_invoice_matches`) for item_code/material_identity display parity on non-origin cold window —
