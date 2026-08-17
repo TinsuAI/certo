@@ -1,5 +1,8 @@
 {# Dossier export job state — polled by the review page (vanilla JS, no htmx). #}
 {% set base = "/clients/" ~ client.id ~ "/co-case/" ~ case_id ~ "/export-dossier-zip" %}
+{# The export route requires a closed case; a reopened one may only watch a running
+   job, never start one (the POST would 409). #}
+{% set can_export = case_completed | default(true) %}
 <div class="dossier-export-state" data-export-status="{{ export.status }}" data-export-stale="{{ '1' if export.stale else '0' }}">
   {% if export.status == 'running' %}
   <div class="review-action-static" aria-busy="true">
@@ -26,11 +29,16 @@
     Xem <code>03-to-khai/MANIFEST.md</code> trong file để tải tay từ Data Hub.
   </p>
   {% endif %}
+  {% if can_export %}
   <form method="post" action="{{ base }}" hx-boost="false">
     <button type="submit" class="btn-secondary dossier-export-rerun-btn">🔄 Xuất lại</button>
   </form>
+  {% endif %}
 
   {% elif export.status == 'done' and export.stale %}
+  {% if not can_export %}
+  <p class="meta">Hồ sơ đang mở lại — file .zip trước đó đã lỗi thời. Đóng hồ sơ để tạo lại.</p>
+  {% else %}
   <form class="review-action-primary" method="post" action="{{ base }}" hx-boost="false">
     <button type="submit" class="btn-primary">
       <span class="review-action-icon" aria-hidden="true">🔄</span>
@@ -41,7 +49,12 @@
     </button>
   </form>
 
+  {% endif %}
+
   {% elif export.status == 'failed' %}
+  {% if not can_export %}
+  <p class="meta">Lần xuất trước lỗi: {{ export.error or 'không rõ' }}. Đóng hồ sơ để xuất lại.</p>
+  {% else %}
   <form class="review-action-primary" method="post" action="{{ base }}" hx-boost="false">
     <button type="submit" class="btn-primary">
       <span class="review-action-icon" aria-hidden="true">⚠️</span>
@@ -52,6 +65,11 @@
     </button>
   </form>
 
+  {% endif %}
+
+  {% else %}
+  {% if not can_export %}
+  <p class="meta">Đóng hồ sơ trước khi xuất file tổng hợp .zip.</p>
   {% else %}
   <form class="review-action-primary" method="post" action="{{ base }}" hx-boost="false">
     <button type="submit" class="btn-primary">
@@ -62,5 +80,6 @@
       </span>
     </button>
   </form>
+  {% endif %}
   {% endif %}
 </div>

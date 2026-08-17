@@ -1481,7 +1481,15 @@ async def export_co_case_dossier_zip_status(request: Request, client_id: str, ca
     return templates.TemplateResponse(
         request=request,
         name="_dossier_export_status.html",
-        context={"client": client, "case_id": case_id, "export": export},
+        context={
+            "client": client,
+            "case_id": case_id,
+            "export": export,
+            # The export route hard-gates on a CLOSED case, so the panel must not
+            # offer "Xuất lại" while the case is reopened — the native form POST
+            # would land the operator on a raw 409.
+            "case_completed": co_case_is_completed(record),
+        },
     )
 
 
