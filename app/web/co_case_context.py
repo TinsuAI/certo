@@ -76,8 +76,9 @@ ORIGIN_SHEET_ATTENTION_REASONS = (
     ),
     (
         "declarable_unmatched",
-        "Cần xử lý: NVL chưa khớp tồn",
-        "Còn NVL thuộc diện khai báo chưa khớp tồn BCCT — khớp hoặc thay NVL rồi tính lại.",
+        "Cần xử lý: NVL chưa có tờ khai nhập",
+        "Có NVL mà mã của nó không tìm thấy trong bất kỳ tờ khai nhập nào (không phải thiếu số lượng) "
+        "— sửa mã cho khớp tờ khai, thay mã khác, hoặc xoá dòng, rồi tính lại.",
     ),
     (
         "missing_bom",
@@ -1759,7 +1760,10 @@ def origin_sheet_action_error(case: dict, product_code: str, action: str, client
         # NVL — export-excluded but unresolved, so its LVC is inflated. Re-check the
         # flag here (mirror the missing_bom guard) so lock is a true hard-block no
         # matter how the status was persisted. Cleared by matching/substituting it.
-        return f"Bảng kê {product_code} còn NVL chưa khớp tồn (declarable_unmatched) — cần khớp hoặc thay trước khi chốt."
+        return (
+            f"Bảng kê {product_code} còn NVL chưa có tờ khai nhập (declarable_unmatched): mã không tìm "
+            "thấy trong tờ khai nhập nào — sửa mã, thay mã khác, hoặc xoá dòng trước khi chốt."
+        )
     if action == "lock" and target.get("lvc_allocation_shortage"):
         # Shortage re-check (same bypass as above): the shortfall has no lawful
         # value on the bảng kê, so the remedy is a DOCUMENT, never a price.
@@ -3413,8 +3417,9 @@ def origin_warning_summary(product: dict, materials: list[dict], warnings: list[
         summary.append(material_summary_row(
             declarable_unmatched_rows,
             "declarable_unmatched",
-            "Vật tư chưa khớp tờ khai — cần đối soát",
-            "NVL thật nhưng chưa khớp tờ khai nhập (chưa có HS/CIF), chưa xuất được — cần đối soát trước khi phát hành C/O.",
+            "NVL chưa có tờ khai nhập — cần đối soát",
+            "NVL thật, nhưng mã không tìm thấy trong tờ khai nhập nào (nên chưa có HS/CIF) — không lên bảng kê "
+            "và chặn phát hành C/O tới khi đối soát: sửa mã, thay mã khác, hoặc xoá dòng.",
         ))
     missing_name_materials = [
         material for material in materials

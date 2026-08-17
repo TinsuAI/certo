@@ -243,7 +243,7 @@ def test_attention_declarable_unmatched():
     chip = origin_sheet_attention(_blocked_sheet(lvc_declarable_unmatched=True))
     assert chip["status"] == "attention"
     assert chip["reason"] == "declarable_unmatched"
-    assert chip["label"] == "Cần xử lý: NVL chưa khớp tồn"
+    assert chip["label"] == "Cần xử lý: NVL chưa có tờ khai nhập"
 
 
 def test_attention_missing_bom():

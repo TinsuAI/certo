@@ -79,7 +79,7 @@ const racEntry = (code, kind) => ({
     console.log(`\n=== ${c.name} ===\n  done="${done}"\n  warn="${warn}"\n  state=${state} badge="${badge}" ribbonNow=${JSON.stringify(ribbonNow)}`);
 
     if (c.expectBlock) {
-      /chưa khớp tờ khai/.test(warn) ? ok("warns about mã chưa khớp tờ khai") : fail(`expected the unmatched warning, got "${warn}"`);
+      /chưa có tờ khai nhập/.test(warn) ? ok("warns about mã chưa có tờ khai nhập") : fail(`expected the unmatched warning, got "${warn}"`);
       /Chốt tất cả/.test(done) ? fail(`must NOT invite "Chốt tất cả" (got "${done}")`) : ok('no "có thể Chốt tất cả" invite');
       state === "warning" ? ok("panel state = warning") : fail(`state should be warning (got ${state})`);
       badge === "1" ? ok("tab badge counts the 1 blocking mã") : fail(`badge should be 1 (got "${badge}")`);

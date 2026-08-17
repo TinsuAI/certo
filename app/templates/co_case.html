@@ -1675,7 +1675,7 @@
                       {% if _internal_code and _internal_code != substitute_label %}<small class="meta" title="Mã nội bộ — dùng để tra cứu/khớp tồn, không xuất ra bảng kê HQ">nội bộ: {{ _internal_code }}</small>{% endif %}
                       {% if row_override and row_override.material_code and row_override.material_code != substitute_label %}<small class="origin-material-code-override-mark">→ {{ row_override.material_code }}</small>{% endif %}
                       {% if row_override and row_override.deleted %}<small class="origin-material-code-override-mark">(đã xoá)</small>{% endif %}
-                      {% if material.declarable_unmatched %}<small class="origin-material-code-override-mark" title="NVL thật nhưng chưa khớp tờ khai nhập (chưa có HS/CIF) — KHÔNG xuất ra bảng kê tới khi đối soát; bảng kê web và file xuất giống nhau">⚠ chưa khớp · không xuất (cần đối soát)</small>
+                      {% if material.declarable_unmatched %}<small class="origin-material-code-override-mark" title="NVL thật, nhưng mã không tìm thấy trong tờ khai nhập nào (nên chưa có HS/CIF) — KHÔNG xuất ra bảng kê tới khi đối soát; bảng kê web và file xuất giống nhau">⚠ chưa có tờ khai nhập · không xuất (cần đối soát)</small>
                       {% elif material.bom_technical_noise %}<small class="origin-material-code-override-mark" title="Phi vật tư (bản vẽ/nhãn/tài liệu) — không xuất ra bảng kê">(phi vật tư · không xuất)</small>{% endif %}
                     </button>
                   </td>
@@ -6205,8 +6205,8 @@
   // The two folded-rác kinds (shared by aggregate + per-sheet), matched by
   // customs_relevance server-side.
   const RAC_KINDS = [
-    { kind: "declarable_unmatched", label: "NVL không có trong BCCT", pickLabel: "NVL không có trong BCCT", tag: "chưa khớp tờ khai",
-      hint: "NVL thật nhưng chưa khớp tờ khai nhập (không có trong BCCT) — không xuất ra bảng kê tới khi đối soát. Có thể khôi phục bằng Ctrl+Z trong sheet trước khi lưu." },
+    { kind: "declarable_unmatched", label: "NVL chưa có tờ khai nhập", pickLabel: "NVL chưa có tờ khai nhập", tag: "chưa có tờ khai nhập",
+      hint: "NVL thật, nhưng mã không tìm thấy trong tờ khai nhập nào (không phải thiếu số lượng) — không xuất ra bảng kê tới khi đối soát. Có thể khôi phục bằng Ctrl+Z trong sheet trước khi lưu." },
     { kind: "excluded_non_material", label: "NVL phi vật tư", pickLabel: "mã phi vật tư", tag: "phi vật tư",
       hint: "Dòng không phải vật tư cấu thành (bao bì, nhãn…) — đã loại khỏi bảng kê. Có thể khôi phục bằng Ctrl+Z trong sheet trước khi lưu." },
   ];
@@ -6271,8 +6271,8 @@
         + `</label>`;
     }).join("");
     const tools = readOnly
-      ? `<span class="rs-rac-lead">Mã NVL không có trong BCCT hoặc phi vật tư. Mã “chưa khớp tờ khai” chặn Chốt — mở từng bảng kê để thay hoặc xoá dòng. Bật “Xoá NVL rác hàng loạt” ở Cấu hình khách để xử lý cả lô một lần.</span>`
-      : `<span class="rs-rac-lead">Mã NVL không có trong BCCT hoặc phi vật tư — thay thế từng dòng, hoặc chọn để xoá khỏi bảng kê:</span>`
+      ? `<span class="rs-rac-lead">NVL chưa có tờ khai nhập hoặc phi vật tư. Nhóm “chưa có tờ khai nhập” chặn Chốt — mở từng bảng kê để sửa mã, thay mã, hoặc xoá dòng. Bật “Xoá NVL rác hàng loạt” ở Cấu hình khách để xử lý cả lô một lần.</span>`
+      : `<span class="rs-rac-lead">NVL chưa có tờ khai nhập hoặc phi vật tư — thay thế từng dòng, hoặc chọn để xoá khỏi bảng kê:</span>`
         + picks
         + `<button type="button" class="rac-linkbtn" data-rs-rac-clear>Bỏ chọn</button>`
         + `<span class="rs-rac-count" data-rs-rac-count></span>`
@@ -6404,10 +6404,10 @@
     }
     if (!mats.length) {
       if (!noBom.length) {
-        // "Hết thiếu tồn" KHÔNG đồng nghĩa "chốt được": mã chưa khớp tờ khai vẫn giữ
+        // "Hết thiếu tồn" KHÔNG đồng nghĩa "chốt được": mã chưa có tờ khai nhập vẫn giữ
         // sheet ở bom_loaded (belt declarable_unmatched), nên đừng mời "Chốt tất cả".
         parts.push(racBlocking.length
-          ? `<div class="rs-blocked"><strong>⚠ Đủ tồn, nhưng còn ${racBlocking.length} mã NVL chưa khớp tờ khai</strong> — chưa “Chốt tất cả” được. Thay mã hoặc xoá các dòng dưới rồi Tính lại.</div>`
+          ? `<div class="rs-blocked"><strong>⚠ Đủ tồn, nhưng còn ${racBlocking.length} mã NVL chưa có tờ khai nhập</strong> — chưa “Chốt tất cả” được. Sửa mã, thay mã, hoặc xoá các dòng dưới rồi Tính lại.</div>`
           : `<div class="rs-done"><strong>✓ Đủ tồn cho tất cả SP.</strong> Không còn NVL thiếu tồn — có thể “Chốt tất cả”.</div>`);
       }
       parts.push(racPanelHtml(racItems, { readOnly: !bulkEnabled }));
@@ -6820,7 +6820,7 @@
         });
         toggle?.setAttribute("aria-expanded", folded ? "false" : "true");
         if (caret) caret.textContent = folded ? "▸" : "▾";
-        if (label) label.innerHTML = `${folded ? "Hiện" : "Ẩn"} <strong>${foldRows.length}</strong> dòng KHÔNG xuất ra bảng kê (đã xoá · phi vật tư · chưa khớp tờ khai)`;
+        if (label) label.innerHTML = `${folded ? "Hiện" : "Ẩn"} <strong>${foldRows.length}</strong> dòng KHÔNG xuất ra bảng kê (đã xoá · phi vật tư · chưa có tờ khai nhập)`;
         renumber();
       };
       summary.hidden = false;
