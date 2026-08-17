@@ -32,6 +32,9 @@ def _seed(statuses, client_id="growatt", case_id="case-lock-1"):
         "destination_market": "Ấn Độ", "status": "open",
         "created_at": now, "updated_at": now,
         "origin_product_order": [c for c, _ in statuses],
+        # Chốt requires a criterion a person chose (2026-08-17); these tests exercise
+        # ordering / overclaim, so the choice is part of the ready fixture.
+        "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
         # a covered NVL so the sheet passes the "genuinely ready" lock guard;
         # customs_relevance is present (post-mig-078 materialize) so it also clears
         # the DC3b pre-migration recalc guard. These tests exercise ordering /

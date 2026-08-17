@@ -10,7 +10,7 @@ from fastapi import APIRouter
 from app import co_auth, co_stock_eligibility, co_stock_ledger, co_stock_materializer, material_search, substitution_history
 from app.substitute_discovery import build_stock_first_candidates
 from app.bom_store import attach_case_bom_snapshot
-from app.co_case_store import CaseHasActiveClaimsError, MAX_SUPPORTING_FILE_BYTES, OVERRIDE_KEY_SCHEME, build_case_criteria_rows, case_from_record, co_case_is_completed, co_case_status_view, create_case_record, create_case_workbook, declaration_refs, delete_case_record, delete_supporting_file, get_case_record, get_case_workspace, get_supporting_file, invoice_keys, json_safe, safe_filename, save_supporting_file, set_case_archived, update_case_record
+from app.co_case_store import CaseClosedError, CaseHasActiveClaimsError, MAX_SUPPORTING_FILE_BYTES, OVERRIDE_KEY_SCHEME, build_case_criteria_rows, case_from_record, co_case_is_completed, co_case_status_view, create_case_record, create_case_workbook, declaration_refs, delete_case_record, delete_supporting_file, get_case_record, get_case_workspace, get_supporting_file, invoice_keys, json_safe, now_iso, safe_filename, save_supporting_file, set_case_archived, update_case_record
 from app.co_form_config_store import load_co_form_config
 from app.co_forms import prioritized_form_lanes, recommended_form_lane
 from app.data_hub_client import current_data_hub_token, normalize_material_row
@@ -175,6 +175,16 @@ async def origin_case_from_request(request: Request, client: dict, case_id: str)
     form = await large_request_form(request)
     case = update_products_from_form({key: str(value) for key, value in form.items()})
     case["persisted_case_id"] = case.get("persisted_case_id") or case_id
+    # The form carries products and sheet state, not case-level choices. Re-attach them
+    # from the persisted record or a form-based action (lock, save) would act on a case
+    # that looks like nobody chose a criterion.
+    try:
+        persisted = persisted_origin_case(client, case_id)
+    except KeyError:
+        persisted = {}
+    for key in ("criteria_choice",):
+        if key in persisted and key not in case:
+            case[key] = persisted[key]
     return case, {key: str(value) for key, value in form.items()}
 
 
@@ -642,6 +652,7 @@ def recalculate_origin_sheet_edits(client: dict, case: dict, product_code: str, 
         product_sequence=target_index + 1,
         bom_product_code=str(target.get("bom_product_code") or target.get("code") or ""),
         supplier_flags=_supplier_flags(client),
+        uom_factors=_uom_factors(client),
     )
     for key in [
         "bom_product_artifact_id",
@@ -676,6 +687,15 @@ def recalculate_origin_sheet_and_status(
     return set_origin_sheet_status(
         case, product_code, calculated_sheet_status(product) if product else "calculated"
     )
+def _uom_factors(client: dict) -> dict:
+    """Operator-confirmed ĐVT factors for this client, fetched once per Tính and
+    threaded down the build funnel exactly like `_supplier_flags`."""
+    from app import uom_factor_store
+
+    try:
+        return uom_factor_store.factor_map(str(client.get("id") or ""))
+    except Exception:  # noqa: BLE001 — a store hiccup must not block a calculation
+        return {}
 def _supplier_flags(client: dict) -> dict:
     """Current supplier evidence flags for this client, fetched ONCE per Tính
     and threaded down the build funnel. {} without a database or on error —
@@ -1746,6 +1766,7 @@ def allocate_whole_case_preview(client: dict, case: dict, context: dict, stock_r
     states = case.get("origin_sheet_states") or {}
     has_overrides = any(isinstance(s, dict) and s.get("material_overrides") for s in states.values())
     supplier_flags = _supplier_flags(client)
+    uom_factors = _uom_factors(client)
     if not has_overrides:
         preview = dict(case)
         preview.pop("origin_snapshot", None)
@@ -1754,6 +1775,7 @@ def allocate_whole_case_preview(client: dict, case: dict, context: dict, stock_r
                 preview, invoice_matches, bom_workspace, form_lane, material_rows, stock_rows,
                 preserve_existing=False,
                 supplier_flags=supplier_flags,
+                uom_factors=uom_factors,
             ),
             client,
         )
@@ -1766,6 +1788,7 @@ def allocate_whole_case_preview(client: dict, case: dict, context: dict, stock_r
                 case, code, invoice_matches, bom_workspace, form_lane, material_rows, stock_rows,
                 min_gap_days=min_gap_days,
                 supplier_flags=supplier_flags,
+                uom_factors=uom_factors,
             )
     return materialize_bang_ke_origin_fields(case, client)
 def whole_case_stock_summary(client: dict, case: dict, context: dict, stock_rows: list[dict], min_gap_days: int | None) -> dict:
@@ -2091,6 +2114,99 @@ async def bulk_lock_route(request: Request, client_id: str, case_id: str):
         "revision": origin_case_revision(case),
         "origin_sheet_states": json_safe(case.get("origin_sheet_states", {})),
     }
+@router.post("/clients/{client_id}/co-case/{case_id}/origin/case-criteria")
+async def set_case_criteria_route(request: Request, client_id: str, case_id: str):
+    """Choose the origin criterion for the WHOLE lô hàng; every bảng kê inherits it.
+
+    The C/O prints the criterion per goods line, so it stays stored per sheet — but on
+    real data a case has one HS and therefore one criterion (prod johnson-vn: 34 cases,
+    none with more than one HS; 1 of 157 sheets ever had its own). A per-sheet override
+    still wins over this. Recorded with who chose and when, because Chốt requires a
+    human choice rather than the engine's recommendation."""
+    client = resolve_client(client_id)
+    payload = await read_json_or_form(request)
+    criteria_text = str(payload.get("criteria_text") or "").strip()
+    threshold = str(payload.get("lvc_threshold") or "").strip()
+    try:
+        # A proper case dict (not the raw record): update_case_record keys off
+        # persisted_case_id, which only the case view carries.
+        record = persisted_origin_case(client, case_id)
+    except KeyError:
+        raise HTTPException(status_code=404) from None
+    user = co_auth.current_user(request)
+    if criteria_text:
+        record["criteria_choice"] = {
+            "criteria_text": criteria_text,
+            "lvc_threshold": threshold,
+            "chosen_by": (getattr(user, "email", "") or getattr(user, "name", "") or ""),
+            "chosen_at": now_iso(),
+        }
+    else:
+        record.pop("criteria_choice", None)
+    try:
+        update_case_record(client, record)
+    except CaseClosedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "status": "ok",
+        "criteria_choice": record.get("criteria_choice") or {},
+    }
+@router.post("/clients/{client_id}/co-case/{case_id}/origin/uom-factor")
+async def confirm_uom_factor_route(request: Request, client_id: str, case_id: str):
+    """Confirm how a BOM đơn vị tính relates to the unit on the import declaration
+    ("1 SET = 5 PIECES"), then recalculate the sheet with it.
+
+    The pair is a fact about the material, so it is stored per client (optionally per
+    material) with who confirmed it — a filed bảng kê has to be able to answer why 4
+    SETS became 20 PIECES. Saved factors apply to every later case, which is why this
+    is a store and not a per-case override.
+    """
+    from app import uom_factor_store
+
+    client = resolve_client(client_id)
+    payload = await read_json_or_form(request)
+    bom_uom = str(payload.get("bom_uom") or "").strip()
+    lot_uom = str(payload.get("lot_uom") or "").strip()
+    factor = str(payload.get("factor") or "").strip()
+    product_code = str(payload.get("product_code") or "").strip()
+    material_code = str(payload.get("material_code") or "").strip()
+    scope = str(payload.get("scope") or "material").strip().lower()
+    if not bom_uom or not lot_uom or not factor:
+        raise HTTPException(status_code=400, detail="Cần đủ đơn vị tính hai bên và hệ số quy đổi.")
+    user = co_auth.current_user(request)
+    try:
+        saved = uom_factor_store.set_factor(
+            str(client.get("id") or ""),
+            bom_uom=bom_uom,
+            lot_uom=lot_uom,
+            factor=factor,
+            confirmed_by=(getattr(user, "email", "") or getattr(user, "name", "") or ""),
+            material_code=material_code if scope == "material" else "",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Recalculate the sheet so the row shows the converted quantity immediately.
+    recalculated = False
+    if product_code:
+        try:
+            record = get_case_record(client, case_id)
+            record = recalculate_origin_sheet_edits(
+                client, record, product_code,
+                min_gap_days=effective_min_gap_days(client, {}),
+            )
+            update_case_record(client, record)
+            recalculated = True
+        except (KeyError, CaseClosedError):
+            recalculated = False
+    return {
+        "status": "ok",
+        "factor": str(saved.factor),
+        "bom_uom": saved.bom_uom,
+        "lot_uom": saved.lot_uom,
+        "material_code": saved.material_code,
+        "confirmed_by": saved.confirmed_by,
+        "recalculated": recalculated,
+    }
 @router.post("/clients/{client_id}/co-case/{case_id}/origin/bulk-apply-cost")
 async def bulk_apply_cost_buildup_route(request: Request, client_id: str, case_id: str):
     """Mục 4a — áp hệ số chi phí (Mode A→B × FOB) cho TẤT CẢ SP RVC/LVC một lần.
@@ -2256,6 +2372,8 @@ def calculated_sheet_status(product: dict) -> str:
         return "bom_loaded"
     if product.get("lvc_zero_lot_price"):
         return "bom_loaded"
+    if product.get("lvc_uom_unconfirmed"):
+        return "bom_loaded"
     if product.get("lvc_declarable_unmatched"):
         return "bom_loaded"
     if product.get("lvc_allocation_shortage"):
@@ -2325,6 +2443,7 @@ def _recompute_origin_sheet_context(
             stock_rows,
             min_gap_days=min_gap_days,
             supplier_flags=_supplier_flags(client),
+            uom_factors=_uom_factors(client),
         )
     context["case"] = materialize_bang_ke_origin_fields(context["case"], client)
     context["case"] = attach_case_bom_snapshot(context["case"], context.get("bom_workspace", minimal_bom_workspace()))

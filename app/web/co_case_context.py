@@ -12,6 +12,7 @@ from app.bom_store import attach_case_bom_snapshot, resolve_selected_product_ver
 from app.co_case_store import build_case_criteria_rows, case_from_record, co_case_delete_block_reason, co_case_is_completed, co_case_status_view, declaration_refs, get_case_record, get_case_workspace, json_safe, load_state
 from app.co_form_config_store import load_co_form_config
 from app.origin_material_filters import is_bom_technical_noise, is_declarable_unmatched
+from app.uom_conversion import resolve_uom_factor
 from app.co_forms import COMMON_MARKET_PRESETS, common_market_guidance, criteria_preview_for_hs, form_candidates_for_market, prioritized_form_lanes, recommended_form_lane
 from app.co_market_hints import infer_market_from_invoice_matches
 from app.customs_fx_store import CUSTOMS_FX_CLIENT_ID, get_customs_fx_store
@@ -72,6 +73,13 @@ ORIGIN_SHEET_ATTENTION_REASONS = (
         "Còn NVL thiếu tồn/không có lô nhập khớp — bổ sung chứng từ (khớp tờ khai nhập hoặc hoá đơn VAT) rồi tính lại.",
     ),
     (
+        "uom_unconfirmed",
+        "Cần xử lý: ĐVT chưa khớp",
+        "Có NVL mà đơn vị tính trong BOM khác đơn vị tính trên tờ khai nhập (VD EA so với SETS) "
+        "— xác nhận hệ số quy đổi ngay trên dòng đó rồi tính lại; trước khi xác nhận hệ thống vẫn "
+        "tạm trừ tồn theo tỷ lệ 1:1.",
+    ),
+    (
         "missing_price",
         "Cần xử lý: thiếu đơn giá",
         "Còn NVL không xuất xứ thiếu đơn giá — bổ sung đơn giá rồi tính lại trước khi chốt.",
@@ -129,6 +137,7 @@ def origin_sheet_attention(product: dict) -> dict:
         "shortage": bool(product.get("lvc_allocation_shortage")),
         "missing_price": bool(product.get("lvc_missing_price")),
         "zero_lot_price": bool(product.get("lvc_zero_lot_price")),
+        "uom_unconfirmed": bool(product.get("lvc_uom_unconfirmed")),
         "declarable_unmatched": bool(product.get("lvc_declarable_unmatched")),
         "missing_bom": str(product.get("lvc_status") or "") == "missing_bom",
     }
@@ -925,6 +934,7 @@ def prepare_case_origin_products(
     *,
     preserve_existing: bool = False,
     supplier_flags: dict | None = None,
+    uom_factors: dict | None = None,
 ) -> dict:
     source_matches = (
         invoice_matches
@@ -967,6 +977,7 @@ def prepare_case_origin_products(
             product_sequence=product_sequence,
             bom_product_code=bom_product_code,
             supplier_flags=supplier_flags,
+            uom_factors=uom_factors,
         ))
     if not products:
         return case
@@ -1073,6 +1084,7 @@ def prepare_case_origin_sheet(
     min_gap_days: int | None = None,
     allocate: bool = True,
     supplier_flags: dict | None = None,
+    uom_factors: dict | None = None,
 ) -> dict:
     target_code = str(product_code or "").strip()
     if not target_code:
@@ -1116,6 +1128,7 @@ def prepare_case_origin_sheet(
         bom_product_code=bom_product_code,
         allocate=allocate,
         supplier_flags=supplier_flags,
+        uom_factors=uom_factors,
     )
     products = []
     changed = False
@@ -1333,6 +1346,7 @@ def attach_origin_sheet_states(case: dict) -> dict:
     existing = case.get("origin_sheet_states") if isinstance(case.get("origin_sheet_states"), dict) else {}
     normalized = {}
     market = case.get("destination_market", "")
+    case_choice = case_criteria_choice(case)
     for product in products:
         code = str(product.get("code") or "").strip()
         if not code:
@@ -1361,9 +1375,34 @@ def attach_origin_sheet_states(case: dict) -> dict:
         if optimization_mode not in SHEET_OPTIMIZATION_MODES:
             optimization_mode = "max_lvc"
         effective_form = form_override or recommendation.get("form_code", "")
-        effective_criteria = criteria_override or recommendation.get("criteria_text", "")
-        effective_lvc_threshold = lvc_threshold_override or str(product.get("lvc_threshold") or "").strip()
-        effective_rvc_threshold = rvc_threshold_override or str(product.get("rvc_threshold") or "").strip()
+        # Precedence: sheet override → the lô-hàng choice → engine recommendation. Only
+        # the first two are a person's decision, which is what Chốt requires; the third
+        # is a default the operator has not looked at yet.
+        effective_criteria = criteria_override or case_choice.get("criteria_text", "") or recommendation.get("criteria_text", "")
+        criteria_source = (
+            "sheet" if criteria_override
+            else "case" if case_choice.get("criteria_text")
+            else "recommendation" if effective_criteria
+            else ""
+        )
+        family = criterion_family(effective_criteria)
+        # The threshold must follow the criterion IN FORCE. `product["lvc_threshold"]`
+        # was derived when the sheet was built (from the recommendation), so after a
+        # criterion change it is stale — re-derive from the effective text, and drop it
+        # entirely for a rule that has no percentage to meet (CTH, WO).
+        derived_threshold = lvc_threshold_from_criterion(effective_criteria)
+        case_threshold = case_choice.get("lvc_threshold", "") if criteria_source == "case" else ""
+        if family in ("tariff_shift", "wholly_obtained"):
+            effective_lvc_threshold = lvc_threshold_override or case_threshold or ""
+            effective_rvc_threshold = rvc_threshold_override or ""
+        else:
+            effective_lvc_threshold = (
+                lvc_threshold_override
+                or case_threshold
+                or (decimal_text(derived_threshold) if derived_threshold is not None else "")
+                or str(product.get("lvc_threshold") or "").strip()
+            )
+            effective_rvc_threshold = rvc_threshold_override or str(product.get("rvc_threshold") or "").strip()
         state = {
             "status": status,
             "status_label": ORIGIN_SHEET_STATUS_LABELS[status],
@@ -1379,6 +1418,13 @@ def attach_origin_sheet_states(case: dict) -> dict:
             "recommendation_source": recommendation.get("source", ""),
             "effective_form_code": effective_form,
             "effective_criteria_text": effective_criteria,
+            "criteria_source": criteria_source,
+            "criteria_family": family,
+            "criteria_family_label": CRITERIA_FAMILY_LABELS.get(family, ""),
+            "lvc_applies": family in ("value_content", "mixed", "unknown"),
+            "ctc_applies": family in ("tariff_shift", "mixed"),
+            "case_criteria_text": case_choice.get("criteria_text", ""),
+            "method_label": origin_method_label_for_criterion(effective_criteria),
             "effective_lvc_threshold": effective_lvc_threshold,
             "effective_rvc_threshold": effective_rvc_threshold,
         }
@@ -1403,6 +1449,13 @@ def attach_origin_sheet_states(case: dict) -> dict:
         product["origin_sheet_recommended_criteria_text"] = state["recommended_criteria_text"]
         product["origin_sheet_effective_form_code"] = effective_form
         product["origin_sheet_effective_criteria_text"] = effective_criteria
+        product["origin_sheet_criteria_source"] = criteria_source
+        product["origin_sheet_criteria_family"] = family
+        product["origin_sheet_criteria_family_label"] = state["criteria_family_label"]
+        product["origin_sheet_lvc_applies"] = state["lvc_applies"]
+        product["origin_sheet_ctc_applies"] = state["ctc_applies"]
+        product["origin_sheet_case_criteria_text"] = case_choice.get("criteria_text", "")
+        product["origin_method_label"] = state["method_label"]
         product["origin_sheet_effective_lvc_threshold"] = effective_lvc_threshold
         product["origin_sheet_effective_rvc_threshold"] = effective_rvc_threshold
         material_overrides = raw_state.get("material_overrides") if isinstance(raw_state.get("material_overrides"), dict) else {}
@@ -1726,6 +1779,7 @@ def origin_sheet_export_blockers(case: dict, client: dict | None = None) -> list
             or product.get("lvc_allocation_shortage")
             or product.get("lvc_missing_price")
             or product.get("lvc_zero_lot_price")
+            or product.get("lvc_uom_unconfirmed")
             # LK1/DC3b: a sheet calculated before mig 078 carries materials without
             # `customs_relevance`, so rác/unmatched are NOT stripped from the export.
             # Block it (even when "locked") until a forced re-Tính re-classifies.
@@ -1798,6 +1852,11 @@ def origin_sheet_action_error(case: dict, product_code: str, action: str, client
             "bổ sung chứng từ (khớp tờ khai nhập hoặc hoá đơn VAT) rồi tính lại trước khi chốt; "
             "không dùng giá ước tính."
         )
+    if action == "lock" and target.get("lvc_uom_unconfirmed"):
+        return (
+            f"Bảng kê {product_code} còn NVL có đơn vị tính khác đơn vị tính trên tờ khai nhập — "
+            "xác nhận hệ số quy đổi trên dòng đó (VD 1 SET = 5 PIECES) rồi tính lại trước khi chốt."
+        )
     if action == "lock" and target.get("lvc_zero_lot_price"):
         # Zero-price re-check (same bypass as above): the row HAS its import lot, so
         # a 0 is a calculation artefact, not the declaration — locking it would file
@@ -1814,6 +1873,16 @@ def origin_sheet_action_error(case: dict, product_code: str, action: str, client
         return (
             f"Bảng kê {product_code} còn NVL không xuất xứ thiếu đơn giá — LVC mới là tạm tính; "
             "bổ sung đơn giá và tính lại trước khi chốt."
+        )
+    if action == "lock" and str(target.get("origin_sheet_criteria_source") or "") in ("", "recommendation"):
+        # The criterion is what goes on the C/O, so a person has to choose it — Tính is
+        # left alone (it only drives the threshold and the CTC preview). One click on
+        # "Dùng khuyến nghị" satisfies this and records who chose.
+        recommended = str(target.get("origin_sheet_recommended_criteria_text") or "").strip()
+        suffix = f' Khuyến nghị: "{recommended}".' if recommended else ""
+        return (
+            f"Bảng kê {product_code} chưa chọn tiêu chí xuất xứ — chọn cho cả lô hàng "
+            f"hoặc riêng bảng kê này (⚙ Cấu hình → Tiêu chí) rồi chốt.{suffix}"
         )
     if action == "lock" and client is not None:
         # Column-9 mode re-check (ticket #10): the sheet was materialized under
@@ -2464,6 +2533,7 @@ def origin_product_from_invoice_match(
     bom_product_code: str = "",
     allocate: bool = True,
     supplier_flags: dict | None = None,
+    uom_factors: dict | None = None,
 ) -> dict:
     product_code = str(match.get("item_code", "")).strip()
     bom_product_code = str(bom_product_code or product_code).strip()
@@ -2486,6 +2556,7 @@ def origin_product_from_invoice_match(
             material_sequence=material_sequence,
             allocate=allocate,
             supplier_flags=supplier_flags,
+            uom_factors=uom_factors,
         )
         for material_sequence, row in enumerate(bom_rows, start=1)
     ]
@@ -2715,6 +2786,7 @@ def origin_material_from_bom_row(
     material_sequence: int | None = None,
     allocate: bool = True,
     supplier_flags: dict | None = None,
+    uom_factors: dict | None = None,
 ) -> dict:
     material_code = str(row.get("material_code", "")).strip()
     material = material_index.get(material_code, {})
@@ -2752,6 +2824,7 @@ def origin_material_from_bom_row(
         "material_sequence": str(material_sequence or ""),
         "material_code": material_code,
         "material_uom": row.get("uom", ""),
+        "uom_factors": uom_factors or {},
     }
     allocation_lines, shortage_qty, shortage_trace = allocate_material_stock(
         material_code,
@@ -2899,6 +2972,13 @@ def origin_material_from_bom_row(
     # declared in the SAME currency (a material fed from a USD and a VND declaration
     # has no single nguyên-tệ figure — the VND lane still sums, which is why nothing
     # is blocked).
+    # ĐVT of the consumed lots, and whether any of them needed a conversion nobody has
+    # confirmed (the row keeps 1:1 numbers meanwhile — see allocate_material_stock).
+    line_lot_uoms = unique_texts(line.get("lot_uom", "") for line in allocation_lines)
+    lot_uom_text = line_lot_uoms[0] if len(line_lot_uoms) == 1 else ", ".join(line_lot_uoms)
+    uom_unconfirmed = any(
+        str(line.get("uom_factor_source") or "") == "unconfirmed" for line in allocation_lines
+    )
     line_native_currencies = unique_texts(line.get("native_currency", "") for line in allocation_lines)
     native_currency_text = line_native_currencies[0] if len(line_native_currencies) == 1 else ""
     native_unit_values = unique_texts(line.get("unit_value_native", "") for line in allocation_lines)
@@ -3012,6 +3092,8 @@ def origin_material_from_bom_row(
         "item_category": material.get("item_category", ""),
         "material_group": material.get("material_group", ""),
         "uom": row.get("uom", ""),
+        "lot_uom": lot_uom_text,
+        "uom_unconfirmed": uom_unconfirmed,
         "source_document_ref": allocation_document_ref(allocation_lines) or row.get("source") or row.get("product_version_id", ""),
     }
 def _resolve_vn_origin_lines(allocation_lines: list[dict], supplier_flags: dict | None) -> tuple[Decimal, Decimal]:
@@ -3046,26 +3128,46 @@ def allocate_material_stock(
     material: dict,
     allocation_context: dict | None = None,
 ) -> tuple[list[dict], Decimal, str]:
+    """Take `required_qty` (in the BOM's đơn vị tính) off the eligible lots.
+
+    A lot is counted in the unit its declaration states, which is not always the BOM's
+    (prod johnson-vn: 226 of 3,816 lines). The demand is converted per lot before it is
+    subtracted, and the shortfall is tracked in BOM units so the row still reads in the
+    unit the bảng kê prints. A pair we cannot convert keeps the old 1:1 arithmetic and
+    is flagged on the line (`uom_factor_source = "unconfirmed"`) — Tính stays usable,
+    Chốt is blocked until a human confirms the factor."""
     remaining_required = required_qty
     lines = []
     if remaining_required <= 0:
         return lines, Decimal("0"), ""
     allocation_context = allocation_context or {}
+    uom_factors = allocation_context.get("uom_factors") or {}
+    bom_uom = str(bom_row.get("uom") or material.get("uom") or "")
     for stock in stock_candidates:
         if not co_stock_is_usable(stock):
             continue
         available_qty = stock_allocation_remaining_qty(stock)
         if available_qty <= 0:
             continue
-        allocated_qty = min(available_qty, remaining_required)
+        factor, factor_source = resolve_uom_factor(
+            bom_uom, stock.get("unit", ""), confirmed=uom_factors, material_code=material_code,
+        )
+        effective_factor = factor if factor is not None else Decimal("1")
+        required_in_lot_uom = remaining_required * effective_factor
+        allocated_qty = min(available_qty, required_in_lot_uom)
         if allocated_qty <= 0:
             continue
-        line = stock_allocation_line(stock, allocated_qty, available_qty, bom_row, material, allocation_context)
+        allocated_in_bom_uom = allocated_qty / effective_factor if effective_factor else allocated_qty
+        line = stock_allocation_line(
+            stock, allocated_qty, available_qty, bom_row, material, allocation_context,
+            uom_factor=factor, uom_factor_source=factor_source,
+            allocated_qty_bom_uom=allocated_in_bom_uom,
+        )
         lines.append(line)
         if "_allocation_remaining_qty" in stock:
             stock["_allocation_remaining_qty"] = available_qty - allocated_qty
         stock.setdefault("_allocation_consumptions", []).append(stock_allocation_consumption(line, allocation_context))
-        remaining_required -= allocated_qty
+        remaining_required -= allocated_in_bom_uom
         if remaining_required <= 0:
             break
     shortage_qty = max(remaining_required, Decimal("0"))
@@ -3078,6 +3180,10 @@ def stock_allocation_line(
     bom_row: dict,
     material: dict,
     allocation_context: dict | None = None,
+    *,
+    uom_factor: Decimal | None = None,
+    uom_factor_source: str = "",
+    allocated_qty_bom_uom: Decimal | None = None,
 ) -> dict:
     allocation_context = allocation_context or {}
     # The matched lot prices its own line: a line IS a quantity taken from one
@@ -3158,6 +3264,15 @@ def stock_allocation_line(
         "available_qty": decimal_text(available_qty),
         "remaining_qty": decimal_text(available_qty - allocated_qty),
         "allocated_qty": decimal_text(allocated_qty),
+        # Quantities: `allocated_qty` is in the LOT's unit (what comes off tồn),
+        # `allocated_qty_bom_uom` in the BOM's (what the bảng kê prints).
+        "allocated_qty_bom_uom": decimal_text(
+            allocated_qty_bom_uom if allocated_qty_bom_uom is not None else allocated_qty
+        ),
+        "lot_uom": stock.get("unit", ""),
+        "bom_uom": str(bom_row.get("uom") or material.get("uom") or ""),
+        "uom_factor": decimal_text(uom_factor) if uom_factor is not None else "",
+        "uom_factor_source": uom_factor_source,
         "unit_value": decimal_text(unit_value) if unit_value is not None else "",
         "unit_value_native": decimal_text(native_unit_value) if native_unit_value is not None else "",
         "unit_value_vnd": decimal_text(unit_value_vnd) if unit_value_vnd is not None else "",
@@ -3432,6 +3547,15 @@ def enrich_origin_product(product: dict) -> dict:
     # "Nhiều đơn giá" bị đọc thành 0 (johnson-vn 2026-08-17, 34 dòng/11 hồ sơ, có
     # hồ sơ đã chốt + đã xuất). Chỉ xét dòng CÓ lô: dòng không lô là vấn đề chứng
     # từ, đã có cờ shortage/unmatched riêng. Bỏ dòng đã xoá và rác kỹ thuật.
+    # ĐVT guard: the BOM's unit and the lot's unit are different quantities and no
+    # factor has been confirmed, so the quantity taken off tồn (and therefore trị giá)
+    # rests on a 1:1 assumption nobody checked. Blocks Chốt, not Tính.
+    enriched["lvc_uom_unconfirmed"] = any(
+        not material.get("deleted")
+        and not material.get("bom_technical_noise")
+        and material.get("uom_unconfirmed")
+        for material in materials
+    )
     enriched["lvc_zero_lot_price"] = any(
         not material.get("deleted")
         and not material.get("bom_technical_noise")
@@ -3488,7 +3612,11 @@ def enrich_origin_product(product: dict) -> dict:
         readiness_label = "Cần review tiêu chí"
     enriched.update({
         "origin_method": "build_down_lvc",
-        "origin_method_label": "Build-down LVC/RVC",
+        # Follows the criterion in force, not a constant: a CTH sheet is not filed by a
+        # build-down calculation, and labelling it that way misread the whole sheet.
+        "origin_method_label": origin_method_label_for_criterion(
+            enriched.get("origin_sheet_effective_criteria_text") or criterion
+        ),
         "origin_formula": "(FOB - VNM) / FOB x 100",
         "origin_criterion_mode": criterion_mode(criterion),
         "origin_readiness_status": readiness_status,
@@ -3656,6 +3784,65 @@ def unique_texts(values) -> list[str]:
         output.append(text)
         seen.add(text)
     return output
+CRITERIA_FAMILY_LABELS = {
+    "value_content": "Hàm lượng giá trị (RVC/LVC)",
+    "tariff_shift": "Chuyển đổi mã số (CTC)",
+    "wholly_obtained": "Xuất xứ thuần tuý",
+    "mixed": "CTC hoặc hàm lượng giá trị",
+    "unknown": "",
+}
+
+
+def criterion_family(criterion: str) -> str:
+    """Which rule the operator is actually filing under.
+
+    A criterion is not one thing: "CTH" is a tariff shift with no percentage to meet,
+    "RVC 40%" is a value-content test, and the CPTPP text ("CTH; hoặc RVC không thấp
+    hơn 30%…") offers BOTH as alternatives — passing either is enough. The sheet header
+    used to show an LVC percentage against a threshold no matter which, so a CTH sheet
+    displayed a pass/fail number that has no bearing on its rule."""
+    text = str(criterion or "").strip().upper()
+    if not text:
+        return "unknown"
+    has_value = bool(re.search(r"\b(RVC|LVC|VAC|QVC)\b", text)) or bool(re.search(r"\d+(?:[.,]\d+)?\s*%", text))
+    has_shift = bool(re.search(r"\b(CC|CTH|CTSH|CTC)\b", text))
+    wholly = bool(re.search(r"\b(WO|PE|WHOLLY|THUẦN TUÝ|THUAN TUY)\b", text))
+    if has_value and has_shift:
+        return "mixed"
+    if has_value:
+        return "value_content"
+    if has_shift:
+        return "tariff_shift"
+    if wholly:
+        return "wholly_obtained"
+    return "unknown"
+
+
+def origin_method_label_for_criterion(criterion: str) -> str:
+    """The "Phương pháp" chip. Was hardcoded "Build-down LVC/RVC" for every sheet."""
+    family = criterion_family(criterion)
+    if family == "tariff_shift":
+        return "Chuyển đổi mã số (CTC)"
+    if family == "wholly_obtained":
+        return "Xuất xứ thuần tuý"
+    return "Build-down LVC/RVC"
+
+
+def case_criteria_choice(case: dict) -> dict:
+    """The lô-hàng level criterion, if a person chose one. Shape:
+    {criteria_text, lvc_threshold, chosen_by, chosen_at}."""
+    choice = (case or {}).get("criteria_choice")
+    if not isinstance(choice, dict):
+        return {}
+    text = str(choice.get("criteria_text") or "").strip()
+    if not text:
+        return {}
+    return {
+        "criteria_text": text,
+        "lvc_threshold": str(choice.get("lvc_threshold") or "").strip(),
+        "chosen_by": str(choice.get("chosen_by") or ""),
+        "chosen_at": str(choice.get("chosen_at") or ""),
+    }
 def lvc_threshold_from_criterion(criterion: str) -> Decimal | None:
     if not criterion:
         return None

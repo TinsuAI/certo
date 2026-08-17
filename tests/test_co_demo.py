@@ -2053,6 +2053,8 @@ def test_co_case_origin_step_renders_without_origin_snapshot():
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-NO-SNAPSHOT",
             "title": "No snapshot",
             "destination_market": "Ấn Độ",
@@ -2241,6 +2243,8 @@ def test_co_case_origin_builds_and_persists_invoice_bom_snapshot():
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "shipment": {"invoice_no": "INV-BOM", "bill_of_lading_no": ""},
             "products": [
                 {
@@ -2447,6 +2451,8 @@ def test_cached_origin_context_loads_live_bom_artifact_options(monkeypatch):
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-CACHED-BOM",
             "title": "Cached BOM options",
             "destination_market": "Ấn Độ",
@@ -3010,6 +3016,10 @@ def test_origin_sheet_lock_uses_cached_case_context(monkeypatch):
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-FAST-LOCK",
             "title": "Fast lock",
             "destination_market": "Ấn Độ",
@@ -3038,6 +3048,8 @@ def test_origin_sheet_lock_uses_cached_case_context(monkeypatch):
         data={
             "case_id": case_id,
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "customer": "Growatt",
             "case_code": "CO-FAST-LOCK",
             "title": "Fast lock",
@@ -3089,6 +3101,8 @@ def test_origin_sheet_recommendation_override_persists_per_sheet():
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-OVERRIDE",
             "title": "Override test",
             "destination_market": "Ấn Độ",
@@ -3155,6 +3169,8 @@ def test_origin_sheet_substitute_candidates_endpoint_returns_search_and_recommen
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-SUB",
             "title": "Substitute test",
             "destination_market": "Ấn Độ",
@@ -3210,6 +3226,8 @@ def test_substitute_stock_reads_materialized_snapshot_not_bcct(monkeypatch):
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-SUB-STOCK",
             "title": "Substitute stock snapshot",
             "destination_market": "Ấn Độ",
@@ -3300,6 +3318,8 @@ def test_origin_sheet_substitute_search_falls_back_to_case_materials_when_catalo
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-SUB-SEARCH",
             "title": "Substitute search fallback",
             "destination_market": "Ấn Độ",
@@ -3361,6 +3381,8 @@ def test_origin_sheet_substitute_row_persists_override_and_marks_stale():
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-SUB-APPLY",
             "title": "Substitute apply",
             "destination_market": "Ấn Độ",
@@ -3671,6 +3693,8 @@ def test_export_dossier_zip_bundles_chung_tu_tkx_tkn_and_hq_bang_ke(monkeypatch)
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-ZIP",
             "title": "Zip dossier",
             "destination_market": "Ấn Độ",
@@ -3771,6 +3795,8 @@ def test_export_bang_ke_direct_route_works_on_open_case(monkeypatch):
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-DIRECT",
             "title": "Direct bang ke",
             "destination_market": "Ấn Độ",
@@ -3861,6 +3887,8 @@ def test_export_dossier_zip_keeps_tkx_from_persisted_matches_when_heavy_empty(mo
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-ZIPP",
             "title": "Zip persisted",
             "destination_market": "Ấn Độ",
@@ -3918,6 +3946,8 @@ def test_export_dossier_zip_blocks_when_sheet_stale_or_draft():
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-BLOCK",
             "title": "Block zip",
             "destination_market": "Ấn Độ",
@@ -3945,6 +3975,8 @@ def test_export_dossier_zip_requires_case_closed_even_when_all_sheets_locked():
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-ALL-LOCKED",
             "title": "All locked open",
             "destination_market": "Ấn Độ",
@@ -3973,6 +4005,8 @@ def test_export_dossier_zip_blocks_open_case_with_partial_locks():
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-PARTIAL",
             "title": "Partial locks",
             "destination_market": "Ấn Độ",
@@ -4073,6 +4107,8 @@ def test_origin_sheet_lock_records_cross_case_stock_ledger_claims():
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-LEDGER",
             "title": "Lock ledger",
             "destination_market": "Ấn Độ",
@@ -4118,6 +4154,8 @@ def test_origin_sheet_lock_records_cross_case_stock_ledger_claims():
         data={
             "case_id": case_id,
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-LEDGER",
             "title": "Lock ledger",
             "destination_market": "Ấn Độ",
@@ -4150,6 +4188,8 @@ def test_origin_sheet_lock_records_cross_case_stock_ledger_claims():
         data={
             "case_id": case_id,
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-LEDGER",
             "title": "Lock ledger",
             "destination_market": "Ấn Độ",
@@ -4210,6 +4250,8 @@ def test_origin_sheet_lock_rejects_overclaim_against_materialized_snapshot():
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-OVERCLAIM",
             "title": "Overclaim",
             "destination_market": "Ấn Độ",
@@ -4293,6 +4335,8 @@ def test_origin_sheet_propose_bom_requires_lock_and_overrides(monkeypatch):
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-PROP",
             "title": "Propose",
             "destination_market": "Ấn Độ",
@@ -4325,6 +4369,8 @@ def test_origin_sheet_propose_bom_requires_lock_and_overrides(monkeypatch):
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "origin_sheet_states": {"TP-PROP": {"status": "locked", "status_label": "Chốt"}},
         },
     )
@@ -4336,6 +4382,8 @@ def test_origin_sheet_propose_bom_requires_lock_and_overrides(monkeypatch):
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "origin_sheet_states": {
                 "TP-PROP": {
                     "status": "locked", "status_label": "Chốt",
@@ -4375,6 +4423,8 @@ def test_origin_sheet_edit_row_persists_norm_only_override():
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-EDIT",
             "title": "Edit row",
             "destination_market": "Ấn Độ",
@@ -4572,6 +4622,8 @@ def test_origin_sheet_add_row_appends_added_override():
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-ADD",
             "title": "Add row",
             "destination_market": "Ấn Độ",
@@ -4700,6 +4752,8 @@ def test_origin_sheet_save_batches_replaces_adds_deletes_and_norm_edits():
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-SAVE",
             "title": "Save batch",
             "destination_market": "Ấn Độ",
@@ -4760,6 +4814,8 @@ def test_origin_sheet_save_returns_swappable_shell_for_html_accept():
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-SAVE-HTML",
             "title": "Save html",
             "destination_market": "Ấn Độ",
@@ -4797,6 +4853,8 @@ def test_origin_sheet_save_merges_full_workbook_state_before_recompute():
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-SHEET-WB",
             "title": "Sheet save workbook",
             "destination_market": "Ấn Độ",
@@ -4862,6 +4920,8 @@ def test_origin_sheet_save_rejects_empty_payload_and_invalid_norm():
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-SAVEX",
             "title": "Save invalid",
             "destination_market": "Ấn Độ",
@@ -4899,6 +4959,8 @@ def test_origin_sheet_threshold_currency_optimization_overrides_persist():
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-THRESHOLD",
             "title": "Threshold test",
             "destination_market": "Ấn Độ",
@@ -4967,6 +5029,8 @@ def test_origin_sheet_actions_accept_large_ajax_forms():
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-LARGE-FORM",
             "title": "Large origin form",
             "destination_market": "Ấn Độ",
@@ -5049,6 +5113,8 @@ def test_origin_calculation_payload_returns_case_json():
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-PAYLOAD",
             "title": "Origin payload",
             "destination_market": "Ấn Độ",
@@ -5097,6 +5163,8 @@ def test_origin_save_accepts_compact_json_and_marks_stale():
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-SAVE",
             "title": "Origin save",
             "destination_market": "Ấn Độ",
@@ -5138,6 +5206,8 @@ def test_origin_autosave_persists_full_workbook_state_without_dropping_sheets():
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-WB",
             "title": "Workbook state",
             "destination_market": "Ấn Độ",
@@ -5198,6 +5268,8 @@ def test_origin_sheet_lock_accepts_compact_json_without_source_refresh(monkeypat
         get_client("growatt"),
         {
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "case_code": "CO-COMPACT-LOCK",
             "title": "Compact lock",
             "destination_market": "Ấn Độ",
@@ -5338,6 +5410,9 @@ def test_origin_sheet_actions_follow_sequential_locking_rules():
     )
 
     case = {
+        # Chốt requires a criterion chosen by a person (2026-08-17); this test is about
+        # sequencing, so the choice is part of the ready fixture.
+        "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
         "products": [{"code": "TP-1"}, {"code": "TP-2"}, {"code": "TP-3"}, {"code": "TP-4"}, {"code": "TP-5"}],
         "origin_sheet_states": {
             "TP-1": {"status": "locked"},
@@ -5372,6 +5447,8 @@ def test_origin_sheet_recovers_stuck_calculating_status_and_becomes_lockable():
     # A sheet left resting in the transient "calculating" status (interrupted
     # calc / autosaved optimistic value) must not stay silently un-lockable.
     case = {
+        # Chốt requires a criterion chosen by a person (2026-08-17).
+        "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
         "products": [{"code": "TP-1"}],
         "origin_sheet_states": {"TP-1": {"status": "calculating", "status_label": "Đang tính"}},
     }
@@ -5905,6 +5982,12 @@ def test_co_case_origin_round_trips_multi_lot_allocation_to_export_workbook():
         f"{created.headers['location']}/origin/sheet/PV00.0048500/calculate",
         data=stale_form_data,
     )
+    # Chốt requires a criterion chosen by a person (2026-08-17) — the operator picks it
+    # once for the lô hàng and every sheet inherits it.
+    client.post(
+        f"{created.headers['location']}/origin/case-criteria",
+        json={"criteria_text": "CTH"},
+    )
     locked = client.post(
         f"{created.headers['location']}/origin/sheet/PV00.0048500/lock",
         data=hidden_form_data(calculated.text),
@@ -6173,6 +6256,8 @@ def test_co_case_evaluate_keeps_persisted_dossier_supporting_metadata():
         data={
             "case_id": case_id,
             "persisted_case_id": case_id,
+            # Chốt requires a criterion chosen by a person (2026-08-17).
+            "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
             "customer": "Growatt",
             "case_code": "CO-EVAL",
             "title": "Evaluate dossier",

@@ -9,6 +9,9 @@ from __future__ import annotations
 
 def _case(materials, *, status="calculated", lvc_status="pass"):
     return {
+        # A criterion chosen for the lô hàng: Chốt requires a human choice (2026-08-17),
+        # so a fixture representing a lockable sheet has to carry one.
+        "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
         "products": [{
             "code": "P1", "name": "P1", "materials": materials,
             "lvc_status": lvc_status, "origin_sheet_status": status,

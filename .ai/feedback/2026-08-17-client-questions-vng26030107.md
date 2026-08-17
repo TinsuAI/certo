@@ -255,6 +255,75 @@ nguyên tệ (a per-client default for the sheet switch is not built yet — tod
 per sheet, defaulting to `native`, which resolves to the invoice currency only when the
 export declaration states one).
 
+### ĐVT (đơn vị tính) — convert at the line, or block Chốt
+
+CO never compared the BOM's đơn vị tính with the unit on the customs lot it consumes:
+the demand was subtracted from `remaining_qty` as if the two were the same unit. Data
+Hub does align units when it builds a BOM artifact (`applied_uom_factor`,
+`applied_uom_source` incl. `unconfirmed_default`), but that answers a different
+question (BOM source unit → BOM unit), and CO read neither field.
+
+Measured on prod johnson-vn: **226 of 3,816** allocated lines have BOM uom ≠ lot unit.
+184 are spellings of the same unit (EA ↔ PIECES) and convert 1:1; **42 lines across 25
+codes** cross quantities — EA ↔ SETS (35), EA ↔ CAY (2), EA ↔ KILO-GRAMMES (2),
+KG ↔ PIECES (2), EA ↔ METRIC-TONS (1) — and were silently treated as 1:1.
+
+Shipped:
+- `app/uom_conversion.py` resolves a pair in three tiers: same unit / alias (incl.
+  Vietnamese names) → factor 1; same physical family (KG↔G↔MT, M↔CM↔MM, L↔ML) → the
+  arithmetic factor; anything else → `unconfirmed`.
+- The allocator converts the demand into each lot's unit before subtracting, and the
+  line carries both quantities (`allocated_qty` in lot units, `allocated_qty_bom_uom`
+  in BOM units) plus `uom_factor` + `uom_factor_source`.
+- An unconfirmed pair keeps today's 1:1 arithmetic (so Tính still works) but flags the
+  row; the new `lvc_uom_unconfirmed` belt holds the sheet at `bom_loaded`, is re-checked
+  at the lock gate and the export blockers, and gets its own attention chip
+  ("Cần xử lý: ĐVT chưa khớp").
+- The row shows `⇄ SETS?` — clicking it asks "1 SET = ? EA", saves the factor per client
+  (optionally per material) with who confirmed it and when
+  (`co_uom_factor` table + JSON fallback, `app/uom_factor_store.py`), then recalculates.
+
+### Tiêu chí — chosen once per lô hàng, required before Chốt
+
+Storage stays per sheet (the file prints it per product), but the decision is made once
+for the case and inherited: **sheet override → case choice → engine recommendation**.
+Prod data supports it: 34 johnson cases / 157 sheets, **no case with more than one HS**,
+and only 1 of 157 sheets ever carried its own criterion.
+
+- New case-level bar on the origin step: shows the criterion for the whole lô, "Dùng
+  khuyến nghị" (one click, recorded as a human choice), "Chọn…", "Bỏ chọn"; warns how
+  many sheets are still unchosen.
+- The per-sheet chip now names the source ("theo lô hàng" / "riêng sheet này" /
+  "chưa chọn").
+- **Chốt requires a chosen criterion** (`criteria_source` ∈ {sheet, case}); Tính is
+  never blocked by it. The gate sits after the data belts so the operator fixes data
+  problems first.
+- Criterion-aware header: `criterion_family()` classifies the effective text
+  (value_content / tariff_shift / wholly_obtained / mixed). Under a pure CTC rule the
+  LVC chip loses its threshold and pass/fail colouring and reads "tham khảo"; under a
+  value rule the CTC chip does. "Phương pháp" is derived instead of the hardcoded
+  "Build-down LVC/RVC".
+- The threshold is re-derived from the criterion in force, so changing the criterion no
+  longer leaves the previous 30% on screen.
+
+**Two whitelists had to be widened for the case-level choice to exist at all:**
+`update_case_record` and `case_from_record` copy a fixed key list, so `criteria_choice`
+was silently dropped on write and invisible on read until both were extended — and
+`origin_case_from_request`'s form branch rebuilds a case from form fields only, so it
+now re-attaches case-level state or a form-based lock would see an unchosen criterion.
+
+**Rollout note:** after deploy, every existing sheet reads "chưa chọn tiêu chí" and
+cannot be Chốt until someone picks one — one click per case ("Dùng khuyến nghị")
+covers a whole lô. Already-locked sheets and closed cases are untouched.
+
+Verified end to end on real johnson-vn lots
+(`.ai/scripts/e2e_uom_and_criteria.py`, code `1000485357` whose lots are all in SETS
+against a BOM row in EA): the mismatch flags and blocks Chốt with the ĐVT reason → the
+route confirms "1 SET = 5 EA" → 10 EA takes **2 SETS** off the lot and the flag clears →
+Chốt then refuses for the criterion → choosing "CTH" for the lô makes every sheet
+inherit it, drops the LVC threshold, switches the method label to "Chuyển đổi mã số
+(CTC)", and clears the gate.
+
 ## Reply to the client (Vietnamese, forwardable)
 
 **1. Đơn giá đang hiện VND, muốn giữ theo USD**

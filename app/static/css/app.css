@@ -2423,6 +2423,93 @@ button.co-stat:hover {
   cursor: help;
 }
 
+/* A metric that is reference only under the criterion in force. */
+.origin-metric-chip.origin-metric-informational {
+  opacity: 0.72;
+  border-style: dashed;
+}
+
+.origin-metric-chip.origin-metric-informational > strong {
+  font-weight: 600;
+}
+
+.origin-metric-chip .occ-src {
+  color: var(--foreground-muted);
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Tiêu chí cho cả lô hàng — the one decision that fills every sheet. */
+.origin-case-criteria {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+  margin-bottom: 0.5rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  font-size: 0.82rem;
+}
+
+.origin-case-criteria.origin-case-criteria-unset {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
+  background: var(--warning-soft);
+}
+
+.occ-label {
+  color: var(--foreground-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.occ-value {
+  flex: 1 1 18rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.occ-warn {
+  color: var(--warning);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+/* ĐVT mismatch on a material row: a warning that is also the fix affordance. */
+.origin-uom-gap {
+  display: inline-block;
+  margin-top: 0.12rem;
+  padding: 0.02rem 0.3rem;
+  border: 1px dashed color-mix(in srgb, var(--warning) 55%, var(--border));
+  border-radius: var(--radius-xs);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 0.66rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.origin-uom-gap:hover {
+  border-style: solid;
+  border-color: var(--warning);
+}
+
+.origin-uom-converted {
+  display: inline-block;
+  color: var(--foreground-muted);
+  font-size: 0.66rem;
+  cursor: help;
+}
+
 /* Tiêu chí chip: a button (opens the config modal) that must still read as a chip.
    The criterion text can be a full PSR sentence, so the chip truncates INSIDE its
    own box — `.origin-metric-chip` is `nowrap`, and without the shrink + ellipsis it

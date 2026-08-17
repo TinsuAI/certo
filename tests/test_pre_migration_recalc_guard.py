@@ -70,6 +70,9 @@ def test_freshly_materialized_row_carries_the_field():
 
 def _sheet(materials, *, status="calculated"):
     return {
+        # Chốt requires a criterion chosen by a person (2026-08-17) — a fixture for a
+        # lockable sheet carries one so it tests the guard under test, not that rule.
+        "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
         "products": [{"code": "P1", "name": "P1", "lvc_status": "pass", "materials": materials}],
         "origin_sheet_states": {"P1": {"status": status}},
     }

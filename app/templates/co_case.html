@@ -943,6 +943,34 @@
   {% endif %}
 
   {% if case.products %}
+  {# Tiêu chí cho CẢ LÔ: on prod every case has a single HS, so its sheets share one
+     criterion — choosing it here fills all of them (a sheet can still override). #}
+  {% set _case_criteria = (case.criteria_choice or {}).get('criteria_text') if case.criteria_choice else '' %}
+  {% set _rec_criteria = case.products[0].origin_sheet_recommended_criteria_text %}
+  {% set _sheets_unchosen = case.products|rejectattr('origin_sheet_criteria_source', 'in', ['sheet', 'case'])|list|length %}
+  <div class="origin-case-criteria{{ '' if _case_criteria else ' origin-case-criteria-unset' }}"
+       data-origin-case-criteria
+       data-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/case-criteria"
+       data-recommended="{{ _rec_criteria or '' }}">
+    <span class="occ-label">Tiêu chí cho cả lô</span>
+    <span class="occ-value" data-origin-case-criteria-value title="{{ _case_criteria or _rec_criteria or '' }}">
+      {% if _case_criteria %}{{ _case_criteria }}
+      {% else %}<em>chưa chọn</em> · khuyến nghị: {{ _rec_criteria or 'n/a' }}{% endif %}
+    </span>
+    {% if _sheets_unchosen %}<span class="occ-warn">{{ _sheets_unchosen }} bảng kê chưa chọn tiêu chí — không chốt được</span>{% endif %}
+    {% if _rec_criteria and not _case_criteria %}
+    <button type="button" class="btn-secondary btn-sm" data-origin-case-criteria-use-recommended
+            title="Ghi nhận tiêu chí khuyến nghị là lựa chọn của bạn cho cả lô hàng">Dùng khuyến nghị</button>
+    {% endif %}
+    <button type="button" class="btn-secondary btn-sm" data-origin-case-criteria-edit
+            title="Nhập tiêu chí áp cho cả lô hàng (từng bảng kê vẫn ghi đè được)">
+      {{ 'Sửa' if _case_criteria else 'Chọn…' }}
+    </button>
+    {% if _case_criteria %}
+    <button type="button" class="btn-secondary btn-sm" data-origin-case-criteria-clear
+            title="Bỏ lựa chọn cho cả lô, quay về khuyến nghị">Bỏ chọn</button>
+    {% endif %}
+  </div>
   <div class="origin-review-table">
     <div class="origin-review-row origin-review-head" aria-hidden="true">
       <span class="orr-step">Bước</span>
@@ -1424,18 +1452,29 @@
                  says which criterion will be written on the C/O and whether the operator has
                  picked it or is still riding the engine recommendation. LVC + CTC next to it
                  are both only previews OF this criterion. #}
-              <button type="button" class="origin-metric-chip origin-metric-criteria{{ '' if criteria_override else ' origin-metric-criteria-unset' }}"
+              {% set _crit_source = product.origin_sheet_criteria_source %}
+              <button type="button" class="origin-metric-chip origin-metric-criteria{{ ' origin-metric-criteria-unset' if _crit_source in ['', 'recommendation'] else '' }}"
                       data-origin-settings-open data-origin-criteria-chip
-                      title="{% if criteria_override %}Tiêu chí đã chọn — bấm để sửa.{% else %}Chưa chọn tiêu chí: đang ghi theo khuyến nghị của hệ thống ({{ rec_criteria or 'n/a' }}). Bấm để chọn tiêu chí sẽ ghi lên C/O.{% endif %}">
+                      title="{% if _crit_source == 'sheet' %}Tiêu chí đặt riêng cho bảng kê này — bấm để sửa.{% elif _crit_source == 'case' %}Tiêu chí theo lựa chọn cho cả lô hàng — bấm để đặt riêng cho bảng kê này.{% else %}Chưa ai chọn tiêu chí: đang theo khuyến nghị của hệ thống ({{ rec_criteria or 'n/a' }}). Chọn cho cả lô ở thanh trên, hoặc riêng bảng kê này ở đây. Chưa chọn thì không chốt được.{% endif %}">
                 <em>Tiêu chí</em>
-                <strong title="{{ criteria_override or effective_criteria or '' }}">{{ (criteria_override or effective_criteria or '—')|truncate(30, True, '…') }}</strong>
-                {% if not criteria_override %}<small>chưa chọn</small>{% endif %}
+                <strong title="{{ effective_criteria or '' }}">{{ (effective_criteria or '—')|truncate(30, True, '…') }}</strong>
+                {% if _crit_source == 'case' %}<small class="occ-src">theo lô hàng</small>
+                {% elif _crit_source == 'sheet' %}<small class="occ-src">riêng sheet này</small>
+                {% else %}<small>chưa chọn</small>{% endif %}
               </button>
-              <span class="origin-metric-chip origin-metric-{{ lvc_metric_class }}" data-origin-lvc-cell title="{{ product.lvc_quality_warning_text or product.lvc_status_label or 'LVC' }}">
+              {# LVC is a pass/fail only under a value-content criterion. Under a pure
+                 CTC rule (CTH/CTSH) or WO the percentage is reference only — showing it
+                 coloured against a threshold sent operators chasing a number that has no
+                 bearing on the rule they file under. #}
+              {% set _lvc_applies = product.origin_sheet_lvc_applies %}
+              <span class="origin-metric-chip {{ ('origin-metric-' ~ lvc_metric_class) if _lvc_applies else 'origin-metric-informational' }}" data-origin-lvc-cell
+                    data-origin-lvc-applies="{{ '1' if _lvc_applies else '0' }}"
+                    title="{% if not _lvc_applies %}Tiêu chí đang áp dụng không xét hàm lượng giá trị — số LVC chỉ để tham khảo.{% else %}{{ product.lvc_quality_warning_text or product.lvc_status_label or 'LVC' }}{% endif %}">
                 <em>LVC <small data-origin-live-flag hidden>(live)</small></em>
-                <strong class="num" data-origin-lvc>{{ product.lvc_percentage ~ '%' if product.lvc_percentage else product.lvc_status_label or 'Thiếu' }}</strong>{% if displayed_threshold %} / {{ displayed_threshold }}%{% if lvc_threshold_override or rvc_threshold_override %} <small class="origin-recommendation-overridden">(override)</small>{% endif %}{% endif %}
+                <strong class="num" data-origin-lvc>{{ product.lvc_percentage ~ '%' if product.lvc_percentage else product.lvc_status_label or 'Thiếu' }}</strong>{% if _lvc_applies and displayed_threshold %} / {{ displayed_threshold }}%{% if lvc_threshold_override or rvc_threshold_override %} <small class="origin-recommendation-overridden">(override)</small>{% endif %}{% elif not _lvc_applies %} <small>tham khảo</small>{% endif %}
               </span>
-              <span class="origin-metric-chip" title="{{ product.tariff_shift_note or product.origin_formula }}"><em>CTC</em> <strong>{{ product.tariff_shift_status_label or '—' }}</strong></span>
+              <span class="origin-metric-chip {{ '' if product.origin_sheet_ctc_applies else 'origin-metric-informational' }}"
+                    title="{% if not product.origin_sheet_ctc_applies %}Tiêu chí đang áp dụng không xét chuyển đổi mã số — ô này chỉ để tham khảo.{% else %}{{ product.tariff_shift_note or product.origin_formula }}{% endif %}"><em>CTC</em> <strong>{{ product.tariff_shift_status_label or '—' }}</strong>{% if not product.origin_sheet_ctc_applies %} <small>tham khảo</small>{% endif %}</span>
               {% if product.origin_method_label %}
               <span class="origin-metric-chip" title="{{ product.origin_formula }}"><em>Phương pháp</em> <strong>{{ product.origin_method_label }}</strong></span>
               {% endif %}
@@ -1722,6 +1761,21 @@
                            value="{{ effective_norm or '0' }}"
                            aria-label="Định mức cho {{ material.material_code }}">
                     <small>{{ material.uom }}</small>
+                    {# ĐVT của lô khác ĐVT của BOM và chưa có hệ số: dòng vẫn trừ tồn 1:1
+                       nhưng không chốt được cho tới khi người dùng xác nhận hệ số. #}
+                    {% if material.uom_unconfirmed and material.lot_uom %}
+                    <button type="button" class="origin-uom-gap" data-origin-uom-confirm
+                            data-product-code="{{ product.code }}"
+                            data-material-code="{{ material.material_code }}"
+                            data-bom-uom="{{ material.uom }}"
+                            data-lot-uom="{{ material.lot_uom }}"
+                            title="ĐVT trên tờ khai nhập là {{ material.lot_uom }}, BOM ghi {{ material.uom }} — bấm để xác nhận hệ số quy đổi. Đang tạm trừ tồn theo 1:1.">
+                      ⇄ {{ material.lot_uom }}?
+                    </button>
+                    {% elif material.lot_uom and material.lot_uom != material.uom %}
+                    <small class="origin-uom-converted"
+                           title="Đã quy đổi sang ĐVT của tờ khai nhập ({{ material.lot_uom }})">⇄ {{ material.lot_uom }}</small>
+                    {% endif %}
                   </td>
                   <td data-origin-column="consumed" class="num">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_available_qty" value="{{ material.available_qty }}">
@@ -5183,7 +5237,11 @@
     if (lvcCell) lvcCell.textContent = `${lvc.toFixed(2)}%`;
     const threshold = parseFloat(panel.dataset.productLvcThreshold || "0") || 0;
     const lvcMetric = panel.querySelector("[data-origin-lvc-cell]");
-    if (lvcMetric && threshold > 0) {
+    // Same rule as the server render: no pass/fail colouring under a criterion that
+    // does not test value content.
+    if (lvcMetric && lvcMetric.dataset.originLvcApplies === "0") {
+      lvcMetric.classList.remove("origin-metric-pass", "origin-metric-fail", "origin-metric-warning");
+    } else if (lvcMetric && threshold > 0) {
       lvcMetric.classList.remove("origin-metric-pass", "origin-metric-fail", "origin-metric-warning");
       lvcMetric.classList.add(lvc >= threshold ? "origin-metric-pass" : "origin-metric-fail");
       lvcMetric.title = lvc >= threshold ? `LVC ${lvc.toFixed(2)}% ≥ ngưỡng ${threshold}% — Đạt` : `LVC ${lvc.toFixed(2)}% < ngưỡng ${threshold}% — Chưa đạt`;
@@ -5844,6 +5902,92 @@
     const initial = panel.querySelector(".dossier-export-state");
     if (!initial) poll();
     else if (initial.getAttribute("data-export-status") === "running") schedule();
+  };
+
+  // ĐVT mismatch → confirm the factor on the row. Wired through
+  // refreshCaseShellInteractions (an inline <script> would not survive a shell swap).
+  // Tiêu chí cho cả lô hàng: choose once, every sheet inherits (a sheet can override).
+  const initCaseCriteria = (root = document) => {
+    const bar = (root.querySelector?.("[data-origin-case-criteria]")) || document.querySelector("[data-origin-case-criteria]");
+    if (!bar || bar.dataset.criteriaBound === "1") return;
+    bar.dataset.criteriaBound = "1";
+    const url = bar.dataset.url;
+    const save = async (criteriaText) => {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {"Content-Type": "application/json", "Accept": "application/json"},
+        body: JSON.stringify({criteria_text: criteriaText}),
+      });
+      if (!response.ok) return;
+      toast(criteriaText ? "Đã chọn tiêu chí cho cả lô hàng." : "Đã bỏ chọn tiêu chí của lô hàng.", "success");
+      window.location.reload();
+    };
+    bar.querySelector("[data-origin-case-criteria-use-recommended]")?.addEventListener("click", () => {
+      save(bar.dataset.recommended || "");
+    });
+    bar.querySelector("[data-origin-case-criteria-edit]")?.addEventListener("click", () => {
+      const current = bar.querySelector("[data-origin-case-criteria-value]")?.getAttribute("title") || "";
+      const answer = window.prompt(
+        "Tiêu chí xuất xứ áp cho cả lô hàng (ghi đúng nguyên văn sẽ in lên C/O).\n" +
+        "VD: CTH — hoặc: RVC không thấp hơn 40% theo công thức tính trực tiếp.",
+        current,
+      );
+      if (answer === null) return;
+      save(String(answer).trim());
+    });
+    bar.querySelector("[data-origin-case-criteria-clear]")?.addEventListener("click", () => {
+      if (!window.confirm("Bỏ tiêu chí đã chọn cho cả lô hàng? Các bảng kê sẽ quay về khuyến nghị và không chốt được cho tới khi chọn lại.")) return;
+      save("");
+    });
+  };
+
+  const initUomFactorConfirm = (root = document) => {
+    const shell = root.querySelector?.("[data-co-case-shell]") || document;
+    shell.querySelectorAll?.("[data-origin-uom-confirm]").forEach((button) => {
+      if (button.dataset.uomBound === "1") return;
+      button.dataset.uomBound = "1";
+      button.addEventListener("click", async () => {
+        const bomUom = button.dataset.bomUom || "";
+        const lotUom = button.dataset.lotUom || "";
+        const materialCode = button.dataset.materialCode || "";
+        const answer = window.prompt(
+          `Mã ${materialCode}: 1 ${lotUom} (đơn vị trên tờ khai nhập) bằng bao nhiêu ${bomUom} (đơn vị trong BOM)?\n` +
+          `Nhập số, ví dụ 5 nghĩa là 1 ${lotUom} = 5 ${bomUom}. Hệ số này sẽ áp cho các hồ sơ sau của công ty.`,
+          "",
+        );
+        if (answer === null) return;
+        const perLot = parseFloat(String(answer).replace(",", "."));
+        if (!Number.isFinite(perLot) || perLot <= 0) {
+          toast("Hệ số quy đổi phải là số lớn hơn 0.", "error");
+          return;
+        }
+        button.setAttribute("disabled", "disabled");
+        try {
+          const response = await fetch(
+            `/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/uom-factor`,
+            {
+              method: "POST",
+              headers: {"Content-Type": "application/json", "Accept": "application/json"},
+              body: JSON.stringify({
+                product_code: button.dataset.productCode || "",
+                material_code: materialCode,
+                bom_uom: bomUom,
+                lot_uom: lotUom,
+                // The operator answers "1 lot unit = N BOM units"; the engine wants the
+                // factor that turns a BOM quantity into lot units.
+                factor: String(1 / perLot),
+                scope: "material",
+              }),
+            },
+          );
+          if (!response.ok) return;
+          toast(`Đã lưu hệ số: 1 ${lotUom} = ${perLot} ${bomUom}. Đang tải lại bảng kê…`, "success");
+          window.location.reload();
+        } finally {
+          button.removeAttribute("disabled");
+        }
+      });
+    });
   };
 
   const initCaseCreatedBanner = (root = document) => {
@@ -7037,6 +7181,8 @@
     initOriginLiveRecompute(root);
     initCaseTabLoading(root);
     initDossierExportPolling(root);
+    initUomFactorConfirm(root);
+    initCaseCriteria(root);
     initCaseCreatedBanner(root);
     initCostBuildupHint(root);
     initCostBuildupApply(root);

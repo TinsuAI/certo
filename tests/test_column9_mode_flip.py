@@ -21,6 +21,9 @@ from app.web.co_case_context import (
 def _case(statuses: dict[str, str], materialized_mode: str = "country", override: str = "qualification_label") -> dict:
     return {
         "bang_ke_column9_mode_override": override,
+        # Chốt requires a criterion chosen by a person (2026-08-17) — a fixture for a
+        # lockable sheet carries one so it tests the guard under test, not that rule.
+        "criteria_choice": {"criteria_text": "CTH", "chosen_by": "test"},
         "products": [
             {"code": code, "bang_ke_column9_mode": materialized_mode, "lvc_status": "pass",
              # customs_relevance present (post-mig) so these mode-flip cases don't
