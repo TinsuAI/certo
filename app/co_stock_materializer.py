@@ -44,7 +44,12 @@ LOGGER = logging.getLogger(__name__)
 # 2 = VN-origin: consignee_name/origin_country plumbed into the payload (#6).
 # 3 = allocation_code provenance value-set canonicalized (#21): _source splits
 #     primary vs fallback, _confidence is ordinal, _status uses `unresolved`.
-DERIVATION_SCHEMA_VERSION = 3
+# 4 = invoice lane on every lot (native_currency / unit_value_native /
+#     customs_value_native) + exchange_rate_to_vnd now resolved against the invoice
+#     currency instead of the always-VND calculation lane. Existing snapshots carry
+#     neither field, so they must be re-derived once for a bảng kê to be filable in
+#     nguyên tệ.
+DERIVATION_SCHEMA_VERSION = 4
 
 
 def co_config_fingerprint(config: dict) -> str:

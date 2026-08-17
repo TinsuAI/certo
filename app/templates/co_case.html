@@ -1411,8 +1411,15 @@
               <span class="origin-metric-chip"><em>Bước</em> <strong>{{ product.allocation_sequence or loop.index }}</strong></span>
               <span class="origin-metric-chip"><em>HS</em> <strong class="mono">{{ product.finished_hs }}</strong></span>
               <span class="origin-metric-chip"><em>SL</em> <strong>{{ product.quantity|number(6) }}</strong> {{ product.unit or product.export_unit }}</span>
-              <span class="origin-metric-chip"><em>FOB</em> <strong class="num" data-origin-fob>{{ product.fob|number if product.fob else 'Thiếu' }}</strong> {{ product.currency }}</span>
-              <span class="origin-metric-chip"><em>VNM</em> <strong class="num" data-origin-vnm>{{ (product.vnm_value or product.non_origin_value or '0')|number }}</strong> {{ product.currency }}</span>
+{# FOB + VNM stay on the VND lane with a VND label: they are the two inputs of LVC,
+                 which is computed in VND whatever currency the sheet is FILED in. The
+                 declaration's nguyên-tệ FOB is in the tooltip. #}
+              <span class="origin-metric-chip"
+                    title="{% if product.fob_invoice and product.invoice_currency %}Trị giá FOB theo tờ khai: {{ product.fob_invoice }} {{ product.invoice_currency }} (tỷ giá {{ product.fob_fx_rate or 'n/a' }}) — LVC luôn tính trên số VND{% else %}Trị giá FOB dùng để tính LVC{% endif %}">
+                <em>FOB</em> <strong class="num" data-origin-fob>{{ product.fob|number if product.fob else 'Thiếu' }}</strong> {{ product.currency }}</span>
+              <span class="origin-metric-chip"
+                    title="{% if product.vnm_value_native and product.vnm_native_currency %}Trị giá không xuất xứ theo tờ khai: {{ product.vnm_value_native }} {{ product.vnm_native_currency }} — LVC luôn tính trên số VND{% else %}Trị giá NVL không xuất xứ dùng để tính LVC{% endif %}">
+                <em>VNM</em> <strong class="num" data-origin-vnm>{{ (product.vnm_value or product.non_origin_value or '0')|number }}</strong> {{ product.currency }}</span>
               {# Tiêu chí is an explicit choice, not something the system settles: this chip
                  says which criterion will be written on the C/O and whether the operator has
                  picked it or is still riding the engine recommendation. LVC + CTC next to it
@@ -1727,6 +1734,7 @@
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_currency" value="{{ material.currency }}">
                     <span data-origin-cell-unit-value
                           data-row-currency="{{ material.currency or 'VND' }}"
+                          data-row-native-currency="{{ material.native_currency or material.currency or 'VND' }}"
                           data-base-unit-value="{{ material.unit_value or '0' }}"
                           data-base-unit-value-native="{{ material.unit_value_native or material.unit_value or '0' }}"
                           data-base-unit-value-vnd="{{ material.unit_value_vnd or '' }}">{{ material.unit_value|number(6) if material.unit_value else 'Thiếu' }}</span>
@@ -1738,6 +1746,7 @@
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_material_value" value="{{ material.material_value }}">
                     <span data-origin-cell-material-value
                           data-row-currency="{{ material.currency or 'VND' }}"
+                          data-row-native-currency="{{ material.native_currency or material.currency or 'VND' }}"
                           data-base-material-value="{{ material.material_value or '0' }}"
                           data-base-material-value-native="{{ material.material_value_native or material.material_value or '0' }}"
                           data-base-material-value-vnd="{{ material.material_value_vnd or '' }}">{{ material.material_value|number if material.material_value else 'Thiếu' }}</span>
@@ -3548,9 +3557,15 @@
         const rowCurrency = (el.dataset.rowCurrency || "VND").toUpperCase();
         const nativeRaw = el.getAttribute(nativeAttr);
         const vndRaw = el.getAttribute(vndAttr);
+        const rowNativeCurrency = (el.dataset.rowNativeCurrency || rowCurrency).toUpperCase();
         let pick;
         if (target === rowCurrency) {
           pick = nativeRaw;  // no conversion needed
+        } else if (target === rowNativeCurrency && nativeRaw) {
+          // The lot's own declaration is in the target currency → print ITS đơn giá,
+          // not the VND lane divided by the FOB rate (mirror of _pick_currency_value;
+          // export and grid must agree).
+          pick = nativeRaw;
         } else if (target === "VND") {
           pick = vndRaw || nativeRaw;  // canonical VND value
         } else if (vndRaw && fobFxRate > 0) {

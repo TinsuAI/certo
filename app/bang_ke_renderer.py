@@ -90,7 +90,10 @@ def _column_index(letter: str) -> int:
 
 def _build_field_table(case: dict, product: dict) -> dict[str, Any]:
     quantity = _decimal(product.get("quantity") or 0)
-    fob = _decimal(product.get("fob") or 0)
+    # FOB must be in the currency this sheet is filed in — the header prints it next
+    # to that currency's label, and the material columns are already in it.
+    currency_mode = (product.get("origin_sheet_currency_mode") or "native").strip().lower()
+    fob = _decimal(product_fob_in_target(product, currency_mode == "vnd") or 0)
     unit_price = fob / quantity if quantity else fob
     declaration_no = product.get("source_declaration_no") or _first_non_empty(
         (case.get("shipment") or {}).get("export_declaration_nos") or []
@@ -123,7 +126,7 @@ def _build_field_table(case: dict, product: dict) -> dict[str, Any]:
         "quantity": product.get("quantity", "") or "0",
         "quantity_decimal": quantity,
         "uom": product.get("uom") or product.get("unit") or product.get("export_unit", ""),
-        "fob": product.get("fob", "") or "0",
+        "fob": _decimal_text(fob) if fob else (product.get("fob", "") or "0"),
         "fob_decimal": fob,
         "unit_price": unit_price,
         "incoterm": product.get("incoterm", "FOB") or "FOB",
@@ -166,6 +169,8 @@ def _pick_currency_value(material: dict, base_key: str, use_vnd: bool, product: 
 
     Direction matrix:
       row.currency == target          → row[base_key]            (no-op)
+      row.native_currency == target   → row[base_key + "_native"] (the declaration's
+                                         own nguyên-tệ figure — exact)
       target == "VND"                 → row[base_key + "_vnd"]   (canonical)
       target is non-VND, row is VND   → row[base_key + "_vnd"] / fob_fx_rate
                                          (cross-convert VND base into nguyên tệ)
@@ -177,6 +182,14 @@ def _pick_currency_value(material: dict, base_key: str, use_vnd: bool, product: 
     row_currency = (material.get("currency") or "VND").strip().upper() or "VND"
     if target == row_currency:
         return material.get(base_key, "")
+    # Invoice lane: when the lot's own declaration is in the target currency, print
+    # ITS number. Cross-converting the VND lane instead would restate the đơn giá the
+    # customs document states (19007.89015 / 25850 = 0.735315 vs the declared
+    # 0.735317).
+    native_currency = (material.get("native_currency") or "").strip().upper()
+    native_value = material.get(f"{base_key}_native")
+    if native_currency and native_currency == target and native_value not in (None, ""):
+        return native_value
     if target == "VND":
         vnd = material.get(f"{base_key}_vnd")
         return vnd if vnd not in (None, "") else material.get(base_key, "")
@@ -202,12 +215,40 @@ def _pick_currency_value(material: dict, base_key: str, use_vnd: bool, product: 
     return material.get(base_key, "")
 
 
+def product_fob_in_target(product: dict, use_vnd: bool) -> str:
+    """FOB in the currency the sheet is filed in.
+
+    Mirrors `_pick_currency_value` for the product-level figure: the VND lane
+    (`fob_vnd`/`fob`) when filing in VND, the export declaration's own nguyên-tệ total
+    (`fob_invoice`) when filing in that currency, and a rate conversion only as a last
+    resort. Without this the header printed a VND amount under a USD label."""
+    target = _resolve_target_currency(product, use_vnd)
+    product = product or {}
+    if target == "VND":
+        return str(product.get("fob_vnd") or product.get("fob") or "")
+    invoice_currency = str(product.get("invoice_currency") or "").strip().upper()
+    if invoice_currency == target and product.get("fob_invoice"):
+        return str(product["fob_invoice"])
+    fob_currency = str(product.get("fob_currency") or product.get("currency") or "VND").strip().upper()
+    if fob_currency == target:
+        return str(product.get("fob") or "")
+    vnd_value = product.get("fob_vnd") or (product.get("fob") if fob_currency == "VND" else "")
+    rate = product.get("fob_fx_rate") or ""
+    try:
+        if vnd_value not in (None, "") and rate:
+            return _decimal_text(Decimal(str(vnd_value)) / Decimal(str(rate)))
+    except (InvalidOperation, ValueError, ZeroDivisionError):
+        pass
+    return str(product.get("fob") or "")
 def _resolve_target_currency(product: dict | None, use_vnd: bool) -> str:
     if use_vnd:
         return "VND"
     if not product:
         return "VND"
-    raw = product.get("fob_currency") or product.get("currency") or "VND"
+    # `invoice_currency` is the export declaration's own currency; it is set only when
+    # it differs from the VND lane `fob`/`fob_currency` sit on, so preferring it here
+    # is what makes "nguyên tệ" mean the invoice currency rather than VND again.
+    raw = product.get("invoice_currency") or product.get("fob_currency") or product.get("currency") or "VND"
     return str(raw).strip().upper() or "VND"
 
 

@@ -332,10 +332,6 @@ async def save_client_config_route(request: Request, client_id: str):
     # bcct change, so this save is always CO-owned and allowed.
     config = portfolio_service.get_client_config(client)
     config["co_stock"]["lot_policy"] = str(form.get("co_stock_lot_policy", "line_level"))
-    # Changing the value basis changes co_config_fingerprint → the next refresh
-    # re-derives every stock row (and every bảng kê must be tính lại to pick the
-    # new currency up).
-    config["co_stock"]["value_basis"] = str(form.get("co_stock_value_basis", "taxable_vnd"))
     config["allocation_code"]["strategy"] = str(form.get("allocation_code_strategy", "same_as_customs_code"))
     config["allocation_code"]["description_regex"] = str(form.get("description_regex", ""))
     config["allocation_code"]["fallback"] = str(form.get("allocation_code_fallback", "same_as_customs_code"))

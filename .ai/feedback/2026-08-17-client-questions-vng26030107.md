@@ -187,7 +187,7 @@ timer; orphan detection in `_view` (consult `_FUTURES` like `_is_running`) so a 
 | Q2 | `9b63bd8` | lot price outranks the carried value; non-numeric text is never a number; new `lvc_zero_lot_price` belt (calculate / lock gate / export blockers / attention chip) |
 | Q4 | `7633ac2` + `51cc85e` | `initDossierExportPolling` armed from `refreshCaseShellInteractions`; panel survives reopen (without offering an export the closed-case gate would 409); honest ETA + elapsed; orphan detection in `_view`; poll survives unusable responses |
 | Q3 | `3e41f24` | explicit "Tiêu chí" chip in the sheet strip + modal wording + review-list marker |
-| Q1 | `e00f174` | `co_stock.value_basis` = `taxable_vnd` (default) \| `invoice_native`: stock unit prices from `unit_price_nt`/`currency_nt`/`exchange_rate`, FOB from the export declaration's trị giá nguyên tệ, config-page control, DH `to_save` whitelist, new `lvc_mixed_currency` guard |
+| Q1 | `e00f174` (superseded) → two-lane rework | **Reworked after review.** The ingest switch was the wrong lever; every lot now carries both money lanes and the choice of what to PRINT is the per-sheet `origin_sheet_currency_mode` that already existed. See "Q1 rework" below. |
 
 **Q2 blast radius after deploy (measured on prod, read-only).** Nothing changes
 retroactively — a persisted sheet keeps its numbers until someone runs Tính lại, and
@@ -202,21 +202,58 @@ drops), and lines like `VGM0121-05` / `1000535105` (persisted 328,491.42 vs its 
 294,493) or `1000224684` (5,578.19 vs 5,580.66) stop carrying a price copied from a
 different declaration. growatt-vn: 0 lines affected.
 
-**Q1 is shipped but NOT switched on for anyone.** Every client stays on
-`taxable_vnd`; johnson-vn needs the agency's decision first, because flipping the
-basis re-derives the whole stock snapshot (`co_config_fingerprint` changes) and
-existing locked bảng kê only show USD after mở lại → Tính lại.
+### Q1 rework — two lanes, per-sheet switch (replaces `co_stock.value_basis`)
 
-**Q1 known limitation — mixed-currency materials.** 309 of johnson-vn's 10,393 import
-codes have lines in both USD and VND, so under `invoice_native` one NVL can draw lots
-in two currencies. Its native total is then undefined (`allocation_currency_summary`
-returns "Nhiều tiền tệ", `material_value` is dropped) and the sheet is blocked. It is
-blocked with the right label now (`lvc_mixed_currency` → "Cần xử lý: NVL hai loại
-tiền") instead of the misleading "thiếu đơn giá", but there is no in-app way to file
-such a sheet in nguyên tệ: the remedy is either splitting the row per declaration or
-keeping that client on `taxable_vnd`. Deciding how a mixed-currency row should appear
-on the legal bảng kê (one row in VND vs one row per declaration in its own currency)
-is a product decision, not implemented.
+The first cut put the choice at ingest: a per-client `value_basis` that re-derived the
+whole stock snapshot. Two things were wrong with it.
+
+1. **It computed LVC across two currencies.** Under `invoice_native` the FOB came from
+   the export declaration's nguyên tệ while the lots stayed on their own currency —
+   and johnson-vn files **209 of 1,304** export declarations in EUR/JPY/VND (EUR 102,
+   JPY 44, VND 63) while 89% of its import lots are USD. `normalized_lvc_result`
+   subtracts VNM from FOB with no currency check, so those cases would have produced a
+   silently wrong ratio. Nothing was enabled in production, so no filed dossier was
+   affected.
+2. **It re-derived 84,231 rows to change a presentation choice**, and invalidated
+   locked sheets, for something the operator should be able to flip per bảng kê.
+
+What the rework does instead:
+
+- **Every lot carries both lanes, always.** VND lane (`unit_value`, `customs_value`,
+  `value_currency = "VND"`) is what every calculation reads; invoice lane
+  (`unit_value_native`, `customs_value_native`, labelled by `native_currency`) is the
+  declaration's own nguyên-tệ figures. `exchange_rate_to_vnd` is now resolved against
+  the **invoice** currency (the declared tỷ giá thanh toán), not the always-VND
+  calculation lane. `DERIVATION_SCHEMA_VERSION` 3 → 4 so existing snapshots re-derive
+  once.
+- **LVC/RVC always in VND** (`normalized_lvc_result` reads `fob_vnd` + `vnm_value_vnd`),
+  which closes hole 1 permanently — the ratio can no longer mix currencies whatever the
+  declaration says.
+- **The product carries the export declaration's invoice lane** (`invoice_currency`,
+  `fob_invoice`, `fob_fx_rate` from its own `exchange_rate`), and that pair survives the
+  product → match → product round trip a recalculation performs.
+- **Display follows the per-sheet switch that already existed** (⚙ Cấu hình → Tiền tệ).
+  When the lot's own declaration is in the target currency the exact declared figure is
+  printed rather than a VND-divided approximation — both in the export
+  (`_pick_currency_value`) and in the grid (`applyCurrencyMode`), which must agree.
+  FOB is resolved the same way (`product_fob_in_target`), so the header can no longer
+  print a VND amount under a USD label.
+- **The mixed-currency blocker is gone.** With the VND lane authoritative, a material
+  fed by a USD lot and a VND lot sums fine; only its nguyên-tệ figure is left blank
+  (there is no single one). The 309 johnson codes with lines in both currencies no
+  longer block anything.
+- The FOB/VNM chips on the sheet strip stay in VND with a VND label (they are the LVC
+  inputs); the declaration's nguyên-tệ FOB is in their tooltip.
+
+Verified on real local johnson-vn data (`.ai/scripts/e2e_invoice_lane_display.py`):
+the same sheet exported twice — nguyên tệ mode prints đơn giá **0.735317 USD** with a
+USD label, VND mode prints **19,007.89015 VND** with a VND label, LVC identical (99.96)
+in both, and no re-derivation between them.
+
+**Still open for the agency to decide:** whether johnson's sheets should default to
+nguyên tệ (a per-client default for the sheet switch is not built yet — today it is
+per sheet, defaulting to `native`, which resolves to the invoice currency only when the
+export declaration states one).
 
 ## Reply to the client (Vietnamese, forwardable)
 

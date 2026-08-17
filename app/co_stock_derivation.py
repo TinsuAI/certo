@@ -21,14 +21,13 @@ def co_stock_rows_from_bcct(
     resolution (output rows get `exchange_rate_source="missing"`).
     """
     lot_policy = client_config["co_stock"].get("lot_policy")
-    value_basis = client_config["co_stock"].get("value_basis") or "taxable_vnd"
     output = []
     for row in rows:
         if row.get("direction") != "import":
             continue
         quantity = row.get("quantity", "")
         source_row = row.get("import_row_id") or import_row_id(row["transaction_key"])
-        value_fields = co_stock_value_fields(row, quantity, value_basis)
+        value_fields = co_stock_value_fields(row, quantity)
         registration_date = (
             row.get("registration_date")
             or row.get("declaration_date")
@@ -84,8 +83,12 @@ def co_stock_fx_fields(
 ) -> dict:
     """Resolve `exchange_rate_to_vnd` + `exchange_rate_source` for one BCCT row.
 
+    The rate is VND per 1 unit of the row's INVOICE currency (`native_currency`) —
+    it is what ties the two money lanes together, so it must not be read off
+    `value_currency`, which is now always VND (the calculation lane).
+
     Priority:
-      1. `value_currency == "VND"` → rate = 1, source = "vnd_native".
+      1. invoice currency is VND (or unknown) → rate = 1, source = "vnd_native".
       2. BCCT row's own `exchange_rate` (= "ty_gia_thanh_toan", the rate the
          importer declared on the customs form) → "bcct_declared".
       3. `customs_fx_store.lookup_exchange_rate` against the row's registration
@@ -94,7 +97,12 @@ def co_stock_fx_fields(
       4. None of the above → rate = 1, source = "missing" (UI shows a chip
          warning; downstream callers may opt-out of VND mode).
     """
-    currency = (value_fields.get("value_currency") or value_fields.get("currency") or "").strip().upper()
+    currency = (
+        value_fields.get("native_currency")
+        or value_fields.get("value_currency")
+        or value_fields.get("currency")
+        or ""
+    ).strip().upper()
     if not currency:
         return {"exchange_rate_to_vnd": "", "exchange_rate_source": "missing"}
     if currency == "VND":
@@ -111,7 +119,16 @@ def co_stock_fx_fields(
                 "exchange_rate_source": "customs_lookup",
             }
     return {"exchange_rate_to_vnd": "", "exchange_rate_source": "missing"}
-def co_stock_value_fields(row: dict, quantity: str, value_basis: str = "taxable_vnd") -> dict:
+def co_stock_value_fields(row: dict, quantity: str) -> dict:
+    """Both money lanes of one BCCT line.
+
+    VND lane (`unit_value`, `customs_value`, `value_currency = "VND"`) is what every
+    calculation reads — LVC/VNM/thiếu-tồn all stay in one currency. The invoice lane
+    (`unit_value_native`, `customs_value_native`, labelled by `native_currency`) is
+    the declaration's own nguyên-tệ figures, carried so a bảng kê filed in nguyên tệ
+    prints the EXACT number on the tờ khai instead of a cross-conversion. Both are
+    always present; the choice of which one to SHOW is per sheet
+    (`origin_sheet_currency_mode`), never a re-derivation."""
     taxable_unit_price = first_normalized_decimal(
         row.get("taxable_unit_price"),
         row.get("unit_price"),
@@ -124,12 +141,6 @@ def co_stock_value_fields(row: dict, quantity: str, value_basis: str = "taxable_
         row.get("foreign_currency_value"),
         row.get("total_value_nt"),
     )
-    if value_basis == "invoice_native":
-        native = co_stock_native_value_fields(
-            row, quantity, taxable_unit_price, customs_value, foreign_currency_value
-        )
-        if native is not None:
-            return native
     value_currency = "VND" if customs_value or taxable_unit_price else row.get("currency", "") if foreign_currency_value else ""
     customs_value = customs_value or foreign_currency_value
     quantity_value = decimal_text_value(quantity)
@@ -151,52 +162,45 @@ def co_stock_value_fields(row: dict, quantity: str, value_basis: str = "taxable_
         "unit_value_source": unit_value_source,
         "currency": value_currency,
         "value_currency": value_currency,
+        **co_stock_invoice_lane_fields(
+            row, quantity, unit_value, customs_value, foreign_currency_value, value_currency
+        ),
     }
-def co_stock_native_value_fields(
+def co_stock_invoice_lane_fields(
     row: dict,
     quantity: str,
-    taxable_unit_price: str,
+    unit_value_vnd: str,
     customs_value_vnd: str,
     foreign_currency_value: str,
-) -> dict | None:
-    """Value fields read from the declaration's nguyên-tệ columns (đơn giá /
-    trị giá hoá đơn + đơn vị tiền tệ), for `co_stock.value_basis = invoice_native`.
-
-    Returns None when the line carries no usable foreign-currency figure, so the
-    caller keeps the VND lane: a VND number labelled USD would be far worse than
-    filing in VND. A line declared in VND (nhập tại chỗ / nội địa) also returns
-    None — there is nothing to switch, and its rate must stay 1.
-    """
+    value_currency: str,
+) -> dict:
+    """The declaration's nguyên-tệ figures (đơn giá / trị giá hoá đơn + đơn vị tiền
+    tệ), or the VND lane repeated when the line was declared in VND / carries no
+    foreign figure. `native_currency` names the currency `*_native` is in, so a
+    consumer can only ever print it under that label."""
     currency = str(row.get("currency_nt") or row.get("currency") or "").strip().upper()
-    if not currency or currency == "VND":
-        return None
     invoice_unit_price = first_normalized_decimal(
         row.get("invoice_unit_price"),
         row.get("unit_price_nt"),
     )
-    unit_value = invoice_unit_price
-    unit_value_source = "bcct_invoice_unit_price" if unit_value else ""
-    if not unit_value and foreign_currency_value:
-        unit_value = unit_value_from_total(foreign_currency_value, quantity)
-        unit_value_source = "bcct_invoice_value_per_qty" if unit_value else ""
-    if not unit_value:
-        return None
+    if not invoice_unit_price and foreign_currency_value:
+        invoice_unit_price = unit_value_from_total(foreign_currency_value, quantity)
+    if not currency or currency == "VND" or not (invoice_unit_price or foreign_currency_value):
+        return {
+            "native_currency": value_currency or "VND",
+            "unit_value_native": unit_value_vnd,
+            "customs_value_native": customs_value_vnd,
+        }
     native_total = foreign_currency_value
-    if not native_total:
+    if not native_total and invoice_unit_price:
         quantity_value = decimal_text_value(quantity)
-        unit_decimal = decimal_text_value(unit_value)
+        unit_decimal = decimal_text_value(invoice_unit_price)
         if quantity_value is not None and unit_decimal is not None:
             native_total = decimal_to_text(unit_decimal * quantity_value)
     return {
-        "customs_value": native_total,
-        # The VND figures the declaration itself states, kept for reference and for
-        # the VND lane (the allocation line converts with the row's own rate).
-        "customs_value_vnd": customs_value_vnd,
-        "taxable_unit_price": taxable_unit_price,
-        "unit_value": unit_value,
-        "unit_value_source": unit_value_source,
-        "currency": currency,
-        "value_currency": currency,
+        "native_currency": currency,
+        "unit_value_native": invoice_unit_price,
+        "customs_value_native": native_total,
     }
 def first_normalized_decimal(*values) -> str:
     for value in values:
@@ -245,6 +249,16 @@ def aggregate_co_stock_rows(rows: list[dict]) -> list[dict]:
         current["remaining_qty"] = sum_decimal_text(current["remaining_qty"], row["remaining_qty"])
         if current.get("customs_value") or row.get("customs_value"):
             current["customs_value"] = sum_decimal_text(current.get("customs_value", ""), row.get("customs_value", ""))
+        # Invoice lane: keep it only while the merged rows agree — a merged price that
+        # mixes declarations has no single nguyên-tệ figure.
+        for lane_key in ("native_currency", "unit_value_native"):
+            current[lane_key] = (
+                current.get(lane_key, "") if current.get(lane_key, "") == row.get(lane_key, "") else ""
+            )
+        if current.get("customs_value_native") or row.get("customs_value_native"):
+            current["customs_value_native"] = sum_decimal_text(
+                current.get("customs_value_native", ""), row.get("customs_value_native", "")
+            )
         current["taxable_unit_price"] = (
             current.get("taxable_unit_price", "")
             if current.get("taxable_unit_price", "") == row.get("taxable_unit_price", "")

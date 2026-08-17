@@ -9,7 +9,6 @@ import threading
 from app import bom_default_store, co_stock_eligibility, co_stock_ledger, co_stock_materializer
 from app.bom_service import bom_service
 from app.bom_store import attach_case_bom_snapshot, resolve_selected_product_version
-from app.client_config_store import CO_STOCK_VALUE_BASES
 from app.co_case_store import build_case_criteria_rows, case_from_record, co_case_delete_block_reason, co_case_is_completed, co_case_status_view, declaration_refs, get_case_record, get_case_workspace, json_safe, load_state
 from app.co_form_config_store import load_co_form_config
 from app.origin_material_filters import is_bom_technical_noise, is_declarable_unmatched
@@ -73,12 +72,6 @@ ORIGIN_SHEET_ATTENTION_REASONS = (
         "Còn NVL thiếu tồn/không có lô nhập khớp — bổ sung chứng từ (khớp tờ khai nhập hoặc hoá đơn VAT) rồi tính lại.",
     ),
     (
-        "mixed_currency",
-        "Cần xử lý: NVL hai loại tiền",
-        "Có NVL được trừ lùi từ các tờ khai nhập ở hai loại tiền tệ khác nhau nên không cộng được trị giá "
-        "— tách dòng theo tờ khai, hoặc chuyển công ty về cột trị giá VND (Cấu hình khách → Cột trị giá dùng làm tiền), rồi tính lại.",
-    ),
-    (
         "missing_price",
         "Cần xử lý: thiếu đơn giá",
         "Còn NVL không xuất xứ thiếu đơn giá — bổ sung đơn giá rồi tính lại trước khi chốt.",
@@ -135,7 +128,6 @@ def origin_sheet_attention(product: dict) -> dict:
     flags = {
         "shortage": bool(product.get("lvc_allocation_shortage")),
         "missing_price": bool(product.get("lvc_missing_price")),
-        "mixed_currency": bool(product.get("lvc_mixed_currency")),
         "zero_lot_price": bool(product.get("lvc_zero_lot_price")),
         "declarable_unmatched": bool(product.get("lvc_declarable_unmatched")),
         "missing_bom": str(product.get("lvc_status") or "") == "missing_bom",
@@ -309,7 +301,6 @@ def co_case_light_context(client_id: str, case: dict, current_step: str, **extra
             bom_workspace,
             selected_lane,
             preserve_existing=preserve_origin_products,
-            value_basis=client_value_basis(client, source_summary.get("client_config")),
         )
         case = attach_case_bom_snapshot(case, bom_workspace)
         case = attach_origin_bom_product_codes(case, bom_workspace)
@@ -934,7 +925,6 @@ def prepare_case_origin_products(
     *,
     preserve_existing: bool = False,
     supplier_flags: dict | None = None,
-    value_basis: str = "taxable_vnd",
 ) -> dict:
     source_matches = (
         invoice_matches
@@ -977,7 +967,6 @@ def prepare_case_origin_products(
             product_sequence=product_sequence,
             bom_product_code=bom_product_code,
             supplier_flags=supplier_flags,
-            value_basis=value_basis,
         ))
     if not products:
         return case
@@ -1004,7 +993,6 @@ def prepare_case_origin_product_shells(
     form_lane: dict,
     *,
     preserve_existing: bool = True,
-    value_basis: str = "taxable_vnd",
 ) -> dict:
     """Create per-product origin sheets without calculating BOM/material rows.
 
@@ -1048,7 +1036,6 @@ def prepare_case_origin_product_shells(
             form_lane,
             product_sequence=product_sequence,
             bom_product_code=bom_product_code,
-            value_basis=value_basis,
         )
         if preserve_existing and existing:
             shell = {
@@ -1086,7 +1073,6 @@ def prepare_case_origin_sheet(
     min_gap_days: int | None = None,
     allocate: bool = True,
     supplier_flags: dict | None = None,
-    value_basis: str = "taxable_vnd",
 ) -> dict:
     target_code = str(product_code or "").strip()
     if not target_code:
@@ -1130,7 +1116,6 @@ def prepare_case_origin_sheet(
         bom_product_code=bom_product_code,
         allocate=allocate,
         supplier_flags=supplier_flags,
-        value_basis=value_basis,
     )
     products = []
     changed = False
@@ -1153,7 +1138,6 @@ def origin_product_shell_from_invoice_match(
     *,
     product_sequence: int | None = None,
     bom_product_code: str = "",
-    value_basis: str = "taxable_vnd",
 ) -> dict:
     product_code = str(match.get("item_code") or match.get("product_code") or "").strip()
     bom_product_code = str(bom_product_code or product_code).strip()
@@ -1162,7 +1146,7 @@ def origin_product_shell_from_invoice_match(
     criterion = preview.get("criteria") or "Cần tra cứu PSR theo HS"
     threshold = lvc_threshold_from_criterion(criterion)
     quantity = decimal_value(match.get("quantity", "0"))
-    product_value = origin_product_value(match, value_basis)
+    product_value = origin_product_value(match)
     fob = product_value["value"]
     first_row = bom_rows[0] if bom_rows else {}
     product = {
@@ -1176,6 +1160,10 @@ def origin_product_shell_from_invoice_match(
         "currency": product_value["currency"],
         "fob_currency": product_value["currency"] or match.get("currency", ""),
         "declared_currency": match.get("currency", ""),
+        # Invoice lane of the EXPORT declaration: its nguyên-tệ FOB + the payment rate
+        # it declares. `fob`/`fob_currency` stay on the VND lane every calculation
+        # uses; this pair only decides what a sheet filed in nguyên tệ prints.
+        **origin_product_invoice_lane(match, product_value["currency"]),
         "value_source": product_value["source"],
         "source_declaration_no": match.get("declaration_no", ""),
         "source_declaration_date": match.get("declaration_date") or match.get("registration_date", ""),
@@ -1738,7 +1726,6 @@ def origin_sheet_export_blockers(case: dict, client: dict | None = None) -> list
             or product.get("lvc_allocation_shortage")
             or product.get("lvc_missing_price")
             or product.get("lvc_zero_lot_price")
-            or product.get("lvc_mixed_currency")
             # LK1/DC3b: a sheet calculated before mig 078 carries materials without
             # `customs_relevance`, so rác/unmatched are NOT stripped from the export.
             # Block it (even when "locked") until a forced re-Tính re-classifies.
@@ -1810,16 +1797,6 @@ def origin_sheet_action_error(case: dict, product_code: str, action: str, client
             f"Bảng kê {product_code} còn NVL thiếu tồn/không có lô nhập khớp — "
             "bổ sung chứng từ (khớp tờ khai nhập hoặc hoá đơn VAT) rồi tính lại trước khi chốt; "
             "không dùng giá ước tính."
-        )
-    if action == "lock" and target.get("lvc_mixed_currency"):
-        # Currency-mix re-check: the lots behind one NVL are declared in two
-        # currencies, so no single đơn giá/trị giá exists for the row. Named before
-        # the missing-price branch, which this condition also trips with the wrong
-        # remedy.
-        return (
-            f"Bảng kê {product_code} còn NVL trừ lùi từ tờ khai nhập ở hai loại tiền tệ — "
-            "không cộng được trị giá; tách dòng theo tờ khai hoặc đổi cột trị giá của công ty "
-            "về VND rồi tính lại trước khi chốt."
         )
     if action == "lock" and target.get("lvc_zero_lot_price"):
         # Zero-price re-check (same bypass as above): the row HAS its import lot, so
@@ -2160,7 +2137,6 @@ def case_stock_preview_summary(
     form_lane: dict,
     material_rows: list[dict],
     stock_rows: list[dict],
-    value_basis: str = "taxable_vnd",
 ) -> dict:
     """Run stock once for ALL products (preview) and aggregate 'mã thiếu tồn'.
 
@@ -2183,7 +2159,6 @@ def case_stock_preview_summary(
         material_rows,
         stock_rows,
         preserve_existing=False,
-        value_basis=value_basis,
     )
     return case_missing_stock_summary(allocated)
 def material_row_index(product: dict, material_code: str) -> int | None:
@@ -2489,7 +2464,6 @@ def origin_product_from_invoice_match(
     bom_product_code: str = "",
     allocate: bool = True,
     supplier_flags: dict | None = None,
-    value_basis: str = "taxable_vnd",
 ) -> dict:
     product_code = str(match.get("item_code", "")).strip()
     bom_product_code = str(bom_product_code or product_code).strip()
@@ -2498,7 +2472,7 @@ def origin_product_from_invoice_match(
     criterion = preview.get("criteria") or "Cần tra cứu PSR theo HS"
     threshold = lvc_threshold_from_criterion(criterion)
     quantity = decimal_value(match.get("quantity", "0"))
-    product_value = origin_product_value(match, value_basis)
+    product_value = origin_product_value(match)
     fob = product_value["value"]
     materials = [
         origin_material_from_bom_row(
@@ -2523,6 +2497,23 @@ def origin_product_from_invoice_match(
             decimal_value(material.get("non_origin_cif_value"))
             for material in active_materials
         )
+        # VND lane of the same sum — what LVC runs on (normalized_lvc_result).
+        vnm_vnd = sum(
+            decimal_value(
+                material.get("non_origin_cif_value_vnd") or material.get("non_origin_cif_value")
+            )
+            for material in active_materials
+        )
+        # Invoice lane of the same sum — only when every contributing material was
+        # declared in ONE currency, otherwise there is no single nguyên-tệ total.
+        material_native_currencies = unique_texts(
+            material.get("native_currency", "") for material in active_materials
+        )
+        vnm_native_currency = material_native_currencies[0] if len(material_native_currencies) == 1 else ""
+        vnm_native = sum(
+            decimal_value(material.get("non_origin_cif_value_native"))
+            for material in active_materials
+        ) if vnm_native_currency else None
         missing_material_values = any(
             material.get("unit_value_missing") or material.get("allocation_status") == "shortage"
             for material in active_materials
@@ -2532,6 +2523,9 @@ def origin_product_from_invoice_match(
         # Load BOM (cấu trúc): chưa phân bổ tồn ⇒ chưa có VNM/LVC. enrich_origin_product
         # tôn trọng origin_not_calculated để KHÔNG bịa LVC 100% từ vnm=0.
         vnm = Decimal("0")
+        vnm_vnd = Decimal("0")
+        vnm_native = None
+        vnm_native_currency = ""
         lvc = {"percentage": "", "status": "not_calculated", "status_label": "Chưa tính"}
     product = {
         "code": product_code,
@@ -2544,6 +2538,10 @@ def origin_product_from_invoice_match(
         "currency": product_value["currency"],
         "fob_currency": product_value["currency"] or match.get("currency", ""),
         "declared_currency": match.get("currency", ""),
+        # Invoice lane of the EXPORT declaration: its nguyên-tệ FOB + the payment rate
+        # it declares. `fob`/`fob_currency` stay on the VND lane every calculation
+        # uses; this pair only decides what a sheet filed in nguyên tệ prints.
+        **origin_product_invoice_lane(match, product_value["currency"]),
         "value_source": product_value["source"],
         "source_declaration_no": match.get("declaration_no", ""),
         "source_declaration_date": match.get("declaration_date") or match.get("registration_date", ""),
@@ -2559,6 +2557,11 @@ def origin_product_from_invoice_match(
         "lvc_status_label": lvc["status_label"],
         "lvc_threshold": decimal_text(threshold) if threshold is not None else "",
         "vnm_value": decimal_text(vnm) if (allocate and active_materials) else "",
+        "vnm_value_vnd": decimal_text(vnm_vnd) if (allocate and active_materials) else "",
+        "vnm_value_native": (
+            decimal_text(vnm_native) if (allocate and active_materials and vnm_native is not None) else ""
+        ),
+        "vnm_native_currency": vnm_native_currency if allocate else "",
         "bom_product_artifact_id": first_non_empty(row.get("product_artifact_id") or row.get("product_version_id", "") for row in bom_rows),
         "bom_product_artifact_no": first_non_empty(row.get("product_artifact_no") or row.get("product_version_no", "") for row in bom_rows),
         "bom_product_version_id": first_non_empty(row.get("product_artifact_id") or row.get("product_version_id", "") for row in bom_rows),
@@ -2575,44 +2578,42 @@ def origin_match_from_existing_product(product: dict) -> dict:
         "unit": product.get("unit") or product.get("export_unit", ""),
         "fob_value": product.get("fob", ""),
         "fob_currency": product.get("currency", ""),
-        "currency": product.get("currency", ""),
+        "currency": product.get("invoice_currency") or product.get("currency", ""),
+        # Carry the export declaration's invoice lane back through the match so a
+        # rebuilt product keeps it — without these three a recalculation drops
+        # `invoice_currency`/`fob_invoice` and the sheet silently reverts to VND.
+        "value_currency": product.get("currency", ""),
+        "foreign_currency_value": product.get("fob_invoice", ""),
+        "exchange_rate": product.get("fob_fx_rate", ""),
         "declaration_no": product.get("source_declaration_no", ""),
         "line_no": product.get("source_line_no", ""),
         "invoice_ref": product.get("invoice_ref", ""),
     }
-def client_value_basis(client: dict | None, client_config: dict | None = None) -> str:
-    """`co_stock.value_basis` for this client — which columns of the declaration are
-    money (VND taxable vs invoice nguyên tệ). Prefers an already-fetched config so a
-    render does not pay an extra Data Hub round-trip; falls back to the VND basis on
-    anything unexpected, because a wrong guess here reprices a bảng kê."""
-    config = client_config
-    if not config and client and hasattr(portfolio_service, "get_client_config"):
-        try:
-            config = portfolio_service.get_client_config(client)
-        except Exception:  # noqa: BLE001 — never fail a render over a config read
-            config = {}
-    basis = str(((config or {}).get("co_stock") or {}).get("value_basis") or "").strip()
-    return basis if basis in CO_STOCK_VALUE_BASES else "taxable_vnd"
-def origin_product_value(match: dict, value_basis: str = "taxable_vnd") -> dict:
-    fob = ("fob_value", match.get("fob_value"), match.get("fob_currency") or match.get("value_currency") or match.get("currency", ""))
-    vnd_sources = [
+def origin_product_invoice_lane(match: dict, vnd_lane_currency: str) -> dict:
+    """`invoice_currency` + `fob_invoice` + `fob_fx_rate` from the export declaration.
+
+    Empty when the declaration states no foreign-currency total, or when its invoice
+    currency IS the lane the VND figures are already in — nothing to switch to then.
+    The declared `exchange_rate` beats the weekly customs FX table (`_attach_fob_vnd`
+    keeps that as the fallback): it is the rate on the document being filed."""
+    currency = str(match.get("currency") or "").strip().upper()
+    invoice_total = str(match.get("foreign_currency_value") or match.get("invoice_value") or "").strip()
+    if not currency or not invoice_total or currency == str(vnd_lane_currency or "").strip().upper():
+        return {}
+    lane = {"invoice_currency": currency, "fob_invoice": invoice_total}
+    rate = str(match.get("exchange_rate") or "").strip()
+    if rate:
+        lane["fob_fx_rate"] = rate
+        lane["fob_fx_source"] = "bcct_declared"
+    return lane
+def origin_product_value(match: dict) -> dict:
+    value_sources = [
+        ("fob_value", match.get("fob_value"), match.get("fob_currency") or match.get("value_currency") or match.get("currency", "")),
         ("customs_value", match.get("customs_value"), match.get("value_currency") or "VND"),
         ("total_value", match.get("total_value"), match.get("value_currency") or "VND"),
-    ]
-    native_sources = [
         ("foreign_currency_value", match.get("foreign_currency_value"), match.get("currency", "")),
         ("invoice_value", match.get("invoice_value"), match.get("currency", "")),
     ]
-    # `invoice_native` files the sheet in the export invoice currency, so FOB must
-    # come from the declaration's trị giá nguyên tệ — VNM (from the stock lots, also
-    # nguyên tệ under this basis) and FOB have to share one currency or LVC/RVC is
-    # meaningless. Falls back to the VND columns when the declaration carries no
-    # foreign-currency value.
-    value_sources = (
-        [fob, *native_sources, *vnd_sources]
-        if value_basis == "invoice_native"
-        else [fob, *vnd_sources, *native_sources]
-    )
     for source, value, currency in value_sources:
         if value not in (None, ""):
             return {"value": decimal_value(value), "currency": currency, "source": source}
@@ -2894,6 +2895,23 @@ def origin_material_from_bom_row(
         material_warnings.append(f"{material_code}: chưa có phân loại xuất xứ, đang tính bảo thủ là không xuất xứ.")
     if not material_description:
         material_warnings.append(f"{material_code}: thiếu tên NVL từ BOM, danh mục NVL và BCCT nhập.")
+    # Invoice lane folded from the lines: only meaningful when every consumed lot was
+    # declared in the SAME currency (a material fed from a USD and a VND declaration
+    # has no single nguyên-tệ figure — the VND lane still sums, which is why nothing
+    # is blocked).
+    line_native_currencies = unique_texts(line.get("native_currency", "") for line in allocation_lines)
+    native_currency_text = line_native_currencies[0] if len(line_native_currencies) == 1 else ""
+    native_unit_values = unique_texts(line.get("unit_value_native", "") for line in allocation_lines)
+    native_unit_value_text = native_unit_values[0] if native_currency_text and len(native_unit_values) == 1 else ""
+    native_line_values = [
+        optional_decimal(line.get("material_value_native"))
+        for line in allocation_lines
+        if line.get("material_value_native") not in (None, "")
+    ]
+    if native_currency_text and native_line_values and None not in native_line_values:
+        native_material_value = sum(native_line_values, Decimal("0"))
+    else:
+        native_material_value = None
     unit_value_text = allocation_unit_value_summary(allocation_lines)
     if not unit_value_text and fallback_unit_value is not None:
         unit_value_text = decimal_text(fallback_unit_value)
@@ -2951,10 +2969,27 @@ def origin_material_from_bom_row(
         "unit_value": unit_value_text,
         "currency": currency,
         "material_value": decimal_text(material_value) if material_value is not None else "",
-        "material_value_native": decimal_text(material_value) if material_value is not None else "",
+        "native_currency": native_currency_text or currency,
+        "unit_value_native": native_unit_value_text or (unit_value_text if not native_currency_text else ""),
+        "material_value_native": (
+            decimal_text(native_material_value) if native_material_value is not None
+            else decimal_text(material_value) if material_value is not None and not native_currency_text
+            else ""
+        ),
         "material_value_vnd": decimal_text(material_value_vnd) if material_value_vnd is not None else "",
         "non_origin_cif_value": decimal_text(vnm_value) if vnm_value is not None else "",
         "non_origin_cif_value_vnd": decimal_text(vnm_value_vnd) if vnm_value_vnd is not None else "",
+        # Invoice lane of the row's VNM. Left blank when a VN-origin amount was
+        # resolved (that resolver works on the VND lane, so subtracting it here would
+        # invent a nguyên-tệ figure) — the VND lane stays authoritative either way.
+        "non_origin_cif_value_native": (
+            decimal_text(native_material_value)
+            if (
+                origin_status == "non_origin"
+                and native_material_value is not None
+                and origin_amount == 0
+            ) else ""
+        ),
         "exchange_rate_source": aggregated_fx_source,
         "unit_value_missing": unit_value_missing,
         "valuation_status": valuation_status,
@@ -3072,12 +3107,29 @@ def stock_allocation_line(
     )
     material_value = allocated_qty * unit_value if unit_value is not None else None
     fx_rate, fx_source = _allocation_line_fx(stock)
-    if unit_value is not None and fx_rate is not None:
+    stock_lane_currency = str(stock.get("value_currency") or stock.get("currency") or "").strip().upper()
+    if unit_value is None:
+        unit_value_vnd = None
+        material_value_vnd = None
+    elif stock_lane_currency in ("", "VND"):
+        # The lot's own lane IS VND (the taxable columns of the declaration), so the
+        # VND figures are exact — multiplying by the rate again would restate them.
+        unit_value_vnd = unit_value
+        material_value_vnd = material_value
+    elif fx_rate is not None:
         unit_value_vnd = unit_value * fx_rate
         material_value_vnd = allocated_qty * unit_value_vnd
     else:
         unit_value_vnd = None
         material_value_vnd = None
+    # Invoice lane: the đơn giá nguyên tệ the declaration itself states, so a bảng kê
+    # filed in nguyên tệ prints that number instead of a cross-conversion.
+    native_currency = str(stock.get("native_currency") or stock_lane_currency or "VND").strip().upper()
+    native_unit_value = optional_decimal(stock.get("unit_value_native"))
+    if native_unit_value is None:
+        native_unit_value = unit_value
+        native_currency = stock_lane_currency or "VND"
+    native_material_value = allocated_qty * native_unit_value if native_unit_value is not None else None
     source_line_ids = stock.get("source_line_ids", [])
     if isinstance(source_line_ids, list):
         source_line_ids_text = ",".join(str(item) for item in source_line_ids if str(item).strip())
@@ -3107,11 +3159,12 @@ def stock_allocation_line(
         "remaining_qty": decimal_text(available_qty - allocated_qty),
         "allocated_qty": decimal_text(allocated_qty),
         "unit_value": decimal_text(unit_value) if unit_value is not None else "",
-        "unit_value_native": decimal_text(unit_value) if unit_value is not None else "",
+        "unit_value_native": decimal_text(native_unit_value) if native_unit_value is not None else "",
         "unit_value_vnd": decimal_text(unit_value_vnd) if unit_value_vnd is not None else "",
+        "native_currency": native_currency,
         "currency": stock.get("value_currency") or stock.get("currency") or material.get("value_currency") or material.get("currency", ""),
         "material_value": decimal_text(material_value) if material_value is not None else "",
-        "material_value_native": decimal_text(material_value) if material_value is not None else "",
+        "material_value_native": decimal_text(native_material_value) if native_material_value is not None else "",
         "material_value_vnd": decimal_text(material_value_vnd) if material_value_vnd is not None else "",
         "exchange_rate_to_vnd": decimal_text(fx_rate) if fx_rate is not None else "",
         "exchange_rate_source": fx_source,
@@ -3386,22 +3439,6 @@ def enrich_origin_product(product: dict) -> dict:
         and _material_priced_zero(material)
         for material in materials
     )
-    # Mixed-currency guard: with `co_stock.value_basis = invoice_native` a material
-    # can draw lots from declarations in different currencies (309 of johnson-vn's
-    # 10,393 import codes have both USD and VND lines). The native sum is then
-    # undefined — allocation_currency_summary returns "Nhiều tiền tệ" and
-    # material_value is dropped — so the sheet must not be filed. It already trips
-    # lvc_missing_price; this flag exists so the operator is told the real cause
-    # (a currency mix) instead of being sent to fix a price that is not missing.
-    enriched["lvc_mixed_currency"] = any(
-        not material.get("deleted")
-        and not material.get("bom_technical_noise")
-        and (
-            str(material.get("currency") or "").strip() == MIXED_CURRENCY_LABEL
-            or material.get("valuation_status") == "partial_valuation"
-        )
-        for material in materials
-    )
     ctc_rule = tariff_shift_rule_from_criterion(criterion)
     lvc_status = str(enriched.get("lvc_status") or "")
     warnings = []
@@ -3627,13 +3664,28 @@ def lvc_threshold_from_criterion(criterion: str) -> Decimal | None:
         match = re.search(r"(\d+(?:[.,]\d+)?)\s*%\s*(?:FOB|LVC|RVC)", criterion, flags=re.IGNORECASE)
     return decimal_value(match.group(1)) if match else None
 def normalized_lvc_result(product: dict, materials: list[dict], criterion: str, missing_material_values: bool) -> dict:
-    fob = decimal_value(product.get("fob")) if product.get("fob") not in (None, "") else None
-    vnm_source = first_non_empty([product.get("vnm_value"), product.get("non_origin_value")])
+    """LVC/RVC always in VND.
+
+    FOB and VNM must come from the SAME lane or the ratio is meaningless, and the two
+    can genuinely differ in currency (johnson-vn files 209 of 1,304 export
+    declarations in EUR/JPY/VND while 89% of its import lots are USD). The VND lane is
+    the one every lot and every declaration carries, so the percentage is computed
+    there; the nguyên-tệ figures stay a display concern."""
+    fob_source = first_non_empty([product.get("fob_vnd"), product.get("fob")])
+    fob = decimal_value(fob_source) if fob_source else None
+    vnm_source = first_non_empty([
+        product.get("vnm_value_vnd"),
+        product.get("non_origin_value_vnd"),
+        product.get("vnm_value"),
+        product.get("non_origin_value"),
+    ])
     if vnm_source:
         vnm = decimal_value(vnm_source)
     else:
         vnm = sum(
-            decimal_value(material.get("non_origin_cif_value"))
+            decimal_value(
+                material.get("non_origin_cif_value_vnd") or material.get("non_origin_cif_value")
+            )
             for material in materials
             if material.get("origin_status") == "non_origin"
         )

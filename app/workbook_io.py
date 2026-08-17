@@ -514,8 +514,8 @@ def write_hq_template_sheet_header(ws, product: dict, sheet_def: dict, case: dic
     tax_code = case.get("customer_tax_code", "") or case.get("client_tax_code", "")
     quantity = decimal_value(product.get("quantity") or "0")
     _mode_for_fob = (product.get("origin_sheet_currency_mode") or "native").strip().lower()
-    _fob_source = product.get("fob_vnd") if _mode_for_fob == "vnd" and product.get("fob_vnd") else product.get("fob")
-    fob = decimal_value(_fob_source or "0")
+    from app.bang_ke_renderer import product_fob_in_target
+    fob = decimal_value(product_fob_in_target(product, _mode_for_fob == "vnd") or "0")
     unit_price = fob / quantity if quantity else fob
     declaration_no = product.get("source_declaration_no") or first_non_empty(case.get("shipment", {}).get("export_declaration_nos") or [])
     declaration_date = product.get("source_declaration_date") or product.get("export_declaration_date") or ""

@@ -85,13 +85,6 @@
             <option value="manual_review" {% if client_config.co_stock.lot_policy == 'manual_review' %}selected{% endif %}>manual_review</option>
           </select>
         </label>
-        <label>Cột trị giá dùng làm tiền
-          <select name="co_stock_value_basis">
-            <option value="taxable_vnd" {% if (client_config.co_stock.value_basis | default('taxable_vnd')) == 'taxable_vnd' %}selected{% endif %}>Đơn giá / trị giá tính thuế (VND)</option>
-            <option value="invoice_native" {% if client_config.co_stock.value_basis == 'invoice_native' %}selected{% endif %}>Đơn giá / trị giá hoá đơn (nguyên tệ, VD USD)</option>
-          </select>
-          <small class="meta">Chọn "nguyên tệ" để bảng kê ghi đơn giá/trị giá NVL và FOB theo tiền hoá đơn của tờ khai (kèm tỷ giá thanh toán) thay vì số đã quy đổi VND. Dòng tờ khai khai bằng VND (nhập tại chỗ / nội địa) vẫn giữ VND. <strong>Đổi mục này sẽ tính lại toàn bộ tồn C/O</strong>; các bảng kê đã chốt phải mở lại và Tính bảng kê lại mới đổi tiền.</small>
-        </label>
         <label>Số ngày tối thiểu giữa ngày nhập (BCCT NK) và ngày xuất khẩu (BCCT XK)
           <input type="number" name="co_stock_min_days_before_export" min="0" max="365" step="1"
                  value="{{ (client.co_stock_overrides or {}).get('min_days_before_export', client_config.co_stock.min_days_before_export | default(2)) }}">

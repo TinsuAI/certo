@@ -724,10 +724,6 @@ class DataHubPortfolioService:
             "co_stock": {
                 **(local_base.get("co_stock") or {}),
                 "lot_policy": incoming["co_stock"].get("lot_policy", "line_level"),
-                # CO-owned: which declaration columns are money (VND taxable vs
-                # invoice nguyên tệ). Absent from this whitelist it is silently
-                # dropped in DH source-mode, i.e. in production.
-                "value_basis": incoming["co_stock"].get("value_basis", "taxable_vnd"),
             },
             # features are CO-owned UI toggles → persist the incoming edit locally.
             "features": {

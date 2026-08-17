@@ -640,9 +640,8 @@ def _write_cost_buildup(
 def _build_field_table(case: dict, product: dict, form: FormSpec) -> dict[str, Any]:
     quantity = product.get("quantity", "") or "0"
     currency_mode = (product.get("origin_sheet_currency_mode") or "native").strip().lower()
-    fob_raw = product.get("fob", "") or "0"
-    if currency_mode == "vnd" and product.get("fob_vnd"):
-        fob_raw = product["fob_vnd"]
+    from app.bang_ke_renderer import product_fob_in_target
+    fob_raw = product_fob_in_target(product, currency_mode == "vnd") or "0"
     fob_pretty = _format_number(_decimal(fob_raw), decimals=2, thousand_sep=True)
     declaration_no = product.get("source_declaration_no") or _first_non_empty(
         (case.get("shipment") or {}).get("export_declaration_nos") or []
