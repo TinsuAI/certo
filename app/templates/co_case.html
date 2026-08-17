@@ -1957,7 +1957,11 @@
   </header>
 
   <section class="review-actions">
-    {% if _case_completed %}
+    {# The panel also renders on a REOPENED case while a job is in flight: mở lại
+       hồ sơ used to hide it mid-build, leaving the operator with no progress and
+       no file (2026-08-17, VNG26030107). #}
+    {% set _export_running = export is defined and export.status == 'running' %}
+    {% if _case_completed or _export_running %}
     <div id="dossier-export-panel"
          data-status-url="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/export-dossier-zip/status">
       {% if export is defined %}
@@ -1966,6 +1970,8 @@
       <span class="meta">Đang tải trạng thái xuất hồ sơ…</span>
       {% endif %}
     </div>
+    {% endif %}
+    {% if _case_completed %}
     <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/reopen-case" hx-boost="false" class="review-action-secondary">
       <button type="submit" class="btn-secondary">
         <span class="review-action-icon" aria-hidden="true">🔓</span>
@@ -1975,40 +1981,6 @@
         </span>
       </button>
     </form>
-    <script>
-    (function () {
-      var panel = document.getElementById("dossier-export-panel");
-      if (!panel) return;
-      var url = panel.getAttribute("data-status-url");
-      var timer = null;
-      function schedule() {
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(poll, 2000);
-      }
-      function poll() {
-        fetch(url, { headers: { "X-Requested-With": "fetch" }, quietError: true })
-          .then(function (r) { return r.ok ? r.text() : null; })
-          .then(function (html) {
-            if (html == null) { schedule(); return; }
-            panel.innerHTML = html;
-            var state = panel.querySelector(".dossier-export-state");
-            if (state && state.getAttribute("data-export-status") === "running") {
-              schedule();
-            }
-          })
-          .catch(function () { schedule(); });
-      }
-      // The page already server-renders the current state, so only poll when a
-      // job is actually running (to catch its completion). No initial round-trip
-      // and no loading placeholder that could hang if the fetch never fires.
-      var initial = panel.querySelector(".dossier-export-state");
-      if (!initial) {
-        poll();
-      } else if (initial.getAttribute("data-export-status") === "running") {
-        schedule();
-      }
-    })();
-    </script>
     {% else %}
     <form method="post" action="/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/close" hx-boost="false"
           onsubmit="return confirm('Đóng hồ sơ này? Sau khi đóng, không thể sửa bảng kê hay chứng từ. Mở lại bằng nút Mở lại hồ sơ.');"
@@ -5801,6 +5773,45 @@
     });
   };
 
+  // Dossier-export progress. This MUST be armed from refreshCaseShellInteractions,
+  // not from an inline <script> in the review section: an in-app navigation swaps
+  // the shell with importNode, which never executes script nodes, so the panel kept
+  // the server-rendered "Đang tạo hồ sơ .zip…" forever while the job finished
+  // (VNG26030107, 2026-08-17 — file was ready in 5m42s, the operator waited 33min
+  // and only got it after F5).
+  const initDossierExportPolling = (root = document) => {
+    const panel = root.querySelector("#dossier-export-panel") || document.getElementById("dossier-export-panel");
+    if (!panel) return;
+    const url = panel.getAttribute("data-status-url");
+    if (!url) return;
+    window.clearTimeout(panel.__dossierPollTimer);
+    const schedule = () => {
+      window.clearTimeout(panel.__dossierPollTimer);
+      panel.__dossierPollTimer = window.setTimeout(poll, 2000);
+    };
+    const poll = () => {
+      // A detached panel belongs to a swapped-away shell; the new one has its own timer.
+      if (!panel.isConnected) return;
+      fetch(url, {headers: {"X-Requested-With": "fetch"}, quietError: true})
+        .then((response) => (response.ok ? response.text() : null))
+        .then((html) => {
+          if (html == null || html.indexOf("dossier-export-state") === -1) {
+            // Not a state fragment (proxy/SSO page, server error): keep the last
+            // known state visible and keep polling instead of freezing silently.
+            schedule();
+            return;
+          }
+          panel.innerHTML = html;
+          const state = panel.querySelector(".dossier-export-state");
+          if (state && state.getAttribute("data-export-status") === "running") schedule();
+        })
+        .catch(schedule);
+    };
+    const initial = panel.querySelector(".dossier-export-state");
+    if (!initial) poll();
+    else if (initial.getAttribute("data-export-status") === "running") schedule();
+  };
+
   const initCaseCreatedBanner = (root = document) => {
     const banner = root.querySelector("[data-case-created-banner]");
     if (!banner || banner.dataset.banneInitialized === "1") return;
@@ -6991,6 +7002,7 @@
     initOriginProposeBom(root);
     initOriginLiveRecompute(root);
     initCaseTabLoading(root);
+    initDossierExportPolling(root);
     initCaseCreatedBanner(root);
     initCostBuildupHint(root);
     initCostBuildupApply(root);

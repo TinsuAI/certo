@@ -5,8 +5,9 @@
   <div class="review-action-static" aria-busy="true">
     <span class="review-action-icon" aria-hidden="true"><span class="dossier-export-spinner"></span></span>
     <span class="review-action-body">
-      <strong>Đang tạo hồ sơ .zip…</strong>
-      <small>Có thể mất tới ~1 phút với hồ sơ nhiều tờ khai. Bạn có thể rời trang — file sẽ được lưu lại.</small>
+      <strong>Đang tạo hồ sơ .zip…{% if export.elapsed_label %} ({{ export.elapsed_label }}){% endif %}</strong>
+      <small>Hồ sơ nhiều tờ khai thường mất 5–7 phút (ghép tờ khai TKX/TKN thành PDF là phần lâu nhất).
+        Bạn có thể rời trang — file được lưu lại; quay lại trang này để tải.</small>
     </span>
   </div>
 

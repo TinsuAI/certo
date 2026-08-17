@@ -26,14 +26,23 @@ from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import copy_context
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from app.co_case_store import case_lock, case_root, load_state, now_iso, safe_filename, save_state
+from app.co_case_store import case_lock, case_root, load_state, now_iso, parse_timestamp, safe_filename, save_state
 from app.data_hub_client import set_current_data_hub_token
 
 _EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dossier-export")
 _FUTURES: dict[tuple[str, str], Future] = {}
+
+# A `running` entry whose worker is gone (deploy/restart killed the process) is
+# orphaned: no future will ever finish it. Report it as failed so the review page
+# renders "Xuất lại" instead of a spinner that never resolves. The grace window
+# covers the gap between save_state("running") and the executor registering the
+# future — a poll landing in between must not declare the job dead.
+ORPHAN_GRACE_SECONDS = 90
+ORPHAN_ERROR = "tiến trình tạo file bị dừng giữa (khởi động lại hệ thống)"
 
 Builder = Callable[[], tuple[bytes, list[dict]]]
 
@@ -57,7 +66,7 @@ def submit_dossier_export(
         exports = state.setdefault("dossier_exports", {})
         existing = exports.get(case_id) or {}
         if _is_running(client_id, case_id, existing):
-            return _view(existing, current_revision)
+            return _view(existing, current_revision, live=True)
         exports[case_id] = {
             "status": "running",
             "built_from_revision": current_revision,
@@ -76,7 +85,7 @@ def submit_dossier_export(
 def dossier_export_status(client: dict, case_id: str, *, current_revision: str) -> dict:
     state = load_state(client["id"])
     entry = (state.get("dossier_exports") or {}).get(case_id) or {}
-    return _view(entry, current_revision)
+    return _view(entry, current_revision, live=_is_running(client["id"], case_id, entry))
 
 
 def dossier_export_result_path(client: dict, case_id: str) -> tuple[Path, str] | None:
@@ -143,17 +152,43 @@ def _is_running(client_id: str, case_id: str, entry: dict) -> bool:
     return future is not None and not future.done()
 
 
-def _view(entry: dict, current_revision: str) -> dict:
+def _view(entry: dict, current_revision: str, *, live: bool = True) -> dict:
     status = entry.get("status") or "idle"
     built_from = entry.get("built_from_revision")
     stale = bool(status == "done" and current_revision and built_from != current_revision)
+    started_at = entry.get("started_at", "")
+    finished_at = entry.get("finished_at", "")
+    elapsed = _elapsed_seconds(started_at, finished_at if status != "running" else "")
+    error = entry.get("error", "")
+    if status == "running" and not live and (elapsed is None or elapsed >= ORPHAN_GRACE_SECONDS):
+        status = "failed"
+        error = error or ORPHAN_ERROR
     return {
         "status": status,
         "stale": stale,
         "can_download": status == "done" and not stale,
         "filename": entry.get("filename", ""),
         "warnings": entry.get("warnings", []),
-        "error": entry.get("error", ""),
-        "started_at": entry.get("started_at", ""),
-        "finished_at": entry.get("finished_at", ""),
+        "error": error,
+        "started_at": started_at,
+        "finished_at": finished_at,
+        "elapsed_seconds": elapsed,
+        "elapsed_label": _elapsed_label(elapsed),
     }
+
+
+def _elapsed_seconds(started_at: str, finished_at: str = "") -> int | None:
+    started = parse_timestamp(started_at)
+    if started is None:
+        return None
+    end = parse_timestamp(finished_at) or datetime.now(timezone.utc)
+    return max(int((end - started).total_seconds()), 0)
+
+
+def _elapsed_label(seconds: int | None) -> str:
+    if seconds is None:
+        return ""
+    minutes, remainder = divmod(seconds, 60)
+    if not minutes:
+        return f"{remainder} giây"
+    return f"{minutes} phút {remainder} giây"

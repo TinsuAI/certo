@@ -186,10 +186,57 @@ def test_orphaned_running_job_can_be_resubmitted(_isolate):
     # in-process future registry is gone and the queued job never ran.
     _isolate.jobs.clear()
     svc._FUTURES.clear()
-    assert svc.dossier_export_status(client, record["case_id"], current_revision="rev-1")["status"] == "running"
-
     svc.submit_dossier_export(
         client, record["case_id"], token="tok",
         current_revision="rev-1", filename="CO-X-dossier.zip", builder=_ok_builder(),
     )
     assert len(_isolate.jobs) == 1
+
+
+def test_orphaned_running_job_reports_failed_so_the_page_offers_a_retry(_isolate, monkeypatch):
+    """The review page renders a spinner for `running` and a button for anything
+    else. An orphan (worker died mid-job) must therefore NOT keep reading
+    `running`, or the operator is left with a spinner and no way out
+    (VNG26030107, 2026-08-17)."""
+    client, record = _make_case()
+    svc.submit_dossier_export(
+        client, record["case_id"], token="tok",
+        current_revision="rev-1", filename="CO-X-dossier.zip", builder=_ok_builder(),
+    )
+    _isolate.jobs.clear()
+    svc._FUTURES.clear()
+    # Inside the grace window the job is still assumed alive (the future is
+    # registered just after the state is saved).
+    assert svc.dossier_export_status(client, record["case_id"], current_revision="rev-1")["status"] == "running"
+
+    monkeypatch.setattr(svc, "ORPHAN_GRACE_SECONDS", 0)
+    view = svc.dossier_export_status(client, record["case_id"], current_revision="rev-1")
+    assert view["status"] == "failed"
+    assert svc.ORPHAN_ERROR in view["error"]
+    assert view["can_download"] is False
+
+
+def test_live_running_job_is_never_reported_orphaned(_isolate, monkeypatch):
+    client, record = _make_case()
+    monkeypatch.setattr(svc, "ORPHAN_GRACE_SECONDS", 0)
+    svc.submit_dossier_export(
+        client, record["case_id"], token="tok",
+        current_revision="rev-1", filename="CO-X-dossier.zip", builder=_ok_builder(),
+    )
+    assert svc.dossier_export_status(client, record["case_id"], current_revision="rev-1")["status"] == "running"
+
+
+def test_view_reports_elapsed_time(_isolate):
+    """The panel promised "~1 phút" while a 157-TKN dossier took 5m42s. It now
+    shows how long the build has actually been running."""
+    client, record = _make_case()
+    svc.submit_dossier_export(
+        client, record["case_id"], token="tok",
+        current_revision="rev-1", filename="CO-X-dossier.zip", builder=_ok_builder(),
+    )
+    running = svc.dossier_export_status(client, record["case_id"], current_revision="rev-1")
+    assert running["elapsed_seconds"] is not None and running["elapsed_seconds"] >= 0
+    assert "giây" in running["elapsed_label"]
+    assert svc._elapsed_label(342) == "5 phút 42 giây"
+    assert svc._elapsed_label(45) == "45 giây"
+    assert svc._elapsed_label(None) == ""
