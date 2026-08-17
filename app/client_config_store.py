@@ -37,6 +37,13 @@ DECLARATION_TYPE_PRESETS = {
 ALLOCATION_CODE_STRATEGIES = {"same_as_customs_code", "description_regex", "manual_review"}
 ALLOCATION_CODE_FALLBACKS = {"same_as_customs_code", "requires_review"}
 CO_STOCK_LOT_POLICIES = {"line_level", "aggregate_by_declaration_and_allocation_code", "manual_review"}
+# Which value columns of the customs declaration are money for this client:
+# - taxable_vnd: đơn giá / trị giá tính thuế (VND) — what CO has always used
+# - invoice_native: đơn giá / trị giá nguyên tệ + tỷ giá thanh toán of the
+#   declaration (USD for most import lines), so the bảng kê is filed in the
+#   invoice currency. Switches the FOB read from the export declaration too —
+#   VNM and FOB must share one currency or LVC/RVC is meaningless.
+CO_STOCK_VALUE_BASES = {"taxable_vnd", "invoice_native"}
 DEFAULT_DESCRIPTION_REGEX = r"\(([A-Z0-9][A-Z0-9._/-]{3,})\)"
 
 
@@ -76,6 +83,7 @@ def default_config(client: dict) -> dict:
         },
         "co_stock": {
             "lot_policy": "line_level",
+            "value_basis": "taxable_vnd",
         },
         "allocation_code": {
             "strategy": "description_regex" if client["id"] == "growatt" else "same_as_customs_code",
@@ -116,6 +124,8 @@ def migrate_config(config: dict, client: dict) -> dict:
 def validate_config(config: dict) -> None:
     if config["co_stock"].get("lot_policy") not in CO_STOCK_LOT_POLICIES:
         raise ValueError("Invalid CO stock source-line policy.")
+    if config["co_stock"].get("value_basis", "taxable_vnd") not in CO_STOCK_VALUE_BASES:
+        raise ValueError("Invalid CO stock value basis.")
     allocation = config["allocation_code"]
     if allocation.get("strategy") not in ALLOCATION_CODE_STRATEGIES:
         raise ValueError("Invalid allocation code strategy.")

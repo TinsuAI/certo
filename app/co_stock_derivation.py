@@ -21,13 +21,14 @@ def co_stock_rows_from_bcct(
     resolution (output rows get `exchange_rate_source="missing"`).
     """
     lot_policy = client_config["co_stock"].get("lot_policy")
+    value_basis = client_config["co_stock"].get("value_basis") or "taxable_vnd"
     output = []
     for row in rows:
         if row.get("direction") != "import":
             continue
         quantity = row.get("quantity", "")
         source_row = row.get("import_row_id") or import_row_id(row["transaction_key"])
-        value_fields = co_stock_value_fields(row, quantity)
+        value_fields = co_stock_value_fields(row, quantity, value_basis)
         registration_date = (
             row.get("registration_date")
             or row.get("declaration_date")
@@ -110,7 +111,7 @@ def co_stock_fx_fields(
                 "exchange_rate_source": "customs_lookup",
             }
     return {"exchange_rate_to_vnd": "", "exchange_rate_source": "missing"}
-def co_stock_value_fields(row: dict, quantity: str) -> dict:
+def co_stock_value_fields(row: dict, quantity: str, value_basis: str = "taxable_vnd") -> dict:
     taxable_unit_price = first_normalized_decimal(
         row.get("taxable_unit_price"),
         row.get("unit_price"),
@@ -119,7 +120,16 @@ def co_stock_value_fields(row: dict, quantity: str) -> dict:
         row.get("customs_value"),
         row.get("total_value"),
     )
-    foreign_currency_value = first_normalized_decimal(row.get("foreign_currency_value"))
+    foreign_currency_value = first_normalized_decimal(
+        row.get("foreign_currency_value"),
+        row.get("total_value_nt"),
+    )
+    if value_basis == "invoice_native":
+        native = co_stock_native_value_fields(
+            row, quantity, taxable_unit_price, customs_value, foreign_currency_value
+        )
+        if native is not None:
+            return native
     value_currency = "VND" if customs_value or taxable_unit_price else row.get("currency", "") if foreign_currency_value else ""
     customs_value = customs_value or foreign_currency_value
     quantity_value = decimal_text_value(quantity)
@@ -141,6 +151,52 @@ def co_stock_value_fields(row: dict, quantity: str) -> dict:
         "unit_value_source": unit_value_source,
         "currency": value_currency,
         "value_currency": value_currency,
+    }
+def co_stock_native_value_fields(
+    row: dict,
+    quantity: str,
+    taxable_unit_price: str,
+    customs_value_vnd: str,
+    foreign_currency_value: str,
+) -> dict | None:
+    """Value fields read from the declaration's nguyên-tệ columns (đơn giá /
+    trị giá hoá đơn + đơn vị tiền tệ), for `co_stock.value_basis = invoice_native`.
+
+    Returns None when the line carries no usable foreign-currency figure, so the
+    caller keeps the VND lane: a VND number labelled USD would be far worse than
+    filing in VND. A line declared in VND (nhập tại chỗ / nội địa) also returns
+    None — there is nothing to switch, and its rate must stay 1.
+    """
+    currency = str(row.get("currency_nt") or row.get("currency") or "").strip().upper()
+    if not currency or currency == "VND":
+        return None
+    invoice_unit_price = first_normalized_decimal(
+        row.get("invoice_unit_price"),
+        row.get("unit_price_nt"),
+    )
+    unit_value = invoice_unit_price
+    unit_value_source = "bcct_invoice_unit_price" if unit_value else ""
+    if not unit_value and foreign_currency_value:
+        unit_value = unit_value_from_total(foreign_currency_value, quantity)
+        unit_value_source = "bcct_invoice_value_per_qty" if unit_value else ""
+    if not unit_value:
+        return None
+    native_total = foreign_currency_value
+    if not native_total:
+        quantity_value = decimal_text_value(quantity)
+        unit_decimal = decimal_text_value(unit_value)
+        if quantity_value is not None and unit_decimal is not None:
+            native_total = decimal_to_text(unit_decimal * quantity_value)
+    return {
+        "customs_value": native_total,
+        # The VND figures the declaration itself states, kept for reference and for
+        # the VND lane (the allocation line converts with the row's own rate).
+        "customs_value_vnd": customs_value_vnd,
+        "taxable_unit_price": taxable_unit_price,
+        "unit_value": unit_value,
+        "unit_value_source": unit_value_source,
+        "currency": currency,
+        "value_currency": currency,
     }
 def first_normalized_decimal(*values) -> str:
     for value in values:

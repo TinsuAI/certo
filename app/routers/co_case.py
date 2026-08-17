@@ -23,7 +23,7 @@ from app.portfolio import portfolio_service
 from app.source_store import co_stock_rows_from_bcct
 from app.substitution_plan import plan_shortfall_substitution
 from app.web.client_context import default_client_case, effective_min_gap_days, resolve_client, source_workspace_for_client
-from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, OVERRIDE_HISTORY_MAX, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, apply_column9_mode_flip, attach_column9_mode_mismatch, attach_origin_sheet_states, case_allocation_pool, case_stock_scope_codes, column9_mode_mismatches, materialize_bang_ke_origin_fields, resolve_case_column9_mode, case_missing_stock_summary, case_shortfall_rollup, case_stock_preview_summary, case_tkx_tkn_summary, clean_override_stack, co_case_context, co_case_source_context, co_case_source_context_cached, co_case_material_catalog_cached, co_stock_is_usable, dossier_content_revision, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, material_row_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, optional_decimal, origin_case_revision, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_products, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
+from app.web.co_case_context import CO_CASE_WORKFLOW_STEP_KEYS, ORIGIN_SHEET_STATUS_LABELS, OVERRIDE_HISTORY_MAX, SHEET_CURRENCY_MODES, SHEET_OPTIMIZATION_MODES, _CO_CASE_SOURCE_CACHE, _calculate_stock_rows_from_snapshot, apply_existing_origin_product_consumption, attach_origin_bom_product_codes, attach_origin_readiness, apply_column9_mode_flip, attach_column9_mode_mismatch, attach_origin_sheet_states, case_allocation_pool, case_stock_scope_codes, column9_mode_mismatches, materialize_bang_ke_origin_fields, resolve_case_column9_mode, case_missing_stock_summary, case_shortfall_rollup, case_stock_preview_summary, case_tkx_tkn_summary, clean_override_stack, co_case_context, co_case_source_context, co_case_source_context_cached, co_case_material_catalog_cached, co_stock_is_usable, dossier_content_revision, client_value_basis, co_stock_key_candidates, decimal_value, durable_sheet_status, invoice_preview_from_matches, market_inference_view, material_catalog_index, material_row_index, minimal_bom_workspace, normalize_threshold, numeric_sort_text, optional_decimal, origin_case_revision, origin_match_from_existing_product, origin_product_from_invoice_match, origin_product_order, origin_sheet_action_error, origin_sheet_export_blockers, prepare_case_origin_products, prepare_case_origin_sheet, primary_shipment_reference, shipment_reference_warnings
 from app.web.deps import large_request_form
 from app.web.templating import templates
 from app.workbook_io import create_dossier_zip, create_hq_bang_ke_workbook
@@ -642,6 +642,7 @@ def recalculate_origin_sheet_edits(client: dict, case: dict, product_code: str, 
         product_sequence=target_index + 1,
         bom_product_code=str(target.get("bom_product_code") or target.get("code") or ""),
         supplier_flags=_supplier_flags(client),
+        value_basis=_value_basis(client),
     )
     for key in [
         "bom_product_artifact_id",
@@ -676,6 +677,10 @@ def recalculate_origin_sheet_and_status(
     return set_origin_sheet_status(
         case, product_code, calculated_sheet_status(product) if product else "calculated"
     )
+def _value_basis(client: dict) -> str:
+    """`co_stock.value_basis` for this client, fetched once per Tính and threaded
+    down the build funnel exactly like `_supplier_flags`."""
+    return client_value_basis(client)
 def _supplier_flags(client: dict) -> dict:
     """Current supplier evidence flags for this client, fetched ONCE per Tính
     and threaded down the build funnel. {} without a database or on error —
@@ -1738,6 +1743,7 @@ def allocate_whole_case_preview(client: dict, case: dict, context: dict, stock_r
     states = case.get("origin_sheet_states") or {}
     has_overrides = any(isinstance(s, dict) and s.get("material_overrides") for s in states.values())
     supplier_flags = _supplier_flags(client)
+    value_basis = _value_basis(client)
     if not has_overrides:
         preview = dict(case)
         preview.pop("origin_snapshot", None)
@@ -1746,6 +1752,7 @@ def allocate_whole_case_preview(client: dict, case: dict, context: dict, stock_r
                 preview, invoice_matches, bom_workspace, form_lane, material_rows, stock_rows,
                 preserve_existing=False,
                 supplier_flags=supplier_flags,
+                value_basis=value_basis,
             ),
             client,
         )
@@ -1758,6 +1765,7 @@ def allocate_whole_case_preview(client: dict, case: dict, context: dict, stock_r
                 case, code, invoice_matches, bom_workspace, form_lane, material_rows, stock_rows,
                 min_gap_days=min_gap_days,
                 supplier_flags=supplier_flags,
+                value_basis=value_basis,
             )
     return materialize_bang_ke_origin_fields(case, client)
 def whole_case_stock_summary(client: dict, case: dict, context: dict, stock_rows: list[dict], min_gap_days: int | None) -> dict:
@@ -2188,6 +2196,7 @@ async def load_bom_co_case_origin_sheet(request: Request, client_id: str, case_i
         [],  # stock_rows — Load BOM không đụng tồn
         min_gap_days=min_gap_days,
         allocate=False,
+        value_basis=_value_basis(client),
     )
     context["case"] = materialize_bang_ke_origin_fields(context["case"], client)
     context["case"] = attach_case_bom_snapshot(context["case"], context.get("bom_workspace", minimal_bom_workspace()))
@@ -2232,6 +2241,9 @@ def calculated_sheet_status(product: dict) -> str:
     - lvc_zero_lot_price — an NVL that DID match an import lot carries đơn giá /
       trị giá 0, so VNM is understated the same way while valuation_status still
       reads "ready". Cleared by Tính lại (which reprices from the lot).
+    - lvc_mixed_currency — one NVL's lots are declared in two currencies, so its
+      trị giá cannot be summed (only reachable with co_stock.value_basis =
+      invoice_native).
 
     Also stays 'bom_loaded' when:
     - lvc_declarable_unmatched — a declarable NVL has no BCCT import match (DC3c):
@@ -2247,6 +2259,8 @@ def calculated_sheet_status(product: dict) -> str:
     if product.get("lvc_missing_price"):
         return "bom_loaded"
     if product.get("lvc_zero_lot_price"):
+        return "bom_loaded"
+    if product.get("lvc_mixed_currency"):
         return "bom_loaded"
     if product.get("lvc_declarable_unmatched"):
         return "bom_loaded"
@@ -2317,6 +2331,7 @@ def _recompute_origin_sheet_context(
             stock_rows,
             min_gap_days=min_gap_days,
             supplier_flags=_supplier_flags(client),
+            value_basis=_value_basis(client),
         )
     context["case"] = materialize_bang_ke_origin_fields(context["case"], client)
     context["case"] = attach_case_bom_snapshot(context["case"], context.get("bom_workspace", minimal_bom_workspace()))
