@@ -13,7 +13,7 @@ layouts — layout differences are pure config.
 from __future__ import annotations
 
 import json
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -209,7 +209,11 @@ def _pick_currency_value(material: dict, base_key: str, use_vnd: bool, product: 
     try:
         if vnd_value not in (None, "") and fx_rate:
             converted = Decimal(str(vnd_value)) / Decimal(str(fx_rate))
-            return _decimal_text(converted)
+            # A rate division does not terminate: unrounded it printed đơn giá with 28
+            # decimals on the bảng kê. Unit prices keep 6 decimals (the precision the
+            # declarations themselves use), amounts 2.
+            places = Decimal("0.000001") if base_key.startswith("unit_value") else Decimal("0.01")
+            return _decimal_text(converted.quantize(places, rounding=ROUND_HALF_UP))
     except (InvalidOperation, ValueError, ZeroDivisionError):
         pass
     return material.get(base_key, "")

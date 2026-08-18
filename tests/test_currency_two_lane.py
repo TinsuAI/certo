@@ -396,3 +396,24 @@ def test_recalc_match_falls_back_to_the_product_without_a_persisted_match():
     target = {"code": "TP-A", "fob": "100", "currency": "USD", "quantity": "1"}
     match = origin_match_for_recalc({}, target)
     assert match["item_code"] == "TP-A" and match["fob_value"] == "100"
+
+
+def test_cross_converted_values_are_rounded_for_the_form():
+    """A VND-declared lot on a USD sheet is converted, and the division does not
+    terminate — the workbook printed đơn giá with 28 decimals, which is not filable."""
+    from app.bang_ke_renderer import _pick_currency_value
+    product = {"fob_currency": "VND", "invoice_currency": "USD", "fob_fx_rate": "26137.4"}
+    unit = {"currency": "VND", "unit_value": "3685.500201", "unit_value_vnd": "3685.500201",
+            "native_currency": "VND", "unit_value_native": "3685.500201"}
+    assert _pick_currency_value(unit, "unit_value", False, product) == "0.141005"
+    total = {"currency": "VND", "material_value": "81081.004422", "material_value_vnd": "81081.004422",
+             "native_currency": "VND", "material_value_native": "81081.004422"}
+    assert _pick_currency_value(total, "material_value", False, product) == "3.1"
+
+
+def test_an_exact_lane_value_is_never_re_rounded():
+    from app.bang_ke_renderer import _pick_currency_value
+    product = {"fob_currency": "VND", "invoice_currency": "USD", "fob_fx_rate": "26137.4"}
+    material = {"currency": "VND", "unit_value": "80334.057473", "unit_value_vnd": "80334.057473",
+                "native_currency": "USD", "unit_value_native": "3.0116"}
+    assert _pick_currency_value(material, "unit_value", False, product) == "3.0116"
