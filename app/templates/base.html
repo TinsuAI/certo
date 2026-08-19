@@ -6,50 +6,31 @@
   <title>{% block title %}{{ t('app.brand') }}{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/app.css">
   {% block head_extra %}{% endblock %}
 </head>
 <body data-theme="{{ theme }}">
-  <div class="app-frame" aria-hidden="true"></div>
-  <div class="shell-noise"></div>
   <header class="topnav">
     <a class="brand" href="/">
       <span class="brand-mark">DH</span>
-      <span>{{ t('app.brand') }}</span>
+      <span class="brand-name">{{ t('app.brand') }}</span>
     </a>
     {% if user %}
-    <nav class="topnav-nav" aria-label="{{ t('nav.clients') }}">
-      <a class="topnav-navlink {% if active_root == 'clients' %}topnav-navlink-active{% endif %}"
-         href="/clients">{{ t('nav.clients') }}</a>
-      {% if user.role in ('dev', 'admin') %}
-      <a class="topnav-navlink {% if active_root == 'admin' %}topnav-navlink-active{% endif %}"
-         href="/admin/users">{{ t('nav.admin') }}</a>
-      {% endif %}
-    </nav>
+    <span class="topnav-sep" aria-hidden="true"></span>
+    {% if client %}
+    <a class="client-switch" href="/clients" title="{{ t('nav.switch_client') }}">
+      <span class="client-switch-av">{{ client.name[:2]|upper }}</span>
+      <span class="client-switch-body">
+        <span class="client-switch-name">{{ client.name }}</span>
+        <span class="client-switch-id">{{ client.client_id }}</span>
+      </span>
+      <span class="client-switch-caret" aria-hidden="true">⇅</span>
+    </a>
+    {% else %}
+    <a class="client-switch client-switch-empty" href="/clients">{{ t('nav.pick_client') }}</a>
+    {% endif %}
     <div class="topnav-meta">
-      <form method="post" action="/settings/theme" class="topnav-toggle-form">
-        <input type="hidden" name="theme" value="{{ next_theme }}">
-        <input type="hidden" name="next_url" value="{{ request.url.path }}">
-        <button type="submit" class="topnav-chip topnav-chip-button"
-                title="{{ t('ui.theme.toggle') }}"
-                aria-label="{{ t('ui.theme.toggle') }}">
-          {% if theme == "dark" %}
-          <svg class="topnav-chip-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-               fill="none" stroke="currentColor" stroke-width="1.7"
-               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-          </svg>
-          {% else %}
-          <svg class="topnav-chip-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-               fill="none" stroke="currentColor" stroke-width="1.7"
-               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="4"/>
-            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
-          </svg>
-          {% endif %}
-        </button>
-      </form>
       {# Notification bell tạm tắt — bật lại bằng cách bỏ comment khi tính năng hoàn thiện. #}
       {# {% include "notifications/_bell.html" ignore missing %} #}
       <details class="nav-menu user-menu">
@@ -62,6 +43,13 @@
             <strong>{{ user.display_name }}</strong>
             <span class="meta">{{ user.role }}</span>
           </div>
+          <form method="post" action="/settings/theme" class="user-menu-form">
+            <input type="hidden" name="theme" value="{{ next_theme }}">
+            <input type="hidden" name="next_url" value="{{ request.url.path }}">
+            <button type="submit" class="user-menu-item">
+              {{ t('ui.theme.toggle') }} · {{ t('ui.theme.' + next_theme) }}
+            </button>
+          </form>
           <form method="post" action="/settings/lang" class="user-menu-form">
             <input type="hidden" name="lang" value="{{ next_lang }}">
             <input type="hidden" name="next_url" value="{{ request.url.path }}">
@@ -75,22 +63,22 @@
     </div>
     {% endif %}
   </header>
-  <main class="shell">
-    {% if message %}<div class="toast">{{ message }}</div>{% endif %}
-    {% if error %}<div class="toast toast-error">{{ error }}</div>{% endif %}
-    {% block content %}{% endblock %}
-  </main>
-  {% if user %}
-  <footer class="app-footer">
-    <span class="app-footer-brand" aria-hidden="true"></span>
-    <a href="/whats-new" class="app-footer-link">
-      {{ t('app.brand') }} · v{{ app_version.version }}
-      <span class="mono">{{ app_version.git_sha }}</span>
-      {% if app_version.source != 'build' %}<span class="app-footer-dev">({{ app_version.source }})</span>{% endif %}
-    </a>
-    <a href="/whats-new" class="app-footer-whatsnew">{{ t('nav.whats_new') }} →</a>
-  </footer>
-  {% endif %}
+  <div class="app-body">
+    {% if user %}
+    <aside class="side" aria-label="{{ t('nav.sidebar') }}">
+      {% include "_sidebar.html" %}
+    </aside>
+    {% endif %}
+    <div class="main">
+      <div class="view">
+        <main class="shell wrap">
+          {% if message %}<div class="toast">{{ message }}</div>{% endif %}
+          {% if error %}<div class="toast toast-error">{{ error }}</div>{% endif %}
+          {% block content %}{% endblock %}
+        </main>
+      </div>
+    </div>
+  </div>
   {% if user and chat_agent_enabled %}
     {% include "_chat_widget.html" %}
   {% endif %}

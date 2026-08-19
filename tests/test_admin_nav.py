@@ -1,5 +1,6 @@
-"""Shared admin sub-nav (_admin_nav.html, G.1): renders on every admin page,
-self-highlights the active section, and dev-gates the Hệ thống group."""
+"""Shared admin nav (now the persistent sidebar, `_sidebar.html`): renders on
+every admin page, self-highlights the active section, and dev-gates the
+Hệ thống group."""
 from __future__ import annotations
 
 import pytest
@@ -66,22 +67,22 @@ def test_admin_nav_renders_on_every_page():
             r = c.get(path)
             assert r.status_code == 200, (path, r.status_code)
             # Shared nav present.
-            assert 'class="tabs admin-tabs"' in r.text, path
+            assert 'class="side"' in r.text, path
             assert "Dữ liệu tham chiếu" in r.text, path
             assert "Hệ thống" in r.text, path  # dev sees the system group
             # Active highlighting fired on this page.
-            assert "tab-link-active" in r.text, path
+            assert 'class="side-a on"' in r.text, path
     finally:
         _cleanup(uid)
 
 
 def test_admin_nav_active_item_for_reference_group():
-    """On a Dữ liệu tham chiếu page, the dropdown item is is-active."""
+    """On a Dữ liệu tham chiếu page, the sidebar item is marked active."""
     c, uid = _dev_client()
     try:
         r = c.get("/admin/uom")
         assert r.status_code == 200
-        assert "is-active" in r.text  # the UoM standards entry inside the panel
+        assert 'class="side-a on"' in r.text  # the UoM standards entry
     finally:
         _cleanup(uid)
 
@@ -92,7 +93,7 @@ def test_admin_nav_hides_system_group_for_non_dev():
     try:
         r = c.get("/admin/users")
         assert r.status_code == 200
-        assert 'class="tabs admin-tabs"' in r.text
+        assert 'class="side"' in r.text
         assert "Dữ liệu tham chiếu" in r.text
         assert "Adapter BOM" in r.text
         assert "Hệ thống" not in r.text  # dev-only group withheld
