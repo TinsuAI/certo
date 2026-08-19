@@ -1,95 +1,144 @@
 :root {
-  --radius-sm: 6px;
-  --radius-md: 6px;
+  --radius-sm: 3px;
+  --radius-md: 5px;
   --radius-lg: 8px;
-  --radius-xl: 10px;
-  --sans: "Manrope", "Segoe UI Variable", sans-serif;
-  --mono: "IBM Plex Mono", monospace;
+  --radius-xl: 12px;
+  --sans: "Inter", "Be Vietnam Pro", -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+  --display: "Be Vietnam Pro", "Inter", system-ui, sans-serif;
+  --mono: "JetBrains Mono", "SF Mono", "Cascadia Code", Consolas, monospace;
   --radius-pill: 999px;
   --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem;
   --space-4: 1rem; --space-5: 1.5rem; --space-6: 2rem; --space-7: 3rem;
-  --fs-xs: 0.72rem; --fs-sm: 0.82rem; --fs-md: 0.92rem;
-  --fs-lg: 1.1rem; --fs-xl: 1.4rem; --fs-2xl: 1.9rem;
+  --fs-xs: 0.72rem; --fs-sm: 0.8125rem; --fs-md: 0.875rem;
+  --fs-lg: 1.05rem; --fs-xl: 1.25rem; --fs-2xl: 1.4rem;
   --lh-tight: 1.2; --lh-normal: 1.5;
+  /* Shell geometry. Theme-independent, so it stays out of the palette blocks. */
+  --header-h: 52px;
+  --side-w: 228px;
 }
 
 body[data-theme="light"] {
   color-scheme: light;
-  --background: #f6f7f8;
+  --background: #f6f7f9;
   --background-top: #ffffff;
-  --background-accent: rgba(31,111,235,0.04);
-  --background-accent-2: rgba(31,111,235,0.02);
-  --foreground: #1f2328;
-  --foreground-soft: #424a53;
-  --foreground-muted: #656d76;
+  --background-accent: rgba(29,53,87,0.04);
+  --background-accent-2: rgba(29,53,87,0.02);
+  --foreground: #0f172a;
+  --foreground-soft: #475569;
+  --foreground-muted: #616e83;
   --card: #ffffff;
-  --card-muted: #f6f8fa;
+  --card-muted: #f8fafc;
   --menu-surface: #ffffff;
-  --surface-subtle: #f6f8fa;
-  --surface-hover: #eef1f4;
-  --surface-overlay: rgba(255,255,255,0.95);
+  --surface-subtle: #f8fafc;
+  --surface-hover: #f1f5f9;
+  --surface-overlay: rgba(255,255,255,0.96);
   --surface-input: #ffffff;
-  --border: #d0d7de;
-  --border-strong: #afb8c1;
-  --primary: #1f6feb;
-  --primary-hover: #1a5fd0;
-  --primary-soft: rgba(31,111,235,0.1);
+  --surface-sunk: #f1f5f9;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --primary: #1d3557;
+  --primary-hover: #16294a;
+  --primary-soft: #eef2f7;
   --primary-foreground: #ffffff;
-  --success: #1a7f37;
-  --warning: #9a6700;
-  --error: #cf222e;
-  --info: #1f6feb;
-  --stale: #656d76;
-  --success-soft: rgba(26,127,55,0.12);
-  --warning-soft: rgba(154,103,0,0.13);
-  --error-soft: rgba(207,34,46,0.11);
-  --info-soft: rgba(31,111,235,0.1);
-  --shadow-md: 0 1px 0 rgba(31,35,40,0.04);
-  --shadow-lg: 0 8px 24px rgba(31,35,40,0.12);
-  /* App-identity brand chrome ONLY (monogram/topnav border/viewport frame) so CO
-     is instantly distinct from Data Hub (green). NOT an action accent — links,
-     buttons, active states stay on --primary (blue). Must not be green or the
-     shared primary blue. */
-  --brand: #8250df;
+  --success: #166534;
+  --warning: #92400e;
+  --error: #991b1b;
+  --info: #1e40af;
+  --stale: #616e83;
+  --success-soft: #dcfce7;
+  --warning-soft: #fef3c7;
+  --error-soft: #fdecec;
+  --info-soft: #dbeafe;
+  --success-bd: #bbf7d0;
+  --warning-bd: #fcd99a;
+  --critical-bd: #f5c2c2;
+  --info-bd: #bfdbfe;
+  --muted-bd: #e2e8f0;
+  --shadow-md: 0 1px 2px rgba(15,29,59,.06);
+  --shadow-lg: 0 12px 32px rgba(15,29,59,.14);
+  /* Navy identity ramp — app chrome (header bar, sidebar active tint, table
+     row hover/selection). Shared by CO and Data Hub so one action colour
+     survives a move between the two apps. */
+  --brand-50: #eef2f7;
+  --brand-100: #d6dfeb;
+  --brand-200: #b9c8dd;
+  --brand-500: #1d3557;
+  --brand-600: #16294a;
+  --brand-700: #0f1d3b;
+  /* Indigo logic ramp — decision tables, expressions, rule-engine traces.
+     Data = navy, logic = indigo; the two ramps never mix. */
+  --logic-50: #eef2ff;
+  --logic-100: #e0e7ff;
+  --logic-200: #c7d2fe;
+  --logic-500: #4338ca;
+  --logic-600: #3730a3;
+  --logic-700: #312e81;
+  /* App-identity accent ONLY (monogram, identity chip). CO is the logic /
+     calculation plane, so its identity colour is indigo. NOT an action
+     accent — links, primary buttons and active states stay on --primary. */
+  --brand: #4338ca;
   --brand-foreground: #ffffff;
 }
 
 body[data-theme="dark"] {
   color-scheme: dark;
-  --background: #0d1117;
-  --background-top: #010409;
-  --background-accent: rgba(56,139,253,0.1);
-  --background-accent-2: rgba(56,139,253,0.06);
-  --foreground: #e6edf3;
-  --foreground-soft: #c9d1d9;
-  --foreground-muted: #8b949e;
-  --card: #161b22;
-  --card-muted: #0d1117;
-  --menu-surface: #161b22;
-  --surface-subtle: #161b22;
-  --surface-hover: #21262d;
-  --surface-overlay: rgba(13,17,23,0.9);
-  --surface-input: #0d1117;
-  --border: #30363d;
-  --border-strong: #444c56;
-  --primary: #388bfd;
-  --primary-hover: #58a6ff;
-  --primary-soft: rgba(56,139,253,0.15);
-  --primary-foreground: #ffffff;
-  --success: #3fb950;
-  --warning: #d29922;
-  --error: #f85149;
-  --info: #58a6ff;
-  --stale: #8b949e;
-  --success-soft: rgba(63,185,80,0.15);
-  --warning-soft: rgba(210,153,34,0.15);
-  --error-soft: rgba(248,81,73,0.15);
-  --info-soft: rgba(88,166,255,0.15);
-  --shadow-md: 0 0 0 1px rgba(1,4,9,0.0);
-  --shadow-lg: 0 16px 40px rgba(1,4,9,0.5);
-  /* App-identity brand chrome (see light block). Dark-tuned purple. */
-  --brand: #a371f7;
-  --brand-foreground: #ffffff;
+  --background: #0f172a;
+  --background-top: #0b1220;
+  --background-accent: rgba(125,162,209,0.10);
+  --background-accent-2: rgba(125,162,209,0.06);
+  --foreground: #e2e8f0;
+  --foreground-soft: #cbd5e1;
+  --foreground-muted: #94a3b8;
+  --card: #1e293b;
+  --card-muted: #0f172a;
+  --menu-surface: #1e293b;
+  --surface-subtle: #1e293b;
+  --surface-hover: #334155;
+  --surface-overlay: rgba(15,23,42,0.94);
+  --surface-input: #0f172a;
+  --surface-sunk: #0f172a;
+  --border: #334155;
+  --border-strong: #475569;
+  --primary: #7da2d1;
+  --primary-hover: #9bbbe4;
+  --primary-soft: rgba(125,162,209,.16);
+  /* Dark --primary is a light slate-blue: white on it reads at ~2:1, so the
+     text that sits on a primary fill flips to the dark ground instead. */
+  --primary-foreground: #0b1220;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --error: #f87171;
+  --info: #7da2d1;
+  --stale: #94a3b8;
+  --success-soft: rgba(74,222,128,0.15);
+  --warning-soft: rgba(251,191,36,0.15);
+  --error-soft: rgba(248,113,113,0.15);
+  --info-soft: rgba(125,162,209,0.15);
+  --success-bd: rgba(74,222,128,0.36);
+  --warning-bd: rgba(251,191,36,0.36);
+  --critical-bd: rgba(248,113,113,0.36);
+  --info-bd: rgba(125,162,209,0.36);
+  --muted-bd: #334155;
+  --shadow-md: 0 1px 2px rgba(2,6,23,.5);
+  --shadow-lg: 0 16px 40px rgba(2,6,23,.6);
+  /* Navy ramp, dark-tuned. 500-700 stay dark enough to carry white text (the
+     header bar); the 50-200 tints are translucent slate-blue so an active
+     sidebar row or a hovered table row reads against the dark card. */
+  --brand-50: rgba(125,162,209,0.13);
+  --brand-100: rgba(125,162,209,0.22);
+  --brand-200: rgba(125,162,209,0.32);
+  --brand-500: #1e3a5f;
+  --brand-600: #16294a;
+  --brand-700: #0f1d3b;
+  --logic-50: rgba(129,140,248,0.13);
+  --logic-100: rgba(129,140,248,0.22);
+  --logic-200: rgba(129,140,248,0.32);
+  --logic-500: #818cf8;
+  --logic-600: #a5b4fc;
+  --logic-700: #c7d2fe;
+  /* App-identity accent (see light block). Dark-tuned indigo. */
+  --brand: #818cf8;
+  --brand-foreground: #0b1220;
 }
 * {
   box-sizing: border-box;
@@ -3095,14 +3144,6 @@ button.co-stat:hover {
   white-space: nowrap;
 }
 
-.rail {
-  position: sticky;
-  top: 72px;
-  display: grid;
-  gap: 1rem;
-  min-width: 0;
-}
-
 .stack-form {
   display: grid;
   gap: 0.7rem;
@@ -4073,7 +4114,7 @@ button.co-stat:hover {
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.82rem;
+  font-size: 13px;
 }
 
 .table-scroll .table {
@@ -4081,16 +4122,23 @@ button.co-stat:hover {
   width: max-content;
 }
 
+/* Sticky so the column names stay readable while a long grid scrolls; the
+   border is doubled as an inset shadow because a collapsed-border cell loses
+   its own border once it sticks. */
 .table th,
 .data-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   text-align: left;
-  padding: 0.34rem 0.52rem;
-  border-bottom: 1px solid var(--border);
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border-strong);
+  box-shadow: inset 0 -1px 0 var(--border-strong);
   background: var(--card-muted);
   color: var(--foreground-muted);
-  font-size: 0.72rem;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -4106,7 +4154,7 @@ button.co-stat:hover {
 .table td,
 .data-table td {
   border-bottom: 1px solid var(--border);
-  padding: 0.38rem 0.52rem;
+  padding: 9px 14px;
   vertical-align: middle;
 }
 
@@ -4552,10 +4600,6 @@ button.co-stat:hover {
   .workflow-step-grid,
   .co-flow-strip {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .rail {
-    position: static;
   }
 }
 
@@ -8413,3 +8457,2600 @@ body:has(.origin-step-root.origin-view-sheet) .co-case-header {
 }
 
 /* === end forms & settings (redesign 2026-08-20) === */
+
+/* ============================================================
+   Phase A — redesign: shell + core components (2026-08-20)
+   Contract: .ai/features/2026-08-20-ui-redesign/DESIGN.md
+   Declarations ported from reference/preview-src-styles.css with the
+   reference's --c-* names swapped for this repo's tokens. Kept as one
+   appended block so a parallel agent's edits above stay untouched.
+   ============================================================ */
+
+html {
+  height: 100%;
+}
+
+body {
+  height: 100%;
+  min-height: 0;
+  font-size: 14px;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, h5 {
+  font-family: var(--display);
+  letter-spacing: -0.01em;
+}
+
+::selection {
+  background: var(--brand-100);
+}
+
+/* ── shell frame ───────────────────────────────────────── */
+/* Header + sidebar stay put; only the content column scrolls. A table's
+   sticky thead then pins directly under the header instead of sliding
+   behind it. */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.shell {
+  position: relative;
+  width: 100%;
+  max-width: 1320px;
+  min-width: 0;
+  margin: 0 auto;
+  padding: 20px 24px 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Case detail needs every pixel the bảng kê grid can get. */
+.shell-wide {
+  width: 100%;
+  max-width: none;
+}
+
+/* ── header ────────────────────────────────────────────── */
+.topnav {
+  position: static;
+  z-index: 40;
+  height: var(--header-h);
+  min-height: var(--header-h);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px;
+  border-bottom: 0;
+  background: var(--brand-500);
+  color: #fff;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  color: #fff;
+  font-weight: 700;
+}
+
+/* Indigo monogram = CO's app identity (Data Hub keeps navy). The rest of
+   the chrome stays navy so one action colour survives a move between the
+   two apps. */
+.brand-mark {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: var(--brand);
+  font-family: var(--display);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.brand-name {
+  font-family: var(--display);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.brand-name span {
+  display: block;
+  color: rgba(255,255,255,0.62);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.topnav-sep {
+  width: 1px;
+  height: 24px;
+  flex-shrink: 0;
+  background: rgba(255,255,255,0.18);
+}
+
+/* Company switcher — global context, so it lives in the header instead of
+   being repeated in every page body. */
+.dn-switch {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: var(--radius-md);
+  padding: 4px 10px 4px 6px;
+  background: rgba(255,255,255,0.10);
+  color: #fff;
+  cursor: pointer;
+}
+
+.dn-switch:hover {
+  background: rgba(255,255,255,0.18);
+  border-color: rgba(255,255,255,0.28);
+}
+
+.dn-switch-empty {
+  padding: 5px 12px;
+  color: rgba(255,255,255,0.82);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.dn-switch-av {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,0.18);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.dn-switch-text {
+  display: grid;
+  min-width: 0;
+  text-align: left;
+}
+
+.dn-switch .nm {
+  overflow: hidden;
+  max-width: 210px;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dn-switch .mst {
+  color: rgba(255,255,255,0.62);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.dn-switch-caret {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  color: rgba(255,255,255,0.6);
+}
+
+.topnav-user {
+  margin-left: auto;
+  gap: 10px;
+}
+
+.topnav-chip {
+  min-width: 1.85rem;
+  min-height: 1.85rem;
+  border-color: rgba(255,255,255,0.18);
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,0.10);
+  color: #fff;
+  font-size: 12.5px;
+}
+
+.topnav-chip-button:hover {
+  border-color: rgba(255,255,255,0.28);
+  background: rgba(255,255,255,0.20);
+  color: #fff;
+}
+
+.topnav-chip-button:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+}
+
+.user-menu-trigger {
+  border-color: rgba(255,255,255,0.18);
+  border-radius: var(--radius-md);
+  padding: 3px 10px 3px 4px;
+  background: rgba(255,255,255,0.10);
+}
+
+.user-menu-trigger:hover,
+.user-menu[open] .user-menu-trigger {
+  border-color: rgba(255,255,255,0.28);
+  background: rgba(255,255,255,0.20);
+}
+
+.user-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  background: rgba(255,255,255,0.18);
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.user-chip-text strong {
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.user-chip-text small {
+  color: rgba(255,255,255,0.62);
+  font-size: 10.5px;
+  font-weight: 400;
+}
+
+.user-menu-panel {
+  border-radius: var(--radius-md);
+  padding: 4px;
+  box-shadow: var(--shadow-lg);
+}
+
+.user-menu-panel a,
+.user-menu-action {
+  gap: 8px;
+  min-height: 1.9rem;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* The theme toggle is a preference, not top-level chrome — it renders as a
+   normal row inside the user menu. */
+.user-menu-panel .topnav-toggle-form {
+  display: block;
+  width: 100%;
+  margin: 4px 0 0;
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+
+.user-menu-panel .user-menu-action {
+  border: 0;
+  background: transparent;
+  color: var(--foreground-soft);
+}
+
+/* ── sidebar ───────────────────────────────────────────── */
+.side {
+  width: var(--side-w);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding-bottom: 8px;
+  border-right: 1px solid var(--border);
+  background: var(--card);
+}
+
+.side-grp {
+  margin: 0;
+  padding: 14px 12px 4px;
+  color: var(--foreground-muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.side-a {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: calc(100% - 12px);
+  margin: 1px 6px;
+  border-radius: var(--radius-md);
+  padding: 7px 12px;
+  color: var(--foreground-soft);
+  font-size: 13px;
+  text-align: left;
+}
+
+.side-a:hover {
+  background: var(--surface-sunk);
+  color: var(--foreground);
+}
+
+.side-a.on {
+  background: var(--brand-50);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.side-a .ct {
+  margin-left: auto;
+  border-radius: var(--radius-pill);
+  padding: 1px 6px;
+  background: var(--surface-sunk);
+  color: var(--foreground-muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.side-a.on .ct {
+  background: var(--brand-100);
+  color: var(--primary);
+}
+
+.side-foot {
+  display: grid;
+  gap: 2px;
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  padding: 12px;
+  color: var(--foreground-muted);
+  font-size: 11px;
+}
+
+.side-foot a {
+  color: var(--foreground-muted);
+}
+
+.side-foot a:hover {
+  color: var(--primary);
+}
+
+/* ── pipeline rail (steps of a process, under the header) ── */
+.rail {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  flex-shrink: 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+  background: var(--card);
+}
+
+.rail-s {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  padding: 9px 18px 9px 22px;
+  background: none;
+  color: var(--foreground-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.rail-s:first-child {
+  padding-left: 0;
+}
+
+.rail-s::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  margin-top: -3.5px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+
+.rail-s:first-child::before {
+  display: none;
+}
+
+.rail-s .n {
+  color: var(--foreground-muted);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  opacity: 0.75;
+}
+
+.rail-s:hover {
+  color: var(--foreground);
+}
+
+.rail-s.on {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.rail-s.on::before {
+  background: var(--primary);
+  box-shadow: 0 0 0 3px var(--brand-100);
+}
+
+.rail-s.done::before {
+  background: var(--brand-200);
+}
+
+.rail-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  padding: 9px 0;
+  color: var(--foreground-muted);
+  font-size: 11.5px;
+}
+
+/* ── page header ───────────────────────────────────────── */
+.breadcrumb {
+  margin-bottom: 0;
+  font-size: 12px;
+}
+
+.page-bar {
+  align-items: flex-start;
+  gap: 16px;
+  min-height: 0;
+  padding: 0;
+}
+
+.page-bar h1 {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.page-tagline {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.page-actions {
+  margin-left: auto;
+  gap: 8px;
+}
+
+/* ── card (this app's card class is .zone / .panel) ────── */
+.zone,
+.panel,
+.hero {
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  box-shadow: var(--shadow-md);
+}
+
+.zone > .zone-head:first-child,
+.panel > .zone-head:first-child {
+  align-items: center;
+  gap: 10px;
+  margin: -14px -16px 12px;
+  border-bottom: 1px solid var(--border);
+  padding: 11px 16px;
+}
+
+.zone-head h2,
+.zone-head h3,
+.section-heading h2 {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.zone-head .meta,
+.section-heading p,
+.subsection-head .meta {
+  font-size: 12px;
+}
+
+.eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ── buttons ───────────────────────────────────────────── */
+button {
+  border-radius: var(--radius-sm);
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-sm);
+  padding: 7px 14px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.btn-primary:hover {
+  border-color: var(--primary-hover);
+  background: var(--primary-hover);
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 7px 14px;
+  background: var(--card);
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.btn-secondary:hover {
+  border-color: var(--primary);
+  background: var(--brand-50);
+  color: var(--primary);
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 7px 14px;
+  background: transparent;
+  color: var(--foreground-soft);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.btn-ghost:hover {
+  border-color: transparent;
+  background: var(--surface-sunk);
+  color: var(--foreground);
+}
+
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--critical-bd);
+  border-radius: var(--radius-sm);
+  padding: 7px 14px;
+  background: var(--card);
+  color: var(--error);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.btn-danger:hover {
+  border-color: var(--error);
+  background: var(--error-soft);
+  color: var(--error);
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.btn-xs {
+  padding: 2px 8px;
+  gap: 4px;
+  font-size: 11.5px;
+}
+
+button:disabled,
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-secondary[disabled],
+.btn-danger:disabled {
+  border-color: var(--border);
+  background: var(--surface-sunk);
+  color: var(--foreground-muted);
+  cursor: not-allowed;
+}
+
+/* ── badge ─────────────────────────────────────────────── */
+/* Tinted fill + matching border replaces the old dot-and-pill treatment. */
+.badge {
+  gap: 4px;
+  border-radius: var(--radius-sm);
+  padding: 1px 7px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.badge::before {
+  content: none;
+}
+
+.badge-success,
+.badge-ok {
+  border-color: var(--success-bd);
+}
+
+.badge-warning,
+.badge-warn {
+  border-color: var(--warning-bd);
+}
+
+.badge-error,
+.badge-bad {
+  border-color: var(--critical-bd);
+}
+
+.badge-info {
+  border-color: var(--info-bd);
+}
+
+.badge-neutral {
+  border-color: var(--muted-bd);
+  background: var(--surface-sunk);
+}
+
+.badge-brand {
+  border-color: var(--brand-100);
+  background: var(--brand-50);
+  color: var(--primary);
+}
+
+/* ── table ─────────────────────────────────────────────── */
+.table-scroll {
+  border-radius: var(--radius-sm);
+}
+
+.table tbody tr:hover,
+.data-table tbody tr:hover {
+  background: var(--brand-50);
+}
+
+.table tbody tr.is-selected,
+.table tbody tr[aria-selected="true"] {
+  background: var(--brand-50);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+/* Default grid density for anything over ~30 rows. */
+.table.dense th,
+.table.dense td,
+.data-table.dense th,
+.data-table.dense td {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+/* Every number in a cell: mono, tabular, right aligned. */
+.table .num,
+.table .numeric,
+.data-table .num,
+.data-table .numeric {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ── inputs ────────────────────────────────────────────── */
+input,
+select,
+textarea {
+  border-color: var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: -1px;
+  border-color: var(--primary);
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+  background: var(--surface-sunk);
+  color: var(--foreground-muted);
+}
+
+/* ── stat tile ─────────────────────────────────────────── */
+/* Label small and muted, value large in the display face. Colour goes on
+   the value only when the number itself carries a state. */
+.hero-stat-label,
+.metric-stack span,
+.case-chip span,
+.rule-grid span {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.hero-stat-value {
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.metric-stack strong {
+  font-family: var(--display);
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+/* ── note / callout ────────────────────────────────────── */
+/* Left border in the semantic colour + tinted ground; no toast styling for
+   something that is part of the page. */
+.callout,
+.toast {
+  border: 0;
+  border-left: 3px solid var(--primary);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 10px 14px;
+  background: var(--brand-50);
+  color: var(--foreground-soft);
+  font-size: 12.5px;
+}
+
+.callout-info {
+  border-left-color: var(--info);
+  background: var(--info-soft);
+}
+
+.callout-success {
+  border-left-color: var(--success);
+  background: var(--success-soft);
+}
+
+.callout-warning {
+  border-left-color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.callout-error,
+.toast-error {
+  border-left-color: var(--error);
+  background: var(--error-soft);
+  color: var(--error);
+}
+
+.callout-title {
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+/* ── tabs / chips ──────────────────────────────────────── */
+.tab-link {
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.tab-link:hover {
+  background: var(--card-muted);
+  color: var(--primary);
+}
+
+.tab-link-active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+  font-weight: 600;
+}
+
+.chip {
+  border-color: var(--border-strong);
+  border-radius: var(--radius-pill);
+  padding: 3px 11px;
+  background: var(--card);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.chip:hover {
+  border-color: var(--primary);
+  background: var(--card);
+  color: var(--primary);
+}
+
+.chip-active {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+/* ── narrow viewports ──────────────────────────────────── */
+/* The sidebar has no icon set yet, so it hides rather than collapsing to a
+   rail; the per-client tab bar still reaches every page. */
+@media (max-width: 1000px) {
+  .side {
+    display: none;
+  }
+
+  .shell {
+    padding: 16px 14px 48px;
+  }
+}
+
+@media (max-width: 760px) {
+  .topnav {
+    align-items: center;
+    flex-direction: row;
+    gap: 8px;
+    padding: 0 10px;
+  }
+
+  .brand-name,
+  .topnav-sep,
+  .dn-switch .mst {
+    display: none;
+  }
+
+  .topnav-user {
+    width: auto;
+    flex-wrap: nowrap;
+  }
+
+  .user-menu {
+    width: auto;
+  }
+
+  .user-chip-text {
+    display: none;
+  }
+}
+
+/* === list & table pages (redesign 2026-08-20) === */
+/* Every rule below is prefixed `.lst`, the scope hook carried by the list and
+   data-table pages (Công ty, Portfolio, Workspace, Danh mục, BCCT, BOM, NCC,
+   Tồn CO, công cụ workbook), by the two picker partials, by the source-stat
+   strip and by the Tồn CO history modal — that modal is re-parented to <body>
+   by page script, so it carries its own hook. Nothing here restyles a bare
+   app-wide class: co_case.html and the shell keep their own treatment.
+   `--brand-*` and `--display` arrive with the Phase A token remap; every use
+   falls back to a token that already exists so both states render. */
+
+.lst { min-width: 0; }
+
+.lst-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* -- page bar: h1 22px, one muted subtitle line, actions right -------- */
+.lst .page-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-height: 0;
+  padding: 2px 0 0;
+}
+
+.lst .page-bar-text {
+  flex: 1 1 22rem;
+  min-width: 0;
+}
+
+.lst .page-bar h1 {
+  margin: 0;
+  font-family: var(--display, var(--sans));
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.lst .page-bar .page-tagline {
+  display: block;
+  flex: none;
+  margin: 3px 0 0;
+  color: var(--foreground-muted);
+  font-size: 13px;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.lst .page-bar .page-actions {
+  margin-left: auto;
+  align-items: center;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+/* -- card -------------------------------------------------------------- */
+.lst .zone,
+.lst .panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 5px);
+  padding: 14px 16px 16px;
+  background: var(--card);
+  box-shadow: var(--shadow-md);
+}
+
+.lst .zone > *,
+.lst .panel > * { min-width: 0; }
+
+.lst .zone > p,
+.lst .zone > .meta { margin: 0; }
+
+.lst .zone .zone-head,
+.lst .zone .subsection-head { margin: 0; }
+
+.lst .zone-head,
+.lst .subsection-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.lst .zone-head h2,
+.lst .zone-head h3,
+.lst .subsection-head h3,
+.lst .subsection-head h4 {
+  margin: 0;
+  font-family: var(--display, var(--sans));
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.005em;
+}
+
+.lst .zone-head h2 { font-size: 15px; }
+
+.lst .zone-head .meta,
+.lst .subsection-head .meta {
+  margin: 3px 0 0;
+  color: var(--foreground-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.lst .zone-head > div:first-child { flex: 1 1 24rem; min-width: 0; }
+.lst .zone-head .chip-row,
+.lst .zone-head .page-actions { margin-left: auto; }
+
+.lst .zone h3,
+.lst .zone h4 {
+  margin: 0;
+  font-family: var(--display, var(--sans));
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* -- table ------------------------------------------------------------- */
+.lst .table-scroll {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 5px);
+  background: var(--card);
+  max-height: min(72vh, 760px);
+  overflow: auto;
+}
+
+.lst .table,
+.lst .data-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-family: var(--sans);
+  font-size: 13px;
+}
+
+.lst .table th,
+.lst .data-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--card-muted);
+  color: var(--foreground-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.lst .table td,
+.lst .data-table td {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.lst .table tbody tr:last-child td,
+.lst .data-table tbody tr:last-child td { border-bottom: 0; }
+
+.lst .table tbody tr:hover,
+.lst .data-table tbody tr:hover { background: var(--brand-50, var(--surface-hover)); }
+
+.lst .table tbody tr.is-selected,
+.lst .table tbody tr[aria-selected="true"] {
+  background: var(--brand-50, var(--surface-hover));
+  box-shadow: inset 3px 0 0 var(--brand-500, var(--primary));
+}
+
+/* dense: the default for any grid that routinely runs past ~30 rows
+   (danh mục, BCCT, tồn CO, BOM) — set page-wide with `lst-dense`, or per
+   table with `dense`. */
+.lst-dense .table th,
+.lst-dense .data-table th,
+.lst .table.dense th { padding: 5px 10px; }
+
+.lst-dense .table td,
+.lst-dense .data-table td,
+.lst .table.dense td { padding: 6px 10px; font-size: 12px; }
+
+/* every number in a cell: tabular, right aligned, mono, 12.5px */
+.lst .table .num,
+.lst .table td.num,
+.lst .data-table .num,
+.lst .data-table td.num {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.lst .table th.num,
+.lst .data-table th.num {
+  font-family: var(--sans);
+  font-size: 11px;
+  text-align: right;
+}
+
+.lst .table td .mono,
+.lst .table td.mono,
+.lst .data-table td .mono,
+.lst .data-table td.mono {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.lst .table td small,
+.lst .data-table td small {
+  display: block;
+  margin-top: 2px;
+  color: var(--foreground-muted);
+  font-size: 11.5px;
+}
+
+.lst .table .qty-neg,
+.lst .table .neg { color: var(--error); }
+.lst .table .qty-pos { color: var(--success); }
+
+.lst .sort-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: inherit;
+}
+
+.lst .sort-link:hover { color: var(--foreground); }
+.lst .sort-active { color: var(--foreground); }
+
+.lst .table-link {
+  color: var(--primary);
+  font-weight: 500;
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.lst .table-link:hover { text-decoration: underline; }
+
+/* -- filter bar: one aligned row of inputs at the top of the card ------ */
+.lst .table-toolbar {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 5px);
+  background: var(--card-muted);
+}
+
+.lst .table-toolbar label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  color: var(--foreground-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.lst .table-toolbar .table-search { flex: 1 1 18rem; min-width: 12rem; }
+
+.lst .table-toolbar input,
+.lst .table-toolbar select,
+.lst .filter-input {
+  width: 100%;
+  min-height: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm, 3px);
+  background: var(--surface-input);
+  color: var(--foreground);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.lst .table-toolbar input:focus-visible,
+.lst .table-toolbar select:focus-visible,
+.lst .filter-input:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -1px;
+  border-color: var(--primary);
+}
+
+.lst .table-toolbar button,
+.lst .table-toolbar .btn-secondary {
+  min-height: 0;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.lst .table-toolbar .meta { font-size: 12px; align-self: center; }
+
+.lst .table-meta-row,
+.lst .table-action-row {
+  margin: 0;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.lst .table-meta-row .meta { font-size: 12px; }
+
+.lst .pagination { margin: 0; gap: 6px; }
+
+.lst .pagination .btn-secondary {
+  min-height: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.lst .pagination-state {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground-muted);
+}
+
+/* -- stat tile: label / value / sub-line, no coloured card ------------- */
+.lst .stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: 12px;
+}
+
+.lst .stat-tile {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 5px);
+  background: var(--card);
+  box-shadow: var(--shadow-md);
+}
+
+.lst .stat-tile .st-l {
+  display: block;
+  color: var(--foreground-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.lst .stat-tile .st-v {
+  display: block;
+  margin-top: 5px;
+  font-family: var(--display, var(--sans));
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.lst .stat-tile .st-s {
+  display: block;
+  margin-top: 3px;
+  color: var(--foreground-muted);
+  font-size: 11.5px;
+}
+
+.lst .stat-tile.is-primary .st-v { color: var(--primary); }
+.lst .stat-tile.is-warn .st-v,
+.lst .stat-tile.is-warning .st-v { color: var(--warning); }
+.lst .stat-tile.is-critical .st-v { color: var(--error); }
+.lst .stat-tile.is-success .st-v { color: var(--success); }
+.lst .stat-tile.is-muted .st-v { color: var(--foreground-muted); }
+
+.lst .stat-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--foreground-muted);
+  font-size: 11.5px;
+}
+
+/* -- badge: six semantic kinds ---------------------------------------- */
+.lst .badge {
+  gap: 4px;
+  padding: 1px 7px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 3px);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.lst .badge::before { display: none; }
+
+.lst .badge-success,
+.lst .badge-ok {
+  color: var(--success);
+  background: var(--success-soft);
+  border-color: color-mix(in srgb, var(--success) 28%, transparent);
+}
+
+.lst .badge-warning,
+.lst .badge-warn {
+  color: var(--warning);
+  background: var(--warning-soft);
+  border-color: color-mix(in srgb, var(--warning) 28%, transparent);
+}
+
+.lst .badge-error,
+.lst .badge-bad,
+.lst .badge-critical {
+  color: var(--error);
+  background: var(--error-soft);
+  border-color: color-mix(in srgb, var(--error) 28%, transparent);
+}
+
+.lst .badge-info {
+  color: var(--info);
+  background: var(--info-soft);
+  border-color: color-mix(in srgb, var(--info) 28%, transparent);
+}
+
+.lst .badge-neutral,
+.lst .badge-muted {
+  color: var(--foreground-muted);
+  background: var(--surface-subtle);
+  border-color: var(--border);
+}
+
+.lst .badge-brand {
+  color: var(--brand-600, var(--primary));
+  background: var(--brand-50, var(--primary-soft));
+  border-color: var(--brand-100, color-mix(in srgb, var(--primary) 24%, transparent));
+}
+
+/* -- button sizes for row actions ------------------------------------- */
+.lst .btn-sm,
+.lst button.btn-sm {
+  min-height: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+  gap: 5px;
+}
+
+.lst .btn-xs,
+.lst button.btn-xs {
+  min-height: 0;
+  padding: 2px 8px;
+  font-size: 11.5px;
+  gap: 4px;
+}
+
+.lst .table td .btn-secondary,
+.lst .table td button,
+.lst .table td select {
+  min-height: 0;
+  padding: 2px 8px;
+  font-size: 11.5px;
+}
+
+.lst .table td select { width: auto; min-width: 8rem; }
+
+.lst .row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.lst .btn-secondary {
+  min-height: 0;
+  padding: 6px 12px;
+  border-color: var(--border-strong);
+  border-radius: var(--radius-sm, 3px);
+  background: var(--card);
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.lst .btn-secondary:hover {
+  background: var(--brand-50, var(--surface-hover));
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.lst .btn-secondary.btn-danger {
+  border-color: color-mix(in srgb, var(--error) 40%, transparent);
+  background: var(--card);
+  color: var(--error);
+}
+
+.lst .btn-secondary.btn-danger:hover { background: var(--error-soft); }
+
+.lst .btn-primary {
+  min-height: 0;
+  padding: 7px 14px;
+  border-radius: var(--radius-sm, 3px);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* -- chip: filter / link pill ----------------------------------------- */
+.lst .chip {
+  padding: 3px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--foreground-soft);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.lst .chip:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--card);
+}
+
+.lst .chip-active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.lst .chip-active:hover { color: var(--primary-foreground); }
+.lst .chip-row { gap: 6px; flex-wrap: wrap; }
+
+/* -- note / callout: 3px semantic left rule, tinted, 12.5px ----------- */
+.lst .callout {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 14px;
+  border: 0;
+  border-left: 3px solid var(--primary);
+  border-radius: 0 var(--radius-sm, 3px) var(--radius-sm, 3px) 0;
+  background: var(--primary-soft);
+  color: var(--foreground-soft);
+  font-size: 12.5px;
+  line-height: 1.55;
+  box-shadow: none;
+}
+
+.lst .callout .callout-icon { display: none; }
+
+.lst .callout .callout-title {
+  margin: 0 0 2px;
+  color: var(--foreground);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.lst .callout .meta { font-size: 11.5px; }
+.lst .callout p { margin: 4px 0 0; }
+
+.lst .callout-info { border-left-color: var(--info); background: var(--info-soft); }
+.lst .callout-warning { border-left-color: var(--warning); background: var(--warning-soft); }
+.lst .callout-danger,
+.lst .callout-error { border-left-color: var(--error); background: var(--error-soft); }
+.lst .callout-success { border-left-color: var(--success); background: var(--success-soft); }
+
+.lst .callout-warning .callout-title { color: var(--warning); }
+.lst .callout-danger .callout-title,
+.lst .callout-error .callout-title { color: var(--error); }
+.lst .callout-success .callout-title { color: var(--success); }
+
+.lst .toast {
+  position: static;
+  display: block;
+  padding: 10px 14px;
+  border: 0;
+  border-left: 3px solid var(--success);
+  border-radius: 0 var(--radius-sm, 3px) var(--radius-sm, 3px) 0;
+  background: var(--success-soft);
+  color: var(--success);
+  font-size: 12.5px;
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.lst .toast-error {
+  border-left-color: var(--error);
+  background: var(--error-soft);
+  color: var(--error);
+}
+
+/* -- empty state: title, one explanatory line, primary action --------- */
+/* Unprefixed on purpose: `_advanced_table.html` is shared with a page outside
+   this scope, and a brand-new class name collides with nothing. */
+.tbl-empty {
+  padding: 34px 20px;
+  color: var(--foreground-muted);
+  text-align: center;
+}
+
+.tbl-empty h4 {
+  margin: 0 0 5px;
+  color: var(--foreground);
+  font-family: var(--display, var(--sans));
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.tbl-empty p {
+  margin: 0 auto;
+  max-width: 56ch;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.tbl-empty-actions {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+td > .tbl-empty { padding: 28px 16px; }
+
+/* -- row list ---------------------------------------------------------- */
+.lst .rowlist { gap: 0; }
+
+.lst .rowitem {
+  gap: 12px;
+  padding: 9px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--card);
+}
+
+.lst .rowlist > .rowitem:first-child { border-top: 1px solid var(--border); }
+.lst .rowitem:hover { background: var(--brand-50, var(--surface-hover)); }
+
+.lst .rowitem strong { font-size: 13px; font-weight: 600; }
+.lst .rowitem .meta { font-size: 11.5px; }
+.lst .rowitem-side { gap: 6px; }
+
+/* -- source-stat strip / picker partials ------------------------------- */
+.lst.source-stat-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.lst .picker-empty-actions { display: block; margin-top: 12px; }
+
+.lst .picker-row { padding: 8px 12px; gap: 10px; }
+.lst .picker-main strong { font-size: 13px; font-weight: 600; }
+.lst .picker-main small { font-size: 11.5px; }
+.lst .picker-current-tag { font-size: 11px; }
+
+.lst .picker-empty-block {
+  padding: 26px 18px;
+  color: var(--foreground-muted);
+  text-align: center;
+}
+
+.lst .picker-empty-block strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--foreground);
+  font-family: var(--display, var(--sans));
+  font-size: 13px;
+}
+
+.lst .picker-empty-block span { font-size: 12px; }
+
+/* -- clients / workspace cards ---------------------------------------- */
+.lst .client-grid { gap: 12px; }
+
+.lst .client-card { border-radius: var(--radius-md, 5px); box-shadow: var(--shadow-md); }
+.lst .client-card:hover { border-color: var(--primary); box-shadow: var(--shadow-lg); }
+.lst .client-card-head { padding: 12px 14px; gap: 10px; }
+
+.lst .client-card-name {
+  font-family: var(--display, var(--sans));
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.lst .client-card-id { font-size: 11.5px; }
+.lst .client-card-co,
+.lst .client-card-foot { padding: 10px 14px; }
+
+.lst .ccc-count {
+  font-family: var(--display, var(--sans));
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.lst .ccc-label { font-size: 12px; }
+.lst .ccc-done { font-size: 11px; font-variant-numeric: tabular-nums; }
+.lst .client-mono { width: 2.1rem; height: 2.1rem; border-radius: var(--radius-sm, 3px); font-size: 12px; }
+
+.lst .dash-grid { gap: 16px; }
+.lst .dash-case,
+.lst .dash-data { padding: 9px 12px; }
+
+.lst .dash-case strong,
+.lst .dash-data-label { font-size: 13px; font-weight: 600; }
+
+.lst .dash-case .meta,
+.lst .dash-data-meta { font-size: 11.5px; }
+
+.lst .dash-data-state {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+/* -- Tồn CO history modal (re-parented to <body> by page script) ------- */
+.lst .co-stock-history-modal-head h2 {
+  font-family: var(--display, var(--sans));
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.lst .co-stock-history-table th { font-size: 11px; }
+.lst .co-stock-history-table td { padding: 6px 10px; font-size: 12px; }
+
+/* -- workbook tool preview grid ---------------------------------------- */
+.lst .preview-scroll {
+  max-height: 340px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 5px);
+}
+
+.lst .preview-scroll .table th { padding: 5px 10px; }
+.lst .preview-scroll .table td { padding: 6px 10px; font-size: 12px; }
+
+.lst .inline-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  color: var(--foreground-soft);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.lst .inline-check input { width: auto; margin: 0; }
+
+@media (max-width: 900px) {
+  .lst .page-bar .page-actions { margin-left: 0; }
+  .lst .table-scroll { max-height: none; }
+}
+
+/* === end list & table pages (redesign 2026-08-20) === */
+
+/* === design gallery (redesign 2026-08-20) === */
+/* Trang /design — bản tham chiếu của hệ thiết kế.
+   Hai nhóm quy tắc, không trộn:
+   1. Vài primitive của hệ thiết kế mà chưa khối nào định nghĩa (nút nhóm,
+      nhãn logic, đầu bảng dính, số âm, trạng thái lỗi của trường, công tắc).
+      Chúng là global vì mọi trang đều cần — port từ reference/preview-src-styles.css.
+      Nếu một agent khác land bản chuẩn ở khối trên, xoá bản trùng ở đây.
+   2. Khung bày mẫu của riêng trang /design, tiền tố .dg-. Không dùng ở trang khác. */
+
+/* ── 1. primitive còn thiếu ────────────────────────────── */
+
+/* Nhóm nút: các lựa chọn loại trừ nhau của cùng một việc, dính liền một dải. */
+.btn-group,
+.btn-grp {
+  display: inline-flex;
+}
+
+.btn-group > button,
+.btn-grp > button {
+  border-radius: 0;
+  margin-left: -1px;
+}
+
+.btn-group > button:first-child,
+.btn-grp > button:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  margin-left: 0;
+}
+
+.btn-group > button:last-child,
+.btn-grp > button:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+/* Nhãn loại thứ sáu: mặt logic (chàm). Không dùng cho dữ liệu. */
+.badge-logic {
+  border-color: var(--logic-200);
+  background: var(--logic-50);
+  color: var(--logic-600);
+}
+
+/* Đầu bảng dính. Phải có khung cuộn dọc bao ngoài mới có tác dụng. */
+.table-sticky thead th,
+.data-table.table-sticky thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+/* Số âm trong ô số: màu lỗi, vẫn canh phải theo .num. */
+.table .neg,
+.data-table .neg {
+  color: var(--error);
+}
+
+/* Trường có lỗi: viền đỏ + một dòng lỗi dưới ô nhập. */
+.form-surface .fld-error > input,
+.form-surface .fld-error > select,
+.form-surface .fld-error > textarea {
+  border-color: var(--error);
+}
+
+.form-surface .fld-error > input:focus,
+.form-surface .fld-error > select:focus,
+.form-surface .fld-error > textarea:focus {
+  outline-color: var(--error);
+  border-color: var(--error);
+}
+
+.form-surface .fld .err {
+  color: var(--error);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+/* Công tắc: bật/tắt có hiệu lực ngay, khác checkbox (chỉ có hiệu lực khi lưu). */
+.sw {
+  position: relative;
+  width: 34px;
+  height: 19px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: 0;
+  background: var(--border-strong);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.sw:hover {
+  background: var(--border-strong);
+}
+
+.sw::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: var(--shadow-md);
+  transition: transform 0.15s;
+}
+
+.sw.on,
+.sw.on:hover {
+  background: var(--primary);
+}
+
+.sw.on::after {
+  transform: translateX(15px);
+}
+
+.sw:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ── 2. khung bày mẫu của trang /design ────────────────── */
+.dg-toc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  margin: -4px 0 0;
+  padding: 8px 0;
+  background: var(--background);
+}
+
+.dg-toc a {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 10px;
+  background: var(--card);
+  color: var(--foreground-soft);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.dg-toc a:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.dg-block + .dg-block,
+.dg-split + .dg-block {
+  margin-top: 18px;
+}
+
+.dg-sub {
+  margin: 0 0 2px;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dg-sub-note {
+  margin: 0 0 8px;
+  max-width: 92ch;
+  font-size: 12px;
+}
+
+.dg-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.dg-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dg-split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.dg-split-title {
+  margin: 0 0 6px;
+  font-size: 12px;
+}
+
+/* dải màu */
+.dg-ramp {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.dg-ramp-c {
+  display: grid;
+  place-items: center;
+  height: 56px;
+  font-size: 11px;
+}
+
+.dg-ramp-lo {
+  color: var(--foreground-soft);
+}
+
+.dg-ramp-hi {
+  color: #fff;
+}
+
+/* ô màu token */
+.dg-swatches {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  gap: 8px;
+}
+
+.dg-swatch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  background: var(--card);
+}
+
+.dg-swatch-chip {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  /* nền ca-rô để thấy được token trong suốt */
+  background-image:
+    linear-gradient(45deg, var(--surface-sunk) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--surface-sunk) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--surface-sunk) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--surface-sunk) 75%);
+  background-size: 8px 8px;
+  background-position: 0 0, 0 4px, 4px -4px, -4px 0;
+}
+
+.dg-swatch-chip-flat {
+  border-style: dashed;
+  background: none;
+}
+
+.dg-swatch-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.dg-swatch-name {
+  color: var(--foreground);
+  font-size: 11.5px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.dg-swatch-value {
+  color: var(--foreground-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.dg-swatch-missing {
+  color: var(--error);
+}
+
+/* họ chữ + thang cỡ chữ */
+.dg-faces {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.dg-face {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: var(--card);
+}
+
+.dg-face p {
+  margin: 2px 0;
+  font-size: 17px;
+}
+
+.dg-face-display {
+  font-family: var(--display);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.dg-face-sans {
+  font-family: var(--sans);
+}
+
+.dg-face-mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.dg-scale {
+  display: flex;
+  flex-direction: column;
+}
+
+.dg-scale-row {
+  display: grid;
+  grid-template-columns: 6rem 5rem minmax(0, 1fr) 12rem;
+  align-items: baseline;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding: 8px 0;
+}
+
+.dg-scale-row:last-child {
+  border-bottom: 0;
+}
+
+.dg-scale-val,
+.dg-scale-usage {
+  font-size: 11.5px;
+}
+
+.dg-scale-spec {
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  .dg-scale-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
+
+/* bảng */
+.dg-tablebox {
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.dg-th-num {
+  text-align: right;
+}
+
+/* dòng đang hover, dựng tĩnh để thấy được trong ảnh chụp — cùng khai báo với
+   .table tbody tr:hover ở khối Phase A. */
+.table tbody tr.dg-row-hover {
+  background: var(--brand-50);
+}
+
+/* trạng thái */
+.dg-statuses {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dg-status-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dg-status-key {
+  min-width: 17rem;
+  color: var(--foreground-muted);
+  font-size: 11.5px;
+}
+
+/* ô số, đường ống, lớp phủ */
+.dg-stats {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.dg-rail {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 16px;
+}
+
+.dg-modal-stage {
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  background: var(--surface-sunk);
+}
+
+.dg-toast-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  background: var(--surface-sunk);
+}
+
+.dg-toast-stage .ui-toast {
+  max-width: 28rem;
+}
+
+/* dòng công tắc trong biểu mẫu mẫu */
+.dg-switch-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+/* === end design gallery (redesign 2026-08-20) === */
+
+/* === co-case workspace (redesign 2026-08-20) === */
+/* Scope: app/templates/co_case.html, _advanced_table.html,
+   _dossier_export_status.html. Contract: DESIGN.md §3 (rail) and §4 (dense
+   table, button sizes, note, card/modal). Every selector below is pinned to
+   the case shell or to a class this round adds to the markup, so no other
+   surface moves. Tokens come from the Phase A block above. */
+
+/* ── 1. Pipeline rail ───────────────────────────────────── */
+/* The five-card workflow stepper becomes the reference `rail`: one row, every
+   step visible in order, current step dotted in brand, finished steps dimmed.
+   Phase A already ported .rail/.rail-s; these rules only neutralise the legacy
+   .workflow-step card look on the properties .rail-s never declares. */
+[data-co-case-shell] .workflow-stepper.rail {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  min-width: 0;
+  grid-template-columns: none;
+  margin: 0;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  box-shadow: var(--shadow-md);
+}
+
+[data-co-case-shell] .workflow-step.rail-s {
+  min-height: 0;
+  border-radius: 0;
+  text-decoration: none;
+}
+
+[data-co-case-shell] .workflow-step.rail-s > span.n {
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  background: none;
+  color: var(--foreground-muted);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
+[data-co-case-shell] .workflow-step.rail-s strong {
+  color: inherit;
+  font-size: 12px;
+  font-weight: inherit;
+  line-height: 1.35;
+}
+
+/* The status word is noise on a finished or untouched step — the dot already
+   says which is which. Keep it only where it changes what the operator does. */
+[data-co-case-shell] .workflow-step.rail-s em {
+  display: none;
+}
+
+[data-co-case-shell] .workflow-step.rail-s.workflow-step-in_progress em,
+[data-co-case-shell] .workflow-step.rail-s.workflow-step-attention em {
+  display: inline;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+[data-co-case-shell] .workflow-step.rail-s:hover {
+  color: var(--foreground);
+}
+
+[data-co-case-shell] .workflow-step.rail-s.workflow-step-active {
+  border-color: transparent;
+  background: none;
+  color: var(--brand-600);
+  font-weight: 600;
+}
+
+[data-co-case-shell] .workflow-step.rail-s.workflow-step-active strong {
+  color: var(--brand-600);
+}
+
+[data-co-case-shell] .workflow-step.rail-s.workflow-step-active::before {
+  background: var(--brand-500);
+  box-shadow: 0 0 0 3px var(--brand-100);
+}
+
+[data-co-case-shell] .workflow-step.rail-s.workflow-step-done {
+  color: var(--foreground-muted);
+}
+
+[data-co-case-shell] .workflow-step.rail-s.workflow-step-done::before {
+  background: var(--brand-200);
+}
+
+[data-co-case-shell] .workflow-step.rail-s.workflow-step-in_progress::before {
+  background: var(--info);
+}
+
+[data-co-case-shell] .workflow-step.rail-s.workflow-step-attention::before {
+  background: var(--warning);
+}
+
+/* Loading cue rides on the step dot instead of a corner badge — a 36px row has
+   no corner to spare. */
+[data-co-case-shell] .workflow-step.rail-s.workflow-step-loading {
+  background: var(--brand-50);
+}
+
+[data-co-case-shell] .workflow-step.rail-s.workflow-step-loading::before {
+  visibility: hidden;
+}
+
+[data-co-case-shell] .workflow-step.rail-s .workflow-step-spinner {
+  top: 50%;
+  right: auto;
+  left: 3px;
+  width: 13px;
+  height: 13px;
+  margin-top: -6.5px;
+  border-top-color: var(--brand-500);
+}
+
+[data-co-case-shell] .case-tab-progress {
+  margin-top: 0;
+}
+
+/* ── 2. Bảng kê grid — dense table ──────────────────────── */
+/* Any grid past ~30 rows runs dense: 6/10 cells at 12px, sticky uppercase
+   header on --card-muted over a --border-strong rule, brand row hover, and a
+   selected row marked by an inset brand bar rather than a colour swap alone. */
+.table.origin-material-table th,
+.table.origin-material-table td,
+.table.dense th,
+.table.dense td {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.table.origin-material-table thead th,
+.table.dense thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--card-muted);
+  border-bottom: 1px solid var(--border-strong);
+  box-shadow: inset 0 -1px 0 var(--border-strong);
+  color: var(--foreground-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.table.origin-material-table tbody tr:hover,
+.table.dense tbody tr:hover {
+  background: var(--brand-50);
+}
+
+.table.origin-material-table tbody tr:has(.origin-row-select:checked) {
+  background: var(--brand-50);
+  box-shadow: inset 3px 0 0 var(--brand-500);
+}
+
+/* Every number in a cell: mono, tabular, right aligned, 12.5px. The columns are
+   named by data-origin-column, so no per-cell class is needed. Inputs do not
+   inherit the cell's alignment or family, so they are restated. */
+.table.origin-material-table :is(th, td):is(
+  [data-origin-column="bom"],
+  [data-origin-column="consumed"],
+  [data-origin-column="unit-value"],
+  [data-origin-column="material-value"],
+  [data-origin-column="non-origin"]
+) {
+  text-align: right;
+}
+
+.table.origin-material-table td:is(
+  [data-origin-column="bom"],
+  [data-origin-column="consumed"],
+  [data-origin-column="unit-value"],
+  [data-origin-column="material-value"],
+  [data-origin-column="non-origin"]
+) {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.table.origin-material-table td:is(
+  [data-origin-column="bom"],
+  [data-origin-column="consumed"],
+  [data-origin-column="unit-value"],
+  [data-origin-column="material-value"],
+  [data-origin-column="non-origin"]
+) input:not([type="checkbox"]):not([type="hidden"]) {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.table.origin-material-table td[data-origin-column="row"],
+.table.origin-material-table td[data-origin-column="code"] .mono {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.table.origin-material-table :is(th, td).origin-col-select {
+  width: 1.9rem;
+  padding-right: 0;
+  text-align: center;
+}
+
+.table.dense .num,
+.table.dense .mono,
+.table.dense .numeric {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ── 3. Sheet toolbars ──────────────────────────────────── */
+/* One control row above the grid: sm/xs buttons, the status area pushed right
+   by margin-left:auto. Nothing here re-collapses what the RD3 round already
+   compacted — it only restyles. */
+[data-co-case-shell] .origin-sheet-toolbar-main,
+[data-co-case-shell] .origin-gridbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  min-width: 0;
+}
+
+[data-co-case-shell] .origin-gridbar {
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  border-bottom: 0;
+  background: var(--card-muted);
+}
+
+[data-co-case-shell] .origin-gridbar > * {
+  margin: 0;
+}
+
+[data-co-case-shell] .origin-gridbar .origin-config-bar,
+[data-co-case-shell] .origin-gridbar .origin-grid-toolbar,
+[data-co-case-shell] .origin-gridbar .origin-bulk-bar {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+[data-co-case-shell] .origin-gridbar + .table-scroll {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+[data-co-case-shell] .origin-sheet-toolbar button,
+[data-co-case-shell] .origin-sheet-toolbar .btn-primary,
+[data-co-case-shell] .origin-sheet-toolbar .btn-secondary,
+[data-co-case-shell] .origin-gridbar button,
+[data-co-case-shell] .origin-table-actions button {
+  min-height: 0;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+[data-co-case-shell] .origin-gridbar .origin-warning-item,
+[data-co-case-shell] .origin-gridbar .origin-rowselect-btn,
+[data-co-case-shell] .origin-gridbar .origin-warning-clear {
+  padding: 2px 8px;
+  font-size: 11.5px;
+}
+
+[data-co-case-shell] .origin-sheet-toolbar select,
+[data-co-case-shell] .origin-gridbar select,
+[data-co-case-shell] .origin-gridbar input:not([type="checkbox"]) {
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+/* Status area — dirty/saved state and the undo/redo cluster sit at the right
+   end of the same row instead of owning a warning-coloured bar of their own. */
+[data-co-case-shell] .origin-gridbar .origin-dirty-banner,
+[data-co-case-shell] [data-origin-edit-toolbar] {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+[data-co-case-shell] .origin-metric-chip {
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+}
+
+[data-co-case-shell] .origin-metric-chip strong {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Inline messages inside the workspace read as notes: a 3px semantic left rule
+   over a tinted ground, never a toast-shaped box. */
+[data-co-case-shell] .callout-icon {
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+[data-co-case-shell] .origin-bom-diff,
+[data-co-case-shell] .origin-warning-filter-empty,
+[data-co-case-shell] .cost-buildup-hint:not(:empty),
+[data-co-case-shell] .origin-sheet-bom-shallow-warning {
+  border-left: 3px solid var(--warning);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 6px 10px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 12.5px;
+}
+
+[data-co-case-shell] .confirm-modal-warning,
+.co-modal .confirm-modal-warning {
+  border: 0;
+  border-left: 3px solid var(--error);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 10px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+/* ── 4. Modals — card treatment ─────────────────────────── */
+/* 5px radius, --shadow-lg, a 12/16px header with a 13px bold title, footer
+   actions right aligned. `co-modal` is the marker this round adds to the
+   dialogs this file owns, including the ones built from JS strings. */
+.confirm-modal.co-modal,
+.origin-substitute-modal-card {
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0;
+  background: var(--card);
+  box-shadow: var(--shadow-lg);
+}
+
+.confirm-modal.co-modal > *,
+.confirm-modal.co-modal > .picker-modal-body,
+.confirm-modal.co-modal > .picker-search-wrap {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+.confirm-modal.co-modal > :first-child {
+  padding-top: 12px;
+}
+
+.confirm-modal.co-modal > :last-child {
+  padding-bottom: 12px;
+}
+
+.confirm-modal.co-modal .confirm-modal-head,
+.confirm-modal.co-modal .origin-settings-head,
+.origin-substitute-modal-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  margin: 0 -16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.origin-substitute-modal-head {
+  margin: 0;
+}
+
+.confirm-modal.co-modal .confirm-modal-head > :last-child,
+.confirm-modal.co-modal .origin-settings-head > :last-child {
+  margin-left: auto;
+}
+
+.confirm-modal.co-modal h2,
+.confirm-modal.co-modal h3,
+.origin-substitute-modal-head h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.confirm-modal.co-modal .eyebrow,
+.origin-substitute-modal-head .eyebrow {
+  font-size: 10.5px;
+  letter-spacing: 0.09em;
+}
+
+.confirm-modal.co-modal .meta,
+.origin-substitute-modal-head .meta {
+  margin: 2px 0 0;
+  font-size: 12px;
+}
+
+.confirm-modal.co-modal .confirm-modal-actions,
+.origin-substitute-modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  margin: 0 -16px;
+  border-top: 1px solid var(--border);
+  background: var(--card-muted);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  font-size: 12px;
+  color: var(--foreground-muted);
+}
+
+.origin-substitute-modal-foot {
+  margin: 0;
+  justify-content: flex-start;
+}
+
+.confirm-modal.co-modal button,
+.origin-substitute-modal-card .origin-substitute-modal-toolbar button {
+  min-height: 0;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.confirm-modal.co-modal .origin-settings-body,
+.origin-substitute-modal-body {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+/* ── 5. Shared source-table partial (_advanced_table.html) ─ */
+[data-co-case-shell] .table-toolbar,
+.table-toolbar {
+  align-items: end;
+  gap: 6px 8px;
+}
+
+.table-meta-row {
+  font-size: 12px;
+}
+
+.pagination .btn-secondary,
+.table-toolbar button,
+.table-toolbar .btn-secondary {
+  min-height: 0;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+/* ── 6. Dossier export status (_dossier_export_status.html) ─ */
+.dossier-export-state .review-action-static,
+.dossier-export-state .review-action-link,
+.dossier-export-state .review-action-primary button {
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.dossier-export-state .review-action-body small {
+  font-size: 12px;
+  color: var(--foreground-muted);
+}
+
+.dossier-export-warning {
+  border-left: 3px solid var(--warning);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 10px 14px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 12.5px;
+}
+
+/* === end co-case workspace (redesign 2026-08-20) === */
