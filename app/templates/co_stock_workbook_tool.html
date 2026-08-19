@@ -3,6 +3,7 @@
 
 {% block content %}
 {% include "_client_nav.html" %}
+<div class="lst lst-page lst-dense">
 
 <section class="zone">
   <div class="zone-head">
@@ -33,13 +34,13 @@
           <option value="NK2" selected>Sheet NK2 — snapshot per lot (đã reconcile)</option>
           <option value="Save">Sheet Save — event log (legacy)</option>
         </select>
-        <label class="meta" style="display:flex; align-items:center; gap:8px; align-self:flex-start;"><input type="checkbox" data-snapshot-skip-zero style="width:auto; margin:0;"> <span>Bỏ qua lot <code>Đã xuất = 0</code> — mặc định nạp tất cả lot</span></label>
+        <label class="inline-check"><input type="checkbox" data-snapshot-skip-zero> <span>Bỏ qua lot <code>Đã xuất = 0</code> — mặc định nạp tất cả lot</span></label>
         <button type="submit" data-snapshot-convert>Convert + xem trước</button>
       </div>
       <div data-snapshot-result class="meta" hidden></div>
       <div data-snapshot-preview-wrap hidden>
         <div class="subsection-head"><h4>Xem trước template chuẩn</h4></div>
-        <div style="overflow:auto; max-height:340px;">
+        <div class="preview-scroll">
           <table class="table">
             <thead><tr>
               <th>Tờ khai</th><th>STT</th><th>Mã</th><th>Tên hàng</th><th>ĐVT</th>
@@ -148,4 +149,5 @@
   });
 })();
 </script>
+</div>
 {% endblock %}

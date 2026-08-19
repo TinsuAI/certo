@@ -1,4 +1,4 @@
-<div class="picker-list" role="list">
+<div class="lst picker-list" role="list">
   {% for client in clients %}
   <a class="picker-row{% if client.id == current_client_id %} is-current{% endif %}"
      role="listitem" data-picker-item
@@ -12,6 +12,9 @@
     {% if client.id == current_client_id %}<span class="picker-current-tag">Đang xem</span>{% endif %}
   </a>
   {% else %}
-  <p class="empty-cell">Không có công ty nào.</p>
+  <div class="picker-empty-block">
+    <strong>Chưa có công ty nào</strong>
+    <span>Danh sách công ty đồng bộ từ Data Hub — thêm công ty ở đó rồi tải lại trang này.</span>
+  </div>
   {% endfor %}
 </div>

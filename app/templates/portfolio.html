@@ -2,9 +2,13 @@
 {% block title %}Source Portfolio - Barry CO{% endblock %}
 
 {% block content %}
+<div class="lst lst-page">
+
 <section class="page-bar">
-  <h1>Source Portfolio</h1>
-  <span class="page-tagline">{{ clients|length }} clients · catalogs · BCCT · C/O stock · config snapshots</span>
+  <div class="page-bar-text">
+    <h1>Source Portfolio</h1>
+    <p class="page-tagline">Dữ liệu nền dùng chung: danh mục, BCCT, tồn C/O và snapshot cấu hình của {{ clients|length }} công ty.</p>
+  </div>
   <div class="page-actions">
     <a class="btn-secondary" href="/clients">Mở CO</a>
   </div>
@@ -13,29 +17,52 @@
 <section class="zone">
   <div class="zone-head">
     <div>
-      <h2>Company Evidence</h2>
+      <h2>Bằng chứng theo công ty</h2>
       <p class="meta">Portfolio app quản lý dữ liệu nền dùng chung; CO chỉ consume snapshot/source views.</p>
     </div>
   </div>
-  <div class="rowlist">
-    {% for client in clients %}
-    <a class="rowitem client-row stripe-{{ loop.index }}" href="/portfolio/api/clients/{{ client.id }}/source-summary">
-      <div class="rowitem-main">
-        <strong>{{ client.name }}</strong>
-        <div class="meta">{{ client.code }} · MST: {{ client.tax_code }} · backend {{ client.source_backend }}</div>
-      </div>
-      <div class="rowitem-side">
-        <span class="badge badge-{{ 'success' if client.counts.products else 'warning' }}">TP {{ client.counts.products }}</span>
-        <span class="badge badge-{{ 'success' if client.counts.materials else 'warning' }}">NVL {{ client.counts.materials }}</span>
-        <span class="badge badge-{{ 'success' if client.counts.co_stock else 'warning' }}">Tồn CO {{ client.counts.co_stock }}</span>
-        <span class="badge badge-{{ 'success' if client.counts.bcct else 'warning' }}">BCCT {{ client.counts.bcct }}</span>
-      </div>
-    </a>
-    {% endfor %}
+  {% if clients %}
+  <div class="table-scroll">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Công ty</th>
+          <th>Backend</th>
+          <th class="num">TP</th>
+          <th class="num">NVL</th>
+          <th class="num">Tồn CO</th>
+          <th class="num">BCCT</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for client in clients %}
+        <tr>
+          <td>
+            <a class="table-link" href="/portfolio/api/clients/{{ client.id }}/source-summary">{{ client.name }}</a>
+            <small><span class="mono">{{ client.code }}</span> · MST {{ client.tax_code }}</small>
+          </td>
+          <td><span class="badge badge-{{ 'brand' if client.source_backend == 'data-hub' else 'muted' }}">{{ client.source_backend }}</span></td>
+          <td class="num">{{ client.counts.products }}</td>
+          <td class="num">{{ client.counts.materials }}</td>
+          <td class="num">{{ client.counts.co_stock }}</td>
+          <td class="num">{{ client.counts.bcct }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
+  {% else %}
+  <div class="tbl-empty">
+    <h4>Chưa có công ty nào trong portfolio</h4>
+    <p>Portfolio đọc danh sách công ty từ backend nguồn. Thêm công ty ở Data Hub rồi tải lại trang.</p>
+    <div class="tbl-empty-actions">
+      <a class="btn-secondary btn-sm" href="/clients">Mở CO</a>
+    </div>
+  </div>
+  {% endif %}
 </section>
 
-<section class="zone zone-muted">
+<section class="zone">
   <div class="zone-head">
     <div>
       <h2>Contracts</h2>
@@ -49,4 +76,6 @@
     <a class="module-tile module-link" href="/portfolio/api/clients/growatt/config"><strong>Client config</strong><span>Quy tắc lọc BCCT và mã phân bổ.</span></a>
   </div>
 </section>
+
+</div>
 {% endblock %}
