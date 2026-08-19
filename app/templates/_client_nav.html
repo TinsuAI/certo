@@ -27,30 +27,8 @@
   </div>
   <div class="page-actions">
     <span class="badge badge-{{ 'success' if client.status == 'active' else 'warning' }}">{{ client.status }}</span>
-    <button type="button" class="btn-secondary" data-picker-open
-            data-picker-url="/clients-picker?current={{ client.id }}"
-            data-picker-target="client-picker-modal">Đổi công ty</button>
   </div>
 </section>
-
-<div class="modal-backdrop" id="client-picker-modal" data-picker-modal hidden>
-  <section class="confirm-modal picker-modal" role="dialog" aria-modal="true" aria-labelledby="client-picker-title">
-    <div class="confirm-modal-head picker-modal-head">
-      <div>
-        <span class="eyebrow">Chuyển công ty</span>
-        <h2 id="client-picker-title">Đổi công ty</h2>
-      </div>
-      <button type="button" class="btn-secondary" data-picker-close aria-label="Đóng">×</button>
-    </div>
-    <div class="picker-search-wrap">
-      <input type="search" class="picker-search" data-picker-search
-             placeholder="Tìm công ty (tên, mã, MST)…" aria-label="Tìm công ty" autocomplete="off" disabled>
-    </div>
-    <div class="picker-modal-body" data-picker-body>
-      <p class="picker-loading">Đang tải…</p>
-    </div>
-  </section>
-</div>
 
 {% set data_active = active in ['catalog', 'bom', 'co-stock', 'bcct'] %}
 {% set config_active = active in ['config', 'cost-allocation', 'suppliers'] %}
