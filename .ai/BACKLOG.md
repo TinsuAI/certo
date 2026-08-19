@@ -3,6 +3,39 @@
 Durable backlog (survives handoffs — STATUS.md Next Steps is the prioritized slice). Items below
 are captured, not yet scoped. Add `/discover` before non-trivial ones.
 
+## Reconciliation 2026-07-17 (verified vs HEAD `f0095a7`, code = `dacb70d`)
+
+Full re-verify of every open item against current code. **Paths moved** since most notes were written:
+old `app/co_case.py` → `app/routers/co_case.py`; old `app/co_case_context.py` → `app/web/co_case_context.py`.
+Verdicts (evidence at current paths):
+
+| Item | Verdict | Note |
+|---|---|---|
+| DC3a | **CLOSED** | `1a9bc0f` (2026-07-06) added `is_bom_technical_noise` strip to `build_bom_proposal_rows` (`app/routers/co_case.py:2932`) |
+| DC3c | **CLOSED** | hard-block belt for `lvc_declarable_unmatched`: calc-status (`routers/co_case.py:2111`), lock 409 (`web/co_case_context.py:1624`), export (`:1581`, `routers/co_case.py:1252`,`:1307`) |
+| XX1 | **CLOSED** | VN-origin (#6–#13) shipped: `_resolve_vn_origin_lines` (`web/co_case_context.py:2732`), evidence store (mig 019 + `supplier_evidence_store.py` + `/clients/{id}/suppliers`), col M filled. **Col N/13 blank = user directive, not a bug** |
+| DC2 | **CLOSED** | 4-tier name fallback + missing-name warning (`web/co_case_context.py:2600-2605`, `:2645`); source is materials-catalog `name`, not `catalog_candidates.sample_text` |
+| #12 | **MOSTLY DONE** | per-material summed shortage renders (`case_shortfall_rollup` `web/co_case_context.py:2050`); only a single grand-total missing — semantically weak (mixed UOM), needs client input |
+| B6 | **CLOSED (1 nit)** | FX toggle + missing-rate fallback correct (`fob_fx_source="missing"`, not 1.0). Nit: `bang_ke_renderer.py:185` double-applies rate on legacy rows lacking `_vnd` |
+| D1 | **SHRUNK** | backstops added (`9f38afa` schema-version, `0f0812f`/#14 config-fingerprint). Remaining: delta-vs-full parity harness · `reason`/forced-full in refresh response · tombstone retry |
+| LK1 | **SHRUNK** | `declarable_unmatched` block now CLOSED (=DC3c); endpoint rejects server-side (409, `routers/co_case.py:2248`); `origin_can_lock` formula unchanged. Remaining: **dirty-before-lock** (lock reads persisted case, no forced save/recalc → can lock stale data) |
+| M1 | **OPEN (downgraded)** | both sub-bugs live. Sub-bug 1 no longer needs a DH API request — `get_bom_proposal` exists (`data_hub_client.py:440`) but 0 callers → CO-side wiring only. Sub-bug 2: `initOriginProposeBom` (`co_case.html:5687`) still re-POSTs |
+| Fix F (D2) | **OPEN (narrow)** | overclaim guard nested in `if snapshot_exists:` (`co_stock_ledger.py:204`); cold-start (0 materialized rows) skips it |
+| DC3b | **OPEN** | pre-mig-078 sheets stored materials without `customs_relevance` → junk kept (field absent → False) → leaks to export until re-Tính. Export is a pure renderer by design |
+| ST1 | **OPEN** | guard-blocked sheets stay `bom_loaded` → badge "Đã nạp BOM"; no readiness chip added (deferred by ADR 2026-07-11) |
+| P1-resid | **OPEN** | case-list index still N+1 `claims_summary_for_case` per dossier (`web/co_case_context.py:3494-3501`) |
+| T1 | **OPEN** | `tests/conftest.py` has no schema isolation / `BARRY_DATABASE_SCHEMA` / teardown |
+| FX1 | **OPEN** | `FORM_REFERENCES` still B/AI/CPTPP/EUR.1 only (`co_forms.py:9-42`); no Form X |
+| EX1 | **OPEN (deferred)** | col K = decl-number only (`bang_ke_renderer.py:294`); no `import_ref_format` config — matches the "keep for now" decision |
+
+**Design-park (no code-verify): RD3** (bảng kê "big change" content undecided) · **CS3** (2 parked items) ·
+**D2 reservation-model** (decided: keep commit-time, don't build soft-reservation). **DH-side only: DC1**
+(CO reads `customs_relevance`; needs DH re-ingest).
+
+**Cross-item finding:** DC3b (pre-mig junk leak) and LK1 dirty-before-lock share one root — a sheet can be
+locked/exported without a forced re-Tính, so stale materials (missing `customs_relevance`, or edited-but-unsaved)
+reach the CO. One "force recalc before lock/export on stale/pre-mig sheets" fix would close both.
+
 ## Redesign luồng làm CO (khởi động 2026-06-14)
 
 Rà lại toàn luồng 5 bước (Lô hàng → Chứng từ → Bảng kê C/O → TKX/TKN → Review & Xuất). User chủ
@@ -218,7 +251,12 @@ Added: 2026-07-08.
 ## BOM / Propose (Data Hub)
 
 ### M1 — Propose BOM mới: trạng thái không sync + nút "Đã propose" propose lại
-**RE-VERIFIED 2026-06-19 — CẢ HAI sub-bug CÒN NGUYÊN ở `c483673` (refs đã đổi).** Flow Propose BOM mới: đã
+**RE-VERIFIED 2026-07-17 — CẢ HAI sub-bug CÒN NGUYÊN ở `f0095a7`; sub-bug 1 DOWNGRADED.** Update: a DH read
+method `get_bom_proposal` now exists (`app/data_hub_client.py:440`) but has **0 callers** → sub-bug 1 no longer
+needs a Data Hub API request, just CO-side wiring (poll/read status at render, adopt approved artifact). Sub-bug 2
+handler `initOriginProposeBom` (`app/templates/co_case.html:5687`) still re-POSTs (sets `disabled` then
+`finally` re-enables). Original note (refs pre-move to `app/routers/`/`app/web/`):
+Flow Propose BOM mới: đã
 **duyệt bên Data Hub** nhưng bảng kê CO vẫn hiển thị **"pending"/submitted**; và nút **"Đã propose ✓"** bấm
 vào lại **propose lần nữa** (tạo proposal trùng). Hai lỗi tách biệt:
 
@@ -256,6 +294,13 @@ ingest (`sap_indented_walk.py`) chỉ giữ level/qty/unit/description, **vứt 
 `bom_observed`, KHÔNG map tay từng mã. CO không cần đổi code (đã đọc field). Added: 2026-06-09.
 
 ### DC2 — Xác nhận CO lấy tên NVL kỹ thuật từ đâu (brief DH cảnh báo)
+**RESOLVED 2026-07-17 (verified).** Name precedence for BOM rows (`app/web/co_case_context.py:2600-2605`):
+`row.material_name` → `material.name` (DH materials catalog, `data_hub_client.py:1169`) → `stock.material_description`
+(CO-stock/BCCT) → `stock_name_fallback`. Empty-name guard sets a warning + `material_name_missing` flag
+(`:2645`, `:2685`). The fragile BOM-payload source is only tier 1; 4-tier fallback + warning backstop it.
+Caveat: the catalog fallback reads materials-catalog `name`, NOT the `catalog_candidates.sample_text` the DH
+brief cited — if that `name` is also empty the chain leans on CO-stock/BCCT. Original note below.
+
 Brief DH (Finding 2) lưu: `hub.bom_artifact_rows.payload` = `{}` cho mọi mã `bom_observed`; tên thật
 ("Tube;Round;45#…", "Rendering;Semi-Assy") chỉ nằm trong `hub.catalog_candidates.sample_text`.
 "Nếu CO đang hiển thị các tên này thì KHÔNG lấy từ payload dòng phẳng — cần xác nhận phía CO."
@@ -267,22 +312,22 @@ sẽ trống. Read-only điều tra, chưa khẩn. Added: 2026-06-09.
 Soi code 2026-06-09; **re-verify 2026-06-19** (DC3a/c còn mở, DC3b đã giảm nhẹ). Bảng hành vi
 (dòng **đã-xoá** | dòng **rác** DH-classified):
 
-- **(DC3a — CÒN MỞ) Update BOM qua DH (propose-bom, `co_case.py:build_bom_proposal_rows:2647-2661`):**
-  loại `deleted` (`:2649`) | **GIỮ rác** (không gọi `is_bom_technical_noise`). Cố ý: BOM = cấu trúc sản
-  phẩm, rác là thành phần BOM thật, `customs_relevance` chỉ chi phối bảng kê. **Quyết định cần user chốt:**
-  có muốn update-BOM cũng strip rác không? Nếu có, thêm `or is_bom_technical_noise(...)` ở
-  `build_bom_proposal_rows` (và cân nhắc `sheet_edit_bom_rows`).
+- **(DC3a — DONE `1a9bc0f` 2026-07-06; verified 2026-07-17) Update BOM qua DH (propose-bom,
+  `app/routers/co_case.py:build_bom_proposal_rows`):** decision chốt = YES strip. Now filters `deleted`
+  AND calls `is_bom_technical_noise` (`:2932` `if not override.get("material_code") and is_bom_technical_noise(material): continue`)
+  — proposed BOM matches the bảng kê. `sheet_edit_bom_rows` (recalc path) intentionally NOT changed (feeds
+  the CO-internal sheet, not the DH proposal).
 - **(DC3b — PARTIAL) Xuất + Tính (LVC/VNM/tồn):** đường **export GIỜ đã strip rác render-time** —
   `workbook_io.py:617`, `bang_ke_renderer.py:259`, `bang_ke_xml_generator.py:391` đều skip
   `is_bom_technical_noise(material)`. **NHƯNG vẫn phụ thuộc materials có `customs_relevance`:** sheet
   **đã-tính trước mig-078** lưu materials KHÔNG có field → `is_bom_technical_noise=False` → **rác LỌT
   vào export tới khi "Tính bảng kê" lại.** **Rủi ro còn:** phát hành C/O có rác trên sheet cũ. Cần:
   bắt buộc re-calc trước chốt/xuất, HOẶC render-time rebuild materials kèm `customs_relevance`.
-- **(DC3c — CÒN MỞ) `declarable_unmatched` cộng 0 → thổi LVC** (thiếu trị giá không-xuất-xứ vì chưa khớp
-  tồn). `co_case_context.py:2692-2699` chỉ phát **cảnh báo hiển thị** (badge + "cần đối soát");
-  `origin_sheet_action_error` (`:1367-1406`) chặn prior-unlocked / chưa-tính / `missing_bom` nhưng **KHÔNG**
-  có check unmatched; lock route (`co_case.py:2047-2115`) + export (`:1001-1235`) **không raise** trên
-  unmatched → **chưa chặn cứng** lúc Chốt/Xuất. Spec Edit 5 đề xuất block phát hành. Cân nhắc block C/O.
+- **(DC3c — DONE, belt shipped; verified 2026-07-17) `declarable_unmatched` cộng 0 → thổi LVC.** Now a
+  triple hard-block belt (mirrors `missing_price`, "DC3c defense-in-depth"): flag `lvc_declarable_unmatched`
+  (`app/web/co_case_context.py:3087`) → calc-status holds at `bom_loaded` (`app/routers/co_case.py:2111`) →
+  lock 409 in `origin_sheet_action_error` (`co_case_context.py:1624`) → export blocker
+  (`:1581` + `routers/co_case.py:1252`,`:1307`). No longer just a badge.
 
 Liên quan [[DC1]] (gốc DH). Added: 2026-06-09.
 
@@ -572,7 +617,13 @@ kỹ + viết parity test trước khi gỡ fold (rủi ro SAI TỒN). AUDIT/HAR
 ## Bảng kê — Xuất xứ NVL
 
 ### XX1 — Input NVL CÓ xuất xứ (phụ lục X) → nhánh "có xuất xứ" của bảng kê (ảnh hưởng LVC/RVC)
-**Status: DESIGNED 2026-07-10/11 (grill, 12 ADRs) — chưa build.** Thiết kế đã chốt khác điểm 1/3 dưới:
+**Status: SHIPPED 2026-07-12 via #6–#13; verified 2026-07-17 — col N/13 deferred by user directive.**
+Per-row resolver `_resolve_vn_origin_lines` (`app/web/co_case_context.py:2732`): `qualifies = flag AND
+is_vietnam_origin(origin_country)` → `origin_status='origin'`, excluded from VNM (`:2562`). Evidence store =
+migration `019_co_supplier_evidence_events.sql` + `app/supplier_evidence_store.py` + curation screen
+`/clients/{id}/suppliers` (`routers/pages.py:356`, `templates/suppliers.html`). Col M/12 filled
+("Phụ lục X/<NCC>", `:2751`); col N/13 stays blank by directive. Remaining user-manual step: flag
+Mingjie VN + Minghui VN on growatt-vn (STATUS Next Steps §000). **Original design note (kept for history):**
 per-ROW resolver (`origin_country`→VN AND supplier flag), KHÔNG per-lot input tay; evidence store
 CO-side `co_supplier_evidence_events` (không cần DH API request — dữ liệu đã đủ qua BCCT);
 Growatt seed = 2 NCC (Mingjie/Minghui VN), Johnson = 0. Xem DECISIONS.md 2026-07-10/11 +
@@ -611,9 +662,15 @@ endpoint lock guard qua `origin_sheet_action_error` + `reject_if_sheet_locked`. 
   sao? Chốt khi đang dirty = chốt dữ liệu cũ → cần buộc lưu/tính trước.
 - `sequence_reason` (phải chốt theo thứ tự sheet trước→sau): đúng/đủ chưa?
 - Sheet `stale` (cần tính lại) KHÔNG chốt được (đúng) — UI có chặn rõ + giải thích không.
-- Còn dòng `declarable_unmatched` / chưa khớp tồn → có nên **chặn cứng** chốt (Spec Edit 5, [[DC3]])?
-  Hiện mới cảnh báo, chưa chặn.
-- Endpoint có thật sự **reject** khi không lock-able, hay chỉ disable nút client (bypass được)?
+- ~~Còn dòng `declarable_unmatched` / chưa khớp tồn → có nên **chặn cứng** chốt?~~ **DONE (=DC3c, verified
+  2026-07-17)** — now hard-blocks at lock (`origin_sheet_action_error` 409) + export.
+- **Endpoint reject: CONFIRMED server-side (verified 2026-07-17)** — `lock_co_case_origin_sheet`
+  (`app/routers/co_case.py:2248`) calls `origin_sheet_action_error` → HTTP 409 (`:2253`); edits guarded by
+  `reject_if_sheet_locked` (`:893`). Not just a disabled button.
+- **Dirty-before-lock: STILL OPEN (verified 2026-07-17)** — lock reads the PERSISTED case
+  (`routers/co_case.py:2264-2272`), no forced save/recalc → a sheet with unsaved client edits, or a stale
+  sheet, can be locked against last-saved data. Only re-validation is the StockOverclaim pre-check (`:2273`).
+  Shares a root with [[DC3]] DC3b — see Reconciliation cross-item finding.
 Vùng: `origin_can_lock` / `origin_sheet_action_error` (`co_case_context.py`), lock endpoint (`co_case.py`),
 nút Chốt (`co_case.html`). Liên quan [[DC3]]. `/discover` trước. Added: 2026-06-14.
 
