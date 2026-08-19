@@ -12,6 +12,7 @@ from app.bom_store import attach_case_bom_snapshot, resolve_selected_product_ver
 from app.co_case_store import build_case_criteria_rows, case_from_record, co_case_delete_block_reason, co_case_is_completed, co_case_status_view, declaration_refs, get_case_record, get_case_workspace, json_safe, load_state
 from app.co_form_config_store import load_co_form_config
 from app.origin_material_filters import is_bom_technical_noise, is_declarable_unmatched
+from app import money_display
 from app.uom_conversion import resolve_uom_factor
 from app.co_forms import COMMON_MARKET_PRESETS, common_market_guidance, criteria_preview_for_hs, form_candidates_for_market, prioritized_form_lanes, recommended_form_lane
 from app.co_market_hints import infer_market_from_invoice_matches
@@ -1374,6 +1375,9 @@ def attach_origin_sheet_states(case: dict) -> dict:
         optimization_mode = str(raw_state.get("optimization_mode") or "").strip().lower()
         if optimization_mode not in SHEET_OPTIMIZATION_MODES:
             optimization_mode = "max_lvc"
+        # Display-only: how many decimals the money cells print. "" = theo tiền tệ
+        # (VND 0, ngoại tệ 6/2). Never feeds the engine — see app/money_display.py.
+        display_decimals = money_display.normalize_display_decimals(raw_state.get("display_decimals"))
         effective_form = form_override or recommendation.get("form_code", "")
         # Precedence: sheet override → the lô-hàng choice → engine recommendation. Only
         # the first two are a person's decision, which is what Chốt requires; the third
@@ -1412,6 +1416,7 @@ def attach_origin_sheet_states(case: dict) -> dict:
             "rvc_threshold_override": rvc_threshold_override,
             "currency_mode": currency_mode,
             "optimization_mode": optimization_mode,
+            "display_decimals": display_decimals,
             "recommended_form_code": recommendation.get("form_code", ""),
             "recommended_form_label": recommendation.get("form_label", ""),
             "recommended_criteria_text": recommendation.get("criteria_text", ""),
@@ -1443,6 +1448,7 @@ def attach_origin_sheet_states(case: dict) -> dict:
         product["origin_sheet_rvc_threshold_override"] = rvc_threshold_override
         product["origin_sheet_currency_mode"] = currency_mode
         product["origin_sheet_optimization_mode"] = optimization_mode
+        product["origin_sheet_display_decimals"] = display_decimals
         _attach_fob_vnd(product)
         product["origin_sheet_recommended_form_code"] = state["recommended_form_code"]
         product["origin_sheet_recommended_form_label"] = state["recommended_form_label"]
@@ -1584,7 +1590,11 @@ def normalize_threshold(value) -> str:
         return ""
     if decimal_value < 0 or decimal_value > 100:
         return ""
-    return str(decimal_value.quantize(Decimal("0.01")).normalize())
+    # NOT `.normalize()` + str(): Decimal("40").quantize(...).normalize() is
+    # Decimal("4E+1"), which printed the LVC chip as "/ 4E+1%" for every round
+    # threshold an operator types (10, 20, 30, 40…).
+    text = format(decimal_value.quantize(Decimal("0.01")), "f")
+    return text.rstrip("0").rstrip(".") if "." in text else text
 def sheet_form_recommendation(market: str, finished_hs: str) -> dict:
     market = str(market or "").strip()
     finished_hs = str(finished_hs or "").strip()

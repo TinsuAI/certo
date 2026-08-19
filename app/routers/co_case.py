@@ -10,6 +10,7 @@ from fastapi import APIRouter
 from app import co_auth, co_stock_eligibility, co_stock_ledger, co_stock_materializer, material_search, substitution_history
 from app.substitute_discovery import build_stock_first_candidates
 from app.bom_store import attach_case_bom_snapshot
+from app import money_display
 from app.co_case_store import CaseClosedError, CaseHasActiveClaimsError, MAX_SUPPORTING_FILE_BYTES, OVERRIDE_KEY_SCHEME, build_case_criteria_rows, case_from_record, co_case_is_completed, co_case_status_view, create_case_record, create_case_workbook, declaration_refs, delete_case_record, delete_supporting_file, get_case_record, get_case_workspace, get_supporting_file, invoice_keys, json_safe, now_iso, safe_filename, save_supporting_file, set_case_archived, update_case_record
 from app.co_form_config_store import load_co_form_config
 from app.co_forms import prioritized_form_lanes, recommended_form_lane
@@ -668,6 +669,23 @@ def recalculate_origin_sheet_edits(client: dict, case: dict, product_code: str, 
     prepared["products"] = updated_products
     prepared = materialize_bang_ke_origin_fields(prepared, client)
     return attach_origin_sheet_states(prepared)
+# Overrides that change the NUMBERS on a sheet, not just how they are displayed.
+# `currency_mode` is absent on purpose: every lot carries both money lanes, so
+# switching is a display swap the browser does on its own.
+NUMBER_AFFECTING_OVERRIDES = (
+    "form_override", "criteria_override", "lvc_threshold_override",
+    "rvc_threshold_override", "optimization_mode",
+)
+# A sheet worth recalculating has been through Tính at least once. "draft" has
+# nothing to update and "locked" is what was filed.
+RECALCULABLE_SHEET_STATUSES = {"calculated", "stale", "bom_loaded"}
+
+
+def origin_sheet_status_of(case: dict, product_code: str) -> str:
+    state = (case.get("origin_sheet_states") or {}).get(product_code)
+    return str(state.get("status") or "") if isinstance(state, dict) else ""
+
+
 def origin_codes_to_recalculate(case: dict, order: list[str], edited_codes: list[str]) -> list[str]:
     """Every sheet a bulk edit invalidated, in allocation order.
 
@@ -1052,6 +1070,10 @@ def set_origin_sheet_config_override(
     if "optimization_mode" in overrides:
         mode = str(overrides.get("optimization_mode") or "").strip().lower()
         sanitized["optimization_mode"] = mode if mode in SHEET_OPTIMIZATION_MODES else "max_lvc"
+    if "display_decimals" in overrides:
+        sanitized["display_decimals"] = money_display.normalize_display_decimals(
+            overrides.get("display_decimals")
+        )
     states[product_code] = sanitized
     prepared = dict(case)
     prepared["origin_sheet_states"] = states
@@ -2218,6 +2240,19 @@ async def set_case_criteria_route(request: Request, client_id: str, case_id: str
         # in the incoming case (`if key in case`), so removing the key left the stored
         # choice in place and "Bỏ chọn" did nothing at all.
         record["criteria_choice"] = {}
+    # The criterion decides the LVC threshold and the CTC rule, and both are stamped on
+    # the sheet at Tính — so a sheet left un-recalculated keeps a pass/fail badge and a
+    # CTC verdict measured against the PREVIOUS rule. Recalculate every sheet that
+    # inherits this choice (a sheet with its own criteria_override does not).
+    states = record.get("origin_sheet_states") or {}
+    inheriting = [
+        code for code in origin_product_order(record)
+        if origin_sheet_status_of(record, code) in RECALCULABLE_SHEET_STATUSES
+        and not str((states.get(code) or {}).get("criteria_override") or "").strip()
+    ]
+    min_gap = _origin_min_gap_days(client)
+    for code in inheriting:
+        record = recalculate_origin_sheet_and_status(client, record, code, min_gap_days=min_gap)
     try:
         update_case_record(client, record)
     except CaseClosedError as exc:
@@ -2225,6 +2260,7 @@ async def set_case_criteria_route(request: Request, client_id: str, case_id: str
     return {
         "status": "ok",
         "criteria_choice": record.get("criteria_choice") or {},
+        "recalculated": inheriting,
     }
 @router.post("/clients/{client_id}/co-case/{case_id}/origin/uom-factor")
 async def confirm_uom_factor_route(request: Request, client_id: str, case_id: str):
@@ -3718,6 +3754,8 @@ async def co_case_origin_sheet_recommendation_override(
         if mode and mode not in SHEET_OPTIMIZATION_MODES:
             raise HTTPException(status_code=400, detail=f"Unknown optimization_mode {mode}")
         overrides["optimization_mode"] = mode or "max_lvc"
+    if "display_decimals" in payload:
+        overrides["display_decimals"] = payload.get("display_decimals")
     client = resolve_client(client_id)
     case = persisted_origin_case(client, case_id)
     expected_revision = str(payload.get("expected_revision") or "").strip()
@@ -3726,11 +3764,37 @@ async def co_case_origin_sheet_recommendation_override(
     case = merge_origin_action_payload(case, payload)
     if not any(str(p.get("code") or "").strip() == product_code for p in case.get("products", [])):
         raise HTTPException(status_code=404, detail=f"Sheet {product_code} not found in case")
+    # Both sides read from a NORMALISED state: set_origin_sheet_config_override ends in
+    # attach_origin_sheet_states, which fills defaults ("max_lvc", ""), so comparing a
+    # raw stored state against a normalised one reports a change on every save.
+    case = attach_origin_sheet_states(case)
+    before = {key: (case.get("origin_sheet_states") or {}).get(product_code, {}).get(key, "")
+              for key in NUMBER_AFFECTING_OVERRIDES}
     case = set_origin_sheet_config_override(case, product_code, overrides)
+    after = {key: (case.get("origin_sheet_states") or {}).get(product_code, {}).get(key, "")
+             for key in NUMBER_AFFECTING_OVERRIDES}
+    # Saving a criterion or a threshold used to leave the sheet at "Đã tính" with the
+    # LVC pass/fail badge and the CTC preview still computed against the PREVIOUS rule
+    # — both are stamped at Tính, not derived at render — and the hint just told the
+    # operator to remember to press Tính. Recalculate here instead: one sheet off a warm
+    # snapshot is ~1.3s (prod-sized johnson-vn, 105-row sheet).
+    recalculated = False
+    status = origin_sheet_status_of(case, product_code)
+    if before != after and status in RECALCULABLE_SHEET_STATUSES:
+        order = origin_product_order(case)
+        case = recalculate_origin_sheet_and_status(
+            client, case, product_code, min_gap_days=_origin_min_gap_days(client)
+        )
+        # Stock is allocated in sheet order, so a changed allocation here changes what
+        # is left for the sheets after it.
+        if product_code in order:
+            case = mark_origin_sheets_stale(case, order.index(product_code) + 1)
+        recalculated = True
     update_case_record(client, case)
     state = (case.get("origin_sheet_states") or {}).get(product_code, {})
     return JSONResponse({
         "ok": True,
+        "recalculated": recalculated,
         "product_code": product_code,
         "state": {
             "form_override": state.get("form_override", ""),
@@ -3739,6 +3803,8 @@ async def co_case_origin_sheet_recommendation_override(
             "rvc_threshold_override": state.get("rvc_threshold_override", ""),
             "currency_mode": state.get("currency_mode", "native"),
             "optimization_mode": state.get("optimization_mode", "max_lvc"),
+            "display_decimals": state.get("display_decimals", ""),
+            "status": state.get("status", ""),
             "effective_form_code": state.get("effective_form_code", ""),
             "effective_criteria_text": state.get("effective_criteria_text", ""),
             "effective_lvc_threshold": state.get("effective_lvc_threshold", ""),

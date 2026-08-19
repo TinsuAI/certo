@@ -1012,8 +1012,9 @@
               </div>
               <input type="text" class="origin-config-select criteria-other-input" data-criteria-other-input hidden placeholder="VD: AIFTA 35% FOB + CTSH" value="">
               <small class="origin-config-criteria-hint">
-                Ghi đúng nguyên văn lên C/O. Áp cho <strong>{{ case.products|length }} bảng kê</strong> của lô này;
-                từng bảng kê vẫn đặt riêng được ở <strong>⚙ Cấu hình</strong>.
+                Ghi đúng nguyên văn lên C/O. Áp cho <strong>{{ case.products|length }} bảng kê</strong> của lô này
+                và các bảng kê đó tự tính lại theo tiêu chí mới; từng bảng kê vẫn đặt riêng được ở
+                <strong>⚙ Cấu hình</strong>.
               </small>
             </div>
             <div class="origin-config-row" data-criteria-threshold-row hidden>
@@ -1185,6 +1186,7 @@
           data-product-currency="{{ product.currency or '' }}"
           data-product-fob-currency="{{ product.fob_currency or product.currency or 'VND' }}"
           data-product-fob-fx-rate="{{ product.fob_fx_rate or '' }}"
+          data-display-decimals="{{ product.origin_sheet_display_decimals or '' }}"
           data-origin-sheet-locked="{{ '1' if product.origin_sheet_status == 'locked' else '0' }}"
           data-origin-sheet-status="{{ product.origin_sheet_status or 'draft' }}"
           data-origin-can-calc="{{ '1' if product.origin_can_calculate else '0' }}"
@@ -1409,6 +1411,7 @@
           {% set lvc_threshold_override = product.origin_sheet_lvc_threshold_override %}
           {% set rvc_threshold_override = product.origin_sheet_rvc_threshold_override %}
           {% set currency_mode = product.origin_sheet_currency_mode or 'native' %}
+          {% set display_decimals = product.origin_sheet_display_decimals or '' %}
           {% set optimization_mode = product.origin_sheet_optimization_mode or 'max_lvc' %}
           {% set effective_form = product.origin_sheet_effective_form_code %}
           {% set effective_criteria = product.origin_sheet_effective_criteria_text %}
@@ -1463,7 +1466,8 @@
                   {% else %}<strong>Chưa chọn tiêu chí</strong> — sẽ ghi theo khuyến nghị: <strong>{{ rec_criteria or 'n/a' }}</strong>.
                   {% endif %}
                   Ô LVC và CTC trên thanh số liệu chỉ là đối chiếu tham khảo của chính tiêu chí này —
-                  hệ thống không tự chọn LVC hay CTC thay bạn. Chọn xong bấm Lưu rồi Tính bảng kê lại.
+                  hệ thống không tự chọn LVC hay CTC thay bạn. Bấm <strong>Lưu</strong> là bảng kê tự tính lại
+                  theo tiêu chí mới; các bảng kê đứng sau trong thứ tự trừ tồn sẽ chuyển "Cần tính lại".
                 </small>
               </div>
               <div class="origin-config-row" data-criteria-threshold-row hidden>
@@ -1473,8 +1477,15 @@
               <div class="origin-config-row origin-config-row-split">
                 <label class="origin-config-inline-field">
                   <span>Tiền tệ</span>
-                  <select class="origin-config-select" data-origin-recommendation-currency>
-                    <option value="native" {% if currency_mode == 'native' %}selected{% endif %}>Nguyên tệ ({{ product.currency or 'NT' }})</option>
+                  {# No "(VND)" in the nguyên-tệ label: `product.currency` is only THIS
+                     sheet's FOB currency, while the rows come from many declarations and
+                     can be in different currencies. Printing one of them next to
+                     "Nguyên tệ" reads as "nguyên tệ means VND", which is the opposite of
+                     what the option does. Neither option converts anything — every lot
+                     carries both lanes and this picks which one is printed. #}
+                  <select class="origin-config-select" data-origin-recommendation-currency
+                          title="Nguyên tệ: mỗi dòng in theo tiền tệ của chính tờ khai nhập đã khai. VND: in làn VND mà tờ khai cũng đã khai. Không quy đổi gì thêm.">
+                    <option value="native" {% if currency_mode == 'native' %}selected{% endif %}>Nguyên tệ (theo tờ khai)</option>
                     <option value="vnd" {% if currency_mode == 'vnd' %}selected{% endif %}>VND</option>
                   </select>
                 </label>
@@ -1483,6 +1494,16 @@
                   <select class="origin-config-select" data-origin-recommendation-optimization>
                     <option value="max_lvc" {% if optimization_mode == 'max_lvc' %}selected{% endif %}>↑ LVC/RVC</option>
                     <option value="min_lvc" {% if optimization_mode == 'min_lvc' %}selected{% endif %}>↓ LVC/RVC</option>
+                  </select>
+                </label>
+                <label class="origin-config-inline-field">
+                  <span>Số lẻ</span>
+                  <select class="origin-config-select" data-origin-recommendation-decimals
+                          title="Số chữ số sau dấu phẩy của Đơn giá / Trị giá trên MÀN HÌNH. 'Theo tiền tệ' = VND không lẻ, ngoại tệ 6 số cho đơn giá và 2 cho trị giá. Dòng có giá trị quá nhỏ vẫn hiện đủ chữ số để không bị đọc nhầm là 0. File xuất giữ nguyên số và theo định dạng của mẫu HQ.">
+                    <option value="" {% if not display_decimals %}selected{% endif %}>Theo tiền tệ</option>
+                    {% for d in ['0', '2', '4', '6'] %}
+                    <option value="{{ d }}" {% if display_decimals == d %}selected{% endif %}>{{ d }} số lẻ</option>
+                    {% endfor %}
                   </select>
                 </label>
               </div>
@@ -1867,7 +1888,7 @@
                           data-row-native-currency="{{ material.native_currency or material.currency or 'VND' }}"
                           data-base-unit-value="{{ material.unit_value or '0' }}"
                           data-base-unit-value-native="{{ material.unit_value_native or material.unit_value or '0' }}"
-                          data-base-unit-value-vnd="{{ material.unit_value_vnd or '' }}">{{ material.unit_value|number(6) if material.unit_value else 'Thiếu' }}</span>
+                          data-base-unit-value-vnd="{{ material.unit_value_vnd or '' }}">{{ material.unit_value|money(material.currency or 'VND', 'unit', display_decimals) if material.unit_value else 'Thiếu' }}</span>
                     {% set _fob_target = (product.fob_currency or product.currency or 'VND') %}
                     {% set _display_currency = 'VND' if currency_mode == 'vnd' else _fob_target %}
                     <small data-origin-cell-currency>{{ _display_currency }}</small>
@@ -1879,7 +1900,7 @@
                           data-row-native-currency="{{ material.native_currency or material.currency or 'VND' }}"
                           data-base-material-value="{{ material.material_value or '0' }}"
                           data-base-material-value-native="{{ material.material_value_native or material.material_value or '0' }}"
-                          data-base-material-value-vnd="{{ material.material_value_vnd or '' }}">{{ material.material_value|number if material.material_value else 'Thiếu' }}</span>
+                          data-base-material-value-vnd="{{ material.material_value_vnd or '' }}">{{ material.material_value|money(material.currency or 'VND', 'amount', display_decimals) if material.material_value else 'Thiếu' }}</span>
                   </td>
                   <td data-origin-column="origin">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_origin_status" value="{{ material.origin_status }}">
@@ -1903,7 +1924,7 @@
                           data-row-currency="{{ material.currency or 'VND' }}"
                           data-base-non-origin="{{ material.non_origin_cif_value or '0' }}"
                           data-base-non-origin-native="{{ material.non_origin_cif_value or '0' }}"
-                          data-base-non-origin-vnd="{{ material.non_origin_cif_value_vnd or '' }}">{{ material.non_origin_cif_value|number }}</span>
+                          data-base-non-origin-vnd="{{ material.non_origin_cif_value_vnd or '' }}">{{ material.non_origin_cif_value|money(material.currency or 'VND', 'amount', display_decimals) }}</span>
                   </td>
                   <td data-origin-column="source" title="{{ material.material_warnings_text }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_valuation_source" value="{{ material.valuation_source }}">
@@ -1946,7 +1967,7 @@
                   <td data-origin-column="hs"><span class="mono">{{ allocation.hs_code or material.hs_code }}</span></td>
                   <td data-origin-column="bom"></td>
                   <td data-origin-column="consumed" class="num">{{ allocation.allocated_qty|number(6) }} <small>{{ material.uom }}</small></td>
-                  <td data-origin-column="unit-value" class="num">{{ allocation.unit_value|number(6) if allocation.unit_value else 'Thiếu' }} <small>{{ allocation.currency or material.currency }}</small></td>
+                  <td data-origin-column="unit-value" class="num">{{ allocation.unit_value|money(allocation.currency or material.currency or 'VND', 'unit', display_decimals) if allocation.unit_value else 'Thiếu' }} <small>{{ allocation.currency or material.currency }}</small></td>
                   <td data-origin-column="material-value" class="num">{{ allocation.material_value|number if allocation.material_value else 'Thiếu' }}</td>
                   <td data-origin-column="origin">{% if allocation.bang_ke_origin_text or allocation.origin_country %}<small class="origin-country-text" title="{{ allocation.consignee_name }}">{{ allocation.bang_ke_origin_text or allocation.origin_country }}</small>{% endif %}</td>
                   <td data-origin-column="non-origin" class="num">{{ allocation.material_value|number if material.origin_status == 'non_origin' and allocation.material_value else '0' }}</td>
@@ -2589,6 +2610,7 @@
         rvc_threshold_override: recommendation?.querySelector("[data-origin-recommendation-threshold]")?.value || "",
         currency_mode: recommendation?.querySelector("[data-origin-recommendation-currency]")?.value || "native",
         optimization_mode: recommendation?.querySelector("[data-origin-recommendation-optimization]")?.value || "max_lvc",
+        display_decimals: recommendation?.querySelector("[data-origin-recommendation-decimals]")?.value || "",
       };
     });
     const overrides = {};
@@ -3738,13 +3760,17 @@
     const productFobCurrency = (sheetPanel.dataset.productFobCurrency || sheetPanel.dataset.productCurrency || "VND").toUpperCase();
     const fobFxRate = parseFloat(sheetPanel.dataset.productFobFxRate || "0");
     const target = useVnd ? "VND" : productFobCurrency;
-    const swap = (selector, nativeAttr, vndAttr, decimals = 2) => {
+    const decimalsOverride = sheetPanel.dataset.displayDecimals || "";
+    const swap = (selector, nativeAttr, vndAttr, kind = "amount") => {
       sheetPanel.querySelectorAll(selector).forEach((el) => {
         const rowCurrency = (el.dataset.rowCurrency || "VND").toUpperCase();
         const nativeRaw = el.getAttribute(nativeAttr);
         const vndRaw = el.getAttribute(vndAttr);
         const rowNativeCurrency = (el.dataset.rowNativeCurrency || rowCurrency).toUpperCase();
         let pick;
+        // The currency the cell ends up PRINTED in — that is what decides how many
+        // decimals it gets, not the sheet mode (a nguyên-tệ sheet mixes VND and USD rows).
+        let printedCurrency = target;
         if (target === rowCurrency) {
           pick = nativeRaw;  // no conversion needed
         } else if (target === rowNativeCurrency && nativeRaw) {
@@ -3759,17 +3785,18 @@
           pick = String(parseFloat(vndRaw) / fobFxRate);
         } else {
           pick = nativeRaw;  // fallback when fx_rate missing
+          printedCurrency = rowNativeCurrency;
         }
         if (pick === null || pick === undefined || pick === "") return;
         const num = parseFloat(pick);
         if (Number.isFinite(num)) {
-          el.textContent = fmtNumber(num, decimals);
+          el.textContent = fmtMoney(num, printedCurrency, kind, decimalsOverride);
         }
       });
     };
-    swap("[data-origin-cell-unit-value]", "data-base-unit-value-native", "data-base-unit-value-vnd", 6);
-    swap("[data-origin-cell-material-value]", "data-base-material-value-native", "data-base-material-value-vnd", 2);
-    swap("[data-origin-cell-non-origin]", "data-base-non-origin-native", "data-base-non-origin-vnd", 2);
+    swap("[data-origin-cell-unit-value]", "data-base-unit-value-native", "data-base-unit-value-vnd", "unit");
+    swap("[data-origin-cell-material-value]", "data-base-material-value-native", "data-base-material-value-vnd", "amount");
+    swap("[data-origin-cell-non-origin]", "data-base-non-origin-native", "data-base-non-origin-vnd", "amount");
     // Currency label small <small data-origin-cell-currency> next to unit-value
     // reflects the target so VND/USD labels match the displayed numbers.
     sheetPanel.querySelectorAll("[data-origin-cell-currency]").forEach((el) => {
@@ -3914,6 +3941,7 @@
       const thresholdInp = panel.querySelector("[data-origin-recommendation-threshold]");
       const currencySel = panel.querySelector("[data-origin-recommendation-currency]");
       const optimizationSel = panel.querySelector("[data-origin-recommendation-optimization]");
+      const decimalsSel = panel.querySelector("[data-origin-recommendation-decimals]");
       const saveBtn = panel.querySelector("[data-origin-recommendation-save]");
       const resetBtn = panel.querySelector("[data-origin-recommendation-reset]");
       const status = panel.querySelector("[data-origin-recommendation-status]");
@@ -3930,6 +3958,13 @@
       // Apply persisted currency mode immediately so the UI reflects it before save.
       applyCurrencyMode(panel, currencySel?.value || "native");
       currencySel?.addEventListener("change", () => applyCurrencyMode(panel, currencySel.value));
+      // Decimals are a display setting: reformat straight away, the same way the Tiền
+      // tệ switch does, instead of waiting for Lưu.
+      decimalsSel?.addEventListener("change", () => {
+        const sheetPanel = panel.closest("[data-origin-sheet-panel]") || panel;
+        sheetPanel.dataset.displayDecimals = decimalsSel.value || "";
+        applyCurrencyMode(panel, currencySel?.value || "native");
+      });
       const setStatus = (text, kind = "info") => {
         if (!status) return;
         status.hidden = !text;
@@ -3955,6 +3990,7 @@
               rvc_threshold_override: thresholdInp?.value || "",
               currency_mode: currencySel?.value || "native",
               optimization_mode: optimizationSel?.value || "max_lvc",
+              display_decimals: decimalsSel?.value || "",
             }),
           });
           if (!response.ok) {
@@ -3964,15 +4000,18 @@
             setStatus(detail || `Lỗi ${response.status}`, "error");
             toast(detail || "Không lưu được override.", "error");
           } else {
-            setStatus("Đã lưu — đang cập nhật bảng kê…", "success");
+            setStatus("Đã lưu — đang tính lại bảng kê…", "success");
             // The Tiêu chí / LVC / CTC chips and the sheet's lock gate are all
             // server-derived from the saved override, so a toast alone left the
             // sheet showing the pre-save criterion until the operator pressed F5.
             closeSettingsModal();
             const productCode = panel.dataset.productCode || "";
-            const swapped = await refreshCaseShellInPlace("Đã lưu cấu hình bảng kê.", {
-              activeOriginProductCode: productCode,
-            });
+            let recalculated = false;
+            try { recalculated = !!(await response.clone().json()).recalculated; } catch (_e) { /* html/plain body */ }
+            const swapped = await refreshCaseShellInPlace(
+              recalculated ? "Đã lưu cấu hình và tính lại bảng kê." : "Đã lưu cấu hình bảng kê.",
+              {activeOriginProductCode: productCode},
+            );
             if (!swapped) {
               setStatus("Đã lưu cấu hình.", "success");
               toast("Đã lưu cấu hình bảng kê.", "success");
@@ -4005,6 +4044,7 @@
               rvc_threshold_override: "",
               currency_mode: "native",
               optimization_mode: "max_lvc",
+              display_decimals: "",
             }),
           });
           if (!response.ok) {
@@ -4021,6 +4061,9 @@
             if (thresholdInp) thresholdInp.value = "";
             if (currencySel) currencySel.value = "native";
             if (optimizationSel) optimizationSel.value = "max_lvc";
+            if (decimalsSel) decimalsSel.value = "";
+            const resetSheetPanel = panel.closest("[data-origin-sheet-panel]") || panel;
+            resetSheetPanel.dataset.displayDecimals = "";
             applyCurrencyMode(panel, "native");
             setStatus("Đã reset — đang cập nhật bảng kê…", "success");
             closeSettingsModal();
@@ -4673,17 +4716,19 @@
       const unitValueCell = row.querySelector("[data-origin-cell-unit-value]");
       if (unitValueCell) {
         unitValueCell.dataset.baseUnitValue = String(unitValueAvg);
-        unitValueCell.textContent = unitValueAvg > 0 ? fmtNumber(unitValueAvg, 6) : "—";
+        unitValueCell.textContent = unitValueAvg > 0
+          ? fmtMoney(unitValueAvg, sheetPrintedCurrency(unitValueCell), "unit", sheetDisplayDecimals(unitValueCell))
+          : "—";
       }
       const matValueCell = row.querySelector("[data-origin-cell-material-value]");
       if (matValueCell) {
         matValueCell.dataset.baseMaterialValue = String(materialValueNew);
-        matValueCell.textContent = fmtNumber(materialValueNew, 2);
+        matValueCell.textContent = fmtMoney(materialValueNew, sheetPrintedCurrency(matValueCell), "amount", sheetDisplayDecimals(matValueCell));
       }
       const nonOriginCell = row.querySelector("[data-origin-cell-non-origin]");
       if (nonOriginCell) {
         nonOriginCell.dataset.baseNonOrigin = String(nonOriginNew);
-        nonOriginCell.textContent = fmtNumber(nonOriginNew, 2);
+        nonOriginCell.textContent = fmtMoney(nonOriginNew, sheetPrintedCurrency(nonOriginCell), "amount", sheetDisplayDecimals(nonOriginCell));
       }
       row.classList.remove("origin-row-deleted");
       row.classList.add("origin-row-edited");
@@ -4704,6 +4749,9 @@
       const consumedNew = feasibility?.consumedNew || 0;
       const materialValueNew = feasibility?.materialValueNew || 0;
       const unitValueAvg = consumedNew > 0 ? (materialValueNew / consumedNew) : 0;
+      const addedPanel = document.querySelector(`[data-origin-sheet-panel][data-product-code="${state.productCode}"]`);
+      const rowPrintedCurrency = sheetPrintedCurrency(addedPanel);
+      const rowDecimals = addedPanel?.dataset.displayDecimals || "";
       const originStatus = "non_origin";
       const nonOriginNew = materialValueNew;
       const tr = document.createElement("tr");
@@ -4745,17 +4793,17 @@
           <span data-origin-cell-consumed data-base-consumed="${consumedNew}">${fmtNumber(consumedNew, 6)}</span>
         </td>
         <td data-origin-column="unit-value" class="num">
-          <span data-origin-cell-unit-value data-base-unit-value="${unitValueAvg}">${unitValueAvg > 0 ? fmtNumber(unitValueAvg, 6) : "—"}</span>
+          <span data-origin-cell-unit-value data-base-unit-value="${unitValueAvg}">${unitValueAvg > 0 ? fmtMoney(unitValueAvg, rowPrintedCurrency, "unit", rowDecimals) : "—"}</span>
           <small></small>
         </td>
         <td data-origin-column="material-value" class="num">
-          <span data-origin-cell-material-value data-base-material-value="${materialValueNew}">${fmtNumber(materialValueNew, 2)}</span>
+          <span data-origin-cell-material-value data-base-material-value="${materialValueNew}">${fmtMoney(materialValueNew, rowPrintedCurrency, "amount", rowDecimals)}</span>
         </td>
         <td data-origin-column="origin">
           <span class="badge badge-neutral">Không xuất xứ</span>
         </td>
         <td data-origin-column="non-origin" class="num">
-          <span data-origin-cell-non-origin data-base-non-origin="${nonOriginNew}">${fmtNumber(nonOriginNew, 2)}</span>
+          <span data-origin-cell-non-origin data-base-non-origin="${nonOriginNew}">${fmtMoney(nonOriginNew, rowPrintedCurrency, "amount", rowDecimals)}</span>
         </td>
         <td data-origin-column="source">
           <div class="origin-source-cell">
@@ -5177,6 +5225,48 @@
   const fmtNumber = (value, fractionDigits = 2) => {
     if (!Number.isFinite(value)) return "—";
     return value.toLocaleString("vi-VN", {maximumFractionDigits: fractionDigits});
+  };
+
+  // Mirror of app/money_display.py — the browser reformats these cells when the Tiền
+  // tệ lane is switched or a row is edited, so the two sides must agree. VND has no
+  // đồng fractions on a filed bảng kê; a USD đơn giá does. A NON-ZERO value never
+  // renders as "0" — real data has đơn giá 0.078 VND and "0" is how this app says
+  // "thiếu đơn giá".
+  const moneyDecimals = (currency, kind, override) => {
+    const fixed = String(override == null ? "" : override).trim();
+    if (fixed !== "" && Number.isFinite(Number(fixed))) {
+      return Math.max(0, Math.min(parseInt(fixed, 10), 8));
+    }
+    if (String(currency || "").trim().toUpperCase() === "VND") return 0;
+    return kind === "unit" ? 6 : 2;
+  };
+  const sheetDisplayDecimals = (el) =>
+    (el?.closest?.("[data-origin-sheet-panel]")?.dataset.displayDecimals) || "";
+  const fmtMoney = (value, currency, kind = "amount", override = "") => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return "—";
+    let decimals = moneyDecimals(currency, kind, override);
+    let guarded = false;
+    const magnitude = Math.abs(num);
+    // Truncation, not rounding: 0.078 is not "visible" at one decimal — that reads 0,1.
+    if (magnitude > 0 && Math.floor(magnitude * Math.pow(10, decimals)) === 0) {
+      decimals = Math.min(Math.ceil(-Math.log10(magnitude)) + 1, 8);
+      guarded = true;
+    }
+    return num.toLocaleString("vi-VN", {
+      minimumFractionDigits: guarded ? 0 : decimals,
+      maximumFractionDigits: decimals,
+    });
+  };
+
+  // The currency a sheet's money cells are currently printed in (mirrors the `target`
+  // applyCurrencyMode picks), for the client-side edit paths that rewrite a cell.
+  const sheetPrintedCurrency = (panel) => {
+    const node = panel?.closest?.("[data-origin-sheet-panel]") || panel;
+    if (!node) return "VND";
+    return (node.dataset.originCurrencyMode === "vnd")
+      ? "VND"
+      : (node.dataset.productFobCurrency || node.dataset.productCurrency || "VND").toUpperCase();
   };
 
   const originStockCache = new Map();
@@ -6102,7 +6192,7 @@
     const openModal = () => { modal?.removeAttribute("hidden"); setStatus(""); };
     const closeModal = () => modal?.setAttribute("hidden", "");
     const save = async (criteriaText, threshold = "") => {
-      setStatus("Đang lưu…", "info");
+      setStatus("Đang lưu và tính lại các bảng kê…", "info");
       let response;
       try {
         response = await fetch(url, {

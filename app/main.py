@@ -195,6 +195,9 @@ async def _data_hub_error_status_handler(request: Request, exc: httpx.HTTPStatus
     )
 
 
+from app import money_display
+
+
 def format_number_display(value, max_decimals: int = 2) -> str:
     text = "" if value is None else str(value).strip()
     if not text:
@@ -212,6 +215,9 @@ def format_number_display(value, max_decimals: int = 2) -> str:
 
 
 templates.env.filters["number"] = format_number_display
+# Money cells carry their own decimal rule (VND has no đồng fractions on a filed
+# bảng kê, a USD đơn giá does) — see app/money_display.py.
+templates.env.filters["money"] = money_display.format_money
 
 
 @app.middleware("http")

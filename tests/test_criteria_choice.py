@@ -195,3 +195,20 @@ def test_review_row_labels_the_criterion_source(monkeypatch, tmp_path):
     chosen = client.get(origin).text
     assert "tiêu chí: theo lô hàng" in chosen
     assert "tiêu chí: khuyến nghị" not in chosen
+
+
+def test_a_round_threshold_is_not_printed_in_scientific_notation():
+    """`Decimal("40").quantize(Decimal("0.01")).normalize()` is `Decimal("4E+1")`, so the
+    LVC chip read "/ 4E+1%" for every round threshold an operator types (found by the
+    2026-08-19 config e2e, which typed 40)."""
+    from app.web.co_case_context import normalize_threshold
+
+    assert normalize_threshold("40") == "40"
+    assert normalize_threshold("10") == "10"
+    assert normalize_threshold("100") == "100"
+    assert normalize_threshold("30.00") == "30"
+    assert normalize_threshold("37.5") == "37.5"
+    assert normalize_threshold("0.5") == "0.5"
+    assert normalize_threshold("40%") == "40"
+    assert normalize_threshold("101") == ""
+    assert normalize_threshold("abc") == ""
