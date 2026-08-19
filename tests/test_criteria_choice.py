@@ -159,3 +159,39 @@ def test_clearing_the_case_choice_persists(monkeypatch, tmp_path):
 
     from app.web.co_case_context import case_criteria_choice
     assert case_criteria_choice(record) == {}
+
+
+def test_review_row_labels_the_criterion_source(monkeypatch, tmp_path):
+    """The Review list's per-sheet chip read only `criteria_override`, so right after
+    the operator chose a criterion for the whole lô every row still said
+    "tiêu chí: khuyến nghị" — contradicting the bar above it, the sheet's own chip and
+    the lock gate, all of which treat the lô-hàng choice as a person's choice."""
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("CO_CASE_STORE_ROOT", str(tmp_path / "co-cases"))
+    monkeypatch.setenv("BOM_DEFAULT_CONFIG_ROOT", str(tmp_path / "bom-default"))
+    monkeypatch.delenv("BARRY_DATABASE_URL", raising=False)
+    import app.main as main_module
+    monkeypatch.setattr(main_module, "require_local_source_writes", lambda: None)
+
+    from app import co_case_store
+
+    case_id = "case-criteria-review-chip"
+    now = co_case_store.now_iso()
+    co_case_store.save_state("growatt", {"schema_version": 1, "client_id": "growatt", "cases": [{
+        "id": case_id, "persisted_case_id": case_id, "case_id": case_id,
+        "case_code": "CO-CHIP", "title": "Chip", "customer": "Growatt",
+        "destination_market": "Ấn Độ", "status": "open",
+        "created_at": now, "updated_at": now,
+        "products": [{"code": "PV.A", "name": "SP A", "finished_hs": "854140", "materials": []}],
+    }]})
+
+    client = TestClient(main_module.app)
+    origin = f"/clients/growatt/co-case/{case_id}/origin"
+
+    assert "tiêu chí: khuyến nghị" in client.get(origin).text
+
+    client.post(f"{origin}/case-criteria", json={"criteria_text": "CTH"})
+    chosen = client.get(origin).text
+    assert "tiêu chí: theo lô hàng" in chosen
+    assert "tiêu chí: khuyến nghị" not in chosen

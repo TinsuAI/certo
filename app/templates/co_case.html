@@ -1070,7 +1070,14 @@
       <span class="orr-config">
         {{ product.origin_sheet_effective_form_code or '—' }} · {{ product.origin_sheet_effective_criteria_text or '—' }}{% if _eff_thr %} · {{ _eff_thr }}%{% endif %}
         {% if _has_override %}<span class="orr-override">override</span>{% endif %}
-        {% if not product.origin_sheet_criteria_override %}<span class="orr-criteria-unset" title="Chưa chọn tiêu chí — đang dùng khuyến nghị của hệ thống. Mở bảng kê → chip Tiêu chí để chọn.">tiêu chí: khuyến nghị</span>{% endif %}
+        {# Keyed on criteria_source, not on the sheet override alone: a criterion chosen
+           for the whole lô hàng IS a person's choice, and the lock gate treats it as one.
+           Reading only the override made every row say "khuyến nghị" right after the
+           operator chose one for the lô, contradicting the bar above and the sheet's own chip. #}
+        {% set _crit_src = product.origin_sheet_criteria_source %}
+        {% if _crit_src == 'case' %}<span class="orr-criteria-src" title="Tiêu chí theo lựa chọn cho cả lô hàng — mở bảng kê để đặt riêng.">tiêu chí: theo lô hàng</span>
+        {% elif _crit_src == 'sheet' %}<span class="orr-criteria-src" title="Tiêu chí đặt riêng cho bảng kê này.">tiêu chí: riêng sheet này</span>
+        {% else %}<span class="orr-criteria-unset" title="Chưa chọn tiêu chí — đang dùng khuyến nghị của hệ thống. Chọn cho cả lô ở thanh trên, hoặc mở bảng kê → chip Tiêu chí.">tiêu chí: khuyến nghị</span>{% endif %}
       </span>
       <span class="orr-metrics">
         <span class="origin-metric-chip"><em>HS</em> <strong class="mono">{{ product.finished_hs }}</strong></span>

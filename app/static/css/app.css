@@ -7317,6 +7317,12 @@ body.co-stock-history-modal-open { overflow: hidden; }
   color: var(--foreground-muted);
   font-size: 0.64rem; font-weight: 700; letter-spacing: 0.02em;
 }
+.orr-criteria-src {
+  margin-left: 0.3rem; padding: 0.02rem 0.34rem; border-radius: var(--radius-xs);
+  border: 1px solid var(--border);
+  color: var(--foreground-muted);
+  font-size: 0.64rem; font-weight: 700; letter-spacing: 0.02em;
+}
 .orr-metrics { display: flex; flex-wrap: wrap; gap: 0.25rem; }
 .orr-metrics .origin-metric-chip { margin: 0; }
 .orr-drill { color: var(--foreground-muted); font-size: 1.15rem; justify-self: end; line-height: 1; }
