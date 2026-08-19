@@ -5666,6 +5666,16 @@ input:disabled, textarea:disabled, select:disabled {
    real action, not a formaction-overriding secondary button. */
 .commit-actions .btn-primary { order: 9; }
 
+/* Cells that carry an outcome: truncated error text, off-by value. */
+.cell-trunc {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cell-off { color: var(--warning); font-weight: 600; }
+
 /* ── Preview outcome: what the row will do on commit ───────────────── */
 .dh-table tbody tr.row-crit > td,
 .data-table tbody tr.row-crit > td,
