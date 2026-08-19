@@ -1,6 +1,59 @@
 # Project Status
 
 ## Current State
+- **2026-08-19 — CLIENT FEEDBACK (6 items) on johnson-vn: 5 fixed + shipped locally, 1 blocked
+  on a Data Hub contract. NOT DEPLOYED.**
+  Working tree only; version bumped **0.16.0 → 0.17.0** with a CHANGELOG entry. Full suite
+  **1127 pass / 17 skip** (was 1114/17). Browser e2e `.ai/scripts/e2e_case_criteria_modal.cjs`
+  ALL PASS against local `:8001` on the real johnson-vn case `co-case-e0b390ead3b0`.
+  Session: `.ai/sessions/2026-08-19-criteria-picker-uom-modal-search-and-bulk-recalc.md`;
+  forwardable VI reply: `.ai/feedback/2026-08-19-client-questions-uom-criteria-search.md`.
+  **(2)+(3) Tiêu chí** — the case-level criterion was a `window.prompt` with a free-text box,
+  and free text is not inert: the engine reads criterion TOKENS, so a typo lands on no rule
+  while the UI still reads "chosen". Replaced with a modal that REUSES the per-sheet ⚙ Cấu
+  hình markup (`[data-criteria-panel]` + `data-criteria-seg` WO/PE/CC/CTH/CTSH/RVC/LVC/PSR +
+  `Khác…` + "hoặc" alternates + Ngưỡng %), so `initCriteriaSegments` wires it with **no change
+  to that function**. New `refreshCaseShellInPlace()` (fetch current URL as `text/html` →
+  existing `replaceCaseShellFromResponse`) removes the F5 from the criterion save, the
+  per-sheet ⚙ **Lưu** (which previously only toasted — the actual surface in the screenshot)
+  and **Reset**, and the ĐVT save.
+  **Bug found: "Bỏ chọn" tiêu chí NEVER worked** — `set_case_criteria_route` popped
+  `criteria_choice` off the dict, but `update_case_record` copies only keys PRESENT in the
+  incoming case (`co_case_store.py:182` whitelist). Now writes `{}`.
+  **(4) "Đủ tồn cho tất cả SP" over sheets reading "Cần tính lại"** — NOT a ĐVT bug. Stock is
+  allocated sequentially, so `bulk-substitute`/`bulk-delete-rac` mark every downstream sheet
+  stale but recalculated only `edited_codes`, while the aggregate ran a fresh whole-case
+  preview. New `origin_codes_to_recalculate()` returns every code from `min(edited index)`
+  onward, minus locked.
+  **Adjacent defect fixed: `calculate_all_route` silently unlocked locked sheets** —
+  `allocate_whole_case_preview` rebuilds EVERY product (`prepare_case_origin_products` has no
+  locked skip) and the route stamped `calculated_sheet_status` on every code, rewriting a
+  filed snapshot while the ledger still held its `co_stock_claims`. Locked products are now
+  restored and their status left alone.
+  **(1)+(5) ĐVT — real fix is BLOCKED on Data Hub.** DH johnson-vn holds **516** factors in
+  `hub.client_uom_overrides` (mig 055) exposed ONLY as an HTML admin page
+  (`app/routes/client_uom_factors.py`); there is no `/v1/hub` route, and CO's own
+  `co_uom_factor` is empty for this client → every cross-quantity pair (EA↔CAY) blocks Chốt.
+  Contract written and STOPPED per the AGENTS.md rule:
+  `.ai/api-requests/2026-08-19-client-uom-factors-read.md` (pins direction —
+  `qty(to_uom) = qty(from_uom) × factor`, same as `resolve_uom_factor`, so
+  `from_uom → bom_uom`, no inversion — plus decimal-string precision, pagination, consumer
+  plan). **No `hub.` read from this repo and no CAY added to `_ALIASES`** (DH's own note says
+  "synonym in **Johnson** context" = per-client data).
+  CO-side interim SHIPPED: row button now reads "Cần hệ số EA→CAY" and opens a modal asking
+  one question with a **scope** choice (chỉ mã này / mọi mã có cặp EA → CAY — the store
+  already supported client-wide rows, the route just always posted `scope: "material"`); new
+  material field `uom_converted` hides the `⇄` badge on rows that convert 1:1 (alias
+  EA/PIECES/CÁI), which had been marking 145 rows of a Johnson sheet where nothing changed.
+  **(6) Substitute search returned 20** — the picker never sent `limit` (route default 20)
+  and `build_stock_first_candidates` filtered on a whole-phrase, accent-sensitive substring.
+  Now `limit=200` client-side, route caps at 200, `rank_matches`/`search_case_material_rows`
+  caps to 500, stock-first uses `material_search.match_score`'s rule (fold accents, AND
+  across tokens). Measured on `co-case-e0b390ead3b0` / MFW0525-39: `bu lông` **21 → 192**,
+  `bu long` **192**, `bo oc vit bu long` **111**, ordered tồn-desc; a count line and the
+  known tồn now render immediately instead of "0 tồn".
+  **OPEN:** DH endpoint approval; deploy (CD not run). `.ai/BACKLOG.md` + `uv.lock` were
+  already dirty from 2026-08-18 and were NOT included in these commits.
 - **2026-08-17 — CLIENT QUESTIONS on johnson-vn VNG26020033: 3 defects FIXED + SHIPPED + DEPLOYED + VERIFIED
   LIVE; johnson-vn rác-cleanup flag turned ON in prod.**
   `origin/main` = prod `barry-co` = nightly `demo-co` = **`72de4eb`** (CD runs `31995246886` + `31996774344`

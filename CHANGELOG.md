@@ -5,6 +5,19 @@ Nhật ký thay đổi của Barry CO dành cho người dùng. Định dạng t
 hưởng tới người dùng (bỏ qua refactor nội bộ, hạ tầng test). Phiên bản theo
 [SemVer](https://semver.org/lang/vi/).
 
+## [0.17.0] — 2026-08-19
+### Mới
+- **Chọn tiêu chí xuất xứ bằng nút, không gõ tay**: "Tiêu chí cho cả lô" nay mở một cửa sổ có sẵn các nút WO · PE · CC · CTH · CTSH · RVC · LVC · PSR (thêm "Khác…" nếu cần ghi nguyên văn), ô "hoặc" để ghép tiêu chí thứ hai, và ô Ngưỡng % tự hiện khi chọn RVC/LVC — đúng như cửa sổ **⚙ Cấu hình** của từng bảng kê. Trước đây đây là ô nhập tự do, gõ sai chữ là hệ thống không nhận ra tiêu chí nào.
+- **Xác nhận hệ số quy đổi ĐVT trong cửa sổ, chọn được phạm vi**: khi ĐVT trên tờ khai nhập khác ĐVT trong BOM, dòng NVL có nút "Cần hệ số EA→CAY"; bấm vào mở cửa sổ hỏi đúng một câu "1 CAY = mấy EA" và cho chọn áp cho **chỉ mã này** hay **mọi mã có cặp EA → CAY**. Xác nhận một lần cho cả cặp là gỡ được toàn bộ các dòng cùng loại.
+### Cải tiến
+- **Không phải F5 nữa**: lưu tiêu chí cho cả lô, lưu/reset **⚙ Cấu hình bảng kê**, hoặc lưu hệ số ĐVT đều tự cập nhật lại màn hình ngay tại chỗ (trạng thái sheet, chip tiêu chí, LVC/CTC).
+- **Tìm NVL thay thế hiện đầy đủ**: ô "Tìm kiếm" trong cửa sổ thay NVL nay trả về tới **200** mã thay vì 20, kèm dòng đếm "N NVL khớp …", và **mã có tồn xếp trước**. Tìm "bu lông" ra đủ cả "Bu lông…", "Bộ bu lông…", "Bộ ốc vít, bu lông…"; gõ không dấu ("bu long") cũng ra.
+- **Dòng NVL bớt nhiễu**: chỉ còn hiện dấu quy đổi ĐVT khi thật sự có việc phải làm (chưa có hệ số) hoặc khi số lượng thật sự đã bị quy đổi. Các cặp cùng nghĩa (EA / PIECES / CÁI) không còn gắn nhãn "⇄" trên hàng trăm dòng không đổi gì.
+### Sửa lỗi
+- **"Chốt tất cả" không còn đòi tính lại sau khi thay NVL**: thay NVL hoặc xoá NVL rác hàng loạt nay tính lại **mọi bảng kê bị ảnh hưởng** (các sheet đứng sau trong thứ tự trừ tồn), không chỉ sheet vừa sửa. Trước đây "Tổng hợp NVL" báo "Đủ tồn cho tất cả SP" trong khi danh sách sheet vẫn ghi "Cần tính lại" và Chốt tất cả bỏ qua chúng.
+- **"Bỏ chọn" tiêu chí cho cả lô nay thật sự bỏ**: trước đây bấm xong tiêu chí cũ vẫn còn nguyên sau khi tải lại trang.
+- **"Tính tồn tất cả (SP)" không còn đụng vào bảng kê đã chốt**: bảng kê đã chốt giữ nguyên số liệu đã nộp và giữ trạng thái 🔒 (trước đây bị tính lại và mở chốt âm thầm).
+
 ## [0.16.0] — 2026-06-19
 ### Mới
 - **Ưu tiên mã NVL thay thế đã từng dùng**: trong cửa sổ "Tìm NVL thay thế", những mã từng được dùng để thay cho NVL này trong các bảng kê **đã chốt** trước đây sẽ được đẩy lên **đầu** danh sách khuyến nghị, kèm nhãn "↺ đã từng thay" và số lần đã dùng — kể cả mã mà gợi ý tự động chưa từng đề xuất. Mã dùng nhiều hơn xếp trên; giúp tái dùng nhanh lựa chọn quen thuộc từ các hồ sơ trước.
