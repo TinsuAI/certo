@@ -1,11 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Gán cột NXT · {{ client.name }}{% endblock %}
 {% block content %}
+{% import "clients/_flow.html" as flow with context %}
 {% include "_client_nav.html" %}
+
+{% set n_suggested = columns | selectattr('suggested') | list | length %}
+{{ flow.rail(2, n_suggested|string + '/' + (columns | length)|string + ' ' + t('flow.map.mapped_count')) }}
 
 <section class="zone">
   <div class="zone-head">
-    <div>
+    <div class="page-bar-main">
       <h2>Gán cột — Nhập-Xuất-Tồn</h2>
       <p class="meta">
         File có header chưa nhận diện tự động. Gán mỗi cột tới một trường, hệ thống
@@ -13,52 +17,87 @@
         Bắt buộc: một mã (nội bộ/hải quan) + ít nhất một cột số (tồn đầu/cuối…).
       </p>
     </div>
-    <div>
-      <a class="btn-secondary" href="/clients/{{ client.client_id }}/nxt">Hủy</a>
+    <div class="page-actions">
+      <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/nxt">{{ t('common.cancel') }}</a>
     </div>
   </div>
 
-  {% if llm_error %}<div class="toast toast-error">{{ llm_error }}</div>{% endif %}
-
-  <form method="post" action="/clients/{{ client.client_id }}/nxt/upload/mapping/{{ upload_id }}/llm"
-        style="margin:.5rem 0;">
-    <button type="submit" class="btn-secondary btn-sm">Gợi ý bằng LLM</button>
-    <span class="meta">— tự đề xuất gán cột, vẫn cần xác nhận bên dưới.</span>
-  </form>
-
-  <form method="post" action="/clients/{{ client.client_id }}/nxt/upload/mapping/{{ upload_id }}/parse">
-    <table class="dh-table">
-      <thead><tr><th>Cột trong file</th><th>Gán tới trường</th></tr></thead>
-      <tbody>
-        {% for c in columns %}
-        <tr>
-          <td><code>{{ c.header }}</code></td>
-          <td>
-            <input type="hidden" name="col_{{ c.idx }}__header" value="{{ c.header }}">
-            <select name="col_{{ c.idx }}__field">
-              <option value="">(bỏ qua)</option>
-              {% for f, label in fields %}
-              <option value="{{ f }}" {{ 'selected' if c.suggested == f else '' }}>{{ label }}</option>
-              {% endfor %}
-            </select>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    <button type="submit" class="btn-primary" style="margin-top:.5rem;">Parse & xem trước</button>
-  </form>
+  {% if llm_error %}<div class="callout callout-error">{{ llm_error }}</div>{% endif %}
 
   {% if sample_rows %}
-  <h3 style="margin-top:1rem;">Dữ liệu mẫu</h3>
-  <table class="dh-table" style="font-size:.85rem;">
-    <thead><tr>{% for c in columns %}<th>{{ c.header }}</th>{% endfor %}</tr></thead>
-    <tbody>
-      {% for row in sample_rows %}
-      <tr>{% for v in row %}<td>{{ '' if v is none else v }}</td>{% endfor %}</tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="upload-card upload-card-wide">
+    <div class="upload-card-head">
+      <h3>Dữ liệu mẫu</h3>
+      <p>{{ sample_rows|length }} dòng đầu, đúng thứ tự cột trong file.</p>
+    </div>
+    <div class="mapping-raw-scroll">
+      <table class="data-table dense mapping-raw-table">
+        <thead><tr>{% for c in columns %}<th title="{{ c.header }}">{{ c.header }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for row in sample_rows %}
+          <tr>{% for v in row %}<td title="{{ '' if v is none else v }}">{{ '' if v is none else v }}</td>{% endfor %}</tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
   {% endif %}
+
+  <form method="post" action="/clients/{{ client.client_id }}/nxt/upload/mapping/{{ upload_id }}/parse"
+        class="upload-card upload-card-wide">
+    <div class="upload-card-head">
+      <h3>{{ t('flow.map.source') }} → {{ t('flow.map.target') }}</h3>
+      <p>
+        Cột chưa gán được đánh dấu
+        <span class="badge badge-warning">{{ t('flow.map.unmapped') }}</span>.
+      </p>
+    </div>
+
+    <div class="map-head">
+      <span>{{ t('flow.map.source') }}</span>
+      <span></span>
+      <span>{{ t('flow.map.target') }}</span>
+    </div>
+
+    <div class="map-list">
+      {% for c in columns %}
+      <div class="map-row {% if not c.suggested %}is-unmapped{% endif %}">
+        <div class="map-src"><code>{{ c.header }}</code></div>
+        <div class="map-arrow" aria-hidden="true">→</div>
+        <div class="map-dst">
+          <input type="hidden" name="col_{{ c.idx }}__header" value="{{ c.header }}">
+          <select name="col_{{ c.idx }}__field"
+                  class="{% if c.suggested %}field-guessed{% else %}field-unset{% endif %}">
+            <option value="">(bỏ qua)</option>
+            {% for f, label in fields %}
+            <option value="{{ f }}" {{ 'selected' if c.suggested == f else '' }}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          {% if not c.suggested %}
+          <span class="badge badge-warning">{{ t('flow.map.unmapped') }}</span>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <footer class="commit-bar">
+      <span class="commit-note">
+        Parse chỉ mở bước xem trước — chưa ghi dữ liệu.
+      </span>
+      <div class="commit-actions">
+        <button type="submit" class="btn-primary">Parse &amp; xem trước</button>
+        <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/nxt">{{ t('common.cancel') }}</a>
+      </div>
+    </footer>
+  </form>
+
+  <form method="post" action="/clients/{{ client.client_id }}/nxt/upload/mapping/{{ upload_id }}/llm"
+        class="commit-bar commit-bar-standalone">
+    <span class="commit-note">Gợi ý bằng LLM — tự đề xuất gán cột, vẫn cần xác nhận ở trên.</span>
+    <div class="commit-actions">
+      <button type="submit" class="btn-secondary btn-sm">Gợi ý bằng LLM</button>
+    </div>
+  </form>
 </section>
 {% endblock %}
