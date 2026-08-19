@@ -206,21 +206,21 @@
             <strong>{{ co_user.name or co_user.email or co_user.user_id }}</strong>
             <span>{{ co_user.email }}</span>
           </div>
-          <a href="/user">Tài khoản</a>
-          <a href="/settings">Cài đặt</a>
+          <a href="/user">User profile</a>
+          <a href="/settings">Settings</a>
           {% if can_view_technical_settings %}
-          <a href="/settings/technical">Cài đặt kỹ thuật</a>
+          <a href="/settings/technical">Technical Settings</a>
           {% endif %}
           {{ theme_toggle_form() }}
           <form method="post" action="/auth/logout">
             <input type="hidden" name="next_url" value="{{ request.url.path }}">
-            <button type="submit" class="user-menu-action">Đăng xuất</button>
+            <button type="submit" class="user-menu-action">Logout</button>
           </form>
         </div>
       </details>
       {% elif show_login %}
       {{ theme_toggle_form(standalone=True) }}
-      <a class="topnav-chip topnav-chip-button" href="/auth/login?next={{ request.url.path }}">Đăng nhập</a>
+      <a class="topnav-chip topnav-chip-button" href="/auth/login?next={{ request.url.path }}">Login</a>
       {% else %}
       <details class="user-menu">
         <summary class="user-menu-trigger">
@@ -231,10 +231,10 @@
           </span>
         </summary>
         <div class="user-menu-panel">
-          <a href="/user">Tài khoản</a>
-          <a href="/settings">Cài đặt</a>
+          <a href="/user">User profile</a>
+          <a href="/settings">Settings</a>
           {% if can_view_technical_settings %}
-          <a href="/settings/technical">Cài đặt kỹ thuật</a>
+          <a href="/settings/technical">Technical Settings</a>
           {% endif %}
           {{ theme_toggle_form() }}
         </div>
