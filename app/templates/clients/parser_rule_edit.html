@@ -18,9 +18,7 @@
 </section>
 
 {% if error %}
-<div class="zone" style="border-color: var(--danger, #c33);">
-  <strong>Error:</strong> <code>{{ error }}</code>
-</div>
+<div class="callout callout-error"><strong>Error:</strong> <code>{{ error }}</code></div>
 {% endif %}
 
 <form method="post"
@@ -64,16 +62,20 @@
     </div>
     <label class="field">
       <span class="field-label">pattern (re2 syntax) <em class="field-required">required</em></span>
-      <input type="text" name="pattern" required style="font-family: monospace;"
+      <input type="text" name="pattern" required class="mono"
              value="{{ rule.pattern }}">
     </label>
     <label class="field">
       <span class="field-label">notes</span>
       <input type="text" name="notes" value="{{ rule.notes or '' }}">
     </label>
-    <div class="page-actions">
-      <button type="submit" class="btn-primary">Save changes</button>
-    </div>
+    <footer class="commit-bar commit-bar-standalone">
+      <span class="commit-note">Pattern compiles via re2 on save.</span>
+      <div class="commit-actions">
+        <button type="submit" class="btn-primary">Save changes</button>
+        <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/parser-rules">{{ t('common.cancel') }}</a>
+      </div>
+    </footer>
   </section>
 </form>
 
