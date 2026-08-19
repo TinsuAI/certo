@@ -73,10 +73,10 @@
           <textarea name="source_note" rows="5">{{ config.source_note }}</textarea>
           <small class="hint">Ghi chú nội bộ về nguồn tổng hợp để đối chiếu với Trọng Tín. Không ảnh hưởng tính toán.</small>
         </label>
+        <p class="fs-note fs-note-warn">"Reset seed mặc định" ghi đè toàn bộ cấu hình form, market và rule HS bằng bộ seed gốc — mọi chỉnh tay đều mất.</p>
       </div>
       <div class="settings-actions sticky-actions">
         <button type="submit" formaction="/settings/co-forms/reset" formmethod="post" class="fs-danger">Reset seed mặc định</button>
-        <span class="fs-f-note">Reset ghi đè toàn bộ cấu hình form bằng bộ seed gốc, mất hết chỉnh tay.</span>
         <button type="submit" class="btn-primary">Lưu overview</button>
       </div>
     </form>

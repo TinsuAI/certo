@@ -8456,6 +8456,18 @@ body:has(.origin-step-root.origin-view-sheet) .co-case-header {
   min-width: 0;
 }
 
+/* destructive action keeps to the far left of a sticky footer too */
+.form-surface .sticky-actions .fs-danger {
+  margin-right: auto;
+}
+
+/* when a footer carries both a danger button and a note, only the button takes
+   the free space — two auto margins would split the row and force a wrap */
+.form-surface .fs-card-f .fs-danger ~ .fs-f-note,
+.form-surface .sticky-actions .fs-danger ~ .fs-f-note {
+  margin-right: 0;
+}
+
 /* === end forms & settings (redesign 2026-08-20) === */
 
 /* ============================================================
