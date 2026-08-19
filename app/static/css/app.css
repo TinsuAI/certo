@@ -10146,6 +10146,28 @@ td > .tbl-empty { padding: 28px 16px; }
   .lst .table-scroll { max-height: none; }
 }
 
+/* row action rendered as a <button> inside a cell reads as an xs button, not
+   as a link (the <a> variant of .table-link stays a link). */
+.lst .table td button.table-link,
+.lst .data-table td button.table-link {
+  padding: 2px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm, 3px);
+  background: var(--card);
+  color: var(--primary);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.lst .table td button.table-link:hover {
+  background: var(--brand-50, var(--surface-hover));
+  border-color: var(--primary);
+  text-decoration: none;
+}
+
+.lst .dash-case .badge,
+.lst .dash-data .badge { flex-shrink: 0; }
+
 /* === end list & table pages (redesign 2026-08-20) === */
 
 /* === design gallery (redesign 2026-08-20) === */

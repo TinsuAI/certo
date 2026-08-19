@@ -190,7 +190,7 @@
             <strong>{{ product_result.product_code }}</strong>
         <div class="meta">TP #{{ product_result.previous_artifact_no or product_result.previous_version_no }} -> #{{ product_result.new_artifact_no or product_result.new_version_no }} · +{{ product_result.diff_summary.added }} / -{{ product_result.diff_summary.removed }} / Δ{{ product_result.diff_summary.changed }}</div>
           </div>
-          <span class="badge badge-{{ 'success' if product_result.status == 'new_version' else 'neutral' }}">{{ product_result.status }}</span>
+          <span class="badge badge-{{ 'success' if product_result.status == 'new_version' else 'muted' }}">{{ product_result.status }}</span>
         </div>
         {% endfor %}
       </div>
@@ -269,7 +269,7 @@
             {% for version in bom_workspace.versions %}
             <tr>
               <td class="mono">#{{ version.artifact_no or version.version_no }}</td>
-              <td><span class="badge badge-{{ 'success' if version.status == 'published' else 'neutral' }}">{{ version.status }}</span></td>
+              <td><span class="badge badge-{{ 'success' if version.status == 'published' else 'muted' }}">{{ version.status }}</span></td>
               <td class="num">{{ version.product_versions|length }}</td>
               <td class="num">{{ version.row_count }}</td>
               <td class="mono">+{{ version.diff_summary.added|default(0) }} / -{{ version.diff_summary.removed|default(0) }} / Δ{{ version.diff_summary.changed|default(0) }}</td>
@@ -277,7 +277,7 @@
               <td>{{ version.published_at }}</td>
             </tr>
             {% else %}
-            <tr><td colspan="7" class="empty-cell">Chưa có artifact BOM.</td></tr>
+            <tr><td colspan="7"><div class="tbl-empty"><h4>Chưa có artifact BOM</h4><p>Chưa có composition BOM nào được publish cho công ty này.</p></div></td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -304,7 +304,7 @@
               <td class="mono">{{ product_version.version_hash[:10] }}</td>
             </tr>
             {% else %}
-            <tr><td colspan="4" class="empty-cell">Chưa có composition BOM.</td></tr>
+            <tr><td colspan="4"><div class="tbl-empty"><h4>Chưa có composition BOM</h4><p>Composition sẽ xuất hiện sau lần publish BOM đầu tiên.</p></div></td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -331,14 +331,14 @@
         <tr>
           <td class="mono">{{ product_version.product_code }}</td>
           <td class="mono">#{{ product_version.product_artifact_no or product_version.product_version_no }}</td>
-          <td><span class="badge badge-{{ 'success' if product_version.status == 'current' else 'neutral' }}">{{ product_version.status }}</span></td>
+          <td><span class="badge badge-{{ 'success' if product_version.status == 'current' else 'muted' }}">{{ product_version.status }}</span></td>
           <td class="num">{{ product_version.row_count }}</td>
           <td class="mono">+{{ product_version.diff_summary.added|default(0) }} / -{{ product_version.diff_summary.removed|default(0) }} / Δ{{ product_version.diff_summary.changed|default(0) }}</td>
           <td class="mono">{{ product_version.source_upload_id|default("seed") }}</td>
           <td class="mono">{{ product_version.version_hash[:10] }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="empty-cell">Chưa có artifact TP.</td></tr>
+        <tr><td colspan="7"><div class="tbl-empty"><h4>Chưa có artifact TP</h4><p>Mỗi lần upload BOM tạo một artifact cho từng mã thành phẩm trong file.</p></div></td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -368,7 +368,7 @@
               <td class="num">{{ upload.row_count|default("") }}</td>
             </tr>
             {% else %}
-            <tr><td colspan="5" class="empty-cell">Chưa có upload BOM.</td></tr>
+            <tr><td colspan="5"><div class="tbl-empty"><h4>Chưa có upload BOM</h4><p>Upload file BOM ở thẻ "Cấu hình và nạp BOM" phía trên để bắt đầu.</p></div></td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -387,7 +387,7 @@
       <div class="rowitem-side mono">{{ event.details }}</div>
     </div>
     {% else %}
-    <p class="empty-cell">Chưa có audit BOM.</p>
+    <div class="tbl-empty"><h4>Chưa có audit BOM</h4><p>Mọi lần upload, publish và đổi cấu hình BOM sẽ được ghi lại ở đây.</p></div>
     {% endfor %}
   </div>
 </section>
@@ -408,11 +408,11 @@
       </div>
       <div class="rowitem-side">
         <span class="badge badge-{{ 'success' if product.result.passed else 'error' }}">RVC {{ product.result.rvc.percentage }}%</span>
-        <span class="badge badge-neutral">HS {{ product.finished_hs }}</span>
+        <span class="badge badge-muted">HS {{ product.finished_hs }}</span>
       </div>
     </a>
     {% else %}
-    <p class="empty-cell">Chưa có sản phẩm trong case C/O.</p>
+    <div class="tbl-empty"><h4>Chưa có sản phẩm trong hồ sơ C/O</h4><p>Hồ sơ C/O snapshot BOM rồi phân bổ tồn CO theo từng dòng NVL.</p><div class="tbl-empty-actions"><a class="btn-secondary btn-sm" href="/clients/{{ client.id }}/co-case">Mở hồ sơ C/O</a></div></div>
     {% endfor %}
   </div>
 </section>

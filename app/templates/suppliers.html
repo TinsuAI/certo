@@ -28,11 +28,11 @@
   {% endif %}
 
   {% if not suppliers %}
-  <div class="callout callout-info">
-    <span class="callout-icon">i</span>
-    <div>
-      <div class="callout-title">Chưa có dữ liệu NCC</div>
-      Danh sách NCC lấy từ snapshot tồn CO (cột "Tên đối tác" của BCCT nhập) — bấm "Refresh tồn" ở tab Tồn CO trước.
+  <div class="tbl-empty">
+    <h4>Chưa có dữ liệu nhà cung cấp</h4>
+    <p>Danh sách NCC lấy từ snapshot tồn CO (cột "Tên đối tác" của BCCT nhập). Refresh tồn CO một lần rồi quay lại trang này.</p>
+    <div class="tbl-empty-actions">
+      <a class="btn-secondary btn-sm" href="/clients/{{ client.id }}/co-stock">Mở Tồn CO</a>
     </div>
   </div>
   {% else %}
@@ -73,12 +73,13 @@
             {% if flagged %}
             <span class="badge badge-success" title="{{ flag.actor_email or flag.actor_id }} · {{ flag.created_at }}">✓ {{ 'Phụ lục X' if flag.evidence_kind == 'phu_luc_x' else 'C/O nhập khẩu' }}</span>
             {% else %}
-            <span class="badge badge-neutral">chưa có bằng chứng</span>
+            <span class="badge badge-muted">chưa có bằng chứng</span>
             {% endif %}
           </td>
           <td>
+            <div class="row-actions">
             {% if flagged %}
-            <button type="button" class="btn-secondary btn-danger" data-supplier-flip
+            <button type="button" class="btn-secondary btn-danger btn-xs" data-supplier-flip
                     data-action="off" data-supplier-name="{{ flag.supplier_name or supplier.names[0] if supplier.names else supplier.supplier_key }}"
                     data-evidence-kind="{{ flag.evidence_kind }}"
                     {% if not evidence_store_available %}disabled{% endif %}>Tắt cờ</button>
@@ -87,10 +88,11 @@
               <option value="phu_luc_x">Phụ lục X</option>
               <option value="co_import">C/O nhập khẩu</option>
             </select>
-            <button type="button" class="btn-secondary" data-supplier-flip
+            <button type="button" class="btn-secondary btn-xs" data-supplier-flip
                     data-action="on" data-supplier-name="{{ supplier.names[0] if supplier.names else supplier.supplier_key }}"
                     {% if not evidence_store_available %}disabled{% endif %}>Bật cờ</button>
             {% endif %}
+            </div>
           </td>
         </tr>
         {% endfor %}
