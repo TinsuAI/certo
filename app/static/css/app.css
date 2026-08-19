@@ -11054,3 +11054,26 @@ td > .tbl-empty { padding: 28px 16px; }
 }
 
 /* === end co-case workspace (redesign 2026-08-20) === */
+
+/* === co-case workspace — follow-ups (redesign 2026-08-20) === */
+/* The current step wins over the finished-step dimming when a step carries both
+   classes (step 1 is `active` and `done` at the same time on a saved case). */
+[data-co-case-shell] .workflow-step.rail-s.workflow-step-active.workflow-step-done {
+  color: var(--brand-600);
+  font-weight: 600;
+}
+
+[data-co-case-shell] .workflow-step.rail-s.workflow-step-active.workflow-step-done::before {
+  background: var(--brand-500);
+  box-shadow: 0 0 0 3px var(--brand-100);
+}
+
+/* A selected row must stay readable on top of the warning tint the grid puts on
+   rows with a data problem — selection is the thing the operator just did. */
+.table.origin-material-table tbody tr.origin-row-warning:has(.origin-row-select:checked),
+.table.origin-material-table tbody tr:has(.origin-row-select:checked) {
+  background: var(--brand-50);
+  box-shadow: inset 3px 0 0 var(--brand-500);
+}
+
+/* === end co-case workspace — follow-ups (redesign 2026-08-20) === */
