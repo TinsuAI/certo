@@ -1,8 +1,10 @@
 # Project Status
 
 ## Current State
-- **2026-08-19 (afternoon) — ⚙ CẤU HÌNH BẢNG KÊ: 3 operator reports fixed + verified. NOT DEPLOYED.**
-  Working tree only; version **0.17.0 → 0.18.0** + CHANGELOG. Suite **1156 pass / 17 skip**.
+- **2026-08-19 (afternoon) — ⚙ CẤU HÌNH BẢNG KÊ: 3 operator reports fixed + SHIPPED + DEPLOYED.**
+  `origin/main` = prod `barry-co` = nightly `demo-co` = **`d51581f`** · version **0.18.0**
+  (CD run `32272054677` green: Python tests + Docker build + Deploy demo; `/version` verified on
+  BOTH hosts, build 2026-08-19T15:47:41Z / 15:48:21Z). Suite **1156 pass / 17 skip**.
   e2e `.ai/scripts/e2e_config_autorecalc_and_decimals.cjs` **ALL PASS** on johnson-vn
   `co-case-e0b390ead3b0`. Screenshots: `.ai/screenshots/2026-08-19-config-autorecalc/` and
   `.ai/screenshots/2026-08-19-e2e-2-sessions/` (gitignored).
@@ -36,9 +38,9 @@
   **Also fixed today (`fc16d5c`):** the Review row read only `criteria_override`, so after
   choosing a criterion for the whole lô every row still said "tiêu chí: khuyến nghị".
 
-- **2026-08-19 — CLIENT FEEDBACK (6 items) on johnson-vn: 5 fixed + shipped locally, 1 blocked
-  on a Data Hub contract. NOT DEPLOYED.**
-  Working tree only; version bumped **0.16.0 → 0.17.0** with a CHANGELOG entry. Full suite
+- **2026-08-19 — CLIENT FEEDBACK (6 items) on johnson-vn: 5 fixed + SHIPPED + DEPLOYED, 1 blocked
+  on a Data Hub contract.**
+  Deployed with the afternoon round above (`d51581f`, 0.18.0); this round bumped 0.16.0 → 0.17.0. Full suite
   **1127 pass / 17 skip** (was 1114/17). Browser e2e `.ai/scripts/e2e_case_criteria_modal.cjs`
   ALL PASS against local `:8001` on the real johnson-vn case `co-case-e0b390ead3b0`.
   Session: `.ai/sessions/2026-08-19-criteria-picker-uom-modal-search-and-bulk-recalc.md`;
@@ -87,8 +89,8 @@
   across tokens). Measured on `co-case-e0b390ead3b0` / MFW0525-39: `bu lông` **21 → 192**,
   `bu long` **192**, `bo oc vit bu long` **111**, ordered tồn-desc; a count line and the
   known tồn now render immediately instead of "0 tồn".
-  **OPEN:** DH endpoint approval; deploy (CD not run). `.ai/BACKLOG.md` + `uv.lock` were
-  already dirty from 2026-08-18 and were NOT included in these commits.
+  **OPEN:** DH endpoint approval. (`.ai/BACKLOG.md` + `uv.lock`, dirty since 2026-08-18, landed in
+  `d51581f`.)
 - **2026-08-17 — CLIENT QUESTIONS on johnson-vn VNG26020033: 3 defects FIXED + SHIPPED + DEPLOYED + VERIFIED
   LIVE; johnson-vn rác-cleanup flag turned ON in prod.**
   `origin/main` = prod `barry-co` = nightly `demo-co` = **`72de4eb`** (CD runs `31995246886` + `31996774344`

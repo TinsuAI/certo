@@ -198,6 +198,14 @@ preference; the filed artifact is not.
   without decimals AND the guard working on the same screen: rows reading 0,032 / 0,018 /
   0,0095 would all have printed "0".
 
+### Shipped
+Pushed and deployed 2026-08-19: `origin/main` = prod `barry-co` = nightly `demo-co` =
+**`d51581f`**, version **0.18.0**. CD run `32272054677` green on all three jobs (Python
+tests, Docker config and build, Deploy demo); `/version` verified on both hosts.
+The push also landed two files dirty since 2026-08-18: `uv.lock` (still said 0.14.0) and the
+parked 2026-07-17 BACKLOG reconciliation.
+
 ### Open
-- Still not deployed. Version 0.18.0 local only; CD not run.
-- The Data Hub ĐVT-factor endpoint request is still awaiting approval.
+- The Data Hub ĐVT-factor endpoint request
+  (`.ai/api-requests/2026-08-19-client-uom-factors-read.md`) is still awaiting approval; until
+  it ships, an operator confirms each cross-quantity ĐVT pair once in CO.
