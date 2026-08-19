@@ -5676,6 +5676,12 @@ input:disabled, textarea:disabled, select:disabled {
 
 .cell-off { color: var(--warning); font-weight: 600; }
 
+/* .callout / .upload-card set an explicit display, which outranks the UA
+   [hidden] rule — restore it so JS toggling `hidden` still hides them. */
+.callout[hidden],
+.upload-card[hidden],
+.commit-bar[hidden] { display: none; }
+
 /* ── Preview outcome: what the row will do on commit ───────────────── */
 .dh-table tbody tr.row-crit > td,
 .data-table tbody tr.row-crit > td,
