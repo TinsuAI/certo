@@ -1,12 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Map cột — {{ module_label }} · {{ client.name }}{% endblock %}
 {% block content %}
+{% import "clients/_flow.html" as flow with context %}
 {% include "_client_nav.html" %}
+
+{% set n_proposed = column_map | selectattr('proposed') | list | length %}
+{{ flow.rail(2, n_proposed|string + '/' + (column_map | length)|string + ' ' + t('flow.map.mapped_count')) }}
 
 <section class="zone">
   <div class="zone-head">
-    <div>
-      {% set n_proposed = column_map | selectattr('proposed') | list | length %}
+    <div class="page-bar-main">
       <h2>Xác nhận cột trước khi import — {{ module_label }}</h2>
       <p class="meta">
         File <code>{{ sheet_title }}</code>. Hub đã tự đoán
@@ -15,28 +18,28 @@
         liệu bắt đầu ngay sau đó). Chỉ cần kiểm tra lại, sửa cột còn trống,
         rồi <strong>Lưu mapping</strong> để chạy parse và xem preview.
       </p>
-      {% if llm_error %}
-      <div class="toast toast-warn" style="margin-top: 0.5rem;">
-        {{ llm_error }}
-      </div>
-      {% elif llm_applied %}
-      <div class="toast" style="margin-top: 0.5rem;">
-        Đã áp dụng đề xuất từ LLM. Kiểm tra lại trước khi lưu.
-      </div>
-      {% endif %}
     </div>
-    <div>
-      <a class="btn-secondary" href="{{ list_url }}">Hủy</a>
+    <div class="page-actions">
+      <a class="btn-secondary btn-sm" href="{{ list_url }}">{{ t('common.cancel') }}</a>
     </div>
   </div>
 
-  <div class="zone mini-panel" style="margin-bottom: 1rem;">
-    <strong>Xem trước file (10 dòng đầu)</strong>
-    <div class="mapping-raw-scroll" style="margin-top: 0.5rem;">
-      <table class="data-table mapping-raw-table">
+  {% if llm_error %}
+  <div class="callout callout-warn">{{ llm_error }}</div>
+  {% elif llm_applied %}
+  <div class="callout callout-info">Đã áp dụng đề xuất từ LLM. Kiểm tra lại trước khi lưu.</div>
+  {% endif %}
+
+  <div class="upload-card upload-card-wide">
+    <div class="upload-card-head">
+      <h3>Xem trước file (10 dòng đầu)</h3>
+      <p>Dòng được chọn làm header có nền đậm.</p>
+    </div>
+    <div class="mapping-raw-scroll">
+      <table class="data-table dense mapping-raw-table">
         <thead>
           <tr>
-            <th class="meta sticky-col">Dòng</th>
+            <th class="sticky-col">Dòng</th>
             {% for col in column_map %}
             <th title="{{ col.header }}">{{ loop.index }}: {{ col.header or '—' }}</th>
             {% endfor %}
@@ -45,7 +48,7 @@
         <tbody>
           {% for r in raw_rows %}
           <tr {% if loop.index == default_header_row_no %}class="row-as-header"{% endif %}>
-            <td class="meta sticky-col">{{ loop.index }}</td>
+            <td class="sticky-col mono">{{ loop.index }}</td>
             {% for cell in r %}
             <td title="{{ cell }}">{{ cell }}</td>
             {% endfor %}
@@ -56,112 +59,105 @@
     </div>
   </div>
 
-  <form method="post" action="{{ post_url }}" class="zone mini-panel">
-    <div class="form-row">
-      <label for="header_row_override"><strong>Dòng header:</strong></label>
-      <select name="header_row_override" id="header_row_override">
-        {% for r_no, n_filled in candidate_header_rows %}
-        <option value="{{ r_no }}"
-                {% if not suggest_no_header and r_no == default_header_row_no %}selected{% endif %}>
-          Dòng {{ r_no }} ({{ n_filled }} ô có dữ liệu)
-        </option>
-        {% endfor %}
-        <option value="0" {% if suggest_no_header %}selected{% endif %}>— Không có header (dữ liệu từ dòng 1) —</option>
-      </select>
-      <span class="meta">Mặc định = dòng Hub đoán là header. Đổi nếu file có
-        banner/legend phía trên. Chọn <em>Không có header</em> nếu file không
-        có dòng tiêu đề — cột sẽ map theo vị trí và dòng 1 được giữ làm dữ liệu.</span>
-      {% if suggest_no_header %}
-      <span class="meta" style="color: var(--warn, #c97a00);">
-        Hub không nhận diện được dòng header — đã chọn sẵn <em>Không có header</em>.
-      </span>
-      {% endif %}
-    </div>
-
-    <div class="form-row">
-      <strong>Map từng cột</strong>
-      <span class="meta">
+  <form method="post" action="{{ post_url }}" class="upload-card upload-card-wide">
+    <div class="upload-card-head">
+      <h3>{{ t('flow.map.source') }} → {{ t('flow.map.target') }}</h3>
+      <p>
         Bắt buộc map ít nhất một cột là
         {% for f in min_identifier_fields %}
         <code>{{ f }}</code>{% if not loop.last %} hoặc {% endif %}
-        {% endfor %}.
-      </span>
+        {% endfor %}. Cột chưa gán được đánh dấu
+        <span class="badge badge-warning">{{ t('flow.map.unmapped') }}</span>.
+      </p>
     </div>
 
-    <table class="data-table mapping-config-table" style="margin-top: 0.5rem;">
-      <thead>
-        <tr>
-          <th>Cột trong file</th>
-          <th>→</th>
-          <th>Trường dữ liệu</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for col in column_map %}
-        <tr>
-          <td><code class="col-name" data-index="{{ col.index }}"
-                     data-header="{{ col.header or '(cột '+ col.index|string +')' }}"
-            >{{ col.header or '(cột '+ col.index|string +')' }}</code></td>
-          <td class="meta">→</td>
-          <td>
-            <select name="col_{{ col.index }}__field" data-header="{{ col.header }}"
-                    class="{% if col.proposed %}field-guessed{% else %}field-unset{% endif %}">
-              <option value="">— Bỏ qua —</option>
-              {% for f in logical_fields %}
-              <option value="{{ f }}" {% if col.proposed == f %}selected{% endif %}>{{ f }}</option>
-              {% endfor %}
-            </select>
-            {% if not col.proposed %}<span class="meta field-hint">cần chọn</span>{% endif %}
-            <input type="hidden" name="col_{{ col.index }}__header" value="{{ col.header }}">
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="upload-card-body">
+      <div class="form-row">
+        <label for="header_row_override"><strong>Dòng header:</strong></label>
+        <select name="header_row_override" id="header_row_override">
+          {% for r_no, n_filled in candidate_header_rows %}
+          <option value="{{ r_no }}"
+                  {% if not suggest_no_header and r_no == default_header_row_no %}selected{% endif %}>
+            Dòng {{ r_no }} ({{ n_filled }} ô có dữ liệu)
+          </option>
+          {% endfor %}
+          <option value="0" {% if suggest_no_header %}selected{% endif %}>— Không có header (dữ liệu từ dòng 1) —</option>
+        </select>
+        <span class="meta">Mặc định = dòng Hub đoán là header. Đổi nếu file có
+          banner/legend phía trên. Chọn <em>Không có header</em> nếu file không
+          có dòng tiêu đề — cột sẽ map theo vị trí và dòng 1 được giữ làm dữ liệu.</span>
+      </div>
+
+      {% if suggest_no_header %}
+      <div class="callout callout-warn">
+        Hub không nhận diện được dòng header — đã chọn sẵn <em>Không có header</em>.
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="map-head">
+      <span>{{ t('flow.map.source') }}</span>
+      <span></span>
+      <span>{{ t('flow.map.target') }}</span>
+    </div>
+
+    <div class="map-list">
+      {% for col in column_map %}
+      <div class="map-row {% if not col.proposed %}is-unmapped{% endif %}">
+        <div class="map-src">
+          <code class="col-name" data-index="{{ col.index }}"
+                data-header="{{ col.header or '(cột '+ col.index|string +')' }}"
+            >{{ col.header or '(cột '+ col.index|string +')' }}</code>
+        </div>
+        <div class="map-arrow" aria-hidden="true">→</div>
+        <div class="map-dst">
+          <select name="col_{{ col.index }}__field" data-header="{{ col.header }}"
+                  class="{% if col.proposed %}field-guessed{% else %}field-unset{% endif %}">
+            <option value="">— Bỏ qua —</option>
+            {% for f in logical_fields %}
+            <option value="{{ f }}" {% if col.proposed == f %}selected{% endif %}>{{ f }}</option>
+            {% endfor %}
+          </select>
+          {% if not col.proposed %}
+          <span class="badge badge-warning">{{ t('flow.map.unmapped') }}</span>
+          {% endif %}
+          <input type="hidden" name="col_{{ col.index }}__header" value="{{ col.header }}">
+        </div>
+      </div>
+      {% endfor %}
+    </div>
 
     {% if extra_required_fields_default %}
-    <details style="margin-top: 0.8rem;">
-      <summary class="meta">Trường bắt buộc bổ sung (nâng cao)</summary>
-      <p class="meta">
-        Mặc định: dòng nào thiếu một trong các cột bên dưới sẽ được đánh dấu
-        <em>skip</em> trong preview, staff có thể inline-edit để include.
-      </p>
-      <input type="text" name="extra_required_fields"
-             value="{{ extra_required_fields_default|join(',') }}"
-             placeholder="vd: unit,name (cách nhau dấu phẩy)">
-    </details>
+    <div class="upload-card-body">
+      <details class="tech-block">
+        <summary class="meta">Trường bắt buộc bổ sung (nâng cao)</summary>
+        <p class="meta">
+          Mặc định: dòng nào thiếu một trong các cột bên dưới sẽ được đánh dấu
+          <em>skip</em> trong preview, staff có thể inline-edit để include.
+        </p>
+        <input type="text" name="extra_required_fields"
+               value="{{ extra_required_fields_default|join(',') }}"
+               placeholder="vd: unit,name (cách nhau dấu phẩy)">
+      </details>
+    </div>
     {% endif %}
 
-    <div class="form-actions" style="margin-top: 0.8rem; display: flex; gap: 0.6rem;">
-      <button type="submit" class="btn-primary">Lưu mapping &amp; chạy parse</button>
-      <button type="submit" formaction="{{ llm_suggest_url }}" class="btn-secondary">
-        Áp dụng đề xuất từ LLM
-      </button>
-      <a class="btn-secondary" href="{{ list_url }}">Hủy</a>
-    </div>
+    <footer class="commit-bar">
+      <span class="commit-note">
+        Lưu mapping chỉ chạy parse và mở bước xem trước — chưa ghi dữ liệu.
+      </span>
+      {# Primary stays first in the DOM so Enter submits the real action, not
+         the formaction-overriding LLM button; CSS `order` renders it right. #}
+      <div class="commit-actions">
+        <button type="submit" class="btn-primary">Lưu mapping &amp; chạy parse</button>
+        <a class="btn-secondary btn-sm" href="{{ list_url }}">{{ t('common.cancel') }}</a>
+        <button type="submit" formaction="{{ llm_suggest_url }}" class="btn-secondary btn-sm">
+          Áp dụng đề xuất từ LLM
+        </button>
+      </div>
+    </footer>
   </form>
 </section>
-
-<style>
-  /* Preview can have 40-50 customs columns — scroll horizontally inside the
-     panel instead of overflowing the page. */
-  .mapping-raw-scroll { overflow-x: auto; max-width: 100%; }
-  .mapping-raw-table { font-size: 0.85rem; }
-  .mapping-raw-table th, .mapping-raw-table td {
-    white-space: nowrap; max-width: 16rem; overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .mapping-raw-table .sticky-col {
-    position: sticky; left: 0; z-index: 1;
-    background: var(--card-bg, #fff);
-  }
-  .mapping-raw-table .row-as-header { background: var(--card-muted, #f5f5f5); font-weight: 600; }
-  .mapping-raw-table .row-as-header .sticky-col { background: var(--card-muted, #f5f5f5); }
-  .mapping-config-table td { vertical-align: middle; }
-  .mapping-config-table .field-unset { border-color: var(--warn, #c97a00); }
-  .mapping-config-table .field-hint { color: var(--warn, #c97a00); margin-left: 0.4rem; }
-  .form-row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; padding: 0.4rem 0; }
-</style>
 
 <script>
   // No-header mode: when the header-row picker is set to "Không có header"
@@ -180,7 +176,6 @@
         el.textContent = noHeader ? ('Cột ' + (idx + 1)) : el.getAttribute('data-header');
       });
       headerRows.forEach(function (tr) {
-        tr.style.background = noHeader ? '' : '';
         tr.classList.toggle('row-as-header', !noHeader);
       });
     }

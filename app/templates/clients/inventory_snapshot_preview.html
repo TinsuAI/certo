@@ -1,11 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Xem trước chốt tồn kho · {{ client.name }}{% endblock %}
 {% block content %}
+{% import "clients/_flow.html" as flow with context %}
 {% include "_client_nav.html" %}
+
+{{ flow.rail(2, 'Adapter ' + (adapter_name or '—')|string) }}
 
 <section class="zone">
   <div class="zone-head">
-    <div>
+    <div class="page-bar-main">
       <h2>Xem trước chốt tồn kho</h2>
       <p class="meta">
         Adapter <span class="mono">{{ adapter_name }}</span>
@@ -14,48 +17,69 @@
     </div>
   </div>
 
-  <div class="page-actions" style="gap:.5rem; margin:.5rem 0;">
-    <span class="badge badge-neutral">{{ summary.total }} dòng</span>
-    <span class="badge badge-info">{{ summary.warehouses }} kho</span>
+  <div class="flow-facts">
+    <span class="badge badge-brand">{{ summary.total }} dòng</span>
+    <span class="badge badge-muted">{{ summary.warehouses }} kho</span>
     {% if summary.discrepancies %}
-      <span class="badge badge-warning">{{ summary.discrepancies }} dòng lệch sổ-thực</span>
+      <span class="badge badge-warning">{{ summary.discrepancies }} dòng {{ t('flow.row.mismatch') }} sổ-thực</span>
     {% else %}
       <span class="badge badge-success">Sổ sách khớp thực đếm</span>
     {% endif %}
   </div>
 
-  <div style="display:flex; gap:.5rem; margin:.5rem 0 1rem;">
-    <form method="post" action="/clients/{{ client.client_id }}/inventory-snapshots/preview/{{ upload_id }}/confirm">
-      <button type="submit" class="btn-primary">Xác nhận lưu</button>
-    </form>
-    <form method="post" action="/clients/{{ client.client_id }}/inventory-snapshots/preview/{{ upload_id }}/reject">
-      <button type="submit" class="btn-secondary">Bỏ qua</button>
-    </form>
-  </div>
+  <div class="upload-card upload-card-wide">
+    <div class="upload-card-head">
+      <h3>{{ n_shown }} dòng đầu</h3>
+      <p>
+        Dòng nền vàng = sổ sách lệch thực đếm. Dòng lệch vẫn được ghi nhận,
+        chỉ là cảnh báo.
+      </p>
+    </div>
+    <div class="mapping-raw-scroll">
+      <table class="dh-table dense">
+        <thead>
+          <tr>
+            <th>Mã</th><th>Tên</th><th>ĐVT</th><th>Kho</th><th>Lô/Batch</th>
+            <th class="num">SL sổ sách</th><th class="num">SL thực đếm</th><th class="num">Chênh lệch</th>
+            <th>{{ t('common.status') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ln in lines %}
+          {% set diff = ln.variance is not none and ln.variance|abs > 1e-6 %}
+          <tr{% if diff %} class="row-warn"{% endif %}>
+            <td class="mono">{{ ln.code or '' }}</td>
+            <td>{{ ln.name or '' }}</td>
+            <td>{{ ln.uom or '' }}</td>
+            <td>{{ ln.warehouse or '' }}</td>
+            <td class="mono">{{ ln.batch or '' }}</td>
+            <td class="num">{{ ln.qty_book if ln.qty_book is not none else '' }}</td>
+            <td class="num">{{ ln.qty_physical if ln.qty_physical is not none else '' }}</td>
+            <td class="num"{% if diff %} style="font-weight:600"{% endif %}>{{ ln.variance if ln.variance is not none else '' }}</td>
+            <td>
+              {% if diff %}
+              <span class="badge badge-warning">{{ t('flow.row.mismatch') }} sổ-thực</span>
+              {% else %}
+              <span class="badge badge-success">{{ t('flow.row.new') }}</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
 
-  <p class="meta">Hiển thị {{ n_shown }} dòng đầu.</p>
-  <table class="dh-table" style="margin-top:.5rem; font-size:.85rem;">
-    <thead>
-      <tr>
-        <th>Mã</th><th>Tên</th><th>ĐVT</th><th>Kho</th><th>Lô/Batch</th>
-        <th class="num">SL sổ sách</th><th class="num">SL thực đếm</th><th class="num">Chênh lệch</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for ln in lines %}
-      {% set diff = ln.variance is not none and ln.variance|abs > 1e-6 %}
-      <tr{% if diff %} class="row-warn"{% endif %}>
-        <td class="mono">{{ ln.code or '' }}</td>
-        <td>{{ ln.name or '' }}</td>
-        <td>{{ ln.uom or '' }}</td>
-        <td>{{ ln.warehouse or '' }}</td>
-        <td class="mono">{{ ln.batch or '' }}</td>
-        <td class="num">{{ ln.qty_book if ln.qty_book is not none else '' }}</td>
-        <td class="num">{{ ln.qty_physical if ln.qty_physical is not none else '' }}</td>
-        <td class="num"{% if diff %} style="font-weight:600"{% endif %}>{{ ln.variance if ln.variance is not none else '' }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+    <footer class="commit-bar">
+      <span class="commit-note">{{ t('flow.commit_hint') }}</span>
+      <div class="commit-actions">
+        <form method="post" action="/clients/{{ client.client_id }}/inventory-snapshots/preview/{{ upload_id }}/reject">
+          <button type="submit" class="btn-secondary btn-sm">Bỏ qua</button>
+        </form>
+        <form method="post" action="/clients/{{ client.client_id }}/inventory-snapshots/preview/{{ upload_id }}/confirm">
+          <button type="submit" class="btn-primary">Xác nhận lưu</button>
+        </form>
+      </div>
+    </footer>
+  </div>
 </section>
 {% endblock %}

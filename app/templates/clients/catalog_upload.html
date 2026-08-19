@@ -1,35 +1,48 @@
 {% extends "base.html" %}
 {% block title %}{{ t('catalog.upload_title') }} · {{ client.name }}{% endblock %}
 {% block content %}
+{% import "clients/_flow.html" as flow with context %}
 {% include "_client_nav.html" %}
+
+{{ flow.rail(1) }}
 
 <section class="zone">
   <div class="zone-head">
-    <div>
+    <div class="page-bar-main">
       <h2>{{ t('catalog.upload_title') }}</h2>
       <p class="meta">{{ t('catalog.upload_help') }}</p>
-    </div>
-    <div>
-      <a class="btn-secondary" href="/clients/{{ client.client_id }}/catalog">{{ t('common.cancel') }}</a>
     </div>
   </div>
 
   <form method="post" action="/clients/{{ client.client_id }}/catalog/upload"
-        enctype="multipart/form-data" class="zone mini-panel" style="max-width: 700px;">
-    <div class="upload-zone">
-      <input type="file" name="file" accept=".xlsx,.xls" required>
-      <p class="meta">{{ t('catalog.upload_hint_sheet') }}</p>
+        enctype="multipart/form-data" class="upload-card">
+    <div class="upload-card-head">
+      <h3>{{ t('flow.file_card') }}</h3>
+      <p>{{ t('catalog.upload_hint_sheet') }}</p>
     </div>
 
-    <label class="prov-toggle">
-      <input type="checkbox" name="is_hq_registered" value="1">
-      <div class="prov-toggle-text">
-        <strong>{{ t('catalog.upload_hq_label') }}</strong>
-        <span class="meta">{{ t('catalog.upload_hq_hint') }}</span>
+    <div class="upload-card-body">
+      <div class="upload-zone">
+        <input type="file" name="file" accept=".xlsx,.xls" required>
+        <p class="meta">{{ t('flow.file_hint_excel') }}</p>
       </div>
-    </label>
 
-    <button type="submit" class="btn-primary">{{ t('common.upload_btn') }}</button>
+      <label class="prov-toggle">
+        <input type="checkbox" name="is_hq_registered" value="1">
+        <div class="prov-toggle-text">
+          <strong>{{ t('catalog.upload_hq_label') }}</strong>
+          <span class="meta">{{ t('catalog.upload_hq_hint') }}</span>
+        </div>
+      </label>
+    </div>
+
+    <footer class="commit-bar">
+      <span class="commit-note">{{ t('flow.commit_hint') }}</span>
+      <div class="commit-actions">
+        <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/catalog">{{ t('common.cancel') }}</a>
+        <button type="submit" class="btn-primary">{{ t('common.upload_btn') }}</button>
+      </div>
+    </footer>
   </form>
 </section>
 {% endblock %}

@@ -16,13 +16,9 @@
   </div>
 
   {% if request.query_params.get('ingested') %}
-  <div class="toast" style="margin-bottom: 1rem;">
-    ✓ Đã lưu {{ request.query_params.get('ingested') }} mã quy đổi.
-  </div>
+  <div class="callout callout-success">Đã lưu {{ request.query_params.get('ingested') }} mã quy đổi.</div>
   {% elif request.query_params.get('rejected') %}
-  <div class="toast toast-error" style="margin-bottom: 1rem;">
-    ⚠ File đã bị reject. Không có mã nào được lưu.
-  </div>
+  <div class="callout callout-error">File đã bị reject. Không có mã nào được lưu.</div>
   {% endif %}
 
   <div class="chip-row">
@@ -85,7 +81,7 @@
   </form>
 
   {% if items %}
-  <table class="dh-table">
+  <table class="dh-table dense">
     <thead><tr>
       {{ sort_th('internal_code', t('bqd.col.internal_code')) }}
       {{ sort_th('customs_code', t('bqd.col.customs_code')) }}

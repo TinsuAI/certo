@@ -9,8 +9,8 @@
 {% include "clients/_staleness_bar.html" %}
 
 {% if upload_summary %}
-<div class="toast toast-success" style="margin-bottom: 1rem;">
-  ✓ Đã ingest <strong>{{ upload_summary.ingested }}</strong> dòng
+<div class="callout callout-success">
+  Đã ingest <strong>{{ upload_summary.ingested }}</strong> dòng
   ({{ upload_summary.new }} mới
   {%- if upload_summary.updated %} · {{ upload_summary.updated }} cập nhật{% endif -%}
   {%- if upload_summary.deleted %} · {{ upload_summary.deleted }} đã xóa{% endif -%}
@@ -87,7 +87,7 @@
     </div>
   </details>
 
-  <table class="dh-table" data-col-table="bcct_list">
+  <table class="dh-table dense" data-col-table="bcct_list">
     <thead>
       <tr>
         {{ sort_th('declaration_no', t('bcct.col.declaration_no'), sort=sort, sort_link=sort_link, attrs='data-col="declaration_no"') }}

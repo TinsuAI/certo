@@ -16,7 +16,7 @@
 
 <section class="zone">
   <div class="zone-head">
-    <div>
+    <div class="page-bar-main">
       <h2>NXT — Kỳ quyết toán {{ artifact.period_year or '—' }}</h2>
       <p class="meta">
         {% if artifact.period_from or artifact.period_to %}
@@ -35,7 +35,7 @@
   </div>
 
   {% if lines %}
-  <table class="dh-table" style="margin-top:.75rem">
+  <table class="dh-table dense">
     <thead>
       <tr>
         <th class="num">#</th>
@@ -66,8 +66,8 @@
         <td class="num">{{ format_number(l.inbound_total, decimals=2, lang=lang) }}</td>
         <td class="num">{{ format_number(l.outbound_total, decimals=2, lang=lang) }}</td>
         <td class="num">{{ format_number(l.closing_reported, decimals=2, lang=lang) }}</td>
-        <td class="num"
-            {% if mismatch %}style="color:#b54708;font-weight:600" title="Cuối kỳ suy ra ≠ báo cáo"{% endif %}>
+        <td class="num {% if mismatch %}cell-off{% endif %}"
+            {% if mismatch %}title="Cuối kỳ suy ra ≠ báo cáo"{% endif %}>
           {{ format_number(l.closing_implied, decimals=2, lang=lang) }}</td>
       </tr>
       {% endfor %}
@@ -76,7 +76,7 @@
 
   {% include "clients/_pagination.html" %}
   {% else %}
-  <p class="meta" style="margin-top:1rem">Artifact này không có dòng dữ liệu.</p>
+  <div class="empty-state"><p>Artifact này không có dòng dữ liệu.</p></div>
   {% endif %}
 </section>
 {% endblock %}

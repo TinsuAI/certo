@@ -5,7 +5,7 @@
 
 <section class="zone">
   <div class="zone-head">
-    <div>
+    <div class="page-bar-main">
       <h2>Nhập-Xuất-Tồn (NXT)</h2>
       <p class="meta">Bảng tổng hợp đầu kỳ / nhập / xuất / cuối kỳ theo kỳ báo cáo, phục vụ quyết toán.</p>
     </div>
@@ -15,11 +15,11 @@
     </div>
   </div>
 
-  {% if saved %}<div class="toast toast-success">{{ saved }}</div>{% endif %}
-  {% if error %}<div class="toast toast-error">{{ error }}</div>{% endif %}
+  {% if saved %}<div class="callout callout-success">{{ saved }}</div>{% endif %}
+  {% if error %}<div class="callout callout-error">{{ error }}</div>{% endif %}
 
   {% if artifacts %}
-  <table class="dh-table" style="margin-top:.75rem">
+  <table class="dh-table dense">
     <thead>
       <tr><th>Năm</th><th>Khoảng kỳ</th><th>Nguồn</th><th>Adapter</th><th class="num">Số dòng</th><th>Tạo lúc</th></tr>
     </thead>
@@ -37,7 +37,7 @@
     </tbody>
   </table>
   {% else %}
-  <p class="meta" style="margin-top:1rem">Chưa có dữ liệu NXT. Tải mẫu chuẩn, điền vào rồi tải lên.</p>
+  <div class="empty-state"><p>Chưa có dữ liệu NXT. Tải mẫu chuẩn, điền vào rồi tải lên.</p></div>
   {% endif %}
 </section>
 {% endblock %}

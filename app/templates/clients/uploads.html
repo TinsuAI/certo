@@ -15,7 +15,7 @@
   </div>
 
   {% if request.query_params.get('deleted') %}
-  <div class="toast" style="margin-bottom: 1rem;">✓ Đã xoá upload lỗi.</div>
+  <div class="callout callout-success">Đã xoá upload lỗi.</div>
   {% endif %}
 
   <div class="chip-row">
@@ -28,7 +28,7 @@
   </div>
 
   {% if items %}
-  <table class="dh-table">
+  <table class="dh-table dense">
     <thead><tr>
       <th>{{ t('uploads.col.when') }}</th>
       <th>{{ t('uploads.col.module') }}</th>
@@ -44,7 +44,7 @@
       {% for u in items %}
       <tr data-row-href="/clients/{{ client.client_id }}/uploads/{{ u.upload_id }}" tabindex="0">
         <td class="mono">{{ u.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-        <td><span class="badge">{{ u.module }}</span></td>
+        <td><span class="badge badge-muted">{{ u.module }}</span></td>
         <td>
           <a href="/clients/{{ client.client_id }}/uploads/{{ u.upload_id }}">{{ u.original_filename }}</a>
           {% if u.parse_status == 'proposed_mapping' and u.module == 'bcct' %}
@@ -64,13 +64,13 @@
           {% else %}<span class="badge">{{ u.parse_status }}</span>{% endif %}
         </td>
         <td class="mono">{{ u.row_count if u.row_count is not none else '—' }}</td>
-        <td style="font-size: .82rem; color: var(--text-soft, #5b6478); max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ u.parse_error or '' }}</td>
+        <td class="cell-trunc meta">{{ u.parse_error or '' }}</td>
         <td>
           {% if u.parse_status in ['error', 'rejected'] %}
           <form method="post"
                 action="/clients/{{ client.client_id }}/uploads/{{ u.upload_id }}/delete"
                 onsubmit="return confirm('{{ t('uploads.delete_confirm') }}');" style="margin:0;">
-            <button type="submit" class="btn-link" style="color:#c00;">{{ t('common.delete') }}</button>
+            <button type="submit" class="btn-danger btn-xs">{{ t('common.delete') }}</button>
           </form>
           {% endif %}
         </td>

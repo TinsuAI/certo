@@ -1,11 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Tải lên tờ khai · {{ client.name }}{% endblock %}
 {% block content %}
+{% import "clients/_flow.html" as flow with context %}
 {% include "_client_nav.html" %}
+
+{{ flow.rail(1) }}
 
 <section class="zone">
   <div class="zone-head">
-    <div>
+    <div class="page-bar-main">
       <h2>Tải lên file tờ khai</h2>
       <p class="meta">
         File XLS gốc hoặc PDF scan. Có thể tải lẻ từng file hoặc tải
@@ -13,7 +16,7 @@
       </p>
     </div>
     <div class="page-actions">
-      <a class="btn-ghost"
+      <a class="btn-secondary btn-sm"
          href="/clients/{{ client.client_id }}/declarations">
         ← Danh sách tờ khai
       </a>
@@ -21,12 +24,10 @@
   </div>
 
   {% if error %}
-  <div class="toast toast-error" style="margin-bottom: 1rem;">
-    ⚠ {{ error }}
-  </div>
+  <div class="callout callout-error">{{ error }}</div>
   {% endif %}
 
-  <div class="chip-row" role="tablist" style="margin-bottom: 1rem;">
+  <div class="chip-row" role="tablist">
     <a class="chip chip-active" id="tab-single"
        href="#single" role="tab" aria-selected="true">
       Tải 1 file
@@ -40,89 +41,101 @@
   <div id="panel-single" role="tabpanel" aria-labelledby="tab-single">
     <form method="post" enctype="multipart/form-data"
           action="/clients/{{ client.client_id }}/declarations/upload"
-          class="stack-form" style="max-width: 720px;">
-      <label>
-        File
-        <input type="file" name="file" required
-               accept=".xls,.xlsx,.pdf">
-        <span class="meta">
-          Chấp nhận: <code>.xls</code>, <code>.xlsx</code>, <code>.pdf</code>.
-        </span>
-      </label>
+          class="upload-card">
+      <div class="upload-card-head">
+        <h3>{{ t('flow.file_card') }} — một tờ khai</h3>
+        <p>Chấp nhận <code>.xls</code>, <code>.xlsx</code>, <code>.pdf</code>.</p>
+      </div>
 
-      <label>
-        Hướng
-        <select name="direction" required>
-          <option value="">— Chọn —</option>
-          <option value="import">Nhập khẩu (TKN)</option>
-          <option value="export">Xuất khẩu (TKX)</option>
-        </select>
-      </label>
+      <div class="upload-card-body">
+        <div class="upload-zone">
+          <input type="file" name="file" required accept=".xls,.xlsx,.pdf">
+          <p class="meta">
+            Một file cho một tờ khai. PDF chỉ được tin theo tên file.
+          </p>
+        </div>
 
-      <label>
-        Số tờ khai <span class="meta">(tuỳ chọn)</span>
-        <input type="text" name="declaration_no" class="mono"
-               placeholder="để trống = tự đọc từ tên file"
-               pattern="\d{10,14}"
-               title="10-14 chữ số. Để trống nếu muốn auto-detect.">
-        <span class="meta">
-          Bỏ trống nếu tên file đã chứa số TK
+        <div class="upload-fields">
+          <label>Hướng <span class="req">*</span>
+            <select name="direction" required>
+              <option value="">— Chọn —</option>
+              <option value="import">Nhập khẩu (TKN)</option>
+              <option value="export">Xuất khẩu (TKX)</option>
+            </select>
+          </label>
+          <label>Số tờ khai
+            <input type="text" name="declaration_no" class="mono"
+                   placeholder="để trống = tự đọc từ tên file"
+                   pattern="\d{10,14}"
+                   title="10-14 chữ số. Để trống nếu muốn auto-detect.">
+          </label>
+        </div>
+
+        <p class="meta">
+          Bỏ trống số tờ khai nếu tên file đã chứa số TK
           (<code>&lt;prefix&gt;_&lt;số TK&gt;.xls</code>). Nhập tay khi
           tên file không theo mẫu, hoặc khi muốn ghi đè.
-        </span>
-      </label>
-
-      <div style="margin-top: 1rem;">
-        <button type="submit" class="btn-primary">Tải lên</button>
-        <a class="btn-ghost"
-           href="/clients/{{ client.client_id }}/declarations">Hủy</a>
+        </p>
       </div>
+
+      <footer class="commit-bar">
+        <span class="commit-note">{{ t('flow.commit_hint') }}</span>
+        <div class="commit-actions">
+          <a class="btn-secondary btn-sm"
+             href="/clients/{{ client.client_id }}/declarations">{{ t('common.cancel') }}</a>
+          <button type="submit" class="btn-primary">Tải lên</button>
+        </div>
+      </footer>
     </form>
   </div>
 
-  <div id="panel-bulk" role="tabpanel" aria-labelledby="tab-bulk"
-       hidden>
+  <div id="panel-bulk" role="tabpanel" aria-labelledby="tab-bulk" hidden>
     <form method="post" enctype="multipart/form-data"
           action="/clients/{{ client.client_id }}/declarations/upload-zip"
-          class="stack-form" style="max-width: 720px;">
-      <label>
-        File ZIP
-        <input type="file" name="file" required accept=".zip">
-        <span class="meta">
-          Một ZIP, chỉ chứa file XLS/PDF per-tờ-khai
-          (<code>&lt;prefix&gt;_&lt;số TK&gt;.&lt;ext&gt;</code>).
-          File không khớp mẫu sẽ bị bỏ qua.
-        </span>
-      </label>
-
-      <label>
-        Hướng (áp cho toàn bộ ZIP)
-        <select name="direction" required>
-          <option value="">— Chọn —</option>
-          <option value="import">Nhập khẩu (TKN)</option>
-          <option value="export">Xuất khẩu (TKX)</option>
-        </select>
-      </label>
-
-      <div style="margin-top: 1rem;">
-        <button type="submit" class="btn-primary">Tải ZIP & xem trước</button>
-        <a class="btn-ghost"
-           href="/clients/{{ client.client_id }}/declarations">Hủy</a>
+          class="upload-card">
+      <div class="upload-card-head">
+        <h3>{{ t('flow.file_card') }} — ZIP nhiều tờ khai</h3>
+        <p>Một ZIP, chỉ chứa file XLS/PDF theo mẫu
+          <code>&lt;prefix&gt;_&lt;số TK&gt;.&lt;ext&gt;</code>.</p>
       </div>
 
-      <p class="meta" style="margin-top: 1rem;">
-        Giới hạn: ZIP ≤ 256 MB, ≤ 5000 file, mỗi file ≤ 10 MB. ZIP lớn
-        hơn dùng CLI <code>scripts/import_declaration_archive.py</code>.
-      </p>
+      <div class="upload-card-body">
+        <div class="upload-zone">
+          <input type="file" name="file" required accept=".zip">
+          <p class="meta">File không khớp mẫu sẽ bị bỏ qua.</p>
+        </div>
+
+        <div class="upload-fields">
+          <label>Hướng — áp cho toàn bộ ZIP <span class="req">*</span>
+            <select name="direction" required>
+              <option value="">— Chọn —</option>
+              <option value="import">Nhập khẩu (TKN)</option>
+              <option value="export">Xuất khẩu (TKX)</option>
+            </select>
+          </label>
+        </div>
+
+        <p class="meta">
+          Giới hạn: ZIP ≤ 256 MB, ≤ 5000 file, mỗi file ≤ 10 MB. ZIP lớn
+          hơn dùng CLI <code>scripts/import_declaration_archive.py</code>.
+        </p>
+      </div>
+
+      <footer class="commit-bar">
+        <span class="commit-note">{{ t('flow.commit_hint') }}</span>
+        <div class="commit-actions">
+          <a class="btn-secondary btn-sm"
+             href="/clients/{{ client.client_id }}/declarations">{{ t('common.cancel') }}</a>
+          <button type="submit" class="btn-primary">Tải ZIP &amp; xem trước</button>
+        </div>
+      </footer>
     </form>
   </div>
 
-  <details style="margin-top: 2rem;">
-    <summary class="btn-ghost" style="cursor: pointer; user-select: none;">
-      ⓘ Quy tắc kiểm tra
-    </summary>
-    <div class="meta" style="padding: .5rem 0; max-width: 720px;">
-      <ul style="margin: .5rem 0; padding-left: 1.2rem;">
+  <details class="tech-block">
+    <summary class="btn-ghost btn-sm">Quy tắc kiểm tra</summary>
+    <div class="callout">
+      <ul style="margin: 0; padding-left: 1.1rem;">
         <li>
           <strong>Tên file</strong>: nếu khớp mẫu
           <code>&lt;prefix&gt;_&lt;số TK&gt;.&lt;ext&gt;</code>, số TK
