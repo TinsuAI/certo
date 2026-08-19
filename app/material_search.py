@@ -96,7 +96,7 @@ def rank_matches(
     limit: int = 20,
 ) -> list:
     """Filter + rank rows by match_score, best first, capped at limit."""
-    capped = max(1, min(limit, 100))
+    capped = max(1, min(limit, 500))
     if not (query or "").strip():
         return list(rows)[:capped]
     scored: list[tuple[float, int, object]] = []

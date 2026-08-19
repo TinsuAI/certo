@@ -208,3 +208,34 @@ def test_attention_chip_names_the_uom_gap():
     from app.web.co_case_context import origin_sheet_attention
     chip = origin_sheet_attention({"origin_sheet_status": "bom_loaded", "lvc_uom_unconfirmed": True})
     assert chip["reason"] == "uom_unconfirmed"
+
+
+# --- what the row actually shows -------------------------------------------
+
+def test_an_alias_pair_shows_no_conversion_mark():
+    """EA and PIECES are the same unit spelled twice: the row's numbers are
+    identical either way and there is nothing for the operator to do. Marking those
+    rows "⇄ PIECES" put a conversion badge on 145 lines of a Johnson sheet where
+    nothing was converted (reported 2026-08-19)."""
+    material = _material("EA", "2", "5", "PIECES")
+    assert material["uom_converted"] is False
+    assert material["uom_unconfirmed"] is False
+
+
+def test_a_real_conversion_is_marked():
+    material = _material("EA", "2", "5", "SETS", uom_factors={("EA", "SETS"): Decimal("0.2")})
+    assert material["uom_converted"] is True
+
+
+def test_a_confirmed_one_to_one_factor_is_not_marked():
+    """johnson-vn confirmed EA→CAY at 1:1 ("synonym in Johnson context") — the row
+    is unblocked and the quantity is unchanged, so there is nothing to show."""
+    material = _material("EA", "2", "5", "CAY", uom_factors={("EA", "CAY"): Decimal("1")})
+    assert material["uom_unconfirmed"] is False
+    assert material["uom_converted"] is False
+
+
+def test_an_unconfirmed_pair_is_not_marked_as_converted():
+    material = _material("EA", "2", "5", "SETS")
+    assert material["uom_unconfirmed"] is True
+    assert material["uom_converted"] is False

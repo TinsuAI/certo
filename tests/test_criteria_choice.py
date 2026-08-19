@@ -119,3 +119,43 @@ def test_calculate_is_never_blocked_by_a_missing_criterion():
     """Tính is exploratory — the criterion only decides the threshold and the preview."""
     from app.web.co_case_context import origin_sheet_action_error
     assert origin_sheet_action_error(_case(), "P1", "calculate") == ""
+
+
+def test_clearing_the_case_choice_persists(monkeypatch, tmp_path):
+    """"Bỏ chọn" used to do nothing: the route popped `criteria_choice` off the case
+    dict, and `update_case_record` only copies keys that are PRESENT in the incoming
+    case, so the stored choice survived every clear (reported 2026-08-19)."""
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("CO_CASE_STORE_ROOT", str(tmp_path / "co-cases"))
+    monkeypatch.setenv("BOM_DEFAULT_CONFIG_ROOT", str(tmp_path / "bom-default"))
+    monkeypatch.delenv("BARRY_DATABASE_URL", raising=False)
+    import app.main as main_module
+    monkeypatch.setattr(main_module, "require_local_source_writes", lambda: None)
+
+    from app import co_case_store
+    from app.demo_data import get_client
+
+    case_id = "case-criteria-clear"
+    now = co_case_store.now_iso()
+    co_case_store.save_state("growatt", {"schema_version": 1, "client_id": "growatt", "cases": [{
+        "id": case_id, "persisted_case_id": case_id, "case_id": case_id,
+        "case_code": "CO-CRIT", "title": "Crit", "customer": "Growatt",
+        "destination_market": "Ấn Độ", "status": "open",
+        "created_at": now, "updated_at": now,
+        "products": [{"code": "PV.A", "name": "SP A", "materials": []}],
+    }]})
+
+    client = TestClient(main_module.app)
+    url = f"/clients/growatt/co-case/{case_id}/origin/case-criteria"
+
+    assert client.post(url, json={"criteria_text": "CTH"}).status_code == 200
+    record = co_case_store.get_case_record(get_client("growatt"), case_id)
+    assert record["criteria_choice"]["criteria_text"] == "CTH"
+
+    assert client.post(url, json={"criteria_text": ""}).status_code == 200
+    record = co_case_store.get_case_record(get_client("growatt"), case_id)
+    assert not (record.get("criteria_choice") or {}).get("criteria_text")
+
+    from app.web.co_case_context import case_criteria_choice
+    assert case_criteria_choice(record) == {}

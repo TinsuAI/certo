@@ -668,6 +668,31 @@ def recalculate_origin_sheet_edits(client: dict, case: dict, product_code: str, 
     prepared["products"] = updated_products
     prepared = materialize_bang_ke_origin_fields(prepared, client)
     return attach_origin_sheet_states(prepared)
+def origin_codes_to_recalculate(case: dict, order: list[str], edited_codes: list[str]) -> list[str]:
+    """Every sheet a bulk edit invalidated, in allocation order.
+
+    Stock is allocated sequentially down `order`, so changing sheet N changes what
+    is left for N+1…: `mark_origin_sheets_stale` already flips all of them to "Cần
+    tính lại". The bulk routes then recalculated only the sheets they had EDITED,
+    so the untouched downstream ones stayed stale while the aggregate — which runs
+    a fresh whole-case preview — reported "Đủ tồn cho tất cả SP". The operator saw
+    "có thể Chốt tất cả" over a sheet list that still said "Cần tính lại"
+    (johnson-vn VNG26030079: 1 substitute on sheet 1 → sheets 2-5 stale).
+
+    Locked sheets are excluded: their snapshot is what was filed, and a lock holds
+    `co_stock_claims` against exactly those allocation lines."""
+    indices = [order.index(code) for code in edited_codes if code in order]
+    if not indices:
+        return list(edited_codes)
+    states = case.get("origin_sheet_states") or {}
+
+    def is_locked(code: str) -> bool:
+        state = states.get(code)
+        return isinstance(state, dict) and str(state.get("status") or "") == "locked"
+
+    return [code for code in order[min(indices):] if not is_locked(code)]
+
+
 def recalculate_origin_sheet_and_status(
     client: dict, case: dict, product_code: str, *, min_gap_days: int | None = None
 ) -> dict:
@@ -1870,9 +1895,29 @@ async def calculate_all_route(request: Request, client_id: str, case_id: str):
     allocated = attach_origin_readiness(allocated)
     allocated = attach_results(allocated)
     allocated = attach_origin_sheet_states(allocated)
+    # A locked sheet is what was filed, and the ledger holds co_stock_claims against
+    # its allocation lines. `allocate_whole_case_preview` rebuilds EVERY product, so
+    # persisting its output as-is would rewrite the locked snapshot and re-stamp its
+    # status from `calculated_sheet_status` — i.e. silently unlock it. Put the
+    # persisted products back and leave their statuses alone.
+    locked_codes = {
+        code for code, state in (case.get("origin_sheet_states") or {}).items()
+        if isinstance(state, dict) and str(state.get("status") or "") == "locked"
+    }
+    if locked_codes:
+        persisted_by_code = {
+            str(product.get("code") or "").strip(): product
+            for product in (case.get("products") or [])
+        }
+        allocated["products"] = [
+            persisted_by_code.get(str(product.get("code") or "").strip(), product)
+            if str(product.get("code") or "").strip() in locked_codes
+            else product
+            for product in allocated.get("products", [])
+        ]
     for product in list(allocated.get("products", [])):
         code = str(product.get("code") or "").strip()
-        if code:
+        if code and code not in locked_codes:
             allocated = set_origin_sheet_status(allocated, code, calculated_sheet_status(product))
     if allocated.get("persisted_case_id"):
         update_case_record(client, allocated)
@@ -1987,7 +2032,7 @@ async def bulk_substitute_route(request: Request, client_id: str, case_id: str):
         edited_indices = [order.index(pc) for pc in edited_codes if pc in order]
         if edited_indices:
             case = mark_origin_sheets_stale(case, min(edited_indices))
-        for pc in sorted(edited_codes, key=lambda c: order.index(c) if c in order else 0):
+        for pc in origin_codes_to_recalculate(case, order, edited_codes):
             case = recalculate_origin_sheet_and_status(client, case, pc, min_gap_days=min_gap)
         update_case_record(client, case)
     context, stock_rows = _origin_preview_context(client, client_id, case_id, case)
@@ -2080,7 +2125,7 @@ async def bulk_delete_rac_route(request: Request, client_id: str, case_id: str):
         edited_indices = [order.index(pc) for pc in edited_codes if pc in order]
         if edited_indices:
             case = mark_origin_sheets_stale(case, min(edited_indices))
-        for pc in sorted(edited_codes, key=lambda c: order.index(c) if c in order else 0):
+        for pc in origin_codes_to_recalculate(case, order, edited_codes):
             case = recalculate_origin_sheet_and_status(client, case, pc, min_gap_days=min_gap)
         update_case_record(client, case)
     context, stock_rows = _origin_preview_context(client, client_id, case_id, case)
@@ -2169,7 +2214,10 @@ async def set_case_criteria_route(request: Request, client_id: str, case_id: str
             "chosen_at": now_iso(),
         }
     else:
-        record.pop("criteria_choice", None)
+        # An EMPTY dict, not a pop: `update_case_record` copies keys that are PRESENT
+        # in the incoming case (`if key in case`), so removing the key left the stored
+        # choice in place and "Bỏ chọn" did nothing at all.
+        record["criteria_choice"] = {}
     try:
         update_case_record(client, record)
     except CaseClosedError as exc:
@@ -2642,6 +2690,11 @@ async def co_case_origin_sheet_substitute_candidates(
     seed_hs: str = "",
     limit: int = 20,
 ):
+    # A name search has to be able to show EVERY matching NVL, not a top-N: the
+    # operator reads the list to see how much tồn sits under each spelling of the
+    # same part ("bu lông" / "bộ bu lông" / "bộ ốc vít bu lông" are separate codes
+    # in BCCT). The picker asks for 200; recommendations stay at the default 20.
+    search_limit = max(1, min(limit, 200))
     if not material_code and not search:
         raise HTTPException(status_code=400, detail="material_code or search query required")
     client = resolve_client(client_id)
@@ -2728,10 +2781,10 @@ async def co_case_origin_sheet_substitute_candidates(
         raw_search: list[dict] = []
         search_error = ""
         try:
-            raw_search = portfolio_service.search_materials(client_id, search, limit=min(limit, 50))
+            raw_search = portfolio_service.search_materials(client_id, search, limit=search_limit)
         except Exception as exc:  # noqa: BLE001
             search_error = str(exc)
-        fallback_rows = search_case_material_rows(case, search, limit=min(limit, 50))
+        fallback_rows = search_case_material_rows(case, search, limit=search_limit)
         # Stock-first discovery (#2, ADR 2026-07-08): surface NVL that are in the
         # CO-stock snapshot — INCLUDING codes absent from the DH catalog, which the
         # catalog search alone can never find. Grouped at the logical-material grain,
@@ -2748,7 +2801,7 @@ async def co_case_origin_sheet_substitute_candidates(
             catalog_index,
             query=search,
             exclude_codes={material_code} if material_code else set(),
-            limit=min(limit, 50),
+            limit=search_limit,
         )
         seen_search_codes: set[str] = set()
         # Stock-first ORDERING (not a hard filter): candidates with tồn on top…
@@ -2785,7 +2838,7 @@ async def co_case_origin_sheet_substitute_candidates(
                 "kind": "search",
                 "stock_first": False,
             })
-            if len(search_results) >= max(1, min(limit, 50)):
+            if len(search_results) >= search_limit:
                 break
         if not raw_search and fallback_rows and not error_detail:
             error_detail = (
@@ -2860,7 +2913,7 @@ async def co_case_origin_sheet_substitute_candidates(
 def search_case_material_rows(case: dict, query: str, limit: int = 20) -> list[dict]:
     if not (query or "").strip():
         return []
-    max_rows = max(1, min(limit, 100))
+    max_rows = max(1, min(limit, 500))
     scored: list[tuple[float, int, dict]] = []
     seen: set[str] = set()
     position = 0

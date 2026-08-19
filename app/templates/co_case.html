@@ -946,6 +946,7 @@
   {# Tiêu chí cho CẢ LÔ: on prod every case has a single HS, so its sheets share one
      criterion — choosing it here fills all of them (a sheet can still override). #}
   {% set _case_criteria = (case.criteria_choice or {}).get('criteria_text') if case.criteria_choice else '' %}
+  {% set _case_threshold = (case.criteria_choice or {}).get('lvc_threshold') if case.criteria_choice else '' %}
   {% set _rec_criteria = case.products[0].origin_sheet_recommended_criteria_text %}
   {% set _sheets_unchosen = case.products|rejectattr('origin_sheet_criteria_source', 'in', ['sheet', 'case'])|list|length %}
   <div class="origin-case-criteria{{ '' if _case_criteria else ' origin-case-criteria-unset' }}"
@@ -963,13 +964,79 @@
             title="Ghi nhận tiêu chí khuyến nghị là lựa chọn của bạn cho cả lô hàng">Dùng khuyến nghị</button>
     {% endif %}
     <button type="button" class="btn-secondary btn-sm" data-origin-case-criteria-edit
-            title="Nhập tiêu chí áp cho cả lô hàng (từng bảng kê vẫn ghi đè được)">
+            title="Chọn tiêu chí áp cho cả lô hàng (từng bảng kê vẫn ghi đè được)">
       {{ 'Sửa' if _case_criteria else 'Chọn…' }}
     </button>
     {% if _case_criteria %}
     <button type="button" class="btn-secondary btn-sm" data-origin-case-criteria-clear
             title="Bỏ lựa chọn cho cả lô, quay về khuyến nghị">Bỏ chọn</button>
     {% endif %}
+  </div>
+
+  {# Same segmented picker as the per-sheet ⚙ Cấu hình, applied to the whole lô.
+     A typed string was ambiguous (the engine matches criterion tokens, so free text
+     could silently land on no rule at all); the segments write the token the engine
+     reads. #}
+  <div class="modal-backdrop origin-settings-modal" data-case-criteria-modal hidden>
+    <div class="confirm-modal origin-settings-dialog" role="dialog" aria-modal="true" aria-label="Tiêu chí xuất xứ cho cả lô hàng">
+      <div class="origin-settings-head">
+        <h3>Tiêu chí xuất xứ — cả lô hàng</h3>
+        <button type="button" class="btn-secondary" data-case-criteria-close aria-label="Đóng">×</button>
+      </div>
+      <div class="origin-settings-body">
+        <div class="origin-config-panel" data-criteria-panel data-case-criteria-panel>
+          <div class="origin-config-controls">
+            <div class="origin-config-row origin-config-row-criteria">
+              <span class="origin-config-row-label">Tiêu chí{% if _rec_criteria %} <small class="origin-config-rec-hint" title="Khuyến nghị engine">KN: {{ _rec_criteria }}</small>{% endif %}</span>
+              <input type="hidden" data-origin-recommendation-criteria value="{{ _case_criteria }}">
+              <div class="criteria-segments" data-criteria-segments role="group" aria-label="Tiêu chí chính">
+                {% for c in [
+                    {'v':'WO','d':'Xuất xứ thuần tuý'},
+                    {'v':'PE','d':'Sản xuất hoàn toàn'},
+                    {'v':'CC','d':'Chuyển đổi chương (2 số)'},
+                    {'v':'CTH','d':'Chuyển nhóm — CTC 4 số'},
+                    {'v':'CTSH','d':'Chuyển phân nhóm — CTC 6 số'},
+                    {'v':'RVC','d':'Hàm lượng giá trị khu vực'},
+                    {'v':'LVC','d':'Hàm lượng giá trị nội địa'},
+                    {'v':'PSR','d':'Quy tắc cụ thể (Phụ lục)'}
+                  ] %}
+                <button type="button" class="criteria-seg" data-criteria-seg="{{ c.v }}" title="{{ c.d }}">{{ c.v }}</button>
+                {% endfor %}
+                <button type="button" class="criteria-seg criteria-seg-other" data-criteria-other-toggle title="Tiêu chí khác — nhập tay">Khác…</button>
+              </div>
+              <div class="criteria-alts" data-criteria-alts hidden>
+                <span class="criteria-alts-label">hoặc</span>
+                <label data-criteria-alt-wrap="CTH"><input type="checkbox" data-criteria-alt="CTH"> CTH</label>
+                <label data-criteria-alt-wrap="CTSH"><input type="checkbox" data-criteria-alt="CTSH"> CTSH</label>
+                <label data-criteria-alt-wrap="RVC 40%"><input type="checkbox" data-criteria-alt="RVC 40%"> RVC 40%</label>
+              </div>
+              <input type="text" class="origin-config-select criteria-other-input" data-criteria-other-input hidden placeholder="VD: AIFTA 35% FOB + CTSH" value="">
+              <small class="origin-config-criteria-hint">
+                Ghi đúng nguyên văn lên C/O. Áp cho <strong>{{ case.products|length }} bảng kê</strong> của lô này;
+                từng bảng kê vẫn đặt riêng được ở <strong>⚙ Cấu hình</strong>.
+              </small>
+            </div>
+            <div class="origin-config-row" data-criteria-threshold-row hidden>
+              <span class="origin-config-row-label">Ngưỡng %</span>
+              <input type="number" min="0" max="100" step="any" class="origin-config-input-narrow"
+                     data-origin-recommendation-threshold value="{{ _case_threshold }}" placeholder="auto">
+            </div>
+            <div class="origin-config-actions">
+              <button type="button" class="btn-primary" data-case-criteria-save>Lưu cho cả lô</button>
+              {% if _rec_criteria %}
+              <button type="button" class="btn-secondary" data-case-criteria-use-recommended
+                      title="Dùng nguyên văn khuyến nghị: {{ _rec_criteria }}">Dùng khuyến nghị</button>
+              {% endif %}
+              {% if _case_criteria %}
+              <button type="button" class="btn-secondary" data-case-criteria-clear
+                      title="Bỏ lựa chọn cho cả lô, quay về khuyến nghị">Bỏ chọn</button>
+              {% endif %}
+              <span class="origin-recommendation-status" data-case-criteria-status hidden></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
   <div class="origin-review-table">
     <div class="origin-review-row origin-review-head" aria-hidden="true">
@@ -1762,19 +1829,21 @@
                            aria-label="Định mức cho {{ material.material_code }}">
                     <small>{{ material.uom }}</small>
                     {# ĐVT của lô khác ĐVT của BOM và chưa có hệ số: dòng vẫn trừ tồn 1:1
-                       nhưng không chốt được cho tới khi người dùng xác nhận hệ số. #}
+                       nhưng không chốt được cho tới khi người dùng xác nhận hệ số.
+                       Chỉ hiện khi CÓ việc phải làm (chưa có hệ số) hoặc khi số lượng
+                       ĐÃ bị quy đổi — cặp cùng nghĩa (EA/PIECES) là 1:1 nên im lặng. #}
                     {% if material.uom_unconfirmed and material.lot_uom %}
                     <button type="button" class="origin-uom-gap" data-origin-uom-confirm
                             data-product-code="{{ product.code }}"
                             data-material-code="{{ material.material_code }}"
                             data-bom-uom="{{ material.uom }}"
                             data-lot-uom="{{ material.lot_uom }}"
-                            title="ĐVT trên tờ khai nhập là {{ material.lot_uom }}, BOM ghi {{ material.uom }} — bấm để xác nhận hệ số quy đổi. Đang tạm trừ tồn theo 1:1.">
-                      ⇄ {{ material.lot_uom }}?
+                            title="Tờ khai nhập đếm theo {{ material.lot_uom }}, BOM ghi {{ material.uom }} — chưa có hệ số quy đổi nên đang tạm trừ tồn 1:1 và chưa chốt được. Bấm để khai 1 {{ material.lot_uom }} = mấy {{ material.uom }}.">
+                      Cần hệ số {{ material.uom }}→{{ material.lot_uom }}
                     </button>
-                    {% elif material.lot_uom and material.lot_uom != material.uom %}
+                    {% elif material.uom_converted and material.lot_uom %}
                     <small class="origin-uom-converted"
-                           title="Đã quy đổi sang ĐVT của tờ khai nhập ({{ material.lot_uom }})">⇄ {{ material.lot_uom }}</small>
+                           title="Trừ tồn theo ĐVT của tờ khai nhập ({{ material.lot_uom }}); định mức vẫn ghi bằng {{ material.uom }}">⇄ {{ material.lot_uom }}</small>
                     {% endif %}
                   </td>
                   <td data-origin-column="consumed" class="num">
@@ -2183,6 +2252,7 @@
           </label>
           <button type="button" class="btn-primary" data-origin-substitute-search-button>Tìm</button>
         </div>
+        <p class="origin-substitute-search-count" data-origin-substitute-search-count hidden></p>
         <ul class="origin-substitute-list" data-origin-substitute-list="search"></ul>
         <p class="empty-cell" data-origin-substitute-empty="search">Nhập từ khóa để tìm.</p>
       </section>
@@ -2190,6 +2260,44 @@
     <footer class="origin-substitute-modal-foot">
       <small>Thay/thêm/xoá NVL được tính trực tiếp client-side và cập nhật LVC/RVC ngay; bấm <strong>Lưu bảng kê</strong> để ghi vào server.</small>
     </footer>
+  </div>
+</div>
+
+{# Hệ số quy đổi ĐVT: một câu hỏi về VẬT TƯ ("1 CAY là mấy EA"), không phải về đơn
+   vị, nên phải do người đọc tờ khai trả lời. Hệ số lưu theo công ty và dùng lại cho
+   các hồ sơ sau; phạm vi chọn được vì một cặp như EA→CAY thường đúng cho cả trăm mã. #}
+<div class="modal-backdrop origin-settings-modal" data-uom-factor-modal hidden>
+  <div class="confirm-modal origin-settings-dialog" role="dialog" aria-modal="true" aria-label="Hệ số quy đổi đơn vị tính">
+    <div class="origin-settings-head">
+      <h3>Hệ số quy đổi đơn vị tính</h3>
+      <button type="button" class="btn-secondary" data-uom-factor-close aria-label="Đóng">×</button>
+    </div>
+    <div class="origin-settings-body">
+      <p class="uom-factor-subject">
+        Mã <strong class="mono" data-uom-factor-material></strong> ·
+        BOM ghi <strong data-uom-factor-bom-uom></strong> ·
+        tờ khai nhập đếm theo <strong data-uom-factor-lot-uom></strong>.
+      </p>
+      <div class="uom-factor-equation">
+        <span>1 <strong data-uom-factor-lot-uom></strong> =</span>
+        <input type="number" min="0" step="any" data-uom-factor-input placeholder="VD: 5" aria-label="Hệ số quy đổi">
+        <span><strong data-uom-factor-bom-uom></strong></span>
+      </div>
+      <div class="uom-factor-scope">
+        <span class="origin-config-row-label">Áp cho</span>
+        <label><input type="radio" name="uom-factor-scope" value="material" checked> Chỉ mã <span class="mono" data-uom-factor-material></span></label>
+        <label><input type="radio" name="uom-factor-scope" value="client"> Mọi mã có cặp <strong data-uom-factor-bom-uom></strong> → <strong data-uom-factor-lot-uom></strong></label>
+      </div>
+      <div class="origin-config-actions">
+        <button type="button" class="btn-primary" data-uom-factor-save>Lưu và tính lại</button>
+        <button type="button" class="btn-secondary" data-uom-factor-close>Huỷ</button>
+        <span class="origin-recommendation-status" data-uom-factor-status hidden></span>
+      </div>
+      <small class="origin-config-criteria-hint">
+        Hệ số lưu theo công ty kèm người xác nhận và dùng lại cho các hồ sơ sau.
+        Chưa có hệ số thì dòng vẫn trừ tồn 1:1 và bảng kê không chốt được.
+      </small>
+    </div>
   </div>
 </div>
 
@@ -2357,6 +2465,23 @@
     toast(flash.message || fallbackMessage, response.ok && flash.kind !== "error" ? "success" : "error");
     if (!originSheetUrlHandled && options.replaceHistory !== false && response.url) {
       window.history.replaceState({}, "", response.url);
+    }
+  };
+
+  // Re-render the case shell from the server without an F5. Every surface that
+  // changes state through a JSON route (tiêu chí cho cả lô, cấu hình bảng kê, hệ
+  // số ĐVT) used to end in window.location.reload() or in nothing at all, so the
+  // chips kept the pre-save text until the operator reloaded by hand.
+  const refreshCaseShellInPlace = async (fallbackMessage = "", options = {}) => {
+    try {
+      const response = await fetch(window.location.href, {
+        headers: {"Accept": "text/html", "X-Requested-With": "fetch"},
+      });
+      if (!response.ok) return false;
+      await replaceCaseShellFromResponse(response, fallbackMessage, {serverNav: false, ...options});
+      return true;
+    } catch (_error) {
+      return false;
     }
   };
 
@@ -2724,7 +2849,7 @@
   });
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
-    document.querySelectorAll("[data-origin-settings-modal]:not([hidden])")
+    document.querySelectorAll("[data-origin-settings-modal]:not([hidden]), [data-case-criteria-modal]:not([hidden]), [data-uom-factor-modal]:not([hidden])")
       .forEach((m) => m.setAttribute("hidden", ""));
   });
 
@@ -3786,6 +3911,15 @@
       const resetBtn = panel.querySelector("[data-origin-recommendation-reset]");
       const status = panel.querySelector("[data-origin-recommendation-status]");
       if (!saveBtn || !url) return;
+      // initOriginSettingsModal moves .origin-config-disclosure (and with it the
+      // Save button) into the ⚙ modal, while this panel — .origin-config-bar —
+      // stays on the sheet, so the modal is reachable from the button, not from
+      // the panel.
+      const closeSettingsModal = () => {
+        (saveBtn.closest("[data-origin-settings-modal]")
+          || panel.closest("[data-origin-sheet-panel]")?.querySelector("[data-origin-settings-modal]")
+        )?.setAttribute("hidden", "");
+      };
       // Apply persisted currency mode immediately so the UI reflects it before save.
       applyCurrencyMode(panel, currencySel?.value || "native");
       currencySel?.addEventListener("change", () => applyCurrencyMode(panel, currencySel.value));
@@ -3823,9 +3957,20 @@
             setStatus(detail || `Lỗi ${response.status}`, "error");
             toast(detail || "Không lưu được override.", "error");
           } else {
-            setStatus("Đã lưu cấu hình.", "success");
-            toast("Đã lưu cấu hình bảng kê.", "success");
-            window.setTimeout(() => setStatus("", "info"), 1800);
+            setStatus("Đã lưu — đang cập nhật bảng kê…", "success");
+            // The Tiêu chí / LVC / CTC chips and the sheet's lock gate are all
+            // server-derived from the saved override, so a toast alone left the
+            // sheet showing the pre-save criterion until the operator pressed F5.
+            closeSettingsModal();
+            const productCode = panel.dataset.productCode || "";
+            const swapped = await refreshCaseShellInPlace("Đã lưu cấu hình bảng kê.", {
+              activeOriginProductCode: productCode,
+            });
+            if (!swapped) {
+              setStatus("Đã lưu cấu hình.", "success");
+              toast("Đã lưu cấu hình bảng kê.", "success");
+              window.setTimeout(() => setStatus("", "info"), 1800);
+            }
           }
         } catch (err) {
           setStatus(String(err), "error");
@@ -3870,9 +4015,13 @@
             if (currencySel) currencySel.value = "native";
             if (optimizationSel) optimizationSel.value = "max_lvc";
             applyCurrencyMode(panel, "native");
-            setStatus("Đã reset. Đang tải lại…", "success");
-            toast("Đã reset về khuyến nghị.", "success");
-            window.setTimeout(() => window.location.reload(), 600);
+            setStatus("Đã reset — đang cập nhật bảng kê…", "success");
+            closeSettingsModal();
+            const resetCode = panel.dataset.productCode || "";
+            const resetSwapped = await refreshCaseShellInPlace("Đã reset về khuyến nghị.", {
+              activeOriginProductCode: resetCode,
+            });
+            if (!resetSwapped) window.location.reload();
           }
         } catch (err) {
           setStatus(String(err), "error");
@@ -3903,6 +4052,7 @@
     const searchList = modal.querySelector('[data-origin-substitute-list="search"]');
     const recommendedEmpty = modal.querySelector('[data-origin-substitute-empty="recommended"]');
     const searchEmpty = modal.querySelector('[data-origin-substitute-empty="search"]');
+    const searchCount = modal.querySelector("[data-origin-substitute-search-count]");
     const recommendedFilterInput = modal.querySelector("[data-origin-substitute-recommended-filter]");
     const recommendedFilterEmpty = modal.querySelector("[data-origin-substitute-filter-empty]");
     const stockOnlyToggle = modal.querySelector("[data-origin-substitute-stock-only]");
@@ -4318,12 +4468,22 @@
 
     let latestCandidatesByCode = new Map();
 
+    const fmtStockQty = (value) => {
+      const n = Number(value);
+      return Number.isFinite(n) ? n.toLocaleString("vi-VN", {maximumFractionDigits: 3}) : "0";
+    };
     const buildItem = (item, kind) => {
       const li = document.createElement("li");
       li.className = "origin-substitute-item";
       li.dataset.materialCode = item.material_code;
       if (item.previously_used) li.dataset.previouslyUsed = "1";
       const stock = item.stock || {};
+      // Stock-first search rows already carry the snapshot total; show it now instead
+      // of "0 tồn" until the lazy /substitute-stock batch answers (192 codes on a
+      // "bu lông" search — the operator is reading this list precisely to compare tồn).
+      if (!stock.total_remaining_qty && item.total_remaining_qty) {
+        stock.total_remaining_qty = item.total_remaining_qty;
+      }
       const score = kind === "recommended" ? (item.score?.toFixed?.(3) || item.score || "") : "";
       const priceHint = state.optimizationMode === "min_lvc" ? stock.unit_price_max : stock.unit_price_min;
       const priorTip = item.previously_used
@@ -4342,7 +4502,7 @@
             ${priorBadge}
             <span class="mono">${item.hs_code || ""}</span>
             ${score ? `<span class="origin-substitute-score">score ${score}</span>` : ""}
-            <span class="origin-substitute-stock-summary">${stock.total_remaining_qty || "0"} tồn</span>
+            <span class="origin-substitute-stock-summary">${fmtStockQty(stock.total_remaining_qty)} tồn</span>
             <span class="origin-substitute-price">${fmtPrice(priceHint)}</span>
           </span>
           <span class="origin-substitute-chevron">▾</span>
@@ -4698,7 +4858,7 @@
           Object.entries(stockData.stock).forEach(([code, stock]) => {
             modal.querySelectorAll(`li.origin-substitute-item[data-material-code="${code}"]`).forEach((li) => {
               const stockChip = li.querySelector(".origin-substitute-stock-summary");
-              if (stockChip) stockChip.textContent = `${stock.total_remaining_qty || "0"} tồn`;
+              if (stockChip) stockChip.textContent = `${fmtStockQty(stock.total_remaining_qty)} tồn`;
               const priceChip = li.querySelector(".origin-substitute-price");
               if (priceChip) {
                 const optMode = stockData.optimization_mode || "max_lvc";
@@ -4815,9 +4975,13 @@
       }
       renderLoading(searchList, `Đang tìm "${search}"…`);
       if (searchEmpty) searchEmpty.hidden = true;
+      if (searchCount) searchCount.hidden = true;
       const params = new URLSearchParams();
       params.set("search", search);
       params.set("row_index", String(state.rowIndex));
+      // Show every NVL whose mã/tên matches, not a top-20: the operator reads the
+      // list to compare tồn across the spellings the same part is declared under.
+      params.set("limit", "200");
       if (state.currentHs) params.set("seed_hs", state.currentHs);
       const url = `/clients/${encodeURIComponent(currentClientId())}/co-case/${encodeURIComponent(currentCaseId())}/origin/sheet/${encodeURIComponent(state.productCode)}/substitute-candidates?${params.toString()}`;
       try {
@@ -4841,6 +5005,12 @@
         if (searchEmpty) {
           searchEmpty.hidden = resultCount > 0;
           searchEmpty.textContent = data.error || `Không có NVL khớp "${search}".`;
+        }
+        if (searchCount) {
+          searchCount.hidden = resultCount === 0;
+          searchCount.textContent = resultCount >= 200
+            ? `200+ NVL khớp "${search}" — thu hẹp từ khoá để xem hết.`
+            : `${resultCount} NVL khớp "${search}" · mã có tồn xếp trước.`;
         }
         mergeLazyStock(data, data.search_results || []);
       } catch (err) {
@@ -5912,81 +6082,167 @@
     if (!bar || bar.dataset.criteriaBound === "1") return;
     bar.dataset.criteriaBound = "1";
     const url = bar.dataset.url;
-    const save = async (criteriaText) => {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {"Content-Type": "application/json", "Accept": "application/json"},
-        body: JSON.stringify({criteria_text: criteriaText}),
-      });
-      if (!response.ok) return;
-      toast(criteriaText ? "Đã chọn tiêu chí cho cả lô hàng." : "Đã bỏ chọn tiêu chí của lô hàng.", "success");
-      window.location.reload();
+    const modal = document.querySelector("[data-case-criteria-modal]");
+    const panel = modal?.querySelector("[data-case-criteria-panel]");
+    const hiddenInp = panel?.querySelector("[data-origin-recommendation-criteria]");
+    const thresholdInp = panel?.querySelector("[data-origin-recommendation-threshold]");
+    const status = modal?.querySelector("[data-case-criteria-status]");
+    const setStatus = (text, kind = "info") => {
+      if (!status) return;
+      status.hidden = !text;
+      status.textContent = text || "";
+      status.dataset.kind = kind;
+    };
+    const openModal = () => { modal?.removeAttribute("hidden"); setStatus(""); };
+    const closeModal = () => modal?.setAttribute("hidden", "");
+    const save = async (criteriaText, threshold = "") => {
+      setStatus("Đang lưu…", "info");
+      let response;
+      try {
+        response = await fetch(url, {
+          method: "POST",
+          headers: {"Content-Type": "application/json", "Accept": "application/json"},
+          body: JSON.stringify({criteria_text: criteriaText, lvc_threshold: threshold}),
+        });
+      } catch (error) {
+        setStatus(String(error), "error");
+        toast("Lỗi mạng khi lưu tiêu chí.", "error");
+        return;
+      }
+      if (!response.ok) {
+        const detail = await response.text();
+        setStatus(detail.slice(0, 160) || `Lỗi ${response.status}`, "error");
+        toast("Không lưu được tiêu chí cho cả lô.", "error");
+        return;
+      }
+      closeModal();
+      // Re-render in place: the chip on every sheet reads criteria_source, which
+      // only the server can recompute.
+      const swapped = await refreshCaseShellInPlace(
+        criteriaText ? `Đã chọn tiêu chí cho cả lô: ${criteriaText}` : "Đã bỏ chọn tiêu chí của lô hàng.",
+      );
+      if (!swapped) window.location.reload();
     };
     bar.querySelector("[data-origin-case-criteria-use-recommended]")?.addEventListener("click", () => {
       save(bar.dataset.recommended || "");
     });
-    bar.querySelector("[data-origin-case-criteria-edit]")?.addEventListener("click", () => {
-      const current = bar.querySelector("[data-origin-case-criteria-value]")?.getAttribute("title") || "";
-      const answer = window.prompt(
-        "Tiêu chí xuất xứ áp cho cả lô hàng (ghi đúng nguyên văn sẽ in lên C/O).\n" +
-        "VD: CTH — hoặc: RVC không thấp hơn 40% theo công thức tính trực tiếp.",
-        current,
-      );
-      if (answer === null) return;
-      save(String(answer).trim());
-    });
+    bar.querySelector("[data-origin-case-criteria-edit]")?.addEventListener("click", openModal);
     bar.querySelector("[data-origin-case-criteria-clear]")?.addEventListener("click", () => {
+      if (!window.confirm("Bỏ tiêu chí đã chọn cho cả lô hàng? Các bảng kê sẽ quay về khuyến nghị và không chốt được cho tới khi chọn lại.")) return;
+      save("");
+    });
+    if (!modal || modal.dataset.caseCriteriaBound === "1") return;
+    modal.dataset.caseCriteriaBound = "1";
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal || event.target.closest("[data-case-criteria-close]")) closeModal();
+    });
+    modal.querySelector("[data-case-criteria-save]")?.addEventListener("click", () => {
+      const criteriaText = (hiddenInp?.value || "").trim();
+      if (!criteriaText) {
+        setStatus("Chọn một tiêu chí (hoặc bấm Khác… và nhập nguyên văn) trước khi lưu.", "error");
+        return;
+      }
+      const thresholdRow = panel?.querySelector("[data-criteria-threshold-row]");
+      const thresholdApplies = thresholdRow && !thresholdRow.hidden;
+      save(criteriaText, thresholdApplies ? (thresholdInp?.value || "").trim() : "");
+    });
+    modal.querySelector("[data-case-criteria-use-recommended]")?.addEventListener("click", () => {
+      save(bar.dataset.recommended || "");
+    });
+    modal.querySelector("[data-case-criteria-clear]")?.addEventListener("click", () => {
       if (!window.confirm("Bỏ tiêu chí đã chọn cho cả lô hàng? Các bảng kê sẽ quay về khuyến nghị và không chốt được cho tới khi chọn lại.")) return;
       save("");
     });
   };
 
   const initUomFactorConfirm = (root = document) => {
+    const modal = document.querySelector("[data-uom-factor-modal]");
     const shell = root.querySelector?.("[data-co-case-shell]") || document;
+    const setAll = (selector, text) =>
+      modal?.querySelectorAll(selector).forEach((el) => { el.textContent = text; });
+    const status = modal?.querySelector("[data-uom-factor-status]");
+    const input = modal?.querySelector("[data-uom-factor-input]");
+    const setStatus = (text, kind = "info") => {
+      if (!status) return;
+      status.hidden = !text;
+      status.textContent = text || "";
+      status.dataset.kind = kind;
+    };
+    const closeModal = () => modal?.setAttribute("hidden", "");
     shell.querySelectorAll?.("[data-origin-uom-confirm]").forEach((button) => {
       if (button.dataset.uomBound === "1") return;
       button.dataset.uomBound = "1";
-      button.addEventListener("click", async () => {
-        const bomUom = button.dataset.bomUom || "";
-        const lotUom = button.dataset.lotUom || "";
-        const materialCode = button.dataset.materialCode || "";
-        const answer = window.prompt(
-          `Mã ${materialCode}: 1 ${lotUom} (đơn vị trên tờ khai nhập) bằng bao nhiêu ${bomUom} (đơn vị trong BOM)?\n` +
-          `Nhập số, ví dụ 5 nghĩa là 1 ${lotUom} = 5 ${bomUom}. Hệ số này sẽ áp cho các hồ sơ sau của công ty.`,
-          "",
-        );
-        if (answer === null) return;
-        const perLot = parseFloat(String(answer).replace(",", "."));
-        if (!Number.isFinite(perLot) || perLot <= 0) {
-          toast("Hệ số quy đổi phải là số lớn hơn 0.", "error");
-          return;
-        }
-        button.setAttribute("disabled", "disabled");
-        try {
-          const response = await fetch(
-            `/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/uom-factor`,
-            {
-              method: "POST",
-              headers: {"Content-Type": "application/json", "Accept": "application/json"},
-              body: JSON.stringify({
-                product_code: button.dataset.productCode || "",
-                material_code: materialCode,
-                bom_uom: bomUom,
-                lot_uom: lotUom,
-                // The operator answers "1 lot unit = N BOM units"; the engine wants the
-                // factor that turns a BOM quantity into lot units.
-                factor: String(1 / perLot),
-                scope: "material",
-              }),
-            },
-          );
-          if (!response.ok) return;
-          toast(`Đã lưu hệ số: 1 ${lotUom} = ${perLot} ${bomUom}. Đang tải lại bảng kê…`, "success");
-          window.location.reload();
-        } finally {
-          button.removeAttribute("disabled");
-        }
+      button.addEventListener("click", () => {
+        if (!modal) return;
+        modal.dataset.productCode = button.dataset.productCode || "";
+        modal.dataset.materialCode = button.dataset.materialCode || "";
+        modal.dataset.bomUom = button.dataset.bomUom || "";
+        modal.dataset.lotUom = button.dataset.lotUom || "";
+        setAll("[data-uom-factor-material]", modal.dataset.materialCode);
+        setAll("[data-uom-factor-bom-uom]", modal.dataset.bomUom);
+        setAll("[data-uom-factor-lot-uom]", modal.dataset.lotUom);
+        if (input) input.value = "";
+        modal.querySelector('[name="uom-factor-scope"][value="material"]')?.setAttribute("checked", "checked");
+        const materialRadio = modal.querySelector('[name="uom-factor-scope"][value="material"]');
+        if (materialRadio) materialRadio.checked = true;
+        setStatus("");
+        modal.removeAttribute("hidden");
+        input?.focus();
       });
+    });
+    if (!modal || modal.dataset.uomFactorBound === "1") return;
+    modal.dataset.uomFactorBound = "1";
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal || event.target.closest("[data-uom-factor-close]")) closeModal();
+    });
+    const save = async () => {
+      const perLot = parseFloat(String(input?.value || "").replace(",", "."));
+      if (!Number.isFinite(perLot) || perLot <= 0) {
+        setStatus("Hệ số quy đổi phải là số lớn hơn 0.", "error");
+        return;
+      }
+      const scope = modal.querySelector('[name="uom-factor-scope"]:checked')?.value || "material";
+      const bomUom = modal.dataset.bomUom || "";
+      const lotUom = modal.dataset.lotUom || "";
+      setStatus("Đang lưu…", "info");
+      let response;
+      try {
+        response = await fetch(
+          `/clients/{{ client.id }}/co-case/{{ case.persisted_case_id }}/origin/uom-factor`,
+          {
+            method: "POST",
+            headers: {"Content-Type": "application/json", "Accept": "application/json"},
+            body: JSON.stringify({
+              product_code: modal.dataset.productCode || "",
+              material_code: modal.dataset.materialCode || "",
+              bom_uom: bomUom,
+              lot_uom: lotUom,
+              // The operator answers "1 lot unit = N BOM units"; the engine wants the
+              // factor that turns a BOM quantity into lot units.
+              factor: String(1 / perLot),
+              scope,
+            }),
+          },
+        );
+      } catch (error) {
+        setStatus(String(error), "error");
+        return;
+      }
+      if (!response.ok) {
+        const detail = await response.text();
+        setStatus(detail.slice(0, 160) || `Lỗi ${response.status}`, "error");
+        return;
+      }
+      closeModal();
+      const scopeNote = scope === "client" ? " cho mọi mã dùng cặp này" : "";
+      const swapped = await refreshCaseShellInPlace(
+        `Đã lưu hệ số: 1 ${lotUom} = ${perLot} ${bomUom}${scopeNote}.`,
+      );
+      if (!swapped) window.location.reload();
+    };
+    modal.querySelector("[data-uom-factor-save]")?.addEventListener("click", save);
+    input?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); save(); }
     });
   };
 

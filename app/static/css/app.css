@@ -2295,6 +2295,7 @@ button.co-stat:hover {
   align-items: center;
   gap: 0.3rem;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .criteria-other-input { width: 100%; }
@@ -2482,6 +2483,45 @@ button.co-stat:hover {
   color: var(--warning);
   font-size: 0.74rem;
   font-weight: 700;
+}
+
+/* ĐVT factor modal — one question ("1 CAY = mấy EA") and its scope. */
+.uom-factor-subject {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  color: var(--foreground-muted);
+}
+
+.uom-factor-equation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.9rem;
+  font-size: 1rem;
+}
+
+.uom-factor-equation input {
+  width: 8rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 1rem;
+}
+
+.uom-factor-scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.9rem;
+  margin-bottom: 0.9rem;
+  font-size: 0.84rem;
+}
+
+.uom-factor-scope label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+  white-space: nowrap;
 }
 
 /* ĐVT mismatch on a material row: a warning that is also the fix affordance. */
@@ -5814,6 +5854,13 @@ body.co-stock-history-modal-open { overflow: hidden; }
   gap: 0.5rem;
   align-items: end;
   margin-bottom: 0.75rem;
+}
+
+.origin-substitute-search-count {
+  margin: -0.4rem 0 0.55rem;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--foreground-muted);
 }
 
 .origin-substitute-search {

@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
 
+from app.material_search import fold_text
+
 
 def _dec(value) -> Decimal:
     try:
@@ -58,7 +60,12 @@ def build_stock_first_candidates(
     stock-first (most remaining first). `catalog_index` maps any material key to a
     catalog row (name/hs_code/category/customs_relevance)."""
     exclude = {str(code).strip() for code in (exclude_codes or set()) if str(code).strip()}
-    needle = str(query or "").strip().lower()
+    # Same rule as `material_search.match_score`: every token must hit the code or
+    # the name, accent-insensitively. The old whole-phrase lowercase substring made
+    # this list disagree with the catalog search next to it — "bu long" found
+    # nothing and "bu lông" missed "Bộ ốc vít, bu lông…" whenever a word sat
+    # between the two.
+    tokens = fold_text(query).split()
 
     groups: dict[str, dict] = {}
     for row in stock_rows or []:
@@ -91,8 +98,10 @@ def build_stock_first_candidates(
     for group in groups.values():
         remaining = group.pop("_remaining")
         group["total_remaining_qty"] = str(remaining)
-        if needle and needle not in group["material_code"].lower() and needle not in group["name"].lower():
-            continue
+        if tokens:
+            haystack = [fold_text(group["material_code"]), fold_text(group["name"])]
+            if not all(any(token in field for field in haystack) for token in tokens):
+                continue
         candidates.append(group)
 
     candidates.sort(key=lambda item: (-_dec(item["total_remaining_qty"]), item["material_code"]))

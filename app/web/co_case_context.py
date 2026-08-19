@@ -2991,6 +2991,15 @@ def origin_material_from_bom_row(
     uom_unconfirmed = any(
         str(line.get("uom_factor_source") or "") == "unconfirmed" for line in allocation_lines
     )
+    # Only a factor that actually CHANGES the number is worth a row control. EA vs
+    # PIECES (alias), the same unit spelled twice, and an unknown unit all resolve to
+    # 1:1, so showing "⇄ PIECES" on those rows put a conversion mark on 145 lines
+    # where nothing was converted and nothing could be done about it.
+    uom_converted = any(
+        str(line.get("uom_factor_source") or "") in {"uom_family", "operator_confirmed"}
+        and str(line.get("uom_factor") or "1") not in {"", "1"}
+        for line in allocation_lines
+    )
     line_native_currencies = unique_texts(line.get("native_currency", "") for line in allocation_lines)
     native_currency_text = line_native_currencies[0] if len(line_native_currencies) == 1 else ""
     native_unit_values = unique_texts(line.get("unit_value_native", "") for line in allocation_lines)
@@ -3106,6 +3115,7 @@ def origin_material_from_bom_row(
         "uom": row.get("uom", ""),
         "lot_uom": lot_uom_text,
         "uom_unconfirmed": uom_unconfirmed,
+        "uom_converted": uom_converted,
         "source_document_ref": allocation_document_ref(allocation_lines) or row.get("source") or row.get("product_version_id", ""),
     }
 def _resolve_vn_origin_lines(allocation_lines: list[dict], supplier_flags: dict | None) -> tuple[Decimal, Decimal]:

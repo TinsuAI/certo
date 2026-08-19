@@ -121,3 +121,28 @@ def test_stock_first_ordering_by_remaining_desc():
         _lot(allocation_code="BIG", customs_item_code="BIG", remaining_qty="900"),
     ]
     assert _codes(build_stock_first_candidates(lots, catalog_index={})) == ["BIG", "SMALL"]
+
+
+def test_query_matches_every_spelling_of_the_same_part():
+    """Operator report 2026-08-19: searching "bu lông" must surface every NVL whose
+    name contains those words — "Bu lông…", "Bộ bu lông…", "Bộ ốc vít, bu lông…" are
+    three separate BCCT codes and the operator reads the list to compare their tồn.
+    The old whole-phrase substring dropped any name with a word between "bu" and
+    "lông", and dropped unaccented typing entirely."""
+    from app.substitute_discovery import build_stock_first_candidates
+
+    lots = [
+        _lot(allocation_code="B1", customs_item_code="B1", remaining_qty="30",
+             material_description="Bu lông bằng thép, có ren, M8X1.25PX57.8 mm"),
+        _lot(allocation_code="B2", customs_item_code="B2", remaining_qty="20",
+             material_description="Bộ bu lông dùng để cố định linh kiện"),
+        _lot(allocation_code="B3", customs_item_code="B3", remaining_qty="10",
+             material_description="Bộ ốc vít, bu lông dùng để cố định linh kiện"),
+        _lot(allocation_code="X9", customs_item_code="X9", remaining_qty="99",
+             material_description="Ống thép cán nóng"),
+    ]
+    assert _codes(build_stock_first_candidates(lots, catalog_index={}, query="bu lông")) == ["B1", "B2", "B3"]
+    # Accent-insensitive, same rule as material_search.match_score.
+    assert _codes(build_stock_first_candidates(lots, catalog_index={}, query="bu long")) == ["B1", "B2", "B3"]
+    # Tokens are AND-ed across code + name, so an extra word still narrows.
+    assert _codes(build_stock_first_candidates(lots, catalog_index={}, query="oc vit bu long")) == ["B3"]
