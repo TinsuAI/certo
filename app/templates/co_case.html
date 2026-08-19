@@ -4468,9 +4468,14 @@
 
     let latestCandidatesByCode = new Map();
 
+    // Tồn is filled in by the lazy /substitute-stock batch, which is the authoritative
+    // figure (it nets live ledger claims and drops ineligible lots). Until it answers,
+    // say "—" rather than "0": a 192-row search rendered every candidate as "0 tồn"
+    // for several seconds, which reads as "none of these has stock".
     const fmtStockQty = (value) => {
+      if (value === undefined || value === null || value === "") return "—";
       const n = Number(value);
-      return Number.isFinite(n) ? n.toLocaleString("vi-VN", {maximumFractionDigits: 3}) : "0";
+      return Number.isFinite(n) ? n.toLocaleString("vi-VN", {maximumFractionDigits: 3}) : "—";
     };
     const buildItem = (item, kind) => {
       const li = document.createElement("li");
@@ -4478,12 +4483,6 @@
       li.dataset.materialCode = item.material_code;
       if (item.previously_used) li.dataset.previouslyUsed = "1";
       const stock = item.stock || {};
-      // Stock-first search rows already carry the snapshot total; show it now instead
-      // of "0 tồn" until the lazy /substitute-stock batch answers (192 codes on a
-      // "bu lông" search — the operator is reading this list precisely to compare tồn).
-      if (!stock.total_remaining_qty && item.total_remaining_qty) {
-        stock.total_remaining_qty = item.total_remaining_qty;
-      }
       const score = kind === "recommended" ? (item.score?.toFixed?.(3) || item.score || "") : "";
       const priceHint = state.optimizationMode === "min_lvc" ? stock.unit_price_max : stock.unit_price_min;
       const priorTip = item.previously_used
