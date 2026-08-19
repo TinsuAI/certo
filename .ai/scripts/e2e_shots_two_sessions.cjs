@@ -39,6 +39,13 @@ let n = 0;
   const goOrigin = async () => {
     await page.goto(`${BASE}/clients/${CLIENT}/co-case/${CASE}/origin`, { waitUntil: "networkidle2", timeout: 240000 });
   };
+  const openSettings = async () => {
+    await page.evaluate(() => {
+      const panel = [...document.querySelectorAll("[data-origin-sheet-panel]")].find((p) => !p.hidden);
+      panel?.querySelector("[data-origin-settings-open]")?.click();
+    });
+    await page.waitForSelector("[data-origin-settings-modal]:not([hidden])", { timeout: 20000 });
+  };
 
   await goOrigin();
 
@@ -88,16 +95,33 @@ let n = 0;
     "2026-08-17/18 (e00f174 → 240a9d8): cột Đơn giá / Trị giá NVL đọc theo NGUYÊN TỆ của lô, kèm nhãn tiền tệ trên từng dòng. Hồ sơ local này khai toàn bộ 534 dòng bằng VND nên hai làn trùng nhau; làn USD đã kiểm trên prod VNG26030107.",
     "[data-origin-sheet-panel]:not([hidden]) .origin-table-scroll");
 
-  await page.evaluate(() => {
-    const panel = [...document.querySelectorAll("[data-origin-sheet-panel]")].find((p) => !p.hidden);
-    panel?.querySelector("[data-origin-settings-open]")?.click();
-  });
-  await page.waitForSelector("[data-origin-settings-modal]:not([hidden])", { timeout: 10000 });
+  await openSettings();
   await shot("cau-hinh-bang-ke-tien-te",
-    "2026-08-17/18 (240a9d8): mỗi bảng kê tự chọn TIỀN TỆ (Nguyên tệ / VND) và chiều tối ưu; mọi lô đều mang hai làn tiền nên đổi qua lại không phải tính lại.",
+    "⚙ Cấu hình sau 2026-08-19: nhãn nay là \"Nguyên tệ (theo tờ khai)\" — bỏ \"(VND)\" vì chữ đó là tiền tệ FOB của riêng bảng kê, trong khi các dòng NVL đến từ nhiều tờ khai. Thêm ô SỐ LẺ. Dòng nhắc cũng đổi: bấm Lưu là tự tính lại (17156a5).",
     "[data-origin-settings-modal]:not([hidden]) .origin-settings-dialog");
 
+  // Số lẻ: default follows the currency, and the small-value guard shows on the same screen.
   await page.evaluate(() => document.querySelector("[data-origin-settings-modal]:not([hidden])")?.setAttribute("hidden", ""));
+  await shot("so-le-theo-tien-te",
+    "MỚI (2026-08-19): dòng khai bằng VND không còn số lẻ (3 · 289 · 148 …). Cùng màn hình này là chốt chặn: các dòng giá trị rất nhỏ vẫn hiện đủ chữ số (0,032 · 0,018 · 0,0095) — không bao giờ bị rút thành '0', vì '0' là cách hệ thống báo thiếu đơn giá (17156a5).",
+    "[data-origin-sheet-panel]:not([hidden]) .origin-table-scroll");
+  await openSettings();
+  await page.evaluate(() => {
+    const sel = document.querySelector("[data-origin-settings-modal]:not([hidden]) [data-origin-recommendation-decimals]");
+    sel.value = "2"; sel.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await new Promise((r) => setTimeout(r, 600));
+  await page.evaluate(() => document.querySelector("[data-origin-settings-modal]:not([hidden])")?.setAttribute("hidden", ""));
+  await shot("so-le-dat-2",
+    "Đặt Số lẻ = 2: áp ngay khi chọn, không cần bấm Lưu (đây là cài đặt màn hình, số không đổi). File xuất vẫn giữ nguyên số và theo định dạng mẫu HQ.",
+    "[data-origin-sheet-panel]:not([hidden]) .origin-table-scroll");
+  await openSettings();
+  await page.evaluate(() => {
+    const sel = document.querySelector("[data-origin-settings-modal]:not([hidden]) [data-origin-recommendation-decimals]");
+    sel.value = ""; sel.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await page.evaluate(() => document.querySelector("[data-origin-settings-modal]:not([hidden])")?.setAttribute("hidden", ""));
+
   await page.evaluate(() => {
     const panel = [...document.querySelectorAll("[data-origin-sheet-panel]")].find((p) => !p.hidden);
     panel?.querySelector("[data-allocation-toggle]")?.click();
@@ -131,8 +155,43 @@ let n = 0;
     "2026-08-18 (efbdc31): đơn giá quy đổi theo tỷ giá được làm tròn 6 chữ số thập phân (trước đây in ra 28 chữ số).",
     "[data-origin-sheet-panel]:not([hidden]) .origin-material-table");
 
+  // --- saving the config recalculates -------------------------------------------
+  console.log("C. Lưu cấu hình là tự tính lại");
+  await openSettings();
+  await page.evaluate(() => { window.__coCfgMarker = "alive"; });
+  await page.evaluate(() => {
+    const modal = document.querySelector("[data-origin-settings-modal]:not([hidden])");
+    modal.querySelector('[data-criteria-seg="RVC"]').click();
+    const thr = modal.querySelector("[data-origin-recommendation-threshold]");
+    thr.value = "40"; thr.dispatchEvent(new Event("input", { bubbles: true }));
+    modal.querySelector("[data-origin-recommendation-save]").click();
+  });
+  await page.waitForFunction(
+    () => {
+      const panel = [...document.querySelectorAll("[data-origin-sheet-panel]")].find((p) => !p.hidden);
+      return /RVC/.test(panel?.querySelector("[data-origin-criteria-chip] strong")?.textContent || "");
+    },
+    { timeout: 240000 },
+  ).catch(() => console.log("    (không đổi được tiêu chí)"));
+  const cfgAlive = await page.evaluate(() => window.__coCfgMarker || "");
+  console.log(`  (no-F5 check: JS context ${cfgAlive === "alive" ? "survived" : "LOST"})`);
+  await shot("luu-cau-hinh-tu-tinh-lai",
+    `MỚI (2026-08-19): đổi tiêu chí sang RVC ngưỡng 40 rồi bấm Lưu — bảng kê tự tính lại tại chỗ (JS context ${cfgAlive === "alive" ? "còn nguyên" : "mất"}), chip Tiêu chí và ô LVC "/ 40%" cập nhật ngay, sheet vẫn ở "Đã tính". Trước đây phải tự nhớ bấm "Tính bảng kê", và ngưỡng tròn còn in ra "/ 4E+1%" (17156a5).`,
+    "[data-origin-sheet-panel]:not([hidden]) .origin-config-metrics");
+  await openSettings();
+  await page.evaluate(() => {
+    document.querySelector("[data-origin-settings-modal]:not([hidden]) [data-origin-recommendation-reset]")?.click();
+  });
+  await page.waitForFunction(
+    () => {
+      const panel = [...document.querySelectorAll("[data-origin-sheet-panel]")].find((p) => !p.hidden);
+      return !/RVC/.test(panel?.querySelector("[data-origin-criteria-chip] strong")?.textContent || "");
+    },
+    { timeout: 240000 },
+  ).catch(() => console.log("    (reset không xong)"));
+
   // --- ĐVT ---------------------------------------------------------------------
-  console.log("C. ĐVT");
+  console.log("D. ĐVT");
   const realUomButton = await page.$("[data-origin-uom-confirm]");
   if (realUomButton) {
     await page.evaluate(() => document.querySelector("[data-origin-uom-confirm]")?.click());
@@ -153,7 +212,7 @@ let n = 0;
   await page.evaluate(() => document.querySelector("[data-uom-factor-modal]")?.setAttribute("hidden", ""));
 
   // --- substitute search --------------------------------------------------------
-  console.log("D. Tìm NVL thay thế");
+  console.log("E. Tìm NVL thay thế");
   await page.waitForSelector("[data-origin-substitute-trigger]", { timeout: 60000 });
   await page.evaluate(() => {
     const btn = [...document.querySelectorAll("[data-origin-substitute-trigger]")].find((b) => b.offsetParent !== null)
@@ -190,14 +249,14 @@ let n = 0;
   // whole-case run, which takes over 10 minutes on this dataset locally. The defect
   // it exposed (aggregate said đủ tồn while sheets said "Cần tính lại") is pinned by
   // tests/test_bulk_recalc_downstream_sheets.py instead.
-  console.log("E. Review");
+  console.log("F. Review");
   await goOrigin();
   await shot("review-tat-ca-da-tinh",
     "Danh sách bảng kê: không sheet nào còn nằm ở 'Cần tính lại', và mỗi dòng ghi rõ tiêu chí đang theo lô hàng — trước 2026-08-19 dòng nào cũng ghi 'tiêu chí: khuyến nghị' dù lô đã chọn.",
     ".origin-review-table");
 
   // --- clear the criterion (also proves it persists) ----------------------------
-  console.log("F. Bỏ chọn");
+  console.log("G. Bỏ chọn");
   await page.click("[data-origin-case-criteria-clear]");
   await page.waitForFunction(
     () => document.querySelector("[data-origin-case-criteria]")?.classList.contains("origin-case-criteria-unset"),
@@ -211,8 +270,10 @@ let n = 0;
   fs.writeFileSync(path.join(OUT, "README.md"),
     `# Ảnh e2e — thay đổi của 2 session gần nhất\n\n` +
     `Chụp trên \`${BASE}\`, khách \`${CLIENT}\`, hồ sơ \`${CASE}\` (dữ liệu Johnson thật, local).\n` +
-    `Sinh bằng \`.ai/scripts/e2e_shots_two_sessions.cjs\`. Không bấm Tính / Chốt / Chốt tất cả;\n` +
-    `thay đổi duy nhất có ghi xuống là tiêu chí của lô, đã được bỏ chọn lại ở bước cuối.\n\n` +
+    `Sinh bằng \`.ai/scripts/e2e_shots_two_sessions.cjs\`:\n` +
+    `không bấm Chốt / Chốt tất cả và không đụng vào sổ tồn. Hai thứ CÓ ghi xuống rồi trả lại:\n` +
+    `tiêu chí của lô (bỏ chọn ở bước cuối) và cấu hình của bảng kê đầu tiên — bước "Lưu cấu hình\n` +
+    `là tự tính lại" đặt RVC ngưỡng 40 để chụp rồi bấm Reset về khuyến nghị ngay sau đó.\n\n` +
     `**Giới hạn của dữ liệu local:** mọi lô của hồ sơ này khai bằng VND và không còn cặp ĐVT khác\n` +
     `đại lượng nào, nên làn tiền USD (\`e00f174\`/\`240a9d8\`) và nút "Cần hệ số" trên dòng không\n` +
     `xuất hiện được ở đây; hai thứ đó đã kiểm trên prod VNG26030107. Bảng 'Tổng hợp NVL'\n` +
@@ -225,7 +286,10 @@ let n = 0;
     `\`5f6a065\` sheet cũ lấy lại làn hoá đơn khi tính lại · \`efbdc31\` làm tròn đơn giá quy đổi tỷ giá\n\n` +
     `## Session 2026-08-19\n` +
     `\`812eb0b\` sáu lỗi khách báo · \`aad9493\` test phạm vi hệ số ĐVT · \`698fbda\` tồn "—" khi đang tải ·\n` +
-    `\`6d89aea\` changelog 0.17.0 + yêu cầu API ĐVT gửi Data Hub\n\n` +
+    `\`6d89aea\` changelog 0.17.0 + yêu cầu API ĐVT gửi Data Hub ·\n` +
+    `\`fc16d5c\` dòng Review ghi đúng nguồn tiêu chí ·\n` +
+    `\`17156a5\` nhãn "Nguyên tệ (theo tờ khai)" + lưu cấu hình là tự tính lại + Số lẻ theo tiền tệ\n` +
+    `(kèm sửa ngưỡng tròn in ra "4E+1%")\n\n` +
     `| Ảnh | Nội dung |\n| --- | --- |\n${captions.join("\n")}\n`,
     "utf-8");
 
