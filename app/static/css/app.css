@@ -6030,3 +6030,190 @@ button.sw:disabled { background: var(--border-strong); opacity: 0.45; cursor: no
   margin: 0;
   width: min(30rem, 100%);
 }
+
+/* === design gallery (redesign 2026-08-20) === */
+/* Owner: GET /design — app/routes/design.py + app/templates/design_gallery.html.
+   Nothing above this marker is touched by this agent. Only two kinds of rule
+   live here:
+     1. Layout helpers scoped to #design-gallery. That page and nothing else.
+     2. Four components DESIGN.md §4 describes that still had no shared
+        implementation when the gallery was built: the field error state, the
+        switch, the button group and the critical-tinted table row. They are
+        global (not scoped) on purpose so real pages can use them — move them
+        up into the component blocks when this branch is reconciled. */
+
+/* — Field error state (pairs with the existing .fld / .hint spec) — */
+.fld .err,
+.field .err {
+  display: block;
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--error);
+}
+
+.fld.is-error > label,
+.field.is-error > label { color: var(--error); }
+
+.fld.is-error input,
+.fld.is-error select,
+.fld.is-error textarea,
+.field.is-error input,
+.field.is-error select,
+.field.is-error textarea { border-color: var(--error); }
+
+.fld.is-error input:focus,
+.fld.is-error select:focus,
+.fld.is-error textarea:focus { outline-color: var(--error); border-color: var(--error); }
+
+/* — Switch: on/off state that takes effect immediately (no Save button) — */
+button.sw {
+  position: relative;
+  width: 34px;
+  height: 19px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--border-strong);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+button.sw::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: var(--shadow-md);
+  transition: transform 0.15s;
+}
+
+button.sw:hover { background: var(--foreground-muted); }
+button.sw.on, button.sw.on:hover { background: var(--primary); }
+button.sw.on::after { transform: translateX(15px); }
+button.sw:disabled { background: var(--border-strong); opacity: 0.45; cursor: not-allowed; }
+
+/* — Button group: mutually exclusive choices of one action — */
+.btn-group { display: inline-flex; }
+.btn-group > * { border-radius: 0; margin-left: -1px; }
+.btn-group > *:first-child { margin-left: 0; border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.btn-group > *:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+
+/* — Table row in the critical tint (rejected / blocked row) — */
+.table tbody tr.is-critical,
+.data-table tbody tr.is-critical,
+.dh-table tbody tr.is-critical { background: var(--error-soft); }
+
+.table tbody tr.is-critical:hover,
+.data-table tbody tr.is-critical:hover,
+.dh-table tbody tr.is-critical:hover { background: var(--error-soft); }
+
+/* — Gallery-only layout. Scoped: never reaches a real page. — */
+#design-gallery { display: flex; flex-direction: column; gap: 16px; }
+
+#design-gallery .dsg-sub {
+  margin: 18px 0 8px;
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--foreground-muted);
+}
+
+#design-gallery .dsg-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+#design-gallery .dsg-col { display: flex; flex-direction: column; gap: 8px; }
+#design-gallery .dsg-grid2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+#design-gallery .dsg-swatches {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(184px, 1fr));
+  gap: 10px;
+}
+#design-gallery .dsg-sw {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+}
+#design-gallery .dsg-sw i { display: block; height: 40px; border-bottom: 1px solid var(--border); }
+#design-gallery .dsg-sw b {
+  display: block;
+  padding: 6px 8px 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+#design-gallery .dsg-sw span {
+  display: block;
+  padding: 0 8px 7px;
+  font-size: 11px;
+  color: var(--foreground-muted);
+  overflow-wrap: anywhere;
+}
+
+#design-gallery .dsg-split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+#design-gallery .dsg-plane {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+}
+#design-gallery .dsg-plane-swatch { width: 44px; height: 44px; flex-shrink: 0; border-radius: var(--radius-sm); }
+#design-gallery .dsg-plane p { margin: 2px 0 0; }
+
+#design-gallery .dsg-shadow {
+  min-width: 152px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  background: var(--card);
+}
+#design-gallery .dsg-shadow b { display: block; font-family: var(--mono); font-size: 11.5px; }
+#design-gallery .dsg-shadow span { display: block; }
+
+#design-gallery .dsg-fonts { display: flex; flex-direction: column; gap: 12px; }
+#design-gallery .dsg-heads { display: flex; flex-direction: column; gap: 6px; }
+#design-gallery .dsg-heads h1,
+#design-gallery .dsg-heads h2,
+#design-gallery .dsg-heads h3,
+#design-gallery .dsg-heads h4,
+#design-gallery .dsg-heads h5 { margin: 0; }
+
+#design-gallery .dsg-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(268px, 1fr));
+  gap: 14px 16px;
+  align-items: start;
+  max-width: none;
+}
+#design-gallery .dsg-form .dsg-wide { grid-column: 1 / -1; }
+#design-gallery .dsg-matrix td { vertical-align: middle; }
+#design-gallery .dsg-matrix th:first-child,
+#design-gallery .dsg-matrix td:first-child { white-space: nowrap; }
+
+/* The modal is shown inline so it lands in a screenshot; a non-modal
+   <dialog open> is position:absolute by UA default, which would float it
+   over the section below. */
+#design-gallery dialog.accept-dialog {
+  position: static;
+  margin: 0;
+  width: min(30rem, 100%);
+}

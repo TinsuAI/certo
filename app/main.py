@@ -21,6 +21,7 @@ from app import auth, changelog, i18n, settings_store, version as appver
 from app.database import apply_migrations, close_pool
 from app.seed_master_data import seed_master_data_if_empty
 from app.routes import admin, agent, api, auth_api, bcct, bom, bqd, catalog, catalog_discovery, client_config_ui, client_uom_factors, clients, declarations, inventory_snapshots, jobs as job_routes, master_data, notifications as notif_routes, nxt, proposals, substitutes, uploads
+from app.routes import design  # /design component gallery (redesign 2026-08-20)
 from app.seed import auto_seed_demo_if_empty, seed_parser_rules_if_empty
 
 ROOT = Path(__file__).resolve().parent
@@ -288,6 +289,7 @@ app.include_router(api.router)
 app.include_router(notif_routes.router)
 app.include_router(agent.router)
 app.include_router(auth_api.router)
+app.include_router(design.router)
 
 
 @app.get("/healthz")

@@ -1,0 +1,609 @@
+{# Bộ thành phần giao diện (design gallery) — trang tham chiếu chỉ đọc cho
+   đợt reskin 2026-08-20. Trang này cố tình viết nhãn tiếng Việt thẳng vào
+   template thay vì thêm hàng chục khoá i18n: đây là trang dành cho người
+   phát triển, không phải màn hình nghiệp vụ.
+
+   Quy tắc: chỉ dùng class thật của ứng dụng. Thành phần nào hiển thị sai ở
+   đây là lỗi thật của app.css, không được vá bằng CSS riêng của trang. #}
+{% extends "base.html" %}
+{% block title %}Bộ thành phần giao diện · {{ t('app.brand') }}{% endblock %}
+{% block content %}
+<div id="design-gallery" class="dsg">
+
+<section class="page-bar">
+  <div class="page-bar-main">
+    <h1>Bộ thành phần giao diện</h1>
+    <span class="page-tagline">Data Hub · hệ thiết kế 2026-08-20 · trang tham chiếu, chỉ đọc</span>
+  </div>
+  <div class="page-actions">
+    <a class="btn-secondary btn-sm" href="/design#bang">Bảng</a>
+    <a class="btn-secondary btn-sm" href="/design#bieu-mau">Biểu mẫu</a>
+  </div>
+</section>
+
+<div class="callout">
+  Mọi thành phần dưới đây dùng đúng class của <span class="mono">app/static/css/app.css</span>.
+  Nếu một thành phần trông sai ở trang này thì nó cũng sai ở trang nghiệp vụ — sửa ở app.css, không sửa ở đây.
+</div>
+
+<!-- ═══ 1. Màu ═══ -->
+<section class="zone" id="mau">
+  <div class="zone-head">
+    <div>
+      <h2>1. Màu — token</h2>
+      <p class="meta">Dùng khi cần bất kỳ màu nào: luôn gọi <span class="mono">var(--token)</span>, không viết mã hex thẳng vào trang, vì bảng màu đổi theo chủ đề sáng/tối.</p>
+    </div>
+  </div>
+
+  <div class="callout callout-info">
+    <b>Tách nhận diện hai ứng dụng.</b> Data Hub là <b>mặt phẳng dữ liệu</b> → nhận diện xanh hải quân
+    <span class="mono">--brand-500 = #1d3557</span>. CO là mặt phẳng logic (tính toán) → chàm
+    <span class="mono">--logic-500 = #4338ca</span>. Không trộn hai họ màu.
+    <span class="mono">--brand</span> chỉ dùng cho phần khung nhận diện (monogram, header, viền khung);
+    còn nút chính, liên kết, trạng thái đang chọn của <b>cả hai ứng dụng</b> đều dùng
+    <span class="mono">--primary</span> để người dùng chuyển qua lại vẫn thấy một màu hành động.
+  </div>
+
+  <div class="dsg-split">
+    <div class="dsg-plane dsg-plane-data">
+      <div class="dsg-plane-swatch" style="background: var(--brand-500)"></div>
+      <div>
+        <b>Dữ liệu — navy</b>
+        <p class="meta">Data Hub. <span class="mono">--brand-500</span></p>
+      </div>
+    </div>
+    <div class="dsg-plane dsg-plane-logic">
+      <div class="dsg-plane-swatch" style="background: var(--logic-500)"></div>
+      <div>
+        <b>Logic — chàm</b>
+        <p class="meta">CO (tính toán, quy tắc). <span class="mono">--logic-500</span></p>
+      </div>
+    </div>
+  </div>
+
+  {% set token_groups = [
+    ('Nhận diện: dải navy (Data Hub)', ['--brand-50', '--brand-100', '--brand-200', '--brand-500', '--brand-600', '--brand-700']),
+    ('Nhận diện: dải chàm (CO — có mặt ở đây để dùng chung quy tắc)', ['--logic-50', '--logic-100', '--logic-200', '--logic-500', '--logic-600', '--logic-700']),
+    ('Bề mặt', ['--background', '--background-top', '--card', '--card-muted', '--menu-surface', '--surface-subtle', '--surface-hover', '--surface-sunk', '--surface-input', '--surface-overlay']),
+    ('Chữ', ['--foreground', '--foreground-soft', '--foreground-muted', '--stale']),
+    ('Đường viền', ['--border', '--border-strong', '--muted-bd', '--critical-bd', '--warning-bd', '--info-bd', '--success-bd']),
+    ('Hành động', ['--primary', '--primary-hover', '--primary-soft', '--primary-foreground', '--brand', '--brand-foreground']),
+    ('Ngữ nghĩa: chữ/viền', ['--success', '--warning', '--error', '--info']),
+    ('Ngữ nghĩa: nền nhạt', ['--success-soft', '--warning-soft', '--error-soft', '--info-soft']),
+  ] %}
+
+  {% for group_title, tokens in token_groups %}
+  <h3 class="dsg-sub">{{ group_title }}</h3>
+  <div class="dsg-swatches">
+    {% for tk in tokens %}
+    <div class="dsg-sw">
+      <i style="background: var({{ tk }})"></i>
+      <b>{{ tk }}</b>
+      <span class="mono" data-token="{{ tk }}">…</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+
+  <h3 class="dsg-sub">Đổ bóng &amp; bo góc</h3>
+  <div class="dsg-row">
+    <div class="dsg-shadow" style="box-shadow: var(--shadow-md)"><b>--shadow-md</b><span class="meta">Thẻ, bảng</span></div>
+    <div class="dsg-shadow" style="box-shadow: var(--shadow-lg)"><b>--shadow-lg</b><span class="meta">Hộp thoại, menu nổi</span></div>
+    <div class="dsg-shadow" style="border-radius: var(--radius-sm)"><b>--radius-sm 3px</b><span class="meta">Nút, nhãn, ô nhập</span></div>
+    <div class="dsg-shadow" style="border-radius: var(--radius-md)"><b>--radius-md 5px</b><span class="meta">Thẻ, bảng</span></div>
+    <div class="dsg-shadow" style="border-radius: var(--radius-lg)"><b>--radius-lg 8px</b><span class="meta">Hộp thoại</span></div>
+  </div>
+</section>
+
+<!-- ═══ 2. Chữ ═══ -->
+<section class="zone" id="chu">
+  <div class="zone-head">
+    <div>
+      <h2>2. Chữ</h2>
+      <p class="meta">Dùng khi đặt tiêu đề hoặc hiển thị số: tiêu đề dùng <span class="mono">--display</span>, nội dung dùng <span class="mono">--sans</span>, mọi con số và mã dùng <span class="mono">--mono</span> kèm <span class="mono">tabular-nums</span>.</p>
+    </div>
+  </div>
+
+  <h3 class="dsg-sub">Ba họ chữ</h3>
+  <div class="dsg-fonts">
+    <div>
+      <span class="meta mono">--display · Be Vietnam Pro</span>
+      <p style="font-family: var(--display); font-size: 22px; font-weight: 700; letter-spacing: -.01em; margin: 4px 0 0;">Bảng kê chứng từ xuất khẩu</p>
+    </div>
+    <div>
+      <span class="meta mono">--sans · Inter</span>
+      <p style="font-family: var(--sans); font-size: 14px; margin: 4px 0 0;">Dòng 1.284 của bảng chứng từ chưa khớp với tờ khai nào trong kỳ 07/2026.</p>
+    </div>
+    <div>
+      <span class="meta mono">--mono · JetBrains Mono</span>
+      <p style="font-family: var(--mono); font-size: 12.5px; margin: 4px 0 0;">105678912340 · E31 · GT-INV-3000TL · 8f2c41a</p>
+    </div>
+  </div>
+
+  <h3 class="dsg-sub">Bậc cỡ chữ</h3>
+  <table class="table dense">
+    <thead><tr><th>Token</th><th>Giá trị</th><th>Mẫu</th><th>Dùng cho</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">--fs-xs</td><td class="num">0.72rem</td><td style="font-size: var(--fs-xs)">Tồn kho đầu kỳ theo tờ khai</td><td class="meta">Nhãn phụ, chú thích trong bảng</td></tr>
+      <tr><td class="mono">--fs-sm</td><td class="num">0.8125rem</td><td style="font-size: var(--fs-sm)">Tồn kho đầu kỳ theo tờ khai</td><td class="meta">Chữ trong bảng, chú thích trường</td></tr>
+      <tr><td class="mono">--fs-md</td><td class="num">0.875rem</td><td style="font-size: var(--fs-md)">Tồn kho đầu kỳ theo tờ khai</td><td class="meta">Nội dung mặc định</td></tr>
+      <tr><td class="mono">--fs-lg</td><td class="num">1.05rem</td><td style="font-size: var(--fs-lg)">Tồn kho đầu kỳ theo tờ khai</td><td class="meta">Tiêu đề nhóm trong thẻ</td></tr>
+      <tr><td class="mono">--fs-xl</td><td class="num">1.25rem</td><td style="font-size: var(--fs-xl)">Tồn kho đầu kỳ</td><td class="meta">Số trong ô thống kê</td></tr>
+      <tr><td class="mono">--fs-2xl</td><td class="num">1.4rem</td><td style="font-size: var(--fs-2xl)">Tồn kho đầu kỳ</td><td class="meta">Tiêu đề trang</td></tr>
+    </tbody>
+  </table>
+
+  <h3 class="dsg-sub">Tiêu đề h1–h5</h3>
+  <div class="dsg-heads">
+    <h1>h1 · Chứng từ chuyển tiếp</h1>
+    <h2>h2 · Danh mục vật tư</h2>
+    <h3>h3 · Đối chiếu định mức</h3>
+    <h4>h4 · Kỳ 07/2026</h4>
+    <h5>h5 · Nguồn: tệp BCCT ngày 12/07</h5>
+  </div>
+
+  <h3 class="dsg-sub">Số căn cột — có và không có tabular numerics</h3>
+  <p class="meta">Cùng một bộ số. Bên trái dùng <span class="mono">.num</span> (mono + tabular-nums + căn phải): chữ số thẳng cột nên mắt so sánh được độ lớn. Bên phải để mặc định: cột số gãy, không đọc nhanh được.</p>
+  <div class="dsg-grid2">
+    <div>
+      <table class="table dense">
+        <thead><tr><th>Mã vật tư</th><th class="num">Lượng xuất</th><th class="num">Trị giá (VND)</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">GT-INV-3000TL</td><td class="num">1.240,000</td><td class="num">2.480.000.000</td></tr>
+          <tr><td class="mono">NL-ALU-4040</td><td class="num">88.412,500</td><td class="num">193.907.250</td></tr>
+          <tr><td class="mono">NL-PCB-A21</td><td class="num">6,750</td><td class="num">9.112.500</td></tr>
+          <tr><td class="mono">NL-CAB-2X4</td><td class="num">120.000,000</td><td class="num">1.044.000.000</td></tr>
+        </tbody>
+      </table>
+      <p class="meta">Có <span class="mono">.num</span> — đúng</p>
+    </div>
+    <div>
+      <table class="table dense">
+        <thead><tr><th>Mã vật tư</th><th>Lượng xuất</th><th>Trị giá (VND)</th></tr></thead>
+        <tbody>
+          <tr><td>GT-INV-3000TL</td><td>1.240,000</td><td>2.480.000.000</td></tr>
+          <tr><td>NL-ALU-4040</td><td>88.412,500</td><td>193.907.250</td></tr>
+          <tr><td>NL-PCB-A21</td><td>6,750</td><td>9.112.500</td></tr>
+          <tr><td>NL-CAB-2X4</td><td>120.000,000</td><td>1.044.000.000</td></tr>
+        </tbody>
+      </table>
+      <p class="meta">Không có <span class="mono">.num</span> — sai</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 3. Nút ═══ -->
+<section class="zone" id="nut">
+  <div class="zone-head">
+    <div>
+      <h2>3. Nút</h2>
+      <p class="meta">Dùng khi có hành động: mỗi màn hình chỉ một nút <span class="mono">.btn-primary</span>; các hành động còn lại là <span class="mono">.btn-secondary</span> hoặc <span class="mono">.btn-ghost</span>; <span class="mono">.btn-danger</span> chỉ cho việc xoá hoặc huỷ không hoàn tác được.</p>
+    </div>
+  </div>
+
+  <table class="table dense dsg-matrix">
+    <thead>
+      <tr><th>Kiểu</th><th>Mặc định</th><th>.btn-sm</th><th>.btn-xs</th><th>Vô hiệu</th><th>Có biểu tượng</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="mono">.btn-primary</td>
+        <td><button type="button" class="btn-primary">Ghi vào kho dữ liệu</button></td>
+        <td><button type="button" class="btn-primary btn-sm">Ghi dữ liệu</button></td>
+        <td><button type="button" class="btn-primary btn-xs">Ghi</button></td>
+        <td><button type="button" class="btn-primary" disabled>Ghi dữ liệu</button></td>
+        <td><button type="button" class="btn-primary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+          Duyệt</button></td>
+      </tr>
+      <tr>
+        <td class="mono">.btn-secondary</td>
+        <td><button type="button" class="btn-secondary">Xem trước</button></td>
+        <td><button type="button" class="btn-secondary btn-sm">Xem trước</button></td>
+        <td><button type="button" class="btn-secondary btn-xs">Xem</button></td>
+        <td><button type="button" class="btn-secondary" disabled>Xem trước</button></td>
+        <td><button type="button" class="btn-secondary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+          Tải Excel</button></td>
+      </tr>
+      <tr>
+        <td class="mono">.btn-ghost</td>
+        <td><button type="button" class="btn-ghost">Xoá bộ lọc</button></td>
+        <td><button type="button" class="btn-ghost btn-sm">Xoá bộ lọc</button></td>
+        <td><button type="button" class="btn-ghost btn-xs">Xoá</button></td>
+        <td><span class="btn-ghost btn-disabled">Xoá bộ lọc</span></td>
+        <td><button type="button" class="btn-ghost">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+          Tải lại</button></td>
+      </tr>
+      <tr>
+        <td class="mono">.btn-danger</td>
+        <td><button type="button" class="btn-danger">Xoá bản tải lên</button></td>
+        <td><button type="button" class="btn-danger btn-sm">Xoá bản tải lên</button></td>
+        <td><button type="button" class="btn-danger btn-xs">Xoá</button></td>
+        <td><button type="button" class="btn-danger" disabled>Xoá bản tải lên</button></td>
+        <td><button type="button" class="btn-danger">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/></svg>
+          Xoá</button></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 class="dsg-sub">Nhóm nút</h3>
+  <p class="meta">Dùng khi các hành động là các lựa chọn loại trừ nhau của cùng một việc (đổi chế độ xem, đổi kỳ).</p>
+  <div class="dsg-row">
+    <div class="btn-group">
+      <button type="button" class="btn-secondary btn-sm">Tất cả</button>
+      <button type="button" class="btn-secondary btn-sm">Chưa khớp</button>
+      <button type="button" class="btn-secondary btn-sm">Đã khớp</button>
+    </div>
+    <div class="btn-group">
+      <button type="button" class="btn-secondary btn-xs">Nhập</button>
+      <button type="button" class="btn-secondary btn-xs">Xuất</button>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 4. Nhãn ═══ -->
+<section class="zone" id="nhan">
+  <div class="zone-head">
+    <div>
+      <h2>4. Nhãn (badge)</h2>
+      <p class="meta">Dùng khi cần cho biết trạng thái của một dòng dữ liệu. Một nhãn là một danh từ trạng thái — không dùng nhãn thay cho nút.</p>
+    </div>
+  </div>
+
+  <h3 class="dsg-sub">Sáu loại ngữ nghĩa</h3>
+  <div class="dsg-row">
+    <span class="badge badge-error">critical · nghiêm trọng</span>
+    <span class="badge badge-warning">warning · cần xem lại</span>
+    <span class="badge badge-info">info · thông tin</span>
+    <span class="badge badge-success">success · đạt</span>
+    <span class="badge badge-neutral">muted · trung tính</span>
+    <span class="badge badge-brand">brand · nhận diện</span>
+  </div>
+
+  <h3 class="dsg-sub">Trạng thái ứng dụng đang dùng thật</h3>
+  <p class="meta">Tác vụ nền (tải tệp, dựng BOM) và luồng duyệt đề xuất.</p>
+  <div class="dsg-row">
+    <span class="badge badge-neutral">đang chờ</span>
+    <span class="badge badge-info">đang chạy</span>
+    <span class="badge badge-success">xong</span>
+    <span class="badge badge-error">lỗi</span>
+    <span class="badge badge-success">đã duyệt</span>
+    <span class="badge badge-error">từ chối</span>
+  </div>
+  <div class="callout callout-warn">
+    <b>Ghi nhận:</b> “xong” và “đã duyệt” dùng chung một loại nhãn, “lỗi” và “từ chối” cũng vậy.
+    Nhìn nhãn không phân biệt được kết quả máy chạy với quyết định của người duyệt.
+  </div>
+
+  <h3 class="dsg-sub">Nhãn trong bảng</h3>
+  <div class="dsg-row">
+    <span class="badge badge-brand">E31</span>
+    <span class="badge badge-neutral">E15</span>
+    <span class="badge badge-info">A12</span>
+    <span class="badge badge-warning">thiếu ĐVT</span>
+    <span class="badge badge-error">lệch đơn giá 31/39</span>
+  </div>
+</section>
+
+<!-- ═══ 5. Bảng ═══ -->
+<section class="zone" id="bang">
+  <div class="zone-head">
+    <div>
+      <h2>5. Bảng</h2>
+      <p class="meta">Dùng khi hiển thị dữ liệu nhiều dòng: <span class="mono">.table</span> cho lưới thường; thêm <span class="mono">.dense</span> cho lưới trên ~30 dòng. Mọi con số phải nằm trong ô <span class="mono">.num</span>.</p>
+    </div>
+    <div class="page-actions">
+      <button type="button" class="btn-secondary btn-sm">Chọn cột</button>
+      <button type="button" class="btn-ghost btn-sm">Tải Excel</button>
+    </div>
+  </div>
+
+  <p class="meta">Tiêu đề bảng dính (<span class="mono">position: sticky</span>) khi cuộn trang — cuộn qua bảng dài bên dưới để kiểm tra. Dòng hover đổi nền <span class="mono">--brand-50</span>; dòng đang chọn thêm vạch trái <span class="mono">--brand-500</span>; dòng bị từ chối tô nền <span class="mono">--error-soft</span>.</p>
+
+  <div class="table-scroll">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Mã vật tư</th><th>Tên vật tư</th><th>ĐVT</th>
+          <th class="num">Tồn đầu</th><th class="num">Nhập</th><th class="num">Xuất</th><th class="num">Tồn cuối</th>
+          <th>Tờ khai</th><th>Trạng thái</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="mono">GT-INV-3000TL</td><td>Bộ biến tần hoà lưới 3 kW</td><td>CÁI</td>
+          <td class="num">1.240</td><td class="num">3.600</td><td class="num">3.180</td><td class="num">1.660</td>
+          <td class="mono">105678912340</td><td><span class="badge badge-success">đã khớp</span></td>
+        </tr>
+        <tr class="on">
+          <td class="mono">NL-ALU-4040</td><td>Nhôm định hình 40×40 mm</td><td>KG</td>
+          <td class="num">8.412,500</td><td class="num">24.000,000</td><td class="num">19.870,250</td><td class="num">12.542,250</td>
+          <td class="mono">105678913011</td><td><span class="badge badge-brand">đang chọn</span></td>
+        </tr>
+        <tr>
+          <td class="mono">NL-PCB-A21</td><td>Bo mạch điều khiển A21</td><td>CÁI</td>
+          <td class="num">640</td><td class="num">2.400</td><td class="num">2.980</td><td class="num">60</td>
+          <td class="mono">105679004512</td><td><span class="badge badge-warning">thiếu ĐVT</span></td>
+        </tr>
+        <tr class="is-critical">
+          <td class="mono">NL-CAB-2X4</td><td>Cáp điện 2×4 mm² (đề xuất bị từ chối)</td><td>MÉT</td>
+          <td class="num">120.000,000</td><td class="num">0,000</td><td class="num">96.400,000</td><td class="num">23.600,000</td>
+          <td class="mono">—</td><td><span class="badge badge-error">từ chối</span></td>
+        </tr>
+        <tr>
+          <td class="mono">NL-SCR-M4</td><td>Vít M4×12 inox</td><td>CÁI</td>
+          <td class="num">86.000</td><td class="num">150.000</td><td class="num">171.400</td><td class="num">64.600</td>
+          <td class="mono">105679110284</td><td><span class="badge badge-success">đã khớp</span></td>
+        </tr>
+        <tr>
+          <td class="mono">NL-BOX-CT7</td><td>Thùng carton 7 lớp</td><td>CÁI</td>
+          <td class="num">3.100</td><td class="num">9.000</td><td class="num">8.640</td><td class="num">3.460</td>
+          <td class="mono">105679110284</td><td><span class="badge badge-neutral">chưa đối chiếu</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3 class="dsg-sub">Biến thể <span class="mono">.dense</span></h3>
+  <p class="meta">Mặc định cho mọi lưới dài — cùng nội dung, ô 6/10 px thay vì 9/14 px.</p>
+  <div class="table-scroll">
+    <table class="table dense">
+      <thead>
+        <tr>
+          <th>Số tờ khai</th><th>Loại hình</th><th>Ngày đăng ký</th><th>Đối tác</th>
+          <th class="num">Số dòng</th><th class="num">Trị giá (USD)</th><th>Trạng thái</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="mono">105678912340</td><td><span class="badge badge-brand">E31</span></td><td class="mono">12/07/2026</td><td>SUNGROW POWER SUPPLY CO., LTD</td><td class="num">128</td><td class="num">412.880,50</td><td><span class="badge badge-success">xong</span></td></tr>
+        <tr><td class="mono">105678913011</td><td><span class="badge badge-neutral">E15</span></td><td class="mono">12/07/2026</td><td>CÔNG TY TNHH MINGJIE VIỆT NAM</td><td class="num">46</td><td class="num">88.140,00</td><td><span class="badge badge-info">đang chạy</span></td></tr>
+        <tr><td class="mono">105679004512</td><td><span class="badge badge-neutral">E15</span></td><td class="mono">15/07/2026</td><td>CÔNG TY TNHH MINGHUI VINA</td><td class="num">12</td><td class="num">9.640,25</td><td><span class="badge badge-neutral">đang chờ</span></td></tr>
+        <tr><td class="mono">105679110284</td><td><span class="badge badge-info">A12</span></td><td class="mono">18/07/2026</td><td>NINGBO DEYE INVERTER TECHNOLOGY</td><td class="num">204</td><td class="num">1.028.400,75</td><td><span class="badge badge-error">lỗi</span></td></tr>
+        <tr><td class="mono">105679220913</td><td><span class="badge badge-brand">E31</span></td><td class="mono">21/07/2026</td><td>GROWATT NEW ENERGY CO., LTD</td><td class="num">96</td><td class="num">306.112,00</td><td><span class="badge badge-success">xong</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══ 6. Biểu mẫu ═══ -->
+<section class="zone" id="bieu-mau">
+  <div class="zone-head">
+    <div>
+      <h2>6. Biểu mẫu</h2>
+      <p class="meta">Dùng khi người dùng phải nhập: mỗi trường bọc trong <span class="mono">.fld</span> (nhãn 12px ở trên, ô nhập, dòng gợi ý 11.5px ở dưới). Lỗi hiện ngay dưới ô, không hiện bằng hộp thoại.</p>
+    </div>
+  </div>
+
+  <form class="dsg-form" onsubmit="return false">
+    <div class="fld">
+      <label for="dsg-text">Tên khách hàng</label>
+      <input id="dsg-text" type="text" value="Công ty TNHH Growatt New Energy Việt Nam">
+    </div>
+    <div class="fld">
+      <label for="dsg-num">Hệ số quy đổi ĐVT</label>
+      <input id="dsg-num" type="number" step="0.0001" value="1000.0000">
+    </div>
+    <div class="fld">
+      <label for="dsg-select">Loại hình tờ khai</label>
+      <select id="dsg-select">
+        <option>E31 — Nhập nguyên liệu sản xuất xuất khẩu</option>
+        <option>E15 — Nhập nguyên liệu tại chỗ</option>
+        <option>A12 — Nhập kinh doanh sản xuất</option>
+      </select>
+    </div>
+    <div class="fld">
+      <label for="dsg-date">Kỳ quyết toán từ ngày</label>
+      <input id="dsg-date" type="date" value="2026-07-01">
+    </div>
+    <div class="fld dsg-wide">
+      <label for="dsg-area">Ghi chú đối chiếu</label>
+      <textarea id="dsg-area" rows="3">Dòng 1.284 khớp tay theo công văn số 4412/HQHN ngày 08/07/2026.</textarea>
+    </div>
+    <div class="fld">
+      <label for="dsg-hint">Mã số thuế</label>
+      <input id="dsg-hint" type="text" class="mono" value="0108452291">
+      <span class="hint">10 chữ số, hoặc 13 chữ số nếu là đơn vị phụ thuộc.</span>
+    </div>
+    <div class="fld is-error">
+      <label for="dsg-err">Mã vật tư trên tờ khai</label>
+      <input id="dsg-err" type="text" class="mono" value="GT INV 3000TL" aria-invalid="true">
+      <span class="err">Mã không có trong danh mục — kiểm tra lại khoảng trắng.</span>
+    </div>
+    <div class="fld">
+      <label for="dsg-file">Tệp BCCT (.xlsx)</label>
+      <input id="dsg-file" type="file">
+      <span class="hint">Tối đa 25 MB. Chỉ nhận .xlsx và .xls.</span>
+    </div>
+    <div class="fld">
+      <label>Tuỳ chọn</label>
+      <label class="checkbox-label"><input type="checkbox" checked> Bỏ qua dòng không có mã vật tư</label>
+      <label class="checkbox-label"><input type="checkbox"> Ghi đè dữ liệu kỳ trước</label>
+    </div>
+    <div class="fld">
+      <label>Công tắc bật/tắt</label>
+      <div class="dsg-row">
+        <button type="button" class="sw on" role="switch" aria-checked="true" aria-label="Tự động đối chiếu sau khi tải lên"></button>
+        <span class="meta">Tự động đối chiếu sau khi tải lên</span>
+      </div>
+      <div class="dsg-row">
+        <button type="button" class="sw" role="switch" aria-checked="false" aria-label="Gửi thông báo khi chạy xong"></button>
+        <span class="meta">Gửi thông báo khi chạy xong</span>
+      </div>
+      <div class="dsg-row">
+        <button type="button" class="sw" role="switch" aria-checked="false" disabled aria-label="Khoá kỳ sau khi quyết toán"></button>
+        <span class="meta">Khoá kỳ sau khi quyết toán (chỉ dev)</span>
+      </div>
+    </div>
+    <div class="fld">
+      <label for="dsg-disabled">Trường bị khoá</label>
+      <input id="dsg-disabled" type="text" value="Kỳ 07/2026 đã chốt" disabled>
+      <span class="hint">Kỳ đã chốt thì không sửa được nữa.</span>
+    </div>
+  </form>
+</section>
+
+<!-- ═══ 7. Thẻ, ô thống kê, ghi chú, trạng thái rỗng, phân trang, đường ống ═══ -->
+<section class="zone" id="the">
+  <div class="zone-head">
+    <div>
+      <h2>7. Thẻ &amp; ô thống kê</h2>
+      <p class="meta">Dùng khi gom một nhóm nội dung có cùng chủ đề: <span class="mono">.zone</span> là bề mặt chuẩn (viền 1px, bo 5px). Ô thống kê chỉ đặt màu lên con số, không tô nền thẻ.</p>
+    </div>
+  </div>
+
+  <div class="dsg-grid2">
+    <div class="zone">
+      <div class="zone-head">
+        <div>
+          <h3>Danh mục vật tư</h3>
+          <p class="meta">Cập nhật 18/07/2026 · nguồn: BOM v3</p>
+        </div>
+        <div class="page-actions"><button type="button" class="btn-ghost btn-xs">Mở</button></div>
+      </div>
+      <p>2.480 mã đang dùng, 128 mã chờ xác nhận. 31 mã có đơn giá lệch so với chứng từ.</p>
+    </div>
+    <div class="zone zone-muted">
+      <div class="zone-head">
+        <div>
+          <h3>Kho chứng từ (nền chìm)</h3>
+          <p class="meta"><span class="mono">.zone.zone-muted</span></p>
+        </div>
+      </div>
+      <p>Dùng cho khối phụ trợ, khối chỉ đọc hoặc phần chân thẻ.</p>
+    </div>
+  </div>
+
+  <h3 class="dsg-sub">Ô thống kê</h3>
+  <div class="data-dash">
+    <div class="data-dash-card">
+      <span class="ddc-label">Vật tư trong danh mục</span>
+      <span class="ddc-value">2.480</span>
+      <span class="ddc-sub">+64 so với kỳ trước</span>
+    </div>
+    <div class="data-dash-card is-primary">
+      <span class="ddc-label">Tờ khai kỳ 07/2026</span>
+      <span class="ddc-value">96</span>
+      <span class="ddc-sub">E31 · E15 · A12</span>
+    </div>
+    <div class="data-dash-card is-warn">
+      <span class="ddc-label">Dòng chưa khớp</span>
+      <span class="ddc-value">128</span>
+      <span class="ddc-sub">cần đối chiếu tay</span>
+    </div>
+    <div class="data-dash-card is-bad">
+      <span class="ddc-label">Lệch đơn giá</span>
+      <span class="ddc-value">31</span>
+      <span class="ddc-sub">trên 39 mã có chứng từ</span>
+    </div>
+  </div>
+
+  <h3 class="dsg-sub">Ghi chú / cảnh báo (bốn loại)</h3>
+  <p class="meta">Dùng khi cần nói một câu về trạng thái của trang. Đặt ngay trên khối liên quan, không nổi lên trên màn hình.</p>
+  <div class="dsg-col">
+    <div class="callout callout-info">Kỳ 07/2026 đang mở. Số liệu còn thay đổi cho tới khi chốt kỳ.</div>
+    <div class="callout callout-success">Đã ghi 1.284 dòng chứng từ vào kho dữ liệu lúc 14:02.</div>
+    <div class="callout callout-warn">3 dòng thiếu đơn vị tính nên bị bỏ qua — xem tab “Chưa khớp”.</div>
+    <div class="callout callout-error">Không đọc được tệp: thiếu cột “Số tờ khai” ở dòng tiêu đề.</div>
+  </div>
+
+  <h3 class="dsg-sub">Trạng thái rỗng</h3>
+  <p class="meta">Dùng khi một danh sách chưa có dữ liệu: một câu nói vì sao rỗng, kèm đúng một hành động tiếp theo.</p>
+  <div class="empty-state">
+    <p>Khách hàng này chưa có tờ khai nào trong kỳ 07/2026.</p>
+    <a class="btn-primary" href="/design#the">Tải tệp chứng từ lên</a>
+  </div>
+
+  <h3 class="dsg-sub">Phân trang</h3>
+  <p class="meta">Dùng ở chân mọi lưới có phân trang: khoảng dòng đang xem bên trái, nút chuyển trang ở giữa, chọn số dòng mỗi trang bên phải.</p>
+  <nav class="pager" aria-label="Phân trang mẫu">
+    <div class="pager-info">201–250 / 1.284</div>
+    <div class="pager-controls">
+      <a class="btn-ghost btn-xs" href="/design#the" title="Trang đầu">«</a>
+      <a class="btn-ghost btn-xs" href="/design#the" title="Trang trước">‹</a>
+      <span class="pager-page mono">5 / 26</span>
+      <a class="btn-ghost btn-xs" href="/design#the" title="Trang sau">›</a>
+      <a class="btn-ghost btn-xs" href="/design#the" title="Trang cuối">»</a>
+    </div>
+    <div class="pager-size meta">
+      Mỗi trang: <a href="/design#the">25</a> · <strong>50</strong> · <a href="/design#the">100</a> · <a href="/design#the">200</a>
+    </div>
+  </nav>
+
+  <h3 class="dsg-sub">Đường ống ba bước (rail)</h3>
+  <p class="meta">Dùng khi màn hình thuộc một quy trình nhiều bước: hiện đủ mọi bước, làm nổi bước hiện tại, làm mờ bước đã xong — người dùng luôn thấy mình đang ở đâu. Trên trang thật, rail nằm ngay dưới header.</p>
+  <div class="rail">
+    <button type="button" class="rail-s done"><span class="n">01</span> Tải tệp lên</button>
+    <button type="button" class="rail-s on"><span class="n">02</span> Đối chiếu cột</button>
+    <button type="button" class="rail-s"><span class="n">03</span> Ghi vào kho dữ liệu</button>
+    <span class="rail-note">Tệp: <span class="mono">BCCT_Growatt_072026.xlsx</span> · 1.284 dòng</span>
+  </div>
+</section>
+
+<!-- ═══ 8. Hộp thoại & thông báo ═══ -->
+<section class="zone" id="hop-thoai">
+  <div class="zone-head">
+    <div>
+      <h2>8. Hộp thoại &amp; thông báo</h2>
+      <p class="meta">Hộp thoại dùng khi một hành động cần xác nhận hoặc cần nhập thêm dữ liệu trước khi chạy. Thông báo dùng để báo kết quả của hành động vừa chạy. Cả hai hiện sẵn tại đây để chụp màn hình được.</p>
+    </div>
+  </div>
+
+  <h3 class="dsg-sub">Hộp thoại (hiện sẵn, không cần bấm)</h3>
+  <dialog class="accept-dialog" open>
+    <h3>Duyệt mã vật tư chờ xác nhận</h3>
+    <div class="form-stack">
+      <p class="meta">Mã <span class="mono">NL-ALU-4040</span> · Nhôm định hình 40×40 mm · nguồn: tệp BCCT ngày 12/07/2026.</p>
+      <div class="fld">
+        <label for="dsg-mdl-uom">Đơn vị tính chuẩn</label>
+        <select id="dsg-mdl-uom">
+          <option>KG — Ki-lô-gam</option>
+          <option>MÉT</option>
+          <option>CÁI</option>
+        </select>
+      </div>
+      <div class="fld">
+        <label for="dsg-mdl-note">Lý do duyệt</label>
+        <input id="dsg-mdl-note" type="text" value="Khớp với định mức đã ký ngày 08/07/2026">
+      </div>
+    </div>
+    <div class="dialog-actions">
+      <button type="button" class="btn-secondary">Huỷ</button>
+      <button type="button" class="btn-primary">Duyệt mã</button>
+    </div>
+  </dialog>
+
+  <h3 class="dsg-sub">Thông báo</h3>
+  <div class="dsg-col">
+    <div class="toast">Đã lưu cấu hình khách hàng.</div>
+    <div class="toast toast-success">Đã ghi 1.284 dòng chứng từ vào kho dữ liệu.</div>
+    <div class="toast toast-warn">3 dòng thiếu đơn vị tính — đã bỏ qua.</div>
+    <div class="toast toast-error">Không đọc được tệp: sai định dạng cột.</div>
+  </div>
+</section>
+
+</div>
+
+<script>
+  // Điền giá trị màu đã phân giải vào từng ô mẫu, đọc thẳng từ biến CSS nên
+  // luôn đúng với chủ đề (sáng/tối) đang bật.
+  (function () {
+    var root = document.body;
+    var cs = getComputedStyle(root);
+    document.querySelectorAll('#design-gallery [data-token]').forEach(function (el) {
+      var v = cs.getPropertyValue(el.getAttribute('data-token')).trim();
+      el.textContent = v || '(chưa định nghĩa)';
+    });
+    // Công tắc: đổi trạng thái tại chỗ để xem cả hai vị trí. Trang chỉ đọc,
+    // không gửi gì lên máy chủ.
+    document.querySelectorAll('#design-gallery .sw:not([disabled])').forEach(function (sw) {
+      sw.addEventListener('click', function () {
+        var on = sw.classList.toggle('on');
+        sw.setAttribute('aria-checked', on ? 'true' : 'false');
+      });
+    });
+  })();
+</script>
+{% endblock %}
