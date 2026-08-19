@@ -124,3 +124,80 @@ tồn-descending (0000093519 · 102.708).
 - Not deployed. Version bumped 0.16.0 → 0.17.0 with a CHANGELOG entry; CD not run.
 - `.ai/BACKLOG.md` and `uv.lock` were already dirty when this session started (left from
   2026-08-18) and were NOT included in these commits.
+
+---
+
+## Round 2 (same day) — ⚙ Cấu hình: currency label, auto-recalculation, decimals
+
+Three more operator reports on the config surface.
+
+### 1. "Nguyên tệ (VND)" claimed nguyên tệ means VND
+The parenthetical rendered `product.currency` — the FOB currency of THAT sheet — while the
+NVL rows come from many import declarations and can each be in a different currency. Now
+reads **"Nguyên tệ (theo tờ khai)"**, with a tooltip stating that neither option converts
+anything: every lot carries both money lanes and this only picks which one is printed.
+
+### 2. "Bảng tính tự tính lại như Excel ok chưa?" — it was not; now it is
+`recommendation-override` only wrote the overrides. The split that matters:
+- **criterion / threshold / form / optimization** change NUMBERS. `lvc_status` (the
+  pass/fail colour) and `tariff_shift_status_label` (CTC) are stamped in
+  `enrich_origin_product` at Tính, not derived at render — so the sheet kept saying
+  "Đã tính" with a badge measured against the previous rule, and the modal hint just told
+  the operator to remember a manual Tính.
+- **currency_mode / display_decimals** are pure display; the browser already reformats.
+
+Implemented: `NUMBER_AFFECTING_OVERRIDES` + `RECALCULABLE_SHEET_STATUSES` in
+`app/routers/co_case.py`. On a real change the route recalculates that sheet
+(`recalculate_origin_sheet_and_status`) and marks the sheets after it stale, because stock
+is allocated in sheet order. `locked` (filed, ledger holds its claims) and `draft` (never
+calculated, nothing to update) are skipped. The case-level criterion route recalculates
+every sheet that inherits the choice; a sheet with its own `criteria_override` is untouched.
+
+**Why this was safe to do inline:** measured against the real johnson-vn case —
+**1.3s per sheet on a warm snapshot**, 22.5s only for the first cold snapshot read. The
+comparison of before/after must read a NORMALISED state: `set_origin_sheet_config_override`
+ends in `attach_origin_sheet_states`, which fills defaults, so comparing raw-vs-normalised
+reported a change on every save (caught by the first test run).
+
+### 3. Decimals on VND money cells
+New `app/money_display.py`: `money_decimals` / `format_money`, a Jinja filter `money`, and a
+JS mirror `fmtMoney` in `co_case.html` (the browser is the authoritative formatter — it
+rewrites these cells on the Tiền tệ swap and on every client-side edit, so both sides have to
+agree; verified in the browser that the settled text is the JS one).
+
+The count keys on **the currency the CELL is printed in**, not the sheet mode — a nguyên-tệ
+sheet mixes VND and USD rows. VND → 0; otherwise 6 for an đơn giá, 2 for a trị giá. Per-sheet
+override `display_decimals` in ⚙ Cấu hình → **Số lẻ** (Theo tiền tệ / 0 / 2 / 4 / 6), applied
+to the grid immediately on change like the currency switch.
+
+**The guard is not optional:** a non-zero value never renders as "0". johnson-vn declares
+đơn giá 0.078 VND, and "0" is exactly how this app says *thiếu đơn giá* — printing it over a
+priced row sends the operator hunting a defect that is not there. The first significant
+decimal is found by TRUNCATION: rounding would call 0.078 visible at one decimal, which reads
+"0,1" — a different number.
+
+**Export deliberately untouched.** `bang_ke_xml_generator` takes `number_decimals` from the
+HQ template and writes the raw value with a display format, so the filed file keeps full
+precision and the agency's template owns its formatting. Screen formatting is an operator
+preference; the filed artifact is not.
+
+### Bug the new e2e found
+`normalize_threshold` returned `str(Decimal("40").quantize(Decimal("0.01")).normalize())` =
+`"4E+1"`, so the LVC chip read "/ 4E+1%" for **every round threshold an operator types**
+(10, 20, 30, 40…). Now formatted with `format(d, "f")` and trimmed.
+
+### Verification
+- `uv run pytest` — **1156 passed / 17 skipped**.
+- New: `tests/test_money_display.py` (14), `tests/test_config_save_recalculates.py` (10),
+  plus the threshold-notation and Review-chip cases in `test_criteria_choice.py`.
+- Browser: `.ai/scripts/e2e_config_autorecalc_and_decimals.cjs` ALL PASS — label, decimals
+  auto vs override applied without Lưu, save recalculates in place (`recalculated=true`,
+  sheet stays "Đã tính", LVC chip reads "/ 40%"), reset returns to the recommendation.
+- Screenshots refreshed: `.ai/screenshots/2026-08-19-e2e-2-sessions/` (16) and
+  `.ai/screenshots/2026-08-19-config-autorecalc/` (3). The grid shot now shows VND đơn giá
+  without decimals AND the guard working on the same screen: rows reading 0,032 / 0,018 /
+  0,0095 would all have printed "0".
+
+### Open
+- Still not deployed. Version 0.18.0 local only; CD not run.
+- The Data Hub ĐVT-factor endpoint request is still awaiting approval.

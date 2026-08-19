@@ -5,6 +5,14 @@ Nhật ký thay đổi của Barry CO dành cho người dùng. Định dạng t
 hưởng tới người dùng (bỏ qua refactor nội bộ, hạ tầng test). Phiên bản theo
 [SemVer](https://semver.org/lang/vi/).
 
+## [0.18.0] — 2026-08-19
+### Mới
+- **Số lẻ hiển thị của Đơn giá / Trị giá đặt được cho từng bảng kê** (⚙ Cấu hình → **Số lẻ**). Mặc định **"Theo tiền tệ"**: dòng khai bằng **VND thì không có số lẻ** (83.634 thay vì 83.634,102869), ngoại tệ giữ 6 số cho đơn giá và 2 cho trị giá. Dòng có giá trị quá nhỏ (ví dụ đơn giá 0,078 VND) vẫn hiện đủ chữ số — không bao giờ bị rút thành "0", vì "0" là cách hệ thống báo *thiếu đơn giá*. Đây là **cài đặt màn hình**: file xuất giữ nguyên số và theo định dạng của mẫu bảng kê HQ.
+### Cải tiến
+- **Lưu cấu hình là bảng kê tự tính lại**, không phải nhớ bấm "Tính bảng kê" nữa. Đổi tiêu chí / ngưỡng / hiệp định / chiều tối ưu ở ⚙ Cấu hình, hoặc chọn tiêu chí cho cả lô, thì các bảng kê liên quan tính lại ngay và ô LVC, CTC cập nhật theo đúng tiêu chí vừa chọn. (Trước đây bảng kê vẫn ghi "Đã tính" trong khi ô đạt/không đạt còn tính theo tiêu chí cũ.) Đổi **Tiền tệ** hoặc **Số lẻ** thì không cần tính lại — số không đổi, chỉ đổi cách hiển thị.
+- **Bỏ nhãn "(VND)" khỏi lựa chọn "Nguyên tệ"**: nay ghi **"Nguyên tệ (theo tờ khai)"**. Chữ trong ngoặc trước đây là tiền tệ FOB của riêng bảng kê đó, trong khi các dòng NVL đến từ nhiều tờ khai và có thể khác tiền tệ — đọc thành "nguyên tệ nghĩa là VND", ngược hẳn ý nghĩa.
+- Dòng trong danh sách **Review** ghi rõ tiêu chí đang theo **lô hàng** / **riêng sheet này** / **khuyến nghị**; trước đây chọn tiêu chí cho cả lô xong mọi dòng vẫn ghi "khuyến nghị".
+
 ## [0.17.0] — 2026-08-19
 ### Mới
 - **Chọn tiêu chí xuất xứ bằng nút, không gõ tay**: "Tiêu chí cho cả lô" nay mở một cửa sổ có sẵn các nút WO · PE · CC · CTH · CTSH · RVC · LVC · PSR (thêm "Khác…" nếu cần ghi nguyên văn), ô "hoặc" để ghép tiêu chí thứ hai, và ô Ngưỡng % tự hiện khi chọn RVC/LVC — đúng như cửa sổ **⚙ Cấu hình** của từng bảng kê. Trước đây đây là ô nhập tự do, gõ sai chữ là hệ thống không nhận ra tiêu chí nào.

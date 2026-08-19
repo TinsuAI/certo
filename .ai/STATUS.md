@@ -1,6 +1,41 @@
 # Project Status
 
 ## Current State
+- **2026-08-19 (afternoon) — ⚙ CẤU HÌNH BẢNG KÊ: 3 operator reports fixed + verified. NOT DEPLOYED.**
+  Working tree only; version **0.17.0 → 0.18.0** + CHANGELOG. Suite **1156 pass / 17 skip**.
+  e2e `.ai/scripts/e2e_config_autorecalc_and_decimals.cjs` **ALL PASS** on johnson-vn
+  `co-case-e0b390ead3b0`. Screenshots: `.ai/screenshots/2026-08-19-config-autorecalc/` and
+  `.ai/screenshots/2026-08-19-e2e-2-sessions/` (gitignored).
+  **(1) "Nguyên tệ (VND)"** — the parenthetical was `product.currency`, i.e. the FOB currency
+  of THAT sheet, while the NVL rows come from many declarations and can be in different
+  currencies; it read as "nguyên tệ means VND". Now **"Nguyên tệ (theo tờ khai)"**. Neither
+  option converts anything — every lot carries both lanes and this picks which one is printed.
+  **(2) Saving the config now RECALCULATES.** `recommendation-override` only persisted. The
+  criterion and the threshold decide the LVC pass/fail and the CTC verdict, and both are
+  **stamped at Tính**, not derived at render → the sheet kept reading "Đã tính" with a badge
+  measured against the PREVIOUS rule. The route now recalculates when a NUMBER-changing
+  override moved (`NUMBER_AFFECTING_OVERRIDES` = form / criteria / both thresholds /
+  optimization) and calls `mark_origin_sheets_stale(index + 1)`; `locked` and `draft` sheets
+  are skipped (`RECALCULABLE_SHEET_STATUSES`). Choosing a criterion for the whole lô
+  recalculates every inheriting sheet (one with its own `criteria_override` is left alone).
+  `currency_mode` + `display_decimals` do NOT recalculate — display only.
+  **Measured on real johnson-vn: 1.3s per sheet on a warm snapshot** (22.5s for the first,
+  cold one), which is what made auto-recalc viable instead of a stale marker.
+  **(3) Decimals follow the currency** — new `app/money_display.py` + Jinja filter `money` +
+  JS mirror `fmtMoney`. Count keyed on the currency OF THE CELL (a nguyên-tệ sheet mixes VND
+  and USD rows): **VND 0**, otherwise 6 (đơn giá) / 2 (trị giá); per-sheet override in
+  ⚙ Cấu hình → **Số lẻ** (`display_decimals` on `origin_sheet_states`). **Mandatory guard:**
+  a NON-ZERO value is never printed as "0" (real data has đơn giá 0.078 VND, and "0" is how
+  this app says *thiếu đơn giá*) — such a cell keeps its significant digits, found by
+  TRUNCATION not rounding (rounding says 0.078 is visible at one decimal, which reads 0,1).
+  **Screen only**: the export keeps the full value and takes `number_format` from the HQ
+  template (`bang_ke_xml_generator`).
+  **Found by the new e2e:** `normalize_threshold` returned
+  `Decimal("40").quantize(Decimal("0.01")).normalize()` = `Decimal("4E+1")`, so the LVC chip
+  read "/ 4E+1%" for EVERY round threshold an operator types (10/20/30/40…).
+  **Also fixed today (`fc16d5c`):** the Review row read only `criteria_override`, so after
+  choosing a criterion for the whole lô every row still said "tiêu chí: khuyến nghị".
+
 - **2026-08-19 — CLIENT FEEDBACK (6 items) on johnson-vn: 5 fixed + shipped locally, 1 blocked
   on a Data Hub contract. NOT DEPLOYED.**
   Working tree only; version bumped **0.16.0 → 0.17.0** with a CHANGELOG entry. Full suite
