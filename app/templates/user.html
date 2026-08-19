@@ -2,65 +2,78 @@
 {% block title %}User - Barry CO{% endblock %}
 
 {% block content %}
-<section class="page-bar">
-  <h1>User</h1>
-  <span class="page-tagline">Data Hub session and CO access context</span>
-  <div class="page-actions">
-    <a class="btn-secondary" href="/settings">Settings</a>
-  </div>
-</section>
-
-{% if logged_out %}
-<section class="callout callout-success">
-  <strong>Đã logout khỏi CO.</strong>
-  <span>CO đã xóa session cookie local.</span>
-</section>
-{% endif %}
-
-<section class="zone">
-  <div class="zone-head">
+<section class="form-surface fs-stack">
+  <header class="fs-head">
     <div>
-      <h2>Session</h2>
-      <p class="meta">CO đọc user từ Data Hub JWT trong cookie <span class="mono">co_data_hub_session</span>.</p>
+      <h1>Tài khoản</h1>
+      <p>Phiên đăng nhập Data Hub và phạm vi truy cập mà C/O suy ra từ phiên đó.</p>
     </div>
-    {% if user %}
-    <span class="badge badge-success">Logged in</span>
-    {% else %}
-    <span class="badge badge-warning">Local / anonymous</span>
-    {% endif %}
-  </div>
+    <div class="fs-head-r">
+      <a class="btn-secondary" href="/settings">Cài đặt hệ thống</a>
+    </div>
+  </header>
 
-  {% if user %}
-  <div class="module-grid">
-    <div class="module-tile">
-      <strong>{{ user.name or user.email or user.user_id }}</strong>
-      <span>{{ user.email }}</span>
-    </div>
-    <div class="module-tile">
-      <strong>Role</strong>
-      <span>{{ user.role or 'user' }}</span>
-    </div>
-    <div class="module-tile">
-      <strong>Clients</strong>
-      <span>{% if all_clients %}All clients{% elif visible_clients %}{{ visible_clients|join(', ') }}{% else %}No client claims{% endif %}</span>
-    </div>
-  </div>
-  <form method="post" action="/auth/logout" class="settings-actions">
-    <input type="hidden" name="next_url" value="/user">
-    <button type="submit">Logout</button>
-  </form>
-  {% else %}
-  <div class="module-grid">
-    <div class="module-tile">
-      <strong>No Data Hub user</strong>
-      <span>Login is available when Data Hub SSO is enabled for this runtime.</span>
-    </div>
-  </div>
-  {% if show_login %}
-  <div class="settings-actions">
-    <a class="btn-secondary" href="/auth/login?next=/user">Login with Data Hub</a>
+  {% if logged_out %}
+  <div class="fs-note fs-note-ok">
+    <strong>Đã đăng xuất khỏi C/O.</strong>
+    C/O đã xóa cookie phiên local. Phiên Data Hub trên trình duyệt có thể vẫn còn.
   </div>
   {% endif %}
-  {% endif %}
+
+  <section class="fs-card">
+    <div class="fs-card-h">
+      <h2>Phiên đăng nhập</h2>
+      <span class="fs-h-r">
+        {% if user %}
+        <span class="badge badge-success">Logged in</span>
+        {% else %}
+        <span class="badge badge-warning">Local / anonymous</span>
+        {% endif %}
+      </span>
+      <p class="fs-sub">C/O đọc user từ JWT của Data Hub trong cookie <span class="fs-mono">co_data_hub_session</span>, không giữ mật khẩu riêng.</p>
+    </div>
+
+    {% if user %}
+    <div class="fs-card-b">
+      <div class="fs-kv">
+        <div class="fs-kv-row">
+          <div class="fs-kv-k">Người dùng</div>
+          <div class="fs-kv-v">
+            {{ user.name or user.email or user.user_id }}
+            {% if user.email %}<span class="hint">{{ user.email }}</span>{% endif %}
+          </div>
+        </div>
+        <div class="fs-kv-row">
+          <div class="fs-kv-k">Role</div>
+          <div class="fs-kv-v">
+            <span class="fs-mono">{{ user.role or 'user' }}</span>
+            <span class="hint">Role quyết định được xem Technical Settings và được xoá hồ sơ C/O hay không.</span>
+          </div>
+        </div>
+        <div class="fs-kv-row">
+          <div class="fs-kv-k">Công ty được truy cập</div>
+          <div class="fs-kv-v">
+            {% if all_clients %}Tất cả công ty{% elif visible_clients %}<span class="fs-mono">{{ visible_clients|join(', ') }}</span>{% else %}Không có claim công ty nào{% endif %}
+            <span class="hint">Lấy từ claim trong JWT. Muốn đổi thì sửa ở Data Hub rồi đăng nhập lại.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <form method="post" action="/auth/logout" class="fs-card-f">
+      <input type="hidden" name="next_url" value="/user">
+      <span class="fs-f-note">Đăng xuất chỉ xóa phiên phía C/O.</span>
+      <button type="submit" class="btn-secondary">Đăng xuất</button>
+    </form>
+    {% else %}
+    <div class="fs-card-b">
+      <p class="fs-note">Chưa có phiên Data Hub. Runtime này đang chạy ở chế độ local nên C/O không chặn truy cập, nhưng cũng không biết bạn là ai và không lọc được danh sách công ty theo claim.</p>
+    </div>
+    {% if show_login %}
+    <div class="fs-card-f">
+      <a class="btn-primary" href="/auth/login?next=/user">Đăng nhập bằng Data Hub</a>
+    </div>
+    {% endif %}
+    {% endif %}
+  </section>
 </section>
 {% endblock %}

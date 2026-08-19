@@ -7539,3 +7539,877 @@ body:has(.origin-step-root.origin-view-sheet) .breadcrumb,
 body:has(.origin-step-root.origin-view-sheet) .co-case-header {
   display: none;
 }
+
+/* === forms & settings (redesign 2026-08-20) === */
+/* Scope: client_config, co_form_settings, settings, data_hub_settings,
+   cost_allocation, customs_exchange_rates, user, whats-new, error, sso_logout.
+   Every selector starts at .form-surface so nothing here reaches a page owned
+   by another agent. Phase-A-only tokens carry a var() fallback. */
+
+.form-surface {
+  min-width: 0;
+  font-size: 13px;
+}
+
+.form-surface.fs-stack,
+.form-surface .fs-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* ── page header ─────────────────────────────────────────── */
+.form-surface.fs-head,
+.form-surface .fs-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.form-surface .fs-head h1 {
+  margin: 0;
+  font-family: var(--display, var(--sans));
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.form-surface .fs-head p {
+  margin: 4px 0 0;
+  max-width: 86ch;
+  color: var(--foreground-muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.form-surface .fs-head-r {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+/* ── card ────────────────────────────────────────────────── */
+.form-surface .fs-card {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  box-shadow: var(--shadow-md);
+}
+
+.form-surface .fs-card-h {
+  display: flex;
+  align-items: baseline;
+  gap: 6px 10px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.form-surface .fs-card-h h2,
+.form-surface .fs-card-h h3 {
+  margin: 0;
+  font-family: var(--display, var(--sans));
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.3;
+}
+
+.form-surface .fs-card-h .fs-sub {
+  flex: 1 1 100%;
+  margin: 0;
+  color: var(--foreground-muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.form-surface .fs-card-h .fs-h-r {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.form-surface .fs-card-b {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  min-width: 0;
+}
+
+.form-surface .fs-card-b.fs-flush {
+  padding: 0;
+  gap: 0;
+}
+
+.form-surface .fs-card-f {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  background: var(--card-muted);
+  color: var(--foreground-muted);
+  font-size: 12px;
+}
+
+/* footer text and destructive actions sit left, primary action stays last */
+.form-surface .fs-card-f .fs-f-note,
+.form-surface .fs-card-f .fs-danger {
+  margin-right: auto;
+}
+
+.form-surface .fs-card-f .fs-f-note {
+  max-width: 62ch;
+  line-height: 1.5;
+}
+
+/* ── field ───────────────────────────────────────────────── */
+.form-surface .fld {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.form-surface .fld > span,
+.form-surface .fld > .fs-label {
+  color: var(--foreground-soft);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.form-surface .fld .hint {
+  color: var(--foreground-muted);
+  font-size: 11.5px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.form-surface .fld input,
+.form-surface .fld select,
+.form-surface .fld textarea,
+.form-surface .fs-inp {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-input);
+  color: var(--foreground);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.form-surface .fld input:focus,
+.form-surface .fld select:focus,
+.form-surface .fld textarea:focus,
+.form-surface .fs-inp:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: -1px;
+  border-color: var(--primary);
+}
+
+.form-surface .fld input:disabled,
+.form-surface .fld select:disabled,
+.form-surface .fld textarea:disabled {
+  background: var(--surface-sunk, var(--card-muted));
+  color: var(--foreground-muted);
+}
+
+.form-surface .fld textarea {
+  min-height: 64px;
+  resize: vertical;
+}
+
+.form-surface .fld select {
+  cursor: pointer;
+}
+
+.form-surface .fld-mono input,
+.form-surface .fld-mono textarea {
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
+/* checkbox field: box beside the label, hint under both */
+.form-surface .fld-check {
+  gap: 6px;
+}
+
+.form-surface .fld-check .fs-check-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.form-surface .fld-check input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 2px 0 0;
+  flex: 0 0 auto;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.form-surface .fld-check .fs-check-line span {
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.form-surface .fs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(232px, 1fr));
+  gap: 14px 16px;
+  min-width: 0;
+}
+
+.form-surface .fs-grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.form-surface .fs-grid-wide {
+  grid-column: 1 / -1;
+}
+
+/* ── buttons ─────────────────────────────────────────────── */
+.form-surface button,
+.form-surface .btn-primary,
+.form-surface .btn-secondary,
+.form-surface .fs-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--foreground);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.form-surface button:hover,
+.form-surface .btn-secondary:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.form-surface .btn-primary,
+.form-surface button.btn-primary {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.form-surface .btn-primary:hover,
+.form-surface button.btn-primary:hover {
+  border-color: var(--primary-hover);
+  background: var(--primary-hover);
+}
+
+.form-surface .btn-secondary {
+  border-color: var(--border-strong);
+  background: var(--card);
+  color: var(--primary);
+}
+
+.form-surface .btn-secondary:hover {
+  border-color: var(--primary);
+  background: var(--brand-50, var(--primary-soft));
+}
+
+.form-surface .fs-danger,
+.form-surface button.fs-danger {
+  border-color: var(--critical-bd, var(--error));
+  background: var(--card);
+  color: var(--error);
+}
+
+.form-surface .fs-danger:hover,
+.form-surface button.fs-danger:hover {
+  border-color: var(--error);
+  background: var(--error-soft);
+}
+
+.form-surface .fs-btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+  gap: 5px;
+}
+
+.form-surface .fs-btn-xs {
+  padding: 2px 8px;
+  font-size: 11.5px;
+  gap: 4px;
+}
+
+.form-surface button:disabled {
+  color: var(--foreground-muted);
+  background: var(--card-muted);
+  border-color: var(--border);
+  cursor: not-allowed;
+}
+
+/* ── note / callout ──────────────────────────────────────── */
+.form-surface .fs-note {
+  padding: 10px 14px;
+  border-left: 3px solid var(--primary);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--brand-50, var(--primary-soft));
+  color: var(--foreground-soft);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.form-surface .fs-note strong {
+  color: inherit;
+  font-weight: 600;
+}
+
+.form-surface .fs-note-ok {
+  border-left-color: var(--success);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.form-surface .fs-note-warn {
+  border-left-color: var(--warning);
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.form-surface .fs-note-err {
+  border-left-color: var(--error);
+  background: var(--error-soft);
+  color: var(--error);
+}
+
+.form-surface .fs-note .fs-note-list {
+  margin: 4px 0 0;
+  padding-left: 1.1rem;
+}
+
+/* ── read-only key/value rows ────────────────────────────── */
+.form-surface .fs-kv {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+}
+
+.form-surface .fs-kv-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px 14px;
+  flex-wrap: wrap;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.form-surface .fs-kv-row:first-child {
+  padding-top: 0;
+}
+
+.form-surface .fs-kv-row:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.form-surface .fs-kv-k {
+  flex: 0 0 15rem;
+  color: var(--foreground-soft);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.form-surface .fs-kv-v {
+  flex: 1 1 16rem;
+  min-width: 0;
+  color: var(--foreground);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.form-surface .fs-kv-v .hint {
+  display: block;
+  margin-top: 3px;
+  color: var(--foreground-muted);
+  font-size: 11.5px;
+}
+
+.form-surface .fs-mono {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── tables ──────────────────────────────────────────────── */
+.form-surface .fs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.form-surface .fs-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--card-muted);
+  color: var(--foreground-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.form-surface .fs-table td {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.form-surface .fs-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.form-surface .fs-table tbody tr:hover {
+  background: var(--brand-50, var(--primary-soft));
+}
+
+.form-surface .fs-table .num {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.form-surface .fs-table-dense th,
+.form-surface .fs-table-dense td {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+/* ── page: C/O form index (settings/co-forms) ────────────── */
+.form-surface .settings-tabs {
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.form-surface .settings-tab {
+  padding: 9px 14px;
+  color: var(--foreground-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.form-surface .settings-tab:hover {
+  background: var(--card-muted);
+  color: var(--primary);
+}
+
+.form-surface .settings-tab-active {
+  border-bottom-color: var(--primary);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.form-surface .co-form-summary {
+  border-color: var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  box-shadow: var(--shadow-md);
+}
+
+.form-surface .summary-metric {
+  padding: 13px 15px;
+}
+
+.form-surface .summary-metric span {
+  color: var(--foreground-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.form-surface .summary-metric strong {
+  font-family: var(--display, var(--sans));
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.form-surface .co-form-editor-table input,
+.form-surface .co-form-editor-table select,
+.form-surface .co-form-editor-table textarea {
+  width: 100%;
+  min-width: 10rem;
+  padding: 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-input);
+  color: var(--foreground);
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.form-surface .co-form-editor-table textarea {
+  min-height: 0;
+  resize: vertical;
+}
+
+.form-surface .co-form-editor-table input:focus,
+.form-surface .co-form-editor-table select:focus,
+.form-surface .co-form-editor-table textarea:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: -1px;
+  border-color: var(--primary);
+}
+
+.form-surface .co-form-editor-table td:first-child input[type="checkbox"],
+.form-surface .co-form-editor-table td input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  min-width: 0;
+  padding: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.form-surface .co-form-editor-table .new-row {
+  background: var(--brand-50, var(--primary-soft));
+}
+
+.form-surface .co-form-editor-table .new-row td {
+  border-bottom: 0;
+}
+
+.form-surface .rule-filter-bar {
+  align-items: end;
+  gap: 10px;
+  margin: 0;
+}
+
+.form-surface .rule-filter-bar label {
+  gap: 5px;
+  color: var(--foreground-soft);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.form-surface .rule-filter-bar input,
+.form-surface .rule-filter-bar select {
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-input);
+  color: var(--foreground);
+  font-size: 13px;
+}
+
+.form-surface .rule-filter-bar input:focus,
+.form-surface .rule-filter-bar select:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: -1px;
+  border-color: var(--primary);
+}
+
+.form-surface .rule-filter-bar button,
+.form-surface .rule-filter-bar .btn-secondary {
+  min-height: 0;
+  padding: 7px 14px;
+}
+
+.form-surface .coverage-list {
+  border-top: 0;
+}
+
+.form-surface .coverage-row {
+  align-items: baseline;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.form-surface .coverage-row:last-child {
+  border-bottom: 0;
+}
+
+.form-surface .coverage-row strong {
+  min-width: 5.5rem;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.form-surface .coverage-row span {
+  color: var(--foreground-muted);
+  font-size: 12px;
+}
+
+.form-surface .coverage-side .fs-mono {
+  color: var(--foreground-muted);
+  font-size: 11.5px;
+}
+
+/* the sticky save strip reads as the card footer it replaces */
+.form-surface .sticky-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  background: var(--card-muted);
+  backdrop-filter: none;
+}
+
+.form-surface .sticky-actions .fs-f-note {
+  margin-right: auto;
+  max-width: 62ch;
+  color: var(--foreground-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* ── page: settings index + user ─────────────────────────── */
+.form-surface .fs-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(232px, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.form-surface .fs-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 13px 15px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  color: var(--foreground);
+}
+
+.form-surface a.fs-tile:hover {
+  border-color: var(--primary);
+  background: var(--brand-50, var(--primary-soft));
+}
+
+.form-surface .fs-tile strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.form-surface .fs-tile span {
+  color: var(--foreground-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.form-surface .fs-tile-off {
+  background: var(--card-muted);
+  color: var(--foreground-muted);
+}
+
+.form-surface .fs-stat-l {
+  color: var(--foreground-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.form-surface .fs-stat-v {
+  font-family: var(--display, var(--sans));
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+/* ── page: what's new ────────────────────────────────────── */
+.form-surface .fs-release {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.form-surface .fs-release:last-child {
+  border-bottom: 0;
+}
+
+.form-surface .fs-release-h {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.form-surface .fs-release-v {
+  font-family: var(--display, var(--sans));
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.form-surface .fs-release-date {
+  color: var(--foreground-muted);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.form-surface .fs-release-sec {
+  margin: 0 0 8px;
+}
+
+.form-surface .fs-release-sec:last-child {
+  margin-bottom: 0;
+}
+
+.form-surface .fs-release-sec > strong {
+  display: block;
+  color: var(--foreground-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.form-surface .fs-release-sec ul {
+  margin: 5px 0 0;
+  padding-left: 1.15rem;
+  color: var(--foreground-soft);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.form-surface .fs-release-sec li + li {
+  margin-top: 2px;
+}
+
+/* ── page: error ─────────────────────────────────────────── */
+.form-surface.error-page {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 640px;
+  margin: 48px auto;
+  padding: 24px 26px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  box-shadow: var(--shadow-md);
+  text-align: left;
+}
+
+.form-surface .error-page-code {
+  margin: 0;
+  color: var(--foreground-muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.form-surface .error-page-title {
+  margin: 0;
+  font-family: var(--display, var(--sans));
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.form-surface .error-page-detail {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--foreground-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.form-surface .error-page-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+@media (max-width: 900px) {
+  .form-surface .fs-grid-3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .form-surface .fs-kv-k {
+    flex: 1 1 100%;
+  }
+}
+
+@media (max-width: 600px) {
+  .form-surface .fs-grid-3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* a scroller that fills a flush card body keeps the card's own border */
+.form-surface .fs-card-b.fs-flush .table-scroll {
+  border: 0;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  background: transparent;
+}
+
+.form-surface .fs-card-b.fs-flush .co-form-table-wrap {
+  border: 0;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+/* a standalone action bar: one card that is only a footer */
+.form-surface .fs-card.fs-card-f {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+
+/* two cards side by side on a wide viewport, stacked below 320px each */
+.form-surface .fs-cols-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  align-items: start;
+  min-width: 0;
+}
+
+/* === end forms & settings (redesign 2026-08-20) === */

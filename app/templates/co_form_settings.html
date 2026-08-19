@@ -2,32 +2,32 @@
 {% block title %}C/O Form Index - Barry CO{% endblock %}
 
 {% block content %}
-<section class="page-bar co-form-page-bar">
-  <div>
-    <h1>C/O Form Index</h1>
-    <span class="page-tagline">Market aliases · form priority · HS criteria</span>
+<section class="form-surface fs-stack">
+  <header class="fs-head">
+    <div>
+      <h1>Bộ form C/O</h1>
+      <p>Danh mục form theo hiệp định, thứ tự ưu tiên khi gợi ý form, alias thị trường và tiêu chí HS. Cấu hình này dùng chung cho mọi công ty.</p>
+    </div>
+    <div class="fs-head-r">
+      <a class="btn-secondary" href="/settings">Cài đặt hệ thống</a>
+      <a class="btn-secondary" href="/clients">Mở CO</a>
+    </div>
+  </header>
+
+  {% if saved %}
+  <div class="fs-note fs-note-ok">
+    <strong>Đã lưu cấu hình form.</strong>
+    File cấu hình: <span class="fs-mono">{{ config_path }}</span>. Hồ sơ C/O đã chốt không đổi theo; thay đổi chỉ áp cho lần chọn form kế tiếp.
   </div>
-  <div class="page-actions">
-    <a class="btn-secondary" href="/settings">Settings</a>
-    <a class="btn-secondary" href="/clients">Mở CO</a>
+  {% endif %}
+
+  {% if error %}
+  <div class="fs-note fs-note-err">
+    <strong>Không lưu được cấu hình.</strong>
+    {{ error }}
   </div>
-</section>
+  {% endif %}
 
-{% if saved %}
-<section class="callout callout-success">
-  <strong>Đã lưu cấu hình form.</strong>
-  <span>Config hiện nằm ở <span class="mono">{{ config_path }}</span>.</span>
-</section>
-{% endif %}
-
-{% if error %}
-<section class="callout callout-error">
-  <strong>Không lưu được cấu hình.</strong>
-  <span>{{ error }}</span>
-</section>
-{% endif %}
-
-<section class="co-form-workspace">
   <nav class="settings-tabs" aria-label="C/O form settings">
     {% for tab in settings_tabs %}
     <a class="settings-tab {{ 'settings-tab-active' if active_tab == tab.id else '' }}" href="/settings/co-forms?tab={{ tab.id }}">{{ tab.label }}</a>
@@ -36,51 +36,57 @@
 
   <div class="co-form-summary" aria-label="Form index summary">
     <div class="summary-metric">
-      <span>Forms</span>
+      <span>Form đang bật</span>
       <strong>{{ enabled_form_count }}/{{ config.forms|length }}</strong>
     </div>
     <div class="summary-metric">
-      <span>Markets</span>
+      <span>Thị trường bật</span>
       <strong>{{ enabled_market_count }}</strong>
     </div>
     <div class="summary-metric">
-      <span>Picker</span>
+      <span>Hiện ở picker</span>
       <strong>{{ picker_market_count }}</strong>
     </div>
     <div class="summary-metric">
-      <span>HS rules</span>
+      <span>Rule HS</span>
       <strong>{{ config.psr_rules|length }}</strong>
     </div>
   </div>
 
   {% if active_tab == "overview" %}
-  <section class="zone co-form-panel">
-    <div class="zone-head">
-      <div>
-        <h2>Overview</h2>
-        <p class="meta">Nguồn seed, thứ tự ưu tiên form và trạng thái coverage hiện tại.</p>
+  <div class="fs-cols-2">
+    <form method="post" action="/settings/co-forms" class="fs-card">
+      <input type="hidden" name="active_tab" value="overview">
+      <div class="fs-card-h">
+        <h2>Ưu tiên form &amp; nguồn</h2>
+        <span class="fs-h-r"><span class="chip">config {{ config_path }}</span></span>
+        <p class="fs-sub">Thứ tự này quyết định form nào được gợi ý trước khi một thị trường khớp nhiều form.</p>
       </div>
-      <span class="chip">config {{ config_path }}</span>
-    </div>
-    <div class="co-form-split">
-      <form method="post" action="/settings/co-forms" class="settings-form co-form-edit-pane">
-        <input type="hidden" name="active_tab" value="overview">
-        <label class="setting-field">
-          <span>Form priority</span>
+      <div class="fs-card-b">
+        <label class="fld fld-mono">
+          <span>Thứ tự ưu tiên form</span>
           <input name="form_priority" value="{{ config.form_priority|join(', ') }}">
-          <small>Comma-separated form codes, ví dụ: B, CPTPP, EUR.1, AI</small>
+          <small class="hint">Các mã form cách nhau bằng dấu phẩy, ví dụ: B, CPTPP, EUR.1, AI. Form đứng trước được chọn trước. Áp cho lần gợi ý form kế tiếp; hồ sơ đã chọn form rồi không đổi.</small>
         </label>
-        <label class="setting-field">
-          <span>Source note</span>
+        <label class="fld">
+          <span>Ghi chú nguồn</span>
           <textarea name="source_note" rows="5">{{ config.source_note }}</textarea>
-          <small>Ghi chú nguồn tổng hợp để đối chiếu với Trọng Tín.</small>
+          <small class="hint">Ghi chú nội bộ về nguồn tổng hợp để đối chiếu với Trọng Tín. Không ảnh hưởng tính toán.</small>
         </label>
-        <div class="settings-actions sticky-actions">
-          <button type="submit">Lưu overview</button>
-          <button type="submit" formaction="/settings/co-forms/reset" formmethod="post" class="btn-secondary">Reset seed mặc định</button>
-        </div>
-      </form>
-      <div class="co-form-read-pane">
+      </div>
+      <div class="settings-actions sticky-actions">
+        <button type="submit" formaction="/settings/co-forms/reset" formmethod="post" class="fs-danger">Reset seed mặc định</button>
+        <span class="fs-f-note">Reset ghi đè toàn bộ cấu hình form bằng bộ seed gốc, mất hết chỉnh tay.</span>
+        <button type="submit" class="btn-primary">Lưu overview</button>
+      </div>
+    </form>
+
+    <section class="fs-card">
+      <div class="fs-card-h">
+        <h2>Coverage hiện tại</h2>
+        <p class="fs-sub">Trạng thái bật/tắt và số rule HS của từng form. Chỉ đọc — sửa ở tab Forms và tab HS Criteria.</p>
+      </div>
+      <div class="fs-card-b">
         <div class="coverage-list">
           {% for form in config.forms %}
           <div class="coverage-row">
@@ -90,29 +96,27 @@
             </div>
             <div class="coverage-side">
               <span class="badge {{ 'badge-ok' if form.enabled else 'badge-neutral' }}">{{ 'Bật' if form.enabled else 'Tắt' }}</span>
-              <span class="mono">{{ psr_rule_counts.get(form.form_code, 0) }} HS</span>
+              <span class="fs-mono">{{ psr_rule_counts.get(form.form_code, 0) }} HS</span>
             </div>
           </div>
           {% endfor %}
         </div>
       </div>
-    </div>
-  </section>
+    </section>
+  </div>
   {% endif %}
 
   {% if active_tab == "forms" %}
-  <section class="zone co-form-panel">
-    <div class="zone-head">
-      <div>
-        <h2>Forms</h2>
-        <p class="meta">Bật/tắt form, sửa văn bản pháp lý, nguồn và trạng thái xác nhận.</p>
-      </div>
+  <form method="post" action="/settings/co-forms" class="fs-card">
+    <input type="hidden" name="active_tab" value="forms">
+    <input type="hidden" name="form_count" value="{{ config.forms|length }}">
+    <div class="fs-card-h">
+      <h2>Forms</h2>
+      <p class="fs-sub">Bật/tắt form, sửa tên hiển thị, văn bản pháp lý và nguồn xác nhận. Form tắt sẽ không xuất hiện khi chọn form cho hồ sơ mới.</p>
     </div>
-    <form method="post" action="/settings/co-forms" class="settings-form">
-      <input type="hidden" name="active_tab" value="forms">
-      <input type="hidden" name="form_count" value="{{ config.forms|length }}">
+    <div class="fs-card-b fs-flush">
       <div class="table-scroll co-form-table-wrap">
-        <table class="table co-form-editor-table">
+        <table class="fs-table fs-table-dense co-form-editor-table">
           <thead>
             <tr>
               <th>Bật</th>
@@ -128,7 +132,7 @@
             {% set index = loop.index0 %}
             <tr>
               <td><input type="checkbox" name="form_{{ index }}_enabled" value="1" {% if form.enabled %}checked{% endif %}></td>
-              <td class="mono">
+              <td class="fs-mono">
                 {{ form.form_code }}
                 <input type="hidden" name="form_{{ index }}_form_code" value="{{ form.form_code }}">
               </td>
@@ -152,27 +156,26 @@
           </tbody>
         </table>
       </div>
-      <div class="settings-actions sticky-actions">
-        <button type="submit">Lưu forms</button>
-      </div>
-    </form>
-  </section>
+    </div>
+    <div class="settings-actions sticky-actions">
+      <span class="fs-f-note">Lưu ghi lại cả bảng; mã form là khóa nên không sửa được tại đây.</span>
+      <button type="submit" class="btn-primary">Lưu forms</button>
+    </div>
+  </form>
   {% endif %}
 
   {% if active_tab == "markets" %}
-  <section class="zone co-form-panel">
-    <div class="zone-head">
-      <div>
-        <h2>Markets</h2>
-        <p class="meta">Một thị trường match khi operator nhập market, label hoặc alias.</p>
-      </div>
-      <span class="chip">{{ config.market_presets|length }} presets</span>
+  <form method="post" action="/settings/co-forms" class="fs-card">
+    <input type="hidden" name="active_tab" value="markets">
+    <input type="hidden" name="market_count" value="{{ config.market_presets|length }}">
+    <div class="fs-card-h">
+      <h2>Markets</h2>
+      <span class="fs-h-r"><span class="chip">{{ config.market_presets|length }} presets</span></span>
+      <p class="fs-sub">Một thị trường được nhận diện khi người dùng gõ đúng market, label hoặc một alias. Cột "Picker" quyết định thị trường có nằm trong danh sách chọn nhanh hay không. Dòng cuối bảng là dòng trống để thêm mới.</p>
     </div>
-    <form method="post" action="/settings/co-forms" class="settings-form">
-      <input type="hidden" name="active_tab" value="markets">
-      <input type="hidden" name="market_count" value="{{ config.market_presets|length }}">
+    <div class="fs-card-b fs-flush">
       <div class="table-scroll co-form-table-wrap">
-        <table class="table co-form-editor-table">
+        <table class="fs-table fs-table-dense co-form-editor-table">
           <thead>
             <tr>
               <th>Bật</th>
@@ -210,7 +213,7 @@
             <tr class="new-row">
               <td><input type="checkbox" name="market_{{ index }}_enabled" value="1"></td>
               <td><input type="checkbox" name="market_{{ index }}_show_in_picker" value="1"></td>
-              <td><input name="market_{{ index }}_market" placeholder="New market"></td>
+              <td><input name="market_{{ index }}_market" placeholder="Thị trường mới"></td>
               <td><input name="market_{{ index }}_label" placeholder="Label"></td>
               <td>
                 <select name="market_{{ index }}_form_code">
@@ -229,64 +232,65 @@
           </tbody>
         </table>
       </div>
-      <div class="settings-actions sticky-actions">
-        <button type="submit">Lưu markets</button>
-      </div>
-    </form>
-  </section>
+    </div>
+    <div class="settings-actions sticky-actions">
+      <span class="fs-f-note">Alias cách nhau bằng dấu phẩy. Bỏ trống dòng mới thì không thêm gì.</span>
+      <button type="submit" class="btn-primary">Lưu markets</button>
+    </div>
+  </form>
   {% endif %}
 
   {% if active_tab == "psr" %}
-  <section class="zone co-form-panel">
-    <div class="zone-head">
-      <div>
-        <h2>HS Criteria</h2>
-        <p class="meta">Lọc theo form/HS/status rồi chỉnh đúng rule đang cần.</p>
+  <form method="get" action="/settings/co-forms" class="fs-card">
+    <input type="hidden" name="tab" value="psr">
+    <div class="fs-card-h">
+      <h2>Lọc rule HS</h2>
+      <p class="fs-sub">Chọn đúng nhóm rule cần sửa trước khi chỉnh. Lọc chỉ đổi phần đang hiện, không đổi dữ liệu.</p>
+    </div>
+    <div class="fs-card-b">
+      <div class="rule-filter-bar">
+        <label>
+          <span>Form</span>
+          <select name="psr_form">
+            {% for form_code in form_codes %}
+            <option value="{{ form_code }}" {% if form_code == psr_selected_form %}selected{% endif %}>{{ form_code }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          <span>HS / tiêu chí</span>
+          <input name="psr_query" value="{{ psr_query }}" placeholder="8504, CTSH, RVC">
+        </label>
+        <label>
+          <span>Trạng thái</span>
+          <select name="psr_status">
+            <option value="">Tất cả</option>
+            {% for option in psr_status_options %}
+            <option value="{{ option.value }}" {% if option.value == psr_status %}selected{% endif %}>{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button type="submit" class="btn-primary">Lọc</button>
+        <a class="btn-secondary" href="/settings/co-forms?tab=psr">Xóa lọc</a>
       </div>
-      <span class="chip-row">
+    </div>
+  </form>
+
+  <form method="post" action="/settings/co-forms" class="fs-card">
+    <input type="hidden" name="active_tab" value="psr">
+    <input type="hidden" name="psr_visible_count" value="{{ psr_visible_rules|length }}">
+    <div class="fs-card-h">
+      <h2>HS Criteria</h2>
+      <span class="fs-h-r">
         {% for form_code, count in psr_rule_counts.items() %}
         <span class="chip">{{ form_code }} {{ count }}</span>
         {% endfor %}
       </span>
+      <p class="fs-sub">Đang hiện {{ psr_visible_rules|length }}/{{ psr_filtered_count }} rule khớp bộ lọc. Lưu chỉ ghi các rule đang hiện; rule đang bị ẩn giữ nguyên.</p>
     </div>
-
-    <form method="get" action="/settings/co-forms" class="rule-filter-bar">
-      <input type="hidden" name="tab" value="psr">
-      <label>
-        <span>Form</span>
-        <select name="psr_form">
-          {% for form_code in form_codes %}
-          <option value="{{ form_code }}" {% if form_code == psr_selected_form %}selected{% endif %}>{{ form_code }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>
-        <span>HS / criteria</span>
-        <input name="psr_query" value="{{ psr_query }}" placeholder="8504, CTSH, RVC">
-      </label>
-      <label>
-        <span>Status</span>
-        <select name="psr_status">
-          <option value="">Tất cả</option>
-          {% for option in psr_status_options %}
-          <option value="{{ option.value }}" {% if option.value == psr_status %}selected{% endif %}>{{ option.label }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <button type="submit">Lọc</button>
-      <a class="btn-secondary" href="/settings/co-forms?tab=psr">Xóa lọc</a>
-    </form>
-
-    <div class="table-meta-row co-form-rule-meta">
-      <span>Đang hiện {{ psr_visible_rules|length }} / {{ psr_filtered_count }} rule match</span>
-      <span>Chỉnh trong batch này không ảnh hưởng các rule đang ẩn.</span>
-    </div>
-
-    <form method="post" action="/settings/co-forms" class="settings-form">
-      <input type="hidden" name="active_tab" value="psr">
-      <input type="hidden" name="psr_visible_count" value="{{ psr_visible_rules|length }}">
+    <div class="fs-card-b fs-flush">
       <div class="table-scroll co-form-table-wrap co-form-psr-wrap">
-        <table class="table co-form-editor-table co-form-psr-table">
+        <table class="fs-table fs-table-dense co-form-editor-table co-form-psr-table">
           <thead>
             <tr>
               <th>Bật</th>
@@ -355,11 +359,12 @@
           </tbody>
         </table>
       </div>
-      <div class="settings-actions sticky-actions">
-        <button type="submit">Lưu HS Criteria</button>
-      </div>
-    </form>
-  </section>
+    </div>
+    <div class="settings-actions sticky-actions">
+      <span class="fs-f-note">Sửa tiêu chí không tính lại hồ sơ đã có; hồ sơ lấy tiêu chí mới khi tính lại.</span>
+      <button type="submit" class="btn-primary">Lưu HS Criteria</button>
+    </div>
+  </form>
   {% endif %}
 </section>
 {% endblock %}

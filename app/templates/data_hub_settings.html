@@ -2,103 +2,116 @@
 {% block title %}Technical Settings - Barry CO{% endblock %}
 
 {% block content %}
-<section class="page-bar">
-  <h1>Technical Settings</h1>
-  <span class="page-tagline">CO runtime config · SSO · source API · client claim mapping</span>
-  <div class="page-actions">
-    <a class="btn-secondary" href="/settings">Settings</a>
-    <a class="btn-secondary" href="/clients">Mở CO</a>
-    <a class="btn-secondary" href="{{ settings.data_hub_base_url }}/login">Mở Data Hub</a>
-  </div>
-</section>
-
-{% if saved %}
-<section class="callout callout-success">
-  <strong>Đã lưu cấu hình local override.</strong>
-  <span>Override sẽ áp dụng cho request mới từ file <span class="mono">{{ config_path }}</span>.</span>
-</section>
-{% endif %}
-
-{% if error %}
-<section class="callout callout-error">
-  <strong>Không lưu được cấu hình.</strong>
-  <span>{{ error }}</span>
-</section>
-{% endif %}
-
-{% if test_result %}
-<section class="zone">
-  <div class="zone-head">
+<section class="form-surface fs-stack">
+  <header class="fs-head">
     <div>
-      <h2>Connection Check</h2>
-      <p class="meta">Kiểm tra JWKS và source API bằng config hiệu lực hiện tại.</p>
+      <h1>Technical Settings</h1>
+      <p>Đường nối giữa C/O và Data Hub: URL, SSO/JWKS, service token và ánh xạ claim sang công ty. Chỉ role dev mở được trang này.</p>
     </div>
-    <span class="badge badge-{{ 'success' if test_result.ok else 'error' }}">{{ 'Pass' if test_result.ok else 'Fail' }}</span>
-  </div>
-  <div class="rowlist">
-    {% for check in test_result.checks %}
-    <div class="rowitem">
-      <div class="rowitem-main">
-        <strong>{{ check.name }}</strong>
-        <div class="meta">{{ check.detail }}</div>
-      </div>
-      <div class="rowitem-side">
-        <span class="badge badge-{{ check.status }}">{{ check.status }}</span>
-      </div>
+    <div class="fs-head-r">
+      <a class="btn-secondary" href="/settings">Cài đặt hệ thống</a>
+      <a class="btn-secondary" href="/clients">Mở CO</a>
+      <a class="btn-secondary" href="{{ settings.data_hub_base_url }}/login">Mở Data Hub</a>
     </div>
-    {% endfor %}
-  </div>
-</section>
-{% endif %}
+  </header>
 
-<section class="zone">
-  <div class="zone-head">
-    <div>
-      <h2>Runtime Settings</h2>
-      <p class="meta">Env là baseline; file local override chỉ dành cho demo/local ops và không được commit.</p>
-    </div>
-    <div class="chip-row">
-      <span class="chip">config {{ config_path }}</span>
-      <span class="chip">token {{ token.source }}</span>
-    </div>
+  {% if saved %}
+  <div class="fs-note fs-note-ok">
+    <strong>Đã lưu file override local.</strong>
+    Giá trị mới áp cho request kế tiếp, đọc từ <span class="fs-mono">{{ config_path }}</span>. Khóa nào đang được đặt bằng biến môi trường thì biến môi trường vẫn thắng.
   </div>
+  {% endif %}
 
-  <form method="post" action="/settings/technical" class="settings-form">
-    <div class="config-grid">
-      {% for row in rows %}
-      <label class="setting-field {% if row.type == 'checkbox' %}setting-field-check{% endif %}">
-        <span>{{ row.label }}</span>
-        {% if row.type == "checkbox" %}
-        <input type="checkbox" name="{{ row.key }}" value="1" {% if row.value == "1" %}checked{% endif %}>
-        {% else %}
-        <input type="{{ row.type }}" name="{{ row.key }}" value="{{ row.value }}">
-        {% endif %}
-        <small>{{ row.key }} · {{ row.source }}</small>
-      </label>
-      {% endfor %}
+  {% if error %}
+  <div class="fs-note fs-note-err">
+    <strong>Không lưu được cấu hình.</strong>
+    {{ error }}
+  </div>
+  {% endif %}
 
-      <section class="zone mini-panel secret-panel">
-        <div class="subsection-head">
-          <h3>Service Token</h3>
-          <p class="meta">{{ token.masked }} · {{ token.source }}</p>
+  {% if test_result %}
+  <section class="fs-card">
+    <div class="fs-card-h">
+      <h2>Kiểm tra kết nối</h2>
+      <span class="fs-h-r"><span class="badge badge-{{ 'success' if test_result.ok else 'error' }}">{{ 'Pass' if test_result.ok else 'Fail' }}</span></span>
+      <p class="fs-sub">Gọi thử JWKS và source API bằng cấu hình đang có hiệu lực (đã gộp biến môi trường và file override).</p>
+    </div>
+    <div class="fs-card-b">
+      <div class="fs-kv">
+        {% for check in test_result.checks %}
+        <div class="fs-kv-row">
+          <div class="fs-kv-k">{{ check.name }}</div>
+          <div class="fs-kv-v">
+            <span class="badge badge-{{ check.status }}">{{ check.status }}</span>
+            <span class="hint">{{ check.detail }}</span>
+          </div>
         </div>
-        <div class="stack-form">
-          <label>DATA_HUB_SERVICE_TOKEN
-            <input type="password" name="DATA_HUB_SERVICE_TOKEN" autocomplete="new-password" placeholder="Để trống để giữ nguyên">
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
+  <form method="post" action="/settings/technical" class="fs-stack">
+    <section class="fs-card">
+      <div class="fs-card-h">
+        <h2>Runtime Settings</h2>
+        <span class="fs-h-r">
+          <span class="chip">config {{ config_path }}</span>
+          <span class="chip">token {{ token.source }}</span>
+        </span>
+        <p class="fs-sub">Biến môi trường là nền; file override local chỉ dùng cho demo và vận hành cục bộ, không commit. Khóa nào có trong biến môi trường thì giá trị nhập ở đây bị bỏ qua cho tới khi gỡ biến đó và khởi động lại app.</p>
+      </div>
+      <div class="fs-card-b">
+        <div class="fs-grid">
+          {% for row in rows %}
+          {% if row.type == "checkbox" %}
+          <label class="fld fld-check">
+            <span class="fs-check-line">
+              <input type="checkbox" name="{{ row.key }}" value="1" {% if row.value == "1" %}checked{% endif %}>
+              <span>{{ row.label }}</span>
+            </span>
+            <small class="hint"><span class="fs-mono">{{ row.key }}</span> · đang lấy từ {{ row.source }}{% if row.source == 'environment' %} (sửa ở đây không có tác dụng){% endif %}</small>
           </label>
-          {% if token.has_local_override %}
-          <label class="inline-check">
-            <input type="checkbox" name="CLEAR_DATA_HUB_SERVICE_TOKEN" value="1">
-            <span>Xóa token local override</span>
+          {% else %}
+          <label class="fld">
+            <span>{{ row.label }}</span>
+            <input type="{{ row.type }}" name="{{ row.key }}" value="{{ row.value }}">
+            <small class="hint"><span class="fs-mono">{{ row.key }}</span> · đang lấy từ {{ row.source }}{% if row.source == 'environment' %} (sửa ở đây không có tác dụng){% endif %}</small>
           </label>
           {% endif %}
+          {% endfor %}
         </div>
-      </section>
-    </div>
+      </div>
+    </section>
 
-    <div class="settings-actions">
-      <button type="submit">Lưu cấu hình</button>
+    <section class="fs-card">
+      <div class="fs-card-h">
+        <h2>Service Token</h2>
+        <p class="fs-sub">Token C/O dùng để gọi API Data Hub theo service scope. Trạng thái hiện tại: {{ token.masked }} · nguồn {{ token.source }}.</p>
+      </div>
+      <div class="fs-card-b">
+        <label class="fld">
+          <span>DATA_HUB_SERVICE_TOKEN</span>
+          <input type="password" name="DATA_HUB_SERVICE_TOKEN" autocomplete="new-password" placeholder="Để trống để giữ nguyên">
+          <small class="hint">Bỏ trống thì token cũ được giữ. Giá trị nhập vào ghi xuống file override local, không hiển thị lại sau khi lưu.</small>
+        </label>
+        {% if token.has_local_override %}
+        <label class="fld fld-check">
+          <span class="fs-check-line">
+            <input type="checkbox" name="CLEAR_DATA_HUB_SERVICE_TOKEN" value="1">
+            <span>Xóa token trong file override local</span>
+          </span>
+          <small class="hint">Xóa xong, C/O quay về token trong biến môi trường; nếu không có biến đó thì mọi lệnh gọi Data Hub cần token sẽ hỏng.</small>
+        </label>
+        {% endif %}
+      </div>
+    </section>
+
+    <div class="fs-card fs-card-f">
+      <span class="fs-f-note">"Test connection" chỉ gọi thử, không lưu gì.</span>
       <button type="submit" formaction="/settings/technical/test" formmethod="post" class="btn-secondary">Test connection</button>
+      <button type="submit" class="btn-primary">Lưu cấu hình</button>
     </div>
   </form>
 </section>

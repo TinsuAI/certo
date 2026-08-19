@@ -2,55 +2,57 @@
 {% block title %}Settings - Barry CO{% endblock %}
 
 {% block content %}
-<section class="page-bar">
-  <div>
-    <h1>Cài đặt hệ thống</h1>
-    <span class="page-tagline">Tài khoản · cấu hình dùng chung toàn app (khác với cấu hình theo công ty)</span>
-  </div>
-</section>
-
-<section class="zone">
-  <div class="zone-head">
+<section class="form-surface fs-stack">
+  <header class="fs-head">
     <div>
+      <h1>Cài đặt hệ thống</h1>
+      <p>Tài khoản và các cấu hình dùng chung cho mọi công ty. Tham số riêng của một công ty nằm ở trang "Cấu hình công ty" trong chính công ty đó.</p>
+    </div>
+  </header>
+
+  <section class="fs-card">
+    <div class="fs-card-h">
       <h2>Tài khoản &amp; phiên</h2>
-      <p class="meta">Thông tin phiên đăng nhập và quyền truy cập hiện tại.</p>
+      <p class="fs-sub">Phiên đăng nhập hiện tại và quyền truy cập kèm theo.</p>
     </div>
-  </div>
-  <div class="module-grid">
-    <a class="module-tile module-link" href="/user">
-      <strong>Tài khoản</strong>
-      <span>Login, logout và xem role/claim từ Data Hub session.</span>
-    </a>
-  </div>
-</section>
+    <div class="fs-card-b">
+      <div class="fs-tiles">
+        <a class="fs-tile" href="/user">
+          <strong>Tài khoản</strong>
+          <span>Xem user, role và danh sách công ty được phép truy cập theo JWT của Data Hub; đăng nhập hoặc đăng xuất tại đây.</span>
+        </a>
+      </div>
+    </div>
+  </section>
 
-<section class="zone">
-  <div class="zone-head">
-    <div>
+  <section class="fs-card">
+    <div class="fs-card-h">
       <h2>Cấu hình dùng chung</h2>
-      <p class="meta">Áp dụng cho mọi công ty — không phải cấu hình riêng của một công ty.</p>
+      <p class="fs-sub">Sửa ở đây là áp cho mọi công ty. Cấu hình riêng từng công ty không nằm trong trang này.</p>
     </div>
-  </div>
-  <div class="module-grid">
-    <a class="module-tile module-link" href="/settings/co-forms">
-      <strong>Bộ form C/O</strong>
-      <span>Market aliases, thứ tự ưu tiên form và nguồn pháp lý để gợi ý form.</span>
-    </a>
-    <a class="module-tile module-link" href="/customs-exchange-rates">
-      <strong>Tỷ giá hải quan</strong>
-      <span>Tỷ giá dùng chung để chuẩn hóa trị giá theo ngày tờ khai (đầu vào tính tồn/xuất xứ).</span>
-    </a>
-    {% if can_view_technical_settings %}
-    <a class="module-tile module-link" href="/settings/technical">
-      <strong>Technical Settings</strong>
-      <span>CO ↔ Data Hub URLs, SSO/JWKS, token state và connection check.</span>
-    </a>
-    {% else %}
-    <div class="module-tile module-disabled">
-      <strong>Technical Settings</strong>
-      <span>Chỉ role dev mới được truy cập.</span>
+    <div class="fs-card-b">
+      <div class="fs-tiles">
+        <a class="fs-tile" href="/settings/co-forms">
+          <strong>Bộ form C/O</strong>
+          <span>Danh mục form, thứ tự ưu tiên khi gợi ý form, alias thị trường và tiêu chí HS theo từng hiệp định.</span>
+        </a>
+        <a class="fs-tile" href="/customs-exchange-rates">
+          <strong>Tỷ giá hải quan</strong>
+          <span>Bảng tỷ giá dùng để quy đổi trị giá theo ngày tờ khai — đầu vào của tính tồn và tính xuất xứ.</span>
+        </a>
+        {% if can_view_technical_settings %}
+        <a class="fs-tile" href="/settings/technical">
+          <strong>Technical Settings</strong>
+          <span>URL giữa C/O và Data Hub, SSO/JWKS, service token và kiểm tra kết nối.</span>
+        </a>
+        {% else %}
+        <div class="fs-tile fs-tile-off">
+          <strong>Technical Settings</strong>
+          <span>Chỉ role dev mới mở được trang này.</span>
+        </div>
+        {% endif %}
+      </div>
     </div>
-    {% endif %}
-  </div>
+  </section>
 </section>
 {% endblock %}

@@ -4,130 +4,144 @@
 {% block content %}
 {% include "_client_nav.html" %}
 
-<section class="zone" id="cost-allocation">
-  <div class="zone-head">
+<section class="form-surface fs-stack" id="cost-allocation">
+  <header class="fs-head">
     <div>
-      <h2>Hệ số phân bổ chi phí (LVC/RVC)</h2>
-      <p class="meta">Hệ số × FOB điền vào cost-buildup khi bấm "Áp hệ số" trong panel sản phẩm. Lợi nhuận tự suy ra phần dư, không lưu hệ số.</p>
+      <h1>Hệ số phân bổ chi phí (LVC/RVC)</h1>
+      <p>Hệ số nhân với FOB để điền cost-buildup khi bấm "Áp hệ số" trong panel sản phẩm. Lợi nhuận không có hệ số riêng — hệ thống suy ra phần dư.</p>
     </div>
-    <div class="page-actions">
+    <div class="fs-head-r">
       <a class="btn-secondary" href="/clients/{{ client.id }}/cost-allocation/template.xlsx">Tải template Excel</a>
     </div>
-  </div>
+  </header>
 
   {# Mode B — per-company default panel #}
-  <section class="zone mini-panel">
-    <div class="subsection-head">
-      <h3>Mặc định cả doanh nghiệp (Mode B)</h3>
-      <p class="meta">Áp khi mã TP không có dòng riêng phía dưới. Để trống nếu không muốn fallback.</p>
+  <form method="post" action="/clients/{{ client.id }}/cost-allocation/mode-b" class="fs-card">
+    <div class="fs-card-h">
+      <h2>Mặc định cả doanh nghiệp (Mode B)</h2>
+      <p class="fs-sub">Bộ hệ số dùng cho mọi mã thành phẩm không có dòng riêng ở bảng phía dưới. Để trống toàn bộ nếu không muốn có fallback.</p>
     </div>
-    <form method="post" action="/clients/{{ client.id }}/cost-allocation/mode-b" class="stack-form">
-      <div class="cost-allocation-grid">
-        <label>Lương, thưởng
+    <div class="fs-card-b">
+      <div class="fs-grid fs-grid-3">
+        <label class="fld">
+          <span>Lương, thưởng</span>
           <input type="number" step="any" min="0" name="coef_wages" value="{{ mode_b.coef_wages_str }}" placeholder="0">
         </label>
-        <label>Phúc lợi y tế
+        <label class="fld">
+          <span>Phúc lợi y tế</span>
           <input type="number" step="any" min="0" name="coef_welfare" value="{{ mode_b.coef_welfare_str }}" placeholder="0">
         </label>
-        <label>Thuê nhà xưởng
+        <label class="fld">
+          <span>Thuê nhà xưởng</span>
           <input type="number" step="any" min="0" name="coef_rent" value="{{ mode_b.coef_rent_str }}" placeholder="0">
         </label>
-        <label>Khấu hao, BH, BD
+        <label class="fld">
+          <span>Khấu hao, BH, BD</span>
           <input type="number" step="any" min="0" name="coef_depreciation" value="{{ mode_b.coef_depreciation_str }}" placeholder="0">
         </label>
-        <label>CP SX chung khác
+        <label class="fld">
+          <span>CP SX chung khác</span>
           <input type="number" step="any" min="0" name="coef_other_mfg" value="{{ mode_b.coef_other_mfg_str }}" placeholder="0">
         </label>
-        <label>Vận chuyển, lưu kho
+        <label class="fld">
+          <span>Vận chuyển, lưu kho</span>
           <input type="number" step="any" min="0" name="coef_transport_storage" value="{{ mode_b.coef_transport_storage_str }}" placeholder="0">
         </label>
       </div>
-      <label>Ghi chú
+      <label class="fld">
+        <span>Ghi chú</span>
         <input type="text" name="note" value="{{ mode_b.note }}">
+        <small class="hint">Ghi lý do chọn bộ hệ số này (kỳ kế toán, nguồn số liệu) để lần sau đối chiếu.</small>
       </label>
-      <div>
-        <button type="submit" class="btn-primary">Lưu mặc định</button>
-        {% if mode_b.has_value %}
-          <button type="submit" formaction="/clients/{{ client.id }}/cost-allocation/mode-b/delete" class="btn-secondary">Xóa mặc định</button>
-        {% endif %}
-      </div>
-    </form>
-  </section>
-
-  {# Mode A — per Mã SP table #}
-  <section class="zone mini-panel">
-    <div class="subsection-head">
-      <h3>Theo mã thành phẩm (Mode A) — {{ rows|length }} dòng</h3>
-      <p class="meta">Mỗi mã TP một bộ hệ số riêng. Khi bấm "Áp hệ số" trên panel sản phẩm, hệ thống tra mã TP ở đây trước, không có thì rớt về Mode B phía trên.</p>
+      <p class="fs-note">Sửa hệ số ở đây không đổi cost-buildup của sản phẩm đã tính. Hệ số mới chỉ vào hồ sơ khi bấm "Áp hệ số" lần kế tiếp.</p>
     </div>
+    <div class="fs-card-f">
+      {% if mode_b.has_value %}
+        <button type="submit" formaction="/clients/{{ client.id }}/cost-allocation/mode-b/delete" class="fs-danger">Xóa mặc định</button>
+      {% endif %}
+      <button type="submit" class="btn-primary">Lưu mặc định</button>
+    </div>
+  </form>
 
-    <form method="post" action="/clients/{{ client.id }}/cost-allocation/upload" enctype="multipart/form-data" class="upload-row">
-      <label>Import Excel (thay toàn bộ Mode A; Mode B giữ nguyên):
+  {# Mode A — per Mã SP import #}
+  <form method="post" action="/clients/{{ client.id }}/cost-allocation/upload" enctype="multipart/form-data" class="fs-card">
+    <div class="fs-card-h">
+      <h2>Import hệ số theo mã thành phẩm</h2>
+      <p class="fs-sub">File Excel thay <strong>toàn bộ</strong> bảng Mode A phía dưới; bộ mặc định Mode B giữ nguyên. Dùng template ở đầu trang để đúng thứ tự cột.</p>
+    </div>
+    <div class="fs-card-b">
+      <label class="fld">
+        <span>File Excel (.xlsx)</span>
         <input type="file" name="file" accept=".xlsx" required>
+        <small class="hint">Mã thành phẩm có trong file mà chưa có trong bảng sẽ được thêm; mã không có trong file sẽ bị xóa khỏi Mode A.</small>
       </label>
+      {% if upload_diff %}
+        <div class="fs-note fs-note-ok">
+          <strong>Đã thay thế bảng Mode A:</strong>
+          +{{ upload_diff.added|length }} thêm, −{{ upload_diff.removed|length }} xóa, ~{{ upload_diff.changed|length }} đổi hệ số.
+          {% if upload_diff.added %}<div>Thêm: <span class="fs-mono">{{ upload_diff.added|join(', ') }}</span></div>{% endif %}
+          {% if upload_diff.removed %}<div>Xóa: <span class="fs-mono">{{ upload_diff.removed|join(', ') }}</span></div>{% endif %}
+          {% if upload_diff.changed %}<div>Đổi: <span class="fs-mono">{{ upload_diff.changed|join(', ') }}</span></div>{% endif %}
+        </div>
+      {% endif %}
+    </div>
+    <div class="fs-card-f">
+      <span class="fs-f-note">Thao tác này ghi đè cả bảng, không cộng dồn.</span>
       <button type="submit" class="btn-primary">Upload &amp; thay thế</button>
-    </form>
-    {% if upload_diff %}
-      <div class="callout">
-        Đã thay thế:
-        <strong>+{{ upload_diff.added|length }}</strong> thêm,
-        <strong>−{{ upload_diff.removed|length }}</strong> xóa,
-        <strong>~{{ upload_diff.changed|length }}</strong> đổi hệ số.
-        {% if upload_diff.added %}<div class="meta">Thêm: {{ upload_diff.added|join(', ') }}</div>{% endif %}
-        {% if upload_diff.removed %}<div class="meta">Xóa: {{ upload_diff.removed|join(', ') }}</div>{% endif %}
-        {% if upload_diff.changed %}<div class="meta">Đổi: {{ upload_diff.changed|join(', ') }}</div>{% endif %}
-      </div>
-    {% endif %}
+    </div>
+  </form>
 
+  <section class="fs-card">
+    <div class="fs-card-h">
+      <h2>Theo mã thành phẩm (Mode A)</h2>
+      <span class="chip">{{ rows|length }} dòng</span>
+      <p class="fs-sub">Mỗi mã thành phẩm một bộ hệ số riêng. Khi bấm "Áp hệ số", hệ thống tra mã ở bảng này trước, không thấy mới rớt về Mode B.</p>
+    </div>
     {% if rows %}
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>Mã TP</th>
-          <th>Lương, thưởng</th>
-          <th>Phúc lợi</th>
-          <th>Thuê xưởng</th>
-          <th>Khấu hao</th>
-          <th>CP SX chung</th>
-          <th>Vận chuyển</th>
-          <th>Ghi chú</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in rows %}
-        <tr>
-          <td><code>{{ row.product_code }}</code></td>
-          <td class="numeric">{{ row.coef_wages_str }}</td>
-          <td class="numeric">{{ row.coef_welfare_str }}</td>
-          <td class="numeric">{{ row.coef_rent_str }}</td>
-          <td class="numeric">{{ row.coef_depreciation_str }}</td>
-          <td class="numeric">{{ row.coef_other_mfg_str }}</td>
-          <td class="numeric">{{ row.coef_transport_storage_str }}</td>
-          <td>{{ row.note }}</td>
-          <td>
-            <form method="post" action="/clients/{{ client.id }}/cost-allocation/row/delete" style="display:inline">
-              <input type="hidden" name="product_code" value="{{ row.product_code }}">
-              <button type="submit" class="btn-link" onclick="return confirm('Xóa hệ số cho {{ row.product_code }}?');">Xóa</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="fs-card-b fs-flush">
+      <div class="table-scroll">
+        <table class="fs-table fs-table-dense">
+          <thead>
+            <tr>
+              <th>Mã TP</th>
+              <th>Lương, thưởng</th>
+              <th>Phúc lợi</th>
+              <th>Thuê xưởng</th>
+              <th>Khấu hao</th>
+              <th>CP SX chung</th>
+              <th>Vận chuyển</th>
+              <th>Ghi chú</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+            <tr>
+              <td class="fs-mono">{{ row.product_code }}</td>
+              <td class="num">{{ row.coef_wages_str }}</td>
+              <td class="num">{{ row.coef_welfare_str }}</td>
+              <td class="num">{{ row.coef_rent_str }}</td>
+              <td class="num">{{ row.coef_depreciation_str }}</td>
+              <td class="num">{{ row.coef_other_mfg_str }}</td>
+              <td class="num">{{ row.coef_transport_storage_str }}</td>
+              <td>{{ row.note }}</td>
+              <td>
+                <form method="post" action="/clients/{{ client.id }}/cost-allocation/row/delete" style="display:inline">
+                  <input type="hidden" name="product_code" value="{{ row.product_code }}">
+                  <button type="submit" class="fs-danger fs-btn-xs" onclick="return confirm('Xóa hệ số cho {{ row.product_code }}?');">Xóa</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
     {% else %}
-      <p class="meta">Chưa có hệ số nào. Upload file Excel hoặc nhập tay qua API.</p>
+    <div class="fs-card-b">
+      <p class="fs-note">Chưa có hệ số theo mã thành phẩm. Upload file Excel ở trên, hoặc nhập qua API. Trong lúc chưa có, mọi mã đều dùng bộ mặc định Mode B.</p>
+    </div>
     {% endif %}
   </section>
 </section>
-
-<style>
-  .cost-allocation-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem 1rem; }
-  .upload-row { display: flex; gap: 1rem; align-items: end; margin: 1rem 0; }
-  .callout { background: #eef7ff; padding: 0.75rem 1rem; border-radius: 4px; margin: 0.5rem 0; }
-  .data-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-  .data-table th, .data-table td { padding: 0.4rem 0.6rem; border-bottom: 1px solid #e5e7eb; text-align: left; }
-  .data-table td.numeric { text-align: right; font-variant-numeric: tabular-nums; }
-  .btn-link { background: none; border: none; color: #b91c1c; cursor: pointer; padding: 0; }
-</style>
 {% endblock %}

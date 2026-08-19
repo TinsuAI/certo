@@ -306,7 +306,7 @@ def test_user_ui_loads_session_and_logout_clears_cookie(monkeypatch):
     assert response.status_code == 200
     assert "Operator" in response.text
     assert "dev" in response.text
-    assert "All clients" in response.text
+    assert "Tất cả công ty" in response.text
     assert '<summary class="user-menu-trigger"' in response.text
     assert "User profile" in response.text
     assert "Technical Settings" in response.text

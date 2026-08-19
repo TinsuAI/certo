@@ -2,58 +2,83 @@
 {% block title %}Tỷ giá hải quan - Barry CO{% endblock %}
 
 {% block content %}
-{% if message %}
-<div class="toast">{{ message }}</div>
-{% endif %}
-{% if error %}
-<div class="toast toast-error">{{ error }}</div>
-{% endif %}
-
-<section class="zone" id="customs-exchange-rates">
-  <div class="zone-head">
+<section class="form-surface fs-stack" id="customs-exchange-rates">
+  <header class="fs-head">
     <div>
-      <h2>Tỷ giá hải quan</h2>
-      <p class="meta">Bảng tỷ giá ngoại tệ app-level công bố bởi Hải quan, tạm lưu trong CO cho đến khi Data Hub có contract tỷ giá dùng chung.</p>
+      <h1>Tỷ giá hải quan</h1>
+      <p>Bảng tỷ giá ngoại tệ do Hải quan công bố, dùng chung cho mọi công ty để quy đổi trị giá theo ngày tờ khai. C/O tạm giữ bảng này cho tới khi Data Hub có contract tỷ giá dùng chung.</p>
     </div>
-    <div class="chip-row">
+    <div class="fs-head-r">
       <span class="chip">{{ customs_fx_summary.row_count }} dòng</span>
       <span class="chip">{{ customs_fx_summary.currency_count }} nguyên tệ</span>
       <span class="chip">Mới nhất {{ customs_fx_summary.latest_effective_date or 'chưa có' }}</span>
       <span class="chip">backend {{ customs_fx_summary.backend }}</span>
     </div>
-  </div>
+  </header>
 
-  <div class="split-balanced">
-    <form method="post" action="/customs-exchange-rates/refresh" class="zone mini-panel">
-      <div class="subsection-head">
-        <h3>Cập nhật tự động</h3>
-        <p class="meta">Lấy USD và các ngoại tệ khác từ API công khai của Hải quan, sau đó upsert vào scope <span class="mono">{{ customs_fx_scope }}</span>.</p>
+  {% if message %}
+  <div class="fs-note fs-note-ok">{{ message }}</div>
+  {% endif %}
+  {% if error %}
+  <div class="fs-note fs-note-err">{{ error }}</div>
+  {% endif %}
+
+  <div class="fs-cols-2">
+    <form method="post" action="/customs-exchange-rates/refresh" class="fs-card">
+      <div class="fs-card-h">
+        <h2>Cập nhật tự động</h2>
+        <p class="fs-sub">Gọi API công khai của Hải quan lấy USD và các ngoại tệ khác, rồi ghi đè theo ngày hiệu lực vào scope <span class="fs-mono">{{ customs_fx_scope }}</span>.</p>
       </div>
-      <div class="source-actions">
-        <button type="submit">Refresh tỷ giá</button>
+      <div class="fs-card-b">
+        <p class="fs-note">Dòng đã có cùng ngày hiệu lực và cùng nguyên tệ sẽ bị ghi đè bằng số mới. Bảng kê đã tính không tự đổi theo tỷ giá mới — phải tính lại hồ sơ.</p>
+      </div>
+      <div class="fs-card-f">
+        <button type="submit" class="btn-primary">Refresh tỷ giá</button>
       </div>
     </form>
-    <section class="zone mini-panel">
-      <div class="subsection-head">
-        <h3>Lần cập nhật gần nhất</h3>
-        <p class="meta">
-          {% if customs_fx_summary.latest_refresh %}
-          {{ customs_fx_summary.latest_refresh.created_at }} · fetched {{ customs_fx_summary.latest_refresh.fetched_row_count }} · saved {{ customs_fx_summary.latest_refresh.saved_row_count }}
-          {% else %}
-          Chưa có lần cập nhật nào trong store hiện tại.
-          {% endif %}
-        </p>
+
+    <section class="fs-card">
+      <div class="fs-card-h">
+        <h2>Lần cập nhật gần nhất</h2>
+        <p class="fs-sub">Nhật ký lần gọi API gần nhất trong store đang dùng.</p>
       </div>
-      {% if customs_fx_result %}
-      <div class="chip-row">
-        <span class="chip">fetched {{ customs_fx_result.fetched_row_count }}</span>
-        <span class="chip">saved {{ customs_fx_result.saved_row_count }}</span>
-        <span class="chip">latest {{ customs_fx_result.latest_effective_date }}</span>
+      <div class="fs-card-b">
+        {% if customs_fx_summary.latest_refresh %}
+        <div class="fs-kv">
+          <div class="fs-kv-row">
+            <div class="fs-kv-k">Thời điểm</div>
+            <div class="fs-kv-v fs-mono">{{ customs_fx_summary.latest_refresh.created_at }}</div>
+          </div>
+          <div class="fs-kv-row">
+            <div class="fs-kv-k">Số dòng lấy về</div>
+            <div class="fs-kv-v fs-mono">{{ customs_fx_summary.latest_refresh.fetched_row_count }}</div>
+          </div>
+          <div class="fs-kv-row">
+            <div class="fs-kv-k">Số dòng đã lưu</div>
+            <div class="fs-kv-v fs-mono">{{ customs_fx_summary.latest_refresh.saved_row_count }}</div>
+          </div>
+        </div>
+        {% else %}
+        <p class="fs-note">Chưa có lần cập nhật nào trong store hiện tại.</p>
+        {% endif %}
+        {% if customs_fx_result %}
+        <div class="fs-note fs-note-ok">
+          <strong>Lần refresh vừa chạy:</strong>
+          lấy về {{ customs_fx_result.fetched_row_count }} dòng, lưu {{ customs_fx_result.saved_row_count }} dòng, ngày hiệu lực mới nhất {{ customs_fx_result.latest_effective_date }}.
+        </div>
+        {% endif %}
       </div>
-      {% endif %}
     </section>
   </div>
 
-  {% include "_advanced_table.html" %}
+  <section class="fs-card">
+    <div class="fs-card-h">
+      <h2>Bảng tỷ giá</h2>
+      <p class="fs-sub">Lọc theo nguyên tệ hoặc ngày hiệu lực để đối chiếu với tờ khai.</p>
+    </div>
+    <div class="fs-card-b">
+      {% include "_advanced_table.html" %}
+    </div>
+  </section>
 </section>
 {% endblock %}
