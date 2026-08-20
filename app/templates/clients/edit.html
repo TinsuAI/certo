@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% block title %}{{ t('clients.edit_title' if client else 'clients.new_title') }} · {{ t('app.brand') }}{% endblock %}
 {% block content %}
-{% if client %}{% include "_client_nav.html" %}{% endif %}
+{# Trang này tự dựng thanh tiêu đề riêng (có tiêu đề cụ thể hơn), nên không
+   include "_client_nav.html" nữa — nếu include sẽ ra hai thanh tiêu đề chồng
+   nhau. Điều hướng khu làm việc nằm ở thanh bên (_sidebar.html). #}
 
 <form method="post"
       action="{{ '/clients/' + client.client_id + '/edit' if client else '/clients/new' }}"

@@ -12,7 +12,7 @@
       <p class="meta">{{ t('proposals.subtitle') }}</p>
     </div>
     <div>
-      <span class="badge badge-info">{{ t('clients.field.bom_proposal_mode') }}: {{ t('clients.bom_mode.' + client.bom_proposal_mode) }}</span>
+      <span class="badge badge-muted">{{ t('clients.field.bom_proposal_mode') }}: {{ t('clients.proposal_mode.' + client.bom_proposal_mode) }}</span>
     </div>
   </div>
 
@@ -34,7 +34,8 @@
   </div>
 
   {% if items %}
-  <table class="dh-table">
+  <div class="table-wrap">
+  <table class="dh-table dense">
     <thead><tr>
       <th>{{ t('proposals.col.id') }}</th>
       <th>{{ t('proposals.col.product') }}</th>
@@ -51,28 +52,32 @@
       <tr data-row-href="/clients/{{ client.client_id }}/proposals/{{ p.proposal_id }}" tabindex="0">
         <td class="mono">{{ p.proposal_id[:14] }}…</td>
         <td class="mono">{{ p.product_code }}</td>
-        <td><span class="badge">{{ p.actor }}</span></td>
+        <td><span class="badge badge-muted">{{ p.actor }}</span></td>
         <td><span class="badge badge-info">{{ p.intent }}</span></td>
         <td class="mono">{{ p.parent_artifact_id[:12] + '…' if p.parent_artifact_id else '—' }}</td>
         <td>
           {% if p.status == 'pending' %}<span class="badge badge-warning">{{ t('proposals.status_pending') }}</span>
           {% elif p.status == 'approved' %}<span class="badge badge-success">{{ t('proposals.status_approved') }}</span>
-          {% elif p.status == 'rejected' %}<span class="badge badge-danger">{{ t('proposals.status_rejected') }}</span>
-          {% elif p.status == 'withdrawn' %}<span class="badge">{{ t('proposals.status_withdrawn') }}</span>
-          {% else %}<span class="badge">{{ p.status }}</span>{% endif %}
+          {% elif p.status == 'rejected' %}<span class="badge badge-critical">{{ t('proposals.status_rejected') }}</span>
+          {% elif p.status == 'withdrawn' %}<span class="badge badge-muted">{{ t('proposals.status_withdrawn') }}</span>
+          {% else %}<span class="badge badge-muted">{{ p.status }}</span>{% endif %}
         </td>
         <td>{{ p.decision_reason or '' }}</td>
         <td class="mono">{{ p.created_at.strftime('%Y-%m-%d %H:%M') if p.created_at else '' }}</td>
         <td>
-          <a href="/clients/{{ client.client_id }}/proposals/{{ p.proposal_id }}">
-            {% if p.status == 'pending' and can_approve %}{{ t('proposals.review_action') }} →
-            {% else %}{{ t('common.detail') }} →{% endif %}
-          </a>
+          {% if p.status == 'pending' and can_approve %}
+          <a class="btn-primary btn-xs"
+             href="/clients/{{ client.client_id }}/proposals/{{ p.proposal_id }}">{{ t('proposals.review_action') }}</a>
+          {% else %}
+          <a class="btn-ghost btn-xs"
+             href="/clients/{{ client.client_id }}/proposals/{{ p.proposal_id }}">{{ t('common.detail') }} →</a>
+          {% endif %}
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
   <div class="empty-state">
     <p>{{ t('proposals.empty') }}</p>

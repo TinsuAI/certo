@@ -57,7 +57,7 @@
       <p class="meta">{{ rows|length }} preset · system preset không xóa được</p>
     </div>
   </div>
-  <table class="dh-table">
+  <table class="dh-table dense">
     <thead>
       <tr>
         <th>Key</th>
@@ -102,13 +102,13 @@
         </td>
         <td>
           {% if r.is_system %}
-          <span class="badge badge-info" title="Seeded từ data/seeds/client_type_presets.yaml; không xóa được.">system</span>
+          <span class="badge badge-brand" title="Seeded từ data/seeds/client_type_presets.yaml; không xóa được.">system</span>
           {% else %}
-          <span class="badge">user</span>
+          <span class="badge badge-muted">user</span>
           {% endif %}
         </td>
         <td>
-          <span class="badge badge-{{ 'success' if r.is_active else 'warning' }}">{{ 'active' if r.is_active else 'disabled' }}</span>
+          <span class="badge badge-{{ 'success' if r.is_active else 'muted' }}">{{ 'active' if r.is_active else 'disabled' }}</span>
         </td>
         <td class="actions-cell">
           <form method="post" action="/admin/client-type-presets/{{ r.preset_key }}/update" class="inline-form">
@@ -117,11 +117,11 @@
             <input type="hidden" name="default_relevant_export" value="{{ r.default_relevant_export|join(', ') }}">
             <input type="hidden" name="notes" value="{{ r.notes }}">
             <input type="hidden" name="is_active" value="{{ 'false' if r.is_active else 'true' }}">
-            <button type="submit" class="btn-{{ 'danger-sm' if r.is_active else 'secondary' }}">{{ 'Disable' if r.is_active else 'Enable' }}</button>
+            <button type="submit" class="btn-xs btn-{{ 'danger-sm' if r.is_active else 'secondary' }}">{{ 'Disable' if r.is_active else 'Enable' }}</button>
           </form>
           {% if not r.is_system %}
           <form method="post" action="/admin/client-type-presets/{{ r.preset_key }}/delete" class="inline-form" onsubmit="return confirm('Xóa preset {{ r.preset_key }}?');">
-            <button type="submit" class="btn-danger-sm">Xóa</button>
+            <button type="submit" class="btn-xs btn-danger-sm">Xóa</button>
           </form>
           {% endif %}
         </td>

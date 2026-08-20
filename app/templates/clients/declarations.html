@@ -21,7 +21,7 @@
             style="display:inline;"
             title="Render trước PDF chuẩn cho các tờ khai .xls chưa có bản PDF (để ghép/tải nhanh). Bỏ qua file đã render.">
         <input type="hidden" name="kind" value="declaration_pdf_render">
-        <button type="submit" class="btn-secondary">Render PDF còn thiếu</button>
+        <button type="submit" class="btn-secondary btn-sm">Render PDF còn thiếu</button>
       </form>
       <a class="btn-primary"
          href="/clients/{{ client.client_id }}/declarations/upload">
@@ -31,8 +31,7 @@
   </div>
 
   {% if bulk_toast %}
-  <div class="toast {{ 'toast-warn' if bulk_toast.mismatch or bulk_toast.parse_err or bulk_toast.store_err else '' }}"
-       style="margin-bottom: 1rem;">
+  <div class="callout {{ 'callout-warn' if bulk_toast.mismatch or bulk_toast.parse_err or bulk_toast.store_err else 'callout-success' }}">
     Đã thêm <strong>{{ bulk_toast.inserted }}</strong> file mới
     {%- if bulk_toast.deduped %}, bỏ qua <strong>{{ bulk_toast.deduped }}</strong> trùng{% endif %}
     {%- if bulk_toast.mismatch %}, <strong>{{ bulk_toast.mismatch }}</strong> sai khớp số TK{% endif %}
@@ -78,7 +77,7 @@
   </form>
 
   {% if summaries %}
-  <table class="dh-table">
+  <table class="dh-table dense">
     <thead>
       <tr>
         <th>Số TK</th>

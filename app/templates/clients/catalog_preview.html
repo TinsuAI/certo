@@ -2,66 +2,75 @@
 
 {% block module_summary %}
 {% if provenance_kind == 'registered' %}
-<div class="toast" style="margin-bottom: 1rem;">
-  {{ t('catalog.preview_provenance_registered') }}
-</div>
+<div class="callout callout-info">{{ t('catalog.preview_provenance_registered') }}</div>
 {% else %}
-<div class="toast toast-warn" style="margin-bottom: 1rem;">
-  {{ t('catalog.preview_provenance_user_added') }}
-</div>
+<div class="callout callout-warn">{{ t('catalog.preview_provenance_user_added') }}</div>
 {% endif %}
 
-<div class="zone mini-panel" style="margin-bottom: 1rem;">
-  <strong>Tổng quan:</strong>
-  <ul style="margin: 0.5rem 0 0 1.2rem;">
-    <li><strong>{{ summary.total }}</strong> mã sẽ được thêm/cập nhật (upsert theo customs_code).</li>
-    <li><strong>{{ summary.n_with_customs_code }}</strong> mã có HQ-code · <strong>{{ summary.n_with_internal_code }}</strong> mã có internal-code.</li>
+<div class="upload-card upload-card-wide">
+  <div class="upload-card-head">
+    <h3>Tổng quan</h3>
+    <p>Upsert theo <span class="mono">customs_code</span>.</p>
+  </div>
+  <div class="upload-card-body">
+    <div class="flow-facts">
+      <span class="badge badge-brand">{{ summary.total }} mã thêm/cập nhật</span>
+      <span class="badge badge-muted">{{ summary.n_with_customs_code }} có HQ-code</span>
+      <span class="badge badge-muted">{{ summary.n_with_internal_code }} có internal-code</span>
+    </div>
     {% if summary.by_category %}
-    <li>Theo loại:
+    <div class="flow-facts">
+      <span>Theo loại:</span>
       {% for cat, n in summary.by_category.items() %}
       <span class="badge">{{ cat }}: {{ n }}</span>
       {% endfor %}
-    </li>
+    </div>
     {% endif %}
     {% if summary.by_status and summary.by_status|length > 1 %}
-    <li>Theo trạng thái:
+    <div class="flow-facts">
+      <span>Theo trạng thái:</span>
       {% for st, n in summary.by_status.items() %}
       <span class="badge">{{ st }}: {{ n }}</span>
       {% endfor %}
-    </li>
+    </div>
     {% endif %}
-  </ul>
+  </div>
 </div>
 {% endblock %}
 
 {% block module_sample %}
-<div class="zone mini-panel" style="margin-bottom: 1rem;">
-  <strong>Mẫu {{ sample_rows|length }} dòng đầu (trên tổng {{ summary.total }}):</strong>
-  <table class="data-table" style="margin-top: 0.6rem;">
-    <thead>
-      <tr>
-        <th>Mã HQ</th>
-        <th>Mã nội bộ</th>
-        <th>Tên</th>
-        <th>Loại</th>
-        <th>ĐVT</th>
-        <th>HS</th>
-        <th>Trạng thái</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in sample_rows %}
-      <tr>
-        <td><code>{{ r.customs_code or "—" }}</code></td>
-        <td><code>{{ r.internal_code or "—" }}</code></td>
-        <td>{{ r.name or "" }}</td>
-        <td><span class="badge">{{ r.category }}</span></td>
-        <td>{{ r.unit or "" }}</td>
-        <td class="meta">{{ r.hs_code or "" }}</td>
-        <td>{{ r.status or "active" }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<div class="upload-card upload-card-wide">
+  <div class="upload-card-head">
+    <h3>Mẫu {{ sample_rows|length }} dòng đầu</h3>
+    <p>Trên tổng {{ summary.total }} dòng.</p>
+  </div>
+  <div class="mapping-raw-scroll">
+    <table class="data-table dense">
+      <thead>
+        <tr>
+          <th>Mã HQ</th>
+          <th>Mã nội bộ</th>
+          <th>Tên</th>
+          <th>Loại</th>
+          <th>ĐVT</th>
+          <th>HS</th>
+          <th>Trạng thái</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in sample_rows %}
+        <tr>
+          <td class="mono">{{ r.customs_code or "—" }}</td>
+          <td class="mono">{{ r.internal_code or "—" }}</td>
+          <td>{{ r.name or "" }}</td>
+          <td><span class="badge badge-muted">{{ r.category }}</span></td>
+          <td>{{ r.unit or "" }}</td>
+          <td class="mono">{{ r.hs_code or "" }}</td>
+          <td>{{ r.status or "active" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}

@@ -1,106 +1,40 @@
-{# Per-client header + tab nav, included by every workspace page.
-   Three domain groups (Danh mục / Hải quan / BOM) keep the bar to a few
-   top-level entries; each <details> groups its related pages. Đề xuất lives
-   under BOM (it is a BOM-change queue). Self-highlights via active_tab. #}
+{# Slim page header for every client workspace page.
+
+   The workspace navigation itself now lives in the persistent sidebar
+   (`_sidebar.html`, rendered once from base.html) and the client switcher
+   lives in the header, so this partial is only the page title bar:
+   one h1, one muted context line, actions on the right. #}
+{% set at = active_tab|default('') %}
+{% set page_titles = {
+  'overview': 'tabs.overview',
+  'catalog': 'navgrp.catalog.item',
+  'bqd': 'tabs.bqd',
+  'bcct': 'tabs.bcct',
+  'declarations': 'tabs.declarations',
+  'nxt': 'navgrp.settlement.nxt',
+  'inventory': 'navgrp.settlement.inventory',
+  'bom': 'navgrp.bom.list',
+  'proposals': 'tabs.proposals',
+  'uom-factors': 'navgrp.bom.uom',
+  'uploads': 'tabs.uploads',
+  'agent': 'tabs.agent',
+  'config': 'navgrp.config.general',
+  'parser_rules': 'navgrp.config.parser_rules',
+  'column_aliases': 'navgrp.config.column_aliases',
+  'material_group_map': 'navgrp.config.material_group_map',
+  'staff': 'tabs.staff',
+} %}
 <section class="page-bar">
-  <h1>{{ client.name }}</h1>
-  <span class="page-tagline">
-    <span class="mono">{{ client.client_id }}</span>
-    {% if client.tax_code %} · {{ t('clients.row.tax') }} <span class="mono">{{ client.tax_code }}</span>{% endif %}
-    · <span class="badge badge-info">{{ t('clients.mode.' + client.code_resolution_mode + '.short') }}</span>
-    {% if stats %}
-      · {{ stats.materials }} {{ t('workspace.stat.catalog')|lower }}
-      · {{ stats.mappings }} {{ t('workspace.stat.bqd')|lower }}
-      · {{ stats.bcct }} BCCT
-      · {{ stats.bom }} BOM
-    {% endif %}
-  </span>
+  <div class="page-bar-main">
+    <h1>{% if page_titles.get(at) %}{{ t(page_titles.get(at)) }}{% else %}{{ client.name }}{% endif %}</h1>
+    <p class="page-tagline">
+      {{ client.name }}
+      · <span class="mono">{{ client.client_id }}</span>
+      {% if client.tax_code %} · {{ t('clients.row.tax') }} <span class="mono">{{ client.tax_code }}</span>{% endif %}
+      · {{ t('clients.mode.' + client.code_resolution_mode + '.short') }}
+    </p>
+  </div>
   <div class="page-actions">
     <span class="badge badge-{{ 'success' if client.status == 'active' else 'warning' }}">{{ t('status.' + client.status) if client.status in ['active','archived'] else client.status }}</span>
-    <a class="btn-secondary" href="/clients">{{ t('workspace.switch_client') }}</a>
   </div>
 </section>
-
-{% set catalog_tabs = ['catalog', 'bqd'] %}
-{% set customs_tabs = ['bcct', 'declarations'] %}
-{% set settlement_tabs = ['nxt', 'inventory'] %}
-{% set bom_tabs = ['bom', 'proposals', 'uom-factors'] %}
-{% set config_tabs = ['config', 'parser_rules', 'column_aliases', 'material_group_map', 'staff'] %}
-<nav class="tabs client-tabs" aria-label="Client workspace tabs">
-  <a class="tab-link {{ 'tab-link-active' if active_tab == 'overview' else '' }}"
-     href="/clients/{{ client.client_id }}">{{ t('tabs.overview') }}</a>
-
-  <span class="tab-sep" aria-hidden="true"></span>
-
-  <details class="nav-menu">
-    <summary class="tab-link {{ 'tab-link-active' if active_tab in catalog_tabs else '' }}">{{ t('navgrp.catalog') }}</summary>
-    <div class="nav-menu-panel">
-      <a class="{{ 'is-active' if active_tab == 'catalog' else '' }}"
-         href="/clients/{{ client.client_id }}/catalog">{{ t('navgrp.catalog.item') }}</a>
-      <a class="{{ 'is-active' if active_tab == 'bqd' else '' }}"
-         href="/clients/{{ client.client_id }}/bqd">{{ t('tabs.bqd') }}</a>
-    </div>
-  </details>
-
-  <details class="nav-menu">
-    <summary class="tab-link {{ 'tab-link-active' if active_tab in customs_tabs else '' }}">{{ t('navgrp.customs') }}</summary>
-    <div class="nav-menu-panel">
-      <a class="{{ 'is-active' if active_tab == 'bcct' else '' }}"
-         href="/clients/{{ client.client_id }}/bcct">{{ t('tabs.bcct') }}</a>
-      <a class="{{ 'is-active' if active_tab == 'declarations' else '' }}"
-         href="/clients/{{ client.client_id }}/declarations">{{ t('tabs.declarations') }}</a>
-    </div>
-  </details>
-
-  <details class="nav-menu">
-    <summary class="tab-link {{ 'tab-link-active' if active_tab in settlement_tabs else '' }}">{{ t('navgrp.settlement') }}</summary>
-    <div class="nav-menu-panel">
-      <a class="{{ 'is-active' if active_tab == 'nxt' else '' }}"
-         href="/clients/{{ client.client_id }}/nxt">{{ t('navgrp.settlement.nxt') }}</a>
-      <a class="{{ 'is-active' if active_tab == 'inventory' else '' }}"
-         href="/clients/{{ client.client_id }}/inventory-snapshots">{{ t('navgrp.settlement.inventory') }}</a>
-    </div>
-  </details>
-
-  <details class="nav-menu">
-    <summary class="tab-link {{ 'tab-link-active' if active_tab in bom_tabs else '' }}">{{ t('tabs.bom') }}</summary>
-    <div class="nav-menu-panel">
-      <a class="{{ 'is-active' if active_tab == 'bom' else '' }}"
-         href="/clients/{{ client.client_id }}/bom">{{ t('navgrp.bom.list') }}</a>
-      <a class="{{ 'is-active' if active_tab == 'proposals' else '' }}"
-         href="/clients/{{ client.client_id }}/proposals">{{ t('tabs.proposals') }}</a>
-      <a href="/clients/{{ client.client_id }}/bom/needs-action">{{ t('navgrp.bom.needs_action') }}</a>
-      <a class="{{ 'is-active' if active_tab == 'uom-factors' else '' }}"
-         href="/clients/{{ client.client_id }}/uom-factors">{{ t('navgrp.bom.uom') }}</a>
-    </div>
-  </details>
-
-  <a class="tab-link {{ 'tab-link-active' if active_tab == 'uploads' else '' }}"
-     href="/clients/{{ client.client_id }}/uploads">{{ t('tabs.uploads') }}</a>
-  {% if chat_agent_enabled %}
-  <a class="tab-link {{ 'tab-link-active' if active_tab == 'agent' else '' }}"
-     href="/clients/{{ client.client_id }}/agent">{{ t('tabs.agent') }}</a>
-  {% endif %}
-
-  <span class="tab-sep" aria-hidden="true"></span>
-
-  <details class="nav-menu">
-    <summary class="tab-link {{ 'tab-link-active' if active_tab in config_tabs else '' }}">{{ t('tabs.config') }}</summary>
-    <div class="nav-menu-panel">
-      <a class="{{ 'is-active' if active_tab == 'config' else '' }}"
-         href="/clients/{{ client.client_id }}/edit">{{ t('navgrp.config.general') }}</a>
-      {% if can_edit_technical(client.client_id) %}
-      <a class="{{ 'is-active' if active_tab == 'parser_rules' else '' }}"
-         href="/clients/{{ client.client_id }}/parser-rules">{{ t('navgrp.config.parser_rules') }}</a>
-      <a class="{{ 'is-active' if active_tab == 'column_aliases' else '' }}"
-         href="/clients/{{ client.client_id }}/column-aliases">{{ t('navgrp.config.column_aliases') }}</a>
-      <a class="{{ 'is-active' if active_tab == 'material_group_map' else '' }}"
-         href="/clients/{{ client.client_id }}/material-group-map">{{ t('navgrp.config.material_group_map') }}</a>
-      {% endif %}
-      {% if can_manage_staff(client.client_id) %}
-      <a class="{{ 'is-active' if active_tab == 'staff' else '' }}"
-         href="/clients/{{ client.client_id }}/staff">{{ t('tabs.staff') }}</a>
-      {% endif %}
-    </div>
-  </details>
-</nav>

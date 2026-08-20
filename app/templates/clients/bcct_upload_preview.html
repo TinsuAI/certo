@@ -1,11 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Xác nhận thay đổi BCCT · {{ client.name }} · {{ t('app.brand') }}{% endblock %}
 {% block content %}
+{% import "clients/_flow.html" as flow with context %}
 {% include "_client_nav.html" %}
+
+{{ flow.rail(2, t('flow.pending_id') + ' ' + pending_id|string + ' · ' + t('flow.expires_at') + ' ' + expires_at|string) }}
 
 <section class="zone">
   <div class="zone-head">
-    <div>
+    <div class="page-bar-main">
       {% if summary.diff or summary.orphan %}
       <h2>Xác nhận thay đổi BCCT</h2>
       <p class="meta">
@@ -20,54 +23,60 @@
         Kiểm tra số liệu bên dưới và nhấn Lưu để commit.
       </p>
       {% endif %}
-      <p class="meta">
-        Pending ID: <code>{{ pending_id }}</code> · hết hạn {{ expires_at }}
-      </p>
     </div>
   </div>
 
-  <div class="zone mini-panel" style="margin-bottom: 1rem;">
-    <strong>Tổng quan:</strong>
-    <ul style="margin: 0.5rem 0 0 1.2rem;">
-      <li><strong>{{ summary.new }}</strong> dòng mới sẽ được thêm</li>
-      <li><strong>{{ summary.noop }}</strong> dòng không đổi (skip)</li>
-      <li>
-        <strong>{{ summary.diff|length }}</strong> dòng có thay đổi
-        {% if summary.diff %}<span class="badge badge-warn">cần confirm</span>{% endif %}
-      </li>
-      <li>
-        <strong>{{ summary.orphan|length }}</strong> dòng mất tích
-        (DB có nhưng file mới không có)
-        {% if summary.orphan %}<span class="badge badge-warn">orphan candidate</span>{% endif %}
-      </li>
-      {% if summary.skipped_no_date %}
-      <li>
-        <strong>{{ summary.skipped_no_date }}</strong> dòng bị bỏ qua (thiếu ngày đăng ký)
-      </li>
-      {% endif %}
-    </ul>
+  <div class="stat-row">
+    <div class="stat">
+      <span class="stat-label">{{ t('flow.row.new') }}</span>
+      <span class="stat-value is-ok">{{ summary.new }}</span>
+      <span class="stat-sub">Luôn được insert</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">{{ t('flow.row.updated') }}</span>
+      <span class="stat-value {{ 'is-warn' if summary.diff else 'is-empty' }}">{{ summary.diff|length }}</span>
+      <span class="stat-sub">{% if summary.diff %}Cần tick xác nhận{% else %}Không có dòng đổi{% endif %}</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Orphan</span>
+      <span class="stat-value {{ 'is-bad' if summary.orphan else 'is-empty' }}">{{ summary.orphan|length }}</span>
+      <span class="stat-sub">DB có, file mới không có</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Không đổi</span>
+      <span class="stat-value is-empty">{{ summary.noop }}</span>
+      <span class="stat-sub">Skip, không ghi lại</span>
+    </div>
+    {% if summary.skipped_no_date %}
+    <div class="stat">
+      <span class="stat-label">{{ t('flow.row.rejected') }}</span>
+      <span class="stat-value is-bad">{{ summary.skipped_no_date }}</span>
+      <span class="stat-sub">Thiếu ngày đăng ký</span>
+    </div>
+    {% endif %}
   </div>
 
   <form id="confirm-form" method="post" action="/clients/{{ client.client_id }}/bcct/upload/preview/{{ pending_id }}/confirm">
     {% include "clients/_uom_drift_banner.html" ignore missing %}
+
     {% if anomalies %}
-    <div class="zone mini-panel anomaly-panel" style="margin-bottom: 1rem;">
-      <strong>⚠ Lưu ý — kiểm tra lại cột ở phần Diff bên dưới</strong>
-      <ul style="margin: 0.5rem 0 0 1.2rem;">
+    <div class="callout callout-warn">
+      <strong>Lưu ý</strong> — kiểm tra lại cột ở phần Diff bên dưới. Đây là cảnh báo, không chặn lưu.
+      <ul style="margin: 0.4rem 0 0 1.1rem;">
         {% for a in anomalies %}
         <li style="margin-bottom: 0.4rem;">
           {{ a.message }}
           {% if a.samples %}
-          <details>
-            <summary class="meta">ví dụ ({{ a.affected_rows }}/{{ a.comparable_rows }} dòng)</summary>
-            <table class="dh-table" style="margin-top: 0.3rem; font-size: 0.85rem;">
+          <details class="tech-block">
+            <summary>ví dụ ({{ a.affected_rows }}/{{ a.comparable_rows }} dòng)</summary>
+            <table class="dh-table dense">
               <thead><tr><th>Số TK</th><th>Dòng</th><th>NT</th><th>Tỷ giá</th>
-                {% for f in a.field_pair %}<th>{{ f }}</th>{% endfor %}</tr></thead>
+                {% for f in a.field_pair %}<th class="num">{{ f }}</th>{% endfor %}</tr></thead>
               <tbody>
                 {% for s in a.samples %}
-                <tr><td><code>{{ s.decl_no }}</code></td><td>{{ s.line_no }}</td>
-                  <td>{{ s.currency_nt }}</td><td>{{ s.exchange_rate }}</td>
-                  {% for f in a.field_pair %}<td>{{ s[f] }}</td>{% endfor %}</tr>
+                <tr><td class="mono">{{ s.decl_no }}</td><td class="num">{{ s.line_no }}</td>
+                  <td>{{ s.currency_nt }}</td><td class="num">{{ s.exchange_rate }}</td>
+                  {% for f in a.field_pair %}<td class="num">{{ s[f] }}</td>{% endfor %}</tr>
                 {% endfor %}
               </tbody>
             </table>
@@ -76,75 +85,97 @@
         </li>
         {% endfor %}
       </ul>
-      <p class="meta" style="margin-top: 0.4rem;">Đây là cảnh báo, không chặn lưu.</p>
     </div>
     {% endif %}
+
     {% if summary.diff %}
-    <h3 style="margin-top: 1.5rem;">Thay đổi giá trị ({{ summary.diff|length }} dòng)</h3>
-    <table class="dh-table">
-      <thead>
-        <tr>
-          <th>Số TK</th>
-          <th>Dòng</th>
-          <th>Field</th>
-          <th>Hiện tại (DB)</th>
-          <th>Mới (file)</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for d in summary.diff %}
-          {% for field in d.changed_fields %}
-          <tr {% if loop.first %}style="border-top: 2px solid var(--border);"{% endif %}>
-            {% if loop.first %}
-              <td rowspan="{{ d.changed_fields|length }}"><code>{{ d.decl_no }}</code></td>
-              <td rowspan="{{ d.changed_fields|length }}">{{ d.line_no }}</td>
-            {% endif %}
-            <td><code>{{ field }}</code></td>
-            <td class="meta">{{ d.old[field] | default('—', true) }}</td>
-            <td><strong>{{ d.new[field] | default('—', true) }}</strong></td>
-          </tr>
-          {% endfor %}
-        {% endfor %}
-      </tbody>
-    </table>
-    <label class="checkbox-label" style="margin-top: 0.5rem;">
-      <input type="checkbox" name="confirm_diffs">
-      <span>Xác nhận ghi đè <strong>tất cả</strong> {{ summary.diff|length }} dòng đã đổi</span>
-    </label>
+    <div class="upload-card upload-card-wide">
+      <div class="upload-card-head">
+        <h3>Thay đổi giá trị — {{ summary.diff|length }} dòng</h3>
+        <p>Dòng không tick sẽ giữ nguyên giá trị cũ trong DB.</p>
+      </div>
+      <div class="mapping-raw-scroll">
+        <table class="dh-table dense">
+          <thead>
+            <tr>
+              <th>Số TK</th>
+              <th class="num">Dòng</th>
+              <th>Field</th>
+              <th>Hiện tại (DB)</th>
+              <th>Mới (file)</th>
+              <th>{{ t('common.status') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for d in summary.diff %}
+              {% for field in d.changed_fields %}
+              <tr class="row-warn">
+                {% if loop.first %}
+                  <td class="mono" rowspan="{{ d.changed_fields|length }}">{{ d.decl_no }}</td>
+                  <td class="num" rowspan="{{ d.changed_fields|length }}">{{ d.line_no }}</td>
+                {% endif %}
+                <td class="mono">{{ field }}</td>
+                <td class="meta">{{ d.old[field] | default('—', true) }}</td>
+                <td><strong>{{ d.new[field] | default('—', true) }}</strong></td>
+                <td><span class="badge badge-warning">{{ t('flow.row.updated') }}</span></td>
+              </tr>
+              {% endfor %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="upload-card-body">
+        <label class="checkbox-label">
+          <input type="checkbox" name="confirm_diffs">
+          <span>Xác nhận ghi đè <strong>tất cả</strong> {{ summary.diff|length }} dòng đã đổi</span>
+        </label>
+      </div>
+    </div>
     {% endif %}
 
     {% if summary.orphan %}
-    <h3 style="margin-top: 1.5rem;">Dòng mất tích — orphan ({{ summary.orphan|length }} dòng)</h3>
-    <p class="meta">
-      Tờ khai có trong file mới nhưng line_no này không xuất hiện. Có thể HQ
-      đã xóa dòng. Confirm để soft-delete (audit log giữ bản gốc).
-    </p>
-    <table class="dh-table">
-      <thead>
-        <tr><th>Số TK</th><th>Dòng</th></tr>
-      </thead>
-      <tbody>
-        {% for o in summary.orphan %}
-        <tr><td><code>{{ o.decl_no }}</code></td><td>{{ o.line_no }}</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    <label class="checkbox-label" style="margin-top: 0.5rem;">
-      <input type="checkbox" name="confirm_orphans">
-      <span>Xác nhận xóa <strong>tất cả</strong> {{ summary.orphan|length }} dòng orphan</span>
-    </label>
+    <div class="upload-card upload-card-wide">
+      <div class="upload-card-head">
+        <h3>Dòng mất tích — orphan ({{ summary.orphan|length }} dòng)</h3>
+        <p>
+          Tờ khai có trong file mới nhưng line_no này không xuất hiện. Có thể HQ
+          đã xóa dòng. Confirm để soft-delete (audit log giữ bản gốc).
+        </p>
+      </div>
+      <div class="mapping-raw-scroll">
+        <table class="dh-table dense">
+          <thead>
+            <tr><th>Số TK</th><th class="num">Dòng</th><th>{{ t('common.status') }}</th></tr>
+          </thead>
+          <tbody>
+            {% for o in summary.orphan %}
+            <tr class="row-crit">
+              <td class="mono">{{ o.decl_no }}</td>
+              <td class="num">{{ o.line_no }}</td>
+              <td><span class="badge badge-error">soft-delete</span></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="upload-card-body">
+        <label class="checkbox-label">
+          <input type="checkbox" name="confirm_orphans">
+          <span>Xác nhận xóa <strong>tất cả</strong> {{ summary.orphan|length }} dòng orphan</span>
+        </label>
+      </div>
+    </div>
     {% endif %}
 
     {% if uom_drift_blocks_confirm %}
     {# Hidden by default; the script below reveals it. The button's lock is
        JS-driven (banner), so without JS the button is not actually disabled
        — don't show a "locked" claim that isn't true. #}
-    <div id="uom-gate-hint" hidden class="zone mini-panel"
-         style="border-left: 3px solid var(--warn, #c80); margin-bottom: 0.75rem;">
-      🔒 <strong>Nút bên dưới đang khoá.</strong>
+    <div id="uom-gate-hint" hidden class="callout callout-warn">
+      <strong>Nút bên dưới đang khoá.</strong>
       Còn đơn vị tính khác họ chưa được xác nhận.
       <a href="#" id="uom-gate-jump">Tới ô xác nhận drift khác họ →</a>
-      <p class="meta" style="margin-top: 0.3rem;">
+      <p style="margin-top: 0.3rem;">
         Tick ô xác nhận trong khung cảnh báo phía trên để mở nút.
         {% if summary.diff %}Ô "Xác nhận ghi đè {{ summary.diff|length }} dòng
         đã đổi" không mở nút — nó chỉ quyết định các dòng đổi có được ghi đè
@@ -154,20 +185,23 @@
     </div>
     {% endif %}
 
-    <div style="display:flex; gap:0.5rem; margin-top: 1.5rem;">
-      {% if summary.diff or summary.orphan %}
-      <button type="submit" class="btn-primary">Apply confirmed changes</button>
-      {% else %}
-      <button type="submit" class="btn-primary">Lưu {{ summary.new }} dòng</button>
-      {% endif %}
-      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bcct">Hủy</a>
-    </div>
-    {% if summary.diff or summary.orphan %}
-    <p class="meta" style="margin-top:0.5rem;">
-      Dòng mới ({{ summary.new }}) sẽ luôn được insert. Dòng không tick sẽ
-      giữ nguyên giá trị cũ trong DB.
-    </p>
-    {% endif %}
+    <footer class="commit-bar commit-bar-standalone">
+      <span class="commit-note">
+        {% if summary.diff or summary.orphan %}
+        Dòng mới ({{ summary.new }}) luôn được insert. Dòng không tick giữ nguyên giá trị cũ.
+        {% else %}
+        {{ t('flow.commit_hint') }}
+        {% endif %}
+      </span>
+      <div class="commit-actions">
+        {% if summary.diff or summary.orphan %}
+        <button type="submit" class="btn-primary">Apply confirmed changes</button>
+        {% else %}
+        <button type="submit" class="btn-primary">Lưu {{ summary.new }} dòng</button>
+        {% endif %}
+        <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/bcct">{{ t('common.cancel') }}</a>
+      </div>
+    </footer>
   </form>
 </section>
 {% if uom_drift_blocks_confirm %}

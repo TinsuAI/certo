@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Parser rules · {{ client.name }}{% endblock %}
 {% block content %}
-{% include "_client_nav.html" %}
+{# Trang này tự dựng thanh tiêu đề riêng (có tiêu đề cụ thể hơn), nên không
+   include "_client_nav.html" nữa — nếu include sẽ ra hai thanh tiêu đề chồng
+   nhau. Điều hướng khu làm việc nằm ở thanh bên (_sidebar.html). #}
 
 <section class="page-bar">
   <div>
@@ -15,12 +17,10 @@
 </section>
 
 {% if error %}
-<div class="zone" style="border-color: var(--danger, #c33);">
-  <strong>Error:</strong> <code>{{ error }}</code>
-</div>
+<div class="callout callout-error"><strong>Error:</strong> <code>{{ error }}</code></div>
 {% endif %}
 {% if flash %}
-<div class="zone"><strong>{{ flash }}</strong></div>
+<div class="callout callout-success">{{ flash }}</div>
 {% endif %}
 
 <section class="zone">
@@ -30,7 +30,7 @@
   clients don't need rules — `internal_code = customs_code` is the
   short-circuit.</p>
   {% else %}
-  <table class="data-table">
+  <table class="data-table dense">
     <thead>
       <tr>
         <th>ID</th>
@@ -48,7 +48,7 @@
     </thead>
     <tbody>
       {% for r in rules %}
-      <tr {% if not r.enabled %}style="opacity: 0.45;"{% endif %}>
+      <tr {% if not r.enabled %}class="row-muted"{% endif %}>
         <td class="mono">{{ r.rule_id }}</td>
         <td class="mono">{{ r.output_field }}</td>
         <td class="mono">{{ r.priority }}</td>
@@ -65,14 +65,14 @@
         </td>
         <td>
           {% if r.enabled %}
-          <a class="btn-secondary"
+          <a class="btn-secondary btn-xs"
              href="/clients/{{ client.client_id }}/parser-rules/{{ r.rule_id }}/edit">
             Edit
           </a>
           <form method="post"
                 action="/clients/{{ client.client_id }}/parser-rules/{{ r.rule_id }}/disable"
                 style="display:inline;">
-            <button type="submit" class="btn-secondary"
+            <button type="submit" class="btn-secondary btn-xs"
                     onclick="return confirm('Disable rule {{ r.rule_id }}? (soft-disable; not deleted)');">
               Disable
             </button>
@@ -126,15 +126,17 @@
     <label class="field">
       <span class="field-label">pattern (re2 syntax) <em class="field-required">required</em></span>
       <input type="text" name="pattern" required
-             placeholder="\(([\w.\-]+)\)" style="font-family: monospace;">
+             placeholder="\(([\w.\-]+)\)" class="mono">
     </label>
     <label class="field">
       <span class="field-label">notes</span>
       <input type="text" name="notes" placeholder="Optional — used as evidence.match_rule label">
     </label>
-    <div class="page-actions">
-      <button type="submit" class="btn-primary">Add rule</button>
-    </div>
+    <footer class="commit-bar commit-bar-standalone">
+      <div class="commit-actions">
+        <button type="submit" class="btn-primary">Add rule</button>
+      </div>
+    </footer>
   </form>
 </section>
 
@@ -159,15 +161,18 @@
     </div>
     <label class="field">
       <span class="field-label">sample_input (single-sample mode only)</span>
-      <input type="text" name="sample_input" style="font-family: monospace;"
+      <input type="text" name="sample_input" class="mono"
              value="{{ test_result.sample_input if test_result else '' }}"
              placeholder="BIENTAN.17#&Hàng (PV01.0117500)#&VN">
     </label>
-    <div class="page-actions">
-      <button type="submit" name="mode" value="single" class="btn-secondary">Run on sample</button>
-      <button type="submit" name="mode" value="recent" class="btn-secondary">Run on recent 50 rows</button>
-      <button type="submit" name="mode" value="coverage" class="btn-secondary">Coverage (last 1k)</button>
-    </div>
+    <footer class="commit-bar commit-bar-standalone">
+      <span class="commit-note">Read-only — không ghi gì vào Hub.</span>
+      <div class="commit-actions">
+        <button type="submit" name="mode" value="single" class="btn-secondary btn-sm">Run on sample</button>
+        <button type="submit" name="mode" value="recent" class="btn-secondary btn-sm">Run on recent 50 rows</button>
+        <button type="submit" name="mode" value="coverage" class="btn-secondary btn-sm">Coverage (last 1k)</button>
+      </div>
+    </footer>
   </form>
 
   {% if test_result and test_result.mode == 'single' %}
@@ -182,7 +187,7 @@
     <code>{{ test_result.final_output }}</code>
     {% endif %}
   </p>
-  <table class="data-table">
+  <table class="data-table dense">
     <thead>
       <tr>
         <th>Rule</th>
@@ -218,7 +223,7 @@
     <h3>Recent 50 rows · source field <code>{{ test_result.recent_source_field }}</code></h3>
   </div>
   {% if test_result.recent %}
-  <table class="data-table">
+  <table class="data-table dense">
     <thead>
       <tr>
         <th>Decl / line</th>

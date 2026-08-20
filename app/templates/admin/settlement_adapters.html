@@ -2,46 +2,51 @@
 {% block title %}Adapter Quyết toán · {{ t('app.brand') }}{% endblock %}
 {% block content %}
 {% include "_admin_nav.html" %}
+<section class="page-bar">
+  <div class="page-bar-main">
+    <h1>Adapter Quyết toán</h1>
+    <span class="page-tagline">Registry parser NXT + chốt tồn kho — chỉ xem. Thêm định dạng mới = thêm adapter qua git/CI.</span>
+  </div>
+</section>
 
 <section class="zone">
   <div class="zone-head">
     <div>
-      <h2>Adapter Quyết toán (registry)</h2>
-      <p class="meta">
-        Parser NXT + chốt tồn kho đã đăng ký (chỉ xem). Mỗi định dạng file là một
-        adapter trong <code>app/parsers/nxt_adapters/</code> /
-        <code>app/parsers/inventory_adapters/</code>, chọn theo <code>detect()</code>
-        rồi tới thứ tự đăng ký. Thêm định dạng mới = thêm một adapter (qua git/CI)
-        — <strong>không</strong> upload code lúc chạy.
-      </p>
+      <h2>NXT (Nhập-Xuất-Tồn)</h2>
+      <p class="meta">{{ nxt_adapters|length }} adapter · <code>app/parsers/nxt_adapters/</code></p>
     </div>
   </div>
-
-  <h3 style="margin:.5rem 0 .25rem;">NXT (Nhập-Xuất-Tồn)</h3>
-  <table class="dh-table">
-    <thead><tr><th>#</th><th>Tên</th><th>detect()</th><th>Mapping override</th></tr></thead>
+  <table class="dh-table dense">
+    <thead><tr><th class="num">#</th><th>Tên</th><th>detect()</th><th>Mapping override</th></tr></thead>
     <tbody>
       {% for a in nxt_adapters %}
       <tr>
-        <td class="meta">{{ a.order }}</td>
-        <td><code>{{ a.name }}</code></td>
-        <td>{{ '✓' if a.has_detect else '—' }}</td>
-        <td>{{ '✓' if a.supports_mapping_override else '—' }}</td>
+        <td class="num">{{ a.order }}</td>
+        <td class="mono">{{ a.name }}</td>
+        <td>{% if a.has_detect %}<span class="mark-yes">✓</span>{% else %}<span class="mark-no">—</span>{% endif %}</td>
+        <td>{% if a.supports_mapping_override %}<span class="mark-yes">✓</span>{% else %}<span class="mark-no">—</span>{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+</section>
 
-  <h3 style="margin:1rem 0 .25rem;">Chốt tồn kho</h3>
-  <table class="dh-table">
-    <thead><tr><th>#</th><th>Tên</th><th>detect()</th><th>Mapping override</th></tr></thead>
+<section class="zone">
+  <div class="zone-head">
+    <div>
+      <h2>Chốt tồn kho</h2>
+      <p class="meta">{{ inventory_adapters|length }} adapter · <code>app/parsers/inventory_adapters/</code></p>
+    </div>
+  </div>
+  <table class="dh-table dense">
+    <thead><tr><th class="num">#</th><th>Tên</th><th>detect()</th><th>Mapping override</th></tr></thead>
     <tbody>
       {% for a in inventory_adapters %}
       <tr>
-        <td class="meta">{{ a.order }}</td>
-        <td><code>{{ a.name }}</code></td>
-        <td>{{ '✓' if a.has_detect else '—' }}</td>
-        <td>{{ '✓' if a.supports_mapping_override else '—' }}</td>
+        <td class="num">{{ a.order }}</td>
+        <td class="mono">{{ a.name }}</td>
+        <td>{% if a.has_detect %}<span class="mark-yes">✓</span>{% else %}<span class="mark-no">—</span>{% endif %}</td>
+        <td>{% if a.supports_mapping_override %}<span class="mark-yes">✓</span>{% else %}<span class="mark-no">—</span>{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -59,15 +64,15 @@
       </p>
     </div>
   </div>
-  <table class="dh-table">
+  <table class="dh-table dense">
     <thead><tr><th>Client</th><th>Tên</th><th>NXT</th><th>Tồn kho</th></tr></thead>
     <tbody>
       {% for b in bindings %}
       <tr>
-        <td><code>{{ b.client_id }}</code></td>
+        <td class="mono">{{ b.client_id }}</td>
         <td>{{ b.name }}</td>
-        <td>{{ b.nxt }}{% if b.nxt_degraded %} <span class="meta">(đã gỡ → auto)</span>{% endif %}</td>
-        <td>{{ b.inventory }}{% if b.inventory_degraded %} <span class="meta">(đã gỡ → auto)</span>{% endif %}</td>
+        <td class="mono">{{ b.nxt }}{% if b.nxt_degraded %} <span class="badge badge-warning">đã gỡ → auto</span>{% endif %}</td>
+        <td class="mono">{{ b.inventory }}{% if b.inventory_degraded %} <span class="badge badge-warning">đã gỡ → auto</span>{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>

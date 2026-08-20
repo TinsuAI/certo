@@ -14,40 +14,40 @@
         {% endif %}
       </h2>
       {% if artifact.is_stale %}
-      <div style="background:#fff8e1; border-left:3px solid #f4a000; padding:8px 12px; margin-top:8px; border-radius:4px;">
+      <div class="note note-warn">
         <strong>{{ t('bom.stale.heading') }}</strong>
-        <ul style="margin:4px 0 0 1.2em; font-size:.9em; color:#555;">
+        <ul class="note-list">
           {% for r in (artifact.stale_reasons or []) %}
           <li><span class="mono">{{ r.dim }}</span> · {{ r.source_pk }} · {{ r.observed_at }}</li>
           {% endfor %}
         </ul>
         <a href="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/refresh/preview"
-           class="btn-secondary" style="display:inline-block; margin-top:6px;">{{ t('bom.stale.refresh') }}</a>
+           class="btn-secondary btn-sm">{{ t('bom.stale.refresh') }}</a>
       </div>
       {% endif %}
 
       {% if artifact.has_uom_drift %}
-      <div style="background:#fde6e2; border-left:3px solid #e6553f; padding:8px 12px; margin-top:8px; border-radius:4px;">
+      <div class="note note-bad">
         <strong>⚠ Có UoM drift trên artifact này</strong>
         {% if artifact.flatten_strategy == 'manual_flat_as_provided' %}
-        <p style="margin:.3em 0; font-size:.9em; color:#555;">
+        <p>
           Manual_flat artifact: thêm hệ số trong
           <a href="/clients/{{ client.client_id }}/uom-factors">/uom-factors</a>
           rồi click <strong>Refresh</strong> bên dưới — hệ thống re-convert
           rows từ <span class="mono">source_uom</span> đã lưu, không cần re-upload.
         </p>
         {% elif artifact.source_bom_kind == 'technical_raw' %}
-        <p style="margin:.3em 0; font-size:.9em; color:#555;">
+        <p>
           Raw_graph artifact: edges lưu nguyên UoM file, không convert được
           (raw = immutable). Refresh các derived artifacts (shallow / full_flat)
           để áp factor mới.
         </p>
         {% else %}
-        <p style="margin:.3em 0; font-size:.9em; color:#555;">
+        <p>
           Cần re-upload BOM hoặc edit catalog UoM để khớp với raw.
         </p>
         {% endif %}
-        <ul style="margin:4px 0 0 1.2em; font-size:.9em; color:#555;">
+        <ul class="note-list">
           {% for r in (artifact.uom_drift_reasons or []) %}
           <li>
             {% if r.dim == 'factor_missing' %}
@@ -64,27 +64,27 @@
             {% else %}
               <span class="mono">{{ r.dim }}</span> · {{ r.material_code or r.source_pk }}
             {% endif %}
-            <span style="color:#888">· {{ r.observed_at }}</span>
+            <span class="meta">· {{ r.observed_at }}</span>
             {% if r.material_code %}
-              <a class="btn-ghost" style="margin-left:6px;font-size:.85em"
+              <a class="btn-ghost btn-xs"
                  href="/clients/{{ client.client_id }}/uom-factors?prefill_material_code={{ r.material_code|urlencode }}#add-factor-form"
                  target="_blank">+ hệ số</a>
             {% endif %}
           </li>
           {% endfor %}
         </ul>
-        <p style="margin:6px 0 0 0; font-size:.85em; color:#888">
+        <p class="meta">
           Đã phát sinh: {{ artifact.uom_drift_first_at.strftime('%Y-%m-%d %H:%M') if artifact.uom_drift_first_at else '—' }}
         </p>
         {% if artifact.flatten_strategy == 'manual_flat_as_provided' %}
         <a href="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/refresh/preview"
-           class="btn-secondary" style="display:inline-block; margin-top:6px;">Refresh (re-convert UoM)</a>
+           class="btn-secondary btn-sm">Refresh (re-convert UoM)</a>
         {% endif %}
       </div>
       {% endif %}
       <p class="meta">
-        <span class="badge">{{ artifact.actor }}</span>
-        <span class="badge">{{ artifact.intent }}</span>
+        <span class="badge badge-muted">{{ artifact.actor }}</span>
+        <span class="badge badge-muted">{{ artifact.intent }}</span>
         {% set ctx = artifact.context or {} %}
         {{ shape_badge(artifact.bom_shape, artifact.flatten_strategy) }}
         · hash <span class="mono">{{ artifact.normalized_hash[:16] }}</span>
@@ -93,61 +93,60 @@
         · forked from
         <a href="/clients/{{ client.client_id }}/bom/artifact/{{ parent.artifact_id }}"
            title="{{ parent.artifact_id }}"
-           style="text-decoration:none">
+           class="plain-link">
           <span class="badge badge-info">#{{ parent.artifact_no }}</span>
-          {{ shape_badge(parent.bom_shape) }}{% if parent.bom_variant_id and parent.bom_variant_id != 'default' %}<span class="mono" style="font-size:.85em;color:#666">· {{ parent.bom_variant_id }}</span>{% endif %}
+          {{ shape_badge(parent.bom_shape) }}{% if parent.bom_variant_id and parent.bom_variant_id != 'default' %}<span class="mono meta">· {{ parent.bom_variant_id }}</span>{% endif %}
         </a>
         {% elif artifact.parent_artifact_id %}
-        · forked from <span class="mono" style="color:#c00" title="{{ artifact.parent_artifact_id }}">(deleted)</span>
+        · forked from <span class="mono text-bad" title="{{ artifact.parent_artifact_id }}">(deleted)</span>
         {% endif %}
       </p>
     </div>
     <div>
       {% if rows %}
       <a class="btn-secondary"
-         href="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/export.xlsx"
-         style="margin-right:6px;">⬇ Xuất Excel</a>
+         href="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/export.xlsx">⬇ Xuất Excel</a>
       {% endif %}
-      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom/{{ artifact.product_code }}/artifacts">← artifacts</a>
+      <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/bom/{{ artifact.product_code }}/artifacts">← artifacts</a>
     </div>
   </div>
 
-  <div style="background: var(--surface-alt, #f7f8fc); padding: 1rem; border-radius: 8px; margin: 1rem 0;">
-    <h3 style="margin-top: 0;">Provenance</h3>
-    <table style="border: none;">
+  <div class="subsection-head"><h3>Provenance</h3></div>
+  <div class="table-wrap">
+    <table class="dh-table dense kv">
       <tbody>
         {% if artifact.bom_variant_id and artifact.bom_variant_id != 'default' %}
-        <tr><td style="padding: 4px 12px 4px 0; color: #666;">{{ t('bom.col.variant') }}</td>
+        <tr><th>{{ t('bom.col.variant') }}</th>
             <td class="mono">{{ artifact.bom_variant_id }}</td></tr>
         {% endif %}
-        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Shape</td>
-            <td><span class="mono">{{ artifact.bom_shape }}</span> <span style="color:#666;font-size:.85em">(flatten_status={{ artifact.flatten_status }} / flatten_strategy={{ artifact.flatten_strategy }})</span></td></tr>
-        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Source kind</td>
+        <tr><th>Shape</th>
+            <td><span class="mono">{{ artifact.bom_shape }}</span> <span class="meta">(flatten_status={{ artifact.flatten_status }} / flatten_strategy={{ artifact.flatten_strategy }})</span></td></tr>
+        <tr><th>Source kind</th>
             <td class="mono">{{ artifact.source_bom_kind }}</td></tr>
-        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Source channel</td>
+        <tr><th>Source channel</th>
             <td class="mono">{{ artifact.source_channel }}</td></tr>
         {% if ctx.get('source_filename') %}
-        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Source file</td>
+        <tr><th>Source file</th>
             <td class="mono">{{ ctx.source_filename }}</td></tr>
         {% endif %}
         {% if ctx.get('source_batch') %}
-        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Source batch</td>
+        <tr><th>Source batch</th>
             <td class="mono">{{ ctx.source_batch }}</td></tr>
         {% endif %}
         {% if ctx.get('parser_adapter') %}
-        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Parser adapter</td>
+        <tr><th>Parser adapter</th>
             <td class="mono">{{ ctx.parser_adapter }}</td></tr>
         {% endif %}
         {% if ctx.get('ingest_script') %}
-        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Ingest script</td>
+        <tr><th>Ingest script</th>
             <td class="mono">{{ ctx.ingest_script }}</td></tr>
         {% endif %}
-        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Created at</td>
+        <tr><th>Created at</th>
             <td class="mono">{{ artifact.created_at.strftime('%Y-%m-%d %H:%M:%S %Z') if artifact.created_at else '—' }}</td></tr>
         {% if artifact.tombstoned_at %}
-        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Thời điểm thay thế</td>
-            <td class="mono" style="color:#c00">{{ artifact.tombstoned_at.strftime('%Y-%m-%d %H:%M:%S %Z') }}</td></tr>
-        <tr><td style="padding: 4px 12px 4px 0; color: #666;">Lý do thay thế</td>
+        <tr><th>Thời điểm thay thế</th>
+            <td class="mono text-bad">{{ artifact.tombstoned_at.strftime('%Y-%m-%d %H:%M:%S %Z') }}</td></tr>
+        <tr><th>Lý do thay thế</th>
             <td>{{ artifact.tombstone_reason or '—' }}</td></tr>
         {% endif %}
       </tbody>
@@ -192,19 +191,20 @@
   {% endif %}
 
   {% if artifact.context %}
-  <details>
-    <summary class="subsection-head" style="cursor: pointer;"><h3 style="display: inline; margin: 0;">{{ t('bom.context') }} (raw)</h3></summary>
-    <pre class="mono" style="background: var(--surface-alt, #f7f8fc); padding: .8rem; border-radius: 8px; overflow: auto; margin-top: .5rem;">{{ artifact.context | tojson(indent=2) }}</pre>
+  <details class="tech-block">
+    <summary class="subsection-head"><h3>{{ t('bom.context') }} (raw)</h3></summary>
+    <pre class="mono code-block">{{ artifact.context | tojson(indent=2) }}</pre>
   </details>
   {% endif %}
 
   {% if edges %}
-  <table class="dh-table" style="margin-top: 1rem;">
+  <div class="table-wrap">
+  <table class="dh-table dense">
     <thead><tr>
-      <th>{{ t('bom.row_index') }}</th>
+      <th class="num">{{ t('bom.row_index') }}</th>
       <th>Parent</th>
       <th>Child</th>
-      <th>{{ t('bom.qty_per_unit') }}</th>
+      <th class="num">{{ t('bom.qty_per_unit') }}</th>
       <th>{{ t('bom.uom') }}</th>
       <th>Level</th>
       <th>Path</th>
@@ -212,10 +212,10 @@
     <tbody>
       {% for e in edges %}
       <tr>
-        <td>{{ e.row_index }}</td>
+        <td class="num">{{ e.row_index }}</td>
         <td class="mono">{{ e.parent_code }}</td>
         <td class="mono">{{ e.child_code }}</td>
-        <td class="mono">{{ '%.6f'|format(e.qty_per_parent) if e.qty_per_parent else '0' }}</td>
+        <td class="num">{{ '%.6f'|format(e.qty_per_parent) if e.qty_per_parent else '0' }}</td>
         <td class="mono">{{ e.uom or '' }}</td>
         <td class="mono">{{ e.level or '' }}</td>
         <td class="mono">{{ e.node_path or '' }}</td>
@@ -223,12 +223,14 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
-  <table class="dh-table" style="margin-top: 1rem;">
+  <div class="table-wrap">
+  <table class="dh-table dense">
     <thead><tr>
-      <th>{{ t('bom.row_index') }}</th>
+      <th class="num">{{ t('bom.row_index') }}</th>
       <th>{{ t('bom.material') }}</th>
-      <th>{{ t('bom.qty_per_unit') }}</th>
+      <th class="num">{{ t('bom.qty_per_unit') }}</th>
       <th>{{ t('bom.uom') }}</th>
       <th>{{ t('bom.bom_code') }}</th>
       <th>{{ t('bom.bom_variant') }}</th>
@@ -238,26 +240,26 @@
     </tr></thead>
     <tbody>
       {% for r in rows %}
-      <tr{% if r.excluded_at %} style="opacity:.5" title="Loại khỏi bảng kê C/O ({{ r.exclusion_reason }})"{% endif %}>
-        <td>{{ r.row_index }}</td>
+      <tr{% if r.excluded_at %} class="row-excluded" title="Loại khỏi bảng kê C/O ({{ r.exclusion_reason }})"{% endif %}>
+        <td class="num">{{ r.row_index }}</td>
         <td class="mono">{{ r.material_code }}</td>
-        <td class="mono">{{ '%.6f'|format(r.qty_per_unit) if r.qty_per_unit else '0' }}</td>
+        <td class="num">{{ '%.6f'|format(r.qty_per_unit) if r.qty_per_unit else '0' }}</td>
         <td class="mono">{{ r.uom or '' }}</td>
         <td class="mono">{{ r.bom_code or '' }}</td>
         <td class="mono">{{ r.bom_variant_id or '' }}</td>
-        <td class="mono">{{ r.payload.material_group or '—' }}{% if r.payload.phantom %} <span class="badge badge-warn" style="font-size:.7em" title="SAP phantom item">phantom</span>{% endif %}</td>
+        <td class="mono">{{ r.payload.material_group or '—' }}{% if r.payload.phantom %} <span class="badge badge-warn" title="SAP phantom item">phantom</span>{% endif %}</td>
         <td>
           {% if r.excluded_at %}
-            <span class="badge badge-error" style="font-size:.72em" title="Không phải vật tư khai báo — đã loại khỏi bảng kê khi exclude_non_declarable=true">🗑 {{ r.exclusion_reason|replace('rac:','') }}</span>
+            <span class="badge badge-error" title="Không phải vật tư khai báo — đã loại khỏi bảng kê khi exclude_non_declarable=true">🗑 {{ r.exclusion_reason|replace('rac:','') }}</span>
           {% elif not r.has_nk %}
-            <span class="badge badge-warn" style="font-size:.72em" title="Vật tư khai-được nhưng chưa khớp tờ khai nhập — cần đối soát">⚠ chưa khớp</span>
+            <span class="badge badge-warn" title="Vật tư khai-được nhưng chưa khớp tờ khai nhập — cần đối soát">⚠ chưa khớp</span>
           {% else %}
-            <span class="badge badge-success" style="font-size:.72em" title="Khai được — có khớp tờ khai nhập">✓</span>
+            <span class="badge badge-success" title="Khai được — có khớp tờ khai nhập">✓</span>
           {% endif %}
         </td>
         <td>
           {% if r.has_nk %}
-            <span class="badge" title="Có dòng nhập khẩu trong BCCT">NK</span>
+            <span class="badge badge-muted" title="Có dòng nhập khẩu trong BCCT">NK</span>
           {% else %}
             <span class="badge badge-warn" title="Chưa thấy trong BCCT — chỉ xuất hiện trong BOM">BOM-only</span>
           {% endif %}
@@ -266,12 +268,13 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% endif %}
 
   {% if not artifact.tombstoned_at %}
-  <div class="mini-panel" style="margin-top: 1.5rem; border: 1px solid #f0c0c0; background: #fdf6f6;">
-    <h3 style="margin: 0 0 .3rem 0; color: #c00;">Thu hồi phiên bản</h3>
-    <p class="meta" style="margin: 0 0 .6rem 0;">
+  <div class="note note-bad tombstone-panel">
+    <h3>Thu hồi phiên bản</h3>
+    <p class="meta">
       Đánh dấu thu hồi (tombstone) phiên bản lưu sai. Bản gốc giữ lại để truy vết,
       nhưng sẽ ẩn khỏi danh sách BOM và API cho app khác. Nếu đây là BOM kỹ thuật,
       các BOM phẳng dẫn xuất (shallow / full_flat) cũng được thu hồi cùng.
@@ -280,13 +283,10 @@
     <form method="post"
           action="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/tombstone"
           onsubmit="return confirm('Thu hồi phiên bản này (và các BOM phẳng dẫn xuất)? Hành động ghi log audit.');"
-          style="display: flex; gap: .5rem; align-items: center; flex-wrap: wrap;">
+          class="note-form">
       <input type="text" name="reason" required maxlength="500"
-             placeholder="Lý do thu hồi (bắt buộc)"
-             style="flex: 1; min-width: 280px; padding: .4rem .6rem;">
-      <button type="submit" class="btn-secondary" style="color: #c00; border-color: #f0c0c0;">
-        Thu hồi
-      </button>
+             placeholder="Lý do thu hồi (bắt buộc)" class="note-form-input">
+      <button type="submit" class="btn-danger btn-sm">Thu hồi</button>
     </form>
   </div>
   {% endif %}

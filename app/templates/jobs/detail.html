@@ -11,124 +11,99 @@
 {% include "_client_nav.html" %}
 {% endif %}
 
+<section class="page-bar">
+  <div class="page-bar-main">
+    <h1>{{ job.label }}</h1>
+    <span class="page-tagline">
+      Việc <span class="mono">#{{ job.id }}</span>
+      {% if client %} · {{ client.name }} (<span class="mono">{{ client.client_id }}</span>){% endif %}
+      {% if job.started_by %} · khởi động bởi <span class="mono">{{ job.started_by }}</span>{% endif %}
+    </span>
+  </div>
+  <div class="page-actions">
+    {% if client %}
+    <a class="btn-ghost" href="/clients/{{ client.client_id }}/catalog">← Danh mục</a>
+    <a class="btn-ghost" href="/clients/{{ client.client_id }}/jobs">Tất cả việc nền</a>
+    {% endif %}
+  </div>
+</section>
+
+{# Một job lỗi phải nói ngay lỗi gì — không chôn ở cuối trang. #}
+{% if job.error_message %}
+<div class="toast toast-error">
+  <strong>Việc chạy lỗi.</strong> Chi tiết ở khối "Chi tiết lỗi" bên dưới.
+</div>
+{% endif %}
+
 <section class="zone">
   <div class="zone-head">
     <div>
-      <h2>{{ job.label }}</h2>
+      <h2>Trạng thái</h2>
       <p class="meta">
-        Việc số <span class="mono">#{{ job.id }}</span>
-        {% if client %}
-          · {{ client.name }} (<span class="mono">{{ client.client_id }}</span>)
+        {% if job.status == 'pending' %}Chưa vào hàng đợi xử lý.
+        {% elif job.status == 'running' %}Trang tự refresh mỗi 5 giây.
+        {% elif job.status == 'done' %}Đã chạy xong.
+        {% elif job.status == 'error' %}Dừng giữa chừng vì lỗi.
+        {% elif job.status == 'cancelled' %}Bị hủy trước khi xong.
         {% endif %}
-        {% if job.started_by %} · Khởi động bởi <code>{{ job.started_by }}</code>{% endif %}
       </p>
     </div>
     <div class="page-actions">
-      {% if client %}
-      <a class="btn-ghost" href="/clients/{{ client.client_id }}/catalog">
-        ← Danh mục
-      </a>
-      <a class="btn-ghost" href="/clients/{{ client.client_id }}/jobs">
-        Tất cả việc nền
-      </a>
-      {% endif %}
-    </div>
-  </div>
-
-  <div class="job-status-card status-{{ job.status }}">
-    <div class="job-status-line">
-      <span class="job-status-label">Trạng thái</span>
       {% if job.status == 'pending' %}
-        <span class="badge badge-info">Đang chờ chạy…</span>
+        <span class="badge badge-muted">Đang chờ</span>
       {% elif job.status == 'running' %}
         <span class="badge badge-info">Đang chạy</span>
-        <small class="meta">Trang sẽ tự refresh mỗi 5 giây.</small>
       {% elif job.status == 'done' %}
-        <span class="badge badge-success">✓ Đã xong</span>
+        <span class="badge badge-success">Xong</span>
       {% elif job.status == 'error' %}
-        <span class="badge badge-error">✗ Có lỗi</span>
+        <span class="badge badge-error">Lỗi</span>
       {% elif job.status == 'cancelled' %}
-        <span class="badge">Đã hủy</span>
+        <span class="badge badge-muted">Đã hủy</span>
       {% endif %}
     </div>
-
-    <div class="job-status-line">
-      <span class="job-status-label">Bắt đầu</span>
-      <span class="mono">{{ job.started_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
-    </div>
-
-    {% if job.running_at %}
-    <div class="job-status-line">
-      <span class="job-status-label">Đã chạy</span>
-      <span class="mono">{{ job.running_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
-    </div>
-    {% endif %}
-
-    {% if job.finished_at %}
-    <div class="job-status-line">
-      <span class="job-status-label">Kết thúc</span>
-      <span class="mono">{{ job.finished_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
-      {% set total = (job.finished_at - job.started_at).total_seconds() %}
-      <small class="meta">(tổng {{ '%.0f' % total }}s)</small>
-    </div>
-    {% endif %}
   </div>
 
-  {% if job.summary and job.status == 'done' %}
-  <h3 style="margin-top: 1.5rem;">Tóm tắt kết quả</h3>
-  <pre class="job-log">{{ job.summary }}</pre>
-  {% endif %}
-
-  {% if job.error_message %}
-  <h3 style="margin-top: 1.5rem; color: var(--danger);">Chi tiết lỗi</h3>
-  <pre class="job-log job-log-error">{{ job.error_message }}</pre>
-  {% endif %}
-
-  {% if log_tail %}
-  <h3 style="margin-top: 1.5rem;">
-    Nhật ký (80 dòng cuối)
-    <small class="meta mono">{{ job.log_path }}</small>
-  </h3>
-  <pre class="job-log">{{ log_tail }}</pre>
-  {% endif %}
+  <dl class="job-kv">
+    <dt>Việc</dt><dd>#{{ job.id }}</dd>
+    <dt>Bắt đầu</dt><dd>{{ job.started_at.strftime('%Y-%m-%d %H:%M:%S') }}</dd>
+    {% if job.running_at %}
+    <dt>Vào chạy</dt><dd>{{ job.running_at.strftime('%Y-%m-%d %H:%M:%S') }}</dd>
+    {% endif %}
+    {% if job.finished_at %}
+    <dt>Kết thúc</dt><dd>{{ job.finished_at.strftime('%Y-%m-%d %H:%M:%S') }}</dd>
+    <dt>Tổng thời gian</dt><dd>{{ '%.0f' % (job.finished_at - job.started_at).total_seconds() }}s</dd>
+    {% endif %}
+    {% if job.started_by %}
+    <dt>Khởi động bởi</dt><dd>{{ job.started_by }}</dd>
+    {% endif %}
+  </dl>
 </section>
 
-<style>
-.job-status-card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1rem 1.25rem;
-  background: #fafbfd;
-  max-width: 720px;
-}
-.job-status-card.status-done    { border-left: 4px solid #0f9d58; }
-.job-status-card.status-error   { border-left: 4px solid #c62828; background: #fdecea; }
-.job-status-card.status-running { border-left: 4px solid #1565c0; }
-.job-status-card.status-pending { border-left: 4px solid #9aa0a6; }
-.job-status-line {
-  display: flex;
-  align-items: baseline;
-  gap: .75rem;
-  margin: .35rem 0;
-}
-.job-status-label {
-  display: inline-block;
-  min-width: 8ch;
-  font-weight: 500;
-  color: #555;
-}
-.job-log {
-  background: #1e1e1e;
-  color: #e0e0e0;
-  padding: .8rem 1rem;
-  border-radius: 6px;
-  font-family: ui-monospace, "JetBrains Mono", monospace;
-  font-size: .85em;
-  max-height: 480px;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.job-log-error { background: #2a1e1e; color: #ffd6cf; }
-</style>
+{% if job.error_message %}
+<section class="zone">
+  <div class="job-log-head">
+    <h3>Chi tiết lỗi</h3>
+  </div>
+  <pre class="job-log job-log-error">{{ job.error_message }}</pre>
+</section>
+{% endif %}
+
+{% if job.summary and job.status == 'done' %}
+<section class="zone">
+  <div class="job-log-head">
+    <h3>Tóm tắt kết quả</h3>
+  </div>
+  <pre class="job-log">{{ job.summary }}</pre>
+</section>
+{% endif %}
+
+{% if log_tail %}
+<section class="zone">
+  <div class="job-log-head">
+    <h3>Nhật ký (80 dòng cuối)</h3>
+    <span class="job-log-path">{{ job.log_path }}</span>
+  </div>
+  <pre class="job-log">{{ log_tail }}</pre>
+</section>
+{% endif %}
 {% endblock %}

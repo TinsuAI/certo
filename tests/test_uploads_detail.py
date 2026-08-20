@@ -164,7 +164,7 @@ def test_bcct_active_tab_highlights_customs_group():
     c = _dev_client()
     r = c.get(f"/clients/{CLIENT}/bcct")
     assert r.status_code == 200
-    assert "tab-link-active" in r.text  # Hải quan group highlighted on BCCT
+    assert 'class="side-a on"' in r.text  # BCCT sidebar entry highlighted
 
 
 def test_bcct_rows_clickable_when_present():

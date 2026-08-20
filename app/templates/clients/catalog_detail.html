@@ -41,8 +41,8 @@
       <span class="sum-chip"><span class="sum-k">Trạng thái</span>
         {% set st = material.status %}
         {% if st == 'active' %}<span class="badge badge-success">đang dùng</span>
-        {% elif st == 'deprecated' %}<span class="badge" style="opacity:.6">ngừng dùng</span>
-        {% elif st == 'tombstoned' %}<span class="badge" style="opacity:.4;text-decoration:line-through">đã loại</span>
+        {% elif st == 'deprecated' %}<span class="badge badge-muted">ngừng dùng</span>
+        {% elif st == 'tombstoned' %}<span class="badge badge-muted is-struck">đã loại</span>
         {% else %}<span class="badge">{{ st }}</span>{% endif %}
       </span>
       <span class="sum-chip"><span class="sum-k">ĐVT</span>
@@ -58,16 +58,16 @@
   </div>
 
   {% if warnings %}
-  <div class="warning-panel" style="margin-bottom: 1rem; padding: 0.75rem 1rem; border-left: 4px solid #f59e0b; background: #fff8e1;">
-    <h4 style="margin: 0 0 0.5rem 0;">⚠ Cảnh báo bất nhất giữa các nguồn ({{ warnings|length }})</h4>
-    <ul style="margin: 0; padding-left: 1.25rem;">
+  <div class="note note-warn">
+    <h4>⚠ Cảnh báo bất nhất giữa các nguồn ({{ warnings|length }})</h4>
+    <ul class="note-list">
       {% for w in warnings %}
-        <li style="margin-bottom: 0.5rem;">
+        <li>
           <strong class="badge badge-{{ w.severity }}">{{ w.kind }}</strong>
           {{ w.message }}
-          <details style="display: inline-block; margin-left: 0.5rem;">
-            <summary class="meta" style="cursor: pointer;">Chi tiết</summary>
-            <ul style="margin: 0.25rem 0 0 1.25rem;">
+          <details class="inline-details">
+            <summary class="meta">Chi tiết</summary>
+            <ul class="note-list">
               {% for ev in w.evidence %}
                 <li class="meta"><code>{{ ev.value }}</code> ({{ ev.n }} lần)</li>
               {% endfor %}
@@ -80,7 +80,7 @@
   {% endif %}
 
   {# ── Đơn vị tính: chính thức (catalog) + quan sát được ở các nguồn ── #}
-  <h3 style="margin-top: 1rem;">Đơn vị tính</h3>
+  <h3>Đơn vị tính</h3>
   {% macro uom_chip(o, token, count, official, count_title) %}
     {% set state = o.state %}
     {% if state == 'equivalent' %}
@@ -129,26 +129,26 @@
     </div>
   </div>
   {% if uom_panel.needs_attention %}
-  <p class="meta" style="margin: .4rem 0 0; color: #b45309;">
+  <p class="meta text-warn">
     ⚠ Có ĐVT chưa quy đổi được về ĐVT chính thức. Bấm chip để đặt hệ số tại
     <a href="/clients/{{ client.client_id }}/uom-factors">/uom-factors</a>
     (hoặc bổ sung alias tại <a href="/admin/uom">/admin/uom</a> nếu ĐVT lạ),
     hoặc xem "Phân tích từ BCCT" bên dưới để rõ mức độ.
   </p>
   {% elif uom_panel.has_divergence %}
-  <p class="meta" style="margin: .4rem 0 0; color: #0e7490;">
+  <p class="meta text-info">
     ✓ ĐVT quan sát khác ĐVT chính thức nhưng quy đổi được — không cần xử lý.
   </p>
   {% endif %}
 
   {# ── Vai trò quan sát (gọn) ── #}
-  <h3 style="margin-top: 1.5rem;">Vai trò quan sát
+  <h3>Vai trò quan sát
     <small class="meta">live từ <code>v_material_roles</code></small></h3>
-  <table class="dh-table">
+  <table class="dh-table dense">
     <tbody>
       <tr><td><strong>Vai trò quan sát</strong></td><td>
           {% if material.observed_roles %}
-            {% for r in material.observed_roles %}<span class="badge badge-info mono" style="font-size:.85em">{{ r }}</span>{% endfor %}
+            {% for r in material.observed_roles %}<span class="badge badge-info mono">{{ r }}</span>{% endfor %}
           {% else %}<span class="meta">—</span>{% endif %}
       </td></tr>
       <tr><td><strong>Đa vai trò</strong></td>
@@ -170,10 +170,10 @@
   {% set as_nb_others = mapping_panel.as_nb | rejectattr('paired_code', 'equalto', material.material_code) | list %}
   {% set as_hq_others = mapping_panel.as_hq | rejectattr('paired_code', 'equalto', material.material_code) | list %}
   {% if mapping_panel.as_nb or mapping_panel.as_hq %}
-  <h3 style="margin-top: 1.5rem;">Liên kết NB ↔ HQ</h3>
+  <h3>Liên kết NB ↔ HQ</h3>
 
   {% if self_loop_mapping %}
-    <div class="toast" style="margin-bottom: 0.75rem; background: #ecfeff; border-left: 4px solid #0891b2;">
+    <div class="note note-info">
       <strong>✓ Mã thống nhất ở cả hai phía</strong> —
       Khi khai báo HQ, agency dùng đúng mã <code>{{ material.material_code }}</code>
       (không cần quy đổi qua mã khác).
@@ -181,17 +181,17 @@
   {% endif %}
 
   {% if as_nb_others %}
-    <div style="margin-bottom: 0.75rem; padding: 0.75rem; background: #f9fafb; border-radius: 4px;">
-      <p style="margin: 0 0 0.5rem 0;">
+    <div class="sunk-panel">
+      <p class="sunk-panel-lead">
         <strong>Khi khai HQ, mã <code>{{ material.material_code }}</code> được khai dưới
         {{ as_nb_others|length }} mã HQ:</strong>
       </p>
-      <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+      <div class="badge-row">
         <span class="badge badge-nb">{{ material.material_code }}</span>
         <span class="meta">→</span>
         {% for m in as_nb_others %}
           <a href="/clients/{{ client.client_id }}/catalog/{{ m.paired_code }}/detail"
-             class="badge badge-hq" style="text-decoration: none;">
+             class="badge badge-hq">
             {{ m.paired_code }}
           </a>
         {% endfor %}
@@ -200,18 +200,18 @@
   {% endif %}
 
   {% if as_hq_others %}
-    <div style="margin-bottom: 0.75rem; padding: 0.75rem; background: #f9fafb; border-radius: 4px;">
-      <p style="margin: 0 0 0.5rem 0;">
+    <div class="sunk-panel">
+      <p class="sunk-panel-lead">
         <strong>Mã HQ <code>{{ material.material_code }}</code> bao gồm
         {{ as_hq_others|length }} mã nội bộ:</strong>
         {% if as_hq_others|length > 50 %}<span class="meta">(hiển thị 50 đầu)</span>{% endif %}
       </p>
-      <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; max-height: 12rem; overflow-y: auto;">
+      <div class="badge-row badge-row-scroll">
         <span class="badge badge-hq">{{ material.material_code }}</span>
         <span class="meta">←</span>
         {% for m in as_hq_others[:50] %}
           <a href="/clients/{{ client.client_id }}/catalog/{{ m.paired_code }}/detail"
-             class="badge badge-nb" style="text-decoration: none;">
+             class="badge badge-nb">
             {{ m.paired_code }}
           </a>
         {% endfor %}
@@ -221,7 +221,7 @@
   {% endif %}
 
   {# ── Lịch sử thay đổi (gọn) ── #}
-  <h3 style="margin-top: 1.5rem;">Lịch sử thay đổi
+  <h3>Lịch sử thay đổi
     <small class="meta">audit từ <code>material_audit_events</code></small></h3>
   {% if audit_events %}
   {% set ev_labels = {'update': 'Cập nhật', 'insert': 'Tạo mới', 'create': 'Tạo mới', 'delete': 'Xóa'} %}
@@ -277,7 +277,7 @@
   {% endif %}
 
   {% if substitutes_active is defined %}
-  <h3 style="margin-top: 1.5rem;">
+  <h3>
     Vật tư thay thế
     <small class="meta">
       {{ substitutes_active|length }} ứng viên
@@ -286,7 +286,7 @@
   </h3>
 
   {% if substitutes_active %}
-  <table class="dh-table">
+  <table class="dh-table dense">
     <thead>
       <tr>
         <th>Mã thay thế</th>
@@ -362,28 +362,28 @@
   </form>
   {% endif %}
 
-  <details style="margin-top: 1rem; max-width: 720px;">
-    <summary class="btn-ghost" style="cursor: pointer; user-select: none;">
+  <details class="inline-block-details">
+    <summary class="btn-ghost">
       + Thêm thủ công
     </summary>
-    <form method="post" class="stack-form" style="padding: .5rem 0; margin: 0;"
+    <form method="post" class="stack-form"
           action="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/substitutes/add">
       <label>
         Mã thay thế (vật tư đích)
         <input type="text" name="pair_b" required class="mono"
                placeholder="Mã vật tư khác"
-               style="width: 30ch;">
+               class="wide-input">
       </label>
       <button type="submit" class="btn-ghost">Thêm</button>
     </form>
   </details>
 
   {% if substitutes_rejected %}
-  <details style="margin-top: 1rem;">
-    <summary class="btn-ghost" style="cursor: pointer; user-select: none;">
+  <details class="inline-block-details">
+    <summary class="btn-ghost">
       Đã từ chối ({{ substitutes_rejected|length }})
     </summary>
-    <table class="dh-table" style="margin-top: .5rem;">
+    <table class="dh-table dense">
       <thead>
         <tr><th>Mã</th><th>Tên</th><th></th></tr>
       </thead>
@@ -408,11 +408,11 @@
   {% endif %}
 
   {# ── Chi tiết kỹ thuật (gập): trạng thái đầy đủ + provenance + cờ + sửa inline ── #}
-  <details class="tech-block" style="margin-top: 1.5rem;">
-    <summary><h3 style="display:inline">Chi tiết kỹ thuật</h3>
+  <details class="tech-block">
+    <summary><h3>Chi tiết kỹ thuật</h3>
       <small class="meta">trạng thái đầy đủ, provenance, cờ vai trò, sửa nhanh</small></summary>
 
-    <table class="dh-table" style="margin-top:.75rem">
+    <table class="dh-table dense kv">
       <tbody>
         <tr><td><strong>Mã hàng</strong> <small class="meta mono">material_code</small></td><td><code>{{ material.material_code }}</code></td></tr>
         <tr><td><strong>Tên hàng</strong> <small class="meta mono">name</small></td><td>{{ material.name or '—' }}</td></tr>
@@ -423,14 +423,14 @@
             {% if src == 'client_declared' %}<span class="badge badge-success">📥 khách hàng khai</span>
             {% elif src == 'bcct_observed' %}<span class="badge badge-info">📋 quan sát từ BCCT</span>
             {% elif src == 'bom_observed' %}<span class="badge badge-info">🔗 quan sát từ BOM</span>
-            {% elif src == 'system' %}<span class="badge">⚙ hệ thống</span>
+            {% elif src == 'system' %}<span class="badge badge-muted">⚙ hệ thống</span>
             {% else %}<span class="meta">{{ src }}</span>{% endif %}
         </td></tr>
         <tr><td><strong>Trạng thái</strong> <small class="meta mono">status</small></td><td>
             {% set st = material.status %}
             {% if st == 'active' %}<span class="badge badge-success">đang dùng</span>
-            {% elif st == 'deprecated' %}<span class="badge" style="opacity:.6">ngừng dùng</span>
-            {% elif st == 'tombstoned' %}<span class="badge" style="opacity:.4;text-decoration:line-through" title="đã loại — lifecycle marker, lưu lịch sử không xóa">đã loại</span>
+            {% elif st == 'deprecated' %}<span class="badge badge-muted">ngừng dùng</span>
+            {% elif st == 'tombstoned' %}<span class="badge badge-muted is-struck" title="đã loại — lifecycle marker, lưu lịch sử không xóa">đã loại</span>
             {% else %}<span class="badge">{{ st }}</span>{% endif %}
         </td></tr>
         <tr><td><strong>Đăng ký Hải Quan</strong> <small class="meta mono">hq_registered</small></td><td>
@@ -444,13 +444,13 @@
         <tr><td><strong>Cập nhật lúc</strong> <small class="meta mono">updated_at</small></td><td>{{ material.updated_at }}</td></tr>
         {% if material.provenance and material.provenance != {} %}
         <tr><td><strong>Xuất xứ dữ liệu</strong> <small class="meta mono">provenance jsonb</small></td>
-            <td><pre style="font-size:.85em;background:#f4f4f4;padding:.5em;border-radius:4px;max-width:60ch;overflow:auto">{{ material.provenance|tojson(indent=2) }}</pre></td></tr>
+            <td><pre class="code-block">{{ material.provenance|tojson(indent=2) }}</pre></td></tr>
         {% endif %}
       </tbody>
     </table>
 
-    <h4 style="margin-top:1rem">Cờ vai trò <small class="meta">v_material_roles</small></h4>
-    <table class="dh-table">
+    <h4>Cờ vai trò <small class="meta">v_material_roles</small></h4>
+    <table class="dh-table dense">
       <tbody>
         <tr><td><strong>Khai báo ≠ quan sát</strong> <small class="meta mono">declared_observed_conflict</small></td><td>{{ '⚠ có (khai báo không khớp quan sát)' if material.declared_observed_conflict else 'không' }}</td></tr>
         <tr><td><strong>Có nhập khẩu</strong> <small class="meta mono">has_imports</small></td><td>{{ 'có' if material.has_imports else 'không' }}</td></tr>
@@ -465,28 +465,27 @@
     </table>
 
     {% if can_edit_technical(client.client_id) or user.role in ('dev', 'admin', 'manager') %}
-    <details class="inline-edit" style="margin-top: 1rem;">
-      <summary class="btn-secondary btn-sm" style="cursor: pointer; display: inline-block;">
+    <details class="inline-edit">
+      <summary class="btn-secondary btn-sm">
         ✎ Sửa nhanh
       </summary>
       <form method="post"
             action="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/edit"
-            class="form-stack" style="margin-top: 0.75rem; max-width: 720px;">
-        <div style="display: grid; grid-template-columns: 1fr; gap: 0.5rem;">
+            class="form-stack">
+        <div class="field-stack">
           <label>Tên hàng
-            <input type="text" name="name" required value="{{ material.name or '' }}"
-                   style="width: 100%;">
+            <input type="text" name="name" required value="{{ material.name or '' }}">
           </label>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+          <div class="field-pair">
             <label>Phân loại
-              <select name="category" required style="width: 100%;">
+              <select name="category" required>
                 {% for cat in categories %}
                   <option value="{{ cat }}" {% if cat == material.category %}selected{% endif %}>{{ cat }}</option>
                 {% endfor %}
               </select>
             </label>
             <label>Trạng thái
-              <select name="status" required style="width: 100%;">
+              <select name="status" required>
                 {% set status_labels = {'active': 'đang dùng',
                                          'deprecated': 'ngừng dùng', 'tombstoned': 'đã loại'} %}
                 {% for s in editable_statuses %}
@@ -495,12 +494,12 @@
               </select>
             </label>
           </div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+          <div class="field-pair">
             <label>Đơn vị tính
-              <input type="text" name="uom" value="{{ material.uom or '' }}" style="width: 100%;">
+              <input type="text" name="uom" value="{{ material.uom or '' }}">
             </label>
             <label>Nguồn sản xuất
-              <select name="production_source" style="width: 100%;">
+              <select name="production_source">
                 <option value="">—</option>
                 {% for ps in production_sources %}
                   <option value="{{ ps }}" {% if ps == material.production_source %}selected{% endif %}>{{ ps }}</option>
@@ -509,13 +508,13 @@
             </label>
           </div>
           <label>Gợi ý nhà cung cấp
-            <input type="text" name="supplier_hint" value="{{ material.supplier_hint or '' }}" style="width: 100%;">
+            <input type="text" name="supplier_hint" value="{{ material.supplier_hint or '' }}">
           </label>
           <label>
             <input type="checkbox" name="hq_registered" {% if material.hq_registered %}checked{% endif %}>
             Đã đăng ký với HQ
           </label>
-          <div style="display: flex; gap: 0.5rem;">
+          <div class="field-actions">
             <button type="submit" class="btn-primary btn-sm">Lưu</button>
           </div>
         </div>
@@ -526,9 +525,9 @@
 
   {# ── Phân tích từ BCCT (gập) ── #}
   {% if bcct_analysis and bcct_analysis.bcct_row_count > 0 %}
-  <details class="tech-block" style="margin-top: 1.5rem;" {% if bcct_analysis.has_drift %}open{% endif %}>
+  <details class="tech-block" {% if bcct_analysis.has_drift %}open{% endif %}>
     <summary>
-      <h3 style="display:inline">Phân tích từ BCCT</h3>
+      <h3>Phân tích từ BCCT</h3>
       <small class="meta">
         {{ bcct_analysis.bcct_row_count }} dòng /
         {{ bcct_analysis.declaration_count }} tờ khai
@@ -538,13 +537,13 @@
         {%- if bcct_analysis.direction_breakdown.export %}
           · {{ bcct_analysis.direction_breakdown.export }} XK
         {%- endif %}
-        {%- if bcct_analysis.has_drift %} · <span class="badge badge-warn" style="font-size:.7em">có drift</span>{% endif %}
+        {%- if bcct_analysis.has_drift %} · <span class="badge badge-warn">có drift</span>{% endif %}
       </small>
     </summary>
 
   {% if bcct_analysis.representative %}
   {% set rep = bcct_analysis.representative %}
-  <div class="callout callout-info" style="margin: 1rem 0;">
+  <div class="callout callout-info">
     <strong>Đại diện</strong> ({{ rep.occurrence_count }} dòng giống nhau):
     TK <a class="mono" href="/clients/{{ client.client_id }}/bcct/history/{{ rep.transaction_key }}/{{ rep.line_no }}">{{ rep.declaration_no }}</a>
     {% if rep.registration_date %}· {{ format_date(rep.registration_date) }}{% endif %}
@@ -556,7 +555,7 @@
   {% endif %}
 
   {% if bcct_analysis.has_drift %}
-  <table class="dh-table" style="margin-bottom: 1rem;">
+  <table class="dh-table dense">
     <thead>
       <tr>
         <th>Trường</th>
@@ -586,7 +585,7 @@
           {% if bcct_timeline and bcct_timeline.timelines %}
             {% for ft in bcct_timeline.timelines %}
               {% if ft.field == d.field and ft.runs|length >= 2 %}
-                <br><a class="meta" style="font-size:.85em" href="#timeline-{{ d.field }}">Xem biến động →</a>
+                <br><a class="meta" href="#timeline-{{ d.field }}">Xem biến động →</a>
               {% endif %}
             {% endfor %}
           {% endif %}
@@ -634,7 +633,7 @@
 
   {# ── Biến động theo thời gian (RLE + per-quarter) ── #}
   {% if bcct_timeline and bcct_timeline.n_declarations > 0 %}
-  <h4 id="timeline" style="margin-top: 1.25rem;">
+  <h4 id="timeline">
     Biến động theo thời gian
     <small class="meta">
       ({{ bcct_timeline.n_declarations }} tờ khai có ngày đăng ký)
@@ -651,27 +650,26 @@
   {% for ft in bcct_timeline.timelines %}
     {% if ft.runs|length >= 2 %}
     <details id="timeline-{{ ft.field }}" class="timeline-block"
-             {% if ft.severity == 'critical' %}open{% endif %}
-             style="margin-bottom: .75rem;">
+             {% if ft.severity == 'critical' %}open{% endif %}>
       <summary class="timeline-summary">
         <strong>{{ ft.label }}</strong>
         <small class="meta mono">{{ ft.field }}</small>
         {% if ft.severity == 'critical' %}
-          <span class="badge badge-error" style="font-size:.7em">⚠ Nghiêm trọng</span>
+          <span class="badge badge-error">⚠ Nghiêm trọng</span>
         {% elif ft.severity == 'warn' %}
-          <span class="badge badge-warn" style="font-size:.7em">Cảnh báo</span>
+          <span class="badge badge-warn">Cảnh báo</span>
         {% else %}
-          <span class="badge" style="font-size:.7em">Thông tin</span>
+          <span class="badge">Thông tin</span>
         {% endif %}
         <small class="meta">
           · {{ ft.n_distinct_values }} giá trị · {{ ft.runs|length }} đoạn
         </small>
       </summary>
-      <table class="dh-table" style="margin-top: .5rem;">
+      <table class="dh-table dense">
         <thead>
           <tr>
-            <th style="width:15%">Từ ngày</th>
-            <th style="width:15%">Đến ngày</th>
+            <th class="col-15">Từ ngày</th>
+            <th class="col-15">Đến ngày</th>
             <th>Giá trị</th>
             <th class="num">Số TK</th>
             <th class="num">Số dòng</th>
@@ -694,10 +692,10 @@
           <td class="num">{{ r.n_lines }}</td>
           <td>
             {% if r.direction_breakdown.get('import') %}
-              <span class="badge" style="font-size:.7em" title="Nhập khẩu">↓ NK {{ r.direction_breakdown['import'] }}</span>
+              <span class="badge" title="Nhập khẩu">↓ NK {{ r.direction_breakdown['import'] }}</span>
             {% endif %}
             {% if r.direction_breakdown.get('export') %}
-              <span class="badge" style="font-size:.7em" title="Xuất khẩu">↑ XK {{ r.direction_breakdown['export'] }}</span>
+              <span class="badge" title="Xuất khẩu">↑ XK {{ r.direction_breakdown['export'] }}</span>
             {% endif %}
           </td>
         </tr>
@@ -709,18 +707,18 @@
   {% endfor %}
 
   {% if bcct_timeline.quarterly %}
-  <details class="timeline-block" style="margin-bottom: .75rem;">
+  <details class="timeline-block">
     <summary class="timeline-summary">
       <strong>Giá trị / Số lượng theo quý</strong>
       <small class="meta">
         · {{ bcct_timeline.quarterly|length }} quý dữ liệu
         {% set jumps = bcct_timeline.quarterly|selectattr('price_jump_from_prev')|list %}
         {% if jumps %}
-          · <span class="badge badge-warn" style="font-size:.7em">⚠ {{ jumps|length }} quý có giá nhảy ≥2×</span>
+          · <span class="badge badge-warn">⚠ {{ jumps|length }} quý có giá nhảy ≥2×</span>
         {% endif %}
       </small>
     </summary>
-    <table class="dh-table" style="margin-top: .5rem;">
+    <table class="dh-table dense">
       <thead>
         <tr>
           <th>Quý</th>
@@ -736,10 +734,10 @@
       </thead>
       <tbody>
       {% for q in bcct_timeline.quarterly %}
-      <tr {% if q.price_jump_from_prev %}class="row-warn" style="background:#fff8e1"{% endif %}>
+      <tr {% if q.price_jump_from_prev %}class="row-warn"{% endif %}>
         <td class="mono">
           {{ q.quarter }}
-          {% if q.price_jump_from_prev %}<span title="Giá median nhảy ≥2× so với quý trước" style="color:#c00">⚠</span>{% endif %}
+          {% if q.price_jump_from_prev %}<span class="text-bad" title="Giá median nhảy ≥2× so với quý trước">⚠</span>{% endif %}
         </td>
         <td class="num">{{ q.n_declarations }}</td>
         <td class="num">{{ q.n_lines }}</td>
@@ -760,11 +758,11 @@
   {% endif %}
 
   {# ── References (gập) ── #}
-  <details class="tech-block" style="margin-top: 1.5rem;">
-    <summary><h3 style="display:inline">BCCT references</h3>
+  <details class="tech-block">
+    <summary><h3>BCCT references</h3>
       <small class="meta">{{ bcct_rows|length }} dòng gần nhất</small></summary>
   {% if bcct_rows %}
-  <table class="dh-table" style="margin-top:.75rem">
+  <table class="dh-table dense kv">
     <thead>
       <tr><th>Số TK</th><th>Dòng</th><th>Loại</th><th>Hướng</th><th>Ngày</th>
           <th>customs_code</th><th>goods_name</th><th>Giá trị NT</th></tr>
@@ -785,15 +783,15 @@
     </tbody>
   </table>
   {% else %}
-  <p class="meta" style="margin-top:.75rem">Không có BCCT row nào reference mã này.</p>
+  <p class="meta">Không có BCCT row nào reference mã này.</p>
   {% endif %}
   </details>
 
-  <details class="tech-block" style="margin-top: 1rem;">
-    <summary><h3 style="display:inline">BOM references</h3>
+  <details class="tech-block">
+    <summary><h3>BOM references</h3>
       <small class="meta">{{ bom_artifacts|length }} artifacts gần nhất</small></summary>
   {% if bom_artifacts %}
-  <table class="dh-table" style="margin-top:.75rem">
+  <table class="dh-table dense kv">
     <thead>
       <tr><th>Artifact</th><th>Product</th><th>Vers</th><th>Status</th><th>Strategy</th><th>Tạo</th></tr>
     </thead>
@@ -811,7 +809,7 @@
     </tbody>
   </table>
   {% else %}
-  <p class="meta" style="margin-top:.75rem">Không có BOM artifact nào reference mã này.</p>
+  <p class="meta">Không có BOM artifact nào reference mã này.</p>
   {% endif %}
   </details>
 </section>

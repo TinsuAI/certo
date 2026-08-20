@@ -3,19 +3,20 @@
 {% block title %}Presets · {{ product_code }} · {{ client.name }}{% endblock %}
 
 {% block content %}
-<div class="container">
-  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem">
+<section class="zone">
+  <div class="zone-head">
     <div>
       <h2>Presets <span class="mono">{{ product_code }}</span></h2>
       <p class="meta">{{ presets|length }} alive · 1 preset = 1 artifact pin + sourcing intent</p>
     </div>
     <div>
-      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom/{{ product_code }}/artifacts">← artifacts</a>
+      <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/bom/{{ product_code }}/artifacts">← artifacts</a>
     </div>
   </div>
 
   {% if presets %}
-  <table class="dh-table">
+  <div class="table-wrap">
+  <table class="dh-table dense">
     <thead>
       <tr>
         <th>Name</th>
@@ -28,34 +29,33 @@
     <tbody>
       {% for p in presets %}
       <tr>
-        <td><strong>{{ p.name }}</strong> <span class="mono" style="color:#999;font-size:.8em">{{ p.preset_id }}</span></td>
+        <td><strong>{{ p.name }}</strong> <span class="mono meta">{{ p.preset_id }}</span></td>
         <td>
           <a class="mono" href="/clients/{{ client.client_id }}/bom/artifact/{{ p.artifact_id }}">{{ p.artifact_id }}</a>
         </td>
         <td>{{ p.notes or '—' }}</td>
-        <td class="mono" style="font-size:.85em">{{ p.created_at.strftime('%Y-%m-%d %H:%M') if p.created_at else '—' }}</td>
+        <td class="mono">{{ p.created_at.strftime('%Y-%m-%d %H:%M') if p.created_at else '—' }}</td>
         <td>
           <form method="post"
                 action="/clients/{{ client.client_id }}/bom/presets/{{ p.preset_id }}/tombstone"
                 onsubmit="return confirm('Thu hồi preset {{ p.name }}? (Lưu lịch sử, không xóa — tham chiếu cũ vẫn truy vấn được.)')"
                 style="display:inline">
-            <input type="text" name="reason" placeholder="lý do (tuỳ chọn)"
-                   style="font-size:.8em;width:120px">
-            <button type="submit" class="btn-danger" style="font-size:.8em">thu hồi</button>
+            <input type="text" name="reason" placeholder="lý do (tuỳ chọn)" class="mini-input">
+            <button type="submit" class="btn-danger btn-xs">thu hồi</button>
           </form>
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
   {% else %}
-  <p class="meta" style="margin:2rem 0">No alive presets. Create one below.</p>
+  <p class="meta">No alive presets. Create one below.</p>
   {% endif %}
 
-  <h3 style="margin-top:2rem">Create preset</h3>
-  <form method="post"
-        action="/clients/{{ client.client_id }}/bom/{{ product_code }}/presets"
-        style="display:flex;flex-direction:column;gap:.5rem;max-width:600px">
+  <div class="subsection-head"><h3>Create preset</h3></div>
+  <form method="post" class="stack-form"
+        action="/clients/{{ client.client_id }}/bom/{{ product_code }}/presets">
     <label>
       <span class="meta">Name (unique per product)</span>
       <input type="text" name="name" required placeholder="default | co-case-12345 | settlement-2025">
@@ -78,9 +78,9 @@
     </div>
   </form>
 
-  <p class="meta" style="margin-top:1rem;font-size:.8em">
+  <p class="meta">
     Sourcing-choices override editor not yet available — edit via PATCH
     /v1/hub/presets/{preset_id} until the UI lands (Phase 3+).
   </p>
-</div>
+</section>
 {% endblock %}

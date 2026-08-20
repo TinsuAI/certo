@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Cấu hình loại hình · {{ client.name }}{% endblock %}
 {% block content %}
-{% include "_client_nav.html" %}
+{# Trang này tự dựng thanh tiêu đề riêng (có tiêu đề cụ thể hơn), nên không
+   include "_client_nav.html" nữa — nếu include sẽ ra hai thanh tiêu đề chồng
+   nhau. Điều hướng khu làm việc nằm ở thanh bên (_sidebar.html). #}
 
 <section class="page-bar">
   <h1>Cấu hình loại hình tờ khai</h1>
@@ -17,14 +19,14 @@
 </section>
 
 {% if saved %}
-<div class="toast toast-success">Đã lưu cấu hình loại hình. Version bumped.</div>
+<div class="callout callout-success">Đã lưu cấu hình loại hình. Version bumped.</div>
 {% endif %}
 {% if error %}
-<div class="toast toast-error">{{ error }}</div>
+<div class="callout callout-error">{{ error }}</div>
 {% endif %}
 
 {% if cfg.config_version == 0 %}
-<div class="toast toast-warning">
+<div class="callout callout-warn">
   Client này chưa có cấu hình. Chọn 1 preset bên dưới để áp dụng nhanh,
   hoặc tự tick từng loại hình.
 </div>
@@ -129,14 +131,17 @@
   </section>
 
   {% if can_edit %}
-  <section class="settings-footer">
-    <a class="btn-secondary" href="/clients/{{ client.client_id }}">Hủy</a>
-    <button type="submit" class="btn-primary">Lưu cấu hình</button>
-  </section>
+  <footer class="commit-bar commit-bar-standalone">
+    <span class="commit-note">Lưu sẽ tăng <span class="mono">config_version</span> — CO và BCQT đọc lại qua API.</span>
+    <div class="commit-actions">
+      <button type="submit" class="btn-primary">Lưu cấu hình</button>
+      <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}">{{ t('common.cancel') }}</a>
+    </div>
+  </footer>
   {% else %}
-  <section class="settings-footer">
+  <footer class="commit-bar commit-bar-standalone">
     <span class="badge badge-warning">Read-only — bạn không có quyền edit client này.</span>
-  </section>
+  </footer>
   {% endif %}
 </form>
 {% endblock %}

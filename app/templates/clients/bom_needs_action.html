@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% block title %}{{ t('bom.needs_action.title') }} · {{ client.name }}{% endblock %}
 {% block content %}
-{% include "_client_nav.html" %}
+{# Trang này tự dựng thanh tiêu đề riêng (có tiêu đề cụ thể hơn), nên không
+   include "_client_nav.html" nữa — nếu include sẽ ra hai thanh tiêu đề chồng
+   nhau. Điều hướng khu làm việc nằm ở thanh bên (_sidebar.html). #}
 
 <section class="page-bar">
   <h1>{{ t('bom.needs_action.title') }} ({{ total }})</h1>

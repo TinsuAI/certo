@@ -1,35 +1,57 @@
 {% extends "base.html" %}
+{% from "_format.html" import format_int, format_date %}
 {% block title %}{{ client.name }} · {{ t('app.brand') }}{% endblock %}
 {% block content %}
 {% include "_client_nav.html" %}
 
-<section class="hero hero-primary client-snapshot" aria-label="Client overview">
-  <div>
-    <div class="hero-headline">{{ client.name }}</div>
-    <p class="hero-meta">{{ t('workspace.subtitle') }}</p>
+{% set base = '/clients/' + client.client_id %}
+
+<div class="stat-row" aria-label="{{ t('workspace.module_heading') }}">
+  <div class="stat">
+    <span class="stat-label">{{ t('workspace.stat.catalog') }}</span>
+    <span class="stat-value{{ '' if stats.materials else ' is-empty' }}">{{ format_int(stats.materials, lang=lang) }}</span>
+    <span class="stat-sub">{{ t('workspace.card.catalog_unit') }}</span>
   </div>
-  <div class="hero-divider"></div>
-  <div class="hero-stat">
-    <span class="hero-stat-value">{{ stats.materials }}</span>
-    <span class="hero-stat-label">{{ t('workspace.stat.catalog') }}</span>
+  <div class="stat">
+    <span class="stat-label">{{ t('workspace.stat.bqd') }}</span>
+    <span class="stat-value{{ '' if stats.mappings else ' is-empty' }}">{{ format_int(stats.mappings, lang=lang) }}</span>
+    <span class="stat-sub">{{ t('workspace.card.bqd_unit') }}</span>
   </div>
-  <div class="hero-stat">
-    <span class="hero-stat-value">{{ stats.mappings }}</span>
-    <span class="hero-stat-label">{{ t('workspace.stat.bqd') }}</span>
+  <div class="stat">
+    <span class="stat-label">{{ t('workspace.stat.bcct') }}</span>
+    <span class="stat-value{{ '' if stats.bcct else ' is-empty' }}">{{ format_int(stats.bcct, lang=lang) }}</span>
+    <span class="stat-sub">{{ t('workspace.card.bcct_unit') }}</span>
   </div>
-  <div class="hero-stat">
-    <span class="hero-stat-value">{{ stats.bcct }}</span>
-    <span class="hero-stat-label">{{ t('workspace.stat.bcct') }}</span>
+  <div class="stat">
+    <span class="stat-label">{{ t('workspace.stat.bom') }}</span>
+    <span class="stat-value{{ '' if stats.bom else ' is-empty' }}">{{ format_int(stats.bom, lang=lang) }}</span>
+    <span class="stat-sub">{{ t('workspace.card.bom_unit') }}</span>
   </div>
-  <div class="hero-stat">
-    <span class="hero-stat-value">{{ stats.bom }}</span>
-    <span class="hero-stat-label">{{ t('workspace.stat.bom') }}</span>
+  <div class="stat">
+    <span class="stat-label">{{ t('workspace.stat.proposals') }}</span>
+    <span class="stat-value{{ '' if stats.proposals else ' is-empty' }}">{{ format_int(stats.proposals, lang=lang) }}</span>
+    <span class="stat-sub">{{ t('workspace.card.proposals_unit') }}</span>
   </div>
-  <div class="hero-stat">
-    <span class="hero-stat-value">{{ stats.proposals }}</span>
-    <span class="hero-stat-label">{{ t('workspace.stat.proposals') }}</span>
-  </div>
-</section>
+</div>
+
+{% set cards = [
+  {'label': t('workspace.stat.catalog'), 'n': stats.materials,
+   'unit': t('workspace.card.catalog_unit'),
+   'href': base + '/catalog', 'empty_href': base + '/catalog/upload'},
+  {'label': t('workspace.stat.bqd'), 'n': stats.mappings,
+   'unit': t('workspace.card.bqd_unit'),
+   'href': base + '/bqd', 'empty_href': base + '/bqd/upload'},
+  {'label': t('workspace.stat.bcct'), 'n': stats.bcct,
+   'unit': t('workspace.card.bcct_unit'),
+   'href': base + '/bcct', 'empty_href': base + '/bcct/upload'},
+  {'label': t('workspace.stat.bom'), 'n': stats.bom,
+   'unit': t('workspace.card.bom_unit'),
+   'href': base + '/bom', 'empty_href': base + '/bom/upload'},
+  {'label': t('workspace.stat.proposals'), 'n': stats.proposals,
+   'unit': t('workspace.card.proposals_unit'),
+   'href': base + '/proposals', 'empty_href': base + '/proposals',
+   'action': t('workspace.card.review'), 'empty_action': t('workspace.card.open')},
+] %}
 
 <section class="zone">
   <div class="zone-head">
@@ -37,51 +59,70 @@
       <h2>{{ t('workspace.module_heading') }}</h2>
       <p class="meta">{{ t('workspace.module_meta') }}</p>
     </div>
+    <a class="btn-secondary btn-sm" href="{{ base }}/uploads">{{ t('tabs.uploads') }} →</a>
   </div>
-  <div class="module-grid">
-    <a class="module-tile module-link" href="/clients/{{ client.client_id }}/catalog">
-      <strong>{{ t('tabs.catalog') }}</strong>
-      <span>{{ t('workspace.module.catalog_meta')|replace('{n}', stats.materials|string) }}</span>
-    </a>
-    <a class="module-tile module-link" href="/clients/{{ client.client_id }}/bqd">
-      <strong>{{ t('tabs.bqd') }}</strong>
-      <span>{{ t('workspace.module.bqd_meta')|replace('{n}', stats.mappings|string) }}</span>
-    </a>
-    <a class="module-tile module-link" href="/clients/{{ client.client_id }}/bcct">
-      <strong>{{ t('tabs.bcct') }}</strong>
-      <span>{{ t('workspace.module.bcct_meta')|replace('{n}', stats.bcct|string) }}</span>
-    </a>
-    <a class="module-tile module-link" href="/clients/{{ client.client_id }}/bom">
-      <strong>{{ t('tabs.bom') }}</strong>
-      <span>{{ t('workspace.module.bom_meta')|replace('{n}', stats.bom|string) }}</span>
-    </a>
-    <a class="module-tile module-link" href="/clients/{{ client.client_id }}/proposals">
-      <strong>{{ t('tabs.proposals') }}</strong>
-      <span>{{ t('workspace.module.proposals_meta')|replace('{n}', stats.proposals|string) }}</span>
-    </a>
-    <a class="module-tile module-link" href="/clients/{{ client.client_id }}/uploads">
-      <strong>{{ t('tabs.uploads') }}</strong>
-      <span>{{ t('workspace.module.uploads_meta') }}</span>
-    </a>
+
+  <div class="ws-cards">
+    {% for c in cards %}
+    <article class="ws-card">
+      <div class="ws-card-head">
+        <h3>{{ c.label }}</h3>
+        {% if c.n %}
+        <span class="badge badge-success">{{ t('workspace.card.ready') }}</span>
+        {% else %}
+        <span class="badge badge-warning">{{ t('workspace.card.empty') }}</span>
+        {% endif %}
+      </div>
+      <div class="ws-card-body">
+        <span class="ws-card-loaded{{ '' if c.n else ' is-empty' }}">{{ format_int(c.n, lang=lang) }}</span>
+        <span class="ws-card-note">{{ c.unit }}</span>
+      </div>
+      <div class="ws-card-foot">
+        {% if c.n %}
+        <a class="ws-card-action" href="{{ c.href }}">{{ c.action or t('workspace.card.open') }} →</a>
+        {% else %}
+        <a class="ws-card-action" href="{{ c.empty_href }}">{{ c.empty_action or t('workspace.card.import') }} →</a>
+        {% endif %}
+      </div>
+    </article>
+    {% endfor %}
   </div>
 </section>
 
-<section class="zone zone-muted">
+<section class="zone">
   <div class="zone-head">
     <div>
       <h2>{{ t('workspace.config_summary') }}</h2>
+      <p class="meta">
+        {{ t('common.updated') }}
+        <span class="mono">{{ format_date(client.updated_at, '%Y-%m-%d %H:%M') or '—' }}</span>
+      </p>
     </div>
-    <div>
-      <a class="btn-secondary" href="/clients/{{ client.client_id }}/edit">{{ t('common.edit') }}</a>
-    </div>
+    <a class="btn-secondary btn-sm" href="{{ base }}/edit">{{ t('common.edit') }}</a>
   </div>
-  <div class="rowlist">
-    <div class="rowitem"><div><strong>{{ t('clients.field.code_resolution_mode') }}</strong><div class="meta">{{ t('clients.mode.' + client.code_resolution_mode + '.short') }}</div></div></div>
-    <div class="rowitem"><div><strong>{{ t('clients.field.bom_proposal_mode') }}</strong><div class="meta">{{ t('clients.proposal_mode.' + client.bom_proposal_mode) }}</div></div></div>
-    <div class="rowitem"><div><strong>{{ t('clients.field.bom_tolerance') }}</strong><div class="meta mono">{{ client.bom_proposal_qty_tolerance_pct }}%</div></div></div>
-    {% if client.notes %}
-    <div class="rowitem"><div><strong>{{ t('clients.field.notes') }}</strong><div class="meta">{{ client.notes }}</div></div></div>
-    {% endif %}
+  <div class="table-wrap">
+    <table class="dh-table dense kv">
+      <tbody>
+        <tr>
+          <th>{{ t('clients.field.code_resolution_mode') }}</th>
+          <td>{{ t('clients.mode.' + client.code_resolution_mode + '.short') }}</td>
+        </tr>
+        <tr>
+          <th>{{ t('clients.field.bom_proposal_mode') }}</th>
+          <td>{{ t('clients.proposal_mode.' + client.bom_proposal_mode) }}</td>
+        </tr>
+        <tr>
+          <th>{{ t('clients.field.bom_tolerance') }}</th>
+          <td class="mono">{{ client.bom_proposal_qty_tolerance_pct }}%</td>
+        </tr>
+        {% if client.notes %}
+        <tr>
+          <th>{{ t('clients.field.notes') }}</th>
+          <td>{{ client.notes }}</td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
   </div>
 </section>
 {% endblock %}

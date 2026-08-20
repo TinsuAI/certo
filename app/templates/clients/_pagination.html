@@ -8,7 +8,7 @@
 #}
 {% if paging.total > 0 %}
 <nav class="pager" aria-label="Pagination">
-  <div class="pager-info meta">
+  <div class="pager-info">
     {% set start = (paging.page.page - 1) * paging.page.page_size + 1 %}
     {% set end_raw = paging.page.page * paging.page.page_size %}
     {% set end = end_raw if end_raw < paging.total else paging.total %}
@@ -16,21 +16,19 @@
   </div>
   <div class="pager-controls">
     {% if paging.page.has_prev() %}
-      <a class="btn-ghost" href="{{ paging.first_url }}" title="Trang đầu">«</a>
-      <a class="btn-ghost" href="{{ paging.prev_url }}" title="Trang trước">‹</a>
+      <a class="btn-ghost btn-xs" href="{{ paging.first_url }}" title="Trang đầu">«</a>
+      <a class="btn-ghost btn-xs" href="{{ paging.prev_url }}" title="Trang trước">‹</a>
     {% else %}
-      <span class="btn-ghost btn-disabled">«</span>
-      <span class="btn-ghost btn-disabled">‹</span>
+      <span class="btn-ghost btn-xs btn-disabled">«</span>
+      <span class="btn-ghost btn-xs btn-disabled">‹</span>
     {% endif %}
-    <span class="pager-page meta">
-      Trang {{ paging.page.page }} / {{ paging.total_pages }}
-    </span>
+    <span class="pager-page mono">Trang {{ paging.page.page }} / {{ paging.total_pages }}</span>
     {% if paging.page.has_next(total=paging.total) %}
-      <a class="btn-ghost" href="{{ paging.next_url }}" title="Trang sau">›</a>
-      <a class="btn-ghost" href="{{ paging.last_url }}" title="Trang cuối">»</a>
+      <a class="btn-ghost btn-xs" href="{{ paging.next_url }}" title="Trang sau">›</a>
+      <a class="btn-ghost btn-xs" href="{{ paging.last_url }}" title="Trang cuối">»</a>
     {% else %}
-      <span class="btn-ghost btn-disabled">›</span>
-      <span class="btn-ghost btn-disabled">»</span>
+      <span class="btn-ghost btn-xs btn-disabled">›</span>
+      <span class="btn-ghost btn-xs btn-disabled">»</span>
     {% endif %}
   </div>
   <div class="pager-size meta">

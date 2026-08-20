@@ -8,97 +8,113 @@ Per-module wrapper templates `{% extends %}` this and override:
 {% extends "base.html" %}
 {% block title %}Xem trước {{ module_label }} · {{ client.name }}{% endblock %}
 {% block content %}
+{% import "clients/_flow.html" as flow with context %}
 {% include "_client_nav.html" %}
+
+{{ flow.rail(2, t('flow.pending_id') + ' ' + pending_id|string + ' · ' + t('flow.expires_at') + ' ' + expires_at|string) }}
 
 <section class="zone">
   <div class="zone-head">
-    <div>
+    <div class="page-bar-main">
       <h2>Xem trước {{ module_label }} trước khi lưu</h2>
       <p class="meta">
         Hub đã đọc <strong>{{ summary.total }}</strong> dòng từ file. Kiểm
         tra mẫu bên dưới — nếu khớp dữ liệu mong đợi, nhấn
         <strong>Lưu</strong>. Nếu file sai, nhấn <strong>Reject</strong>.
       </p>
-      {% if skipped_count > 0 %}
-      <p class="meta">
-        <strong>{{ skipped_count }}</strong> dòng đã bị
-        <em>skip</em> do thiếu trường bắt buộc — xem mục dưới để xử lý.
-      </p>
-      {% endif %}
-      <p class="meta">
-        Pending ID: <code>{{ pending_id }}</code> · hết hạn {{ expires_at }}
-      </p>
-    </div>
-    <div>
-      <a class="btn-secondary" href="{{ list_url }}">Hủy</a>
     </div>
   </div>
 
+  <div class="flow-facts">
+    <span class="badge badge-brand">{{ summary.total }} dòng sẽ ghi nhận</span>
+    {% if skipped_count > 0 %}
+    <span class="badge badge-error">{{ skipped_count }} {{ t('flow.row.rejected') }}</span>
+    {% endif %}
+  </div>
+
+  {% if skipped_count > 0 %}
+  <div class="callout callout-warn">
+    <strong>{{ skipped_count }}</strong> dòng thiếu trường bắt buộc và sẽ
+    <strong>không</strong> được ghi nhận. Tích <em>Include</em> ở bảng bên dưới
+    (sửa giá trị nếu cần) để đưa dòng đó vào.
+  </div>
+  {% endif %}
+
   {% block module_summary %}
-  <div class="zone mini-panel" style="margin-bottom: 1rem;">
-    <strong>Tổng quan:</strong>
-    <p>{{ summary.total }} dòng sẽ được import.</p>
+  <div class="upload-card upload-card-wide">
+    <div class="upload-card-head">
+      <h3>Tổng quan</h3>
+      <p>{{ summary.total }} dòng sẽ được import.</p>
+    </div>
   </div>
   {% endblock %}
 
   {% block module_sample %}
-  <div class="zone mini-panel" style="margin-bottom: 1rem;">
-    <strong>Mẫu {{ sample_rows|length }} dòng đầu (trên tổng {{ summary.total }}):</strong>
-    <pre style="overflow-x: auto;">{{ sample_rows[:3] | tojson(indent=2) }}</pre>
+  <div class="upload-card upload-card-wide">
+    <div class="upload-card-head">
+      <h3>Mẫu {{ sample_rows|length }} dòng đầu</h3>
+      <p>Trên tổng {{ summary.total }} dòng.</p>
+    </div>
+    <div class="upload-card-body">
+      <pre style="overflow-x: auto;">{{ sample_rows[:3] | tojson(indent=2) }}</pre>
+    </div>
   </div>
   {% endblock %}
 
   {% if skipped_count > 0 %}
-  <div class="zone mini-panel" style="margin-bottom: 1rem; border-left: 3px solid var(--warn, #c80);">
-    <strong>{{ skipped_count }} dòng cần xử lý (skipped)</strong>
-    <p class="meta">
-      Mỗi dòng bên dưới thiếu một hoặc nhiều trường bắt buộc. Tích
-      <em>Include</em> + (nếu cần) sửa giá trị inline rồi nhấn Lưu để
-      include dòng đó. Bỏ qua = không lưu.
-    </p>
-    <table class="data-table" style="margin-top: 0.5rem;">
-      <thead>
-        <tr>
-          <th>Include?</th>
-          <th>Dòng</th>
-          <th>Lý do skip</th>
-          {% for f in required_fields %}
-          <th>{{ f }}</th>
-          {% endfor %}
-          <th>Dữ liệu khác</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for sk in skipped_rows %}
-        <tr class="skipped-row" data-idx="{{ loop.index0 }}">
-          <td>
-            <input type="checkbox" name="include_skipped[]" value="{{ loop.index0 }}"
-                   form="confirm-form">
-          </td>
-          <td class="meta">{{ sk.row_index }}</td>
-          <td><code>{{ sk.reason }}</code></td>
-          {% for f in required_fields %}
-          <td>
-            {% set raw_val = sk.raw.get(f) if sk.raw else "" %}
-            <input type="text"
-                   name="skipped[{{ loop.index0 }}][{{ f }}]"
-                   value="{{ raw_val or '' }}"
-                   placeholder="{{ raw_val or '(trống)' }}"
-                   form="confirm-form"
-                   class="skipped-edit-input">
-          </td>
-          {% endfor %}
-          <td class="meta">
-            {% if sk.raw %}
-            {% for k, v in sk.raw.items() if v and k not in required_fields %}
-            <code>{{ k }}={{ v }}</code>{% if not loop.last %}, {% endif %}
+  <div class="upload-card upload-card-wide">
+    <div class="upload-card-head">
+      <h3>{{ skipped_count }} dòng cần xử lý</h3>
+      <p>
+        Mỗi dòng thiếu một hoặc nhiều trường bắt buộc. Không tích
+        <em>Include</em> = dòng bị bỏ, không ghi vào Hub.
+      </p>
+    </div>
+    <div class="mapping-raw-scroll">
+      <table class="data-table dense">
+        <thead>
+          <tr>
+            <th>Include?</th>
+            <th>Dòng</th>
+            <th>{{ t('flow.row.reason') }}</th>
+            {% for f in required_fields %}
+            <th>{{ f }}</th>
             {% endfor %}
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+            <th>Dữ liệu khác</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for sk in skipped_rows %}
+          <tr class="skipped-row row-crit" data-idx="{{ loop.index0 }}">
+            <td>
+              <input type="checkbox" name="include_skipped[]" value="{{ loop.index0 }}"
+                     form="confirm-form">
+            </td>
+            <td class="num">{{ sk.row_index }}</td>
+            <td><span class="badge badge-error">{{ sk.reason }}</span></td>
+            {% for f in required_fields %}
+            <td>
+              {% set raw_val = sk.raw.get(f) if sk.raw else "" %}
+              <input type="text"
+                     name="skipped[{{ loop.index0 }}][{{ f }}]"
+                     value="{{ raw_val or '' }}"
+                     placeholder="{{ raw_val or '(trống)' }}"
+                     form="confirm-form"
+                     class="skipped-edit-input">
+            </td>
+            {% endfor %}
+            <td class="meta">
+              {% if sk.raw %}
+              {% for k, v in sk.raw.items() if v and k not in required_fields %}
+              <code>{{ k }}={{ v }}</code>{% if not loop.last %}, {% endif %}
+              {% endfor %}
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
   {% endif %}
 
@@ -106,33 +122,28 @@ Per-module wrapper templates `{% extends %}` this and override:
 
   {% include "clients/_uom_drift_banner.html" ignore missing %}
 
-  <form id="confirm-form" method="post"
-        style="display: flex; gap: 0.6rem; align-items: center;">
+  {# Primary stays first in the DOM so Enter submits Lưu, not Reject; CSS
+     `order` renders it at the right of the commit bar. #}
+  <form id="confirm-form" method="post" class="commit-bar commit-bar-standalone">
     <input type="hidden" name="skipped_count" value="{{ skipped_count }}">
-    <button type="submit"
-            formaction="{{ list_url }}/preview/{{ pending_id }}/confirm"
-            class="btn-primary"
-            {% if uom_drift_blocks_confirm %}
-              title="Có drift khác họ chưa có hệ số quy đổi — tick checkbox bên dưới hoặc thêm hệ số trước khi lưu"
-            {% endif %}>
-      Lưu {{ summary.total }} dòng
-    </button>
-    <button type="submit"
-            formaction="{{ list_url }}/preview/{{ pending_id }}/reject"
-            class="btn-secondary"
-            onclick="return confirm('Reject file? Pending sẽ bị xoá, không lưu dòng nào.');">
-      Reject (file sai)
-    </button>
-    <a class="btn-secondary" href="{{ list_url }}">Quay lại sau (giữ pending)</a>
+    <span class="commit-note">{{ t('flow.commit_hint') }}</span>
+    <div class="commit-actions">
+      <button type="submit"
+              formaction="{{ list_url }}/preview/{{ pending_id }}/confirm"
+              class="btn-primary"
+              {% if uom_drift_blocks_confirm %}
+                title="Có drift khác họ chưa có hệ số quy đổi — tick checkbox bên dưới hoặc thêm hệ số trước khi lưu"
+              {% endif %}>
+        Lưu {{ summary.total }} dòng
+      </button>
+      <a class="btn-ghost btn-sm" href="{{ list_url }}">Quay lại sau (giữ pending)</a>
+      <button type="submit"
+              formaction="{{ list_url }}/preview/{{ pending_id }}/reject"
+              class="btn-secondary btn-sm"
+              onclick="return confirm('Reject file? Pending sẽ bị xoá, không lưu dòng nào.');">
+        Reject (file sai)
+      </button>
+    </div>
   </form>
 </section>
-
-<style>
-  .skipped-row .skipped-edit-input {
-    width: 100%;
-    min-width: 6rem;
-    padding: 0.2rem 0.3rem;
-  }
-</style>
-
 {% endblock %}

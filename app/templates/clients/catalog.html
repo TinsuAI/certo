@@ -269,7 +269,8 @@
     </div>
   </details>
 
-  <table class="dh-table" data-col-table="catalog_list">
+  <div class="table-wrap">
+  <table class="dh-table dense" data-col-table="catalog_list">
     <thead>
       <tr>
         {{ sort_th('material_code', 'Mã vật tư', sort=sort, sort_link=sort_link, attrs='data-col="material_code"') }}
@@ -303,70 +304,70 @@
         <td data-col="name" style="max-width: 28ch;">
           <span title="{{ m.name or '' }}" style="display: inline-block; max-width: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle;">{{ m.name or '' }}</span>
         </td>
-        <td class="cell-declared" data-col="category" style="vertical-align: middle; text-align: center;">
-          <div style="display: inline-flex; flex-direction: column; gap: .2em; align-items: center;">
+        <td class="cell-declared cell-center" data-col="category">
+          <div class="cell-stack">
             <span class="badge badge-info">{{ m.category }}</span>
             {% if m.declared_observed_conflict %}
-              <span class="badge badge-error" title="Khai báo không khớp dữ liệu quan sát. Xem cột Vai trò quan sát." style="font-size:.75em">⚠ Xét lại</span>
+              <span class="badge badge-error" title="Khai báo không khớp dữ liệu quan sát. Xem cột Vai trò quan sát.">⚠ Xét lại</span>
             {% endif %}
             {% if m.customs_relevance == 'excluded_non_material' %}
-              <span class="badge badge-error" title="Không phải vật tư khai báo ({{ m.item_category }}, SAP {{ m.material_group }}) — loại khỏi bảng kê C/O" style="font-size:.7em">🗑 {{ m.item_category }}</span>
+              <span class="badge badge-error" title="Không phải vật tư khai báo ({{ m.item_category }}, SAP {{ m.material_group }}) — loại khỏi bảng kê C/O">🗑 {{ m.item_category }}</span>
             {% elif m.customs_relevance == 'declarable_unmatched' %}
-              <span class="badge badge-warning" title="Vật tư khai-được nhưng chưa khớp tờ khai nhập ({{ m.item_category }}, SAP {{ m.material_group }}) — cần đối soát" style="font-size:.7em">⚠ chưa khớp</span>
+              <span class="badge badge-warning" title="Vật tư khai-được nhưng chưa khớp tờ khai nhập ({{ m.item_category }}, SAP {{ m.material_group }}) — cần đối soát">⚠ chưa khớp</span>
             {% endif %}
           </div>
         </td>
-        <td class="cell-observed" data-col="observed_roles" style="vertical-align: middle; text-align: center;">
+        <td class="cell-observed cell-center" data-col="observed_roles">
           {%- set has_any_signal = m.has_imports or m.has_exports or m.is_consumed_in_bom or m.has_own_bom -%}
-          <div style="display: inline-flex; flex-direction: column; gap: .2em; align-items: center;">
+          <div class="cell-stack">
             {% if m.observed_roles %}
               <div>
                 {% for role in m.observed_roles %}
-                  <span class="badge badge-observed mono" title="Vai trò {{ role }} phát hiện từ BCCT + BOM" style="font-size:.78em">{{ role }}</span>
+                  <span class="badge badge-observed mono" title="Vai trò {{ role }} phát hiện từ BCCT + BOM">{{ role }}</span>
                 {% endfor %}
               </div>
             {% elif has_any_signal %}
-              <span class="meta" style="color:#888;font-size:.78em">
+              <span class="meta">
                 {% if m.has_imports %}↓ nhập{% endif %}
                 {% if m.has_exports %}{% if m.has_imports %} · {% endif %}↑ xuất{% endif %}
                 {% if m.has_own_bom %}{% if m.has_imports or m.has_exports %} · {% endif %}📋 có BOM{% endif %}
                 {% if m.is_consumed_in_bom %}{% if m.has_imports or m.has_exports or m.has_own_bom %} · {% endif %}↻ trong BOM khác{% endif %}
               </span>
-            {% else %}<span class="meta" style="color:#bbb;font-size:.85em">—</span>{% endif %}
+            {% else %}<span class="empty-cell">—</span>{% endif %}
             {% if m.is_multi_role %}
               {% if m.is_dual_source %}
-                <span class="badge badge-warning" title="BTP đa nguồn" style="font-size:.75em">⇄ Đa nguồn</span>
+                <span class="badge badge-warning" title="BTP đa nguồn">⇄ Đa nguồn</span>
               {% else %}
-                <span class="badge badge-warning" title="≥2 vai trò khác nhau" style="font-size:.75em">⚠ Đa vai trò</span>
+                <span class="badge badge-warning" title="≥2 vai trò khác nhau">⚠ Đa vai trò</span>
               {% endif %}
             {% endif %}
           </div>
         </td>
-        <td data-col="source" style="vertical-align: middle; text-align: center;">
+        <td class="cell-center" data-col="source">
           {% if m.source == 'client_declared' %}<span class="badge badge-success" title="Agency client đã upload">📥 client</span>
           {% elif m.source == 'bcct_observed' %}<span class="badge badge-info" title="Auto-derive từ BCCT">📋 bcct</span>
           {% elif m.source == 'bom_observed' %}<span class="badge badge-info" title="Auto-derive từ BOM">🔗 bom</span>
           {% elif m.source == 'system' %}<span class="badge" title="System-seeded">⚙ system</span>
           {% endif %}
         </td>
-        <td data-col="status" style="vertical-align: middle; text-align: center;">
+        <td class="cell-center" data-col="status">
           {% set st = m.status or 'active' %}
           {% if st == 'active' %}<span class="badge badge-success">active</span>
           {% elif st == 'deprecated' %}<span class="badge" style="opacity:.6">deprecated</span>
           {% elif st == 'tombstoned' %}<span class="badge" style="opacity:.4;text-decoration:line-through" title="đã loại — lưu lịch sử, không xóa">đã loại</span>
           {% else %}<span class="badge">{{ st }}</span>{% endif %}
         </td>
-        <td data-col="hq_registered" style="text-align: center;">
+        <td class="cell-center" data-col="hq_registered">
           {% if m.hq_registered %}<span class="badge badge-success" title="Đã ĐK HQ">✓</span>
           {% elif m.hq_registered == false %}<span class="meta" title="Chưa ĐK HQ">✗</span>
           {% else %}<span class="meta" title="Chưa rõ">—</span>{% endif %}
         </td>
-        <td data-col="observed" class="meta" style="font-size:.8em; white-space: nowrap;">
+        <td class="meta cell-nowrap" data-col="observed">
           {% if m.observed_count and m.observed_count > 0 %}
             <strong>{{ format_number(m.observed_count, decimals=0, lang=lang) }}</strong> tờ khai
             {% if m.observed_first_at %}<br>{{ format_date(m.observed_first_at) }} → {{ format_date(m.observed_last_at) }}{% endif %}
             {% if m.observed_directions %}<br><span class="mono">{{ m.observed_directions|join(', ') }}</span>{% endif %}
-          {% else %}<span style="color:#bbb">—</span>{% endif %}
+          {% else %}<span class="empty-cell">—</span>{% endif %}
         </td>
         <td class="cell-sourcing" data-col="btp_sourcing">
           {% if m.category in ('btp_sx', 'btp_nm') or 'btp_sx' in (m.observed_roles or []) %}
@@ -395,15 +396,16 @@
                 <option value="dual_source" {{ 'selected' if m.btp_sourcing == 'dual_source' else '' }}>Đa nguồn (cả 2)</option>
               </select>
             </form>
-          {% else %}<span class="meta" style="color:#bbb;font-size:.85em">—</span>{% endif %}
+          {% else %}<span class="empty-cell">—</span>{% endif %}
         </td>
         <td class="mono" data-col="unit">{{ m.unit or '' }}</td>
         <td class="mono" data-col="hs_code">{{ m.hs_code or '' }}</td>
-        <td class="meta" data-col="updated_at" style="font-size:.85em;">{{ format_date(m.updated_at) if m.updated_at else '' }}</td>
+        <td class="mono" data-col="updated_at">{{ format_date(m.updated_at) if m.updated_at else '' }}</td>
       </tr>
       {% endfor %}
     </tbody>
-  </table>
+    </table>
+  </div>
   {% include "clients/_pagination.html" %}
   <script src="/static/js/col-picker.js" defer></script>
   {% else %}
@@ -418,16 +420,6 @@
   </div>
   {% endif %}
 </section>
-
-<style>
-.cell-declared, .cell-observed { vertical-align: top; }
-.edit-icon { color: #888; font-size: .85em; opacity: .6; }
-.sourcing-display:hover .edit-icon { opacity: 1; color: #2563eb; }
-.edit-icon-warn { color: #f59e0b !important; opacity: 1 !important; font-weight: bold; }
-.sourcing-display:hover .edit-icon-warn { color: #d97706 !important; }
-.badge-observed { background: #f3f4f6; color: #4b5563; border: 1px dashed #d1d5db; }
-.badge-error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
-</style>
 
 <script>
 function dhToggleSourcing(formId) {

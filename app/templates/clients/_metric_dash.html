@@ -5,8 +5,9 @@
 <div class="data-dash">
   {% for c in cards %}
   <div class="data-dash-card {% if c.tone %}is-{{ c.tone }}{% endif %}">
+    <span class="ddc-label">{{ c.label }}</span>
     <span class="ddc-value">{{ c.value }}</span>
-    <span class="ddc-label">{{ c.label }}{% if c.sub %} · {{ c.sub }}{% endif %}</span>
+    {% if c.sub %}<span class="ddc-sub">{{ c.sub }}</span>{% endif %}
   </div>
   {% endfor %}
 </div>

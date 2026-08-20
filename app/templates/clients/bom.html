@@ -108,7 +108,8 @@
     </span>
   </div>
 
-  <table class="dh-table" id="bom-products-table">
+  <div class="table-wrap">
+  <table class="dh-table dense" id="bom-products-table">
     <thead>
       <tr>
         {{ sort_th('product_code', t('bom.col.product')) }}
@@ -131,7 +132,7 @@
           {% if p.product_kind == 'btp' %}
             <span class="badge badge-info">{{ t('bom.list.kind_btp') }}</span>
           {% else %}
-            <span class="badge badge-neutral">{{ t('bom.list.kind_tp') }}</span>
+            <span class="badge badge-muted">{{ t('bom.list.kind_tp') }}</span>
           {% endif %}
         </td>
         <td>
@@ -140,7 +141,7 @@
           {% elif has_nflat %}
             <span class="badge badge-warn">⚠ {{ t('bom.list.status.non_flattened') }}</span>
           {% elif p.latest_flatten_status == 'not_applicable' %}
-            <span class="badge badge-neutral">{{ t('bom.list.status.not_applicable') }}</span>
+            <span class="badge badge-muted">{{ t('bom.list.status.not_applicable') }}</span>
           {% else %}
             <span class="badge badge-success">✓ {{ t('bom.list.status.flattened') }}</span>
           {% endif %}
@@ -153,17 +154,18 @@
           {% endif %}
         </td>
         <td>
-          <span class="badge badge-info">{{ p.n_logical_versions }}</span>
+          <span class="badge badge-muted">{{ p.n_logical_versions }}</span>
           <span class="meta">· {{ p.n_artifacts }} {{ t('bom.list.artifacts_unit') }}</span>
           {% if has_nflat %}<span class="meta">· {{ p.n_non_flattened }} non-flat</span>{% endif %}
         </td>
-        <td>#{{ p.latest_artifact_no }}</td>
-        <td class="mono">{{ p.last_published.strftime('%Y-%m-%d %H:%M') if p.last_published else '' }}</td>
-        <td><a href="/clients/{{ client.client_id }}/bom/{{ p.product_code }}/artifacts">{{ t('common.detail') }} →</a></td>
+        <td class="mono">#{{ p.latest_artifact_no }}</td>
+        <td class="mono">{{ p.last_published.strftime('%Y-%m-%d %H:%M') if p.last_published else '—' }}</td>
+        <td><a class="btn-ghost btn-xs" href="/clients/{{ client.client_id }}/bom/{{ p.product_code }}/artifacts">{{ t('common.detail') }} →</a></td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
 
   <script>
     (function() {

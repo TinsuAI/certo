@@ -2,14 +2,16 @@
 {% block title %}{{ t('admin.manager_clients.title') }} · {{ target.display_name }} · {{ t('app.brand') }}{% endblock %}
 {% block content %}
 <section class="page-bar">
-  <h1>{{ t('admin.manager_clients.title') }}</h1>
-  <span class="page-tagline">{{ target.display_name }} <span class="mono">({{ target.email }})</span></span>
+  <div class="page-bar-main">
+    <h1>{{ t('admin.manager_clients.title') }}</h1>
+    <span class="page-tagline">{{ target.display_name }} · <span class="mono">{{ target.email }}</span></span>
+  </div>
   <div class="page-actions">
     <a class="btn-secondary" href="/admin/users">← {{ t('admin.users') }}</a>
   </div>
 </section>
 
-<p class="meta">{{ t('admin.manager_clients.subtitle') }}</p>
+<div class="toast">{{ t('admin.manager_clients.subtitle') }}</div>
 
 <section class="zone">
   <div class="zone-head">
@@ -24,12 +26,12 @@
     <div class="rowitem">
       <div class="rowitem-main">
         <strong>{{ c.name }}</strong>
-        <div class="meta"><span class="mono">{{ c.client_id }}</span></div>
+        <div class="meta mono">{{ c.client_id }}</div>
       </div>
       <div class="rowitem-side">
         <form method="post" action="/admin/users/{{ target.user_id }}/clients/remove" class="inline-form">
           <input type="hidden" name="client_id" value="{{ c.client_id }}">
-          <button type="submit" class="btn-danger-sm">{{ t('admin.manager_clients.remove') }}</button>
+          <button type="submit" class="btn-xs btn-danger-sm">{{ t('admin.manager_clients.remove') }}</button>
         </form>
       </div>
     </div>
@@ -53,12 +55,12 @@
     <div class="rowitem">
       <div class="rowitem-main">
         <strong>{{ c.name }}</strong>
-        <div class="meta"><span class="mono">{{ c.client_id }}</span></div>
+        <div class="meta mono">{{ c.client_id }}</div>
       </div>
       <div class="rowitem-side">
         <form method="post" action="/admin/users/{{ target.user_id }}/clients/add" class="inline-form">
           <input type="hidden" name="client_id" value="{{ c.client_id }}">
-          <button type="submit" class="btn-secondary">+ {{ t('admin.manager_clients.add') }}</button>
+          <button type="submit" class="btn-xs btn-secondary">+ {{ t('admin.manager_clients.add') }}</button>
         </form>
       </div>
     </div>

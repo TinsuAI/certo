@@ -3,71 +3,67 @@
 {% block content %}
 {% include "_client_nav.html" %}
 
+<section class="page-bar">
+  <div class="page-bar-main">
+    <h1>Việc nền</h1>
+    <span class="page-tagline">
+      Lịch sử tác vụ chạy nền (phân tích AI, tìm gợi ý vật tư). Bấm vào dòng để xem trạng thái + nhật ký.
+    </span>
+  </div>
+  <div class="page-actions">
+    <a class="btn-ghost" href="/clients/{{ client.client_id }}/catalog">← Danh mục</a>
+  </div>
+</section>
+
 <section class="zone">
   <div class="zone-head">
     <div>
-      <h2>Việc nền</h2>
-      <p class="meta">
-        Lịch sử các tác vụ chạy nền (phân tích AI, tìm gợi ý vật tư).
-        Bấm vào dòng để xem trạng thái + nhật ký.
-      </p>
-    </div>
-    <div class="page-actions">
-      <a class="btn-ghost" href="/clients/{{ client.client_id }}/catalog">
-        ← Danh mục
-      </a>
+      <h2>Lần chạy gần đây</h2>
+      <p class="meta">{{ jobs|length }} việc</p>
     </div>
   </div>
 
   {% if jobs %}
-  <table class="dh-table">
+  <table class="dh-table dense">
     <thead>
       <tr>
-        <th>#</th>
+        <th class="num">#</th>
         <th>Việc</th>
         <th>Trạng thái</th>
         <th>Bắt đầu</th>
         <th>Kết thúc</th>
-        <th>Thời gian</th>
+        <th class="num">Thời gian</th>
       </tr>
     </thead>
     <tbody>
       {% for j in jobs %}
       <tr>
-        <td class="mono">
-          <a href="/jobs/{{ j.id }}">{{ j.id }}</a>
-        </td>
-        <td>
-          <a href="/jobs/{{ j.id }}">{{ j.label }}</a>
-        </td>
+        <td class="num"><a href="/jobs/{{ j.id }}">{{ j.id }}</a></td>
+        <td><a href="/jobs/{{ j.id }}">{{ j.label }}</a></td>
         <td>
           {% if j.status == 'pending' %}
-            <span class="badge badge-info">Đang chờ</span>
+            <span class="badge badge-muted">Đang chờ</span>
           {% elif j.status == 'running' %}
             <span class="badge badge-info">Đang chạy</span>
           {% elif j.status == 'done' %}
-            <span class="badge badge-success">✓ Xong</span>
+            <span class="badge badge-success">Xong</span>
           {% elif j.status == 'error' %}
-            <span class="badge badge-error">✗ Lỗi</span>
+            <span class="badge badge-error">Lỗi</span>
+          {% elif j.status == 'cancelled' %}
+            <span class="badge badge-muted">Đã hủy</span>
           {% else %}
-            <span class="badge">{{ j.status }}</span>
+            <span class="badge badge-muted">{{ j.status }}</span>
           {% endif %}
         </td>
         <td class="mono">{{ j.started_at.strftime('%m-%d %H:%M:%S') }}</td>
-        <td class="mono">
-          {% if j.finished_at %}
-            {{ j.finished_at.strftime('%m-%d %H:%M:%S') }}
-          {% else %}
-            <span class="meta">—</span>
-          {% endif %}
-        </td>
-        <td class="mono">
+        <td class="mono">{% if j.finished_at %}{{ j.finished_at.strftime('%m-%d %H:%M:%S') }}{% else %}—{% endif %}</td>
+        <td class="job-dur">
           {% if j.finished_at %}
             {{ '%.0f' % (j.finished_at - j.started_at).total_seconds() }}s
           {% elif j.running_at %}
-            <small class="meta">đang chạy…</small>
+            đang chạy…
           {% else %}
-            <span class="meta">—</span>
+            —
           {% endif %}
         </td>
       </tr>
