@@ -1,16 +1,19 @@
 {% if source_stats and source_stats.cards %}
-<div class="data-dash">
-  {% for c in source_stats.cards %}
-  <div class="data-dash-card {% if c.tone %}is-{{ c.tone }}{% endif %}">
-    <span class="ddc-value">{{ c.value }}</span>
-    <span class="ddc-label">{{ c.label }}{% if c.sub %} · {{ c.sub }}{% endif %}</span>
+<div class="lst source-stat-strip">
+  <div class="stat-row">
+    {% for c in source_stats.cards %}
+    <div class="stat-tile {% if c.tone %}is-{{ c.tone }}{% endif %}">
+      <span class="st-l">{{ c.label }}</span>
+      <span class="st-v">{{ c.value }}</span>
+      {% if c.sub %}<span class="st-s">{{ c.sub }}</span>{% endif %}
+    </div>
+    {% endfor %}
   </div>
-  {% endfor %}
-  <div class="data-dash-meta">
-    {% if source_stats.note %}<span class="data-dash-note">{{ source_stats.note }}</span>{% endif %}
-    <span class="source-stat-origin">{{ 'Data Hub' if source_backend == 'data-hub' else 'Cục bộ' }}</span>
+  <div class="stat-note">
+    {% if source_stats.note %}<span>{{ source_stats.note }}</span>{% endif %}
+    <span>Nguồn: {{ 'Data Hub' if source_backend == 'data-hub' else 'Cục bộ' }}</span>
     {% if data_hub_target_url %}
-    <a class="source-stat-dh" href="{{ data_hub_target_url }}" target="_blank" rel="noopener">Mở trên Data Hub →</a>
+    <a class="table-link" href="{{ data_hub_target_url }}" target="_blank" rel="noopener">Mở trên Data Hub →</a>
     {% endif %}
   </div>
 </div>

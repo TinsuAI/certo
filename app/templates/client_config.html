@@ -4,188 +4,227 @@
 {% block content %}
 {% include "_client_nav.html" %}
 
-<section class="zone" id="client-config">
-  <div class="zone-head">
+<section class="form-surface fs-stack" id="client-config">
+  <header class="fs-head">
     <div>
-      <h2>Cấu hình công ty</h2>
-      <p class="meta">Cấu hình runtime C/O <strong>riêng cho công ty này</strong> (khác với cài đặt hệ thống). Master loại hình tờ khai do Data Hub quản lý. Tham số tính toán liên quan: <a class="inline-link" href="/clients/{{ client.id }}/cost-allocation">Hệ số phân bổ →</a></p>
+      <h1>Cấu hình công ty</h1>
+      <p>Tham số runtime C/O <strong>riêng cho công ty này</strong>, khác với cài đặt hệ thống dùng chung. Master loại hình tờ khai do Data Hub quản lý. Hệ số phân bổ chi phí nằm ở <a class="inline-link" href="/clients/{{ client.id }}/cost-allocation">trang Hệ số phân bổ</a>.</p>
     </div>
-    <div class="chip-row">
+    <div class="fs-head-r">
       <span class="chip">v{{ client_config.config_version }}</span>
       <span class="chip">hash {{ client_config.config_hash }}</span>
     </div>
-  </div>
+  </header>
 
-  <form method="post" action="/clients/{{ client.id }}/config" class="config-grid">
-    <section class="zone mini-panel">
-      <div class="subsection-head">
-        <h3>Thông tin pháp lý</h3>
-        <p class="meta">Tên thương nhân + MST hiển thị trên bảng kê HQ. Tên ngắn (<code>{{ client.name }}</code>) chỉ dùng nội bộ.</p>
+  <form method="post" action="/clients/{{ client.id }}/config" class="fs-stack">
+    <section class="fs-card">
+      <div class="fs-card-h">
+        <h2>Thông tin pháp lý</h2>
+        <p class="fs-sub">Hai trường này in trên bảng kê nộp hải quan. Tên ngắn <span class="fs-mono">{{ client.name }}</span> chỉ dùng để tìm công ty trong app.</p>
       </div>
-      <div class="stack-form">
-        <label>Tên thương nhân (đầy đủ pháp lý)
-          <input name="legal_name" value="{{ client.legal_name or '' }}" placeholder="CÔNG TY TNHH ...">
-        </label>
-        <label>Mã số thuế
-          <input name="tax_code" value="{{ client.tax_code if client.tax_code and client.tax_code != 'Chưa nhập' else '' }}" placeholder="0123456789">
-        </label>
+      <div class="fs-card-b">
+        <div class="fs-grid">
+          <label class="fld">
+            <span>Tên thương nhân (đầy đủ pháp lý)</span>
+            <input name="legal_name" value="{{ client.legal_name or '' }}" placeholder="CÔNG TY TNHH ...">
+            <small class="hint">In vào ô thương nhân trên bảng kê và bộ hồ sơ xuất. Sửa tên chỉ áp cho lần xuất kế tiếp, file đã xuất giữ nguyên.</small>
+          </label>
+          <label class="fld">
+            <span>Mã số thuế</span>
+            <input name="tax_code" value="{{ client.tax_code if client.tax_code and client.tax_code != 'Chưa nhập' else '' }}" placeholder="0123456789">
+            <small class="hint">In kèm tên thương nhân trên bảng kê. Để trống nếu chưa có mã số thuế.</small>
+          </label>
+        </div>
       </div>
     </section>
 
-    <section class="zone mini-panel">
-      <div class="subsection-head">
-        <h3>Data Hub master config</h3>
-        <p class="meta">Loại hình tờ khai là master data từ Data Hub, C/O chỉ đọc để tính tồn và đối chiếu hồ sơ.</p>
+    <section class="fs-card">
+      <div class="fs-card-h">
+        <h2>Loại hình tờ khai (Data Hub)</h2>
+        <p class="fs-sub">Master data do Data Hub giữ. C/O chỉ đọc để lọc dòng BCCT khi tính tồn và đối chiếu hồ sơ — sửa ở Data Hub, không sửa ở đây.</p>
       </div>
-      <div class="rowlist">
-        <div class="rowitem">
-          <div class="rowitem-main">
-            <strong>Loại hình nhập tính tồn C/O</strong>
-            <div class="meta">{{ client_config.bcct.eligible_import_declaration_types|join(', ') or 'chưa cấu hình (không lọc — mọi loại hình đều tính)' }}</div>
+      <div class="fs-card-b">
+        <div class="fs-kv">
+          <div class="fs-kv-row">
+            <div class="fs-kv-k">Loại hình nhập tính tồn C/O</div>
+            <div class="fs-kv-v">
+              <span class="fs-mono">{{ client_config.bcct.eligible_import_declaration_types|join(', ') or '—' }}</span>
+              <span class="hint">{% if client_config.bcct.eligible_import_declaration_types %}Chỉ dòng BCCT nhập thuộc các loại hình này mới vào tồn C/O.{% else %}Chưa cấu hình nên không lọc: mọi loại hình nhập đều được tính tồn.{% endif %}</span>
+            </div>
           </div>
-        </div>
-        <div class="rowitem">
-          <div class="rowitem-main">
-            <strong>Số dòng BCCT nhập theo loại hình</strong>
-            <div class="meta" data-bcct-type-counts>
+          <div class="fs-kv-row">
+            <div class="fs-kv-k">Số dòng BCCT nhập theo loại hình</div>
+            <div class="fs-kv-v" data-bcct-type-counts>
               {% if bcct_declaration_type_counts %}
-              {% for declaration_type, count in bcct_declaration_type_counts.items() %}{{ declaration_type }}: {{ count }} dòng{% if not loop.last %} · {% endif %}{% endfor %}
+              <span class="fs-mono">{% for declaration_type, count in bcct_declaration_type_counts.items() %}{{ declaration_type }}: {{ count }} dòng{% if not loop.last %} · {% endif %}{% endfor %}</span>
               {% else %}
-              Chưa có snapshot tồn CO — bấm "Refresh tồn" ở tab Tồn C/O để thấy số liệu.
+              Chưa có snapshot tồn C/O.
+              <span class="hint">Bấm "Refresh tồn" ở tab Tồn C/O để thấy số liệu.</span>
               {% endif %}
             </div>
-            {% if bcct_excluded_type_rows %}
-            <div class="meta" data-bcct-excluded-warning style="color: var(--danger, #b91c1c);">
-              ⚠ Danh sách loại hình nhập đang LOẠI loại hình có dữ liệu:
-              {% for declaration_type, count in bcct_excluded_type_rows %}{{ declaration_type }} ({{ count }} dòng){% if not loop.last %}, {% endif %}{% endfor %}
-              — các lô đó không được tính tồn CO (nguy cơ thiếu tồn giả).
+          </div>
+          <div class="fs-kv-row">
+            <div class="fs-kv-k">Loại hình xuất quan tâm</div>
+            <div class="fs-kv-v">
+              <span class="fs-mono">{{ client_config.bcct.relevant_export_declaration_types|join(', ') or '—' }}</span>
+              <span class="hint">Dùng để nhận ra tờ khai xuất của hồ sơ C/O trong BCCT.</span>
             </div>
-            {% endif %}
           </div>
         </div>
-        <div class="rowitem">
-          <div class="rowitem-main">
-            <strong>Loại hình xuất quan tâm</strong>
-            <div class="meta">{{ client_config.bcct.relevant_export_declaration_types|join(', ') or 'chưa cấu hình' }}</div>
-          </div>
+        {% if bcct_excluded_type_rows %}
+        <div class="fs-note fs-note-warn" data-bcct-excluded-warning>
+          <strong>Danh sách loại hình nhập đang loại bỏ loại hình có dữ liệu:</strong>
+          {% for declaration_type, count in bcct_excluded_type_rows %}{{ declaration_type }} ({{ count }} dòng){% if not loop.last %}, {% endif %}{% endfor %}.
+          Các lô đó không được tính tồn C/O, dễ báo thiếu tồn không đúng thực tế.
+        </div>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="fs-card">
+      <div class="fs-card-h">
+        <h2>Tồn C/O</h2>
+        <p class="fs-sub">Cách C/O dựng dòng tồn từ BCCT nhập và điều kiện một lô được phép dùng cho tờ khai xuất.</p>
+      </div>
+      <div class="fs-card-b">
+        <div class="fs-grid">
+          <label class="fld">
+            <span>Policy tạo dòng tồn</span>
+            <select name="co_stock_lot_policy">
+              <option value="line_level" {% if client_config.co_stock.lot_policy == 'line_level' %}selected{% endif %}>line_level</option>
+              <option value="aggregate_by_declaration_and_allocation_code" {% if client_config.co_stock.lot_policy == 'aggregate_by_declaration_and_allocation_code' %}selected{% endif %}>aggregate_by_declaration_and_allocation_code</option>
+              <option value="manual_review" {% if client_config.co_stock.lot_policy == 'manual_review' %}selected{% endif %}>manual_review</option>
+            </select>
+            <small class="hint">line_level giữ nguyên từng dòng tờ khai để audit rõ (mặc định); aggregate_by_declaration_and_allocation_code gộp các dòng cùng tờ khai + cùng mã phân bổ thành một lô; manual_review đánh dấu mọi dòng là chờ xử lý tay. Đổi giá trị này buộc lần <strong>refresh tồn C/O</strong> kế tiếp dựng lại toàn bộ snapshot — số tồn đang hiển thị chưa đổi cho tới khi refresh.</small>
+          </label>
+          <label class="fld">
+            <span>Số ngày tối thiểu giữa ngày nhập và ngày xuất</span>
+            <input type="number" name="co_stock_min_days_before_export" min="0" max="365" step="1"
+                   value="{{ (client.co_stock_overrides or {}).get('min_days_before_export', client_config.co_stock.min_days_before_export | default(2)) }}">
+            <small class="hint">Lô NVL chỉ được dùng nếu ngày đăng ký tờ khai nhập sớm hơn ngày đăng ký tờ khai xuất ít nhất N ngày (mặc định 2). Đặt 0 để tắt rule. Rule chạy lúc ghép lô khi bấm "Tính bảng kê" — bảng kê đã tính giữ nguyên cho tới khi tính lại.</small>
+          </label>
         </div>
       </div>
     </section>
 
-    <section class="zone mini-panel">
-      <div class="subsection-head">
-        <h3>Tồn C/O</h3>
-        <p class="meta">Default giữ từng dòng BCCT riêng để audit rõ.</p>
+    <section class="fs-card">
+      <div class="fs-card-h">
+        <h2>Mã phân bổ</h2>
+        <p class="fs-sub">Mã dùng để ghép dòng BCCT với BOM. Mã hải quan gốc vẫn được giữ để đối chiếu tờ khai.</p>
       </div>
-      <div class="stack-form">
-        <label>Policy tạo dòng tồn
-          <select name="co_stock_lot_policy">
-            <option value="line_level" {% if client_config.co_stock.lot_policy == 'line_level' %}selected{% endif %}>line_level</option>
-            <option value="aggregate_by_declaration_and_allocation_code" {% if client_config.co_stock.lot_policy == 'aggregate_by_declaration_and_allocation_code' %}selected{% endif %}>aggregate_by_declaration_and_allocation_code</option>
-            <option value="manual_review" {% if client_config.co_stock.lot_policy == 'manual_review' %}selected{% endif %}>manual_review</option>
-          </select>
-        </label>
-        <label>Số ngày tối thiểu giữa ngày nhập (BCCT NK) và ngày xuất khẩu (BCCT XK)
-          <input type="number" name="co_stock_min_days_before_export" min="0" max="365" step="1"
-                 value="{{ (client.co_stock_overrides or {}).get('min_days_before_export', client_config.co_stock.min_days_before_export | default(2)) }}">
-          <small class="meta">Lô NVL muốn được dùng phải có ngày đăng ký tờ khai nhập sớm hơn ngày đăng ký tờ khai xuất ít nhất N ngày (mặc định 2). Đặt 0 để tắt rule.</small>
-        </label>
-      </div>
-    </section>
-
-    <section class="zone mini-panel">
-      <div class="subsection-head">
-        <h3>Tính năng bảng kê</h3>
-        <p class="meta">Bật/tắt các thao tác hàng loạt trên bảng kê NVL.</p>
-      </div>
-      <div class="stack-form">
-        <label class="feature-toggle">
-          <input type="checkbox" name="features_bulk_delete_junk_rows" value="1"
-                 {% if client_config.features.bulk_delete_junk_rows %}checked{% endif %}>
-          <span>Cho phép "Chọn NVL rác → xoá hàng loạt"</span>
-        </label>
-        <small class="meta">Hiện nút chọn nhanh các dòng NVL không khớp tồn CO / BCCT để xoá hàng loạt — áp cho cả sheet lẻ và sheet "Tổng hợp NVL". Tắt để ẩn hoàn toàn thao tác này.</small>
+      <div class="fs-card-b">
+        <div class="fs-grid">
+          <label class="fld">
+            <span>Strategy</span>
+            <select name="allocation_code_strategy">
+              <option value="same_as_customs_code" {% if client_config.allocation_code.strategy == 'same_as_customs_code' %}selected{% endif %}>same_as_customs_code</option>
+              <option value="description_regex" {% if client_config.allocation_code.strategy == 'description_regex' %}selected{% endif %}>description_regex</option>
+              <option value="manual_review" {% if client_config.allocation_code.strategy == 'manual_review' %}selected{% endif %}>manual_review</option>
+            </select>
+            <small class="hint">same_as_customs_code lấy đúng mã hàng trên tờ khai; description_regex bóc mã từ mô tả bằng regex bên cạnh; manual_review để trống chờ xử lý tay. Đổi giá trị này buộc lần refresh tồn C/O kế tiếp dựng lại toàn bộ snapshot.</small>
+          </label>
+          <label class="fld fld-mono">
+            <span>Regex mô tả</span>
+            <input name="description_regex" value="{{ client_config.allocation_code.description_regex }}">
+            <small class="hint">Chỉ chạy khi strategy = description_regex. Nhóm bắt đầu tiên của regex được lấy làm mã phân bổ.</small>
+          </label>
+          <label class="fld">
+            <span>Fallback</span>
+            <select name="allocation_code_fallback">
+              <option value="same_as_customs_code" {% if client_config.allocation_code.fallback == 'same_as_customs_code' %}selected{% endif %}>same_as_customs_code</option>
+              <option value="requires_review" {% if client_config.allocation_code.fallback == 'requires_review' %}selected{% endif %}>requires_review</option>
+            </select>
+            <small class="hint">Áp khi strategy không suy ra được mã: same_as_customs_code lấy tạm mã hải quan, requires_review đánh dấu dòng cần xử lý tay.</small>
+          </label>
+        </div>
       </div>
     </section>
 
-    <section class="zone mini-panel">
-      <div class="subsection-head">
-        <h3>Mã phân bổ</h3>
-        <p class="meta">Mã dùng để match BOM; mã hải quan vẫn giữ để audit tờ khai.</p>
+    <section class="fs-card">
+      <div class="fs-card-h">
+        <h2>Bảng kê — cột (9) Nước xuất xứ</h2>
+        <p class="fs-sub">Quy ước chữ hiển thị ở cột (9). Áp khi bấm "Tính bảng kê"; từng hồ sơ vẫn override được.</p>
       </div>
-      <div class="stack-form">
-        <label>Strategy
-          <select name="allocation_code_strategy">
-            <option value="same_as_customs_code" {% if client_config.allocation_code.strategy == 'same_as_customs_code' %}selected{% endif %}>same_as_customs_code</option>
-            <option value="description_regex" {% if client_config.allocation_code.strategy == 'description_regex' %}selected{% endif %}>description_regex</option>
-            <option value="manual_review" {% if client_config.allocation_code.strategy == 'manual_review' %}selected{% endif %}>manual_review</option>
-          </select>
-        </label>
-        <label>Regex mô tả
-          <input name="description_regex" value="{{ client_config.allocation_code.description_regex }}">
-        </label>
-        <label>Fallback
-          <select name="allocation_code_fallback">
-            <option value="same_as_customs_code" {% if client_config.allocation_code.fallback == 'same_as_customs_code' %}selected{% endif %}>same_as_customs_code</option>
-            <option value="requires_review" {% if client_config.allocation_code.fallback == 'requires_review' %}selected{% endif %}>requires_review</option>
-          </select>
-        </label>
-      </div>
-    </section>
-
-    <section class="zone mini-panel">
-      <div class="subsection-head">
-        <h3>Bảng kê — cột (9) Nước xuất xứ</h3>
-        <p class="meta">Quy ước hiển thị cột (9), áp khi bấm "Tính bảng kê" (không đổi các bảng kê đã chốt). Có thể override theo từng hồ sơ.</p>
-      </div>
-      <div class="stack-form">
-        <label>Chế độ cột (9) mặc định
-          <select name="bang_ke_column9_mode"
-                  onchange="if (this.value !== this.dataset.initial && !window.confirm('Đổi quy ước cột (9) mặc định của công ty: các bảng kê ĐÃ TÍNH lệch quy ước trên MỌI hồ sơ sẽ chuyển \'Cần tính lại\'; bảng kê đã chốt GIỮ NGUYÊN và gắn nhãn lệch. Tiếp tục?')) { this.value = this.dataset.initial; }"
-                  data-initial="{{ bang_ke_settings.column9_mode }}">
-            <option value="country" {% if bang_ke_settings.column9_mode == 'country' %}selected{% endif %}>country — tên nước xuất xứ (Việt Nam, Trung Quốc…)</option>
-            <option value="qualification_label" {% if bang_ke_settings.column9_mode == 'qualification_label' %}selected{% endif %}>qualification_label — "Việt Nam"/"Không xuất xứ" theo đạt/không đạt</option>
-          </select>
-          <small class="meta">Hai chế độ chỉ đổi CHỮ trên cột (9); tiền cột (7)/(8) và LVC không đổi.</small>
-        </label>
-        <label>Nhãn cho lô không rõ xuất xứ (UNKNOWN / trống)
-          <input name="bang_ke_unknown_origin_label" value="{{ (client.bang_ke_overrides or {}).get('unknown_origin_label', '') }}" placeholder="Không xác định">
-          <small class="meta">Chỉ áp cho nhóm không-xác-định; nước có tên nhưng chưa có trong bảng quy đổi vẫn hiển thị nguyên văn kèm cảnh báo.</small>
-        </label>
-        <details>
-          <summary class="meta">Bảng quy đổi tên nước (chỉ đọc, {{ origin_country_mapping|length }} mục)</summary>
-          <div class="meta" data-origin-country-mapping style="max-height: 14rem; overflow-y: auto;">
+      <div class="fs-card-b">
+        <div class="fs-grid">
+          <label class="fld fs-grid-wide">
+            <span>Chế độ cột (9) mặc định</span>
+            <select name="bang_ke_column9_mode"
+                    onchange="if (this.value !== this.dataset.initial &amp;&amp; !window.confirm('Đổi quy ước cột (9) mặc định của công ty: các bảng kê ĐÃ TÍNH lệch quy ước trên MỌI hồ sơ sẽ chuyển \'Cần tính lại\'; bảng kê đã chốt GIỮ NGUYÊN và gắn nhãn lệch. Tiếp tục?')) { this.value = this.dataset.initial; }"
+                    data-initial="{{ bang_ke_settings.column9_mode }}">
+              <option value="country" {% if bang_ke_settings.column9_mode == 'country' %}selected{% endif %}>country — tên nước xuất xứ (Việt Nam, Trung Quốc…)</option>
+              <option value="qualification_label" {% if bang_ke_settings.column9_mode == 'qualification_label' %}selected{% endif %}>qualification_label — "Việt Nam"/"Không xuất xứ" theo đạt/không đạt</option>
+            </select>
+            <small class="hint">Hai chế độ chỉ đổi CHỮ ở cột (9); tiền cột (7)/(8) và LVC không đổi. Lưu xong: bảng kê đã tính mà lệch quy ước chuyển sang "Cần tính lại", bảng kê đã chốt giữ nguyên như đã nộp và chỉ gắn nhãn lệch.</small>
+          </label>
+          <label class="fld fs-grid-wide">
+            <span>Nhãn cho lô không rõ xuất xứ (UNKNOWN / trống)</span>
+            <input name="bang_ke_unknown_origin_label" value="{{ (client.bang_ke_overrides or {}).get('unknown_origin_label', '') }}" placeholder="Không xác định">
+            <small class="hint">Chỉ thay chữ cho nhóm không-xác-định. Nước có tên nhưng chưa có trong bảng quy đổi vẫn hiển thị nguyên văn kèm cảnh báo. Áp khi tính lại bảng kê.</small>
+          </label>
+        </div>
+        {% if origin_country_unmapped %}
+        <div class="fs-note fs-note-warn" data-origin-country-unmapped>
+          Chuỗi xuất xứ của công ty này chưa có trong bảng quy đổi: <span class="fs-mono">{{ origin_country_unmapped|join(', ') }}</span> — cột (9) sẽ in nguyên văn chuỗi gốc.
+        </div>
+        {% endif %}
+        <details class="fs-note">
+          <summary>Bảng quy đổi tên nước (chỉ đọc, {{ origin_country_mapping|length }} mục)</summary>
+          <div data-origin-country-mapping style="max-height: 14rem; overflow-y: auto; margin-top: 6px;">
             {% for entry in origin_country_mapping %}{{ entry.raw }} → {{ entry.label_vi or entry.iso }}{% if not loop.last %} · {% endif %}{% endfor %}
           </div>
-          {% if origin_country_unmapped %}
-          <div class="meta" data-origin-country-unmapped style="color: var(--danger, #b91c1c);">
-            Chuỗi xuất xứ của công ty này CHƯA có trong bảng: {{ origin_country_unmapped|join(', ') }} — sẽ hiển thị nguyên văn trên cột (9).
-          </div>
-          {% endif %}
         </details>
       </div>
     </section>
 
-    <section class="zone mini-panel">
-      <div class="subsection-head">
-        <h3>Xuất hồ sơ</h3>
-        <p class="meta">Tờ khai nhập (TKN) ghép được Data Hub chia nhỏ để vừa giới hạn đính kèm của Ecosys.</p>
+    <section class="fs-card">
+      <div class="fs-card-h">
+        <h2>Tính năng bảng kê</h2>
+        <p class="fs-sub">Bật/tắt thao tác hàng loạt trên bảng kê NVL của công ty này.</p>
       </div>
-      <div class="stack-form">
-        <label>Giới hạn 1 phần PDF tờ khai (MB)
-          <input type="number" name="tkn_pdf_max_part_mb" min="0.1" step="0.5"
-                 value="{{ (client.export_overrides or {}).get('tkn_pdf_max_part_mb', 2) }}">
-          <small class="meta">Mỗi phần TKN ghép sẽ ≤ giá trị này (MB). Mặc định 2 MB. Bản in luôn lossless (không nén ảnh).</small>
+      <div class="fs-card-b">
+        {# Ô tick bỏ trống thì trình duyệt KHÔNG gửi field lên, nên "vắng mặt" tự nó
+           không phân biệt được "form này có phần Tính năng và người dùng bỏ tick"
+           với "POST không hề mang phần Tính năng". Field ẩn này là mốc: có nó thì
+           route mới đọc ô tick, không có thì giữ nguyên giá trị đang lưu. #}
+        <input type="hidden" name="features_section" value="1">
+        <label class="fld fld-check">
+          <span class="fs-check-line">
+            <input type="checkbox" name="features_bulk_delete_junk_rows" value="1"
+                   {% if client_config.features.bulk_delete_junk_rows %}checked{% endif %}>
+            <span>Cho phép "Chọn NVL rác → xoá hàng loạt"</span>
+          </span>
+          <small class="hint">Hiện nút chọn nhanh các dòng NVL không khớp tồn C/O / BCCT để xoá một lượt, áp cho cả sheet lẻ lẫn sheet "Tổng hợp NVL". Tắt thì thao tác này biến mất khỏi giao diện. Có hiệu lực ngay khi lưu, không cần tính lại.</small>
         </label>
       </div>
     </section>
 
-    <section class="zone mini-panel action-panel">
-      <div class="subsection-head">
-        <h3>Snapshot</h3>
-        <p class="meta">Hồ sơ C/O sẽ lưu hash cấu hình này để tránh thay đổi retroactive.</p>
+    <section class="fs-card">
+      <div class="fs-card-h">
+        <h2>Xuất hồ sơ</h2>
+        <p class="fs-sub">Tờ khai nhập (TKN) ghép được chia nhỏ để vừa giới hạn dung lượng đính kèm của Ecosys.</p>
       </div>
-      <button type="submit">Lưu cấu hình</button>
+      <div class="fs-card-b">
+        <div class="fs-grid">
+          <label class="fld">
+            <span>Giới hạn một phần PDF tờ khai (MB)</span>
+            <input type="number" name="tkn_pdf_max_part_mb" min="0.1" step="0.5"
+                   value="{{ (client.export_overrides or {}).get('tkn_pdf_max_part_mb', 2) }}">
+            <small class="hint">Mỗi phần TKN ghép sẽ không vượt quá giá trị này (mặc định 2 MB). Bản in luôn giữ nguyên chất lượng, không nén ảnh. Áp cho lần xuất kế tiếp, file đã xuất giữ nguyên.</small>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <section class="fs-card">
+      <div class="fs-card-h">
+        <h2>Lưu cấu hình</h2>
+        <p class="fs-sub">Mỗi hồ sơ C/O lưu lại hash của cấu hình tại thời điểm tính, nên sửa cấu hình không làm đổi ngược hồ sơ đã tính.</p>
+      </div>
+      <div class="fs-card-f">
+        <span class="fs-f-note">Lưu xong, C/O dựng lại chỉ mục nguồn của công ty này.</span>
+        <button type="submit" class="btn-primary">Lưu cấu hình</button>
+      </div>
     </section>
   </form>
 </section>

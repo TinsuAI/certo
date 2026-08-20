@@ -673,7 +673,10 @@ def case_from_form(form: dict[str, str]) -> dict:
                 "customs_relevance": form.get(material_prefix + "customs_relevance", ""),
                 "internal_material_code": form.get(material_prefix + "internal_material_code", ""),
                 "material_description": form.get(material_prefix + "material_description", ""),
-                "hs_code": form.get(material_prefix + "hs_code", ""),
+                # Chuỗi "None" từng được template in ra rồi form gửi ngược lại và
+                # được lưu như dữ liệu thật. Chặn tại cửa vào để nó không lan tiếp.
+                "hs_code": ("" if form.get(material_prefix + "hs_code", "") == "None"
+                            else form.get(material_prefix + "hs_code", "")),
                 "origin_country": form.get(material_prefix + "origin_country", ""),
                 "consignee_name": form.get(material_prefix + "consignee_name", ""),
                 "supplier_key": form.get(material_prefix + "supplier_key", ""),
@@ -695,6 +698,11 @@ def case_from_form(form: dict[str, str]) -> dict:
                 "valuation_source": form.get(material_prefix + "valuation_source", ""),
                 "valuation_source_label": form.get(material_prefix + "valuation_source_label", ""),
                 "data_status_label": form.get(material_prefix + "data_status_label", ""),
+                # Soft delete must survive the form round-trip. Without it a save
+                # kept the "Đã xoá khỏi bảng kê" label while dropping the flag the
+                # fold reads, so the row came back onto the bảng kê still labelled
+                # as removed.
+                "deleted": form.get(material_prefix + "deleted", "") == "1",
                 "allocation_status": form.get(material_prefix + "allocation_status", ""),
                 "allocation_shortage_qty": form.get(material_prefix + "allocation_shortage_qty", ""),
                 "allocation_shortage_trace": form.get(material_prefix + "allocation_shortage_trace", ""),

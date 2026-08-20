@@ -8,29 +8,36 @@
 {%- endmacro %}
 
 {% block content %}
-<section class="clients-hero">
-  <div>
+<div class="lst lst-page">
+
+<section class="page-bar">
+  <div class="page-bar-text">
     <h1>Công ty</h1>
     <p class="page-tagline">Chọn một công ty để vào luồng làm C/O.</p>
   </div>
-  {% if portfolio_summary %}
-  <div class="clients-hero-stats">
-    <div class="che-stat">
-      <span class="che-value">{{ portfolio_summary.clients }}</span>
-      <span class="che-label">công ty</span>
-    </div>
-    <div class="che-stat">
-      <span class="che-value">{{ portfolio_summary.open }}</span>
-      <span class="che-label">hồ sơ C/O đang mở</span>
-    </div>
-    <div class="che-stat {{ 'che-warn' if portfolio_summary.attention else '' }}">
-      <span class="che-value">{{ portfolio_summary.attention }}</span>
-      <span class="che-label">công ty cần xử lý</span>
-    </div>
-  </div>
-  {% endif %}
 </section>
 
+{% if portfolio_summary %}
+<div class="stat-row">
+  <div class="stat-tile">
+    <span class="st-l">Công ty</span>
+    <span class="st-v">{{ portfolio_summary.clients }}</span>
+    <span class="st-s">đang theo dõi trong CO</span>
+  </div>
+  <div class="stat-tile">
+    <span class="st-l">Hồ sơ C/O đang mở</span>
+    <span class="st-v">{{ portfolio_summary.open }}</span>
+    <span class="st-s">trên toàn bộ công ty</span>
+  </div>
+  <div class="stat-tile {{ 'is-warn' if portfolio_summary.attention else '' }}">
+    <span class="st-l">Công ty cần xử lý</span>
+    <span class="st-v">{{ portfolio_summary.attention }}</span>
+    <span class="st-s">còn hồ sơ chưa xong</span>
+  </div>
+</div>
+{% endif %}
+
+{% if clients %}
 <section class="client-grid">
   {% for client in clients %}
   {% set co = client.co_summary or {} %}
@@ -73,4 +80,17 @@
   </a>
   {% endfor %}
 </section>
+{% else %}
+{# Giữ nguyên class client-grid cho cả trạng thái rỗng: đây là mốc cấu trúc của
+   trang danh sách công ty, tests/test_data_hub_integration.py dựa vào nó để biết
+   trang đã dựng xong thay vì bị chuyển hướng. #}
+<section class="client-grid zone">
+  <div class="tbl-empty">
+    <h4>Chưa có công ty nào</h4>
+    <p>Danh sách công ty được đồng bộ từ Data Hub. Thêm công ty ở Data Hub, sau đó tải lại trang này.</p>
+  </div>
+</section>
+{% endif %}
+
+</div>
 {% endblock %}

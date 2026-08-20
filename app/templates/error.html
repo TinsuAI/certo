@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Lỗi {{ status_code }} · Barry CO{% endblock %}
 {% block content %}
-<section class="error-page">
-  <p class="error-page-code">{{ status_code }}</p>
+<section class="form-surface error-page">
+  <p class="error-page-code">Lỗi {{ status_code }}</p>
   <h1 class="error-page-title">{{ title }}</h1>
   {% if detail %}<p class="error-page-detail">{{ detail }}</p>{% endif %}
   <div class="error-page-actions">

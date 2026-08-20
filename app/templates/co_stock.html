@@ -3,6 +3,7 @@
 
 {% block content %}
 {% include "_client_nav.html" %}
+<div class="lst lst-page lst-dense">
 {% include "_source_stats.html" %}
 
 <section class="zone" id="co-stock">
@@ -94,7 +95,7 @@
   {% include "_advanced_table.html" %}
 </section>
 
-<div class="co-stock-history-modal" data-co-stock-history-modal hidden role="dialog" aria-modal="true" aria-labelledby="co-stock-history-title">
+<div class="lst lst-dense co-stock-history-modal" data-co-stock-history-modal hidden role="dialog" aria-modal="true" aria-labelledby="co-stock-history-title">
   <div class="co-stock-history-modal-backdrop" data-co-stock-history-close></div>
   <div class="co-stock-history-modal-card">
     <header class="co-stock-history-modal-head">
@@ -433,4 +434,5 @@
 })();
 </script>
 
+</div>
 {% endblock %}

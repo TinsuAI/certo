@@ -1,48 +1,56 @@
 {% extends "base.html" %}
 {% block title %}Có gì mới · Barry CO{% endblock %}
 {% block content %}
-<section class="zone">
-  <div class="zone-head">
+<section class="form-surface fs-stack">
+  <header class="fs-head">
     <div>
-      <h2>Có gì mới</h2>
-      <p class="meta">Nhật ký thay đổi của Barry CO qua từng phiên bản.</p>
+      <h1>Có gì mới</h1>
+      <p>Nhật ký thay đổi của Barry CO qua từng phiên bản, lấy từ CHANGELOG của bản đang chạy.</p>
     </div>
-  </div>
+    <div class="fs-head-r">
+      <span class="badge badge-info">v{{ app_version.version }}</span>
+      <span class="chip fs-mono">{{ app_version.git_sha }}</span>
+      {% if app_version.source != 'build' %}
+      <span class="chip">{{ app_version.source }}</span>
+      {% endif %}
+    </div>
+  </header>
 
-  <p class="meta" style="margin-bottom: 1.2rem;">
-    Đang chạy phiên bản:
-    <span class="badge badge-info">v{{ app_version.version }}</span>
-    <span class="mono">{{ app_version.git_sha }}</span>
-    {% if app_version.source != 'build' %}
-      <span class="badge">{{ app_version.source }}</span>
-    {% endif %}
-  </p>
-
-  {% if releases %}
-    {% for r in releases if r.sections %}
-    <article class="changelog-release" style="margin-bottom: 1.4rem;">
-      <h3 style="margin: 0 0 .3rem 0;">
-        {% if r.unreleased %}
+  <section class="fs-card">
+    <div class="fs-card-h">
+      <h2>Nhật ký phiên bản</h2>
+      <p class="fs-sub">Mục "Chưa phát hành" là thay đổi đã có trong bản build này nhưng chưa gắn số phiên bản.</p>
+    </div>
+    {% if releases %}
+    <div class="fs-card-b fs-flush">
+      {% for r in releases if r.sections %}
+      <article class="fs-release">
+        <h3 class="fs-release-h">
+          {% if r.unreleased %}
           <span class="badge">Chưa phát hành</span>
-        {% else %}
-          <span class="badge badge-info">v{{ r.version }}</span>
-        {% endif %}
-        {% if r.date %}<span class="mono meta">{{ r.date }}</span>{% endif %}
-      </h3>
-      {% for s in r.sections %}
-      <div style="margin: .4rem 0 .2rem 0;">
-        <strong>{{ s.title }}</strong>
-        <ul style="margin: .2rem 0 .2rem 1.1rem;">
-          {% for item in s.entries %}
-          <li>{{ item | bold_md }}</li>
-          {% endfor %}
-        </ul>
-      </div>
+          {% else %}
+          <span class="fs-release-v">v{{ r.version }}</span>
+          {% endif %}
+          {% if r.date %}<span class="fs-release-date">{{ r.date }}</span>{% endif %}
+        </h3>
+        {% for s in r.sections %}
+        <div class="fs-release-sec">
+          <strong>{{ s.title }}</strong>
+          <ul>
+            {% for item in s.entries %}
+            <li>{{ item | bold_md }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endfor %}
+      </article>
       {% endfor %}
-    </article>
-    {% endfor %}
-  {% else %}
-  <p class="meta">Chưa có mục nhật ký nào.</p>
-  {% endif %}
+    </div>
+    {% else %}
+    <div class="fs-card-b">
+      <p class="fs-note">Chưa có mục nhật ký nào.</p>
+    </div>
+    {% endif %}
+  </section>
 </section>
 {% endblock %}

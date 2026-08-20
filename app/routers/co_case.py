@@ -728,7 +728,8 @@ def recalculate_origin_sheet_and_status(
         None,
     )
     return set_origin_sheet_status(
-        case, product_code, calculated_sheet_status(product) if product else "calculated"
+        case, product_code, calculated_sheet_status(product) if product else "calculated",
+        calculated=True,
     )
 def origin_match_for_recalc(case: dict, target: dict) -> dict:
     """The match a per-sheet recalculation should rebuild from.
@@ -1007,7 +1008,23 @@ def _hydrate_material_dates_from_stock(case: dict, client: dict) -> None:
                     value = dates.get(str(allocation.get("source_row") or "").strip())
                     if value:
                         allocation["import_declaration_date"] = value
-def set_origin_sheet_status(case: dict, product_code: str, status: str) -> dict:
+def set_origin_sheet_status(case: dict, product_code: str, status: str, *, calculated: bool = False) -> dict:
+    """Write a sheet's status. `calculated=True` also stamps `calc_seq`.
+
+    `calc_seq` is a per-case counter, bumped every time a sheet's NUMBERS are
+    recomputed. Without it there is no positive signal that a recalculation
+    happened: a sheet recomputed to identical numbers is byte-identical to one
+    that was never touched, so nothing downstream can tell "was not
+    recalculated" from "was recalculated and nothing moved" — which is how a
+    missing cascade hides (`origin_codes_to_recalculate`, and the 2026-08-20
+    invariant harness that could not decide it).
+
+    A counter, not a timestamp: it must be deterministic so tests reproduce, and
+    monotonic so "changed" is decidable by comparison. It lives inside
+    `origin_sheet_states`, which `update_case_record` already persists and
+    `origin_case_revision` deliberately does not hash — so stamping cannot
+    trigger a spurious 409.
+    """
     if status not in ORIGIN_SHEET_STATUS_LABELS:
         status = "draft"
     states = dict(case.get("origin_sheet_states") or {})
@@ -1017,6 +1034,12 @@ def set_origin_sheet_status(case: dict, product_code: str, status: str) -> dict:
         "status": status,
         "status_label": ORIGIN_SHEET_STATUS_LABELS[status],
     }
+    if calculated:
+        highest = max(
+            (int(state.get("calc_seq") or 0) for state in states.values() if isinstance(state, dict)),
+            default=0,
+        )
+        states[product_code]["calc_seq"] = highest + 1
     prepared = dict(case)
     prepared["origin_sheet_states"] = states
     return attach_origin_sheet_states(prepared)
@@ -1940,7 +1963,7 @@ async def calculate_all_route(request: Request, client_id: str, case_id: str):
     for product in list(allocated.get("products", [])):
         code = str(product.get("code") or "").strip()
         if code and code not in locked_codes:
-            allocated = set_origin_sheet_status(allocated, code, calculated_sheet_status(product))
+            allocated = set_origin_sheet_status(allocated, code, calculated_sheet_status(product), calculated=True)
     if allocated.get("persisted_case_id"):
         update_case_record(client, allocated)
     return {
@@ -2573,7 +2596,7 @@ def _recompute_origin_sheet_context(
         {},
     )
     sheet_status = calculated_sheet_status(target_product)
-    context["case"] = set_origin_sheet_status(context["case"], product_code, sheet_status)
+    context["case"] = set_origin_sheet_status(context["case"], product_code, sheet_status, calculated=True)
     target_index = next(
         (
             index
@@ -2584,7 +2607,7 @@ def _recompute_origin_sheet_context(
     )
     if target_index >= 0:
         context["case"] = mark_origin_sheets_stale(context["case"], target_index + 1)
-        context["case"] = set_origin_sheet_status(context["case"], product_code, sheet_status)
+        context["case"] = set_origin_sheet_status(context["case"], product_code, sheet_status, calculated=True)
     if sheet_status != "calculated":
         if target_product.get("lvc_missing_price") and str(target_product.get("lvc_status") or "") != "missing_bom":
             context["error"] = (
@@ -3627,7 +3650,7 @@ async def co_case_origin_sheet_save(
         client, case, product_code,
         min_gap_days=effective_min_gap_days(client, client_config_for_rule),
     )
-    case = set_origin_sheet_status(case, product_code, "calculated")
+    case = set_origin_sheet_status(case, product_code, "calculated", calculated=True)
     case = mark_origin_sheets_stale(case, target_index + 1)
     update_case_record(client, case)
     # Content-negotiate: the browser asks for text/html so it can swap the

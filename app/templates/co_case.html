@@ -24,7 +24,7 @@
 
 {% macro criteria_table() -%}
   <div class="table-scroll">
-    <table class="table">
+    <table class="table dense">
       <thead>
         <tr>
           <th>Mã TP</th>
@@ -445,7 +445,7 @@
 </section>
 
 <div class="modal-backdrop" data-create-case-modal hidden>
-  <section class="confirm-modal co-create-modal" role="dialog" aria-modal="true" aria-labelledby="create-case-title">
+  <section class="confirm-modal co-modal co-create-modal" role="dialog" aria-modal="true" aria-labelledby="create-case-title">
     <div class="confirm-modal-head">
       <span class="eyebrow">Tạo hồ sơ</span>
       <h2 id="create-case-title">Tạo hồ sơ C/O</h2>
@@ -483,7 +483,7 @@
 
 {% if can_delete_co_cases %}
 <div class="modal-backdrop" data-delete-case-modal hidden>
-  <section class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="delete-case-title" aria-describedby="delete-case-detail">
+  <section class="confirm-modal co-modal" role="dialog" aria-modal="true" aria-labelledby="delete-case-title" aria-describedby="delete-case-detail">
     <div class="confirm-modal-head">
       <span class="eyebrow">Xoá hồ sơ C/O</span>
       <h2 id="delete-case-title">Xác nhận xoá hồ sơ</h2>
@@ -521,21 +521,25 @@
             data-picker-url="/clients/{{ client.id }}/co-case-picker?current={{ case.persisted_case_id }}"
             data-picker-target="case-picker-modal">Đổi hồ sơ</button>
   </div>
-  <nav class="workflow-stepper" aria-label="Các bước làm C/O" data-case-tab-nav>
-    {% for step in co_case_steps %}
-    <a class="workflow-step {{ 'workflow-step-active' if step.active else '' }} workflow-step-{{ step.status }}" href="{{ step.href }}" title="{{ step.description or '' }}" data-case-tab-link>
-      <span>{{ step.short_label }}</span>
-      <strong>{{ step.label }}</strong>
-      <em>{{ step.status_label }}</em>
-      <span class="workflow-step-spinner" aria-hidden="true"></span>
-    </a>
-    {% endfor %}
-  </nav>
-  <div class="case-tab-progress" data-case-tab-progress aria-hidden="true"></div>
 </section>
 
+{# Đường ống (rail): mọi bước hiện hết trên một hàng, bước đang làm được đánh
+   dấu, bước đã xong mờ đi. Nằm ngoài .co-case-header nên nó là chrome của quy
+   trình, không phải nội dung của thẻ hồ sơ. #}
+<nav class="workflow-stepper rail" aria-label="Các bước làm C/O" data-case-tab-nav>
+  {% for step in co_case_steps %}
+  <a class="workflow-step rail-s {{ 'workflow-step-active' if step.active else '' }} workflow-step-{{ step.status }}" href="{{ step.href }}" title="{{ step.description or '' }}" data-case-tab-link>
+    <span class="n">{{ step.short_label }}</span>
+    <strong>{{ step.label }}</strong>
+    <em>{{ step.status_label }}</em>
+    <span class="workflow-step-spinner" aria-hidden="true"></span>
+  </a>
+  {% endfor %}
+</nav>
+<div class="case-tab-progress" data-case-tab-progress aria-hidden="true"></div>
+
 <div class="modal-backdrop" id="case-picker-modal" data-picker-modal hidden>
-  <section class="confirm-modal picker-modal" role="dialog" aria-modal="true" aria-labelledby="case-picker-title">
+  <section class="confirm-modal co-modal picker-modal" role="dialog" aria-modal="true" aria-labelledby="case-picker-title">
     <div class="confirm-modal-head picker-modal-head">
       <div>
         <span class="eyebrow">Chuyển hồ sơ</span>
@@ -745,7 +749,7 @@
     </div>
   </div>
   <div class="table-scroll">
-    <table class="table">
+    <table class="table dense">
       <thead>
         <tr><th>Tờ khai</th><th>Loại hình</th><th>Số dòng</th><th>Trạng thái tờ khai</th></tr>
       </thead>
@@ -777,7 +781,7 @@
     </div>
   </div>
   <div class="table-scroll">
-    <table class="table">
+    <table class="table dense">
       <thead>
         <tr><th>Tờ khai nhập</th><th>TP liên quan</th><th>Số dòng claim</th><th>Trạng thái tờ khai</th></tr>
       </thead>
@@ -805,7 +809,7 @@
     </div>
   </div>
   <div class="table-scroll">
-    <table class="table">
+    <table class="table dense">
       <thead>
         <tr>
           <th>Tờ khai XK</th>
@@ -978,7 +982,7 @@
      could silently land on no rule at all); the segments write the token the engine
      reads. #}
   <div class="modal-backdrop origin-settings-modal" data-case-criteria-modal hidden>
-    <div class="confirm-modal origin-settings-dialog" role="dialog" aria-modal="true" aria-label="Tiêu chí xuất xứ cho cả lô hàng">
+    <div class="confirm-modal co-modal origin-settings-dialog" role="dialog" aria-modal="true" aria-label="Tiêu chí xuất xứ cho cả lô hàng">
       <div class="origin-settings-head">
         <h3>Tiêu chí xuất xứ — cả lô hàng</h3>
         <button type="button" class="btn-secondary" data-case-criteria-close aria-label="Đóng">×</button>
@@ -1060,8 +1064,11 @@
             title="Mở bảng kê {{ product.code }}">
       <span class="orr-step">{{ product.allocation_sequence or loop.index }}</span>
       <span class="orr-code"><strong class="mono">{{ product.code }}</strong><small>{{ product.name }}</small></span>
-      {% set _sheet_attn = product.origin_sheet_attention %}
-      <span class="orr-status">{% if _sheet_attn and _sheet_attn.status == 'attention' %}<span class="origin-sheet-status-pill origin-sheet-state-attention" title="{{ _sheet_attn.detail }}">⚠ {{ _sheet_attn.label }}</span>{% else %}<span class="origin-sheet-status-pill origin-sheet-state-{{ product.origin_sheet_status or 'draft' }}">{% if product.origin_sheet_status == 'locked' %}🔒 {% endif %}{{ product.origin_sheet_status_label or 'Chưa tính' }}</span>{% endif %}</span>
+      {# Hai trục tách rời: tiến độ (đã tính chưa) và tình trạng (chốt được chưa).
+         Trước đây một ô chở cả hai nên chip "Cần xử lý" che mất việc sheet ĐÃ tính. #}
+      {% set _prog = product.origin_sheet_progress %}
+      {% set _cond = product.origin_sheet_condition %}
+      <span class="orr-status"><span class="origin-sheet-status-pill origin-sheet-progress-{{ _prog.key or 'not_calculated' }}">{% if _prog.key == 'locked' %}🔒 {% endif %}{{ _prog.label or 'Chưa tính' }}</span>{% if _cond and _cond.label %}<span class="origin-sheet-cond-pill origin-sheet-cond-{{ _cond.key }}" title="{{ _cond.detail }}">{% if _cond.key == 'attention' %}⚠ {% endif %}{{ _cond.label }}</span>{% endif %}</span>
       <span class="orr-bom">
         {% if product.materials %}<strong>{{ product.materials|length }}</strong> dòng{% if product.bom_product_artifact_no or product.bom_product_version_no %} · #{{ product.bom_product_artifact_no or product.bom_product_version_no }}{% endif %}
         {% elif product.bom_product_artifact_id or product.bom_product_version_id %}có BOM (chưa nạp)
@@ -1115,7 +1122,7 @@
 {% endif %}
 
 <div class="modal-backdrop" data-origin-reorder-modal hidden>
-  <div class="confirm-modal origin-reorder-modal" role="dialog" aria-modal="true" aria-labelledby="origin-reorder-title">
+  <div class="confirm-modal co-modal origin-reorder-modal" role="dialog" aria-modal="true" aria-labelledby="origin-reorder-title">
     <h3 id="origin-reorder-title">Đổi thứ tự sheet (bước tính tồn)</h3>
     <p class="meta">Dùng nút lên/xuống để sắp lại. Thứ tự quyết định sheet nào trừ tồn CO trước.</p>
     <ol class="origin-reorder-list" data-origin-reorder-list></ol>
@@ -1271,8 +1278,9 @@
           {% for option in bom_options %}{% if (option.product_artifact_id or option.product_version_id) == selected_bom_artifact_id %}{% set selected_bom_option.value = option %}{% endif %}{% endfor %}
           <div class="origin-sheet-toolbar">
             <div class="origin-sheet-toolbar-main">
-              {% set _sheet_attn = product.origin_sheet_attention %}
-              {% if _sheet_attn and _sheet_attn.status == 'attention' %}<strong class="origin-sheet-status-pill origin-sheet-state-attention" title="{{ _sheet_attn.detail }}">⚠ {{ _sheet_attn.label }}</strong>{% else %}<strong class="origin-sheet-status-pill origin-sheet-state-{{ product.origin_sheet_status or 'draft' }}" title="Trạng thái sheet">{% if product.origin_sheet_status == 'locked' %}🔒 {% endif %}{{ product.origin_sheet_status_label or 'Chưa tính' }}</strong>{% endif %}
+              {% set _prog = product.origin_sheet_progress %}
+              {% set _cond = product.origin_sheet_condition %}
+              <strong class="origin-sheet-status-pill origin-sheet-progress-{{ _prog.key or 'not_calculated' }}" title="Tiến độ sheet">{% if _prog.key == 'locked' %}🔒 {% endif %}{{ _prog.label or 'Chưa tính' }}</strong>{% if _cond and _cond.label %}<strong class="origin-sheet-cond-pill origin-sheet-cond-{{ _cond.key }}" title="{{ _cond.detail }}">{% if _cond.key == 'attention' %}⚠ {% endif %}{{ _cond.label }}</strong>{% endif %}
               <label class="product-bom-picker {% if not bom_options %}product-bom-picker-missing{% endif %}" title="TP artifact (BOM)">
                 <select name="product_{{ product_index }}_bom_product_artifact_id" data-bom-version-select data-origin-step-input data-origin-step-index="{{ product_index }}">
                   {% for option in bom_options %}
@@ -1420,6 +1428,8 @@
           {% set lvc_metric_class = 'warning' if product.lvc_quality_warning_text else 'blocked' if product.lvc_status in ['missing_value', 'missing_bom'] else product.lvc_status %}
           {% set displayed_threshold = effective_lvc_threshold or effective_rvc_threshold %}
           {% set has_any_override = form_override or criteria_override or lvc_threshold_override or rvc_threshold_override or currency_mode != 'native' or optimization_mode != 'max_lvc' %}
+          {# Một dải điều khiển duy nhất trên lưới: số liệu, cảnh báo, trạng thái lưu. #}
+          <div class="origin-gridbar">
           <div class="origin-config-bar"
                data-origin-recommendation
                data-product-code="{{ product.code }}"
@@ -1660,7 +1670,7 @@
           </div>
 
           <div class="modal-backdrop origin-settings-modal" data-origin-settings-modal hidden>
-            <div class="confirm-modal origin-settings-dialog" role="dialog" aria-modal="true" aria-label="Cấu hình bảng kê">
+            <div class="confirm-modal co-modal origin-settings-dialog" role="dialog" aria-modal="true" aria-label="Cấu hình bảng kê">
               <div class="origin-settings-head">
                 <h3>Cấu hình bảng kê</h3>
                 <button type="button" class="btn-secondary" data-origin-settings-close aria-label="Đóng">×</button>
@@ -1709,8 +1719,9 @@
           </div>
           {% endif %}
 
+          </div>
           <div class="table-scroll origin-table-scroll">
-            <table class="table origin-material-table">
+            <table class="table dense origin-material-table">
               <thead>
                 <tr>
                   <th data-origin-column="select" class="origin-col-select"><input type="checkbox" class="origin-rows-select-all" data-origin-rows-select-all aria-label="Chọn tất cả dòng NVL" {% if product.origin_sheet_status == 'locked' %}disabled{% endif %}></th>
@@ -1828,7 +1839,7 @@
                             data-internal-code="{{ material.internal_material_code }}"
                             data-current-norm="{{ effective_norm or '0' }}"
                             data-current-uom="{{ material.uom }}"
-                            data-current-hs="{{ material.hs_code }}"
+                            data-current-hs="{{ material.hs_code if material.hs_code and material.hs_code != 'None' else '' }}"
                             {% if _sheet_locked %}disabled title="Sheet đã chốt — nhả chốt để sửa NVL"{% else %}title="{% if row_override %}Đã thay sang {{ row_override.material_code }}{% else %}Click để thay NVL{% endif %}"{% endif %}>
                       <span class="mono">{{ substitute_label }}</span>
                       {% set _internal_code = material.internal_material_code or material.material_code %}
@@ -1843,8 +1854,8 @@
                     <span class="origin-material-name">{{ material.material_description or 'Chưa có tên NVL' }}</span>
                   </td>
                   <td data-origin-column="hs">
-                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_hs_code" value="{{ material.hs_code }}">
-                    <span class="mono">{{ material.hs_code }}</span>
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_hs_code" value="{{ material.hs_code if material.hs_code and material.hs_code != 'None' else '' }}">
+                    <span class="mono">{{ material.hs_code if material.hs_code and material.hs_code != 'None' else '' }}</span>
                   </td>
                   <td data-origin-column="bom" class="num">
                     <input type="number" min="0" step="any"
@@ -1933,9 +1944,22 @@
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_valuation_status_label" value="{{ material.valuation_status_label }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_data_status_label" value="{{ material.data_status_label }}">
                     <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_material_warnings" value="{{ material.material_warnings_text }}">
-                    {% set compact_data_status_label = 'Đủ dữ liệu' if material.valuation_status == 'ready' else material.data_status_label %}
+                    {# `deleted` phải đi được cả vòng round-trip. Trước đây chỉ có
+                       data_status_label quay lại server, nên sau một lần lưu thì
+                       nhãn "Đã xoá khỏi bảng kê" sống sót còn cờ thì mất — dòng
+                       thôi bị gộp và quay lại bảng kê mang theo nhãn nói nó đã bị
+                       xoá (johnson-vn MFW0502-39: 24 dòng lệch, 0 dòng deleted). #}
+                    <input type="hidden" name="product_{{ product_index }}_material_{{ material_index }}_deleted" value="{{ '1' if _row_deleted else '' }}">
+                    {# Badge suy ra từ CÙNG cờ mà fold dùng (_row_deleted), không
+                       đọc nhãn đã lưu, nên hai thứ không thể nói khác nhau nữa.
+                       Với dòng chưa đủ dữ liệu thì nói rõ thiếu gì —
+                       valuation_status_label đã có sẵn nhãn cụ thể; "Cần bổ sung
+                       evidence" chỉ là fallback của hàm đó lọt ra giao diện. #}
+                    {% set compact_data_status_label = 'Đã xoá khỏi bảng kê' if _row_deleted
+                       else ('Đủ dữ liệu' if material.valuation_status == 'ready'
+                             else (material.valuation_status_label or material.data_status_label)) %}
                     <div class="origin-source-cell">
-                      <span class="badge source-status-badge badge-{{ 'success' if material.valuation_status == 'ready' else 'warning' }}" title="{{ material.data_status_label }}">{{ compact_data_status_label }}</span>
+                      <span class="badge source-status-badge badge-{{ 'muted' if _row_deleted else ('success' if material.valuation_status == 'ready' else 'warning') }}" title="{{ 'Dòng đã loại khỏi bảng kê — không tính vào VNM/LVC, không xuất ra tờ khai.' if _row_deleted else (material.valuation_status_label or material.data_status_label) }}">{{ compact_data_status_label }}</span>
                       {% if allocation_count == 1 %}
                       {% set single_allocation = material.allocation_lines[0] %}
                       <span class="source-chip source-chip-reference" title="{{ single_allocation.import_declaration_no }} / line {{ single_allocation.import_line_no }} · {{ single_allocation.source_row }}">{{ single_allocation.import_declaration_no }} / {{ single_allocation.import_line_no }}</span>
@@ -1964,7 +1988,7 @@
                   <td data-origin-column="row"></td>
                   <td data-origin-column="code"><span class="allocation-indent">Dòng tồn {{ loop.index }}</span></td>
                   <td data-origin-column="name">{{ allocation.material_description or material.material_description }}</td>
-                  <td data-origin-column="hs"><span class="mono">{{ allocation.hs_code or material.hs_code }}</span></td>
+                  <td data-origin-column="hs"><span class="mono">{% set _hs = allocation.hs_code or material.hs_code %}{{ _hs if _hs and _hs != 'None' else '' }}</span></td>
                   <td data-origin-column="bom"></td>
                   <td data-origin-column="consumed" class="num">{{ allocation.allocated_qty|number(6) }} <small>{{ material.uom }}</small></td>
                   <td data-origin-column="unit-value" class="num">{{ allocation.unit_value|money(allocation.currency or material.currency or 'VND', 'unit', display_decimals) if allocation.unit_value else 'Thiếu' }} <small>{{ allocation.currency or material.currency }}</small></td>
@@ -2088,10 +2112,16 @@
             data-origin-sequence-index="{{ loop.index0 }}"
             data-origin-sheet-tab
             data-origin-sheet-target="origin-sheet-{{ loop.index0 }}"
-            title="{% if not tab_has_bom %}TP {{ product.code }} chưa có BOM trên Data Hub{% endif %}">
+            title="{% if not tab_has_bom %}TP {{ product.code }} chưa có BOM trên Data Hub{% elif product.origin_sheet_condition and product.origin_sheet_condition.detail %}{{ product.origin_sheet_condition.detail }}{% endif %}">
             <span class="origin-sheet-tab-seq">Bước <span data-origin-sequence-label>{{ product.allocation_sequence or loop.index }}</span></span>
             <strong class="mono">{{ product.code }} {% if not tab_has_bom %}<em class="origin-sheet-tab-no-bom-mark">⚠</em>{% endif %}</strong>
-            <small>{{ product.origin_sheet_status_label or 'Chưa tính' }} · {{ product.materials|length }} NVL</small>
+            {# Cùng cách đọc hai trục như hàng review và thanh công cụ sheet: nhãn
+               cũ ở đây làm sheet "đã tính nhưng bị chặn" hiện y hệt sheet chưa
+               tính bao giờ. Tab hẹp nên tình trạng rút gọn còn phần sau dấu hai
+               chấm ("thiếu tồn"), chi tiết đầy đủ nằm ở title. #}
+            {% set _tab_prog = product.origin_sheet_progress %}
+            {% set _tab_cond = product.origin_sheet_condition %}
+            <small>{{ _tab_prog.label or 'Chưa tính' }}{% if _tab_cond and _tab_cond.label %} · <span class="origin-sheet-tab-cond origin-sheet-tab-cond-{{ _tab_cond.key }}">{{ _tab_cond.label.split(': ')[-1] }}</span>{% endif %} · {{ product.materials|length }} NVL</small>
           </button>
           {% endfor %}
         </div>
@@ -2295,7 +2325,7 @@
    vị, nên phải do người đọc tờ khai trả lời. Hệ số lưu theo công ty và dùng lại cho
    các hồ sơ sau; phạm vi chọn được vì một cặp như EA→CAY thường đúng cho cả trăm mã. #}
 <div class="modal-backdrop origin-settings-modal" data-uom-factor-modal hidden>
-  <div class="confirm-modal origin-settings-dialog" role="dialog" aria-modal="true" aria-label="Hệ số quy đổi đơn vị tính">
+  <div class="confirm-modal co-modal origin-settings-dialog" role="dialog" aria-modal="true" aria-label="Hệ số quy đổi đơn vị tính">
     <div class="origin-settings-head">
       <h3>Hệ số quy đổi đơn vị tính</h3>
       <button type="button" class="btn-secondary" data-uom-factor-close aria-label="Đóng">×</button>
@@ -6704,7 +6734,7 @@
       + `</label>`
     ).join("");
     bd.innerHTML =
-      `<div class="confirm-modal rac-modal" role="dialog" aria-modal="true">`
+      `<div class="confirm-modal co-modal rac-modal" role="dialog" aria-modal="true">`
       + `<div class="rac-modal-head"><h3>${rsEsc(title)}</h3>`
       +   `<button type="button" class="btn-secondary" data-rac-cancel aria-label="Đóng">×</button></div>`
       + (hint ? `<p class="meta rac-modal-hint">${rsEsc(hint)}</p>` : "")
@@ -7354,6 +7384,15 @@
         });
       };
       if (!foldRows.length) { if (summary) summary.hidden = true; renumber(); return; }
+      // Gom các dòng đã loại xuống cuối bảng, ngay dưới dòng tóm tắt. Trước đây
+      // chúng nằm nguyên vị trí cũ xen giữa các dòng còn hiệu lực, nên bấm "hiện"
+      // là danh sách bị cắt vụn và người dùng phải tự dò xem dòng nào đã loại.
+      // Dòng phân bổ con phải đi theo dòng mẹ, nếu không nó mồ côi ở giữa bảng.
+      const body = summary.parentElement;
+      foldRows.forEach((row) => {
+        body.appendChild(row);
+        allocFor(row).forEach((a) => body.appendChild(a));
+      });
       const apply = (folded) => {
         foldRows.forEach((row) => {
           row.hidden = folded;

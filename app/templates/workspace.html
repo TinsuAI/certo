@@ -3,23 +3,43 @@
 
 {% block content %}
 {% include "_client_nav.html" %}
+<div class="lst lst-page">
 
-<section class="dash-hero">
-  <div class="dash-hero-text">
-    {% if co_cases %}
-      <div class="dash-hero-headline">
-        {{ co_open_count }} hồ sơ C/O đang mở{% if co_attention_count %} <span class="dash-hero-attention">· {{ co_attention_count }} cần xử lý</span>{% endif %}
-      </div>
-      <p class="dash-hero-sub">{{ co_cases|length }} hồ sơ tổng cho {{ client.name }}. Tiếp tục hồ sơ đang làm hoặc mở hồ sơ mới.</p>
-    {% else %}
-      <div class="dash-hero-headline">Chưa có hồ sơ C/O nào</div>
-      <p class="dash-hero-sub">Workspace này phục vụ việc làm C/O. Bắt đầu bằng hồ sơ đầu tiên cho {{ client.name }}.</p>
-    {% endif %}
+<section class="page-bar">
+  <div class="page-bar-text">
+    <h1>Tổng quan</h1>
+    <p class="page-tagline">
+      {%- if co_cases -%}
+      Tiếp tục hồ sơ đang làm hoặc mở hồ sơ mới cho công ty này.
+      {%- else -%}
+      Workspace này phục vụ việc làm C/O. Bắt đầu bằng hồ sơ đầu tiên cho công ty này.
+      {%- endif -%}
+    </p>
   </div>
-  <a class="btn-primary dash-hero-cta" href="/clients/{{ client.id }}/co-case">
-    {{ 'Làm hồ sơ C/O' if co_cases else 'Tạo hồ sơ C/O đầu tiên' }} →
-  </a>
+  <div class="page-actions">
+    <a class="btn-primary" href="/clients/{{ client.id }}/co-case">
+      {{ 'Làm hồ sơ C/O' if co_cases else 'Tạo hồ sơ C/O đầu tiên' }} →
+    </a>
+  </div>
 </section>
+
+<div class="stat-row">
+  <div class="stat-tile">
+    <span class="st-l">Hồ sơ C/O đang mở</span>
+    <span class="st-v">{{ co_open_count }}</span>
+    <span class="st-s">{{ co_cases|length }} hồ sơ tổng</span>
+  </div>
+  <div class="stat-tile {{ 'is-warn' if co_attention_count else '' }}">
+    <span class="st-l">Cần xử lý</span>
+    <span class="st-v">{{ co_attention_count }}</span>
+    <span class="st-s">hồ sơ đang chờ thao tác</span>
+  </div>
+  <div class="stat-tile">
+    <span class="st-l">Dữ liệu nền</span>
+    <span class="st-v">{{ client.counts.materials }}</span>
+    <span class="st-s">NVL · {{ client.counts.products }} TP · {{ client.counts.bcct }} dòng BCCT</span>
+  </div>
+</div>
 
 <div class="dash-grid">
   <section class="zone dash-zone-cases">
@@ -39,15 +59,17 @@
           <strong class="mono">{{ case.case_code }}</strong>
           <div class="meta">{{ case.reference }}{% if case.destination_market and case.destination_market != 'Chưa nhập' %} · {{ case.destination_market }}{% endif %}</div>
         </div>
-        <span class="status-pill status-{{ case.status_key }}">{{ case.status_label }}</span>
+        <span class="badge badge-{{ {'done': 'success', 'progress': 'info', 'attention': 'warning'}.get(case.status_key, 'muted') }}">{{ case.status_label }}</span>
       </a>
       {% endfor %}
     </div>
     {% else %}
-    <div class="dash-empty">
-      <p class="dash-empty-title">Hồ sơ C/O là trung tâm của workspace này.</p>
-      <p class="meta">Mỗi hồ sơ gom invoice/tờ khai, chứng từ, đánh giá RVC/CTSH và xuất bộ dossier nộp.</p>
-      <a class="btn-primary" href="/clients/{{ client.id }}/co-case">Tạo hồ sơ C/O đầu tiên →</a>
+    <div class="tbl-empty">
+      <h4>Chưa có hồ sơ C/O nào</h4>
+      <p>Mỗi hồ sơ gom invoice/tờ khai, chứng từ, đánh giá RVC/CTSH và xuất bộ dossier nộp. Hồ sơ C/O là trung tâm của workspace này.</p>
+      <div class="tbl-empty-actions">
+        <a class="btn-primary" href="/clients/{{ client.id }}/co-case">Tạo hồ sơ C/O đầu tiên →</a>
+      </div>
     </div>
     {% endif %}
   </section>
@@ -105,5 +127,6 @@
       </a>
     </div>
   </section>
+</div>
 </div>
 {% endblock %}

@@ -93,6 +93,7 @@ app.include_router(cost_allocation_routes.router)
 app.include_router(customs_fx_routes.router)
 app.include_router(settings_routes.router)
 app.include_router(pages_routes.router)
+from app.design_gallery import router as design_gallery_router; app.include_router(design_gallery_router)  # /design — component gallery (redesign 2026-08-20)
 
 
 _ERROR_TITLES = {

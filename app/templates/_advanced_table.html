@@ -42,7 +42,7 @@
 </div>
 
 <div class="table-scroll">
-  <table class="table">
+  <table class="table dense">
     <thead>
       <tr>
         {% for column in source_table.columns %}
@@ -80,7 +80,15 @@
         {% endfor %}
       </tr>
       {% else %}
-      <tr><td colspan="{{ source_table.columns|length }}" class="empty-cell">Không có dữ liệu phù hợp.</td></tr>
+      <tr><td colspan="{{ source_table.columns|length }}">
+        <div class="tbl-empty">
+          <h4>Không có dòng nào khớp bộ lọc</h4>
+          <p>Bộ lọc hoặc từ khóa hiện tại không khớp dòng nào trong {{ source_table.total_count }} dòng của bảng. Nới điều kiện lọc hoặc xóa lọc để xem lại toàn bộ.</p>
+          <div class="tbl-empty-actions">
+            <a class="btn-secondary btn-sm" href="?{{ source_table.reset_query }}">Xóa lọc</a>
+          </div>
+        </div>
+      </td></tr>
       {% endfor %}
     </tbody>
   </table>

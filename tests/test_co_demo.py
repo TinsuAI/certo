@@ -283,8 +283,10 @@ def test_theme_toggle_persists_dark_theme_cookie():
 
 
 def test_client_tabs_stay_visible_inside_co_workflow():
-    # QA issue #17: the case view must keep the client-tabs bar so Tồn CO /
-    # BCCT / NCC / config stay one click away from an open dossier.
+    # QA issue #17: the case view must keep Tồn CO / BCCT / NCC / config one
+    # click away from an open dossier. The redesign (2026-08-20) moved that
+    # from the client-tabs bar to the persistent left sidebar, so the surface
+    # changed but the requirement did not.
     client = TestClient(app)
 
     response = client.get("/clients/growatt/co-case")
@@ -292,7 +294,7 @@ def test_client_tabs_stay_visible_inside_co_workflow():
     assert response.status_code == 200
     assert 'aria-label="Hồ sơ C/O"' in response.text
     assert "+ Tạo hồ sơ" in response.text
-    assert 'aria-label="Khu làm việc công ty"' in response.text
+    assert '<nav class="side"' in response.text
     assert "/clients/growatt/catalog" in response.text
     assert "/clients/growatt/co-stock" in response.text
     assert "/clients/growatt/suppliers" in response.text
@@ -305,7 +307,7 @@ def test_client_tabs_stay_visible_inside_co_workflow():
     detail = client.get(created.headers["location"])
 
     assert detail.status_code == 200
-    assert 'aria-label="Khu làm việc công ty"' in detail.text
+    assert '<nav class="side"' in detail.text
     assert 'aria-label="Các bước làm C/O"' in detail.text
     assert "/clients/growatt/co-stock" in detail.text
     assert "/clients/growatt/suppliers" in detail.text
@@ -313,7 +315,7 @@ def test_client_tabs_stay_visible_inside_co_workflow():
     catalog = client.get("/clients/growatt/catalog")
 
     assert catalog.status_code == 200
-    assert 'aria-label="Khu làm việc công ty"' in catalog.text
+    assert '<nav class="side"' in catalog.text
     assert "Danh mục mã hàng" in catalog.text
 
 
@@ -431,7 +433,10 @@ def test_catalog_bom_stock_bcct_are_data_views_and_co_case_is_workflow_entry():
     assert "BCCT nhập khẩu / xuất khẩu" in bcct_response.text
     assert "107101950210" in bcct_response.text
     assert "Tỷ giá hải quan" in customs_fx_response.text
-    assert "app-level" in customs_fx_response.text
+    # The page must still state that this rate table is app-wide, not per
+    # client. The redesign (2026-08-20) says it in Vietnamese instead of
+    # the English "app-level"; same claim, same requirement.
+    assert "dùng chung cho mọi công ty" in customs_fx_response.text
     assert "Refresh tỷ giá" in customs_fx_response.text
     assert "Tạo hồ sơ C/O" in co_case_response.text
     assert "+ Tạo hồ sơ" in co_case_response.text

@@ -2,21 +2,23 @@
 {% block title %}Logout - Barry CO{% endblock %}
 
 {% block content %}
-<section class="page-bar">
-  <h1>Logout</h1>
-  <span class="page-tagline">Đang đăng xuất khỏi Data Hub SSO</span>
-</section>
-
-<section class="zone">
-  <div class="zone-head">
+<section class="form-surface fs-stack">
+  <header class="fs-head">
     <div>
-      <h2>Đang hoàn tất đăng xuất</h2>
-      <p class="meta">CO đã xóa session local. Trình duyệt sẽ tiếp tục xóa session Data Hub.</p>
+      <h1>Đang đăng xuất</h1>
+      <p>C/O đã xóa phiên local. Trình duyệt đang tiếp tục xóa phiên Data Hub.</p>
     </div>
-  </div>
-  <form id="data-hub-logout-form" method="post" action="{{ data_hub_logout_url }}" class="settings-actions">
-    <button type="submit">Tiếp tục logout</button>
-  </form>
+  </header>
+
+  <section class="fs-card">
+    <div class="fs-card-h">
+      <h2>Hoàn tất đăng xuất</h2>
+      <p class="fs-sub">Bước này chuyển tiếp sang Data Hub để xóa nốt phiên SSO. Nếu trình duyệt chặn tự động chuyển, bấm nút bên dưới.</p>
+    </div>
+    <form id="data-hub-logout-form" method="post" action="{{ data_hub_logout_url }}" class="fs-card-f">
+      <button type="submit" class="btn-primary">Tiếp tục logout</button>
+    </form>
+  </section>
 </section>
 
 <script>
