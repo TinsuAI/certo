@@ -452,18 +452,13 @@ def _run_reopen_first_sheet(client, case_id, ctx):
 
 ROUTES = [
     Route("calculate-all", _run_calculate_all),
-    Route(
-        "bulk-substitute", _run_bulk_substitute, needs_substitution=False,
-        marks=(pytest.mark.xfail(
-            strict=True,
-            reason="Does not cascade: substituting on sheet 1 leaves later sheets neither "
-                   "recalculated nor marked stale. Proven by calc_seq on the running app — "
-                   "calculate-all moved CHAIR01 1 / TABLE01 2, then bulk-substitute on CHAIR01 "
-                   "moved it to 3 while TABLE01 stayed at 2. The route does call "
-                   "mark_origin_sheets_stale + origin_codes_to_recalculate (co_case.py:2056), so "
-                   "the machinery is wired but does not fire. Found 2026-08-20; not fixed here.",
-        ),),
-    ),
+    # Passes. Two earlier verdicts on this cell were both wrong: first "harness
+    # false positive", then "real defect, does not cascade". The second was
+    # measured before calc_seq was carried through attach_origin_sheet_states, so
+    # the stamp was being stripped on every attach and the numbers read were
+    # noise. With the stamp persisted, the route cascades in both worlds —
+    # in-process here, and on the running app (TABLE01 14 -> 16).
+    Route("bulk-substitute", _run_bulk_substitute, needs_substitution=False),
     Route("bulk-delete-rac", _run_bulk_delete_rac),
     Route("column9-mode", _run_column9_mode),
     Route("case-criteria", _run_case_criteria),
