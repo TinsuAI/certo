@@ -1544,6 +1544,11 @@ def attach_origin_sheet_states(case: dict) -> dict:
         product["origin_method_label"] = state["method_label"]
         product["origin_sheet_effective_lvc_threshold"] = effective_lvc_threshold
         product["origin_sheet_effective_rvc_threshold"] = effective_rvc_threshold
+        # `state` above is rebuilt from an explicit key list, so anything not
+        # carried here is dropped on every attach — and `set_origin_sheet_status`
+        # ends by calling this function. Carry the calculation stamp or it never
+        # survives the write that sets it.
+        state["calc_seq"] = int(raw_state.get("calc_seq") or 0)
         material_overrides = raw_state.get("material_overrides") if isinstance(raw_state.get("material_overrides"), dict) else {}
         # Carry overrides on the sheet state so they round-trip through save/calculate.
         state["material_overrides"] = {str(k): dict(v) for k, v in material_overrides.items() if isinstance(v, dict)}
@@ -2811,7 +2816,9 @@ def origin_material_structure_only(
     """
     origin_details = origin_status_details_from_material(material)
     material_description = row.get("material_name") or material.get("name", "")
-    hs_code = row.get("hs_code") or material.get("hs_code", "")
+    # `.get(key, "")` trả về None khi khoá TỒN TẠI với giá trị None, nên chuỗi
+    # `or` vẫn cho ra None và template in thẳng "None" ra cột HS.
+    hs_code = str(row.get("hs_code") or material.get("hs_code") or "").strip()
     fallback_unit_value, fallback_unit_value_source = first_decimal_source(
         ("bom", row.get("unit_value")),
         ("bom", row.get("unit_price")),
@@ -3037,12 +3044,13 @@ def origin_material_from_bom_row(
         ),
         "",
     )
-    hs_code = (
+    hs_code = str(
         row.get("hs_code")
-        or material.get("hs_code", "")
-        or stock.get("hs_code", "")
+        or material.get("hs_code")
+        or stock.get("hs_code")
         or stock_hs_fallback
-    )
+        or ""
+    ).strip()
     if valuation_status == "missing_unit_value":
         material_warnings.append(f"{material_code}: thiếu đơn giá để tính trị giá NVL/VNM.")
     if mixed_allocation_currency:
