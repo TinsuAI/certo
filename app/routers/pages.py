@@ -32,6 +32,17 @@ _DECLARATION_TYPE_FORM_FIELDS = frozenset({
     "relevant_export_declaration_types",
 })
 
+# The CO-owned config fields the client-config form posts. A POST carrying none
+# of them is not a config save, so `save_client_config_route` leaves the stored
+# config alone instead of rewriting it from defaults.
+_CONFIG_FORM_FIELDS = frozenset({
+    "co_stock_lot_policy",
+    "allocation_code_strategy",
+    "description_regex",
+    "allocation_code_fallback",
+    "features_bulk_delete_junk_rows",
+})
+
 @router.get("/healthz")
 async def healthz() -> dict[str, str]:
     return {"status": "ok"}
@@ -330,12 +341,33 @@ async def save_client_config_route(request: Request, client_id: str):
     # even in DH source-mode (they parameterize CO's own derivation; no DH
     # consumer reads them). The declaration-type gate above already rejected any
     # bcct change, so this save is always CO-owned and allowed.
+    # Presence-gated, field by field. Reading these with `form.get(name, default)`
+    # meant any POST that did not carry a field silently overwrote it with the
+    # default — a POST of just `legal_name` reset `allocation_code.strategy` to
+    # `same_as_customs_code` (growatt-vn: 2,145/2,236 BOM matches → 101/2,236)
+    # and then rebuilt the indexes from the wrecked config. The full form posts
+    # every field, so a normal save is unchanged.
+    if not any(field in form for field in _CONFIG_FORM_FIELDS):
+        return templates.TemplateResponse(
+            request=request,
+            name="client_config.html",
+            context=config_context(
+                client_id,
+                message="Đã lưu cấu hình công ty." + flip_note,
+            ),
+        )
     config = portfolio_service.get_client_config(client)
-    config["co_stock"]["lot_policy"] = str(form.get("co_stock_lot_policy", "line_level"))
-    config["allocation_code"]["strategy"] = str(form.get("allocation_code_strategy", "same_as_customs_code"))
-    config["allocation_code"]["description_regex"] = str(form.get("description_regex", ""))
-    config["allocation_code"]["fallback"] = str(form.get("allocation_code_fallback", "same_as_customs_code"))
-    # Unchecked checkbox = field absent → False.
+    if "co_stock_lot_policy" in form:
+        config["co_stock"]["lot_policy"] = str(form.get("co_stock_lot_policy") or "line_level")
+    if "allocation_code_strategy" in form:
+        config["allocation_code"]["strategy"] = str(form.get("allocation_code_strategy") or "same_as_customs_code")
+    if "description_regex" in form:
+        config["allocation_code"]["description_regex"] = str(form.get("description_regex") or "")
+    if "allocation_code_fallback" in form:
+        config["allocation_code"]["fallback"] = str(form.get("allocation_code_fallback") or "same_as_customs_code")
+    # Unchecked checkbox = field absent → False. Only readable as "off" because
+    # we already know this POST carries the config form; a POST that carries no
+    # config field at all returned above without touching the flag.
     config.setdefault("features", {})["bulk_delete_junk_rows"] = (
         form.get("features_bulk_delete_junk_rows") == "1"
     )
