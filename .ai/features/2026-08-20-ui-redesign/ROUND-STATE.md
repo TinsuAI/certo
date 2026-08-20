@@ -42,6 +42,11 @@ orphan), client workspace as a status board, admin and jobs pages, login screen,
 
 ## Known open items
 
+0. ~~**`/evaluate` wiped `material_overrides` on every sheet.**~~ **Fixed**
+   (`61e1247`). This also closed the `origin_case_from_request` asymmetry logged
+   below: `load-bom` and `/evaluate` are the only two routes on the form branch,
+   and both now restore the sheet states the form cannot carry.
+
 1. ~~**CO `save_client_config_route`** — a partial POST reset the CO-owned config
    from defaults.~~ **Fixed** (`f42ecb5`): presence-gated field by field, and a
    POST carrying no config field at all no longer saves or rebuilds the indexes.
@@ -69,6 +74,33 @@ has-been-calculated bit, not the stored status) and `origin_sheet_condition`
 side; the verdict no longer replaces the progress badge. `locked`'s label became
 `Đã chốt`. Presentation only — stored statuses and the lock/export gates are
 untouched. 11 tests in `tests/test_origin_sheet_two_axis.py`.
+
+## Data repair on a live case — johnson-vn `co-case-e0b390ead3b0`, 2026-08-20
+
+80 material rows across three sheets carried the label "Đã xoá khỏi bảng kê"
+while their `deleted` flag was gone, so they were rendering as ordinary numbered
+rows and were still being exported. Cause: `case_from_form` rebuilds the case
+with a hardcoded `origin_sheet_states: {}` and no form field carries the override
+maps, so any form submit cleared `material_overrides` on every sheet. Fixed in
+code by `61e1247`; the already-damaged rows were repaired by hand.
+
+Repaired through the supported route (`POST /origin/sheet/{code}/save` with
+`deletes`), never by writing to the store, so each sheet carries one undo step —
+press ↶ on a sheet to revert it.
+
+| Sheet | Rows restored | Exported rows after | LVC before | LVC after |
+|---|---|---|---|---|
+| MFW0520-17 | 21 | 23 | 37.40 | 37.40 |
+| MFW0504-39 | 35 | 24 | 48.73 | 48.73 |
+| MFW0502-39 | 24 | 35 | 60.56 | 60.56 |
+
+LVC did not move: those rows carried no value (đơn giá 0, non-origin, empty
+`material_value`), so they never contributed to VNM. The numbers were never
+wrong. What changed is the bảng kê — 80 rows are excluded from the export again,
+which is what the operator originally asked for.
+
+MFW0525-39 was untouched: it was the one sheet that still held its overrides, and
+the only one with no lost rows. That correspondence is what confirmed the cause.
 
 ## Tests
 
