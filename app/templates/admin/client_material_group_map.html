@@ -31,20 +31,20 @@
   </div>
 
   {% if rows %}
-  <table class="dh-table">
+  <table class="dh-table dense">
     <thead>
       <tr><th>Material Group</th><th>Loại vật tư</th><th>Khai báo được</th>
-          <th>Nguồn</th><th>Ghi chú</th><th></th></tr>
+          <th>Nguồn</th><th>Ghi chú</th><th>Thao tác</th></tr>
     </thead>
     <tbody>
       {% for r in rows %}
       <tr>
-        <td><code>{{ r.material_group }}</code></td>
+        <td class="mono">{{ r.material_group }}</td>
         <td>{{ r.item_category }}</td>
-        <td>{{ 'Có' if r.is_declarable else 'Không (rác)' }}</td>
-        <td class="meta">{{ r.source }}</td>
-        <td class="meta">{{ r.notes or '' }}</td>
-        <td>
+        <td><span class="badge badge-{{ 'success' if r.is_declarable else 'muted' }}">{{ 'khai báo được' if r.is_declarable else 'rác' }}</span></td>
+        <td class="mono">{{ r.source }}</td>
+        <td>{{ r.notes or '—' }}</td>
+        <td class="actions-cell">
           <form method="post"
                 action="/clients/{{ client.client_id }}/material-group-map/delete"
                 class="inline-form">
@@ -61,26 +61,40 @@
     để mặc định <code>declarable_unmatched</code>.</p>
   {% endif %}
 
-  <h3 style="margin-top: 1.5rem;">Thêm / cập nhật dòng</h3>
-  <p class="meta">Nhập lại một Material Group đã có để cập nhật (ghi đè).</p>
   <form method="post" action="/clients/{{ client.client_id }}/material-group-map/add"
-        class="form-row">
-    <label>Material Group:
-      <input type="text" name="material_group" required placeholder="vd: RD07"
-             style="text-transform: uppercase;">
-    </label>
-    <label>Loại vật tư:
-      <select name="item_category" required>
-        {% for c in item_categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
-      </select>
-    </label>
-    <label class="inline-check">
-      <input type="checkbox" name="is_declarable" checked> Khai báo được
-    </label>
-    <label>Ghi chú:
-      <input type="text" name="notes" placeholder="(tùy chọn)">
-    </label>
-    <button type="submit" class="btn-primary">Lưu</button>
+        class="settings-form">
+    <span class="fld-group-title">Thêm / cập nhật dòng</span>
+    <div class="settings-grid">
+      <div class="field">
+        <label for="mg-code">Material Group</label>
+        <input type="text" id="mg-code" name="material_group" required placeholder="vd: RD07"
+               class="mono" style="text-transform: uppercase;">
+        <span class="field-hint">Nhập lại một mã đã có để cập nhật (ghi đè dòng cũ).</span>
+      </div>
+      <div class="field">
+        <label for="mg-category">Loại vật tư</label>
+        <select id="mg-category" name="item_category" required>
+          {% for c in item_categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+        </select>
+        <span class="field-hint">Phân loại dùng khi dựng bảng kê và đối chiếu BCCT.</span>
+      </div>
+      <div class="field">
+        <label for="mg-notes">Ghi chú</label>
+        <input type="text" id="mg-notes" name="notes" placeholder="(tùy chọn)">
+        <span class="field-hint">Ghi lại lý do phân loại để người sau đọc được.</span>
+      </div>
+      <div class="field">
+        <label>Khai báo được</label>
+        <label class="inline-check">
+          <input type="checkbox" name="is_declarable" checked>
+          <span>Có — dòng BOM thuộc nhóm này vào bảng kê</span>
+        </label>
+        <span class="field-hint">Bỏ chọn với nhóm rác: bản vẽ, tài liệu, nhãn.</span>
+      </div>
+    </div>
+    <div class="settings-footer">
+      <button type="submit" class="btn-primary">Lưu</button>
+    </div>
   </form>
 </section>
 {% endblock %}

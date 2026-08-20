@@ -12,7 +12,7 @@
   </div>
 
   {% if assigned %}
-  <table class="dh-table">
+  <table class="dh-table dense">
     <thead>
       <tr>
         <th>{{ t('admin.staff_assign.user') }}</th>
@@ -25,7 +25,7 @@
     <tbody>
       {% for s in assigned %}
       <tr>
-        <td>{{ s.display_name }} <span class="meta mono">({{ s.email }})</span></td>
+        <td>{{ s.display_name }}<br><span class="meta mono">{{ s.email }}</span></td>
         <td>
           <form method="post" action="/clients/{{ client.client_id }}/staff/scope" class="inline-form">
             <input type="hidden" name="user_id" value="{{ s.user_id }}">
@@ -35,8 +35,8 @@
             </select>
           </form>
         </td>
-        <td class="mono small">{{ s.granted_at.strftime('%Y-%m-%d') if s.granted_at else '' }}</td>
-        <td class="mono small">{{ s.granted_by_email or s.granted_by }}</td>
+        <td class="mono">{{ s.granted_at.strftime('%Y-%m-%d') if s.granted_at else '' }}</td>
+        <td class="mono">{{ s.granted_by_email or s.granted_by }}</td>
         <td class="actions-cell">
           <form method="post" action="/clients/{{ client.client_id }}/staff/remove" class="inline-form">
             <input type="hidden" name="user_id" value="{{ s.user_id }}">

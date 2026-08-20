@@ -72,8 +72,7 @@
       <input type="hidden" name="{{ k }}" value="{{ v }}">
     {% endfor %}
     <input type="search" name="q" value="{{ active_q }}"
-           placeholder="Tìm code hoặc sample text…"
-           style="width: 320px; padding: 0.4rem 0.6rem;">
+           class="client-filter" placeholder="Tìm code hoặc sample text…">
     <button type="submit" class="btn-secondary btn-sm">Tìm</button>
     {% if active_q %}
       <a class="btn-ghost btn-sm" href="{{ filter_url(q=None) }}">
@@ -117,10 +116,8 @@
     {% endif %}
   </div>
 
-  <div class="rule-bar"
-       style="margin-bottom: 1rem; padding: 0.75rem; border: 1px solid var(--border, #ddd); border-radius: 6px;">
-    <form method="get"
-          style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;">
+  <div class="filter-panel">
+    <form method="get" class="filter-panel-form">
       {# The facets this form does not own; its own three are inputs below. #}
       {% for k, v in filter_params.items()
          if k not in ['leaf', 'min_observed', 'show_machinery'] %}
@@ -148,48 +145,55 @@
       {% endif %}
     </form>
 
-    {% if pending_total > 0 %}
-    {# The approve form owns no rows itself — the per-row checkboxes join it by
-       `form="bulk-form"`, so the table can carry its own reject forms without
-       nesting. Empty submit is a no-op server-side; select-all-matching is set
-       by JS from the banner. Danh mục theo đề xuất, tên/UoM theo dữ liệu. #}
-    <form method="post" id="bulk-form"
-          action="/clients/{{ client.client_id }}/catalog/candidates/bulk-accept"
-          data-total="{{ pending_total }}"
-          style="margin-top: 0.75rem; display: flex; align-items: center;
-                 gap: 0.75rem; flex-wrap: wrap;">
-      {% for k, v in filter_params.items() %}
-        <input type="hidden" name="{{ k }}" value="{{ v }}">
-      {% endfor %}
-      <input type="hidden" name="select_all_matching" id="select-all-matching"
-             value="">
+  </div>
+
+  {% if pending_total > 0 %}
+  {# The approve form owns no rows itself — the per-row checkboxes join it by
+     `form="bulk-form"`, so the table can carry its own reject forms without
+     nesting. Empty submit is a no-op server-side; select-all-matching is set
+     by JS from the banner. Danh mục theo đề xuất, tên/UoM theo dữ liệu. #}
+  <form method="post" id="bulk-form" class="decide"
+        action="/clients/{{ client.client_id }}/catalog/candidates/bulk-accept"
+        data-total="{{ pending_total }}">
+    {% for k, v in filter_params.items() %}
+      <input type="hidden" name="{{ k }}" value="{{ v }}">
+    {% endfor %}
+    <input type="hidden" name="select_all_matching" id="select-all-matching"
+           value="">
+    <div class="decide-head">
+      <h3>Duyệt hàng loạt</h3>
+      <span class="meta">{{ pending_total }} mã khớp bộ lọc hiện tại · danh mục
+        lấy theo đề xuất, tên và UoM lấy theo dữ liệu nguồn.</span>
+    </div>
+    <div class="decide-foot">
+      <span class="decide-hint" id="bulk-select-banner" hidden>
+        Đã chọn cả {{ page_params.page_size }} mã trên trang này.
+        <a href="#" id="select-all-matching-link">Chọn tất cả {{ pending_total }}
+          mã khớp bộ lọc</a>.
+      </span>
+      <span class="decide-hint" id="bulk-selected-all" hidden>
+        Đang chọn tất cả {{ pending_total }} mã khớp bộ lọc.
+        <a href="#" id="clear-select-all">Bỏ chọn</a>.
+      </span>
       <button type="submit" class="btn-primary btn-sm" id="bulk-approve-btn"
               disabled data-label-empty="Chọn mã để duyệt"
               data-label-some="Duyệt {n} mã đã chọn"
               data-label-all="Duyệt toàn bộ {n} mã khớp bộ lọc">
         Chọn mã để duyệt
       </button>
-      <span class="meta" id="bulk-select-banner" hidden>
-        Đã chọn cả {{ page_params.page_size }} mã trên trang này.
-        <a href="#" id="select-all-matching-link">Chọn tất cả {{ pending_total }}
-          mã khớp bộ lọc</a>.
-      </span>
-      <span class="meta" id="bulk-selected-all" hidden>
-        Đang chọn tất cả {{ pending_total }} mã khớp bộ lọc.
-        <a href="#" id="clear-select-all">Bỏ chọn</a>.
-      </span>
-    </form>
-    {% endif %}
-  </div>
+    </div>
+  </form>
+  {% endif %}
 
   {% if not pending %}
-    <div class="empty-state" style="padding: 2rem; text-align: center;">
+    <div class="empty-state">
       <p class="meta">Không có candidate nào đang chờ duyệt.
       {% if active_kind %}Lọc theo kind={{ active_kind }} không có kết quả.{% endif %}
       </p>
     </div>
   {% else %}
-    <table class="data-table" id="candidates-table">
+    <div class="table-wrap">
+    <table class="data-table dense" id="candidates-table">
       <thead>
         <tr>
           <th class="check-col">
@@ -261,12 +265,12 @@
               </span>
             {% endif %}
             {% if c.code_kind == 'hq' and c.co_occurrence_count > 0 %}
-              <div class="meta" style="font-size: 0.85em;"
+              <div class="meta cell-note"
                    title="Số NB cặp với HQ này trong BCCT">
                 ↔ {{ c.co_occurrence_count }} NB
               </div>
             {% elif c.code_kind == 'nb' and c.co_occurrence_count > 0 %}
-              <div class="meta" style="font-size: 0.85em;"
+              <div class="meta cell-note"
                    title="Số HQ cặp với NB này trong BCCT">
                 ↔ {{ c.co_occurrence_count }} HQ
               </div>
@@ -275,25 +279,25 @@
           <td class="num" title="Total observations across all sources">
             {{ format_int(c.observed_count) }}
             {% if c.decl_count %}
-              <div class="meta" style="font-size: 0.85em;"
+              <div class="meta cell-note"
                    title="Distinct BCCT declarations">
                 {{ c.decl_count }} decl
               </div>
             {% endif %}
           </td>
-          <td class="meta" style="max-width: 280px;">
+          <td class="meta cell-clip">
             {% if c.sample_text %}
               <div title="{{ c.sample_text }}">
                 {{ c.sample_text[:80] }}{% if c.sample_text|length > 80 %}…{% endif %}
               </div>
             {% endif %}
             {% if c.bom_sample %}
-              <div class="meta" style="font-size: 0.85em;">
+              <div class="meta cell-note">
                 BOM: {{ c.bom_sample }}
               </div>
             {% endif %}
             {% if c.hs_code or c.uom or c.origin %}
-              <div class="meta" style="font-size: 0.85em; margin-top: 0.25rem;">
+              <div class="meta cell-note cell-note-gap">
                 {% if c.hs_code %}
                   <span class="badge badge-info"
                         title="Mã HS {% if c.hs_alternates_count > 0 %}({{ c.hs_alternates_count }} mã HS khác cũng quan sát được){% endif %}">
@@ -320,7 +324,7 @@
             {% if c.last_seen %}
               {{ format_date(c.last_seen) }}
               {% if c.first_seen and c.first_seen != c.last_seen %}
-                <div class="meta" style="font-size: 0.85em;">
+                <div class="meta cell-note">
                   từ {{ format_date(c.first_seen) }}
                 </div>
               {% endif %}
@@ -334,7 +338,7 @@
                else a flattened-BOM leaf is NVL. Prefilling raw suggested only
                would default the dropdown to the first option for leaf rows —
                a wrong-category footgun. #}
-            <button type="button" class="btn-primary btn-sm js-accept-open"
+            <button type="button" class="btn-primary btn-xs js-accept-open"
                     data-code="{{ c.code }}"
                     data-code-kind="{{ c.code_kind }}"
                     data-name="{{ c.sample_text[:120] if c.sample_text else '' }}"
@@ -344,7 +348,7 @@
               Duyệt
             </button>
             <noscript>
-              <a class="btn-secondary btn-sm"
+              <a class="btn-secondary btn-xs"
                  href="/clients/{{ client.client_id }}/catalog/candidates/detail?code={{ c.code|urlencode }}&kind={{ c.code_kind }}">
                 Duyệt…
               </a>
@@ -355,7 +359,7 @@
               <input type="hidden" name="code" value="{{ c.code }}">
               <input type="hidden" name="code_kind" value="{{ c.code_kind }}">
               <input type="hidden" name="reason" value="">
-              <button type="submit" class="btn-secondary btn-sm"
+              <button type="submit" class="btn-secondary btn-xs"
                       onclick="return confirm('Từ chối {{ c.code }}?')">Từ chối</button>
             </form>
           </td>
@@ -363,6 +367,7 @@
       {% endfor %}
       </tbody>
     </table>
+    </div>
 
     {% include "clients/_pagination.html" %}
 
@@ -372,8 +377,7 @@
       <form method="post"
             action="/clients/{{ client.client_id }}/catalog/candidates/accept"
             class="form-stack">
-        <h3 style="margin: 0 0 0.75rem;">Duyệt <code id="ad-code"></code>
-          vào catalog</h3>
+        <h3>Duyệt <code id="ad-code"></code> vào catalog</h3>
         <input type="hidden" name="code" id="ad-code-input">
         <input type="hidden" name="code_kind" id="ad-code-kind">
         <label class="field">Tên hàng
@@ -386,7 +390,7 @@
             {% endfor %}
           </select>
         </label>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+        <div class="field-pair">
           <label class="field">UoM
             <input type="text" name="uom" id="ad-uom">
           </label>
@@ -414,11 +418,11 @@
   <script src="/static/js/catalog-candidates.js" defer></script>
 
   {% if rejected %}
-  <details style="margin-top: 2rem;">
+  <details class="rejected-block">
     <summary class="btn-secondary btn-sm">
       Đã từ chối ({{ rejected|length }})
     </summary>
-    <table class="data-table" style="margin-top: 0.5rem;">
+    <table class="data-table dense">
       <thead>
         <tr>
           <th>Code</th>

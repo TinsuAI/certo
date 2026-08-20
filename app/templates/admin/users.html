@@ -3,8 +3,10 @@
 {% block content %}
 {% include "_admin_nav.html" %}
 <section class="page-bar">
-  <h1>{{ t('admin.title') }}</h1>
-  <span class="page-tagline">{{ t('admin.subtitle') }}</span>
+  <div class="page-bar-main">
+    <h1>{{ t('admin.title') }}</h1>
+    <span class="page-tagline">{{ t('admin.subtitle') }}</span>
+  </div>
 </section>
 
 {% if error == 'duplicate_email' %}
@@ -24,11 +26,13 @@
     <div class="settings-grid">
       <div class="field">
         <label for="email">{{ t('admin.user.email') }}</label>
-        <input type="email" id="email" name="email" required autocomplete="off">
+        <input type="email" id="email" name="email" required autocomplete="off" class="mono">
+        <span class="field-hint">{{ t('admin.user.email_hint') }}</span>
       </div>
       <div class="field">
         <label for="display_name">{{ t('admin.user.display_name') }}</label>
         <input type="text" id="display_name" name="display_name" required>
+        <span class="field-hint">{{ t('admin.user.display_name_hint') }}</span>
       </div>
       <div class="field">
         <label for="password">{{ t('admin.user.password') }}</label>
@@ -42,6 +46,7 @@
           <option value="{{ r }}" {% if r == 'staff' %}selected{% endif %}>{{ t('admin.role.' + r) }}</option>
           {% endfor %}
         </select>
+        <span class="field-hint">{{ t('admin.user.role_hint') }}</span>
       </div>
     </div>
     <div class="settings-footer">
@@ -54,10 +59,10 @@
   <div class="zone-head">
     <div>
       <h2>{{ t('admin.users') }}</h2>
-      <p class="meta">{{ users|length }}</p>
+      <p class="meta">{{ users|length }} {{ t('admin.users_count_unit') }}</p>
     </div>
   </div>
-  <table class="dh-table">
+  <table class="dh-table dense">
     <thead>
       <tr>
         <th>{{ t('admin.user.email') }}</th>
@@ -75,7 +80,7 @@
         <td>{{ u.display_name }}</td>
         <td>
           {% if u.role == 'dev' %}
-            <span class="badge badge-warning">{{ t('admin.role.dev_short') }}</span>
+            <span class="badge badge-brand">{{ t('admin.role.dev_short') }}</span>
           {% else %}
             <form method="post" action="/admin/users/{{ u.user_id }}/role" class="inline-form">
               <select name="role" onchange="this.form.submit()">
@@ -87,9 +92,9 @@
           {% endif %}
         </td>
         <td>
-          <span class="badge badge-{{ 'success' if u.status == 'active' else 'warning' }}">{{ t('status.' + u.status) if u.status in ['active'] else u.status }}</span>
+          <span class="badge badge-{{ 'success' if u.status == 'active' else 'muted' }}">{{ t('status.' + u.status) if u.status in ['active'] else u.status }}</span>
         </td>
-        <td class="mono small">{{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '' }}</td>
+        <td class="mono">{{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '—' }}</td>
         <td class="actions-cell">
           {% if u.role == 'manager' %}
           <a class="btn-secondary" href="/admin/users/{{ u.user_id }}/clients">{{ t('admin.action.assign_clients') }}</a>

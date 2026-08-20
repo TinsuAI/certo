@@ -10,25 +10,23 @@
       <p class="meta">Mọi thay đổi đều được audit (mig 045 trigger).</p>
     </div>
     <div class="page-actions">
-      <a class="btn-secondary"
-         href="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/detail">
-         ← Chi tiết
-      </a>
+      <a class="btn-secondary btn-sm"
+         href="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/detail">← Chi tiết</a>
     </div>
   </div>
 
-  <form method="post" class="form-stack" style="max-width: 720px;"
+  <form method="post" class="form-stack"
         action="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/edit">
     <div>
       <label for="name">Tên hàng</label>
       <input type="text" id="name" name="name" required
-             value="{{ material.name or '' }}" style="width: 100%;">
+             value="{{ material.name or '' }}">
     </div>
 
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+    <div class="field-pair">
       <div>
         <label for="category">Phân loại</label>
-        <select id="category" name="category" required style="width: 100%;">
+        <select id="category" name="category" required>
           {% for cat in categories %}
             <option value="{{ cat }}" {% if cat == material.category %}selected{% endif %}>{{ cat }}</option>
           {% endfor %}
@@ -36,7 +34,7 @@
       </div>
       <div>
         <label for="status">Trạng thái</label>
-        <select id="status" name="status" required style="width: 100%;">
+        <select id="status" name="status" required>
           {% set status_labels = {'active': 'active', 'deprecated': 'deprecated',
                                    'tombstoned': 'đã loại'} %}
           {% for s in editable_statuses %}
@@ -46,15 +44,15 @@
       </div>
     </div>
 
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+    <div class="field-pair">
       <div>
         <label for="uom">UoM</label>
         <input type="text" id="uom" name="uom"
-               value="{{ material.uom or '' }}" style="width: 100%;">
+               value="{{ material.uom or '' }}">
       </div>
       <div>
         <label for="production_source">Production source</label>
-        <select id="production_source" name="production_source" style="width: 100%;">
+        <select id="production_source" name="production_source">
           <option value="">—</option>
           {% for ps in production_sources %}
             <option value="{{ ps }}" {% if ps == material.production_source %}selected{% endif %}>{{ ps }}</option>
@@ -66,7 +64,7 @@
     <div>
       <label for="supplier_hint">Supplier hint</label>
       <input type="text" id="supplier_hint" name="supplier_hint"
-             value="{{ material.supplier_hint or '' }}" style="width: 100%;">
+             value="{{ material.supplier_hint or '' }}">
     </div>
 
     <div>
@@ -77,7 +75,7 @@
       </label>
     </div>
 
-    <div class="form-actions" style="margin-top: 1rem;">
+    <div class="form-actions">
       <button type="submit" class="btn-primary">Lưu thay đổi</button>
       <a class="btn-secondary"
          href="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/detail">
@@ -86,7 +84,7 @@
     </div>
   </form>
 
-  <div class="meta" style="margin-top: 1rem;">
+  <div class="meta">
     <p>Quyền sửa: cần <code>can_edit_client</code> (admin/dev luôn được; manager
     nếu quản lý client; staff cần scope='edit' tại
     <code>/clients/{{ client.client_id }}/staff</code>).</p>

@@ -2,23 +2,32 @@
 {% block title %}Adapter BOM · {{ t('app.brand') }}{% endblock %}
 {% block content %}
 {% include "_admin_nav.html" %}
+<section class="page-bar">
+  <div class="page-bar-main">
+    <h1>Adapter BOM</h1>
+    <span class="page-tagline">Registry parser BOM — chỉ xem. Thêm định dạng mới = thêm adapter qua git/CI.</span>
+  </div>
+</section>
+
 <section class="zone">
   <div class="zone-head">
     <div>
-      <h2>Adapter BOM (registry)</h2>
-      <p class="meta">
-        Danh sách parser BOM đã đăng ký (chỉ xem). Mỗi định dạng file là một
-        adapter trong <code>app/parsers/bom_adapters/</code>, chọn theo
-        <code>detect()</code> rồi tới thứ tự đăng ký. Thêm định dạng mới = thêm
-        một adapter (qua git/CI) — <strong>không</strong> upload code lúc chạy.
-      </p>
+      <h2>Adapter đã đăng ký</h2>
+      <p class="meta">{{ adapters|length }} adapter</p>
     </div>
   </div>
+  <div class="toast">
+    Mỗi định dạng file là một adapter trong <code>app/parsers/bom_adapters/</code>,
+    chọn theo <code>detect()</code> rồi tới thứ tự đăng ký. Các parser cạnh raw-edge
+    (<code>sap_indented_raw</code>, <code>growatt_factory_technical</code>) chỉ tồn tại
+    dưới dạng alias để giải quyết post-ingest hook, không phải adapter
+    <code>BomAdapter</code> độc lập.
+  </div>
 
-  <table class="dh-table">
+  <table class="dh-table dense">
     <thead>
       <tr>
-        <th>#</th><th>Tên</th><th>Nhãn</th>
+        <th class="num">#</th><th>Tên</th><th>Nhãn</th>
         <th>Mapping override</th><th>Sinh BTP trung gian</th>
         <th>Post-ingest hooks</th><th>Alias cũ</th>
       </tr>
@@ -26,22 +35,17 @@
     <tbody>
       {% for a in adapters %}
       <tr>
-        <td class="meta">{{ a.order }}</td>
-        <td><code>{{ a.name }}</code></td>
-        <td>{{ t(a.label_key) if a.label_key else '' }}</td>
-        <td>{{ '✓' if a.supports_mapping_override else '—' }}</td>
-        <td>{{ '✓' if a.emits_intermediate_btp_versions else '—' }}</td>
-        <td class="meta">{{ a.post_ingest_hooks | join(', ') or '—' }}</td>
-        <td class="meta">{{ a.legacy_aliases | join(', ') or '—' }}</td>
+        <td class="num">{{ a.order }}</td>
+        <td class="mono">{{ a.name }}</td>
+        <td>{{ t(a.label_key) if a.label_key else '—' }}</td>
+        <td>{% if a.supports_mapping_override %}<span class="mark-yes">✓</span>{% else %}<span class="mark-no">—</span>{% endif %}</td>
+        <td>{% if a.emits_intermediate_btp_versions %}<span class="mark-yes">✓</span>{% else %}<span class="mark-no">—</span>{% endif %}</td>
+        <td class="mono">{{ a.post_ingest_hooks | join(', ') or '—' }}</td>
+        <td class="mono">{{ a.legacy_aliases | join(', ') or '—' }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
-  <p class="meta" style="font-size:.85em; margin-top:.4rem;">
-    Ghi chú: các parser cạnh raw-edge (<code>sap_indented_raw</code>,
-    <code>growatt_factory_technical</code>) chỉ tồn tại dưới dạng alias để giải
-    quyết post-ingest hook, không phải adapter <code>BomAdapter</code> độc lập.
-  </p>
 </section>
 
 <section class="zone">
@@ -50,21 +54,20 @@
       <h2>Parser mặc định theo client</h2>
       <p class="meta">
         <code>auto</code> = tự phát hiện (mặc định). Đặt parser cụ thể tại trang
-        upload BOM của client. Adapter đã gỡ khỏi registry sẽ tự về
-        <code>auto</code>.
+        upload BOM của client. Adapter đã gỡ khỏi registry sẽ tự về <code>auto</code>.
       </p>
     </div>
   </div>
-  <table class="dh-table">
+  <table class="dh-table dense">
     <thead><tr><th>Client</th><th>Tên</th><th>Parser mặc định</th></tr></thead>
     <tbody>
       {% for b in bindings %}
       <tr>
-        <td><code>{{ b.client_id }}</code></td>
+        <td class="mono">{{ b.client_id }}</td>
         <td>{{ b.name }}</td>
-        <td>
+        <td class="mono">
           {{ b.default_bom_adapter }}
-          {% if b.degraded %}<span class="meta">(đã gỡ → auto)</span>{% endif %}
+          {% if b.degraded %}<span class="badge badge-warning">đã gỡ → auto</span>{% endif %}
         </td>
       </tr>
       {% endfor %}

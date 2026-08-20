@@ -24,28 +24,48 @@
     {% endif %}
   </div>
   {% if items %}
-  <div class="rowlist" id="client-rowlist">
-    {% for c in items %}
-    <a class="rowitem client-row stripe-{{ loop.index }}"
-       href="/clients/{{ c.client_id }}"
-       data-search="{{ (c.name ~ ' ' ~ c.client_id ~ ' ' ~ (c.tax_code or ''))|lower }}">
-      <div class="rowitem-main">
-        <strong>{{ c.name }}</strong>
-        <div class="meta">
-          <span class="mono">{{ c.client_id }}</span>
-          {% if c.tax_code %} · {{ t('clients.row.tax') }} <span class="mono">{{ c.tax_code }}</span>{% endif %}
-          · <span class="badge badge-info">{{ t('clients.mode.' + c.code_resolution_mode + '.short') }}</span>
-        </div>
-      </div>
-      <div class="rowitem-side">
-        <span class="badge badge-{{ 'success' if c.n_materials else 'warning' }}">{{ t('workspace.stat.catalog') }} {{ c.n_materials }}</span>
-        <span class="badge badge-{{ 'success' if c.n_mappings else 'warning' }}">{{ t('workspace.stat.bqd') }} {{ c.n_mappings }}</span>
-        <span class="badge badge-{{ 'success' if c.n_bcct else 'warning' }}">BCCT {{ c.n_bcct }}</span>
-        <span class="badge badge-{{ 'success' if c.n_bom else 'warning' }}">BOM {{ c.n_bom }}</span>
-        <span class="badge badge-{{ 'success' if c.status == 'active' else 'warning' }}">{{ t('status.' + c.status) if c.status in ['active','archived'] else c.status }}</span>
-      </div>
-    </a>
-    {% endfor %}
+  <div class="table-wrap">
+    <table class="dh-table dense client-table" id="client-table">
+      <thead>
+        <tr>
+          <th>{{ t('clients.col.name') }}</th>
+          <th>{{ t('clients.row.tax') }}</th>
+          <th>{{ t('clients.field.code_resolution_mode') }}</th>
+          <th class="num">{{ t('workspace.stat.catalog') }}</th>
+          <th class="num">{{ t('workspace.stat.bqd') }}</th>
+          <th class="num">{{ t('workspace.stat.bcct') }}</th>
+          <th class="num">{{ t('workspace.stat.bom') }}</th>
+          <th>{{ t('common.status') }}</th>
+        </tr>
+      </thead>
+      <tbody id="client-rowlist">
+        {% for c in items %}
+        <tr class="client-row" tabindex="0"
+            data-row-href="/clients/{{ c.client_id }}"
+            data-search="{{ (c.name ~ ' ' ~ c.client_id ~ ' ' ~ (c.tax_code or ''))|lower }}">
+          <td class="client-name">
+            <a href="/clients/{{ c.client_id }}"><strong>{{ c.name }}</strong></a>
+            <span class="mono meta">{{ c.client_id }}</span>
+          </td>
+          <td class="mono">{{ c.tax_code or '—' }}</td>
+          <td><span class="badge badge-muted">{{ t('clients.mode.' + c.code_resolution_mode + '.short') }}</span></td>
+          <td class="client-count{{ '' if c.n_materials else ' is-empty' }}">{{ c.n_materials or '—' }}</td>
+          <td class="client-count{{ '' if c.n_mappings else ' is-empty' }}">{{ c.n_mappings or '—' }}</td>
+          <td class="client-count{{ '' if c.n_bcct else ' is-empty' }}">{{ c.n_bcct or '—' }}</td>
+          <td class="client-count{{ '' if c.n_bom else ' is-empty' }}">{{ c.n_bom or '—' }}</td>
+          <td>
+            {% if c.status == 'active' %}
+            <span class="badge badge-success">{{ t('status.active') }}</span>
+            {% elif c.status == 'archived' %}
+            <span class="badge badge-muted">{{ t('status.archived') }}</span>
+            {% else %}
+            <span class="badge badge-muted">{{ c.status }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
   <p class="meta client-filter-empty" id="client-filter-empty" style="display:none">{{ t('clients.search_empty') }}</p>
   {% else %}
@@ -57,16 +77,6 @@
   </div>
   {% endif %}
 </section>
-
-<p class="meta module-legend">
-  {{ t('clients.module_grid_heading') }}:
-  <span class="badge badge-neutral">{{ t('tabs.catalog') }}</span>
-  <span class="badge badge-neutral">{{ t('tabs.bqd') }}</span>
-  <span class="badge badge-neutral">BCCT</span>
-  <span class="badge badge-neutral">BOM</span>
-  <span class="badge badge-neutral">{{ t('tabs.proposals') }}</span>
-  <span class="badge badge-neutral">{{ t('tabs.uploads') }}</span>
-</p>
 
 {% if items %}
 <script>

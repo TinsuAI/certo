@@ -15,23 +15,23 @@
     </div>
   </div>
 
-  <div class="form-row" style="margin-bottom: 1rem;">
-    <strong>Module:</strong>
+  <div class="chip-row">
+    <strong class="fld-group-title">Module</strong>
     {% for m in modules %}
-    <a class="btn-secondary {% if m == module %}btn-active{% endif %}"
+    <a class="chip {% if m == module %}chip-active{% endif %}"
        href="/clients/{{ client.client_id }}/column-aliases?module={{ m }}">{{ m }}</a>
     {% endfor %}
   </div>
 
   {% if aliases %}
-  <table class="dh-table">
+  <table class="dh-table dense">
     <thead>
-      <tr><th>Trường</th><th>Alias (tên cột)</th><th>Trạng thái</th><th>Tạo lúc</th><th></th></tr>
+      <tr><th>Trường</th><th>Alias (tên cột)</th><th>Trạng thái</th><th>Tạo lúc</th><th>Thao tác</th></tr>
     </thead>
     <tbody>
       {% for a in aliases %}
       <tr>
-        <td><code>{{ a.field }}</code></td>
+        <td class="mono">{{ a.field }}</td>
         <td>{{ a.alias }}</td>
         <td>
           <form method="post"
@@ -39,13 +39,12 @@
                 class="inline-form">
             <input type="hidden" name="module" value="{{ module }}">
             <input type="hidden" name="enabled" value="{{ 'off' if a.enabled else 'on' }}">
-            <button type="submit" class="btn-secondary">
-              {{ 'Đang bật — tắt' if a.enabled else 'Đang tắt — bật' }}
-            </button>
+            <span class="badge badge-{{ 'success' if a.enabled else 'muted' }}">{{ 'bật' if a.enabled else 'tắt' }}</span>
+            <button type="submit" class="btn-xs btn-ghost">{{ 'Tắt' if a.enabled else 'Bật' }}</button>
           </form>
         </td>
-        <td class="meta">{{ a.created_at }}</td>
-        <td>
+        <td class="mono">{{ a.created_at }}</td>
+        <td class="actions-cell">
           <form method="post"
                 action="/clients/{{ client.client_id }}/column-aliases/{{ a.id }}/delete"
                 class="inline-form">
@@ -61,19 +60,27 @@
   <p class="meta">Chưa có alias riêng cho module <code>{{ module }}</code>. Đang dùng mặc định hệ thống.</p>
   {% endif %}
 
-  <h3 style="margin-top: 1.5rem;">Thêm alias</h3>
   <form method="post" action="/clients/{{ client.client_id }}/column-aliases/add"
-        class="form-row">
+        class="settings-form">
+    <span class="fld-group-title">Thêm alias</span>
     <input type="hidden" name="module" value="{{ module }}">
-    <label>Trường:
-      <select name="field" required>
-        {% for f in fields %}<option value="{{ f }}">{{ f }}</option>{% endfor %}
-      </select>
-    </label>
-    <label>Alias (tên cột trong file):
-      <input type="text" name="alias" required placeholder="vd: Đơn giá HĐ">
-    </label>
-    <button type="submit" class="btn-primary">Thêm</button>
+    <div class="settings-grid">
+      <div class="field">
+        <label for="alias-field">Trường</label>
+        <select id="alias-field" name="field" required>
+          {% for f in fields %}<option value="{{ f }}">{{ f }}</option>{% endfor %}
+        </select>
+        <span class="field-hint">Trường dữ liệu chuẩn của hub mà cột này ánh xạ vào.</span>
+      </div>
+      <div class="field">
+        <label for="alias-name">Alias (tên cột trong file)</label>
+        <input type="text" id="alias-name" name="alias" required placeholder="vd: Đơn giá HĐ">
+        <span class="field-hint">Chép đúng header trong file Excel của khách hàng.</span>
+      </div>
+    </div>
+    <div class="settings-footer">
+      <button type="submit" class="btn-primary">Thêm</button>
+    </div>
   </form>
 </section>
 {% endblock %}
