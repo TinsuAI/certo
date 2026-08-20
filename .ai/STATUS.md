@@ -11,8 +11,8 @@ along the way.**
 
 | | Worktree | Branch | Commits | Suite |
 |---|---|---|---|---|
-| CO | `../barry-CO-redesign` | `redesign/2026-08-ui` | 26 | 1180 pass / 19 skip / 2 xfail |
-| Data Hub | `../data-hub-redesign` | `redesign/2026-08-ui` | 14 | 1687 pass / 16 skip |
+| CO | `../barry-CO-redesign` | `redesign/2026-08-ui` | 27 | 1180 pass / 21 skip / 0 fail |
+| Data Hub | `../data-hub-redesign` | `redesign/2026-08-ui` | 15 | 1687 pass / 16 skip / 0 fail |
 
 `main` is untouched in both repos and both main checkouts are clean, so prod (`0.18.0`,
 `d51581f`) is unaffected. Both branches are review-ready; nothing is pushed.
