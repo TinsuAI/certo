@@ -1,0 +1,653 @@
+{% extends "base.html" %}
+{% block title %}Bộ giao diện — Barry CO{% endblock %}
+{% block content %}
+{#
+  Trang tham chiếu của hệ thiết kế (redesign 2026-08-20). Chỉ đọc: không cần
+  công ty, không cần hồ sơ, không gọi Data Hub. Mọi component dựng bằng đúng
+  class thật của ứng dụng — nếu ở đây trông sai thì chỗ khác cũng sai.
+#}
+<div class="page-bar">
+  <div>
+    <h1>Bộ giao diện</h1>
+    <p class="page-tagline">Toàn bộ component của hệ thiết kế mới, dựng bằng class thật và nội dung mẫu tiếng Việt.</p>
+  </div>
+</div>
+
+<nav class="dg-toc" aria-label="Mục lục">
+  {% for anchor, label in sections %}<a href="#{{ anchor }}">{{ loop.index }}. {{ label }}</a>{% endfor %}
+</nav>
+
+<!-- ── 1. Màu ──────────────────────────────────────────────────────────── -->
+<section class="zone" id="tokens">
+  <div class="zone-head">
+    <div>
+      <h2>1. Màu (colour tokens)</h2>
+      <p class="meta">Dùng khi cần bất kỳ màu nào: luôn lấy từ token, không viết mã màu thẳng vào CSS hay style inline.</p>
+    </div>
+  </div>
+
+  <div class="callout callout-info dg-block">
+    <strong>Dữ liệu = xanh hải quân, logic = chàm. Không trộn.</strong>
+    Dải <span class="mono">--brand-*</span> là màu của dữ liệu: header, hàng sidebar đang mở, hover và chọn dòng bảng.
+    Dải <span class="mono">--logic-*</span> là màu của logic: bảng quyết định, biểu thức, vết chạy máy luật.
+    Riêng <span class="mono">--brand</span> chỉ dùng cho nhận diện ứng dụng — CO là mặt tính toán nên nó là chàm — còn
+    hành động (link, nút chính, trạng thái đang chọn) vẫn nằm trên <span class="mono">--primary</span> hải quân ở cả hai app.
+  </div>
+
+  <div class="dg-split">
+    <div>
+      <p class="dg-sub">Mặt dữ liệu — hải quân</p>
+      <div class="dg-ramp">
+        {% for step in ['50', '100', '200', '500', '600', '700'] %}
+        <div class="dg-ramp-c dg-ramp-{{ 'hi' if step in ['500', '600', '700'] else 'lo' }}"
+             style="background: var(--brand-{{ step }})"><span class="mono">{{ step }}</span></div>
+        {% endfor %}
+      </div>
+    </div>
+    <div>
+      <p class="dg-sub">Mặt logic — chàm</p>
+      <div class="dg-ramp">
+        {% for step in ['50', '100', '200', '500', '600', '700'] %}
+        <div class="dg-ramp-c dg-ramp-{{ 'hi' if step in ['500', '600', '700'] else 'lo' }}"
+             style="background: var(--logic-{{ step }})"><span class="mono">{{ step }}</span></div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {% for group in token_groups %}
+  <div class="dg-block">
+    <p class="dg-sub">{{ group.title }}</p>
+    <p class="meta dg-sub-note">{{ group.note }}</p>
+    <div class="dg-swatches">
+      {% for name, kind in group.tokens %}
+      <div class="dg-swatch">
+        <span class="dg-swatch-chip{{ ' dg-swatch-chip-flat' if kind != 'color' }}"
+              {% if kind == 'color' %}style="background: var({{ name }})"{% endif %} aria-hidden="true"></span>
+        <span class="dg-swatch-body">
+          <code class="mono dg-swatch-name">{{ name }}</code>
+          <span class="mono dg-swatch-value" data-dg-token="{{ name }}">…</span>
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</section>
+
+<!-- ── 2. Chữ ──────────────────────────────────────────────────────────── -->
+<section class="zone" id="type">
+  <div class="zone-head">
+    <div>
+      <h2>2. Chữ (typography)</h2>
+      <p class="meta">Dùng khi chọn cỡ chữ: lấy một bậc trong thang dưới đây, không đặt cỡ chữ tuỳ ý cho một màn hình riêng.</p>
+    </div>
+  </div>
+
+  <div class="dg-block">
+    <p class="dg-sub">Ba họ chữ</p>
+    <p class="meta dg-sub-note">--display cho tiêu đề, --sans cho chữ thân bài, --mono cho mọi con số, mã và định danh.</p>
+    <div class="dg-faces">
+      <div class="dg-face">
+        <code class="mono dg-swatch-name">--display</code>
+        <p class="dg-face-display">Bảng kê chứng nhận xuất xứ hàng hoá</p>
+        <span class="meta">Be Vietnam Pro → Inter → system-ui</span>
+      </div>
+      <div class="dg-face">
+        <code class="mono dg-swatch-name">--sans</code>
+        <p class="dg-face-sans">Bảng kê chứng nhận xuất xứ hàng hoá</p>
+        <span class="meta">Inter → Be Vietnam Pro → system-ui</span>
+      </div>
+      <div class="dg-face">
+        <code class="mono dg-swatch-name">--mono</code>
+        <p class="dg-face-mono">CO-2026-0148 · 7604.29.90 · 1.284.500.000</p>
+        <span class="meta">JetBrains Mono → SF Mono → Consolas</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="dg-block">
+    <p class="dg-sub">Thang cỡ chữ</p>
+    <p class="meta dg-sub-note">Sáu bậc là đủ cho mọi màn hình; mỗi bậc có một chỗ dùng cố định.</p>
+    <div class="dg-scale">
+      {% for token, value, usage in type_steps %}
+      <div class="dg-scale-row">
+        <code class="mono dg-swatch-name">{{ token }}</code>
+        <span class="mono meta dg-scale-val">{{ value }}</span>
+        <span class="dg-scale-spec" style="font-size: var({{ token }})">Tính RVC cho mã hàng GW-INV-5000TL</span>
+        <span class="meta dg-scale-usage">{{ usage }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="dg-block">
+    <p class="dg-sub">Số thẳng cột (tabular numerics)</p>
+    <p class="meta dg-sub-note">Dùng cho mọi con số trong bảng — tiền, lượng, phần trăm, mã số. Bảng trái là sai, bảng phải là đúng.</p>
+    <div class="dg-split">
+      <div>
+        <p class="meta dg-split-title">Sai — chữ thường, canh trái, không thẳng cột</p>
+        <div class="table-scroll">
+          <table class="table">
+            <thead>
+              <tr><th>Nguyên vật liệu</th><th>Trị giá (VND)</th><th>Đơn giá (USD)</th></tr>
+            </thead>
+            <tbody>
+              {% for name, vnd, usd in numeric_sample %}
+              <tr><td>{{ name }}</td><td>{{ vnd }}</td><td>{{ usd }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <p class="meta dg-split-title">Đúng — mono, tabular-nums, canh phải</p>
+        <div class="table-scroll">
+          <table class="table">
+            <thead>
+              <tr><th>Nguyên vật liệu</th><th class="dg-th-num">Trị giá (VND)</th><th class="dg-th-num">Đơn giá (USD)</th></tr>
+            </thead>
+            <tbody>
+              {% for name, vnd, usd in numeric_sample %}
+              <tr>
+                <td>{{ name }}</td>
+                <td class="num{{ ' neg' if vnd.startswith('-') }}">{{ vnd }}</td>
+                <td class="num{{ ' neg' if usd.startswith('-') }}">{{ usd }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 3. Nút ──────────────────────────────────────────────────────────── -->
+<section class="zone" id="buttons">
+  <div class="zone-head">
+    <div>
+      <h2>3. Nút (buttons)</h2>
+      <p class="meta">Dùng khi cần một hành động: mỗi màn hình chỉ có một nút chính, phần còn lại là phụ, mờ hoặc nguy hiểm.</p>
+    </div>
+  </div>
+
+  <div class="dg-block">
+    <p class="dg-sub">Bốn kiểu</p>
+    <p class="meta dg-sub-note">Chính = việc quan trọng nhất màn hình; phụ = việc thường; mờ = việc ít dùng; nguy hiểm = việc không hoàn tác được.</p>
+    <div class="dg-row">
+      <button type="button" class="btn-primary">Chốt bảng kê</button>
+      <button type="button" class="btn-secondary">Tính lại</button>
+      <button type="button" class="btn-ghost">Bỏ qua</button>
+      <button type="button" class="btn-danger">Gỡ chốt tồn</button>
+    </div>
+  </div>
+
+  <div class="dg-block">
+    <p class="dg-sub">Ba cỡ</p>
+    <p class="meta dg-sub-note">Cỡ mặc định cho thanh hành động của trang; sm cho thanh công cụ; xs cho nút nằm trong dòng bảng.</p>
+    <div class="dg-row">
+      <button type="button" class="btn-primary">Mặc định</button>
+      <button type="button" class="btn-primary btn-sm">Cỡ sm</button>
+      <button type="button" class="btn-primary btn-xs">Cỡ xs</button>
+      <button type="button" class="btn-secondary">Mặc định</button>
+      <button type="button" class="btn-secondary btn-sm">Cỡ sm</button>
+      <button type="button" class="btn-secondary btn-xs">Cỡ xs</button>
+    </div>
+  </div>
+
+  <div class="dg-block">
+    <p class="dg-sub">Đã khoá</p>
+    <p class="meta dg-sub-note">Nút bị chặn phải nhìn ra ngay là không bấm được, không chỉ hiện tooltip khi rê chuột.</p>
+    <div class="dg-row">
+      <button type="button" class="btn-primary" disabled>Chốt bảng kê</button>
+      <button type="button" class="btn-secondary" disabled>Tính lại</button>
+      <button type="button" class="btn-ghost" disabled>Bỏ qua</button>
+      <button type="button" class="btn-danger" disabled>Gỡ chốt tồn</button>
+    </div>
+  </div>
+
+  <div class="dg-block">
+    <p class="dg-sub">Có biểu tượng</p>
+    <p class="meta dg-sub-note">Biểu tượng đứng trước chữ, cỡ 14px, chỉ dùng khi nó nói thêm được điều chữ không nói.</p>
+    <div class="dg-row">
+      <button type="button" class="btn-primary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+        Chốt tất cả bảng kê
+      </button>
+      <button type="button" class="btn-secondary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        Tải bảng kê .xlsx
+      </button>
+      <button type="button" class="btn-danger btn-sm">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+        Xoá hồ sơ
+      </button>
+    </div>
+  </div>
+
+  <div class="dg-block">
+    <p class="dg-sub">Nhóm nút</p>
+    <p class="meta dg-sub-note">Dùng khi các nút là những lựa chọn loại trừ nhau của cùng một việc.</p>
+    <div class="dg-row">
+      <span class="btn-group">
+        <button type="button" class="btn-secondary btn-sm">Tất cả</button>
+        <button type="button" class="btn-secondary btn-sm">Chưa chốt</button>
+        <button type="button" class="btn-secondary btn-sm">Đã chốt</button>
+      </span>
+      <span class="btn-group">
+        <button type="button" class="btn-secondary btn-xs">VND</button>
+        <button type="button" class="btn-secondary btn-xs">USD</button>
+        <button type="button" class="btn-secondary btn-xs">CNY</button>
+      </span>
+    </div>
+  </div>
+</section>
+
+<!-- ── 4. Nhãn ─────────────────────────────────────────────────────────── -->
+<section class="zone" id="badges">
+  <div class="zone-head">
+    <div>
+      <h2>4. Nhãn (badges)</h2>
+      <p class="meta">Dùng khi cần nói trạng thái của một dòng hay một khối bằng một hai chữ; không dùng thay cho câu giải thích.</p>
+    </div>
+  </div>
+
+  <div class="dg-block">
+    <p class="dg-sub">Sáu loại ngữ nghĩa</p>
+    <p class="meta dg-sub-note">Sáu loại này là toàn bộ bảng màu nhãn — không thêm màu mới cho một màn hình riêng.</p>
+    <div class="dg-row">
+      <span class="badge badge-error">Lỗi</span>
+      <span class="badge badge-warning">Cần soát</span>
+      <span class="badge badge-info">Thông tin</span>
+      <span class="badge badge-success">Đạt</span>
+      <span class="badge badge-neutral">Chưa có</span>
+      <span class="badge badge-brand">Dữ liệu nguồn</span>
+    </div>
+    <p class="meta dg-sub-note">Loại thứ bảy chỉ dành cho mặt logic (chàm), không dùng cho dữ liệu:</p>
+    <div class="dg-row">
+      <span class="badge badge-logic">Máy luật</span>
+      <span class="badge badge-logic">Tiêu chí ghi đè</span>
+    </div>
+  </div>
+
+  <div class="dg-block">
+    <p class="dg-sub">Trạng thái thật của ứng dụng</p>
+    <p class="meta dg-sub-note">Đây là các trạng thái hồ sơ và bảng kê CO đang dùng — dùng đúng nhãn này, không đặt tên khác.</p>
+    <div class="dg-statuses">
+      <div class="dg-status-row">
+        <code class="mono dg-status-key">origin_sheet_status = draft</code>
+        <span class="origin-sheet-status-pill origin-sheet-state-draft">Nháp — chưa tính</span>
+      </div>
+      <div class="dg-status-row">
+        <code class="mono dg-status-key">status_key = progress</code>
+        <span class="co-status co-status-progress">Đang xử lý</span>
+      </div>
+      <div class="dg-status-row">
+        <code class="mono dg-status-key">status_key = done</code>
+        <span class="co-status co-status-done">Đã chốt</span>
+      </div>
+      <div class="dg-status-row">
+        <code class="mono dg-status-key">origin_sheet_status = locked</code>
+        <span class="origin-sheet-status-pill origin-sheet-state-locked">🔒 Đã khoá</span>
+      </div>
+      <div class="dg-status-row">
+        <code class="mono dg-status-key">status_key = attention</code>
+        <span class="co-status co-status-attention">Lỗi — có vấn đề</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="dg-block">
+    <p class="dg-sub">Nhãn phụ trong dòng</p>
+    <p class="meta dg-sub-note">Dùng cho ghi chú nhỏ đi kèm trạng thái chính, ví dụ đã xuất hoặc thiếu chứng từ.</p>
+    <div class="dg-row">
+      <small class="co-tag co-tag-ok">✓ Đã xuất</small>
+      <small class="co-tag co-tag-warn">Thiếu B/L</small>
+      <small class="co-tag co-tag-warn">2 bảng kê chưa chốt</small>
+    </div>
+  </div>
+</section>
+
+<!-- ── 5. Bảng ─────────────────────────────────────────────────────────── -->
+<section class="zone" id="tables">
+  <div class="zone-head">
+    <div>
+      <h2>5. Bảng (tables)</h2>
+      <p class="meta">Dùng khi dữ liệu có nhiều dòng cùng cấu trúc; lưới trên khoảng 30 dòng thì đổi sang biến thể dense.</p>
+    </div>
+  </div>
+
+  <div class="dg-block">
+    <p class="dg-sub">Bảng chuẩn — đầu bảng dính, hover, dòng đang chọn, số canh phải</p>
+    <p class="meta dg-sub-note">Cuộn trong khung để thấy đầu bảng dính; dòng 2 đang hover, dòng 3 đang chọn, số âm dùng màu lỗi.</p>
+    <div class="table-scroll dg-tablebox">
+      <table class="table table-sticky">
+        <thead>
+          <tr>
+            <th>Mã NVL</th>
+            <th>Tên nguyên vật liệu</th>
+            <th>Mã HS</th>
+            <th>ĐVT</th>
+            <th class="dg-th-num">Lượng</th>
+            <th class="dg-th-num">Đơn giá (USD)</th>
+            <th class="dg-th-num">Trị giá (VND)</th>
+            <th>Xuất xứ</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="mono">NVL-04182</td>
+            <td>Khung nhôm định hình 6063-T5</td>
+            <td class="mono">7604.29.90</td>
+            <td>KG</td>
+            <td class="num">12.480,000</td>
+            <td class="num">2,8450</td>
+            <td class="num">1.284.500.000</td>
+            <td><span class="badge badge-success">Có xuất xứ</span></td>
+          </tr>
+          <tr class="dg-row-hover">
+            <td class="mono">NVL-04183</td>
+            <td>Tôn mạ kẽm dày 0,5 mm</td>
+            <td class="mono">7210.49.19</td>
+            <td>KG</td>
+            <td class="num">3.204,500</td>
+            <td class="num">1,2040</td>
+            <td class="num">98.320.400</td>
+            <td><span class="badge badge-neutral">Không xuất xứ</span></td>
+          </tr>
+          <tr class="is-selected">
+            <td class="mono">NVL-04190</td>
+            <td>Bo mạch điều khiển MPPT</td>
+            <td class="mono">8537.10.99</td>
+            <td>PCE</td>
+            <td class="num">1.250,000</td>
+            <td class="num">241,7500</td>
+            <td class="num">7.410.925.300</td>
+            <td><span class="badge badge-success">Có xuất xứ</span></td>
+          </tr>
+          <tr>
+            <td class="mono">NVL-04211</td>
+            <td>Ốc vít inox M6×20</td>
+            <td class="mono">7318.15.90</td>
+            <td>PCE</td>
+            <td class="num">48.000,000</td>
+            <td class="num">0,0035</td>
+            <td class="num">412.000</td>
+            <td><span class="badge badge-warning">Chưa rõ</span></td>
+          </tr>
+          <tr>
+            <td class="mono">NVL-04244</td>
+            <td>Dây cáp DC 4 mm² bọc XLPE</td>
+            <td class="mono">8544.49.29</td>
+            <td>MET</td>
+            <td class="num">2.480,000</td>
+            <td class="num">0,4120</td>
+            <td class="num">25.104.800</td>
+            <td><span class="badge badge-success">Có xuất xứ</span></td>
+          </tr>
+          <tr>
+            <td class="mono">ADJ-0001</td>
+            <td>Chênh lệch điều chỉnh kỳ trước</td>
+            <td class="mono">—</td>
+            <td>—</td>
+            <td class="num">—</td>
+            <td class="num">—</td>
+            <td class="num neg">-15.600.750</td>
+            <td><span class="badge badge-neutral">Không áp dụng</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="dg-block">
+    <p class="dg-sub">Biến thể dense</p>
+    <p class="meta dg-sub-note">Mặc định cho mọi lưới dài: cùng cấu trúc, ô hẹp hơn và chữ nhỏ hơn một bậc.</p>
+    <div class="table-scroll dg-tablebox">
+      <table class="table dense table-sticky">
+        <thead>
+          <tr>
+            <th>Tờ khai nhập</th>
+            <th>Ngày</th>
+            <th>Mã NVL</th>
+            <th>Tên nguyên vật liệu</th>
+            <th class="dg-th-num">Tồn đầu</th>
+            <th class="dg-th-num">Trừ lùi</th>
+            <th class="dg-th-num">Tồn cuối</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="mono">306512478930</td><td class="mono">02/03/2026</td><td class="mono">NVL-04182</td><td>Khung nhôm định hình 6063-T5</td><td class="num">18.400,000</td><td class="num">12.480,000</td><td class="num">5.920,000</td></tr>
+          <tr><td class="mono">306512478930</td><td class="mono">02/03/2026</td><td class="mono">NVL-04183</td><td>Tôn mạ kẽm dày 0,5 mm</td><td class="num">9.000,000</td><td class="num">3.204,500</td><td class="num">5.795,500</td></tr>
+          <tr><td class="mono">306488120117</td><td class="mono">18/02/2026</td><td class="mono">NVL-04190</td><td>Bo mạch điều khiển MPPT</td><td class="num">1.400,000</td><td class="num">1.250,000</td><td class="num">150,000</td></tr>
+          <tr><td class="mono">306488120117</td><td class="mono">18/02/2026</td><td class="mono">NVL-04211</td><td>Ốc vít inox M6×20</td><td class="num">50.000,000</td><td class="num">48.000,000</td><td class="num">2.000,000</td></tr>
+          <tr><td class="mono">306401993255</td><td class="mono">04/02/2026</td><td class="mono">NVL-04244</td><td>Dây cáp DC 4 mm² bọc XLPE</td><td class="num">2.100,000</td><td class="num">2.480,000</td><td class="num neg">-380,000</td></tr>
+          <tr><td class="mono">306401993255</td><td class="mono">04/02/2026</td><td class="mono">NVL-04301</td><td>Keo silicon trung tính RTV-1</td><td class="num">640,000</td><td class="num">118,400</td><td class="num">521,600</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ── 6. Biểu mẫu ─────────────────────────────────────────────────────── -->
+<section class="zone" id="forms">
+  <div class="zone-head">
+    <div>
+      <h2>6. Biểu mẫu (forms)</h2>
+      <p class="meta">Dùng khi người dùng nhập dữ liệu: mỗi trường là một khối <span class="mono">.fld</span> gồm nhãn, ô nhập và một dòng gợi ý hoặc lỗi.</p>
+    </div>
+  </div>
+
+  <div class="form-surface dg-block">
+    <div class="fs-grid">
+      <label class="fld">
+        <span>Số invoice</span>
+        <input type="text" value="INV-GW-2026-0331">
+      </label>
+      <label class="fld fld-mono">
+        <span>Số lượng thành phẩm</span>
+        <input type="number" value="1250" step="1">
+      </label>
+      <label class="fld">
+        <span>Thị trường xuất khẩu</span>
+        <select>
+          <option>Trung Quốc — Form E</option>
+          <option selected>Hàn Quốc — Form AK</option>
+          <option>ASEAN — Form D</option>
+        </select>
+      </label>
+      <label class="fld fld-mono">
+        <span>Mã HS thành phẩm</span>
+        <input type="text" value="8541.43.00">
+        <span class="hint">Sáu số đầu phải trùng mã HS đã khai trên tờ khai xuất.</span>
+      </label>
+      <label class="fld fs-grid-wide">
+        <span>Ghi chú hồ sơ</span>
+        <textarea rows="3">Lô này gộp hai tờ khai nhập 306512478930 và 306488120117; phần thiếu tồn đã thay bằng lô ngày 04/02/2026.</textarea>
+      </label>
+      <label class="fld fld-mono fld-error">
+        <span>Đơn giá FOB (USD)</span>
+        <input type="text" value="0" aria-invalid="true">
+        <span class="err">Đơn giá bằng 0 — không tính được RVC. Nhập đơn giá trước khi chốt bảng kê.</span>
+      </label>
+      <label class="fld">
+        <span>Tỷ giá hải quan (đã khoá)</span>
+        <input type="text" value="24.850" disabled>
+        <span class="hint">Lấy theo ngày đăng ký tờ khai xuất, không sửa tay được.</span>
+      </label>
+      <div class="fld fld-check fs-grid-wide">
+        <span>Tuỳ chọn khi chốt</span>
+        <label class="fs-check-line">
+          <input type="checkbox" checked>
+          <span>Sinh BOM artifact mới sau khi chốt</span>
+        </label>
+        <label class="fs-check-line">
+          <input type="checkbox">
+          <span>Gộp các dòng cùng mã NVL trên bảng kê</span>
+        </label>
+        <span class="hint">Gộp dòng chỉ đổi cách trình bày bảng kê, không đổi kết quả tính RVC.</span>
+      </div>
+      <div class="fld fs-grid-wide">
+        <span>Công tắc</span>
+        <div class="dg-switch-line">
+          <button type="button" class="sw on" role="switch" aria-checked="true" aria-label="Tự động lưu"></button>
+          <span>Tự động lưu bảng kê mỗi 30 giây</span>
+        </div>
+        <div class="dg-switch-line">
+          <button type="button" class="sw" role="switch" aria-checked="false" aria-label="Hiện dòng đã loại"></button>
+          <span>Hiện cả dòng đã loại khỏi bảng kê</span>
+        </div>
+        <div class="dg-switch-line">
+          <button type="button" class="sw" role="switch" aria-checked="false" aria-label="Khoá tồn theo hồ sơ" disabled></button>
+          <span class="meta">Khoá tồn theo hồ sơ — đã chốt nên không đổi được</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 7. Thẻ, ô số, ghi chú, rỗng, đường ống ──────────────────────────── -->
+<section class="zone" id="surfaces">
+  <div class="zone-head">
+    <div>
+      <h2>7. Thẻ, ô số, ghi chú, trạng thái rỗng, đường ống</h2>
+      <p class="meta">Dùng khi dựng thân trang: mỗi khối nội dung nằm trong một thẻ, các con số tổng nằm ở đầu trang.</p>
+    </div>
+  </div>
+
+  <div class="dg-block">
+    <p class="dg-sub">Thẻ (card)</p>
+    <p class="meta dg-sub-note">Đầu thẻ là tiêu đề 13px cộng hành động đẩy về phải; chân thẻ là chú thích trên nền chìm.</p>
+    <div class="form-surface">
+      <div class="fs-card">
+        <div class="fs-card-h">
+          <h3>Bảng kê C/O — GW-INV-5000TL</h3>
+          <div class="fs-h-r">
+            <button type="button" class="btn-secondary btn-sm">Tính lại</button>
+            <button type="button" class="btn-primary btn-sm">Chốt</button>
+          </div>
+          <p class="fs-sub">Form AK · Hàn Quốc · tiêu chí RVC 40%</p>
+        </div>
+        <div class="fs-card-b">
+          <div class="fs-kv">
+            <div class="fs-kv-row"><span class="fs-kv-k">Hồ sơ</span><span class="fs-kv-v mono">CO-2026-0148</span></div>
+            <div class="fs-kv-row"><span class="fs-kv-k">Invoice</span><span class="fs-kv-v mono">INV-GW-2026-0331</span></div>
+            <div class="fs-kv-row"><span class="fs-kv-k">Tờ khai xuất</span><span class="fs-kv-v mono">306700841299</span></div>
+            <div class="fs-kv-row"><span class="fs-kv-k">Kết quả</span><span class="fs-kv-v">RVC đạt 62,4% (ngưỡng 40%)</span></div>
+          </div>
+        </div>
+        <div class="fs-card-f">
+          <span class="fs-f-note">Tính lúc 14:32 ngày 19/08/2026 · 39 dòng NVL · 4 dòng thiếu tồn đã thay thế.</span>
+          <button type="button" class="btn-secondary btn-sm">Xem lịch sử</button>
+        </div>
+      </div>
+    </div>
+    <p class="meta dg-sub-note">Khối bao ngoài của mọi mục trên trang này là <span class="mono">.zone</span> — thẻ dùng chung của ứng dụng.</p>
+  </div>
+
+  <div class="dg-block">
+    <p class="dg-sub">Ô số (stat tile)</p>
+    <p class="meta dg-sub-note">Dùng cho con số tổng của màn hình; chỉ tô màu con số khi màu đó mang nghĩa.</p>
+    <div class="co-case-stats dg-stats">
+      <div class="co-stat is-muted"><strong>87</strong><span>Tổng hồ sơ</span></div>
+      <div class="co-stat is-progress"><strong>14</strong><span>Đang xử lý</span></div>
+      <div class="co-stat is-done"><strong>68</strong><span>Đã chốt</span></div>
+      <div class="co-stat is-attention"><strong>5</strong><span>Có vấn đề</span></div>
+      <div class="co-stat is-muted"><strong>1.019</strong><span>Dòng NVL</span></div>
+    </div>
+  </div>
+
+  <div class="dg-block">
+    <p class="dg-sub">Ghi chú (callout)</p>
+    <p class="meta dg-sub-note">Dùng cho lời giải thích gắn ngay với ngữ cảnh; thông báo sau một thao tác thì dùng toast.</p>
+    <div class="dg-col">
+      <div class="callout">Tồn CO lấy từ bản chụp BCCT ngày 19/08/2026. Bấm “Làm mới tồn” nếu vừa nhập thêm tờ khai.</div>
+      <div class="callout callout-info"><span class="callout-title">Tiêu chí lấy từ cấu hình công ty</span> — RVC 40% là ghi đè của công ty, không phải mặc định của Form AK.</div>
+      <div class="callout callout-success">Đã chốt 5/5 bảng kê. Hồ sơ sẵn sàng xuất .zip.</div>
+      <div class="callout callout-warning">4 dòng NVL thiếu tồn ở lô gốc; hệ thống đã đề xuất lô thay thế ngày 04/02/2026.</div>
+      <div class="callout callout-error">2 dòng NVL không có đơn giá. Không tính được RVC và không chốt được bảng kê.</div>
+    </div>
+  </div>
+
+  <div class="dg-block">
+    <p class="dg-sub">Trạng thái rỗng (empty state)</p>
+    <p class="meta dg-sub-note">Dùng khi danh sách không có dòng nào: nói rõ vì sao rỗng và bước tiếp theo là gì.</p>
+    <div class="dash-empty">
+      <p class="dash-empty-title">Chưa có hồ sơ C/O nào.</p>
+      <p class="meta">Mỗi hồ sơ gom invoice/tờ khai, chứng từ, đánh giá RVC/CTSH và xuất bộ dossier nộp. Dữ liệu BOM và BCCT lấy sẵn từ Data Hub.</p>
+      <button type="button" class="btn-primary">Tạo hồ sơ C/O đầu tiên →</button>
+    </div>
+    <p class="meta dg-sub-note">Trong ô của bảng, dòng rỗng dùng <span class="mono">.empty-cell</span>:</p>
+    <div class="table-scroll">
+      <table class="table">
+        <thead><tr><th>Mã NVL</th><th>Tên nguyên vật liệu</th><th class="dg-th-num">Tồn cuối</th></tr></thead>
+        <tbody><tr><td colspan="3" class="empty-cell">Không có dòng nào khớp bộ lọc hiện tại.</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="dg-block">
+    <p class="dg-sub">Đường ống (rail)</p>
+    <p class="meta dg-sub-note">Dùng ở mọi màn hình thuộc một quy trình: hiện đủ các bước, đánh dấu bước hiện tại, làm mờ bước đã xong.</p>
+    <div class="rail dg-rail">
+      {% for num, label, state in rail_steps %}
+      <button type="button" class="rail-s {{ state }}"><span class="n">{{ num }}</span>{{ label }}</button>
+      {% endfor %}
+      <span class="rail-note">Hồ sơ <span class="mono">CO-2026-0148</span> · 3/5 bước</span>
+    </div>
+  </div>
+</section>
+
+<!-- ── 8. Hộp thoại và toast ───────────────────────────────────────────── -->
+<section class="zone" id="overlays">
+  <div class="zone-head">
+    <div>
+      <h2>8. Hộp thoại và toast</h2>
+      <p class="meta">Hộp thoại dùng khi cần một quyết định trước khi đi tiếp; toast dùng để báo kết quả một thao tác vừa xong.</p>
+    </div>
+  </div>
+
+  <div class="dg-block">
+    <p class="dg-sub">Hộp thoại xác nhận</p>
+    <p class="meta dg-sub-note">Dựng tại chỗ để thấy được trong ảnh chụp — trong ứng dụng thật nó nằm giữa lớp phủ <span class="mono">.modal-backdrop</span>.</p>
+    <div class="dg-modal-stage">
+      <section class="confirm-modal" role="group" aria-label="Xác nhận chốt bảng kê">
+        <span class="eyebrow">Chốt bảng kê</span>
+        <h2>Chốt bảng kê GW-INV-5000TL?</h2>
+        <p class="meta">Chốt sẽ trừ tồn CO theo 39 dòng NVL và khoá bảng kê. Muốn sửa phải gỡ chốt, và thao tác gỡ được ghi vào lịch sử.</p>
+        <div class="confirm-modal-warning">4 dòng dùng lô thay thế — kiểm tra lại trước khi chốt.</div>
+        <div class="confirm-modal-actions">
+          <button type="button" class="btn-secondary">Huỷ</button>
+          <button type="button" class="btn-primary">Chốt bảng kê</button>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div class="dg-block">
+    <p class="dg-sub">Toast</p>
+    <p class="meta dg-sub-note">Một câu, tự tắt sau 5 giây, không chứa nút. Việc cần người dùng bấm thì dùng ghi chú hoặc hộp thoại.</p>
+    <div class="dg-toast-stage">
+      <div class="ui-toast">Đã lưu bảng kê. 39 dòng, cập nhật lúc 14:32.</div>
+      <div class="ui-toast ui-toast-error">Không chốt được: 2 dòng NVL thiếu đơn giá.</div>
+    </div>
+  </div>
+</section>
+
+<script>
+  // Điền giá trị thật của từng token theo chủ đề đang bật. Đọc từ body vì bảng
+  // màu nằm ở body[data-theme], không nằm ở :root.
+  (function () {
+    var style = window.getComputedStyle(document.body);
+    document.querySelectorAll("[data-dg-token]").forEach(function (el) {
+      var value = style.getPropertyValue(el.dataset.dgToken).trim();
+      el.textContent = value || "(chưa định nghĩa)";
+      if (!value) el.classList.add("dg-swatch-missing");
+    });
+  })();
+</script>
+{% endblock %}
