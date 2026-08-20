@@ -3781,6 +3781,23 @@ button.co-stat:hover {
   color: var(--foreground-muted);
 }
 
+/* Trên tab sheet chỉ còn chỗ cho một từ — dùng màu chữ thay cho chip viền tròn. */
+.origin-sheet-tab-cond {
+  font-weight: 700;
+}
+
+.origin-sheet-tab-cond-attention {
+  color: var(--warning);
+}
+
+.origin-sheet-tab-cond-stale {
+  color: var(--foreground-muted);
+}
+
+.origin-sheet-tab-cond-ready {
+  color: var(--success);
+}
+
 .origin-sheet-actions {
   display: inline-flex;
   flex-wrap: wrap;

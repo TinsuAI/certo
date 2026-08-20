@@ -183,6 +183,11 @@
         <p class="fs-sub">Bật/tắt thao tác hàng loạt trên bảng kê NVL của công ty này.</p>
       </div>
       <div class="fs-card-b">
+        {# Ô tick bỏ trống thì trình duyệt KHÔNG gửi field lên, nên "vắng mặt" tự nó
+           không phân biệt được "form này có phần Tính năng và người dùng bỏ tick"
+           với "POST không hề mang phần Tính năng". Field ẩn này là mốc: có nó thì
+           route mới đọc ô tick, không có thì giữ nguyên giá trị đang lưu. #}
+        <input type="hidden" name="features_section" value="1">
         <label class="fld fld-check">
           <span class="fs-check-line">
             <input type="checkbox" name="features_bulk_delete_junk_rows" value="1"

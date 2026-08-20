@@ -137,6 +137,9 @@ def test_features_bulk_delete_checkbox_absent_is_off(monkeypatch):
     req = _FakeReq({
         "co_stock_lot_policy": "line_level",
         "allocation_code_strategy": "same_as_customs_code",
-    })  # unchecked → field absent
+        # Unchecked → the checkbox field is absent, but the form still stamps
+        # `features_section`, which is what makes absence readable as "off".
+        "features_section": "1",
+    })
     asyncio.run(pages.save_client_config_route(req, "growatt-vn"))
     assert saved["config"]["features"]["bulk_delete_junk_rows"] is False

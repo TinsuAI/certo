@@ -2099,10 +2099,16 @@
             data-origin-sequence-index="{{ loop.index0 }}"
             data-origin-sheet-tab
             data-origin-sheet-target="origin-sheet-{{ loop.index0 }}"
-            title="{% if not tab_has_bom %}TP {{ product.code }} chưa có BOM trên Data Hub{% endif %}">
+            title="{% if not tab_has_bom %}TP {{ product.code }} chưa có BOM trên Data Hub{% elif product.origin_sheet_condition and product.origin_sheet_condition.detail %}{{ product.origin_sheet_condition.detail }}{% endif %}">
             <span class="origin-sheet-tab-seq">Bước <span data-origin-sequence-label>{{ product.allocation_sequence or loop.index }}</span></span>
             <strong class="mono">{{ product.code }} {% if not tab_has_bom %}<em class="origin-sheet-tab-no-bom-mark">⚠</em>{% endif %}</strong>
-            <small>{{ product.origin_sheet_status_label or 'Chưa tính' }} · {{ product.materials|length }} NVL</small>
+            {# Cùng cách đọc hai trục như hàng review và thanh công cụ sheet: nhãn
+               cũ ở đây làm sheet "đã tính nhưng bị chặn" hiện y hệt sheet chưa
+               tính bao giờ. Tab hẹp nên tình trạng rút gọn còn phần sau dấu hai
+               chấm ("thiếu tồn"), chi tiết đầy đủ nằm ở title. #}
+            {% set _tab_prog = product.origin_sheet_progress %}
+            {% set _tab_cond = product.origin_sheet_condition %}
+            <small>{{ _tab_prog.label or 'Chưa tính' }}{% if _tab_cond and _tab_cond.label %} · <span class="origin-sheet-tab-cond origin-sheet-tab-cond-{{ _tab_cond.key }}">{{ _tab_cond.label.split(': ')[-1] }}</span>{% endif %} · {{ product.materials|length }} NVL</small>
           </button>
           {% endfor %}
         </div>

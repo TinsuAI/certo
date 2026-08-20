@@ -98,7 +98,23 @@ def test_partial_config_post_keeps_the_fields_it_does_not_carry(monkeypatch):
     assert cfg["allocation_code"]["strategy"] == "description_regex"
     assert cfg["allocation_code"]["description_regex"] == r"\(([A-Z0-9][A-Z0-9._/-]{3,})\)"
     assert cfg["allocation_code"]["fallback"] == "customs_code"
+    # The feature flag is a checkbox, so absence is ambiguous on its own. This
+    # POST carries no `features_section` marker, so it did not carry the
+    # features card either — the stored flag must survive.
+    assert cfg["features"]["bulk_delete_junk_rows"] is True
     assert refreshed, "a config change must still rebuild the indexes"
+
+
+def test_checkbox_only_clears_when_its_section_was_submitted(monkeypatch):
+    saved: dict = {}
+    refreshed: list = []
+    _patch_service(monkeypatch, saved, refreshed)
+
+    # The real form always stamps `features_section`; an unchecked box then
+    # legitimately means off.
+    asyncio.run(pages.save_client_config_route(
+        _FakeReq({"co_stock_lot_policy": "line_level", "features_section": "1"}), "growatt-vn"))
+    assert saved["config"]["features"]["bulk_delete_junk_rows"] is False
 
 
 def test_empty_description_regex_still_clears_it(monkeypatch):

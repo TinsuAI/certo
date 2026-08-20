@@ -40,6 +40,7 @@ _CONFIG_FORM_FIELDS = frozenset({
     "allocation_code_strategy",
     "description_regex",
     "allocation_code_fallback",
+    "features_section",
     "features_bulk_delete_junk_rows",
 })
 
@@ -365,12 +366,15 @@ async def save_client_config_route(request: Request, client_id: str):
         config["allocation_code"]["description_regex"] = str(form.get("description_regex") or "")
     if "allocation_code_fallback" in form:
         config["allocation_code"]["fallback"] = str(form.get("allocation_code_fallback") or "same_as_customs_code")
-    # Unchecked checkbox = field absent → False. Only readable as "off" because
-    # we already know this POST carries the config form; a POST that carries no
-    # config field at all returned above without touching the flag.
-    config.setdefault("features", {})["bulk_delete_junk_rows"] = (
-        form.get("features_bulk_delete_junk_rows") == "1"
-    )
+    # Unchecked checkbox = field absent, so absence alone cannot be read as
+    # "off" — a POST that simply does not carry the features section looks
+    # identical. `features_section` is the hidden marker the form stamps: with
+    # it, the checkbox is authoritative (present → on, absent → off); without
+    # it, the stored flag is left alone.
+    if "features_section" in form or "features_bulk_delete_junk_rows" in form:
+        config.setdefault("features", {})["bulk_delete_junk_rows"] = (
+            form.get("features_bulk_delete_junk_rows") == "1"
+        )
     try:
         portfolio_service.save_client_config(client, config)
     except ValueError as exc:
