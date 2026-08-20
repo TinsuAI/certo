@@ -42,11 +42,10 @@ orphan), client workspace as a status board, admin and jobs pages, login screen,
 
 ## Known open items
 
-1. **CO `save_client_config_route` (`pages.py:332-340`)** — the second half is not
-   presence-gated, so a partial POST resets `allocation_code_strategy` to
-   `same_as_customs_code`. Measured effect: growatt-vn drops from 2,145/2,236 BOM
-   matches to 101/2,236, then `refresh_client_indexes` runs. Pre-existing bug,
-   found while mapping the config flow. Not fixed this round.
+1. ~~**CO `save_client_config_route`** — a partial POST reset the CO-owned config
+   from defaults.~~ **Fixed** (`f42ecb5`): presence-gated field by field, and a
+   POST carrying no config field at all no longer saves or rebuilds the indexes.
+   Three regression tests in `tests/test_config_partial_post_preserves.py`.
 2. **CO origin step renders the whole case in one document** — 3,992,010 bytes for
    a real Johnson case, 15,414 hidden inputs, 274,908 bytes of inline JS shipped
    on all five case steps. `?sheet=` does not reduce it. Fixing it needs a route
@@ -59,6 +58,17 @@ orphan), client workspace as a status board, admin and jobs pages, login screen,
    the real route is `…/bcct/upload/mapping/{uid}` (`bcct.py:325`).
 6. **BCCT is the only ingest flow with no reject route** — the other five have
    `…/preview/{id}/reject`; a wrong BCCT file survives until expiry.
+
+## Sheet state, two axes (`cf08192`)
+
+`origin_sheet_status` mixed progress, an action result and a verdict in one
+badge, and `bom_loaded` covered both "chưa tính" and "đã tính nhưng bị chặn".
+Split into `origin_sheet_progress` (Chưa tính → Đã tính → Đã chốt, driven by the
+has-been-calculated bit, not the stored status) and `origin_sheet_condition`
+(Cần tính lại → Cần xử lý: <lý do> → Sẵn sàng chốt). The two chips render side by
+side; the verdict no longer replaces the progress badge. `locked`'s label became
+`Đã chốt`. Presentation only — stored statuses and the lock/export gates are
+untouched. 11 tests in `tests/test_origin_sheet_two_axis.py`.
 
 ## Tests
 
