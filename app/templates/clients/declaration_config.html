@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Cấu hình loại hình · {{ client.name }}{% endblock %}
 {% block content %}
-{% include "_client_nav.html" %}
+{# Trang này tự dựng thanh tiêu đề riêng (có tiêu đề cụ thể hơn), nên không
+   include "_client_nav.html" nữa — nếu include sẽ ra hai thanh tiêu đề chồng
+   nhau. Điều hướng khu làm việc nằm ở thanh bên (_sidebar.html). #}
 
 <section class="page-bar">
   <h1>Cấu hình loại hình tờ khai</h1>
