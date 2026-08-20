@@ -41,12 +41,7 @@ KNOWN GAPS — this file is a diagnostic tool, not yet a gate:
    `persisted_case_id` present, HTTP 200), so the difference is in the world, not
    the request. Until that is explained the harness cannot be trusted to catch
    the defect it was written for.
-2. `downstream_not_silently_stale` cannot separate "was not recalculated" from
-   "was recalculated and nothing moved". Seeding the two sheets to contend for
-   one scarce material did not change the verdict, so the seeded stock is not
-   the lever assumed — the invariant needs a positive signal that a sheet was
-   recomputed (a stamp), not an inference from unchanged bytes.
-3. The world is not isolated between runs: conftest isolates the DB schema in
+2. The world is not isolated between runs: conftest isolates the DB schema in
    DB-mode only, and file-mode source data persists in `data/`. Re-running may
    accumulate uploads.
 """
@@ -108,28 +103,6 @@ def _export_row(code: str, line_no: str, quantity: str) -> dict:
     }
 
 
-def _shared_material_bom(template: bytes) -> bytes:
-    """Point both products at one shared material.
-
-    The stock BOM template gives each product its own materials (NPL-001/002 vs
-    NPL-003/004). With disjoint materials, recalculating sheet 2 after sheet 1
-    changed produces byte-identical numbers, so "unchanged" cannot distinguish
-    "was not recalculated" from "was recalculated and nothing moved" — and
-    `downstream_not_silently_stale` fires on correct routes. Sharing NPL-001
-    makes sequential consumption real, which is the condition the invariant is
-    about in the first place.
-    """
-    workbook = load_workbook(BytesIO(template))
-    worksheet = workbook["BOM"]
-    for row in worksheet.iter_rows(min_row=2, values_only=False):
-        if row[0].value == "PV01.0117600" and row[3].value == "DEMO-NPL-003":
-            row[3].value = "DEMO-NPL-001"
-            row[4].value = "Main control board - seed"
-    stream = BytesIO()
-    workbook.save(stream)
-    return stream.getvalue()
-
-
 _SEEDED = False
 
 
@@ -156,16 +129,10 @@ def world() -> TestClient:
     uploaded = client.post(
         f"/clients/{CLIENT}/bom/upload",
         data={"upload_mode": "direct_bom"},
-        files={"file": ("bom.xlsx", _shared_material_bom(template.content), XLSX)},
+        files={"file": ("bom.xlsx", template.content, XLSX)},
     )
     assert uploaded.status_code == 200, uploaded.text[:200]
-    # NPL-001 is deliberately SCARCE: both products consume it (see
-    # `_shared_material_bom`) and total demand is 5 against 4 imported. Abundant
-    # stock makes the cascade unobservable — sheet 2 gets recalculated and lands
-    # on identical numbers, so "unchanged" says nothing. Under contention, any
-    # change to sheet 1's consumption moves sheet 2's allocation.
-    rows = [_import_row("DEMO-NPL-001", "NK-INVARIANT-1", quantity="4")]
-    rows += [_import_row(f"DEMO-NPL-00{n}", f"NK-INVARIANT-{n}") for n in (2, 3, 4)]
+    rows = [_import_row(f"DEMO-NPL-00{n}", f"NK-INVARIANT-{n}") for n in (1, 2, 3, 4)]
     rows += [_export_row("PV00.0048500", "1", "3"), _export_row("PV01.0117600", "2", "2")]
     ingested = client.post(
         f"/clients/{CLIENT}/bcct/upload",
@@ -260,6 +227,7 @@ def snapshot(client: TestClient, case_id: str) -> dict[str, dict]:
         materials = [m for m in (product.get("materials") or []) if not m.get("deleted")]
         out[code] = {
             "status": state.get("status") or "",
+            "calc_seq": int(state.get("calc_seq") or 0),
             "overrides": len(state.get("material_overrides") or {}),
             "codes": [str(m.get("material_code") or "") for m in materials],
             "rows": hashlib.sha256(
@@ -340,8 +308,10 @@ def _downstream_not_silently_stale(before: dict, after: dict, response, ctx: dic
 
     Stock is allocated sequentially down `origin_product_order`, so changing sheet
     N changes what is left for N+1… The violation is decidable from snapshots:
-    a later sheet that is byte-identical AND still `calculated` was neither
-    recalculated nor marked stale. `origin_codes_to_recalculate` (`co_case.py:690`)
+    Decided by `calc_seq`, the stamp `set_origin_sheet_status(..., calculated=True)`
+    bumps every time a sheet's numbers are recomputed. Inferring it from unchanged
+    bytes does not work: a sheet recomputed to identical numbers looks exactly
+    like one nobody touched. `origin_codes_to_recalculate` (`co_case.py:690`)
     cites the real case — johnson-vn VNG26030079, one substitute on sheet 1 left
     sheets 2-5 stale while the aggregate reported "đủ tồn cho tất cả SP".
     """
@@ -355,12 +325,12 @@ def _downstream_not_silently_stale(before: dict, after: dict, response, ctx: dic
         was, now = before.get(code), after.get(code)
         if not was or not now or now["status"] == "locked":
             continue
-        # Nothing about it moved — not its rows, not its status. The world is
-        # seeded so both sheets contend for one scarce material, so a sheet that
-        # was genuinely recalculated after an upstream change always moves.
-        if now["rows"] == was["rows"] and now["status"] == was["status"]:
+        recalculated = now["calc_seq"] > was["calc_seq"]
+        marked_stale = now["status"] != was["status"]
+        if not recalculated and not marked_stale:
             problems.append(
-                f"{code}: neither recalculated nor marked stale after {order[first]} changed"
+                f"{code}: neither recalculated (calc_seq {was['calc_seq']}) nor marked stale "
+                f"after {order[first]} changed"
             )
     return problems
 
@@ -485,12 +455,13 @@ ROUTES = [
     Route(
         "bulk-substitute", _run_bulk_substitute, needs_substitution=False,
         marks=(pytest.mark.xfail(
-            strict=False,
-            reason="UNDECIDED, see KNOWN GAPS: the route does cascade (mark_origin_sheets_stale + "
-                   "recalculate_origin_sheet_and_status, co_case.py:2056), but sheet 2 comes back "
-                   "byte-identical, and the snapshot cannot separate 'not recalculated' from "
-                   "'recalculated, nothing moved'. Seeding contention did not change the outcome, so "
-                   "the seeded stock is not the lever I assumed.",
+            strict=True,
+            reason="Does not cascade: substituting on sheet 1 leaves later sheets neither "
+                   "recalculated nor marked stale. Proven by calc_seq on the running app — "
+                   "calculate-all moved CHAIR01 1 / TABLE01 2, then bulk-substitute on CHAIR01 "
+                   "moved it to 3 while TABLE01 stayed at 2. The route does call "
+                   "mark_origin_sheets_stale + origin_codes_to_recalculate (co_case.py:2056), so "
+                   "the machinery is wired but does not fire. Found 2026-08-20; not fixed here.",
         ),),
     ),
     Route("bulk-delete-rac", _run_bulk_delete_rac),
