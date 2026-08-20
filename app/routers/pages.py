@@ -8,7 +8,7 @@ from app.bcct_aggregates import declaration_type_counts, excluded_types_with_row
 from app.origin_country import ISO_TO_VI, RAW_TO_ISO, country_label_vi, is_unknown_origin, normalize_column9_mode
 from app.web.co_case_context import bang_ke_settings
 from app.app_state_store import get_app_state_store
-from app.co_case_store import co_case_is_completed, co_case_status_view, get_case_workspace, update_case_record
+from app.co_case_store import co_case_is_completed, co_case_status_view, get_case_record, get_case_workspace, update_case_record
 from app.demo_data import update_products_from_form
 from app.portfolio import portfolio_service
 from app.web.client_context import _data_hub_overview_context, client_case, client_context, resolve_client
@@ -463,11 +463,31 @@ async def supplier_evidence_flip(request: Request, client_id: str):
 async def evaluate(request: Request, client_id: str):
     form = await large_request_form(request)
     case = update_products_from_form({key: str(value) for key, value in form.items()})
+    # `case_from_form` dựng hồ sơ với `origin_sheet_states: {}` cứng, và form
+    # không mang map override nào cả. Không khôi phục lại từ bản ghi đã lưu thì
+    # mọi lần submit form này xoá sạch `material_overrides` của TẤT CẢ sheet —
+    # kể cả sheet người dùng không đụng tới. Ô chọn BOM version là submit của
+    # chính form này (co_case.html:3049), nên đổi version một sheet là mất hết
+    # mã thay thế của cả hồ sơ, và lần Tính tất cả kế tiếp dựng lại NVL gốc nên
+    # thao tác thay thế biến mất không dấu vết. Route load-bom đã khôi phục kiểu
+    # này từ trước; ở đây thiếu.
+    persisted_case_id = str(case.get("persisted_case_id") or "").strip()
+    if persisted_case_id:
+        try:
+            persisted = get_case_record(resolve_client(client_id), persisted_case_id)
+        except KeyError:
+            persisted = {}
+        if persisted.get("origin_sheet_states"):
+            case["origin_sheet_states"] = dict(persisted.get("origin_sheet_states") or {})
     context = co_case_context(
         client_id,
         case=case,
         current_step="origin",
-        message="Đã tính lại theo dữ liệu đang sửa.",
+        # Không phân bổ tồn, không tính LVC — chỉ dựng lại màn hình từ dữ liệu
+        # vừa gửi lên. Nói "đã tính lại" là sai sự thật.
+        message="Đã cập nhật theo dữ liệu đang sửa. Bấm Tính bảng kê để phân bổ tồn.",
+        # Giữ `False`: ô chọn BOM version submit chính form này, và đổi version
+        # thì PHẢI dựng lại sheet theo BOM mới.
         preserve_origin_products=False,
     )
     if context["case"].get("persisted_case_id"):
