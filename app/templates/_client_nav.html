@@ -30,32 +30,9 @@
   </div>
 </section>
 
-{% set data_active = active in ['catalog', 'bom', 'co-stock', 'bcct'] %}
-{% set config_active = active in ['config', 'cost-allocation', 'suppliers'] %}
-<nav class="tabs client-tabs" aria-label="Khu làm việc công ty">
-  <a class="tab-link {{ 'tab-link-active' if active == 'overview' else '' }}" href="/clients/{{ client.id }}">Tổng quan</a>
-  <a class="tab-link tab-link-primary {{ 'tab-link-active' if active == 'co-case' else '' }}" href="/clients/{{ client.id }}/co-case">Hồ sơ C/O</a>
-  <span class="tab-sep" aria-hidden="true"></span>
-
-  <details class="nav-menu">
-    <summary class="tab-link nav-menu-trigger {{ 'tab-link-active' if data_active else '' }}">Dữ liệu</summary>
-    <div class="nav-menu-panel">
-      <a class="{{ 'is-active' if active == 'catalog' else '' }}" href="/clients/{{ client.id }}/catalog">Danh mục mã hàng</a>
-      <a class="{{ 'is-active' if active == 'bom' else '' }}" href="/clients/{{ client.id }}/bom">BOM</a>
-      <a class="{{ 'is-active' if active == 'co-stock' else '' }}" href="/clients/{{ client.id }}/co-stock">Tồn CO</a>
-      <a class="{{ 'is-active' if active == 'bcct' else '' }}" href="/clients/{{ client.id }}/bcct">BCCT</a>
-    </div>
-  </details>
-
-  <details class="nav-menu">
-    <summary class="tab-link nav-menu-trigger {{ 'tab-link-active' if config_active else '' }}">Cấu hình</summary>
-    <div class="nav-menu-panel">
-      <a class="{{ 'is-active' if active == 'config' else '' }}" href="/clients/{{ client.id }}/config">Cấu hình công ty</a>
-      <a class="{{ 'is-active' if active == 'cost-allocation' else '' }}" href="/clients/{{ client.id }}/cost-allocation">Hệ số phân bổ</a>
-      <a class="{{ 'is-active' if active == 'suppliers' else '' }}" href="/clients/{{ client.id }}/suppliers">NCC / Phụ lục X</a>
-    </div>
-  </details>
-</nav>
+{# Khu làm việc công ty nằm ở thanh bên trái (base.html, nav.side) từ vòng thiết
+   kế lại 2026-08-20. Thanh tab cũ ở đây lặp đúng từng mục của thanh bên nên đã
+   bỏ — mọi đích đến vẫn cách hồ sơ đang mở một cú bấm. #}
 
 {% if message %}
 <div class="toast">{{ message }}</div>
