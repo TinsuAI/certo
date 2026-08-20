@@ -45,7 +45,7 @@ ORIGIN_SHEET_STATUS_LABELS = {
     "bom_loaded": "Đã nạp BOM",
     "calculating": "Đang tính",
     "calculated": "Đã tính",
-    "locked": "Chốt",
+    "locked": "Đã chốt",
     "stale": "Cần tính lại",
 }
 def durable_sheet_status(status) -> str:
@@ -146,6 +146,79 @@ def origin_sheet_attention(product: dict) -> dict:
         if flags[reason]:
             return {"status": "attention", "reason": reason, "label": label, "detail": detail}
     return empty
+def origin_sheet_progress(product: dict) -> dict:
+    """Axis 1 — how far this sheet has got. Three resting values, monotonic.
+
+    `Chưa tính` → `Đã tính` → `Đã chốt`. It must NOT be read off the stored
+    status: `bom_loaded` covers both "nạp BOM xong, chưa tính" and "đã tính
+    nhưng bị chặn", so mapping it straight to "Chưa tính" would call a
+    calculated sheet un-calculated. The has-been-calculated bit is
+    `origin_not_calculated` (set to `not allocate` when the sheet is prepared);
+    `lvc_status == "not_calculated"` is the same fact on older records.
+
+    Whether the sheet is any GOOD is the other axis — see
+    `origin_sheet_condition`. Presentation only; nothing here gates lock/export.
+    """
+    status = durable_sheet_status(product.get("origin_sheet_status"))
+    if status == "locked":
+        return {"key": "locked", "label": "Đã chốt"}
+    if (
+        status == "draft"
+        or product.get("origin_not_calculated")
+        or str(product.get("lvc_status") or "") == "not_calculated"
+    ):
+        return {"key": "not_calculated", "label": "Chưa tính"}
+    return {"key": "calculated", "label": "Đã tính"}
+
+
+def origin_sheet_condition(product: dict) -> dict:
+    """Axis 2 — the verdict on the result this sheet is currently carrying.
+
+    `Cần tính lại` (kết quả không còn khớp dữ liệu) → `Cần xử lý: <lý do>` (đã
+    tính, còn vướng) → `Sẵn sàng chốt`. Empty for a sheet that has not been
+    calculated (nothing to judge) and for a locked one (already filed; the
+    progress badge says `Đã chốt`).
+
+    Stale wins over a blocker reason: when the result is out of date the flags
+    describe the OLD calculation, so "tính lại" is the honest instruction.
+
+    Unlike `origin_sheet_attention` — which is scoped to sheets resting at
+    `bom_loaded` — this reads the flags whatever the stored status says. A sheet
+    re-marked `calculated` by the save / bulk-substitute routes while still
+    carrying a live blocker is blocked by the lock and export gates anyway, so
+    showing it green would be a lie.
+    """
+    empty = {"key": "", "label": "", "detail": ""}
+    status = durable_sheet_status(product.get("origin_sheet_status"))
+    if status == "locked":
+        return empty
+    if origin_sheet_progress(product)["key"] == "not_calculated":
+        return empty
+    if status == "stale" or sheet_needs_recalc(product):
+        return {
+            "key": "stale",
+            "label": "Cần tính lại",
+            "detail": "Bảng kê đã đổi sau lần tính gần nhất — số đang hiển thị là kết quả cũ. "
+                      "Bấm Tính lại để cập nhật trước khi chốt.",
+        }
+    flags = {
+        "shortage": bool(product.get("lvc_allocation_shortage")),
+        "missing_price": bool(product.get("lvc_missing_price")),
+        "zero_lot_price": bool(product.get("lvc_zero_lot_price")),
+        "uom_unconfirmed": bool(product.get("lvc_uom_unconfirmed")),
+        "declarable_unmatched": bool(product.get("lvc_declarable_unmatched")),
+        "missing_bom": str(product.get("lvc_status") or "") == "missing_bom",
+    }
+    for reason, label, detail in ORIGIN_SHEET_ATTENTION_REASONS:
+        if flags[reason]:
+            return {"key": "attention", "reason": reason, "label": label, "detail": detail}
+    return {
+        "key": "ready",
+        "label": "Sẵn sàng chốt",
+        "detail": "Đã tính xong và không còn vướng mắc nào chặn việc chốt sheet này.",
+    }
+
+
 def origin_case_revision(case: dict) -> str:
     # Optimistic-concurrency token over USER-EDITABLE case state only.
     #
@@ -1442,6 +1515,13 @@ def attach_origin_sheet_states(case: dict) -> dict:
         # the latter as an amber "Cần xử lý: <reason>" so batch-Tính leaves no
         # blocked sheet looking identical to an un-calculated one.
         product["origin_sheet_attention"] = origin_sheet_attention(product)
+        # Two-axis reading of the same state (2026-08-20). `origin_sheet_status`
+        # mixes progress, an action result and a verdict in one value, so the pill
+        # never said which axis you were reading. Progress answers "đã tính
+        # chưa"; condition answers "chốt được chưa, vướng gì". Presentation only —
+        # both derive from the stored status and the lvc flags.
+        product["origin_sheet_progress"] = origin_sheet_progress(product)
+        product["origin_sheet_condition"] = origin_sheet_condition(product)
         product["origin_sheet_form_override"] = form_override
         product["origin_sheet_criteria_override"] = criteria_override
         product["origin_sheet_lvc_threshold_override"] = lvc_threshold_override

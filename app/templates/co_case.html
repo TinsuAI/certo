@@ -1064,8 +1064,11 @@
             title="Mở bảng kê {{ product.code }}">
       <span class="orr-step">{{ product.allocation_sequence or loop.index }}</span>
       <span class="orr-code"><strong class="mono">{{ product.code }}</strong><small>{{ product.name }}</small></span>
-      {% set _sheet_attn = product.origin_sheet_attention %}
-      <span class="orr-status">{% if _sheet_attn and _sheet_attn.status == 'attention' %}<span class="origin-sheet-status-pill origin-sheet-state-attention" title="{{ _sheet_attn.detail }}">⚠ {{ _sheet_attn.label }}</span>{% else %}<span class="origin-sheet-status-pill origin-sheet-state-{{ product.origin_sheet_status or 'draft' }}">{% if product.origin_sheet_status == 'locked' %}🔒 {% endif %}{{ product.origin_sheet_status_label or 'Chưa tính' }}</span>{% endif %}</span>
+      {# Hai trục tách rời: tiến độ (đã tính chưa) và tình trạng (chốt được chưa).
+         Trước đây một ô chở cả hai nên chip "Cần xử lý" che mất việc sheet ĐÃ tính. #}
+      {% set _prog = product.origin_sheet_progress %}
+      {% set _cond = product.origin_sheet_condition %}
+      <span class="orr-status"><span class="origin-sheet-status-pill origin-sheet-progress-{{ _prog.key or 'not_calculated' }}">{% if _prog.key == 'locked' %}🔒 {% endif %}{{ _prog.label or 'Chưa tính' }}</span>{% if _cond and _cond.label %}<span class="origin-sheet-cond-pill origin-sheet-cond-{{ _cond.key }}" title="{{ _cond.detail }}">{% if _cond.key == 'attention' %}⚠ {% endif %}{{ _cond.label }}</span>{% endif %}</span>
       <span class="orr-bom">
         {% if product.materials %}<strong>{{ product.materials|length }}</strong> dòng{% if product.bom_product_artifact_no or product.bom_product_version_no %} · #{{ product.bom_product_artifact_no or product.bom_product_version_no }}{% endif %}
         {% elif product.bom_product_artifact_id or product.bom_product_version_id %}có BOM (chưa nạp)
@@ -1275,8 +1278,9 @@
           {% for option in bom_options %}{% if (option.product_artifact_id or option.product_version_id) == selected_bom_artifact_id %}{% set selected_bom_option.value = option %}{% endif %}{% endfor %}
           <div class="origin-sheet-toolbar">
             <div class="origin-sheet-toolbar-main">
-              {% set _sheet_attn = product.origin_sheet_attention %}
-              {% if _sheet_attn and _sheet_attn.status == 'attention' %}<strong class="origin-sheet-status-pill origin-sheet-state-attention" title="{{ _sheet_attn.detail }}">⚠ {{ _sheet_attn.label }}</strong>{% else %}<strong class="origin-sheet-status-pill origin-sheet-state-{{ product.origin_sheet_status or 'draft' }}" title="Trạng thái sheet">{% if product.origin_sheet_status == 'locked' %}🔒 {% endif %}{{ product.origin_sheet_status_label or 'Chưa tính' }}</strong>{% endif %}
+              {% set _prog = product.origin_sheet_progress %}
+              {% set _cond = product.origin_sheet_condition %}
+              <strong class="origin-sheet-status-pill origin-sheet-progress-{{ _prog.key or 'not_calculated' }}" title="Tiến độ sheet">{% if _prog.key == 'locked' %}🔒 {% endif %}{{ _prog.label or 'Chưa tính' }}</strong>{% if _cond and _cond.label %}<strong class="origin-sheet-cond-pill origin-sheet-cond-{{ _cond.key }}" title="{{ _cond.detail }}">{% if _cond.key == 'attention' %}⚠ {% endif %}{{ _cond.label }}</strong>{% endif %}
               <label class="product-bom-picker {% if not bom_options %}product-bom-picker-missing{% endif %}" title="TP artifact (BOM)">
                 <select name="product_{{ product_index }}_bom_product_artifact_id" data-bom-version-select data-origin-step-input data-origin-step-index="{{ product_index }}">
                   {% for option in bom_options %}
