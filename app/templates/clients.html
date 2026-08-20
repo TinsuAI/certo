@@ -81,7 +81,10 @@
   {% endfor %}
 </section>
 {% else %}
-<section class="zone">
+{# Giữ nguyên class client-grid cho cả trạng thái rỗng: đây là mốc cấu trúc của
+   trang danh sách công ty, tests/test_data_hub_integration.py dựa vào nó để biết
+   trang đã dựng xong thay vì bị chuyển hướng. #}
+<section class="client-grid zone">
   <div class="tbl-empty">
     <h4>Chưa có công ty nào</h4>
     <p>Danh sách công ty được đồng bộ từ Data Hub. Thêm công ty ở Data Hub, sau đó tải lại trang này.</p>
