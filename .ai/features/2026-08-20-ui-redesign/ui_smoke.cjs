@@ -59,7 +59,8 @@ async function pickCaseId(page) {
       ["co-04-case-overview", `/clients/${CLIENT}/co-case/${caseId}`],
       ["co-05-documents", `/clients/${CLIENT}/co-case/${caseId}/documents`],
       ["co-06-origin-sheets", `/clients/${CLIENT}/co-case/${caseId}/origin`],
-      ["co-12-exports", `/clients/${CLIENT}/co-case/${caseId}/export`],
+      ["co-11-review", `/clients/${CLIENT}/co-case/${caseId}/review`],
+      ["co-12-exports", `/clients/${CLIENT}/co-case/${caseId}/exports`],
     );
   }
 
