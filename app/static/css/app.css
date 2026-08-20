@@ -5386,7 +5386,11 @@ button.co-stat:hover {
   color: inherit;
   text-align: left;
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
+  /* Cột mã rộng cố định 7.2rem. Không cho xuống dòng thì nhãn cảnh báo (49 ký
+     tự) là flex item bị ép vào ~20px còn lại và vắt mỗi dòng một ký tự, đẩy
+     chiều cao dòng lên ~500px — lộ ra khi bấm hiện các dòng đã loại. */
+  flex-wrap: wrap;
   gap: 0.3rem;
 }
 
@@ -5405,6 +5409,11 @@ button.co-stat:hover {
   color: var(--warning);
   font-weight: 600;
   font-size: 0.7rem;
+  /* Xuống hẳn dòng riêng dưới mã, ngắt theo từ chứ không theo ký tự. */
+  flex: 1 0 100%;
+  white-space: normal;
+  overflow-wrap: break-word;
+  line-height: 1.25;
 }
 
 .origin-substitute-modal {
