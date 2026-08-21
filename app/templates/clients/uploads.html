@@ -48,7 +48,10 @@
         <td>
           <a href="/clients/{{ client.client_id }}/uploads/{{ u.upload_id }}">{{ u.original_filename }}</a>
           {% if u.parse_status == 'proposed_mapping' and u.module == 'bcct' %}
-            · <a href="/clients/{{ client.client_id }}/bcct/parse-mapping/{{ u.upload_id }}">
+            {# `parse-mapping` là đường dẫn của UI 2 bước cũ, đã bỏ. Route thật là
+               `bcct/upload/mapping/{upload_id}` (bcct.py:325) — chính là chỗ
+               bcct.py:261/278 redirect tới. #}
+            · <a href="/clients/{{ client.client_id }}/bcct/upload/mapping/{{ u.upload_id }}">
                 {{ t('uploads.review_mapping') }} →
               </a>
           {% endif %}
