@@ -199,7 +199,16 @@
         {% else %}
         <button type="submit" class="btn-primary">Lưu {{ summary.new }} dòng</button>
         {% endif %}
-        <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/bcct">{{ t('common.cancel') }}</a>
+        {# "Hủy" chỉ rời trang, pending vẫn nằm lại tới lúc hết hạn và hiện ở
+           danh sách upload như việc dở dang. Tách làm hai lựa chọn đúng như năm
+           luồng nhập kia: đi ra mà giữ pending, hoặc bỏ hẳn file sai. #}
+        <a class="btn-ghost btn-sm" href="/clients/{{ client.client_id }}/bcct">Quay lại sau (giữ pending)</a>
+        <button type="submit"
+                formaction="/clients/{{ client.client_id }}/bcct/upload/preview/{{ pending_id }}/reject"
+                class="btn-secondary btn-sm"
+                onclick="return confirm('Bỏ file này? Pending sẽ bị xoá, không dòng nào được lưu.');">
+          Bỏ file (file sai)
+        </button>
       </div>
     </footer>
   </form>

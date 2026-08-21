@@ -27,6 +27,7 @@ from app.parsers.derivations import compute_internal_code
 from app.routes._mapping_flow import (
     ModuleConfig,
     _load_unmapped,
+    reject_pending,
     render_mapping_page_context,
     render_mapping_page_with_llm_suggestion,
 )
@@ -954,6 +955,31 @@ async def bcct_row_history(request: Request, client_id: str,
             "active_root": "clients", "active_tab": "bcct",
         },
     )
+
+
+@router.post("/clients/{client_id}/bcct/upload/preview/{pending_id}/reject")
+async def upload_preview_reject(request: Request, client_id: str, pending_id: str):
+    """Discard a stashed BCCT upload without ingesting a row.
+
+    BCCT was the only ingest flow without this: catalog / bqd / bom / nxt /
+    inventory-snapshots all expose `…/preview/{id}/reject`, so a wrong BCCT file
+    could only be abandoned and left to expire, holding `parse_status=
+    'proposed_mapping'` and showing up in the uploads list as unfinished work.
+
+    Same shared helper the other five use — it deletes the `hub.upload_pending`
+    row and stamps `file_uploads.parse_status='rejected'`. The path keeps BCCT's
+    own `bcct/upload/preview/...` shape rather than the `bcct/preview/...` the
+    others use, matching this module's confirm route.
+    """
+    user = auth.require_user(request)
+    auth.require_can_edit_client(user, client_id)
+    if not get_client(client_id):
+        raise HTTPException(404, "Client not found")
+    reject_pending(
+        client_id=client_id, pending_id=pending_id, user_id=user.user_id,
+        cfg=BCCT_MAPPING_CFG,
+    )
+    return RedirectResponse(url=f"/clients/{client_id}/bcct?rejected=1", status_code=303)
 
 
 @router.post("/clients/{client_id}/bcct/upload/preview/{pending_id}/confirm")
