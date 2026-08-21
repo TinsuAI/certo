@@ -56,17 +56,33 @@ round — identify a build by `git_sha`.
 2. **The guide screenshots predate the redesign** — all 29 show the old top-nav shell. Re-run
    `.ai/features/2026-07-28-co-datahub-guide-site/shoot_guide.cjs` (`NOLOCK=1` stops before Chốt,
    so a re-run consumes no tồn) against local CO `:8001` and Data Hub `:8754`.
-3. **Two unmerged code branches need a real review before landing:**
-   `agent/fx1-form-x-scaffold` (`5401048`, backlog item FX1 — Form X in `co_forms.py` + test) and
-   `agent/co524-async-offload` (`6a6affa` — offloads sync Data Hub pulls off the event loop).
-   Both are based on a July `main` and have not been run against current code.
-4. **Backlog items still open** (see the 2026-08-21 table in `.ai/BACKLOG.md`): M1 sub-bug 1
+3. **Both unmerged code branches were reviewed 2026-08-21. One landed, one is rejected.**
+   - `agent/co524-async-offload` → **LANDED** as `03220aa`. Rebased onto current `main` (one
+     conflict: `limit=min(limit,50)` → `search_limit`, resolved keeping `main`'s). Suite green
+     at 1183 passed / 19 skipped. Its test is a real regression test — red on `main` with
+     `assert 'MainThread' != 'MainThread'`.
+   - `agent/fx1-form-x-scaffold` → **REJECT.** It encodes Form X as the Vietnam→Cambodia
+     bilateral form under `17/2011/TT-BCT`; the agency's workbook shows their Form X is
+     VCCI-certified under `05/2018/TT-BCT` (Form B's circular), used on a domestic on-the-spot
+     delivery. Evidence and the correct entry are in `.ai/BACKLOG.md` under FX1. The branch can
+     be deleted; FX1 itself is low priority and stays open.
+4. **The async offload covers 3 of ~28 handlers.** `03220aa` fixes `co_case_detail`,
+   `co_case_step` and the substitute-candidates endpoint. 25 other `async def` handlers in
+   `app/routers/co_case.py` still call `co_case_context` / `persisted_origin_case` directly on
+   the event loop, including the write paths `lock_co_case_origin_sheet` and
+   `co_case_origin_sheet_save`. Separately, the fire-and-forget
+   `run_in_executor(None, preload_co_case_origin_context, ...)` next to the new code does NOT
+   copy contextvars, so that preload likely runs without a Data Hub token — pre-existing, worth
+   its own look.
+5. **Backlog items still open** (see the 2026-08-21 table in `.ai/BACKLOG.md`): M1 sub-bug 1
    (`get_bom_proposal` has 0 callers — CO-side wiring, no DH request needed), FX1, D1's
    `reason`/forced-full in the refresh response, D1 tombstone retry (partial), EX1 (deferred by
    decision), #12 grand-total shortage (needs client input).
-5. **Data Hub commits carry no issue references**, which its own `AGENTS.md:104` requires. The
+6. **Data Hub commits carry no issue references**, which its own `AGENTS.md:104` requires. The
    four PRs of the redesign round all violate it. Other repo, pushed history.
-6. **5,314 lines of inline JS in `co_case.html` have zero test coverage.**
+7. **5,314 lines of inline JS in `co_case.html` have zero test coverage.**
+8. **CI runs only `uv run pytest`** — there is no `node --test` step, which is why three red
+   JS tests survived unnoticed until 2026-08-21.
 
 ## Blockers
 

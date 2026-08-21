@@ -93,7 +93,13 @@ as `.ai/BACKLOG.md` assumed. Needs client confirmation before wiring PSR /
 thresholds.
 
 - Branch: `agent/fx1-form-x-scaffold`
-- Status: reported-not-verified. **Needs client confirmation** of the market pair.
+- Status: **SUPERSEDED 2026-08-21 — reject the branch.** No client confirmation needed: the
+  agency workbook (`tru-lui-co-template.xlsm`, sheet `FORM X`) settles it. That sheet is
+  VCCI-certified, cites `05/2018/TT-BCT` (Form B's circular), carries a 30% origin criterion,
+  and has consignor and consignee both in Đồng Nai — a domestic on-the-spot delivery, not a
+  Cambodia export. The corpus reading of `17/2011/TT-BCT` is correct about *a* Mẫu X, but it is
+  a different form sharing the letter. Full evidence in `.ai/BACKLOG.md` under FX1.
+  This section's premise that the backlog "assumed Vietnam-Laos" is also wrong — it never did.
 
 ## D1 — delta-vs-full refresh parity
 

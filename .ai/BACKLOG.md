@@ -737,6 +737,32 @@ Forms config đã extensible qua `load_co_form_config` (`/settings/co-forms` UI)
 qua config trước, `FORM_REFERENCES` built-in sau. KHÔNG liên quan cumulation; phase-2 in-bloc
 đã defer-until-demand (DECISIONS.md 2026-07-11). Added: 2026-07-11.
 
+**IDENTITY RESOLVED 2026-08-21 (evidence, not inference).** Opened the agency workbook
+`data/local/hq-templates/tru-lui-co-template.xlsm`, sheet `FORM X` (sits beside `FORM B`):
+- r59-60: "VIETNAM CHAMBER OF COMMERCE AND INDUSTRY (**VCCI**) HEREBY CERTIFIES…"
+- r42: cites **`05/2018/TT-BCT`** — the same circular as the existing `FORM_REFERENCES["B"]`
+- r38: "30% ORIGIN CRITERIA AS PRESCRIBED IN THE RULES OF ORIGIN CHAPTER IN APPENDIX I"
+- consignor AND consignee both in Đồng Nai, **Vietnam** → an on-the-spot (tại chỗ) delivery
+- `REFERENCE NUMBER: 51400641`, matching the usage recorded above
+
+So Form X here is a **VCCI non-preferential C/O under the 05/2018/TT-BCT origin rules**, i.e.
+Form B's instrument with VCCI as issuer. Note `05/2018/TT-BCT` names Mẫu B but **not** Mẫu X,
+so "X" is a VCCI/agency template label, not a legal form code — any entry must stay
+`pending_trong_tin_confirmation`, never `verified_local_corpus`.
+
+**REJECT branch `agent/fx1-form-x-scaffold` (`5401048`).** It encodes Form X as the
+Vietnam→Cambodia bilateral preferential form under `17/2011/TT-BCT` with an ATIGA
+rules-of-origin note. That circular does define a Mẫu X for Vietnam→Cambodia — two different
+forms share the letter — but it is not the one the agency files. Its commit message says it
+corrected a "Vietnam-Laos" claim from the brief; this backlog entry has never said Laos, in any
+revision. Do not land it; write the VCCI/05-2018 entry instead.
+
+**Priority: low, defer is fine.** Case-level `co_form_type` is decorative (see RD1, code-verified
+2026-06-14): not in the bảng kê calc, does not pick the HQ export template. The form that drives
+outcome is per-sheet `origin_sheet_effective_form_code`, derived from destination market +
+finished HS, which never reads `FORM_REFERENCES`. An operator can already add Form X via
+`/settings/co-forms` — `form_references()` merges config over the built-in map.
+
 ## Trạng thái sheet — badge honesty
 
 ### ST1 — "Tính tồn tất cả" xong, sheet bị guard chặn vẫn hiện "Đã nạp BOM" (readiness chip đã defer ở ADR 2026-07-11)
