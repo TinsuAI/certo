@@ -3,6 +3,45 @@
 Durable backlog (survives handoffs — STATUS.md Next Steps is the prioritized slice). Items below
 are captured, not yet scoped. Add `/discover` before non-trivial ones.
 
+## Reconciliation 2026-08-21 (verified vs HEAD `49da24e`)
+
+Re-verified every item the 2026-07-17 table left open, by reading current code rather than
+trusting the notes. **Ten of the fourteen closed** — most of them during the 2026-08-20 redesign
+round, which fixed them without updating this file.
+
+| Item | 2026-07-17 | Now | Evidence at HEAD |
+|---|---|---|---|
+| T1 | OPEN | **CLOSED** | `tests/conftest.py::isolate_db_schema` routes DB-mode into `co_test_<worker>` and drops it; `isolate_file_store` (2026-08-21) mirrors the file roots so the suite no longer writes into `data/` |
+| D1 · parity harness | remaining | **CLOSED** | `tests/test_co_stock_delta_full_parity.py` (7 passed, 1 skipped) |
+| D1 · `reason` / forced-full in refresh response | remaining | **OPEN** | no `reason` key in the refresh response (`routers/co_stock.py`) |
+| D1 · tombstone retry | remaining | **PARTIAL** | `include_tombstones` is wired (`routers/co_stock.py:347`), `tombstone_source_rows` threads through the materializer; no retry-on-miss path |
+| B6 nit (double-applied rate) | 1 nit | **CLOSED** | `bang_ke_renderer.py:208-211` divides `*_vnd` by `fob_fx_rate` once, with an explicit fallback when either is missing |
+| LK1 · dirty-before-lock | OPEN | **CLOSED** | `sheet_needs_recalc` (`web/co_case_context.py:1838`) blocks `lock` (`:1928`) |
+| DC3b · pre-mig junk leak | OPEN | **CLOSED** | same predicate blocks export (`origin_sheet_export_blockers`, `:1878`), including on locked sheets |
+| ST1 · badge honesty | OPEN | **CLOSED** | sheet state split into progress + condition; a guard-blocked sheet renders "Cần xử lý: <lý do>" instead of "Đã nạp BOM" (`web/co_case_context.py:121-125`, commit `cf08192`) |
+| P1-resid · case-list N+1 | OPEN | **CLOSED** | `claims_summary_for_cases` batches one query for many cases (`co_stock_ledger.py:460`), called at `web/co_case_context.py:4176` |
+| Fix F (D2) · cold-start overclaim | OPEN | **CLOSED** | no materialized snapshot now blocks the lock instead of trusting calculate-time (`co_stock_ledger.py`, availability pre-check) |
+| M1 · sub-bug 2 ("Đã propose" re-proposes) | OPEN | **CLOSED** | the button is `disabled` once `origin_sheet_proposed_artifact_id` is set (`co_case.html:1356`); server idempotency merged from `agent/m1-server-idempotency` |
+| M1 · sub-bug 1 (status not synced) | OPEN | **OPEN** | `data_hub_client.get_bom_proposal` (`:440`) still has 0 callers — CO-side wiring only, no DH request needed |
+| FX1 · Form X | OPEN | **OPEN** | `FORM_REFERENCES` (`co_forms.py:9`) still has no Form X. A scaffold + test exists but was never merged — see below |
+| EX1 · col-K format | OPEN (deferred) | **OPEN (deferred)** | no `import_ref_format` anywhere; matches the "keep for now" decision |
+| #12 · grand-total shortage | MOSTLY DONE | **unchanged** | `case_shortfall_rollup` (`:2384`) renders per-material; a single grand total is still absent and still semantically weak (mixed UOM) |
+
+### Unmerged work found on 2026-08-21
+
+Fifteen `agent/*` branches from a 2026-07-30 parallel run each carry exactly one commit that
+never reached `main`, and there is no session summary for that date. They are reachable only
+through `.claude/worktrees/`, which is untracked. Two carry code:
+
+- `agent/fx1-form-x-scaffold` (`5401048`) — Form X entry in `app/co_forms.py` + `tests/test_co_forms_form_x.py`. This is item **FX1**.
+- `agent/co524-async-offload` (`6a6affa`) — offloads sync Data Hub pulls off the event loop in `app/routers/co_case.py` + `tests/test_co_case_async_offload.py`.
+
+The other thirteen are ~3,500 lines of design and reference docs, none of which exist on `main`:
+`cs3-ex1-design`, `dh-api-request-ideas`, `doc-co-stock-subsystem`, `doc-data-hub-client`,
+`doc-operator-runbook`, `ideation-improvements`, `m1-status-readback-design`,
+`perf-audit-cold-open`, `phase2-batch-preflight-design`, `rd1-form-step-design`,
+`rd3-bangke-discovery`, `run-decisions-record`, `test-gap-analysis`.
+
 ## Reconciliation 2026-07-17 (verified vs HEAD `f0095a7`, code = `dacb70d`)
 
 Full re-verify of every open item against current code. **Paths moved** since most notes were written:
