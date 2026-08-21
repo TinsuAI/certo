@@ -141,7 +141,7 @@ New repo. Migrate, do not rewrite. Concretely:
 
 | # | Phase | Delivers |
 |---|---|---|
-| 0 | New repo; both schemas **dumped and restored** into one Postgres (pgvector image) | one DB holding the real corpus |
+| 0 | ~~New repo; both schemas **dumped and restored** into one Postgres~~ **DONE 2026-08-21** | one DB holding the real corpus — see `2026-08-21-phase0-merge-notes.md` |
 | 1 | Data Hub **stores + parsers + flatten + uploads + proposals** in-process behind the unchanged adapter surface | 15.69s → sub-second; ingestion moves with it; tests still green |
 | 2 | Delete `PortfolioService`, the adapter internals, the policy test, the API-request process | ~5,255 + ~60 KB of code removed; one code path |
 | 3 | Own auth: plain server sessions, login, permissions (new code) | JWT / JWKS / SSO machinery deleted |
