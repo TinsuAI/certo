@@ -26,3 +26,6 @@ yarn-error.log*
 /.ai/samples/
 /.ai/screenshots/
 .ai/features/*/screenshots/
+
+# agent worktrees (each is a full checkout; never commit)
+/.claude/worktrees/
