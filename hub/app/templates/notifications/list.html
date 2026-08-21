@@ -9,7 +9,7 @@
   </span>
   <div class="page-actions">
     {% if unread_items %}
-    <form method="post" action="/notifications/read-all">
+    <form method="post" action="{{ url_prefix }}/notifications/read-all">
       <button type="submit" class="btn-secondary">{{ t('notif.mark_all_read') }}</button>
     </form>
     {% endif %}
@@ -27,7 +27,7 @@
         {% if n.client_id %}<span class="meta">· {{ n.client_id }}</span>{% endif %}
         <span class="meta">· {{ n.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
       </div>
-      <form method="post" action="/notifications/{{ n.id }}/read">
+      <form method="post" action="{{ url_prefix }}/notifications/{{ n.id }}/read">
         <button type="submit" class="notif-list-link">
           <strong>{{ n.title }}</strong>
           {% if n.body %}<div>{{ n.body }}</div>{% endif %}

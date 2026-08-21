@@ -27,7 +27,7 @@
       <tr>
         <td>{{ s.display_name }}<br><span class="meta mono">{{ s.email }}</span></td>
         <td>
-          <form method="post" action="/clients/{{ client.client_id }}/staff/scope" class="inline-form">
+          <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/staff/scope" class="inline-form">
             <input type="hidden" name="user_id" value="{{ s.user_id }}">
             <select name="scope" onchange="this.form.submit()">
               <option value="read" {% if s.scope == 'read' %}selected{% endif %}>{{ t('admin.staff_assign.scope_read') }}</option>
@@ -38,7 +38,7 @@
         <td class="mono">{{ s.granted_at.strftime('%Y-%m-%d') if s.granted_at else '' }}</td>
         <td class="mono">{{ s.granted_by_email or s.granted_by }}</td>
         <td class="actions-cell">
-          <form method="post" action="/clients/{{ client.client_id }}/staff/remove" class="inline-form">
+          <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/staff/remove" class="inline-form">
             <input type="hidden" name="user_id" value="{{ s.user_id }}">
             <button type="submit" class="btn-danger-sm">{{ t('admin.staff_assign.remove') }}</button>
           </form>
@@ -59,7 +59,7 @@
     </div>
   </div>
   {% if candidates %}
-  <form method="post" action="/clients/{{ client.client_id }}/staff/add" class="settings-form">
+  <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/staff/add" class="settings-form">
     <div class="settings-grid">
       <div class="field">
         <label for="user_id">{{ t('admin.staff_assign.user') }}</label>

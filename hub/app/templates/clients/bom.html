@@ -13,13 +13,13 @@
       <p class="meta">{{ t('bom.subtitle') }}</p>
     </div>
     <div class="page-actions">
-      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom/needs-action">
+      <a class="btn-secondary" href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/needs-action">
         ⚠ Cần xử lý
       </a>
-      <a class="btn-secondary" href="/clients/{{ client.client_id }}/uom-factors">
+      <a class="btn-secondary" href="{{ url_prefix }}/clients/{{ client.client_id }}/uom-factors">
         Hệ số quy đổi
       </a>
-      <a class="btn-primary" href="/clients/{{ client.client_id }}/bom/upload">{{ t('bom.upload_btn') }}</a>
+      <a class="btn-primary" href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/upload">{{ t('bom.upload_btn') }}</a>
     </div>
   </div>
 
@@ -66,7 +66,7 @@
     </th>
   {%- endmacro %}
 
-  <form method="get" action="/clients/{{ client.client_id }}/bom"
+  <form method="get" action="{{ url_prefix }}/clients/{{ client.client_id }}/bom"
         class="stack-form" style="margin: 1rem 0; max-width: 600px;">
     {% if sort.column != 'last_published' or sort.direction != 'desc' %}
       <input type="hidden" name="sort" value="{{ sort.column }}">
@@ -126,7 +126,7 @@
       {% set has_nflat = p.n_non_flattened > 0 %}
       {% set has_flat = p.n_flattened > 0 %}
       {% set row_class = 'flat-only' if has_flat and not has_nflat else ('nflat-only' if has_nflat and not has_flat else 'mixed') %}
-      <tr data-status="{{ row_class }}" data-row-href="/clients/{{ client.client_id }}/bom/{{ p.product_code }}/artifacts" tabindex="0">
+      <tr data-status="{{ row_class }}" data-row-href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/{{ p.product_code }}/artifacts" tabindex="0">
         <td class="mono">{{ p.product_code }}</td>
         <td>
           {% if p.product_kind == 'btp' %}
@@ -160,7 +160,7 @@
         </td>
         <td class="mono">#{{ p.latest_artifact_no }}</td>
         <td class="mono">{{ p.last_published.strftime('%Y-%m-%d %H:%M') if p.last_published else '—' }}</td>
-        <td><a class="btn-ghost btn-xs" href="/clients/{{ client.client_id }}/bom/{{ p.product_code }}/artifacts">{{ t('common.detail') }} →</a></td>
+        <td><a class="btn-ghost btn-xs" href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/{{ p.product_code }}/artifacts">{{ t('common.detail') }} →</a></td>
       </tr>
       {% endfor %}
     </tbody>
@@ -191,10 +191,10 @@
   <div class="empty-state">
     {% if q or kind %}
     <p>Không có sản phẩm khớp bộ lọc hiện tại.</p>
-    <a class="btn-ghost" href="/clients/{{ client.client_id }}/bom">Xóa bộ lọc</a>
+    <a class="btn-ghost" href="{{ url_prefix }}/clients/{{ client.client_id }}/bom">Xóa bộ lọc</a>
     {% else %}
     <p>{{ t('bom.empty') }}</p>
-    <a class="btn-primary" href="/clients/{{ client.client_id }}/bom/upload">{{ t('bom.upload_btn') }}</a>
+    <a class="btn-primary" href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/upload">{{ t('bom.upload_btn') }}</a>
     {% endif %}
   </div>
   {% endif %}

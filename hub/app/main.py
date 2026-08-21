@@ -35,6 +35,10 @@ def normalize_theme(value: str | None) -> str:
 
 
 def template_context(request: Request) -> dict:
+    # Empty when Data Hub runs standalone, "/hub" when mounted inside CO.
+    # Starlette sets root_path on the sub-app's scope, so templates and
+    # redirects build correct URLs in both shapes without branching.
+    url_prefix = request.scope.get("root_path", "") or ""
     theme = normalize_theme(request.cookies.get(THEME_COOKIE))
     lang = i18n.normalize_lang(request.cookies.get(LANG_COOKIE))
     user = auth.current_user(request)
@@ -71,6 +75,7 @@ def template_context(request: Request) -> dict:
             pass  # chat widget is non-critical; never crash page render
 
     return {
+        "url_prefix": url_prefix,
         "theme": theme,
         "next_theme": "dark" if theme == "light" else "light",
         "lang": lang,
@@ -137,6 +142,31 @@ app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 templates = Jinja2Templates(directory=ROOT / "templates", context_processors=[template_context])
 
 app.state.templates = templates
+
+
+@app.middleware("http")
+async def _prefix_redirects(request: Request, call_next):
+    """Keep root-absolute redirects inside the mount.
+
+    Handlers redirect to paths like "/admin/users". Standalone that is correct;
+    mounted under /hub it escapes into CO's routes. Rewriting the Location
+    header here fixes all of them at once, including any added later — the
+    alternative was threading root_path through 22 call sites and hoping the
+    23rd remembers.
+    """
+    response = await call_next(request)
+    prefix = request.scope.get("root_path", "") or ""
+    location = response.headers.get("location")
+    if (
+        prefix
+        and location
+        and location.startswith("/")
+        and not location.startswith("//")
+        and not location.startswith(prefix + "/")
+        and location != prefix
+    ):
+        response.headers["location"] = prefix + location
+    return response
 
 
 @app.middleware("http")

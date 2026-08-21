@@ -14,7 +14,7 @@
       </p>
     </div>
     <div>
-      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom">{{ t('common.cancel') }}</a>
+      <a class="btn-secondary" href="{{ url_prefix }}/clients/{{ client.client_id }}/bom">{{ t('common.cancel') }}</a>
     </div>
   </div>
 
@@ -42,7 +42,7 @@
     </div>
   </div>
 
-  <form method="post" action="/clients/{{ client.client_id }}/bom/flatten-preview/{{ pending_id }}/confirm">
+  <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/bom/flatten-preview/{{ pending_id }}/confirm">
 
   {# ── Decisions section ─────────────────────────────────────────── #}
   {% set pending_decisions = decisions | rejectattr('status', 'equalto', 'auto') | list %}
@@ -230,7 +230,7 @@
             onclick="return confirm('{{ t('flatten.action.reject_confirm') }}');">
       {{ t('flatten.action.reject') }}
     </button>
-    <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom">
+    <a class="btn-secondary" href="{{ url_prefix }}/clients/{{ client.client_id }}/bom">
       {{ t('flatten.action.back_later') }}
     </a>
     <span class="ab-spacer"></span>

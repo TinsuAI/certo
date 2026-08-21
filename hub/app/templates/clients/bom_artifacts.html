@@ -11,8 +11,8 @@
       <p class="meta">{{ artifacts|length }} · {{ t('bom.versions_immutable') }}</p>
     </div>
     <div style="display:flex;gap:.5rem">
-      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom/{{ product_code }}/presets">presets →</a>
-      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom">{{ t('bom.versions_back') }}</a>
+      <a class="btn-secondary" href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/{{ product_code }}/presets">presets →</a>
+      <a class="btn-secondary" href="{{ url_prefix }}/clients/{{ client.client_id }}/bom">{{ t('bom.versions_back') }}</a>
     </div>
   </div>
 
@@ -63,7 +63,7 @@
         </td>
         <td>
           {% if v.parent_artifact_id and v.parent_artifact_no %}
-            <a href="/clients/{{ client.client_id }}/bom/artifact/{{ v.parent_artifact_id }}"
+            <a href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/artifact/{{ v.parent_artifact_id }}"
                title="{{ v.parent_artifact_id }}"
                style="text-decoration:none">
               <span class="badge badge-info">#{{ v.parent_artifact_no }}</span>
@@ -80,7 +80,7 @@
         <td class="mono">{{ v.normalized_hash[:8] }}</td>
         <td>{{ v.status }}{% if v.tombstoned_at %} · đã thay thế{% endif %}</td>
         <td class="mono">{{ v.published_at.strftime('%Y-%m-%d %H:%M') if v.published_at else '' }}</td>
-        <td><a href="/clients/{{ client.client_id }}/bom/artifact/{{ v.artifact_id }}">{{ t('common.detail') }} →</a></td>
+        <td><a href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/artifact/{{ v.artifact_id }}">{{ t('common.detail') }} →</a></td>
       </tr>
       {% endfor %}
     </tbody>

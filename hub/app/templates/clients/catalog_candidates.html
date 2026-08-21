@@ -17,12 +17,12 @@
     </div>
     <div class="page-actions">
       <form method="post"
-            action="/clients/{{ client.client_id }}/catalog/candidates/refresh"
+            action="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/candidates/refresh"
             style="display: inline;">
         <button type="submit" class="btn-secondary">↻ Làm mới</button>
       </form>
       <a class="btn-secondary"
-         href="/clients/{{ client.client_id }}/catalog">← {{ t('catalog.title') }}</a>
+         href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog">← {{ t('catalog.title') }}</a>
     </div>
   </div>
 
@@ -31,7 +31,7 @@
     <div class="toast" style="margin-bottom: 1rem;">
       ✓ Đã thêm <code>{{ toast_code or '?' }}</code> vào catalog.
       {% if toast_code %}
-        <a href="/clients/{{ client.client_id }}/catalog/{{ toast_code }}/detail">
+        <a href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ toast_code }}/detail">
           Xem trong catalog →
         </a>
       {% endif %}
@@ -40,7 +40,7 @@
     <div class="toast" style="margin-bottom: 1rem;">
       ✓ Đã từ chối <code>{{ toast_code or '?' }}</code>.
       {% if toast_code %}
-        <a href="/clients/{{ client.client_id }}/catalog/candidates/detail?code={{ toast_code|urlencode }}">
+        <a href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/candidates/detail?code={{ toast_code|urlencode }}">
           Xem chi tiết →
         </a>
       {% endif %}
@@ -153,7 +153,7 @@
      nesting. Empty submit is a no-op server-side; select-all-matching is set
      by JS from the banner. Danh mục theo đề xuất, tên/UoM theo dữ liệu. #}
   <form method="post" id="bulk-form" class="decide"
-        action="/clients/{{ client.client_id }}/catalog/candidates/bulk-accept"
+        action="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/candidates/bulk-accept"
         data-total="{{ pending_total }}">
     {% for k, v in filter_params.items() %}
       <input type="hidden" name="{{ k }}" value="{{ v }}">
@@ -221,7 +221,7 @@
                    aria-label="Chọn {{ c.code }}">
           </td>
           <td>
-            <a href="/clients/{{ client.client_id }}/catalog/candidates/detail?code={{ c.code|urlencode }}&kind={{ c.code_kind }}"
+            <a href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/candidates/detail?code={{ c.code|urlencode }}&kind={{ c.code_kind }}"
                title="Xem chi tiết">
               <code>{{ c.code }}</code>
             </a>
@@ -349,12 +349,12 @@
             </button>
             <noscript>
               <a class="btn-secondary btn-xs"
-                 href="/clients/{{ client.client_id }}/catalog/candidates/detail?code={{ c.code|urlencode }}&kind={{ c.code_kind }}">
+                 href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/candidates/detail?code={{ c.code|urlencode }}&kind={{ c.code_kind }}">
                 Duyệt…
               </a>
             </noscript>
             <form method="post"
-                  action="/clients/{{ client.client_id }}/catalog/candidates/reject"
+                  action="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/candidates/reject"
                   style="display: inline-block; margin-left: 0.25rem;">
               <input type="hidden" name="code" value="{{ c.code }}">
               <input type="hidden" name="code_kind" value="{{ c.code_kind }}">
@@ -375,7 +375,7 @@
          Posts to the unchanged /accept route. ── #}
     <dialog id="accept-dialog" class="accept-dialog">
       <form method="post"
-            action="/clients/{{ client.client_id }}/catalog/candidates/accept"
+            action="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/candidates/accept"
             class="form-stack">
         <h3>Duyệt <code id="ad-code"></code> vào catalog</h3>
         <input type="hidden" name="code" id="ad-code-input">
@@ -415,7 +415,7 @@
     </dialog>
   {% endif %}
 
-  <script src="/static/js/catalog-candidates.js" defer></script>
+  <script src="{{ url_prefix }}/static/js/catalog-candidates.js" defer></script>
 
   {% if rejected %}
   <details class="rejected-block">
@@ -437,7 +437,7 @@
       {% for c in rejected %}
         <tr>
           <td>
-            <a href="/clients/{{ client.client_id }}/catalog/candidates/detail?code={{ c.code|urlencode }}"
+            <a href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/candidates/detail?code={{ c.code|urlencode }}"
                title="Xem chi tiết"><code>{{ c.code }}</code></a>
           </td>
           <td>
@@ -450,7 +450,7 @@
           <td class="meta">{{ format_date(c.decided_at) if c.decided_at else '—' }}</td>
           <td>
             <form method="post"
-                  action="/clients/{{ client.client_id }}/catalog/candidates/unreject"
+                  action="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/candidates/unreject"
                   style="display: inline-block;">
               <input type="hidden" name="code" value="{{ c.code }}">
               <button type="submit" class="btn-secondary btn-sm">↻ Khôi phục</button>

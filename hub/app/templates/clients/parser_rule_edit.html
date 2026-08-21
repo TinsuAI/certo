@@ -15,7 +15,7 @@
     </span>
   </div>
   <div class="page-actions">
-    <a class="btn-secondary" href="/clients/{{ client.client_id }}/parser-rules">Cancel</a>
+    <a class="btn-secondary" href="{{ url_prefix }}/clients/{{ client.client_id }}/parser-rules">Cancel</a>
   </div>
 </section>
 
@@ -24,7 +24,7 @@
 {% endif %}
 
 <form method="post"
-      action="/clients/{{ client.client_id }}/parser-rules/{{ rule.rule_id }}/edit"
+      action="{{ url_prefix }}/clients/{{ client.client_id }}/parser-rules/{{ rule.rule_id }}/edit"
       class="settings-form">
   <section class="zone settings-section">
     <div class="zone-head">
@@ -75,7 +75,7 @@
       <span class="commit-note">Pattern compiles via re2 on save.</span>
       <div class="commit-actions">
         <button type="submit" class="btn-primary">Save changes</button>
-        <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/parser-rules">{{ t('common.cancel') }}</a>
+        <a class="btn-secondary btn-sm" href="{{ url_prefix }}/clients/{{ client.client_id }}/parser-rules">{{ t('common.cancel') }}</a>
       </div>
     </footer>
   </section>

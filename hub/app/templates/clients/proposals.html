@@ -18,18 +18,18 @@
 
   <div class="chip-row">
     <a class="chip {{ 'chip-active' if not status else '' }}"
-       href="/clients/{{ client.client_id }}/proposals">{{ t('common.all') }} ({{ counts.values()|sum }})</a>
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/proposals">{{ t('common.all') }} ({{ counts.values()|sum }})</a>
     {% if counts.get('pending') %}
     <a class="chip {{ 'chip-active' if status == 'pending' else '' }}"
-       href="/clients/{{ client.client_id }}/proposals?status=pending">{{ t('proposals.status_pending') }} ({{ counts.get('pending') }})</a>
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/proposals?status=pending">{{ t('proposals.status_pending') }} ({{ counts.get('pending') }})</a>
     {% endif %}
     <a class="chip {{ 'chip-active' if status == 'approved' else '' }}"
-       href="/clients/{{ client.client_id }}/proposals?status=approved">{{ t('proposals.status_approved') }} ({{ counts.get('approved', 0) }})</a>
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/proposals?status=approved">{{ t('proposals.status_approved') }} ({{ counts.get('approved', 0) }})</a>
     <a class="chip {{ 'chip-active' if status == 'rejected' else '' }}"
-       href="/clients/{{ client.client_id }}/proposals?status=rejected">{{ t('proposals.status_rejected') }} ({{ counts.get('rejected', 0) }})</a>
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/proposals?status=rejected">{{ t('proposals.status_rejected') }} ({{ counts.get('rejected', 0) }})</a>
     {% if counts.get('withdrawn') %}
     <a class="chip {{ 'chip-active' if status == 'withdrawn' else '' }}"
-       href="/clients/{{ client.client_id }}/proposals?status=withdrawn">{{ t('proposals.status_withdrawn') }} ({{ counts.get('withdrawn') }})</a>
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/proposals?status=withdrawn">{{ t('proposals.status_withdrawn') }} ({{ counts.get('withdrawn') }})</a>
     {% endif %}
   </div>
 
@@ -49,7 +49,7 @@
     </tr></thead>
     <tbody>
       {% for p in items %}
-      <tr data-row-href="/clients/{{ client.client_id }}/proposals/{{ p.proposal_id }}" tabindex="0">
+      <tr data-row-href="{{ url_prefix }}/clients/{{ client.client_id }}/proposals/{{ p.proposal_id }}" tabindex="0">
         <td class="mono">{{ p.proposal_id[:14] }}…</td>
         <td class="mono">{{ p.product_code }}</td>
         <td><span class="badge badge-muted">{{ p.actor }}</span></td>
@@ -67,10 +67,10 @@
         <td>
           {% if p.status == 'pending' and can_approve %}
           <a class="btn-primary btn-xs"
-             href="/clients/{{ client.client_id }}/proposals/{{ p.proposal_id }}">{{ t('proposals.review_action') }}</a>
+             href="{{ url_prefix }}/clients/{{ client.client_id }}/proposals/{{ p.proposal_id }}">{{ t('proposals.review_action') }}</a>
           {% else %}
           <a class="btn-ghost btn-xs"
-             href="/clients/{{ client.client_id }}/proposals/{{ p.proposal_id }}">{{ t('common.detail') }} →</a>
+             href="{{ url_prefix }}/clients/{{ client.client_id }}/proposals/{{ p.proposal_id }}">{{ t('common.detail') }} →</a>
           {% endif %}
         </td>
       </tr>

@@ -17,7 +17,7 @@
       </div>
     </div>
 
-    <form method="post" action="/clients/{{ client.client_id }}/agent/threads"
+    <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/agent/threads"
           class="agent-new-form">
       <input type="text" name="title" placeholder="{{ t('agent.thread_title_placeholder') }}" maxlength="120">
       <button type="submit" class="btn-primary">{{ t('agent.new_thread') }}</button>
@@ -27,7 +27,7 @@
       {% for th in threads %}
       <li class="agent-thread-row {% if thread and th.thread_id == thread.thread_id %}agent-thread-active{% endif %}"
           data-thread-id="{{ th.thread_id }}">
-        <a href="/clients/{{ client.client_id }}/agent/{{ th.thread_id }}" class="agent-thread-main">
+        <a href="{{ url_prefix }}/clients/{{ client.client_id }}/agent/{{ th.thread_id }}" class="agent-thread-main">
           <strong data-thread-title>{{ th.title or t('agent.untitled_thread') }}</strong>
           <span class="meta">
             {{ th.message_count }} {{ t('agent.messages') }} ·
@@ -102,7 +102,7 @@
       {% endif %}
     </div>
 
-    <form method="post" action="/clients/{{ client.client_id }}/agent/{{ thread.thread_id }}/message"
+    <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/agent/{{ thread.thread_id }}/message"
           class="agent-compose">
       <textarea name="text" rows="3" required
                 placeholder="{{ t('agent.compose_placeholder') }}"
@@ -118,6 +118,6 @@
   </div>
 </section>
 
-<script src="/static/js/agent-page.js" defer></script>
+<script src="{{ url_prefix }}/static/js/agent-page.js" defer></script>
 
 {% endblock %}

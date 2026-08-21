@@ -44,7 +44,7 @@
 
   {# ── Add canonical (toggled) ── #}
   <form id="add-canonical" class="uom-addform" method="post"
-        action="/admin/uom/canonical/new" hidden>
+        action="{{ url_prefix }}/admin/uom/canonical/new" hidden>
     <div class="uom-addform-head">Thêm canonical mới</div>
     <div class="uom-addform-row">
       <label>Code<input type="text" name="uom_code" required placeholder="vd: pallet"></label>
@@ -62,7 +62,7 @@
 
   {# ── Add alias (toggled) ── #}
   <form id="add-alias" class="uom-addform" method="post"
-        action="/admin/uom/aliases/new" hidden>
+        action="{{ url_prefix }}/admin/uom/aliases/new" hidden>
     <div class="uom-addform-head">Thêm alias mới</div>
     <div class="uom-addform-row">
       <label>Alias<input type="text" name="alias_norm" required placeholder="vd: kilo-grammes (tự lowercase)"></label>
@@ -128,7 +128,7 @@
             <div class="uom-detail-block">
               <span class="fld-group-title">Sửa canonical</span>
               <div class="uom-edit-actions">
-                <form method="post" action="/admin/uom/canonical/{{ c.uom_code|urlencode }}/update" class="uom-inline-form">
+                <form method="post" action="{{ url_prefix }}/admin/uom/canonical/{{ c.uom_code|urlencode }}/update" class="uom-inline-form">
                   <code class="uom-code uom-code-fixed">{{ c.uom_code }}</code>
                   <label class="uom-mini">family
                     <select name="family">
@@ -138,7 +138,7 @@
                     <input type="number" name="base_factor" step="any" value="{{ c.factor_disp }}"></label>
                   <button type="submit" class="btn-xs btn-primary">Lưu</button>
                 </form>
-                <form method="post" action="/admin/uom/canonical/{{ c.uom_code|urlencode }}/delete"
+                <form method="post" action="{{ url_prefix }}/admin/uom/canonical/{{ c.uom_code|urlencode }}/delete"
                       class="uom-inline-form"
                       onsubmit="return confirm('Xóa canonical {{ c.uom_code }}{% if c.aliases %} và {{ c.aliases|length }} alias{% endif %}? Dữ liệu đang dùng đơn vị này sẽ trở thành alias lạ.')">
                   <button type="submit" class="btn-xs btn-danger uom-danger" title="Xóa canonical">Xóa</button>
@@ -151,14 +151,14 @@
               <div class="uom-chips">
                 {% for a in c.aliases %}
                   <span class="uom-chip-sm mono uom-chip-del">{{ a }}<form method="post"
-                        action="/admin/uom/aliases/{{ a|urlencode }}/delete"
+                        action="{{ url_prefix }}/admin/uom/aliases/{{ a|urlencode }}/delete"
                         onsubmit="return confirm('Xóa alias {{ a }}?')"><button type="submit"
                         class="uom-chip-x" title="Xóa alias">×</button></form></span>
                 {% else %}
                   <span class="meta">Chưa có alias riêng (ngoài self).</span>
                 {% endfor %}
               </div>
-              <form method="post" action="/admin/uom/aliases/new" class="uom-inline-form">
+              <form method="post" action="{{ url_prefix }}/admin/uom/aliases/new" class="uom-inline-form">
                 <input type="hidden" name="uom_code" value="{{ c.uom_code }}">
                 <input type="text" name="alias_norm" placeholder="thêm alias…">
                 <button type="submit" class="btn-xs btn-secondary">+ Alias</button>

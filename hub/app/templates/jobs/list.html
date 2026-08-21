@@ -11,7 +11,7 @@
     </span>
   </div>
   <div class="page-actions">
-    <a class="btn-ghost" href="/clients/{{ client.client_id }}/catalog">← Danh mục</a>
+    <a class="btn-ghost" href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog">← Danh mục</a>
   </div>
 </section>
 
@@ -38,8 +38,8 @@
     <tbody>
       {% for j in jobs %}
       <tr>
-        <td class="num"><a href="/jobs/{{ j.id }}">{{ j.id }}</a></td>
-        <td><a href="/jobs/{{ j.id }}">{{ j.label }}</a></td>
+        <td class="num"><a href="{{ url_prefix }}/jobs/{{ j.id }}">{{ j.id }}</a></td>
+        <td><a href="{{ url_prefix }}/jobs/{{ j.id }}">{{ j.label }}</a></td>
         <td>
           {% if j.status == 'pending' %}
             <span class="badge badge-muted">Đang chờ</span>

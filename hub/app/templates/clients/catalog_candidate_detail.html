@@ -21,7 +21,7 @@
     </div>
     <div class="page-actions">
       <a class="btn-secondary"
-         href="/clients/{{ client.client_id }}/catalog/candidates">
+         href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/candidates">
          ← Mã chờ duyệt
       </a>
     </div>
@@ -33,7 +33,7 @@
     <details style="flex: 1;">
       <summary class="btn-primary">Duyệt vào catalog</summary>
       <form method="post"
-            action="/clients/{{ client.client_id }}/catalog/candidates/accept"
+            action="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/candidates/accept"
             class="form-stack" style="margin-top: 0.5rem; padding: 0.75rem; background: #fafafa; border-radius: 4px;">
         <input type="hidden" name="code" value="{{ candidate.code }}">
         <input type="hidden" name="code_kind" value="{{ candidate.code_kind }}">
@@ -61,7 +61,7 @@
       </form>
     </details>
     <form method="post"
-          action="/clients/{{ client.client_id }}/catalog/candidates/reject">
+          action="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/candidates/reject">
       <input type="hidden" name="code" value="{{ candidate.code }}">
       <input type="hidden" name="code_kind" value="{{ candidate.code_kind }}">
       <input type="text" name="reason" placeholder="Lý do (tùy chọn)" style="width: 220px;">
@@ -74,7 +74,7 @@
     Đã từ chối bởi {{ candidate.decided_by or '—' }}
     {% if candidate.decision_reason %}— "{{ candidate.decision_reason }}"{% endif %}
     <form method="post" style="display: inline; margin-left: 0.5rem;"
-          action="/clients/{{ client.client_id }}/catalog/candidates/unreject">
+          action="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/candidates/unreject">
       <input type="hidden" name="code" value="{{ candidate.code }}">
       <button type="submit" class="btn-secondary btn-sm">↻ Khôi phục</button>
     </form>
@@ -134,12 +134,12 @@
     {% for c in co_occurrences[:25] %}
       <tr>
         <td>
-          <a href="/clients/{{ client.client_id }}/catalog/{{ c.code }}/detail"
+          <a href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ c.code }}/detail"
              title="Xem trong catalog (nếu đã accept) hoặc 404"><code>{{ c.code }}</code></a>
         </td>
         <td>{{ format_int(c.n) }}</td>
         <td class="meta">
-          <a href="/clients/{{ client.client_id }}/catalog/candidates?q={{ c.code }}">tìm trong feed →</a>
+          <a href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/candidates?q={{ c.code }}">tìm trong feed →</a>
         </td>
       </tr>
     {% endfor %}
@@ -158,7 +158,7 @@
     {% for r in bcct_samples %}
       <tr>
         <td class="mono">
-          <a href="/clients/{{ client.client_id }}/bcct/history/{{ r.transaction_key }}/{{ r.line_no }}"
+          <a href="{{ url_prefix }}/clients/{{ client.client_id }}/bcct/history/{{ r.transaction_key }}/{{ r.line_no }}"
              title="Xem chi tiết dòng BCCT">{{ r.declaration_no }}</a>
         </td>
         <td class="meta">{{ format_date(r.registration_date) if r.registration_date else '—' }}</td>
@@ -180,11 +180,11 @@
   <ul>
   {% for a in bom_artifacts %}
     <li>
-      <a href="/clients/{{ client.client_id }}/catalog/{{ a.product_code }}/detail"
+      <a href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ a.product_code }}/detail"
          title="Xem catalog detail của TP này"><code>{{ a.product_code }}</code></a>
       {% if a.is_root %}<span class="badge badge-info">TP root</span>{% else %}<span class="meta">(chứa)</span>{% endif %}
       — artifact_no={{ a.artifact_no }}, status={{ a.flatten_status }}
-      <a href="/clients/{{ client.client_id }}/bom/artifact/{{ a.artifact_id }}">→ BOM detail</a>
+      <a href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/artifact/{{ a.artifact_id }}">→ BOM detail</a>
     </li>
   {% endfor %}
   </ul>

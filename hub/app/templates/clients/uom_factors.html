@@ -14,7 +14,7 @@
   <div class="page-actions">
     <span class="badge badge-neutral">{{ summary.total }} hệ số</span>
     {% if summary.cross_family %}<span class="badge badge-warning">{{ summary.cross_family }} khác họ</span>{% endif %}
-    {% if uom_admin_link %}<a class="btn-secondary btn-sm" href="/admin/uom" title="Đơn vị chuẩn + alias toàn hệ thống">Chuẩn UoM hệ thống →</a>{% endif %}
+    {% if uom_admin_link %}<a class="btn-secondary btn-sm" href="{{ url_prefix }}/admin/uom" title="Đơn vị chuẩn + alias toàn hệ thống">Chuẩn UoM hệ thống →</a>{% endif %}
     {% if can_edit %}<button type="button" class="btn-primary btn-sm" data-uom-toggle="add-factor-panel">＋ Thêm hệ số</button>{% endif %}
   </div>
 </section>
@@ -31,7 +31,7 @@
       <p class="meta">Để trống <span class="mono">Mã</span> = override áp cho mọi material của client.</p>
     </div>
   </div>
-  <form method="post" action="/clients/{{ client.client_id }}/uom-factors/new" class="uom-addgrid">
+  <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/uom-factors/new" class="uom-addgrid">
     <label>Mã NPL/SP <small>(trống = mọi mã)</small>
       <input type="text" name="material_code" value="{{ prefill_material_code }}" placeholder="vd: M_X"></label>
     <label>Từ UoM
@@ -134,7 +134,7 @@
       <span class="mono uom-fromto"><span data-ed="from"></span><span class="uom-arrow">→</span><span data-ed="to"></span></span>
       <span class="uom-editor-readout mono" data-ed="readout"></span>
     </div>
-    <form method="post" action="/clients/{{ client.client_id }}/uom-factors/update" class="uom-editor-form">
+    <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/uom-factors/update" class="uom-editor-form">
       <input type="hidden" name="material_code" data-ed="f-mc">
       <input type="hidden" name="from_uom" data-ed="f-from">
       <input type="hidden" name="to_uom" data-ed="f-to">
@@ -147,7 +147,7 @@
       <button type="submit" class="btn-primary btn-sm">Lưu</button>
       <button type="button" class="btn-secondary btn-sm uom-editor-cancel">Hủy</button>
     </form>
-    <form method="post" action="/clients/{{ client.client_id }}/uom-factors/delete"
+    <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/uom-factors/delete"
           class="uom-editor-del" onsubmit="return confirm('Xóa hệ số này?')">
       <input type="hidden" name="material_code" data-ed="d-mc">
       <input type="hidden" name="from_uom" data-ed="d-from">
@@ -164,10 +164,10 @@
     <code>factor</code> (tùy chọn <code>notes</code>). Trống <code>material_code</code> = client-wide.
   </p>
   <p>
-    <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/uom-factors/template.xlsx" download>⬇ Tải template XLSX</a>
+    <a class="btn-secondary btn-sm" href="{{ url_prefix }}/clients/{{ client.client_id }}/uom-factors/template.xlsx" download>⬇ Tải template XLSX</a>
     <span class="meta">Template gồm 2 sheet: dữ liệu + Hướng dẫn.</span>
   </p>
-  <form method="post" action="/clients/{{ client.client_id }}/uom-factors/import"
+  <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/uom-factors/import"
         enctype="multipart/form-data" class="uom-import-form">
     <label>File<input type="file" name="upload" accept=".csv,.xlsx,.xlsm,text/csv" required></label>
     <label>Nguồn (cả file)

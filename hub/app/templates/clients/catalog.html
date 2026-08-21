@@ -22,7 +22,7 @@
       </p>
     </div>
     <div class="page-actions">
-      <a class="btn-ghost" href="/clients/{{ client.client_id }}/jobs">
+      <a class="btn-ghost" href="{{ url_prefix }}/clients/{{ client.client_id }}/jobs">
         Lịch sử chạy
       </a>
     </div>
@@ -63,7 +63,7 @@
   <div class="toast toast-warn" style="margin-top: 1rem;">
     ⚠ Chưa cấu hình API key cho phân tích AI.
     {% if user.role == 'dev' %}
-      <a href="/admin/settings/embedding">Mở trang cài đặt →</a>
+      <a href="{{ url_prefix }}/admin/settings/embedding">Mở trang cài đặt →</a>
     {% else %}
       Liên hệ admin để cấu hình.
     {% endif %}
@@ -72,12 +72,12 @@
 
   <div class="ai-panel-actions">
     {% if ai_panel.active_embedding_job_id %}
-      <a class="btn-primary" href="/jobs/{{ ai_panel.active_embedding_job_id }}">
+      <a class="btn-primary" href="{{ url_prefix }}/jobs/{{ ai_panel.active_embedding_job_id }}">
         ⏳ Đang phân tích AI… (xem tiến độ)
       </a>
     {% else %}
       <form method="post" style="display: inline;"
-            action="/clients/{{ client.client_id }}/jobs/start"
+            action="{{ url_prefix }}/clients/{{ client.client_id }}/jobs/start"
             onsubmit="return confirm('Cập nhật phân tích AI cho {{ ai_panel.materials_dirty }} vật tư cần phân tích lại? {{ ai_panel.eta_dirty_embed }}.')">
         <input type="hidden" name="kind" value="embedding_refresh">
         <button type="submit" class="btn-primary"
@@ -90,7 +90,7 @@
         </button>
       </form>
       <form method="post" style="display: inline;"
-            action="/clients/{{ client.client_id }}/jobs/start"
+            action="{{ url_prefix }}/clients/{{ client.client_id }}/jobs/start"
             onsubmit="return confirm('Phân tích lại từ đầu TOÀN BỘ {{ ai_panel.materials_total }} vật tư? Tốn API call hơn — chỉ làm khi nghi dữ liệu cũ sai. {{ ai_panel.eta_full_embed }}.')">
         <input type="hidden" name="kind" value="embedding_refresh">
         <input type="hidden" name="force" value="true">
@@ -103,13 +103,13 @@
     {% endif %}
 
     {% if ai_panel.active_substitute_job_id %}
-      <a class="btn-secondary" href="/jobs/{{ ai_panel.active_substitute_job_id }}"
+      <a class="btn-secondary" href="{{ url_prefix }}/jobs/{{ ai_panel.active_substitute_job_id }}"
          style="margin-left: 1rem;">
         ⏳ Đang tìm gợi ý vật tư… (xem tiến độ)
       </a>
     {% else %}
       <form method="post" style="display: inline; margin-left: 1rem;"
-            action="/clients/{{ client.client_id }}/jobs/start"
+            action="{{ url_prefix }}/clients/{{ client.client_id }}/jobs/start"
             onsubmit="return confirm('Tìm lại gợi ý vật tư thay thế cho toàn bộ {{ ai_panel.materials_total }} vật tư? {{ ai_panel.eta_substitute_refresh }}.')">
         <input type="hidden" name="kind" value="substitute_refresh">
         <button type="submit" class="btn-secondary"
@@ -130,8 +130,8 @@
       <p class="meta">{{ t('catalog.subtitle') }}</p>
     </div>
     <div class="page-actions">
-      <a class="btn-secondary" href="/clients/{{ client.client_id }}/catalog/candidates">Mã chờ duyệt</a>
-      <a class="btn-primary" href="/clients/{{ client.client_id }}/catalog/upload">{{ t('catalog.upload_btn') }}</a>
+      <a class="btn-secondary" href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/candidates">Mã chờ duyệt</a>
+      <a class="btn-primary" href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/upload">{{ t('catalog.upload_btn') }}</a>
     </div>
   </div>
 
@@ -148,7 +148,7 @@
   {% if prov_counts and prov_counts.unregistered and prov_counts.unregistered > 0 and active_provenance != 'unregistered' %}
   <div class="toast toast-error" style="margin-bottom: 1rem;">
     ⚠ <strong>{{ prov_counts.unregistered }}</strong> {{ t('catalog.alarm_unregistered') }}
-    <a href="/clients/{{ client.client_id }}/catalog?provenance=unregistered">{{ t('catalog.alarm_view') }} →</a>
+    <a href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog?provenance=unregistered">{{ t('catalog.alarm_view') }} →</a>
   </div>
   {% endif %}
 
@@ -166,7 +166,7 @@
       ({{ conflict_counts.declared }} khai báo ≠ quan sát,
        {{ conflict_counts.sourcing }} nguồn cung ≠ quan sát)
     </span>
-    <a href="/clients/{{ client.client_id }}/catalog/conflicts">Mở trang conflicts →</a>
+    <a href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/conflicts">Mở trang conflicts →</a>
   </div>
   {% endif %}
 
@@ -185,10 +185,10 @@
 
   <div class="chip-row" aria-label="Category filter">
     <a class="chip {{ 'chip-active' if not active_category else '' }}"
-       href="/clients/{{ client.client_id }}/catalog{% if active_provenance %}?provenance={{ active_provenance }}{% endif %}">{{ t('catalog.cat_all') }} ({{ paging.total }})</a>
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog{% if active_provenance %}?provenance={{ active_provenance }}{% endif %}">{{ t('catalog.cat_all') }} ({{ paging.total }})</a>
     {% for c in categories %}
     <a class="chip {{ 'chip-active' if active_category == c else '' }}"
-       href="/clients/{{ client.client_id }}/catalog?category={{ c }}{% if active_provenance %}&provenance={{ active_provenance }}{% endif %}">
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog?category={{ c }}{% if active_provenance %}&provenance={{ active_provenance }}{% endif %}">
       {{ t('catalog.cat_' + c) }} ({{ counts.get(c, 0) }})
     </a>
     {% endfor %}
@@ -197,18 +197,18 @@
   <div class="chip-row" aria-label="{{ t('catalog.provenance_filter') }}" style="margin-top: 0.5rem;">
     <span class="meta" style="align-self: center;">{{ t('catalog.source') }}:</span>
     <a class="chip {{ 'chip-active' if not active_provenance else '' }}"
-       href="/clients/{{ client.client_id }}/catalog{% if active_category %}?category={{ active_category }}{% endif %}">{{ t('catalog.prov_all') }} ({{ prov_counts.total }})</a>
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog{% if active_category %}?category={{ active_category }}{% endif %}">{{ t('catalog.prov_all') }} ({{ prov_counts.total }})</a>
     <a class="chip {{ 'chip-active' if active_provenance == 'registered' else '' }}"
-       href="/clients/{{ client.client_id }}/catalog?provenance=registered{% if active_category %}&category={{ active_category }}{% endif %}">
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog?provenance=registered{% if active_category %}&category={{ active_category }}{% endif %}">
       ✓ {{ t('catalog.prov_registered') }} ({{ prov_counts.registered }})
     </a>
     <a class="chip {{ 'chip-active' if active_provenance == 'unregistered' else '' }}"
-       href="/clients/{{ client.client_id }}/catalog?provenance=unregistered{% if active_category %}&category={{ active_category }}{% endif %}">
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog?provenance=unregistered{% if active_category %}&category={{ active_category }}{% endif %}">
       ⚠ {{ t('catalog.prov_unregistered') }} ({{ prov_counts.unregistered }})
     </a>
     {% if prov_counts.user_added %}
     <a class="chip {{ 'chip-active' if active_provenance == 'user_added' else '' }}"
-       href="/clients/{{ client.client_id }}/catalog?provenance=user_added{% if active_category %}&category={{ active_category }}{% endif %}">
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog?provenance=user_added{% if active_category %}&category={{ active_category }}{% endif %}">
       📥 {{ t('catalog.prov_user_added') }} ({{ prov_counts.user_added }})
     </a>
     {% endif %}
@@ -218,16 +218,16 @@
     <span class="meta" style="align-self: center;">Trạng thái:</span>
     {% set qstatus = request.query_params.get('status') %}
     <a class="chip {{ 'chip-active' if not qstatus else '' }}"
-       href="/clients/{{ client.client_id }}/catalog">Tất cả</a>
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog">Tất cả</a>
     <a class="chip {{ 'chip-active' if qstatus == 'active' else '' }}"
-       href="/clients/{{ client.client_id }}/catalog?status=active">Active</a>
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog?status=active">Active</a>
     <a class="chip {{ 'chip-active' if qstatus == 'deprecated' else '' }}"
-       href="/clients/{{ client.client_id }}/catalog?status=deprecated">Deprecated</a>
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog?status=deprecated">Deprecated</a>
     <a class="meta" style="margin-left: auto;"
-       href="/clients/{{ client.client_id }}/catalog/candidates">Mã chờ duyệt →</a>
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/candidates">Mã chờ duyệt →</a>
   </div>
 
-  <form method="get" action="/clients/{{ client.client_id }}/catalog" class="stack-form" style="max-width: 600px; margin: 1rem 0;">
+  <form method="get" action="{{ url_prefix }}/clients/{{ client.client_id }}/catalog" class="stack-form" style="max-width: 600px; margin: 1rem 0;">
     {% if active_category %}<input type="hidden" name="category" value="{{ active_category }}">{% endif %}
     {% if active_provenance %}<input type="hidden" name="provenance" value="{{ active_provenance }}">{% endif %}
     {% if request.query_params.get('status') %}<input type="hidden" name="status" value="{{ request.query_params.get('status') }}">{% endif %}
@@ -290,9 +290,9 @@
     </thead>
     <tbody>
       {% for m in items %}
-      <tr data-row-href="/clients/{{ client.client_id }}/catalog/{{ m.material_code }}/detail" tabindex="0">
+      <tr data-row-href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ m.material_code }}/detail" tabindex="0">
         <td class="mono" data-col="material_code">
-          <a href="/clients/{{ client.client_id }}/catalog/{{ m.material_code }}/detail"
+          <a href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ m.material_code }}/detail"
              title="Xem chi tiết">{{ m.material_code }}</a>
         </td>
         <td data-col="code_kind">
@@ -388,7 +388,7 @@
                     title="Staff confirm '{{ m.btp_sourcing }}' nhưng observed gợi ý '{{ m.suggested_sourcing }}'">⚠ Conflict</span>
             {% endif %}
             <form id="src-{{ m.material_code }}" method="post"
-                  action="/clients/{{ client.client_id }}/catalog/{{ m.material_code }}/btp_sourcing" style="display:none">
+                  action="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ m.material_code }}/btp_sourcing" style="display:none">
               <select name="btp_sourcing" onchange="this.form.submit()" class="mono" style="font-size:.85em;">
                 <option value="unknown" {{ 'selected' if m.btp_sourcing in (none, '', 'unknown') else '' }}>— Chọn —</option>
                 <option value="self_produced_only" {{ 'selected' if m.btp_sourcing == 'self_produced_only' else '' }}>Tự SX (chỉ có BOM riêng)</option>
@@ -407,15 +407,15 @@
     </table>
   </div>
   {% include "clients/_pagination.html" %}
-  <script src="/static/js/col-picker.js" defer></script>
+  <script src="{{ url_prefix }}/static/js/col-picker.js" defer></script>
   {% else %}
   <div class="empty-state">
     {% if q or active_category or active_provenance %}
     <p>Không có kết quả với bộ lọc hiện tại.</p>
-    <a class="btn-ghost" href="/clients/{{ client.client_id }}/catalog">Xóa bộ lọc</a>
+    <a class="btn-ghost" href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog">Xóa bộ lọc</a>
     {% else %}
     <p>{{ t('catalog.empty') }}</p>
-    <a class="btn-primary" href="/clients/{{ client.client_id }}/catalog/upload">{{ t('catalog.upload_btn') }}</a>
+    <a class="btn-primary" href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/upload">{{ t('catalog.upload_btn') }}</a>
     {% endif %}
   </div>
   {% endif %}

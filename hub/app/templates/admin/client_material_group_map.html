@@ -21,7 +21,7 @@
     (<code>customs_relevance</code>) ngay lập tức. Nhưng việc <em>loại trừ khỏi
     bảng kê</em> dựa trên cờ đã lưu trên từng dòng BOM — cần chạy lại backfill
     cho client này để áp dụng thay đổi.
-    <form method="post" action="/clients/{{ client.client_id }}/jobs/start"
+    <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/jobs/start"
           class="inline-form" style="margin-top: .5rem;">
       <input type="hidden" name="kind" value="material_group_backfill">
       <button type="submit" class="btn-secondary" {{ 'disabled' if backfill_active }}>
@@ -46,7 +46,7 @@
         <td>{{ r.notes or '—' }}</td>
         <td class="actions-cell">
           <form method="post"
-                action="/clients/{{ client.client_id }}/material-group-map/delete"
+                action="{{ url_prefix }}/clients/{{ client.client_id }}/material-group-map/delete"
                 class="inline-form">
             <input type="hidden" name="material_group" value="{{ r.material_group }}">
             <button type="submit" class="btn-danger">Xóa</button>
@@ -61,7 +61,7 @@
     để mặc định <code>declarable_unmatched</code>.</p>
   {% endif %}
 
-  <form method="post" action="/clients/{{ client.client_id }}/material-group-map/add"
+  <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/material-group-map/add"
         class="settings-form">
     <span class="fld-group-title">Thêm / cập nhật dòng</span>
     <div class="settings-grid">

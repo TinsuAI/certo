@@ -11,7 +11,7 @@
     </div>
   </div>
 
-  <form method="post" action="/clients/{{ client.client_id }}/agent/threads"
+  <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/agent/threads"
         class="stack-form" style="max-width: 600px;">
     <input type="text" name="title" placeholder="{{ t('agent.thread_title_placeholder') }}" maxlength="120">
     <button type="submit" class="btn-primary">{{ t('agent.new_thread') }}</button>
@@ -22,7 +22,7 @@
   <ul class="agent-thread-list">
     {% for th in threads %}
     <li class="agent-thread-card">
-      <a href="/clients/{{ client.client_id }}/agent/{{ th.thread_id }}" class="agent-thread-link">
+      <a href="{{ url_prefix }}/clients/{{ client.client_id }}/agent/{{ th.thread_id }}" class="agent-thread-link">
         <strong>{{ th.title or '(không tên)' }}</strong>
         <div class="meta">
           {{ th.message_count }} {{ t('agent.messages') }} ·

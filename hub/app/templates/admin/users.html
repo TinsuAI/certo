@@ -22,7 +22,7 @@
       <p class="meta">{{ t('admin.users_meta') }}</p>
     </div>
   </div>
-  <form method="post" action="/admin/users/new" class="settings-form">
+  <form method="post" action="{{ url_prefix }}/admin/users/new" class="settings-form">
     <div class="settings-grid">
       <div class="field">
         <label for="email">{{ t('admin.user.email') }}</label>
@@ -82,7 +82,7 @@
           {% if u.role == 'dev' %}
             <span class="badge badge-brand">{{ t('admin.role.dev_short') }}</span>
           {% else %}
-            <form method="post" action="/admin/users/{{ u.user_id }}/role" class="inline-form">
+            <form method="post" action="{{ url_prefix }}/admin/users/{{ u.user_id }}/role" class="inline-form">
               <select name="role" onchange="this.form.submit()">
                 {% for r in assignable_roles %}
                 <option value="{{ r }}" {% if r == u.role %}selected{% endif %}>{{ t('admin.role.' + r + '_short') }}</option>
@@ -97,16 +97,16 @@
         <td class="mono">{{ u.created_at.strftime('%Y-%m-%d') if u.created_at else '—' }}</td>
         <td class="actions-cell">
           {% if u.role == 'manager' %}
-          <a class="btn-secondary" href="/admin/users/{{ u.user_id }}/clients">{{ t('admin.action.assign_clients') }}</a>
+          <a class="btn-secondary" href="{{ url_prefix }}/admin/users/{{ u.user_id }}/clients">{{ t('admin.action.assign_clients') }}</a>
           {% endif %}
           {% if u.role != 'dev' %}
             {% if u.status == 'active' %}
-            <form method="post" action="/admin/users/{{ u.user_id }}/status" class="inline-form">
+            <form method="post" action="{{ url_prefix }}/admin/users/{{ u.user_id }}/status" class="inline-form">
               <input type="hidden" name="new_status" value="locked">
               <button type="submit" class="btn-danger-sm">{{ t('admin.action.deactivate') }}</button>
             </form>
             {% else %}
-            <form method="post" action="/admin/users/{{ u.user_id }}/status" class="inline-form">
+            <form method="post" action="{{ url_prefix }}/admin/users/{{ u.user_id }}/status" class="inline-form">
               <input type="hidden" name="new_status" value="active">
               <button type="submit" class="btn-secondary">{{ t('admin.action.reactivate') }}</button>
             </form>

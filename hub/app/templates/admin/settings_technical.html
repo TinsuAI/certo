@@ -25,7 +25,7 @@
 </div>
 {% endif %}
 
-<form method="post" action="/admin/settings/technical" class="settings-form">
+<form method="post" action="{{ url_prefix }}/admin/settings/technical" class="settings-form">
   <section class="zone">
     <div class="zone-head">
       <div>
@@ -139,7 +139,7 @@
   </section>
 
   <div class="settings-footer">
-    <a class="btn-secondary" href="/admin/settings/technical?fetch_models=1">Refresh model list</a>
+    <a class="btn-secondary" href="{{ url_prefix }}/admin/settings/technical?fetch_models=1">Refresh model list</a>
     <button type="submit" class="btn-primary">Lưu</button>
   </div>
 </form>

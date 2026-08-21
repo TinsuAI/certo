@@ -14,7 +14,7 @@
   <div class="page-actions">
     <span class="badge badge-info">v{{ cfg.config_version }}</span>
     <span class="badge" title="Hash để consumer cache invalidate">hash {{ cfg.config_hash[:8] if cfg.config_hash else '—' }}</span>
-    <a class="btn-secondary" href="/clients/{{ client.client_id }}/edit">← Cấu hình chung</a>
+    <a class="btn-secondary" href="{{ url_prefix }}/clients/{{ client.client_id }}/edit">← Cấu hình chung</a>
   </div>
 </section>
 
@@ -49,7 +49,7 @@
   </div>
   <div class="settings-grid">
     {% for p in presets %}
-    <form method="post" action="/clients/{{ client.client_id }}/declaration-config/apply-preset" class="inline-form">
+    <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/declaration-config/apply-preset" class="inline-form">
       <input type="hidden" name="preset_key" value="{{ p.preset_key }}">
       <button type="submit" class="btn-secondary" {% if not can_edit %}disabled{% endif %}>
         {{ p.display_name }}
@@ -60,7 +60,7 @@
   </div>
 </section>
 
-<form method="post" action="/clients/{{ client.client_id }}/declaration-config" class="settings-form">
+<form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/declaration-config" class="settings-form">
 
   <section class="zone settings-section">
     <div class="zone-head">
@@ -135,7 +135,7 @@
     <span class="commit-note">Lưu sẽ tăng <span class="mono">config_version</span> — CO và BCQT đọc lại qua API.</span>
     <div class="commit-actions">
       <button type="submit" class="btn-primary">Lưu cấu hình</button>
-      <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}">{{ t('common.cancel') }}</a>
+      <a class="btn-secondary btn-sm" href="{{ url_prefix }}/clients/{{ client.client_id }}">{{ t('common.cancel') }}</a>
     </div>
   </footer>
   {% else %}

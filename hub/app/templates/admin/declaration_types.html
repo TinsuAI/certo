@@ -21,7 +21,7 @@
       <p class="meta">Code phải là duy nhất (E11, E15, A12, ...).</p>
     </div>
   </div>
-  <form method="post" action="/admin/declaration-types/new" class="settings-form">
+  <form method="post" action="{{ url_prefix }}/admin/declaration-types/new" class="settings-form">
     <div class="settings-grid">
       <div class="field">
         <label for="code">Code</label>
@@ -73,7 +73,7 @@
       <tr>
         <td class="mono">{{ r.code }}</td>
         <td>
-          <form method="post" action="/admin/declaration-types/{{ r.code }}/update" class="inline-form">
+          <form method="post" action="{{ url_prefix }}/admin/declaration-types/{{ r.code }}/update" class="inline-form">
             <select name="direction" onchange="this.form.submit()">
               <option value="import" {% if r.direction == 'import' %}selected{% endif %}>import</option>
               <option value="export" {% if r.direction == 'export' %}selected{% endif %}>export</option>
@@ -84,7 +84,7 @@
           </form>
         </td>
         <td>
-          <form method="post" action="/admin/declaration-types/{{ r.code }}/update" class="inline-form">
+          <form method="post" action="{{ url_prefix }}/admin/declaration-types/{{ r.code }}/update" class="inline-form">
             <input type="text" name="description" value="{{ r.description }}" onchange="this.form.submit()">
             <input type="hidden" name="direction" value="{{ r.direction }}">
             <input type="hidden" name="notes" value="{{ r.notes }}">
@@ -97,7 +97,7 @@
         </td>
         <td class="mono">{{ r.updated_at.strftime('%Y-%m-%d %H:%M') if r.updated_at else '' }}</td>
         <td class="actions-cell">
-          <form method="post" action="/admin/declaration-types/{{ r.code }}/update" class="inline-form">
+          <form method="post" action="{{ url_prefix }}/admin/declaration-types/{{ r.code }}/update" class="inline-form">
             <input type="hidden" name="direction" value="{{ r.direction }}">
             <input type="hidden" name="description" value="{{ r.description }}">
             <input type="hidden" name="notes" value="{{ r.notes }}">

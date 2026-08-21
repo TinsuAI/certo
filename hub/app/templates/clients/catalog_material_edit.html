@@ -11,12 +11,12 @@
     </div>
     <div class="page-actions">
       <a class="btn-secondary btn-sm"
-         href="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/detail">← Chi tiết</a>
+         href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/detail">← Chi tiết</a>
     </div>
   </div>
 
   <form method="post" class="form-stack"
-        action="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/edit">
+        action="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/edit">
     <div>
       <label for="name">Tên hàng</label>
       <input type="text" id="name" name="name" required
@@ -78,7 +78,7 @@
     <div class="form-actions">
       <button type="submit" class="btn-primary">Lưu thay đổi</button>
       <a class="btn-secondary"
-         href="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/detail">
+         href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/detail">
          Hủy
       </a>
     </div>

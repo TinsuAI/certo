@@ -10,8 +10,8 @@
       <p class="meta">Bảng tổng hợp đầu kỳ / nhập / xuất / cuối kỳ theo kỳ báo cáo, phục vụ quyết toán.</p>
     </div>
     <div class="page-actions">
-      <a class="btn-secondary btn-sm" href="/templates/nxt.xlsx">Tải mẫu chuẩn</a>
-      {% if can_edit %}<a class="btn-primary btn-sm" href="/clients/{{ client.client_id }}/nxt/upload">＋ Tải lên</a>{% endif %}
+      <a class="btn-secondary btn-sm" href="{{ url_prefix }}/templates/nxt.xlsx">Tải mẫu chuẩn</a>
+      {% if can_edit %}<a class="btn-primary btn-sm" href="{{ url_prefix }}/clients/{{ client.client_id }}/nxt/upload">＋ Tải lên</a>{% endif %}
     </div>
   </div>
 
@@ -25,8 +25,8 @@
     </thead>
     <tbody>
       {% for a in artifacts %}
-      <tr data-row-href="/clients/{{ client.client_id }}/nxt/{{ a.id }}" tabindex="0">
-        <td><a href="/clients/{{ client.client_id }}/nxt/{{ a.id }}"><strong>{{ a.period_year or '—' }}</strong></a></td>
+      <tr data-row-href="{{ url_prefix }}/clients/{{ client.client_id }}/nxt/{{ a.id }}" tabindex="0">
+        <td><a href="{{ url_prefix }}/clients/{{ client.client_id }}/nxt/{{ a.id }}"><strong>{{ a.period_year or '—' }}</strong></a></td>
         <td class="meta">{% if a.period_from or a.period_to %}{{ a.period_from or '—' }} → {{ a.period_to or '—' }}{% else %}—{% endif %}</td>
         <td>{{ a.source_kind }}</td>
         <td class="mono">{{ a.adapter_name or '—' }}</td>

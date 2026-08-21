@@ -4,7 +4,7 @@
 
 {% macro code_cell(code) %}
 {%- if code and code in known_codes -%}
-  <a class="xlink" href="/clients/{{ client.client_id }}/catalog/{{ code }}/detail"
+  <a class="xlink" href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ code }}/detail"
      title="Xem mã trong Danh Mục">{{ code }}</a>
 {%- elif code -%}
   <span title="Mã không có trong Danh Mục">{{ code }}</span>
@@ -27,7 +27,7 @@
       </p>
     </div>
     <div class="page-actions">
-      <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/inventory-snapshots">← Danh sách chốt tồn</a>
+      <a class="btn-secondary btn-sm" href="{{ url_prefix }}/clients/{{ client.client_id }}/inventory-snapshots">← Danh sách chốt tồn</a>
     </div>
   </div>
 

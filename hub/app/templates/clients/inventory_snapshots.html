@@ -10,8 +10,8 @@
       <p class="meta">Số lượng sổ sách vs thực đếm tại thời điểm chốt, theo kho.</p>
     </div>
     <div class="page-actions">
-      <a class="btn-secondary btn-sm" href="/templates/inventory-snapshot.xlsx">Tải mẫu chuẩn</a>
-      {% if can_edit %}<a class="btn-primary btn-sm" href="/clients/{{ client.client_id }}/inventory-snapshots/upload">＋ Tải lên</a>{% endif %}
+      <a class="btn-secondary btn-sm" href="{{ url_prefix }}/templates/inventory-snapshot.xlsx">Tải mẫu chuẩn</a>
+      {% if can_edit %}<a class="btn-primary btn-sm" href="{{ url_prefix }}/clients/{{ client.client_id }}/inventory-snapshots/upload">＋ Tải lên</a>{% endif %}
     </div>
   </div>
 
@@ -25,8 +25,8 @@
     </thead>
     <tbody>
       {% for s in snapshots %}
-      <tr data-row-href="/clients/{{ client.client_id }}/inventory-snapshots/{{ s.id }}" tabindex="0">
-        <td><a href="/clients/{{ client.client_id }}/inventory-snapshots/{{ s.id }}"><strong>{{ s.snapshot_date or '—' }}</strong></a></td>
+      <tr data-row-href="{{ url_prefix }}/clients/{{ client.client_id }}/inventory-snapshots/{{ s.id }}" tabindex="0">
+        <td><a href="{{ url_prefix }}/clients/{{ client.client_id }}/inventory-snapshots/{{ s.id }}"><strong>{{ s.snapshot_date or '—' }}</strong></a></td>
         <td>{{ s.source_kind }}</td>
         <td class="mono">{{ s.adapter_name or '—' }}</td>
         <td class="num">{{ s.n_lines }}</td>

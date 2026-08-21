@@ -21,7 +21,7 @@
     </div>
     <div class="page-actions">
       <a class="btn-secondary btn-sm"
-         href="/clients/{{ client.client_id }}/declarations/upload#bulk">
+         href="{{ url_prefix }}/clients/{{ client.client_id }}/declarations/upload#bulk">
         ← Quay lại
       </a>
     </div>
@@ -99,12 +99,12 @@
     </span>
     <div class="commit-actions">
       <form method="post"
-            action="/clients/{{ client.client_id }}/declarations/upload-zip/{{ staging_id }}/cancel">
+            action="{{ url_prefix }}/clients/{{ client.client_id }}/declarations/upload-zip/{{ staging_id }}/cancel">
         <button type="submit" class="btn-secondary btn-sm">Huỷ</button>
       </form>
       {% if can_commit %}
       <form method="post"
-            action="/clients/{{ client.client_id }}/declarations/upload-zip/{{ staging_id }}/commit">
+            action="{{ url_prefix }}/clients/{{ client.client_id }}/declarations/upload-zip/{{ staging_id }}/commit">
         <input type="hidden" name="direction" value="{{ direction }}">
         <button type="submit" class="btn-primary">
           Xác nhận tải lên ({{ format_int(counts.ok + counts.duplicate) }} file)

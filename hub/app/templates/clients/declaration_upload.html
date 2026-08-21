@@ -17,7 +17,7 @@
     </div>
     <div class="page-actions">
       <a class="btn-secondary btn-sm"
-         href="/clients/{{ client.client_id }}/declarations">
+         href="{{ url_prefix }}/clients/{{ client.client_id }}/declarations">
         ← Danh sách tờ khai
       </a>
     </div>
@@ -40,7 +40,7 @@
 
   <div id="panel-single" role="tabpanel" aria-labelledby="tab-single">
     <form method="post" enctype="multipart/form-data"
-          action="/clients/{{ client.client_id }}/declarations/upload"
+          action="{{ url_prefix }}/clients/{{ client.client_id }}/declarations/upload"
           class="upload-card">
       <div class="upload-card-head">
         <h3>{{ t('flow.file_card') }} — một tờ khai</h3>
@@ -82,7 +82,7 @@
         <span class="commit-note">{{ t('flow.commit_hint') }}</span>
         <div class="commit-actions">
           <a class="btn-secondary btn-sm"
-             href="/clients/{{ client.client_id }}/declarations">{{ t('common.cancel') }}</a>
+             href="{{ url_prefix }}/clients/{{ client.client_id }}/declarations">{{ t('common.cancel') }}</a>
           <button type="submit" class="btn-primary">Tải lên</button>
         </div>
       </footer>
@@ -91,7 +91,7 @@
 
   <div id="panel-bulk" role="tabpanel" aria-labelledby="tab-bulk" hidden>
     <form method="post" enctype="multipart/form-data"
-          action="/clients/{{ client.client_id }}/declarations/upload-zip"
+          action="{{ url_prefix }}/clients/{{ client.client_id }}/declarations/upload-zip"
           class="upload-card">
       <div class="upload-card-head">
         <h3>{{ t('flow.file_card') }} — ZIP nhiều tờ khai</h3>
@@ -125,7 +125,7 @@
         <span class="commit-note">{{ t('flow.commit_hint') }}</span>
         <div class="commit-actions">
           <a class="btn-secondary btn-sm"
-             href="/clients/{{ client.client_id }}/declarations">{{ t('common.cancel') }}</a>
+             href="{{ url_prefix }}/clients/{{ client.client_id }}/declarations">{{ t('common.cancel') }}</a>
           <button type="submit" class="btn-primary">Tải ZIP &amp; xem trước</button>
         </div>
       </footer>

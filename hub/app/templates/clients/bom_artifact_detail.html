@@ -21,7 +21,7 @@
           <li><span class="mono">{{ r.dim }}</span> · {{ r.source_pk }} · {{ r.observed_at }}</li>
           {% endfor %}
         </ul>
-        <a href="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/refresh/preview"
+        <a href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/refresh/preview"
            class="btn-secondary btn-sm">{{ t('bom.stale.refresh') }}</a>
       </div>
       {% endif %}
@@ -32,7 +32,7 @@
         {% if artifact.flatten_strategy == 'manual_flat_as_provided' %}
         <p>
           Manual_flat artifact: thêm hệ số trong
-          <a href="/clients/{{ client.client_id }}/uom-factors">/uom-factors</a>
+          <a href="{{ url_prefix }}/clients/{{ client.client_id }}/uom-factors">/uom-factors</a>
           rồi click <strong>Refresh</strong> bên dưới — hệ thống re-convert
           rows từ <span class="mono">source_uom</span> đã lưu, không cần re-upload.
         </p>
@@ -67,7 +67,7 @@
             <span class="meta">· {{ r.observed_at }}</span>
             {% if r.material_code %}
               <a class="btn-ghost btn-xs"
-                 href="/clients/{{ client.client_id }}/uom-factors?prefill_material_code={{ r.material_code|urlencode }}#add-factor-form"
+                 href="{{ url_prefix }}/clients/{{ client.client_id }}/uom-factors?prefill_material_code={{ r.material_code|urlencode }}#add-factor-form"
                  target="_blank">+ hệ số</a>
             {% endif %}
           </li>
@@ -77,7 +77,7 @@
           Đã phát sinh: {{ artifact.uom_drift_first_at.strftime('%Y-%m-%d %H:%M') if artifact.uom_drift_first_at else '—' }}
         </p>
         {% if artifact.flatten_strategy == 'manual_flat_as_provided' %}
-        <a href="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/refresh/preview"
+        <a href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/refresh/preview"
            class="btn-secondary btn-sm">Refresh (re-convert UoM)</a>
         {% endif %}
       </div>
@@ -91,7 +91,7 @@
         {% set parent = (lineage.ancestors[-1] if lineage and lineage.ancestors else None) %}
         {% if parent %}
         · forked from
-        <a href="/clients/{{ client.client_id }}/bom/artifact/{{ parent.artifact_id }}"
+        <a href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/artifact/{{ parent.artifact_id }}"
            title="{{ parent.artifact_id }}"
            class="plain-link">
           <span class="badge badge-info">#{{ parent.artifact_no }}</span>
@@ -105,9 +105,9 @@
     <div>
       {% if rows %}
       <a class="btn-secondary"
-         href="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/export.xlsx">⬇ Xuất Excel</a>
+         href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/export.xlsx">⬇ Xuất Excel</a>
       {% endif %}
-      <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/bom/{{ artifact.product_code }}/artifacts">← artifacts</a>
+      <a class="btn-secondary btn-sm" href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/{{ artifact.product_code }}/artifacts">← artifacts</a>
     </div>
   </div>
 
@@ -281,7 +281,7 @@
       <strong>App khác (BCQT/CO) có thể đang dùng phiên bản này.</strong>
     </p>
     <form method="post"
-          action="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/tombstone"
+          action="{{ url_prefix }}/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/tombstone"
           onsubmit="return confirm('Thu hồi phiên bản này (và các BOM phẳng dẫn xuất)? Hành động ghi log audit.');"
           class="note-form">
       <input type="text" name="reason" required maxlength="500"

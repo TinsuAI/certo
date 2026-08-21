@@ -9,7 +9,7 @@
   <h1>{{ t('bom.audit_log.title') }} ({{ total }})</h1>
   <span class="page-tagline">{{ t('bom.audit_log.subtitle') }}</span>
   <div class="page-actions">
-    <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom/needs-action">
+    <a class="btn-secondary" href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/needs-action">
       ← {{ t('bom.needs_action.title') }}
     </a>
   </div>
@@ -41,7 +41,7 @@
         <strong>{{ cause_label if cause_label != cause_key else e.cause_dim }}</strong>
         {% if e.related_code %}
           <br><small>
-            <a href="/clients/{{ client.client_id }}/catalog/{{ e.related_code }}/detail">
+            <a href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ e.related_code }}/detail">
               <code>{{ e.related_code }}</code></a>
             {% if e.related_name and e.related_name != e.related_code %}
               · {{ e.related_name|truncate(60) }}

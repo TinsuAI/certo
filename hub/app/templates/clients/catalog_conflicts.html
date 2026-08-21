@@ -19,7 +19,7 @@
       </p>
     </div>
     <div class="page-actions">
-      <a class="btn-ghost" href="/clients/{{ client.client_id }}/catalog">← Catalog</a>
+      <a class="btn-ghost" href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog">← Catalog</a>
     </div>
   </div>
 
@@ -35,20 +35,20 @@
 
   <div class="chip-row" aria-label="Conflict type filter">
     <a class="chip {{ 'chip-active' if active_conflict_type == 'all' else '' }}"
-       href="/clients/{{ client.client_id }}/catalog/conflicts">
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/conflicts">
       Tất cả ({{ conflict_counts.total }})
     </a>
     <a class="chip {{ 'chip-active' if active_conflict_type == 'declared' else '' }}"
-       href="/clients/{{ client.client_id }}/catalog/conflicts?type=declared">
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/conflicts?type=declared">
       Khai báo ≠ quan sát ({{ conflict_counts.declared }})
     </a>
     <a class="chip {{ 'chip-active' if active_conflict_type == 'sourcing' else '' }}"
-       href="/clients/{{ client.client_id }}/catalog/conflicts?type=sourcing">
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/conflicts?type=sourcing">
       Nguồn cung ≠ quan sát ({{ conflict_counts.sourcing }})
     </a>
   </div>
 
-  <form method="get" action="/clients/{{ client.client_id }}/catalog/conflicts"
+  <form method="get" action="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/conflicts"
         class="stack-form" style="max-width: 600px; margin: 1rem 0;">
     {% if active_conflict_type and active_conflict_type != 'all' %}
       <input type="hidden" name="type" value="{{ active_conflict_type }}">
@@ -80,7 +80,7 @@
         ~ ('?type=' ~ active_conflict_type if active_conflict_type and active_conflict_type != 'all' else '') %}
       <tr>
         <td class="mono">
-          <a href="/clients/{{ client.client_id }}/catalog/{{ m.material_code }}/detail"
+          <a href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ m.material_code }}/detail"
              title="Xem chi tiết">{{ m.material_code }}</a>
         </td>
         <td>
@@ -115,7 +115,7 @@
           {% endif %}
           {% if m.category == 'btp_sx' %}
             <form method="post"
-                  action="/clients/{{ client.client_id }}/catalog/{{ m.material_code }}/btp_sourcing"
+                  action="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ m.material_code }}/btp_sourcing"
                   style="margin-top:.25em">
               <input type="hidden" name="return_to" value="{{ return_to }}">
               <select name="btp_sourcing" onchange="this.form.submit()"
@@ -152,7 +152,7 @@
         </td>
         <td>
           <a class="btn-ghost" style="font-size:.85em"
-             href="/clients/{{ client.client_id }}/catalog/{{ m.material_code }}/edit">
+             href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ m.material_code }}/edit">
             Sửa khai báo
           </a>
         </td>
@@ -168,7 +168,7 @@
     {% else %}
     <p>Không có conflict khớp với bộ lọc hiện tại.</p>
     <a class="btn-ghost"
-       href="/clients/{{ client.client_id }}/catalog/conflicts">Xóa bộ lọc</a>
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/conflicts">Xóa bộ lọc</a>
     {% endif %}
   </div>
   {% endif %}

@@ -17,14 +17,14 @@
     </div>
     <div class="page-actions">
       <form method="post"
-            action="/clients/{{ client.client_id }}/jobs/start"
+            action="{{ url_prefix }}/clients/{{ client.client_id }}/jobs/start"
             style="display:inline;"
             title="Render trước PDF chuẩn cho các tờ khai .xls chưa có bản PDF (để ghép/tải nhanh). Bỏ qua file đã render.">
         <input type="hidden" name="kind" value="declaration_pdf_render">
         <button type="submit" class="btn-secondary btn-sm">Render PDF còn thiếu</button>
       </form>
       <a class="btn-primary"
-         href="/clients/{{ client.client_id }}/declarations/upload">
+         href="{{ url_prefix }}/clients/{{ client.client_id }}/declarations/upload">
         Tải lên tờ khai
       </a>
     </div>
@@ -42,33 +42,33 @@
 
   <div class="chip-row">
     <a class="chip {{ 'chip-active' if not direction else '' }}"
-       href="/clients/{{ client.client_id }}/declarations{% if has_files %}?has_files={{ has_files }}{% endif %}{% if q %}{{ '&' if has_files else '?' }}q={{ q }}{% endif %}">
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/declarations{% if has_files %}?has_files={{ has_files }}{% endif %}{% if q %}{{ '&' if has_files else '?' }}q={{ q }}{% endif %}">
       Tất cả ({{ paging.total }})
     </a>
     <a class="chip {{ 'chip-active' if direction == 'import' else '' }}"
-       href="/clients/{{ client.client_id }}/declarations?direction=import{% if has_files %}&has_files={{ has_files }}{% endif %}{% if q %}&q={{ q }}{% endif %}">
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/declarations?direction=import{% if has_files %}&has_files={{ has_files }}{% endif %}{% if q %}&q={{ q }}{% endif %}">
       Nhập khẩu
     </a>
     <a class="chip {{ 'chip-active' if direction == 'export' else '' }}"
-       href="/clients/{{ client.client_id }}/declarations?direction=export{% if has_files %}&has_files={{ has_files }}{% endif %}{% if q %}&q={{ q }}{% endif %}">
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/declarations?direction=export{% if has_files %}&has_files={{ has_files }}{% endif %}{% if q %}&q={{ q }}{% endif %}">
       Xuất khẩu
     </a>
     <span class="chip-row-sep" aria-hidden="true">·</span>
     <a class="chip {{ 'chip-active' if not has_files else '' }}"
-       href="/clients/{{ client.client_id }}/declarations{% if direction %}?direction={{ direction }}{% endif %}{% if q %}{{ '&' if direction else '?' }}q={{ q }}{% endif %}">
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/declarations{% if direction %}?direction={{ direction }}{% endif %}{% if q %}{{ '&' if direction else '?' }}q={{ q }}{% endif %}">
       Mọi trạng thái file
     </a>
     <a class="chip {{ 'chip-active' if has_files == 'yes' else '' }}"
-       href="/clients/{{ client.client_id }}/declarations?has_files=yes{% if direction %}&direction={{ direction }}{% endif %}{% if q %}&q={{ q }}{% endif %}">
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/declarations?has_files=yes{% if direction %}&direction={{ direction }}{% endif %}{% if q %}&q={{ q }}{% endif %}">
       Có file
     </a>
     <a class="chip {{ 'chip-active' if has_files == 'no' else '' }}"
-       href="/clients/{{ client.client_id }}/declarations?has_files=no{% if direction %}&direction={{ direction }}{% endif %}{% if q %}&q={{ q }}{% endif %}">
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/declarations?has_files=no{% if direction %}&direction={{ direction }}{% endif %}{% if q %}&q={{ q }}{% endif %}">
       Thiếu file
     </a>
   </div>
 
-  <form method="get" action="/clients/{{ client.client_id }}/declarations"
+  <form method="get" action="{{ url_prefix }}/clients/{{ client.client_id }}/declarations"
         class="stack-form" style="margin: 1rem 0; max-width: 720px;">
     {% if direction %}<input type="hidden" name="direction" value="{{ direction }}">{% endif %}
     {% if has_files %}<input type="hidden" name="has_files" value="{{ has_files }}">{% endif %}
@@ -90,9 +90,9 @@
     </thead>
     <tbody>
       {% for s in summaries %}
-      <tr data-row-href="/clients/{{ client.client_id }}/declarations/{{ s.declaration_no }}" tabindex="0">
+      <tr data-row-href="{{ url_prefix }}/clients/{{ client.client_id }}/declarations/{{ s.declaration_no }}" tabindex="0">
         <td class="mono">
-          <a href="/clients/{{ client.client_id }}/declarations/{{ s.declaration_no }}">
+          <a href="{{ url_prefix }}/clients/{{ client.client_id }}/declarations/{{ s.declaration_no }}">
             {{ s.declaration_no }}
           </a>
         </td>
@@ -128,7 +128,7 @@
   <div class="empty-state">
     {% if q or direction or has_files %}
       <p>Không có tờ khai nào với bộ lọc hiện tại.</p>
-      <a class="btn-ghost" href="/clients/{{ client.client_id }}/declarations">Xóa bộ lọc</a>
+      <a class="btn-ghost" href="{{ url_prefix }}/clients/{{ client.client_id }}/declarations">Xóa bộ lọc</a>
     {% else %}
       <p>
         Chưa có tờ khai nào. Tờ khai sinh ra từ BCCT — ingest BCCT trước,

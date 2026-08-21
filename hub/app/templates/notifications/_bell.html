@@ -20,7 +20,7 @@
     <div class="notif-bell-header">
       <strong>{{ t('notif.title') }}</strong>
       {% if notif_unread_count and notif_unread_count > 0 %}
-      <form method="post" action="/notifications/read-all" class="notif-bell-clear-form">
+      <form method="post" action="{{ url_prefix }}/notifications/read-all" class="notif-bell-clear-form">
         <button type="submit" class="btn-link">{{ t('notif.mark_all_read') }}</button>
       </form>
       {% endif %}
@@ -29,7 +29,7 @@
     <ul class="notif-bell-list">
       {% for n in notif_recent %}
       <li class="notif-bell-item">
-        <form method="post" action="/notifications/{{ n.id }}/read">
+        <form method="post" action="{{ url_prefix }}/notifications/{{ n.id }}/read">
           <button type="submit" class="notif-bell-link">
             <strong>{{ n.title }}</strong>
             {% if n.body %}<div class="meta notif-body">{{ n.body }}</div>{% endif %}
@@ -39,7 +39,7 @@
       </li>
       {% endfor %}
     </ul>
-    <a href="/notifications" class="notif-bell-footer">{{ t('notif.view_all') }} →</a>
+    <a href="{{ url_prefix }}/notifications" class="notif-bell-footer">{{ t('notif.view_all') }} →</a>
     {% else %}
     <p class="meta notif-bell-empty">{{ t('notif.empty') }}</p>
     {% endif %}

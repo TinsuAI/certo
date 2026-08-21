@@ -18,7 +18,7 @@
 
   {% if error_note %}<div class="toast toast-error">{{ error_note }}</div>{% endif %}
 
-  <form method="post" action="/login" class="auth-form">
+  <form method="post" action="{{ url_prefix }}/login" class="auth-form">
     <input type="hidden" name="next" value="{{ next or '/clients' }}">
     <div class="fld">
       <label for="login-email">{{ t('auth.email') }}</label>

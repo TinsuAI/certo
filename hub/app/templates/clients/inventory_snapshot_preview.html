@@ -70,10 +70,10 @@
     <footer class="commit-bar">
       <span class="commit-note">{{ t('flow.commit_hint') }}</span>
       <div class="commit-actions">
-        <form method="post" action="/clients/{{ client.client_id }}/inventory-snapshots/preview/{{ upload_id }}/reject">
+        <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/inventory-snapshots/preview/{{ upload_id }}/reject">
           <button type="submit" class="btn-secondary btn-sm">Bỏ qua</button>
         </form>
-        <form method="post" action="/clients/{{ client.client_id }}/inventory-snapshots/preview/{{ upload_id }}/confirm">
+        <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/inventory-snapshots/preview/{{ upload_id }}/confirm">
           <button type="submit" class="btn-primary">Xác nhận lưu</button>
         </form>
       </div>

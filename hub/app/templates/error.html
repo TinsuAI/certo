@@ -7,9 +7,9 @@
   <p class="error-page-body">{% if detail %}{{ detail }}{% else %}{{ t('error.' ~ err_key ~ '.body') }}{% endif %}</p>
   <div class="error-page-actions">
     {% if user %}
-    <a class="btn-primary" href="/clients">{{ t('error.action.home') }}</a>
+    <a class="btn-primary" href="{{ url_prefix }}/clients">{{ t('error.action.home') }}</a>
     {% else %}
-    <a class="btn-primary" href="/login">{{ t('error.action.login') }}</a>
+    <a class="btn-primary" href="{{ url_prefix }}/login">{{ t('error.action.login') }}</a>
     {% endif %}
   </div>
 </section>

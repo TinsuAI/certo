@@ -83,6 +83,13 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="Barry CO Demo", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 app.mount("/portfolio", portfolio_app, name="portfolio")
+# Phase 1: the Data Hub half runs inside this app, not a second service. Mounted
+# under a prefix because both halves own top-level /clients and /healthz;
+# Starlette sets root_path="/hub" on the sub-app, which hub templates read as
+# `url_prefix` so their URLs resolve in both the mounted and standalone shapes.
+from hub.app.main import app as hub_app  # noqa: E402
+
+app.mount("/hub", hub_app, name="hub")
 app.include_router(auth_routes.router)
 app.include_router(catalog_routes.router)
 app.include_router(co_case_routes.router)

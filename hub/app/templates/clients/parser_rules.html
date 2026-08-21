@@ -66,11 +66,11 @@
         <td>
           {% if r.enabled %}
           <a class="btn-secondary btn-xs"
-             href="/clients/{{ client.client_id }}/parser-rules/{{ r.rule_id }}/edit">
+             href="{{ url_prefix }}/clients/{{ client.client_id }}/parser-rules/{{ r.rule_id }}/edit">
             Edit
           </a>
           <form method="post"
-                action="/clients/{{ client.client_id }}/parser-rules/{{ r.rule_id }}/disable"
+                action="{{ url_prefix }}/clients/{{ client.client_id }}/parser-rules/{{ r.rule_id }}/disable"
                 style="display:inline;">
             <button type="submit" class="btn-secondary btn-xs"
                     onclick="return confirm('Disable rule {{ r.rule_id }}? (soft-disable; not deleted)');">
@@ -88,7 +88,7 @@
 
 <section class="zone">
   <div class="zone-head"><h2>Add rule</h2></div>
-  <form method="post" action="/clients/{{ client.client_id }}/parser-rules/create"
+  <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/parser-rules/create"
         class="settings-form">
     <div class="settings-grid">
       <label class="field">
@@ -150,7 +150,7 @@
     </p>
   </div>
 
-  <form method="post" action="/clients/{{ client.client_id }}/parser-rules/test"
+  <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/parser-rules/test"
         class="settings-form">
     <div class="settings-grid">
       <label class="field">

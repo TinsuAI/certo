@@ -9,8 +9,8 @@
   <h1>{{ t('bom.needs_action.title') }} ({{ total }})</h1>
   <span class="page-tagline">{{ t('bom.needs_action.subtitle') }}</span>
   <div class="page-actions">
-    <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom">← BOM</a>
-    <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom/audit-log">
+    <a class="btn-secondary" href="{{ url_prefix }}/clients/{{ client.client_id }}/bom">← BOM</a>
+    <a class="btn-secondary" href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/audit-log">
       {{ t('bom.audit_log.title') }}
     </a>
   </div>
@@ -29,7 +29,7 @@
       </span>
     {% else %}
       <a class="tab" style="padding: 0.5em 1em; color: #555;"
-         href="/clients/{{ client.client_id }}/bom/needs-action{% if cat != 'all' %}?state={{ cat }}{% endif %}">
+         href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/needs-action{% if cat != 'all' %}?state={{ cat }}{% endif %}">
         {{ label }} <span class="badge">{{ n }}</span>
       </a>
     {% endif %}
@@ -68,7 +68,7 @@
       </td>
       <td>
         {% if c.related_code %}
-          <a href="/clients/{{ client.client_id }}/catalog/{{ c.related_code }}/detail">
+          <a href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ c.related_code }}/detail">
             <code>{{ c.related_code }}</code>
           </a>
           {% if c.related_uom %}
@@ -87,7 +87,7 @@
         {% if c.product_codes|length <= 3 %}
           <br><small style="color:#666">
             {% for pc in c.product_codes %}
-              <a href="/clients/{{ client.client_id }}/bom/{{ pc }}/artifacts">
+              <a href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/{{ pc }}/artifacts">
                 {{ pc }}</a>{% if not loop.last %}, {% endif %}
             {% endfor %}
           </small>
@@ -101,7 +101,7 @@
       <td>
         {% if can_edit and c.action == 'refresh' %}
           <form method="post"
-                action="/clients/{{ client.client_id }}/bom/refresh-cluster"
+                action="{{ url_prefix }}/clients/{{ client.client_id }}/bom/refresh-cluster"
                 style="display:inline">
             <input type="hidden" name="artifact_ids" value="{{ c.artifact_ids|join(',') }}">
             <button type="submit" class="btn-primary">
@@ -110,18 +110,18 @@
           </form>
         {% elif can_edit and c.action == 'fix_uom' %}
           <a class="btn-primary"
-             href="/clients/{{ client.client_id }}/uom-factors{% if c.related_code %}?prefill_material_code={{ c.related_code }}{% endif %}">
+             href="{{ url_prefix }}/clients/{{ client.client_id }}/uom-factors{% if c.related_code %}?prefill_material_code={{ c.related_code }}{% endif %}">
             {{ t('bom.action.fix_uom') }}
           </a>
         {% elif can_edit and c.action == 'reupload' %}
           <a class="btn-primary"
-             href="/clients/{{ client.client_id }}/bom/upload">
+             href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/upload">
             {{ t('bom.action.reupload') }}
           </a>
         {% endif %}
         {% if c.product_codes|length == 1 %}
           <a class="btn-ghost"
-             href="/clients/{{ client.client_id }}/bom/{{ c.product_codes[0] }}/artifacts">
+             href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/{{ c.product_codes[0] }}/artifacts">
             {{ t('bom.action.view') }}
           </a>
         {% endif %}

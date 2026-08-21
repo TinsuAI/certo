@@ -87,7 +87,7 @@
             {%- set tgt = (d.conversion.target_uom if d.conversion else None)
                             or d.catalog_uom or (d.bcct_uoms[0] if d.bcct_uoms else '') -%}
             <a class="btn-ghost"
-               href="/clients/{{ client.client_id }}/uom-factors?prefill_material_code={{ d.material_code|urlencode }}&prefill_from_uom={{ d.source_uom|urlencode }}&prefill_to_uom={{ tgt|urlencode }}#add-factor-form"
+               href="{{ url_prefix }}/clients/{{ client.client_id }}/uom-factors?prefill_material_code={{ d.material_code|urlencode }}&prefill_from_uom={{ d.source_uom|urlencode }}&prefill_to_uom={{ tgt|urlencode }}#add-factor-form"
                target="_blank"
                title="Mở admin UI và prefill form thêm hệ số">+ hệ số</a>
           {%- endif %}

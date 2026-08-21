@@ -9,7 +9,7 @@
       <h2>Không nhập được file BOM</h2>
       <p class="meta">File chưa được lưu thành BOM. Không có dữ liệu nào bị thay đổi.</p>
     </div>
-    <div><a class="btn-secondary" href="/clients/{{ client.client_id }}/bom">{{ t('common.cancel') }}</a></div>
+    <div><a class="btn-secondary" href="{{ url_prefix }}/clients/{{ client.client_id }}/bom">{{ t('common.cancel') }}</a></div>
   </div>
 
   <div class="toast toast-error" style="margin-bottom: 1rem;">
@@ -27,7 +27,7 @@
         để thêm adapter mới.</li>
     </ul>
     <div style="margin-top: 1rem;">
-      <a class="btn-primary" href="/clients/{{ client.client_id }}/bom/upload">Tải lại file</a>
+      <a class="btn-primary" href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/upload">Tải lại file</a>
     </div>
   </div>
 </section>

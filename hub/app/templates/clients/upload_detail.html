@@ -4,7 +4,7 @@
 {% include "_client_nav.html" %}
 
 <section class="zone">
-  <p class="meta"><a href="/clients/{{ client.client_id }}/uploads">← {{ t('uploads.title') }}</a></p>
+  <p class="meta"><a href="{{ url_prefix }}/clients/{{ client.client_id }}/uploads">← {{ t('uploads.title') }}</a></p>
   <div class="zone-head">
     <div>
       <h2 style="word-break: break-all;">{{ u.original_filename }}</h2>
@@ -18,12 +18,12 @@
       </p>
     </div>
     <div class="page-actions">
-      <a class="btn-primary" href="/clients/{{ client.client_id }}/uploads/{{ u.upload_id }}/download">⬇ {{ t('uploads.download') }}</a>
+      <a class="btn-primary" href="{{ url_prefix }}/clients/{{ client.client_id }}/uploads/{{ u.upload_id }}/download">⬇ {{ t('uploads.download') }}</a>
       {% if u.parse_status == 'proposed_mapping' and u.module == 'bcct' %}
-      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bcct/parse-mapping/{{ u.upload_id }}">{{ t('uploads.review_mapping') }} →</a>
+      <a class="btn-secondary" href="{{ url_prefix }}/clients/{{ client.client_id }}/bcct/parse-mapping/{{ u.upload_id }}">{{ t('uploads.review_mapping') }} →</a>
       {% endif %}
       {% if u.parse_status in ['error', 'rejected'] %}
-      <form method="post" action="/clients/{{ client.client_id }}/uploads/{{ u.upload_id }}/delete"
+      <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/uploads/{{ u.upload_id }}/delete"
             onsubmit="return confirm('{{ t('uploads.delete_confirm') }}');" style="margin:0;">
         <button type="submit" class="btn-secondary" style="color:#c00;">{{ t('common.delete') }}</button>
       </form>
@@ -82,7 +82,7 @@
     <p class="meta">{{ t('uploads.preview.error') }}: {{ preview.message }}</p>
   {% else %}
     <p class="meta">{{ t('uploads.preview.unsupported') }}
-      <a href="/clients/{{ client.client_id }}/uploads/{{ u.upload_id }}/download">{{ t('uploads.download') }} →</a></p>
+      <a href="{{ url_prefix }}/clients/{{ client.client_id }}/uploads/{{ u.upload_id }}/download">{{ t('uploads.download') }} →</a></p>
   {% endif %}
 </section>
 {% endblock %}

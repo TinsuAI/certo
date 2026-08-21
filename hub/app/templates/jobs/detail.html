@@ -22,8 +22,8 @@
   </div>
   <div class="page-actions">
     {% if client %}
-    <a class="btn-ghost" href="/clients/{{ client.client_id }}/catalog">← Danh mục</a>
-    <a class="btn-ghost" href="/clients/{{ client.client_id }}/jobs">Tất cả việc nền</a>
+    <a class="btn-ghost" href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog">← Danh mục</a>
+    <a class="btn-ghost" href="{{ url_prefix }}/clients/{{ client.client_id }}/jobs">Tất cả việc nền</a>
     {% endif %}
   </div>
 </section>

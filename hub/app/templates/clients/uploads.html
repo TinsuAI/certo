@@ -20,10 +20,10 @@
 
   <div class="chip-row">
     <a class="chip {{ 'chip-active' if not selected_module else '' }}"
-       href="/clients/{{ client.client_id }}/uploads">{{ t('common.all') }}</a>
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/uploads">{{ t('common.all') }}</a>
     {% for m in ['materials', 'code_mappings', 'bcct', 'bom'] %}
     <a class="chip {{ 'chip-active' if selected_module == m else '' }}"
-       href="/clients/{{ client.client_id }}/uploads?module={{ m }}">{{ m }}</a>
+       href="{{ url_prefix }}/clients/{{ client.client_id }}/uploads?module={{ m }}">{{ m }}</a>
     {% endfor %}
   </div>
 
@@ -42,16 +42,16 @@
     </tr></thead>
     <tbody>
       {% for u in items %}
-      <tr data-row-href="/clients/{{ client.client_id }}/uploads/{{ u.upload_id }}" tabindex="0">
+      <tr data-row-href="{{ url_prefix }}/clients/{{ client.client_id }}/uploads/{{ u.upload_id }}" tabindex="0">
         <td class="mono">{{ u.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
         <td><span class="badge badge-muted">{{ u.module }}</span></td>
         <td>
-          <a href="/clients/{{ client.client_id }}/uploads/{{ u.upload_id }}">{{ u.original_filename }}</a>
+          <a href="{{ url_prefix }}/clients/{{ client.client_id }}/uploads/{{ u.upload_id }}">{{ u.original_filename }}</a>
           {% if u.parse_status == 'proposed_mapping' and u.module == 'bcct' %}
             {# `parse-mapping` là đường dẫn của UI 2 bước cũ, đã bỏ. Route thật là
                `bcct/upload/mapping/{upload_id}` (bcct.py:325) — chính là chỗ
                bcct.py:261/278 redirect tới. #}
-            · <a href="/clients/{{ client.client_id }}/bcct/upload/mapping/{{ u.upload_id }}">
+            · <a href="{{ url_prefix }}/clients/{{ client.client_id }}/bcct/upload/mapping/{{ u.upload_id }}">
                 {{ t('uploads.review_mapping') }} →
               </a>
           {% endif %}
@@ -71,7 +71,7 @@
         <td>
           {% if u.parse_status in ['error', 'rejected'] %}
           <form method="post"
-                action="/clients/{{ client.client_id }}/uploads/{{ u.upload_id }}/delete"
+                action="{{ url_prefix }}/clients/{{ client.client_id }}/uploads/{{ u.upload_id }}/delete"
                 onsubmit="return confirm('{{ t('uploads.delete_confirm') }}');" style="margin:0;">
             <button type="submit" class="btn-danger btn-xs">{{ t('common.delete') }}</button>
           </form>

@@ -30,7 +30,7 @@
   {% if n.tombstoned_at %}<span class="lineage-deleted">· đã thay thế</span>{% endif %}
 </div>
 {%- else -%}
-<a href="/clients/{{ client_id }}/bom/artifact/{{ n.artifact_id }}" class="{{ classes }}">
+<a href="{{ url_prefix }}/clients/{{ client_id }}/bom/artifact/{{ n.artifact_id }}" class="{{ classes }}">
   <span class="badge badge-info">#{{ n.artifact_no }}</span>
   {{ shape_badge(n.bom_shape) }}
   {% if show_variant %}<span class="mono lineage-node-variant">{{ n.bom_variant_id }}</span>{% endif %}

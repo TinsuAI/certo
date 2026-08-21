@@ -11,7 +11,7 @@
       <p class="meta">{{ t('bqd.subtitle') }}</p>
     </div>
     <div class="page-actions">
-      <a class="btn-primary" href="/clients/{{ client.client_id }}/bqd/upload">{{ t('bqd.upload_btn') }}</a>
+      <a class="btn-primary" href="{{ url_prefix }}/clients/{{ client.client_id }}/bqd/upload">{{ t('bqd.upload_btn') }}</a>
     </div>
   </div>
 
@@ -32,7 +32,7 @@
     <summary class="subsection-head" style="cursor: pointer; margin: 1rem 0 .4rem;">
       <h3 style="display: inline; margin: 0;">{{ t('bqd.manual_add') }}</h3>
     </summary>
-    <form method="post" action="/clients/{{ client.client_id }}/bqd/manual"
+    <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/bqd/manual"
           class="auth-form" style="max-width: 540px; margin-top: .8rem;">
       <label class="field"><span class="field-label">{{ t('bqd.col.internal_code') }}</span>
         <input type="text" name="internal_code" required></label>
@@ -70,7 +70,7 @@
     </th>
   {%- endmacro %}
 
-  <form method="get" action="/clients/{{ client.client_id }}/bqd"
+  <form method="get" action="{{ url_prefix }}/clients/{{ client.client_id }}/bqd"
         class="stack-form" style="margin: 1rem 0; max-width: 600px;">
     {% if sort.column != 'internal_code' or sort.direction != 'asc' %}
       <input type="hidden" name="sort" value="{{ sort.column }}">
@@ -106,10 +106,10 @@
   <div class="empty-state">
     {% if q %}
     <p>Không có kết quả với từ khóa "{{ q }}".</p>
-    <a class="btn-ghost" href="/clients/{{ client.client_id }}/bqd">Xóa bộ lọc</a>
+    <a class="btn-ghost" href="{{ url_prefix }}/clients/{{ client.client_id }}/bqd">Xóa bộ lọc</a>
     {% else %}
     <p>{{ t('bqd.empty') }}</p>
-    <a class="btn-primary" href="/clients/{{ client.client_id }}/bqd/upload">{{ t('bqd.upload_btn') }}</a>
+    <a class="btn-primary" href="{{ url_prefix }}/clients/{{ client.client_id }}/bqd/upload">{{ t('bqd.upload_btn') }}</a>
     {% endif %}
   </div>
   {% endif %}

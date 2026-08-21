@@ -16,7 +16,7 @@
       </p>
     </div>
     <div class="page-actions">
-      <a class="btn-ghost" href="/clients/{{ client.client_id }}/declarations">
+      <a class="btn-ghost" href="{{ url_prefix }}/clients/{{ client.client_id }}/declarations">
         ← Danh sách tờ khai
       </a>
     </div>
@@ -81,11 +81,11 @@
         <td class="meta">{{ f.uploaded_by or '—' }}</td>
         <td class="actions" style="white-space: nowrap;">
           <a class="btn-ghost"
-             href="/clients/{{ client.client_id }}/declarations/files/{{ f.id }}/download">
+             href="{{ url_prefix }}/clients/{{ client.client_id }}/declarations/files/{{ f.id }}/download">
             Tải xuống
           </a>
           <form method="post" style="display: inline;"
-                action="/clients/{{ client.client_id }}/declarations/files/{{ f.id }}/delete"
+                action="{{ url_prefix }}/clients/{{ client.client_id }}/declarations/files/{{ f.id }}/delete"
                 onsubmit="return confirm('Xóa file {{ f.original_filename }}?')">
             <button type="submit" class="btn-ghost" style="color: var(--danger);">
               Xóa
@@ -104,7 +104,7 @@
 
   <h3 style="margin-top: 2rem;">Tải lên file mới</h3>
   <form method="post" enctype="multipart/form-data"
-        action="/clients/{{ client.client_id }}/declarations/upload"
+        action="{{ url_prefix }}/clients/{{ client.client_id }}/declarations/upload"
         class="stack-form" style="max-width: 720px;">
     <input type="hidden" name="declaration_no" value="{{ declaration_no }}">
     <label>

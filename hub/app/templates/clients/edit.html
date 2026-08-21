@@ -18,7 +18,7 @@
     </div>
     <div class="page-actions">
       {% if client %}
-      <a class="btn-secondary" href="/clients/{{ client.client_id }}/declaration-config">Cấu hình loại hình tờ khai →</a>
+      <a class="btn-secondary" href="{{ url_prefix }}/clients/{{ client.client_id }}/declaration-config">Cấu hình loại hình tờ khai →</a>
       {% endif %}
       <a class="btn-secondary" href="{{ '/clients/' + client.client_id if client else '/clients' }}">{{ t('common.cancel') }}</a>
       <button type="submit" class="btn-primary">{{ t('common.save' if client else 'common.create') }}</button>

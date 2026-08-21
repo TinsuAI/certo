@@ -11,7 +11,7 @@
       </h2>
       <p class="meta">
         Hệ thống sẽ chạy lại derive với UoM hiện tại của catalog +
-        các hệ số trong <a href="/clients/{{ client.client_id }}/uom-factors">/uom-factors</a>.
+        các hệ số trong <a href="{{ url_prefix }}/clients/{{ client.client_id }}/uom-factors">/uom-factors</a>.
         Kế hoạch dưới đây <strong>chưa</strong> ghi DB — bấm
         <strong>Xác nhận Refresh</strong> để commit.
       </p>
@@ -27,7 +27,7 @@
       </p>
     </div>
     <div>
-      <a class="btn-secondary" href="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}">Hủy</a>
+      <a class="btn-secondary" href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}">Hủy</a>
     </div>
   </div>
 
@@ -38,7 +38,7 @@
   </div>
   {% else %}
 
-  <form method="post" action="/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/refresh"
+  <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/bom/artifact/{{ artifact.artifact_id }}/refresh"
         id="refresh-confirm-form" style="margin-top:1rem;">
     <input type="hidden" name="confirm" value="1">
 
@@ -84,7 +84,7 @@
           <td>
             {% if r.status == 'blocked_no_factor' and r.material_code %}
             <a class="btn-ghost" style="font-size:.85em;"
-               href="/clients/{{ client.client_id }}/uom-factors?prefill_material_code={{ r.material_code|urlencode }}#add-factor-form"
+               href="{{ url_prefix }}/clients/{{ client.client_id }}/uom-factors?prefill_material_code={{ r.material_code|urlencode }}#add-factor-form"
                target="_blank">+ hệ số</a>
             {% endif %}
           </td>

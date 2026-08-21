@@ -16,7 +16,7 @@
 
   {% set default_adapter = default_adapter or 'auto' %}
 
-  <form method="post" action="/clients/{{ client.client_id }}/bom/upload"
+  <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/bom/upload"
         enctype="multipart/form-data" class="upload-card">
     <div class="upload-card-head">
       <h3>{{ t('flow.file_card') }}</h3>
@@ -50,13 +50,13 @@
     <footer class="commit-bar">
       <span class="commit-note">{{ t('flow.commit_hint') }}</span>
       <div class="commit-actions">
-        <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/bom">{{ t('common.cancel') }}</a>
+        <a class="btn-secondary btn-sm" href="{{ url_prefix }}/clients/{{ client.client_id }}/bom">{{ t('common.cancel') }}</a>
         <button type="submit" class="btn-primary">{{ t('common.upload_btn') }}</button>
       </div>
     </footer>
   </form>
 
-  <form method="post" action="/clients/{{ client.client_id }}/bom/default-adapter"
+  <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/bom/default-adapter"
         class="upload-card">
     <div class="upload-card-head">
       <h3>Parser mặc định</h3>

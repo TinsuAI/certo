@@ -13,15 +13,15 @@
         <p class="meta">{{ material.name or '(chưa có tên)' }}</p>
       </div>
       <div class="page-actions">
-        <a class="btn-secondary" href="/clients/{{ client.client_id }}/catalog">← Danh Mục</a>
+        <a class="btn-secondary" href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog">← Danh Mục</a>
         {% if can_edit_technical(client.client_id) or user.role in ('dev', 'admin', 'manager') %}
         <a class="btn-secondary"
-           href="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/edit">
+           href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/edit">
            ✎ Sửa
         </a>
         {% endif %}
         {% if material.status not in ('tombstoned',) %}
-        <form method="post" action="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/tombstone" style="display:inline"
+        <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/tombstone" style="display:inline"
               onsubmit="return confirm('Loại mã này khỏi danh mục? (Lưu lịch sử, không xóa thật.)')">
           <button type="submit" class="btn-ghost">⌫ Loại khỏi danh mục</button>
         </form>
@@ -106,7 +106,7 @@
       <span class="uom-label">Chính thức (Danh Mục)</span>
       <span class="uom-value mono">
         {%- if uom_panel.official %}{{ uom_panel.official }}
-        {%- else %}<a href="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/edit">— chưa đặt · đặt ngay</a>{% endif -%}
+        {%- else %}<a href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/edit">— chưa đặt · đặt ngay</a>{% endif -%}
       </span>
     </div>
     <div class="uom-observed">
@@ -131,8 +131,8 @@
   {% if uom_panel.needs_attention %}
   <p class="meta text-warn">
     ⚠ Có ĐVT chưa quy đổi được về ĐVT chính thức. Bấm chip để đặt hệ số tại
-    <a href="/clients/{{ client.client_id }}/uom-factors">/uom-factors</a>
-    (hoặc bổ sung alias tại <a href="/admin/uom">/admin/uom</a> nếu ĐVT lạ),
+    <a href="{{ url_prefix }}/clients/{{ client.client_id }}/uom-factors">/uom-factors</a>
+    (hoặc bổ sung alias tại <a href="{{ url_prefix }}/admin/uom">/admin/uom</a> nếu ĐVT lạ),
     hoặc xem "Phân tích từ BCCT" bên dưới để rõ mức độ.
   </p>
   {% elif uom_panel.has_divergence %}
@@ -190,7 +190,7 @@
         <span class="badge badge-nb">{{ material.material_code }}</span>
         <span class="meta">→</span>
         {% for m in as_nb_others %}
-          <a href="/clients/{{ client.client_id }}/catalog/{{ m.paired_code }}/detail"
+          <a href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ m.paired_code }}/detail"
              class="badge badge-hq">
             {{ m.paired_code }}
           </a>
@@ -210,7 +210,7 @@
         <span class="badge badge-hq">{{ material.material_code }}</span>
         <span class="meta">←</span>
         {% for m in as_hq_others[:50] %}
-          <a href="/clients/{{ client.client_id }}/catalog/{{ m.paired_code }}/detail"
+          <a href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ m.paired_code }}/detail"
              class="badge badge-nb">
             {{ m.paired_code }}
           </a>
@@ -301,7 +301,7 @@
       {% for c in substitutes_active %}
       <tr>
         <td class="mono">
-          <a href="/clients/{{ client.client_id }}/catalog/{{ c.material_b_code }}/detail">
+          <a href="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ c.material_b_code }}/detail">
             {{ c.material_b_code }}
           </a>
         </td>
@@ -337,7 +337,7 @@
         <td class="num mono">{{ '%.2f'|format(c.combined_score) }}</td>
         <td>
           <form method="post" style="display: inline;"
-                action="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/substitutes/reject">
+                action="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/substitutes/reject">
             <input type="hidden" name="pair_b" value="{{ c.material_b_code }}">
             <button type="submit" class="btn-ghost"
                     title="Đánh dấu KHÔNG phải vật tư thay thế"
@@ -357,7 +357,7 @@
     refresh để đồng bộ:
   </p>
   <form method="post" style="display: inline;"
-        action="/clients/{{ client.client_id }}/substitutes/refresh">
+        action="{{ url_prefix }}/clients/{{ client.client_id }}/substitutes/refresh">
     <button type="submit" class="btn-ghost">↻ Refresh ứng viên cho client này</button>
   </form>
   {% endif %}
@@ -367,7 +367,7 @@
       + Thêm thủ công
     </summary>
     <form method="post" class="stack-form"
-          action="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/substitutes/add">
+          action="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/substitutes/add">
       <label>
         Mã thay thế (vật tư đích)
         <input type="text" name="pair_b" required class="mono"
@@ -394,7 +394,7 @@
           <td>{{ (c.name or '')[:60] }}</td>
           <td>
             <form method="post" style="display: inline;"
-                  action="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/substitutes/unreject">
+                  action="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/substitutes/unreject">
               <input type="hidden" name="pair_b" value="{{ c.material_b_code }}">
               <button type="submit" class="btn-ghost">Khôi phục</button>
             </form>
@@ -470,7 +470,7 @@
         ✎ Sửa nhanh
       </summary>
       <form method="post"
-            action="/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/edit"
+            action="{{ url_prefix }}/clients/{{ client.client_id }}/catalog/{{ material.material_code }}/edit"
             class="form-stack">
         <div class="field-stack">
           <label>Tên hàng
@@ -545,7 +545,7 @@
   {% set rep = bcct_analysis.representative %}
   <div class="callout callout-info">
     <strong>Đại diện</strong> ({{ rep.occurrence_count }} dòng giống nhau):
-    TK <a class="mono" href="/clients/{{ client.client_id }}/bcct/history/{{ rep.transaction_key }}/{{ rep.line_no }}">{{ rep.declaration_no }}</a>
+    TK <a class="mono" href="{{ url_prefix }}/clients/{{ client.client_id }}/bcct/history/{{ rep.transaction_key }}/{{ rep.line_no }}">{{ rep.declaration_no }}</a>
     {% if rep.registration_date %}· {{ format_date(rep.registration_date) }}{% endif %}
     · ĐVT <strong>{{ rep.unit or '—' }}</strong>
     · HS <span class="mono">{{ rep.hs_code or '—' }}</span>
@@ -770,7 +770,7 @@
     <tbody>
       {% for r in bcct_rows %}
       <tr>
-        <td class="mono"><a href="/clients/{{ client.client_id }}/bcct/history/{{ r.transaction_key }}/{{ r.line_no }}">{{ r.declaration_no }}</a></td>
+        <td class="mono"><a href="{{ url_prefix }}/clients/{{ client.client_id }}/bcct/history/{{ r.transaction_key }}/{{ r.line_no }}">{{ r.declaration_no }}</a></td>
         <td>{{ r.line_no }}</td>
         <td class="mono">{{ r.declaration_type or '' }}</td>
         <td>{{ r.direction }}</td>
@@ -798,7 +798,7 @@
     <tbody>
       {% for a in bom_artifacts %}
       <tr>
-        <td class="mono"><a href="/clients/{{ client.client_id }}/bom/artifact/{{ a.artifact_id }}">{{ a.artifact_id[:16] }}…</a></td>
+        <td class="mono"><a href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/artifact/{{ a.artifact_id }}">{{ a.artifact_id[:16] }}…</a></td>
         <td class="mono">{{ a.product_code }}</td>
         <td>v{{ a.artifact_no }}</td>
         <td><span class="badge">{{ a.flatten_status }}</span></td>

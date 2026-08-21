@@ -21,7 +21,7 @@
       <p class="meta">User-created preset có thể xóa được. Mã loại hình điền cách nhau bằng dấu phẩy.</p>
     </div>
   </div>
-  <form method="post" action="/admin/client-type-presets/new" class="settings-form">
+  <form method="post" action="{{ url_prefix }}/admin/client-type-presets/new" class="settings-form">
     <div class="settings-grid">
       <div class="field">
         <label for="preset_key">Key</label>
@@ -74,7 +74,7 @@
       <tr>
         <td class="mono">{{ r.preset_key }}</td>
         <td>
-          <form method="post" action="/admin/client-type-presets/{{ r.preset_key }}/update" class="inline-form">
+          <form method="post" action="{{ url_prefix }}/admin/client-type-presets/{{ r.preset_key }}/update" class="inline-form">
             <input type="text" name="display_name" value="{{ r.display_name }}" onchange="this.form.submit()">
             <input type="hidden" name="default_eligible_import" value="{{ r.default_eligible_import|join(', ') }}">
             <input type="hidden" name="default_relevant_export" value="{{ r.default_relevant_export|join(', ') }}">
@@ -83,7 +83,7 @@
           </form>
         </td>
         <td>
-          <form method="post" action="/admin/client-type-presets/{{ r.preset_key }}/update" class="inline-form">
+          <form method="post" action="{{ url_prefix }}/admin/client-type-presets/{{ r.preset_key }}/update" class="inline-form">
             <input type="text" name="default_eligible_import" value="{{ r.default_eligible_import|join(', ') }}" onchange="this.form.submit()" style="min-width: 140px;">
             <input type="hidden" name="display_name" value="{{ r.display_name }}">
             <input type="hidden" name="default_relevant_export" value="{{ r.default_relevant_export|join(', ') }}">
@@ -92,7 +92,7 @@
           </form>
         </td>
         <td>
-          <form method="post" action="/admin/client-type-presets/{{ r.preset_key }}/update" class="inline-form">
+          <form method="post" action="{{ url_prefix }}/admin/client-type-presets/{{ r.preset_key }}/update" class="inline-form">
             <input type="text" name="default_relevant_export" value="{{ r.default_relevant_export|join(', ') }}" onchange="this.form.submit()" style="min-width: 140px;">
             <input type="hidden" name="display_name" value="{{ r.display_name }}">
             <input type="hidden" name="default_eligible_import" value="{{ r.default_eligible_import|join(', ') }}">
@@ -111,7 +111,7 @@
           <span class="badge badge-{{ 'success' if r.is_active else 'muted' }}">{{ 'active' if r.is_active else 'disabled' }}</span>
         </td>
         <td class="actions-cell">
-          <form method="post" action="/admin/client-type-presets/{{ r.preset_key }}/update" class="inline-form">
+          <form method="post" action="{{ url_prefix }}/admin/client-type-presets/{{ r.preset_key }}/update" class="inline-form">
             <input type="hidden" name="display_name" value="{{ r.display_name }}">
             <input type="hidden" name="default_eligible_import" value="{{ r.default_eligible_import|join(', ') }}">
             <input type="hidden" name="default_relevant_export" value="{{ r.default_relevant_export|join(', ') }}">
@@ -120,7 +120,7 @@
             <button type="submit" class="btn-xs btn-{{ 'danger-sm' if r.is_active else 'secondary' }}">{{ 'Disable' if r.is_active else 'Enable' }}</button>
           </form>
           {% if not r.is_system %}
-          <form method="post" action="/admin/client-type-presets/{{ r.preset_key }}/delete" class="inline-form" onsubmit="return confirm('Xóa preset {{ r.preset_key }}?');">
+          <form method="post" action="{{ url_prefix }}/admin/client-type-presets/{{ r.preset_key }}/delete" class="inline-form" onsubmit="return confirm('Xóa preset {{ r.preset_key }}?');">
             <button type="submit" class="btn-xs btn-danger-sm">Xóa</button>
           </form>
           {% endif %}

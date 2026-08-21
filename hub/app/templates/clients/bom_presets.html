@@ -10,7 +10,7 @@
       <p class="meta">{{ presets|length }} alive · 1 preset = 1 artifact pin + sourcing intent</p>
     </div>
     <div>
-      <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/bom/{{ product_code }}/artifacts">← artifacts</a>
+      <a class="btn-secondary btn-sm" href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/{{ product_code }}/artifacts">← artifacts</a>
     </div>
   </div>
 
@@ -31,13 +31,13 @@
       <tr>
         <td><strong>{{ p.name }}</strong> <span class="mono meta">{{ p.preset_id }}</span></td>
         <td>
-          <a class="mono" href="/clients/{{ client.client_id }}/bom/artifact/{{ p.artifact_id }}">{{ p.artifact_id }}</a>
+          <a class="mono" href="{{ url_prefix }}/clients/{{ client.client_id }}/bom/artifact/{{ p.artifact_id }}">{{ p.artifact_id }}</a>
         </td>
         <td>{{ p.notes or '—' }}</td>
         <td class="mono">{{ p.created_at.strftime('%Y-%m-%d %H:%M') if p.created_at else '—' }}</td>
         <td>
           <form method="post"
-                action="/clients/{{ client.client_id }}/bom/presets/{{ p.preset_id }}/tombstone"
+                action="{{ url_prefix }}/clients/{{ client.client_id }}/bom/presets/{{ p.preset_id }}/tombstone"
                 onsubmit="return confirm('Thu hồi preset {{ p.name }}? (Lưu lịch sử, không xóa — tham chiếu cũ vẫn truy vấn được.)')"
                 style="display:inline">
             <input type="text" name="reason" placeholder="lý do (tuỳ chọn)" class="mini-input">
@@ -55,7 +55,7 @@
 
   <div class="subsection-head"><h3>Create preset</h3></div>
   <form method="post" class="stack-form"
-        action="/clients/{{ client.client_id }}/bom/{{ product_code }}/presets">
+        action="{{ url_prefix }}/clients/{{ client.client_id }}/bom/{{ product_code }}/presets">
     <label>
       <span class="meta">Name (unique per product)</span>
       <input type="text" name="name" required placeholder="default | co-case-12345 | settlement-2025">

@@ -12,107 +12,107 @@
 {% set cid = client.client_id %}
 <div class="side-grp">{{ t('nav.group.workspace') }}</div>
 <a class="side-a {{ 'on' if active_tab == 'overview' else '' }}"
-   href="/clients/{{ cid }}">{{ t('tabs.overview') }}</a>
+   href="{{ url_prefix }}/clients/{{ cid }}">{{ t('tabs.overview') }}</a>
 
 <div class="side-grp">{{ t('navgrp.catalog') }}</div>
 <a class="side-a {{ 'on' if active_tab == 'catalog' else '' }}"
-   href="/clients/{{ cid }}/catalog">{{ t('navgrp.catalog.item') }}
+   href="{{ url_prefix }}/clients/{{ cid }}/catalog">{{ t('navgrp.catalog.item') }}
   {% if stats %}<span class="ct">{{ stats.materials }}</span>{% endif %}</a>
 <a class="side-a {{ 'on' if active_tab == 'bqd' else '' }}"
-   href="/clients/{{ cid }}/bqd">{{ t('tabs.bqd') }}
+   href="{{ url_prefix }}/clients/{{ cid }}/bqd">{{ t('tabs.bqd') }}
   {% if stats %}<span class="ct">{{ stats.mappings }}</span>{% endif %}</a>
 
 <div class="side-grp">{{ t('navgrp.customs') }}</div>
 <a class="side-a {{ 'on' if active_tab == 'bcct' else '' }}"
-   href="/clients/{{ cid }}/bcct">{{ t('tabs.bcct') }}
+   href="{{ url_prefix }}/clients/{{ cid }}/bcct">{{ t('tabs.bcct') }}
   {% if stats %}<span class="ct">{{ stats.bcct }}</span>{% endif %}</a>
 <a class="side-a {{ 'on' if active_tab == 'declarations' else '' }}"
-   href="/clients/{{ cid }}/declarations">{{ t('tabs.declarations') }}</a>
+   href="{{ url_prefix }}/clients/{{ cid }}/declarations">{{ t('tabs.declarations') }}</a>
 
 <div class="side-grp">{{ t('navgrp.settlement') }}</div>
 <a class="side-a {{ 'on' if active_tab == 'nxt' else '' }}"
-   href="/clients/{{ cid }}/nxt">{{ t('navgrp.settlement.nxt') }}</a>
+   href="{{ url_prefix }}/clients/{{ cid }}/nxt">{{ t('navgrp.settlement.nxt') }}</a>
 <a class="side-a {{ 'on' if active_tab == 'inventory' else '' }}"
-   href="/clients/{{ cid }}/inventory-snapshots">{{ t('navgrp.settlement.inventory') }}</a>
+   href="{{ url_prefix }}/clients/{{ cid }}/inventory-snapshots">{{ t('navgrp.settlement.inventory') }}</a>
 
 <div class="side-grp">{{ t('tabs.bom') }}</div>
 <a class="side-a {{ 'on' if active_tab == 'bom' else '' }}"
-   href="/clients/{{ cid }}/bom">{{ t('navgrp.bom.list') }}
+   href="{{ url_prefix }}/clients/{{ cid }}/bom">{{ t('navgrp.bom.list') }}
   {% if stats %}<span class="ct">{{ stats.bom }}</span>{% endif %}</a>
 <a class="side-a {{ 'on' if active_tab == 'proposals' else '' }}"
-   href="/clients/{{ cid }}/proposals">{{ t('tabs.proposals') }}
+   href="{{ url_prefix }}/clients/{{ cid }}/proposals">{{ t('tabs.proposals') }}
   {% if stats and stats.proposals %}<span class="ct">{{ stats.proposals }}</span>{% endif %}</a>
-<a class="side-a" href="/clients/{{ cid }}/bom/needs-action">{{ t('navgrp.bom.needs_action') }}</a>
+<a class="side-a" href="{{ url_prefix }}/clients/{{ cid }}/bom/needs-action">{{ t('navgrp.bom.needs_action') }}</a>
 <a class="side-a {{ 'on' if active_tab == 'uom-factors' else '' }}"
-   href="/clients/{{ cid }}/uom-factors">{{ t('navgrp.bom.uom') }}</a>
+   href="{{ url_prefix }}/clients/{{ cid }}/uom-factors">{{ t('navgrp.bom.uom') }}</a>
 
 <div class="side-grp">{{ t('nav.group.data_in') }}</div>
 <a class="side-a {{ 'on' if active_tab == 'uploads' else '' }}"
-   href="/clients/{{ cid }}/uploads">{{ t('tabs.uploads') }}</a>
+   href="{{ url_prefix }}/clients/{{ cid }}/uploads">{{ t('tabs.uploads') }}</a>
 {% if chat_agent_enabled %}
 <a class="side-a {{ 'on' if active_tab == 'agent' else '' }}"
-   href="/clients/{{ cid }}/agent">{{ t('tabs.agent') }}</a>
+   href="{{ url_prefix }}/clients/{{ cid }}/agent">{{ t('tabs.agent') }}</a>
 {% endif %}
 
 <div class="side-grp">{{ t('tabs.config') }}</div>
 <a class="side-a {{ 'on' if active_tab == 'config' else '' }}"
-   href="/clients/{{ cid }}/edit">{{ t('navgrp.config.general') }}</a>
+   href="{{ url_prefix }}/clients/{{ cid }}/edit">{{ t('navgrp.config.general') }}</a>
 {% if can_edit_technical(cid) %}
 <a class="side-a {{ 'on' if active_tab == 'parser_rules' else '' }}"
-   href="/clients/{{ cid }}/parser-rules">{{ t('navgrp.config.parser_rules') }}</a>
+   href="{{ url_prefix }}/clients/{{ cid }}/parser-rules">{{ t('navgrp.config.parser_rules') }}</a>
 <a class="side-a {{ 'on' if active_tab == 'column_aliases' else '' }}"
-   href="/clients/{{ cid }}/column-aliases">{{ t('navgrp.config.column_aliases') }}</a>
+   href="{{ url_prefix }}/clients/{{ cid }}/column-aliases">{{ t('navgrp.config.column_aliases') }}</a>
 <a class="side-a {{ 'on' if active_tab == 'material_group_map' else '' }}"
-   href="/clients/{{ cid }}/material-group-map">{{ t('navgrp.config.material_group_map') }}</a>
+   href="{{ url_prefix }}/clients/{{ cid }}/material-group-map">{{ t('navgrp.config.material_group_map') }}</a>
 {% endif %}
 {% if can_manage_staff(cid) %}
 <a class="side-a {{ 'on' if active_tab == 'staff' else '' }}"
-   href="/clients/{{ cid }}/staff">{{ t('tabs.staff') }}</a>
+   href="{{ url_prefix }}/clients/{{ cid }}/staff">{{ t('tabs.staff') }}</a>
 {% endif %}
 {% endif %}
 
 {% if active_root == 'admin' %}
 <div class="side-grp">{{ t('nav.admin') }}</div>
 <a class="side-a {{ 'on' if p == '/admin/users' or p.startswith('/admin/users/') else '' }}"
-   href="/admin/users">{{ t('navgrp.admin.users') }}</a>
+   href="{{ url_prefix }}/admin/users">{{ t('navgrp.admin.users') }}</a>
 
 <div class="side-grp">{{ t('navgrp.admin.reference') }}</div>
 <a class="side-a {{ 'on' if p.startswith('/admin/declaration-types') else '' }}"
-   href="/admin/declaration-types">{{ t('navgrp.admin.declaration_types') }}</a>
+   href="{{ url_prefix }}/admin/declaration-types">{{ t('navgrp.admin.declaration_types') }}</a>
 <a class="side-a {{ 'on' if p.startswith('/admin/client-type-presets') else '' }}"
-   href="/admin/client-type-presets">{{ t('navgrp.admin.client_type_presets') }}</a>
+   href="{{ url_prefix }}/admin/client-type-presets">{{ t('navgrp.admin.client_type_presets') }}</a>
 <a class="side-a {{ 'on' if p.startswith('/admin/uom') else '' }}"
-   href="/admin/uom">{{ t('navgrp.admin.uom') }}</a>
+   href="{{ url_prefix }}/admin/uom">{{ t('navgrp.admin.uom') }}</a>
 
 <div class="side-grp">{{ t('navgrp.admin.adapters') }}</div>
 <a class="side-a {{ 'on' if p.startswith('/admin/bom-adapters') else '' }}"
-   href="/admin/bom-adapters">{{ t('navgrp.admin.bom_adapters') }}</a>
+   href="{{ url_prefix }}/admin/bom-adapters">{{ t('navgrp.admin.bom_adapters') }}</a>
 <a class="side-a {{ 'on' if p.startswith('/admin/settlement-adapters') else '' }}"
-   href="/admin/settlement-adapters">{{ t('navgrp.admin.settlement_adapters') }}</a>
+   href="{{ url_prefix }}/admin/settlement-adapters">{{ t('navgrp.admin.settlement_adapters') }}</a>
 
 {% if user.role == 'dev' %}
 <div class="side-grp">{{ t('navgrp.admin.system') }}</div>
 <a class="side-a {{ 'on' if p.startswith('/admin/service-accounts') else '' }}"
-   href="/admin/service-accounts">{{ t('navgrp.admin.service_accounts') }}</a>
+   href="{{ url_prefix }}/admin/service-accounts">{{ t('navgrp.admin.service_accounts') }}</a>
 <a class="side-a {{ 'on' if p.startswith('/admin/settings/technical') else '' }}"
-   href="/admin/settings/technical">{{ t('navgrp.admin.settings_technical') }}</a>
+   href="{{ url_prefix }}/admin/settings/technical">{{ t('navgrp.admin.settings_technical') }}</a>
 <a class="side-a {{ 'on' if p.startswith('/admin/settings/embedding') else '' }}"
-   href="/admin/settings/embedding">{{ t('navgrp.admin.settings_embedding') }}</a>
+   href="{{ url_prefix }}/admin/settings/embedding">{{ t('navgrp.admin.settings_embedding') }}</a>
 {% endif %}
 {% endif %}
 
 <div class="side-grp">{{ t('nav.group.global') }}</div>
 <a class="side-a {{ 'on' if active_root == 'clients' and not client else '' }}"
-   href="/clients">{{ t('nav.clients') }}</a>
+   href="{{ url_prefix }}/clients">{{ t('nav.clients') }}</a>
 {% if user.role in ('dev', 'admin') and active_root != 'admin' %}
-<a class="side-a" href="/admin/users">{{ t('nav.admin') }}</a>
+<a class="side-a" href="{{ url_prefix }}/admin/users">{{ t('nav.admin') }}</a>
 {% endif %}
 
 <div class="side-foot">
-  <a href="/whats-new" class="side-foot-link">
+  <a href="{{ url_prefix }}/whats-new" class="side-foot-link">
     {{ t('app.brand') }} · v{{ app_version.version }}
     <span class="mono">{{ app_version.git_sha }}</span>
     {% if app_version.source != 'build' %}<span class="side-foot-dev">({{ app_version.source }})</span>{% endif %}
   </a>
-  <a href="/whats-new" class="side-foot-whatsnew">{{ t('nav.whats_new') }} →</a>
+  <a href="{{ url_prefix }}/whats-new" class="side-foot-whatsnew">{{ t('nav.whats_new') }} →</a>
 </div>

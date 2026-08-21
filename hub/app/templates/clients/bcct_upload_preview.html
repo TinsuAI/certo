@@ -56,7 +56,7 @@
     {% endif %}
   </div>
 
-  <form id="confirm-form" method="post" action="/clients/{{ client.client_id }}/bcct/upload/preview/{{ pending_id }}/confirm">
+  <form id="confirm-form" method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/bcct/upload/preview/{{ pending_id }}/confirm">
     {% include "clients/_uom_drift_banner.html" ignore missing %}
 
     {% if anomalies %}
@@ -202,7 +202,7 @@
         {# "Hủy" chỉ rời trang, pending vẫn nằm lại tới lúc hết hạn và hiện ở
            danh sách upload như việc dở dang. Tách làm hai lựa chọn đúng như năm
            luồng nhập kia: đi ra mà giữ pending, hoặc bỏ hẳn file sai. #}
-        <a class="btn-ghost btn-sm" href="/clients/{{ client.client_id }}/bcct">Quay lại sau (giữ pending)</a>
+        <a class="btn-ghost btn-sm" href="{{ url_prefix }}/clients/{{ client.client_id }}/bcct">Quay lại sau (giữ pending)</a>
         <button type="submit"
                 formaction="/clients/{{ client.client_id }}/bcct/upload/preview/{{ pending_id }}/reject"
                 class="btn-secondary btn-sm"

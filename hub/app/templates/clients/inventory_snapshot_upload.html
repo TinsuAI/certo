@@ -10,13 +10,13 @@
   <div class="zone-head">
     <div class="page-bar-main">
       <h2>Tải lên chốt tồn kho cuối kỳ</h2>
-      <p class="meta">Hỗ trợ mẫu chuẩn hệ thống (sheet "Tồn kho") và các định dạng kiểm kê đã hỗ trợ. <a href="/templates/inventory-snapshot.xlsx">Tải mẫu chuẩn</a>.</p>
+      <p class="meta">Hỗ trợ mẫu chuẩn hệ thống (sheet "Tồn kho") và các định dạng kiểm kê đã hỗ trợ. <a href="{{ url_prefix }}/templates/inventory-snapshot.xlsx">Tải mẫu chuẩn</a>.</p>
     </div>
   </div>
 
   {% if error %}<div class="callout callout-error">{{ error }}</div>{% endif %}
 
-  <form method="post" action="/clients/{{ client.client_id }}/inventory-snapshots/upload"
+  <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/inventory-snapshots/upload"
         enctype="multipart/form-data" class="upload-card">
     <div class="upload-card-head">
       <h3>{{ t('flow.file_card') }}</h3>
@@ -45,13 +45,13 @@
     <footer class="commit-bar">
       <span class="commit-note">{{ t('flow.commit_hint') }}</span>
       <div class="commit-actions">
-        <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/inventory-snapshots">{{ t('common.cancel') }}</a>
+        <a class="btn-secondary btn-sm" href="{{ url_prefix }}/clients/{{ client.client_id }}/inventory-snapshots">{{ t('common.cancel') }}</a>
         <button type="submit" class="btn-primary">Tải lên &amp; xem trước</button>
       </div>
     </footer>
   </form>
 
-  <form method="post" action="/clients/{{ client.client_id }}/inventory-snapshots/default-adapter"
+  <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/inventory-snapshots/default-adapter"
         class="upload-card">
     <div class="upload-card-head">
       <h3>Adapter mặc định</h3>

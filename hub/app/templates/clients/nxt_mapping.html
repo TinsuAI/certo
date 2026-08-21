@@ -18,7 +18,7 @@
       </p>
     </div>
     <div class="page-actions">
-      <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/nxt">{{ t('common.cancel') }}</a>
+      <a class="btn-secondary btn-sm" href="{{ url_prefix }}/clients/{{ client.client_id }}/nxt">{{ t('common.cancel') }}</a>
     </div>
   </div>
 
@@ -43,7 +43,7 @@
   </div>
   {% endif %}
 
-  <form method="post" action="/clients/{{ client.client_id }}/nxt/upload/mapping/{{ upload_id }}/parse"
+  <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/nxt/upload/mapping/{{ upload_id }}/parse"
         class="upload-card upload-card-wide">
     <div class="upload-card-head">
       <h3>{{ t('flow.map.source') }} → {{ t('flow.map.target') }}</h3>
@@ -87,12 +87,12 @@
       </span>
       <div class="commit-actions">
         <button type="submit" class="btn-primary">Parse &amp; xem trước</button>
-        <a class="btn-secondary btn-sm" href="/clients/{{ client.client_id }}/nxt">{{ t('common.cancel') }}</a>
+        <a class="btn-secondary btn-sm" href="{{ url_prefix }}/clients/{{ client.client_id }}/nxt">{{ t('common.cancel') }}</a>
       </div>
     </footer>
   </form>
 
-  <form method="post" action="/clients/{{ client.client_id }}/nxt/upload/mapping/{{ upload_id }}/llm"
+  <form method="post" action="{{ url_prefix }}/clients/{{ client.client_id }}/nxt/upload/mapping/{{ upload_id }}/llm"
         class="commit-bar commit-bar-standalone">
     <span class="commit-note">Gợi ý bằng LLM — tự đề xuất gán cột, vẫn cần xác nhận ở trên.</span>
     <div class="commit-actions">

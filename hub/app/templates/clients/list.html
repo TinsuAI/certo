@@ -6,7 +6,7 @@
   <span class="page-tagline">{{ items|length }} · {{ t('clients.tagline') }}</span>
   <div class="page-actions">
     {% if can_create_client %}
-    <a class="btn-primary" href="/clients/new">+ {{ t('clients.add') }}</a>
+    <a class="btn-primary" href="{{ url_prefix }}/clients/new">+ {{ t('clients.add') }}</a>
     {% endif %}
   </div>
 </section>
@@ -41,10 +41,10 @@
       <tbody id="client-rowlist">
         {% for c in items %}
         <tr class="client-row" tabindex="0"
-            data-row-href="/clients/{{ c.client_id }}"
+            data-row-href="{{ url_prefix }}/clients/{{ c.client_id }}"
             data-search="{{ (c.name ~ ' ' ~ c.client_id ~ ' ' ~ (c.tax_code or ''))|lower }}">
           <td class="client-name">
-            <a href="/clients/{{ c.client_id }}"><strong>{{ c.name }}</strong></a>
+            <a href="{{ url_prefix }}/clients/{{ c.client_id }}"><strong>{{ c.name }}</strong></a>
             <span class="mono meta">{{ c.client_id }}</span>
           </td>
           <td class="mono">{{ c.tax_code or '—' }}</td>
@@ -72,7 +72,7 @@
   <div class="empty-state">
     <p>{{ t('clients.empty') }}</p>
     {% if can_create_client %}
-    <a class="btn-primary" href="/clients/new">+ {{ t('clients.add') }}</a>
+    <a class="btn-primary" href="{{ url_prefix }}/clients/new">+ {{ t('clients.add') }}</a>
     {% endif %}
   </div>
   {% endif %}
