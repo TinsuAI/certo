@@ -448,7 +448,7 @@ async def login_submit(
         ip=request.client.host if request.client else None,
     )
     response = RedirectResponse(url=safe_next_path(next), status_code=303)
-    auth.set_session_cookie(response, session_id)
+    auth.set_session_cookie(response, session_id, request=request)
     return response
 
 

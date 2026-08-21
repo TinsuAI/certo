@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Đăng nhập - Barry CO{% endblock %}
+{% block content %}
+<section class="zone login-zone">
+  <div class="login-card">
+    <span class="eyebrow">Chứng nhận xuất xứ</span>
+    <h1>Đăng nhập</h1>
+    {% if error %}
+    <p class="login-error" role="alert">Email hoặc mật khẩu không đúng.</p>
+    {% endif %}
+    <form method="post" action="/auth/login" class="login-form">
+      <input type="hidden" name="next_url" value="{{ next_path }}">
+      <label>Email
+        <input type="email" name="email" autocomplete="username" required autofocus>
+      </label>
+      <label>Mật khẩu
+        <input type="password" name="password" autocomplete="current-password" required>
+      </label>
+      <button type="submit" class="btn-primary">Đăng nhập</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

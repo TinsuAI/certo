@@ -107,14 +107,38 @@ def require_user(request: Request) -> User:
     return user
 
 
-def set_session_cookie(response: Response, session_id: str) -> None:
+def cookie_secure(request: Request | None = None) -> bool:
+    """Whether the session cookie gets the `Secure` flag.
+
+    On for any HTTPS request, so a deployment behind a TLS proxy never issues a
+    session cookie without it. Plain-http local dev gets it off, or the browser
+    refuses to store the cookie at all. When the scheme is unknown, fail secure.
+
+    The env flag is a force-enable override, not the only way to turn this on —
+    it defaults to 0 in the compose files, so relying on it alone meant a
+    production session cookie travelling over plain HTTP if anyone forgot to
+    set it.
+    """
+    if os.environ.get("DATA_HUB_FORCE_HTTPS_COOKIE") == "1":
+        return True
+    if request is None:
+        return True
+    forwarded = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    if forwarded:
+        return forwarded == "https"
+    return request.url.scheme == "https"
+
+
+def set_session_cookie(
+    response: Response, session_id: str, *, request: Request | None = None
+) -> None:
     response.set_cookie(
         SESSION_COOKIE,
         session_id,
         max_age=SESSION_TTL_HOURS * 3600,
         httponly=True,
         samesite="lax",
-        secure=os.environ.get("DATA_HUB_FORCE_HTTPS_COOKIE") == "1",
+        secure=cookie_secure(request),
         path="/",
     )
 

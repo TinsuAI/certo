@@ -189,12 +189,20 @@ def test_review_row_labels_the_criterion_source(monkeypatch, tmp_path):
     client = TestClient(main_module.app)
     origin = f"/clients/growatt/co-case/{case_id}/origin"
 
-    assert "tiêu chí: khuyến nghị" in client.get(origin).text
+    # Before a choice, nothing in the list claims a criterion — the bar above it
+    # is the single place that says one has not been picked.
+    before = client.get(origin).text
+    assert "tiêu chí: khuyến nghị" not in before
+    assert "tiêu chí riêng" not in before
 
     client.post(f"{origin}/case-criteria", json={"criteria_text": "CTH"})
     chosen = client.get(origin).text
-    assert "tiêu chí: theo lô hàng" in chosen
+
+    # The original defect: rows kept saying "khuyến nghị" after the operator had
+    # chosen for the whole lô, contradicting the bar, the sheet chip and the lock
+    # gate. Rows now inherit silently, so the contradiction cannot be printed.
     assert "tiêu chí: khuyến nghị" not in chosen
+    assert "tiêu chí riêng" not in chosen
 
 
 def test_a_round_threshold_is_not_printed_in_scientific_notation():

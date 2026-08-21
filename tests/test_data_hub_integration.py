@@ -13,6 +13,25 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 
+
+def _sign_in(monkeypatch, role: str, *, user_id: str = "u_test", email: str = "t@example.test"):
+    """Put a signed-in user of `role` on every request.
+
+    Identity is a server session now, so there is no token to mint or JWKS to
+    stub — these tests care about what a role may do, not how it was proven.
+    """
+    from app import co_auth
+
+    monkeypatch.setenv("CO_AUTH_REQUIRED", "1")
+    monkeypatch.setattr(
+        co_auth,
+        "session_user",
+        lambda request: co_auth.DataHubUser(
+            user_id=user_id, email=email, role=role, name=email, claims={}
+        ),
+    )
+
+
 def test_data_hub_link_settings_derives_urls_and_claim_mapping():
     from app.data_hub_settings import DataHubLinkSettings
 
@@ -77,236 +96,36 @@ def _token(
     )
 
 
-def test_data_hub_token_verifier_accepts_jwks_signed_token():
-    from app.co_auth import DataHubTokenVerifier
+def test_login_page_is_served_by_this_app(monkeypatch):
+    """Sign-in is a local form, not a redirect to another service's /authorize."""
+    monkeypatch.setenv("CO_AUTH_REQUIRED", "1")
 
-    private_key = ed25519.Ed25519PrivateKey.generate()
-    token = _token(private_key)
-    verifier = DataHubTokenVerifier(
-        issuer="https://hub.test",
-        jwks_provider=lambda: {"keys": [_jwk_from_public_key(private_key.public_key())]},
-    )
+    response = TestClient(app).get("/auth/login?next=/clients", follow_redirects=False)
 
-    user = verifier.verify(token)
-
-    assert user.user_id == "u-test"
-    assert user.email == "operator@example.test"
-    assert user.role == "staff"
+    assert response.status_code == 200
+    assert 'action="/auth/login"' in response.text
+    assert 'name="password"' in response.text
 
 
-def test_data_hub_token_verifier_accepts_localhost_loopback_alias(monkeypatch):
-    from app import co_auth
-    from app.co_auth import DataHubTokenVerifier
-
-    private_key = ed25519.Ed25519PrivateKey.generate()
-    token = _token(private_key, issuer="http://localhost:8754")
-    monkeypatch.setenv("DATA_HUB_ISSUER_URL", "http://127.0.0.1:8754")
-    verifier = DataHubTokenVerifier(
-        issuer=co_auth.data_hub_issuer_urls(),
-        jwks_provider=lambda: {"keys": [_jwk_from_public_key(private_key.public_key())]},
-    )
-
-    user = verifier.verify(token)
-
-    assert user.user_id == "u-test"
-
-
-def test_fetch_data_hub_jwks_uses_stale_cache_when_data_hub_is_offline(monkeypatch):
-    from app import co_auth
-
-    co_auth.clear_jwks_cache()
-    jwks = {"keys": [{"kid": "k-test"}]}
-
-    def fresh_get(url: str, **_kwargs):
-        return httpx.Response(200, json=jwks, request=httpx.Request("GET", url))
-
-    monkeypatch.setattr(co_auth.httpx, "get", fresh_get)
-    assert co_auth.fetch_data_hub_jwks("http://hub.test/v1/auth/jwks") == jwks
-
-    def offline_get(_url: str, **_kwargs):
-        raise httpx.ConnectError("offline")
-
-    monkeypatch.setattr(co_auth, "JWKS_CACHE_TTL_SECONDS", 0.0)
-    monkeypatch.setattr(co_auth.httpx, "get", offline_get)
-    assert co_auth.fetch_data_hub_jwks("http://hub.test/v1/auth/jwks") == jwks
-
-
-def test_fetch_data_hub_jwks_rejects_non_object_response(monkeypatch):
-    from app import co_auth
-
-    co_auth.clear_jwks_cache()
-
-    def get_list(url: str, **_kwargs):
-        return httpx.Response(200, json=[], request=httpx.Request("GET", url))
-
-    monkeypatch.setattr(co_auth.httpx, "get", get_list)
-
-    with pytest.raises(ValueError):
-        co_auth.fetch_data_hub_jwks("http://hub.test/v1/auth/jwks")
-
-
-def test_auth_required_redirects_clients_without_data_hub_session(monkeypatch):
+def test_guarded_page_redirects_anonymous_visitor_to_login(monkeypatch):
     monkeypatch.setenv("CO_AUTH_REQUIRED", "1")
 
     response = TestClient(app).get("/clients", follow_redirects=False)
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/auth/login?next=/clients"
-
-
-def test_auth_required_redirects_root_without_data_hub_session(monkeypatch):
-    monkeypatch.setenv("CO_AUTH_REQUIRED", "1")
-
-    response = TestClient(app).get("/", follow_redirects=False)
-
-    assert response.status_code == 303
-    assert response.headers["location"] == "/auth/login?next=/"
-
-
-def test_auth_required_allows_valid_data_hub_session(monkeypatch):
-    from app import co_auth
-
-    private_key = ed25519.Ed25519PrivateKey.generate()
-    token = _token(private_key)
-    monkeypatch.setenv("CO_AUTH_REQUIRED", "1")
-    monkeypatch.setenv("DATA_HUB_ISSUER_URL", "https://hub.test")
-    monkeypatch.setattr(
-        co_auth,
-        "fetch_data_hub_jwks",
-        lambda _url: {"keys": [_jwk_from_public_key(private_key.public_key())]},
-    )
-
-    client = TestClient(app)
-    client.cookies.set(co_auth.CO_SESSION_COOKIE, token)
-    response = client.get("/clients")
-
-    assert response.status_code == 200
-    assert "client-grid" in response.text
-
-
-def test_auth_required_rejects_client_outside_jwt_acl(monkeypatch):
-    from app import co_auth
-
-    private_key = ed25519.Ed25519PrivateKey.generate()
-    token = _token(private_key, extra_claims={"client_ids": ["allowed-client"]})
-    monkeypatch.setenv("CO_AUTH_REQUIRED", "1")
-    monkeypatch.setenv("DATA_HUB_ISSUER_URL", "https://hub.test")
-    monkeypatch.setattr(
-        co_auth,
-        "fetch_data_hub_jwks",
-        lambda _url: {"keys": [_jwk_from_public_key(private_key.public_key())]},
-    )
-
-    client = TestClient(app)
-    client.cookies.set(co_auth.CO_SESSION_COOKIE, token)
-    response = client.get("/clients/growatt")
-
-    assert response.status_code == 403
-
-
-def test_auth_required_rejects_expired_data_hub_session(monkeypatch):
-    from app import co_auth
-
-    private_key = ed25519.Ed25519PrivateKey.generate()
-    now = datetime.now(timezone.utc)
-    token = jwt.encode(
-        {
-            "iss": "https://hub.test",
-            "sub": "u-test",
-            "iat": int((now - timedelta(minutes=20)).timestamp()),
-            "exp": int((now - timedelta(minutes=10)).timestamp()),
-        },
-        private_key,
-        algorithm="EdDSA",
-        headers={"kid": "k-test"},
-    )
-    monkeypatch.setenv("CO_AUTH_REQUIRED", "1")
-    monkeypatch.setenv("DATA_HUB_ISSUER_URL", "https://hub.test")
-    monkeypatch.setattr(
-        co_auth,
-        "fetch_data_hub_jwks",
-        lambda _url: {"keys": [_jwk_from_public_key(private_key.public_key())]},
-    )
-
-    client = TestClient(app)
-    client.cookies.set(co_auth.CO_SESSION_COOKIE, token)
-    response = client.get("/clients", follow_redirects=False)
-
-    assert response.status_code == 303
-    assert response.headers["location"] == "/auth/login?next=/clients"
-
-
-def test_auth_callback_exchanges_code_sets_session_cookie(monkeypatch):
-    from app import co_auth
-
-    private_key = ed25519.Ed25519PrivateKey.generate()
-    token = _token(private_key, role="admin")
-    monkeypatch.setenv("DATA_HUB_ISSUER_URL", "https://hub.test")
-    monkeypatch.setattr(co_auth, "exchange_data_hub_sso_code", lambda _code, **_kwargs: {"access_token": token, "expires_in": 300})
-    monkeypatch.setattr(
-        co_auth,
-        "fetch_data_hub_jwks",
-        lambda _url: {"keys": [_jwk_from_public_key(private_key.public_key())]},
-    )
-
-    response = TestClient(app).get("/auth/callback?code=c1&state=/clients", follow_redirects=False)
-
-    assert response.status_code == 303
-    assert response.headers["location"] == "/clients"
-    assert co_auth.CO_SESSION_COOKIE in response.headers["set-cookie"]
-
-
-def test_auth_callback_verification_failure_does_not_redirect_loop(monkeypatch):
-    from app import co_auth
-
-    private_key = ed25519.Ed25519PrivateKey.generate()
-    token = _token(private_key, issuer="https://wrong-issuer.test")
-    monkeypatch.setenv("DATA_HUB_ISSUER_URL", "https://hub.test")
-    monkeypatch.setattr(co_auth, "exchange_data_hub_sso_code", lambda _code, **_kwargs: {"access_token": token, "expires_in": 300})
-    monkeypatch.setattr(
-        co_auth,
-        "fetch_data_hub_jwks",
-        lambda _url: {"keys": [_jwk_from_public_key(private_key.public_key())]},
-    )
-
-    response = TestClient(app).get("/auth/callback?code=c1&state=/clients", follow_redirects=False)
-
-    assert response.status_code == 401
-    assert "Data Hub login failed" in response.text
-    assert "location" not in response.headers
-    assert "co_data_hub_session" in response.headers["set-cookie"]
-    assert "Max-Age=0" in response.headers["set-cookie"]
-
-
-def test_topnav_shows_login_when_data_hub_auth_required(monkeypatch):
-    monkeypatch.setenv("CO_AUTH_REQUIRED", "1")
-
-    response = TestClient(app).get("/auth/login?next=/clients", follow_redirects=False)
-
-    assert response.status_code == 303
-    assert response.headers["location"].startswith("http://127.0.0.1:8754/v1/auth/authorize?")
+    assert response.headers["location"].startswith("/auth/login")
 
 
 def test_user_ui_loads_session_and_logout_clears_cookie(monkeypatch):
-    from app import co_auth
+    from hub.app.auth import session as hub_session
 
-    private_key = ed25519.Ed25519PrivateKey.generate()
-    token = _token(private_key, role="dev", extra_claims={"client_ids": ["growatt"]})
-    monkeypatch.setenv("DATA_HUB_ISSUER_URL", "https://hub.test")
-    monkeypatch.setattr(
-        co_auth,
-        "fetch_data_hub_jwks",
-        lambda _url: {"keys": [_jwk_from_public_key(private_key.public_key())]},
-    )
+    _sign_in(monkeypatch, "dev", email="Operator@example.test")
 
     client = TestClient(app)
-    client.cookies.set(co_auth.CO_SESSION_COOKIE, token)
     response = client.get("/user")
 
     assert response.status_code == 200
-    assert "Operator" in response.text
     assert "dev" in response.text
-    assert "Tất cả công ty" in response.text
     assert '<summary class="user-menu-trigger"' in response.text
     assert "User profile" in response.text
     assert "Technical Settings" in response.text
@@ -316,22 +135,9 @@ def test_user_ui_loads_session_and_logout_clears_cookie(monkeypatch):
 
     assert logout.status_code == 303
     assert logout.headers["location"] == "/user?logged_out=1"
-    assert "co_data_hub_session" in logout.headers["set-cookie"]
+    # The session cookie is expired on the way out, whatever its name.
+    assert hub_session.SESSION_COOKIE in logout.headers["set-cookie"]
     assert "Max-Age=0" in logout.headers["set-cookie"]
-
-
-def test_sso_logout_clears_cookie_without_restarting_login(monkeypatch):
-    monkeypatch.setenv("CO_AUTH_REQUIRED", "1")
-    monkeypatch.setenv("DATA_HUB_BASE_URL", "http://hub.test")
-
-    response = TestClient(app).post("/auth/logout", data={"next_url": "/user"}, follow_redirects=False)
-
-    assert response.status_code == 200
-    assert "location" not in response.headers
-    assert 'action="http://hub.test/logout"' in response.text
-    assert 'id="data-hub-logout-form"' in response.text
-    assert "co_data_hub_session" in response.headers["set-cookie"]
-    assert "Max-Age=0" in response.headers["set-cookie"]
 
 
 def test_settings_page_links_technical_settings_for_dev(monkeypatch):
@@ -459,29 +265,15 @@ def test_can_delete_co_cases_allows_manager_by_default(monkeypatch):
 
 
 def test_technical_settings_requires_dev_when_auth_required(monkeypatch):
-    from app import co_auth
+    """Only a dev may open Technical Settings — staff and admin are refused."""
+    for role in ("staff", "admin"):
+        with pytest.MonkeyPatch.context() as mp:
+            _sign_in(mp, role)
+            assert TestClient(app).get("/settings/technical").status_code == 403
 
-    private_key = ed25519.Ed25519PrivateKey.generate()
-    staff_token = _token(private_key, role="staff", extra_claims={"client_ids": ["growatt"]})
-    admin_token = _token(private_key, role="admin")
-    dev_token = _token(private_key, role="dev")
-    monkeypatch.setenv("CO_AUTH_REQUIRED", "1")
-    monkeypatch.setenv("DATA_HUB_ISSUER_URL", "https://hub.test")
-    monkeypatch.setattr(
-        co_auth,
-        "fetch_data_hub_jwks",
-        lambda _url: {"keys": [_jwk_from_public_key(private_key.public_key())]},
-    )
-
-    client = TestClient(app)
-    client.cookies.set(co_auth.CO_SESSION_COOKIE, staff_token)
-    assert client.get("/settings/technical").status_code == 403
-
-    client.cookies.set(co_auth.CO_SESSION_COOKIE, admin_token)
-    assert client.get("/settings/technical").status_code == 403
-
-    client.cookies.set(co_auth.CO_SESSION_COOKIE, dev_token)
-    response = client.get("/settings/technical")
+    with pytest.MonkeyPatch.context() as mp:
+        _sign_in(mp, "dev")
+        response = TestClient(app).get("/settings/technical")
 
     assert response.status_code == 200
     assert "Technical Settings" in response.text
@@ -510,7 +302,6 @@ def test_data_hub_settings_connection_check_uses_existing_adapter(monkeypatch, t
     monkeypatch.setenv("DATA_HUB_API_BASE_URL", "http://hub-api.internal:8754")
     monkeypatch.setenv("DATA_HUB_SERVICE_TOKEN", "service-token")
     monkeypatch.setenv("DATA_HUB_REQUEST_TIMEOUT_SECONDS", "5")
-    monkeypatch.setattr(co_auth, "fetch_data_hub_jwks", lambda _url: {"keys": [{"kid": "k-test"}]})
     monkeypatch.setattr("app.routers.settings.DataHubClient", FakeDataHubClient)
 
     response = TestClient(app).post("/settings/technical/test")
@@ -523,65 +314,6 @@ def test_data_hub_settings_connection_check_uses_existing_adapter(monkeypatch, t
         "timeout": 5.0,
         "closed": True,
     }
-
-
-def test_auth_exchange_uses_configured_data_hub_api_base_url(monkeypatch):
-    from app import co_auth
-
-    seen = {}
-
-    class FakeResponse:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"access_token": "hub-user-token", "expires_in": 300}
-
-    def fake_post(url, *, json, timeout):
-        seen["url"] = url
-        seen["json"] = json
-        seen["timeout"] = timeout
-        return FakeResponse()
-
-    monkeypatch.setenv("DATA_HUB_BASE_URL", "https://hub.example.test")
-    monkeypatch.setenv("DATA_HUB_API_BASE_URL", "http://hub-api.internal:8754")
-    monkeypatch.setenv("DATA_HUB_REQUEST_TIMEOUT_SECONDS", "4.5")
-    monkeypatch.setattr(co_auth.httpx, "post", fake_post)
-
-    payload = co_auth.exchange_data_hub_sso_code("code-1", redirect_uri="https://co.example.test/auth/callback")
-
-    assert payload["access_token"] == "hub-user-token"
-    assert seen == {
-        "url": "http://hub-api.internal:8754/v1/auth/exchange",
-        "json": {"code": "code-1", "redirect_uri": "https://co.example.test/auth/callback"},
-        "timeout": 4.5,
-    }
-
-
-def test_visible_client_ids_uses_configured_claim_keys_and_admin_roles(monkeypatch):
-    from app.co_auth import DataHubUser, visible_client_ids
-
-    monkeypatch.setenv("DATA_HUB_CLIENT_CLAIM_KEYS", "tenant_ids")
-    user = DataHubUser(
-        user_id="u-test",
-        email="operator@example.test",
-        role="staff",
-        name="Operator",
-        claims={"tenant_ids": ["growatt-vn"]},
-    )
-
-    assert visible_client_ids(user) == {"growatt-vn"}
-
-    monkeypatch.setenv("DATA_HUB_ADMIN_ROLES", "ops-admin")
-    admin = DataHubUser(
-        user_id="u-admin",
-        email="admin@example.test",
-        role="ops-admin",
-        name="Admin",
-        claims={},
-    )
-
-    assert visible_client_ids(admin) is None
 
 
 def test_data_hub_client_uses_bearer_token_and_normalizes_clients():
@@ -1404,98 +1136,8 @@ def test_client_detail_uses_portfolio_service_boundary(monkeypatch):
     assert "Hub Only Client" in response.text
 
 
-def test_bom_page_uses_bom_service_boundary(monkeypatch):
-    from app import main as main_module
-
-    empty_state = {
-        "published_rows": [],
-        "latest_version": {},
-        "versions": [],
-        "uploads": [],
-        "correction_candidates": [],
-        "audit_events": [],
-    }
-
-    class FakePortfolioService:
-        def client(self, client_id: str):
-            assert client_id == "hub-only"
-            return {"id": "hub-only", "name": "Hub Only Client", "code": "hub-only", "tax_code": "", "counts": {}}
-
-        def source_workspace(self, _client: dict):
-            return {
-                "client_config": {"config_version": 1, "config_hash": "cfg", "co_stock": {"lot_policy": "line_level"}, "bcct": {"eligible_import_declaration_types": []}, "allocation_code": {"strategy": "same_as_customs_code"}},
-                "material_catalog": {"module": "material_catalog", **empty_state},
-                "product_catalog": {"module": "product_catalog", **empty_state},
-                "bcct": {"module": "bcct", **empty_state},
-                "co_stock_rows": [],
-            }, "data-hub"
-
-    class FakeBomService:
-        def workspace(self, _client: dict):
-            return {
-                "backend": "data-hub",
-                "read_only": True,
-                "config": {"bom_profile": "data_hub", "default_import_mode": "data_hub", "code_system_mode": "data_hub"},
-                "versions": [
-                    {
-                        "version_id": "dhagg-1",
-                        "version_no": 1,
-                        "version_hash": "hash-aggregate",
-                        "status": "published",
-                        "row_count": 1,
-                        "product_versions": [{"product_code": "TP-1", "product_version_id": "bv-1", "product_version_no": 4, "version_hash": "hash-1", "row_count": 1, "status": "current"}],
-                        "diff_summary": {},
-                        "published_at": "",
-                    }
-                ],
-                "product_versions": [
-                    {
-                        "product_code": "TP-1",
-                        "product_version_id": "bv-1",
-                        "product_version_no": 4,
-                        "version_hash": "hash-1",
-                        "row_count": 1,
-                        "status": "current",
-                        "diff_summary": {},
-                        "source_upload_id": "data-hub",
-                    }
-                ],
-                "product_version_options_by_code": {"TP-1": [{"product_version_id": "bv-1", "product_version_no": 4, "row_count": 1}]},
-                "product_composition": [{"product_code": "TP-1", "product_version_id": "bv-1", "product_version_no": 4, "version_hash": "hash-1", "row_count": 1, "status": "current"}],
-                "uploads": [],
-                "audit": [],
-                "latest_version": {"version_id": "dhagg-1", "version_no": 1, "version_hash": "hash-aggregate", "status": "published", "row_count": 1, "product_versions": [{"product_code": "TP-1"}], "diff_summary": {}, "published_at": ""},
-                "latest_rows": [{"product_code": "TP-1", "bom_code": "TP-1", "product_version_no": 4, "material_code": "NVL-1", "material_name": "Input", "qty_per": 2, "uom": "kg", "scrap_rate": "", "source": "technical_flattened", "row_class": "flattened"}],
-                "profile_options": [],
-                "upload_mode_options": [],
-                "upload_scope_options": [],
-                "code_system_options": [],
-                "variant_conflicts": [],
-            }
-
-    _fake_portfolio = FakePortfolioService()
-    monkeypatch.setattr(main_module, "portfolio_service", _fake_portfolio)
-    monkeypatch.setattr("app.web.co_case_context.portfolio_service", _fake_portfolio)
-    monkeypatch.setattr("app.web.client_context.portfolio_service", _fake_portfolio)
-    monkeypatch.setattr("app.routers.pages.portfolio_service", _fake_portfolio)
-    _fake_bom = FakeBomService()
-    monkeypatch.setattr(main_module, "bom_service", _fake_bom)
-    monkeypatch.setattr("app.web.co_case_context.bom_service", _fake_bom)
-    monkeypatch.setattr("app.web.client_context.bom_service", _fake_bom)
-
-    response = TestClient(app).get("/clients/hub-only/bom")
-
-    assert response.status_code == 200
-    # DH-mode BOM page is now a summary card + link-out to Data Hub. CO no
-    # longer re-renders the full BOM table — operators bounce to Data Hub
-    # for inspection, which is the canonical surface.
-    assert "BOM đang lấy từ Data Hub" in response.text
-    assert "Mở BOM trên Data Hub" in response.text
-    assert "Upload và so sánh" not in response.text
-    assert "NVL-1" not in response.text
-
-
-def test_clients_page_filters_by_jwt_client_claims(monkeypatch):
+def test_clients_page_shows_only_clients_the_user_may_view(monkeypatch):
+    """Scoping comes from the role model now, not a whitelist inside a token."""
     from app import co_auth
     from app import main as main_module
 
@@ -1506,24 +1148,15 @@ def test_clients_page_filters_by_jwt_client_claims(monkeypatch):
                 {"id": "hidden", "name": "Hidden Client", "code": "hidden", "tax_code": "", "contact": "", "counts": {}},
             ]
 
-    private_key = ed25519.Ed25519PrivateKey.generate()
-    token = _token(private_key, extra_claims={"client_ids": ["hub-only"]})
-    monkeypatch.setenv("CO_AUTH_REQUIRED", "1")
-    monkeypatch.setenv("DATA_HUB_ISSUER_URL", "https://hub.test")
+    _sign_in(monkeypatch, "staff")
     _fake_portfolio = FakePortfolioService()
     monkeypatch.setattr(main_module, "portfolio_service", _fake_portfolio)
     monkeypatch.setattr("app.web.co_case_context.portfolio_service", _fake_portfolio)
     monkeypatch.setattr("app.web.client_context.portfolio_service", _fake_portfolio)
     monkeypatch.setattr("app.routers.pages.portfolio_service", _fake_portfolio)
-    monkeypatch.setattr(
-        co_auth,
-        "fetch_data_hub_jwks",
-        lambda _url: {"keys": [_jwk_from_public_key(private_key.public_key())]},
-    )
+    monkeypatch.setattr(co_auth, "visible_client_ids", lambda user: {"hub-only"})
 
-    client = TestClient(app)
-    client.cookies.set(co_auth.CO_SESSION_COOKIE, token)
-    response = client.get("/clients")
+    response = TestClient(app).get("/clients")
 
     assert response.status_code == 200
     assert "Hub Only Client" in response.text
@@ -1540,28 +1173,6 @@ def test_data_hub_mode_blocks_local_shared_source_uploads(monkeypatch):
 
     assert response.status_code == 409
     assert "Shared source data is read-only in CO" in response.text
-
-
-def test_data_hub_mode_allows_customs_fx_refresh_until_hub_contract_exists(monkeypatch):
-    monkeypatch.setenv("DATA_HUB_ENABLED", "1")
-
-    calls = []
-
-    def refresh_stub(**kwargs):
-        calls.append(kwargs)
-        return {
-            "fetched_row_count": 2,
-            "saved_row_count": 2,
-            "latest_effective_date": "2026-04-27",
-        }
-
-    monkeypatch.setattr("app.routers.customs_fx.refresh_customs_exchange_rates", refresh_stub)
-
-    response = TestClient(app).post("/customs-exchange-rates/refresh")
-
-    assert response.status_code == 200
-    assert calls == [{"client_id": "global"}]
-    assert "Đã cập nhật 2 dòng tỷ giá hải quan" in response.text
 
 
 def test_data_hub_mode_blocks_local_bom_writes(monkeypatch):
@@ -1683,3 +1294,116 @@ def test_data_hub_mode_blocks_shared_source_templates(monkeypatch):
     ]
 
     assert [response.status_code for response in responses] == [409, 409, 409]
+
+
+def test_data_hub_mode_allows_customs_fx_refresh_until_hub_contract_exists(monkeypatch):
+    monkeypatch.setenv("DATA_HUB_ENABLED", "1")
+
+    calls = []
+
+    def refresh_stub(**kwargs):
+        calls.append(kwargs)
+        return {
+            "fetched_row_count": 2,
+            "saved_row_count": 2,
+            "latest_effective_date": "2026-04-27",
+        }
+
+    monkeypatch.setattr("app.routers.customs_fx.refresh_customs_exchange_rates", refresh_stub)
+
+    response = TestClient(app).post("/customs-exchange-rates/refresh")
+
+    assert response.status_code == 200
+    assert calls == [{"client_id": "global"}]
+    assert "Đã cập nhật 2 dòng tỷ giá hải quan" in response.text
+
+
+def test_bom_page_uses_bom_service_boundary(monkeypatch):
+    from app import main as main_module
+
+    empty_state = {
+        "published_rows": [],
+        "latest_version": {},
+        "versions": [],
+        "uploads": [],
+        "correction_candidates": [],
+        "audit_events": [],
+    }
+
+    class FakePortfolioService:
+        def client(self, client_id: str):
+            assert client_id == "hub-only"
+            return {"id": "hub-only", "name": "Hub Only Client", "code": "hub-only", "tax_code": "", "counts": {}}
+
+        def source_workspace(self, _client: dict):
+            return {
+                "client_config": {"config_version": 1, "config_hash": "cfg", "co_stock": {"lot_policy": "line_level"}, "bcct": {"eligible_import_declaration_types": []}, "allocation_code": {"strategy": "same_as_customs_code"}},
+                "material_catalog": {"module": "material_catalog", **empty_state},
+                "product_catalog": {"module": "product_catalog", **empty_state},
+                "bcct": {"module": "bcct", **empty_state},
+                "co_stock_rows": [],
+            }, "data-hub"
+
+    class FakeBomService:
+        def workspace(self, _client: dict):
+            return {
+                "backend": "data-hub",
+                "read_only": True,
+                "config": {"bom_profile": "data_hub", "default_import_mode": "data_hub", "code_system_mode": "data_hub"},
+                "versions": [
+                    {
+                        "version_id": "dhagg-1",
+                        "version_no": 1,
+                        "version_hash": "hash-aggregate",
+                        "status": "published",
+                        "row_count": 1,
+                        "product_versions": [{"product_code": "TP-1", "product_version_id": "bv-1", "product_version_no": 4, "version_hash": "hash-1", "row_count": 1, "status": "current"}],
+                        "diff_summary": {},
+                        "published_at": "",
+                    }
+                ],
+                "product_versions": [
+                    {
+                        "product_code": "TP-1",
+                        "product_version_id": "bv-1",
+                        "product_version_no": 4,
+                        "version_hash": "hash-1",
+                        "row_count": 1,
+                        "status": "current",
+                        "diff_summary": {},
+                        "source_upload_id": "data-hub",
+                    }
+                ],
+                "product_version_options_by_code": {"TP-1": [{"product_version_id": "bv-1", "product_version_no": 4, "row_count": 1}]},
+                "product_composition": [{"product_code": "TP-1", "product_version_id": "bv-1", "product_version_no": 4, "version_hash": "hash-1", "row_count": 1, "status": "current"}],
+                "uploads": [],
+                "audit": [],
+                "latest_version": {"version_id": "dhagg-1", "version_no": 1, "version_hash": "hash-aggregate", "status": "published", "row_count": 1, "product_versions": [{"product_code": "TP-1"}], "diff_summary": {}, "published_at": ""},
+                "latest_rows": [{"product_code": "TP-1", "bom_code": "TP-1", "product_version_no": 4, "material_code": "NVL-1", "material_name": "Input", "qty_per": 2, "uom": "kg", "scrap_rate": "", "source": "technical_flattened", "row_class": "flattened"}],
+                "profile_options": [],
+                "upload_mode_options": [],
+                "upload_scope_options": [],
+                "code_system_options": [],
+                "variant_conflicts": [],
+            }
+
+    _fake_portfolio = FakePortfolioService()
+    monkeypatch.setattr(main_module, "portfolio_service", _fake_portfolio)
+    monkeypatch.setattr("app.web.co_case_context.portfolio_service", _fake_portfolio)
+    monkeypatch.setattr("app.web.client_context.portfolio_service", _fake_portfolio)
+    monkeypatch.setattr("app.routers.pages.portfolio_service", _fake_portfolio)
+    _fake_bom = FakeBomService()
+    monkeypatch.setattr(main_module, "bom_service", _fake_bom)
+    monkeypatch.setattr("app.web.co_case_context.bom_service", _fake_bom)
+    monkeypatch.setattr("app.web.client_context.bom_service", _fake_bom)
+
+    response = TestClient(app).get("/clients/hub-only/bom")
+
+    assert response.status_code == 200
+    # DH-mode BOM page is now a summary card + link-out to Data Hub. CO no
+    # longer re-renders the full BOM table — operators bounce to Data Hub
+    # for inspection, which is the canonical surface.
+    assert "BOM đang lấy từ Data Hub" in response.text
+    assert "Mở BOM trên Data Hub" in response.text
+    assert "Upload và so sánh" not in response.text
+    assert "NVL-1" not in response.text

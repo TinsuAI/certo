@@ -5,7 +5,15 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA_HUB_ADAPTER = Path("app/data_hub_client.py")
+# The adapter is two files while the boundary is being dismantled: the HTTP
+# client, and the in-process client that is replacing it endpoint by endpoint.
+# The rule this guards is unchanged and still worth having — no router or
+# service may reach for a raw /v1/hub path of its own. Both entries go away
+# with the last extracted endpoint.
+DATA_HUB_ADAPTERS = {
+    Path("app/data_hub_client.py"),
+    Path("app/data_hub_inprocess.py"),
+}
 APPROVED_DATA_HUB_ENDPOINTS = {
     "/v1/hub/dncxs",
     "/v1/hub/dncxs/{client_id}",
@@ -40,13 +48,13 @@ def test_raw_data_hub_api_calls_stay_in_adapter():
     violations: list[str] = []
     for path in sorted((ROOT / "app").rglob("*.py")):
         rel = path.relative_to(ROOT)
-        if rel == DATA_HUB_ADAPTER:
+        if rel in DATA_HUB_ADAPTERS:
             continue
         if "/v1/hub" in path.read_text(encoding="utf-8"):
             violations.append(str(rel))
 
     assert violations == [], (
-        "Data Hub API calls must go through app/data_hub_client.py. "
+        "Data Hub API calls must go through the adapter, not a router. "
         "If CO needs a new endpoint, create .ai/api-requests/YYYY-MM-DD-<slug>.md "
         "from .ai/templates/data-hub-api-request.md and wait for Data Hub contract approval. "
         f"Violations: {violations}"
@@ -54,7 +62,7 @@ def test_raw_data_hub_api_calls_stay_in_adapter():
 
 
 def test_data_hub_adapter_only_uses_approved_endpoints():
-    adapter = (ROOT / DATA_HUB_ADAPTER).read_text(encoding="utf-8")
+    adapter = "\n".join((ROOT / a).read_text(encoding="utf-8") for a in sorted(DATA_HUB_ADAPTERS))
     endpoints = _endpoint_literals(adapter)
 
     assert endpoints <= APPROVED_DATA_HUB_ENDPOINTS, (

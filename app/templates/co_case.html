@@ -532,9 +532,10 @@
     <div>
       <span class="eyebrow">Hồ sơ theo lô hàng</span>
       <h2>{{ case.case_code }}</h2>
-      {# Shipment reference lives on the facts strip below; printing it here too
-         made the same invoice number appear twice within 150px. #}
-      <p class="meta">{{ case.title }} · {{ case.destination_market }} · B/L: {{ case.shipment.bill_of_lading_no or 'n/a' }}</p>
+      {# The card is the dossier's identity and shows on every step, so the
+         shipment reference belongs here. The facts strip below carries computed
+         figures instead, and no longer repeats it. #}
+      <p class="meta">{{ case.title }} · {{ case.destination_market }} · {{ case.shipment_reference_label }} · B/L: {{ case.shipment.bill_of_lading_no or 'n/a' }}</p>
     </div>
     <button type="button" class="btn-secondary" data-picker-open
             data-picker-url="/clients/{{ client.id }}/co-case-picker?current={{ case.persisted_case_id }}"
@@ -904,7 +905,6 @@
   {% set _cfg_uniform = (_cfg_texts | unique | list | length) == 1 %}
   <div class="origin-page-bar">
     <div class="origin-page-strip">
-      <span><em>Tham chiếu</em> <strong class="mono">{{ case.shipment_reference_label }}</strong></span>
       <span><em>{{ 'Demo' if origin_demo_active else 'BCCT' }}</em> <strong>{{ case.products|length ~ ' TP mẫu' if origin_demo_active else invoice_matches|length ~ ' dòng' }}</strong></span>
       {# When every sheet shares one effective configuration it is a fact about the
          lô hàng, so it belongs on this line rather than repeated per row. #}

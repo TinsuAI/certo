@@ -129,14 +129,9 @@ def data_hub_override_payload(form, current_overrides: dict[str, str]) -> dict[s
 
 def data_hub_link_check() -> dict:
     settings = data_hub_link_settings()
+    # No JWKS probe: sign-in is a server session now, so there is no token
+    # signature for this app to verify and no key set to fetch.
     checks: list[dict] = []
-    try:
-        jwks = co_auth.fetch_data_hub_jwks(settings.jwks_url)
-        key_count = len(jwks.get("keys", [])) if isinstance(jwks, dict) else 0
-        checks.append({"name": "JWKS", "status": "success", "detail": f"{key_count} signing keys"})
-    except Exception as exc:
-        checks.append({"name": "JWKS", "status": "error", "detail": str(exc)})
-
     if not settings.source_enabled:
         checks.append({"name": "Source API", "status": "warning", "detail": "DATA_HUB_ENABLED đang tắt"})
     else:

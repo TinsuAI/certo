@@ -260,10 +260,11 @@
       <a class="side-a {{ 'on' if nav_active == 'bcct' }}" href="/clients/{{ nav_client.id }}/bcct">
         BCCT{% if nav_counts.get('bcct') %}<span class="ct">{{ nav_counts['bcct'] }}</span>{% endif %}
       </a>
-      {# Source-data management. These screens came from Data Hub and still live
-         under /hub, but they render in this shell, so from the operator's side
-         they are simply the next entry in the same sidebar. #}
-      <a class="side-a {{ 'on' if nav_active == 'source-manage' }}" href="/hub/clients/{{ nav_client.id }}/bcct">Quản lý dữ liệu nguồn</a>
+      {# Data Hub's management screens for the same source data — upload, parse,
+         map, approve. They render in this shell, so they are simply the next
+         entry in the sidebar. CO's own pages above stay: they are the UI for
+         the local file-store backend, which is still a supported mode. #}
+      <a class="side-a {{ 'on' if nav_active == 'source-manage' }}" href="/hub/clients/{{ nav_client.id }}/catalog">Quản lý dữ liệu nguồn</a>
       <a class="side-a {{ 'on' if nav_active == 'co-stock' }}" href="/clients/{{ nav_client.id }}/co-stock">
         Tồn CO{% if nav_counts.get('co_stock') %}<span class="ct">{{ nav_counts['co_stock'] }}</span>{% endif %}
       </a>
