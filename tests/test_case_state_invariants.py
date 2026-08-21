@@ -49,9 +49,11 @@ KNOWN GAPS — this file is a diagnostic tool, not yet a gate:
    `persisted_case_id` present, HTTP 200), so the difference is in the world, not
    the request. Until that is explained the harness cannot be trusted to catch
    the defect it was written for.
-2. The world is not isolated between runs: conftest isolates the DB schema in
-   DB-mode only, and file-mode source data persists in `data/`. Re-running may
-   accumulate uploads.
+2. CLOSED 2026-08-21. The world used to leak between runs: conftest isolated
+   the DB schema in DB-mode only, so the BOM/BCCT uploads below landed in the
+   live `growatt` store under `data/` and accumulated. `isolate_file_store`
+   now mirrors every file-mode root into `temp/pytest-store-<worker>`, so this
+   module's uploads are thrown away with the mirror at session end.
 """
 from __future__ import annotations
 
@@ -69,6 +71,8 @@ from openpyxl import Workbook, load_workbook
 
 from app.main import app
 
+# Reads the real growatt corpus; the uploads below go to the hardlink mirror
+# conftest points the store roots at, never to the live store.
 CLIENT = "growatt"
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 INVOICE = "INV-INVARIANT"
