@@ -3,8 +3,9 @@
 Date: 2026-08-21. Plan and decisions: `.ai/reference/2026-08-21-consolidation-assessment.md`
 and the 2026-08-21 entry in `.ai/DECISIONS.md` (both carried over from `barry-CO-main`).
 
-Phase 0 scope was deliberately narrow: **one repo, one database, both suites green, both halves
-booting on real data.** No adapter rewiring, no auth work, no UI work. CO still calls the Data
+Phase 0 scope was deliberately narrow: **one repo, one database, both suites at pre-merge
+parity, both halves booting on real data.** "Parity", not "green" — the Data Hub suite
+carries 4 pre-existing failures that the merge neither caused nor fixed (see below). No adapter rewiring, no auth work, no UI work. CO still calls the Data
 Hub half over HTTP exactly as before — that swap is phase 1.
 
 ## Result
@@ -13,6 +14,8 @@ Hub half over HTTP exactly as before — that swap is phase 1.
 |---|---|---|
 | CO suite | 1181 passed / 21 skipped | **1181 passed / 21 skipped / 0 failed** |
 | Data Hub suite (fresh DB) | 4 failed / 1685 passed / 18 skipped | **4 failed / 1684 passed / 19 skipped** |
+| Both suites, one bare `pytest` | n/a — impossible | **4 failed / 2866 passed / 39 skipped** |
+| `npm test` | 57 passed | **57 passed / 0 failed** |
 | Databases | `barry_co` + `data_hub` | **`co_merged`** (schemas `co` + `hub`) |
 | Venvs | two | **one** |
 | Git history | 534 + 506 commits | **1041 commits, both preserved** |
@@ -165,3 +168,26 @@ Diagnostic scripts touching a store must set that store's root env var before ru
   describe two services. Phase 6.
 - `hub/AGENTS.md`, `hub/README.md`, `hub/CHANGELOG.md` and `hub/.github/` are carried as-is.
   They document Data Hub as a standalone service and will be wrong until phases 1–3 land.
+
+## Addendum — two problems only a combined run could show
+
+Running the suites separately hid both of these. They were found by running one bare `pytest`
+at the repo root, which is the documented project command.
+
+**1. `sys.modules['tests']` poisoned by colliding basenames.** Two CO tests failed with
+`ModuleNotFoundError: No module named 'tests.test_co_demo'`. CO's `tests/` had no `__init__.py`
+(namespace package) while `hub/tests/` has one, and four basenames exist in both trees —
+`conftest.py`, `test_app_version.py`, `test_changelog_parser.py`, `test_whats_new_page.py`.
+Combined collection left `sys.modules['tests']` holding `None`, Python's failed-import sentinel,
+so every later `from tests.X import Y` raised. Fixed by adding `tests/__init__.py`, giving the
+two trees distinct dotted names (`tests.test_app_version` vs `hub.tests.test_app_version`).
+Removing `hub/tests/__init__.py` instead would have produced import-file-mismatch errors on
+those same four basenames.
+
+**2. A bare `pytest` wrote into the live `data_hub` database.** `testpaths` now includes
+`hub/tests`, and Data Hub's `connect()` defaults to `postgresql:///data_hub` — the live local dev
+database. Its conftest applies migrations, seeds demo clients, resets the admin password and
+deletes clients matching `-[0-9a-f]{8}$`. Documenting the hazard was not enough. `hub/tests/conftest.py`
+now calls `os.environ.setdefault("DATA_HUB_DATABASE_URL", …co_test)` before the first `connect()`.
+CI sets the variable explicitly, so it is unaffected. Verified by recording
+`select count(*) from hub.clients` on the live database before and after a full bare run: 7 → 7.
