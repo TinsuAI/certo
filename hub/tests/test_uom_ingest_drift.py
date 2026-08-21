@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.database import connect
+from hub.app.database import connect
 
 
 CLIENT = "track_c_test"
@@ -88,13 +88,13 @@ def setup():
 
 
 def test_helper_module_importable():
-    from app.stores.uom_drift import compute_uom_drifts
+    from hub.app.stores.uom_drift import compute_uom_drifts
     assert callable(compute_uom_drifts)
 
 
 def test_no_drift_returns_empty_list():
     """Parsed row UoM matches catalog canonical → no drift entry."""
-    from app.stores.uom_drift import compute_uom_drifts
+    from hub.app.stores.uom_drift import compute_uom_drifts
     rows = [{"material_code": "MASS_KG", "uom": "kg"}]
     drifts = compute_uom_drifts(CLIENT, rows)
     assert drifts == [], f"identical UoM should produce no drift. Got: {drifts}"
@@ -103,7 +103,7 @@ def test_no_drift_returns_empty_list():
 def test_alias_synonym_is_info_alias_severity():
     """PIECE vs pcs (same canonical via aliases) → severity info_alias.
     Surfaces transparency but does not gate ingest."""
-    from app.stores.uom_drift import compute_uom_drifts
+    from hub.app.stores.uom_drift import compute_uom_drifts
     rows = [{"material_code": "ALIAS_PIECE", "uom": "pcs"}]
     drifts = compute_uom_drifts(CLIENT, rows)
     if not drifts:
@@ -116,7 +116,7 @@ def test_alias_synonym_is_info_alias_severity():
 def test_same_family_different_canonical_is_info_family():
     """gam vs kg — both family 'mass' but different canonical → info_family.
     Flatten engine will convert deterministically; no gate needed."""
-    from app.stores.uom_drift import compute_uom_drifts
+    from hub.app.stores.uom_drift import compute_uom_drifts
     rows = [{"material_code": "MASS_KG", "uom": "g"}]
     drifts = compute_uom_drifts(CLIENT, rows)
     assert len(drifts) == 1, f"expected 1 drift, got {drifts}"
@@ -133,7 +133,7 @@ def test_same_family_different_canonical_is_info_family():
 def test_cross_family_is_warn_severity():
     """File says 'kg' (mass) for material whose catalog says 'pcs'
     (count) → severity warn_cross_family. Gates upload until ack."""
-    from app.stores.uom_drift import compute_uom_drifts
+    from hub.app.stores.uom_drift import compute_uom_drifts
     rows = [{"material_code": "COUNT_PCS", "uom": "kg"}]
     drifts = compute_uom_drifts(CLIENT, rows)
     assert len(drifts) == 1
@@ -148,7 +148,7 @@ def test_cross_family_is_warn_severity():
 def test_unknown_alias_either_side_is_info_unknown():
     """One or both sides has an alias not in uom_aliases → severity
     info_unknown. Helps staff add missing aliases."""
-    from app.stores.uom_drift import compute_uom_drifts
+    from hub.app.stores.uom_drift import compute_uom_drifts
     rows = [{"material_code": "MASS_KG", "uom": "zzz_unknown_alias"}]
     drifts = compute_uom_drifts(CLIENT, rows)
     assert len(drifts) == 1
@@ -158,7 +158,7 @@ def test_unknown_alias_either_side_is_info_unknown():
 def test_no_catalog_uom_no_drift():
     """Material exists in catalog but has no UoM declared → can't drift
     against catalog."""
-    from app.stores.uom_drift import compute_uom_drifts
+    from hub.app.stores.uom_drift import compute_uom_drifts
     rows = [{"material_code": "NO_CATALOG_UOM", "uom": "kg"}]
     drifts = compute_uom_drifts(CLIENT, rows)
     # Should not warn (no catalog reference to disagree with).
@@ -172,7 +172,7 @@ def test_material_not_in_catalog_at_all_no_drift():
     """Code not in materials table → no drift (also not flagged as
     info_unknown — that's about UoM aliases, not catalog membership).
     Helper gracefully skips."""
-    from app.stores.uom_drift import compute_uom_drifts
+    from hub.app.stores.uom_drift import compute_uom_drifts
     rows = [{"material_code": "TOTALLY_UNSEEN_CODE", "uom": "kg"}]
     drifts = compute_uom_drifts(CLIENT, rows)
     assert drifts == []
@@ -181,7 +181,7 @@ def test_material_not_in_catalog_at_all_no_drift():
 def test_drift_against_bcct_history():
     """Catalog might be missing UoM, but BCCT historical rows have one.
     Helper falls back to most-common BCCT.unit when catalog lacks UoM."""
-    from app.stores.uom_drift import compute_uom_drifts
+    from hub.app.stores.uom_drift import compute_uom_drifts
     # Add bcct rows with UoM 'kg' for NO_CATALOG_UOM.
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
@@ -206,7 +206,7 @@ def test_drift_against_bcct_history():
 def test_dedupes_repeated_rows():
     """If a single material appears multiple times in the upload with
     same UoM, helper emits ONE drift entry."""
-    from app.stores.uom_drift import compute_uom_drifts
+    from hub.app.stores.uom_drift import compute_uom_drifts
     rows = [
         {"material_code": "COUNT_PCS", "uom": "kg"},
         {"material_code": "COUNT_PCS", "uom": "kg"},
@@ -219,7 +219,7 @@ def test_dedupes_repeated_rows():
 def test_severity_sort_order():
     """When multiple materials drift, helper returns them sorted by
     severity (warn > info_*) so banner UI renders most-critical first."""
-    from app.stores.uom_drift import compute_uom_drifts
+    from hub.app.stores.uom_drift import compute_uom_drifts
     rows = [
         {"material_code": "MASS_KG", "uom": "g"},      # info_family
         {"material_code": "COUNT_PCS", "uom": "kg"},   # warn_cross_family
@@ -233,7 +233,7 @@ def test_severity_sort_order():
 
 
 def test_has_blocking_drift_helper():
-    from app.stores.uom_drift import has_blocking_drift
+    from hub.app.stores.uom_drift import has_blocking_drift
     assert has_blocking_drift([{"severity": "warn_cross_family"}]) is True
     assert has_blocking_drift([{"severity": "info_family"}]) is False
     assert has_blocking_drift([
@@ -251,9 +251,9 @@ def test_has_blocking_drift_helper():
 @pytest.fixture
 def admin_client():
     from fastapi.testclient import TestClient
-    from app.auth.session import (SESSION_COOKIE, create_session,
+    from hub.app.auth.session import (SESSION_COOKIE, create_session,
                                    hash_password)
-    from app.main import app
+    from hub.app.main import app
     user_id = "u_track_c_admin"
     email = "track-c@test.local"
     with connect() as conn, conn.cursor() as cur:

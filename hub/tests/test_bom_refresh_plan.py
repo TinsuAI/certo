@@ -14,7 +14,7 @@ import json
 
 import pytest
 
-from app.database import connect
+from hub.app.database import connect
 
 
 CLIENT = "_plan_refresh_test"
@@ -116,7 +116,7 @@ def setup():
 def test_plan_refresh_tier_b_blocking():
     """Tier-B (count → mass, no override): plan flags row blocking,
     has_blocking=True, no DB writes performed."""
-    from app.stores.bom_staleness import plan_refresh
+    from hub.app.stores.bom_staleness import plan_refresh
 
     raw_id = "ba_plan_raw_b"
     derived_id = "ba_plan_der_b"
@@ -161,7 +161,7 @@ def test_plan_refresh_tier_b_blocking():
 
 def test_plan_refresh_tier_a_unconfirmed_default():
     """Tier-A (count → assembly): factor 1.0 default, status unconfirmed_default."""
-    from app.stores.bom_staleness import plan_refresh
+    from hub.app.stores.bom_staleness import plan_refresh
 
     raw_id = "ba_plan_raw_a"
     derived_id = "ba_plan_der_a"
@@ -185,7 +185,7 @@ def test_plan_refresh_tier_a_unconfirmed_default():
 
 def test_plan_refresh_same_family_ready():
     """Same-family (g → kg): silent convert, status ready, no blocking."""
-    from app.stores.bom_staleness import plan_refresh
+    from hub.app.stores.bom_staleness import plan_refresh
 
     raw_id = "ba_plan_raw_sf"
     derived_id = "ba_plan_der_sf"
@@ -207,13 +207,13 @@ def test_plan_refresh_same_family_ready():
 
 
 def test_plan_refresh_unknown_artifact_raises():
-    from app.stores.bom_staleness import plan_refresh
+    from hub.app.stores.bom_staleness import plan_refresh
     with pytest.raises(LookupError):
         plan_refresh(CLIENT, "ba_does_not_exist")
 
 
 def test_plan_refresh_cross_tenant_raises():
-    from app.stores.bom_staleness import plan_refresh
+    from hub.app.stores.bom_staleness import plan_refresh
     raw_id = "ba_plan_raw_tenant"
     derived_id = "ba_plan_der_tenant"
     with connect() as conn, conn.cursor() as cur:
@@ -230,7 +230,7 @@ def test_plan_refresh_cross_tenant_raises():
 
 def test_plan_refresh_skipped_when_no_raw_ancestor():
     """Derived artifact with no raw ancestor → skipped, no rows."""
-    from app.stores.bom_staleness import plan_refresh
+    from hub.app.stores.bom_staleness import plan_refresh
     derived_id = "ba_plan_der_orphan"
     with connect() as conn, conn.cursor() as cur:
         _insert_derived_stale(cur, derived_id, "TP_NO_RAW",
@@ -247,7 +247,7 @@ def test_plan_refresh_skipped_when_no_raw_ancestor():
 
 def test_commit_refresh_skip_no_state_change_audit_row():
     """skip=True writes bom_audit_events row, leaves artifact untouched."""
-    from app.stores.bom_staleness import commit_refresh
+    from hub.app.stores.bom_staleness import commit_refresh
 
     raw_id = "ba_commit_skip_raw"
     derived_id = "ba_commit_skip_der"
@@ -296,7 +296,7 @@ def test_commit_refresh_edits_persist_factor_then_refreshes():
     """edits=[{material_code, from_uom, to_uom, factor, source}] writes
     client_uom_overrides BEFORE refresh, so the previously-blocking row
     becomes ready and the new artifact mints successfully."""
-    from app.stores.bom_staleness import commit_refresh
+    from hub.app.stores.bom_staleness import commit_refresh
 
     raw_id = "ba_commit_edit_raw"
     derived_id = "ba_commit_edit_der"
@@ -340,7 +340,7 @@ def test_commit_refresh_edits_persist_factor_then_refreshes():
 
 def test_refresh_artifact_delegates_to_commit_refresh():
     """Existing public API stays — same fixture produces same outcome."""
-    from app.stores.bom_staleness import refresh_artifact, commit_refresh
+    from hub.app.stores.bom_staleness import refresh_artifact, commit_refresh
     raw_id = "ba_delegate_raw"
     derived_id = "ba_delegate_der"
     with connect() as conn, conn.cursor() as cur:
@@ -380,8 +380,8 @@ def test_plan_refresh_same_hash_on_already_converted():
     """If commit_refresh would produce the same hash as the existing
     artifact, would_be_hash equals artifact.normalized_hash → caller
     can detect no-op without writing."""
-    from app.stores.bom_staleness import plan_refresh
-    from app.stores.bom import create_artifact, normalized_hash
+    from hub.app.stores.bom_staleness import plan_refresh
+    from hub.app.stores.bom import create_artifact, normalized_hash
 
     raw_id = "ba_plan_raw_nh"
     with connect() as conn, conn.cursor() as cur:

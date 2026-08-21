@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.database import connect
+from hub.app.database import connect
 
 
 CLIENT = "vocab_rename_test"
@@ -98,7 +98,7 @@ def test_bcct_rows_artifact_id_column():
 
 def test_new_artifact_ids_use_ba_prefix():
     """Forward-only: existing bv_* ids untouched, new rows minted ba_*."""
-    from app.stores import bom as bom_store
+    from hub.app.stores import bom as bom_store
     bom_store.create_artifact(
         client_id=CLIENT, product_code="VOCAB_PROD",
         rows=[{"material_code": "MAT_X", "qty_per_unit": 1, "uom": "kg"}],

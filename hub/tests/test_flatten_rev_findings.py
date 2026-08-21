@@ -12,15 +12,15 @@ import openpyxl
 import pytest
 from fastapi.testclient import TestClient
 
-from app.database import connect
-from app.flatten import flatten as flatten_engine
-from app.flatten.types import (
+from hub.app.database import connect
+from hub.app.flatten import flatten as flatten_engine
+from hub.app.flatten.types import (
     CatalogEntry, FlattenContext, ParsedBom,
 )
-from app.main import app
-from app.parsers import bom_adapters
-from app.stores import bom as bom_store
-from app.stores import flatten_decisions as decisions_store
+from hub.app.main import app
+from hub.app.parsers import bom_adapters
+from hub.app.stores import bom as bom_store
+from hub.app.stores import flatten_decisions as decisions_store
 
 
 CLIENT = "rev_findings_client"
@@ -137,8 +137,8 @@ def test_I1_multi_sheet_per_root_rejects_flat_single_root():
     """A simple manual_flat file with 1 TP + 3 NVLs must NOT be claimed
     by multi_sheet_per_root (which would mark every row as do_not_explode
     and bypass catalog/BCCT classification)."""
-    from app.parsers.bom_adapters.multi_sheet_per_root import MultiSheetPerRootAdapter
-    from app.parsers.bom_adapters import BomParseError
+    from hub.app.parsers.bom_adapters.multi_sheet_per_root import MultiSheetPerRootAdapter
+    from hub.app.parsers.bom_adapters import BomParseError
     adapter = MultiSheetPerRootAdapter()
     # 1 TP, 3 leaf rows, no intermediate parents.
     blob = _xlsx([
@@ -154,7 +154,7 @@ def test_I1_multi_sheet_per_root_rejects_flat_single_root():
 def test_I1_multi_sheet_per_root_accepts_genuine_multi_sheet_tree():
     """A workbook with a TP + intermediate BTP (BTP appears as both
     parent AND child) should be accepted."""
-    from app.parsers.bom_adapters.multi_sheet_per_root import MultiSheetPerRootAdapter
+    from hub.app.parsers.bom_adapters.multi_sheet_per_root import MultiSheetPerRootAdapter
     adapter = MultiSheetPerRootAdapter()
     blob = _xlsx([
         ("Mã SP", "Mã NVL", "Định mức", "ĐVT"),
@@ -204,7 +204,7 @@ def test_C1_materialize_rolls_back_on_failure():
     nodes for this run should be persisted. Verifies the single-tx
     refactor: previously each create_artifact had its own connection +
     commit, leaving partial state."""
-    from app.flatten.types import (
+    from hub.app.flatten.types import (
         BomKey, FlattenedRow, FlattenedVersion, FlattenResult,
     )
     from decimal import Decimal as Dec

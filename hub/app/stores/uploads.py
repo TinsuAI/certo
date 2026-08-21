@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import secrets
 
-from app.database import connect
+from hub.app.database import connect
 
 
 def get_upload(upload_id: str, *, client_id: str | None = None) -> dict | None:

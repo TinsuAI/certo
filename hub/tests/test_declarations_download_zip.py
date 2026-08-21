@@ -23,9 +23,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app.database import connect
-from app.main import app
-from app.storage import get_backend
+from hub.app.database import connect
+from hub.app.main import app
+from hub.app.storage import get_backend
 
 
 def _client() -> TestClient:
@@ -83,7 +83,7 @@ def files_root(tmp_path, monkeypatch):
     root.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("DATA_HUB_FILES_ROOT", str(root))
     # Reset module-level cached backend so it re-reads the env var.
-    import app.storage as storage_mod
+    import hub.app.storage as storage_mod
     storage_mod._BACKEND = None
     yield root
     storage_mod._BACKEND = None

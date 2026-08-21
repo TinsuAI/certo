@@ -37,9 +37,9 @@ from pathlib import Path
 
 import pytest
 
-from app.parsers.bcct import parse_bcct_workbook
-from app.parsers.bom import parse_bom_workbook
-from app.parsers.code_mappings import parse_code_mappings_workbook
+from hub.app.parsers.bcct import parse_bcct_workbook
+from hub.app.parsers.bom import parse_bom_workbook
+from hub.app.parsers.code_mappings import parse_code_mappings_workbook
 
 REAL_DIR_ENV = "DATA_HUB_REAL_DATA_DIR"
 real_dir = os.environ.get(REAL_DIR_ENV)

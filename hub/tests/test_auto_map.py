@@ -10,8 +10,8 @@ import io
 
 from openpyxl import Workbook
 
-from app.routes.bcct import BCCT_MAPPING_CFG
-from app.routes._mapping_flow import try_auto_map
+from hub.app.routes.bcct import BCCT_MAPPING_CFG
+from hub.app.routes._mapping_flow import try_auto_map
 
 
 def _xlsx(rows: list[tuple]) -> bytes:

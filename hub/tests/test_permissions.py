@@ -6,9 +6,9 @@ import hashlib
 import pytest
 import psycopg
 
-from app import auth
-from app.auth.session import User
-from app.database import connect
+from hub.app import auth
+from hub.app.auth.session import User
+from hub.app.database import connect
 
 
 PREFIX = "test_perm_"

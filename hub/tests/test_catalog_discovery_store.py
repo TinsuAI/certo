@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.database import connect
-from app.stores.catalog_discovery import (
+from hub.app.database import connect
+from hub.app.stores.catalog_discovery import (
     AlreadyInCatalog,
     accept_code,
     reject_code,

@@ -8,8 +8,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import auth
-from app.stores import client_type_presets, declaration_types
+from hub.app import auth
+from hub.app.stores import client_type_presets, declaration_types
 
 router = APIRouter()
 
@@ -206,8 +206,8 @@ async def uom_view(request: Request, error: str | None = None,
     if not auth.can_manage_users(user):
         raise HTTPException(403, "forbidden")
     from collections import defaultdict
-    from app.stores import uom_standards
-    from app.stores.uom import _TIER_A_FAMILIES
+    from hub.app.stores import uom_standards
+    from hub.app.stores.uom import _TIER_A_FAMILIES
     canonicals = uom_standards.list_canonicals_with_alias_count()
     aliases = uom_standards.list_aliases()
 
@@ -263,7 +263,7 @@ async def uom_canonical_new(
     user = auth.require_user(request)
     if not auth.can_manage_users(user):
         raise HTTPException(403, "forbidden")
-    from app.stores import uom_standards
+    from hub.app.stores import uom_standards
     try:
         uom_standards.create_canonical(
             uom_code=uom_code, family=family, base_factor=base_factor,
@@ -285,7 +285,7 @@ async def uom_canonical_update(
     user = auth.require_user(request)
     if not auth.can_manage_users(user):
         raise HTTPException(403, "forbidden")
-    from app.stores import uom_standards
+    from hub.app.stores import uom_standards
     try:
         uom_standards.update_canonical(
             uom_code=uom_code, family=family, base_factor=base_factor,
@@ -300,7 +300,7 @@ async def uom_canonical_delete(request: Request, uom_code: str):
     user = auth.require_user(request)
     if not auth.can_manage_users(user):
         raise HTTPException(403, "forbidden")
-    from app.stores import uom_standards
+    from hub.app.stores import uom_standards
     try:
         uom_standards.delete_canonical(uom_code)
     except uom_standards.UomStandardsError as exc:
@@ -317,7 +317,7 @@ async def uom_alias_new(
     user = auth.require_user(request)
     if not auth.can_manage_users(user):
         raise HTTPException(403, "forbidden")
-    from app.stores import uom_standards
+    from hub.app.stores import uom_standards
     try:
         uom_standards.create_alias(alias_norm=alias_norm, uom_code=uom_code)
     except uom_standards.UomStandardsError as exc:
@@ -332,7 +332,7 @@ async def uom_alias_delete(request: Request, alias_norm: str):
     user = auth.require_user(request)
     if not auth.can_manage_users(user):
         raise HTTPException(403, "forbidden")
-    from app.stores import uom_standards
+    from hub.app.stores import uom_standards
     try:
         uom_standards.delete_alias(alias_norm)
     except uom_standards.UomStandardsError as exc:

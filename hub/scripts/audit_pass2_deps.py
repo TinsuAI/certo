@@ -18,7 +18,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-from app.parsers._excel import load_xlsx, header_row, normalize_header
+from hub.app.parsers._excel import load_xlsx, header_row, normalize_header
 
 # ─── Instrumented index_headers ────────────────────────────────────────────
 
@@ -78,11 +78,11 @@ def index_headers_audited(headers, aliases):
 
 # ─── Monkey-patch the parsers to use audited index_headers ─────────────────
 
-import app.parsers._excel as _excel_mod
-import app.parsers.bcct as _bcct_mod
-import app.parsers.bom as _bom_mod
-import app.parsers.code_mappings as _cm_mod
-import app.parsers.materials as _mat_mod
+import hub.app.parsers._excel as _excel_mod
+import hub.app.parsers.bcct as _bcct_mod
+import hub.app.parsers.bom as _bom_mod
+import hub.app.parsers.code_mappings as _cm_mod
+import hub.app.parsers.materials as _mat_mod
 
 _excel_mod.index_headers = index_headers_audited
 _bcct_mod.index_headers = index_headers_audited
@@ -90,15 +90,15 @@ _bom_mod.index_headers = index_headers_audited
 _cm_mod.index_headers = index_headers_audited
 _mat_mod.index_headers = index_headers_audited
 
-from app.parsers.bcct import parse_bcct_workbook
-from app.parsers.bom import parse_bom_workbook, BomParseError
-from app.parsers.code_mappings import parse_code_mappings_workbook, CodeMappingsParseError
-from app.parsers.materials import parse_materials_workbook, MaterialsParseError
+from hub.app.parsers.bcct import parse_bcct_workbook
+from hub.app.parsers.bom import parse_bom_workbook, BomParseError
+from hub.app.parsers.code_mappings import parse_code_mappings_workbook, CodeMappingsParseError
+from hub.app.parsers.materials import parse_materials_workbook, MaterialsParseError
 
 
 # ─── Fixture corpus ────────────────────────────────────────────────────────
 
-FIXTURE_ROOT = Path("tests/fixtures")
+FIXTURE_ROOT = Path(__file__).resolve().parent.parent / "tests" / "fixtures"
 REAL_ROOT = Path(os.environ.get("DATA_HUB_REAL_DATA_DIR", "/tmp/dh_real_data"))
 
 CASES: list[tuple[str, str, callable, dict]] = []

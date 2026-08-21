@@ -14,8 +14,8 @@ from pathlib import Path
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import auth, embedding, jobs
-from app.routes.clients import get_client
+from hub.app import auth, embedding, jobs
+from hub.app.routes.clients import get_client
 
 
 router = APIRouter()
@@ -80,7 +80,7 @@ def _spawn_job(
     )
     log_path = _LOG_DIR / f"job_{job_id}.log"
     # Update the row with the now-known log_path.
-    from app.database import connect
+    from hub.app.database import connect
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "update hub.background_jobs set log_path=%s where id=%s",

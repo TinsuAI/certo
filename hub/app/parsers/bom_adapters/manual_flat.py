@@ -14,10 +14,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from app.parsers._excel import (
+from hub.app.parsers._excel import (
     cell_str, header_row, index_headers, load_xlsx,
 )
-from app.parsers.bom_adapters._common import (
+from hub.app.parsers.bom_adapters._common import (
     COMMON_ALIASES, cell_num, cols_from_override,
 )
 
@@ -80,7 +80,7 @@ def _parse_core(
     header_row_override: int | None,
     extra_required_fields: list[str] | None,
 ) -> tuple[dict[str, list[dict]], list[dict]]:
-    from app.parsers.bom_adapters import BomParseError
+    from hub.app.parsers.bom_adapters import BomParseError
     try:
         wb = load_xlsx(blob)
     except Exception as e:

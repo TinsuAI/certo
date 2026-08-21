@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.flatten.classify import classify_component
-from app.flatten.types import (
+from hub.app.flatten.classify import classify_component
+from hub.app.flatten.types import (
     BomKey, CatalogEntry, FlattenContext, ParsedRow,
 )
 

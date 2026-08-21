@@ -7,7 +7,7 @@ from __future__ import annotations
 import unicodedata
 from decimal import Decimal
 
-from app.flatten.types import ConversionMatch, UomLookup
+from hub.app.flatten.types import ConversionMatch, UomLookup
 
 
 def normalize_uom_alias(s: str | None) -> str:

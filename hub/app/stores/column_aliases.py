@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import copy
 
-from app.database import connect
+from hub.app.database import connect
 
 _MODULES = ("bcct", "catalog", "bqd", "bom")
 
@@ -17,17 +17,17 @@ _MODULES = ("bcct", "catalog", "bqd", "bom")
 def _code_aliases(module: str) -> dict[str, list[str]]:
     """The code-level ALIASES dict for a module (the default layer)."""
     if module == "catalog":
-        from app.parsers.materials import ALIASES
+        from hub.app.parsers.materials import ALIASES
         return ALIASES
     if module == "bqd":
-        from app.parsers.code_mappings import ALIASES
+        from hub.app.parsers.code_mappings import ALIASES
         return ALIASES
     if module == "bcct":
-        from app.parsers.bcct import ALIASES
+        from hub.app.parsers.bcct import ALIASES
         return ALIASES
     if module == "bom":
         try:
-            from app.parsers.bom_adapters.manual_flat import ALIASES  # type: ignore
+            from hub.app.parsers.bom_adapters.manual_flat import ALIASES  # type: ignore
             return ALIASES
         except Exception:  # noqa: BLE001
             return {}

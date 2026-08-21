@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 
-from app.database import connect
+from hub.app.database import connect
 
 
 def leaf_codes_in_flattened_bom(client_id: str) -> set[str]:

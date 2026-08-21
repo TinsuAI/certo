@@ -10,9 +10,9 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app.auth.session import SESSION_COOKIE, create_session, hash_password
-from app.database import connect
-from app.main import app
+from hub.app.auth.session import SESSION_COOKIE, create_session, hash_password
+from hub.app.database import connect
+from hub.app.main import app
 
 
 CLIENT = "_test_nb_codes"
@@ -48,7 +48,7 @@ def setup():
             " 'goods_name', 1, 'capture', 'next_rule', true, 'test')",
             (CLIENT, PAREN_PATTERN),
         )
-    from app.parsers.client_parser_rules import clear_rules_cache
+    from hub.app.parsers.client_parser_rules import clear_rules_cache
     clear_rules_cache()
     yield
     with connect() as conn, conn.cursor() as cur:
@@ -94,7 +94,7 @@ def test_rebuild_extracts_nb_codes():
     _seed_bcct("TX1", "1", "DAUNOI", "DAUNOI#&Đầu nối (019.X)")
     _seed_bcct("TX1", "2", ".", "forklift part (019.M)")
     _seed_bcct("TX2", "1", "DOV", "no parens here")
-    from app.stores.bcct_nb_codes import rebuild_for_client
+    from hub.app.stores.bcct_nb_codes import rebuild_for_client
     n = rebuild_for_client(CLIENT)
     assert n == 2
     assert _nb_rows() == [("TX1", "1", "019.X"), ("TX1", "2", "019.M")]
@@ -108,11 +108,11 @@ def test_rebuild_parity_with_parser(setup):
     _seed_bcct("TX1", "2", "PV01.Z", "unified (PV01.Z)")   # NB==HQ: self-link
     _seed_bcct("TX2", "1", "", "bare (019.W)")
     _seed_bcct("TX2", "2", "DOV", "nothing extractable")
-    from app.stores.bcct_nb_codes import rebuild_for_client
+    from hub.app.stores.bcct_nb_codes import rebuild_for_client
     rebuild_for_client(CLIENT)
 
-    from app.parsers.code_extraction import candidates_from_bcct_row
-    from app.parsers.client_parser_rules import load_rules
+    from hub.app.parsers.code_extraction import candidates_from_bcct_row
+    from hub.app.parsers.client_parser_rules import load_rules
     rules = load_rules(client_id=CLIENT, output_field="internal_code")
     expected = set()
     with connect() as conn, conn.cursor() as cur:
@@ -138,17 +138,17 @@ def test_rebuild_no_rules_client_is_empty():
         cur.execute(
             "delete from hub.client_parser_rules where client_id=%s", (CLIENT,),
         )
-    from app.parsers.client_parser_rules import clear_rules_cache
+    from hub.app.parsers.client_parser_rules import clear_rules_cache
     clear_rules_cache()
     _seed_bcct("TX1", "1", "1000527370", "1000527370#&Tấm đỡ (1000527371)")
-    from app.stores.bcct_nb_codes import rebuild_for_client
+    from hub.app.stores.bcct_nb_codes import rebuild_for_client
     assert rebuild_for_client(CLIENT) == 0
     assert _nb_rows() == []
 
 
 def test_rebuild_is_delete_and_rebuild():
     _seed_bcct("TX1", "1", "DAUNOI", "x (019.X)")
-    from app.stores.bcct_nb_codes import rebuild_for_client
+    from hub.app.stores.bcct_nb_codes import rebuild_for_client
     rebuild_for_client(CLIENT)
     with connect() as conn, conn.cursor() as cur:
         cur.execute("delete from hub.bcct_rows where client_id=%s", (CLIENT,))
@@ -188,7 +188,7 @@ def test_view_sees_paren_only_nb_code():
     _seed_bcct("TX2", "1", "LK-DAY2", "b (019.X)", decl="D2",
                direction="export", decl_type="E62")
     _add_material("019.X")
-    from app.stores.bcct_nb_codes import rebuild_for_client
+    from hub.app.stores.bcct_nb_codes import rebuild_for_client
     rebuild_for_client(CLIENT)
     row = _roles_row("019.X")
     assert row is not None
@@ -213,7 +213,7 @@ def test_view_no_double_count_when_code_is_both():
     counts each declaration once."""
     _seed_bcct("TX1", "1", "PV01.Z", "unified (PV01.Z)", decl="D1")
     _add_material("PV01.Z")
-    from app.stores.bcct_nb_codes import rebuild_for_client
+    from hub.app.stores.bcct_nb_codes import rebuild_for_client
     rebuild_for_client(CLIENT)
     row = _roles_row("PV01.Z")
     assert row[0] == 1
@@ -238,7 +238,7 @@ def test_placeholder_only_code_marked_excluded():
     _seed_bcct("TX1", "1", ".", "forklift part (019.M)", decl_type="E13")
     _seed_bcct("TX2", "1", ".", "rack part (019.M)", decl_type="E13")
     _add_material("019.M")
-    from app.stores.bcct_nb_codes import rebuild_for_client
+    from hub.app.stores.bcct_nb_codes import rebuild_for_client
     rebuild_for_client(CLIENT)
     assert _relevance("019.M") == "excluded_non_material"
 
@@ -248,7 +248,7 @@ def test_shared_code_not_marked():
     _seed_bcct("TX1", "1", ".", "forklift part (019.S)", decl_type="E13")
     _seed_bcct("TX2", "1", "DAUNOI", "production use (019.S)")
     _add_material("019.S")
-    from app.stores.bcct_nb_codes import rebuild_for_client
+    from hub.app.stores.bcct_nb_codes import rebuild_for_client
     rebuild_for_client(CLIENT)
     assert _relevance("019.S") != "excluded_non_material"
 
@@ -259,7 +259,7 @@ def test_code_that_is_own_customs_code_not_marked():
     _seed_bcct("TX1", "1", ".", "part (019.B)", decl_type="E13")
     _seed_bcct("TX2", "1", "019.B", "declared directly")
     _add_material("019.B")
-    from app.stores.bcct_nb_codes import rebuild_for_client
+    from hub.app.stores.bcct_nb_codes import rebuild_for_client
     rebuild_for_client(CLIENT)
     assert _relevance("019.B") != "excluded_non_material"
 
@@ -268,8 +268,8 @@ def test_code_that_is_own_customs_code_not_marked():
 
 
 def test_bcct_apply_rebuilds_nb_codes():
-    from app.routes.bcct import _apply_bcct_rows
-    from app.routes.clients import get_client
+    from hub.app.routes.bcct import _apply_bcct_rows
+    from hub.app.routes.clients import get_client
     client = get_client(CLIENT)
     row = {
         "transaction_key": "TX_H", "line_no": "1", "declaration_no": "DH",
@@ -285,7 +285,7 @@ def test_bcct_apply_rebuilds_nb_codes():
 def test_rule_edit_rebuilds_nb_codes():
     """Disabling the extraction rule via the UI route empties the half."""
     _seed_bcct("TX1", "1", "DAUNOI", "x (019.X)")
-    from app.stores.bcct_nb_codes import rebuild_for_client
+    from hub.app.stores.bcct_nb_codes import rebuild_for_client
     rebuild_for_client(CLIENT)
     assert _nb_rows() != []
     with connect() as conn, conn.cursor() as cur:
@@ -311,7 +311,7 @@ def test_rule_edit_rebuilds_nb_codes():
 
 def test_backfill_if_empty_fills_then_skips():
     _seed_bcct("TX1", "1", "DAUNOI", "x (019.X)")
-    from app.stores.bcct_nb_codes import backfill_if_empty
+    from hub.app.stores.bcct_nb_codes import backfill_if_empty
     filled = backfill_if_empty()
     assert CLIENT in filled
     # Second call: table non-empty for this client → skipped.

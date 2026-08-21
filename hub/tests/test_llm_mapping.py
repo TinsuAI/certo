@@ -11,8 +11,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app import llm, settings_store
-from app.parsers._excel import compute_file_signature
+from hub.app import llm, settings_store
+from hub.app.parsers._excel import compute_file_signature
 
 
 # ---------------------------------------------------------------------------
@@ -29,7 +29,7 @@ def test_settings_set_then_get_roundtrip():
         assert settings_store.get("_test_key") == "hello"
     finally:
         # Clean up
-        from app.database import connect
+        from hub.app.database import connect
         with connect() as c:
             with c.cursor() as cur:
                 cur.execute("delete from hub.app_settings where key='_test_key'")
@@ -40,7 +40,7 @@ def test_settings_get_int_recovers_from_bad_value():
     try:
         assert settings_store.get_int("_test_int", 42) == 42
     finally:
-        from app.database import connect
+        from hub.app.database import connect
         with connect() as c:
             with c.cursor() as cur:
                 cur.execute("delete from hub.app_settings where key='_test_int'")
@@ -224,7 +224,7 @@ def test_propose_raises_when_llm_disabled():
 
 def test_propose_enforces_per_client_daily_budget(cfg_enabled):
     """When call_count exceeds max_calls_per_day_per_client → raise."""
-    from app.database import connect
+    from hub.app.database import connect
     from datetime import date
 
     cfg = llm.LLMConfig(
@@ -291,7 +291,7 @@ def test_list_models_raises_proposal_error_on_endpoint_failure(cfg_enabled):
 
 
 def test_propose_increments_usage_counter(cfg_enabled):
-    from app.database import connect
+    from hub.app.database import connect
     from datetime import date
 
     response_json = json.dumps({"mapping": {}})

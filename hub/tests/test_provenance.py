@@ -10,8 +10,8 @@ import secrets
 
 import pytest
 
-from app.database import connect
-from app.stores.provenance import (
+from hub.app.database import connect
+from hub.app.stores.provenance import (
     bom_unresolved_material_count,
     derive_from_bcct,
     unregistered_seen_count,
@@ -241,7 +241,7 @@ def _seed_bom_with_materials(client_id: str, materials: list[tuple[str, str]],
     """materials = [(customs_code, internal_code or None)],
     code_mappings = [(internal_code, customs_code)],
     bom_rows = [(product_code, material_code, qty)]"""
-    from app.stores.bom import create_artifact
+    from hub.app.stores.bom import create_artifact
     with connect() as conn, conn.cursor() as cur:
         for cc, _ic in materials:
             # Mig 042: dropped materials.internal_code; legacy `ic` arg ignored
@@ -326,7 +326,7 @@ def test_catalog_upload_preserves_seen_in_bcct_on_existing_row(test_client):
                              customs_codes=["PRESERVE-CODE"])
 
     # Now simulate catalog upload via _insert_materials_with_cursor
-    from app.routes.catalog import _insert_materials_with_cursor
+    from hub.app.routes.catalog import _insert_materials_with_cursor
     with connect() as conn:
         with conn.cursor() as cur:
             _insert_materials_with_cursor(

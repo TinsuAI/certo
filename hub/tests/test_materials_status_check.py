@@ -11,7 +11,7 @@ import secrets
 import pytest
 from psycopg import errors
 
-from app.database import connect
+from hub.app.database import connect
 
 
 @pytest.fixture

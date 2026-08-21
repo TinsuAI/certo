@@ -34,11 +34,11 @@ from openpyxl import Workbook
 from openpyxl.worksheet.pagebreak import Break
 from pypdf import PdfReader, PdfWriter
 
-from app import jwt_issuer, settings_store
-from app.database import connect
-from app.main import app
-from app.storage import get_backend, sha256_bytes
-from app.stores import service_accounts as sa_store
+from hub.app import jwt_issuer, settings_store
+from hub.app.database import connect
+from hub.app.main import app
+from hub.app.storage import get_backend, sha256_bytes
+from hub.app.stores import service_accounts as sa_store
 
 pytestmark = pytest.mark.skipif(
     shutil.which("soffice") is None,
@@ -111,7 +111,7 @@ def files_root(tmp_path, monkeypatch):
     root = tmp_path / "files"
     root.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("DATA_HUB_FILES_ROOT", str(root))
-    import app.storage as storage_mod
+    import hub.app.storage as storage_mod
     storage_mod._BACKEND = None
     yield root
     storage_mod._BACKEND = None
@@ -175,13 +175,13 @@ def seeded(files_root, auth_disabled):
 
 
 def _files_for(cid: str, decl_no: str, direction: str = "import"):
-    from app.stores.customs_declaration_files import list_files_for_declarations
+    from hub.app.stores.customs_declaration_files import list_files_for_declarations
     return list_files_for_declarations(cid, [decl_no], direction=direction)
 
 
 def _build(cid, decl_nos, lines_by_decl, tmp_path, **kw):
-    from app.declarations_pdf import build_merged_pdf
-    from app.stores.customs_declaration_files import list_files_for_declarations
+    from hub.app.declarations_pdf import build_merged_pdf
+    from hub.app.stores.customs_declaration_files import list_files_for_declarations
 
     files = list_files_for_declarations(cid, decl_nos, direction="import")
     files_by_decl: dict[str, list] = {d: [] for d in decl_nos}
@@ -310,7 +310,7 @@ def test_no_selection_body_is_byte_identical_to_original_merge(
     seeded, tmp_path, selection,
 ):
     """No selection (None or empty map) → byte-for-byte the original merge."""
-    from app.declarations_pdf import ensure_pdfs
+    from hub.app.declarations_pdf import ensure_pdfs
 
     decls = ["DEC001", "DEC002"]
     res = _build(seeded, decls, selection, tmp_path)

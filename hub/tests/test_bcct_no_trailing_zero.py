@@ -7,7 +7,7 @@ the same pollution. These tests ensure neither layer regresses.
 """
 from __future__ import annotations
 
-from app.database import connect
+from hub.app.database import connect
 
 
 def test_bcct_rows_have_no_trailing_zero():

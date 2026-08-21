@@ -6,7 +6,7 @@ import json
 import secrets
 from typing import Any
 
-from app.database import connect
+from hub.app.database import connect
 
 
 def create_thread(*, user_id: str, client_id: str, title: str = "") -> str:

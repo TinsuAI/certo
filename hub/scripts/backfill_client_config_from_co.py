@@ -78,8 +78,8 @@ def main() -> int:
         print("\nDry-run. Re-run with --confirm to apply.")
         return 0
 
-    from app.routes.clients import get_client
-    from app.stores import client_config
+    from hub.app.routes.clients import get_client
+    from hub.app.stores import client_config
 
     applied = 0
     skipped_missing = 0

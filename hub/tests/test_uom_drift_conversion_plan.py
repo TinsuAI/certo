@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.database import connect
-from app.stores.uom_drift import compute_uom_drifts
+from hub.app.database import connect
+from hub.app.stores.uom_drift import compute_uom_drifts
 
 
 CLIENT = "_drift_plan_test"
@@ -125,7 +125,7 @@ def test_drift_entry_carries_unified_relation():
 def test_drift_relation_matches_classifier_directly():
     """The derived `relation` must agree with classify_uom_relation called
     directly — the guard against the two implementations diverging."""
-    from app.stores.uom import classify_uom_relation
+    from hub.app.stores.uom import classify_uom_relation
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "insert into hub.client_uom_overrides "
@@ -147,7 +147,7 @@ def test_has_blocking_drift_respects_conversion_path():
     """has_blocking_drift only blocks when there's no conversion path.
     Tier-B without override → blocks. Tier-A default → allows. Override
     row → allows."""
-    from app.stores.uom_drift import has_blocking_drift
+    from hub.app.stores.uom_drift import has_blocking_drift
     # Tier-B without override.
     drifts_b = compute_uom_drifts(
         CLIENT, [{"material_code": "M_TIER_B", "uom": "EA"}])

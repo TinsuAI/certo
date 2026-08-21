@@ -21,8 +21,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from app.auth.session import SESSION_COOKIE, create_session, hash_password
-from app.database import connect
+from hub.app.auth.session import SESSION_COOKIE, create_session, hash_password
+from hub.app.database import connect
 
 OUT = Path(__file__).resolve().parent / "screenshots"
 BASE = "http://127.0.0.1:8754"

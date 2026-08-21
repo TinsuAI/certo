@@ -14,10 +14,10 @@ from datetime import date
 import pytest
 from fastapi.testclient import TestClient
 
-from app.database import connect
-from app.main import app
-from app.stores import inventory_snapshots as inv_store
-from app.stores import nxt as nxt_store
+from hub.app.database import connect
+from hub.app.main import app
+from hub.app.stores import inventory_snapshots as inv_store
+from hub.app.stores import nxt as nxt_store
 
 
 def _c() -> TestClient:

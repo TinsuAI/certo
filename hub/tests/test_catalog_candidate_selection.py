@@ -13,11 +13,11 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app.auth.session import SESSION_COOKIE, create_session, hash_password
-from app.database import connect
-from app.main import app
-from app.stores.bcct_nb_codes import rebuild_for_client
-from app.stores.catalog_discovery import _derive_bulk_attrs, discovery_rows
+from hub.app.auth.session import SESSION_COOKIE, create_session, hash_password
+from hub.app.database import connect
+from hub.app.main import app
+from hub.app.stores.bcct_nb_codes import rebuild_for_client
+from hub.app.stores.catalog_discovery import _derive_bulk_attrs, discovery_rows
 
 
 CLIENT = "_test_selection"
@@ -49,7 +49,7 @@ def setup():
             "values (%s, 'internal_code', 10, '\\(([\\d\\.\\w\\-]+)\\)', "
             " 'goods_name', 1, 'capture', 'next_rule', true, 'test') "
             "on conflict do nothing", (CLIENT,))
-    from app.parsers.client_parser_rules import clear_rules_cache
+    from hub.app.parsers.client_parser_rules import clear_rules_cache
     clear_rules_cache()
     yield {"session": create_session(USER_ID)}
     with connect() as conn, conn.cursor() as cur:

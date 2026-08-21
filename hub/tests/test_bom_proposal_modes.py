@@ -18,13 +18,13 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app import auth, jwt_issuer, settings_store
-from app.auth.permissions import can_approve_proposal
-from app.auth.session import User
-from app.database import connect
-from app.main import app
-from app.stores import service_accounts as sa_store
-from app.stores.bom import (
+from hub.app import auth, jwt_issuer, settings_store
+from hub.app.auth.permissions import can_approve_proposal
+from hub.app.auth.session import User
+from hub.app.database import connect
+from hub.app.main import app
+from hub.app.stores import service_accounts as sa_store
+from hub.app.stores.bom import (
     ProposalNotPending,
     approve_proposal,
     create_artifact,

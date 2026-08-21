@@ -11,18 +11,18 @@ from datetime import date
 import pytest
 from fastapi.testclient import TestClient
 
-from app.auth.session import SESSION_COOKIE, create_session
-from app.database import connect
-from app.main import app
-from app.parsers import inventory_adapters, nxt_adapters
-from app.parsers.nxt_adapters.system_template import (
+from hub.app.auth.session import SESSION_COOKIE, create_session
+from hub.app.database import connect
+from hub.app.main import app
+from hub.app.parsers import inventory_adapters, nxt_adapters
+from hub.app.parsers.nxt_adapters.system_template import (
     SystemTemplateNxtAdapter, render_template_xlsx as render_nxt,
 )
-from app.parsers.inventory_adapters.system_template import (
+from hub.app.parsers.inventory_adapters.system_template import (
     SystemTemplateInventoryAdapter, render_template_xlsx as render_inv,
 )
-from app.stores import inventory_snapshots as inv_store
-from app.stores import nxt as nxt_store
+from hub.app.stores import inventory_snapshots as inv_store
+from hub.app.stores import nxt as nxt_store
 
 CLIENT = "nxt_tier_test"
 
@@ -41,7 +41,7 @@ def _client():
 @pytest.fixture
 def isolated_files_dir(monkeypatch, tmp_path):
     monkeypatch.setenv("DATA_HUB_FILES_ROOT", str(tmp_path / "files"))
-    import app.storage as storage_mod
+    import hub.app.storage as storage_mod
     storage_mod._BACKEND = None
     yield
     storage_mod._BACKEND = None
@@ -280,7 +280,7 @@ def _build_ezsoft_xlsx() -> bytes:
 
 
 def test_ezsoft_adapter_parse():
-    from app.parsers.nxt_adapters.ezsoft_3tsoft import Ezsoft3TSoftAdapter
+    from hub.app.parsers.nxt_adapters.ezsoft_3tsoft import Ezsoft3TSoftAdapter
     blob = _build_ezsoft_xlsx()
     a = Ezsoft3TSoftAdapter()
     assert a.detect(blob) == pytest.approx(0.97)
@@ -299,8 +299,8 @@ def test_ezsoft_adapter_parse():
 
 
 def test_ezsoft_outranks_system_template_and_closing_implied():
-    from app.parsers.nxt_adapters._common import closing_implied
-    from app.parsers.nxt_adapters.system_template import SystemTemplateNxtAdapter
+    from hub.app.parsers.nxt_adapters._common import closing_implied
+    from hub.app.parsers.nxt_adapters.system_template import SystemTemplateNxtAdapter
     blob = _build_ezsoft_xlsx()
     # system_template must abstain (no canonical NVL/TP/BTP sheets).
     assert SystemTemplateNxtAdapter().detect(blob) is None
@@ -312,7 +312,7 @@ def test_ezsoft_outranks_system_template_and_closing_implied():
 
 
 def test_ezsoft_store_roundtrip_preserves_outbound_total(isolated_files_dir):
-    from app.parsers.nxt_adapters.ezsoft_3tsoft import Ezsoft3TSoftAdapter
+    from hub.app.parsers.nxt_adapters.ezsoft_3tsoft import Ezsoft3TSoftAdapter
     lines = Ezsoft3TSoftAdapter().parse(_build_ezsoft_xlsx())
     aid = nxt_store.create_artifact(
         client_id=CLIENT, lines=lines, source_kind="ezsoft_3tsoft",
@@ -326,7 +326,7 @@ def test_ezsoft_store_roundtrip_preserves_outbound_total(isolated_files_dir):
 # ── Per-client adapter binding + admin registry view ────────────────────
 
 def test_settlement_adapter_binding_roundtrip():
-    from app.stores import settlement_adapter_binding as b
+    from hub.app.stores import settlement_adapter_binding as b
     assert b.get_default_adapter(CLIENT, "nxt") == "auto"
     b.set_default_adapter(CLIENT, "nxt", "ezsoft_3tsoft")
     assert b.get_default_adapter(CLIENT, "nxt") == "ezsoft_3tsoft"
@@ -373,7 +373,7 @@ def test_nxt_set_default_adapter_route():
     r = c.post(f"/clients/{CLIENT}/nxt/default-adapter",
                data={"adapter": "system_template"}, follow_redirects=False)
     assert r.status_code == 303
-    from app.stores import settlement_adapter_binding as b
+    from hub.app.stores import settlement_adapter_binding as b
     assert b.get_default_adapter(CLIENT, "nxt") == "system_template"
     b.set_default_adapter(CLIENT, "nxt", "auto")  # reset
 
@@ -393,7 +393,7 @@ def _build_generic_nxt(headers: list[str], row: list) -> bytes:
 
 
 def test_manual_generic_alias_automatch():
-    from app.parsers.nxt_adapters.manual_generic import ManualGenericNxtAdapter
+    from hub.app.parsers.nxt_adapters.manual_generic import ManualGenericNxtAdapter
     blob = _build_generic_nxt(
         ["Mã nội bộ", "Tên", "ĐVT", "Tồn đầu kỳ", "Nhập trong kỳ", "Xuất", "Tồn cuối kỳ"],
         ["X1", "Vật tư X", "KG", 100, 50, 30, 120])
@@ -412,8 +412,8 @@ def test_manual_generic_alias_automatch():
 
 
 def test_manual_generic_mapping_override():
-    from app.parsers.nxt_adapters import NxtParseError
-    from app.parsers.nxt_adapters.manual_generic import ManualGenericNxtAdapter
+    from hub.app.parsers.nxt_adapters import NxtParseError
+    from hub.app.parsers.nxt_adapters.manual_generic import ManualGenericNxtAdapter
     blob = _build_generic_nxt(
         ["Code", "Name", "Begin", "In", "Out", "End"],
         ["Y1", "Item Y", 10, 5, 2, 13])
@@ -495,8 +495,8 @@ def _build_mb5b_xlsx() -> bytes:
 
 
 def test_sap_mb5b_adapter():
-    from app.parsers.nxt_adapters._common import closing_implied
-    from app.parsers.nxt_adapters.sap_mb5b import SapMb5bAdapter
+    from hub.app.parsers.nxt_adapters._common import closing_implied
+    from hub.app.parsers.nxt_adapters.sap_mb5b import SapMb5bAdapter
     blob = _build_mb5b_xlsx()
     assert SapMb5bAdapter().detect(blob) == pytest.approx(0.93)
     lines, name = nxt_adapters.parse_with_fallback(blob)
@@ -553,7 +553,7 @@ def test_nxt_reupload_supersedes_and_no_double_count():
     assert [a["id"] for a in arts] == [a2]
     assert len(nxt_store.list_artifacts(cid, include_superseded=True)) == 2
     # period_end_link sums only the current artifact → 600, not 500+600.
-    from app.stores import settlement_link
+    from hub.app.stores import settlement_link
     link = {r["code"]: r for r in settlement_link.period_end_link(cid, d)}
     assert link["MAT-X"]["nxt_closing"] == 600
 
@@ -576,7 +576,7 @@ def test_nxt_reject_is_client_scoped(isolated_files_dir):
 
 
 def test_manual_generic_override_duplicate_target_first_wins():
-    from app.parsers.nxt_adapters.manual_generic import ManualGenericNxtAdapter
+    from hub.app.parsers.nxt_adapters.manual_generic import ManualGenericNxtAdapter
     blob = _build_generic_nxt(["A", "B", "C", "D"], ["Z1", "x", 10, 20])
     # C and D both mapped to closing_reported → first column (C=10) wins.
     override = {"A": "internal_code", "C": "closing_reported",
@@ -660,8 +660,8 @@ def _build_kiemke_xlsx() -> bytes:
 
 
 def test_kiem_ke_multi_kho_adapter():
-    from app.parsers.inventory_adapters._common import variance
-    from app.parsers.inventory_adapters.kiem_ke_multi_kho import KiemKeMultiKhoAdapter
+    from hub.app.parsers.inventory_adapters._common import variance
+    from hub.app.parsers.inventory_adapters.kiem_ke_multi_kho import KiemKeMultiKhoAdapter
     blob = _build_kiemke_xlsx()
     assert KiemKeMultiKhoAdapter().detect(blob) == pytest.approx(0.93)
     lines, name = inventory_adapters.parse_with_fallback(blob)
@@ -676,7 +676,7 @@ def test_kiem_ke_multi_kho_adapter():
 
 
 def test_misa_can_doi_ton_adapter():
-    from app.parsers.nxt_adapters.misa_can_doi_ton import MisaCanDoiTonAdapter
+    from hub.app.parsers.nxt_adapters.misa_can_doi_ton import MisaCanDoiTonAdapter
     blob = _build_misa_xlsx()
     assert MisaCanDoiTonAdapter().detect(blob) == pytest.approx(0.9)
     lines, name = nxt_adapters.parse_with_fallback(blob)
@@ -809,7 +809,7 @@ def test_nxt_year_only_upload_stays_visible_to_period_end_link():
     """A year-only NXT artifact (no explicit dates) must default its period to
     the calendar year so the date-keyed period_end_link (BCQT) still finds it."""
     import secrets
-    from app.stores import settlement_link
+    from hub.app.stores import settlement_link
     cid = "nxt-yo-" + secrets.token_hex(4)
     with connect() as conn, conn.cursor() as cur:
         cur.execute("insert into hub.clients (client_id, name) values (%s, %s)",

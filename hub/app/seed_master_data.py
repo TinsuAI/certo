@@ -24,7 +24,7 @@ from typing import Any
 
 import yaml
 
-from app.database import connect
+from hub.app.database import connect
 
 SEEDS_ROOT = Path(__file__).resolve().parent.parent / "data" / "seeds"
 

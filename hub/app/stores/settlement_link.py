@@ -9,7 +9,7 @@ This is a read-only analytics join over the current (non-superseded) artifacts.
 """
 from __future__ import annotations
 
-from app.database import connect
+from hub.app.database import connect
 
 
 def _agg(cur, sql: str, params: tuple) -> dict[str, float]:

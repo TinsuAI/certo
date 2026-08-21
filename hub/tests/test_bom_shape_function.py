@@ -8,7 +8,7 @@ under 'shallow' was misleading.
 
 Spec: backlog "Re-evaluate shallow shape for manual_flat artifacts".
 """
-from app.stores.bom import bom_shape
+from hub.app.stores.bom import bom_shape
 
 
 def test_raw_graph_unchanged():

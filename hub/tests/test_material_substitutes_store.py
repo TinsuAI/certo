@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import pytest
 
-from app.database import connect
-from app.routes.clients import upsert_client
-from app.stores.material_substitutes import (
+from hub.app.database import connect
+from hub.app.routes.clients import upsert_client
+from hub.app.stores.material_substitutes import (
     insert_candidate,
     list_for_material,
     refresh_candidates,

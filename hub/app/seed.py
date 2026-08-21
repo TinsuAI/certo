@@ -1,16 +1,16 @@
 """Auto-seed demo clients + sample data on first run."""
 from __future__ import annotations
 
-from app.database import connect
-from app.parsers.bcct import parse_bcct_workbook
-from app.parsers.bom import parse_bom_workbook
-from app.parsers.code_mappings import parse_code_mappings_workbook
-from app.parsers.materials import parse_materials_workbook
-from app.routes.clients import slug, upsert_client
-from app.routes.bcct import _insert_bcct
-from app.routes.bqd import _insert_mappings
-from app.routes.catalog import _insert_materials
-from app.stores.bom import create_artifact
+from hub.app.database import connect
+from hub.app.parsers.bcct import parse_bcct_workbook
+from hub.app.parsers.bom import parse_bom_workbook
+from hub.app.parsers.code_mappings import parse_code_mappings_workbook
+from hub.app.parsers.materials import parse_materials_workbook
+from hub.app.routes.clients import slug, upsert_client
+from hub.app.routes.bcct import _insert_bcct
+from hub.app.routes.bqd import _insert_mappings
+from hub.app.routes.catalog import _insert_materials
+from hub.app.stores.bom import create_artifact
 
 
 def auto_seed_demo_if_empty() -> str:
@@ -258,7 +258,7 @@ def _seed_growatt(client_id: str) -> None:
         )
 
     # Submit a couple of BOM proposals to populate audit trail
-    from app.stores.bom import submit_proposal
+    from hub.app.stores.bom import submit_proposal
     parent_version = None
     with connect() as conn:
         with conn.cursor() as cur:

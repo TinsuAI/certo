@@ -25,9 +25,9 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Callable
 
-from app.database import connect
-from app.flatten.types import ConversionMatch, UomLookup
-from app.flatten.uom import normalize_uom_alias
+from hub.app.database import connect
+from hub.app.flatten.types import ConversionMatch, UomLookup
+from hub.app.flatten.uom import normalize_uom_alias
 
 
 def _alias_to_canonical(cur, alias: str) -> str | None:

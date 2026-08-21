@@ -6,8 +6,8 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from app import version as appver
-from app.main import app
+from hub.app import version as appver
+from hub.app.main import app
 
 
 def test_baked_env_takes_precedence(monkeypatch):

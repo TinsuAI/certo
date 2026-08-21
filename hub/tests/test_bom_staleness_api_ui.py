@@ -16,9 +16,9 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from app.auth.session import create_session, hash_password, SESSION_COOKIE
-from app.database import connect
-from app.main import app
+from hub.app.auth.session import create_session, hash_password, SESSION_COOKIE
+from hub.app.database import connect
+from hub.app.main import app
 
 
 CLIENT = "track_d_uiapi_test"
@@ -93,7 +93,7 @@ def _insert_stale(artifact_id: str, *, is_stale: bool = True,
 
 
 def _bearer_token() -> str:
-    from app import jwt_issuer
+    from hub.app import jwt_issuer
     return jwt_issuer.make_token(
         user_id=USER_ID, email=USER_EMAIL, role="admin",
         display_name="API tester",
@@ -226,7 +226,7 @@ def test_primary_action_manual_flat_uom_drift_uses_refresh():
     _rederive_manual_flat, mig 057). UI must surface 'refresh' button, not
     'reupload'. Bug from initial Phase 2 ship: source+uom_drift hardcoded
     to reupload regardless of kind."""
-    from app.routes.bom import _primary_action
+    from hub.app.routes.bom import _primary_action
     assert _primary_action({"uom_drift"}, is_source=True,
                             source_bom_kind="manual_flat") == "refresh"
 
@@ -234,18 +234,18 @@ def test_primary_action_manual_flat_uom_drift_uses_refresh():
 def test_primary_action_technical_raw_uom_drift_uses_reupload():
     """raw_graph edges are immutable; refresh path returns
     skipped='source_artifact'. Reupload is the only way to clear."""
-    from app.routes.bom import _primary_action
+    from hub.app.routes.bom import _primary_action
     assert _primary_action({"uom_drift"}, is_source=True,
                             source_bom_kind="technical_raw") == "reupload"
 
 
 def test_primary_action_derived_dependency_uses_refresh():
-    from app.routes.bom import _primary_action
+    from hub.app.routes.bom import _primary_action
     assert _primary_action({"dependency"}, is_source=False) == "refresh"
 
 
 def test_primary_action_derived_uom_drift_uses_fix_uom():
-    from app.routes.bom import _primary_action
+    from hub.app.routes.bom import _primary_action
     assert _primary_action({"uom_drift"}, is_source=False) == "fix_uom"
 
 

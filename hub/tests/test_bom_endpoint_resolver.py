@@ -11,9 +11,9 @@ import tempfile
 from pathlib import Path
 from fastapi.testclient import TestClient
 
-from app import jwt_issuer
-from app.database import connect
-from app.main import app
+from hub.app import jwt_issuer
+from hub.app.database import connect
+from hub.app.main import app
 
 
 CLIENT = "endpoint_resolver_test"

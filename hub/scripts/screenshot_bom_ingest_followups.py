@@ -15,8 +15,8 @@ from pathlib import Path
 import openpyxl
 from playwright.async_api import async_playwright
 
-from app.database import connect
-from app.auth.session import create_session, hash_password, SESSION_COOKIE
+from hub.app.database import connect
+from hub.app.auth.session import create_session, hash_password, SESSION_COOKIE
 
 BASE = "http://127.0.0.1:8754"
 OUT = Path(".ai/features/2026-06-07-bom-ingest-followups/screenshots")

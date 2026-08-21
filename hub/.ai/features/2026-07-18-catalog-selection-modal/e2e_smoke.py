@@ -25,9 +25,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from playwright.async_api import async_playwright
 
-from app.database import connect
-from app.parsers.client_parser_rules import clear_rules_cache
-from app.stores.bcct_nb_codes import rebuild_for_client
+from hub.app.database import connect
+from hub.app.parsers.client_parser_rules import clear_rules_cache
+from hub.app.stores.bcct_nb_codes import rebuild_for_client
 
 BASE = "http://127.0.0.1:8754"
 EMAIL = os.environ.get("DATA_HUB_SEED_EMAIL", "admin@data-hub.local")

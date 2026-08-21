@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.database import connect
+from hub.app.database import connect
 
 
 CLIENT = "track_d_test"

@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from app import i18n
-from app.main import app
+from hub.app import i18n
+from hub.app.main import app
 
 
 def test_translate_detail_static_dynamic_and_passthrough():

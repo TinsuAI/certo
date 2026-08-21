@@ -11,9 +11,9 @@ import secrets
 
 import pytest
 
-from app.database import connect
-from app.routes.api import _MATERIALS_SELECT_WITH_ROLES
-from app.routes.catalog import _query_materials
+from hub.app.database import connect
+from hub.app.routes.api import _MATERIALS_SELECT_WITH_ROLES
+from hub.app.routes.catalog import _query_materials
 
 
 @pytest.fixture

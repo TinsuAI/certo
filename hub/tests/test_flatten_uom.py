@@ -14,11 +14,11 @@ from decimal import Decimal
 
 import pytest
 
-from app.flatten import flatten
-from app.flatten.types import (
+from hub.app.flatten import flatten
+from hub.app.flatten.types import (
     CatalogEntry, ConversionMatch, FlattenContext, ParsedBom,
 )
-from app.flatten.uom import normalize_uom_alias, convert_qty
+from hub.app.flatten.uom import normalize_uom_alias, convert_qty
 
 
 # ── Pure UOM helpers ───────────────────────────────────────────────────

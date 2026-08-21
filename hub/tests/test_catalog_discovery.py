@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.database import connect
+from hub.app.database import connect
 
 
 CLIENT = "_test_discovery"
@@ -46,7 +46,7 @@ def setup():
             " 'goods_name', 1, 'capture', 'next_rule', true, 'test')",
             (CLIENT,),
         )
-    from app.parsers.client_parser_rules import clear_rules_cache
+    from hub.app.parsers.client_parser_rules import clear_rules_cache
     clear_rules_cache()
     yield
     with connect() as conn, conn.cursor() as cur:
@@ -82,7 +82,7 @@ def _seed_bcct(txn, customs, goods, *, line="1", direction="import",
 
 
 def _rebuild():
-    from app.stores.bcct_nb_codes import rebuild_for_client
+    from hub.app.stores.bcct_nb_codes import rebuild_for_client
     rebuild_for_client(CLIENT)
 
 
@@ -155,7 +155,7 @@ def test_single_system_client_emits_unified():
         cur.execute(
             "delete from hub.client_parser_rules where client_id=%s", (CLIENT,),
         )
-    from app.parsers.client_parser_rules import clear_rules_cache
+    from hub.app.parsers.client_parser_rules import clear_rules_cache
     clear_rules_cache()
     _seed_bcct("TX1", "1000527370", "1000527370#&Tấm đỡ")
     rows = _rows()

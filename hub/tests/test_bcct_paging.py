@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
+from hub.app.main import app
 
 
 CLIENT_ID = "growatt-vn"  # largest dataset in the dev DB

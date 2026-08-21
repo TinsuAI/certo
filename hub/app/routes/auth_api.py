@@ -23,11 +23,11 @@ import jwt as pyjwt
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 
-from app import auth
-from app import jwt_issuer
-from app.auth.session import verify_password
-from app.database import connect
-from app.stores import sso_codes, sso_refresh
+from hub.app import auth
+from hub.app import jwt_issuer
+from hub.app.auth.session import verify_password
+from hub.app.database import connect
+from hub.app.stores import sso_codes, sso_refresh
 
 logger = logging.getLogger(__name__)
 

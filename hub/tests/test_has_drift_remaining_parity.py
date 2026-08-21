@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.database import connect
-from app.stores.uom import classify_uom_relation
+from hub.app.database import connect
+from hub.app.stores.uom import classify_uom_relation
 
 
 CLIENT = "_drift_parity_test"

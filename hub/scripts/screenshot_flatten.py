@@ -29,7 +29,7 @@ from pathlib import Path
 import openpyxl
 from playwright.async_api import async_playwright
 
-from app.database import connect
+from hub.app.database import connect
 
 
 BASE = "http://127.0.0.1:8754"
@@ -37,7 +37,7 @@ EMAIL = "admin@data-hub.local"
 PASSWORD = "admin123"
 CLIENT = "ui_flat_test"
 
-OUT = Path("data/screenshots")
+OUT = Path(__file__).resolve().parent.parent / "data" / "screenshots"
 OUT.mkdir(parents=True, exist_ok=True)
 
 
@@ -286,9 +286,7 @@ async def main():
         await context.close()
 
         # ── Scenario C: Johnson SAP fixture (technical_flatten path) ──
-        johnson_fixture = Path(
-            "tests/fixtures/edge_cases/johnson_sap_english_headers.xlsx"
-        )
+        johnson_fixture = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "edge_cases" / "johnson_sap_english_headers.xlsx"
         if johnson_fixture.exists():
             context = await browser.new_context(viewport={"width": 1440, "height": 1300})
             await context.add_cookies([
@@ -303,9 +301,7 @@ async def main():
             await context.close()
 
         # ── Scenario D: Growatt Chinese-headers fixture ──
-        growatt_fixture = Path(
-            "tests/fixtures/edge_cases/growatt_bom_chinese_headers.xlsx"
-        )
+        growatt_fixture = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "edge_cases" / "growatt_bom_chinese_headers.xlsx"
         if growatt_fixture.exists():
             context = await browser.new_context(viewport={"width": 1440, "height": 1300})
             await context.add_cookies([

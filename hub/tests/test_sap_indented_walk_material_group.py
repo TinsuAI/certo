@@ -10,9 +10,9 @@ import io
 
 import openpyxl
 
-from app.flatten.engine import flatten
-from app.flatten.types import FlattenContext
-from app.parsers.bom_adapters.sap_indented_walk import SapIndentedWalkAdapter
+from hub.app.flatten.engine import flatten
+from hub.app.flatten.types import FlattenContext
+from hub.app.parsers.bom_adapters.sap_indented_walk import SapIndentedWalkAdapter
 
 _HEADER = [
     "Phantom item", "Bulk Material", "Level", "Component number",

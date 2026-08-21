@@ -25,8 +25,8 @@ import json
 from decimal import Decimal
 from typing import TypedDict
 
-from app.database import connect
-from app.flatten.uom import convert_qty
+from hub.app.database import connect
+from hub.app.flatten.uom import convert_qty
 
 
 class RefreshResult(TypedDict):
@@ -121,7 +121,7 @@ def _convert_rows_to_catalog_uom(
       `catalog_uom_missing` emitted (order-independence — staff
       fills catalog later, refresh re-derives).
     """
-    from app.stores.uom import make_uom_lookup
+    from hub.app.stores.uom import make_uom_lookup
 
     if not rows:
         return rows, []
@@ -322,7 +322,7 @@ def _rederive_manual_flat(
     artifact via create_artifact (idempotent on hash). Returns the
     new artifact id (or existing on hash dedup) + drift list.
     """
-    from app.stores.bom import create_artifact
+    from hub.app.stores.bom import create_artifact
 
     with connect() as conn, conn.cursor() as cur:
         original_rows = _reconstruct_originals_from_artifact(cur, artifact_id)
@@ -386,10 +386,10 @@ def _rederive_shape(client_id: str, raw_artifact_id: str,
     agency-batch variant — a pre-existing latent bug surfaced by bulk
     --cleanup-stale runs on Johnson re-ingest (2026-05-13).
     """
-    from scripts.materialize_shallow_and_full_flat import (
+    from hub.scripts.materialize_shallow_and_full_flat import (
         SHALLOW_WALK_SQL, FULL_FLAT_WALK_SQL, derive,
     )
-    from app.stores.bom import create_artifact
+    from hub.app.stores.bom import create_artifact
 
     if strategy == "purchased_btp_as_leaf":
         sql = SHALLOW_WALK_SQL
@@ -486,7 +486,7 @@ def plan_refresh(client_id: str, artifact_id: str) -> RefreshPlan:
             )
             if raw_id is None:
                 return _empty(strategy, "no_raw_ancestor")
-            from scripts.materialize_shallow_and_full_flat import (
+            from hub.scripts.materialize_shallow_and_full_flat import (
                 SHALLOW_WALK_SQL, FULL_FLAT_WALK_SQL, derive,
             )
             if strategy == "purchased_btp_as_leaf":
@@ -551,7 +551,7 @@ def plan_refresh(client_id: str, artifact_id: str) -> RefreshPlan:
             "status": status,
         })
 
-    from app.stores.bom import normalized_hash
+    from hub.app.stores.bom import normalized_hash
     would_be_hash = normalized_hash(converted_rows) if converted_rows else None
     has_blocking = any(
         r["status"] in ("blocked_no_factor", "blocked_catalog_missing")

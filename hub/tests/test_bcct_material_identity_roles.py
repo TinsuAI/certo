@@ -11,8 +11,8 @@ import secrets
 
 import pytest
 
-from app.database import connect
-from app.resolvers.bcct_material_identity import (
+from hub.app.database import connect
+from hub.app.resolvers.bcct_material_identity import (
     ResolverContext, resolve_material_identity,
 )
 

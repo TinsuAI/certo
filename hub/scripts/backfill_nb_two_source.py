@@ -44,7 +44,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.fspath(Path(__file__).resolve().parents[1]))
 
-from app.stores.catalog_discovery import (
+from hub.app.stores.catalog_discovery import (
     _derive_bulk_attrs, bulk_accept_codes, discovery_rows,
 )
 

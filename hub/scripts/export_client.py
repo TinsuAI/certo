@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.fspath(Path(__file__).resolve().parents[1]))
 
-from app.data_promotion import export_client
+from hub.app.data_promotion import export_client
 
 
 def main() -> int:

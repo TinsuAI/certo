@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import io
 
-from app.parsers._excel import (
+from hub.app.parsers._excel import (
     cell_num, cell_str, header_row, index_headers, load_xlsx,
 )
-from app.parsers.nxt_adapters._common import ALIASES, NUMERIC_FIELDS, OUT_BUCKETS
+from hub.app.parsers.nxt_adapters._common import ALIASES, NUMERIC_FIELDS, OUT_BUCKETS
 
 # Canonical column order: (header text written into the template, logical field).
 CANONICAL_COLUMNS: list[tuple[str, str]] = [
@@ -66,7 +66,7 @@ class SystemTemplateNxtAdapter:
 
     def parse(self, blob: bytes, *,
               mapping_override: dict[str, str] | None = None) -> list[dict]:
-        from app.parsers.nxt_adapters import NxtParseError
+        from hub.app.parsers.nxt_adapters import NxtParseError
         try:
             wb = load_xlsx(blob)
         except Exception as e:

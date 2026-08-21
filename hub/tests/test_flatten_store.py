@@ -17,14 +17,14 @@ from decimal import Decimal
 
 import pytest
 
-from app.database import connect
-from app.flatten import flatten
-from app.flatten.types import (
+from hub.app.database import connect
+from hub.app.flatten import flatten
+from hub.app.flatten.types import (
     CatalogEntry, ConversionMatch, FlattenContext, ParsedBom,
 )
-from app.stores import bom as bom_store
-from app.stores import flatten_decisions as decisions_store
-from app.stores.uom import make_uom_lookup
+from hub.app.stores import bom as bom_store
+from hub.app.stores import flatten_decisions as decisions_store
+from hub.app.stores.uom import make_uom_lookup
 
 
 CLIENT = "flat_test_client"

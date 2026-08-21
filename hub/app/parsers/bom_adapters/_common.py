@@ -1,8 +1,8 @@
 """Shared helpers for BOM adapters."""
 from __future__ import annotations
 
-from app.parsers._excel import cell_num as _cell_num_shared
-from app.parsers._excel import cell_str as _cell_str_shared
+from hub.app.parsers._excel import cell_num as _cell_num_shared
+from hub.app.parsers._excel import cell_str as _cell_str_shared
 
 
 COMMON_ALIASES = {

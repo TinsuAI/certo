@@ -30,7 +30,7 @@ from pathlib import Path
 # Allow `uv run python scripts/...` to find app/ for DB connection helper
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.database import connect  # noqa: E402
+from hub.app.database import connect  # noqa: E402
 
 
 def _load_bqd(cur, client_id: str) -> dict[str, list[str]]:

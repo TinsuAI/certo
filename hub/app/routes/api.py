@@ -24,12 +24,12 @@ from psycopg import errors as psycopg_errors
 from fastapi import APIRouter, Header, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
-from app import auth
-from app import jwt_issuer, markets, settings_store
-from app.database import connect
-from app.routes.clients import get_client, list_clients
-from app.stores import client_config as client_config_store
-from app.stores.bom import (
+from hub.app import auth
+from hub.app import jwt_issuer, markets, settings_store
+from hub.app.database import connect
+from hub.app.routes.clients import get_client, list_clients
+from hub.app.stores import client_config as client_config_store
+from hub.app.stores.bom import (
     ProposalNotFound,
     ProposalNotPending,
     ResolverError,
@@ -718,8 +718,8 @@ def _attach_material_identity(items: list[dict], *, client_id: str,
     """
     if not items:
         return
-    from app.parsers.derivations import compute_internal_code
-    from app.resolvers.bcct_material_identity import (
+    from hub.app.parsers.derivations import compute_internal_code
+    from hub.app.resolvers.bcct_material_identity import (
         ResolverContext, resolve_material_identity,
     )
     with connect() as conn, conn.cursor() as cur:
@@ -1074,7 +1074,7 @@ async def api_list_declarations(
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
 
-    from app.stores.customs_declaration_files import (
+    from hub.app.stores.customs_declaration_files import (
         list_declarations_with_status,
     )
 
@@ -1173,7 +1173,7 @@ async def api_bom_latest(
     """
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
-    from app.stores.bom import latest_flattened_versions
+    from hub.app.stores.bom import latest_flattened_versions
     items = latest_flattened_versions(client_id=client_id, product_code=product_code)
     if not items:
         raise HTTPException(404, "no latest version found")
@@ -1437,7 +1437,7 @@ async def api_bom_artifacts_batch(
     fan-in: 1 artifact query + (when include_rows) 3 batched ANY queries for
     just the current page's artifacts — independent of product count.
     """
-    from app.stores.bom import (
+    from hub.app.stores.bom import (
         list_artifact_meta_for_products,
         get_rows_for_artifacts,
         get_unresolved_for_artifacts,
@@ -2001,7 +2001,7 @@ def _serialize_rule(row: tuple) -> dict:
 def _validate_rule_body(body: dict, *, partial: bool = False) -> dict:
     """Validate + normalize a rule body. Returns kwargs ready for SQL.
     `partial=True` for PATCH (allows missing fields)."""
-    from app.parsers.client_parser_rules import compile_pattern, InvalidPatternError
+    from hub.app.parsers.client_parser_rules import compile_pattern, InvalidPatternError
 
     fields = {}
     if not partial:
@@ -2098,9 +2098,9 @@ async def api_create_parser_rule(
                 f"priority={fields['priority']}",
             )
         row = cur.fetchone()
-    from app.parsers.client_parser_rules import clear_rules_cache
+    from hub.app.parsers.client_parser_rules import clear_rules_cache
     clear_rules_cache()
-    from app.stores.bcct_nb_codes import rebuild_after_change
+    from hub.app.stores.bcct_nb_codes import rebuild_after_change
     rebuild_after_change(client_id)
     return _json(_serialize_rule(row), status_code=201)
 
@@ -2136,9 +2136,9 @@ async def api_patch_parser_rule(
         row = cur.fetchone()
     if not row:
         raise HTTPException(404, "rule not found")
-    from app.parsers.client_parser_rules import clear_rules_cache
+    from hub.app.parsers.client_parser_rules import clear_rules_cache
     clear_rules_cache()
-    from app.stores.bcct_nb_codes import rebuild_after_change
+    from hub.app.stores.bcct_nb_codes import rebuild_after_change
     rebuild_after_change(client_id)
     return _json(_serialize_rule(row))
 
@@ -2163,9 +2163,9 @@ async def api_delete_parser_rule(
         row = cur.fetchone()
     if not row:
         raise HTTPException(404, "rule not found or already disabled")
-    from app.parsers.client_parser_rules import clear_rules_cache
+    from hub.app.parsers.client_parser_rules import clear_rules_cache
     clear_rules_cache()
-    from app.stores.bcct_nb_codes import rebuild_after_change
+    from hub.app.stores.bcct_nb_codes import rebuild_after_change
     rebuild_after_change(client_id)
     return _json({"rule_id": rule_id, "enabled": False})
 
@@ -2229,7 +2229,7 @@ async def api_test_parser_rules(
     sample = body.get("sample_input") or ""
     if not isinstance(sample, str):
         raise HTTPException(422, "sample_input must be a string")
-    from app.parsers.client_parser_rules import load_rules
+    from hub.app.parsers.client_parser_rules import load_rules
 
     rules = load_rules(client_id=client_id, output_field=output_field)
     trace: list[dict] = []
@@ -2277,7 +2277,7 @@ async def api_list_substitutes_v1(
     cookie-auth UI route at /api/v1/clients/{c}/materials/{m}/substitutes
     (kept for the in-app catalog detail page).
     """
-    from app.stores.material_substitutes import list_for_material
+    from hub.app.stores.material_substitutes import list_for_material
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
     cands = list_for_material(
@@ -2330,12 +2330,12 @@ async def api_download_declarations_zip(
     [[project_api_routing_convention]] — mirror, not dual-mode).
     """
     from fastapi.responses import Response
-    from app.routes.declarations import (
+    from hub.app.routes.declarations import (
         _build_declarations_zip, _parse_zip_declaration_nos,
         _safe_archive_filename,
     )
-    from app.storage import get_backend
-    from app.stores.customs_declaration_files import list_files_for_declarations
+    from hub.app.storage import get_backend
+    from hub.app.stores.customs_declaration_files import list_files_for_declarations
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
     if direction not in ("import", "export"):
@@ -2399,7 +2399,7 @@ async def api_download_declarations_pdf(
     rendered to PDF via LibreOffice) — see
     `.ai/features/2026-06-06-declarations-merged-pdf/brief.md`.
     """
-    from app.routes.declarations import (
+    from hub.app.routes.declarations import (
         _build_declarations_pdf_response, _parse_pdf_query,
     )
     claims = _require_token(authorization)  # default scope hub:read
@@ -2448,7 +2448,7 @@ async def api_download_declarations_pdf_selective(
     `/v1/hub`). Auth is the GET's: user JWT or service token, scope
     `hub:read`.
     """
-    from app.routes.declarations import (
+    from hub.app.routes.declarations import (
         _build_declarations_pdf_response, _parse_pdf_body,
     )
     claims = _require_token(authorization)  # default scope hub:read
@@ -2489,7 +2489,7 @@ async def api_list_nxt(client_id: str, period_year: int | None = None,
     _require_can_view_client(claims, client_id)
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
-    from app.stores import nxt as nxt_store
+    from hub.app.stores import nxt as nxt_store
     return _json({"items": nxt_store.list_artifacts(
         client_id, period_year=period_year)})
 
@@ -2502,7 +2502,7 @@ async def api_get_nxt(client_id: str, artifact_id: str,
     prefer the paged `…/nxt/{artifact_id}/lines`."""
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
-    from app.stores import nxt as nxt_store
+    from hub.app.stores import nxt as nxt_store
     art = nxt_store.get_artifact(artifact_id)
     if not art or art["client_id"] != client_id:
         raise HTTPException(404, "NXT artifact not found")
@@ -2524,7 +2524,7 @@ async def api_get_nxt_lines(
     from datetime import datetime, timezone
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
-    from app.stores import nxt as nxt_store
+    from hub.app.stores import nxt as nxt_store
     meta = nxt_store.get_artifact_meta(artifact_id)
     if not meta or meta["client_id"] != client_id:
         raise HTTPException(404, "NXT artifact not found")
@@ -2550,7 +2550,7 @@ async def api_list_inventory(client_id: str, year: int | None = None,
     _require_can_view_client(claims, client_id)
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
-    from app.stores import inventory_snapshots as inv_store
+    from hub.app.stores import inventory_snapshots as inv_store
     return _json({"items": inv_store.list_snapshots(client_id, year=year)})
 
 
@@ -2562,7 +2562,7 @@ async def api_get_inventory(client_id: str, snapshot_id: str,
     `…/inventory-snapshots/{snapshot_id}/lines`."""
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
-    from app.stores import inventory_snapshots as inv_store
+    from hub.app.stores import inventory_snapshots as inv_store
     snap = inv_store.get_snapshot(snapshot_id)
     if not snap or snap["client_id"] != client_id:
         raise HTTPException(404, "Snapshot not found")
@@ -2583,7 +2583,7 @@ async def api_get_inventory_lines(
     from datetime import datetime, timezone
     claims = _require_token(authorization)
     _require_can_view_client(claims, client_id)
-    from app.stores import inventory_snapshots as inv_store
+    from hub.app.stores import inventory_snapshots as inv_store
     meta = inv_store.get_snapshot_meta(snapshot_id)
     if not meta or meta["client_id"] != client_id:
         raise HTTPException(404, "Snapshot not found")
@@ -2613,7 +2613,7 @@ async def api_period_end_link(client_id: str, date: str | None = None,
     on_date = _parse_iso_date(date)
     if on_date is None:
         raise HTTPException(400, "date query param required (YYYY-MM-DD)")
-    from app.stores import settlement_link
+    from hub.app.stores import settlement_link
     return _json({"date": date, "items": settlement_link.period_end_link(
         client_id, on_date)})
 

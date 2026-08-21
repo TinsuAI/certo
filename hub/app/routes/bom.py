@@ -7,39 +7,39 @@ import secrets
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from app import auth, llm
-from app.database import connect
-from app.parsers.bom import parse_bom_workbook, BomParseError
-from app.parsers.bom_edges import parse_raw_edges_with_fallback
-from app.parsers.bom_adapters.manual_flat import (
+from hub.app import auth, llm
+from hub.app.database import connect
+from hub.app.parsers.bom import parse_bom_workbook, BomParseError
+from hub.app.parsers.bom_edges import parse_raw_edges_with_fallback
+from hub.app.parsers.bom_adapters.manual_flat import (
     parse_with_skipped as parse_manual_flat_with_skipped,
 )
-from app.parsers import bom_adapters
-from app.parsers._excel import compute_file_signature
-from app.routes.clients import get_client, stats_for_client
-from app.routes._llm_fallback import (
+from hub.app.parsers import bom_adapters
+from hub.app.parsers._excel import compute_file_signature
+from hub.app.routes.clients import get_client, stats_for_client
+from hub.app.routes._llm_fallback import (
     cache_confirmed_mapping,
     headers_per_sheet,
     lookup_cached_mapping,
     record_mapping_use,
     request_llm_mapping,
 )
-from app.routes._mapping_flow import (
+from hub.app.routes._mapping_flow import (
     ModuleConfig,
     _load_unmapped,
     _stash_unmapped,
     render_mapping_page_context,
     render_mapping_page_with_llm_suggestion,
 )
-from app.routes._paging import (
+from hub.app.routes._paging import (
     SortSpec,
     pagination_context,
     parse_page_params,
     sort_link,
 )
-from app.storage import save_upload, sha256_bytes
-from app.stores.staleness import freshness_for_template
-from app.stores.bom import (
+from hub.app.storage import save_upload, sha256_bytes
+from hub.app.stores.staleness import freshness_for_template
+from hub.app.stores.bom import (
     company_bom_summary,
     count_products_with_bom,
     create_flattened_artifact_set,
@@ -57,11 +57,11 @@ from app.stores.bom import (
     tombstone_bom_version,
     validate_proposal_contract,
 )
-from app.stores import flatten_decisions as decisions_store
-from app.stores.uom import make_uom_lookup
-from app.stores.uploads import record_upload
-from app.flatten import flatten as flatten_engine
-from app.flatten.types import FlattenContext, FlattenedVersion, FlattenResult, BomKey, FlattenedRow, UnresolvedNode, Decision
+from hub.app.stores import flatten_decisions as decisions_store
+from hub.app.stores.uom import make_uom_lookup
+from hub.app.stores.uploads import record_upload
+from hub.app.flatten import flatten as flatten_engine
+from hub.app.flatten.types import FlattenContext, FlattenedVersion, FlattenResult, BomKey, FlattenedRow, UnresolvedNode, Decision
 from decimal import Decimal as _Decimal
 
 router = APIRouter()
@@ -197,7 +197,7 @@ async def upload_view(request: Request, client_id: str):
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
-    from app.stores import adapter_binding
+    from hub.app.stores import adapter_binding
     return request.app.state.templates.TemplateResponse(
         request, "clients/bom_upload.html",
         {"client": client, "stats": stats_for_client(client_id),
@@ -214,7 +214,7 @@ async def set_default_adapter(request: Request, client_id: str,
     auth.require_can_edit_client(user, client_id)
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
-    from app.stores import adapter_binding
+    from hub.app.stores import adapter_binding
     try:
         adapter_binding.set_default_adapter(client_id, profile)
     except ValueError:
@@ -555,7 +555,7 @@ async def preview_view(request: Request, client_id: str, pending_id: str):
     summary_for_chrome["total"] = summary["n_rows"]
     # UoM drift gate (Track C): flatten parsed rows → drift list +
     # blocking flag.
-    from app.stores.uom_drift import compute_uom_drifts, has_blocking_drift
+    from hub.app.stores.uom_drift import compute_uom_drifts, has_blocking_drift
     flat_rows: list[dict] = []
     for prod_rows in (products.values() if isinstance(products, dict) else []):
         flat_rows.extend(prod_rows)
@@ -563,7 +563,7 @@ async def preview_view(request: Request, client_id: str, pending_id: str):
     # Multi-role warning (B.2.5): component codes in this upload that were
     # already EXPORTED in BCCT → adding them as BTP is a multi-role hint.
     # Advisory only (does not block confirm).
-    from app.stores.bom_multirole import compute_multirole_warnings
+    from hub.app.stores.bom_multirole import compute_multirole_warnings
     multirole_warnings = compute_multirole_warnings(client_id, products)
     # Destination banner: tell staff up-front what confirming produces.
     # technical_raw → raw_graph that auto-derives shallow/full_flat;
@@ -688,10 +688,10 @@ async def preview_confirm(request: Request, client_id: str, pending_id: str):
         # signals (factor_missing / catalog_uom_missing /
         # unconfirmed_default_1to1) propagate to has_uom_drift on the
         # new artifact via mig 057's bom_mark_uom_drift helper.
-        from app.stores.bom_staleness import (
+        from hub.app.stores.bom_staleness import (
             _convert_rows_to_catalog_uom, _apply_drift_to_artifact,
         )
-        from app.database import connect as _connect
+        from hub.app.database import connect as _connect
         for product_code, rows in products.items():
             converted_rows, drifts = _convert_rows_to_catalog_uom(
                 client_id, list(rows),
@@ -819,7 +819,7 @@ async def refresh_preview(
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
-    from app.stores.bom_staleness import plan_refresh
+    from hub.app.stores.bom_staleness import plan_refresh
     try:
         plan = plan_refresh(client_id, artifact_id)
     except LookupError:
@@ -864,7 +864,7 @@ async def refresh_artifact_route(
     form = await request.form()
     skip = form.get("skip") == "1"
     edits = _parse_inline_factor_edits(form)
-    from app.stores.bom_staleness import commit_refresh
+    from hub.app.stores.bom_staleness import commit_refresh
     try:
         result = commit_refresh(client_id, artifact_id,
                                  edits=edits, skip=skip,
@@ -1125,7 +1125,7 @@ async def refresh_cluster(
     ids = [s.strip() for s in artifact_ids.split(",") if s.strip()]
     if len(ids) > 200:
         ids = ids[:200]
-    from app.stores.bom_staleness import refresh_artifact
+    from hub.app.stores.bom_staleness import refresh_artifact
     for aid in ids:
         try:
             refresh_artifact(client_id, aid,
@@ -1271,7 +1271,7 @@ async def refresh_product_route(
     auth.require_can_edit_client(user, client_id)
     if not get_client(client_id):
         raise HTTPException(404, "Client not found")
-    from app.stores.bom_staleness import refresh_product
+    from hub.app.stores.bom_staleness import refresh_product
     refresh_product(client_id, product_code,
                     triggered_by_user_id=user.user_id)
     return RedirectResponse(

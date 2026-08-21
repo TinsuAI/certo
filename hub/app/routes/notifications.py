@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import auth, notifications
+from hub.app import auth, notifications
 
 router = APIRouter()
 

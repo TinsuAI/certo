@@ -4,7 +4,7 @@ Feature brief: .ai/features/2026-06-07-app-versioning-changelog/brief.md
 """
 from __future__ import annotations
 
-from app.changelog import parse_changelog
+from hub.app.changelog import parse_changelog
 
 SAMPLE = """# Changelog
 

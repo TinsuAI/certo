@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import xlwt
 
-from app.parsers.declaration_files import (
+from hub.app.parsers.declaration_files import (
     DeclarationFileError,
     extract_declaration_no_from_xls,
     is_supported_filename,
@@ -196,9 +196,7 @@ def test_parse_declaration_file_validate_content_false():
 # ── Real Johnson sample (smoke; skip if not present) ────────────────
 
 
-JOHNSON_TKN = Path(
-    "data/source_inventory/johnson-vn/2026-05-07-updated/Johnson/TKN"
-)
+JOHNSON_TKN = Path(__file__).resolve().parent.parent / "data" / "source_inventory" / "johnson-vn" / "2026-05-07-updated" / "Johnson" / "TKN"
 
 
 @pytest.mark.skipif(not JOHNSON_TKN.exists(), reason="Johnson source data not present")

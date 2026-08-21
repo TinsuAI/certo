@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable
 
-from app.database import connect
+from hub.app.database import connect
 
 
 @dataclass(frozen=True)

@@ -1,7 +1,7 @@
 """Lightweight read helpers over hub.materials shared across modules."""
 from __future__ import annotations
 
-from app.database import connect
+from hub.app.database import connect
 
 
 def known_material_codes(client_id: str) -> set[str]:

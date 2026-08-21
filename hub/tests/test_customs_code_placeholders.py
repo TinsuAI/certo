@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.database import connect
+from hub.app.database import connect
 
 
 @pytest.fixture()
@@ -56,7 +56,7 @@ def _insert_bcct_row(cur, client_id, line_no, customs_code, goods_name):
 
 
 def _derive(cur, client_id, codes):
-    from app.stores.provenance import derive_from_bcct
+    from hub.app.stores.provenance import derive_from_bcct
     return derive_from_bcct(cur, client_id=client_id, customs_codes=codes)
 
 

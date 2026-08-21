@@ -19,15 +19,15 @@ import secrets
 import pytest
 from fastapi.testclient import TestClient
 
-from app import jwt_issuer
-from app.database import connect
-from app.main import app
+from hub.app import jwt_issuer
+from hub.app.database import connect
+from hub.app.main import app
 
 
 @pytest.fixture
 def cid():
     """Insert a clean test client + parser rule + cleanup."""
-    from app.parsers.client_parser_rules import clear_rules_cache
+    from hub.app.parsers.client_parser_rules import clear_rules_cache
     clear_rules_cache()
     cid = f"rules-api-{secrets.token_hex(4)}"
     with connect() as conn, conn.cursor() as cur:
@@ -343,7 +343,7 @@ def test_ui_test_panel_coverage_mode_renders(cid):
 def test_ui_page_renders_for_dev(cid):
     """The /clients/<id>/parser-rules page lists rules and shows the
     add/test forms. Session-authed; uses the dev admin seed."""
-    from app import auth as _auth
+    from hub.app import auth as _auth
 
     c = _client()
     # Login as the seeded dev admin (conftest seeds admin@data-hub.local).
@@ -424,7 +424,7 @@ def test_history_404_for_unknown_rule_id(cid):
 def test_create_invalidates_rule_cache(cid):
     """After POST, compute_internal_code should immediately see the new
     rule (cache cleared by the endpoint)."""
-    from app.parsers.derivations import compute_internal_code
+    from hub.app.parsers.derivations import compute_internal_code
 
     client_dict = {"client_id": cid, "code_resolution_mode": "batch_aggregate_resolution"}
 

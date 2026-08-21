@@ -13,9 +13,9 @@ import psycopg
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import auth
-from app.database import connect
-from app.routes.clients import get_client, stats_for_client
+from hub.app import auth
+from hub.app.database import connect
+from hub.app.routes.clients import get_client, stats_for_client
 
 router = APIRouter()
 
@@ -98,7 +98,7 @@ async def admin_root(request: Request):
 @router.get("/admin/settings/technical", response_class=HTMLResponse)
 async def settings_technical_view(request: Request, saved: bool = False,
                                   fetch_models: bool = False):
-    from app import llm, settings_store
+    from hub.app import llm, settings_store
     user = auth.require_user(request)
     if user.role != "dev":
         raise HTTPException(403, "dev only")
@@ -153,7 +153,7 @@ async def settings_technical_submit(
     llm_max_calls_per_day_per_client: str = Form("50"),
     chat_agent_enabled: str = Form("false"),
 ):
-    from app import settings_store
+    from hub.app import settings_store
     user = auth.require_user(request)
     if user.role != "dev":
         raise HTTPException(403, "dev only")
@@ -192,7 +192,7 @@ async def settings_embedding_view(
     request: Request, saved: bool = False, test_result: str | None = None,
     test_error: str | None = None,
 ):
-    from app import embedding
+    from hub.app import embedding
     user = auth.require_user(request)
     if user.role != "dev":
         raise HTTPException(403, "dev only")
@@ -222,7 +222,7 @@ async def settings_embedding_submit(
     timeout_seconds: str = Form("30"),
     dim: str = Form("1536"),
 ):
-    from app import embedding
+    from hub.app import embedding
     user = auth.require_user(request)
     if user.role != "dev":
         raise HTTPException(403, "dev only")
@@ -248,7 +248,7 @@ async def settings_embedding_submit(
 @router.post("/admin/settings/embedding/test")
 async def settings_embedding_test(request: Request):
     """Test the OpenRouter connection by embedding one short string."""
-    from app import embedding
+    from hub.app import embedding
     user = auth.require_user(request)
     if user.role != "dev":
         raise HTTPException(403, "dev only")
@@ -297,8 +297,8 @@ async def bom_adapters_view(request: Request):
     user = auth.require_user(request)
     if not auth.can_manage_users(user):
         raise HTTPException(403, "forbidden")
-    from app.parsers import bom_adapters
-    from app.stores import adapter_binding
+    from hub.app.parsers import bom_adapters
+    from hub.app.stores import adapter_binding
     return request.app.state.templates.TemplateResponse(
         request, "admin/bom_adapters.html",
         {"adapters": bom_adapters.registry_info(),
@@ -314,8 +314,8 @@ async def settlement_adapters_view(request: Request):
     user = auth.require_user(request)
     if not auth.can_manage_users(user):
         raise HTTPException(403, "forbidden")
-    from app.parsers import inventory_adapters, nxt_adapters
-    from app.stores import settlement_adapter_binding
+    from hub.app.parsers import inventory_adapters, nxt_adapters
+    from hub.app.stores import settlement_adapter_binding
     return request.app.state.templates.TemplateResponse(
         request, "admin/settlement_adapters.html",
         {"nxt_adapters": nxt_adapters.registry_info(),
@@ -592,7 +592,7 @@ _COLUMN_ALIAS_MODULES = ("bcct", "catalog", "bqd", "bom")
 
 
 def _column_alias_fields(module: str) -> list[str]:
-    from app.llm import _TARGET_FIELDS_BY_MODULE
+    from hub.app.llm import _TARGET_FIELDS_BY_MODULE
     return list(_TARGET_FIELDS_BY_MODULE.get(module, ()))
 
 
@@ -613,7 +613,7 @@ async def column_aliases_view(request: Request, client_id: str,
         raise HTTPException(404, "Client not found")
     if module not in _COLUMN_ALIAS_MODULES:
         raise HTTPException(400, "invalid_module")
-    from app.stores import column_aliases as ca
+    from hub.app.stores import column_aliases as ca
     return request.app.state.templates.TemplateResponse(
         request, "admin/client_column_aliases.html",
         {"client": client, "stats": stats_for_client(client_id),
@@ -635,7 +635,7 @@ async def column_aliases_add(
         raise HTTPException(400, "invalid_module")
     if field not in _column_alias_fields(module):
         raise HTTPException(400, "invalid_field")
-    from app.stores import column_aliases as ca
+    from hub.app.stores import column_aliases as ca
     try:
         ca.add_alias(client_id=client_id, module=module, field=field,
                      alias=alias, created_by=actor.user_id)
@@ -651,7 +651,7 @@ async def column_aliases_toggle(
 ):
     actor = auth.require_user(request)
     auth.require_can_edit_client(actor, client_id)
-    from app.stores import column_aliases as ca
+    from hub.app.stores import column_aliases as ca
     ca.set_alias_enabled(alias_id, enabled == "on", client_id=client_id)
     return _column_alias_redirect(client_id, module)
 
@@ -663,7 +663,7 @@ async def column_aliases_delete(
 ):
     actor = auth.require_user(request)
     auth.require_can_edit_client(actor, client_id)
-    from app.stores import column_aliases as ca
+    from hub.app.stores import column_aliases as ca
     ca.delete_alias(alias_id, client_id=client_id)
     return _column_alias_redirect(client_id, module)
 
@@ -683,8 +683,8 @@ async def material_group_map_view(request: Request, client_id: str):
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
-    from app import jobs
-    from app.stores import material_group_map as mgm
+    from hub.app import jobs
+    from hub.app.stores import material_group_map as mgm
     return request.app.state.templates.TemplateResponse(
         request, "admin/client_material_group_map.html",
         {"client": client, "stats": stats_for_client(client_id),
@@ -703,7 +703,7 @@ async def material_group_map_add(
 ):
     actor = auth.require_user(request)
     auth.require_can_edit_client(actor, client_id)
-    from app.stores import material_group_map as mgm
+    from hub.app.stores import material_group_map as mgm
     try:
         mgm.upsert(
             client_id=client_id, material_group=material_group,
@@ -722,7 +722,7 @@ async def material_group_map_delete(
 ):
     actor = auth.require_user(request)
     auth.require_can_edit_client(actor, client_id)
-    from app.stores import material_group_map as mgm
+    from hub.app.stores import material_group_map as mgm
     mgm.delete(client_id=client_id, material_group=material_group)
     return _mg_map_redirect(client_id)
 
@@ -760,7 +760,7 @@ def _require_dev(request: Request):
 def _render_service_accounts(
     request: Request, *, minted: dict | None = None, error: str | None = None,
 ):
-    from app.stores import service_accounts as sa_store
+    from hub.app.stores import service_accounts as sa_store
     # psycopg returns timestamptz in the DB session tz; normalize to UTC so the
     # displayed expiry date matches what was chosen at mint (template labels UTC).
     accounts = sa_store.list_accounts()
@@ -796,8 +796,8 @@ async def service_accounts_create(
     client_ids: list[str] = Form(default=[]),
     expires_on: str = Form(""),
 ):
-    from app import jwt_issuer
-    from app.stores import service_accounts as sa_store
+    from hub.app import jwt_issuer
+    from hub.app.stores import service_accounts as sa_store
     actor = _require_dev(request)
 
     name = name.strip()
@@ -857,7 +857,7 @@ async def service_accounts_create(
 
 @router.post("/admin/service-accounts/{name}/delete")
 async def service_accounts_delete(request: Request, name: str):
-    from app.stores import service_accounts as sa_store
+    from hub.app.stores import service_accounts as sa_store
     _require_dev(request)
     sa_store.delete_account(name)
     return RedirectResponse(url="/admin/service-accounts", status_code=303)
@@ -869,7 +869,7 @@ async def service_accounts_revoke_jti(
     jti: str = Form(...),
     reason: str = Form(""),
 ):
-    from app.stores import service_accounts as sa_store
+    from hub.app.stores import service_accounts as sa_store
     actor = _require_dev(request)
     jti = jti.strip()
     if not jti:

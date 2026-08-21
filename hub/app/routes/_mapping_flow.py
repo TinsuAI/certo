@@ -27,15 +27,15 @@ from typing import Any, Callable, Iterable
 
 from fastapi import HTTPException
 
-from app import llm
-from app.database import connect
-from app.parsers._excel import (
+from hub.app import llm
+from hub.app.database import connect
+from hub.app.parsers._excel import (
     compute_file_signature,
     header_row,
     load_xlsx,
 )
-from app.stores.column_aliases import resolved_aliases
-from app.routes._llm_fallback import (
+from hub.app.stores.column_aliases import resolved_aliases
+from hub.app.routes._llm_fallback import (
     cache_confirmed_mapping,
     headers_per_sheet,
     lookup_cached_mapping,
@@ -565,7 +565,7 @@ def _build_mapping_context(
     # No-header: pre-fill the distinctive columns by VALUE pattern so the
     # operator only fills the numeric ones, not all of them. BCCT-specific.
     if suggest_no_header and cfg.name == "bcct":
-        from app.parsers.bcct_infer import infer_bcct_columns_by_values
+        from hub.app.parsers.bcct_infer import infer_bcct_columns_by_values
         inferred = infer_bcct_columns_by_values(raw_rows)
         for col in column_map:
             if col["index"] in inferred:
@@ -596,20 +596,20 @@ def _build_mapping_context(
 def _module_aliases(module: str) -> dict[str, list[str]]:
     """Lazy import of the per-module ALIASES dict for rigid auto-match."""
     if module == "catalog":
-        from app.parsers.materials import ALIASES
+        from hub.app.parsers.materials import ALIASES
         return ALIASES
     if module == "bqd":
-        from app.parsers.code_mappings import ALIASES
+        from hub.app.parsers.code_mappings import ALIASES
         return ALIASES
     if module == "bom":
         # manual_flat aliases live in the adapter module
         try:
-            from app.parsers.bom_adapters.manual_flat import ALIASES  # type: ignore
+            from hub.app.parsers.bom_adapters.manual_flat import ALIASES  # type: ignore
             return ALIASES
         except Exception:  # noqa: BLE001
             return {}
     if module == "bcct":
-        from app.parsers.bcct import ALIASES
+        from hub.app.parsers.bcct import ALIASES
         return ALIASES
     return {}
 
@@ -735,7 +735,7 @@ def _load_unmapped(
     file_signature = info.get("file_signature")
     extra = info.get("extra") or {}
 
-    from app.storage import get_backend
+    from hub.app.storage import get_backend
     blob = get_backend().get(stored_path)
     return blob, file_signature, extra
 

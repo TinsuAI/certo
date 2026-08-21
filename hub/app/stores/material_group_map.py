@@ -11,7 +11,7 @@ bom_artifact_rows.excluded_at needs the `material_group_backfill` job
 """
 from __future__ import annotations
 
-from app.database import connect
+from hub.app.database import connect
 
 # Physical-nature descriptors. Mirrors the seed comment in mig 078 + the
 # item_category values used across hub.v_material_classification reasons.

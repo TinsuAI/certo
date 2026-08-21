@@ -26,8 +26,8 @@ import hashlib
 import sys
 from pathlib import Path
 
-from app.database import connect
-from app.storage import get_backend
+from hub.app.database import connect
+from hub.app.storage import get_backend
 
 
 def _sha256(blob: bytes) -> str:

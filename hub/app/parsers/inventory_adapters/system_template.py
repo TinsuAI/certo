@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import io
 
-from app.parsers._excel import header_row, index_headers, load_xlsx
-from app.parsers.inventory_adapters._common import ALIASES, parse_inventory_sheets
+from hub.app.parsers._excel import header_row, index_headers, load_xlsx
+from hub.app.parsers.inventory_adapters._common import ALIASES, parse_inventory_sheets
 
 # (header text written into the template, logical field). "Chênh lệch" is shown
 # for human convenience but derived on read, so it is NOT a parsed input column.

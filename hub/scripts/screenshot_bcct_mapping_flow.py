@@ -26,8 +26,8 @@ import httpx
 from openpyxl import Workbook
 from playwright.async_api import async_playwright
 
-from app.auth.session import SESSION_COOKIE, create_session
-from app.database import connect
+from hub.app.auth.session import SESSION_COOKIE, create_session
+from hub.app.database import connect
 
 BASE = "http://127.0.0.1:8754"
 CLIENT = "shots-mapping"

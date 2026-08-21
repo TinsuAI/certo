@@ -22,9 +22,9 @@ import re
 import pytest
 from fastapi.testclient import TestClient
 
-from app.auth.session import SESSION_COOKIE, create_session, hash_password
-from app.database import connect
-from app.main import app
+from hub.app.auth.session import SESSION_COOKIE, create_session, hash_password
+from hub.app.database import connect
+from hub.app.main import app
 
 
 CLIENT = "_test_filter_state"

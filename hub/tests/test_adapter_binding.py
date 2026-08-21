@@ -10,9 +10,9 @@ import secrets
 
 import pytest
 
-from app.database import connect
-from app.parsers import bom_adapters
-from app.stores import adapter_binding as ab
+from hub.app.database import connect
+from hub.app.parsers import bom_adapters
+from hub.app.stores import adapter_binding as ab
 
 A_VALID = "sap_indented_walk"  # a registered adapter (see bom_adapters registry)
 
@@ -72,8 +72,8 @@ def test_list_bindings_flags_degraded(cid):
 
 def test_upload_form_preselects_bound_adapter(cid):
     from fastapi.testclient import TestClient
-    from app.auth.session import create_session, hash_password, SESSION_COOKIE
-    from app.main import app
+    from hub.app.auth.session import create_session, hash_password, SESSION_COOKIE
+    from hub.app.main import app
     uid = "u_bind_admin"
     with connect() as conn, conn.cursor() as cur:
         cur.execute(

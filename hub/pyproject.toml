@@ -30,9 +30,3 @@ dev = [
     "playwright>=1.49",
     "xlwt>=1.3.0",
 ]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-pythonpath = ["."]
-asyncio_mode = "auto"

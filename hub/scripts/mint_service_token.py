@@ -31,8 +31,8 @@ from pathlib import Path
 _REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO))
 
-from app import jwt_issuer  # noqa: E402
-from app.stores import service_accounts as sa_store  # noqa: E402
+from hub.app import jwt_issuer  # noqa: E402
+from hub.app.stores import service_accounts as sa_store  # noqa: E402
 
 
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")

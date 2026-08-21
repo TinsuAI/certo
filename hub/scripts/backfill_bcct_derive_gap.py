@@ -38,7 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.fspath(Path(__file__).resolve().parents[1]))
 
-from app.stores.catalog_discovery import bulk_accept_codes, discovery_rows
+from hub.app.stores.catalog_discovery import bulk_accept_codes, discovery_rows
 
 ACTOR = "ops:backfill-derive-gap-52"
 PREDICATE = {

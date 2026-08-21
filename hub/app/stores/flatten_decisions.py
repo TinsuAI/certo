@@ -15,8 +15,8 @@ import json
 import secrets
 from typing import Sequence
 
-from app.database import connect
-from app.flatten.types import Decision
+from hub.app.database import connect
+from hub.app.flatten.types import Decision
 
 
 def _decision_id() -> str:

@@ -14,9 +14,9 @@ from __future__ import annotations
 import json
 import logging
 
-from app import llm
-from app.database import connect
-from app.parsers._excel import (
+from hub.app import llm
+from hub.app.database import connect
+from hub.app.parsers._excel import (
     compute_file_signature, header_row, load_xlsx,
 )
 

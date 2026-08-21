@@ -10,16 +10,16 @@ from __future__ import annotations
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import auth
-from app.database import connect
-from app.parsers.code_mappings import (
+from hub.app import auth
+from hub.app.database import connect
+from hub.app.parsers.code_mappings import (
     LOGICAL_FIELDS,
     MIN_IDENTIFIER_FIELDS,
     REQUIRED_MAPPED_FIELDS,
     CodeMappingsParseError,
     parse_code_mappings_workbook,
 )
-from app.routes._mapping_flow import (
+from hub.app.routes._mapping_flow import (
     ModuleConfig,
     confirm_pending,
     parse_with_overrides_and_stash,
@@ -29,16 +29,16 @@ from app.routes._mapping_flow import (
     render_preview_context,
     upload_initial_dispatch,
 )
-from app.routes._paging import (
+from hub.app.routes._paging import (
     SortSpec,
     pagination_context,
     parse_page_params,
     sort_link,
 )
-from app.routes.clients import get_client, stats_for_client
-from app.storage import save_upload, sha256_bytes
-from app.stores.staleness import freshness_for_template
-from app.stores.uploads import record_upload
+from hub.app.routes.clients import get_client, stats_for_client
+from hub.app.storage import save_upload, sha256_bytes
+from hub.app.stores.staleness import freshness_for_template
+from hub.app.stores.uploads import record_upload
 
 router = APIRouter()
 

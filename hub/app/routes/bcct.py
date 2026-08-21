@@ -13,34 +13,34 @@ import json
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import auth
-from app.database import connect
-from app.parsers._excel import compute_file_signature, header_row, load_xlsx
-from app.parsers.bcct import (
+from hub.app import auth
+from hub.app.database import connect
+from hub.app.parsers._excel import compute_file_signature, header_row, load_xlsx
+from hub.app.parsers.bcct import (
     LOGICAL_FIELDS as BCCT_LOGICAL_FIELDS,
     MIN_IDENTIFIER_FIELDS as BCCT_MIN_IDENTIFIER,
     REQUIRED_MAPPED_FIELDS as BCCT_REQUIRED_MAPPED,
     parse_bcct_workbook,
     BcctParseError,
 )
-from app.parsers.derivations import compute_internal_code
-from app.routes._mapping_flow import (
+from hub.app.parsers.derivations import compute_internal_code
+from hub.app.routes._mapping_flow import (
     ModuleConfig,
     _load_unmapped,
     reject_pending,
     render_mapping_page_context,
     render_mapping_page_with_llm_suggestion,
 )
-from app.routes._paging import (
+from hub.app.routes._paging import (
     SortSpec,
     pagination_context,
     parse_page_params,
     sort_link,
 )
-from app.routes.clients import get_client, stats_for_client
-from app.storage import save_upload, sha256_bytes
-from app.stores.staleness import freshness_for_template
-from app.stores.uploads import record_upload
+from hub.app.routes.clients import get_client, stats_for_client
+from hub.app.storage import save_upload, sha256_bytes
+from hub.app.stores.staleness import freshness_for_template
+from hub.app.stores.uploads import record_upload
 
 router = APIRouter()
 
@@ -139,8 +139,8 @@ async def list_view(request: Request, client_id: str,
     # built once per page; resolution per row uses cached materials +
     # rule engine. ~1-2 ms/row × page_size = negligible.
     if items:
-        from app.parsers.derivations import compute_internal_code
-        from app.resolvers.bcct_material_identity import (
+        from hub.app.parsers.derivations import compute_internal_code
+        from hub.app.resolvers.bcct_material_identity import (
             ResolverContext, resolve_material_identity,
         )
         with connect() as conn, conn.cursor() as cur:
@@ -240,7 +240,7 @@ async def upload_submit(request: Request, client_id: str,
     # preview diff + price-anomaly net are the safety check). The mapping
     # page only appears when auto-map is not confident or its parse fails.
     if cached_mapping is None:
-        from app.routes._mapping_flow import (
+        from hub.app.routes._mapping_flow import (
             try_auto_map, _stash_unmapped as _flow_stash_unmapped,
         )
         auto = try_auto_map(blob, BCCT_MAPPING_CFG, client_id=client_id)
@@ -270,7 +270,7 @@ async def upload_submit(request: Request, client_id: str,
         _record_mapping_use(client_id=client_id, file_signature=file_signature)
     except BcctParseError as e:
         # Cached mapping went stale → fall through to mapping page.
-        from app.routes._mapping_flow import _stash_unmapped as _flow_stash_unmapped
+        from hub.app.routes._mapping_flow import _stash_unmapped as _flow_stash_unmapped
         _flow_stash_unmapped(
             upload_id=upload_id, file_signature=file_signature,
             extra={"stale_cache_error": str(e)},
@@ -517,7 +517,7 @@ def _ingest_rows(*, client_id: str, client: dict, rows: list[dict],
         # Useful as a reminder if they navigate away — and as an audit
         # trail showing what's pending across past sessions.
         if actor_id:
-            from app import notifications as _notifs
+            from hub.app import notifications as _notifs
             n_total = diff_summary.get("total", 0)
             n_diff = len(diff_summary.get("diff", []))
             n_orph = len(diff_summary.get("orphan", []))
@@ -743,7 +743,7 @@ def _apply_bcct_rows(*, client_id: str, rows: list[dict], upload_id: str | None,
     Also derives catalog provenance for the touched customs_codes so the
     'seen on declaration but not registered' alarm stays in sync (Sprint A4).
     """
-    from app.stores.provenance import derive_from_bcct, unregistered_seen_count
+    from hub.app.stores.provenance import derive_from_bcct, unregistered_seen_count
 
     touched_codes = _customs_codes_in(rows)
 
@@ -774,7 +774,7 @@ def _apply_bcct_rows(*, client_id: str, rows: list[dict], upload_id: str | None,
     # apply-batch even if many codes — staff doesn't get spam.
     if unreg_after > unreg_before:
         try:
-            from app import notifications as _notifs
+            from hub.app import notifications as _notifs
             new_unreg = unreg_after - unreg_before
             user_ids = _notifs.staff_with_edit_access_to_client(client_id)
             _notifs.notify_many(
@@ -794,7 +794,7 @@ def _apply_bcct_rows(*, client_id: str, rows: list[dict], upload_id: str | None,
     # Post-ingest hook (#33): re-extract the paren NB links now that
     # BCCT rows changed. The discovery feed itself is computed live
     # (ADR-0001) — nothing else to rebuild.
-    from app.stores.bcct_nb_codes import rebuild_after_change
+    from hub.app.stores.bcct_nb_codes import rebuild_after_change
     rebuild_after_change(client_id)
     return n
 
@@ -824,7 +824,7 @@ async def upload_preview_view(request: Request, client_id: str, pending_id: str)
     diff_summary, expires_at, created_at, parsed_rows = row
     # UoM drift gate (Track C): map BCCT shape (customs_code/unit) →
     # helper expected shape (material_code/uom).
-    from app.stores.uom_drift import compute_uom_drifts, has_blocking_drift
+    from hub.app.stores.uom_drift import compute_uom_drifts, has_blocking_drift
     drift_input = [
         {"material_code": r.get("customs_code"), "uom": r.get("unit")}
         for r in (parsed_rows or [])
@@ -834,7 +834,7 @@ async def upload_preview_view(request: Request, client_id: str, pending_id: str)
     # Price/value column-inversion anomaly net — ADVISORY only (the Diff
     # below is the operator's review surface; auto-map already prevents the
     # original swap for standard files). Surfaced as a non-blocking warning.
-    from app.parsers.bcct_validate import detect_price_anomalies
+    from hub.app.parsers.bcct_validate import detect_price_anomalies
     anomalies = detect_price_anomalies(
         [r for r in (parsed_rows or []) if isinstance(r, dict)]
     )
@@ -917,8 +917,8 @@ async def bcct_row_history(request: Request, client_id: str,
             material_identity = None
             internal_code = None
             if current_row:
-                from app.parsers.derivations import compute_internal_code
-                from app.resolvers.bcct_material_identity import (
+                from hub.app.parsers.derivations import compute_internal_code
+                from hub.app.resolvers.bcct_material_identity import (
                     ResolverContext, resolve_material_identity,
                 )
                 pid_row = {
@@ -1171,7 +1171,7 @@ def _insert_bcct(*, client_id: str, rows: list[dict],
     alarm, so an ad-hoc ingest through here leaves NB extraction stale until
     the next apply through the web route.
     """
-    from app.stores.provenance import derive_from_bcct
+    from hub.app.stores.provenance import derive_from_bcct
 
     with connect(user_id=user_id) as conn:
         with conn.cursor() as cur:

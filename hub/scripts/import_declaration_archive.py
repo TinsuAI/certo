@@ -22,13 +22,13 @@ from pathlib import Path
 
 sys.path.insert(0, os.fspath(Path(__file__).resolve().parents[1]))
 
-from app.parsers.declaration_files import (
+from hub.app.parsers.declaration_files import (
     DeclarationFileError,
     is_supported_filename,
     parse_declaration_file,
 )
-from app.storage import save_upload, sha256_bytes
-from app.stores.customs_declaration_files import insert_declaration_file
+from hub.app.storage import save_upload, sha256_bytes
+from hub.app.stores.customs_declaration_files import insert_declaration_file
 
 
 def main() -> int:

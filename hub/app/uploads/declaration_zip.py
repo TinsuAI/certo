@@ -23,16 +23,16 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Iterable
 
-from app.database import connect
-from app.parsers.declaration_files import (
+from hub.app.database import connect
+from hub.app.parsers.declaration_files import (
     DeclarationFileError,
     DeclarationFileMismatchError,
     is_supported_filename,
     parse_declaration_file,
     parse_filename,
 )
-from app.storage import save_upload, sha256_bytes
-from app.stores.customs_declaration_files import insert_declaration_file
+from hub.app.storage import save_upload, sha256_bytes
+from hub.app.stores.customs_declaration_files import insert_declaration_file
 
 
 # ─── Caps (locked in brief D6) ─────────────────────────────────────────

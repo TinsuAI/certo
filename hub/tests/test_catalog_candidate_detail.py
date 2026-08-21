@@ -9,9 +9,9 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app.auth.session import SESSION_COOKIE, create_session, hash_password
-from app.database import connect
-from app.main import app
+from hub.app.auth.session import SESSION_COOKIE, create_session, hash_password
+from hub.app.database import connect
+from hub.app.main import app
 
 
 CLIENT = "_test_detail_disc"
@@ -59,9 +59,9 @@ def setup():
             """,
             (CLIENT,),
         )
-    from app.parsers.client_parser_rules import clear_rules_cache
+    from hub.app.parsers.client_parser_rules import clear_rules_cache
     clear_rules_cache()
-    from app.stores.bcct_nb_codes import rebuild_for_client
+    from hub.app.stores.bcct_nb_codes import rebuild_for_client
     rebuild_for_client(CLIENT)
     c = TestClient(app)
     c.cookies.set(SESSION_COOKIE, create_session(USER_ID))

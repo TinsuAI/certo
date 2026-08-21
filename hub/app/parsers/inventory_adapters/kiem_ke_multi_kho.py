@@ -8,7 +8,7 @@ the exact-match alias index. Distinguished by the physical-count column.
 """
 from __future__ import annotations
 
-from app.parsers._excel import cell_num, cell_str, load_xlsx
+from hub.app.parsers._excel import cell_num, cell_str, load_xlsx
 
 # The distinctive stocktake signal is the Chinese physical-count column (实盘 /
 # 實盤). NOT the generic Vietnamese "thực đếm" — that's what our own clean
@@ -58,7 +58,7 @@ class KiemKeMultiKhoAdapter:
 
     def parse(self, blob: bytes, *,
               mapping_override: dict[str, str] | None = None) -> list[dict]:
-        from app.parsers.inventory_adapters import InventoryParseError
+        from hub.app.parsers.inventory_adapters import InventoryParseError
         try:
             wb = load_xlsx(blob)
         except Exception as e:

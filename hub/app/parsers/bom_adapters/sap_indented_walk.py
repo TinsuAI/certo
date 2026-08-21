@@ -29,7 +29,7 @@ import io
 from collections import defaultdict
 from decimal import Decimal
 
-from app.parsers.bom_adapters._common import COMMON_ALIASES
+from hub.app.parsers.bom_adapters._common import COMMON_ALIASES
 
 
 _LEVEL_ALIASES = ["level", "lvl", "cấp", "explosion level"]
@@ -121,7 +121,7 @@ class SapIndentedWalkAdapter:
         upload route from the filename stem; if absent, falls back to a
         sentinel ('__root__') so the engine still has something to key on.
         """
-        from app.parsers.bom_adapters import BomParseError
+        from hub.app.parsers.bom_adapters import BomParseError
         try:
             import openpyxl
             wb = openpyxl.load_workbook(io.BytesIO(blob), data_only=True, read_only=True)

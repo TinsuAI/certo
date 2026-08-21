@@ -15,13 +15,13 @@ Method identity:
 """
 from __future__ import annotations
 
-from app.flatten.engine import flatten
-from app.flatten.types import (
+from hub.app.flatten.engine import flatten
+from hub.app.flatten.types import (
     BomKey, CatalogEntry, ClassificationResult, ConversionMatch, Decision,
     FlattenContext, FlattenResult, FlattenedRow, FlattenedVersion,
     ParsedBom, ParsedRow, UnresolvedNode,
 )
-from app.flatten.identity import build_display_label
+from hub.app.flatten.identity import build_display_label
 
 FLATTEN_METHOD = "dh_flatten_v1"
 FLATTEN_METHOD_VERSION = "0.1.0"

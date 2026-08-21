@@ -23,8 +23,8 @@ Counterpart compared against:
 """
 from __future__ import annotations
 
-from app.database import connect
-from app.stores.uom_standards import dimension_of, resolve_canonical
+from hub.app.database import connect
+from hub.app.stores.uom_standards import dimension_of, resolve_canonical
 
 
 _SEVERITY_RANK = {
@@ -154,7 +154,7 @@ def compute_uom_drifts(client_id: str, rows: list[dict]) -> list[dict]:
     # Phase 2: build a uom_lookup once for this client to compute the
     # conversion plan per drift entry. Lazy import to avoid pulling
     # the store layer at module import time.
-    from app.stores.uom import make_uom_lookup
+    from hub.app.stores.uom import make_uom_lookup
     uom_lookup = make_uom_lookup(client_id)
 
     out: list[dict] = []

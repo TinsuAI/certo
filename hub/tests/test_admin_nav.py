@@ -6,9 +6,9 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app.auth.session import create_session, hash_password, SESSION_COOKIE
-from app.database import connect
-from app.main import app
+from hub.app.auth.session import create_session, hash_password, SESSION_COOKIE
+from hub.app.database import connect
+from hub.app.main import app
 
 
 def _dev_client() -> tuple[TestClient, str]:

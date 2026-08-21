@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.database import connect
+from hub.app.database import connect
 
 
 CLIENT = "_test_warn_dual"
@@ -63,7 +63,7 @@ def _seed_bcct(rows):
 
 
 def test_no_warning_when_single_hs_code():
-    from app.stores.catalog_warnings import compute_warnings
+    from hub.app.stores.catalog_warnings import compute_warnings
     _seed_bcct([
         ("D1", "WIDGET", "85369012", "PIECES", "VN", "import"),
         ("D2", "WIDGET", "85369012", "PIECES", "VN", "import"),
@@ -73,7 +73,7 @@ def test_no_warning_when_single_hs_code():
 
 
 def test_warns_on_hs_code_drift():
-    from app.stores.catalog_warnings import compute_warnings
+    from hub.app.stores.catalog_warnings import compute_warnings
     _seed_bcct([
         ("D1", "WIDGET", "85369012", "PIECES", "VN", "import"),
         ("D2", "WIDGET", "85369012", "PIECES", "VN", "import"),
@@ -93,7 +93,7 @@ def test_warns_on_hs_code_drift():
 
 def test_warns_on_uom_drift():
     """Materials says PIECES but BCCT shows KG too."""
-    from app.stores.catalog_warnings import compute_warnings
+    from hub.app.stores.catalog_warnings import compute_warnings
     _seed_bcct([
         ("D1", "WIDGET", "85369012", "PIECES", "VN", "import"),
         ("D2", "WIDGET", "85369012", "KG", "VN", "import"),
@@ -105,7 +105,7 @@ def test_warns_on_uom_drift():
 
 def test_uom_drift_incompatible_stays_warn():
     """A.4.4: PIECES vs KG (count↔mass) can't convert → severity warn."""
-    from app.stores.catalog_warnings import compute_warnings
+    from hub.app.stores.catalog_warnings import compute_warnings
     _seed_bcct([
         ("D1", "WIDGET", "85369012", "PIECES", "VN", "import"),
         ("D2", "WIDGET", "85369012", "KG", "VN", "import"),
@@ -118,7 +118,7 @@ def test_uom_drift_incompatible_stays_warn():
 
 def test_uom_drift_same_family_convertible_is_info():
     """A.4.4: g vs kg convert cleanly → still surfaced but info, not warn."""
-    from app.stores.catalog_warnings import compute_warnings
+    from hub.app.stores.catalog_warnings import compute_warnings
     with connect() as conn, conn.cursor() as cur:
         cur.execute("update hub.materials set uom='kg' where client_id=%s "
                     "and material_code='WIDGET'", (CLIENT,))
@@ -135,7 +135,7 @@ def test_uom_drift_same_family_convertible_is_info():
 def test_uom_drift_tier_a_unconfirmed_stays_warn():
     """A.4.4: SETS vs PIECES is tier-A 1:1 (a guess) → needs confirmation,
     so it stays warn, consistent with the panel's amber chip."""
-    from app.stores.catalog_warnings import compute_warnings
+    from hub.app.stores.catalog_warnings import compute_warnings
     _seed_bcct([
         ("D1", "WIDGET", "85369012", "PIECES", "VN", "import"),
         ("D2", "WIDGET", "85369012", "SETS", "VN", "import"),
@@ -148,7 +148,7 @@ def test_uom_drift_tier_a_unconfirmed_stays_warn():
 
 def test_no_warning_for_uom_synonyms():
     """PCS / PIECE / ST all resolve to canonical 'pcs' → no drift warning."""
-    from app.stores.catalog_warnings import compute_warnings
+    from hub.app.stores.catalog_warnings import compute_warnings
     _seed_bcct([
         ("D1", "WIDGET", "85369012", "PIECES", "VN", "import"),
         ("D2", "WIDGET", "85369012", "PCS", "VN", "import"),
@@ -161,7 +161,7 @@ def test_no_warning_for_uom_synonyms():
 
 def test_no_warning_when_catalog_uom_is_alias_of_bcct_uom():
     """Catalog uom='PIECES', BCCT unit='PCS' → same canonical 'pcs' → no warn."""
-    from app.stores.catalog_warnings import compute_warnings
+    from hub.app.stores.catalog_warnings import compute_warnings
     # Seed update materials.uom (was 'PIECES' from initial setup)
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
@@ -181,7 +181,7 @@ def test_no_warning_when_catalog_uom_is_alias_of_bcct_uom():
 
 
 def test_warns_on_origin_drift():
-    from app.stores.catalog_warnings import compute_warnings
+    from hub.app.stores.catalog_warnings import compute_warnings
     _seed_bcct([
         ("D1", "WIDGET", "85369012", "PIECES", "VN", "import"),
         ("D2", "WIDGET", "85369012", "PIECES", "CN", "import"),
@@ -197,7 +197,7 @@ def test_warns_on_origin_drift():
 
 
 def test_warns_on_both_directions():
-    from app.stores.catalog_warnings import compute_warnings
+    from hub.app.stores.catalog_warnings import compute_warnings
     _seed_bcct([
         ("D1", "WIDGET", "85369012", "PIECES", "VN", "import"),
         ("D2", "WIDGET", "85369012", "PIECES", "VN", "export"),
@@ -212,7 +212,7 @@ def test_warns_on_both_directions():
 
 def test_warns_on_multiple_hq_for_one_nb():
     """NB code mapped to multiple HQ buckets → potential ambiguity."""
-    from app.stores.catalog_warnings import compute_warnings
+    from hub.app.stores.catalog_warnings import compute_warnings
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "insert into hub.code_mappings (client_id, internal_code, customs_code) "
@@ -226,7 +226,7 @@ def test_warns_on_multiple_hq_for_one_nb():
 
 
 def test_no_warnings_when_clean():
-    from app.stores.catalog_warnings import compute_warnings
+    from hub.app.stores.catalog_warnings import compute_warnings
     _seed_bcct([
         ("D1", "WIDGET", "85369012", "PIECES", "VN", "import"),
     ])

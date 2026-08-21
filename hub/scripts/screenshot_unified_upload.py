@@ -31,7 +31,7 @@ CLIENT = "growatt-vn"
 OUT = Path(".ai/features/2026-05-04-flexible-catalog-intake/screenshots")
 OUT.mkdir(parents=True, exist_ok=True)
 
-FIXTURES = Path("data/manual_test")
+FIXTURES = Path(__file__).resolve().parent.parent / "data" / "manual_test"
 
 
 async def login(page: Page) -> None:

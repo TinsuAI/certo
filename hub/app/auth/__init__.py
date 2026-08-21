@@ -1,4 +1,4 @@
-from app.auth.session import (
+from hub.app.auth.session import (
     SESSION_COOKIE,
     SESSION_TTL_HOURS,
     User,
@@ -14,7 +14,7 @@ from app.auth.session import (
     set_session_cookie,
     verify_password,
 )
-from app.auth.permissions import (
+from hub.app.auth.permissions import (
     can_approve_proposal,
     can_assign_staff_to_client,
     can_create_client,

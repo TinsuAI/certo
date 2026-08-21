@@ -9,7 +9,7 @@ import io
 
 from openpyxl import Workbook
 
-from app.parsers.bcct import parse_bcct_workbook
+from hub.app.parsers.bcct import parse_bcct_workbook
 
 
 def _xlsx(rows):
@@ -47,12 +47,12 @@ def test_no_header_flow_keeps_all_rows(tmp_path, monkeypatch):
     import re
     import pytest
     from fastapi.testclient import TestClient
-    from app.auth.session import create_session, hash_password, SESSION_COOKIE
-    from app.database import connect
-    from app.main import app
+    from hub.app.auth.session import create_session, hash_password, SESSION_COOKIE
+    from hub.app.database import connect
+    from hub.app.main import app
 
     monkeypatch.setenv("DATA_HUB_FILES_ROOT", str(tmp_path / "files"))
-    import app.storage as storage_mod
+    import hub.app.storage as storage_mod
     storage_mod._BACKEND = None
 
     cid, uid = "noheader-route", "u_noheader_route"
@@ -100,7 +100,7 @@ def test_no_header_flow_keeps_all_rows(tmp_path, monkeypatch):
 
 
 def test_infer_distinctive_columns_by_value():
-    from app.parsers.bcct_infer import infer_bcct_columns_by_values
+    from hub.app.parsers.bcct_infer import infer_bcct_columns_by_values
     rows = [
         ["108212187420", "1", "E11", "2026-05-18", "PE-001", "Nhựa PE nguyên sinh",
          "100", "kg", "250000", "0.05", "1300", "9.5", "USD", "26138"],
@@ -120,14 +120,14 @@ def test_infer_distinctive_columns_by_value():
 
 
 def test_infer_skips_pure_numeric_columns():
-    from app.parsers.bcct_infer import infer_bcct_columns_by_values
+    from hub.app.parsers.bcct_infer import infer_bcct_columns_by_values
     rows = [["100", "250", "1300"], ["80", "200", "1100"]]
     assert infer_bcct_columns_by_values(rows) == {}
 
 
 def test_build_context_prefills_inferred_on_no_header():
-    from app.routes._mapping_flow import _build_mapping_context
-    from app.routes.bcct import BCCT_MAPPING_CFG
+    from hub.app.routes._mapping_flow import _build_mapping_context
+    from hub.app.routes.bcct import BCCT_MAPPING_CFG
     blob = _xlsx([
         ("108212187420", "1", "E11", "2026-05-18", "PE-001", "Nhựa PE nguyên sinh",
          "100", "kg", "250000", "0.05", "1300", "9.5", "USD", "26138"),
@@ -145,8 +145,8 @@ def test_build_context_prefills_inferred_on_no_header():
 
 
 def test_headerless_file_suggests_no_header():
-    from app.routes._mapping_flow import _build_mapping_context
-    from app.routes.bcct import BCCT_MAPPING_CFG
+    from hub.app.routes._mapping_flow import _build_mapping_context
+    from hub.app.routes.bcct import BCCT_MAPPING_CFG
     blob = _xlsx([
         ("308400001", "1", "E11", "2026-05-18", "PE-1", "Poly", "100", "kg", "250", "USD"),
         ("308400002", "1", "E11", "2026-05-18", "PE-2", "PP", "80", "kg", "200", "USD"),
@@ -158,8 +158,8 @@ def test_headerless_file_suggests_no_header():
 
 
 def test_standard_header_file_does_not_suggest_no_header():
-    from app.routes._mapping_flow import _build_mapping_context
-    from app.routes.bcct import BCCT_MAPPING_CFG
+    from hub.app.routes._mapping_flow import _build_mapping_context
+    from hub.app.routes.bcct import BCCT_MAPPING_CFG
     blob = _xlsx([
         ("Số tờ khai", "Dòng", "Mã loại hình", "Ngày đăng ký", "Mã NPL/SP",
          "Tên hàng", "Tổng số lượng", "ĐVT", "Trị giá", "Nguyên tệ"),

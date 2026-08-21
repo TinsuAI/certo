@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.database import connect
+from hub.app.database import connect
 
 
 CLIENT = "_state_trigger_test"
@@ -455,7 +455,7 @@ def test_d7_skips_flag_when_override_resolves_drift():
 def test_reconcile_clears_flag_when_override_now_resolves_drift():
     """After insert_factor wires reconcile, a pre-existing flagged
     derived artifact should clear once the override fills the gap."""
-    from app.stores.bom_staleness import reconcile_for_material
+    from hub.app.stores.bom_staleness import reconcile_for_material
     with connect() as conn, conn.cursor() as cur:
         _seed_material(cur, "M_REC", uom="kg")
         _insert_artifact(cur, "ba_rec", "P_REC", "technical_exploded",
@@ -487,7 +487,7 @@ def test_reconcile_clears_flag_when_override_now_resolves_drift():
 def test_reconcile_clears_raw_graph_flag_when_alignment_now_holds():
     """raw_graph cannot refresh, but reconcile re-checks alignment via
     has_drift_remaining and clears has_uom_drift if all edges resolved."""
-    from app.stores.bom_staleness import reconcile_for_material
+    from hub.app.stores.bom_staleness import reconcile_for_material
     with connect() as conn, conn.cursor() as cur:
         _seed_material(cur, "M_RAW_REC", uom="kg")
         _insert_artifact(cur, "ba_raw_rec", "P_RAW_REC", "no_strategy",
@@ -520,7 +520,7 @@ def test_reconcile_clears_raw_graph_flag_when_alignment_now_holds():
 def test_reconcile_caps_at_50_defers_rest():
     """When a heavily-referenced material edit would touch >50 artifacts,
     only 50 are refreshed synchronously and the rest are deferred."""
-    from app.stores.bom_staleness import reconcile_for_material
+    from hub.app.stores.bom_staleness import reconcile_for_material
     with connect() as conn, conn.cursor() as cur:
         _seed_material(cur, "M_CAP", uom="kg")
         # Pre-flag 60 artifacts referencing M_CAP.
@@ -587,7 +587,7 @@ def test_reconcile_clears_same_family_false_positive():
     """Backfill spirit at runtime: a raw_graph pre-flagged with materials_uom
     drift clears once has_drift_remaining (widened) sees the same-family
     pair as convertible — no override needed."""
-    from app.stores.bom_staleness import reconcile_for_material
+    from hub.app.stores.bom_staleness import reconcile_for_material
     with connect() as conn, conn.cursor() as cur:
         _seed_material(cur, "M_SF_REC", uom="kg")
         _insert_artifact(cur, "ba_sf_rec", "P_SF_REC", "no_strategy",

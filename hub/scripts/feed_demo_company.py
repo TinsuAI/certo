@@ -31,7 +31,7 @@ from playwright.async_api import Page, async_playwright
 
 sys.path.insert(0, os.fspath(Path(__file__).resolve().parents[1]))
 
-from app.database import connect
+from hub.app.database import connect
 
 
 BASE = "http://127.0.0.1:8754"

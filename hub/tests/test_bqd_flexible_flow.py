@@ -18,9 +18,9 @@ import pytest
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
-from app.auth.session import create_session, hash_password, SESSION_COOKIE
-from app.database import connect
-from app.main import app
+from hub.app.auth.session import create_session, hash_password, SESSION_COOKIE
+from hub.app.database import connect
+from hub.app.main import app
 
 
 CLIENT = "flex_bqd_test"
@@ -31,7 +31,7 @@ USER_EMAIL = "flex-bqd@test.local"
 @pytest.fixture(autouse=True)
 def isolated_files_dir(monkeypatch, tmp_path):
     monkeypatch.setenv("DATA_HUB_FILES_ROOT", str(tmp_path / "files"))
-    import app.storage as storage_mod
+    import hub.app.storage as storage_mod
     storage_mod._BACKEND = None
     yield
     storage_mod._BACKEND = None

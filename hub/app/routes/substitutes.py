@@ -8,9 +8,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from app import auth
-from app.routes.clients import get_client
-from app.stores.material_substitutes import (
+from hub.app import auth
+from hub.app.routes.clients import get_client
+from hub.app.stores.material_substitutes import (
     insert_candidate,
     list_for_material,
     refresh_candidates,

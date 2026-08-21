@@ -9,7 +9,7 @@ or disabled. User presets are fully deletable.
 """
 from __future__ import annotations
 
-from app.database import connect
+from hub.app.database import connect
 
 
 def list_all(*, only_active: bool = False) -> list[dict]:

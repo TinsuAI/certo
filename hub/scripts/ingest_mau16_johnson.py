@@ -29,13 +29,13 @@ from pathlib import Path
 
 sys.path.insert(0, os.fspath(Path(__file__).resolve().parents[1]))
 
-from app.database import connect
-from app.parsers.bom_adapters.manual_flat import ManualFlatAdapter
-from app.stores.bom import create_artifact
-from app.stores.bom_staleness import (
+from hub.app.database import connect
+from hub.app.parsers.bom_adapters.manual_flat import ManualFlatAdapter
+from hub.app.stores.bom import create_artifact
+from hub.app.stores.bom_staleness import (
     _apply_drift_to_artifact, _convert_rows_to_catalog_uom,
 )
-from app.stores.uom_standards import resolve_canonical
+from hub.app.stores.uom_standards import resolve_canonical
 
 
 DEFAULT_CLIENT = "johnson-vn"

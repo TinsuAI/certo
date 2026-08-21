@@ -9,9 +9,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import auth
-from app.routes.clients import get_client, stats_for_client
-from app.stores import client_config, client_type_presets, declaration_types
+from hub.app import auth
+from hub.app.routes.clients import get_client, stats_for_client
+from hub.app.stores import client_config, client_type_presets, declaration_types
 
 router = APIRouter()
 

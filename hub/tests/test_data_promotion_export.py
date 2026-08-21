@@ -20,8 +20,8 @@ from pathlib import Path
 
 import pytest
 
-from app.data_promotion import export_client
-from app.database import connect
+from hub.app.data_promotion import export_client
+from hub.app.database import connect
 
 
 @pytest.fixture

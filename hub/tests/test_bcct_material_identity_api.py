@@ -11,8 +11,8 @@ import secrets
 import pytest
 from fastapi.testclient import TestClient
 
-from app.database import connect
-from app.main import app
+from hub.app.database import connect
+from hub.app.main import app
 
 
 @pytest.fixture(autouse=True)
@@ -48,7 +48,7 @@ def seeded():
          "BIENTAN.17#&Imported (PV01.0117500)#&VN",
          invoice),
     ]
-    from app.parsers.client_parser_rules import clear_rules_cache
+    from hub.app.parsers.client_parser_rules import clear_rules_cache
     clear_rules_cache()
     with connect() as conn, conn.cursor() as cur:
         cur.execute(

@@ -28,8 +28,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 import openpyxl  # noqa: E402
 
-from app.database import connect  # noqa: E402
-from app.storage import get_backend  # noqa: E402
+from hub.app.database import connect  # noqa: E402
+from hub.app.storage import get_backend  # noqa: E402
 
 BASE = "http://127.0.0.1:8754"
 EMAIL = "admin@data-hub.local"

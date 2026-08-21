@@ -11,12 +11,12 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app import jwt_issuer, settings_store
-from app.database import connect
-from app.main import app
-from app.routes.clients import upsert_client
-from app.stores import service_accounts as sa_store
-from app.stores.material_substitutes import insert_candidate
+from hub.app import jwt_issuer, settings_store
+from hub.app.database import connect
+from hub.app.main import app
+from hub.app.routes.clients import upsert_client
+from hub.app.stores import service_accounts as sa_store
+from hub.app.stores.material_substitutes import insert_candidate
 
 
 @pytest.fixture(autouse=True)

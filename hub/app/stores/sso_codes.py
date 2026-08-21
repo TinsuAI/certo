@@ -21,7 +21,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from app.database import connect
+from hub.app.database import connect
 
 CODE_TTL_SECONDS = 120
 CODE_BYTES = 32

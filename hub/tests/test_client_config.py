@@ -9,8 +9,8 @@ import secrets
 
 import pytest
 
-from app.database import connect
-from app.stores import client_config, client_type_presets, declaration_types
+from hub.app.database import connect
+from hub.app.stores import client_config, client_type_presets, declaration_types
 
 
 @pytest.fixture

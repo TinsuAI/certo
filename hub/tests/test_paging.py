@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.routes._paging import (
+from hub.app.routes._paging import (
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
     PAGE_SIZE_CHOICES,

@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import pytest
 
-from app.database import connect
-from app.routes.clients import upsert_client
-from app.stores.customs_declaration_files import (
+from hub.app.database import connect
+from hub.app.routes.clients import upsert_client
+from hub.app.stores.customs_declaration_files import (
     delete_declaration_file,
     file_count_per_declaration,
     get_declaration_file,

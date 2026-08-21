@@ -10,9 +10,9 @@ import json
 import secrets
 from datetime import date
 
-from app.database import connect
-from app.parsers.nxt_adapters._common import NUMERIC_FIELDS, closing_implied
-from app.parsers.nxt_adapters.system_template import render_template_xlsx  # noqa: F401
+from hub.app.database import connect
+from hub.app.parsers.nxt_adapters._common import NUMERIC_FIELDS, closing_implied
+from hub.app.parsers.nxt_adapters.system_template import render_template_xlsx  # noqa: F401
 
 _LINE_FIELDS = (
     "internal_code", "customs_code", "name", "uom", "reported_role",

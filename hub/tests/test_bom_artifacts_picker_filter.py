@@ -15,8 +15,8 @@ import secrets
 import pytest
 from fastapi.testclient import TestClient
 
-from app.database import connect
-from app.main import app
+from hub.app.database import connect
+from hub.app.main import app
 
 
 def _client() -> TestClient:

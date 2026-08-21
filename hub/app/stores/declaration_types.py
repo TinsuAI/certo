@@ -6,7 +6,7 @@ once from data/seeds/declaration_types.yaml; staff manage via
 """
 from __future__ import annotations
 
-from app.database import connect
+from hub.app.database import connect
 
 
 def list_all(*, only_active: bool = False, direction: str | None = None) -> list[dict]:

@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.database import connect
+from hub.app.database import connect
 
 
 CLIENT = "track_b_test"
@@ -249,7 +249,7 @@ def test_list_products_returns_n_logical_versions():
     """The store dict shape adds `n_logical_versions` (distinct
     lineage_root count per product) and renames `n_versions` →
     `n_artifacts` for clarity (counts artifact rows, not phiên bản)."""
-    from app.stores.bom import list_products_with_bom
+    from hub.app.stores.bom import list_products_with_bom
     rows = list_products_with_bom("johnson-vn", limit=5)
     if not rows:
         pytest.skip("no johnson-vn BOM data")
@@ -273,7 +273,7 @@ def test_list_products_returns_n_logical_versions():
 def test_two_logical_versions_for_two_separate_root_uploads():
     """Synthetic: insert 2 root artifacts for same product → store
     reports n_logical_versions=2."""
-    from app.stores.bom import list_products_with_bom
+    from hub.app.stores.bom import list_products_with_bom
     pcode = "TRACK_B_TWO_LOGICAL"
     _insert_artifact(CLIENT, pcode, "ba_track_b_logical_1", 1)
     _insert_artifact(CLIENT, pcode, "ba_track_b_logical_2", 2)
@@ -291,7 +291,7 @@ def test_two_logical_versions_for_two_separate_root_uploads():
 def test_three_shapes_share_one_logical_version():
     """Standard upload pattern: raw_graph artifact spawns shallow +
     full_flat materialized children. All 3 share one lineage_root."""
-    from app.stores.bom import list_products_with_bom
+    from hub.app.stores.bom import list_products_with_bom
     pcode = "TRACK_B_ONE_LOGICAL"
     raw = "ba_track_b_3shapes_raw"
     shallow = "ba_track_b_3shapes_shallow"

@@ -7,8 +7,8 @@
 """
 from __future__ import annotations
 
-from app import llm
-from app.routes._mapping_flow import _merge_llm_into_unresolved
+from hub.app import llm
+from hub.app.routes._mapping_flow import _merge_llm_into_unresolved
 
 
 def test_merge_only_fills_unresolved():

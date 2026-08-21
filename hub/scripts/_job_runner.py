@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.fspath(Path(__file__).resolve().parents[1]))
 
-from app import jobs
+from hub.app import jobs
 
 
 _TAIL_LINES = 20

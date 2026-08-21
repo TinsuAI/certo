@@ -11,10 +11,10 @@ import json
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from app import auth, settings_store
-from app.agent import runtime, store
-from app.llm import LLMUnavailable
-from app.routes.clients import get_client, stats_for_client
+from hub.app import auth, settings_store
+from hub.app.agent import runtime, store
+from hub.app.llm import LLMUnavailable
+from hub.app.routes.clients import get_client, stats_for_client
 
 router = APIRouter()
 

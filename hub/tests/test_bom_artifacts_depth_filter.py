@@ -17,9 +17,9 @@ import secrets
 import pytest
 from fastapi.testclient import TestClient
 
-from app.database import connect
-from app.main import app
-from tests.test_bom_artifacts_picker_filter import _ins
+from hub.app.database import connect
+from hub.app.main import app
+from hub.tests.test_bom_artifacts_picker_filter import _ins
 
 
 def _client() -> TestClient:

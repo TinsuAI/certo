@@ -24,11 +24,11 @@ from pathlib import Path
 
 sys.path.insert(0, os.fspath(Path(__file__).resolve().parents[1]))
 
-from app.database import connect
-from app.declarations_pdf import get_cached_pdf
-from app.declarations_pdf import ensure_pdfs
-from app.storage import get_backend
-from app.stores.customs_declaration_files import DeclarationFile
+from hub.app.database import connect
+from hub.app.declarations_pdf import get_cached_pdf
+from hub.app.declarations_pdf import ensure_pdfs
+from hub.app.storage import get_backend
+from hub.app.stores.customs_declaration_files import DeclarationFile
 
 
 def _fetch_xls_files(client_id: str | None) -> list[DeclarationFile]:

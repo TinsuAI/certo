@@ -22,7 +22,7 @@ def compute_internal_code(row: dict, *, client: dict) -> str | None:
     """
     if client.get("code_resolution_mode") == "identity":
         return row.get("customs_code") or None
-    from app.parsers.client_parser_rules import (
+    from hub.app.parsers.client_parser_rules import (
         evaluate_compiled_rules,
         load_rules,
     )

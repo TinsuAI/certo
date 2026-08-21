@@ -4,9 +4,9 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app.auth.session import SESSION_COOKIE, create_session, hash_password
-from app.database import connect
-from app.main import app
+from hub.app.auth.session import SESSION_COOKIE, create_session, hash_password
+from hub.app.database import connect
+from hub.app.main import app
 
 
 ADMIN_ID = "u_uom_admin"
@@ -155,7 +155,7 @@ def test_delete_alias(setup):
 
 def test_create_alias_clears_resolver_cache(setup):
     """After adding alias, resolve_canonical sees it without restart."""
-    from app.stores.uom_standards import resolve_canonical
+    from hub.app.stores.uom_standards import resolve_canonical
     c = _c(setup["session"])
     c.post(
         "/admin/uom/aliases/new",
@@ -167,7 +167,7 @@ def test_create_alias_clears_resolver_cache(setup):
 
 
 def test_update_canonical(setup):
-    from app.stores.uom_standards import dimension_of
+    from hub.app.stores.uom_standards import dimension_of
     c = _c(setup["session"])
     c.post("/admin/uom/canonical/new",
            data={"uom_code": "zzz_test_canon", "family": "mass",
@@ -203,7 +203,7 @@ def test_update_canonical_invalid_family_rejected(setup):
 
 
 def test_delete_canonical_cascades_aliases(setup):
-    from app.stores.uom_standards import resolve_canonical
+    from hub.app.stores.uom_standards import resolve_canonical
     c = _c(setup["session"])
     c.post("/admin/uom/canonical/new",
            data={"uom_code": "zzz_test_canon", "family": "mass",
@@ -234,7 +234,7 @@ def test_delete_canonical_unknown_redirects_error(setup):
 
 
 def test_format_factor():
-    from app.stores.uom_standards import format_factor
+    from hub.app.stores.uom_standards import format_factor
     assert format_factor("1.000000000") == "1"
     assert format_factor("0.001") == "0.001"
     assert format_factor("1000.0") == "1000"

@@ -14,9 +14,9 @@ from decimal import Decimal
 
 import pytest
 
-from app.database import connect
-from app.stores.bom import create_artifact
-from app.stores.bom_staleness import (
+from hub.app.database import connect
+from hub.app.stores.bom import create_artifact
+from hub.app.stores.bom_staleness import (
     _reconstruct_originals_from_artifact,
     refresh_artifact,
 )

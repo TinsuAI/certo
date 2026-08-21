@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from app.parsers.bcct import EXPORT_TYPES, IMPORT_TYPES
+from hub.app.parsers.bcct import EXPORT_TYPES, IMPORT_TYPES
 
 _DECL_TYPES = IMPORT_TYPES | EXPORT_TYPES
 _DATE_FORMATS = ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d.%m.%Y", "%Y/%m/%d")

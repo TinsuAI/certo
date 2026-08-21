@@ -24,8 +24,8 @@ from pathlib import Path
 
 sys.path.insert(0, os.fspath(Path(__file__).resolve().parents[1]))
 
-from app import embedding
-from app.database import connect
+from hub.app import embedding
+from hub.app.database import connect
 
 
 def _select_dirty(client_id: str, limit: int | None,

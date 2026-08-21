@@ -52,9 +52,9 @@ from pathlib import Path
 
 sys.path.insert(0, os.fspath(Path(__file__).resolve().parents[1]))
 
-from app.database import connect
-from app.stores.bom import create_artifact
-from app.stores.bom_staleness import (
+from hub.app.database import connect
+from hub.app.stores.bom import create_artifact
+from hub.app.stores.bom_staleness import (
     _apply_drift_to_artifact, _convert_rows_to_catalog_uom,
 )
 
@@ -159,7 +159,7 @@ def _group_offenders(edge_uoms, resolve_canonical):
 def detect_multi_canonical_leaves(artifact_id: str):
     """DB-backed wrapper around `_group_offenders` for one raw artifact's
     edges. Returns offenders the materialize caller warns on."""
-    from app.stores.uom import _alias_to_canonical
+    from hub.app.stores.uom import _alias_to_canonical
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "select child_code, uom from hub.bom_edges "
@@ -259,7 +259,7 @@ def materialize_one(
     yield aligned UoMs.
 
     Returns counters dict. Idempotent via create_artifact's hash dedup."""
-    from app.stores.bom_staleness import (
+    from hub.app.stores.bom_staleness import (
         _convert_rows_to_catalog_uom, _apply_drift_to_artifact,
     )
 
@@ -483,7 +483,7 @@ def _cleanup_stale_derived(client_id: str) -> dict:
     caused by out-of-order bulk ingest (materialize ran before all BTP
     raws were minted).
     """
-    from app.stores.bom_staleness import refresh_artifact
+    from hub.app.stores.bom_staleness import refresh_artifact
     counters = {"refreshed": 0, "minted_new": 0, "cleared": 0,
                  "skipped": 0, "errors": 0}
     with connect() as conn, conn.cursor() as cur:

@@ -12,15 +12,13 @@ from pathlib import Path
 
 sys.path.insert(0, os.fspath(Path(__file__).resolve().parents[1]))
 
-from app.parsers.bcct import parse_bcct_workbook
-from app.routes.bcct import _insert_bcct
-from scripts.ingest_curated_xlsx_direct import _stub_upload
+from hub.app.parsers.bcct import parse_bcct_workbook
+from hub.app.routes.bcct import _insert_bcct
+from hub.scripts.ingest_curated_xlsx_direct import _stub_upload
 
 
 CLIENT_ID = "johnson-vn"
-SOURCE_ROOT = Path(
-    "data/source_inventory/johnson-vn/2026-05-07-updated/Johnson"
-)
+SOURCE_ROOT = Path(__file__).resolve().parent.parent / "data" / "source_inventory" / "johnson-vn" / "2026-05-07-updated" / "Johnson"
 NK_FILE = SOURCE_ROOT / "BaoCaoHangChiTietNK - JOHNSON - ALL (06.05.2026).xls"
 XK_FILE = SOURCE_ROOT / "BaoCaoHangChiTietXK JOHNSON - ALL (06.05.2026).xls"
 

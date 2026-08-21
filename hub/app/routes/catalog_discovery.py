@@ -14,14 +14,14 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from urllib.parse import quote, urlencode
 
-from app import auth
-from app.database import connect
-from app.routes._paging import (
+from hub.app import auth
+from hub.app.database import connect
+from hub.app.routes._paging import (
     pagination_context, parse_page_params,
 )
-from app.routes.clients import get_client
-from app.stores.bcct_nb_codes import rebuild_for_client
-from app.stores.catalog_discovery import (
+from hub.app.routes.clients import get_client
+from hub.app.stores.bcct_nb_codes import rebuild_for_client
+from hub.app.stores.catalog_discovery import (
     AlreadyInCatalog,
     accept_code,
     bulk_accept_codes,

@@ -6,8 +6,8 @@ import secrets
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import auth
-from app.database import connect
+from hub.app import auth
+from hub.app.database import connect
 
 router = APIRouter()
 
@@ -292,7 +292,7 @@ async def parser_rules_create(request: Request, client_id: str,
     user = auth.require_user(request)
     if not auth.can_edit_client_technical(user, client_id):
         raise HTTPException(403, "forbidden")
-    from app.parsers.client_parser_rules import (
+    from hub.app.parsers.client_parser_rules import (
         InvalidPatternError, clear_rules_cache, compile_pattern,
     )
     try:
@@ -319,7 +319,7 @@ async def parser_rules_create(request: Request, client_id: str,
                 status_code=303,
             )
     clear_rules_cache()
-    from app.stores.bcct_nb_codes import rebuild_after_change
+    from hub.app.stores.bcct_nb_codes import rebuild_after_change
     rebuild_after_change(client_id)
     return RedirectResponse(
         url=f"/clients/{client_id}/parser-rules?flash=Rule+created",
@@ -369,7 +369,7 @@ async def parser_rules_edit_post(request: Request, client_id: str, rule_id: int,
     user = auth.require_user(request)
     if not auth.can_edit_client_technical(user, client_id):
         raise HTTPException(403, "forbidden")
-    from app.parsers.client_parser_rules import (
+    from hub.app.parsers.client_parser_rules import (
         InvalidPatternError, clear_rules_cache, compile_pattern,
     )
     try:
@@ -391,7 +391,7 @@ async def parser_rules_edit_post(request: Request, client_id: str, rule_id: int,
              client_id, rule_id),
         )
     clear_rules_cache()
-    from app.stores.bcct_nb_codes import rebuild_after_change
+    from hub.app.stores.bcct_nb_codes import rebuild_after_change
     rebuild_after_change(client_id)
     return RedirectResponse(
         url=f"/clients/{client_id}/parser-rules?flash=Rule+{rule_id}+updated",
@@ -404,7 +404,7 @@ async def parser_rules_disable(request: Request, client_id: str, rule_id: int):
     user = auth.require_user(request)
     if not auth.can_edit_client_technical(user, client_id):
         raise HTTPException(403, "forbidden")
-    from app.parsers.client_parser_rules import clear_rules_cache
+    from hub.app.parsers.client_parser_rules import clear_rules_cache
     with connect(user_id=user.user_id) as conn, conn.cursor() as cur:
         cur.execute(
             "update hub.client_parser_rules set enabled=false "
@@ -412,7 +412,7 @@ async def parser_rules_disable(request: Request, client_id: str, rule_id: int):
             (client_id, rule_id),
         )
     clear_rules_cache()
-    from app.stores.bcct_nb_codes import rebuild_after_change
+    from hub.app.stores.bcct_nb_codes import rebuild_after_change
     rebuild_after_change(client_id)
     return RedirectResponse(
         url=f"/clients/{client_id}/parser-rules?flash=Rule+disabled",
@@ -475,7 +475,7 @@ async def parser_rules_test_view(request: Request, client_id: str,
     client = get_client(client_id)
     if not client:
         raise HTTPException(404, "Client not found")
-    from app.parsers.client_parser_rules import load_rules
+    from hub.app.parsers.client_parser_rules import load_rules
     rules_eval = load_rules(client_id=client_id, output_field=output_field)
     test_result: dict = {
         "mode": mode, "output_field": output_field,

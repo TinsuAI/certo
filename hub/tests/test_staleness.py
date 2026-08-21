@@ -10,8 +10,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.database import connect
-from app.stores.staleness import humanize_age, tab_freshness
+from hub.app.database import connect
+from hub.app.stores.staleness import humanize_age, tab_freshness
 
 
 CLIENT = "growatt-vn"

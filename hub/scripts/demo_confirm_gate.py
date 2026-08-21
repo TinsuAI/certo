@@ -25,10 +25,10 @@ EMAIL = "admin@data-hub.local"
 PASSWORD = "admin123"
 CLIENT = "growatt-vn"
 
-OUT = Path("data/screenshots/confirm_gate_demo")
+OUT = Path(__file__).resolve().parent.parent / "data" / "screenshots" / "confirm_gate_demo"
 OUT.mkdir(parents=True, exist_ok=True)
 
-FIXTURES = Path("data/manual_test")
+FIXTURES = Path(__file__).resolve().parent.parent / "data" / "manual_test"
 
 
 async def login(page: Page) -> None:

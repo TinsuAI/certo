@@ -11,10 +11,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app import settings_store
-from app.agent import runtime, store, tools
-from app.database import connect
-from app.llm import LLMUnavailable
+from hub.app import settings_store
+from hub.app.agent import runtime, store, tools
+from hub.app.database import connect
+from hub.app.llm import LLMUnavailable
 
 
 CLIENT = "growatt-vn"
@@ -46,7 +46,7 @@ def viewer_user():
                 (uid, CLIENT),
             )
     # Get the User dataclass
-    from app.auth.session import User
+    from hub.app.auth.session import User
     yield User(user_id=uid, email=f"{uid}@test", display_name="Viewer",
                role="staff", status="active")
     with connect() as conn:
@@ -69,7 +69,7 @@ def outsider_user():
                 """,
                 (uid, f"{uid}@test"),
             )
-    from app.auth.session import User
+    from hub.app.auth.session import User
     yield User(user_id=uid, email=f"{uid}@test", display_name="Outsider",
                role="staff", status="active")
     with connect() as conn:
@@ -279,7 +279,7 @@ def test_runtime_terminates_on_submit_final_answer(viewer_user):
     fake_cfg.max_retries = 0
     fake_cfg.max_calls_per_day_per_client = 1000
 
-    with patch("app.agent.runtime.OpenAI", return_value=fake_client) if False else patch.object(
+    with patch("hub.app.agent.runtime.OpenAI", return_value=fake_client) if False else patch.object(
         runtime, "_check_and_record_budget", return_value=None
     ), patch("openai.OpenAI", return_value=fake_client):
         answer = runtime.run_turn(
@@ -402,7 +402,7 @@ def test_search_knowledge_base_uses_curated_docs_for_staff(viewer_user):
 
 
 def test_search_knowledge_base_finds_architecture_context_for_admin():
-    from app.auth.session import User
+    from hub.app.auth.session import User
 
     admin = User(
         user_id="u_agent_admin",
@@ -425,7 +425,7 @@ def test_search_knowledge_base_finds_architecture_context_for_admin():
 
 
 def test_search_knowledge_base_empty_query():
-    from app.auth.session import User
+    from hub.app.auth.session import User
 
     admin = User(
         user_id="u_agent_admin",
@@ -446,6 +446,6 @@ def test_runtime_refuses_outsider(outsider_user):
     BEFORE any LLM call."""
     # Build a fake thread (we need a thread_id even if the runtime fails
     # before reading it).
-    from app.auth.permissions import require_can_view_client
+    from hub.app.auth.permissions import require_can_view_client
     with pytest.raises(Exception):  # PermissionError or HTTPException
         require_can_view_client(outsider_user, CLIENT)

@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.database import connect
-from app.stores import material_group_map as mgm
+from hub.app.database import connect
+from hub.app.stores import material_group_map as mgm
 
 CLIENT = "mgmap-test"
 
@@ -79,8 +79,8 @@ def test_delete():
 
 def _admin_client():
     from fastapi.testclient import TestClient
-    from app.auth.session import create_session, hash_password, SESSION_COOKIE
-    from app.main import app
+    from hub.app.auth.session import create_session, hash_password, SESSION_COOKIE
+    from hub.app.main import app
     uid = "u_mgmap_admin"
     with connect() as conn, conn.cursor() as cur:
         cur.execute(

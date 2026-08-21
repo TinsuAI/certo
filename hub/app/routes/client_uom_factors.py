@@ -9,10 +9,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, HTTPException, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from app import auth
-from app.routes.clients import get_client, stats_for_client
-from app.stores import client_uom_overrides as factors
-from app.stores import uom_standards
+from hub.app import auth
+from hub.app.routes.clients import get_client, stats_for_client
+from hub.app.stores import client_uom_overrides as factors
+from hub.app.stores import uom_standards
 
 router = APIRouter()
 

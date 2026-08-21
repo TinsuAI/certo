@@ -14,8 +14,8 @@ import hashlib
 import json
 from typing import Any
 
-from app.database import connect
-from app.stores import client_type_presets
+from hub.app.database import connect
+from hub.app.stores import client_type_presets
 
 
 def _canonical_payload(row: dict) -> str:

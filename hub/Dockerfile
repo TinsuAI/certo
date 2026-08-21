@@ -45,7 +45,7 @@ COPY CHANGELOG.md ./
 
 EXPOSE 8754
 
-CMD ["uvicorn", "app.main:app", \
+CMD ["uvicorn", "hub.app.main:app", \
      "--host", "0.0.0.0", "--port", "8754", \
      "--workers", "1", \
      "--proxy-headers", "--forwarded-allow-ips", "*"]

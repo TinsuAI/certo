@@ -20,11 +20,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.parsers.bcct import BcctParseError, parse_bcct_workbook
-from app.parsers.bom import BomParseError, parse_bom_workbook
-from app.parsers.bom_adapters import adapter_names
-from app.parsers.code_mappings import CodeMappingsParseError, parse_code_mappings_workbook
-from app.parsers.materials import MaterialsParseError, parse_materials_workbook
+from hub.app.parsers.bcct import BcctParseError, parse_bcct_workbook
+from hub.app.parsers.bom import BomParseError, parse_bom_workbook
+from hub.app.parsers.bom_adapters import adapter_names
+from hub.app.parsers.code_mappings import CodeMappingsParseError, parse_code_mappings_workbook
+from hub.app.parsers.materials import MaterialsParseError, parse_materials_workbook
 
 
 DATA_EXTS = {".xls", ".xlsx", ".xlsm", ".csv", ".json"}

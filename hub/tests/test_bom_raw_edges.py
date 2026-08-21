@@ -6,10 +6,10 @@ import openpyxl
 import pytest
 from fastapi.testclient import TestClient
 
-from app.database import connect
-from app.main import app
-from app.parsers.bom_edges import parse_raw_edges_with_fallback
-from app.stores import bom as bom_store
+from hub.app.database import connect
+from hub.app.main import app
+from hub.app.parsers.bom_edges import parse_raw_edges_with_fallback
+from hub.app.stores import bom as bom_store
 
 
 CLIENT = "raw_bom_test_client"
@@ -171,7 +171,7 @@ def test_johnson_sap_raw_parser_works_without_description_column():
 
 
 def test_sap_indented_walk_adapter_propagates_description_to_leaf():
-    from app.parsers.bom_adapters.sap_indented_walk import SapIndentedWalkAdapter
+    from hub.app.parsers.bom_adapters.sap_indented_walk import SapIndentedWalkAdapter
     blob = _xlsx({
         "Sheet1": [
             ("Level", "Component number", "Comp. Qty (CUn)",
@@ -216,7 +216,7 @@ def test_sap_indented_raw_parser_picks_per_parent_qty_over_cumulative():
 def test_sap_indented_walk_adapter_picks_per_parent_qty_over_cumulative():
     # Same invariant as the raw-edges parser, exercised on the legacy
     # walk adapter used by the WebUI upload route.
-    from app.parsers.bom_adapters.sap_indented_walk import SapIndentedWalkAdapter
+    from hub.app.parsers.bom_adapters.sap_indented_walk import SapIndentedWalkAdapter
     blob = _xlsx({
         "Sheet1": [
             ("Level", "Component number",

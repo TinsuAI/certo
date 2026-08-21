@@ -5,8 +5,8 @@ import secrets
 
 import pytest
 
-from app import notifications
-from app.database import connect
+from hub.app import notifications
+from hub.app.database import connect
 
 
 @pytest.fixture

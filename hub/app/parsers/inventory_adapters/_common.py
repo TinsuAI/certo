@@ -55,10 +55,10 @@ def parse_inventory_sheets(blob: bytes, *,
     one canonical line per coded row. warehouse falls back to the sheet title
     (DKE = one sheet per kho). Used by both system_template and
     kiem_ke_multi_kho. Raises InventoryParseError on no recognizable rows."""
-    from app.parsers._excel import (
+    from hub.app.parsers._excel import (
         cell_num, cell_str, header_row, index_headers, normalize_header, load_xlsx,
     )
-    from app.parsers.inventory_adapters import InventoryParseError
+    from hub.app.parsers.inventory_adapters import InventoryParseError
 
     try:
         wb = load_xlsx(blob)

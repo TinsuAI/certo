@@ -17,7 +17,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.database import connect
+from hub.app.database import connect
 
 
 @pytest.fixture
@@ -39,7 +39,7 @@ def test_client():
 
 
 def test_identity_same_string_is_equivalent(test_client):
-    from app.stores.uom import classify_uom_relation
+    from hub.app.stores.uom import classify_uom_relation
     rel = classify_uom_relation("EA", "EA", client_id=test_client)
     assert rel.relation == "equivalent"
     assert rel.factor == Decimal(1)
@@ -49,7 +49,7 @@ def test_identity_same_string_is_equivalent(test_client):
 
 def test_alias_synonym_is_equivalent(test_client):
     """PIECES and pcs share a canonical → equivalent, not 'lệch'."""
-    from app.stores.uom import classify_uom_relation
+    from hub.app.stores.uom import classify_uom_relation
     rel = classify_uom_relation("PIECES", "pcs", client_id=test_client)
     assert rel.relation == "equivalent"
     assert rel.factor == Decimal(1)
@@ -62,7 +62,7 @@ def test_alias_synonym_is_equivalent(test_client):
 
 def test_same_family_base_factor_is_convertible(test_client):
     """g↔kg differ in canonical but convert cleanly → convertible."""
-    from app.stores.uom import classify_uom_relation
+    from hub.app.stores.uom import classify_uom_relation
     rel = classify_uom_relation("g", "kg", client_id=test_client)
     assert rel.relation == "convertible"
     assert rel.via == "same_family_base_factor"
@@ -73,7 +73,7 @@ def test_same_family_base_factor_is_convertible(test_client):
 def test_tier_a_default_is_convertible_but_unconfirmed(test_client):
     """EA→SETS (count↔assembly) has no real factor — tier-A guesses 1:1.
     Must classify convertible but confirmed=False (visually distinct)."""
-    from app.stores.uom import classify_uom_relation
+    from hub.app.stores.uom import classify_uom_relation
     rel = classify_uom_relation("EA", "SETS", client_id=test_client)
     assert rel.relation == "convertible"
     assert rel.via == "tier_a_default"
@@ -83,7 +83,7 @@ def test_tier_a_default_is_convertible_but_unconfirmed(test_client):
 
 def test_client_override_makes_crossfamily_convertible(test_client):
     """Cross-family EA↔KG with a staff override row → convertible."""
-    from app.stores.uom import classify_uom_relation
+    from hub.app.stores.uom import classify_uom_relation
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "insert into hub.client_uom_overrides "
@@ -104,7 +104,7 @@ def test_client_override_makes_crossfamily_convertible(test_client):
 def test_crossfamily_no_factor_is_incompatible_add_factor(test_client):
     """EA↔KG, both known canonical, no override → incompatible; the fix
     is to add a factor."""
-    from app.stores.uom import classify_uom_relation
+    from hub.app.stores.uom import classify_uom_relation
     rel = classify_uom_relation("EA", "KG", client_id=test_client)
     assert rel.relation == "incompatible"
     assert rel.confirmed is False
@@ -114,7 +114,7 @@ def test_crossfamily_no_factor_is_incompatible_add_factor(test_client):
 def test_unknown_alias_is_incompatible_add_alias(test_client):
     """An unrecognized token can't be proven convertible → incompatible;
     the fix is to add the alias, not a factor."""
-    from app.stores.uom import classify_uom_relation
+    from hub.app.stores.uom import classify_uom_relation
     rel = classify_uom_relation("BLAHBLAH", "KG", client_id=test_client)
     assert rel.relation == "incompatible"
     assert rel.remediation == "add_alias"
@@ -126,7 +126,7 @@ def test_unknown_alias_is_incompatible_add_alias(test_client):
 def test_acceptance_is_symmetric_with_directional_factor(test_client):
     """Override stored EA→KG=0.5. Asking KG→EA still classifies
     convertible (symmetric acceptance); factor inverts to 2."""
-    from app.stores.uom import classify_uom_relation
+    from hub.app.stores.uom import classify_uom_relation
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "insert into hub.client_uom_overrides "
@@ -144,7 +144,7 @@ def test_acceptance_is_symmetric_with_directional_factor(test_client):
 
 
 def test_empty_uom_is_incompatible_no_remediation(test_client):
-    from app.stores.uom import classify_uom_relation
+    from hub.app.stores.uom import classify_uom_relation
     rel = classify_uom_relation("", "KG", client_id=test_client)
     assert rel.relation == "incompatible"
     assert rel.factor is None

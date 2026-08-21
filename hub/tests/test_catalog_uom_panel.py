@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.stores.catalog_uom_panel import build_uom_panel
+from hub.app.stores.catalog_uom_panel import build_uom_panel
 
 CLIENT = "_uom_panel_test"
 

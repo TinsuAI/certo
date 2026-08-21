@@ -1,11 +1,15 @@
 [project]
-name = "barry-co-demo"
+name = "co"
 version = "0.18.0"
-description = "Demo C/O preparation workspace for agency operators"
+description = "C/O preparation workspace — agency operators (CO + Data Hub, single app)"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.115",
-    "httpx>=0.28",
+    # shared by both halves
+    # pinned to what both repos ran before the merge — see .ai/ notes;
+    # upgrading is separate work (starlette >=1.1 caps urlencoded form fields).
+    "fastapi==0.136.1",
+    "starlette==1.0.0",
+    "httpx>=0.28.1",
     "jinja2>=3.1",
     "openpyxl>=3.1",
     "psycopg[binary]>=3.2",
@@ -13,14 +17,26 @@ dependencies = [
     "python-multipart>=0.0.18",
     "uvicorn[standard]>=0.34",
     "xlrd>=2.0",
+    # from the Data Hub half
+    "argon2-cffi>=23.0",
+    "google-re2>=1.1.20251105",
+    "itsdangerous>=2.2",
+    "openai>=2.33.0",
+    "psycopg-pool>=3.2",
+    "pypdf>=5.1",
+    "pyyaml>=6.0.3",
 ]
 
 [dependency-groups]
 dev = [
-    "pytest>=8.0",
+    "pytest==9.0.3",
+    "pytest-asyncio>=0.24",
+    "playwright>=1.49",
+    "xlwt>=1.3.0",
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "hub/tests"]
 python_files = ["test_*.py"]
 pythonpath = ["."]
+asyncio_mode = "auto"

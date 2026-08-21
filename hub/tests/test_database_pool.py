@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.database import connect, _reconfigure_pool_for_test, close_pool
+from hub.app.database import connect, _reconfigure_pool_for_test, close_pool
 
 
 @pytest.fixture(autouse=True)
@@ -75,7 +75,7 @@ def test_connect_with_custom_url_bypasses_pool():
     """connect(url=...) with a non-default URL must open an ad-hoc
     connection rather than reuse the pool — needed for migrations that
     target a side-DB or for tests against a sandbox."""
-    from app.database import database_url
+    from hub.app.database import database_url
     with connect(url=database_url()) as conn:
         # Sanity: still works against the same DB.
         with conn.cursor() as cur:

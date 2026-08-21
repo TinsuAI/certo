@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.flatten.identity import build_display_label
-from app.flatten.types import (
+from hub.app.flatten.identity import build_display_label
+from hub.app.flatten.types import (
     DecisionType, FlattenStatus, FlattenStrategy, SourceBomKind,
     SourceChannel, UnresolvedReason, ConversionMatchSource,
 )

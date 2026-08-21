@@ -4,10 +4,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import auth
-from app.database import connect
-from app.routes.clients import get_client, stats_for_client
-from app.stores.bom import (
+from hub.app import auth
+from hub.app.database import connect
+from hub.app.routes.clients import get_client, stats_for_client
+from hub.app.stores.bom import (
     ProposalNotFound,
     ProposalNotPending,
     approve_proposal,

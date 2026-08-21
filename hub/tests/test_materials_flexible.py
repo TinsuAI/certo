@@ -20,7 +20,7 @@ import io
 import pytest
 from openpyxl import Workbook
 
-from app.parsers.materials import (
+from hub.app.parsers.materials import (
     MaterialsParseError,
     MIN_IDENTIFIER_FIELDS,
     parse_materials_workbook,

@@ -31,7 +31,7 @@ import io
 from collections import defaultdict
 from decimal import Decimal
 
-from app.parsers.bom_adapters._common import (
+from hub.app.parsers.bom_adapters._common import (
     COMMON_ALIASES, cell_num, cell_str, cols_from_override,
 )
 
@@ -39,8 +39,8 @@ from app.parsers.bom_adapters._common import (
 def _parse_edge_map(blob: bytes) -> tuple[dict[str, list[dict]], set[str]]:
     """Walk every sheet, collect edges (parent → children) into a flat map.
     Returns (edge_map, all_parent_codes)."""
-    from app.parsers.bom_adapters import BomParseError
-    from app.parsers._excel import header_row, index_headers, iter_data_rows, load_xlsx
+    from hub.app.parsers.bom_adapters import BomParseError
+    from hub.app.parsers._excel import header_row, index_headers, iter_data_rows, load_xlsx
     try:
         wb = load_xlsx(blob)
     except Exception as e:
@@ -87,7 +87,7 @@ class MultiSheetPerRootAdapter:
               mapping_override: dict[str, str] | None = None,
               root_code: str | None = None,
               ) -> dict[str, list[dict]]:
-        from app.parsers.bom_adapters import BomParseError
+        from hub.app.parsers.bom_adapters import BomParseError
 
         edges, parents = _parse_edge_map(blob)
         if not edges:

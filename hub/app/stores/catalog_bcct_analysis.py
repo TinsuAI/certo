@@ -20,7 +20,7 @@ import re
 from dataclasses import dataclass
 from datetime import date
 
-from app.database import connect
+from hub.app.database import connect
 
 
 @dataclass(frozen=True)
@@ -172,7 +172,7 @@ def _classify_unit_drift(
     units[0] is the dominant declaration habit. Returns
     ('info', True) when every other unit converts to the dominant one,
     else ('critical', False)."""
-    from app.stores.uom import classify_uom_relation
+    from hub.app.stores.uom import classify_uom_relation
     dominant = units[0]
     for u in units[1:]:
         rel = classify_uom_relation(

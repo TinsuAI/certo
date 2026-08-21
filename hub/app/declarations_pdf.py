@@ -29,8 +29,8 @@ from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
 
-from app.storage import FileBackend, sha256_bytes
-from app.stores.customs_declaration_files import DeclarationFile
+from hub.app.storage import FileBackend, sha256_bytes
+from hub.app.stores.customs_declaration_files import DeclarationFile
 
 logger = logging.getLogger("app.declarations_pdf")
 

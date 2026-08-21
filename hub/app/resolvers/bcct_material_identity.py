@@ -35,7 +35,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.parsers.client_parser_rules import (
+from hub.app.parsers.client_parser_rules import (
     extract_all_matches_from_compiled,
     load_rules,
 )

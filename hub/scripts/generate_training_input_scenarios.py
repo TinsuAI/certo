@@ -18,7 +18,7 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 
-OUT = Path("docs/training/input-scenarios")
+OUT = Path(__file__).resolve().parent.parent / "docs" / "training" / "input-scenarios"
 
 
 def style(ws) -> None:

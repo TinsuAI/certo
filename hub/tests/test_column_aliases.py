@@ -6,10 +6,10 @@ import io
 import pytest
 from openpyxl import Workbook
 
-from app.database import connect
-from app.routes.bcct import BCCT_MAPPING_CFG
-from app.routes._mapping_flow import try_auto_map
-from app.stores import column_aliases as ca
+from hub.app.database import connect
+from hub.app.routes.bcct import BCCT_MAPPING_CFG
+from hub.app.routes._mapping_flow import try_auto_map
+from hub.app.stores import column_aliases as ca
 
 CLIENT = "colalias-test"
 
@@ -59,8 +59,8 @@ def test_add_list_toggle_delete():
 
 def test_admin_ui_add_and_list(setup):
     from fastapi.testclient import TestClient
-    from app.auth.session import create_session, hash_password, SESSION_COOKIE
-    from app.main import app
+    from hub.app.auth.session import create_session, hash_password, SESSION_COOKIE
+    from hub.app.main import app
     uid = "u_colalias_admin"
     with connect() as conn, conn.cursor() as cur:
         cur.execute(

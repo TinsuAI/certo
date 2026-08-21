@@ -27,12 +27,12 @@ import secrets
 from decimal import Decimal
 from typing import Iterable
 
-from app.flatten.classify import classify_component
-from app.flatten.types import (
+from hub.app.flatten.classify import classify_component
+from hub.app.flatten.types import (
     BomKey, ClassificationResult, Decision, FlattenContext, FlattenResult,
     FlattenedRow, FlattenedVersion, ParsedBom, ParsedRow, UnresolvedNode,
 )
-from app.flatten.uom import convert_qty
+from hub.app.flatten.uom import convert_qty
 
 
 def _decision_id() -> str:

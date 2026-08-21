@@ -6,8 +6,8 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from app import changelog
-from app.main import app
+from hub.app import changelog
+from hub.app.main import app
 
 
 def _login(c: TestClient) -> None:
@@ -33,7 +33,7 @@ def test_whats_new_renders_release_and_running_version():
         r = c.get("/whats-new")
     assert r.status_code == 200
     # current running version is shown
-    from app import version as appver
+    from hub.app import version as appver
     assert appver.version_info()["version"] in r.text
     # at least one changelog release renders (seed CHANGELOG has 0.1.0)
     assert "0.1.0" in r.text

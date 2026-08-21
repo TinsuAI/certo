@@ -14,8 +14,8 @@ No route or template changes needed — the registry is consulted dynamically.
 """
 from __future__ import annotations
 
-from app.parsers.bom_adapters import BomParseError, parse_with
-from app.parsers.bom_adapters._common import COMMON_ALIASES
+from hub.app.parsers.bom_adapters import BomParseError, parse_with
+from hub.app.parsers.bom_adapters._common import COMMON_ALIASES
 
 __all__ = ["parse_bom_workbook", "BomParseError", "COMMON_ALIASES"]
 

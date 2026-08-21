@@ -22,7 +22,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from app.database import connect
+from hub.app.database import connect
 
 
 def classify_btp_sourcing_for_client(cur, client_id: str) -> dict[str, str]:

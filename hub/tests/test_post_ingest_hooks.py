@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.parsers.bom_adapters import (
+from hub.app.parsers.bom_adapters import (
     HOOKS,
     adapter_names,
     resolve,

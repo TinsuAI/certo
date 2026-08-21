@@ -13,7 +13,7 @@ substring matching on its known layout rather than the exact-match alias index.
 """
 from __future__ import annotations
 
-from app.parsers._excel import cell_num, cell_str, load_xlsx
+from hub.app.parsers._excel import cell_num, cell_str, load_xlsx
 
 GROUP_ROLES = {"BTP": "btp", "TP": "tp", "NVL": "nvl", "VT": "nvl"}
 _SUBHEADER_TOKENS = ("mã", "tên", "đvt", "số lượng", "tiếng việt", "tiếng hoa",
@@ -73,7 +73,7 @@ class Ezsoft3TSoftAdapter:
 
     def parse(self, blob: bytes, *,
               mapping_override: dict[str, str] | None = None) -> list[dict]:
-        from app.parsers.nxt_adapters import NxtParseError
+        from hub.app.parsers.nxt_adapters import NxtParseError
         try:
             wb = load_xlsx(blob)
         except Exception as e:

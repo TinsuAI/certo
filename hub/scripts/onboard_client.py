@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.fspath(Path(__file__).resolve().parents[1]))
 
-from app.data_promotion import (
+from hub.app.data_promotion import (
     SchemaVersionMismatch,
     UnsupportedBundleFormat,
     import_client_bundle,

@@ -9,7 +9,7 @@ import io
 from decimal import Decimal, InvalidOperation
 from typing import Iterable
 
-from app.database import connect
+from hub.app.database import connect
 
 
 VALID_SOURCES = (
@@ -104,7 +104,7 @@ def create_factor(*, client_id: str, material_code: str | None,
     # mig-071 helper accounts for. Reconcile downstream artifacts so
     # the new override actually clears any pre-existing flag.
     if mc:
-        from app.stores.bom_staleness import reconcile_for_material
+        from hub.app.stores.bom_staleness import reconcile_for_material
         reconcile_for_material(client_id, mc)
 
 
@@ -125,7 +125,7 @@ def update_factor(*, client_id: str, material_code: str | None,
         if cur.rowcount == 0:
             raise FactorError("no matching factor row to update")
     if mc:
-        from app.stores.bom_staleness import reconcile_for_material
+        from hub.app.stores.bom_staleness import reconcile_for_material
         reconcile_for_material(client_id, mc)
 
 
@@ -146,7 +146,7 @@ def delete_factor(*, client_id: str, material_code: str | None,
     # Delete may UN-resolve drift on artifacts that previously relied on
     # this override. Reconcile to re-evaluate state.
     if mc_key:
-        from app.stores.bom_staleness import reconcile_for_material
+        from hub.app.stores.bom_staleness import reconcile_for_material
         reconcile_for_material(client_id, mc_key)
 
 

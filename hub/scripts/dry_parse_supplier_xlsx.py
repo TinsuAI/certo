@@ -38,10 +38,10 @@ from pathlib import Path
 
 sys.path.insert(0, os.fspath(Path(__file__).resolve().parents[1]))
 
-from app.database import connect
-from app.parsers.bom_edges import parse_raw_edges_with_fallback
-from app.parsers.bom_adapters import BomParseError
-from app.stores.bom import normalized_edges_hash
+from hub.app.database import connect
+from hub.app.parsers.bom_edges import parse_raw_edges_with_fallback
+from hub.app.parsers.bom_adapters import BomParseError
+from hub.app.stores.bom import normalized_edges_hash
 
 
 SUPPLIER_ROOT = Path(os.path.expanduser(

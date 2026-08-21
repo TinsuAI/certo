@@ -28,7 +28,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.database import connect
+from hub.app.database import connect
 
 
 @pytest.fixture
@@ -50,7 +50,7 @@ def test_client():
 
 
 def test_precedence_1_client_material_exact_match(test_client):
-    from app.stores.uom import make_uom_lookup
+    from hub.app.stores.uom import make_uom_lookup
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "insert into hub.client_uom_overrides "
@@ -66,7 +66,7 @@ def test_precedence_1_client_material_exact_match(test_client):
 
 
 def test_precedence_2_client_wide_when_no_material(test_client):
-    from app.stores.uom import make_uom_lookup
+    from hub.app.stores.uom import make_uom_lookup
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "insert into hub.client_uom_overrides "
@@ -83,7 +83,7 @@ def test_precedence_2_client_wide_when_no_material(test_client):
 
 def test_precedence_3_canonical_family_same(test_client):
     """Same family different canonical (g→kg) auto-converts via mig 021 base_factor."""
-    from app.stores.uom import make_uom_lookup
+    from hub.app.stores.uom import make_uom_lookup
     lookup = make_uom_lookup(test_client)
     match = lookup("ANY", "g", "kg")
     assert match is not None
@@ -93,7 +93,7 @@ def test_precedence_3_canonical_family_same(test_client):
 
 def test_precedence_4_alias_equivalent(test_client):
     """PIECES and pcs resolve to same canonical → factor 1, source='alias'."""
-    from app.stores.uom import make_uom_lookup
+    from hub.app.stores.uom import make_uom_lookup
     lookup = make_uom_lookup(test_client)
     match = lookup("ANY", "PIECES", "pcs")
     assert match is not None
@@ -107,7 +107,7 @@ def test_precedence_4_alias_equivalent(test_client):
 def test_tier_a_count_to_assembly_returns_default_one(test_client):
     """EA (count) → SETS (assembly): no override, no canonical bridge,
     but tier-A applies → factor=1, source='unconfirmed_default'."""
-    from app.stores.uom import make_uom_lookup
+    from hub.app.stores.uom import make_uom_lookup
     lookup = make_uom_lookup(test_client)
     match = lookup("ANY", "EA", "SETS")
     assert match is not None, "tier-A should default factor=1, not return None"
@@ -117,7 +117,7 @@ def test_tier_a_count_to_assembly_returns_default_one(test_client):
 
 def test_tier_a_count_to_count_packaging(test_client):
     """EA (count) → CAY (count_packaging) → tier-A default."""
-    from app.stores.uom import make_uom_lookup
+    from hub.app.stores.uom import make_uom_lookup
     lookup = make_uom_lookup(test_client)
     match = lookup("ANY", "EA", "CAY")
     assert match is not None
@@ -127,7 +127,7 @@ def test_tier_a_count_to_count_packaging(test_client):
 
 def test_tier_a_assembly_to_count_packaging(test_client):
     """SETS (assembly) → CAY (count_packaging) — both inside tier-A set."""
-    from app.stores.uom import make_uom_lookup
+    from hub.app.stores.uom import make_uom_lookup
     lookup = make_uom_lookup(test_client)
     match = lookup("ANY", "SETS", "CAY")
     assert match is not None
@@ -137,7 +137,7 @@ def test_tier_a_assembly_to_count_packaging(test_client):
 
 def test_tier_a_uses_aliases(test_client):
     """PIECES → SETS still goes through tier-A (PIECES → pcs (count))."""
-    from app.stores.uom import make_uom_lookup
+    from hub.app.stores.uom import make_uom_lookup
     lookup = make_uom_lookup(test_client)
     match = lookup("ANY", "PIECES", "SETS")
     assert match is not None
@@ -149,21 +149,21 @@ def test_tier_a_uses_aliases(test_client):
 
 def test_tier_b_count_to_mass_returns_none(test_client):
     """EA (count) → KG (mass): no default. Caller emits factor_missing."""
-    from app.stores.uom import make_uom_lookup
+    from hub.app.stores.uom import make_uom_lookup
     lookup = make_uom_lookup(test_client)
     match = lookup("ANY", "EA", "KG")
     assert match is None, "tier-B mass cross — must NOT default 1:1"
 
 
 def test_tier_b_count_to_volume_returns_none(test_client):
-    from app.stores.uom import make_uom_lookup
+    from hub.app.stores.uom import make_uom_lookup
     lookup = make_uom_lookup(test_client)
     match = lookup("ANY", "EA", "L")
     assert match is None
 
 
 def test_tier_b_mass_to_length_returns_none(test_client):
-    from app.stores.uom import make_uom_lookup
+    from hub.app.stores.uom import make_uom_lookup
     lookup = make_uom_lookup(test_client)
     match = lookup("ANY", "KG", "m")
     assert match is None
@@ -172,7 +172,7 @@ def test_tier_b_mass_to_length_returns_none(test_client):
 def test_tier_b_assembly_to_mass_returns_none(test_client):
     """SETS (assembly) → KG (mass) — even within count-ish family it's
     not in the safe set when mass is involved."""
-    from app.stores.uom import make_uom_lookup
+    from hub.app.stores.uom import make_uom_lookup
     lookup = make_uom_lookup(test_client)
     match = lookup("ANY", "SETS", "KG")
     assert match is None
@@ -183,7 +183,7 @@ def test_tier_b_assembly_to_mass_returns_none(test_client):
 
 def test_explicit_override_beats_tier_a_default(test_client):
     """If client provides explicit factor, use it instead of 1:1 default."""
-    from app.stores.uom import make_uom_lookup
+    from hub.app.stores.uom import make_uom_lookup
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "insert into hub.client_uom_overrides "
@@ -200,7 +200,7 @@ def test_explicit_override_beats_tier_a_default(test_client):
 
 def test_explicit_override_unblocks_tier_b(test_client):
     """Cross-family mass case: with override row, conversion works."""
-    from app.stores.uom import make_uom_lookup
+    from hub.app.stores.uom import make_uom_lookup
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "insert into hub.client_uom_overrides "
@@ -220,7 +220,7 @@ def test_explicit_override_unblocks_tier_b(test_client):
 
 def test_unknown_alias_returns_none(test_client):
     """No canonical resolution → can't determine tier → None."""
-    from app.stores.uom import make_uom_lookup
+    from hub.app.stores.uom import make_uom_lookup
     lookup = make_uom_lookup(test_client)
     assert lookup("ANY", "BLAHBLAH", "KG") is None
     assert lookup("ANY", "EA", "BLAHBLAH") is None
@@ -230,7 +230,7 @@ def test_unknown_alias_returns_none(test_client):
 
 
 def test_empty_from_or_to_returns_none(test_client):
-    from app.stores.uom import make_uom_lookup
+    from hub.app.stores.uom import make_uom_lookup
     lookup = make_uom_lookup(test_client)
     assert lookup("ANY", "", "KG") is None
     assert lookup("ANY", "EA", "") is None

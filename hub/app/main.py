@@ -17,12 +17,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import auth, changelog, i18n, settings_store, version as appver
-from app.database import apply_migrations, close_pool
-from app.seed_master_data import seed_master_data_if_empty
-from app.routes import admin, agent, api, auth_api, bcct, bom, bqd, catalog, catalog_discovery, client_config_ui, client_uom_factors, clients, declarations, inventory_snapshots, jobs as job_routes, master_data, notifications as notif_routes, nxt, proposals, substitutes, uploads
-from app.routes import design  # /design component gallery (redesign 2026-08-20)
-from app.seed import auto_seed_demo_if_empty, seed_parser_rules_if_empty
+from hub.app import auth, changelog, i18n, settings_store, version as appver
+from hub.app.database import apply_migrations, close_pool
+from hub.app.seed_master_data import seed_master_data_if_empty
+from hub.app.routes import admin, agent, api, auth_api, bcct, bom, bqd, catalog, catalog_discovery, client_config_ui, client_uom_factors, clients, declarations, inventory_snapshots, jobs as job_routes, master_data, notifications as notif_routes, nxt, proposals, substitutes, uploads
+from hub.app.routes import design  # /design component gallery (redesign 2026-08-20)
+from hub.app.seed import auto_seed_demo_if_empty, seed_parser_rules_if_empty
 
 ROOT = Path(__file__).resolve().parent
 THEME_COOKIE = "data_hub_theme"
@@ -47,7 +47,7 @@ def template_context(request: Request) -> dict:
     chat_agent_enabled = True
     if user is not None:
         try:
-            from app import notifications as _notifs
+            from hub.app import notifications as _notifs
             notif_unread = _notifs.unread_count(user.user_id)
             if notif_unread > 0:
                 notif_recent = _notifs.list_for_user(
@@ -122,7 +122,7 @@ async def lifespan(app: FastAPI):
     seed_parser_rules_if_empty()
     # bcct_nb_codes backfill (#33): fills clients whose paren extraction
     # has never been persisted (fresh DBs + first deploy after mig 091).
-    from app.stores.bcct_nb_codes import backfill_if_empty
+    from hub.app.stores.bcct_nb_codes import backfill_if_empty
     filled = backfill_if_empty()
     if filled:
         print(f"[backfill] bcct_nb_codes rebuilt for: {', '.join(filled)}")

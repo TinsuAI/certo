@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import re2
 
-from app.parsers.client_parser_rules import CompiledRule
-from app.parsers.code_extraction import (
+from hub.app.parsers.client_parser_rules import CompiledRule
+from hub.app.parsers.code_extraction import (
     candidates_from_bcct_row,
 )
 

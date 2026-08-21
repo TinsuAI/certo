@@ -19,8 +19,8 @@ import json
 
 import pytest
 
-from app.database import connect
-from app.stores.bom_staleness import refresh_artifact
+from hub.app.database import connect
+from hub.app.stores.bom_staleness import refresh_artifact
 
 
 CLIENT = "_uom_refresh_test"
@@ -400,7 +400,7 @@ def test_refresh_same_hash_no_supersede():
     # Outer with-block committed; raw artifact now visible to other conns.
     # Pre-create the matching derived artifact with the SAME content
     # the refresh would produce, so create_artifact returns its id.
-    from app.stores.bom import create_artifact
+    from hub.app.stores.bom import create_artifact
     existing_id = create_artifact(
         client_id=CLIENT, product_code="TP_SH",
         rows=[{"material_code": "M_SH", "qty_per_unit": 2.0, "uom": "kg"}],

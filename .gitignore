@@ -29,3 +29,12 @@ yarn-error.log*
 
 # agent worktrees (each is a full checkout; never commit)
 /.claude/worktrees/
+
+# Data Hub half (phase 0)
+hub/keys/
+hub/.env
+hub/data/files
+hub/data/source_inventory
+hub/data/screenshots
+hub/.venv/
+hub/.pytest_cache/

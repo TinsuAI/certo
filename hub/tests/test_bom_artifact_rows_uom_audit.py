@@ -12,8 +12,8 @@ import json
 
 import pytest
 
-from app.database import connect
-from app.stores.bom_staleness import refresh_artifact
+from hub.app.database import connect
+from hub.app.stores.bom_staleness import refresh_artifact
 
 
 CLIENT = "_uom_audit_test"

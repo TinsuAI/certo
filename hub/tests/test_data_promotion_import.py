@@ -19,14 +19,14 @@ from pathlib import Path
 
 import pytest
 
-from app.data_promotion import (
+from hub.app.data_promotion import (
     CorruptBundle,
     SchemaVersionMismatch,
     UnsupportedBundleFormat,
     export_client,
     import_client_bundle,
 )
-from app.database import connect
+from hub.app.database import connect
 
 
 @pytest.fixture
@@ -495,7 +495,7 @@ def test_staging_dir_on_same_fs_as_files_root(client_with_data, tmp_path, monkey
     out = tmp_path / "bundle.tar.gz"
     export_client(client_id=client_with_data, out_path=out)
 
-    import app.data_promotion as dp
+    import hub.app.data_promotion as dp
 
     captured: dict = {}
     real_mkdtemp = tempfile.mkdtemp
@@ -526,7 +526,7 @@ def test_db_rolls_back_when_file_phase_fails(client_with_data, tmp_path, monkeyp
             (client_with_data,),
         )
 
-    import app.data_promotion as dp
+    import hub.app.data_promotion as dp
 
     def _boom(*args, **kwargs):
         raise OSError("simulated disk failure during file extraction")

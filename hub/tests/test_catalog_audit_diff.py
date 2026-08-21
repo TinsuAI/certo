@@ -5,7 +5,7 @@ For 'delete' events: return all fields with their old values.
 """
 from __future__ import annotations
 
-from app.stores.catalog_audit import audit_diff
+from hub.app.stores.catalog_audit import audit_diff
 
 
 def test_update_diff_only_changed_fields():

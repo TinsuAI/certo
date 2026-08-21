@@ -33,7 +33,7 @@ import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
-from app import settings_store
+from hub.app import settings_store
 
 logger = logging.getLogger(__name__)
 
@@ -239,7 +239,7 @@ def _validate_service_token(claims: dict) -> None:
        AUTHENTICATION only; AUTHORIZATION lives in the DB row.
     5. Best-effort `last_used_at` bump.
     """
-    from app.stores import service_accounts as sa_store
+    from hub.app.stores import service_accounts as sa_store
 
     name = claims.get("name") or ""
     if not name:

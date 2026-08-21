@@ -19,10 +19,10 @@ import secrets
 import pytest
 from fastapi.testclient import TestClient
 
-from app import jwt_issuer, settings_store
-from app.database import connect
-from app.main import app
-from app.stores import service_accounts as sa_store
+from hub.app import jwt_issuer, settings_store
+from hub.app.database import connect
+from hub.app.main import app
+from hub.app.stores import service_accounts as sa_store
 
 
 def _client() -> TestClient:

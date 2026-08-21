@@ -23,8 +23,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-from app.database import connect
-from app.stores.bom import create_raw_artifact
+from hub.app.database import connect
+from hub.app.stores.bom import create_raw_artifact
 
 
 def _client_policy(cur, client_id: str) -> str:

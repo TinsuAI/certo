@@ -24,7 +24,7 @@ The route layer reads this when validating the mapping form.
 """
 from __future__ import annotations
 
-from app.parsers._excel import (
+from hub.app.parsers._excel import (
     cell_str,
     header_row,
     index_headers,

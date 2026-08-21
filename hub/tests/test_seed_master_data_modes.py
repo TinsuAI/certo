@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from app import seed_master_data as smd
-from app.database import connect
+from hub.app import seed_master_data as smd
+from hub.app.database import connect
 
 
 SENTINEL_CODE = "ZZ99"

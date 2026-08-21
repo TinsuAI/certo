@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from fastapi import HTTPException, status
 
-from app.auth.session import User
-from app.database import connect
+from hub.app.auth.session import User
+from hub.app.database import connect
 
 
 def _is_dev(user: User | None) -> bool:

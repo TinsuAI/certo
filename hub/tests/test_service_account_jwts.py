@@ -9,10 +9,10 @@ import jwt as pyjwt
 import pytest
 from fastapi.testclient import TestClient
 
-from app import auth, jwt_issuer, settings_store
-from app.database import connect
-from app.main import app
-from app.stores import service_accounts as sa_store
+from hub.app import auth, jwt_issuer, settings_store
+from hub.app.database import connect
+from hub.app.main import app
+from hub.app.stores import service_accounts as sa_store
 
 
 @pytest.fixture(autouse=True)
@@ -393,8 +393,8 @@ def test_scopes_csv_string_rejected(cleanup_sa):
     try:
         # Ensure the type check fires: monkeypatch get_account to leave
         # claims unchanged (i.e. scopes stays as the malformed string).
-        import app.routes.api as api
-        from app.routes.api import _require_scope
+        import hub.app.routes.api as api
+        from hub.app.routes.api import _require_scope
         # Direct-call test: claims with scopes as a string must be rejected.
         with pytest.raises(Exception) as exc_info:
             _require_scope(
@@ -411,7 +411,7 @@ def test_cli_empty_client_ids_string_rejected(cleanup_sa, capsys):
     """I1: --client-ids '' must NOT silently mean 'all clients'. An
     operator who types an empty string probably meant 'no clients';
     treat it as a typo and refuse."""
-    import scripts.mint_service_token as cli
+    import hub.scripts.mint_service_token as cli
     rc = cli.main([
         "create", "--name", "sa_test_empty",
         "--scopes", "hub:read",
@@ -427,7 +427,7 @@ def test_cli_empty_client_ids_string_rejected(cleanup_sa, capsys):
 def test_cli_omitted_client_ids_means_all(cleanup_sa):
     """Counterpart to the above: NOT passing --client-ids means 'all
     clients' (operator-trusted intent)."""
-    import scripts.mint_service_token as cli
+    import hub.scripts.mint_service_token as cli
     rc = cli.main([
         "create", "--name", "sa_test_all",
         "--scopes", "hub:read",
@@ -442,7 +442,7 @@ def test_cli_omitted_client_ids_means_all(cleanup_sa):
 def test_cli_invalid_name_rejected(cleanup_sa, capsys):
     """M2: --name must match a strict regex. Path-traversal-shaped
     names + uppercase + leading digits all rejected."""
-    import scripts.mint_service_token as cli
+    import hub.scripts.mint_service_token as cli
     for bad in ("../etc", "Co", "1co", "co bad", ""):
         rc = cli.main([
             "create", "--name", bad,

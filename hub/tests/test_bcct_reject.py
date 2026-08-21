@@ -1,7 +1,7 @@
 """BCCT reject — the flow that had no way to discard a wrong file."""
 from fastapi.testclient import TestClient
-from app.main import app
-from app.database import connect
+from hub.app.main import app
+from hub.app.database import connect
 
 
 def _any_client() -> str:
@@ -72,6 +72,6 @@ def test_preview_offers_both_leaving_and_rejecting():
     """The old template had only "Hủy", which navigates away and leaves the
     pending to expire. Both choices must be present and distinct."""
     import pathlib as _p
-    markup = _p.Path("app/templates/clients/bcct_upload_preview.html").read_text(encoding="utf-8")
+    markup = (_p.Path(__file__).resolve().parent.parent / "app" / "templates" / "clients" / "bcct_upload_preview.html").read_text(encoding="utf-8")
     assert "Quay lại sau (giữ pending)" in markup
     assert "/reject" in markup and "Bỏ file" in markup

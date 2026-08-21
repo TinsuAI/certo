@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from app.parsers.code_extraction import _is_missing_hq
+from hub.app.parsers.code_extraction import _is_missing_hq
 
 
 def customs_code_placeholders(cur, *, client_id: str) -> tuple[str, ...]:

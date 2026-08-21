@@ -13,9 +13,9 @@ import psycopg
 import pytest
 from openpyxl import Workbook
 
-from app import auth
-from app.database import connect
-from app.routes.bcct import _classify_rows
+from hub.app import auth
+from hub.app.database import connect
+from hub.app.routes.bcct import _classify_rows
 
 
 CLIENT = "growatt-vn"
@@ -279,7 +279,7 @@ def test_confirm_orphans_only_does_not_delete_unconfirmed_diff_rows():
     Correct behavior: A is preserved (user didn't confirm overwrite);
       only D is deleted.
     """
-    from app.routes.bcct import _apply_bcct_rows
+    from hub.app.routes.bcct import _apply_bcct_rows
 
     # Use distinct decl_nos so each row has a unique txn_key (helper
     # constructs the key from decl_no alone).
@@ -388,8 +388,8 @@ def test_ingest_rows_default_routes_through_preview_gate():
     (parse_mapping_confirm → _ingest_rows with no confirm flags) cannot
     silently regress to bypass the diff/orphan check."""
     import secrets
-    from app.routes.bcct import _ingest_rows
-    from app.routes.clients import get_client
+    from hub.app.routes.bcct import _ingest_rows
+    from hub.app.routes.clients import get_client
 
     # Seed an empty file_uploads row so the pending insert's FK is valid.
     upload_id = "GATE_TEST_" + secrets.token_hex(6)
@@ -461,8 +461,8 @@ def test_ingest_rows_partial_confirm_still_gated():
     """Both flags must be True to bypass gate. confirm_diffs=True alone
     still routes to preview."""
     import secrets
-    from app.routes.bcct import _ingest_rows
-    from app.routes.clients import get_client
+    from hub.app.routes.bcct import _ingest_rows
+    from hub.app.routes.clients import get_client
 
     upload_id = "GATE_PARTIAL_" + secrets.token_hex(6)
     with connect() as conn:

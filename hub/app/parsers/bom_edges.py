@@ -10,12 +10,12 @@ import io
 from collections import defaultdict, deque
 from decimal import Decimal
 
-from app.parsers._excel import header_row, index_headers, load_xlsx
-from app.parsers.bom_adapters import BomParseError
-from app.parsers.bom_adapters._common import (
+from hub.app.parsers._excel import header_row, index_headers, load_xlsx
+from hub.app.parsers.bom_adapters import BomParseError
+from hub.app.parsers.bom_adapters._common import (
     COMMON_ALIASES, cell_num, cell_str,
 )
-from app.parsers.bom_adapters.sap_indented_walk import (
+from hub.app.parsers.bom_adapters.sap_indented_walk import (
     _COMPONENT_ALIASES, _DESCRIPTION_ALIASES, _LEVEL_ALIASES,
     _PRODUCT_CODE_ALIASES, _QTY_ALIASES, _UNIT_ALIASES, _col_index,
 )

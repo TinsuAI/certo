@@ -21,7 +21,7 @@ for an advisory signal.
 """
 from __future__ import annotations
 
-from app.database import connect
+from hub.app.database import connect
 
 
 def compute_multirole_warnings(

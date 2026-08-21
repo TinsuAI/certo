@@ -22,11 +22,11 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app import jwt_issuer, settings_store
-from app.database import connect
-from app.main import app
-from app.storage import get_backend
-from app.stores import service_accounts as sa_store
+from hub.app import jwt_issuer, settings_store
+from hub.app.database import connect
+from hub.app.main import app
+from hub.app.storage import get_backend
+from hub.app.stores import service_accounts as sa_store
 
 
 URL_TMPL = "/v1/hub/clients/{cid}/declarations/download.zip"
@@ -52,7 +52,7 @@ def files_root(tmp_path, monkeypatch):
     root = tmp_path / "files"
     root.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("DATA_HUB_FILES_ROOT", str(root))
-    import app.storage as storage_mod
+    import hub.app.storage as storage_mod
     storage_mod._BACKEND = None
     yield root
     storage_mod._BACKEND = None

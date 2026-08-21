@@ -25,8 +25,8 @@ from itertools import permutations
 
 import pytest
 
-from app.database import connect
-from app.stores.bom_staleness import refresh_artifact
+from hub.app.database import connect
+from hub.app.stores.bom_staleness import refresh_artifact
 
 
 CLIENT_PREFIX = "_inv2_"

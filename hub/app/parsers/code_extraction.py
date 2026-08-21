@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Collection
 
-from app.parsers.client_parser_rules import (
+from hub.app.parsers.client_parser_rules import (
     CompiledRule, extract_all_matches_from_compiled,
 )
 

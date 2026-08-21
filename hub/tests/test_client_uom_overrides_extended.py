@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.database import connect
+from hub.app.database import connect
 
 
 def _seed_test_client(cur, client_id: str = "_uom_test"):

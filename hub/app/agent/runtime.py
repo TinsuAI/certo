@@ -16,9 +16,9 @@ import json
 import logging
 from typing import Any
 
-from app import auth, settings_store
-from app.agent import store, tools
-from app.llm import LLMConfig, LLMUnavailable, _check_and_record_budget
+from hub.app import auth, settings_store
+from hub.app.agent import store, tools
+from hub.app.llm import LLMConfig, LLMUnavailable, _check_and_record_budget
 
 logger = logging.getLogger(__name__)
 

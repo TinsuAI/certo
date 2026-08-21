@@ -12,22 +12,22 @@ from datetime import date, datetime
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 
-from app import auth
-from app.parsers import nxt_adapters
-from app.parsers._excel import compute_file_signature
-from app.parsers.nxt_adapters._common import ALIASES, closing_implied
-from app.parsers.nxt_adapters.manual_generic import ManualGenericNxtAdapter
-from app.routes._llm_fallback import (
+from hub.app import auth
+from hub.app.parsers import nxt_adapters
+from hub.app.parsers._excel import compute_file_signature
+from hub.app.parsers.nxt_adapters._common import ALIASES, closing_implied
+from hub.app.parsers.nxt_adapters.manual_generic import ManualGenericNxtAdapter
+from hub.app.routes._llm_fallback import (
     cache_confirmed_mapping, headers_per_sheet, lookup_cached_mapping,
     record_mapping_use, request_llm_mapping, sample_rows_first_sheet,
 )
-from app.routes._paging import pagination_context, parse_page_params
-from app.routes.clients import get_client, stats_for_client
-from app.storage import get_backend, save_upload, sha256_bytes
-from app.stores import nxt as nxt_store
-from app.stores import settlement_adapter_binding as binding
-from app.stores.materials import known_material_codes
-from app.stores.uploads import get_upload, record_upload, set_upload_status
+from hub.app.routes._paging import pagination_context, parse_page_params
+from hub.app.routes.clients import get_client, stats_for_client
+from hub.app.storage import get_backend, save_upload, sha256_bytes
+from hub.app.stores import nxt as nxt_store
+from hub.app.stores import settlement_adapter_binding as binding
+from hub.app.stores.materials import known_material_codes
+from hub.app.stores.uploads import get_upload, record_upload, set_upload_status
 
 router = APIRouter()
 
@@ -246,7 +246,7 @@ def _stash_and_preview(client_id, upload_id, lines, adapter_name, meta,
 # ── Column-mapping page (unknown headers → confirm → cache) ──────────────
 
 def _rigid_suggestions(headers: list[str]) -> dict[int, str]:
-    from app.parsers._excel import index_headers
+    from hub.app.parsers._excel import index_headers
     return {idx: field for field, idx in index_headers(headers, ALIASES).items()}
 
 

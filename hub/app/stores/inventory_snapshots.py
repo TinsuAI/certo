@@ -8,9 +8,9 @@ from __future__ import annotations
 import json
 import secrets
 
-from app.database import connect
-from app.parsers.inventory_adapters._common import NUMERIC_FIELDS, variance
-from app.parsers.inventory_adapters.system_template import (  # noqa: F401
+from hub.app.database import connect
+from hub.app.parsers.inventory_adapters._common import NUMERIC_FIELDS, variance
+from hub.app.parsers.inventory_adapters.system_template import (  # noqa: F401
     render_template_xlsx,
 )
 

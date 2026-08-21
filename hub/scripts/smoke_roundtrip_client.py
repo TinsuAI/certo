@@ -18,8 +18,8 @@ from pathlib import Path
 
 sys.path.insert(0, os.fspath(Path(__file__).resolve().parents[1]))
 
-from app.data_promotion import export_client, import_client_bundle
-from app.database import connect
+from hub.app.data_promotion import export_client, import_client_bundle
+from hub.app.database import connect
 
 
 CID = sys.argv[1] if len(sys.argv) > 1 else "growatt-vn"

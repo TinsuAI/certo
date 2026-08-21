@@ -12,7 +12,7 @@ Each warning shape:
 """
 from __future__ import annotations
 
-from app.database import connect
+from hub.app.database import connect
 
 
 def _hs_drift(client_id: str, material_code: str) -> dict | None:
@@ -44,7 +44,7 @@ def _uom_drift(client_id: str, material_code: str) -> dict | None:
     canonical resolution shows real semantic conflict (different
     canonical codes). Synonyms (PCS == PIECE == ST) don't trigger.
     """
-    from app.stores.uom_standards import resolve_canonical
+    from hub.app.stores.uom_standards import resolve_canonical
 
     sources: dict[str, set[str]] = {}
     with connect() as conn, conn.cursor() as cur:
@@ -99,7 +99,7 @@ def _uom_drift(client_id: str, material_code: str) -> dict | None:
     # `info` ("quy đổi được"), while incompatible OR tier-A-unconfirmed
     # (a 1:1 guess that needs sign-off) stay `warn` — same threshold as
     # the detail-page chip panel's `needs_attention`.
-    from app.stores.uom import classify_uom_relation
+    from hub.app.stores.uom import classify_uom_relation
     anchor = next(iter(sources["catalog"])) if "catalog" in sources \
         else sorted(all_values)[0]
     needs_attention = False

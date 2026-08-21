@@ -36,8 +36,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from app import settings_store
-from app.database import connect
+from hub.app import settings_store
+from hub.app.database import connect
 
 logger = logging.getLogger(__name__)
 

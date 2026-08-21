@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.routes.clients import stats_for_client
-from app.stores.staleness import tab_freshness
+from hub.app.routes.clients import stats_for_client
+from hub.app.stores.staleness import tab_freshness
 
 
 @pytest.fixture(scope="module")

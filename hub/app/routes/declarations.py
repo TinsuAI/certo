@@ -14,14 +14,14 @@ from fastapi.responses import (
     HTMLResponse, JSONResponse, RedirectResponse, Response,
 )
 
-from app import auth
-from app.parsers.declaration_files import (
+from hub.app import auth
+from hub.app.parsers.declaration_files import (
     DeclarationFileError, parse_declaration_file,
 )
-from app.routes._paging import pagination_context, parse_page_params
-from app.routes.clients import get_client, stats_for_client
-from app.storage import get_backend, save_upload, sha256_bytes
-from app.stores.customs_declaration_files import (
+from hub.app.routes._paging import pagination_context, parse_page_params
+from hub.app.routes.clients import get_client, stats_for_client
+from hub.app.storage import get_backend, save_upload, sha256_bytes
+from hub.app.stores.customs_declaration_files import (
     count_declarations_with_status,
     delete_declaration_file,
     get_declaration_file,
@@ -30,7 +30,7 @@ from app.stores.customs_declaration_files import (
     list_files_for_declaration,
     list_files_for_declarations,
 )
-from app.uploads.declaration_zip import (
+from hub.app.uploads.declaration_zip import (
     ZipUploadError,
     annotate_dedup_status,
     cancel_staging,
@@ -381,7 +381,7 @@ async def upload_declaration_file(
     # script + lazy path to avoid slowing the commit).
     if created and file_kind == "xls":
         try:
-            from app.declarations_pdf import ensure_pdf_for_file
+            from hub.app.declarations_pdf import ensure_pdf_for_file
             rec = get_declaration_file(fid)
             if rec is not None:
                 ensure_pdf_for_file(rec, get_backend())
@@ -986,7 +986,7 @@ def _build_declarations_pdf_response(
     from starlette.background import BackgroundTask
     from fastapi.responses import FileResponse
 
-    from app.declarations_pdf import (
+    from hub.app.declarations_pdf import (
         COMPACT_VERSION, RENDER_VERSION, build_merged_pdf,
     )
 

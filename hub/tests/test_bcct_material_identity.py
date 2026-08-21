@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.resolvers.bcct_material_identity import (
+from hub.app.resolvers.bcct_material_identity import (
     ResolverContext,
     resolve_material_identity,
 )
@@ -538,7 +538,7 @@ def test_from_db_loads_catalog_mappings_reviewed():
     """End-to-end: context factory reads materials catalog (with has_bom
     flag), code_mappings, and reviewed line mappings for a single client.
     Cross-client data must NOT appear."""
-    from app.database import connect
+    from hub.app.database import connect
 
     client = "ctx_from_db_test"
     other = "other_client_test"

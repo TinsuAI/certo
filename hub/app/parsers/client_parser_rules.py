@@ -104,7 +104,7 @@ def clear_rules_cache() -> None:
 
 
 def _load_rules_uncached(*, client_id: str, output_field: str) -> list[CompiledRule]:
-    from app.database import connect
+    from hub.app.database import connect
 
     with connect() as conn, conn.cursor() as cur:
         cur.execute(

@@ -25,8 +25,8 @@ sys.path.insert(0, os.fspath(Path(__file__).resolve().parents[3]))
 
 from playwright.async_api import async_playwright
 
-from app.database import connect
-from app.routes.clients import upsert_client
+from hub.app.database import connect
+from hub.app.routes.clients import upsert_client
 
 
 BASE = "http://127.0.0.1:8754"

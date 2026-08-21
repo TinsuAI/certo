@@ -10,7 +10,7 @@ from pathlib import Path
 import jwt as pyjwt
 import pytest
 
-from app import jwt_issuer
+from hub.app import jwt_issuer
 
 
 @pytest.fixture(autouse=True)

@@ -25,7 +25,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from app.database import connect
+from hub.app.database import connect
 
 
 SUMMARY_HEADERS = [

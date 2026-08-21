@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.database import connect
-from scripts.detect_dual_source_btps import (
+from hub.app.database import connect
+from hub.scripts.detect_dual_source_btps import (
     apply_classifications,
     classify_btp_sourcing_for_client,
 )

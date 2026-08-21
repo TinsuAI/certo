@@ -28,7 +28,7 @@ def build_uom_panel(*, client_id: str, material_code: str,
                     uom_bcct: list[dict], uom_bom: list[dict]) -> dict:
     """Annotate each chip in-place with state/factor/remediation and return
     the panel dict consumed by `clients/catalog_detail.html`."""
-    from app.stores.uom import classify_uom_relation
+    from hub.app.stores.uom import classify_uom_relation
 
     def annotate(token: str | None) -> dict:
         if not official:

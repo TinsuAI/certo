@@ -12,10 +12,10 @@ import openpyxl
 import pytest
 from fastapi.testclient import TestClient
 
-from app import auth
-from app.database import connect
-from app.main import app
-from app.stores import flatten_decisions as decisions_store
+from hub.app import auth
+from hub.app.database import connect
+from hub.app.main import app
+from hub.app.stores import flatten_decisions as decisions_store
 
 
 CLIENT = "flat_test_upload"
@@ -408,7 +408,7 @@ def test_johnson_sap_fixture_flattens_via_sap_indented_walk(auth_client):
     leaves with no decisions required, materializing ONE flattened
     version under the filename root (no intermediate BTP versions).
     """
-    fixture = Path("tests/fixtures/edge_cases/johnson_sap_english_headers.xlsx")
+    fixture = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "edge_cases" / "johnson_sap_english_headers.xlsx"
     if not fixture.exists():
         pytest.skip(f"missing fixture: {fixture}")
     blob = fixture.read_bytes()
@@ -458,7 +458,7 @@ def test_growatt_chinese_fixture_flattens_via_manual_flat(auth_client):
     aliases include zh terms — so it parses with manual_flat and the
     engine runs without falling through. Asserts the upload reaches
     preview (i.e. the parser worked)."""
-    fixture = Path("tests/fixtures/edge_cases/growatt_bom_chinese_headers.xlsx")
+    fixture = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "edge_cases" / "growatt_bom_chinese_headers.xlsx"
     if not fixture.exists():
         pytest.skip(f"missing fixture: {fixture}")
     blob = fixture.read_bytes()

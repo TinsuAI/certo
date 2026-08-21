@@ -7,13 +7,13 @@ import secrets
 from decimal import Decimal
 from typing import Any, Iterable, Literal
 
-from app.database import connect
-from app.flatten import (
+from hub.app.database import connect
+from hub.app.flatten import (
     FLATTEN_METHOD, FLATTEN_METHOD_VERSION, FlattenResult, FlattenedVersion,
     build_display_label,
 )
-from app.flatten.types import CatalogEntry, ParsedBom, ParsedRow
-from app.stores import flatten_decisions as decisions_store
+from hub.app.flatten.types import CatalogEntry, ParsedBom, ParsedRow
+from hub.app.stores import flatten_decisions as decisions_store
 
 
 BomShape = Literal["raw_graph", "manual_flat", "shallow", "full_flat"]
@@ -166,7 +166,7 @@ def _create_raw_artifact_inner(cur, *, client_id, product_code, edges,
                               source_upload_id, source_channel, bom_code,
                               bom_variant_id, lineage, display_label):
     if not edges:
-        from app.parsers.bom_adapters import BomParseError
+        from hub.app.parsers.bom_adapters import BomParseError
         raise BomParseError("Raw BOM requires at least one edge")
     bad_qty = [
         (i, e.get("parent_code"), e.get("child_code"), e.get("qty_per_parent"))
@@ -174,7 +174,7 @@ def _create_raw_artifact_inner(cur, *, client_id, product_code, edges,
         if e.get("qty_per_parent") is None or float(e.get("qty_per_parent") or 0) <= 0
     ]
     if bad_qty:
-        from app.parsers.bom_adapters import BomParseError
+        from hub.app.parsers.bom_adapters import BomParseError
         sample = ", ".join(
             f"row {i} ({p!r}->{c!r})={q!r}"
             for i, p, c, q in bad_qty[:5]
@@ -397,7 +397,7 @@ def _create_artifact_inner(cur, *, client_id, product_code, rows, actor, intent,
         if r.get("qty_per_unit") is None or float(r.get("qty_per_unit") or 0) <= 0
     ]
     if bad_qty:
-        from app.parsers.bom_adapters import BomParseError
+        from hub.app.parsers.bom_adapters import BomParseError
         sample = ", ".join(f"row {i} ({mat!r})={q!r}" for i, mat, q in bad_qty[:5])
         raise BomParseError(
             f"BOM has {len(bad_qty)} row(s) with qty_per_unit <= 0 or NULL. "
@@ -1067,7 +1067,7 @@ def _notify_pending_review(*, client_id: str, product_code: str,
     """Fan-out a 'pending review' notification to every staff member with
     edit access to the client. Non-critical — swallow errors."""
     try:
-        from app import notifications as _notifs
+        from hub.app import notifications as _notifs
         user_ids = _notifs.staff_with_edit_access_to_client(client_id)
         body = f"Reason: {decision_reason}." if decision_reason else "Đang chờ duyệt thủ công."
         _notifs.notify_many(
@@ -1208,7 +1208,7 @@ def submit_proposal(*, client_id: str, product_code: str, actor: str, intent: st
     # auto mode + auto-rule rejected: legacy notification path so reviewers
     # know there's a rejection worth eyeballing.
     try:
-        from app import notifications as _notifs
+        from hub.app import notifications as _notifs
         user_ids = _notifs.staff_with_edit_access_to_client(client_id)
         _notifs.notify_many(
             user_ids=user_ids, kind="bom_proposal_rejected",
@@ -1279,7 +1279,7 @@ def approve_proposal(*, proposal_id: str, decided_by: str,
                 (decided_by, reason or "manual approve", artifact_id, proposal_id),
             )
     try:
-        from app import notifications as _notifs
+        from hub.app import notifications as _notifs
         user_ids = _notifs.staff_with_edit_access_to_client(proposal["client_id"])
         _notifs.notify_many(
             user_ids=user_ids, kind="bom_proposal_approved",

@@ -13,8 +13,8 @@ import secrets
 
 import pytest
 
-from app.database import connect
-from app.routes.bcct import _insert_bcct
+from hub.app.database import connect
+from hub.app.routes.bcct import _insert_bcct
 
 
 # `<prefix>-<8 hex>` so conftest's sweep reclaims it if this run is killed —

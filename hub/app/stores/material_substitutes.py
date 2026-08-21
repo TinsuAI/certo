@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable
 
-from app.database import connect
+from hub.app.database import connect
 
 
 # Score formula — keep in sync with brief Feature 4 + UI badge ordering.
@@ -274,7 +274,7 @@ def refresh_candidates(
         # Per-material top-N nearest by cosine similarity. HNSW <=>
         # operator returns cosine distance (0 = identical, 1 = orthogonal,
         # 2 = opposite); similarity = 1 - distance.
-        from app import embedding as _embedding
+        from hub.app import embedding as _embedding
         cfg = _embedding.get_client_config(client_id)
         with connect() as conn, conn.cursor() as cur:
             cur.execute(

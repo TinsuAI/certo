@@ -20,15 +20,15 @@ from pathlib import Path
 
 sys.path.insert(0, os.fspath(Path(__file__).resolve().parents[1]))
 
-from app.database import connect
-from app.parsers.bcct import parse_bcct_workbook
-from app.parsers.bom import parse_bom_workbook
-from app.parsers.code_mappings import parse_code_mappings_workbook
-from app.parsers.materials import parse_materials_workbook
-from app.routes.bcct import _insert_bcct
-from app.routes.bqd import _insert_mappings
-from app.routes.catalog import _insert_materials
-from app.stores.bom import create_artifact
+from hub.app.database import connect
+from hub.app.parsers.bcct import parse_bcct_workbook
+from hub.app.parsers.bom import parse_bom_workbook
+from hub.app.parsers.code_mappings import parse_code_mappings_workbook
+from hub.app.parsers.materials import parse_materials_workbook
+from hub.app.routes.bcct import _insert_bcct
+from hub.app.routes.bqd import _insert_mappings
+from hub.app.routes.catalog import _insert_materials
+from hub.app.stores.bom import create_artifact
 
 
 REAL_DATA = Path(os.environ.get("DATA_HUB_REAL_DATA_DIR", "/tmp/dh_real_data"))

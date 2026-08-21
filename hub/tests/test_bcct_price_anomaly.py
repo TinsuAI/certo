@@ -6,7 +6,7 @@ had the big VND amount in the nguyên-tệ column.
 """
 from __future__ import annotations
 
-from app.parsers.bcct_validate import (
+from hub.app.parsers.bcct_validate import (
     detect_price_anomalies, has_blocking_anomaly,
 )
 

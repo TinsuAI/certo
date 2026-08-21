@@ -18,10 +18,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app import jwt_issuer, settings_store
-from app.database import connect
-from app.main import app
-from app.stores import service_accounts as sa_store
+from hub.app import jwt_issuer, settings_store
+from hub.app.database import connect
+from hub.app.main import app
+from hub.app.stores import service_accounts as sa_store
 
 
 def _client() -> TestClient:
@@ -67,7 +67,7 @@ def seeded(auth_disabled):
         ("DECL06", "1", "E11", "import", "2026-01-15", "PV01.0117500",
          "PV01.0117500#&Plain#&VN"),
     ]
-    from app.parsers.client_parser_rules import clear_rules_cache
+    from hub.app.parsers.client_parser_rules import clear_rules_cache
     clear_rules_cache()
     with connect() as conn, conn.cursor() as cur:
         cur.execute(

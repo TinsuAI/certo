@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import Iterable
 
-from app.database import connect
+from hub.app.database import connect
 
 logger = logging.getLogger(__name__)
 

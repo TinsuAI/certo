@@ -15,9 +15,9 @@ import secrets
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
-from app.database import connect
-from app.stores import bom as bom_store
+from hub.app.main import app
+from hub.app.database import connect
+from hub.app.stores import bom as bom_store
 
 BATCH_URL = "/v1/hub/products/bom/artifacts:batch"
 PER_PRODUCT_URL = "/v1/hub/products/{pc}/bom/artifacts"
@@ -487,8 +487,8 @@ def test_negative_validation(auth_disabled, payload, code):
 
 def test_service_token_without_hub_read_403(monkeypatch):
     monkeypatch.delenv("DATA_HUB_API_AUTH_DISABLED", raising=False)
-    from app import jwt_issuer
-    from app.stores import service_accounts as sa_store
+    from hub.app import jwt_issuer
+    from hub.app.stores import service_accounts as sa_store
     name = "sa_batch_noscope_" + secrets.token_hex(3)
     sa_store.create_account(name=name, description="",
                             scopes=["hub:write"], client_ids=None,
@@ -503,8 +503,8 @@ def test_service_token_without_hub_read_403(monkeypatch):
 
 def test_service_token_client_outside_scope_403(monkeypatch):
     monkeypatch.delenv("DATA_HUB_API_AUTH_DISABLED", raising=False)
-    from app import jwt_issuer
-    from app.stores import service_accounts as sa_store
+    from hub.app import jwt_issuer
+    from hub.app.stores import service_accounts as sa_store
     name = "sa_batch_otherclient_" + secrets.token_hex(3)
     sa_store.create_account(name=name, description="",
                             scopes=["hub:read"], client_ids=["other-client"],

@@ -13,13 +13,13 @@ from pathlib import Path
 import pytest
 import xlwt
 
-from app.database import connect
-from app.routes.clients import upsert_client
-from app.stores.customs_declaration_files import (
+from hub.app.database import connect
+from hub.app.routes.clients import upsert_client
+from hub.app.stores.customs_declaration_files import (
     insert_declaration_file,
     list_files_for_declaration,
 )
-from app.uploads.declaration_zip import (
+from hub.app.uploads.declaration_zip import (
     MAX_EXTRACTED_BYTES,
     MAX_MEMBER_BYTES,
     MAX_MEMBERS,

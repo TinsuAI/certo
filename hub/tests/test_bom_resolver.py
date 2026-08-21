@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.database import connect
-from app.stores.bom import (
+from hub.app.database import connect
+from hub.app.stores.bom import (
     BomShape,
     ResolverError,
     resolve_bom_artifact,

@@ -8,9 +8,9 @@ import urllib.parse
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from app import auth
-from app.database import connect
-from app.routes.clients import get_client, stats_for_client
+from hub.app import auth
+from hub.app.database import connect
+from hub.app.routes.clients import get_client, stats_for_client
 
 router = APIRouter()
 
@@ -69,7 +69,7 @@ async def download_upload(request: Request, client_id: str, upload_id: str):
     rec = _get_upload(client_id=client_id, upload_id=upload_id)
     if not rec or not rec.get("stored_path"):
         raise HTTPException(404, "Upload not found")
-    from app.storage import get_backend
+    from hub.app.storage import get_backend
     try:
         blob = get_backend().get(rec["stored_path"])
     except Exception:  # noqa: BLE001 — blob may be gone / backend unreachable
@@ -117,7 +117,7 @@ async def delete_upload(request: Request, client_id: str, upload_id: str):
             )
     if stored_path:
         try:
-            from app.storage import get_backend
+            from hub.app.storage import get_backend
             get_backend().delete(stored_path)
         except Exception:  # noqa: BLE001 — blob may already be gone
             pass
@@ -187,7 +187,7 @@ def _preview_for(rec: dict) -> dict | None:
     if not stored_path:
         return None
     try:
-        from app.storage import get_backend
+        from hub.app.storage import get_backend
         blob = get_backend().get(stored_path)
     except Exception as e:  # noqa: BLE001
         return {"kind": "error", "message": f"Không đọc được file: {e}"}
@@ -203,7 +203,7 @@ def _build_preview(blob: bytes, filename: str | None, mime: str | None) -> dict:
     )
     try:
         if is_excel:
-            from app.parsers._excel import load_xlsx
+            from hub.app.parsers._excel import load_xlsx
             wb = load_xlsx(blob)
             sheets = list(wb.worksheets)
             if not sheets:

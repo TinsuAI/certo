@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime
 import secrets
 
-from app.parsers._excel import (
+from hub.app.parsers._excel import (
     cell_num,
     cell_str,
     header_row,
@@ -404,7 +404,7 @@ def _direction_from(decl_type: str | None, explicit: str | None) -> str | None:
 
 
 # Backward-compat aliases for the test that imports the underscore-prefixed
-# helpers directly. New code should `from app.parsers._excel import cell_str`.
+# helpers directly. New code should `from hub.app.parsers._excel import cell_str`.
 _cell_str = cell_str
 _cell_num = cell_num
 

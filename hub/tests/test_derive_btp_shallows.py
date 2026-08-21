@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.database import connect
-from scripts.derive_btp_shallows import derive_btp_shallows_for_artifact
+from hub.app.database import connect
+from hub.scripts.derive_btp_shallows import derive_btp_shallows_for_artifact
 
 
 CLIENT = "derive_btp_test"
@@ -228,7 +228,7 @@ def test_subtree_edges_dedups_multi_position_occurrences():
     produce different normalized_edges_hash and fail to dedup across
     parent TPs (BTP 1000534541 fragmentation, 2026-05-12 incident).
     """
-    from scripts.derive_btp_shallows import _subtree_edges
+    from hub.scripts.derive_btp_shallows import _subtree_edges
 
     # Insert 2 EXTRA rows so BTP_INNER2 has its children duplicated:
     # simulates BTP_INNER2 appearing at a second position in the

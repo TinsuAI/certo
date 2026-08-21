@@ -20,10 +20,10 @@ from pathlib import Path
 
 import pytest
 
-from app.parsers.bcct import parse_bcct_workbook, BcctParseError
-from app.parsers.bom import parse_bom_workbook, BomParseError
-from app.parsers.code_mappings import parse_code_mappings_workbook  # noqa: F401
-from app.parsers.materials import parse_materials_workbook, MaterialsParseError
+from hub.app.parsers.bcct import parse_bcct_workbook, BcctParseError
+from hub.app.parsers.bom import parse_bom_workbook, BomParseError
+from hub.app.parsers.code_mappings import parse_code_mappings_workbook  # noqa: F401
+from hub.app.parsers.materials import parse_materials_workbook, MaterialsParseError
 
 ROOT = Path(__file__).parent / "fixtures"
 MANUAL = ROOT / "manual_test"

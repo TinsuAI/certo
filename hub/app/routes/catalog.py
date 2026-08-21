@@ -15,15 +15,15 @@ from __future__ import annotations
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import auth
-from app.database import connect
-from app.parsers.materials import (
+from hub.app import auth
+from hub.app.database import connect
+from hub.app.parsers.materials import (
     LOGICAL_FIELDS,
     MIN_IDENTIFIER_FIELDS,
     MaterialsParseError,
     parse_materials_workbook,
 )
-from app.routes._mapping_flow import (
+from hub.app.routes._mapping_flow import (
     ModuleConfig,
     confirm_pending,
     parse_with_overrides_and_stash,
@@ -33,16 +33,16 @@ from app.routes._mapping_flow import (
     render_preview_context,
     upload_initial_dispatch,
 )
-from app.routes._paging import (
+from hub.app.routes._paging import (
     SortSpec,
     pagination_context,
     parse_page_params,
     sort_link,
 )
-from app.routes.clients import get_client, stats_for_client
-from app.storage import save_upload, sha256_bytes
-from app.stores.staleness import freshness_for_template
-from app.stores.uploads import record_upload
+from hub.app.routes.clients import get_client, stats_for_client
+from hub.app.storage import save_upload, sha256_bytes
+from hub.app.stores.staleness import freshness_for_template
+from hub.app.stores.uploads import record_upload
 
 router = APIRouter()
 
@@ -137,8 +137,8 @@ async def list_view(
     )
     counts = _category_counts(client_id)
     prov_counts = _provenance_counts(client_id)
-    from app.database import connect as _connect
-    from app.stores.provenance import (
+    from hub.app.database import connect as _connect
+    from hub.app.stores.provenance import (
         bom_unresolved_material_count, unregistered_seen_count,
     )
     with _connect() as _conn, _conn.cursor() as _cur:
@@ -150,8 +150,8 @@ async def list_view(
 
     # AI panel stats: how many materials embedded vs need re-analysis,
     # how many substitute pairs the catalog already has, latest job.
-    from app import jobs as job_store
-    from app.embedding import get_global_config as _emb_cfg
+    from hub.app import jobs as job_store
+    from hub.app.embedding import get_global_config as _emb_cfg
     with _connect() as _conn, _conn.cursor() as _cur:
         _cur.execute(
             """
@@ -1050,7 +1050,7 @@ async def edit_material_submit(
     # referencing this material and refresh/reconcile so state ends up
     # consistent without staff clicking Refresh manually. Capped at 50
     # to keep the edit POST responsive.
-    from app.stores.bom_staleness import reconcile_for_material
+    from hub.app.stores.bom_staleness import reconcile_for_material
     reconcile_for_material(client_id, material_code,
                             triggered_by_user_id=user.user_id)
     return RedirectResponse(
@@ -1188,14 +1188,14 @@ async def catalog_detail(request: Request, client_id: str, material_code: str):
     # equivalent / convertible / unconfirmed (tier-A 1:1) / incompatible
     # via the shared UoM cascade, so same-family-convertible and
     # override-resolved units no longer false-positive as "lệch".
-    from app.stores.catalog_uom_panel import build_uom_panel
+    from hub.app.stores.catalog_uom_panel import build_uom_panel
     uom_panel = build_uom_panel(
         client_id=client_id, material_code=material_code,
         official=material.get("uom"), uom_bcct=uom_bcct, uom_bom=uom_bom,
     )
 
-    from app.stores.catalog_warnings import compute_warnings
-    from app.stores.catalog_audit import audit_diff
+    from hub.app.stores.catalog_warnings import compute_warnings
+    from hub.app.stores.catalog_audit import audit_diff
     warnings = compute_warnings(client_id, material_code)
     for ev in audit_events:
         ev["diff"] = audit_diff(ev["event_type"], ev["payload"])
@@ -1230,17 +1230,17 @@ async def catalog_detail(request: Request, client_id: str, material_code: str):
         1 for m in mappings if m["paired_code"] == material_code
     )
 
-    from app.stores.catalog_bcct_analysis import analyze_material_bcct
+    from hub.app.stores.catalog_bcct_analysis import analyze_material_bcct
     bcct_analysis = analyze_material_bcct(
         client_id=client_id, material_code=material_code,
     )
 
-    from app.stores.catalog_bcct_timeseries import analyze_material_timeline
+    from hub.app.stores.catalog_bcct_timeseries import analyze_material_timeline
     bcct_timeline = analyze_material_timeline(
         client_id=client_id, material_code=material_code,
     )
 
-    from app.stores.material_substitutes import list_for_material as list_subs
+    from hub.app.stores.material_substitutes import list_for_material as list_subs
     substitutes_active = list_subs(
         client_id=client_id, material_code=material_code,
         min_score=0.0, include_rejected=False, limit=20,

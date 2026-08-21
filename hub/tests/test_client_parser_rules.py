@@ -20,7 +20,7 @@ import pytest
 
 
 def test_empty_rule_list_returns_none():
-    from app.parsers.client_parser_rules import evaluate_compiled_rules
+    from hub.app.parsers.client_parser_rules import evaluate_compiled_rules
 
     result = evaluate_compiled_rules([], row={"goods_name": "anything"})
     assert result is None
@@ -28,7 +28,7 @@ def test_empty_rule_list_returns_none():
 
 def test_single_capture_rule_match_returns_group():
     import re
-    from app.parsers.client_parser_rules import (
+    from hub.app.parsers.client_parser_rules import (
         CompiledRule,
         evaluate_compiled_rules,
     )
@@ -45,7 +45,7 @@ def test_single_capture_rule_match_returns_group():
 
 def test_single_capture_rule_no_match_returns_none():
     import re
-    from app.parsers.client_parser_rules import (
+    from hub.app.parsers.client_parser_rules import (
         CompiledRule,
         evaluate_compiled_rules,
     )
@@ -62,7 +62,7 @@ def test_single_capture_rule_no_match_returns_none():
 
 def test_reject_rule_matches_returns_none_and_stops():
     import re
-    from app.parsers.client_parser_rules import (
+    from hub.app.parsers.client_parser_rules import (
         CompiledRule,
         evaluate_compiled_rules,
     )
@@ -88,7 +88,7 @@ def test_reject_rule_matches_returns_none_and_stops():
 
 def test_no_match_action_return_null_stops_chain():
     import re
-    from app.parsers.client_parser_rules import (
+    from hub.app.parsers.client_parser_rules import (
         CompiledRule,
         evaluate_compiled_rules,
     )
@@ -116,7 +116,7 @@ def test_first_match_wins_rules_evaluated_in_order():
     """Engine consumes a pre-ordered list. Loader is responsible for
     `order by priority asc`. Engine just iterates."""
     import re
-    from app.parsers.client_parser_rules import (
+    from hub.app.parsers.client_parser_rules import (
         CompiledRule,
         evaluate_compiled_rules,
     )
@@ -144,7 +144,7 @@ def test_first_match_wins_rules_evaluated_in_order():
 
 
 def test_compile_pattern_returns_searchable_object_for_valid_input():
-    from app.parsers.client_parser_rules import compile_pattern
+    from hub.app.parsers.client_parser_rules import compile_pattern
 
     compiled = compile_pattern(r"\((\w+)\)")
     match = compiled.search("foo (BAR)")
@@ -153,7 +153,7 @@ def test_compile_pattern_returns_searchable_object_for_valid_input():
 
 
 def test_compile_pattern_rejects_overlong_pattern():
-    from app.parsers.client_parser_rules import (
+    from hub.app.parsers.client_parser_rules import (
         InvalidPatternError,
         compile_pattern,
     )
@@ -166,7 +166,7 @@ def test_compile_pattern_rejects_overlong_pattern():
 def test_compile_pattern_rejects_backreference():
     """re2 does not support backreferences; staff-authored patterns
     using them must fail at save time, not silently break runtime."""
-    from app.parsers.client_parser_rules import (
+    from hub.app.parsers.client_parser_rules import (
         InvalidPatternError,
         compile_pattern,
     )
@@ -180,7 +180,7 @@ def test_compile_pattern_rejects_backreference():
 
 def test_load_rules_returns_empty_for_client_without_rules():
     """A client with no rows in client_parser_rules → empty list, not error."""
-    from app.parsers.client_parser_rules import load_rules
+    from hub.app.parsers.client_parser_rules import load_rules
 
     rules = load_rules(
         client_id="zzz-no-such-client-ever", output_field="internal_code",
@@ -194,8 +194,8 @@ def _rules_test_client():
     with parallel tests / leftover rows from prior runs. Clears the
     rules cache before + after to prevent cross-test leak."""
     import secrets
-    from app.database import connect
-    from app.parsers.client_parser_rules import clear_rules_cache
+    from hub.app.database import connect
+    from hub.app.parsers.client_parser_rules import clear_rules_cache
 
     clear_rules_cache()
     cid = f"rules-test-{secrets.token_hex(4)}"
@@ -211,8 +211,8 @@ def _rules_test_client():
 
 
 def test_load_rules_returns_compiled_rules_in_priority_order(_rules_test_client):
-    from app.database import connect
-    from app.parsers.client_parser_rules import load_rules
+    from hub.app.database import connect
+    from hub.app.parsers.client_parser_rules import load_rules
 
     cid = _rules_test_client
     with connect() as conn, conn.cursor() as cur:
@@ -246,8 +246,8 @@ def test_compute_internal_code_evaluates_db_rules_for_non_identity_client(
     """End-to-end: client with rules in DB → compute_internal_code returns
     the captured group. Identity short-circuit is bypassed when mode is
     non-identity."""
-    from app.database import connect
-    from app.parsers.derivations import compute_internal_code
+    from hub.app.database import connect
+    from hub.app.parsers.derivations import compute_internal_code
 
     cid = _rules_test_client
     with connect() as conn, conn.cursor() as cur:
@@ -271,8 +271,8 @@ def test_compute_internal_code_identity_mode_short_circuits_no_db_query(
 ):
     """Identity-mode clients return customs_code without consulting rules.
     Adding a rule that would match must be ignored."""
-    from app.database import connect
-    from app.parsers.derivations import compute_internal_code
+    from hub.app.database import connect
+    from hub.app.parsers.derivations import compute_internal_code
 
     cid = _rules_test_client
     with connect() as conn, conn.cursor() as cur:
@@ -295,8 +295,8 @@ def test_compute_internal_code_identity_mode_short_circuits_no_db_query(
 def test_load_rules_caches_across_calls(_rules_test_client):
     """Second call returns cached object identity-equal to first call.
     No DB query on the second call — verified via object identity."""
-    from app.database import connect
-    from app.parsers.client_parser_rules import load_rules
+    from hub.app.database import connect
+    from hub.app.parsers.client_parser_rules import load_rules
 
     cid = _rules_test_client
     with connect() as conn, conn.cursor() as cur:
@@ -315,8 +315,8 @@ def test_load_rules_caches_across_calls(_rules_test_client):
 
 def test_clear_rules_cache_forces_reload(_rules_test_client):
     """clear_rules_cache() drops cached entries; next load hits DB."""
-    from app.database import connect
-    from app.parsers.client_parser_rules import clear_rules_cache, load_rules
+    from hub.app.database import connect
+    from hub.app.parsers.client_parser_rules import clear_rules_cache, load_rules
 
     cid = _rules_test_client
     with connect() as conn, conn.cursor() as cur:
@@ -346,7 +346,7 @@ def test_extract_all_matches_collects_every_match_in_priority_order():
     Returns dicts with product_code + source_field + matched_text +
     match_rule (= rule notes or fallback id)."""
     import re
-    from app.parsers.client_parser_rules import (
+    from hub.app.parsers.client_parser_rules import (
         CompiledRule,
         extract_all_matches_from_compiled,
     )
@@ -384,7 +384,7 @@ def test_extract_all_matches_dedups_within_rule():
     Different rules each emitting the same code → also dedup'd
     (a code is what it is regardless of which rule found it)."""
     import re
-    from app.parsers.client_parser_rules import (
+    from hub.app.parsers.client_parser_rules import (
         CompiledRule,
         extract_all_matches_from_compiled,
     )

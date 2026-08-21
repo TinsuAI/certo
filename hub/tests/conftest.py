@@ -17,11 +17,11 @@ from __future__ import annotations
 
 import pytest
 
-from app import auth
-from app.auth.session import hash_password
-from app.database import apply_migrations, connect
-from app.seed import auto_seed_demo_if_empty, seed_parser_rules_if_empty
-from app.seed_master_data import seed_master_data_if_empty
+from hub.app import auth
+from hub.app.auth.session import hash_password
+from hub.app.database import apply_migrations, connect
+from hub.app.seed import auto_seed_demo_if_empty, seed_parser_rules_if_empty
+from hub.app.seed_master_data import seed_master_data_if_empty
 
 
 def _sweep_test_junk_clients() -> None:

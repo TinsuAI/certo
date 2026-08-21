@@ -24,7 +24,7 @@ from pathlib import Path
 import pytest
 from jinja2 import Environment, FileSystemLoader
 
-from app import i18n
+from hub.app import i18n
 
 
 TEMPLATES = Path(__file__).resolve().parent.parent / "app" / "templates"
@@ -224,7 +224,7 @@ def test_list_products_with_bom_returns_n_strategies_field():
     SQL semantic — distinct flatten_strategy count). The legacy
     `n_dual_variants` alias must NOT be present (misleading name —
     suggests supplier dual-source, actually counts shapes)."""
-    from app.stores.bom import list_products_with_bom
+    from hub.app.stores.bom import list_products_with_bom
     rows = list_products_with_bom("growatt-vn", limit=1)
     if not rows:
         pytest.skip("no BOM data for growatt-vn in this DB")
@@ -249,10 +249,10 @@ def test_list_products_with_bom_returns_n_strategies_field():
 @pytest.fixture
 def admin_client():
     from fastapi.testclient import TestClient
-    from app.auth.session import (SESSION_COOKIE, create_session,
+    from hub.app.auth.session import (SESSION_COOKIE, create_session,
                                    hash_password)
-    from app.database import connect
-    from app.main import app
+    from hub.app.database import connect
+    from hub.app.main import app
 
     user_id = "u_track_a_admin"
     email = "track-a@test.local"
@@ -300,7 +300,7 @@ def test_bom_list_page_uses_n_strategies_not_n_dual_variants(admin_client):
 def test_bom_artifacts_page_uses_hash_badge_not_v(admin_client):
     """Pick any product with artifacts. Badge inside table cells must
     be '#N' not 'vN'."""
-    from app.database import connect
+    from hub.app.database import connect
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "select product_code from hub.bom_artifacts "
@@ -331,7 +331,7 @@ def test_bom_artifacts_variant_col_hidden_when_all_default(admin_client):
     """When every artifact for a product has bom_variant_id NULL or
     'default', the 'variant' column should not appear (or appear as
     a hidden column / collapsed)."""
-    from app.database import connect
+    from hub.app.database import connect
 
     # Find a product whose artifacts are all-default. If none, we
     # synthesize via raw insert + cleanup.
@@ -377,7 +377,7 @@ def test_bom_artifact_detail_provenance_variant_hidden_when_default(
         admin_client):
     """Provenance row 'Variant' must NOT show when bom_variant_id is
     NULL or 'default'."""
-    from app.database import connect
+    from hub.app.database import connect
     artifact_id = "ba_track_a_detail_default"
     pcode = "TRACK_A_DETAIL_DEFAULT"
     client_id = "johnson-vn"
@@ -422,7 +422,7 @@ def test_bom_presets_select_option_hides_default_string(admin_client):
     `{{ a.bom_variant_id or 'default' }}` — when value is None/default,
     the option text shouldn't include the literal 'default' segment
     (it confuses staff into thinking 'default' is meaningful)."""
-    from app.database import connect
+    from hub.app.database import connect
     artifact_id = "ba_track_a_preset_default"
     pcode = "TRACK_A_PRESET_DEFAULT"
     client_id = "johnson-vn"

@@ -16,7 +16,7 @@ import statistics
 from dataclasses import dataclass
 from datetime import date
 
-from app.database import connect
+from hub.app.database import connect
 
 
 # Categorical fields tracked, in display order. Severity mirrors the

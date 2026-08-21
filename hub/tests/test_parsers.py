@@ -4,10 +4,10 @@ import io
 import pytest
 from openpyxl import Workbook
 
-from app.parsers.bcct import parse_bcct_workbook, BcctParseError
-from app.parsers.bom import parse_bom_workbook, BomParseError
-from app.parsers.code_mappings import parse_code_mappings_workbook, CodeMappingsParseError
-from app.parsers.materials import parse_materials_workbook, MaterialsParseError, normalize_category
+from hub.app.parsers.bcct import parse_bcct_workbook, BcctParseError
+from hub.app.parsers.bom import parse_bom_workbook, BomParseError
+from hub.app.parsers.code_mappings import parse_code_mappings_workbook, CodeMappingsParseError
+from hub.app.parsers.materials import parse_materials_workbook, MaterialsParseError, normalize_category
 
 
 def _xlsx(rows: list[tuple], sheet_title: str = "Sheet1", *,
@@ -166,7 +166,7 @@ def test_bcct_strips_trailing_zero_from_numeric_cells():
 def test_bcct_preserves_real_decimal_when_present():
     """Decimal values like 1.5 must survive — only integer-valued floats
     get coerced back to int in the parser."""
-    from app.parsers.bcct import _cell_str
+    from hub.app.parsers.bcct import _cell_str
     assert _cell_str([1.5], 0) == "1.5"
     assert _cell_str([1.0], 0) == "1"
     assert _cell_str([308449399330.0], 0) == "308449399330"
@@ -179,7 +179,7 @@ def test_bcct_c12_classified_as_export():
     """Decision 1357/QĐ-TCHQ 2021: C12 = export from bonded warehouse,
     not import. Pre-fix parser had C12 in IMPORT_TYPES — sign-flip bug
     that would have flagged any C12 row as import direction."""
-    from app.parsers.bcct import _direction_from
+    from hub.app.parsers.bcct import _direction_from
     assert _direction_from("C12", None) == "export"
     assert _direction_from("C11", None) == "import"
 
@@ -188,7 +188,7 @@ def test_bcct_invalid_h_codes_dropped():
     """H12/H13/H22/H23 don't exist in the 2021 schedule — only H11 (import)
     and H21 (export) are valid. Bogus codes should fall through to NULL,
     not silently land in either bucket."""
-    from app.parsers.bcct import _direction_from
+    from hub.app.parsers.bcct import _direction_from
     assert _direction_from("H11", None) == "import"
     assert _direction_from("H21", None) == "export"
     assert _direction_from("H12", None) is None
@@ -201,7 +201,7 @@ def test_bcct_cell_date_raises_on_unrecognized_format():
     """Silent None on bad date used to leak through parse and fail later
     at the GENERATED `year` column with an opaque message. Loud-fail
     at parse time instead."""
-    from app.parsers.bcct import _cell_date, BcctParseError
+    from hub.app.parsers.bcct import _cell_date, BcctParseError
     import pytest
     assert _cell_date(["2026-04-18"], 0) is not None  # ISO ok
     assert _cell_date(["18/04/2026"], 0) is not None  # DD/MM/YYYY ok
@@ -219,7 +219,7 @@ def test_materials_status_map_chờ_duyệt_is_pending():
     """`chờ duyệt` (waiting for HQ approval) is semantically pending,
     not discontinued. Migration 026 extended chk_status to allow
     'pending' alongside 'active' / 'discontinued'."""
-    from app.parsers.materials import normalize_status
+    from hub.app.parsers.materials import normalize_status
     assert normalize_status("chờ duyệt") == "pending"
     assert normalize_status("cho duyet") == "pending"
     assert normalize_status("chờ phê duyệt") == "pending"
@@ -236,7 +236,7 @@ def test_materials_status_map_chờ_duyệt_is_pending():
 def test_direction_strict_set_rejects_partial_match():
     """Old `startswith('nh')` would classify 'Nhà cung cấp' (supplier)
     as import. Strict token-set match avoids that whole class of error."""
-    from app.parsers.bcct import _direction_from
+    from hub.app.parsers.bcct import _direction_from
     assert _direction_from(None, "Nhập khẩu") == "import"
     assert _direction_from(None, "Xuất") == "export"
     assert _direction_from(None, "import") == "import"
@@ -258,7 +258,7 @@ def test_llm_mapping_path_runs_full_coercion_guards():
     import io
     import pytest
     from openpyxl import Workbook
-    from app.parsers.bcct import BcctParseError, parse_bcct_workbook
+    from hub.app.parsers.bcct import BcctParseError, parse_bcct_workbook
 
     def _xlsx(rows):
         buf = io.BytesIO()
@@ -306,9 +306,9 @@ def test_bom_create_artifact_rejects_qty_zero():
     instead of a generic Postgres constraint violation."""
     import pytest
     import secrets
-    from app.database import connect
-    from app.parsers.bom_adapters import BomParseError
-    from app.stores.bom import create_artifact
+    from hub.app.database import connect
+    from hub.app.parsers.bom_adapters import BomParseError
+    from hub.app.stores.bom import create_artifact
 
     cid = "qty-test-" + secrets.token_hex(4)
     with connect() as conn, conn.cursor() as cur:
@@ -365,11 +365,11 @@ def test_shared_cell_str_used_everywhere():
     Regression for the 4-copy duplication that allowed the bug to
     persist in materials.py / code_mappings.py / bom_adapters/_common.py
     even after bcct.py was patched."""
-    from app.parsers._excel import cell_str as shared
-    from app.parsers.bcct import _cell_str as bcct_cs
-    from app.parsers.materials import _cell_str as materials_cs
-    from app.parsers.code_mappings import _cell_str as code_mappings_cs
-    from app.parsers.bom_adapters._common import cell_str as bom_cs
+    from hub.app.parsers._excel import cell_str as shared
+    from hub.app.parsers.bcct import _cell_str as bcct_cs
+    from hub.app.parsers.materials import _cell_str as materials_cs
+    from hub.app.parsers.code_mappings import _cell_str as code_mappings_cs
+    from hub.app.parsers.bom_adapters._common import cell_str as bom_cs
     # All four should be the SAME function object.
     assert bcct_cs is shared
     assert materials_cs is shared

@@ -18,7 +18,7 @@ Classifier output is order-driven and side-effect-free:
 """
 from __future__ import annotations
 
-from app.flatten.types import (
+from hub.app.flatten.types import (
     BomKey, ClassificationResult, FlattenContext, ParsedRow,
 )
 

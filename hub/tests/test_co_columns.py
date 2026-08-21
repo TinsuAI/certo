@@ -12,8 +12,8 @@ import psycopg
 import pytest
 from openpyxl import Workbook
 
-from app.database import connect
-from app.parsers.bcct import parse_bcct_workbook
+from hub.app.database import connect
+from hub.app.parsers.bcct import parse_bcct_workbook
 
 
 # ---------------------------------------------------------------------------

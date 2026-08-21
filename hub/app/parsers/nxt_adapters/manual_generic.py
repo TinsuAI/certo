@@ -11,10 +11,10 @@ left null — provenance only, never authoritative.
 """
 from __future__ import annotations
 
-from app.parsers._excel import (
+from hub.app.parsers._excel import (
     cell_num, cell_str, header_row, index_headers, normalize_header, load_xlsx,
 )
-from app.parsers.nxt_adapters._common import ALIASES, NUMERIC_FIELDS, OUT_BUCKETS
+from hub.app.parsers.nxt_adapters._common import ALIASES, NUMERIC_FIELDS, OUT_BUCKETS
 
 _SHEET_ROLES = {"NVL": "nvl", "TP": "tp", "BTP": "btp"}
 
@@ -47,7 +47,7 @@ class ManualGenericNxtAdapter:
 
     def parse(self, blob: bytes, *,
               mapping_override: dict[str, str] | None = None) -> list[dict]:
-        from app.parsers.nxt_adapters import NxtParseError
+        from hub.app.parsers.nxt_adapters import NxtParseError
         try:
             wb = load_xlsx(blob)
         except Exception as e:

@@ -242,11 +242,11 @@ def _call_adapter(adapter: BomAdapter, blob: bytes, *,
 
 # Eager import + register builtin adapters. New adapters added in this
 # directory must also be imported here (or via __init__.py side-effect).
-from app.parsers.bom_adapters.manual_flat import ManualFlatAdapter             # noqa: E402
-from app.parsers.bom_adapters.sheet_per_product import SheetPerProductAdapter  # noqa: E402
-from app.parsers.bom_adapters.sap_exploded_levels import SapExplodedLevelsAdapter  # noqa: E402
-from app.parsers.bom_adapters.sap_indented_walk import SapIndentedWalkAdapter  # noqa: E402
-from app.parsers.bom_adapters.multi_sheet_per_root import MultiSheetPerRootAdapter  # noqa: E402
+from hub.app.parsers.bom_adapters.manual_flat import ManualFlatAdapter             # noqa: E402
+from hub.app.parsers.bom_adapters.sheet_per_product import SheetPerProductAdapter  # noqa: E402
+from hub.app.parsers.bom_adapters.sap_exploded_levels import SapExplodedLevelsAdapter  # noqa: E402
+from hub.app.parsers.bom_adapters.sap_indented_walk import SapIndentedWalkAdapter  # noqa: E402
+from hub.app.parsers.bom_adapters.multi_sheet_per_root import MultiSheetPerRootAdapter  # noqa: E402
 
 # Registration order matters for parse_with_fallback. Single-root
 # adapters first (more discriminating); generic adapters last.
@@ -273,10 +273,10 @@ register(SapExplodedLevelsAdapter())   # explicit Level + product code
 def _derive_btp_shallows_hook(*, artifact_id: str, client_id: str, **kwargs):
     """Bridge to scripts/derive_btp_shallows.py (lazy import to avoid
     circular dependency with app.stores.bom)."""
-    from scripts.derive_btp_shallows import (
+    from hub.scripts.derive_btp_shallows import (
         _client_policy, derive_btp_shallows_for_artifact,
     )
-    from app.database import connect
+    from hub.app.database import connect
     with connect() as conn, conn.cursor() as cur:
         policy = _client_policy(cur, client_id)
     status = {"disabled": "disabled", "draft_only": "draft",
@@ -291,7 +291,7 @@ def _materialize_shapes_hook(*, artifact_id: str, client_id: str, **kwargs):
     this client that doesn't yet have shapes attached. Catches up the
     just-uploaded TP and any BTP raw_graphs minted by the prior
     derive_btp_shallows hook in the same chain. Idempotent."""
-    from scripts.materialize_shallow_and_full_flat import (
+    from hub.scripts.materialize_shallow_and_full_flat import (
         list_raw_artifacts_missing_shapes, materialize_one,
         fetch_client_policy,
     )

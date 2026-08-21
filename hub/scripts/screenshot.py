@@ -10,7 +10,7 @@ BASE = "http://127.0.0.1:8754"
 EMAIL = "admin@data-hub.local"
 PASSWORD = "admin123"
 
-OUT = Path("data/screenshots")
+OUT = Path(__file__).resolve().parent.parent / "data" / "screenshots"
 OUT.mkdir(parents=True, exist_ok=True)
 
 CLIENT_ID = "growatt-vn"  # auto-seed creates this with full data

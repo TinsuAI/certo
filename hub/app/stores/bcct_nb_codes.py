@@ -13,10 +13,10 @@ domain.
 """
 from __future__ import annotations
 
-from app.database import connect
-from app.parsers.code_extraction import candidates_from_bcct_row
-from app.parsers.client_parser_rules import load_rules
-from app.stores.provenance import customs_code_placeholders
+from hub.app.database import connect
+from hub.app.parsers.code_extraction import candidates_from_bcct_row
+from hub.app.parsers.client_parser_rules import load_rules
+from hub.app.stores.provenance import customs_code_placeholders
 
 
 def rebuild_for_client(client_id: str) -> int:

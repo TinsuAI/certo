@@ -1,5 +1,5 @@
 """Idempotency / canonicalization tests for BOM normalized_hash."""
-from app.stores.bom import normalized_hash
+from hub.app.stores.bom import normalized_hash
 
 
 def test_hash_is_deterministic():

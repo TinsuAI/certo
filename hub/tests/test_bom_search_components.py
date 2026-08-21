@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.database import connect
+from hub.app.database import connect
 
 
 CLIENT = "bom_search_test"
@@ -85,7 +85,7 @@ def _codes(rows):
 
 
 def test_search_by_product_code_still_matches():
-    from app.stores.bom import list_products_with_bom
+    from hub.app.stores.bom import list_products_with_bom
     _insert_artifact("ba_s_pc")
     rows = list_products_with_bom(CLIENT, q="SEARCH_PARENT", limit=10)
     assert PROD in _codes(rows)
@@ -95,7 +95,7 @@ def test_search_by_product_code_still_matches():
 
 
 def test_search_by_nvl_in_rows_returns_parent_product():
-    from app.stores.bom import list_products_with_bom
+    from hub.app.stores.bom import list_products_with_bom
     aid = "ba_s_rows"
     _insert_artifact(aid)
     _insert_row(aid, NVL_ROW)
@@ -109,7 +109,7 @@ def test_search_by_nvl_in_rows_returns_parent_product():
 
 
 def test_search_by_nvl_in_edges_returns_parent_product():
-    from app.stores.bom import list_products_with_bom
+    from hub.app.stores.bom import list_products_with_bom
     aid = "ba_s_edges"
     _insert_artifact(aid)
     _insert_edge(aid, NVL_EDGE)
@@ -123,7 +123,7 @@ def test_search_by_nvl_in_edges_returns_parent_product():
 
 
 def test_search_unrelated_code_excludes_product():
-    from app.stores.bom import list_products_with_bom
+    from hub.app.stores.bom import list_products_with_bom
     aid = "ba_s_none"
     _insert_artifact(aid)
     _insert_row(aid, NVL_ROW)
@@ -137,7 +137,7 @@ def test_search_unrelated_code_excludes_product():
 def test_product_appears_once_when_code_and_component_both_match():
     """A `q` that matches both product_code and a component must not
     duplicate the product in the result set."""
-    from app.stores.bom import list_products_with_bom
+    from hub.app.stores.bom import list_products_with_bom
     aid = "ba_s_dup"
     # product_code = TP_SEARCH_PARENT, component code shares "PARENT".
     _insert_artifact(aid)
@@ -151,7 +151,7 @@ def test_product_appears_once_when_code_and_component_both_match():
 
 
 def test_count_matches_list_for_component_search():
-    from app.stores.bom import (
+    from hub.app.stores.bom import (
         list_products_with_bom,
         count_products_with_bom,
     )
@@ -168,8 +168,8 @@ def test_count_matches_list_for_component_search():
 
 def test_api_products_endpoint_filters_by_component_code():
     from fastapi.testclient import TestClient
-    from app import jwt_issuer, settings_store
-    from app.main import app
+    from hub.app import jwt_issuer, settings_store
+    from hub.app.main import app
 
     settings_store.set_many({"api_auth_strict": "false"})
     aid = "ba_s_api"

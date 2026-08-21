@@ -12,9 +12,9 @@ import secrets
 import pytest
 from fastapi.testclient import TestClient
 
-from app import markets
-from app.database import connect
-from app.main import app
+from hub.app import markets
+from hub.app.database import connect
+from hub.app.main import app
 
 
 @pytest.fixture(autouse=True)

@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from app.parsers._excel import header_row, index_headers, iter_data_rows, load_xlsx
-from app.parsers.bom_adapters._common import (
+from hub.app.parsers._excel import header_row, index_headers, iter_data_rows, load_xlsx
+from hub.app.parsers.bom_adapters._common import (
     COMMON_ALIASES, cell_num, cell_str, to_int,
 )
 
@@ -57,7 +57,7 @@ class SapExplodedLevelsAdapter:
     def parse(self, blob: bytes, *,
               mapping_override: dict[str, str] | None = None,
               ) -> dict[str, list[dict]]:
-        from app.parsers.bom_adapters import BomParseError
+        from hub.app.parsers.bom_adapters import BomParseError
         try:
             wb = load_xlsx(blob)
         except Exception as e:

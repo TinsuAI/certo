@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, date
 
-from app.database import connect
+from hub.app.database import connect
 
 
 _DATA_QUERIES: dict[str, str] = {
@@ -129,7 +129,7 @@ def freshness_for_template(request, client_id: str, module: str) -> dict:
     module-specific data label using the request's lang cookie so
     templates stay declarative.
     """
-    from app import i18n
+    from hub.app import i18n
 
     lang = i18n.normalize_lang(request.cookies.get("data_hub_lang"))
     raw = tab_freshness(client_id, module)

@@ -29,8 +29,8 @@ from pathlib import Path
 
 sys.path.insert(0, os.fspath(Path(__file__).resolve().parents[1]))
 
-from app.database import connect
-from app.parsers.bom_edges import parse_sap_indented_raw_edges
+from hub.app.database import connect
+from hub.app.parsers.bom_edges import parse_sap_indented_raw_edges
 
 
 CLIENT_ID = "johnson-vn"

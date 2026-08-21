@@ -15,11 +15,11 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from fastapi.testclient import TestClient
 
-from app import auth
-from app.database import connect
-from app.main import app
-from app.routes import auth_api
-from app.stores import sso_codes
+from hub.app import auth
+from hub.app.database import connect
+from hub.app.main import app
+from hub.app.routes import auth_api
+from hub.app.stores import sso_codes
 
 REDIRECT = "http://co.test/auth/callback"
 

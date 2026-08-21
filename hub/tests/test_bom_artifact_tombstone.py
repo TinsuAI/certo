@@ -8,10 +8,10 @@ import pytest
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
-from app.auth.session import create_session, hash_password, SESSION_COOKIE
-from app.database import connect
-from app.main import app
-from app.stores.bom import create_raw_artifact, create_artifact
+from hub.app.auth.session import create_session, hash_password, SESSION_COOKIE
+from hub.app.database import connect
+from hub.app.main import app
+from hub.app.stores.bom import create_raw_artifact, create_artifact
 
 
 CLIENT = "tombstone_test"

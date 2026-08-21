@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.database import connect
-from scripts.materialize_shallow_and_full_flat import SHALLOW_WALK_SQL, derive
+from hub.app.database import connect
+from hub.scripts.materialize_shallow_and_full_flat import SHALLOW_WALK_SQL, derive
 
 
 CLIENT = "mat_btp_test"

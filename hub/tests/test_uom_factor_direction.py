@@ -11,9 +11,9 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from app.stores import client_uom_overrides as factors
-from app.stores.uom import make_uom_lookup
-from scripts.materialize_shallow_and_full_flat import _group_offenders
+from hub.app.stores import client_uom_overrides as factors
+from hub.app.stores.uom import make_uom_lookup
+from hub.scripts.materialize_shallow_and_full_flat import _group_offenders
 
 CLIENT = "growatt-vn"
 

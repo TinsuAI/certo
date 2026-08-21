@@ -5,8 +5,8 @@ import secrets
 
 import pytest
 
-from app.database import connect
-from app.parsers import bom_adapters
+from hub.app.database import connect
+from hub.app.parsers import bom_adapters
 
 
 def test_registry_info_describes_all_adapters():
@@ -34,8 +34,8 @@ def test_registry_info_describes_all_adapters():
 
 def _admin_client():
     from fastapi.testclient import TestClient
-    from app.auth.session import create_session, hash_password, SESSION_COOKIE
-    from app.main import app
+    from hub.app.auth.session import create_session, hash_password, SESSION_COOKIE
+    from hub.app.main import app
     uid = "u_registry_admin"
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
@@ -64,7 +64,7 @@ def test_admin_registry_view_lists_adapters():
 
 
 def test_admin_registry_view_shows_binding_matrix():
-    from app.stores import adapter_binding as ab
+    from hub.app.stores import adapter_binding as ab
     c, uid = _admin_client()
     cid = "regbind-" + secrets.token_hex(4)
     with connect() as conn, conn.cursor() as cur:

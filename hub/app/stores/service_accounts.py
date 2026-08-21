@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from app.database import connect
+from hub.app.database import connect
 
 
 def create_account(

@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app import auth
-from app.database import connect
+from hub.app import auth
+from hub.app.database import connect
 
 
 # ── Tool definitions (OpenAI function-calling shape) ────────────────────

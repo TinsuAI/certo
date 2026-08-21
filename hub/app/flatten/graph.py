@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from app.flatten.types import BomKey, ParsedBom
+from hub.app.flatten.types import BomKey, ParsedBom
 
 
 def graph_key_of(row: dict, *, product_code: str | None = None) -> BomKey:

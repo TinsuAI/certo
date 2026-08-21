@@ -11,10 +11,10 @@ import jwt as pyjwt
 import pytest
 from fastapi.testclient import TestClient
 
-from app import auth, jwt_issuer, settings_store
-from app.database import connect
-from app.main import app
-from app.stores import bom as bom_store
+from hub.app import auth, jwt_issuer, settings_store
+from hub.app.database import connect
+from hub.app.main import app
+from hub.app.stores import bom as bom_store
 
 
 CLIENT = "flat_test_api"

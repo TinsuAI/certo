@@ -31,7 +31,7 @@ from typing import Iterable
 from psycopg import sql
 from psycopg.types.json import Jsonb
 
-from app.database import connect
+from hub.app.database import connect
 
 
 FORMAT_VERSION = 1
@@ -565,7 +565,7 @@ def import_client_bundle(*, bundle_path: Path | str) -> dict:
     # bundle deliberately doesn't ship them; rebuild now (from the just-
     # imported bcct_rows × client_parser_rules) instead of waiting for
     # the next app boot's backfill (#33).
-    from app.stores.bcct_nb_codes import rebuild_after_change
+    from hub.app.stores.bcct_nb_codes import rebuild_after_change
     rebuild_after_change(client_id)
 
     return {

@@ -25,7 +25,7 @@ BASE = "http://127.0.0.1:8754"
 EMAIL = "admin@data-hub.local"
 PASSWORD = "admin123"
 
-OUT = Path("data/screenshots/real_uploads")
+OUT = Path(__file__).resolve().parent.parent / "data" / "screenshots" / "real_uploads"
 OUT.mkdir(parents=True, exist_ok=True)
 
 REAL_DIR = Path(os.environ.get("DATA_HUB_REAL_DATA_DIR", "/tmp/dh_real_data"))

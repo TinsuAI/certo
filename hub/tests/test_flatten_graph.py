@@ -10,8 +10,8 @@ from decimal import Decimal
 
 import pytest
 
-from app.flatten import flatten
-from app.flatten.types import (
+from hub.app.flatten import flatten
+from hub.app.flatten.types import (
     CatalogEntry, ConversionMatch, FlattenContext, ParsedBom,
 )
 

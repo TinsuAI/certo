@@ -17,9 +17,9 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app.auth.session import create_session, hash_password, SESSION_COOKIE
-from app.database import connect
-from app.main import app
+from hub.app.auth.session import create_session, hash_password, SESSION_COOKIE
+from hub.app.database import connect
+from hub.app.main import app
 
 
 CLIENT = "track_d_refresh_test"
@@ -206,7 +206,7 @@ def test_refresh_attributes_user_via_store_helper():
     """When refresh_artifact is called with triggered_by_user_id, any
     newly minted derived artifact must have actor='agency_staff' (not
     the lying 'erp_pipeline') and context.triggered_by_user_id set."""
-    from app.stores.bom_staleness import _rederive_shape
+    from hub.app.stores.bom_staleness import _rederive_shape
     # Direct unit test on the helper because end-to-end re-derive
     # needs raw_graph + bom_edges fixtures (heavy). We assert the
     # context payload + actor get threaded correctly when the helper

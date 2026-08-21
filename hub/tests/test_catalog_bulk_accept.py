@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import pytest
 
-from app.database import connect
-from app.routes.catalog_discovery import _filter_pending
-from app.stores.catalog_discovery import (
+from hub.app.database import connect
+from hub.app.routes.catalog_discovery import _filter_pending
+from hub.app.stores.catalog_discovery import (
     accept_code,
     bulk_accept_codes,
     reject_code,

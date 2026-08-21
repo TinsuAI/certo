@@ -28,13 +28,13 @@ from pathlib import Path
 _REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO))
 
-from app.database import connect  # noqa: E402
-from app.parsers.bcct import parse_bcct_workbook  # noqa: E402
-from app.routes.bcct import (  # noqa: E402
+from hub.app.database import connect  # noqa: E402
+from hub.app.parsers.bcct import parse_bcct_workbook  # noqa: E402
+from hub.app.routes.bcct import (  # noqa: E402
     _apply_bcct_rows,
     _classify_rows,
 )
-from app.routes.clients import get_client  # noqa: E402
+from hub.app.routes.clients import get_client  # noqa: E402
 
 
 OPS_ACTOR_ID = "ops:script"

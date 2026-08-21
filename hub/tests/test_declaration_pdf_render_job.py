@@ -14,10 +14,10 @@ import secrets
 import pytest
 from fastapi.testclient import TestClient
 
-from app import jobs
-from app.database import connect
-from app.main import app
-from app.routes import jobs as jobs_route
+from hub.app import jobs
+from hub.app.database import connect
+from hub.app.main import app
+from hub.app.routes import jobs as jobs_route
 
 
 def _client() -> TestClient:

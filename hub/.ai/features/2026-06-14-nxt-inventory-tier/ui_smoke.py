@@ -23,17 +23,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from playwright.async_api import async_playwright  # noqa: E402
 
-from app.parsers.nxt_adapters.system_template import (  # noqa: E402
+from hub.app.parsers.nxt_adapters.system_template import (  # noqa: E402
     render_template_xlsx as render_nxt,
 )
-from app.parsers.inventory_adapters.system_template import (  # noqa: E402
+from hub.app.parsers.inventory_adapters.system_template import (  # noqa: E402
     render_template_xlsx as render_inv,
 )
 from datetime import date  # noqa: E402
 
-from app.database import connect  # noqa: E402
-from app.stores import inventory_snapshots as inv_store  # noqa: E402
-from app.stores import nxt as nxt_store  # noqa: E402
+from hub.app.database import connect  # noqa: E402
+from hub.app.stores import inventory_snapshots as inv_store  # noqa: E402
+from hub.app.stores import nxt as nxt_store  # noqa: E402
 
 # Self-contained cross-link demo: a throwaway client where we control both the
 # catalog and the NXT/inventory codes, so the mã → Catalog links resolve (real

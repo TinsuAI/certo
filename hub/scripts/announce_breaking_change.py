@@ -68,7 +68,7 @@ def main() -> int:
 
     # Lazy-import so dry-run can work without a DB connection.
     try:
-        from app.notifications import notify_api_contract_changed
+        from hub.app.notifications import notify_api_contract_changed
     except Exception as exc:
         print(f"Failed to import notifier: {exc}", file=sys.stderr)
         return 2

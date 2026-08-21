@@ -32,9 +32,9 @@ from pathlib import Path
 
 import openpyxl
 
-from app.flatten import flatten as flatten_engine
-from app.flatten.types import CatalogEntry, FlattenContext, ParsedBom
-from app.parsers import bom_adapters
+from hub.app.flatten import flatten as flatten_engine
+from hub.app.flatten.types import CatalogEntry, FlattenContext, ParsedBom
+from hub.app.parsers import bom_adapters
 
 
 GROWATT_SRC = Path(
@@ -61,8 +61,8 @@ JOHNSON_REF_ROLLUP = Path(
         "bom-aggregate/johnson/from-bom-20260423/leaf-component-rollup.csv"
     )
 )
-OUT_JSON = Path("data/screenshots/_compare_report.json")
-OUT_MD = Path("data/screenshots/_compare_report.md")
+OUT_JSON = Path(__file__).resolve().parent.parent / "data" / "screenshots" / "_compare_report.json"
+OUT_MD = Path(__file__).resolve().parent.parent / "data" / "screenshots" / "_compare_report.md"
 
 
 def _graph_pure_ctx(parsed: ParsedBom, client_id: str = "compare") -> FlattenContext:

@@ -12,7 +12,7 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, InvalidHash
 from fastapi import HTTPException, Request, Response, status
 
-from app.database import connect
+from hub.app.database import connect
 
 SESSION_COOKIE = "data_hub_session"
 SESSION_TTL_HOURS = 24 * 14  # 2 weeks

@@ -19,7 +19,7 @@ from __future__ import annotations
 import threading
 from decimal import Decimal, InvalidOperation
 
-from app.database import connect
+from hub.app.database import connect
 
 
 def format_factor(value) -> str:

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from app import embedding
+from hub.app import embedding
 
 
 def test_get_global_config_uses_defaults_when_unset():

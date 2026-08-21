@@ -26,8 +26,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app import settings_store
-from app.main import app
+from hub.app import settings_store
+from hub.app.main import app
 
 HUB_PREFIX = "/v1/hub"
 
