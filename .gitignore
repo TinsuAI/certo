@@ -18,7 +18,7 @@ yarn-error.log*
 .env*
 
 # local source material
-/data/
+/data
 /temp/
 /config/cost-allocation/
 /config/bom-default/

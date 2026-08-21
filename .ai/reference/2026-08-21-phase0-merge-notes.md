@@ -151,14 +151,28 @@ CO on `:8001` talking HTTP to the Data Hub half on `:8754`, both against `co_mer
 These are the numbers phase 1 has to beat. They are unchanged from the two-repo setup by
 design — nothing about the request path has moved yet.
 
-## One live-data incident, and the lesson
+## A near-miss on live data, and the two things that actually protected it
 
 While diagnosing the Starlette 400, a reproduction script called `save_co_form_config()`
-directly and wrote a test market preset ("Bharat") into
-`data/local/runtime/co-form-index.json` — a **live shared file**, since `data/` is a symlink to
-the live app data directory. It was reverted immediately (`market_presets` 9 → 8, no "Bharat"
-remaining), but the correct move was to point `CO_FORM_CONFIG_PATH` at a temp file first.
-Diagnostic scripts touching a store must set that store's root env var before running.
+directly, which wrote a test market preset ("Bharat") into
+`data/local/runtime/co-form-index.json`.
+
+**It did not reach live data.** `data/` in `barry-CO-main` is a symlink to the live app data
+directory, but the symlink is gitignored, so `git clone` never created it here — the write
+landed in a 3.7 MB stub directory this repo created for itself. Confirmed afterwards: the live
+`co-form-index.json` still carries its original mtime of **2026-05-03**, and nothing under the
+live runtime store was modified on 2026-08-21. The stub was removed and `data` is now the same
+symlink the old repo uses.
+
+Two real defects came out of it:
+
+1. **The committed ignore pattern never covered the symlink.** `.gitignore` had `/data/` — a
+   trailing slash matches only directories, never a symlink named `data`. That is why
+   `barry-CO-main` needed a local `.git/info/exclude` entry, which does not clone. Fixed here by
+   committing `/data` without the slash, so the next clone cannot repeat this.
+2. **A diagnostic script that touches a store must point that store's root env var at a temp
+   path first** (`CO_FORM_CONFIG_PATH` in this case). Getting away with it because a symlink
+   happened to be missing is luck, not a safeguard.
 
 ## Not done in phase 0 (by design)
 

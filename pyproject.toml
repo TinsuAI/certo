@@ -1,5 +1,5 @@
 [project]
-name = "co"
+name = "certo"
 version = "0.18.0"
 description = "C/O preparation workspace — agency operators (CO + Data Hub, single app)"
 requires-python = ">=3.12"
